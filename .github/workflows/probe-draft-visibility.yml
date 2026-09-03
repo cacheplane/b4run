@@ -1,6 +1,8 @@
 name: Probe draft visibility
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - blove/probe-draft-visibility
 permissions: {}
 jobs:
   read:
