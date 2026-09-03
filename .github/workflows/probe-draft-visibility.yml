@@ -1,0 +1,37 @@
+name: Probe draft visibility
+on:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  read:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Probe with contents read
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for id in 379991871 379982100 379986168; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GITHUB_TOKEN" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/$id")
+            echo "PROBE get-release $id -> $code"
+          done
+          listed=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100")
+          echo "PROBE list total=$(jq 'length' <<<"$listed") drafts=$(jq '[.[]|select(.draft==true)]|length' <<<"$listed")"
+  write:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Probe with contents write
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for id in 379991871 379982100 379986168; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GITHUB_TOKEN" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/$id")
+            echo "PROBE get-release $id -> $code"
+          done
+          listed=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100")
+          echo "PROBE list total=$(jq 'length' <<<"$listed") drafts=$(jq '[.[]|select(.draft==true)]|length' <<<"$listed")"
