@@ -595,3 +595,27 @@ test("independent auditors cannot acquire writer authority or mutable eligibilit
     assert.ok(!f.calls.some((call) => call.name === "observeLegacyFence"))
   }
 })
+
+test("authority gives only the composite fence 30 seconds while invocation retains 15 seconds", async () => {
+  const f = await fixture()
+  f.dependencies.readInvocation = async (_args, { timeoutMs }) => {
+    assert.equal(timeoutMs, 15000)
+    return f.state.context
+  }
+  f.dependencies.observeLegacyFence = async (_args, { timeoutMs }) => {
+    assert.equal(timeoutMs, 30000)
+    f.advance(20000)
+    return f.state.fence
+  }
+  const facts = await authority.captureRecoveryAuthority(f.request, f.dependencies)
+  assert.equal(facts.executor.controllerSha, sha)
+})
+test("authority rejects a composite callback that settles at the 30 second deadline", async () => {
+  const f = await fixture()
+  f.dependencies.observeLegacyFence = async () => {
+    f.advance(30000)
+    // Even an incorrectly renewed nested proof cannot escape the outer deadline.
+    return { ...f.state.fence, observedAt: 31000, expiresAt: 61000 }
+  }
+  await assert.rejects(authority.captureRecoveryAuthority(f.request, f.dependencies), /unavailable/)
+})

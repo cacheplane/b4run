@@ -158,7 +158,12 @@ async function capture(request, dependencies, role = "owner") {
   const phaseDeadline = start + RECOVERY_RETRY.phaseDeadlineMs
   const callbackRead = async (name, args) => {
     const result = await runRecoveryRead(
-      { phaseDeadline },
+      {
+        phaseDeadline,
+        ...(name === "observeLegacyFence"
+          ? { readTimeoutMs: RECOVERY_RETRY.fenceFreshnessMs }
+          : {}),
+      },
       async ({ signal, timeoutMs }) => ({
         status: "PRESENT",
         value: await deps[name](args, { signal, timeoutMs }),

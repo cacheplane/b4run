@@ -606,3 +606,89 @@ test("dormant image inventory includes the actual sandbox image and recovery col
   ])
   assert.ok(policy.verifierClosure.inputs.includes("scripts/release/recovery/smoke.mjs"))
 })
+
+test("composite read timeout permits a settled read beyond 15 seconds within the 30 second cap", async () => {
+  const c = clock()
+  const result = await policyModule.runRecoveryRead(
+    { phaseDeadline: 100000, readTimeoutMs: 30000 },
+    async ({ timeoutMs }) => {
+      assert.equal(timeoutMs, 30000)
+      c.advance(20000)
+      return { status: "PRESENT", value: "composite proof" }
+    },
+    c,
+  )
+  assert.equal(result.status, "PRESENT")
+})
+for (const readTimeoutMs of [0, -1, 1.5, 30001, "30000", null])
+  test(`read timeout override rejects invalid value ${JSON.stringify(readTimeoutMs)}`, async () => {
+    let calls = 0
+    await assert.rejects(
+      policyModule.runRecoveryRead(
+        { phaseDeadline: 100000, readTimeoutMs },
+        async () => {
+          calls++
+          return { status: "PRESENT" }
+        },
+        clock(),
+      ),
+      /read options/,
+    )
+    assert.equal(calls, 0)
+  })
+for (const readTimeoutMs of [15000, 30000])
+  test(`settled callback at ${readTimeoutMs} deadline cannot escape a delayed timer`, async () => {
+    const c = clock()
+    let calls = 0
+    const result = await policyModule.runRecoveryRead(
+      { phaseDeadline: 100000, ...(readTimeoutMs === 30000 ? { readTimeoutMs } : {}) },
+      async () => {
+        calls++
+        c.advance(readTimeoutMs)
+        return { status: "PRESENT" }
+      },
+      c,
+    )
+    assert.equal(result.code, "RECOVERY_DEADLINE")
+    assert.equal(calls, 1)
+  })
+test("composite timeout remains capped by phase deadline and rejects unsettled late authority", async () => {
+  const c = clock()
+  let timer,
+    delay,
+    finish,
+    aborted = false,
+    calls = 0
+  const pending = policyModule.runRecoveryRead(
+    { phaseDeadline: 20000, readTimeoutMs: 30000 },
+    ({ signal, timeoutMs }) => {
+      calls++
+      assert.equal(timeoutMs, 20000)
+      signal.addEventListener("abort", () => {
+        aborted = true
+      })
+      return new Promise((resolve) => {
+        finish = resolve
+      })
+    },
+    {
+      ...c,
+      setTimer: (callback, ms) => {
+        timer = callback
+        delay = ms
+        return 1
+      },
+      clearTimer: () => {},
+    },
+  )
+  await Promise.resolve()
+  assert.equal(delay, 20000)
+  c.advance(delay)
+  timer()
+  const result = await pending
+  assert.equal(result.code, "READ_TIMEOUT_UNSETTLED")
+  assert.equal(aborted, true)
+  assert.equal(calls, 1)
+  finish({ status: "PRESENT", value: "late proof" })
+  assert.equal(result.code, "READ_TIMEOUT_UNSETTLED")
+})

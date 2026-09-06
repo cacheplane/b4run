@@ -132,6 +132,7 @@ export function createGitHubReader({
         extract: objectArray("workflow_runs"),
         compare: compareIdThenName,
         strictTotal: true,
+        pageConcurrency: 4,
       }).then((result) => {
         if (result.status !== "PRESENT") return result
         // Keep all records and fence authority values after full raw validation.
@@ -444,7 +445,15 @@ async function readObject(
 
 async function readPaginated(
   context,
-  { initialUrl, operation, extract, compare, cursorPagination = false, strictTotal = false },
+  {
+    initialUrl,
+    operation,
+    extract,
+    compare,
+    cursorPagination = false,
+    strictTotal = false,
+    pageConcurrency = 1,
+  },
 ) {
   const records = []
   let total = null
@@ -452,18 +461,9 @@ async function readPaginated(
   const budget = createOperationBudget(context)
   let url = initialUrl
   const seenUrls = new Set([new URL(initialUrl).href])
-  for (let page = 0; page < context.maxPages; page += 1) {
-    if (budget.deadline <= budget.now()) {
-      return failure("AMBIGUOUS", operation, null, "TIMEOUT")
-    }
-    if (budget.remainingBytes < 1) {
-      return failure("ERROR", operation, null, "OPERATION_TOO_LARGE")
-    }
-    const requestBudget = remainingRequestBudget(budget)
-    if (requestBudget === null) {
-      return failure("AMBIGUOUS", operation, null, "TIMEOUT")
-    }
-    const result = await readJson(context, {
+  let prefetched = []
+  const loadPage = (page, url, requestBudget) =>
+    readJson(context, {
       url,
       operation,
       requestBudget,
@@ -492,6 +492,20 @@ async function readPaginated(
           }
         : {}),
     })
+  for (let page = 0; page < context.maxPages; page += 1) {
+    if (budget.deadline <= budget.now()) {
+      return failure("AMBIGUOUS", operation, null, "TIMEOUT")
+    }
+    if (budget.remainingBytes < 1) {
+      return failure("ERROR", operation, null, "OPERATION_TOO_LARGE")
+    }
+    const requestBudget = remainingRequestBudget(budget)
+    if (requestBudget === null) {
+      return failure("AMBIGUOUS", operation, null, "TIMEOUT")
+    }
+    const queued = prefetched.shift()
+    if (queued?.status === "rejected") throw queued.reason
+    const result = queued ? queued.value : await loadPage(page, url, requestBudget)
     if (result.code === "RESPONSE_TOO_LARGE") {
       return failure("ERROR", operation, result.httpStatus, "OPERATION_TOO_LARGE")
     }
@@ -555,6 +569,8 @@ async function readPaginated(
     )
       return failure("ERROR", operation, result.httpStatus, "INCOMPLETE_INVENTORY")
     if (result.nextUrl === null) {
+      if (prefetched.length > 0)
+        return failure("ERROR", operation, result.httpStatus, "INCOMPLETE_INVENTORY")
       if (strictTotal && records.length !== total)
         return failure("ERROR", operation, result.httpStatus, "INCOMPLETE_INVENTORY")
       records.sort(compare)
@@ -584,6 +600,33 @@ async function readPaginated(
     }
     seenUrls.add(nextUrl)
     url = nextUrl
+    if (pageConcurrency > 1 && strictTotal && !cursorPagination && prefetched.length === 0) {
+      // Each concurrent request reserves a disjoint share of the remaining
+      // operation bytes, with at least 16MiB per page. Small budgets stay serial.
+      const count = Math.min(
+        pageConcurrency,
+        Math.floor(budget.remainingBytes / (16 * 1024 * 1024)),
+        Math.ceil(total / 100) - page - 1,
+        context.maxPages - page - 1,
+      )
+      if (count > 1) {
+        const batchBudget = remainingRequestBudget(budget)
+        if (batchBudget === null) return failure("AMBIGUOUS", operation, null, "TIMEOUT")
+        const share = Math.floor(budget.remainingBytes / count)
+        // Only derive numeric pages from the already validated next URL. Join
+        // every started request before consuming any result, including failures.
+        prefetched = await Promise.allSettled(
+          Array.from({ length: count }, (_, offset) => {
+            const pageUrl = new URL(nextUrl)
+            pageUrl.searchParams.set("page", String(page + 2 + offset))
+            return loadPage(page + 1 + offset, pageUrl.href, {
+              ...batchBudget,
+              maxResponseBytes: share,
+            })
+          }),
+        )
+      }
+    }
   }
   return failure("ERROR", operation, null, "PAGE_LIMIT_EXCEEDED")
 }
