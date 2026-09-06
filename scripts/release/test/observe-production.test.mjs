@@ -2964,6 +2964,110 @@ test("observe CLI resolves the immutable candidate, runs the dry one-transition 
   }
 })
 
+test("observe CLI resolves checkout HEAD once and pins both candidate calls despite HEAD movement", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-head-"))
+  try {
+    const eventPath = path.join(directory, "event.json")
+    const reportPath = path.join(directory, "report.json")
+    const outputPath = path.join(directory, "github-output")
+    await writeFile(
+      eventPath,
+      JSON.stringify({ inputs: { version: VERSION, commitSha: COMMIT_SHA } }),
+    )
+    await writeFile(outputPath, "")
+    const dependencies = cliCandidateDependencies(directory)
+    const checkoutSha = "e".repeat(40)
+    let head = checkoutSha
+    const lookups = [],
+      refs = []
+    const history = dependencies.git.listFirstParentHistory
+    dependencies.git.listFirstParentHistory = async (args) => {
+      if (args.ref !== "HEAD") return history(args)
+      lookups.push(args)
+      return [head]
+    }
+    dependencies.importModule = async (specifier) => {
+      const module = await import(specifier)
+      if (!specifier.endsWith("/observe.mjs")) return module
+      return {
+        ...module,
+        resolveProductionCandidate: async (args) => {
+          refs.push(args.terminalRecordRef)
+          head = "f".repeat(40)
+          return module.resolveProductionCandidate(args)
+        },
+        observeProductionCandidate: async (args) => {
+          refs.push(args.terminalRecordRef)
+          return module.observeProductionCandidate(args)
+        },
+      }
+    }
+    const result = await runReleaseCli(
+      ["observe", "--event", eventPath, "--report", reportPath, "--github-output", outputPath],
+      dependencies,
+    )
+    assert.ok(result.candidate, JSON.stringify(result))
+    assert.equal(result.candidate.commitSha, COMMIT_SHA)
+    assert.notEqual(checkoutSha, COMMIT_SHA)
+    assert.deepEqual(lookups, [{ ref: "HEAD", maxCount: 1 }])
+    assert.deepEqual(refs, [checkoutSha, checkoutSha])
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+for (const head of [
+  null,
+  [],
+  [COMMIT_SHA, PARENT_SHA],
+  ["HEAD"],
+  ["a".repeat(39)],
+  ["A".repeat(40)],
+  [null],
+])
+  test(`observe CLI rejects non-singleton immutable checkout HEAD ${JSON.stringify(head)}`, async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-invalid-head-"))
+    try {
+      const eventPath = path.join(directory, "event.json")
+      const reportPath = path.join(directory, "report.json")
+      const outputPath = path.join(directory, "github-output")
+      await writeFile(
+        eventPath,
+        JSON.stringify({ inputs: { version: VERSION, commitSha: COMMIT_SHA } }),
+      )
+      await writeFile(outputPath, "")
+      const dependencies = cliCandidateDependencies(directory)
+      dependencies.git.listFirstParentHistory = async () => head
+      let candidateCalls = 0
+      dependencies.importModule = async (specifier) => {
+        const module = await import(specifier)
+        if (!specifier.endsWith("/observe.mjs")) return module
+        return {
+          ...module,
+          resolveProductionCandidate: async (...args) => {
+            candidateCalls++
+            return module.resolveProductionCandidate(...args)
+          },
+          observeProductionCandidate: async (...args) => {
+            candidateCalls++
+            return module.observeProductionCandidate(...args)
+          },
+        }
+      }
+      await assert.rejects(
+        runReleaseCli(
+          ["observe", "--event", eventPath, "--report", reportPath, "--github-output", outputPath],
+          dependencies,
+        ),
+        /checkout HEAD/,
+      )
+      assert.equal(candidateCalls, 0)
+      assert.equal(await readFile(outputPath, "utf8"), "")
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
 test("observe CLI identifies its exact current tag attempt before downstream jobs materialize", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-current-run-"))
   try {
