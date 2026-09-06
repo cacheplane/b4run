@@ -168,3 +168,37 @@ test("auditor has exact inputs, independent concurrency, GET-only command and on
   assert.match(upload.with.path, /evidence_directory.*\/\*\.json$/)
   assert.equal(upload.with.overwrite, false)
 })
+
+test("blocked workflow planning retains the observer failure for sanitized admission diagnostics", async () => {
+  const { observeRecoveryCandidate } = await import("../recovery/observe.mjs")
+  const { recoveryRemote } = await import("./support/recovery-observe-fixture.mjs")
+  const { recoveryFailureDetail } = await import("../recovery/diagnostics.mjs")
+  const r = await recoveryRemote()
+  r.args.github.getRelease = async () => ({ status: "ERROR", httpStatus: 403 })
+  const observed = await observeRecoveryCandidate(r.args)
+  assert.equal(observed.outcome, "blocked")
+  assert.equal(observed.facts, null)
+  assert.ok(observed.errors.length > 0)
+  assert.throws(
+    () => graph.planRecoveryWorkflow(observed),
+    (error) => {
+      assert.ok(recoveryFailureDetail(error).includes(observed.errors[0]))
+      return true
+    },
+  )
+  const tainted = {
+    ...observed,
+    errors: ["registry rejected private-value Bearer private-value https://private.invalid/path"],
+  }
+  assert.throws(
+    () => graph.planRecoveryWorkflow(tainted),
+    (error) => {
+      const detail = recoveryFailureDetail(error, { GITHUB_TOKEN: "private-value" })
+      assert.match(detail, /registry rejected/)
+      assert.ok(!detail.includes("private-value"))
+      assert.ok(!detail.includes("private.invalid"))
+      assert.ok(detail.length <= 512)
+      return true
+    },
+  )
+})

@@ -179,7 +179,7 @@
       "sha256": "bfe8d23eb87cb31afc474f77fa4742784508e20d985b44717479f22ad918c517"
     },
     "scripts/release/recovery/policy.json": {
-      "sha256": "4400266484dd8a19ac609fd33418fc3cce250b2ffb701d1c50f99cce39328f18"
+      "sha256": "7e533784635034cdd22c4a7dee38c47399fa94ea06689b70be528bf43b346314"
     },
     "scripts/release/recovery/policy.mjs": {
       "sha256": "a5d7f77ad95507f8863bef08f165fffbd1d0d5346df4fc86a4404e26f5267b99"
@@ -203,10 +203,10 @@
       "sha256": "5883c9a0b740e05843aadfae52c5bf002b89463ba947e377cc664fe2d92e1694"
     },
     "scripts/release/recovery/workflow.mjs": {
-      "sha256": "07500c88ba45814f9a2d31dab4e2b152671522f9c2a3f4466ccf1ae8eb4be7c6"
+      "sha256": "4eada49314be67db405d7ce7681b062b50218beae1387183f2cdf330ec4aabfc"
     },
     "scripts/release/recovery/writer.mjs": {
-      "sha256": "d8d4690b92e5e9225204fefd950cf18ad4b3009d450494c658ec05c62c937cc6"
+      "sha256": "93e1e2a64239e79907a3e730338d7f1f191ddcaff1e19c0dacb3d38d0f301715"
     },
     "scripts/release/release-record.mjs": {
       "sha256": "f841a2b615cef19cf913a4f89665c10c428446f97314de6c27c1785e47a51170"
