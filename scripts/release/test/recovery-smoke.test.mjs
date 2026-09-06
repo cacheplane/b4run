@@ -562,7 +562,10 @@ for (const lane of ["metadata", "published-harness", "scaffold", "storage"]) {
               if (command === "docker" && args.includes("inspect"))
                 throw Object.assign(new Error("missing"), {
                   exitCode: 1,
-                  stderr: `Error: No such ${args[0] === "volume" ? "volume" : "object"}: ${args.at(-1)}`,
+                  stderr:
+                    args[0] === "volume"
+                      ? `Error response from daemon: get ${args.at(-1)}: no such volume`
+                      : `Error: No such object: ${args.at(-1)}`,
                 })
               return { stdout: "", stderr: "" }
             },

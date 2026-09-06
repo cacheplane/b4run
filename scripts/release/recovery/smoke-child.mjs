@@ -1,6 +1,7 @@
 // This process receives proof data and an allowlisted host environment, never API authority.
 import { readBoundedRegularFile } from "../../lib/published-artifacts.mjs"
 import { createStrictSmokeProcessRunner } from "../smoke-process-runner.mjs"
+import { recoverySmokeFailureDetail } from "./diagnostics.mjs"
 import { boundedRecoveryPath, canonicalRequestBytes } from "./requests.mjs"
 import { runRecoverySmoke } from "./smoke.mjs"
 
@@ -46,7 +47,9 @@ try {
     process.off("SIGTERM", stop)
     process.off("SIGINT", stop)
   }
-} catch {
-  process.stderr.write("Recovery smoke child failed; retained evidence is diagnostic only\n")
+} catch (error) {
+  process.stderr.write(
+    `Recovery smoke child failed: ${recoverySmokeFailureDetail(error, process.env)}\n`,
+  )
   process.exitCode = 1
 }

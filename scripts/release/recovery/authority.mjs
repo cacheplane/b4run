@@ -143,6 +143,229 @@ function validateCandidate(candidate) {
     operations: ["adopt"],
   })
 }
+// This record is data outside the verifier closure, admitted only by exact main CI.
+// Its path and the only permitted contract hash changes are fixed by reviewed code.
+export const RECOVERY_VERIFIER_REPAIR_PATH =
+  "scripts/release/recovery-verifier-repairs/v0.8.24.json"
+const REPAIR_CONTRACT_INPUTS = new Set([
+  "scripts/release/smoke-containment.mjs",
+  "scripts/release/smoke/runtime-targets.mjs",
+])
+const repairHash = (raw) => createHash("sha256").update(raw).digest("hex")
+function canonicalRepairDocument(raw) {
+  requireThat(
+    typeof raw === "string" && raw.isWellFormed() && Buffer.byteLength(raw) <= 128 * 1024,
+    "bounded verifier repair document required",
+  )
+  const value = snapshotRecoveryData(JSON.parse(raw), 128 * 1024)
+  requireThat(
+    canonicalPolicyBytes(value).equals(Buffer.from(raw)),
+    "canonical verifier repair document required",
+  )
+  return value
+}
+export async function validateRecoveryVerifier(request, git) {
+  const { candidate, controllerSha, policy, rawPolicy } = request
+  const reads = recoveryMethods(git, ["showFile", "isAncestor"])
+  requireThat(/^[a-f0-9]{40}$/u.test(controllerSha), "immutable verifier controller required")
+  // Memoization is local to this validation, never shared across invocations.
+  const sources = new Map()
+  const show = async ({ ref, path }) => {
+    const key = `${ref}:${path}`
+    if (!sources.has(key)) sources.set(key, Promise.resolve(reads.showFile({ ref, path })))
+    return sources.get(key)
+  }
+  const actualClosureSha256 = await hashVerifierClosure(
+    { controllerSha, inputs: policy.verifierClosure.inputs },
+    show,
+  )
+  if (actualClosureSha256 === policy.verifierClosure.sha256)
+    return {
+      mode: "original",
+      actualClosureSha256,
+      approvedContractDigests: policy.fence.contracts,
+    }
+  const record = canonicalRepairDocument(
+    await show({ ref: controllerSha, path: RECOVERY_VERIFIER_REPAIR_PATH }),
+  )
+  exact(
+    record,
+    "schemaVersion kind candidate policySha256 baselineControllerSha originalClosureSha256 replacementClosureSha256 inputs originalContractSha256 replacementContractSha256 adoption",
+  )
+  requireThat(
+    record.schemaVersion === 1 &&
+      record.kind === "recovery-verifier-repair" &&
+      candidate.version === "0.8.24",
+    "supported candidate verifier repair required",
+  )
+  validateCandidate(record.candidate)
+  same(record.candidate, candidate, "verifier repair candidate differs")
+  for (const key of [
+    "policySha256",
+    "originalClosureSha256",
+    "replacementClosureSha256",
+    "originalContractSha256",
+    "replacementContractSha256",
+  ])
+    requireThat(
+      typeof record[key] === "string" && /^[a-f0-9]{64}$/u.test(record[key]),
+      "verifier repair digest required",
+    )
+  requireThat(
+    typeof record.baselineControllerSha === "string" &&
+      /^[a-f0-9]{40}$/u.test(record.baselineControllerSha) &&
+      record.baselineControllerSha !== controllerSha,
+    "forward verifier repair baseline required",
+  )
+  requireThat(
+    record.policySha256 === repairHash(canonicalPolicyBytes(policy)) &&
+      record.originalClosureSha256 === policy.verifierClosure.sha256 &&
+      record.replacementClosureSha256 === actualClosureSha256,
+    "verifier repair policy/closure differs",
+  )
+  const baselineRaw = await show({
+    ref: record.baselineControllerSha,
+    path: RECOVERY_POLICY_PATH,
+  })
+  requireThat(
+    typeof rawPolicy === "string" && rawPolicy === baselineRaw,
+    "verifier repair must preserve accepted policy bytes",
+  )
+  const baselinePolicy = parseRecoveryPolicy(baselineRaw)
+  same(baselinePolicy, policy, "verifier repair baseline policy differs")
+  requireThat(baselinePolicy.status === "ADMITTED", "verifier repair baseline policy not admitted")
+  requireThat(
+    (await reads.isAncestor({
+      ancestor: record.baselineControllerSha,
+      descendant: controllerSha,
+    })) === true,
+    "verifier repair baseline is not an ancestor",
+  )
+  const baselineClosure = await hashVerifierClosure(
+    {
+      controllerSha: record.baselineControllerSha,
+      inputs: baselinePolicy.verifierClosure.inputs,
+    },
+    show,
+  )
+  requireThat(
+    baselineClosure === record.originalClosureSha256,
+    "verifier repair baseline closure differs",
+  )
+  requireThat(Array.isArray(record.inputs), "complete verifier repair source manifest required")
+  same(
+    record.inputs.map((input) => input.path),
+    policy.verifierClosure.inputs,
+    "verifier repair closure inputs changed",
+  )
+  for (const entry of record.inputs) {
+    exact(entry, "path oldSha256 newSha256")
+    requireThat(
+      /^[a-f0-9]{64}$/u.test(entry.oldSha256) && /^[a-f0-9]{64}$/u.test(entry.newSha256),
+      "verifier repair source hashes required",
+    )
+    requireThat(
+      entry.oldSha256 ===
+        repairHash(await show({ ref: record.baselineControllerSha, path: entry.path })) &&
+        entry.newSha256 === repairHash(await show({ ref: controllerSha, path: entry.path })),
+      "verifier repair source hash differs",
+    )
+  }
+  // Validate the descriptor through the existing exact marker schema as well as
+  // binding its immutable receipt name to the baseline executor.
+  parseRecovery({
+    schemaVersion: 2,
+    kind: "recovery-marker",
+    candidate,
+    policySha256: record.policySha256,
+    revision: 1,
+    phase: "RECOVERY_ADOPTED",
+    adoption: record.adoption,
+    verificationSet: null,
+    audit: null,
+    finalization: null,
+  })
+  requireThat(
+    record.adoption.assetName.startsWith(`recovery-v2-adoption-${record.baselineControllerSha}-`),
+    "verifier repair adoption baseline differs",
+  )
+  requireThat(
+    policy.fence.contracts.includes(record.originalContractSha256) &&
+      record.originalContractSha256 !== record.replacementContractSha256,
+    "verifier repair original contract not approved",
+  )
+  const loadContract = async (ref, digest) => {
+    const raw = await show({
+      ref,
+      path: `scripts/release/recovery-fence-contracts/${digest}.json`,
+    })
+    requireThat(repairHash(raw) === digest, "verifier repair contract digest differs")
+    const contract = canonicalRepairDocument(raw)
+    requireThat(
+      contract.repository === candidate.repository &&
+        contract.repositoryId === candidate.repositoryId &&
+        contract.candidateSourceSha === candidate.candidateSha,
+      "verifier repair contract candidate differs",
+    )
+    return contract
+  }
+  const original = await loadContract(record.baselineControllerSha, record.originalContractSha256)
+  same(
+    await loadContract(controllerSha, record.originalContractSha256),
+    original,
+    "verifier repair original contract changed",
+  )
+  // Auditor and historical admission do not execute the live owner fence. They
+  // must independently preserve the service witness's actual executable bytes.
+  requireThat(
+    Array.isArray(original.probeClosure) && original.probeClosure.length <= 512,
+    "bounded original probe inputs required",
+  )
+  for (const input of original.probeClosure) {
+    exact(input, "path sha256")
+    for (const ref of [record.baselineControllerSha, controllerSha]) {
+      const raw = await show({ ref, path: input.path })
+      requireThat(
+        typeof raw === "string" &&
+          raw.isWellFormed() &&
+          Buffer.byteLength(raw) <= 2 * 1024 * 1024 &&
+          repairHash(raw) === input.sha256,
+        "verifier repair probe input bytes changed",
+      )
+    }
+  }
+  const replacement = await loadContract(controllerSha, record.replacementContractSha256)
+  const expected = structuredClone(original)
+  const entries = new Map(record.inputs.map((input) => [input.path, input]))
+  let changes = 0
+  for (const workflow of expected.topology) {
+    for (const source of workflow.sources ?? []) {
+      if (source.source.kind !== "current-default") continue
+      for (const input of source.executionInputs) {
+        if (!REPAIR_CONTRACT_INPUTS.has(input.path)) continue
+        const entry = entries.get(input.path)
+        requireThat(
+          entry && input.sha256 === entry.oldSha256,
+          "verifier repair original execution input differs",
+        )
+        input.sha256 = entry.newSha256
+        if (entry.oldSha256 !== entry.newSha256) changes++
+      }
+    }
+  }
+  requireThat(changes > 0, "verifier repair requires enumerated execution input changes")
+  same(replacement, expected, "verifier repair contract transformation differs")
+  return {
+    mode: "repair",
+    actualClosureSha256,
+    approvedContractDigests: policy.fence.contracts.map((digest) =>
+      digest === record.originalContractSha256 ? record.replacementContractSha256 : digest,
+    ),
+    baselineControllerSha: record.baselineControllerSha,
+    adoption: record.adoption,
+  }
+}
+
 async function capture(request, dependencies, role = "owner") {
   request = snapshotRecoveryData(request, 16384)
   exact(request, "candidate expectedControllerSha")
@@ -235,14 +458,19 @@ async function capture(request, dependencies, role = "owner") {
   const policy = parseRecoveryPolicy(rawPolicy)
   requireThat(policy.status === "ADMITTED", "policy is dormant")
   const policySha256 = createHash("sha256").update(canonicalPolicyBytes(policy)).digest("hex")
-  const verifierClosureSha256 = await hashVerifierClosure(
-    { controllerSha: context.sha, inputs: policy.verifierClosure.inputs },
-    (args) => gitRead("showFile", args),
+  const verifierAdmission = await validateRecoveryVerifier(
+    {
+      candidate: request.candidate,
+      controllerSha: context.sha,
+      policy,
+      rawPolicy,
+    },
+    {
+      showFile: (args) => gitRead("showFile", args),
+      isAncestor: (args) => gitRead("isAncestor", args),
+    },
   )
-  requireThat(
-    verifierClosureSha256 === policy.verifierClosure.sha256,
-    "unapproved verifier closure",
-  )
+  const verifierClosureSha256 = verifierAdmission.actualClosureSha256
   const ciRuns = await read("listWorkflowRuns", {
     workflow: policy.ci.workflow.split("/").at(-1),
     commitSha: context.sha,
@@ -345,7 +573,14 @@ async function capture(request, dependencies, role = "owner") {
     }),
     128 * 1024,
   )
-  validateFence(fence, request.candidate, executor, policy, deps.now())
+  validateFence(
+    fence,
+    request.candidate,
+    executor,
+    policy,
+    deps.now(),
+    verifierAdmission.approvedContractDigests,
+  )
   requireThat(deps.now() < phaseDeadline, "authority phase deadline expired")
   return {
     facts: {
@@ -373,16 +608,17 @@ async function capture(request, dependencies, role = "owner") {
     fence,
     deps,
     policy,
+    verifierAdmission,
   }
 }
-function validateFence(fence, candidate, executor, policy, now) {
+function validateFence(fence, candidate, executor, policy, now, approvedContractDigests) {
   exact(
     fence,
     "contractSha256 candidate executor observedAt expiresAt concurrencyGroup cancelInProgress writers inventoryComplete",
   )
   same(fence.candidate, candidate, "fence candidate mismatch")
   same(fence.executor, executor, "fence executor mismatch")
-  requireThat(policy.fence.contracts.includes(fence.contractSha256), "fence contract not reviewed")
+  requireThat(approvedContractDigests.includes(fence.contractSha256), "fence contract not reviewed")
   requireThat(
     Number.isSafeInteger(fence.observedAt) &&
       Number.isSafeInteger(fence.expiresAt) &&
@@ -455,6 +691,10 @@ export async function captureRecoveryAuthority(request, dependencies) {
     },
     dependencies,
   )
+  requireThat(
+    captured.verifierAdmission.mode === "original",
+    "verifier repair cannot grant fresh adoption authority",
+  )
   const { facts, gitRead } = captured
   const raw = await gitRead("showFile", {
     ref: facts.executor.controllerSha,
@@ -481,6 +721,7 @@ export async function captureRecoveryAuthority(request, dependencies) {
     facts.executor,
     captured.policy,
     captured.deps.now(),
+    captured.verifierAdmission.approvedContractDigests,
   )
   requireThat(captured.deps.now() < captured.phaseDeadline, "authority phase deadline expired")
   return immutable({

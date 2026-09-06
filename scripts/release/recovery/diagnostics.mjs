@@ -41,6 +41,27 @@ export function recoveryFailureDetail(error, environment = {}) {
   }
 }
 
+// Smoke errors may aggregate command and cleanup failures. This text is diagnostic,
+// never a receipt, and is bounded independently of the child output stream.
+export function recoverySmokeFailureDetail(error, environment = {}) {
+  const pending = [error],
+    seen = new Set(),
+    details = []
+  while (pending.length && seen.size < 8) {
+    const item = pending.shift()
+    if (seen.has(item)) continue
+    seen.add(item)
+    details.push(recoveryFailureDetail(item, environment))
+    try {
+      if (Array.isArray(item?.errors)) pending.push(...item.errors.slice(0, 8))
+      if (item?.cause) pending.push(item.cause)
+    } catch {
+      /* Unsafe error properties do not prevent bounded diagnostics. */
+    }
+  }
+  return details.join("; ").slice(0, 4096)
+}
+
 // A current observation proves selected evidence, never the sequence of past writes.
 export function recoveryDiagnosticContext(request, result) {
   const context = {

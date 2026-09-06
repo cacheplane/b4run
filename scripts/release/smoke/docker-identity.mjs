@@ -49,10 +49,5 @@ function isExactMissingDockerResource(error, { kind, name, operation }) {
         : `Error: No such object: ${name}`)
     )
   }
-  return (
-    stderr ===
-    (operation === "remove"
-      ? `Error response from daemon: get ${name}: no such volume`
-      : `Error: No such volume: ${name}`)
-  )
+  return stderr === `Error response from daemon: get ${name}: no such volume`
 }

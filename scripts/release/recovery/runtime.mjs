@@ -18,6 +18,7 @@ import { adoptRecoveryCandidate } from "./adopt.mjs"
 import { dispatchRecoveryAudit, runRecoveryAudit, waitForRecoveryAudit } from "./audit.mjs"
 import { auditArtifactName, auditName } from "./audit-proof.mjs"
 import { captureRecoveryEligibility } from "./authority.mjs"
+import { recoveryFailureDetail } from "./diagnostics.mjs"
 import { collectRecoveryEvidence } from "./evidence.mjs"
 import { createRecoveryFenceReader } from "./fence.mjs"
 import { finalizeRecoveryCandidate, publishRecoveryCandidate } from "./finalize.mjs"
@@ -335,8 +336,14 @@ export function runRecoverySmokeChild(
         fileURLToPath(new URL("./smoke-child.mjs", import.meta.url)),
         boundedRecoveryPath(requestPath),
       ],
-      { env: recoveryChildEnvironment(environment), stdio: ["ignore", "ignore", "ignore"] },
+      { env: recoveryChildEnvironment(environment), stdio: ["ignore", "ignore", "pipe"] },
     )
+    let diagnostic = Buffer.alloc(0)
+    child.stderr?.on("data", (chunk) => {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      if (diagnostic.length < 4096)
+        diagnostic = Buffer.concat([diagnostic, bytes.subarray(0, 4096 - diagnostic.length)])
+    })
     let expired = false,
       hardTimer
     const timer = setTimer(() => {
@@ -360,7 +367,7 @@ export function runRecoverySmokeChild(
             new Error(
               expired
                 ? "Recovery child deadline expired; cleanup is unverified until retained evidence is independently checked"
-                : "Recovery smoke child failed; inspect retained lane evidence",
+                : `Recovery smoke child failed; inspect retained lane evidence${diagnostic.length ? `: ${recoveryFailureDetail(new Error(diagnostic.toString("utf8")), environment)}` : ""}`,
             ),
           )
     })

@@ -102,8 +102,9 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for Task 9: frozen finalization observation and canonical metadata reconstruction.
 // Repinned for Task 10a: strict GitHub inventories, bounded exact git reads, and dormant verifier closure.
 // Repinned for Task 12a: fresh complete-inventory npm signature batching.
+// Repinned for the exact adopted-verifier repair and bounded smoke failure diagnostics.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "947c310a4881eb2b9272483efc3fd524c044deded348e6e5eb80098096b16e2e"
+  "4d22f36f4fb105b019e0c7a3b5edca169acc16cf6e3d7f24a24b24b33e143557"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu

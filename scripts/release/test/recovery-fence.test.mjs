@@ -15,7 +15,9 @@ test("extended fence evidence derives all 36 cases from explicit recorded calls"
 })
 for (const [name, damage] of Object.entries({
   "old summary ledger": (f) => {
-    f.evidence = { observations: Array(12).fill({ accepted: false, unchanged: true }) }
+    f.evidence = {
+      observations: Array(12).fill({ accepted: false, unchanged: true }),
+    }
   },
   "missing matrix cell": (f) => {
     f.evidence.cases.pop()
@@ -89,7 +91,11 @@ async function runtimeFixture() {
     sourceSha = "a".repeat(40),
     defaultSha = "e".repeat(40)
   const { candidate: candidateFixture } = await import("./support/recovery-fixture.mjs")
-  const candidate = { ...candidateFixture(), repositoryId: "1210070282", candidateSha: sourceSha }
+  const candidate = {
+    ...candidateFixture(),
+    repositoryId: "1210070282",
+    candidateSha: sourceSha,
+  }
   const executor = {
     controllerSha,
     workflow: ".github/workflows/release-postpublication.yml",
@@ -122,7 +128,11 @@ async function runtimeFixture() {
         workflowSha256: digest(bytes),
         executionInputs: [],
       },
-      { source: { kind: "current-default" }, workflowSha256: digest(bytes), executionInputs: [] },
+      {
+        source: { kind: "current-default" },
+        workflowSha256: digest(bytes),
+        executionInputs: [],
+      },
     ]
   }
   const topology = [
@@ -168,7 +178,11 @@ async function runtimeFixture() {
     evidenceSha256,
     probeClosure,
     fixtures: [
-      { revision: "current", path: currentFixturePath, sha256: digest(f.fixtureBytes.current) },
+      {
+        revision: "current",
+        path: currentFixturePath,
+        sha256: digest(f.fixtureBytes.current),
+      },
       {
         revision: "historical",
         path: historicalFixturePath,
@@ -192,12 +206,27 @@ async function runtimeFixture() {
   const policy = JSON.parse(await readFile("scripts/release/recovery/policy.json", "utf8"))
   policy.status = "ADMITTED"
   policy.fence.contracts = [contractSha256]
+  const { hashVerifierClosure } = await import("../recovery/policy.mjs")
+  for (const path of policy.verifierClosure.inputs)
+    if (!files.has(`${controllerSha}:${path}`)) put(controllerSha, path, "// verifier source\n")
+  policy.verifierClosure.sha256 = await hashVerifierClosure(
+    { controllerSha, inputs: policy.verifierClosure.inputs },
+    async ({ ref, path }) => files.get(`${ref}:${path}`),
+  )
+  executor.verifierClosureSha256 = policy.verifierClosure.sha256
   put(controllerSha, "scripts/release/recovery/policy.json", canonical(policy))
   const policySha256 = digest(canonical(policy)),
     calls = []
   const values = {
-    getRepository: { id: 1210070282, full_name: candidate.repository, default_branch: "main" },
-    getRef: { ref: "refs/heads/main", object: { type: "commit", sha: defaultSha } },
+    getRepository: {
+      id: 1210070282,
+      full_name: candidate.repository,
+      default_branch: "main",
+    },
+    getRef: {
+      ref: "refs/heads/main",
+      object: { type: "commit", sha: defaultSha },
+    },
     listRepositoryWorkflowsComplete: topology.map((t) => ({
       id: Number(t.workflowId),
       path: t.workflow,
@@ -229,6 +258,9 @@ async function runtimeFixture() {
     },
   }
   const git = {
+    async isAncestor() {
+      return true
+    },
     async showFile({ ref, path }) {
       calls.push(["showFile", ref, path])
       const raw = files.get(`${ref}:${path}`)
@@ -311,7 +343,11 @@ for (const [name, damage] of Object.entries({
     damage(f)
     await assert.rejects(() =>
       subject
-        .createRecoveryFenceReader({ github: f.github, git: f.git, now: () => 1000 })
+        .createRecoveryFenceReader({
+          github: f.github,
+          git: f.git,
+          now: () => 1000,
+        })
         .observeLegacyFence({
           candidate: f.candidate,
           executor: f.executor,
@@ -359,7 +395,11 @@ test("fence start time cannot become fresh after a long source read", async () =
   await assert.rejects(
     () =>
       subject
-        .createRecoveryFenceReader({ github: f.github, git: f.git, now: () => clock })
+        .createRecoveryFenceReader({
+          github: f.github,
+          git: f.git,
+          now: () => clock,
+        })
         .observeLegacyFence({
           candidate: f.candidate,
           executor: f.executor,
@@ -384,7 +424,11 @@ test("fence rejects topology and default SHA drift across whole observation", as
     }
     await assert.rejects(() =>
       subject
-        .createRecoveryFenceReader({ github: f.github, git: f.git, now: () => 1000 })
+        .createRecoveryFenceReader({
+          github: f.github,
+          git: f.git,
+          now: () => 1000,
+        })
         .observeLegacyFence({
           candidate: f.candidate,
           executor: f.executor,
@@ -438,7 +482,10 @@ for (const [name, damage] of Object.entries({
   },
   "pin ledger cycle": (c) => {
     c.topology.find((e) => e.disposition === "fenced-legacy").sources[0].executionInputs = [
-      { path: "scripts/release/test/fixtures/release-script-hashes.json", sha256: "a".repeat(64) },
+      {
+        path: "scripts/release/test/fixtures/release-script-hashes.json",
+        sha256: "a".repeat(64),
+      },
     ]
   },
   "duplicate workflow ID": (c) => {
@@ -908,8 +955,14 @@ test("fence setup accepts a branch read followed by the exact historical content
   const branchIndex = f.evidence.calls.findIndex((c) => c.id === f.evidence.setup.initialBranchCall)
   const content = f.evidence.calls[contentIndex],
     branch = f.evidence.calls[branchIndex]
-  const interval = { startedAt: content.startedAt, finishedAt: content.finishedAt }
-  Object.assign(content, { startedAt: branch.startedAt, finishedAt: branch.finishedAt })
+  const interval = {
+    startedAt: content.startedAt,
+    finishedAt: content.finishedAt,
+  }
+  Object.assign(content, {
+    startedAt: branch.startedAt,
+    finishedAt: branch.finishedAt,
+  })
   Object.assign(branch, interval)
   f.evidence.calls[contentIndex] = branch
   f.evidence.calls[branchIndex] = content
@@ -947,7 +1000,13 @@ test("fence raw projection rejects oversized ledgers, sparse arrays and symbol p
 async function platformFixture(damage = () => {}) {
   const { digest } = await import("./support/recovery-fence-fixture.mjs")
   const f = await runtimeFixture()
-  f.tree = [{ path: "AGENTS.md", mode: "100644", sha256: digest("reviewed instructions\n") }]
+  f.tree = [
+    {
+      path: "AGENTS.md",
+      mode: "100644",
+      sha256: digest("reviewed instructions\n"),
+    },
+  ]
   f.put(f.defaultSha, "AGENTS.md", "reviewed instructions\n")
   f.reviews = []
   for (const [workflowId, service, workflow] of [
@@ -1019,7 +1078,11 @@ async function platformFixture(damage = () => {}) {
 }
 async function observePlatform(f, now = () => 1000) {
   const { createRecoveryFenceReader } = await import("../recovery/fence.mjs")
-  return createRecoveryFenceReader({ github: f.github, git: f.git, now }).observeLegacyFence({
+  return createRecoveryFenceReader({
+    github: f.github,
+    git: f.git,
+    now,
+  }).observeLegacyFence({
     candidate: f.candidate,
     executor: f.executor,
     policySha256: f.policySha256,
@@ -1199,7 +1262,11 @@ test("platform review binds bytes of reviewed Claude skill supporting resources"
   const { digest } = await import("./support/recovery-fence-fixture.mjs")
   const path = ".claude/skills/review/scripts/review.sh"
   const f = await platformFixture((f) => {
-    f.tree.unshift({ path, mode: "100755", sha256: digest("reviewed script\n") })
+    f.tree.unshift({
+      path,
+      mode: "100755",
+      sha256: digest("reviewed script\n"),
+    })
     f.put(f.defaultSha, path, "reviewed script\n")
     for (const { review } of f.reviews) review.configuration = structuredClone(f.tree)
   })
@@ -1350,7 +1417,10 @@ test("fence overlaps independent writers while preserving each double-observatio
     sequences.get(args.workflowId).push("runs")
     return runs(args)
   }
-  const pending = createRecoveryFenceReader({ github: f.github, git: f.git }).observeLegacyFence({
+  const pending = createRecoveryFenceReader({
+    github: f.github,
+    git: f.git,
+  }).observeLegacyFence({
     candidate: f.candidate,
     executor: f.executor,
     policySha256: f.policySha256,
@@ -1461,4 +1531,100 @@ test("failed fence joins already-started independent observations before rejecti
     await observed
   }
   await assert.rejects(pending, /intentional writer read failure/)
+})
+
+test("fence admission rejects an executor closure different from reviewed source", async () => {
+  const { createRecoveryFenceReader } = await import("../recovery/fence.mjs")
+  const f = await runtimeFixture()
+  await assert.rejects(() =>
+    createRecoveryFenceReader({
+      github: f.github,
+      git: f.git,
+      now: () => 1000,
+    }).observeLegacyFence({
+      candidate: f.candidate,
+      executor: { ...f.executor, verifierClosureSha256: "0".repeat(64) },
+      policySha256: f.policySha256,
+    }),
+  )
+})
+
+test("fence selects exactly the repaired contract with fresh replacement source bindings", async () => {
+  const { createRecoveryFenceReader } = await import("../recovery/fence.mjs")
+  const { hashVerifierClosure } = await import("../recovery/policy.mjs")
+  const { digest } = await import("./support/recovery-fence-fixture.mjs")
+  const f = await runtimeFixture()
+  const baseline = "b".repeat(40)
+  const changed = "scripts/release/smoke/runtime-targets.mjs"
+  const originalBytes = f.files.get(`${f.controllerSha}:${changed}`)
+  f.contract.topology.find(
+    (entry) => entry.workflow === ".github/workflows/ci.yml",
+  ).sources[0].executionInputs = [{ path: changed, sha256: digest(originalBytes) }]
+  const originalDigest = digest(canonical(f.contract))
+  f.policy.fence.contracts = [originalDigest]
+  f.put(f.controllerSha, "scripts/release/recovery/policy.json", canonical(f.policy))
+  f.put(
+    f.controllerSha,
+    `scripts/release/recovery-fence-contracts/${originalDigest}.json`,
+    canonical(f.contract),
+  )
+  for (const [key, value] of [...f.files])
+    if (key.startsWith(`${f.controllerSha}:`))
+      f.files.set(key.replace(f.controllerSha, baseline), value)
+  f.put(f.controllerSha, changed, "// repaired runtime probe\n")
+  f.put(f.defaultSha, changed, "// repaired runtime probe\n")
+  const replacement = structuredClone(f.contract)
+  replacement.topology.find(
+    (entry) => entry.workflow === ".github/workflows/ci.yml",
+  ).sources[0].executionInputs[0].sha256 = digest(f.files.get(`${f.controllerSha}:${changed}`))
+  const replacementDigest = digest(canonical(replacement))
+  f.put(
+    f.controllerSha,
+    `scripts/release/recovery-fence-contracts/${replacementDigest}.json`,
+    canonical(replacement),
+  )
+  const closure = await hashVerifierClosure(
+    { controllerSha: f.controllerSha, inputs: f.policy.verifierClosure.inputs },
+    f.git.showFile,
+  )
+  f.executor.verifierClosureSha256 = closure
+  f.policySha256 = digest(canonical(f.policy))
+  const record = {
+    schemaVersion: 1,
+    kind: "recovery-verifier-repair",
+    candidate: f.candidate,
+    policySha256: f.policySha256,
+    baselineControllerSha: baseline,
+    originalClosureSha256: f.policy.verifierClosure.sha256,
+    replacementClosureSha256: closure,
+    inputs: f.policy.verifierClosure.inputs.map((path) => ({
+      path,
+      oldSha256: digest(f.files.get(`${baseline}:${path}`)),
+      newSha256: digest(f.files.get(`${f.controllerSha}:${path}`)),
+    })),
+    originalContractSha256: originalDigest,
+    replacementContractSha256: replacementDigest,
+    adoption: {
+      assetName: `recovery-v2-adoption-${baseline}-10-1-11.json`,
+      id: "12",
+      size: 1000,
+      sha256: "3".repeat(64),
+    },
+  }
+  f.put(
+    f.controllerSha,
+    "scripts/release/recovery-verifier-repairs/v0.8.24.json",
+    canonical(record),
+  )
+  const result = await createRecoveryFenceReader({
+    github: f.github,
+    git: f.git,
+    now: () => 1000,
+  }).observeLegacyFence({
+    candidate: f.candidate,
+    executor: f.executor,
+    policySha256: f.policySha256,
+  })
+  assert.equal(result.contractSha256, replacementDigest)
+  assert.ok(result.inventoryComplete)
 })
