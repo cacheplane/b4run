@@ -15,6 +15,7 @@ import {
   reconcileNpmEvidence,
   reconcileSmokeEvidence,
   releaseBodySha256,
+  validateAllAttemptJobs,
   validatePublicationAuditAssets,
 } from "../metadata.mjs"
 import { createReleaseRecord, releaseRecordSha256 } from "../release-record.mjs"
@@ -520,6 +521,147 @@ test("publication audit history has independent count and aggregate byte bounds"
     /cumulative|byte|limit/iu,
   )
 })
+
+function lazyEscrowPublicationState(fixture) {
+  const state = publicationState(fixture)
+  const run = state.candidateRuns[0]
+  run.jobs = run.jobs.filter(
+    (job) => !(job.runAttempt === run.runAttempt && job.name === "publish-npm"),
+  )
+  run.jobs.push({
+    id: run.runAttempt * 3,
+    runAttempt: run.runAttempt,
+    name: "escrow",
+    status: "in_progress",
+    conclusion: null,
+    startedAt: "2026-08-24T00:02:00Z",
+    completedAt: null,
+  })
+  return state
+}
+async function escrowWithState(fixture, remote, state) {
+  return escrowCandidate({
+    candidate: CANDIDATE,
+    record: fixture.record,
+    artifact: fixture.artifact,
+    attestationSet: fixture.attestationSet,
+    bundles: fixture.bundles,
+    publicationState: state,
+    attestations: verifiedAttestations(fixture),
+    github: remote.github,
+  })
+}
+test("escrow accepts a verified current lazy job graph while the shared default remains strict", async () => {
+  const fixture = releaseFixture()
+  const state = lazyEscrowPublicationState(fixture)
+  const run = state.candidateRuns[0]
+  assert.throws(() => validateAllAttemptJobs(run.jobs, run.runAttempt), /exactly one publish-npm/)
+  assert.throws(
+    () =>
+      parsePublicationState(state, {
+        candidate: CANDIDATE,
+        inventory: { packages: fixture.manifest.packages.map(({ name }) => ({ name })) },
+      }),
+    /exactly one publish-npm/,
+  )
+  const remote = inMemoryGitHub()
+  const result = await escrowWithState(fixture, remote, state)
+  assert.equal(result.phase, "ESCROWED")
+  assert.equal(remote.uploadCount, 45)
+})
+for (const [label, mutate] of [
+  [
+    "missing active escrow",
+    (s) => {
+      s.candidateRuns[0].jobs.pop()
+    },
+  ],
+  [
+    "duplicate escrow",
+    (s) => {
+      const jobs = s.candidateRuns[0].jobs
+      jobs.push({ ...jobs.at(-1), id: 9 })
+    },
+  ],
+  [
+    "unstarted escrow",
+    (s) => {
+      s.candidateRuns[0].jobs.at(-1).startedAt = null
+    },
+  ],
+  [
+    "queued escrow",
+    (s) => {
+      s.candidateRuns[0].jobs.at(-1).status = "queued"
+    },
+  ],
+  [
+    "completed escrow",
+    (s) => {
+      Object.assign(s.candidateRuns[0].jobs.at(-1), {
+        status: "completed",
+        conclusion: "success",
+        completedAt: "2026-08-24T00:03:00Z",
+      })
+    },
+  ],
+  [
+    "other run",
+    (s) => {
+      s.candidateRuns.push({ ...structuredClone(s.candidateRuns[0]), runId: 101 })
+    },
+  ],
+  [
+    "prior attempt",
+    (s) => {
+      s.candidateRuns[0].jobs[0].name = "escrow"
+    },
+  ],
+  [
+    "started publisher",
+    (s) => {
+      s.candidateRuns[0].jobs.push({
+        id: 9,
+        runAttempt: 2,
+        name: "publish-npm",
+        status: "in_progress",
+        conclusion: null,
+        startedAt: "2026-08-24T00:02:00Z",
+        completedAt: null,
+      })
+    },
+  ],
+  [
+    "duplicate publisher",
+    (s) => {
+      for (const id of [9, 10])
+        s.candidateRuns[0].jobs.push({
+          id,
+          runAttempt: 2,
+          name: "publish-npm",
+          status: "queued",
+          conclusion: null,
+          startedAt: null,
+          completedAt: null,
+        })
+    },
+  ],
+  [
+    "missing package absence",
+    (s) => {
+      s.packages.pop()
+    },
+  ],
+])
+  test(`lazy publisher exception rejects ${label} before any escrow mutation`, async () => {
+    const fixture = releaseFixture()
+    const state = lazyEscrowPublicationState(fixture)
+    mutate(state)
+    const remote = inMemoryGitHub()
+    await assert.rejects(escrowWithState(fixture, remote, state))
+    assert.equal(remote.uploadCount, 0)
+    assert.equal(remote.release, null)
+  })
 
 test("escrow creates one resumable 45-asset draft and advances its marker only after exact re-read", async () => {
   const fixture = releaseFixture()

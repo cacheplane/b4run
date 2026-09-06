@@ -106,7 +106,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for asset counter comparisons and bounded invocation payload/Git text reuse.
 // Repinned for fixed evidence stage boundaries with fresh runtime readers.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "582dbe22e8d8a918230a2d31b707d4b165f8202d593336699c6d66866010feed"
+  "8ba5cde9f319d0aa241bc9426df565e6f51803d136244f09a221ef9de8e02d6b"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
@@ -1236,6 +1236,17 @@ test("every exact-tag ladder job after tag opts out of the implicit success() an
       assert.match(job.if, /needs\.tag\.outputs\.continue == 'true'/u)
     }
   }
+})
+
+test("lazy publisher absence during escrow remains protected by the fixed workflow dependency", async () => {
+  const { workflow } = await readRequiredWorkflow("release.yml")
+  const publish = requiredJob(workflow, "publish-npm")
+  const escrow = requiredJob(workflow, "escrow")
+  assert.ok(normalizeNeeds(publish.needs).includes("escrow"))
+  assert.ok(!normalizeNeeds(escrow.needs).includes("publish-npm"))
+  assert.equal(escrow.name, undefined)
+  assert.equal(publish.name, undefined)
+  assert.match(publish.if, /needs\.escrow\.result == 'success'/u)
 })
 
 test("publish-npm is exact-tag, sparse, dependency-free, and schema-bound", async () => {

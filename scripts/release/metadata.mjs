@@ -558,8 +558,16 @@ export async function verifyReleaseAttestationAnchor({
   })
 }
 
-export function parsePublicationState(value, { candidate, inventory }) {
-  const expectations = snapshotJson({ candidate, inventory })
+export function parsePublicationState(value, { candidate, inventory, escrowRun = null }) {
+  const expectations = snapshotJson({ candidate, inventory, escrowRun })
+  if (expectations.escrowRun !== null) {
+    assertExactFields(expectations.escrowRun, ["runId", "runAttempt"], "escrow run")
+    if (
+      !isPositiveInteger(expectations.escrowRun.runId) ||
+      !isPositiveInteger(expectations.escrowRun.runAttempt)
+    )
+      throw new TypeError("Escrow run identity is invalid")
+  }
   const identity = validateCandidate(expectations.candidate)
   const packageNames = inventoryPackageNames(expectations.inventory)
   const state = snapshotJson(value)
@@ -598,7 +606,12 @@ export function parsePublicationState(value, { candidate, inventory }) {
     }
     previousRunId = run.runId
     runIds.add(run.runId)
-    validateAllAttemptJobs(run.jobs, run.runAttempt)
+    validateAttemptJobs(
+      run.jobs,
+      run.runAttempt,
+      expectations.escrowRun?.runId === run.runId &&
+        expectations.escrowRun?.runAttempt === run.runAttempt,
+    )
   }
   for (const [index, pkg] of state.packages.entries()) {
     assertExactFields(pkg, PACKAGE_OBSERVATION_FIELDS, `package observation ${index}`)
@@ -949,14 +962,20 @@ export async function escrowCandidate(input) {
     candidate,
     manifest,
   })
-  const publicationState = parsePublicationState(argumentsSnapshot.publicationState, {
-    candidate,
-    inventory: { packages: manifest.packages.map(({ name }) => ({ name })) },
-  })
   const inputAttestationSet = parseAttestationSet(argumentsSnapshot.attestationSet, {
     candidate,
     manifest,
     repository: ATTESTATION_REPOSITORY,
+  })
+  const publicationState = parsePublicationState(argumentsSnapshot.publicationState, {
+    candidate,
+    inventory: { packages: manifest.packages.map(({ name }) => ({ name })) },
+    // Bundle verification above binds this run. Its downstream publisher may not
+    // exist in Actions yet while the required escrow job is still running.
+    escrowRun: {
+      runId: inputAttestationSet.workflowRunId,
+      runAttempt: inputAttestationSet.runAttempt,
+    },
   })
   assertAttestationRunAuthorized(inputAttestationSet, publicationState)
   const github = argumentsSnapshot.github
@@ -2876,6 +2895,9 @@ function validateAbandonedArtifactShape([manifestDigest, recordDigest, baseDiges
 }
 
 export function validateAllAttemptJobs(jobs, currentAttempt) {
+  return validateAttemptJobs(jobs, currentAttempt, false)
+}
+function validateAttemptJobs(jobs, currentAttempt, allowPendingPublisher) {
   const attempts = new Set()
   const identities = new Set()
   const publisherJobsByAttempt = new Map()
@@ -2929,6 +2951,18 @@ export function validateAllAttemptJobs(jobs, currentAttempt) {
     throw new TypeError("Candidate job attempt coverage is incomplete")
   for (let attempt = 1; attempt <= currentAttempt; attempt += 1) {
     if (publisherJobsByAttempt.get(attempt) !== 1) {
+      const escrow = jobs.filter((job) => job.runAttempt === attempt && job.name === "escrow")
+      if (
+        allowPendingPublisher &&
+        attempt === currentAttempt &&
+        !publisherJobsByAttempt.has(attempt) &&
+        escrow.length === 1 &&
+        escrow[0].status === "in_progress" &&
+        escrow[0].startedAt !== null &&
+        escrow[0].completedAt === null &&
+        escrow[0].conclusion === null
+      )
+        continue
       throw new TypeError("Candidate attempt must contain exactly one publish-npm job")
     }
   }

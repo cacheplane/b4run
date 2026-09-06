@@ -98,7 +98,7 @@
       "sha256": "1a931c3056826e489894f67474287b81d6518c9076abbc779ad387697b61b4a9"
     },
     "scripts/release/metadata.mjs": {
-      "sha256": "1b3e9cc2e5eb187309565e46bd5ecdc2cb2d6578288a9c05a58a120dfef2020e"
+      "sha256": "661c7c7110249ddef10355014b4cee774b64f03e3f6779027114d002f7a6537a"
     },
     "scripts/release/npm-audit.mjs": {
       "sha256": "ae879f6ce01abe9af898fec0764553287f57542471718acf3d8c03f8bd7f8cfe"
