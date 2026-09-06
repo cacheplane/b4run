@@ -30,6 +30,12 @@ on:
       publication_source_sha:
         type: string
         default: ""
+      existing_tag_nonce:
+        type: string
+        default: ""
+      existing_tag_object_sha:
+        type: string
+        default: ""
       discard_response:
         type: choice
         options:
@@ -311,6 +317,8 @@ jobs:
           DAWN_RECOVERY_TEST_POLICY_TOKEN: ${{ secrets.RECOVERY_POLICY_READ_TOKEN }}
           DAWN_RECOVERY_TEST_CREDENTIAL_KIND: workflow
           DAWN_RECOVERY_TEST_SOURCE_SHA: ${{ inputs.publication_source_sha }}
+          DAWN_RECOVERY_TEST_EXISTING_TAG_NONCE: ${{ inputs.existing_tag_nonce }}
+          DAWN_RECOVERY_TEST_EXISTING_TAG_OBJECT_SHA: ${{ inputs.existing_tag_object_sha }}
           DAWN_RECOVERY_TEST_DISCARD_RESPONSE: ${{ inputs.discard_response }}
         run: node --test scripts/release/test/recovery-publication-github.integration.mjs
       - name: Retain publication contract ledger

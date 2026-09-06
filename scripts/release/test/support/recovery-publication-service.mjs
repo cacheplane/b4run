@@ -16,6 +16,7 @@ export async function runPublicationServiceProbe({
   repository,
   sourceSha,
   nonce,
+  existingTagObjectSha = null,
   topologySha256 = null,
   api,
   anonymousGet,
@@ -27,13 +28,15 @@ export async function runPublicationServiceProbe({
   assert.notEqual(repository.toLowerCase(), "cacheplane/dawnai")
   assert.match(sourceSha, /^[a-f0-9]{40}$/u)
   assert.match(nonce, /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u)
+  if (existingTagObjectSha !== null) assert.match(existingTagObjectSha, /^[a-f0-9]{40}$/u)
   const base = `/repos/${repository}`,
     tag = `v0.0.0-recovery-contract-${nonce}`
   const owned = {
     repository,
     sourceSha,
     tag,
-    tagObjectSha: null,
+    tagObjectSha: existingTagObjectSha,
+    tagProvenance: existingTagObjectSha === null ? "probe-created" : "operator-created",
     releaseId: null,
     assetId: null,
     status: "preflight",
@@ -139,34 +142,67 @@ export async function runPublicationServiceProbe({
   }
   await persist(owned)
   await assertCurrentWorkflowScope()
-  const object = await api("POST", `${base}/git/tags`, {
-    tag,
-    message: `Recovery contract ${nonce}`,
-    object: sourceSha,
-    type: "commit",
-  })
-  assert.equal(object.status, 201)
-  assert.match(object.body.sha, /^[a-f0-9]{40}$/u)
-  owned.tagObjectSha = object.body.sha
-  await persist(owned)
-  assert.equal(
-    (await api("POST", `${base}/git/refs`, { ref: `refs/tags/${tag}`, sha: owned.tagObjectSha }))
-      .status,
-    201,
-  )
+  if (existingTagObjectSha === null) {
+    const object = await api("POST", `${base}/git/tags`, {
+      tag,
+      message: `Recovery contract ${nonce}`,
+      object: sourceSha,
+      type: "commit",
+    })
+    assert.equal(object.status, 201)
+    assert.match(object.body.sha, /^[a-f0-9]{40}$/u)
+    owned.tagObjectSha = object.body.sha
+    await persist(owned)
+    assert.equal(
+      (await api("POST", `${base}/git/refs`, { ref: `refs/tags/${tag}`, sha: owned.tagObjectSha }))
+        .status,
+      201,
+    )
+  }
   const verifyTag = async () => {
     const ref = await get(`${base}/git/ref/tags/${tag}`)
+    if (existingTagObjectSha !== null) assert.equal(ref.ref, `refs/tags/${tag}`)
     assert.deepEqual(
       { type: ref.object.type, sha: ref.object.sha },
       { type: "tag", sha: owned.tagObjectSha },
     )
     const target = await get(`${base}/git/tags/${owned.tagObjectSha}`)
+    if (existingTagObjectSha !== null) {
+      assert.equal(target.sha, existingTagObjectSha)
+      assert.equal(target.tag, tag)
+      assert.equal((await get(`${base}/git/commits/${sourceSha}`)).sha, sourceSha)
+    }
     assert.deepEqual(
       { type: target.object.type, sha: target.object.sha },
       { type: "commit", sha: sourceSha },
     )
   }
   await verifyTag()
+  if (existingTagObjectSha !== null) {
+    // Authenticated listing includes drafts, which can temporarily have an
+    // untagged name. A full page is inconclusive, never evidence of absence.
+    const releases = await get(`${base}/releases?per_page=100&page=1`)
+    assert.ok(
+      Array.isArray(releases) && releases.length < 100,
+      "complete bounded release inventory required",
+    )
+    for (const release of releases) {
+      assert.ok(
+        Number.isSafeInteger(release.id) &&
+          release.id > 0 &&
+          typeof release.tag_name === "string" &&
+          typeof release.name === "string" &&
+          (release.body === null || typeof release.body === "string"),
+        "valid release inventory required",
+      )
+      assert.ok(
+        release.tag_name !== tag &&
+          !release.name.includes(nonce) &&
+          !(release.body ?? "").includes(nonce),
+        "preexisting release or draft for supplied nonce forbidden",
+      )
+    }
+  }
   // An unknown create response deliberately stops: no direct ID means no owned
   // release mutation can follow and no blind retry can create a second draft.
   const created = await api("POST", `${base}/releases`, {

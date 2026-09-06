@@ -44,12 +44,27 @@ test("real annotated-tag publication, draft visibility and immutable asset readb
   }
   const discard = env.DAWN_RECOVERY_TEST_DISCARD_RESPONSE ?? ""
   assert.ok(["", "upload", "publication"].includes(discard), "bounded response-loss experiment")
+  const existingNonce = env.DAWN_RECOVERY_TEST_EXISTING_TAG_NONCE ?? ""
+  const existingTagObjectSha = env.DAWN_RECOVERY_TEST_EXISTING_TAG_OBJECT_SHA ?? ""
+  assert.equal(
+    existingNonce === "",
+    existingTagObjectSha === "",
+    "existing tag nonce and object SHA must be supplied together",
+  )
+  if (existingNonce !== "") {
+    assert.match(existingNonce, /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u)
+    assert.match(existingTagObjectSha, /^[a-f0-9]{40}$/u)
+  }
   let discarded = false
   const root = await mkdtemp(join(env.RUNNER_TEMP ?? tmpdir(), "dawn-recovery-publication-"))
   const ledger = {
     repository,
     startedAt: new Date().toISOString(),
     credentialKind: env.DAWN_RECOVERY_TEST_CREDENTIAL_KIND,
+    tagProvenance: existingNonce === "" ? "probe-created" : "operator-created",
+    existingTag:
+      existingNonce === "" ? null : { nonce: existingNonce, objectSha: existingTagObjectSha },
+    releaseWriteCredentialKind: env.DAWN_RECOVERY_TEST_CREDENTIAL_KIND,
     runId: env.GITHUB_RUN_ID ?? null,
     calls: [],
     owned: null,
@@ -105,8 +120,18 @@ test("real annotated-tag publication, draft visibility and immutable asset readb
       })
       entry.status = response.status
       entry.headers = Object.fromEntries(
-        ["date", "cache-control", "etag", "x-github-request-id", "x-ratelimit-remaining"].flatMap(
-          (name) => (response.headers.has(name) ? [[name, response.headers.get(name)]] : []),
+        [
+          "date",
+          "cache-control",
+          "etag",
+          "x-github-request-id",
+          "x-ratelimit-limit",
+          "x-ratelimit-used",
+          "x-ratelimit-reset",
+          "x-ratelimit-resource",
+          "x-ratelimit-remaining",
+        ].flatMap((name) =>
+          response.headers.has(name) ? [[name, response.headers.get(name)]] : [],
         ),
       )
       const chunks = []
@@ -140,7 +165,8 @@ test("real annotated-tag publication, draft visibility and immutable asset readb
     const result = await runPublicationServiceProbe({
       repository,
       sourceSha: env.DAWN_RECOVERY_TEST_SOURCE_SHA,
-      nonce: randomUUID(),
+      nonce: existingNonce || randomUUID(),
+      existingTagObjectSha: existingTagObjectSha || null,
       topologySha256: hash(
         await readFile(new URL("./fixtures/recovery-topology-workflow.yml", import.meta.url)),
       ),

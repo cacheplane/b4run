@@ -261,3 +261,105 @@ test("publication visibility settlement is bounded and does not retry non-404 fa
     assert.equal(fake.effects.filter((e) => e.method === "PATCH").length, 1)
   }
 })
+
+function existingTagService(options) {
+  const fake = service(options)
+  fake.existingTagObjectSha = "c".repeat(40)
+  const api = fake.api
+  fake.api = async (method, path, body) => {
+    if (method === "GET" && path.includes("/releases?")) {
+      fake.calls.push({ method, path })
+      return { status: 200, body: [] }
+    }
+    if (method === "GET" && path.includes("/git/commits/")) {
+      fake.calls.push({ method, path })
+      return { status: 200, body: { sha: fake.sourceSha } }
+    }
+    const response = await api(method, path, body)
+    if (method === "GET" && path.includes("/git/ref/tags/"))
+      response.body.ref = `refs/tags/v0.0.0-recovery-contract-${fake.nonce}`
+    if (method === "GET" && path.includes("/git/tags/"))
+      Object.assign(response.body, {
+        sha: fake.existingTagObjectSha,
+        tag: `v0.0.0-recovery-contract-${fake.nonce}`,
+      })
+    return response
+  }
+  return fake
+}
+for (const uncertain of [null, "upload", "publish"])
+  test(`existing operator tag supports ${uncertain ?? "known"} publication response without tag mutations`, async () => {
+    const fake = existingTagService({ uncertain })
+    const result = await subject.runPublicationServiceProbe(fake)
+    assert.equal(result.status, "published-immutable")
+    assert.equal(result.tagProvenance, "operator-created")
+    assert.equal(
+      fake.effects.some((e) => e.path.includes("/git/")),
+      false,
+    )
+    assert.equal(fake.effects.filter((e) => e.path.endsWith("/releases")).length, 1)
+    assert.equal(fake.effects.filter((e) => e.path.includes("/assets?")).length, 1)
+    assert.equal(fake.effects.filter((e) => e.method === "PATCH").length, 1)
+    assert.ok(fake.calls.some((e) => e.path.includes(`/git/commits/${fake.sourceSha}`)))
+  })
+for (const damage of [
+  "wrong-ref",
+  "lightweight",
+  "wrong-object",
+  "wrong-tag-name",
+  "wrong-object-sha",
+  "wrong-target",
+  "wrong-commit",
+  "preexisting-release",
+  "preexisting-draft",
+  "unavailable-inventory",
+  "incomplete-inventory",
+])
+  test(`existing-tag preflight rejects ${damage} before writes`, async () => {
+    const fake = existingTagService()
+    const api = fake.api
+    fake.api = async (...args) => {
+      const response = await api(...args),
+        path = args[1]
+      if (args[0] !== "GET") return response
+      if (path.includes("/git/ref/tags/")) {
+        if (damage === "wrong-ref") response.body.ref += "-other"
+        if (damage === "lightweight") response.body.object.type = "commit"
+        if (damage === "wrong-object") response.body.object.sha = "d".repeat(40)
+      }
+      if (path.includes("/git/tags/")) {
+        if (damage === "wrong-tag-name") response.body.tag += "-other"
+        if (damage === "wrong-object-sha") response.body.sha = "d".repeat(40)
+        if (damage === "wrong-target") response.body.object.sha = "d".repeat(40)
+      }
+      if (path.includes("/git/commits/") && damage === "wrong-commit")
+        response.body.sha = "d".repeat(40)
+      if (path.includes("/releases?")) {
+        if (damage === "preexisting-release")
+          response.body = [
+            { id: 99, tag_name: `v0.0.0-recovery-contract-${fake.nonce}`, name: "other", body: "" },
+          ]
+        if (damage === "preexisting-draft")
+          response.body = [
+            {
+              id: 99,
+              tag_name: "untagged-old",
+              name: `Recovery service contract ${fake.nonce}`,
+              body: "",
+            },
+          ]
+        if (damage === "unavailable-inventory") response.status = 403
+        if (damage === "incomplete-inventory")
+          response.body = Array(100).fill({ id: 99, tag_name: "other", name: "other", body: "" })
+      }
+      return response
+    }
+    await assert.rejects(subject.runPublicationServiceProbe(fake))
+    assert.deepEqual(fake.effects, [])
+  })
+test("existing tag mode rejects malformed object identity before any call", async () => {
+  const fake = existingTagService()
+  fake.existingTagObjectSha = "invalid"
+  await assert.rejects(subject.runPublicationServiceProbe(fake))
+  assert.deepEqual(fake.calls, [])
+})
