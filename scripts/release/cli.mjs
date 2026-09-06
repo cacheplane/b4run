@@ -245,10 +245,6 @@ async function runAbandon(options, runtime) {
   })
 }
 
-// release.yml's detect job checks out the default branch, so HEAD in the controller's own
-// checkout is the reviewed tip of main -- the only place a committed terminal record can live.
-const TERMINAL_RECORD_REF = "HEAD"
-
 async function runObserve(options, runtime) {
   const paths = Object.fromEntries(
     Object.entries(options).map(([key, value]) => [key, resolveCliPath(value, runtime.cwd)]),
@@ -306,6 +302,18 @@ async function runObserve(options, runtime) {
     requireAttestations(runtime),
     readControllerMarker(runtime),
   ])
+  // Pin the controller checkout once; candidate resolution and observation must
+  // use the same immutable source even if the checkout moves during this call.
+  requiredMethod(git, "listFirstParentHistory", "checkout HEAD reader")
+  const checkoutHistory = await git.listFirstParentHistory({ ref: "HEAD", maxCount: 1 })
+  if (
+    !Array.isArray(checkoutHistory) ||
+    checkoutHistory.length !== 1 ||
+    typeof checkoutHistory[0] !== "string" ||
+    !/^[a-f0-9]{40}$/u.test(checkoutHistory[0])
+  )
+    throw new TypeError("Release CLI checkout HEAD must resolve to exactly one immutable commit")
+  const terminalRecordRef = checkoutHistory[0]
   const inventory = runtime.inventory ?? createInventoryReader({ root: runtime.cwd, git })
   requiredMethod(inventory, "read", "production inventory reader")
 
@@ -324,7 +332,7 @@ async function runObserve(options, runtime) {
       npmAuditFactory,
       attestations,
       marker,
-      terminalRecordRef: TERMINAL_RECORD_REF,
+      terminalRecordRef,
     })
   } catch (error) {
     resolutionFailure = safeObservationFailure(error, "CANDIDATE_DISCOVERY_AMBIGUOUS")
@@ -397,7 +405,7 @@ async function runObserve(options, runtime) {
           npm,
           npmAuditFactory,
           attestations,
-          terminalRecordRef: TERMINAL_RECORD_REF,
+          terminalRecordRef,
           includeRecovery: true,
           ...(currentPublisherRun === null ? {} : { currentPublisherRun }),
         })

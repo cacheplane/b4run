@@ -106,7 +106,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for asset counter comparisons and bounded invocation payload/Git text reuse.
 // Repinned for fixed evidence stage boundaries with fresh runtime readers.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "26becff91ccdc80d8bbb0f6c5d704e7b8edcb390633593fb716d39ed60171354"
+  "582dbe22e8d8a918230a2d31b707d4b165f8202d593336699c6d66866010feed"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
