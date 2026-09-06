@@ -138,6 +138,39 @@ function diagnosticResult(result, environment) {
       .map((message) => recoveryFailureDetail({ message }, environment)),
   }
 }
+export async function runRecoveryEvidenceStages(request, createRuntime, onStage = () => {}) {
+  let previous = null,
+    transport
+  for (let index = 0; index < 3; index++) {
+    const runtime = await createRuntime()
+    let collected
+    try {
+      if (index === 0) transport = runtime.fetchImpl
+      if (typeof transport !== "function" || runtime.fetchImpl !== transport)
+        throw new Error("Evidence stage transport identity changed")
+      collected = await executeRecoveryCommand("reconcile-verification", request, runtime, {
+        evidenceStage: previous,
+      })
+    } finally {
+      await runtime.dispose?.()
+    }
+    const { result, stage } = collected
+    if (result.outcome === "blocked" || result.errors?.length) return result
+    if (stage) {
+      if (
+        previous &&
+        (stage.group <= previous.group ||
+          stage.completedLanes.length <= previous.completedLanes.length)
+      )
+        throw new Error("Evidence stage made no progress")
+      previous = stage
+      onStage(stage)
+    }
+    if (result.phase !== "RECOVERY_ADOPTED") return result
+    if (!stage) throw new Error("Evidence stage made no progress")
+  }
+  throw new Error("Evidence stage bound exhausted")
+}
 export async function runRecoveryCli(
   argv,
   { root = process.cwd(), environment = process.env, createRuntime = createRecoveryRuntime } = {},
@@ -149,6 +182,7 @@ export async function runRecoveryCli(
     needs = null,
     exitCode = 1,
     errors = [],
+    evidenceStages = [],
     boundary = "arguments"
   try {
     args = parseRecoveryArgs(argv)
@@ -174,14 +208,22 @@ export async function runRecoveryCli(
       }
     }
     boundary = "runtime"
-    runtime = await createRuntime({ root, environment, command: args.command, request })
     boundary = args.command
-    result = await executeRecoveryCommand(args.command, request, runtime, {
-      output: args.output,
-      environment,
-      manifest: args.manifest,
-      emitArtifact: (artifact) => emitRecoveryArtifactOutputs(environment, artifact),
-    })
+    if (args.command === "reconcile-verification") {
+      result = await runRecoveryEvidenceStages(
+        request,
+        () => createRuntime({ root, environment, command: args.command, request }),
+        (stage) => evidenceStages.push(stage),
+      )
+    } else {
+      runtime = await createRuntime({ root, environment, command: args.command, request })
+      result = await executeRecoveryCommand(args.command, request, runtime, {
+        output: args.output,
+        environment,
+        manifest: args.manifest,
+        emitArtifact: (artifact) => emitRecoveryArtifactOutputs(environment, artifact),
+      })
+    }
     if (args.command === "audit")
       await emitRecoveryArtifactOutputs(
         environment,
@@ -221,6 +263,7 @@ export async function runRecoveryCli(
           status: exitCode === 0 ? "success" : "blocked",
           result: diagnosticResult(result, environment),
           workflowResults: needs,
+          ...(args.command === "reconcile-verification" ? { evidenceStages } : {}),
           errors,
         }),
         {},
