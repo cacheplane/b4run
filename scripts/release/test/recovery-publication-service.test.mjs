@@ -421,7 +421,10 @@ for (const uncertain of [null, "upload", "publish"])
       patches[0].body.body,
       `${initialBody}\n\nMetadata write verified by recovery service probe.`,
     )
-    assert.equal(patches[1].body.draft, false)
+    assert.deepEqual(patches[1].body, {
+      tag_name: `v0.0.0-recovery-contract-${fake.nonce}`,
+      draft: false,
+    })
   })
 for (const damage of [
   "id",
@@ -524,3 +527,116 @@ test("existing draft verifies changed metadata body before upload", async () => 
   assert.equal(fake.effects.length, 1)
   assert.equal(fake.effects[0].method, "PATCH")
 })
+
+function opaqueDraftService(options) {
+  const fake = existingReleaseService(options),
+    api = fake.api
+  fake.api = async (...args) => {
+    const result = await api(...args)
+    if (args[0] === "PATCH" && args[2].draft === undefined)
+      result.body.tag_name = "untagged-e886bb9bf253e3ee7d74"
+    return result
+  }
+  return fake
+}
+for (const uncertain of [null, "upload", "publish"])
+  test(`metadata response may project a bounded opaque draft tag with ${uncertain ?? "known"} response`, async () => {
+    const fake = opaqueDraftService({ uncertain })
+    const result = await subject.runPublicationServiceProbe(fake)
+    assert.equal(result.status, "published-immutable")
+    assert.equal(result.observedDraftTag, "untagged-e886bb9bf253e3ee7d74")
+    assert.deepEqual(fake.effects.at(-1).body, {
+      tag_name: `v0.0.0-recovery-contract-${fake.nonce}`,
+      draft: false,
+    })
+  })
+for (const field of [
+  "id",
+  "body",
+  "name",
+  "target_commitish",
+  "draft",
+  "prerelease",
+  "immutable",
+  "tag_name",
+])
+  test(`metadata response must bind the owned draft ${field} before upload`, async () => {
+    const fake = opaqueDraftService(),
+      api = fake.api
+    fake.api = async (...args) => {
+      const result = await api(...args)
+      if (args[0] === "PATCH" && args[2].draft === undefined)
+        result.body = {
+          ...result.body,
+          [field]:
+            typeof result.body[field] === "boolean"
+              ? !result.body[field]
+              : field === "id"
+                ? 99
+                : "wrong",
+        }
+      return result
+    }
+    await assert.rejects(subject.runPublicationServiceProbe(fake))
+    assert.equal(fake.effects.length, 1)
+  })
+test("metadata projection requires exact response/readback agreement", async () => {
+  const fake = opaqueDraftService(),
+    api = fake.api
+  fake.api = async (...args) => {
+    const result = await api(...args)
+    if (args[0] === "GET" && args[1].endsWith("/releases/100") && fake.effects.length > 0)
+      result.body = { ...result.body, tag_name: "untagged-00000000000000000000" }
+    return result
+  }
+  await assert.rejects(subject.runPublicationServiceProbe(fake))
+  assert.equal(fake.effects.length, 1)
+})
+test("opaque draft projection is forbidden during initial preflight", async () => {
+  const fake = existingReleaseService(),
+    api = fake.api
+  fake.api = async (...args) => {
+    const result = await api(...args)
+    if (args[0] === "GET" && args[1].endsWith("/releases/100"))
+      result.body = { ...result.body, tag_name: "untagged-e886bb9bf253e3ee7d74" }
+    return result
+  }
+  await assert.rejects(subject.runPublicationServiceProbe(fake))
+  assert.deepEqual(fake.effects, [])
+})
+test("original annotated tag is independently checked again before publication", async () => {
+  const fake = existingReleaseService(),
+    api = fake.api
+  fake.api = async (...args) => {
+    const result = await api(...args)
+    if (
+      args[0] === "GET" &&
+      args[1].includes("/git/ref/tags/") &&
+      fake.effects.some((e) => e.path.includes("/assets?"))
+    )
+      result.body.object.sha = "d".repeat(40)
+    return result
+  }
+  await assert.rejects(subject.runPublicationServiceProbe(fake))
+  assert.equal(
+    fake.effects.some((e) => e.method === "PATCH" && e.body.draft === false),
+    false,
+  )
+})
+
+for (const tagName of [
+  "untagged-fixture",
+  `untagged-${"a".repeat(21)}`,
+  [`untagged-${"a".repeat(20)}`],
+])
+  test(`metadata projection rejects unsupported tag representation ${JSON.stringify(tagName)}`, async () => {
+    const fake = opaqueDraftService(),
+      api = fake.api
+    fake.api = async (...args) => {
+      const result = await api(...args)
+      if (args[0] === "PATCH" && args[2].draft === undefined) result.body.tag_name = tagName
+      return result
+    }
+    await assert.rejects(subject.runPublicationServiceProbe(fake))
+    assert.equal(fake.effects.length, 1)
+  })

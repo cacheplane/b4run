@@ -195,8 +195,15 @@ export async function runPublicationServiceProbe({
     prerelease: true,
   }
   const metadataBody = `${releaseSpec.body}\n\nMetadata write verified by recovery service probe.`
-  const verifyExistingDraft = (value, body = releaseSpec.body) => {
-    const expected = { ...releaseSpec, body, id: existingReleaseId, immutable: false }
+  let metadataDraftTag = tag
+  const verifyExistingDraft = (value, body = releaseSpec.body, tagName = tag) => {
+    const expected = {
+      ...releaseSpec,
+      body,
+      tag_name: tagName,
+      id: existingReleaseId,
+      immutable: false,
+    }
     assert.deepEqual(
       Object.fromEntries(Object.keys(expected).map((key) => [key, value[key]])),
       expected,
@@ -257,13 +264,21 @@ export async function runPublicationServiceProbe({
     )
     assert.equal((await anonymousGet(path)).status, 404, "existing draft must be hidden")
     // Exercise a real body mutation on the exact operator-owned draft. An unknown or denied response stops; no blind metadata retry.
-    assert.equal((await api("PATCH", path, { body: metadataBody })).status, 200)
+    const metadata = await api("PATCH", path, { body: metadataBody })
+    assert.equal(metadata.status, 200)
+    metadataDraftTag = metadata.body?.tag_name
+    assert.ok(
+      typeof metadataDraftTag === "string" &&
+        (metadataDraftTag === tag || /^untagged-[a-f0-9]{20}$/u.test(metadataDraftTag)),
+      "bounded observed metadata draft tag required",
+    )
+    verifyExistingDraft(metadata.body, metadataBody, metadataDraftTag)
   }
   owned.status = "draft"
   await persist(owned)
   const releasePath = `${base}/releases/${owned.releaseId}`
   const draft = await get(releasePath)
-  if (existingReleaseId !== null) verifyExistingDraft(draft, metadataBody)
+  if (existingReleaseId !== null) verifyExistingDraft(draft, metadataBody, metadataDraftTag)
   assert.equal(draft.id, owned.releaseId)
   assert.equal(draft.draft, true)
   assert.equal(draft.name, `Recovery service contract ${nonce}`)
@@ -298,14 +313,13 @@ export async function runPublicationServiceProbe({
   assert.equal(digest(await download(asset.id)), payloadSha256)
   await persist(owned)
   await assertCurrentWorkflowScope()
+  if (existingReleaseId !== null) await verifyTag()
   try {
     assert.equal(
       (
         await api("PATCH", releasePath, {
           tag_name: tag,
-          target_commitish: sourceSha,
           draft: false,
-          make_latest: "false",
         })
       ).status,
       200,
