@@ -43,6 +43,16 @@ function requireThat(value, message) {
 function same(a, b, message) {
   requireThat(JSON.stringify(stable(a)) === JSON.stringify(stable(b)), message)
 }
+// Download counters are provider telemetry and can advance from our own reads.
+// Preserve every other field, including metadata added by future API versions.
+function assetMutationFacts({ download_count: _downloadCount, ...asset }) {
+  return asset
+}
+function releaseMutationFacts(release) {
+  return Array.isArray(release.assets)
+    ? { ...release, assets: release.assets.map(assetMutationFacts) }
+    : release
+}
 function stable(v) {
   return Array.isArray(v)
     ? v.map(stable)
@@ -294,8 +304,8 @@ export function createRecoveryWriter(config, dependencies) {
       return result.value
     }
     same(
-      await read("getRelease", { releaseId: args.candidate.releaseId }),
-      current.facts.release,
+      releaseMutationFacts(await read("getRelease", { releaseId: args.candidate.releaseId })),
+      releaseMutationFacts(current.facts.release),
       "release changed before mutation",
     )
     same(
@@ -921,8 +931,8 @@ export function createRecoveryWriter(config, dependencies) {
             "embedded asset inventory differs after upload",
           )
           same(
-            afterAssets.filter((asset) => asset.name !== args.name),
-            beforeAssets,
+            afterAssets.filter((asset) => asset.name !== args.name).map(assetMutationFacts),
+            beforeAssets.map(assetMutationFacts),
             "unrelated embedded asset mutation",
           )
         }

@@ -357,6 +357,50 @@ test("upload accepts GitHub updated_at and the exact embedded asset addition", a
   assert.equal(r.effects.length, 1)
 })
 
+for (const phase of ["before mutation", "after upload"])
+  test(`upload accepts only embedded asset download counter drift ${phase}`, async () => {
+    const r = await githubUploadRemote((r) => {
+      if (phase === "after upload") r.release.assets[0].download_count++
+    })
+    if (phase === "before mutation") {
+      const download = r.args.github.downloadReleaseAsset
+      r.args.github.downloadReleaseAsset = async (...args) => {
+        const result = await download(...args)
+        r.release.assets[0].download_count++
+        return result
+      }
+    }
+    const ref = await writer(r).uploadRecoveryAsset(archiveInput(r))
+    assert.equal(ref.sha256, digest(r.legacyBody))
+    assert.equal(r.effects.length, 1)
+  })
+
+for (const [field, value] of Object.entries({
+  label: "external label",
+  id: 999999,
+  name: "external-name",
+  size: 999999,
+  digest: `sha256:${"0".repeat(64)}`,
+  state: "external-state",
+  uploader: { login: "external" },
+  updated_at: "2026-09-04T10:02:00Z",
+  future_metadata: { download_count: 99 },
+}))
+  test(`pre-mutation comparison preserves embedded asset ${field}`, async () => {
+    const r = await githubUploadRemote()
+    const download = r.args.github.downloadReleaseAsset
+    r.args.github.downloadReleaseAsset = async (...args) => {
+      const result = await download(...args)
+      r.release.assets[0][field] = value
+      return result
+    }
+    await assert.rejects(
+      writer(r).uploadRecoveryAsset(archiveInput(r)),
+      /release changed before mutation/,
+    )
+    assert.equal(r.effects.length, 0)
+  })
+
 for (const [field, value] of Object.entries({
   name: "external title",
   body: "external body",
@@ -367,6 +411,7 @@ for (const [field, value] of Object.entries({
   target_commitish: "other",
   prerelease: true,
   author: { login: "external" },
+  future_metadata: { download_count: 99 },
   published_at: "2026-09-04T10:01:00Z",
 }))
   test(`upload rejects concurrent release ${field} mutation`, async () => {
@@ -385,9 +430,9 @@ for (const [name, mutate] of [
     },
   ],
   [
-    "unrelated embedded asset download count",
+    "unrelated embedded asset unknown field",
     (r) => {
-      r.release.assets[0].download_count++
+      r.release.assets[0].future_metadata = "changed"
     },
   ],
   [
