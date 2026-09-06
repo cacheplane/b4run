@@ -958,6 +958,11 @@ next-version arbitration adds 91, for 1,019 across the full rehearsal. The initi
 publication fixture retains a bound below 1,000; the full rehearsal has a separate
 1,100-read regression bound. These synthetic-fixture bounds are not a production
 quota guarantee and assume neither a token change nor an hourly quota reset.
+The real-fence fixture measured 930 through publication and 1,107 including later
+replay/arbitration; its three evidence scopes used 111, 114 and 111 primary reads.
+It preserves the initial 1,000-read bound and uses a separate 1,200-read full
+rehearsal bound. The fixtures exclude additional production CI/admission and
+smoke reads.
 
 ## Payload reuse and initial observation settlement (Task 12b)
 

@@ -127,7 +127,21 @@ test("real fence HTTP recovery includes complete paginated histories and fresh p
       result.fenceObservations.every((f) => f.complete && f.pages === 14 && f.writers === 4),
     )
     assert.ok(result.fenceHistoryNotModified > 600)
-    assert.ok(result.githubPrimaryRequests < 1000)
+    const initialPublicationReads =
+      result.githubPrimaryRequests -
+      result.githubPrimaryByStage["published-noop"] -
+      result.githubPrimaryByStage["next-version"]
+    assert.ok(
+      initialPublicationReads < 1000,
+      "real-fence initial publication fixture retains its primary-read bound",
+    )
+    assert.ok(
+      result.githubPrimaryRequests < 1200,
+      "real-fence rehearsal including later replay/arbitration retains its regression bound",
+    )
+    assert.equal(result.evidenceReadScopes.length, 3)
+    assert.ok(result.evidenceReadScopes.every((count) => count < 250))
+    assert.ok(result.githubPrimaryByStage["five-lanes"] < 350)
     const unconditional = await module.createRecoveryHttpRehearsal({
       realFence: true,
       conditionalReads: false,
