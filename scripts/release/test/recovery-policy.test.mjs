@@ -11,10 +11,10 @@ test("recovery policy contract exists", () => {
   assert.equal(typeof policyModule.parseRecoveryPolicy, "function")
 })
 
-test("production admission is dormant and its explicit probe closure excludes the policy self-hash", async () => {
+test("production admission is explicit and its probe closure excludes the policy self-hash", async () => {
   const policy = await fixture()
   const parsed = policyModule.parseRecoveryPolicy(policyModule.canonicalPolicyBytes(policy))
-  assert.equal(parsed.status, "DORMANT")
+  assert.equal(parsed.status, "ADMITTED")
   assert.match(parsed.verifierClosure.sha256, /^[a-f0-9]{64}$/u)
   assert.deepEqual(parsed.receiptVersions, [2])
   assert.deepEqual(
@@ -245,7 +245,7 @@ test("raw policy rejects malformed Unicode, byte proxies and decorated buffers w
   for (const value of [
     decorated,
     new Proxy(raw, {}),
-    raw.toString().replace('"DORMANT"', '"\ud800"'),
+    raw.toString().replace(JSON.stringify(p.status), '"\ud800"'),
     Buffer.from([0xff]),
   ]) {
     assert.throws(() => policyModule.parseRecoveryPolicy(value))

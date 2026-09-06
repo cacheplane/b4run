@@ -1,0 +1,23 @@
+{
+  "runId": 34001291526,
+  "headSha": "b9ecd7e422fdbac1dead9b3513752e1accfc6fa6",
+  "credential": "actual github.token, contents:read",
+  "observedAt": "2026-09-06T00:26:41.4092055Z",
+  "core": {
+    "limit": 5000,
+    "used": 9,
+    "remaining": 4991,
+    "reset": 1788657718
+  },
+  "graphql": {
+    "limit": 5000,
+    "used": 2,
+    "remaining": 4998,
+    "reset": 1788657713
+  },
+  "limitations": [
+    "Momentary observation, not reservation or guarantee against competing traffic.",
+    "Production phase observations and controller bounds still apply."
+  ],
+  "evidence": "workflow-quota.log"
+}

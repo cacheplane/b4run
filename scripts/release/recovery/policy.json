@@ -14,7 +14,7 @@
   },
   "fence": {
     "concurrencyGroup": "dawn-release-controller",
-    "contracts": []
+    "contracts": ["cdd6711f7934797a991de3968947b027c7484cc678f36743383ee7a902856b63"]
   },
   "lanes": [
     {
@@ -108,7 +108,7 @@
     "transportRetries": 5
   },
   "schemaVersion": 2,
-  "status": "DORMANT",
+  "status": "ADMITTED",
   "verifierClosure": {
     "inputs": [
       ".github/workflows/release-postpublication-audit.yml",

@@ -26,5 +26,18 @@
     "enabled": false,
     "clientKind": "git",
     "useIgnoreFile": true
-  }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "scripts/release/recovery-platform-reviews/*.json",
+        "scripts/release/recovery-fence-contracts/*.json",
+        "scripts/release/recovery-fence-evidence/*.json",
+        "scripts/release/recovery-adoptions/*.json"
+      ],
+      "formatter": {
+        "enabled": false
+      }
+    }
+  ]
 }
