@@ -45,6 +45,7 @@ test("disposable topology preserves every production job dependency and conditio
   )
   assert.equal(fixture.on.workflow_dispatch.inputs.publish_contract.default, false)
   for (const [input, variable] of [
+    ["existing_release_id", "DAWN_RECOVERY_TEST_EXISTING_RELEASE_ID"],
     ["existing_tag_nonce", "DAWN_RECOVERY_TEST_EXISTING_TAG_NONCE"],
     ["existing_tag_object_sha", "DAWN_RECOVERY_TEST_EXISTING_TAG_OBJECT_SHA"],
   ]) {

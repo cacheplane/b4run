@@ -17,6 +17,7 @@ export async function runPublicationServiceProbe({
   sourceSha,
   nonce,
   existingTagObjectSha = null,
+  existingReleaseId = null,
   topologySha256 = null,
   api,
   anonymousGet,
@@ -29,6 +30,13 @@ export async function runPublicationServiceProbe({
   assert.match(sourceSha, /^[a-f0-9]{40}$/u)
   assert.match(nonce, /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u)
   if (existingTagObjectSha !== null) assert.match(existingTagObjectSha, /^[a-f0-9]{40}$/u)
+  if (existingReleaseId !== null) {
+    assert.ok(existingTagObjectSha !== null, "existing release requires existing tag mode")
+    assert.ok(
+      Number.isSafeInteger(existingReleaseId) && existingReleaseId > 0,
+      "positive existing release ID required",
+    )
+  }
   const base = `/repos/${repository}`,
     tag = `v0.0.0-recovery-contract-${nonce}`
   const owned = {
@@ -37,7 +45,8 @@ export async function runPublicationServiceProbe({
     tag,
     tagObjectSha: existingTagObjectSha,
     tagProvenance: existingTagObjectSha === null ? "probe-created" : "operator-created",
-    releaseId: null,
+    releaseId: existingReleaseId,
+    releaseProvenance: existingReleaseId === null ? "probe-created" : "operator-created",
     assetId: null,
     status: "preflight",
     unknownResponses: [],
@@ -177,6 +186,23 @@ export async function runPublicationServiceProbe({
       { type: "commit", sha: sourceSha },
     )
   }
+  const releaseSpec = {
+    tag_name: tag,
+    target_commitish: sourceSha,
+    name: `Recovery service contract ${nonce}`,
+    body: `Disposable contract ${nonce}; payload sha256:${payloadSha256}`,
+    draft: true,
+    prerelease: true,
+  }
+  const metadataBody = `${releaseSpec.body}\n\nMetadata write verified by recovery service probe.`
+  const verifyExistingDraft = (value, body = releaseSpec.body) => {
+    const expected = { ...releaseSpec, body, id: existingReleaseId, immutable: false }
+    assert.deepEqual(
+      Object.fromEntries(Object.keys(expected).map((key) => [key, value[key]])),
+      expected,
+      "exact owned empty draft identity required",
+    )
+  }
   await verifyTag()
   if (existingTagObjectSha !== null) {
     // Authenticated listing includes drafts, which can temporarily have an
@@ -186,6 +212,7 @@ export async function runPublicationServiceProbe({
       Array.isArray(releases) && releases.length < 100,
       "complete bounded release inventory required",
     )
+    let selected = 0
     for (const release of releases) {
       assert.ok(
         Number.isSafeInteger(release.id) &&
@@ -195,6 +222,11 @@ export async function runPublicationServiceProbe({
           (release.body === null || typeof release.body === "string"),
         "valid release inventory required",
       )
+      if (existingReleaseId !== null && release.id === existingReleaseId) {
+        verifyExistingDraft(release)
+        selected++
+        continue
+      }
       assert.ok(
         release.tag_name !== tag &&
           !release.name.includes(nonce) &&
@@ -202,24 +234,36 @@ export async function runPublicationServiceProbe({
         "preexisting release or draft for supplied nonce forbidden",
       )
     }
+    assert.equal(
+      selected,
+      existingReleaseId === null ? 0 : 1,
+      "exactly one selected existing release required",
+    )
   }
   // An unknown create response deliberately stops: no direct ID means no owned
   // release mutation can follow and no blind retry can create a second draft.
-  const created = await api("POST", `${base}/releases`, {
-    tag_name: tag,
-    target_commitish: sourceSha,
-    name: `Recovery service contract ${nonce}`,
-    body: `Disposable contract ${nonce}; payload sha256:${payloadSha256}`,
-    draft: true,
-    prerelease: true,
-  })
-  assert.equal(created.status, 201)
-  assert.ok(Number.isSafeInteger(created.body.id) && created.body.id > 0)
-  owned.releaseId = created.body.id
+  if (existingReleaseId === null) {
+    const created = await api("POST", `${base}/releases`, releaseSpec)
+    assert.equal(created.status, 201)
+    assert.ok(Number.isSafeInteger(created.body.id) && created.body.id > 0)
+    owned.releaseId = created.body.id
+  } else {
+    const path = `${base}/releases/${existingReleaseId}`
+    verifyExistingDraft(await get(path))
+    assert.deepEqual(
+      await get(`${path}/assets?per_page=100&page=1`),
+      [],
+      "existing draft must have no assets",
+    )
+    assert.equal((await anonymousGet(path)).status, 404, "existing draft must be hidden")
+    // Exercise a real body mutation on the exact operator-owned draft. An unknown or denied response stops; no blind metadata retry.
+    assert.equal((await api("PATCH", path, { body: metadataBody })).status, 200)
+  }
   owned.status = "draft"
   await persist(owned)
   const releasePath = `${base}/releases/${owned.releaseId}`
   const draft = await get(releasePath)
+  if (existingReleaseId !== null) verifyExistingDraft(draft, metadataBody)
   assert.equal(draft.id, owned.releaseId)
   assert.equal(draft.draft, true)
   assert.equal(draft.name, `Recovery service contract ${nonce}`)
@@ -276,6 +320,7 @@ export async function runPublicationServiceProbe({
   assert.equal(published.draft, false)
   assert.equal(published.immutable, true)
   assert.equal(published.tag_name, tag)
+  if (existingReleaseId !== null) assert.equal(published.body, metadataBody)
   // Public visibility can lag the authenticated immutable read. Re-observe
   // only a 404, within a finite budget; never retry the publication mutation.
   let visible

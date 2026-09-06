@@ -36,6 +36,9 @@ on:
       existing_tag_object_sha:
         type: string
         default: ""
+      existing_release_id:
+        type: string
+        default: ""
       discard_response:
         type: choice
         options:
@@ -319,6 +322,7 @@ jobs:
           DAWN_RECOVERY_TEST_SOURCE_SHA: ${{ inputs.publication_source_sha }}
           DAWN_RECOVERY_TEST_EXISTING_TAG_NONCE: ${{ inputs.existing_tag_nonce }}
           DAWN_RECOVERY_TEST_EXISTING_TAG_OBJECT_SHA: ${{ inputs.existing_tag_object_sha }}
+          DAWN_RECOVERY_TEST_EXISTING_RELEASE_ID: ${{ inputs.existing_release_id }}
           DAWN_RECOVERY_TEST_DISCARD_RESPONSE: ${{ inputs.discard_response }}
         run: node --test scripts/release/test/recovery-publication-github.integration.mjs
       - name: Retain publication contract ledger

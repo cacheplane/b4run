@@ -55,6 +55,13 @@ test("real annotated-tag publication, draft visibility and immutable asset readb
     assert.match(existingNonce, /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u)
     assert.match(existingTagObjectSha, /^[a-f0-9]{40}$/u)
   }
+  const existingReleaseText = env.DAWN_RECOVERY_TEST_EXISTING_RELEASE_ID ?? ""
+  const existingReleaseId = existingReleaseText === "" ? null : Number(existingReleaseText)
+  if (existingReleaseId !== null) {
+    assert.ok(existingNonce !== "", "existing release requires existing tag mode")
+    assert.match(existingReleaseText, /^[1-9][0-9]*$/u)
+    assert.ok(Number.isSafeInteger(existingReleaseId) && existingReleaseId > 0)
+  }
   let discarded = false
   const root = await mkdtemp(join(env.RUNNER_TEMP ?? tmpdir(), "dawn-recovery-publication-"))
   const ledger = {
@@ -64,6 +71,8 @@ test("real annotated-tag publication, draft visibility and immutable asset readb
     tagProvenance: existingNonce === "" ? "probe-created" : "operator-created",
     existingTag:
       existingNonce === "" ? null : { nonce: existingNonce, objectSha: existingTagObjectSha },
+    existingReleaseId,
+    releaseProvenance: existingReleaseId === null ? "probe-created" : "operator-created",
     releaseWriteCredentialKind: env.DAWN_RECOVERY_TEST_CREDENTIAL_KIND,
     runId: env.GITHUB_RUN_ID ?? null,
     calls: [],
@@ -167,6 +176,7 @@ test("real annotated-tag publication, draft visibility and immutable asset readb
       sourceSha: env.DAWN_RECOVERY_TEST_SOURCE_SHA,
       nonce: existingNonce || randomUUID(),
       existingTagObjectSha: existingTagObjectSha || null,
+      existingReleaseId,
       topologySha256: hash(
         await readFile(new URL("./fixtures/recovery-topology-workflow.yml", import.meta.url)),
       ),
@@ -175,7 +185,7 @@ test("real annotated-tag publication, draft visibility and immutable asset readb
         const selected =
           discard === "upload"
             ? Buffer.isBuffer(body)
-            : discard === "publication" && method === "PATCH"
+            : discard === "publication" && method === "PATCH" && body?.draft === false
         if (!discarded && selected && response.status >= 200 && response.status < 300) {
           discarded = true
           ledger.injectedClientResponseLoss = discard

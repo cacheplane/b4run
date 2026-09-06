@@ -15,11 +15,31 @@ const currentWorkflow = await readFile(
 
 const subject = await import("./support/recovery-publication-service.mjs").catch(() => ({}))
 const sha = (x) => createHash("sha256").update(x).digest("hex")
-function service({ uncertain = null, production = false, immutable = true } = {}) {
+function service({
+  uncertain = null,
+  production = false,
+  immutable = true,
+  existingRelease = false,
+} = {}) {
   const calls = [],
     effects = [],
     base = "/repos/example/release-lab"
-  let release, asset, payload
+  const nonce = "01234567-1234-1234-1234-123456789abc",
+    sourceSha = "a".repeat(40)
+  let release = existingRelease
+      ? {
+          id: 100,
+          tag_name: `v0.0.0-recovery-contract-${nonce}`,
+          target_commitish: sourceSha,
+          name: `Recovery service contract ${nonce}`,
+          body: `Disposable contract ${nonce}; payload sha256:${sha(Buffer.from(`Recovery service contract ${nonce}\nsource ${sourceSha}\n`))}`,
+          draft: true,
+          immutable: false,
+          prerelease: true,
+        }
+      : undefined,
+    asset,
+    payload
   return {
     calls,
     effects,
@@ -65,10 +85,11 @@ function service({ uncertain = null, production = false, immutable = true } = {}
           return { status: 200, body: { object: { sha: "c".repeat(40), type: "tag" } } }
         if (path.includes("/git/tags/"))
           return { status: 200, body: { object: { sha: "a".repeat(40), type: "commit" } } }
-        if (path.endsWith("/assets?per_page=100&page=1")) return { status: 200, body: [asset] }
+        if (path.endsWith("/assets?per_page=100&page=1"))
+          return { status: 200, body: asset ? [asset] : [] }
         if (path.endsWith("/releases/100")) return { status: 200, body: release }
       }
-      effects.push({ method, path })
+      effects.push({ method, path, body })
       if (path.endsWith("/git/tags")) return { status: 201, body: { sha: "c".repeat(40) } }
       if (path.endsWith("/git/refs")) return { status: 201, body: {} }
       if (method === "POST" && path.endsWith("/releases")) {
@@ -85,8 +106,8 @@ function service({ uncertain = null, production = false, immutable = true } = {}
         return { status: 201, body: asset }
       }
       if (method === "PATCH") {
-        release = { ...release, ...body, immutable: true }
-        if (uncertain === "publish")
+        release = { ...release, ...body, ...(body.draft === false ? { immutable: true } : {}) }
+        if (uncertain === "publish" && body.draft === false)
           throw Object.assign(new Error("response lost"), { uncertain: true })
         return { status: 200, body: release }
       }
@@ -362,4 +383,144 @@ test("existing tag mode rejects malformed object identity before any call", asyn
   fake.existingTagObjectSha = "invalid"
   await assert.rejects(subject.runPublicationServiceProbe(fake))
   assert.deepEqual(fake.calls, [])
+})
+
+function existingReleaseService(options) {
+  const fake = existingTagService({ ...options, existingRelease: true })
+  fake.existingReleaseId = 100
+  const api = fake.api
+  fake.api = async (method, path, body) => {
+    if (method === "GET" && path.includes("/releases?")) {
+      fake.calls.push({ method, path })
+      return {
+        status: 200,
+        body: [(await api("GET", "/repos/example/release-lab/releases/100", null)).body],
+      }
+    }
+    return api(method, path, body)
+  }
+  return fake
+}
+for (const uncertain of [null, "upload", "publish"])
+  test(`existing empty operator draft supports ${uncertain ?? "known"} response without resource creation`, async () => {
+    const fake = existingReleaseService({ uncertain })
+    const initialBody = (await fake.api("GET", "/repos/example/release-lab/releases/100", null))
+      .body.body
+    const result = await subject.runPublicationServiceProbe(fake)
+    assert.equal(result.status, "published-immutable")
+    assert.equal(result.releaseProvenance, "operator-created")
+    assert.equal(
+      fake.effects.some((e) => e.path.includes("/git/") || e.path.endsWith("/releases")),
+      false,
+    )
+    assert.equal(fake.effects.filter((e) => e.path.includes("/assets?")).length, 1)
+    const patches = fake.effects.filter((e) => e.method === "PATCH")
+    assert.equal(patches.length, 2)
+    assert.deepEqual(Object.keys(patches[0].body), ["body"])
+    assert.equal(
+      patches[0].body.body,
+      `${initialBody}\n\nMetadata write verified by recovery service probe.`,
+    )
+    assert.equal(patches[1].body.draft, false)
+  })
+for (const damage of [
+  "id",
+  "tag_name",
+  "target_commitish",
+  "name",
+  "body",
+  "draft",
+  "immutable",
+  "prerelease",
+  "assets",
+  "missing-inventory",
+  "duplicate-inventory",
+  "conflicting-nonce",
+])
+  test(`existing draft rejects ${damage} before mutation`, async () => {
+    const fake = existingReleaseService()
+    const api = fake.api
+    fake.api = async (...args) => {
+      const result = await api(...args),
+        path = args[1]
+      if (args[0] !== "GET") return result
+      if (path.endsWith("/releases/100")) {
+        result.body = structuredClone(result.body)
+        if (["id", "tag_name", "target_commitish", "name", "body"].includes(damage))
+          result.body[damage] = damage === "id" ? 99 : "wrong"
+        if (["draft", "immutable", "prerelease"].includes(damage))
+          result.body[damage] = !result.body[damage]
+      }
+      if (damage === "assets" && path.endsWith("/assets?per_page=100&page=1"))
+        result.body = [{ id: 200 }]
+      if (path.includes("/releases?")) {
+        if (damage === "missing-inventory") result.body = []
+        if (damage === "duplicate-inventory") result.body.push(result.body[0])
+        if (damage === "conflicting-nonce") result.body.push({ ...result.body[0], id: 99 })
+      }
+      return result
+    }
+    await assert.rejects(subject.runPublicationServiceProbe(fake))
+    assert.deepEqual(fake.effects, [])
+  })
+for (const value of [0, -1, 1.5, "100", Number.MAX_SAFE_INTEGER + 1])
+  test(`existing draft rejects invalid supplied ID ${value}`, async () => {
+    const fake = existingReleaseService()
+    fake.existingReleaseId = value
+    await assert.rejects(subject.runPublicationServiceProbe(fake))
+    assert.deepEqual(fake.calls, [])
+  })
+test("existing release requires existing tag mode before reads", async () => {
+  const fake = existingReleaseService()
+  delete fake.existingTagObjectSha
+  await assert.rejects(subject.runPublicationServiceProbe(fake))
+  assert.deepEqual(fake.calls, [])
+})
+for (const denied of ["metadata", "publication"])
+  test(`existing draft stops at denied ${denied} PATCH without retry`, async () => {
+    const fake = existingReleaseService()
+    const api = fake.api
+    fake.api = async (method, path, body) => {
+      if (
+        method === "PATCH" &&
+        (denied === "metadata" ? body.draft === undefined : body.draft === false)
+      ) {
+        fake.effects.push({ method, path, body })
+        return { status: 403, body: { message: "Resource not accessible by integration" } }
+      }
+      return api(method, path, body)
+    }
+    await assert.rejects(subject.runPublicationServiceProbe(fake))
+    assert.equal(
+      fake.effects.filter((e) => e.method === "PATCH").length,
+      denied === "metadata" ? 1 : 2,
+    )
+  })
+
+test("existing draft stops after unknown metadata response without upload or retry", async () => {
+  const fake = existingReleaseService()
+  const api = fake.api
+  fake.api = async (...args) => {
+    const result = await api(...args)
+    if (args[0] === "PATCH" && args[2].draft === undefined)
+      throw Object.assign(new Error("unknown metadata response"), { uncertain: true })
+    return result
+  }
+  await assert.rejects(subject.runPublicationServiceProbe(fake), /unknown metadata/)
+  assert.equal(fake.effects.length, 1)
+  assert.equal(fake.effects[0].method, "PATCH")
+})
+
+test("existing draft verifies changed metadata body before upload", async () => {
+  const fake = existingReleaseService()
+  const api = fake.api
+  fake.api = async (...args) => {
+    const result = await api(...args)
+    if (args[0] === "GET" && args[1].endsWith("/releases/100") && fake.effects.length > 0)
+      result.body = { ...result.body, body: "metadata mutation did not persist" }
+    return result
+  }
+  await assert.rejects(subject.runPublicationServiceProbe(fake), /draft identity/)
+  assert.equal(fake.effects.length, 1)
+  assert.equal(fake.effects[0].method, "PATCH")
 })
