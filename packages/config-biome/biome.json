@@ -33,7 +33,8 @@
         "scripts/release/recovery-platform-reviews/*.json",
         "scripts/release/recovery-fence-contracts/*.json",
         "scripts/release/recovery-fence-evidence/*.json",
-        "scripts/release/recovery-adoptions/*.json"
+        "scripts/release/recovery-adoptions/*.json",
+        "scripts/release/recovery-verifier-repairs/*.json"
       ],
       "formatter": {
         "enabled": false

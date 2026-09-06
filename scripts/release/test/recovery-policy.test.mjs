@@ -364,12 +364,49 @@ test("reviewed probe inventory equals independently discovered local executable 
   }
   const policy = await fixture()
   assert.deepEqual(policy.verifierClosure.inputs, [...seen].sort())
+  // The complete source graph remains exact. An adopted verifier repair must
+  // independently validate its immutable baseline and explicit source manifest.
+  const { execFileSync } = await import("node:child_process")
+  const { validateRecoveryVerifier } = await import("../recovery/authority.mjs")
+  const controllerSha = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: root,
+    encoding: "utf8",
+  }).trim()
+  const candidate = JSON.parse(
+    await readFile(path.join(root, "scripts/release/recovery-adoptions/v0.8.24.json"), "utf8"),
+  ).candidate
+  const admission = await validateRecoveryVerifier(
+    {
+      candidate,
+      controllerSha,
+      policy,
+      rawPolicy: await readFile(path.join(root, "scripts/release/recovery/policy.json"), "utf8"),
+    },
+    {
+      showFile: ({ ref, path: file }) =>
+        ref === controllerSha
+          ? readFile(path.join(root, file), "utf8")
+          : execFileSync("git", ["show", `${ref}:${file}`], {
+              cwd: root,
+              encoding: "utf8",
+              maxBuffer: 8 * 1024 * 1024,
+            }),
+      isAncestor: ({ ancestor, descendant }) => {
+        try {
+          execFileSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], { cwd: root })
+          return true
+        } catch {
+          return false
+        }
+      },
+    },
+  )
   assert.equal(
+    admission.actualClosureSha256,
     await policyModule.hashVerifierClosure(
-      { controllerSha: "a".repeat(40), inputs: policy.verifierClosure.inputs },
+      { controllerSha, inputs: policy.verifierClosure.inputs },
       ({ path: file }) => readFile(path.join(root, file), "utf8"),
     ),
-    policy.verifierClosure.sha256,
   )
 })
 
