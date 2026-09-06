@@ -166,7 +166,13 @@ test("transient units use the exact hardened gated service policy", () => {
     uid: 1_000,
     unit: "dawn-release-smoke-0123456789abcdef0123456789abcdef.service",
   })
-  assert.deepEqual(args.slice(0, 4), ["--wait", "--pipe", "--expand-environment=no", "--unit"])
+  assert.deepEqual(args.slice(0, 5), [
+    "--quiet",
+    "--wait",
+    "--pipe",
+    "--expand-environment=no",
+    "--unit",
+  ])
   assert.equal(args.includes("--collect"), false)
   assert.equal(args.includes("--foreground"), false)
   assert.equal(

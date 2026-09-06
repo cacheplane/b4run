@@ -139,7 +139,7 @@ for (const method of ["execute", "stream"]) {
 }
 
 export function edgeEntryProbeSource() {
-  return `import { agent } from "@dawn-ai/sdk/pure"
+  return `import { agent } from "@dawn-ai/sdk"
 import { createPostgresThreadsStore } from "@dawn-ai/postgres-storage"
 
 export function edgeSurface() {

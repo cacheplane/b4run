@@ -158,6 +158,7 @@ export function buildSystemdRunArguments({
     throw new TypeError("Transient smoke unit inputs are invalid")
   }
   return Object.freeze([
+    "--quiet",
     "--wait",
     "--pipe",
     "--expand-environment=no",

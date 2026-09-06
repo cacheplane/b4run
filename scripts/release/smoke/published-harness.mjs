@@ -117,6 +117,7 @@ export async function executePublishedHarnessSmoke(
         "--ignore-scripts",
         "--save-exact",
         ...CANONICAL_RELEASE_PACKAGE_ORDER.map((name) => `${name}@${options.version}`),
+        "vitest@4.1.10",
       ],
       { cwd: root },
     )
@@ -346,12 +347,20 @@ const version = process.argv[3]
 assert.match(version, /^\\d+\\.\\d+\\.\\d+/)
 const surfaces = {
   framework: { agent, allow, defineMiddleware, reject },
-  runtime: { discoverRoutes, graphAdapter },
+  runtime: { discoverRoutes },
   smoke: { createAimock, toAguiEvents },
 }
 assert.ok(surfaces[lane], "unknown harness lane")
 for (const [name, value] of Object.entries(surfaces[lane])) {
   assert.equal(typeof value, "function", name + " must be a function")
+}
+if (lane === "runtime") {
+  assert.equal(typeof graphAdapter, "object", "graphAdapter must be a backend adapter object")
+  assert.notEqual(graphAdapter, null, "graphAdapter must be a backend adapter object")
+  assert.equal(graphAdapter.kind, "graph", "graphAdapter must declare the graph backend kind")
+  for (const method of ["execute", "stream"]) {
+    assert.equal(typeof graphAdapter[method], "function", "graphAdapter." + method + " must be a function")
+  }
 }
 `
 }
