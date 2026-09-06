@@ -96,7 +96,13 @@ export async function runDevChildCommand(options: DevChildCommandOptions): Promi
     } satisfies DevChildReadyMessage)
 
     await new Promise<void>((resolvePromise) => {
+      // Promises and signal listeners do not keep Node alive. This test child
+      // must survive until the parent times out and explicitly stops it.
+      const keepAlive = setInterval(() => undefined, 60_000)
       const resolveOnce = () => {
+        clearInterval(keepAlive)
+        process.off("SIGINT", resolveOnce)
+        process.off("SIGTERM", resolveOnce)
         resolvePromise()
       }
 
