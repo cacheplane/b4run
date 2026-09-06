@@ -33,6 +33,13 @@ test("committed v0.8.24 admission binds exact intent, complete topology and actu
   assert.equal(contract.repositoryId, intent.candidate.repositoryId)
   assert.equal(contract.topology.length, 17)
   assert.equal(contract.topology.filter((entry) => entry.disposition === "fenced-legacy").length, 7)
+  for (const entry of contract.topology)
+    for (const source of entry.sources ?? [])
+      if (source.source.kind === "current-default") {
+        assert.equal(fenceDigest(await read(entry.workflow)), source.workflowSha256, entry.workflow)
+        for (const input of source.executionInputs)
+          assert.equal(fenceDigest(await read(input.path)), input.sha256, input.path)
+      }
   for (const input of contract.probeClosure)
     assert.equal(fenceDigest(await read(input.path)), input.sha256, input.path)
   const fixtureBytes = {}

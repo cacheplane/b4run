@@ -14,7 +14,7 @@
   },
   "fence": {
     "concurrencyGroup": "dawn-release-controller",
-    "contracts": ["9b9ffdaf530eceba004195664cd1df8413ab12037e686f99e659acb53c6164e3"]
+    "contracts": ["cdd6711f7934797a991de3968947b027c7484cc678f36743383ee7a902856b63"]
   },
   "lanes": [
     {
