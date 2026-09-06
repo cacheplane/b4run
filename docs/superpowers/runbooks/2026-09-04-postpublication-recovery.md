@@ -934,6 +934,36 @@ Owned temporary production-inspection source and npm tooling were removed;
 inspection and batch-verification evidence remain available at the paths above.
 
 
+## Evidence collection stage boundaries
+
+The verification reconciliation CLI uses at most three fixed groups:
+metadata plus published-harness; runtime-targets plus scaffold; then storage
+plus the verification set and marker. Each group creates fresh runtime readers,
+writer and payload reuse scopes with the existing 20-minute phase budget. The
+workflow's 45-minute job limit remains the outer bound.
+
+Before writing, each group validates every missing lane artifact and checks the
+same complete executor identity and previously accepted lane progress. It ends
+only after a fresh observation verifies all targeted lane escrow. The next group
+starts after successful settlement and reader disposal, with the original shared
+write transport identity. Any error, timeout, disposal failure or progress drift
+ends the command. There is no retry loop or deadline reset within a group.
+Completed groups remain in command diagnostics if a later group fails. Existing
+accepted verification sets retain their marker-only resume path.
+
+The staged HTTP fixture measured 842 primary reads through initial publication:
+adoption 71, evidence 303, audit dispatch 97, independent audit 85, audit escrow
+100, finalization 95 and publication 91. Its later published no-op adds 86 and
+next-version arbitration adds 91, for 1,019 across the full rehearsal. The initial
+publication fixture retains a bound below 1,000; the full rehearsal has a separate
+1,100-read regression bound. These synthetic-fixture bounds are not a production
+quota guarantee and assume neither a token change nor an hourly quota reset.
+The real-fence fixture measured 930 through publication and 1,107 including later
+replay/arbitration; its three evidence scopes used 111, 114 and 111 primary reads.
+It preserves the initial 1,000-read bound and uses a separate 1,200-read full
+rehearsal bound. The fixtures exclude additional production CI/admission and
+smoke reads.
+
 ## Payload reuse and initial observation settlement (Task 12b)
 
 Payload reuse is private to one controller call and retains only exact bytes

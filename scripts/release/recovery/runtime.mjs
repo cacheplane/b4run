@@ -19,7 +19,7 @@ import { dispatchRecoveryAudit, runRecoveryAudit, waitForRecoveryAudit } from ".
 import { auditArtifactName, auditName } from "./audit-proof.mjs"
 import { captureRecoveryEligibility } from "./authority.mjs"
 import { recoveryFailureDetail } from "./diagnostics.mjs"
-import { collectRecoveryEvidence } from "./evidence.mjs"
+import { collectRecoveryEvidence, collectRecoveryEvidenceStage } from "./evidence.mjs"
 import { createRecoveryFenceReader } from "./fence.mjs"
 import { finalizeRecoveryCandidate, publishRecoveryCandidate } from "./finalize.mjs"
 import {
@@ -177,6 +177,8 @@ export async function executeRecoveryCommand(command, request, runtime, options)
     typeof runtime.config?.token === "string" && runtime.config.token.length > 0,
     "Recovery writer credential unavailable",
   )
+  if (command === "reconcile-verification" && Object.hasOwn(options ?? {}, "evidenceStage"))
+    return collectRecoveryEvidenceStage(request, runtime.config, runtime, options.evidenceStage)
   const execute = {
     adopt: adoptRecoveryCandidate,
     "reconcile-verification": collectRecoveryEvidence,

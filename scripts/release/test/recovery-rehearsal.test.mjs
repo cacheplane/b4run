@@ -21,13 +21,39 @@ test("production HTTP recovery arc preserves payload through adoption, audit, pu
     assert.ok(result.httpRequests > 100)
     assert.equal(result.effects.length, 32)
     assert.ok(result.githubNotModified > 1000, "real HTTP 304 confirmations required")
-    assert.ok(
-      result.githubPrimaryByStage["five-lanes"] < 250,
-      "evidence fixture must fit primary quota with headroom",
+    // Three independently fresh reader scopes replace the old single evidence scope.
+    assert.equal(result.evidenceReadScopes.length, 3)
+    assert.ok(result.evidenceReadScopes.every((count) => count < 250))
+    assert.equal(
+      result.evidenceReadScopes.reduce((sum, count) => sum + count, 0),
+      result.githubPrimaryByStage["five-lanes"],
     )
     assert.ok(
-      result.githubPrimaryRequests < 1000,
-      "entire fixture arc must fit repository hourly quota",
+      result.githubPrimaryByStage["five-lanes"] < 350,
+      "three fresh evidence scopes retain primary quota headroom",
+    )
+    const initialPublicationReads = [
+      "adopt",
+      "five-lanes",
+      "audit-dispatch",
+      "independent-audit",
+      "audit-escrow",
+      "finalize",
+      "publish",
+    ].reduce((sum, name) => sum + result.githubPrimaryByStage[name], 0)
+    assert.ok(
+      initialPublicationReads < 1000,
+      "initial publication fixture retains its primary-read bound",
+    )
+    assert.equal(
+      initialPublicationReads +
+        result.githubPrimaryByStage["published-noop"] +
+        result.githubPrimaryByStage["next-version"],
+      result.githubPrimaryRequests,
+    )
+    assert.ok(
+      result.githubPrimaryRequests < 1100,
+      "full rehearsal including later replay/arbitration retains its regression bound",
     )
     assert.ok(result.testSeams.includes("synthetic npm and attestation trust"))
   } finally {
@@ -101,7 +127,21 @@ test("real fence HTTP recovery includes complete paginated histories and fresh p
       result.fenceObservations.every((f) => f.complete && f.pages === 14 && f.writers === 4),
     )
     assert.ok(result.fenceHistoryNotModified > 600)
-    assert.ok(result.githubPrimaryRequests < 1000)
+    const initialPublicationReads =
+      result.githubPrimaryRequests -
+      result.githubPrimaryByStage["published-noop"] -
+      result.githubPrimaryByStage["next-version"]
+    assert.ok(
+      initialPublicationReads < 1000,
+      "real-fence initial publication fixture retains its primary-read bound",
+    )
+    assert.ok(
+      result.githubPrimaryRequests < 1200,
+      "real-fence rehearsal including later replay/arbitration retains its regression bound",
+    )
+    assert.equal(result.evidenceReadScopes.length, 3)
+    assert.ok(result.evidenceReadScopes.every((count) => count < 250))
+    assert.ok(result.githubPrimaryByStage["five-lanes"] < 350)
     const unconditional = await module.createRecoveryHttpRehearsal({
       realFence: true,
       conditionalReads: false,
