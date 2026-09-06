@@ -16,6 +16,7 @@ import {
   verifyAuditIntent,
   verifyAuditResult,
 } from "./audit-proof.mjs"
+import { validateRecoveryVerifier } from "./authority.mjs"
 import {
   recoveryProvenanceName,
   verifyRecoveryEscrowProducer,
@@ -29,7 +30,6 @@ import {
 } from "./model.mjs"
 import {
   canonicalPolicyBytes,
-  hashVerifierClosure,
   parseRecoveryPolicy,
   RECOVERY_POLICY_PATH,
   RECOVERY_RETRY,
@@ -515,25 +515,29 @@ async function executorAdmission(context, c, executor, policySha256, cache, role
   )
   const key = `${executor.controllerSha}:${executor.verifierClosureSha256}`
   if (!cache.has(key)) {
-    const policy = parseRecoveryPolicy(
-      await context.git("showFile", {
-        ref: executor.controllerSha,
-        path: RECOVERY_POLICY_PATH,
-      }),
-    )
+    const rawPolicy = await context.git("showFile", {
+      ref: executor.controllerSha,
+      path: RECOVERY_POLICY_PATH,
+    })
+    const policy = parseRecoveryPolicy(rawPolicy)
     requireThat(
       policy.status === "ADMITTED" && hash(canonicalPolicyBytes(policy)) === policySha256,
       "historical recovery policy is not admitted",
     )
-    const closure = await hashVerifierClosure(
+    const verifier = await validateRecoveryVerifier(
       {
+        candidate: c,
         controllerSha: executor.controllerSha,
-        inputs: policy.verifierClosure.inputs,
+        policy,
+        rawPolicy,
       },
-      (args) => context.git("showFile", args),
+      {
+        showFile: (args) => context.git("showFile", args),
+        isAncestor: (args) => context.git("isAncestor", args),
+      },
     )
     requireThat(
-      closure === policy.verifierClosure.sha256 && closure === executor.verifierClosureSha256,
+      verifier.actualClosureSha256 === executor.verifierClosureSha256,
       "historical verifier closure differs",
     )
     const main = await context.read("getRef", { ref: "heads/main" })
@@ -614,7 +618,7 @@ async function executorAdmission(context, c, executor, policySha256, cache, role
         `historical CI ${name} is not successful`,
       )
     }
-    cache.set(key, policy)
+    cache.set(key, { policy, verifier })
   }
   return {
     admission: {
@@ -625,7 +629,7 @@ async function executorAdmission(context, c, executor, policySha256, cache, role
       workflow: executor.workflow,
       admission: "reviewed-main-ci",
     },
-    policy: cache.get(key),
+    ...cache.get(key),
   }
 }
 async function recoveryChain(
@@ -650,18 +654,47 @@ async function recoveryChain(
   const adoptionRef = finalization?.adoption ?? marker.adoption
   const adoption = wire(adoptionRef, "recovery-adoption")
   const policySha256 = adoption.policySha256
-  const currentPolicy = parseRecoveryPolicy(
-    await context.git("showFile", {
-      ref: controllerRef,
-      path: RECOVERY_POLICY_PATH,
-    }),
-  )
+  const currentRawPolicy = await context.git("showFile", {
+    ref: controllerRef,
+    path: RECOVERY_POLICY_PATH,
+  })
+  const currentPolicy = parseRecoveryPolicy(currentRawPolicy)
   requireThat(
     hash(canonicalPolicyBytes(currentPolicy)) === policySha256,
     "current accepted recovery policy differs",
   )
+  const currentVerifier = await validateRecoveryVerifier(
+    {
+      candidate: c,
+      controllerSha: controllerRef,
+      policy: currentPolicy,
+      rawPolicy: currentRawPolicy,
+    },
+    {
+      showFile: (args) => context.git("showFile", args),
+      isAncestor: (args) => context.git("isAncestor", args),
+    },
+  )
+  const verifyAdoptionAnchor = (verifier) => {
+    if (verifier.mode !== "repair") return
+    same(verifier.adoption, adoptionRef, "verifier repair original adoption descriptor differs")
+    requireThat(
+      adoption.executor.controllerSha === verifier.baselineControllerSha,
+      "verifier repair original adoption executor differs",
+    )
+  }
+  verifyAdoptionAnchor(currentVerifier)
   const cache = new Map()
-  const admitted = await executorAdmission(context, c, adoption.executor, policySha256, cache)
+  const admit = async (executor, role = "owner") => {
+    const result = await executorAdmission(context, c, executor, policySha256, cache, role)
+    verifyAdoptionAnchor(result.verifier)
+    return result
+  }
+  const admitted = await admit(adoption.executor)
+  requireThat(
+    admitted.verifier.mode === "original",
+    "verifier repair cannot create an adoption receipt",
+  )
   const intent = parseRecovery(
     await context.git("showFile", {
       ref: adoption.authority.reviewedControllerSha,
@@ -729,14 +762,7 @@ async function recoveryChain(
       if (value.policySha256 !== undefined)
         requireThat(value.policySha256 === policySha256, "retained receipt policy differs")
       if (value.executor)
-        await executorAdmission(
-          context,
-          c,
-          value.executor,
-          policySha256,
-          cache,
-          value.kind === "recovery-audit-result" ? "audit" : "owner",
-        )
+        await admit(value.executor, value.kind === "recovery-audit-result" ? "audit" : "owner")
     }
   }
   await validateRetained(adoption.retainedAttempts)
@@ -744,7 +770,7 @@ async function recoveryChain(
   for (const ref of refs.filter((r) => r.assetName.startsWith("recovery-v2-provenance-"))) {
     const descriptor = wire(ref, "recovery-provenance")
     requireThat(ref.assetName === recoveryProvenanceName(descriptor), "provenance name differs")
-    await executorAdmission(context, c, descriptor.executor, policySha256, cache)
+    await admit(descriptor.executor)
     await verifyRecoveryEscrowProducer(descriptor, context.read, context.now())
     const lane = wire(descriptor.receipt, "recovery-lane")
     const installationBytes = Object.fromEntries(
@@ -762,7 +788,7 @@ async function recoveryChain(
   const verificationRef = finalization?.verificationSet ?? marker?.verificationSet ?? partialSets[0]
   if (!verificationRef) return facts
   const set = wire(verificationRef, "recovery-verification-set")
-  await executorAdmission(context, c, set.executor, policySha256, cache)
+  await admit(set.executor)
   const lanes = {}
   const installations = {}
   for (const selected of set.lanes) {
@@ -958,14 +984,7 @@ async function recoveryChain(
   requireThat(escrows.length === 1, "independently persisted audit escrow required")
   const auditEscrow = escrows[0].receipt
   same(auditEscrow.result, audit.ref, "audit escrow reference differs")
-  const auditAdmission = await executorAdmission(
-    context,
-    c,
-    audit.receipt.executor,
-    policySha256,
-    cache,
-    "audit",
-  )
+  const auditAdmission = await admit(audit.receipt.executor, "audit")
   const run = await observeAuditRun(
     c,
     selectedIntent.receipt,
@@ -1061,7 +1080,10 @@ export async function inspectRecoveryOriginalPayload(input) {
       legacyPhase: "NPM_COMPLETE",
     }
     const policy = parseRecoveryPolicy(
-      await context.git("showFile", { ref: controllerRef, path: RECOVERY_POLICY_PATH }),
+      await context.git("showFile", {
+        ref: controllerRef,
+        path: RECOVERY_POLICY_PATH,
+      }),
     )
     const policySha256 = hash(canonicalPolicyBytes(policy))
     const reservations = await readReservations(context, controllerRef)
@@ -1094,7 +1116,10 @@ export async function inspectRecoveryOriginalPayload(input) {
           policyStatus: policy.status,
           originalPayload,
           proposal: null,
-          reservation: { intentPath: path, intentSha256: hash(canonicalRecoveryBytes(intent)) },
+          reservation: {
+            intentPath: path,
+            intentSha256: hash(canonicalRecoveryBytes(intent)),
+          },
           errors: [],
         },
         16 * 1024 * 1024,

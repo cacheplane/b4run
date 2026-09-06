@@ -1,5 +1,6 @@
 // GET-only legacy exclusion proof. Production disable/enable remains an activation operation.
 
+import { validateRecoveryVerifier } from "./authority.mjs"
 import {
   FENCE_API_VERSION,
   FENCE_FIXTURES,
@@ -384,7 +385,7 @@ export function createRecoveryFenceReader({ github, git, now = Date.now, sleep =
     "getWorkflowById",
     "listWorkflowRunsAllShasComplete",
   ])
-  const source = recoveryMethods(git, ["showFile"])
+  const source = recoveryMethods(git, ["showFile", "isAncestor"])
   return {
     async observeLegacyFence(request, options = {}) {
       const budget = recoveryReadBudget(
@@ -437,15 +438,29 @@ export function createRecoveryFenceReader({ github, git, now = Date.now, sleep =
         fenceRequire(result.status === "PRESENT", "fresh GitHub read unavailable")
         return snapshotRecoveryData(result.value, 8 * 1024 * 1024)
       }
-      const policy = parseRecoveryPolicy(
-        await show(executor.controllerSha, RECOVERY_POLICY_PATH, 128 * 1024),
-      )
+      const rawPolicy = await show(executor.controllerSha, RECOVERY_POLICY_PATH, 128 * 1024)
+      const policy = parseRecoveryPolicy(rawPolicy)
       fenceRequire(
         policy.status === "ADMITTED" && fenceDigest(canonicalPolicyBytes(policy)) === policySha256,
         "expected-controller policy binding required",
       )
+      const verifierAdmission = await validateRecoveryVerifier(
+        { candidate, controllerSha: executor.controllerSha, policy, rawPolicy },
+        {
+          showFile: ({ ref, path }) => show(ref, path),
+          isAncestor: async (args) => {
+            const result = await source.isAncestor(args, budget.options())
+            budget.options()
+            return result
+          },
+        },
+      )
+      fenceRequire(
+        verifierAdmission.actualClosureSha256 === executor.verifierClosureSha256,
+        "fence executor verifier closure differs",
+      )
       const matches = []
-      for (const digest of policy.fence.contracts) {
+      for (const digest of verifierAdmission.approvedContractDigests) {
         const raw = await show(
           executor.controllerSha,
           `${CONTRACT_ROOT}/${digest}.json`,
@@ -486,7 +501,10 @@ export function createRecoveryFenceReader({ github, git, now = Date.now, sleep =
         fenceDigest(evidence) === contract.evidenceSha256,
         "evidence locator digest mismatch",
       )
-      validateRecoveryFenceEvidence(evidence, { fixtureBytes, probeClosureSha256 })
+      validateRecoveryFenceEvidence(evidence, {
+        fixtureBytes,
+        probeClosureSha256,
+      })
       const repository = async () => {
         const value = await read("getRepository")
         fenceRequire(
@@ -516,11 +534,18 @@ export function createRecoveryFenceReader({ github, git, now = Date.now, sleep =
           "exhaustive workflow mapping required",
         )
         const values = workflows
-          .map((w) => ({ workflowId: recoveryId(w.id), workflow: w.path, state: w.state }))
+          .map((w) => ({
+            workflowId: recoveryId(w.id),
+            workflow: w.path,
+            state: w.state,
+          }))
           .sort((a, b) => (a.workflow < b.workflow ? -1 : a.workflow > b.workflow ? 1 : 0))
         fenceSame(
           values.map(({ workflowId, workflow }) => ({ workflowId, workflow })),
-          contract.topology.map(({ workflowId, workflow }) => ({ workflowId, workflow })),
+          contract.topology.map(({ workflowId, workflow }) => ({
+            workflowId,
+            workflow,
+          })),
           "unknown or renamed workflow identity",
         )
         return values
@@ -550,7 +575,10 @@ export function createRecoveryFenceReader({ github, git, now = Date.now, sleep =
           const checked = platformReview(raw, contract, entry, now)
           fenceSame(
             tree,
-            checked.review.configuration.map(({ path, mode }) => ({ path, mode })),
+            checked.review.configuration.map(({ path, mode }) => ({
+              path,
+              mode,
+            })),
             "platform configuration inventory changed",
           )
           await verifyInputs(initialRepository.sha, checked.review.configuration)
@@ -576,19 +604,31 @@ export function createRecoveryFenceReader({ github, git, now = Date.now, sleep =
         }
         if (entry.disposition !== "fenced-legacy") return
         const state = async () => {
-          const value = await read("getWorkflowById", { workflowId: entry.workflowId })
+          const value = await read("getWorkflowById", {
+            workflowId: entry.workflowId,
+          })
           fenceRequire(
             recoveryId(value.id) === entry.workflowId &&
               value.path === entry.workflow &&
               value.state === "disabled_manually",
             "legacy mutation authority not revoked",
           )
-          return { workflowId: entry.workflowId, workflow: entry.workflow, state: value.state }
+          return {
+            workflowId: entry.workflowId,
+            workflow: entry.workflow,
+            state: value.state,
+          }
         }
         const runs = async () =>
           fenceTerminalRuns(
-            await read("listWorkflowRunsAllShasComplete", { workflowId: entry.workflowId }),
-            { ...candidate, workflowId: entry.workflowId, workflow: entry.workflow },
+            await read("listWorkflowRunsAllShasComplete", {
+              workflowId: entry.workflowId,
+            }),
+            {
+              ...candidate,
+              workflowId: entry.workflowId,
+              workflow: entry.workflow,
+            },
           )
         const beforeState = await state(),
           beforeRuns = await runs(),
