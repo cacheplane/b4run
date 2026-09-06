@@ -14,7 +14,7 @@
       "sha256": "1bb7a43e9b97d641b6d00bd3addeb6e35cfb873589bd743967f89e31f038fcb8"
     },
     "scripts/published-artifact-smoke.mjs": {
-      "sha256": "586a13cc4aa8ea4679caa0cf4c01fcb724e2e77a3e2daf5420aeb36c3e8cfe3d"
+      "sha256": "36f5f9245ad0251117afbfab3dfa60fd279c225643398bf5334a5232d820f73c"
     },
     "scripts/published-artifact-verify.mjs": {
       "sha256": "0165e61437c5dd93fb6018a454c62405b66c69e4921d9bfdcaf7d62ef5a22f4f"

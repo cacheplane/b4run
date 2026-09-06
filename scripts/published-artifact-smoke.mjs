@@ -758,6 +758,8 @@ const readinessTemporaryPath = readinessPath + ".tmp"
 const localReadinessPath = ".published-pids-ready-" + process.pid + ".json"
 const sentinelPath = "/workspace/published-pid-sentinel.txt"
 const sentinel = "sentinel-" + Date.now()
+const recoveryWritePath = "/workspace/published-pid-recovery-write.txt"
+const recoveryWrite = sentinel + "-recovery"
 const context = (workspaceRoot) => ({ signal: new AbortController().signal, workspaceRoot })
 
 async function docker(args) {
@@ -857,6 +859,11 @@ ${capture ? "  const originalImage = await inspectExecutedImage()" : ""}
   assert.equal(saturated.exitCode, 0, JSON.stringify(saturated))
   assert.equal(saturated.stdout.trim(), String(pidsLimit))
 
+  // Docker may admit an exec into a full cgroup, and echo needs no child process.
+  // This idempotent filesystem write requires an in-container fork and exercises
+  // PID recovery before checking subsequent concurrent command execution.
+  await handle.filesystem.writeFile(recoveryWritePath, recoveryWrite, context(handle.workspaceRoot))
+
   const recovered = await Promise.all(
     Array.from({ length: recoveryCommands }, (_, index) =>
       handle.exec.runCommand({ command: "echo recovered-" + index }, context(handle.workspaceRoot)),
@@ -878,8 +885,14 @@ ${
 }
   assert.notEqual(replacementKeeperId, originalKeeperId, "PID-exhausted keeper was not replaced")
   assert.equal(
+    await handle.filesystem.readFile(recoveryWritePath, context(handle.workspaceRoot)),
+    recoveryWrite,
+    "PID recovery write was not preserved",
+  )
+  assert.equal(
     await handle.filesystem.readFile(sentinelPath, context(handle.workspaceRoot)),
     sentinel,
+    "Original PID sentinel was not preserved",
   )
   console.log("T-DOCKER-SANDBOX PASS")
 } finally {
