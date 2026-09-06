@@ -104,7 +104,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for Task 12a: fresh complete-inventory npm signature batching.
 // Repinned for the exact adopted-verifier repair and bounded smoke failure diagnostics.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "01f0be7687e91b0cf7314311481ac1134811401a51259fa2cba71670a78cdbdc"
+  "9feaece0fe8562d519bbd8bac09f1ef818c2fc35ee7f9e19863f6c0f778cceb6"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu

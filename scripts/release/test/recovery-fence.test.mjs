@@ -1437,10 +1437,10 @@ test("fence overlaps independent writers while preserving each double-observatio
     assert.deepEqual(sequence, ["state", "runs", "state", "runs"])
 })
 
-test("fence limits concurrent workflow observations to four", async () => {
+test("fence limits concurrent workflow observations to eight", async () => {
   const { digest } = await import("./support/recovery-fence-fixture.mjs")
   const f = await historicalAuxiliaryFixture((f) => {
-    for (let id = 10; id < 15; id++) {
+    for (let id = 10; id < 20; id++) {
       const workflow = `.github/workflows/auxiliary-${id}.yml`
       f.contract.topology.push({
         ...structuredClone(f.auxiliary),
@@ -1484,17 +1484,32 @@ test("fence limits concurrent workflow observations to four", async () => {
   try {
     await started
     await new Promise(setImmediate)
-    assert.equal(entered.size, 4)
+    assert.equal(entered.size, 8)
   } finally {
     release()
     await pending
   }
-  assert.equal(maximum, 4)
-  assert.equal(entered.size, 8)
+  assert.equal(maximum, 8)
+  assert.equal(entered.size, 13)
 })
 
-test("failed fence joins already-started independent observations before rejecting", async () => {
-  const f = await runtimeFixture()
+test("failed fence joins all seven started sibling observations before rejecting", async () => {
+  const f = await historicalAuxiliaryFixture((f) => {
+    for (let id = 10; id < 15; id++) {
+      const workflow = `.github/workflows/auxiliary-${id}.yml`
+      f.contract.topology.push({
+        ...structuredClone(f.auxiliary),
+        workflowId: String(id),
+        workflow,
+      })
+      f.put("c".repeat(40), workflow, "historical diagnostic\n")
+      f.values.listRepositoryWorkflowsComplete.push({
+        id,
+        path: workflow,
+        state: "disabled_manually",
+      })
+    }
+  })
   let release, second
   const gate = new Promise((resolve) => {
     release = resolve
@@ -1502,13 +1517,15 @@ test("failed fence joins already-started independent observations before rejecti
   const secondStarted = new Promise((resolve) => {
     second = resolve
   })
+  const started = new Set()
   const original = f.github.getWorkflowById
   f.github.getWorkflowById = async (args) => {
     if (args.workflowId === "1") {
       await secondStarted
       throw new Error("intentional writer read failure")
     }
-    second()
+    started.add(args.workflowId)
+    if (started.size === 7) second()
     await gate
     return original(args)
   }
@@ -1525,12 +1542,13 @@ test("failed fence joins already-started independent observations before rejecti
   try {
     await secondStarted
     await new Promise(setImmediate)
+    assert.equal(started.size, 7)
     assert.equal(settled, false, "failing observation must wait for started sibling reads")
   } finally {
     release()
     await observed
   }
-  await assert.rejects(pending, /intentional writer read failure/)
+  await assert.rejects(pending, /getWorkflowById unavailable.*READ_FAILED/)
 })
 
 test("fence admission rejects an executor closure different from reviewed source", async () => {
@@ -1627,4 +1645,112 @@ test("fence selects exactly the repaired contract with fresh replacement source 
   })
   assert.equal(result.contractSha256, replacementDigest)
   assert.ok(result.inventoryComplete)
+})
+
+test("fence memoizes immutable source pairs but each invocation reads afresh", async () => {
+  const { createRecoveryFenceReader } = await import("../recovery/fence.mjs")
+  const f = await runtimeFixture()
+  const reader = createRecoveryFenceReader({ github: f.github, git: f.git, now: () => 1000 })
+  const request = { candidate: f.candidate, executor: f.executor, policySha256: f.policySha256 }
+  const counts = []
+  for (let invocation = 0; invocation < 2; invocation++) {
+    f.calls.length = 0
+    await reader.observeLegacyFence(request)
+    const sources = f.calls
+      .filter((call) => call[0] === "showFile")
+      .map((call) => `${call[1]}:${call[2]}`)
+    assert.equal(sources.length, new Set(sources).size, "immutable source pair read once")
+    counts.push(sources.length)
+    assert.equal(
+      f.calls.filter((call) => call[0] === "getRef").length,
+      2,
+      "default ref reads stay fresh",
+    )
+    assert.equal(f.calls.filter((call) => call[0] === "getRepository").length, 2)
+  }
+  assert.ok(counts[0] > 0)
+  assert.equal(counts[1], counts[0], "cache lifetime is one observation")
+})
+
+for (const [code, expected] of [
+  ["FORBIDDEN", "FORBIDDEN"],
+  ["SECRET-TOKEN-IN-UNTRUSTED-CODE", "UNKNOWN"],
+])
+  test(`fence error identifies the API method with a safe ${expected} code only`, async () => {
+    const f = await runtimeFixture()
+    f.github.getRepository = async () => ({
+      status: "ERROR",
+      code,
+      httpStatus: 403,
+      body: "SECRET-API-BODY",
+    })
+    await assert.rejects(
+      () => observePlatform(f),
+      (error) => {
+        assert.match(error.message, new RegExp(`getRepository.*ERROR.*${expected}`))
+        assert.doesNotMatch(error.message, /SECRET/)
+        return true
+      },
+    )
+  })
+
+test("cached source hits still consume the cumulative logical byte budget", async () => {
+  const { digest } = await import("./support/recovery-fence-fixture.mjs")
+  const blob = "x".repeat(1024 * 1024)
+  const f = await historicalAuxiliaryFixture((f) => {
+    for (let id = 10; id < 28; id++) {
+      const workflow = `.github/workflows/auxiliary-${id}.yml`
+      const entry = { ...structuredClone(f.auxiliary), workflowId: String(id), workflow }
+      entry.sources[0].executionInputs = [
+        { path: "scripts/reviewed-fixture.txt", sha256: digest(blob) },
+      ]
+      f.contract.topology.push(entry)
+      f.put("c".repeat(40), workflow, "historical diagnostic\n")
+      f.values.listRepositoryWorkflowsComplete.push({
+        id,
+        path: workflow,
+        state: "disabled_manually",
+      })
+    }
+    f.put("c".repeat(40), "scripts/reviewed-fixture.txt", blob)
+  })
+  await assert.rejects(() => observePlatform(f), /total git byte bound/)
+})
+
+test("a cached probe hit cannot continue after the fence deadline", async () => {
+  const { createRecoveryFenceReader } = await import("../recovery/fence.mjs")
+  const f = await runtimeFixture()
+  const original = f.git.showFile
+  let afterContract = -1
+  f.git.showFile = async (args) => {
+    const bytes = await original(args)
+    if (args.path === `scripts/release/recovery-fence-contracts/${f.contractSha256}.json`)
+      afterContract = 0
+    return bytes
+  }
+  const now = () => (afterContract < 0 || afterContract++ === 0 ? 1000 : 31000)
+  await assert.rejects(
+    () =>
+      createRecoveryFenceReader({ github: f.github, git: f.git, now }).observeLegacyFence({
+        candidate: f.candidate,
+        executor: f.executor,
+        policySha256: f.policySha256,
+      }),
+    /deadline/,
+  )
+})
+
+test("fence adapter exceptions never disclose API body or token text", async () => {
+  const f = await runtimeFixture()
+  f.github.getRepository = async () => {
+    throw new Error("SECRET-API-BODY TOKEN")
+  }
+  await assert.rejects(
+    () => observePlatform(f),
+    (error) => {
+      assert.match(error.message, /getRepository.*ERROR.*READ_FAILED/)
+      assert.doesNotMatch(error.message, /SECRET|TOKEN/)
+      return true
+    },
+  )
 })

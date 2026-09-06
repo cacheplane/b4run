@@ -59,6 +59,23 @@ export const RECOVERY_FENCE_PROBE_INPUTS = Object.freeze([
   "scripts/release/test/support/recovery-github-probe.mjs",
 ])
 const PROBE_PATHS = new Set(RECOVERY_FENCE_PROBE_INPUTS)
+const READ_ERROR_CODES = new Set([
+  "ABORTED",
+  "FORBIDDEN",
+  "INCOMPLETE_INVENTORY",
+  "MALFORMED_SCHEMA",
+  "NETWORK_ERROR",
+  "NOT_FOUND_OR_HIDDEN",
+  "PAGINATION_LOOP",
+  "RATE_LIMITED",
+  "READ_TIMEOUT_UNSETTLED",
+  "RECOVERY_DEADLINE",
+  "RESPONSE_TOO_LARGE",
+  "SERVER_ERROR",
+  "TIMEOUT",
+  "UNAUTHORIZED",
+  "UNEXPECTED_STATUS",
+])
 const SHA = /^[a-f0-9]{40}$/u,
   HASH = /^[a-f0-9]{64}$/u
 function path(value) {
@@ -361,7 +378,7 @@ function platformTree(raw) {
 async function observeWorkflows(entries, observe) {
   let next = 0
   let failed = false
-  const workers = Array.from({ length: Math.min(4, entries.length) }, async () => {
+  const workers = Array.from({ length: Math.min(8, entries.length) }, async () => {
     while (!failed && next < entries.length) {
       const entry = entries[next++]
       try {
@@ -417,8 +434,19 @@ export function createRecoveryFenceReader({ github, git, now = Date.now, sleep =
           "canonical executor identity required",
         )
       let sourceBytes = 0
+      // Git objects are immutable. Share only exact SHA/path reads within this
+      // observation; every logical read still consumes the original byte budget.
+      const sourceCache = new Map()
       const show = async (ref, path, maximumBytes = 2 * 1024 * 1024) => {
-        const raw = await source.showFile({ ref, path }, budget.options())
+        budget.options()
+        fenceRequire(SHA.test(ref), "immutable source cache key required")
+        const key = JSON.stringify([ref, path])
+        if (!sourceCache.has(key))
+          sourceCache.set(
+            key,
+            Promise.resolve().then(() => source.showFile({ ref, path }, budget.options())),
+          )
+        const raw = await sourceCache.get(key)
         budget.options()
         fenceRequire(
           typeof raw === "string" && raw.isWellFormed() && Buffer.byteLength(raw) <= maximumBytes,
@@ -429,13 +457,22 @@ export function createRecoveryFenceReader({ github, git, now = Date.now, sleep =
         return raw
       }
       const read = async (name, args = {}) => {
-        const result = await runRecoveryAdapterRead(
-          budget,
-          (options) => reads[name](args, options),
-          { now, sleep },
-        )
-        budget.options()
-        fenceRequire(result.status === "PRESENT", "fresh GitHub read unavailable")
+        let result
+        try {
+          result = await runRecoveryAdapterRead(budget, (options) => reads[name](args, options), {
+            now,
+            sleep,
+          })
+          budget.options()
+        } catch {
+          // Never include an adapter exception's API body, URL, or token text.
+          fenceRequire(false, `${name} unavailable (ERROR/READ_FAILED)`)
+        }
+        const status = ["ABSENT", "AMBIGUOUS", "ERROR"].includes(result.status)
+          ? result.status
+          : "UNKNOWN"
+        const code = READ_ERROR_CODES.has(result.code) ? result.code : "UNKNOWN"
+        fenceRequire(result.status === "PRESENT", `${name} unavailable (${status}/${code})`)
         return snapshotRecoveryData(result.value, 8 * 1024 * 1024)
       }
       const rawPolicy = await show(executor.controllerSha, RECOVERY_POLICY_PATH, 128 * 1024)
