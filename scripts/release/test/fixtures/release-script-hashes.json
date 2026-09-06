@@ -179,7 +179,7 @@
       "sha256": "bfe8d23eb87cb31afc474f77fa4742784508e20d985b44717479f22ad918c517"
     },
     "scripts/release/recovery/policy.json": {
-      "sha256": "aad22d3704404769a1a6be0332a6c1f9ae6304eb69c82fbfe1917407833ebaaf"
+      "sha256": "49cb62aafc0903e57afa17723c5fa883ed00b83fd7f99838acbc6092be09f764"
     },
     "scripts/release/recovery/policy.mjs": {
       "sha256": "77e3651e87b6964b84333a6c324087e855035a77987054e4fc73a412ff148ad2"
