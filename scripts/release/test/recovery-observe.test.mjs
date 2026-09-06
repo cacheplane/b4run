@@ -809,7 +809,7 @@ test("repaired controller rejects a different original adoption descriptor", asy
   assert.equal(result.outcome, "blocked", JSON.stringify(result.errors))
 })
 
-test("mixed original adoption and repaired historical lane executor remain verifiable", async () => {
+async function mixedRepairRemote() {
   const r = await repairedRemote()
   const repairedLane = {
     ...r.lanes.metadata,
@@ -878,7 +878,74 @@ test("mixed original adoption and repaired historical lane executor remain verif
     setRef,
     repairedRef,
   ])
+  return r
+}
+
+test("mixed original adoption and repaired historical lane executor remain verifiable", async () => {
+  const r = await mixedRepairRemote()
   const result = await observe(r.args)
   assert.equal(result.outcome, "recovery-required", JSON.stringify(result.errors))
   assert.ok(result.facts.verification)
 })
+
+async function secondRepairRemote() {
+  const { canonicalPolicyBytes, hashVerifierClosure } = await import("../recovery/policy.mjs")
+  const { digest } = await import("./support/recovery-fixture.mjs")
+  const r = await mixedRepairRemote()
+  const secondSha = "e".repeat(40)
+  const repairPath = "scripts/release/recovery-verifier-repairs/v0.8.24.json"
+  const sourcePath = "scripts/release/smoke/runtime-targets.mjs"
+  for (const [key, raw] of [...r.fence.files])
+    if (key.startsWith(`${r.fence.current}:`))
+      r.fence.files.set(`${secondSha}:${key.slice(41)}`, raw)
+  r.fence.files.set(`${secondSha}:${sourcePath}`, "// second independently reviewed repair\n")
+  const record = structuredClone(r.fence.record)
+  record.inputs.find((input) => input.path === sourcePath).newSha256 = digest(
+    r.fence.files.get(`${secondSha}:${sourcePath}`),
+  )
+  record.replacementClosureSha256 = await hashVerifierClosure(
+    { controllerSha: secondSha, inputs: record.inputs.map((input) => input.path) },
+    ({ ref, path }) => r.fence.files.get(`${ref}:${path}`),
+  )
+  const contract = structuredClone(r.fence.replacementContract)
+  contract.topology[0].sources[0].executionInputs[0].sha256 = record.inputs.find(
+    (input) => input.path === sourcePath,
+  ).newSha256
+  const contractBytes = canonicalPolicyBytes(contract).toString()
+  record.replacementContractSha256 = digest(contractBytes)
+  r.fence.files.set(
+    `${secondSha}:scripts/release/recovery-fence-contracts/${record.replacementContractSha256}.json`,
+    contractBytes,
+  )
+  r.fence.files.set(`${secondSha}:${repairPath}`, canonicalPolicyBytes(record).toString())
+  r.args.controllerRef = secondSha
+  const reads = []
+  const show = r.args.git.showFile
+  r.args.git.showFile = async (args) => {
+    reads.push(args)
+    return show(args)
+  }
+  return { r, secondSha, repairPath, reads }
+}
+
+test("second repair current admission preserves first repair historical lane receipts", async () => {
+  const { r, secondSha, repairPath, reads } = await secondRepairRemote()
+  const result = await observe(r.args)
+  assert.equal(result.outcome, "recovery-required", JSON.stringify(result.errors))
+  assert.ok(result.facts.verification)
+  for (const ref of [r.fence.current, secondSha])
+    assert.ok(
+      reads.some((read) => read.ref === ref && read.path === repairPath),
+      `repair record must be read at its own immutable executor ${ref}`,
+    )
+})
+
+for (const damaged of ["historical", "current"])
+  test(`second repair cannot cover a damaged ${damaged} repair record`, async () => {
+    const { r, secondSha, repairPath } = await secondRepairRemote()
+    const ref = damaged === "historical" ? r.fence.current : secondSha
+    r.fence.files.set(`${ref}:${repairPath}`, "{}\n")
+    const result = await observe(r.args)
+    assert.equal(result.outcome, "blocked", JSON.stringify(result.errors))
+    assert.match(result.errors.join(" "), /exact fields required/)
+  })

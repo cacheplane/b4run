@@ -221,7 +221,7 @@
       "sha256": "ee2691f7b31b03ecd1b2501b74d72f7491f92350cb0fc74d5251ab812f64dc04"
     },
     "scripts/release/smoke-containment.mjs": {
-      "sha256": "f089e9eed5dbd37340276094fd01e98ff5729b621b7659affc327b1795d2387a"
+      "sha256": "037671e9e4392a9c44fb9f131ececa741d9cf3157833c31b7870fbe2d097b32b"
     },
     "scripts/release/smoke-process-runner.mjs": {
       "sha256": "453072ab899f3a542a634baa7d368f6f2d6a65b889ab3c11eb080a7b3f43449f"
