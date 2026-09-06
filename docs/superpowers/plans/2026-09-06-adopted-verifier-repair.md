@@ -15,7 +15,7 @@ Files: scripts/release/recovery/authority.mjs, observe.mjs, fence.mjs; scripts/r
 - [ ] Add failing positive mixed original/replacement closure tests and rejection tests for candidate/policy/source/ancestry/contract drift, absent/malformed record, unknown fields, changed input lists and altered historical bindings.
 - [ ] Implement one shared read-only validator in authority.mjs (already inside the unchanged closure input list). Read canonical repair records only at the requested immutable controller SHA. Return actual closure and approved contract set; preserve original policy value and digest.
 - [ ] Route authority and historical observation through it; route fence contract selection through identical authorization. Avoid cycles (authority does not import fence). Contract transformation must preserve all structure except explicitly enumerated current-default input hashes.
-- [ ] Verify no new adoption/reset escape, and retain exact main CI, historical CI, identity and fresh fence checks. No changes to policy.mjs, schema.mjs, invocation.mjs or other probe inputs.
+- [ ] Reject repair mode from captureRecoveryAuthority for every operation and match the original adoption asset descriptor/baseline executor in recoveryChain. Verify no new adoption/reset escape, and retain exact main CI, historical CI, identity and fresh fence checks. No changes to policy.mjs, schema.mjs, invocation.mjs or other probe inputs.
 - [ ] Run node --test scripts/release/test/recovery-verifier-repair.test.mjs and focused affected suites; independent spec/quality review.
 
 ## Task 2: Shared smoke repairs and failure diagnostics
