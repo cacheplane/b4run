@@ -355,6 +355,27 @@ function platformTree(raw) {
   }
   return relevant.sort((a, b) => (a.path < b.path ? -1 : 1))
 }
+// Independent workflows may overlap; every workflow retains its ordered double
+// observation. Join all started work before returning a failure.
+async function observeWorkflows(entries, observe) {
+  let next = 0
+  let failed = false
+  const workers = Array.from({ length: Math.min(4, entries.length) }, async () => {
+    while (!failed && next < entries.length) {
+      const entry = entries[next++]
+      try {
+        await observe(entry)
+      } catch (error) {
+        failed = true
+        throw error
+      }
+    }
+  })
+  const results = await Promise.allSettled(workers)
+  const failure = results.find((result) => result.status === "rejected")
+  if (failure) throw failure.reason
+}
+
 export function createRecoveryFenceReader({ github, git, now = Date.now, sleep = recoverySleep }) {
   const reads = recoveryMethods(github, [
     "getRepository",
@@ -537,7 +558,7 @@ export function createRecoveryFenceReader({ github, git, now = Date.now, sleep =
         }
       }
       const writers = []
-      for (const entry of contract.topology) {
+      await observeWorkflows(contract.topology, async (entry) => {
         const bindings = []
         for (const source of entry.sources ?? []) {
           const ref =
@@ -553,7 +574,7 @@ export function createRecoveryFenceReader({ github, git, now = Date.now, sleep =
           const executionClosureSha256 = await verifyInputs(ref, source.executionInputs)
           bindings.push({ sourceSha: ref, executionClosureSha256 })
         }
-        if (entry.disposition !== "fenced-legacy") continue
+        if (entry.disposition !== "fenced-legacy") return
         const state = async () => {
           const value = await read("getWorkflowById", { workflowId: entry.workflowId })
           fenceRequire(
@@ -591,7 +612,7 @@ export function createRecoveryFenceReader({ github, git, now = Date.now, sleep =
             ),
             activeRuns: [],
           })
-      }
+      })
       const finalTopology = await topology(),
         finalRepository = await repository()
       fenceSame(initialTopology, finalTopology, "workflow topology changed during observation")

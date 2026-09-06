@@ -1319,3 +1319,146 @@ for (const workflow of [
     })
     await assert.rejects(() => observePlatform(f), /candidate source binding/)
   })
+
+test("fence overlaps independent writers while preserving each double-observation sequence", async () => {
+  const { createRecoveryFenceReader } = await import("../recovery/fence.mjs")
+  const f = await runtimeFixture()
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  let first
+  const started = new Promise((resolve) => {
+    first = resolve
+  })
+  const entered = new Set(),
+    sequences = new Map()
+  const state = f.github.getWorkflowById,
+    runs = f.github.listWorkflowRunsAllShasComplete
+  f.github.getWorkflowById = async (args) => {
+    const sequence = sequences.get(args.workflowId) ?? []
+    sequences.set(args.workflowId, sequence)
+    sequence.push("state")
+    if (!entered.has(args.workflowId)) {
+      entered.add(args.workflowId)
+      first()
+      await gate
+    }
+    return state(args)
+  }
+  f.github.listWorkflowRunsAllShasComplete = async (args) => {
+    sequences.get(args.workflowId).push("runs")
+    return runs(args)
+  }
+  const pending = createRecoveryFenceReader({ github: f.github, git: f.git }).observeLegacyFence({
+    candidate: f.candidate,
+    executor: f.executor,
+    policySha256: f.policySha256,
+  })
+  try {
+    await started
+    await new Promise(setImmediate)
+    assert.equal(entered.size, 2, "one blocked writer must not serialize an independent writer")
+  } finally {
+    release()
+    await pending
+  }
+  for (const sequence of sequences.values())
+    assert.deepEqual(sequence, ["state", "runs", "state", "runs"])
+})
+
+test("fence limits concurrent workflow observations to four", async () => {
+  const { digest } = await import("./support/recovery-fence-fixture.mjs")
+  const f = await historicalAuxiliaryFixture((f) => {
+    for (let id = 10; id < 15; id++) {
+      const workflow = `.github/workflows/auxiliary-${id}.yml`
+      f.contract.topology.push({
+        ...structuredClone(f.auxiliary),
+        workflowId: String(id),
+        workflow,
+      })
+      f.put("c".repeat(40), workflow, "historical diagnostic\n")
+      f.values.listRepositoryWorkflowsComplete.push({
+        id,
+        path: workflow,
+        state: "disabled_manually",
+      })
+    }
+  })
+  assert.equal(digest(canonical(f.contract)), f.contractSha256)
+  let release, first
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const started = new Promise((resolve) => {
+    first = resolve
+  })
+  const entered = new Set()
+  const original = f.github.getWorkflowById
+  let active = 0,
+    maximum = 0
+  f.github.getWorkflowById = async (args) => {
+    if (!entered.has(args.workflowId)) {
+      entered.add(args.workflowId)
+      maximum = Math.max(maximum, ++active)
+      first()
+      try {
+        await gate
+      } finally {
+        active--
+      }
+    }
+    return original(args)
+  }
+  const pending = observePlatform(f)
+  try {
+    await started
+    await new Promise(setImmediate)
+    assert.equal(entered.size, 4)
+  } finally {
+    release()
+    await pending
+  }
+  assert.equal(maximum, 4)
+  assert.equal(entered.size, 8)
+})
+
+test("failed fence joins already-started independent observations before rejecting", async () => {
+  const f = await runtimeFixture()
+  let release, second
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const secondStarted = new Promise((resolve) => {
+    second = resolve
+  })
+  const original = f.github.getWorkflowById
+  f.github.getWorkflowById = async (args) => {
+    if (args.workflowId === "1") {
+      await secondStarted
+      throw new Error("intentional writer read failure")
+    }
+    second()
+    await gate
+    return original(args)
+  }
+  let settled = false
+  const pending = observePlatform(f)
+  const observed = pending.then(
+    () => {
+      settled = true
+    },
+    () => {
+      settled = true
+    },
+  )
+  try {
+    await secondStarted
+    await new Promise(setImmediate)
+    assert.equal(settled, false, "failing observation must wait for started sibling reads")
+  } finally {
+    release()
+    await observed
+  }
+  await assert.rejects(pending, /intentional writer read failure/)
+})

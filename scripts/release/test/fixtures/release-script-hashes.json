@@ -47,7 +47,7 @@
       "sha256": "0c4d42920d9ba00d1a3778eab64e9623a18663fdcf302cdda48d67b01dc3ea84"
     },
     "scripts/release/adapters/github.mjs": {
-      "sha256": "5e7ac8f6c19e66ac32e02ff194849d11b915dfa96fc52d5999b78d802991f32b"
+      "sha256": "1c9677eb7fc34b5b98b75c7af75ccb5f44b2649362c58098b6d291df4600ca9c"
     },
     "scripts/release/adapters/http.mjs": {
       "sha256": "aacd907d447b6756b3335ebe19b0bb09b02ffbe76b3adaaa52fbf6c94b5b752b"
@@ -140,7 +140,7 @@
       "sha256": "2e840c220245494bcd093ba121d7d390d532f022cb0958724acb022fe85f50c7"
     },
     "scripts/release/recovery/authority.mjs": {
-      "sha256": "938eff7e7f7a8a085dd34493461ddf4da0bc619e6a8309df99f773717b4df172"
+      "sha256": "69626d27abd4c2600fb96aeb588aee88545d335f32a2d6987789fe2ae2e204b4"
     },
     "scripts/release/recovery/cli.mjs": {
       "sha256": "2ebdc5eb05a2978b9887c8bc15082d009a1a97d2adb08b0454a1538bd113c357"
@@ -158,7 +158,7 @@
       "sha256": "5d60c891e1b76cbd4c93db2eb7c7ba076e6b2475a47f170474139e836e8b1429"
     },
     "scripts/release/recovery/fence.mjs": {
-      "sha256": "3f061a0e1d2092edb9fb9cef27529e16a92fc0743674e99972b73a13277e30b7"
+      "sha256": "7077fb9d0703820a20d7a2499aa8b1af31d10367348a5d68fec05a1f6b9473f3"
     },
     "scripts/release/recovery/finalize.mjs": {
       "sha256": "87ef742e4300aaabe76d52aa48dacc2a2463dc94cf9760d9274eaf9ddf9547e5"
@@ -179,10 +179,10 @@
       "sha256": "bfe8d23eb87cb31afc474f77fa4742784508e20d985b44717479f22ad918c517"
     },
     "scripts/release/recovery/policy.json": {
-      "sha256": "95841917dfbc6a0a25ef1af99e56d5fafd3abc2cac7664d1648bc6b8224c2577"
+      "sha256": "4400266484dd8a19ac609fd33418fc3cce250b2ffb701d1c50f99cce39328f18"
     },
     "scripts/release/recovery/policy.mjs": {
-      "sha256": "77e3651e87b6964b84333a6c324087e855035a77987054e4fc73a412ff148ad2"
+      "sha256": "a5d7f77ad95507f8863bef08f165fffbd1d0d5346df4fc86a4404e26f5267b99"
     },
     "scripts/release/recovery/requests.mjs": {
       "sha256": "8b881aaa9619ba902dd732247e5fc00aefcb12fb83078c0cb325e555c30d173f"
