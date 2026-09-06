@@ -723,3 +723,50 @@ test("workflow request preparation disposes a runtime after an invalid audit req
   )
   assert.equal(disposed, 1)
 })
+
+test("smoke failure diagnostics retain bounded nested causes and redact credentials", async () => {
+  const { recoverySmokeFailureDetail } = await import("../recovery/diagnostics.mjs")
+  const error = new AggregateError(
+    [
+      new Error("npm install failed with exit code 1\nregistry temporarily unavailable"),
+      new Error(
+        "cleanup failed Bearer abc https://example.com/private github_pat_abcd secret-value",
+      ),
+    ],
+    "Recovery smoke failed checks: dependency-install, cleanup",
+  )
+  const detail = recoverySmokeFailureDetail(error, { GITHUB_TOKEN: "secret-value" })
+  assert.match(detail, /dependency-install/)
+  assert.match(detail, /registry temporarily unavailable/)
+  assert.doesNotMatch(detail, /abc|example.com|github_pat_abcd|secret-value/)
+  error.errors.push(error)
+  assert.ok(recoverySmokeFailureDetail(error).length <= 4096)
+})
+
+test("smoke child failure retains bounded redacted stderr without granting success", async () => {
+  const { EventEmitter } = await import("node:events")
+  const child = new EventEmitter()
+  child.stderr = new EventEmitter()
+  const run = runtime.runRecoverySmokeChild(
+    "/tmp/prepared.json",
+    { GITHUB_TOKEN: "sensitive" },
+    (_command, _args, options) => {
+      assert.deepEqual(options.stdio, ["ignore", "ignore", "pipe"])
+      queueMicrotask(() => {
+        child.stderr.emit(
+          "data",
+          Buffer.from("dependency-install: npm failed sensitive https://example.com\n"),
+        )
+        child.stderr.emit("data", Buffer.alloc(100000, 120))
+        child.emit("close", 1)
+      })
+      return child
+    },
+  )
+  await assert.rejects(run, (error) => {
+    assert.match(error.message, /dependency-install: npm failed/)
+    assert.doesNotMatch(error.message, /sensitive|example.com/)
+    assert.ok(error.message.length < 5000)
+    return true
+  })
+})
