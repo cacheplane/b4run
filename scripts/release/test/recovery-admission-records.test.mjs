@@ -15,7 +15,17 @@ import { canonicalRecoveryBytes, parseRecovery } from "../recovery/schema.mjs"
 
 const read = (path) => readFile(new URL(`../../../${path}`, import.meta.url))
 
-test("committed v0.8.24 admission binds exact intent, complete topology and actual service witness", async () => {
+const gitRead = (ref, path) =>
+  execFileSync("git", ["show", `${ref}:${path}`], { maxBuffer: 8 * 1024 * 1024 })
+
+async function verifyCommittedAdmission({ currentRead = read, historicalRead = gitRead } = {}) {
+  const read = currentRead
+  const historical = new Map()
+  const frozen = async (ref, path) => {
+    const key = `${ref}:${path}`
+    if (!historical.has(key)) historical.set(key, await historicalRead(ref, path))
+    return historical.get(key)
+  }
   const rawPolicy = (await read("scripts/release/recovery/policy.json")).toString("utf8")
   const policy = parseRecoveryPolicy(rawPolicy)
   assert.equal(policy.status, "ADMITTED")
@@ -39,10 +49,7 @@ test("committed v0.8.24 admission binds exact intent, complete topology and actu
       showFile: async ({ ref, path }) =>
         ref === controllerSha
           ? (await read(path)).toString("utf8")
-          : execFileSync("git", ["show", `${ref}:${path}`], {
-              encoding: "utf8",
-              maxBuffer: 8 * 1024 * 1024,
-            }),
+          : (await frozen(ref, path)).toString("utf8"),
       isAncestor: ({ ancestor, descendant }) => {
         try {
           execFileSync("git", ["merge-base", "--is-ancestor", ancestor, descendant])
@@ -64,13 +71,52 @@ test("committed v0.8.24 admission binds exact intent, complete topology and actu
   assert.equal(contract.repositoryId, intent.candidate.repositoryId)
   assert.equal(contract.topology.length, 17)
   assert.equal(contract.topology.filter((entry) => entry.disposition === "fenced-legacy").length, 7)
-  for (const entry of contract.topology)
-    for (const source of entry.sources ?? [])
-      if (source.source.kind === "current-default") {
-        assert.equal(fenceDigest(await read(entry.workflow)), source.workflowSha256, entry.workflow)
-        for (const input of source.executionInputs)
-          assert.equal(fenceDigest(await read(input.path)), input.sha256, input.path)
+  const repair = JSON.parse(await read("scripts/release/recovery-verifier-repairs/v0.8.24.json"))
+  const originalBytes = await frozen(
+    repair.baselineControllerSha,
+    `scripts/release/recovery-fence-contracts/${repair.originalContractSha256}.json`,
+  )
+  assert.equal(fenceDigest(originalBytes), repair.originalContractSha256)
+  const original = parseRecoveryFenceContract(originalBytes)
+  let originalBindings = 0
+  // This historical-record audit checks original current-default bindings at the
+  // reviewed baseline. Runtime fencing separately checks the live default bytes.
+  for (const entry of original.topology)
+    for (const source of entry.sources ?? []) {
+      const ref =
+        source.source.kind === "current-default" ? repair.baselineControllerSha : source.source.sha
+      assert.equal(
+        fenceDigest(await frozen(ref, entry.workflow)),
+        source.workflowSha256,
+        entry.workflow,
+      )
+      originalBindings++
+      for (const input of source.executionInputs) {
+        assert.equal(fenceDigest(await frozen(ref, input.path)), input.sha256, input.path)
+        originalBindings++
       }
+    }
+  const closureInputs = new Set(policy.verifierClosure.inputs)
+  // The shared validator already requires the exact original-to-replacement
+  // transformation. Check actual replacement bytes for its complete manifest:
+  // current verifier inputs remain live; other inputs retain their frozen source.
+  for (const entry of contract.topology)
+    for (const source of entry.sources ?? []) {
+      const current = source.source.kind === "current-default"
+      const ref = current ? repair.baselineControllerSha : source.source.sha
+      assert.equal(
+        fenceDigest(await frozen(ref, entry.workflow)),
+        source.workflowSha256,
+        entry.workflow,
+      )
+      for (const input of source.executionInputs) {
+        const bytes =
+          current && closureInputs.has(input.path)
+            ? await read(input.path)
+            : await frozen(ref, input.path)
+        assert.equal(fenceDigest(bytes), input.sha256, input.path)
+      }
+    }
   for (const input of contract.probeClosure)
     assert.equal(fenceDigest(await read(input.path)), input.sha256, input.path)
   const fixtureBytes = {}
@@ -97,7 +143,64 @@ test("committed v0.8.24 admission binds exact intent, complete topology and actu
     assert.equal(review.repositoryId, contract.repositoryId)
     assert.equal(review.workflowId, entry.workflowId)
     assert.equal(review.workflow, entry.workflow)
-    for (const input of review.configuration)
-      assert.equal(fenceDigest(await read(input.path)), input.sha256, input.path)
+    for (const input of review.configuration) {
+      assert.equal(
+        fenceDigest(await frozen(repair.baselineControllerSha, input.path)),
+        input.sha256,
+        input.path,
+      )
+      originalBindings++
+    }
   }
+  assert.equal(
+    originalBindings,
+    277,
+    "complete original workflow, execution, and platform bindings",
+  )
+}
+
+test("committed v0.8.24 admission binds exact intent, complete topology and actual service witness", async () => {
+  await verifyCommittedAdmission()
+})
+
+test("future package versions do not reinterpret the frozen recovery contract", async () => {
+  await verifyCommittedAdmission({
+    currentRead: async (path) => {
+      const bytes = await read(path)
+      if (path !== "packages/core/package.json") return bytes
+      return Buffer.from(
+        `${JSON.stringify({ ...JSON.parse(bytes), version: "0.8.99" }, null, 2)}\n`,
+      )
+    },
+  })
+})
+
+test("a future package version cannot conceal changed frozen baseline bytes", async () => {
+  await assert.rejects(
+    () =>
+      verifyCommittedAdmission({
+        historicalRead: (ref, path) => {
+          const bytes = gitRead(ref, path)
+          return path === "packages/core/package.json"
+            ? Buffer.concat([bytes, Buffer.from("\n")])
+            : bytes
+        },
+      }),
+    /packages\/core\/package\.json/,
+  )
+})
+
+test("frozen contract checks still reject changed current approved verifier bytes", async () => {
+  await assert.rejects(
+    () =>
+      verifyCommittedAdmission({
+        currentRead: async (path) => {
+          const bytes = await read(path)
+          return path === "scripts/release/smoke-containment.mjs"
+            ? Buffer.concat([bytes, Buffer.from("\n")])
+            : bytes
+        },
+      }),
+    /verifier repair policy\/closure differs/,
+  )
 })
