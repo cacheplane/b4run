@@ -938,11 +938,19 @@ inspection and batch-verification evidence remain available at the paths above.
 
 Payload reuse is private to one controller call and retains only exact bytes
 verified against freshly observed identities, sizes, digests, and Actions
-expiry. It holds at most 128 entries and 64 MiB of base64 strings, conservatively
-counted at two bytes per character. Payloads over 16 MiB use the original fresh
+expiry. It holds at most 128 entries and 128 MiB of base64 strings, conservatively
+counted at two bytes per character. The observed release working set occupies
+about 73 MiB under this accounting; the previous 64 MiB capacity evicted payloads
+before the next observation could reuse them. Payloads over 16 MiB use the original fresh
 read path. Closed or expired generations cannot serve or accept late results.
 Metadata, cryptographic verification, and mutation authority remain fresh;
 the independent auditor has no shared cache.
+
+The same invocation can retain fulfilled Git text for exact immutable commit/path
+reads: at most 512 entries, 16 MiB total, and 2 MiB per entry, counted using the
+larger of UTF-8 bytes and two bytes per character. Options and unusual request
+shapes bypass reuse. Ref resolution and ancestry remain fresh. Caller byte checks
+and the original deadline still apply, and settlement clears retained text.
 
 Initial adoption, evidence, and audit reads now use the same writer's guarded
 read-only method. Managed verifier creation, verification, and disposal retain
