@@ -38,7 +38,7 @@
       "sha256": "3f3ca348de38259fad2dd361cc336af47c57e8c3a95908c63604cfed3e62094f"
     },
     "scripts/release/adapters/git.mjs": {
-      "sha256": "3a6f2029e58da9db08f3d9bdd85cf28892df300c35a563d3694c279918155b08"
+      "sha256": "869be0f937a3f2b785f55e6db16c79d675d9a76085268a50b3402bfde73afba1"
     },
     "scripts/release/adapters/github-write-transport.mjs": {
       "sha256": "c9c20a293690eeffa83c6fe59e2a0638653d16c51a249353551990032b8a2955"
@@ -158,7 +158,7 @@
       "sha256": "5d60c891e1b76cbd4c93db2eb7c7ba076e6b2475a47f170474139e836e8b1429"
     },
     "scripts/release/recovery/fence.mjs": {
-      "sha256": "e6bfba07a34fd5fd91b1812a06d69d8f11cc763ee5a7af29533871b9d6a70c88"
+      "sha256": "3f061a0e1d2092edb9fb9cef27529e16a92fc0743674e99972b73a13277e30b7"
     },
     "scripts/release/recovery/finalize.mjs": {
       "sha256": "87ef742e4300aaabe76d52aa48dacc2a2463dc94cf9760d9274eaf9ddf9547e5"
@@ -179,7 +179,7 @@
       "sha256": "bfe8d23eb87cb31afc474f77fa4742784508e20d985b44717479f22ad918c517"
     },
     "scripts/release/recovery/policy.json": {
-      "sha256": "64e7b001cf967046bb7023a13a4a459942e9eeabe590e6fbf88ed8ec70396d00"
+      "sha256": "aad22d3704404769a1a6be0332a6c1f9ae6304eb69c82fbfe1917407833ebaaf"
     },
     "scripts/release/recovery/policy.mjs": {
       "sha256": "77e3651e87b6964b84333a6c324087e855035a77987054e4fc73a412ff148ad2"

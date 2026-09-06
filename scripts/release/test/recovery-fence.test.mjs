@@ -943,3 +943,379 @@ test("fence raw projection rejects oversized ledgers, sparse arrays and symbol p
     )
   }
 })
+
+async function platformFixture(damage = () => {}) {
+  const { digest } = await import("./support/recovery-fence-fixture.mjs")
+  const f = await runtimeFixture()
+  f.tree = [{ path: "AGENTS.md", mode: "100644", sha256: digest("reviewed instructions\n") }]
+  f.put(f.defaultSha, "AGENTS.md", "reviewed instructions\n")
+  f.reviews = []
+  for (const [workflowId, service, workflow] of [
+    ["6", "copilot-pull-request-reviewer", "dynamic/agents/copilot-pull-request-reviewer"],
+    ["7", "dependabot-updates", "dynamic/dependabot/dependabot-updates"],
+  ]) {
+    const entry = {
+      workflowId,
+      workflow,
+      disposition: "platform-nonwriter",
+      service,
+      reviewSha256: "",
+    }
+    const review = {
+      schemaVersion: 1,
+      kind: "recovery-platform-nonwriter-review",
+      repository: f.candidate.repository,
+      repositoryId: f.candidate.repositoryId,
+      candidateSourceSha: f.sourceSha,
+      workflowId,
+      workflow,
+      service,
+      observedAt: 900,
+      expiresAt: 86400900,
+      rationale: "Fixture semantic review: service cannot mutate candidate release or evidence.",
+      observations: ["Fixture repository settings and permissions inspected."],
+      operationalAssumptions: [
+        "Settings and platform authority remain as observed; unknown authority blocks admission.",
+      ],
+      historicalRerunReasoning:
+        "Fixture review covers historical reruns and their original authority.",
+      headControlledInputReasoning:
+        "Fixture review covers untrusted PR inputs and configuration execution.",
+      configuration: structuredClone(f.tree),
+    }
+    f.contract.topology.push(entry)
+    f.values.listRepositoryWorkflowsComplete.push({
+      id: Number(workflowId),
+      path: workflow,
+      state: "active",
+    })
+    f.reviews.push({ entry, review })
+  }
+  f.git.listTreeEntries = async ({ ref }) => {
+    assert.equal(ref, f.defaultSha)
+    return f.tree.map((e) => `${e.mode} blob ${"b".repeat(40)}\t${e.path}\0`).join("")
+  }
+  await damage(f)
+  for (const { entry, review } of f.reviews) {
+    const raw = canonical(review)
+    entry.reviewSha256 = digest(raw)
+    f.put(
+      f.controllerSha,
+      `scripts/release/recovery-platform-reviews/${entry.reviewSha256}.json`,
+      raw,
+    )
+  }
+  f.contract.topology.sort((a, b) => (a.workflow < b.workflow ? -1 : 1))
+  f.contractSha256 = digest(canonical(f.contract))
+  f.put(
+    f.controllerSha,
+    `scripts/release/recovery-fence-contracts/${f.contractSha256}.json`,
+    canonical(f.contract),
+  )
+  f.policy.fence.contracts = [f.contractSha256]
+  f.policySha256 = digest(canonical(f.policy))
+  f.put(f.controllerSha, "scripts/release/recovery/policy.json", canonical(f.policy))
+  return f
+}
+async function observePlatform(f, now = () => 1000) {
+  const { createRecoveryFenceReader } = await import("../recovery/fence.mjs")
+  return createRecoveryFenceReader({ github: f.github, git: f.git, now }).observeLegacyFence({
+    candidate: f.candidate,
+    executor: f.executor,
+    policySha256: f.policySha256,
+  })
+}
+test("two reviewed platform services preserve complete topology and legacy drain", async () => {
+  const f = await platformFixture()
+  const result = await observePlatform(f)
+  assert.equal(result.writers.length, 4)
+  assert.equal(f.calls.filter((c) => c[0] === "listRepositoryWorkflowsComplete").length, 2)
+  assert.equal(f.calls.filter((c) => c[0] === "listWorkflowRunsAllShasComplete").length, 4)
+  for (const { entry } of f.reviews)
+    assert.ok(
+      f.calls.some(
+        ([name, ref, path]) =>
+          name === "showFile" &&
+          ref === f.controllerSha &&
+          path.endsWith(`${entry.reviewSha256}.json`),
+      ),
+    )
+})
+for (const [name, damage] of Object.entries({
+  "wrong repository": (f) => {
+    f.reviews[0].review.repository = "other/repo"
+  },
+  "wrong repository ID": (f) => {
+    f.reviews[0].review.repositoryId = "9"
+  },
+  "wrong candidate": (f) => {
+    f.reviews[0].review.candidateSourceSha = "9".repeat(40)
+  },
+  "wrong workflow ID": (f) => {
+    f.reviews[0].review.workflowId = "9"
+  },
+  "wrong workflow path": (f) => {
+    f.reviews[0].review.workflow = "dynamic/other"
+  },
+  "wrong service": (f) => {
+    f.reviews[0].review.service = "dependabot-updates"
+  },
+  "unknown service": (f) => {
+    f.reviews[0].entry.service = "other"
+  },
+  "platform sources": (f) => {
+    f.reviews[0].entry.sources = []
+  },
+  "future review": (f) => {
+    f.reviews[0].review.observedAt = 1001
+  },
+  "expired review": (f) => {
+    f.reviews[0].review.expiresAt = 1000
+  },
+  "long review window": (f) => {
+    f.reviews[0].review.expiresAt++
+  },
+  "malformed timestamp": (f) => {
+    f.reviews[0].review.observedAt = "900"
+  },
+  "missing rationale": (f) => {
+    delete f.reviews[0].review.rationale
+  },
+  "missing observations": (f) => {
+    f.reviews[0].review.observations = []
+  },
+  "missing assumptions": (f) => {
+    f.reviews[0].review.operationalAssumptions = []
+  },
+  "missing historical reasoning": (f) => {
+    f.reviews[0].review.historicalRerunReasoning = ""
+  },
+  "missing head reasoning": (f) => {
+    f.reviews[0].review.headControlledInputReasoning = ""
+  },
+  "review-selected scope": (f) => {
+    f.reviews[0].review.selector = ["AGENTS.md"]
+  },
+  "removed configuration": (f) => {
+    f.tree = []
+  },
+  "changed configuration": (f) => {
+    f.put(f.defaultSha, "AGENTS.md", "changed")
+  },
+  "changed mode": (f) => {
+    f.tree[0].mode = "100755"
+  },
+  symlink: (f) => {
+    f.tree[0].mode = "120000"
+    f.reviews.forEach(({ review }) => {
+      review.configuration[0].mode = "120000"
+    })
+  },
+  "missing tree capability": (f) => {
+    delete f.git.listTreeEntries
+  },
+  "unavailable tree": (f) => {
+    f.git.listTreeEntries = async () => {
+      throw new Error("unavailable")
+    }
+  },
+  "incomplete tree": (f) => {
+    f.git.listTreeEntries = async () => `100644 blob ${"b".repeat(40)}\tAGENTS.md`
+  },
+  "replaced identity": (f) => {
+    f.values.listRepositoryWorkflowsComplete.find((w) => w.id === 6).id = 99
+  },
+}))
+  test(`platform review blocks ${name}`, async () => {
+    await assert.rejects(() => platformFixture(damage).then((f) => observePlatform(f)))
+  })
+for (const path of [
+  ".github/dependabot.yml",
+  ".github/workflows/copilot-setup-steps.yml",
+  ".github/copilot-instructions.md",
+  ".github/instructions/review.instructions.md",
+  ".github/skills/review/SKILL.md",
+  ".vscode/mcp.json",
+  ".mcp.json",
+  "src/AGENTS.md",
+  ".agents/skills/review/SKILL.md",
+  ".claude/skills/review/scripts/review.sh",
+])
+  test(`platform review detects newly added ${path}`, async () => {
+    const f = await platformFixture((f) => {
+      f.tree.push({ path, mode: "100644" })
+    })
+    await assert.rejects(() => observePlatform(f), /configuration/)
+  })
+for (const damage of ["missing", "tampered"])
+  test(`platform review rejects ${damage} controller record`, async () => {
+    const f = await platformFixture()
+    const path = `${f.controllerSha}:scripts/release/recovery-platform-reviews/${f.reviews[0].entry.reviewSha256}.json`
+    if (damage === "missing") f.files.delete(path)
+    else f.files.set(path, `${f.files.get(path)} `)
+    await assert.rejects(() => observePlatform(f))
+  })
+test("platform review may bind absence only through a complete empty relevant tree", async () => {
+  const f = await platformFixture((f) => {
+    f.tree = []
+    for (const { review } of f.reviews) review.configuration = []
+  })
+  assert.equal((await observePlatform(f)).inventoryComplete, true)
+})
+
+test("platform proof cannot outlive its semantic review", async () => {
+  const f = await platformFixture((f) => {
+    f.reviews[0].review.expiresAt = 2000
+  })
+  assert.equal((await observePlatform(f)).expiresAt, 2000)
+})
+test("platform review must remain fresh through final inventory", async () => {
+  const f = await platformFixture((f) => {
+    f.reviews[0].review.expiresAt = 2000
+  })
+  const original = f.github.listRepositoryWorkflowsComplete
+  let clock = 1000,
+    calls = 0
+  f.github.listRepositoryWorkflowsComplete = async (...args) => {
+    if (++calls === 2) clock = 2000
+    return original(...args)
+  }
+  await assert.rejects(() => observePlatform(f, () => clock), /observation window/)
+})
+for (const raw of [
+  undefined,
+  "malformed\0",
+  `160000 commit ${"b".repeat(40)}\tsubmodule\0`,
+  `100644 blob ${"b".repeat(40)}\tAGENTS.md\0`.repeat(2),
+])
+  test(`platform review rejects malformed or unsupported complete tree ${String(raw).slice(0, 25)}`, async () => {
+    const f = await platformFixture((f) => {
+      f.git.listTreeEntries = async () => raw
+    })
+    await assert.rejects(() => observePlatform(f), /configuration tree/)
+  })
+
+test("platform review binds bytes of reviewed Claude skill supporting resources", async () => {
+  const { digest } = await import("./support/recovery-fence-fixture.mjs")
+  const path = ".claude/skills/review/scripts/review.sh"
+  const f = await platformFixture((f) => {
+    f.tree.unshift({ path, mode: "100755", sha256: digest("reviewed script\n") })
+    f.put(f.defaultSha, path, "reviewed script\n")
+    for (const { review } of f.reviews) review.configuration = structuredClone(f.tree)
+  })
+  assert.equal((await observePlatform(f)).inventoryComplete, true)
+  f.put(f.defaultSha, path, "modified script\n")
+  await assert.rejects(() => observePlatform(f), /input bytes changed/)
+})
+
+async function historicalAuxiliaryFixture(damage = () => {}) {
+  const { digest } = await import("./support/recovery-fence-fixture.mjs")
+  const f = await runtimeFixture()
+  f.auxiliary = {
+    workflowId: "8",
+    workflow: ".github/workflows/probe-draft-visibility.yml",
+    disposition: "fenced-legacy",
+    sources: [
+      {
+        source: { kind: "commit", sha: "c".repeat(40) },
+        workflowSha256: digest("historical diagnostic\n"),
+        executionInputs: [],
+      },
+    ],
+  }
+  f.put("c".repeat(40), f.auxiliary.workflow, "historical diagnostic\n")
+  f.contract.topology.push(f.auxiliary)
+  f.values.listRepositoryWorkflowsComplete.push({
+    id: 8,
+    path: f.auxiliary.workflow,
+    state: "disabled_manually",
+  })
+  await damage(f)
+  f.contract.topology.sort((a, b) => (a.workflow < b.workflow ? -1 : 1))
+  f.contractSha256 = digest(canonical(f.contract))
+  f.put(
+    f.controllerSha,
+    `scripts/release/recovery-fence-contracts/${f.contractSha256}.json`,
+    canonical(f.contract),
+  )
+  f.policy.fence.contracts = [f.contractSha256]
+  f.policySha256 = digest(canonical(f.policy))
+  f.put(f.controllerSha, "scripts/release/recovery/policy.json", canonical(f.policy))
+  return f
+}
+test("historical-only auxiliary writer is fenced by exact disabled identity and all-SHA drainage", async () => {
+  const f = await historicalAuxiliaryFixture()
+  const result = await observePlatform(f)
+  assert.equal(result.writers.length, 5)
+  assert.ok(
+    result.writers.some(
+      (w) => w.workflow === f.auxiliary.workflow && w.sourceSha === "c".repeat(40),
+    ),
+  )
+  assert.equal(f.calls.filter(([name, id]) => name === "getWorkflowById" && id === "8").length, 2)
+  assert.equal(
+    f.calls.filter(
+      ([name, args]) => name === "listWorkflowRunsAllShasComplete" && args.workflowId === "8",
+    ).length,
+    2,
+  )
+})
+for (const [name, damage] of Object.entries({
+  "active historical-only writer": (f) => {
+    f.values.listRepositoryWorkflowsComplete.find((w) => w.id === 8).state = "active"
+  },
+  "nonterminal run at another SHA": (f) => {
+    const original = f.github.listWorkflowRunsAllShasComplete
+    f.github.listWorkflowRunsAllShasComplete = async (args) =>
+      args.workflowId === "8"
+        ? {
+            status: "PRESENT",
+            value: [
+              {
+                id: 88,
+                run_attempt: 1,
+                head_sha: "f".repeat(40),
+                status: "queued",
+                conclusion: null,
+              },
+            ],
+          }
+        : original(args)
+  },
+  "missing historical binding": (f) => {
+    f.auxiliary.sources = []
+  },
+  "only current-default binding": (f) => {
+    f.auxiliary.sources[0].source = { kind: "current-default" }
+    f.put(f.defaultSha, f.auxiliary.workflow, "historical diagnostic\n")
+  },
+  "unavailable historical bytes": (f) => {
+    f.files.delete(`${"c".repeat(40)}:${f.auxiliary.workflow}`)
+  },
+  "changed historical bytes": (f) => {
+    f.put("c".repeat(40), f.auxiliary.workflow, "changed")
+  },
+  "changed historical input": (f) => {
+    f.auxiliary.sources[0].executionInputs = [
+      { path: "scripts/historical-diagnostic.mjs", sha256: "0".repeat(64) },
+    ]
+    f.put("c".repeat(40), "scripts/historical-diagnostic.mjs", "changed")
+  },
+}))
+  test(`auxiliary writer fence rejects ${name}`, async () => {
+    const f = await historicalAuxiliaryFixture(damage)
+    await assert.rejects(() => observePlatform(f))
+  })
+for (const workflow of [
+  ".github/workflows/release.yml",
+  ".github/workflows/published-artifact-verify.yml",
+])
+  test(`mandatory ${workflow} still requires candidate source binding`, async () => {
+    const f = await historicalAuxiliaryFixture((f) => {
+      f.contract.topology.find((w) => w.workflow === workflow).sources[0].source.sha = "c".repeat(
+        40,
+      )
+      f.put("c".repeat(40), workflow, `name: ${workflow}\n`)
+    })
+    await assert.rejects(() => observePlatform(f), /candidate source binding/)
+  })
