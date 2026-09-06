@@ -14,7 +14,7 @@
   },
   "fence": {
     "concurrencyGroup": "dawn-release-controller",
-    "contracts": ["cdd6711f7934797a991de3968947b027c7484cc678f36743383ee7a902856b63"]
+    "contracts": ["e0e75671c5f6909ce568f28bea95105a87495494dffc393b64264430f454cae6"]
   },
   "lanes": [
     {
@@ -171,7 +171,7 @@
       "scripts/release/terminal-records.mjs",
       "scripts/release/topology.mjs"
     ],
-    "sha256": "ab8084f5a46da1e9214a65c08bab6ac89c2f6ea5615f91ae5560ac1c903b1747"
+    "sha256": "318321aee60d641999d776c45dacf9d35ef4a2e38a26be7a4883c947e9f29807"
   },
   "workflows": [
     ".github/workflows/release-postpublication-audit.yml",

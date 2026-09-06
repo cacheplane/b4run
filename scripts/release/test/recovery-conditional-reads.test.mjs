@@ -742,3 +742,40 @@ test("history projection cannot mutate retained raw metadata or reduce its byte 
   )
   assert.equal((await history(bounded)).code, "OPERATION_TOO_LARGE")
 })
+
+test("repository identity reads exclude authenticated repository credentials on 200 and 304", async () => {
+  let calls = 0
+  const github = reader(async () =>
+    ++calls === 1
+      ? json({
+          id: 1210070282,
+          full_name: "cacheplane/dawnai",
+          default_branch: "main",
+          temp_clone_token: "repository-clone-credential",
+          security_and_analysis: { secret_scanning: { status: "enabled" } },
+          permissions: { admin: true },
+        })
+      : unchanged(),
+  )
+  for (const status of [200, 304]) {
+    const result = await github.getRepository()
+    assert.equal(result.status, "PRESENT")
+    assert.equal(result.httpStatus, status)
+    assert.deepEqual(result.value, {
+      id: 1210070282,
+      full_name: "cacheplane/dawnai",
+      default_branch: "main",
+    })
+    assert.doesNotMatch(JSON.stringify(result), /credential|temp_clone_token|secret_scanning/)
+  }
+})
+
+test("repository identity projection retains unsafe-key rejection inside selected fields", async () => {
+  const github = reader(async () =>
+    json({ id: 1, full_name: "cacheplane/dawnai", default_branch: { secret: "hidden" } }),
+  )
+  const result = await github.getRepository()
+  assert.equal(result.status, "ERROR")
+  assert.equal(result.code, "UNSAFE_RESPONSE_KEY")
+  assert.doesNotMatch(JSON.stringify(result), /hidden/)
+})

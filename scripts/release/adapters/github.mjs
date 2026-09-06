@@ -94,7 +94,18 @@ export function createGitHubReader({
     ...(conditional ? { dispose: () => conditional.dispose() } : {}),
     getRepository(args = {}, options = {}) {
       exactArguments(args, [])
-      return readObject(recoveryContext(context, options), { url: base, operation: "repository" })
+      return readObject(recoveryContext(context, options), {
+        url: base,
+        operation: "repository",
+        // Authenticated repository responses include temporary clone credentials and
+        // security settings. Recovery consumes only these identity fields.
+        project: (value) =>
+          Object.fromEntries(
+            ["id", "full_name", "default_branch"]
+              .filter((key) => Object.hasOwn(value, key))
+              .map((key) => [key, value[key]]),
+          ),
+      })
     },
     listRepositoryWorkflowsComplete(args = {}, options = {}) {
       exactArguments(args, [])
@@ -403,7 +414,10 @@ export function createGitHubReader({
   }
 }
 
-async function readObject(context, { url, operation, validate = isObject, requestBudget = {} }) {
+async function readObject(
+  context,
+  { url, operation, validate = isObject, requestBudget = {}, project = (value) => value },
+) {
   const result = await readJson(context, { url, operation, requestBudget })
   if (result.status !== "PRESENT") {
     return publicResult(result)
@@ -413,7 +427,7 @@ async function readObject(context, { url, operation, validate = isObject, reques
   }
   let value
   try {
-    value = canonicalJson(result.body, context.token)
+    value = canonicalJson(project(result.body), context.token)
   } catch (error) {
     return failure(
       "ERROR",
