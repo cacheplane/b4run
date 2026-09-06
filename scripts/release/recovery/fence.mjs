@@ -28,6 +28,11 @@ import { parseRecovery, snapshotRecoveryData } from "./schema.mjs"
 
 const CONTRACT_ROOT = "scripts/release/recovery-fence-contracts"
 const EVIDENCE_ROOT = "scripts/release/recovery-fence-evidence"
+const PLATFORM_REVIEW_ROOT = "scripts/release/recovery-platform-reviews"
+const PLATFORM_SERVICES = Object.freeze({
+  "dynamic/agents/copilot-pull-request-reviewer": "copilot-pull-request-reviewer",
+  "dynamic/dependabot/dependabot-updates": "dependabot-updates",
+})
 const OWNER = ".github/workflows/release-postpublication.yml"
 const AUDIT = ".github/workflows/release-postpublication-audit.yml"
 const REQUIRED_WRITERS = [
@@ -67,6 +72,7 @@ function path(value) {
     value !== RECOVERY_POLICY_PATH &&
       !value.startsWith(`${CONTRACT_ROOT}/`) &&
       !value.startsWith(`${EVIDENCE_ROOT}/`) &&
+      !value.startsWith(`${PLATFORM_REVIEW_ROOT}/`) &&
       !value.startsWith("scripts/release/recovery-adoptions/") &&
       value !== "scripts/release/test/fixtures/release-script-hashes.json",
     "cyclic authority/pin manifest input forbidden",
@@ -137,7 +143,13 @@ export function parseRecoveryFenceContract(raw) {
   const ids = new Set()
   let previous = ""
   for (const entry of c.topology) {
-    fenceExact(entry, "workflowId workflow disposition sources")
+    const platform = entry.disposition === "platform-nonwriter"
+    fenceExact(
+      entry,
+      platform
+        ? "workflowId workflow disposition service reviewSha256"
+        : "workflowId workflow disposition sources",
+    )
     fenceRequire(
       typeof entry.workflowId === "string" &&
         recoveryId(entry.workflowId) === entry.workflowId &&
@@ -147,11 +159,20 @@ export function parseRecoveryFenceContract(raw) {
     ids.add(entry.workflowId)
     fenceRequire(
       typeof entry.workflow === "string" &&
-        /^\.github\/workflows\/[a-z0-9][a-z0-9_-]*\.ya?ml$/u.test(entry.workflow) &&
+        (platform
+          ? Object.hasOwn(PLATFORM_SERVICES, entry.workflow)
+          : /^\.github\/workflows\/[a-z0-9][a-z0-9_-]*\.ya?ml$/u.test(entry.workflow)) &&
         entry.workflow > previous,
       "sorted unique workflow paths required",
     )
     previous = entry.workflow
+    if (platform) {
+      fenceRequire(
+        entry.service === PLATFORM_SERVICES[entry.workflow] && HASH.test(entry.reviewSha256),
+        "supported platform service and digest-addressed review required",
+      )
+      continue
+    }
     fenceRequire(
       ["fenced-legacy", "nonwriter", "recovery-owner", "recovery-audit"].includes(
         entry.disposition,
@@ -175,6 +196,7 @@ export function parseRecoveryFenceContract(raw) {
     let last = ""
     let current = false
     let candidate = false
+    let historical = false
     for (const source of entry.sources) {
       fenceExact(source, "source workflowSha256 executionInputs")
       fenceRequire(
@@ -186,6 +208,7 @@ export function parseRecoveryFenceContract(raw) {
       fenceExact(source.source, source.source.kind === "commit" ? "kind sha" : "kind")
       if (source.source.kind === "commit") {
         fenceRequire(SHA.test(source.source.sha), "existing commit source required")
+        historical = true
         candidate ||= source.source.sha === c.candidateSourceSha
       } else current = true
       fenceRequire(
@@ -204,8 +227,14 @@ export function parseRecoveryFenceContract(raw) {
       "nonwriter requires current-default source binding",
     )
     fenceRequire(
-      entry.disposition !== "fenced-legacy" || candidate,
-      "fenced workflow requires candidate source binding",
+      entry.disposition !== "fenced-legacy" ||
+        !REQUIRED_WRITERS.includes(entry.workflow) ||
+        candidate,
+      "mandatory fenced workflow requires candidate source binding",
+    )
+    fenceRequire(
+      entry.disposition !== "fenced-legacy" || historical,
+      "fenced workflow requires explicit historical commit binding",
     )
   }
   for (const workflow of REQUIRED_WRITERS)
@@ -224,6 +253,107 @@ export function parseRecoveryFenceContract(raw) {
       "recovery topology identity required",
     )
   return c
+}
+// Scope belongs to reviewed controller code, never to the evidence record. Include
+// all GitHub configuration and agent/editor inputs conservatively, at any depth.
+function platformConfigurationPath(value) {
+  const parts = value.split("/")
+  return (
+    parts.some((part) => [".github", ".agents", ".claude", ".copilot", ".vscode"].includes(part)) ||
+    parts.at(-1) === "AGENTS.md" ||
+    parts.at(-1) === "SKILL.md" ||
+    /^(?:\.?mcp(?:[-.].*)?|copilot.*)\.(?:json|jsonc|ya?ml|md)$/iu.test(parts.at(-1))
+  )
+}
+function platformReview(raw, contract, entry, now) {
+  const r = fenceParse(raw, 128 * 1024)
+  fenceExact(
+    r,
+    "schemaVersion kind repository repositoryId candidateSourceSha workflowId workflow service observedAt expiresAt rationale observations operationalAssumptions historicalRerunReasoning headControlledInputReasoning configuration",
+  )
+  fenceRequire(
+    r.schemaVersion === 1 && r.kind === "recovery-platform-nonwriter-review",
+    "supported platform review required",
+  )
+  for (const key of ["repository", "repositoryId", "candidateSourceSha"])
+    fenceRequire(r[key] === contract[key], "platform review candidate identity mismatch")
+  for (const key of ["workflowId", "workflow", "service"])
+    fenceRequire(r[key] === entry[key], "platform review workflow identity mismatch")
+  const validTime = () =>
+    fenceRequire(
+      Number.isSafeInteger(r.observedAt) &&
+        r.observedAt >= 0 &&
+        Number.isSafeInteger(r.expiresAt) &&
+        r.observedAt <= now() &&
+        now() < r.expiresAt &&
+        r.expiresAt <= r.observedAt + 24 * 60 * 60 * 1000,
+      "platform review outside bounded observation window",
+    )
+  validTime()
+  const text = (value) =>
+    fenceRequire(
+      typeof value === "string" && value.trim().length > 0 && value.length <= 16384,
+      "explicit platform review reasoning required",
+    )
+  // This is dated semantic evidence, not proof that assertions are true. Reviewers
+  // must block on unobservable authority and account for historical and PR inputs.
+  for (const key of ["rationale", "historicalRerunReasoning", "headControlledInputReasoning"])
+    text(r[key])
+  for (const key of ["observations", "operationalAssumptions"]) {
+    fenceRequire(
+      Array.isArray(r[key]) && r[key].length > 0 && r[key].length <= 64,
+      "explicit platform observations and operational assumptions required",
+    )
+    for (const value of r[key]) text(value)
+  }
+  fenceRequire(
+    Array.isArray(r.configuration) && r.configuration.length <= 512,
+    "bounded platform configuration manifest required",
+  )
+  let previous = ""
+  for (const input of r.configuration) {
+    fenceExact(input, "path mode sha256")
+    path(input.path)
+    fenceRequire(
+      input.path > previous &&
+        platformConfigurationPath(input.path) &&
+        ["100644", "100755"].includes(input.mode) &&
+        HASH.test(input.sha256),
+      "sorted supported platform configuration required",
+    )
+    previous = input.path
+  }
+  return { review: r, validTime }
+}
+function platformTree(raw) {
+  fenceRequire(
+    typeof raw === "string" &&
+      raw.isWellFormed() &&
+      Buffer.byteLength(raw) <= 16 * 1024 * 1024 &&
+      (raw === "" || raw.endsWith("\0")),
+    "complete bounded platform configuration tree required",
+  )
+  const entries = raw === "" ? [] : raw.slice(0, -1).split("\0")
+  fenceRequire(entries.length <= 100000, "bounded platform configuration tree required")
+  const seen = new Set(),
+    relevant = []
+  for (const line of entries) {
+    const match = /^(100644|100755) blob [a-f0-9]{40}\t([^\0]+)$/u.exec(line)
+    // Reject unsupported modes anywhere: a submodule or symlink could conceal
+    // configuration descendants, including applicable AGENTS.md files.
+    fenceRequire(match, "unsupported or incomplete platform configuration tree entry")
+    const [, mode, file] = match
+    fenceRequire(
+      !seen.has(file) &&
+        !file.includes("\\") &&
+        ![...file].some((char) => char.codePointAt(0) <= 31 || char.codePointAt(0) === 127) &&
+        !file.split("/").some((part) => ["", ".", ".."].includes(part)),
+      "unique exact platform configuration tree paths required",
+    )
+    seen.add(file)
+    if (platformConfigurationPath(file)) relevant.push({ path: file, mode })
+  }
+  return relevant.sort((a, b) => (a.path < b.path ? -1 : 1))
 }
 export function createRecoveryFenceReader({ github, git, now = Date.now, sleep = recoverySleep }) {
   const reads = recoveryMethods(github, [
@@ -376,10 +506,40 @@ export function createRecoveryFenceReader({ github, git, now = Date.now, sleep =
       }
       const initialRepository = await repository(),
         initialTopology = await topology()
+      const platformReviews = []
+      const platformEntries = contract.topology.filter(
+        (entry) => entry.disposition === "platform-nonwriter",
+      )
+      if (platformEntries.length) {
+        const trees = recoveryMethods(git, ["listTreeEntries"])
+        const tree = platformTree(
+          await trees.listTreeEntries({ ref: initialRepository.sha }, budget.options()),
+        )
+        budget.options()
+        for (const entry of platformEntries) {
+          const raw = await show(
+            executor.controllerSha,
+            `${PLATFORM_REVIEW_ROOT}/${entry.reviewSha256}.json`,
+            128 * 1024,
+          )
+          fenceRequire(
+            fenceDigest(raw) === entry.reviewSha256,
+            "platform review locator digest mismatch",
+          )
+          const checked = platformReview(raw, contract, entry, now)
+          fenceSame(
+            tree,
+            checked.review.configuration.map(({ path, mode }) => ({ path, mode })),
+            "platform configuration inventory changed",
+          )
+          await verifyInputs(initialRepository.sha, checked.review.configuration)
+          platformReviews.push(checked)
+        }
+      }
       const writers = []
       for (const entry of contract.topology) {
         const bindings = []
-        for (const source of entry.sources) {
+        for (const source of entry.sources ?? []) {
           const ref =
             source.source.kind === "current-default" ? initialRepository.sha : source.source.sha
           fenceRequire(
@@ -441,6 +601,7 @@ export function createRecoveryFenceReader({ github, git, now = Date.now, sleep =
         "default branch/repository changed during observation",
       )
       budget.options()
+      for (const review of platformReviews) review.validTime()
       // Collapse identical current/default commit selectors, preserving one proof per source.
       const unique = [
         ...new Map(writers.map((w) => [`${w.workflow}:${w.sourceSha}`, w])).values(),
@@ -461,7 +622,10 @@ export function createRecoveryFenceReader({ github, git, now = Date.now, sleep =
         candidate,
         executor,
         observedAt: budget.started,
-        expiresAt: budget.started + 30000,
+        expiresAt: Math.min(
+          budget.started + 30000,
+          ...platformReviews.map(({ review }) => review.expiresAt),
+        ),
         concurrencyGroup: policy.fence.concurrencyGroup,
         cancelInProgress: false,
         writers: unique,
