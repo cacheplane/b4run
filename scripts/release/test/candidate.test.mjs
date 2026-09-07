@@ -237,7 +237,11 @@ test("scheduled discovery enumerates managed Releases and standalone tags before
       .sort((left, right) => left - right),
     [221, 233, 241, 242],
   )
-  assert.ok(github.calls.every(([operation, id]) => operation !== "listReleaseAssets" || id !== 99))
+  // Display labels cannot hide durable recovery ownership on otherwise unmanaged Releases.
+  assert.equal(
+    github.calls.filter(([operation, id]) => operation === "listReleaseAssets" && id === 99).length,
+    1,
+  )
 })
 
 test("a standalone active candidate tag is recovered as CANDIDATE_TAGGED", async () => {
@@ -433,7 +437,7 @@ test("scheduled discovery admits an exact AUDIT_VERIFIED draft for production ob
   )
 })
 
-test("scheduled discovery ignores malformed temporary drafts beside a marker-backed candidate", async () => {
+test("scheduled discovery blocks an unclassifiable controller envelope on an opaque draft", async () => {
   const repository = repositoryFixture([
     commit(BASE_SHA, "0.8.20"),
     commit(SHA_21, "0.8.21", { parent: BASE_SHA, marker: true }),
@@ -455,18 +459,19 @@ test("scheduled discovery ignores malformed temporary drafts beside a marker-bac
     ],
   })
 
-  const result = await discoverScheduledCandidate({
-    terminalRecordRef: RECORD_REF,
-    inventory: repository.inventory,
-    git: repository.git,
-    github,
-    marker: ACTIVE_MARKER,
-  })
-
-  assert.deepEqual(result, selectedCandidate("0.8.21", SHA_21, "CANDIDATE_TAGGED"))
+  await assert.rejects(
+    discoverScheduledCandidate({
+      terminalRecordRef: RECORD_REF,
+      inventory: repository.inventory,
+      git: repository.git,
+      github,
+      marker: ACTIVE_MARKER,
+    }),
+    /Unsupported recovery\/legacy marker blocks routing/,
+  )
   assert.deepEqual(
     github.calls.filter(([operation]) => operation === "listReleaseAssets"),
-    [["listReleaseAssets", release.id]],
+    [["listReleaseAssets", 99]],
   )
 })
 
@@ -810,6 +815,60 @@ test("scheduled recovery keeps both abandonment runner-loss boundaries nontermin
       ...selectedCandidate("0.8.21", SHA_21, "CANDIDATE_TAGGED"),
       disposition: "blocked",
       conflicts: [conflict],
+    })
+  }
+})
+
+test("terminal abandonment revalidates assets through the original reader", async (t) => {
+  for (const mode of ["stable", "replaced", "deleted", "unavailable", "rejected"]) {
+    await t.test(mode, async () => {
+      const repository = repositoryFixture([
+        commit(BASE_SHA, "0.8.20"),
+        commit(CUTOVER_SHA, "0.8.20", { parent: BASE_SHA, marker: true }),
+        commit(SHA_21, "0.8.21", { parent: CUTOVER_SHA, marker: true }),
+        commit(SHA_22, "0.8.22", { parent: SHA_21, marker: true }),
+      ])
+      const abandoned = managedRelease(21, "0.8.21", SHA_21, {
+        abandoned: true,
+        releaseRecord: false,
+      })
+      const github = githubFixture({ tags: [tagRef("0.8.21", SHA_21)], releases: [abandoned] })
+      const listAssets = github.listReleaseAssets
+      let targetReads = 0
+      github.listReleaseAssets = async (args) => {
+        const response = await listAssets(args)
+        if (args.releaseId !== abandoned.id) return response
+        targetReads++
+        if (targetReads < 2 || mode === "stable") return response
+        if (mode === "rejected") throw new Error("fresh terminal assets unavailable")
+        if (mode === "unavailable") return { status: "UNKNOWN" }
+        return present(
+          "release-assets",
+          mode === "deleted"
+            ? []
+            : response.value.map((asset) => ({
+                ...asset,
+                id: asset.id + 1,
+              })),
+        )
+      }
+      const discover = () =>
+        discoverScheduledCandidate({
+          terminalRecordRef: RECORD_REF,
+          inventory: repository.inventory,
+          git: repository.git,
+          github,
+          marker: ACTIVE_MARKER,
+        })
+      if (mode === "stable") {
+        assert.deepEqual(
+          await discover(),
+          selectedCandidate("0.8.22", SHA_22, "CANDIDATE_VALIDATED"),
+        )
+      } else {
+        await assert.rejects(discover(), /assets.*(?:changed|unavailable)|final assets/iu)
+      }
+      assert.equal(targetReads, 2, "final terminal verification must reach the original reader")
     })
   }
 })

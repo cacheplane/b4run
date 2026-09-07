@@ -177,6 +177,7 @@ test("installs the exact public fixed group, verifies npm signatures, and runs c
     CANONICAL_RELEASE_PACKAGE_ORDER.map((name) => `${name}@0.8.22`).sort(),
   )
   assert.equal(install.args.includes("--ignore-scripts"), true)
+  assert.equal(install.args.includes("vitest@4.1.10"), true)
   assert.equal(
     commands.some(
       ({ command, args }) =>
@@ -583,7 +584,7 @@ function missingDockerResourceError(kind, name, inspect) {
   if (kind === "volume") {
     return dockerCommandError(
       inspect
-        ? `Error: No such volume: ${name}`
+        ? `Error response from daemon: get ${name}: no such volume`
         : `Error response from daemon: get ${name}: no such volume`,
     )
   }

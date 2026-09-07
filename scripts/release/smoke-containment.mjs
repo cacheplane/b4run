@@ -158,6 +158,7 @@ export function buildSystemdRunArguments({
     throw new TypeError("Transient smoke unit inputs are invalid")
   }
   return Object.freeze([
+    "--quiet",
     "--wait",
     "--pipe",
     "--expand-environment=no",
@@ -332,7 +333,17 @@ async function performContainedInvocation(dependencies, invocation, { probe = fa
     cgroupPath = validatedCgroupPath(properties.controlGroup, unit)
     await verifyCgroupControlFiles(dependencies.fileSystem, cgroupPath)
     if (invocation.signal?.aborted) throw abortError("Contained smoke command was aborted")
-    await dependencies.fileSystem.writeFile(gatePath, "go\n", { flag: "wx", mode: 0o600 })
+    const pendingGatePath = path.join(root, "gate.pending")
+    await dependencies.fileSystem.writeFile(pendingGatePath, "go\n", { flag: "wx", mode: 0o600 })
+    try {
+      await dependencies.fileSystem.lstat(gatePath)
+      throw new Error("Containment workload gate already exists")
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error
+    }
+    // The controller is the only gate writer in this private mode-0700 directory.
+    // Rename exposes complete bytes with one link; it is not an OS no-clobber primitive.
+    await dependencies.fileSystem.rename(pendingGatePath, gatePath)
     const outcome = await awaitWorkloadOutcome(workload, invocation)
     if (outcome.type === "done") {
       result = outcome.result
@@ -606,7 +617,9 @@ async function showUnitState(dependencies, unit) {
 async function waitForReady(dependencies, workload, readyPath) {
   for (let attempt = 0; attempt < READY_ATTEMPTS; attempt += 1) {
     const ready = await readOptionalFile(dependencies.fileSystem, readyPath)
-    if (ready !== null) {
+    // The shim's exclusive create can become visible before its write completes.
+    // Empty files remain pending within the same bounded readiness deadline.
+    if (ready !== null && ready !== "") {
       if (ready !== "ready\n") throw new Error("Containment shim readiness marker is malformed")
       return
     }
@@ -853,7 +866,7 @@ function validateDependencies(value) {
   ) {
     throw new TypeError("Systemd containment dependencies are invalid")
   }
-  for (const method of ["chmod", "lstat", "mkdtemp", "readFile", "rm", "writeFile"]) {
+  for (const method of ["chmod", "lstat", "mkdtemp", "readFile", "rename", "rm", "writeFile"]) {
     if (typeof value.fileSystem[method] !== "function") {
       throw new TypeError(`Systemd containment file system must expose ${method}`)
     }

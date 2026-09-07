@@ -118,6 +118,120 @@ test("polls delayed exact metadata, signature, provenance, and latest before adv
   assert.ok(fixture.pollCalls.every(({ name }) => name === CANONICAL_RELEASE_PACKAGE_ORDER[0]))
 })
 
+for (const reason of ["version-absent", "metadata-pending", "audit-pending"]) {
+  test(`${reason} can converge after more than twenty polls without republishing`, async () => {
+    const fixture = publisherFixture({ initiallyPresent: "all-except-last" })
+    const target = CANONICAL_RELEASE_PACKAGE_ORDER.at(-1)
+    const observe = fixture.inputs.observeRegistry
+    const verify = fixture.inputs.verifyPackage
+    fixture.inputs.observeRegistry = async (request) => {
+      const result = await observe(request)
+      if (
+        request.name !== target ||
+        fixture.publishCalls.length === 0 ||
+        fixture.pollCalls.length >= 25
+      )
+        return result
+      if (reason === "version-absent" && request.version !== undefined) {
+        return { status: "ABSENT", operation: "package-version", httpStatus: 404, code: "E404" }
+      }
+      if (reason === "metadata-pending" && request.version === undefined) {
+        return { ...result, metadata: { ...result.metadata, latest: "0.8.20" } }
+      }
+      return result
+    }
+    fixture.inputs.verifyPackage = async (request) =>
+      reason === "audit-pending" && request.entry.name === target && fixture.pollCalls.length < 25
+        ? { status: "pending" }
+        : verify(request)
+
+    assert.equal((await publishManifestSerially(fixture.inputs)).status, "NPM_COMPLETE")
+    assert.equal(fixture.pollCalls.length, 25)
+    assert.deepEqual(fixture.publishCalls, [target])
+    const pending = fixture.logs.filter((event) => event.reason === reason)
+    assert.equal(pending.length, 25)
+    assert.equal(pending.at(-1).elapsedMs, 160_000)
+    await publishManifestSerially(fixture.inputs)
+    assert.deepEqual(
+      fixture.publishCalls,
+      [target],
+      "resume verifies and skips accepted publications",
+    )
+  })
+}
+
+test("permanent audit pending stops at the shared deadline without republishing", async () => {
+  const fixture = publisherFixture({ initiallyPresent: "all" })
+  fixture.inputs.verifyPackage = async () => ({ status: "pending" })
+  await assert.rejects(publishManifestSerially(fixture.inputs), /registry did not converge/u)
+  assert.equal(fixture.inputs.now(), TARBALL_CONVERGENCE_DEADLINE_MS)
+  assert.equal(fixture.pollCalls.length, 68)
+  assert.deepEqual(fixture.publishCalls, [])
+  assert.equal(fixture.logs.filter((event) => event.reason === "audit-pending").length, 69)
+})
+
+for (const conflict of ["signature", "provenance"]) {
+  test(`a hard ${conflict} error after pending is never retried`, async () => {
+    const fixture = publisherFixture({ initiallyPresent: "all" })
+    const failure = new Error(`invalid ${conflict}`)
+    fixture.inputs.verifyPackage = async () => {
+      if (fixture.pollCalls.length < 25) return { status: "pending" }
+      throw failure
+    }
+    await assert.rejects(publishManifestSerially(fixture.inputs), (error) => error === failure)
+    assert.equal(fixture.pollCalls.length, 25)
+    assert.deepEqual(fixture.publishCalls, [])
+  })
+}
+
+test("switching recognized pending states shares one ten-minute clock and backoff", async () => {
+  const fixture = publisherFixture({ initiallyPresent: "all-except-last" })
+  const target = CANONICAL_RELEASE_PACKAGE_ORDER.at(-1)
+  const observe = fixture.inputs.observeRegistry
+  const download = fixture.inputs.downloadRegistryTarball
+  const verify = fixture.inputs.verifyPackage
+  fixture.inputs.observeRegistry = async (request) => {
+    const result = await observe(request)
+    if (request.name !== target || fixture.publishCalls.length === 0) return result
+    if (fixture.pollCalls.length < 15 && request.version !== undefined) {
+      return { status: "ABSENT", operation: "package-version", httpStatus: 404, code: "E404" }
+    }
+    if (fixture.pollCalls.length < 30 && request.version === undefined) {
+      return { ...result, metadata: { ...result.metadata, latest: "0.8.20" } }
+    }
+    return result
+  }
+  fixture.inputs.downloadRegistryTarball = async (request) => {
+    if (
+      fixture.publishCalls.length > 0 &&
+      request.tarballUrl === registryUrl(fixture.inputs.manifest.packages.at(-1)) &&
+      fixture.pollCalls.length >= 30 &&
+      fixture.pollCalls.length < 45
+    ) {
+      return {
+        status: "AMBIGUOUS",
+        operation: "package-tarball",
+        httpStatus: 404,
+        code: "HTTP_404",
+      }
+    }
+    return download(request)
+  }
+  fixture.inputs.verifyPackage = async (request) =>
+    request.entry.name === target ? { status: "pending" } : verify(request)
+
+  await assert.rejects(publishManifestSerially(fixture.inputs), /registry did not converge/u)
+  assert.equal(fixture.inputs.now(), TARBALL_CONVERGENCE_DEADLINE_MS)
+  assert.equal(fixture.pollCalls.length, 68)
+  assert.deepEqual(fixture.publishCalls, [target])
+  const pending = fixture.logs.filter((event) => event.reason !== undefined)
+  assert.deepEqual(
+    [...new Set(pending.map((event) => event.reason))],
+    ["version-absent", "metadata-pending", "tarball-404", "audit-pending"],
+  )
+  assert.equal(pending.at(-1).attempt, 69)
+})
+
 test("a published tarball that 404s during propagation is polled at 2 s then 10 s until it arrives", async () => {
   const first = CANONICAL_RELEASE_PACKAGE_ORDER[0]
   const pendingReads = 12

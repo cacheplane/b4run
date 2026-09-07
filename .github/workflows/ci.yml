@@ -61,10 +61,9 @@ jobs:
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: node scripts/check-changesets.mjs
 
-  validate:
+  source-validate:
     runs-on: ubuntu-latest
-    # A fully green validate run took ~26 minutes before pack/harness verification
-    # moved to their own jobs; 30 left no margin for slow runners.
+    # Source verification runs alongside the controller, packaging, and harness lanes.
     timeout-minutes: 45
 
     steps:
@@ -88,6 +87,9 @@ jobs:
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      - name: Release Integrity Preflight
+        run: pnpm test:release-integrity
 
       - name: Lint
         run: pnpm lint
@@ -115,16 +117,63 @@ jobs:
       - name: Release Inventory
         run: pnpm check:release-inventory
 
-      - name: Release Controller Tests
-        run: pnpm test:release-controller
-
       - name: Docs Check
         run: node scripts/check-docs.mjs
 
-  # Pack and harness verification used to run at the tail of `validate`,
-  # serialising ~16 minutes behind the source tests. They only need a built
-  # tree, so each rebuilds (~1.5 min) and runs in parallel with `validate`,
-  # which stays the release controller's required check.
+  release-controller:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 10.33.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # Node 24 — Dawn's floor is the active LTS line (node:sqlite
+          # unflagged, npm >= 11 bundled). Matches release.yml and engines.
+          node-version: 24.17.0
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Release Integrity Preflight
+        run: pnpm test:release-integrity
+
+      - name: Release Controller Tests
+        run: pnpm test:release-controller
+
+  validate:
+    needs: [source-validate, release-controller, pack-smoke, harness-verify]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every validation lane
+        env:
+          LANE_0: ${{ needs.source-validate.result }}
+          LANE_1: ${{ needs.release-controller.result }}
+          LANE_2: ${{ needs.pack-smoke.result }}
+          LANE_3: ${{ needs.harness-verify.result }}
+        run: |
+          for result in "$LANE_0" "$LANE_1" "$LANE_2" "$LANE_3"; do
+            if [ "$result" != success ]; then
+              echo "Required validation lane did not succeed: $result" >&2
+              exit 1
+            fi
+          done
+
+  # Each lane verifies the same commit independently. The stable validate check
+  # requires success from source, controller, packaging, and harness verification.
   pack-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -743,7 +792,7 @@ jobs:
 
   sandbox-k8s:
     needs: metadata_scope
-    if: ${{ always() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -836,7 +885,7 @@ jobs:
     # both Helm charts (cross-namespace: app in dawn-app, sandboxes in
     # dawn-sandboxes). Determinism comes from a baked aimock (no model key).
     needs: metadata_scope
-    if: ${{ always() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -996,7 +1045,7 @@ jobs:
     # adds a Verdaccio-published image build (same mechanism as sandbox-k8s-e2e).
     # Determinism comes from a baked aimock (no model key).
     needs: metadata_scope
-    if: ${{ always() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -1078,7 +1127,7 @@ jobs:
 
   chart-apply-smoke:
     needs: metadata_scope
-    if: ${{ always() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -1129,3 +1178,22 @@ jobs:
           kubectl --context "$DAWN_TEST_K8S_CONTEXT" rollout status deploy/dawn-app --timeout=120s
           kubectl --context "$DAWN_TEST_K8S_CONTEXT" run curl --image="$REACHABILITY_IMAGE" --restart=Never --rm -i --quiet -- \
             curl -sf http://dawn-app.default.svc.cluster.local/ >/dev/null && echo "app served OK"
+
+  recovery-strict-runner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.19.0
+      - name: Verify real recovery process containment
+        env:
+          DAWN_TEST_RECOVERY_RUNNER: "1"
+        run: node --test scripts/release/test/recovery-strict-runner.integration.mjs

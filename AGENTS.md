@@ -105,30 +105,34 @@ scripts respectively) — not workspace packages.
 
 ## Definition of Done
 
-The exact gates a change must pass are the `validate` job in
-`.github/workflows/ci.yml`, in order:
+The required `validate` job in `.github/workflows/ci.yml` aggregates four
+independent lanes and succeeds only when all four succeed. Failure, cancellation,
+or a skipped lane blocks it.
 
-1. `pnpm lint`
-2. `pnpm check:build-cache`
-3. `pnpm build`
-4. `pnpm typecheck`
-5. `pnpm test`
-6. `pnpm check:release-inventory`
-7. `pnpm test:release-controller`
+The `source-validate` lane runs these gates in order after installation:
+
+1. `pnpm test:release-integrity` — early content pins and recovery-policy checks
+2. `pnpm lint`
+3. `pnpm check:build-cache`
+4. `pnpm build`
+5. `pnpm typecheck`
+6. `pnpm test`
+7. `pnpm check:release-inventory`
 8. `node scripts/check-docs.mjs`
-9. `pnpm pack:check`
-10. `pnpm verify:typescript-tooling-pack`
-11. `pnpm verify:harness:self-test`
-12. `pnpm verify:harness:framework`
-13. `pnpm verify:harness:runtime`
-14. `pnpm verify:harness:smoke`
+
+The `release-controller` lane installs dependencies, runs the early integrity
+checks, and runs the complete `pnpm test:release-controller` suite from an unbuilt
+checkout. The `pack-smoke` lane runs `pnpm pack:check` and
+`pnpm verify:typescript-tooling-pack`. The `harness-verify` lane runs
+`pnpm verify:harness:self-test` and the framework, runtime, and smoke harnesses.
+These gates remain part of repository validation.
 
 On pull requests, a separate `changesets` job also runs
 `node scripts/check-changesets.mjs` to require a changeset for user-facing
 package changes.
 
-Run `pnpm ci:validate` locally to approximate this lane (it exists as a
-script in the root `package.json`). It runs the same lint → build-cache →
+Run `pnpm ci:validate` locally to run the validation commands sequentially.
+The script in the root `package.json` runs release-integrity → lint → build-cache →
 build → typecheck → source-test → release-inventory → release-controller-test →
 docs-check → pack-check → TypeScript-tooling-pack → harness sequence, plus
 the local-only `test:sync-chart-appversion` release-script unit test, which is
@@ -200,9 +204,17 @@ substitute for the other or optional release cleanup.
   script, adding an unpinned entrypoint, or retaining a stale pin fails
   `pnpm test:release-controller` until the reviewed fixture is regenerated in
   the same commit. Reachability is re-derived from workflow `run:` steps,
-  package-script expansion, and action `with:` inputs. This is deliberately
-  limited to release ownership; ordinary CI-only scripts are not pinned. See
-  `CONTRIBUTORS.md`'s "Release Integrity Coverage" for the boundary.
+  package-script expansion, and action `with:` inputs, and then closed
+  transitively over each entrypoint's repository-local module loads — static
+  `import`/`export ... from`, dynamic `import()` with a literal specifier, and
+  the `new URL("./sibling.mjs", import.meta.url)` form the release CLI hands to
+  its injected loader. A load whose specifier cannot be resolved statically
+  fails the check rather than being skipped; the reviewed exceptions live in
+  `REVIEWED_DYNAMIC_IMPORT_SEAMS`. Files a pinned module reads off disk instead
+  of importing are declared in `RELEASE_DATA_FILES` and anchored to a reader.
+  This is deliberately limited to release ownership; ordinary CI-only scripts
+  are not pinned. See `CONTRIBUTORS.md`'s "Release Integrity Coverage" for the
+  boundary.
 
 ## Where things live
 
