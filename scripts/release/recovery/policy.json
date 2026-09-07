@@ -130,6 +130,7 @@
       "scripts/release/manifest.mjs",
       "scripts/release/metadata.mjs",
       "scripts/release/npm-audit.mjs",
+      "scripts/release/npm-bootstrap.mjs",
       "scripts/release/npm-evidence.mjs",
       "scripts/release/process-runner.mjs",
       "scripts/release/recovery/adopt.mjs",

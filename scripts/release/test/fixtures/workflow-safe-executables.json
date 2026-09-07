@@ -2836,7 +2836,7 @@
         "stepIndex": 4,
         "step": "Seal the production event",
         "kind": "run",
-        "value": "if [[ \"$GITHUB_EVENT_NAME\" == \"workflow_dispatch\" ]]; then\n  node -e 'require(\"node:fs\").writeFileSync(process.argv[1], JSON.stringify({inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA}}))' \"$RUNNER_TEMP/release-event.json\"\nelse\n  cp \"$GITHUB_EVENT_PATH\" \"$RUNNER_TEMP/release-event.json\"\nfi\n"
+        "value": "if [[ \"$GITHUB_EVENT_NAME\" == \"workflow_dispatch\" ]]; then\n  node -e 'require(\"node:fs\").writeFileSync(process.argv[1], JSON.stringify({inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,npmBootstrap:process.env.NPM_BOOTSTRAP===\"true\"}}))' \"$RUNNER_TEMP/release-event.json\"\nelse\n  cp \"$GITHUB_EVENT_PATH\" \"$RUNNER_TEMP/release-event.json\"\nfi\n"
       },
       {
         "classification": "safe",
@@ -2900,7 +2900,7 @@
         "stepIndex": 4,
         "step": "Continue at the exact tag or relay once",
         "kind": "run",
-        "value": "if [[ \"$GITHUB_EVENT_NAME\" == \"workflow_dispatch\" &&\n      \"$GITHUB_REF\" == \"refs/tags/v${VERSION}\" &&\n      \"$GITHUB_SHA\" == \"$COMMIT_SHA\" ]]; then\n  printf 'continue=true\\n' >> \"$GITHUB_OUTPUT\"\n  exit 0\nfi\n\nWORKFLOW_PATH=\".github/workflows/release.yml\"\nWORKFLOW_ID=\"$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' \"$WORKFLOW_PATH\")\"\nBODY=\"$(node -e 'process.stdout.write(JSON.stringify({ref:\"v\"+process.env.VERSION,inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,operation:\"reconcile\"}}))')\"\nSTATUS=\"$(curl --silent --show-error --output \"$RUNNER_TEMP/dispatch.json\" --write-out '%{http_code}' \\\n  --request POST \\\n  --header 'Accept: application/vnd.github+json' \\\n  --header \"Authorization: Bearer $GITHUB_TOKEN\" \\\n  --header 'X-GitHub-Api-Version: 2026-03-10' \\\n  \"https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_ID/dispatches\" \\\n  --data \"$BODY\")\"\ntest \"$STATUS\" = \"200\"\nprintf 'continue=false\\n' >> \"$GITHUB_OUTPUT\"\n"
+        "value": "if [[ \"$GITHUB_EVENT_NAME\" == \"workflow_dispatch\" &&\n      \"$GITHUB_REF\" == \"refs/tags/v${VERSION}\" &&\n      \"$GITHUB_SHA\" == \"$COMMIT_SHA\" ]]; then\n  printf 'continue=true\\n' >> \"$GITHUB_OUTPUT\"\n  exit 0\nfi\n\nWORKFLOW_PATH=\".github/workflows/release.yml\"\nWORKFLOW_ID=\"$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' \"$WORKFLOW_PATH\")\"\nBODY=\"$(node -e 'process.stdout.write(JSON.stringify({ref:\"v\"+process.env.VERSION,inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,operation:\"reconcile\",npmBootstrap:process.env.NPM_BOOTSTRAP===\"true\"}}))')\"\nSTATUS=\"$(curl --silent --show-error --output \"$RUNNER_TEMP/dispatch.json\" --write-out '%{http_code}' \\\n  --request POST \\\n  --header 'Accept: application/vnd.github+json' \\\n  --header \"Authorization: Bearer $GITHUB_TOKEN\" \\\n  --header 'X-GitHub-Api-Version: 2026-03-10' \\\n  \"https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_ID/dispatches\" \\\n  --data \"$BODY\")\"\ntest \"$STATUS\" = \"200\"\nprintf 'continue=false\\n' >> \"$GITHUB_OUTPUT\"\n"
       },
       {
         "classification": "safe",
@@ -3220,7 +3220,7 @@
         "stepIndex": 4,
         "step": "Publish and verify npm serially",
         "kind": "run",
-        "value": "node scripts/release/publisher.mjs \\\n  --candidate \"$RUNNER_TEMP/runtime/candidate.json\" \\\n  --record \"$RUNNER_TEMP/runtime/release-record.json\" \\\n  --artifact-dir \"$RUNNER_TEMP/runtime/payload\" \\\n  --report \"$RUNNER_TEMP/npm-evidence.json\" \\\n  --github-output \"$GITHUB_OUTPUT\"\n"
+        "value": "node scripts/release/publisher.mjs \\\n  --candidate \"$RUNNER_TEMP/runtime/candidate.json\" \\\n  --record \"$RUNNER_TEMP/runtime/release-record.json\" \\\n  --artifact-dir \"$RUNNER_TEMP/runtime/payload\" \\\n  --report \"$RUNNER_TEMP/npm-evidence.json\" \\\n  --github-output \"$GITHUB_OUTPUT\" \\\n  --npm-auth-mode \"$NPM_AUTH_MODE\"\n"
       },
       {
         "classification": "safe",

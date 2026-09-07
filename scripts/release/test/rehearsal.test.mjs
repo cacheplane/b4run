@@ -26,6 +26,7 @@ import { startFaultProxy } from "./support/fault-proxy.mjs"
 import {
   createCandidateRepositoryFixture,
   createExactCandidateCommandRunner,
+  createFirstPublicationRehearsalNpmReader,
   createOrderedFaultGate,
   createRehearsalDurableState,
   FIXED_GROUP_REHEARSAL_FAULTS,
@@ -666,6 +667,82 @@ test("registry harness packs without publishing and exposes one bounded real pub
     harness.publishPreparedTarball({ tarballPath: untrustedTarball }),
     /allowed.*root|tarball.*root/iu,
   )
+})
+
+test("first-publication rehearsal reader proves whole-package absence, then exact presence, over the real registry", async (t) => {
+  const harness = await createFaultHarness({ fixtureDirectory: THREE_PACKAGE_FIXTURE })
+  t.after(() => harness.close())
+  const packed = await harness.packFixtureTarballs()
+  assert.equal(packed.length, 3)
+  const reader = createFirstPublicationRehearsalNpmReader(harness)
+  const [target, sibling] = packed
+  const identity = { name: target.name, version: target.version }
+
+  assert.deepEqual(await reader.observeFirstPublicationPackage(identity), {
+    status: "ABSENT",
+    operation: "first-publication-package",
+    httpStatus: 404,
+    code: "E404",
+  })
+  assert.deepEqual(await reader.observePackageVersion(identity), {
+    status: "ABSENT",
+    operation: "package-version",
+    httpStatus: 404,
+    code: "E404",
+  })
+  assert.deepEqual(await reader.observePackageMetadata(identity), {
+    status: "ABSENT",
+    operation: "package-metadata",
+    httpStatus: 404,
+    code: "E404",
+  })
+
+  // A 404 whose body is not npm's not-found representation is never absence.
+  harness.proxy.setMode("package-e404")
+  const injected = await reader.observeFirstPublicationPackage(identity)
+  assert.equal(injected.status, "AMBIGUOUS")
+  assert.equal(injected.httpStatus, 404)
+  harness.proxy.setMode("unauthorized")
+  assert.equal((await reader.observeFirstPublicationPackage(identity)).status, "AMBIGUOUS")
+  harness.proxy.reset()
+
+  await harness.publishPreparedTarball({ tarballPath: target.tarballPath })
+  const present = await reader.observeFirstPublicationPackage(identity)
+  assert.equal(present.status, "PRESENT")
+  assert.deepEqual(present.package.versions, [target.version])
+  assert.equal(present.package.latest, target.version)
+  assert.equal(present.package.candidate.name, target.name)
+  assert.equal(present.package.candidate.version, target.version)
+  const exact = await reader.observePackageVersion(identity)
+  assert.equal(exact.status, "PRESENT")
+  assert.deepEqual(exact.package, present.package.candidate)
+  assert.equal(new URL(exact.package.tarballUrl).origin, "https://registry.npmjs.org")
+  const metadata = await reader.observePackageMetadata(identity)
+  assert.deepEqual(metadata, {
+    status: "PRESENT",
+    operation: "package-metadata",
+    httpStatus: 200,
+    code: null,
+    metadata: { name: target.name, latest: target.version },
+  })
+  const download = await reader.downloadRegistryTarball({ tarballUrl: exact.package.tarballUrl })
+  assert.equal(download.status, "PRESENT")
+  assert.equal(
+    download.tarball.sha512,
+    createHash("sha512")
+      .update(await readFile(target.tarballPath))
+      .digest("hex"),
+  )
+
+  // A published sibling does not change the still-absent name, and an unrelated version of
+  // the published name is the only prior state first publication refuses.
+  assert.equal(
+    (await reader.observePackageVersion({ name: sibling.name, version: sibling.version })).status,
+    "ABSENT",
+  )
+  const foreign = await reader.observePackageVersion({ name: target.name, version: "999.0.0" })
+  assert.equal(foreign.status, "AMBIGUOUS")
+  assert.equal(foreign.code, "FIRST_PUBLICATION_FOREIGN_VERSION")
 })
 
 test("fault proxy preserves a canonical release tarball larger than the small fixture", async (t) => {

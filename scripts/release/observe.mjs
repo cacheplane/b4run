@@ -94,11 +94,16 @@ export function classifyProductionEvent(value) {
   if (Number(scheduled) + Number(pushed) + Number(dispatched) !== 1) {
     throw new TypeError("Production release event candidate source is ambiguous")
   }
+  // The first-publication boolean is a sealed dispatch input only. A scheduled or push event
+  // (or a dispatch event) carrying it at the top level is not a shape this controller emits.
+  if (Object.hasOwn(event, "npmBootstrap")) {
+    throw new TypeError("Production release dispatch inputs are invalid")
+  }
   if (scheduled) {
     if (typeof event.schedule !== "string" || event.schedule.length === 0) {
       throw new TypeError("Production release schedule is invalid")
     }
-    return deepFreeze({ kind: "scheduled", ref: null, expectedVersion: null })
+    return deepFreeze({ kind: "scheduled", ref: null, expectedVersion: null, npmBootstrap: false })
   }
   if (pushed) {
     if (event.ref !== "refs/heads/main" || !isSha(event.after)) {
@@ -108,13 +113,22 @@ export function classifyProductionEvent(value) {
       kind: "exact-ref",
       ref: event.after,
       expectedVersion: null,
+      npmBootstrap: false,
     })
   }
+  // The sealed manual event carries the optional first-publication boolean. Only a literal
+  // boolean is accepted; scheduled and push executions can never carry it. Selecting it here
+  // only chooses the read-only first-publication registry reader for detection; publishing
+  // authority is decided separately at the publisher boundary after escrow.
   if (
     !isRecord(event.inputs) ||
-    !hasExactKeys(event.inputs, ["version", "commitSha"]) ||
+    !(
+      hasExactKeys(event.inputs, ["version", "commitSha"]) ||
+      hasExactKeys(event.inputs, ["version", "commitSha", "npmBootstrap"])
+    ) ||
     !isReleaseVersion(event.inputs.version) ||
-    !isSha(event.inputs.commitSha)
+    !isSha(event.inputs.commitSha) ||
+    !(event.inputs.npmBootstrap === undefined || typeof event.inputs.npmBootstrap === "boolean")
   ) {
     throw new TypeError("Production release dispatch inputs are invalid")
   }
@@ -122,6 +136,7 @@ export function classifyProductionEvent(value) {
     kind: "exact-ref",
     ref: event.inputs.commitSha,
     expectedVersion: event.inputs.version,
+    npmBootstrap: event.inputs.npmBootstrap === true,
   })
 }
 

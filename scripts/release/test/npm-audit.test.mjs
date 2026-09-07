@@ -2,7 +2,8 @@ import assert from "node:assert/strict"
 import { execFileSync, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import * as fs from "node:fs/promises"
-import { access, readdir, readFile, writeFile } from "node:fs/promises"
+import { access, readdir, readFile, stat, writeFile } from "node:fs/promises"
+import os from "node:os"
 import path from "node:path"
 import test from "node:test"
 
@@ -267,6 +268,176 @@ test("uses one synthetic exact-package tree with no install, unpack, or lockfile
   }
   await assert.rejects(access(root))
 })
+
+const BOOTSTRAP_TOKEN = "npm_bootstrapSECRETtoken0123456789"
+// The publish npmrc carries a literal environment reference, never the value.
+const NPMRC_TOKEN_REFERENCE = [
+  "//registry.npmjs.org/:_authToken=$",
+  "{B4_NPM_BOOTSTRAP_TOKEN}\n",
+].join("")
+
+test("OIDC verifier writes empty npm configs and forwards no registry credential despite ambient tokens", async () => {
+  const verifier = await createNpmAuditVerifier({
+    environment: {
+      ...provenanceEnvironment(),
+      NPM_TOKEN: "ambient-must-not-leak",
+      NODE_AUTH_TOKEN: "ambient-must-not-leak",
+      B4_NPM_BOOTSTRAP_TOKEN: BOOTSTRAP_TOKEN,
+      B4_NPM_BOOTSTRAP_AUTHORIZATION: "{}",
+      npm_config__authToken: "ambient-must-not-leak",
+      NPM_CONFIG__AUTHTOKEN: "ambient-must-not-leak",
+    },
+    signal: new AbortController().signal,
+    async runNpm(_command, args) {
+      if (args[0] === "--version") return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+      throw new Error(`unexpected npm operation ${args[0]}`)
+    },
+  })
+  try {
+    for (const home of ["audit-home", "publish-home"]) {
+      assert.equal(await readFile(path.join(verifier.root, home, ".npmrc"), "utf8"), "")
+      assert.equal(await readFile(path.join(verifier.root, home, "global.npmrc"), "utf8"), "")
+    }
+    const publish = verifier.publisherEnvironment({ candidate: CANDIDATE })
+    for (const name of Object.keys(publish)) {
+      assert.doesNotMatch(name, /B4_NPM|NPM_TOKEN|NODE_AUTH_TOKEN|_authToken|AUTHTOKEN/iu, name)
+      assert.doesNotMatch(String(publish[name]), /must-not-leak|npm_bootstrap/u, name)
+    }
+    assert.equal(publish.ACTIONS_ID_TOKEN_REQUEST_TOKEN, "exact-oidc-token")
+  } finally {
+    await verifier.dispose()
+  }
+})
+
+test("explicit bootstrap configuration confines the token reference to the publish npmrc and the token to npm publish", async () => {
+  const calls = []
+  const verifier = await createNpmAuditVerifier({
+    environment: { ...provenanceEnvironment(), B4_NPM_BOOTSTRAP_TOKEN: "ambient-ignored" },
+    signal: new AbortController().signal,
+    bootstrap: { token: BOOTSTRAP_TOKEN },
+    async runNpm(command, args, options) {
+      calls.push({ command, args, options })
+      if (args[0] === "--version") return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+      if (args[0] === "audit") return { stdout: auditOutput(), stderr: "", exitCode: 0 }
+      throw new Error(`unexpected npm operation ${args[0]}`)
+    },
+  })
+  const root = verifier.root
+  try {
+    const publishNpmrc = path.join(root, "publish-home", ".npmrc")
+    assert.equal(await readFile(publishNpmrc, "utf8"), NPMRC_TOKEN_REFERENCE)
+    assert.equal((await stat(publishNpmrc)).mode & 0o777, 0o600)
+    assert.equal((await stat(path.join(root, "publish-home"))).mode & 0o777, 0o700)
+    assert.equal(await readFile(path.join(root, "publish-home", "global.npmrc"), "utf8"), "")
+    assert.equal(await readFile(path.join(root, "audit-home", ".npmrc"), "utf8"), "")
+    assert.equal(await readFile(path.join(root, "audit-home", "global.npmrc"), "utf8"), "")
+    for (const file of await listFiles(root)) {
+      assert.doesNotMatch(await readFile(file, "utf8"), /npm_bootstrapSECRET/u, file)
+    }
+
+    assert.equal(
+      (await verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE })).status,
+      "verified",
+    )
+    assert.deepEqual(
+      calls.map(({ args }) => args[0]),
+      ["--version", "audit"],
+    )
+    for (const { options } of calls) {
+      assert.equal(options.env.B4_NPM_BOOTSTRAP_TOKEN, undefined)
+      assert.equal(options.env.npm_config_userconfig, path.join(root, "audit-home", ".npmrc"))
+      assert.doesNotMatch(JSON.stringify(options.env), /npm_bootstrapSECRET|ambient-ignored/u)
+    }
+
+    const publish = verifier.publisherEnvironment({ candidate: CANDIDATE })
+    assert.equal(publish.B4_NPM_BOOTSTRAP_TOKEN, BOOTSTRAP_TOKEN)
+    assert.equal(publish.npm_config_userconfig, publishNpmrc)
+    assert.equal(publish.npm_config_globalconfig, path.join(root, "publish-home", "global.npmrc"))
+    assert.equal(publish.npm_config_registry, "https://registry.npmjs.org/")
+    assert.equal(publish.ACTIONS_ID_TOKEN_REQUEST_TOKEN, "exact-oidc-token")
+    assert.equal(
+      publish.ACTIONS_ID_TOKEN_REQUEST_URL,
+      "https://token.actions.githubusercontent.com/exact",
+    )
+    assert.equal(publish.NPM_TOKEN, undefined)
+    assert.equal(publish.NODE_AUTH_TOKEN, undefined)
+    assert.equal(publish.B4_NPM_BOOTSTRAP_AUTHORIZATION, undefined)
+    assert.equal(
+      Object.values(publish).filter((value) => String(value).includes(BOOTSTRAP_TOKEN)).length,
+      1,
+    )
+  } finally {
+    await verifier.dispose()
+  }
+  await assert.rejects(access(root))
+})
+
+test("bootstrap configuration rejects malformed options and credentials without echoing them and cleans up", async () => {
+  const before = new Set(await readdir(os.tmpdir()))
+  for (const bootstrap of [
+    null,
+    "token",
+    {},
+    { token: "" },
+    { token: `${BOOTSTRAP_TOKEN}\n` },
+    { token: `${BOOTSTRAP_TOKEN} ` },
+    { token: `${BOOTSTRAP_TOKEN}\0` },
+    { token: BOOTSTRAP_TOKEN, extra: true },
+    { token: 42 },
+  ]) {
+    let caught = null
+    try {
+      await createNpmAuditVerifier({
+        environment: provenanceEnvironment(),
+        signal: new AbortController().signal,
+        bootstrap,
+        async runNpm() {
+          throw new Error("npm must not run before the bootstrap option is validated")
+        },
+      })
+    } catch (error) {
+      caught = error
+    }
+    assert.ok(caught instanceof TypeError, JSON.stringify(bootstrap))
+    assert.doesNotMatch(caught.message, /npm_bootstrapSECRET/u)
+    assert.doesNotMatch(String(caught.stack), /npm_bootstrapSECRET/u)
+  }
+  const after = (await readdir(os.tmpdir())).filter(
+    (entry) => entry.startsWith("b4-npm-audit-") && !before.has(entry),
+  )
+  assert.deepEqual(after, [])
+})
+
+function provenanceEnvironment() {
+  return {
+    PATH: process.env.PATH ?? "",
+    GITHUB_ACTIONS: "true",
+    GITHUB_EVENT_NAME: "workflow_dispatch",
+    GITHUB_REF: `refs/tags/v${VERSION}`,
+    GITHUB_REPOSITORY: "cacheplane/b4-run",
+    GITHUB_REPOSITORY_ID: "1360603908",
+    GITHUB_REPOSITORY_OWNER_ID: "987654321",
+    GITHUB_RUN_ATTEMPT: "1",
+    GITHUB_RUN_ID: "100",
+    GITHUB_SERVER_URL: "https://github.com",
+    GITHUB_SHA: COMMIT_SHA,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+    RUNNER_ENVIRONMENT: "github-hosted",
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: "exact-oidc-token",
+    ACTIONS_ID_TOKEN_REQUEST_URL: "https://token.actions.githubusercontent.com/exact",
+  }
+}
+
+async function listFiles(root) {
+  const entries = await readdir(root, { withFileTypes: true })
+  const files = []
+  for (const entry of entries) {
+    const target = path.join(root, entry.name)
+    if (entry.isDirectory()) files.push(...(await listFiles(target)))
+    else files.push(target)
+  }
+  return files
+}
 
 test("rejects an audit command that creates a lockfile in the synthetic tree", async () => {
   const verifier = await createNpmAuditVerifier({

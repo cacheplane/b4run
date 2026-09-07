@@ -23,6 +23,11 @@ on:
         default: reconcile
         options:
           - reconcile
+      npmBootstrap:
+        description: First publication only - authenticate the npm publisher with the expiring bootstrap credential instead of trusted publishing
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: b4-release-controller
@@ -77,9 +82,10 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
           COMMIT_SHA: ${{ inputs.commitSha }}
+          NPM_BOOTSTRAP: ${{ inputs.npmBootstrap }}
         run: |
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            node -e 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify({inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA}}))' "$RUNNER_TEMP/release-event.json"
+            node -e 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify({inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}}))' "$RUNNER_TEMP/release-event.json"
           else
             cp "$GITHUB_EVENT_PATH" "$RUNNER_TEMP/release-event.json"
           fi
@@ -149,6 +155,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.detect.outputs.candidate_version }}
           COMMIT_SHA: ${{ needs.detect.outputs.candidate_sha }}
+          NPM_BOOTSTRAP: ${{ inputs.npmBootstrap }}
         run: |
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" &&
                 "$GITHUB_REF" == "refs/tags/v${VERSION}" &&
@@ -159,7 +166,7 @@ jobs:
 
           WORKFLOW_PATH=".github/workflows/release.yml"
           WORKFLOW_ID="$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$WORKFLOW_PATH")"
-          BODY="$(node -e 'process.stdout.write(JSON.stringify({ref:"v"+process.env.VERSION,inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,operation:"reconcile"}}))')"
+          BODY="$(node -e 'process.stdout.write(JSON.stringify({ref:"v"+process.env.VERSION,inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,operation:"reconcile",npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}}))')"
           STATUS="$(curl --silent --show-error --output "$RUNNER_TEMP/dispatch.json" --write-out '%{http_code}' \
             --request POST \
             --header 'Accept: application/vnd.github+json' \
@@ -572,6 +579,7 @@ jobs:
             scripts/release/manifest.mjs
             scripts/release/metadata.mjs
             scripts/release/npm-audit.mjs
+            scripts/release/npm-bootstrap.mjs
             scripts/release/npm-evidence.mjs
             scripts/release/process-runner.mjs
             scripts/release/publisher.mjs
@@ -602,13 +610,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           NPM_CONFIG_PROVENANCE: "true"
+          NPM_AUTH_MODE: ${{ inputs.npmBootstrap == true && 'bootstrap' || 'oidc' }}
+          B4_NPM_BOOTSTRAP_AUTHORIZATION: ${{ inputs.npmBootstrap == true && vars.B4_NPM_BOOTSTRAP_AUTHORIZATION || '' }}
+          B4_NPM_BOOTSTRAP_TOKEN: ${{ inputs.npmBootstrap == true && secrets.B4_NPM_BOOTSTRAP_TOKEN || '' }}
         run: |
           node scripts/release/publisher.mjs \
             --candidate "$RUNNER_TEMP/runtime/candidate.json" \
             --record "$RUNNER_TEMP/runtime/release-record.json" \
             --artifact-dir "$RUNNER_TEMP/runtime/payload" \
             --report "$RUNNER_TEMP/npm-evidence.json" \
-            --github-output "$GITHUB_OUTPUT"
+            --github-output "$GITHUB_OUTPUT" \
+            --npm-auth-mode "$NPM_AUTH_MODE"
 
       - name: Upload exact npm evidence
         id: npm

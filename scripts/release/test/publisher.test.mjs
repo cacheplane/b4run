@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
+import * as fsPromises from "node:fs/promises"
 import {
   access,
   chmod,
@@ -23,7 +24,11 @@ import test from "node:test"
 import { pathToFileURL } from "node:url"
 
 import { ARTIFACT_STORE_SPARSE_FILES } from "../artifact-store.mjs"
-import { CANONICAL_RELEASE_PACKAGE_ORDER, canonicalManifestBytes } from "../manifest.mjs"
+import {
+  CANONICAL_RELEASE_PACKAGE_ORDER,
+  canonicalManifestBytes,
+  manifestSha256,
+} from "../manifest.mjs"
 import { canonicalReleaseBody } from "../metadata.mjs"
 import { canonicalNpmEvidenceBytes, parseNpmEvidence } from "../npm-evidence.mjs"
 import {
@@ -34,7 +39,7 @@ import {
   runPublisherCli,
   TARBALL_CONVERGENCE_DEADLINE_MS,
 } from "../publisher.mjs"
-import { canonicalReleaseRecordBytes } from "../release-record.mjs"
+import { canonicalReleaseRecordBytes, releaseRecordSha256 } from "../release-record.mjs"
 import { EXACT_NPM_PROVENANCE_CERTIFICATE } from "./fixtures/b4-npm-audit-certificates.mjs"
 import { observationForMarker } from "./support/marker-observation.mjs"
 
@@ -500,7 +505,7 @@ test("the production CLI accepts only its narrow arguments and publishes exact r
       "--github-output",
       githubOutputPath,
     ]),
-    { candidatePath, recordPath, artifactDir, reportPath, githubOutputPath },
+    { candidatePath, recordPath, artifactDir, reportPath, githubOutputPath, npmAuthMode: "oidc" },
   )
   for (const args of [
     [],
@@ -607,6 +612,649 @@ test("the production CLI accepts only its narrow arguments and publishes exact r
   )
   assert.ok(report.packages.every((entry) => entry.signature.status === "valid"))
   assert.equal(await readFile(githubOutputPath, "utf8"), "complete=true\nstate=NPM_COMPLETE\n")
+})
+
+const BOOTSTRAP_NOT_BEFORE = "2026-09-08T00:00:00Z"
+const BOOTSTRAP_EXPIRES_AT = "2026-09-08T12:00:00Z"
+const BOOTSTRAP_WINDOW_START_MS = Date.parse(BOOTSTRAP_NOT_BEFORE)
+const BOOTSTRAP_TOKEN = "npm_bootstrapSECRETtoken0123456789"
+// The publish npmrc carries a literal environment reference, never the value.
+const NPMRC_TOKEN_REFERENCE = [
+  "//registry.npmjs.org/:_authToken=$",
+  "{B4_NPM_BOOTSTRAP_TOKEN}\n",
+].join("")
+
+test("the publisher accepts only the oidc or bootstrap auth mode and defaults to oidc", () => {
+  const base = [
+    "--candidate",
+    "candidate.json",
+    "--record",
+    "record.json",
+    "--artifact-dir",
+    "artifact",
+    "--report",
+    "report.json",
+    "--github-output",
+    "output",
+  ]
+  assert.equal(parsePublisherArguments(base).npmAuthMode, "oidc")
+  assert.equal(parsePublisherArguments([...base, "--npm-auth-mode", "oidc"]).npmAuthMode, "oidc")
+  assert.equal(
+    parsePublisherArguments(["--npm-auth-mode", "bootstrap", ...base]).npmAuthMode,
+    "bootstrap",
+  )
+  for (const args of [
+    [...base, "--npm-auth-mode"],
+    [...base, "--npm-auth-mode", ""],
+    [...base, "--npm-auth-mode", "token"],
+    [...base, "--npm-auth-mode", "OIDC"],
+    [...base, "--npm-auth-mode", "Bootstrap"],
+    [...base, "--npm-auth-mode", "bootstrap\n"],
+    [...base, "--npm-auth-mode", "oidc", "--npm-auth-mode", "bootstrap"],
+    [...base, "--npm-auth-mode", "bootstrap", "--repack", "true"],
+  ]) {
+    assert.throws(() => parsePublisherArguments(args), /Usage|argument/iu, JSON.stringify(args))
+  }
+})
+
+test("first-publication serial publication accepts whole-package absence only when explicitly enabled", async () => {
+  const fixture = publisherFixture({ firstPublication: true })
+  await assert.rejects(
+    publishManifestSerially(fixture.inputs),
+    /metadata observation is ambiguous or unverified/u,
+  )
+  assert.deepEqual(fixture.publishCalls, [])
+
+  const result = await publishManifestSerially({ ...fixture.inputs, firstPublication: true })
+  assert.equal(result.status, "NPM_COMPLETE")
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  assert.equal(fixture.concurrentPublishes.maximum, 1)
+
+  const replay = await publishManifestSerially({ ...fixture.inputs, firstPublication: true })
+  assert.equal(replay.status, "NPM_COMPLETE")
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+
+  for (const firstPublication of ["true", 1, null]) {
+    await assert.rejects(
+      publishManifestSerially({ ...fixture.inputs, firstPublication }),
+      TypeError,
+      String(firstPublication),
+    )
+  }
+  const foreign = publisherFixture({ firstPublication: true, foreignVersionIndex: 3 })
+  await assert.rejects(
+    publishManifestSerially({ ...foreign.inputs, firstPublication: true }),
+    /ambiguous or unverified/u,
+  )
+  assert.deepEqual(foreign.publishCalls, [])
+})
+
+test("OIDC mode ignores bootstrap variables, never selects the first-publication reader, and never retries with a token", async (t) => {
+  const inputs = await publisherCliInputs(t)
+  const fixture = publisherFixture({ initiallyPresent: "all-except-last" })
+  const npmCalls = []
+  const factoryCalls = []
+  const environment = {
+    ...publisherProvenanceEnvironment(),
+    B4_NPM_BOOTSTRAP_AUTHORIZATION: "{",
+    B4_NPM_BOOTSTRAP_TOKEN: BOOTSTRAP_TOKEN,
+    NPM_TOKEN: "ambient-must-not-leak",
+    NODE_AUTH_TOKEN: "ambient-must-not-leak",
+  }
+  const result = await runPublisherCli([...inputs.argv, "--npm-auth-mode", "oidc"], {
+    npmReader: {
+      ...fixture.npmReader,
+      observeFirstPublicationPackage() {
+        throw new Error("OIDC mode must not select the first-publication reader")
+      },
+    },
+    async createNpmAuditVerifier(options) {
+      factoryCalls.push(Object.keys(options).sort())
+      return {
+        async dispose() {},
+        publisherEnvironment() {
+          return { PATH: environment.PATH }
+        },
+        verifyPackage: fixture.inputs.verifyPackage,
+      }
+    },
+    async runNpm(command, args, options) {
+      npmCalls.push({ command, args, options })
+      if (args[0] === "publish") {
+        fixture.acceptPublish(args[1])
+        return { stdout: "", stderr: "", exitCode: 0 }
+      }
+      throw new Error(`unexpected npm operation ${args[0]}`)
+    },
+    poll: fixture.inputs.poll,
+    log() {},
+    environment,
+  })
+  assert.equal(result.status, "NPM_COMPLETE")
+  assert.deepEqual(factoryCalls, [["environment", "fileSystem", "runNpm", "signal"]])
+  const publishes = npmCalls.filter(({ args }) => args[0] === "publish")
+  assert.equal(publishes.length, 1)
+  for (const call of npmCalls) {
+    assert.equal(
+      call.args.some((arg) => arg.includes(BOOTSTRAP_TOKEN)),
+      false,
+    )
+    assert.equal(
+      Object.entries(call.options.env).some(
+        ([name, value]) => name.startsWith("B4_NPM") || String(value).includes(BOOTSTRAP_TOKEN),
+      ),
+      false,
+    )
+  }
+  const report = await readFile(inputs.reportPath, "utf8")
+  assert.doesNotMatch(report, /bootstrap|B4_NPM|npm_bootstrap/iu)
+})
+
+test("bootstrap mode fails closed before any npm process without exact candidate-bound authority", async (t) => {
+  const inputs = await publisherCliInputs(t)
+  const valid = bootstrapAuthorization(inputs)
+  const environment = bootstrapPublisherEnvironment(valid)
+  const cases = [
+    ["missing authorization", { B4_NPM_BOOTSTRAP_AUTHORIZATION: undefined }, {}, /authorization/iu],
+    ["retired authorization", { B4_NPM_BOOTSTRAP_AUTHORIZATION: "" }, {}, /authorization/iu],
+    ["malformed authorization", { B4_NPM_BOOTSTRAP_AUTHORIZATION: "{" }, {}, /authorization/iu],
+    [
+      "noncanonical authorization",
+      { B4_NPM_BOOTSTRAP_AUTHORIZATION: JSON.stringify(valid, null, 2) },
+      {},
+      /authorization/iu,
+    ],
+    [
+      "other candidate version",
+      { B4_NPM_BOOTSTRAP_AUTHORIZATION: canonicalAuthorization({ ...valid, version: "0.8.23" }) },
+      {},
+      /bootstrap/iu,
+    ],
+    [
+      "other candidate sha",
+      {
+        B4_NPM_BOOTSTRAP_AUTHORIZATION: canonicalAuthorization({
+          ...valid,
+          commitSha: "f".repeat(40),
+        }),
+      },
+      {},
+      /bootstrap/iu,
+    ],
+    [
+      "manifest digest mismatch",
+      {
+        B4_NPM_BOOTSTRAP_AUTHORIZATION: canonicalAuthorization({
+          ...valid,
+          manifestSha256: "0".repeat(64),
+        }),
+      },
+      {},
+      /bootstrap/iu,
+    ],
+    [
+      "release record digest mismatch",
+      {
+        B4_NPM_BOOTSTRAP_AUTHORIZATION: canonicalAuthorization({
+          ...valid,
+          releaseRecordSha256: "0".repeat(64),
+        }),
+      },
+      {},
+      /bootstrap/iu,
+    ],
+    ["old repository id", { GITHUB_REPOSITORY_ID: "1210070282" }, {}, /bootstrap/iu],
+    ["old repository", { GITHUB_REPOSITORY: "cacheplane/dawnai" }, {}, /bootstrap/iu],
+    ["push event", { GITHUB_EVENT_NAME: "push" }, {}, /bootstrap/iu],
+    ["expired window", {}, { now: () => Date.parse(BOOTSTRAP_EXPIRES_AT) }, /expired/iu],
+    ["future window", {}, { now: () => BOOTSTRAP_WINDOW_START_MS - 1 }, /not yet valid/iu],
+    ["missing token", { B4_NPM_BOOTSTRAP_TOKEN: undefined }, {}, /token|credential/iu],
+    ["empty token", { B4_NPM_BOOTSTRAP_TOKEN: "" }, {}, /token|credential/iu],
+    [
+      "control-character token",
+      { B4_NPM_BOOTSTRAP_TOKEN: `${BOOTSTRAP_TOKEN}\n` },
+      {},
+      /token|credential/iu,
+    ],
+    [
+      "reader without first-publication observation",
+      {},
+      { npmReader: publisherFixture().npmReader },
+      /observeFirstPublicationPackage/u,
+    ],
+  ]
+  for (const [name, environmentOverrides, optionOverrides, pattern] of cases) {
+    const fixture = publisherFixture({ firstPublication: true })
+    const npmCalls = []
+    let factoryCalls = 0
+    let caught = null
+    try {
+      await runPublisherCli([...inputs.argv, "--npm-auth-mode", "bootstrap"], {
+        npmReader: fixture.npmReader,
+        async createNpmAuditVerifier() {
+          factoryCalls += 1
+          throw new Error("verifier must not be created before policy validation")
+        },
+        async runNpm(command, args) {
+          npmCalls.push([command, ...args])
+          return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+        },
+        poll: fixture.inputs.poll,
+        log() {},
+        now: () => BOOTSTRAP_WINDOW_START_MS + 1,
+        environment: withEnvironment(environment, environmentOverrides),
+        ...optionOverrides,
+      })
+    } catch (error) {
+      caught = error
+    }
+    assert.ok(caught instanceof Error, name)
+    assert.match(caught.message, pattern, name)
+    assert.doesNotMatch(renderError(caught), /npm_bootstrapSECRET/u, name)
+    assert.deepEqual(npmCalls, [], name)
+    assert.equal(factoryCalls, 0, name)
+    assert.deepEqual(fixture.publishCalls, [], name)
+    assert.deepEqual(fixture.observeCalls, [], name)
+    await assert.rejects(access(inputs.reportPath), undefined, name)
+  }
+})
+
+test("bootstrap mode forwards the token only to npm publish through the private npmrc reference and redacts every output", async (t) => {
+  const inputs = await publisherCliInputs(t)
+  const environment = bootstrapPublisherEnvironment(bootstrapAuthorization(inputs))
+  const fixture = publisherFixture({ firstPublication: true })
+  const npmCalls = []
+  const logs = []
+  const fileSystem = recordingFileSystem()
+  const result = await runPublisherCli([...inputs.argv, "--npm-auth-mode", "bootstrap"], {
+    npmReader: fixture.npmReader,
+    fileSystem: fileSystem.api,
+    async runNpm(command, args, options) {
+      npmCalls.push({
+        command,
+        args,
+        options,
+        userconfig: await readFile(options.env.npm_config_userconfig, "utf8"),
+      })
+      if (args[0] === "--version") return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+      if (args[0] === "audit") {
+        const consumer = JSON.parse(await readFile(path.join(options.cwd, "package.json"), "utf8"))
+        const name = Object.keys(consumer.dependencies)[0]
+        const entry = inputs.manifest.packages.find((item) => item.name === name)
+        return { stdout: npmAuditOutput(entry), stderr: "", exitCode: 0 }
+      }
+      if (args[0] === "publish") {
+        fixture.acceptPublish(args[1])
+        return {
+          stdout: `npm notice auth ${BOOTSTRAP_TOKEN}\n`,
+          stderr: `npm warn ${Buffer.from(BOOTSTRAP_TOKEN).toString("base64")}\n`,
+          exitCode: 0,
+        }
+      }
+      throw new Error(`unexpected npm operation ${args[0]}`)
+    },
+    poll: fixture.inputs.poll,
+    log(event) {
+      logs.push(event)
+    },
+    now: () => BOOTSTRAP_WINDOW_START_MS + 1 + fixture.inputs.now(),
+    environment,
+  })
+
+  assert.equal(result.status, "NPM_COMPLETE")
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  const publishes = npmCalls.filter(({ args }) => args[0] === "publish")
+  assert.equal(publishes.length, 21)
+  for (const call of publishes) {
+    assert.deepEqual(call.args.slice(2), [
+      "--tag",
+      "latest",
+      "--access",
+      "public",
+      "--provenance",
+      "--ignore-scripts",
+    ])
+    assert.equal(call.options.env.B4_NPM_BOOTSTRAP_TOKEN, BOOTSTRAP_TOKEN)
+    assert.equal(call.options.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN, "exact-oidc-token")
+    assert.equal(call.userconfig, NPMRC_TOKEN_REFERENCE)
+    assert.equal(
+      call.args.some((arg) => arg.includes(BOOTSTRAP_TOKEN)),
+      false,
+    )
+  }
+  for (const call of npmCalls.filter(({ args }) => args[0] !== "publish")) {
+    assert.equal(call.userconfig, "")
+    assert.equal(
+      Object.entries(call.options.env).some(
+        ([name, value]) => name.startsWith("B4_NPM") || String(value).includes(BOOTSTRAP_TOKEN),
+      ),
+      false,
+      call.args[0],
+    )
+  }
+  assert.equal(fileSystem.writtenSecrets(BOOTSTRAP_TOKEN), 0)
+  const modeEvents = logs.filter((event) => event.event === "npm-auth-mode")
+  assert.equal(modeEvents.length, 1)
+  assert.equal(modeEvents[0].mode, "bootstrap")
+  assert.match(modeEvents[0].authorizationSha256, /^[0-9a-f]{64}$/u)
+  assert.deepEqual(Object.keys(modeEvents[0]).sort(), [
+    "authorizationSha256",
+    "commitSha",
+    "event",
+    "expiresAt",
+    "mode",
+    "notBefore",
+    "version",
+  ])
+  const rendered = [
+    JSON.stringify(logs),
+    await readFile(inputs.reportPath, "utf8"),
+    await readFile(inputs.githubOutputPath, "utf8"),
+  ].join("\n")
+  assert.doesNotMatch(rendered, /npm_bootstrapSECRET/u)
+  assert.doesNotMatch(rendered, new RegExp(Buffer.from(BOOTSTRAP_TOKEN).toString("base64"), "u"))
+  assert.equal(fileSystem.roots.length, 1)
+  assert.ok(fileSystem.removed.includes(fileSystem.roots[0]))
+  await assert.rejects(access(fileSystem.roots[0]))
+})
+
+test("bootstrap failures, cancellation, and deadline expiry never expose the credential and always clean up", async (t) => {
+  const failing = await publisherCliInputs(t)
+  const environment = bootstrapPublisherEnvironment(bootstrapAuthorization(failing))
+  const encoded = Buffer.from(BOOTSTRAP_TOKEN).toString("base64")
+  const failure = publisherFixture({ firstPublication: true })
+  const failureFileSystem = recordingFileSystem()
+  let caught = null
+  try {
+    await runPublisherCli([...failing.argv, "--npm-auth-mode", "bootstrap"], {
+      npmReader: failure.npmReader,
+      fileSystem: failureFileSystem.api,
+      async runNpm(_command, args, options) {
+        if (args[0] === "--version") return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+        if (args[0] === "publish") {
+          assert.equal(options.env.B4_NPM_BOOTSTRAP_TOKEN, BOOTSTRAP_TOKEN)
+          const inner = new Error(`npm ERR! 401 ${BOOTSTRAP_TOKEN} rejected`)
+          inner.stdout = `token ${BOOTSTRAP_TOKEN}`
+          inner.stderr = `encoded ${encoded} ${encodeURIComponent(BOOTSTRAP_TOKEN)}`
+          throw new AggregateError([inner], `publish failed ${BOOTSTRAP_TOKEN}`, {
+            cause: new Error(`cause ${encoded}`),
+          })
+        }
+        throw new Error(`unexpected npm operation ${args[0]}`)
+      },
+      poll: failure.inputs.poll,
+      log() {},
+      now: () => BOOTSTRAP_WINDOW_START_MS + 1,
+      environment,
+    })
+  } catch (error) {
+    caught = error
+  }
+  assert.ok(caught instanceof Error)
+  assert.match(caught.message, /publish failed \[REDACTED\]/u)
+  assert.doesNotMatch(renderError(caught), /npm_bootstrapSECRET/u)
+  assert.doesNotMatch(renderError(caught), new RegExp(encoded, "u"))
+  assert.doesNotMatch(
+    renderError(caught),
+    new RegExp(encodeURIComponent(BOOTSTRAP_TOKEN).replaceAll(/[%]/gu, "\\%"), "u"),
+  )
+  assert.equal(failureFileSystem.roots.length, 1)
+  assert.ok(failureFileSystem.removed.includes(failureFileSystem.roots[0]))
+  await assert.rejects(access(failureFileSystem.roots[0]))
+  await assert.rejects(access(failing.reportPath))
+
+  const expiring = await publisherCliInputs(t)
+  const deadline = controlledDeadline()
+  const stalled = publisherFixture({ firstPublication: true })
+  const deadlineFileSystem = recordingFileSystem()
+  let publishSignal
+  let deadlineError = null
+  try {
+    await runPublisherCli([...expiring.argv, "--npm-auth-mode", "bootstrap"], {
+      npmReader: stalled.npmReader,
+      fileSystem: deadlineFileSystem.api,
+      async runNpm(_command, args, options) {
+        if (args[0] === "--version") return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+        if (args[0] === "publish") {
+          publishSignal = options.signal
+          queueMicrotask(deadline.expire)
+          return new Promise((_resolve, reject) => {
+            options.signal.addEventListener("abort", () =>
+              reject(new Error(`aborted with ${BOOTSTRAP_TOKEN}`)),
+            )
+          })
+        }
+        throw new Error(`unexpected npm operation ${args[0]}`)
+      },
+      poll: stalled.inputs.poll,
+      log() {},
+      now: () => BOOTSTRAP_WINDOW_START_MS + 1,
+      environment: bootstrapPublisherEnvironment(bootstrapAuthorization(expiring)),
+      overallTimeoutMs: 20,
+      ...deadline.options,
+    })
+  } catch (error) {
+    deadlineError = error
+  }
+  assert.ok(deadlineError instanceof Error)
+  assert.match(deadlineError.message, /publisher overall deadline/iu)
+  assert.ok(publishSignal instanceof AbortSignal)
+  assert.equal(publishSignal.aborted, true)
+  assert.doesNotMatch(renderError(deadlineError), /npm_bootstrapSECRET/u)
+  assert.equal(deadlineFileSystem.roots.length, 1)
+  assert.ok(deadlineFileSystem.removed.includes(deadlineFileSystem.roots[0]))
+  await assert.rejects(access(deadlineFileSystem.roots[0]))
+})
+
+test("first publication resumes from any verified prefix and never republishes accepted bytes", async () => {
+  const absent = publisherFixture({ firstPublication: true })
+  assert.equal(
+    (await publishManifestSerially({ ...absent.inputs, firstPublication: true })).status,
+    "NPM_COMPLETE",
+  )
+  assert.deepEqual(absent.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+
+  const prefix = publisherFixture({
+    firstPublication: true,
+    initiallyPresent: [0, 1, 2, 3, 4, 5, 6],
+  })
+  assert.equal(
+    (await publishManifestSerially({ ...prefix.inputs, firstPublication: true })).status,
+    "NPM_COMPLETE",
+  )
+  assert.deepEqual(prefix.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER.slice(7))
+  assert.deepEqual(
+    [...new Set(prefix.verifyCalls)].sort(),
+    [...CANONICAL_RELEASE_PACKAGE_ORDER].sort(),
+    "already-published entries are verified, not trusted",
+  )
+
+  for (const failureIndex of [0, 10, 20]) {
+    const timedOut = publisherFixture({
+      firstPublication: true,
+      failAfterAcceptIndex: failureIndex,
+    })
+    await assert.rejects(
+      publishManifestSerially({ ...timedOut.inputs, firstPublication: true }),
+      /simulated runner loss/u,
+    )
+    assert.deepEqual(
+      timedOut.publishCalls,
+      CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, failureIndex + 1),
+    )
+    timedOut.disableFailure()
+    assert.equal(
+      (await publishManifestSerially({ ...timedOut.inputs, firstPublication: true })).status,
+      "NPM_COMPLETE",
+    )
+    assert.deepEqual(timedOut.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  }
+
+  const verified = publisherFixture({ firstPublication: true, initiallyPresent: "all" })
+  const replay = await publishManifestSerially({ ...verified.inputs, firstPublication: true })
+  assert.equal(replay.status, "NPM_COMPLETE")
+  assert.equal(replay.complete, true)
+  assert.deepEqual(verified.publishCalls, [])
+  assert.equal(verified.verifyCalls.length >= CANONICAL_RELEASE_PACKAGE_ORDER.length, true)
+})
+
+test("first publication stops before any further mutation on corrupt, foreign, unproven, ambiguous, or superseded state", async () => {
+  const cases = [
+    [
+      "corrupt existing bytes",
+      { initiallyPresent: [0, 1, 2, 3], corruptRegistryIndex: 3 },
+      /registry tarball|digest|bytes.*match/iu,
+    ],
+    [
+      "unrelated version",
+      { initiallyPresent: [0, 1, 2, 3, 4], foreignVersionIndex: 5 },
+      /ambiguous or unverified/u,
+    ],
+    [
+      "invalid provenance",
+      { initiallyPresent: [0, 1, 2], invalidProvenanceIndex: 2 },
+      /audit evidence is invalid/u,
+    ],
+    ["missing provenance", { initiallyPresent: [0, 1], pendingAuditIndex: 1 }, /did not converge/u],
+    [
+      "registry ambiguity",
+      { initiallyPresent: [0, 1, 2, 3], ambiguousVersionIndex: 4 },
+      /ambiguous or unverified/u,
+    ],
+    [
+      "newer latest after partial state",
+      { initiallyPresent: [0], newerLatestIndex: 1 },
+      /newer latest/u,
+    ],
+  ]
+  for (const [name, overrides, pattern] of cases) {
+    const fixture = publisherFixture({ firstPublication: true, ...overrides })
+    await assert.rejects(
+      publishManifestSerially({ ...fixture.inputs, firstPublication: true }),
+      pattern,
+      name,
+    )
+    assert.deepEqual(fixture.publishCalls, [], name)
+  }
+
+  const superseded = publisherFixture({ firstPublication: true, newerLatestIndex: 0 })
+  const result = await publishManifestSerially({ ...superseded.inputs, firstPublication: true })
+  assert.equal(result.status, "SUPERSEDED_NOOP")
+  assert.deepEqual(superseded.publishCalls, [])
+})
+
+test("bootstrap expiry between packages stops mutation and only a same-candidate replacement window resumes", async (t) => {
+  const inputs = await publisherCliInputs(t)
+  const clock = { ms: BOOTSTRAP_WINDOW_START_MS + 1 }
+  const fixture = publisherFixture({ firstPublication: true })
+  const factoryOptions = []
+  const publishEnvironments = []
+  const run = (authorization, token) =>
+    runPublisherCli([...inputs.argv, "--npm-auth-mode", "bootstrap"], {
+      npmReader: fixture.npmReader,
+      async createNpmAuditVerifier(options) {
+        factoryOptions.push(options.bootstrap)
+        return {
+          async dispose() {},
+          publisherEnvironment() {
+            return { PATH: process.env.PATH ?? "", B4_NPM_BOOTSTRAP_TOKEN: options.bootstrap.token }
+          },
+          verifyPackage: fixture.inputs.verifyPackage,
+        }
+      },
+      async runNpm(_command, args, options) {
+        if (args[0] !== "publish") throw new Error(`unexpected npm operation ${args[0]}`)
+        publishEnvironments.push(options.env.B4_NPM_BOOTSTRAP_TOKEN)
+        fixture.acceptPublish(args[1])
+        // One accepted publication per hour: the 12-hour window admits twelve packages.
+        clock.ms += 60 * 60 * 1000
+        return { stdout: "", stderr: "", exitCode: 0 }
+      },
+      poll: fixture.inputs.poll,
+      log() {},
+      now: () => clock.ms,
+      environment: bootstrapPublisherEnvironment(authorization, token),
+    })
+
+  const initial = bootstrapAuthorization(inputs)
+  await assert.rejects(run(initial, BOOTSTRAP_TOKEN), /expired/u)
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, 12))
+
+  await assert.rejects(run(initial, BOOTSTRAP_TOKEN), /expired/u)
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, 12))
+
+  // Nine packages remain at one hour each; a 12-hour replacement window covers them.
+  const replacementExpiry = new Date(clock.ms + 11 * 60 * 60 * 1000)
+    .toISOString()
+    .replace(/\.\d{3}Z$/u, "Z")
+  const replacementNotBefore = new Date(clock.ms - 60 * 60 * 1000)
+    .toISOString()
+    .replace(/\.\d{3}Z$/u, "Z")
+  const replacement = bootstrapAuthorization(inputs, {
+    notBefore: replacementNotBefore,
+    expiresAt: replacementExpiry,
+  })
+  for (const [name, invalid] of [
+    ["advanced candidate", { ...replacement, commitSha: "f".repeat(40) }],
+    ["other manifest", { ...replacement, manifestSha256: "0".repeat(64) }],
+    ["other record", { ...replacement, releaseRecordSha256: "0".repeat(64) }],
+    ["other version", { ...replacement, version: "0.8.23" }],
+  ]) {
+    await assert.rejects(run(invalid, "npm_replacementSECRET"), /bootstrap/iu, name)
+    assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, 12), name)
+  }
+
+  const resumed = await run(replacement, "npm_replacementSECRET")
+  assert.equal(resumed.status, "NPM_COMPLETE")
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  assert.deepEqual(
+    publishEnvironments,
+    [
+      ...Array.from({ length: 12 }, () => BOOTSTRAP_TOKEN),
+      ...Array.from({ length: 9 }, () => "npm_replacementSECRET"),
+    ],
+    "the replacement credential is used only for the remaining entries",
+  )
+  assert.ok(factoryOptions.every((option) => Object.keys(option).join() === "token"))
+
+  const replay = await run(replacement, "npm_replacementSECRET")
+  assert.equal(replay.status, "NPM_COMPLETE")
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  assert.equal(publishEnvironments.length, 21, "an all-verified replay needs no token mutation")
+})
+
+test("bootstrap mode cannot use unrelated package versions for initial publication or resume", async (t) => {
+  const inputs = await publisherCliInputs(t)
+  const environment = bootstrapPublisherEnvironment(bootstrapAuthorization(inputs))
+  for (const overrides of [
+    { foreignVersionIndex: 0 },
+    { foreignVersionIndex: 7, initiallyPresent: [0, 1, 2, 3, 4, 5, 6] },
+    { foreignVersionIndex: 20, initiallyPresent: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
+  ]) {
+    const fixture = publisherFixture({ firstPublication: true, ...overrides })
+    const npmCalls = []
+    await assert.rejects(
+      runPublisherCli([...inputs.argv, "--npm-auth-mode", "bootstrap"], {
+        npmReader: fixture.npmReader,
+        createNpmAuditVerifier: stubAuditVerifierFactory({
+          verifyPackage: fixture.inputs.verifyPackage,
+        }),
+        async runNpm(command, args) {
+          npmCalls.push([command, ...args])
+          if (args[0] === "publish") fixture.acceptPublish(args[1])
+          return { stdout: "", stderr: "", exitCode: 0 }
+        },
+        poll: fixture.inputs.poll,
+        log() {},
+        now: () => BOOTSTRAP_WINDOW_START_MS + 1,
+        environment,
+      }),
+      /ambiguous or unverified/u,
+      JSON.stringify(overrides),
+    )
+    assert.deepEqual(fixture.publishCalls, [], JSON.stringify(overrides))
+    assert.deepEqual(npmCalls, [], JSON.stringify(overrides))
+  }
 })
 
 test("the publisher rejects missing, extra, symlinked, and hardlinked artifact payloads", async (t) => {
@@ -1515,6 +2163,133 @@ function storedZip(files) {
   return Buffer.concat([...locals, ...centrals, end])
 }
 
+async function publisherCliInputs(t) {
+  const temporary = await realpath(await mkdtemp(path.join(os.tmpdir(), "b4-publisher-bootstrap-")))
+  t.after(() => rm(temporary, { recursive: true, force: true }))
+  const artifactDir = path.join(temporary, "artifact")
+  const inputDir = path.join(temporary, "input")
+  const outputDir = path.join(temporary, "output")
+  await Promise.all([mkdir(artifactDir), mkdir(inputDir), mkdir(outputDir)])
+  const manifest = releaseManifest()
+  const record = releaseRecord(manifest)
+  const candidatePath = path.join(inputDir, "candidate.json")
+  const recordPath = path.join(inputDir, "release-record.json")
+  const reportPath = path.join(outputDir, "publish.json")
+  const githubOutputPath = path.join(outputDir, "github-output")
+  await writeFile(candidatePath, `${JSON.stringify(CANDIDATE)}\n`)
+  await writeFile(recordPath, canonicalReleaseRecordBytes(record))
+  await writeFile(path.join(artifactDir, "manifest.json"), canonicalManifestBytes(manifest))
+  for (const entry of manifest.packages) {
+    await writeFile(path.join(artifactDir, entry.filename), tarballBytes(entry.name))
+  }
+  return {
+    manifest,
+    record,
+    artifactDir,
+    reportPath,
+    githubOutputPath,
+    argv: [
+      "--candidate",
+      candidatePath,
+      "--record",
+      recordPath,
+      "--artifact-dir",
+      artifactDir,
+      "--report",
+      reportPath,
+      "--github-output",
+      githubOutputPath,
+    ],
+  }
+}
+
+function bootstrapAuthorization({ manifest, record }, overrides = {}) {
+  return {
+    schemaVersion: 1,
+    status: "enabled",
+    repository: "cacheplane/b4-run",
+    repositoryId: "1360603908",
+    publisherWorkflow: ".github/workflows/release.yml",
+    version: VERSION,
+    commitSha: COMMIT_SHA,
+    manifestSha256: manifestSha256(manifest),
+    releaseRecordSha256: releaseRecordSha256(record),
+    notBefore: BOOTSTRAP_NOT_BEFORE,
+    expiresAt: BOOTSTRAP_EXPIRES_AT,
+    ...overrides,
+  }
+}
+
+function canonicalAuthorization(document) {
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.keys(document)
+        .sort()
+        .map((key) => [key, document[key]]),
+    ),
+  )
+}
+
+function bootstrapPublisherEnvironment(authorization, token = BOOTSTRAP_TOKEN) {
+  return {
+    ...publisherProvenanceEnvironment(),
+    GITHUB_REPOSITORY_ID: "1360603908",
+    B4_NPM_BOOTSTRAP_AUTHORIZATION: canonicalAuthorization(authorization),
+    B4_NPM_BOOTSTRAP_TOKEN: token,
+  }
+}
+
+function withEnvironment(environment, overrides) {
+  const result = { ...environment }
+  for (const [name, value] of Object.entries(overrides)) {
+    if (value === undefined) delete result[name]
+    else result[name] = value
+  }
+  return result
+}
+
+function renderError(error, seen = new Set()) {
+  if (error === null || typeof error !== "object" || seen.has(error)) return String(error)
+  seen.add(error)
+  return [
+    error.message,
+    String(error.stack),
+    JSON.stringify(error, Object.getOwnPropertyNames(error)),
+    error.cause === undefined ? "" : renderError(error.cause, seen),
+    ...(Array.isArray(error.errors) ? error.errors.map((inner) => renderError(inner, seen)) : []),
+  ].join("\n")
+}
+
+function recordingFileSystem() {
+  const roots = []
+  const removed = []
+  const writes = []
+  const api = {
+    ...fsPromises,
+    async mkdtemp(prefix, options) {
+      const created = await fsPromises.mkdtemp(prefix, options)
+      if (path.basename(created).startsWith("b4-npm-audit-")) roots.push(await realpath(created))
+      return created
+    },
+    async rm(target, options) {
+      removed.push(target)
+      return fsPromises.rm(target, options)
+    },
+    async writeFile(target, data, options) {
+      writes.push(Buffer.isBuffer(data) ? data.toString("utf8") : String(data))
+      return fsPromises.writeFile(target, data, options)
+    },
+  }
+  return {
+    api,
+    roots,
+    removed,
+    writtenSecrets(secret) {
+      return writes.filter((content) => content.includes(secret)).length
+    },
+  }
+}
+
 async function publisherCliFilesystem(t, prefix) {
   const temporary = await realpath(await mkdtemp(path.join(os.tmpdir(), prefix)))
   t.after(() => rm(temporary, { recursive: true, force: true }))
@@ -1595,6 +2370,14 @@ function publisherFixture(overrides = {}) {
     observeCalls.push({ name, ...(version === undefined ? {} : { version }) })
     events.push([version === undefined ? "metadata" : "version", name])
     const index = CANONICAL_RELEASE_PACKAGE_ORDER.indexOf(name)
+    if (overrides.foreignVersionIndex === index) {
+      return {
+        status: "AMBIGUOUS",
+        operation: version === undefined ? "package-metadata" : "package-version",
+        httpStatus: 200,
+        code: "FIRST_PUBLICATION_FOREIGN_VERSION",
+      }
+    }
     if (version === undefined) {
       const reads = (metadataReads.get(name) ?? 0) + 1
       metadataReads.set(name, reads)
@@ -1603,6 +2386,9 @@ function publisherFixture(overrides = {}) {
         (overrides.newerLatestOnSecondMetadataRead === index && reads >= 2) ||
         newerAfterVersionRecheck.has(index)
       const state = present.get(name)
+      if (overrides.firstPublication === true && state === undefined && !newer) {
+        return { status: "ABSENT", operation: "package-metadata", httpStatus: 404, code: "E404" }
+      }
       return {
         status: "PRESENT",
         operation: "package-metadata",
@@ -1692,8 +2478,20 @@ function publisherFixture(overrides = {}) {
   }
   const verifyPackage = async ({ entry }) => {
     verifyCalls.push(entry.name)
+    const index = CANONICAL_RELEASE_PACKAGE_ORDER.indexOf(entry.name)
+    if (overrides.pendingAuditIndex === index) return { status: "pending" }
     const state = present.get(entry.name)
-    return state?.ready >= 3 ? verifiedAuditEvidence(entry) : { status: "pending" }
+    if (!(state?.ready >= 3)) return { status: "pending" }
+    const evidence = verifiedAuditEvidence(entry)
+    return overrides.invalidProvenanceIndex === index
+      ? {
+          ...evidence,
+          provenance: {
+            ...evidence.provenance,
+            repository: "https://github.com/cacheplane/dawnai",
+          },
+        }
+      : evidence
   }
   const npmReader = {
     observePackageMetadata({ name }) {
@@ -1703,6 +2501,47 @@ function publisherFixture(overrides = {}) {
       return observeRegistry({ name, version })
     },
     downloadRegistryTarball,
+    ...(overrides.firstPublication === true
+      ? {
+          async observeFirstPublicationPackage({ name, version }) {
+            const index = CANONICAL_RELEASE_PACKAGE_ORDER.indexOf(name)
+            if (overrides.foreignVersionIndex === index) {
+              return {
+                status: "PRESENT",
+                operation: "first-publication-package",
+                httpStatus: 200,
+                code: null,
+                package: { name, versions: ["0.8.20", version], latest: "0.8.20", candidate: null },
+              }
+            }
+            const observed = await observeRegistry({ name, version })
+            if (observed.status === "ABSENT") {
+              return {
+                status: "ABSENT",
+                operation: "first-publication-package",
+                httpStatus: 404,
+                code: "E404",
+              }
+            }
+            if (observed.status !== "PRESENT") {
+              return { ...observed, operation: "first-publication-package" }
+            }
+            const metadata = await observeRegistry({ name })
+            return {
+              status: "PRESENT",
+              operation: "first-publication-package",
+              httpStatus: 200,
+              code: null,
+              package: {
+                name,
+                versions: [version],
+                latest: metadata.metadata.latest,
+                candidate: observed.package,
+              },
+            }
+          },
+        }
+      : {}),
   }
   return {
     inputs: {

@@ -2,7 +2,12 @@ import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import test from "node:test"
 
-import { classifyRegistryResponse, createNpmReader } from "../adapters/npm.mjs"
+import {
+  adaptFirstPublicationNpmReader,
+  classifyRegistryResponse,
+  createFirstPublicationNpmReader,
+  createNpmReader,
+} from "../adapters/npm.mjs"
 
 const NAME = "@b4run/sdk"
 const VERSION = "0.8.21"
@@ -697,6 +702,388 @@ test("npm rejects malformed injected status and does not trust response ok", asy
     "ABSENT",
   )
   assert.equal(concealedResponses.calls.length, 2)
+})
+
+// npm's actual public not-found bodies (captured 2026-09-07 with unauthenticated GETs):
+// the packument endpoint answers 404 {"error":"Not found"} and the exact-version endpoint of an
+// absent package answers 404 "Not Found"; an existing package's absent version answers
+// 404 "version not found: <version>". Nothing here carries the CLI's E404 code.
+const PACKUMENT_NOT_FOUND = { error: "Not found" }
+const VERSION_NOT_FOUND = "Not Found"
+
+test("default readers keep npm's real whole-package not-found bodies ambiguous", async () => {
+  const version = await createNpmReader({
+    fetchImpl: recordingFetch([
+      jsonResponse(VERSION_NOT_FOUND, 404),
+      jsonResponse(PACKUMENT_NOT_FOUND, 404),
+    ]).fetchImpl,
+  }).observePackageVersion({ name: NAME, version: VERSION })
+  assert.deepEqual(version, {
+    status: "AMBIGUOUS",
+    operation: "package-version",
+    httpStatus: 404,
+    code: "HTTP_404",
+  })
+  const metadata = await createNpmReader({
+    fetchImpl: async () => jsonResponse(PACKUMENT_NOT_FOUND, 404),
+  }).observePackageMetadata({ name: NAME })
+  assert.deepEqual(metadata, {
+    status: "AMBIGUOUS",
+    operation: "package-metadata",
+    httpStatus: 404,
+    code: "HTTP_404",
+  })
+  assert.deepEqual(Object.keys(createNpmReader({ fetchImpl: async () => jsonResponse({}) })), [
+    "observePackageMetadata",
+    "observePackageVersion",
+    "downloadRegistryTarball",
+  ])
+})
+
+test("first-publication reader classifies whole-package absence only from both trusted not-found endpoints", async () => {
+  const { fetchImpl, calls } = recordingFetch([
+    jsonResponse(PACKUMENT_NOT_FOUND, 404),
+    jsonResponse(VERSION_NOT_FOUND, 404),
+  ])
+  const npm = createFirstPublicationNpmReader({ fetchImpl })
+  assert.deepEqual(Object.keys(npm), [
+    "observePackageMetadata",
+    "observePackageVersion",
+    "downloadRegistryTarball",
+    "observeFirstPublicationPackage",
+  ])
+
+  const result = await npm.observeFirstPublicationPackage({ name: NAME, version: VERSION })
+  assert.deepEqual(
+    calls.map(({ url, init }) => ({
+      url,
+      method: init.method,
+      redirect: init.redirect,
+      accept: init.headers.Accept,
+      authorization: init.headers.Authorization ?? null,
+    })),
+    [
+      {
+        url: `${REGISTRY}/%40b4run%2Fsdk`,
+        method: "GET",
+        redirect: "manual",
+        accept: "application/vnd.npm.install-v1+json",
+        authorization: null,
+      },
+      {
+        url: `${REGISTRY}/%40b4run%2Fsdk/0.8.21`,
+        method: "GET",
+        redirect: "manual",
+        accept: "application/json",
+        authorization: null,
+      },
+    ],
+  )
+  assert.deepEqual(result, {
+    status: "ABSENT",
+    operation: "first-publication-package",
+    httpStatus: 404,
+    code: "E404",
+  })
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), result)
+
+  const unscoped = createFirstPublicationNpmReader({
+    fetchImpl: recordingFetch([
+      jsonResponse({ error: "not found" }, 404),
+      jsonResponse("not found", 404),
+    ]).fetchImpl,
+  })
+  assert.equal(
+    (await unscoped.observeFirstPublicationPackage({ name: "create-b4-app", version: VERSION }))
+      .status,
+    "ABSENT",
+  )
+})
+
+test("first-publication absence is adapted to the publisher's internal absent representation", async () => {
+  const responses = () =>
+    recordingFetch([jsonResponse(PACKUMENT_NOT_FOUND, 404), jsonResponse(VERSION_NOT_FOUND, 404)])
+      .fetchImpl
+  const npm = createFirstPublicationNpmReader({ fetchImpl: responses() })
+  assert.deepEqual(await npm.observePackageVersion({ name: NAME, version: VERSION }), {
+    status: "ABSENT",
+    operation: "package-version",
+    httpStatus: 404,
+    code: "E404",
+  })
+  const metadataReader = createFirstPublicationNpmReader({ fetchImpl: responses() })
+  assert.deepEqual(await metadataReader.observePackageMetadata({ name: NAME, version: VERSION }), {
+    status: "ABSENT",
+    operation: "package-metadata",
+    httpStatus: 404,
+    code: "E404",
+  })
+  assert.throws(
+    () => metadataReader.observePackageMetadata({ name: NAME }),
+    /exact SemVer|version/iu,
+    "the adapted metadata read needs the candidate version to select the first-publication path",
+  )
+
+  const raw = {
+    async observeFirstPublicationPackage() {
+      return {
+        status: "ABSENT",
+        operation: "first-publication-package",
+        httpStatus: 404,
+        code: "E404",
+      }
+    },
+    async downloadRegistryTarball() {
+      throw new Error("no tarball")
+    },
+  }
+  const adapted = adaptFirstPublicationNpmReader(raw)
+  assert.deepEqual(Object.keys(adapted), [
+    "observePackageMetadata",
+    "observePackageVersion",
+    "downloadRegistryTarball",
+  ])
+  assert.equal(
+    (await adapted.observePackageVersion({ name: NAME, version: VERSION })).status,
+    "ABSENT",
+  )
+  assert.throws(() => adaptFirstPublicationNpmReader({}), TypeError)
+  assert.throws(
+    () =>
+      adaptFirstPublicationNpmReader(createNpmReader({ fetchImpl: async () => jsonResponse({}) })),
+    TypeError,
+  )
+})
+
+test("first-publication reader never treats proxy, auth, redirect, malformed, or conflicting 404s as absence", async () => {
+  const cases = [
+    ["CLI-style code body", [jsonResponse({ code: "E404" }, 404)], "E404"],
+    ["empty object body", [jsonResponse({}, 404)], "HTTP_404"],
+    ["other error body", [jsonResponse({ error: "Rate limited" }, 404)], "HTTP_404"],
+    [
+      "html proxy body",
+      [new Response("<html>404</html>", { status: 404, headers: { "content-type": "text/html" } })],
+      "UNEXPECTED_CONTENT_TYPE",
+    ],
+    ["malformed json body", [rawJsonResponse("{", 404)], "MALFORMED_JSON"],
+    ["auth failure", [jsonResponse({ error: "unauthorized" }, 401)], "HTTP_401"],
+    [
+      "redirect",
+      [new Response(null, { status: 302, headers: { location: "https://cdn.example.test/x" } })],
+      "REDIRECT",
+    ],
+    ["server error", [jsonResponse({ error: "Not found" }, 503)], "HTTP_503"],
+    [
+      "version endpoint present",
+      [jsonResponse(PACKUMENT_NOT_FOUND, 404), jsonResponse(versionDocument())],
+      "REGISTRY_ABSENCE_CONFLICT",
+    ],
+    [
+      "version endpoint knows the package",
+      [jsonResponse(PACKUMENT_NOT_FOUND, 404), jsonResponse(`version not found: ${VERSION}`, 404)],
+      "REGISTRY_ABSENCE_CONFLICT",
+    ],
+    [
+      "version endpoint code body",
+      [jsonResponse(PACKUMENT_NOT_FOUND, 404), jsonResponse({ code: "E404" }, 404)],
+      "REGISTRY_ABSENCE_CONFLICT",
+    ],
+    [
+      "version endpoint auth failure",
+      [jsonResponse(PACKUMENT_NOT_FOUND, 404), jsonResponse({ error: "unauthorized" }, 401)],
+      "HTTP_401",
+    ],
+    [
+      "version endpoint network failure",
+      [jsonResponse(PACKUMENT_NOT_FOUND, 404), new Error("socket hang up")],
+      "NETWORK_ERROR",
+    ],
+    ["packument network failure", [new Error("socket hang up")], "NETWORK_ERROR"],
+  ]
+  for (const [name, responses, code] of cases) {
+    const npm = createFirstPublicationNpmReader({
+      async fetchImpl() {
+        const next = responses.shift()
+        if (next instanceof Error) throw next
+        return next
+      },
+    })
+    const result = await npm.observeFirstPublicationPackage({ name: NAME, version: VERSION })
+    assert.notEqual(result.status, "ABSENT", name)
+    assert.notEqual(result.status, "PRESENT", name)
+    assert.equal(result.operation, "first-publication-package", name)
+    assert.equal(result.code, code, name)
+    assert.deepEqual(
+      Object.keys(result).sort(),
+      ["code", "httpStatus", "operation", "status"],
+      name,
+    )
+  }
+
+  const adapted = createFirstPublicationNpmReader({
+    fetchImpl: async () => jsonResponse({ code: "E404" }, 404),
+  })
+  const version = await adapted.observePackageVersion({ name: NAME, version: VERSION })
+  assert.deepEqual(version, {
+    status: "AMBIGUOUS",
+    operation: "package-version",
+    httpStatus: 404,
+    code: "E404",
+  })
+  const metadata = await adapted.observePackageMetadata({ name: NAME, version: VERSION })
+  assert.deepEqual(metadata, {
+    status: "AMBIGUOUS",
+    operation: "package-metadata",
+    httpStatus: 404,
+    code: "E404",
+  })
+})
+
+test("first-publication reader exposes the complete version set and rejects unrelated versions", async () => {
+  const foreign = createFirstPublicationNpmReader({
+    fetchImpl: async () =>
+      jsonResponse({
+        name: NAME,
+        "dist-tags": { latest: "0.8.20" },
+        versions: { "0.8.20": { name: NAME, version: "0.8.20" } },
+      }),
+  })
+  assert.deepEqual(await foreign.observeFirstPublicationPackage({ name: NAME, version: VERSION }), {
+    status: "PRESENT",
+    operation: "first-publication-package",
+    httpStatus: 200,
+    code: null,
+    package: { name: NAME, versions: ["0.8.20"], latest: "0.8.20", candidate: null },
+  })
+  assert.deepEqual(await foreign.observePackageVersion({ name: NAME, version: VERSION }), {
+    status: "AMBIGUOUS",
+    operation: "package-version",
+    httpStatus: 200,
+    code: "FIRST_PUBLICATION_FOREIGN_VERSION",
+  })
+  assert.deepEqual(await foreign.observePackageMetadata({ name: NAME, version: VERSION }), {
+    status: "AMBIGUOUS",
+    operation: "package-metadata",
+    httpStatus: 200,
+    code: "FIRST_PUBLICATION_FOREIGN_VERSION",
+  })
+
+  const mixed = createFirstPublicationNpmReader({
+    fetchImpl: async () =>
+      jsonResponse({
+        name: NAME,
+        "dist-tags": { latest: VERSION },
+        versions: {
+          "0.8.20": { name: NAME, version: "0.8.20" },
+          [VERSION]: { name: NAME, version: VERSION },
+        },
+      }),
+  })
+  assert.equal(
+    (await mixed.observePackageVersion({ name: NAME, version: VERSION })).code,
+    "FIRST_PUBLICATION_FOREIGN_VERSION",
+  )
+
+  const emptyShell = createFirstPublicationNpmReader({
+    fetchImpl: async () => jsonResponse({ name: NAME, "dist-tags": {}, versions: {} }),
+  })
+  assert.deepEqual(
+    await emptyShell.observeFirstPublicationPackage({ name: NAME, version: VERSION }),
+    {
+      status: "PRESENT",
+      operation: "first-publication-package",
+      httpStatus: 200,
+      code: null,
+      package: { name: NAME, versions: [], latest: null, candidate: null },
+    },
+  )
+  assert.equal(
+    (await emptyShell.observePackageVersion({ name: NAME, version: VERSION })).code,
+    "FIRST_PUBLICATION_FOREIGN_VERSION",
+  )
+
+  const malformed = createFirstPublicationNpmReader({
+    fetchImpl: async () =>
+      jsonResponse({
+        name: NAME,
+        "dist-tags": {},
+        versions: { [VERSION]: { name: "@b4run/other" } },
+      }),
+  })
+  assert.equal(
+    (await malformed.observeFirstPublicationPackage({ name: NAME, version: VERSION })).code,
+    "MALFORMED_SCHEMA",
+  )
+})
+
+test("first-publication reader returns exact candidate-version evidence identical to the default reader", async () => {
+  const packument = {
+    name: NAME,
+    "dist-tags": { latest: VERSION },
+    versions: { [VERSION]: { name: NAME, version: VERSION } },
+  }
+  const expected = await createNpmReader({
+    fetchImpl: recordingFetch([jsonResponse(versionDocument()), jsonResponse(packument)]).fetchImpl,
+  }).observePackageVersion({ name: NAME, version: VERSION })
+
+  const { fetchImpl, calls } = recordingFetch([
+    jsonResponse(packument),
+    jsonResponse(versionDocument()),
+    jsonResponse(packument),
+  ])
+  const npm = createFirstPublicationNpmReader({ fetchImpl })
+  const observed = await npm.observeFirstPublicationPackage({ name: NAME, version: VERSION })
+  assert.deepEqual(
+    calls.map(({ url }) => url),
+    [
+      `${REGISTRY}/%40b4run%2Fsdk`,
+      `${REGISTRY}/%40b4run%2Fsdk/0.8.21`,
+      `${REGISTRY}/%40b4run%2Fsdk`,
+    ],
+  )
+  assert.deepEqual(observed, {
+    status: "PRESENT",
+    operation: "first-publication-package",
+    httpStatus: 200,
+    code: null,
+    package: { name: NAME, versions: [VERSION], latest: VERSION, candidate: expected.package },
+  })
+
+  const again = createFirstPublicationNpmReader({
+    fetchImpl: recordingFetch([
+      jsonResponse(packument),
+      jsonResponse(versionDocument()),
+      jsonResponse(packument),
+    ]).fetchImpl,
+  })
+  assert.deepEqual(await again.observePackageVersion({ name: NAME, version: VERSION }), expected)
+  const metadata = createFirstPublicationNpmReader({
+    fetchImpl: recordingFetch([
+      jsonResponse(packument),
+      jsonResponse(versionDocument()),
+      jsonResponse(packument),
+    ]).fetchImpl,
+  })
+  assert.deepEqual(await metadata.observePackageMetadata({ name: NAME, version: VERSION }), {
+    status: "PRESENT",
+    operation: "package-metadata",
+    httpStatus: 200,
+    code: null,
+    metadata: { name: NAME, latest: VERSION },
+  })
+
+  const unsafe = createFirstPublicationNpmReader({
+    fetchImpl: recordingFetch([
+      jsonResponse(packument),
+      jsonResponse({
+        ...versionDocument(),
+        dist: { ...versionDocument().dist, tarball: "https://cdn.example.test/sdk.tgz" },
+      }),
+    ]).fetchImpl,
+  })
+  const unsafeResult = await unsafe.observeFirstPublicationPackage({ name: NAME, version: VERSION })
+  assert.equal(unsafeResult.status, "ERROR")
+  assert.equal(unsafeResult.code, "UNSAFE_REGISTRY_URL")
 })
 
 function versionDocument() {

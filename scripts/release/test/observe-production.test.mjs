@@ -49,21 +49,60 @@ test("production event classification distinguishes exact refs from schedules", 
     kind: "exact-ref",
     ref: COMMIT_SHA,
     expectedVersion: null,
+    npmBootstrap: false,
   })
   assert.deepEqual(classifyProductionEvent({ schedule: "17 * * * *" }), {
     kind: "scheduled",
     ref: null,
     expectedVersion: null,
+    npmBootstrap: false,
   })
   assert.deepEqual(
     classifyProductionEvent({
       inputs: { version: VERSION, commitSha: COMMIT_SHA },
     }),
-    { kind: "exact-ref", ref: COMMIT_SHA, expectedVersion: VERSION },
+    { kind: "exact-ref", ref: COMMIT_SHA, expectedVersion: VERSION, npmBootstrap: false },
   )
   assert.throws(
     () => classifyProductionEvent({ schedule: "17 * * * *", after: COMMIT_SHA }),
     /ambiguous/u,
+  )
+})
+
+test("only an explicit boolean dispatch input selects first-publication observation", () => {
+  for (const npmBootstrap of [true, false]) {
+    assert.deepEqual(
+      classifyProductionEvent({
+        inputs: { version: VERSION, commitSha: COMMIT_SHA, npmBootstrap },
+      }),
+      { kind: "exact-ref", ref: COMMIT_SHA, expectedVersion: VERSION, npmBootstrap },
+    )
+  }
+  for (const npmBootstrap of ["true", "false", 1, 0, null, {}, [], "TRUE"]) {
+    assert.throws(
+      () =>
+        classifyProductionEvent({
+          inputs: { version: VERSION, commitSha: COMMIT_SHA, npmBootstrap },
+        }),
+      /dispatch inputs are invalid/u,
+      String(npmBootstrap),
+    )
+  }
+  assert.throws(
+    () =>
+      classifyProductionEvent({
+        inputs: { version: VERSION, commitSha: COMMIT_SHA, npmBootstrap: true, operation: "x" },
+      }),
+    /dispatch inputs are invalid/u,
+  )
+  assert.throws(
+    () => classifyProductionEvent({ schedule: "17 * * * *", npmBootstrap: true }),
+    /ambiguous|invalid/u,
+  )
+  assert.throws(
+    () =>
+      classifyProductionEvent({ ref: "refs/heads/main", after: COMMIT_SHA, npmBootstrap: true }),
+    /ambiguous|invalid|exact main/u,
   )
 })
 
@@ -3065,6 +3104,101 @@ test("observe CLI resolves the immutable candidate, runs the dry one-transition 
         "next_transition=prepare-artifacts",
         "",
       ].join("\n"),
+    )
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("observe CLI selects the first-publication reader only from the explicit boolean and confers no publishing authority", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-bootstrap-"))
+  try {
+    const eventPath = path.join(directory, "event.json")
+    const reportPath = path.join(directory, "report.json")
+    const outputPath = path.join(directory, "github-output")
+    const wholePackageAbsent = {
+      async observePackageVersion() {
+        // The default adapter cannot distinguish a missing package from a broken registry.
+        return envelope("AMBIGUOUS", "package-version", 404, "HTTP_404")
+      },
+      async downloadRegistryTarball() {
+        throw new Error("an absent package must not download a tarball")
+      },
+    }
+    const firstPublicationCalls = []
+    const firstPublicationReader = {
+      ...wholePackageAbsent,
+      async observeFirstPublicationPackage({ name, version }) {
+        firstPublicationCalls.push({ name, version })
+        return envelope("ABSENT", "first-publication-package", 404, "E404")
+      },
+    }
+    const secrets = {
+      B4_NPM_BOOTSTRAP_AUTHORIZATION: '{"status":"enabled"}',
+      B4_NPM_BOOTSTRAP_TOKEN: "npm_must_not_be_read",
+    }
+    const observe = async (event, npm, environment = {}) => {
+      await writeFile(eventPath, `${JSON.stringify(event)}\n`)
+      await rm(reportPath, { force: true })
+      await writeFile(outputPath, "")
+      const result = await runReleaseCli(
+        ["observe", "--event", eventPath, "--report", reportPath, "--github-output", outputPath],
+        { ...cliCandidateDependencies(directory), npm, environment },
+      )
+      return { result, report: await readFile(reportPath, "utf8") }
+    }
+
+    const defaultDispatch = await observe(
+      { inputs: { version: VERSION, commitSha: COMMIT_SHA } },
+      wholePackageAbsent,
+      secrets,
+    )
+    assert.equal(defaultDispatch.result.before.plan.disposition, "blocked")
+    assert.deepEqual(firstPublicationCalls, [])
+
+    const explicitOff = await observe(
+      { inputs: { version: VERSION, commitSha: COMMIT_SHA, npmBootstrap: false } },
+      firstPublicationReader,
+      secrets,
+    )
+    assert.equal(explicitOff.result.before.plan.disposition, "blocked")
+    assert.deepEqual(firstPublicationCalls, [])
+
+    const selected = await observe(
+      { inputs: { version: VERSION, commitSha: COMMIT_SHA, npmBootstrap: true } },
+      firstPublicationReader,
+      secrets,
+    )
+    assert.equal(selected.result.before.plan.state, "CANDIDATE_TAGGED")
+    assert.equal(selected.result.before.plan.disposition, "would-transition")
+    assert.equal(selected.result.before.plan.nextTransition, "prepare-artifacts")
+    assert.deepEqual(selected.result.diagnostics, [])
+    assert.ok(firstPublicationCalls.length >= CANONICAL_RELEASE_PACKAGE_ORDER.length)
+    assert.ok(firstPublicationCalls.every(({ version }) => version === VERSION))
+    assert.deepEqual(
+      [...new Set(firstPublicationCalls.map(({ name }) => name))].sort(),
+      [...CANONICAL_RELEASE_PACKAGE_ORDER].sort(),
+    )
+    assert.doesNotMatch(selected.report, /bootstrap|B4_NPM|npm_must_not_be_read|authorization/iu)
+    assert.doesNotMatch(await readFile(outputPath, "utf8"), /bootstrap|B4_NPM|token/iu)
+
+    await assert.rejects(
+      observe(
+        { inputs: { version: VERSION, commitSha: COMMIT_SHA, npmBootstrap: true } },
+        wholePackageAbsent,
+      ),
+      /observeFirstPublicationPackage/u,
+    )
+    await assert.rejects(
+      observe(
+        { inputs: { version: VERSION, commitSha: COMMIT_SHA, npmBootstrap: "true" } },
+        firstPublicationReader,
+      ),
+      /dispatch inputs are invalid/u,
+    )
+    await assert.rejects(
+      observe({ schedule: "17 7 * * *", npmBootstrap: true }, firstPublicationReader),
+      /ambiguous|invalid/u,
     )
   } finally {
     await rm(directory, { recursive: true, force: true })

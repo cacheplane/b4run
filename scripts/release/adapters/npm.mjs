@@ -7,7 +7,19 @@ import { createHttpGet } from "./http.mjs"
 
 // Every observation is a JSON-safe envelope with status, operation, httpStatus, and code.
 // PRESENT package observations additionally include the exact registry identity and evidence.
-const OPERATIONS = new Set(["package-version", "package-metadata", "package-tarball"])
+const OPERATIONS = new Set([
+  "package-version",
+  "package-metadata",
+  "package-tarball",
+  "first-publication-package",
+])
+// npm's actual public not-found bodies: the packument endpoint answers `{"error":"Not found"}` and
+// the exact-version endpoint of an absent package answers the bare string `"Not Found"`. An existing
+// package's absent version answers `"version not found: <version>"`, which proves the package exists
+// and therefore conflicts with a packument-level absence. The CLI's E404 code never appears in the
+// registry body; it is only the internal absence code.
+const REGISTRY_NOT_FOUND_TEXT = /^not found$/iu
+const FIRST_PUBLICATION_OPERATION = "first-publication-package"
 const PACKAGE_NAME_PATTERN =
   /^(?:@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*|[a-z0-9][a-z0-9._-]*)$/u
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
@@ -16,7 +28,227 @@ const MAX_REGISTRY_URL_BYTES = 2_048
 const MAX_PACKAGE_NAME_BYTES = 256
 const MAX_VERSION_BYTES = 256
 
-export function createNpmReader({
+export function createNpmReader(options = {}) {
+  const context = createRegistryContext(options)
+  return {
+    observePackageMetadata({ name, signal }) {
+      assertPackageName(name)
+      return observePackageMetadata({ ...context, name, signal })
+    },
+    observePackageVersion({ name, version, signal }) {
+      assertPackageName(name)
+      assertExactVersion(version)
+      return observePackageVersion({ ...context, name, version, signal })
+    },
+    downloadRegistryTarball({ tarballUrl, signal }) {
+      return downloadRegistryTarball({ ...context, tarballUrl, signal })
+    },
+  }
+}
+
+// The explicitly selected first-publication reader. It is the only reader that may report a
+// whole-package absence, and only after both trusted public endpoints answer with npm's own
+// not-found bodies. Its standard observations are adapted to the publisher's internal
+// absent/latest representation; nothing here fabricates a 200 response.
+export function createFirstPublicationNpmReader(options = {}) {
+  const context = createRegistryContext(options)
+  const raw = {
+    observeFirstPublicationPackage({ name, version, signal }) {
+      assertPackageName(name)
+      assertExactVersion(version)
+      return observeFirstPublicationPackage({ ...context, name, version, signal })
+    },
+    downloadRegistryTarball({ tarballUrl, signal }) {
+      return downloadRegistryTarball({ ...context, tarballUrl, signal })
+    },
+  }
+  return { ...adaptFirstPublicationNpmReader(raw), ...raw }
+}
+
+export function adaptFirstPublicationNpmReader(reader) {
+  for (const method of ["observeFirstPublicationPackage", "downloadRegistryTarball"]) {
+    if (typeof reader?.[method] !== "function") {
+      throw new TypeError(`first-publication npm reader must expose ${method}`)
+    }
+  }
+  const observe = ({ name, version, signal }, operation) => {
+    assertPackageName(name)
+    assertExactVersion(version)
+    return (async () => {
+      const observed = await reader.observeFirstPublicationPackage({
+        name,
+        version,
+        ...(signal === undefined ? {} : { signal }),
+      })
+      return adaptFirstPublicationObservation(observed, { name, version, operation })
+    })()
+  }
+  return {
+    observePackageMetadata(input) {
+      return observe(input, "package-metadata")
+    },
+    observePackageVersion(input) {
+      return observe(input, "package-version")
+    },
+    downloadRegistryTarball(input) {
+      return reader.downloadRegistryTarball(input)
+    },
+  }
+}
+
+function adaptFirstPublicationObservation(observed, { name, version, operation }) {
+  if (
+    observed === null ||
+    typeof observed !== "object" ||
+    observed.operation !== FIRST_PUBLICATION_OPERATION
+  ) {
+    return failure("ERROR", operation, null, "MALFORMED_ENVELOPE")
+  }
+  if (observed.status === "ABSENT") {
+    return observed.httpStatus === 404 && observed.code === "E404"
+      ? failure("ABSENT", operation, 404, "E404")
+      : failure("ERROR", operation, null, "MALFORMED_ENVELOPE")
+  }
+  if (observed.status !== "PRESENT") {
+    return failure(
+      observed.status === "AMBIGUOUS" ? "AMBIGUOUS" : "ERROR",
+      operation,
+      Number.isInteger(observed.httpStatus) ? observed.httpStatus : null,
+      safeRegistryCode(observed.code) ?? "MALFORMED_ENVELOPE",
+    )
+  }
+  const pkg = observed.package
+  if (
+    !isObject(pkg) ||
+    pkg.name !== name ||
+    !Array.isArray(pkg.versions) ||
+    !(pkg.latest === null || isExactSemver(pkg.latest))
+  ) {
+    return failure("ERROR", operation, observed.httpStatus, "MALFORMED_SCHEMA")
+  }
+  // First publication admits exactly one prior state per name: the candidate version alone.
+  if (pkg.versions.length !== 1 || pkg.versions[0] !== version || !isObject(pkg.candidate)) {
+    return failure("AMBIGUOUS", operation, observed.httpStatus, "FIRST_PUBLICATION_FOREIGN_VERSION")
+  }
+  if (pkg.candidate.name !== name || pkg.candidate.version !== version) {
+    return failure("ERROR", operation, observed.httpStatus, "MALFORMED_SCHEMA")
+  }
+  if (operation === "package-metadata") {
+    return {
+      status: "PRESENT",
+      operation,
+      httpStatus: observed.httpStatus,
+      code: null,
+      metadata: { name, latest: pkg.latest },
+    }
+  }
+  return {
+    status: "PRESENT",
+    operation,
+    httpStatus: observed.httpStatus,
+    code: null,
+    package: pkg.candidate,
+  }
+}
+
+async function observeFirstPublicationPackage({ registry, http, name, version, signal }) {
+  const encodedName = encodeURIComponent(name)
+  const packumentResponse = await http.getJson({
+    url: new URL(encodedName, registry),
+    headers: { Accept: "application/vnd.npm.install-v1+json" },
+    ...(signal === undefined ? {} : { signal }),
+  })
+  const packument = classifyFirstPublicationResponse(packumentResponse)
+  if (packument.status === "not-found") {
+    const versionResponse = await http.getJson({
+      url: new URL(`${encodedName}/${encodeURIComponent(version)}`, registry),
+      headers: { Accept: "application/json" },
+      ...(signal === undefined ? {} : { signal }),
+    })
+    const exact = classifyFirstPublicationResponse(versionResponse)
+    if (exact.status === "not-found") {
+      return failure("ABSENT", FIRST_PUBLICATION_OPERATION, 404, "E404")
+    }
+    if (exact.status === "failure" && exact.envelope.httpStatus !== 404) return exact.envelope
+    // A present version document, or a 404 whose body is not npm's whole-package not-found
+    // (for example "version not found: <version>"), contradicts the packument-level absence.
+    return failure("AMBIGUOUS", FIRST_PUBLICATION_OPERATION, 404, "REGISTRY_ABSENCE_CONFLICT")
+  }
+  if (packument.status === "failure") return packument.envelope
+
+  const document = normalizePackument(packumentResponse.body, name)
+  const versions = normalizePackumentVersions(document?.versions, name)
+  const distTags = document === null ? null : normalizeDistTags(document["dist-tags"])
+  if (versions === null || distTags === null) {
+    return failure(
+      "ERROR",
+      FIRST_PUBLICATION_OPERATION,
+      packumentResponse.httpStatus,
+      "MALFORMED_SCHEMA",
+    )
+  }
+  // Exact candidate evidence is only meaningful for the one admissible prior state: the
+  // candidate version alone. Foreign version sets are reported without extra registry reads.
+  let candidate = null
+  if (versions.size === 1 && versions.has(version)) {
+    const exact = await observePackageVersion({ registry, http, name, version, signal })
+    if (exact.status !== "PRESENT") {
+      return failure(exact.status, FIRST_PUBLICATION_OPERATION, exact.httpStatus, exact.code)
+    }
+    candidate = exact.package
+  }
+  return {
+    status: "PRESENT",
+    operation: FIRST_PUBLICATION_OPERATION,
+    httpStatus: packumentResponse.httpStatus,
+    code: null,
+    package: {
+      name,
+      versions: [...versions].sort(compareStrings),
+      latest: distTags.latest ?? null,
+      candidate,
+    },
+  }
+}
+
+function classifyFirstPublicationResponse(response) {
+  if (response.status !== "OK" && response.status !== "HTTP_ERROR") {
+    return {
+      status: "failure",
+      envelope: failure(
+        transportFailureStatus(response),
+        FIRST_PUBLICATION_OPERATION,
+        response.httpStatus,
+        response.code,
+      ),
+    }
+  }
+  if (response.httpStatus >= 200 && response.httpStatus < 300) return { status: "present" }
+  if (response.httpStatus === 404 && isRegistryNotFoundBody(response.body)) {
+    return { status: "not-found" }
+  }
+  return {
+    status: "failure",
+    envelope: failure(
+      "AMBIGUOUS",
+      FIRST_PUBLICATION_OPERATION,
+      response.httpStatus,
+      safeRegistryCode(response.body?.code) ?? `HTTP_${response.httpStatus}`,
+    ),
+  }
+}
+
+function isRegistryNotFoundBody(body) {
+  if (typeof body === "string") return REGISTRY_NOT_FOUND_TEXT.test(body)
+  return (
+    isObject(body) &&
+    Object.keys(body).length === 1 &&
+    typeof body.error === "string" &&
+    REGISTRY_NOT_FOUND_TEXT.test(body.error)
+  )
+}
+
+function createRegistryContext({
   registryUrl = "https://registry.npmjs.org",
   fetchImpl = fetch,
   timeoutMs,
@@ -34,22 +266,13 @@ export function createNpmReader({
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
     maxResponseBytes: maxResponseBytes ?? RELEASE_PAYLOAD_LIMITS.tarballBytes,
   })
-  return {
-    observePackageMetadata({ name, signal }) {
-      assertPackageName(name)
-      return observePackageMetadata({ registry, http, name, signal })
-    },
-    observePackageVersion({ name, version, signal }) {
-      assertPackageName(name)
-      assertInputByteLength(version, MAX_VERSION_BYTES, "exact SemVer")
-      if (!isExactSemver(version)) {
-        throw new TypeError("Invalid exact SemVer")
-      }
-      return observePackageVersion({ registry, http, name, version, signal })
-    },
-    downloadRegistryTarball({ tarballUrl, signal }) {
-      return downloadRegistryTarball({ registry, http, tarballUrl, signal })
-    },
+  return { registry, http }
+}
+
+function assertExactVersion(version) {
+  assertInputByteLength(version, MAX_VERSION_BYTES, "exact SemVer")
+  if (!isExactSemver(version)) {
+    throw new TypeError("Invalid exact SemVer")
   }
 }
 
