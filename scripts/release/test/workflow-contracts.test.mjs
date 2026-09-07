@@ -107,8 +107,10 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for fixed evidence stage boundaries with fresh runtime readers.
 // Repinned for the B4.run source identity. Historical incident authorizations retain
 // their original bytes and are checked at the immutable pre-rename revision.
+// Repinned for the first-publication npm bootstrap: the new npm-bootstrap.mjs policy module
+// and the bootstrap-aware npm adapter, observer, CLI, audit verifier, and publisher.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "b0bc14dd16b34c081b3c9f1382aaf8eaca7f7644ba8d202bbb56fa47460c52ba"
+  "7a76a27e69c4bd3c56efec360b9687dfcd65334904df0331e74a53561918c648"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu

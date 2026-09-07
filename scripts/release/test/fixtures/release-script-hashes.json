@@ -53,7 +53,7 @@
       "sha256": "aacd907d447b6756b3335ebe19b0bb09b02ffbe76b3adaaa52fbf6c94b5b752b"
     },
     "scripts/release/adapters/npm.mjs": {
-      "sha256": "3e171b1bc9aa79080d58087327ea2014b856ba5e6329f33de1a0a5f1b18c05d1"
+      "sha256": "c6b5140db58625bbd8cae8bfaebee5bb0743219856f2a64932077e1161e97691"
     },
     "scripts/release/artifact-store.mjs": {
       "sha256": "365db6427d51f89c5820cbd0f1e75c68c5c4e8934d3c469bceb085c3cc6f11b0"
@@ -68,7 +68,7 @@
       "sha256": "ee270eccf9b2e2fd88d2b093f907e419a53e5847c0b45f8d9f33bfada9a738c4"
     },
     "scripts/release/cli.mjs": {
-      "sha256": "38c72dabe2661dbe827e03bdaa1809cd7dd2081358a15e454b01b61972b8956f"
+      "sha256": "cf9e477aa7a99caa708899037d73a4658b36e6394c37e94308ead9ec1f710e51"
     },
     "scripts/release/conflicts.mjs": {
       "sha256": "9fb3ff5154dab04d975b56baf29255493ece213824801e3504fad534ae81db7f"
@@ -104,7 +104,10 @@
       "sha256": "e900debc139acb1732542513d2e073de6c04209538ca4115bde0e243710400b3"
     },
     "scripts/release/npm-audit.mjs": {
-      "sha256": "fdb4d06453646f7337011cf5434b05cec710a9d11077e312a2d988d1dff21606"
+      "sha256": "d61f222b85d47245944aa947f64e61a43a9b912a8fc09e2a4129640edb68e061"
+    },
+    "scripts/release/npm-bootstrap.mjs": {
+      "sha256": "e1e002f4614c9f4f78b98350bcbf07f92e424039cd590e3301d532a4fdc02a96"
     },
     "scripts/release/npm-evidence.mjs": {
       "sha256": "3bd1ae6bc95e4285259133c571a1a50dacad0447b844f04c403ad17bcf57c157"
@@ -113,7 +116,7 @@
       "sha256": "fc3847533cbf01b8fa2420f484680a7576b8b2b4edf4d6f41f56df925f4914c3"
     },
     "scripts/release/observe.mjs": {
-      "sha256": "246996dd7b2fb1763b2d915a9add0dfabb1b4f753ffea5940d49c81da916119c"
+      "sha256": "36f0bf66a22217050407ef3eb9984c36a0619c80db99a227729daedb302bbb1a"
     },
     "scripts/release/planner.mjs": {
       "sha256": "2e09281ff952da69e985de7802307b849b76525e838e4cab49516a3d05793433"
@@ -131,7 +134,7 @@
       "sha256": "bdc06e4902b3e853e858166240e3dd1e068061c3ec69f74cad33f1ae122c7e1b"
     },
     "scripts/release/publisher.mjs": {
-      "sha256": "deee16cbb421277a85cfb3d7b2833112668643b6f4021402f0d204991d2f2aa7"
+      "sha256": "cf3086aa588c2508a09e70a5335c396db7d3d2fab4a6313528acf51f5c0a743f"
     },
     "scripts/release/recovery/adopt.mjs": {
       "sha256": "efe0b8da53dc035932d2ce266bb88456a5547332313bca9bfa2bf50ee4e0ac8a"
@@ -182,7 +185,7 @@
       "sha256": "977545b219df5757200ea873b29dee2a2d79e93b9ba18b68c188f7aeb4845442"
     },
     "scripts/release/recovery/policy.json": {
-      "sha256": "b4ecb4885def0227745b730bea955b2ef07bea4c68193a407d127fe018800e45"
+      "sha256": "37bcc35e11bfcd1831f6eda09c512c17fdc5eb98140439460de3e4d37e1725d2"
     },
     "scripts/release/recovery/policy.mjs": {
       "sha256": "4b1cdabb243c9d1bb6d713235d32231f056c1f823777cf6085283e572248b877"

@@ -168,6 +168,99 @@ test("every partial or mixed abandonment topology fails closed", () => {
   }
 })
 
+test("the renamed B4.run disabled variant admits only the reviewed first-publication input and relay", () => {
+  assert.equal(classifyReleaseWorkflowAbandonment(B4_DISABLED_BYTES, OPTIONS), "disabled")
+  const b4Workflow = parseFixture(B4_DISABLED_BYTES)
+  const legacyWorkflow = parseFixture(DISABLED_BYTES)
+  const cases = [
+    [
+      "b4 inputs with the legacy relay",
+      (workflow) => {
+        workflow.jobs.tag.steps[4] = legacyWorkflow.jobs.tag.steps[4]
+      },
+    ],
+    [
+      "legacy inputs with the b4 relay",
+      (workflow) => {
+        delete workflow.on.workflow_dispatch.inputs.npmBootstrap
+      },
+    ],
+    [
+      "bootstrap default true",
+      (workflow) => {
+        workflow.on.workflow_dispatch.inputs.npmBootstrap.default = true
+      },
+    ],
+    [
+      "bootstrap typed as string",
+      (workflow) => {
+        workflow.on.workflow_dispatch.inputs.npmBootstrap.type = "string"
+      },
+    ],
+    [
+      "bootstrap required",
+      (workflow) => {
+        workflow.on.workflow_dispatch.inputs.npmBootstrap.required = true
+      },
+    ],
+    [
+      "bootstrap without default",
+      (workflow) => {
+        delete workflow.on.workflow_dispatch.inputs.npmBootstrap.default
+      },
+    ],
+    [
+      "bootstrap extra descriptor member",
+      (workflow) => {
+        workflow.on.workflow_dispatch.inputs.npmBootstrap.options = [true]
+      },
+    ],
+    [
+      "relay forwards a string",
+      (workflow) => {
+        const step = routeStep(workflow)
+        step.run = step.run.replace(
+          'npmBootstrap:process.env.NPM_BOOTSTRAP==="true"',
+          "npmBootstrap:process.env.NPM_BOOTSTRAP",
+        )
+      },
+    ],
+    [
+      "relay drops the boolean",
+      (workflow) => {
+        const step = routeStep(workflow)
+        step.run = step.run.replace(',npmBootstrap:process.env.NPM_BOOTSTRAP==="true"', "")
+      },
+    ],
+    [
+      "relay without the boolean environment",
+      (workflow) => {
+        delete routeStep(workflow).env.NPM_BOOTSTRAP
+      },
+    ],
+    [
+      "abandon operation added",
+      (workflow) => workflow.on.workflow_dispatch.inputs.operation.options.push("abandon"),
+    ],
+    [
+      "abandon job added",
+      (workflow) => {
+        workflow.jobs.abandon = { "runs-on": "ubuntu-24.04", steps: [{ run: "true" }] }
+      },
+    ],
+  ]
+  for (const [name, mutate] of cases) {
+    assert.throws(
+      () => classifyReleaseWorkflowAbandonment(mutateWorkflow(B4_DISABLED_BYTES, mutate), OPTIONS),
+      /topology|variant/u,
+      name,
+    )
+  }
+  // The legacy disabled variant is unchanged by the B4.run extension.
+  assert.equal(classifyReleaseWorkflowAbandonment(DISABLED_BYTES, OPTIONS), "disabled")
+  assert.equal(b4Workflow.on.workflow_dispatch.inputs.npmBootstrap.type, "boolean")
+})
+
 test("input and operation projections are exact", () => {
   const cases = [
     ["missing version", (workflow) => delete workflow.on.workflow_dispatch.inputs.version],
