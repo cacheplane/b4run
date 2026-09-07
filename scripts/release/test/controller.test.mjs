@@ -1266,7 +1266,13 @@ test("audit CLI routes keep dispatch, marker recording, correlation, and publica
       "--output",
       paths.waitOutput,
     ],
-    { cwd: directory, github, importModule, wait },
+    {
+      cwd: directory,
+      github,
+      importModule,
+      wait,
+      git: { capability: "immutable-git" },
+    },
   )
   assert.deepEqual(JSON.parse(await readFile(paths.waitOutput, "utf8")), audit)
   await runReleaseCli(
@@ -1301,6 +1307,7 @@ test("audit CLI routes keep dispatch, marker recording, correlation, and publica
   assert.equal(calls[0][1].github, github.writer)
   assert.equal(calls[1][1].github, github)
   assert.equal(calls[2][1].github, github.reader)
+  assert.deepEqual(calls[2][1].git, { capability: "immutable-git" })
   assert.equal(calls[2][1].runId, dispatchReceipt.workflowRunId)
   assert.deepEqual(calls[2][1].candidate, CANDIDATE)
   assert.equal(calls[2][1].attempts, 181)
@@ -1339,6 +1346,7 @@ test("wait-audit fails closed without writing a result when the exact run stays 
   const importModule = async () => ({
     async waitForAudit(input) {
       calls += 1
+      assert.deepEqual(input.git, { capability: "immutable-git" })
       assert.equal(input.runId, 777)
       assert.equal(input.github, github.reader)
       assert.equal(input.wait, undefined)
@@ -1359,7 +1367,14 @@ test("wait-audit fails closed without writing a result when the exact run stays 
         "--output",
         outputPath,
       ],
-      { cwd: directory, github, importModule, wait, now },
+      {
+        cwd: directory,
+        github,
+        importModule,
+        wait,
+        now,
+        git: { capability: "immutable-git" },
+      },
     ),
     (error) => error?.code === "AUDIT_PENDING",
   )

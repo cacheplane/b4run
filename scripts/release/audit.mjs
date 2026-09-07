@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 
 import { snapshotJson } from "./adapter-normalize.mjs"
 import { extractActionsArtifactZip } from "./artifact-store.mjs"
+import { auditExecutorIdentity, authorizeAuditExecutor } from "./audit-executor.mjs"
 import { RELEASE_PAYLOAD_LIMITS } from "./limits.mjs"
 import {
   canonicalReleaseBody,
@@ -120,6 +121,8 @@ export async function recordAuditDispatch({ candidate, dispatch, github }) {
 }
 
 export async function waitForAudit({
+  git,
+  manifestSha256,
   runId,
   candidate,
   github,
@@ -152,7 +155,39 @@ export async function waitForAudit({
         deadline,
         clock,
       )
-      validateActionsRun(run, runId, identity)
+      let expectedManifest = manifestSha256
+      if (
+        expectedManifest === undefined &&
+        run.head_branch === "main" &&
+        (run.head_sha !== identity.commitSha || run.head_branch !== `v${identity.version}`)
+      ) {
+        const release = await withinAuditDeadline(
+          requireDraftRelease(github, identity),
+          deadline,
+          clock,
+        )
+        const marker = parseReleaseMarker(release.body)
+        assertMarkerIdentity(marker, identity)
+        if (
+          !["AUDIT_DISPATCHED", "AUDIT_RETRYABLE", "AUDIT_VERIFIED"].includes(marker.phase) ||
+          marker.audit.workflowRunId !== runId ||
+          release.body !== canonicalReleaseBody({ marker, manifest: null })
+        )
+          throw new Error("Audit executor manifest is not bound to its exact dispatch")
+        expectedManifest = marker.manifestSha256
+      }
+      const executor = await withinAuditDeadline(
+        authorizeAuditExecutor({
+          candidate: identity,
+          manifestSha256: expectedManifest,
+          run,
+          git,
+          github,
+        }),
+        deadline,
+        clock,
+      )
+      validateActionsRun(run, runId, identity, executor)
       if (run.status !== "completed") {
         if (attempt < attempts) {
           const remaining = auditTimeRemaining(deadline, clock)
@@ -167,6 +202,8 @@ export async function waitForAudit({
         continue
       }
       return await readTerminalAudit({
+        executor,
+        manifestSha256: expectedManifest,
         actions,
         run,
         runId,
@@ -366,7 +403,17 @@ export async function verifyAuditSuccess({ candidate, dispatch, result, github }
   return transitionResult(release, marker, "updated")
 }
 
-async function readTerminalAudit({ actions, run, runId, candidate, deadline, clock }) {
+async function readTerminalAudit({
+  actions,
+  run,
+  runId,
+  candidate,
+  deadline,
+  clock,
+  executor,
+  manifestSha256,
+}) {
+  const executorIdentity = auditExecutorIdentity({ candidate, executor })
   if (!isPositiveId(run.run_attempt)) throw new Error("Terminal audit run attempt is invalid")
   const expectedName = `audit-result-${runId}-${run.run_attempt}`
   const listed = await withinAuditDeadline(
@@ -383,8 +430,8 @@ async function readTerminalAudit({ actions, run, runId, candidate, deadline, clo
     runId,
     runAttempt: run.run_attempt,
     name: expectedName,
-    headBranch: `v${candidate.version}`,
-    headSha: candidate.commitSha,
+    headBranch: executorIdentity.headBranch,
+    headSha: executorIdentity.headSha,
   })
   const exactArtifact = await withinAuditDeadline(
     readValue(actions.getActionsArtifact({ artifactId: listedArtifact.id }), "actions-artifact"),
@@ -395,8 +442,8 @@ async function readTerminalAudit({ actions, run, runId, candidate, deadline, clo
     runId,
     runAttempt: run.run_attempt,
     name: expectedName,
-    headBranch: `v${candidate.version}`,
-    headSha: candidate.commitSha,
+    headBranch: executorIdentity.headBranch,
+    headSha: executorIdentity.headSha,
   })
   if (artifact.id !== listedArtifact.id) {
     throw new Error("Audit result artifact identity changed on exact re-read")
@@ -425,6 +472,7 @@ async function readTerminalAudit({ actions, run, runId, candidate, deadline, clo
     (result.conclusion === "success" && run.conclusion === "success") ||
     (result.conclusion === "failure" && run.conclusion !== "success")
   if (
+    (manifestSha256 !== undefined && result.manifestSha256 !== manifestSha256) ||
     result.workflowRunId !== runId ||
     result.runAttempt !== run.run_attempt ||
     !conclusionMatches
@@ -440,7 +488,8 @@ async function readTerminalAudit({ actions, run, runId, candidate, deadline, clo
   })
 }
 
-function validateActionsRun(value, runId, candidate) {
+function validateActionsRun(value, runId, candidate, executor) {
+  const identity = auditExecutorIdentity({ candidate, executor })
   if (
     !isRecord(value) ||
     value.id !== runId ||
@@ -450,8 +499,8 @@ function validateActionsRun(value, runId, candidate) {
     ) ||
     value.event !== "workflow_dispatch" ||
     value.path !== WORKFLOW ||
-    value.head_sha !== candidate.commitSha ||
-    value.head_branch !== `v${candidate.version}`
+    value.head_sha !== identity.headSha ||
+    value.head_branch !== identity.headBranch
   ) {
     throw new Error("Audit Actions run identity is malformed")
   }

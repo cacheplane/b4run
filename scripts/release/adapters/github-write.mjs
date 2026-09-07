@@ -322,7 +322,12 @@ export function createGitHubWriter({
       const args = snapshotExactInput(input, ["workflow", "ref", "inputs"], "workflow dispatch")
       if (!WORKFLOWS.has(args.workflow))
         throw new TypeError("Workflow dispatch path is not allowed")
-      assertTag(args.ref)
+      if (
+        !(
+          args.workflow === ".github/workflows/published-artifact-verify.yml" && args.ref === "main"
+        )
+      )
+        assertTag(args.ref)
       if (!isRecord(args.inputs)) throw new TypeError("Workflow dispatch inputs must be an object")
       rejectRemovedDispatchField(args.inputs)
       const requestBody = { ref: args.ref, inputs: args.inputs }

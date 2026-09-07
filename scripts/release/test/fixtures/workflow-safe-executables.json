@@ -1700,7 +1700,7 @@
         "classification": "safe",
         "job": "verify-draft",
         "stepIndex": 0,
-        "step": "Checkout exact candidate",
+        "step": "Checkout exact audit executor",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },
@@ -1756,7 +1756,7 @@
         "classification": "safe",
         "job": "verify-published",
         "stepIndex": 0,
-        "step": "Checkout exact annotated tag",
+        "step": "Checkout exact audit executor",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },

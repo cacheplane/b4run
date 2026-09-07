@@ -1431,3 +1431,39 @@ function canonicalize(value) {
       .map((key) => [key, canonicalize(value[key])]),
   )
 }
+
+test("only the independent audit workflow can dispatch the main controller ref", async () => {
+  const calls = []
+  const writer = createGitHubWriter({
+    owner: OWNER,
+    repo: REPO,
+    reader: exactReader(),
+    fetchImpl: async (_, init) => {
+      calls.push(JSON.parse(init.body))
+      return jsonResponse(
+        {
+          workflow_run_id: 123,
+          run_url: `${API_BASE}/actions/runs/123`,
+          html_url: `https://github.com/${OWNER}/${REPO}/actions/runs/123`,
+        },
+        200,
+      )
+    },
+  })
+  await writer.dispatchWorkflowAtRef({
+    workflow: ".github/workflows/published-artifact-verify.yml",
+    ref: "main",
+    inputs: { version: VERSION, commitSha: SHA, manifestSha256: "a".repeat(64) },
+  })
+  assert.equal(calls[0].ref, "main")
+  for (const [workflow, ref] of [
+    ["release.yml", "main"],
+    ["published-artifact-verify.yml", "feature"],
+    ["published-artifact-verify.yml", "refs/heads/main"],
+  ]) {
+    await assert.rejects(
+      writer.dispatchWorkflowAtRef({ workflow: `.github/workflows/${workflow}`, ref, inputs: {} }),
+    )
+  }
+  assert.equal(calls.length, 1)
+})

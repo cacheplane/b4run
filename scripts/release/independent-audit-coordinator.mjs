@@ -55,26 +55,22 @@ export async function coordinateIndependentAudit(input) {
   const managed =
     invocation.eventName === "schedule"
       ? await discoverLatestPublishedRelease(invocation.github.reader, invocation.defaultBranch)
-      : parseManagedRelease(
-          await assertLegacyAuditCompatibleRelease({
-            release: await readReleaseByTag(
-              invocation.github.reader,
-              `v${invocation.inputs.version}`,
-            ),
-            github: invocation.github.reader,
-          }),
-          {
-            defaultBranch: invocation.defaultBranch,
-            expected: invocation.inputs,
-            allowDraft: false,
-          },
-        )
+      : await readAuditableManagedRelease(invocation.github.reader, {
+          defaultBranch: invocation.defaultBranch,
+          expected: invocation.inputs,
+        })
   await verifyAnnotatedTag(invocation.github.reader, managed)
   const identity = managedIdentity(managed)
+  // The verifier separately authorizes its real immutable main source before
+  // auditing. This coordinator performs no marker or release mutation.
+  if (managed.mode === "draft") return Object.freeze({ mode: "draft-controller", ...identity })
+  if (invocation.eventName === "workflow_dispatch") {
+    return Object.freeze({ mode: "published-controller", ...identity })
+  }
   const receipt = snapshotJson(
     await invocation.github.writer.dispatchWorkflowAtRef({
       workflow: WORKFLOW,
-      ref: managed.tag,
+      ref: invocation.defaultBranch,
       inputs: identity,
     }),
   )
@@ -148,10 +144,6 @@ function isPublishedReleaseCandidate(value) {
     value.tag_name.startsWith("v") &&
     isReleaseVersion(value.tag_name.slice(1))
   )
-}
-
-async function readReleaseByTag(reader, tag) {
-  return readEnvelopeValue(reader.getReleaseByTag({ tag }), "release")
 }
 
 async function readEnvelopeValue(value, operation) {

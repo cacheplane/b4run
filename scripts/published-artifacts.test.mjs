@@ -1376,7 +1376,7 @@ describe("validateExactPublishedPackageEvidence", () => {
 })
 
 describe("final published-artifact workflow", () => {
-  it("accepts only the three release identities and isolates draft from published exact-tag audits", () => {
+  it("accepts three payload identities and isolates draft and published executor modes", () => {
     const { source, workflow } = readParsedWorkflow("published-artifact-verify.yml")
     const inputs = workflow.on?.workflow_dispatch?.inputs
     assert.deepEqual(Object.keys(inputs ?? {}).sort(), ["commitSha", "manifestSha256", "version"])
@@ -1401,10 +1401,12 @@ describe("final published-artifact workflow", () => {
     assert.match(draft.if, /needs\.coordinate\.outputs\.mode == 'draft'/u)
     assert.match(draft.if, /github\.ref == format\('refs\/tags\/v\{0\}', inputs\.version\)/u)
     assert.match(draft.if, /github\.sha == inputs\.commitSha/u)
+    assert.match(draft.if, /draft-controller/u)
+    assert.match(draft.if, /github\.ref == 'refs\/heads\/main'/u)
     const checkout = draft.steps.find(
       (step) => step.uses === "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
     )
-    assert.equal(checkout?.with?.ref, workflowExpression("github.ref"))
+    assert.equal(checkout?.with?.ref, workflowExpression("github.sha"))
     assert.equal(checkout?.with?.["fetch-depth"], 0)
     const executor = draft.steps.filter(
       (step) =>
@@ -1433,6 +1435,12 @@ describe("final published-artifact workflow", () => {
     assert.match(published.if, /needs\.coordinate\.outputs\.mode == 'published'/u)
     assert.match(published.if, /github\.ref == format\('refs\/tags\/v\{0\}', inputs\.version\)/u)
     assert.match(published.if, /github\.sha == inputs\.commitSha/u)
+    assert.match(published.if, /published-controller/u)
+    assert.match(published.if, /github\.ref == 'refs\/heads\/main'/u)
+    assert.equal(
+      published.steps.find((step) => step.uses?.startsWith("actions/checkout@"))?.with?.ref,
+      workflowExpression("github.sha"),
+    )
     const publishedExecutor = published.steps.filter(
       (step) =>
         typeof step.run === "string" &&
