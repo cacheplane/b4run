@@ -889,6 +889,7 @@ test("release.yml has exact triggers and one repository-global non-cancelling qu
   assert.match(workflow.on.schedule[0].cron, /^[\d*/,-]+(?: [\d*/,-]+){4}$/u)
   assert.deepEqual(Object.keys(workflow.on.workflow_dispatch.inputs).sort(), [
     "commitSha",
+    "npmBootstrap",
     "operation",
     "version",
   ])
@@ -904,6 +905,12 @@ test("release.yml has exact triggers and one repository-global non-cancelling qu
     workflow.on.workflow_dispatch.inputs.operation.description,
     "Reconcile this candidate",
   )
+  assert.deepEqual(dispatchInputContract(workflow.on.workflow_dispatch.inputs.npmBootstrap), {
+    default: false,
+    required: false,
+    type: "boolean",
+  })
+  assert.match(workflow.on.workflow_dispatch.inputs.npmBootstrap.description, /first publication/iu)
 
   assert.equal(typeof workflow.concurrency?.group, "string")
   assert.match(workflow.concurrency.group, /release/iu)
@@ -1296,6 +1303,7 @@ test("publish-npm is exact-tag, sparse, dependency-free, and schema-bound", asyn
     "--artifact-dir",
     "--report",
     "--github-output",
+    "--npm-auth-mode",
   ])
   const runs = runSource(publish)
   assert.doesNotMatch(
@@ -1304,6 +1312,238 @@ test("publish-npm is exact-tag, sparse, dependency-free, and schema-bound", asyn
   )
   assert.doesNotMatch(runs, /cli\.mjs|npm\s+publish/iu, "publisher.mjs owns the only npm mutation")
 })
+
+const BOOTSTRAP_INPUT_EXPRESSION = "inputs.npmBootstrap == true"
+const BOOTSTRAP_PUBLISHER_ENV = Object.freeze({
+  GITHUB_TOKEN: workflowExpression("github.token"),
+  NPM_CONFIG_PROVENANCE: "true",
+  NPM_AUTH_MODE: workflowExpression(`${BOOTSTRAP_INPUT_EXPRESSION} && 'bootstrap' || 'oidc'`),
+  B4_NPM_BOOTSTRAP_AUTHORIZATION: workflowExpression(
+    `${BOOTSTRAP_INPUT_EXPRESSION} && vars.B4_NPM_BOOTSTRAP_AUTHORIZATION || ''`,
+  ),
+  B4_NPM_BOOTSTRAP_TOKEN: workflowExpression(
+    `${BOOTSTRAP_INPUT_EXPRESSION} && secrets.B4_NPM_BOOTSTRAP_TOKEN || ''`,
+  ),
+})
+
+test("publish-npm activates the first-publication bootstrap only from the literal boolean input", async () => {
+  const { source, workflow } = await readRequiredWorkflow("release.yml")
+  assertBootstrapActivationContract(source, workflow)
+
+  const sources = await readWorkflowSourcesFromRoot(ROOT)
+  for (const [file, text] of Object.entries(sources)) {
+    if (file === "release.yml") continue
+    assert.doesNotMatch(text, /B4_NPM_BOOTSTRAP|npmBootstrap|npm-auth-mode/u, file)
+  }
+})
+
+test("bootstrap activation bindings fail closed under every mutation", async (t) => {
+  const { source } = await readRequiredWorkflow("release.yml")
+  const relayLine =
+    'BODY="$(node -e \'process.stdout.write(JSON.stringify({ref:"v"+process.env.VERSION,inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,operation:"reconcile",npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}}))\')"'
+  assert.ok(source.includes(relayLine))
+  const cases = [
+    ["input default removed", (text) => text.replace("        default: false\n", "")],
+    [
+      "input default true",
+      (text) => text.replace("        default: false\n", "        default: true\n"),
+    ],
+    [
+      "input typed as string",
+      (text) => text.replace("        type: boolean\n", "        type: string\n"),
+    ],
+    [
+      "unconditional secret",
+      (text) =>
+        text.replace(
+          BOOTSTRAP_PUBLISHER_ENV.B4_NPM_BOOTSTRAP_TOKEN,
+          workflowExpression("secrets.B4_NPM_BOOTSTRAP_TOKEN"),
+        ),
+    ],
+    [
+      "truthiness instead of literal boolean",
+      (text) =>
+        text.replace(
+          `${BOOTSTRAP_INPUT_EXPRESSION} && secrets.B4_NPM_BOOTSTRAP_TOKEN`,
+          "inputs.npmBootstrap && secrets.B4_NPM_BOOTSTRAP_TOKEN",
+        ),
+    ],
+    [
+      "string comparison",
+      (text) =>
+        text.replace(
+          `${BOOTSTRAP_INPUT_EXPRESSION} && 'bootstrap'`,
+          "inputs.npmBootstrap == 'true' && 'bootstrap'",
+        ),
+    ],
+    [
+      "unconditional authorization",
+      (text) =>
+        text.replace(
+          BOOTSTRAP_PUBLISHER_ENV.B4_NPM_BOOTSTRAP_AUTHORIZATION,
+          workflowExpression("vars.B4_NPM_BOOTSTRAP_AUTHORIZATION"),
+        ),
+    ],
+    [
+      "literal bootstrap mode",
+      (text) => text.replace(BOOTSTRAP_PUBLISHER_ENV.NPM_AUTH_MODE, "bootstrap"),
+    ],
+    [
+      "mode flag dropped",
+      (text) =>
+        text.replace(
+          '            --github-output "$GITHUB_OUTPUT" \\\n            --npm-auth-mode "$NPM_AUTH_MODE"\n',
+          '            --github-output "$GITHUB_OUTPUT"\n',
+        ),
+    ],
+    [
+      "expression interpolated into shell",
+      (text) =>
+        text.replace(
+          '--npm-auth-mode "$NPM_AUTH_MODE"',
+          `--npm-auth-mode "${workflowExpression("inputs.npmBootstrap && 'bootstrap' || 'oidc'")}"`,
+        ),
+    ],
+    [
+      "secret reaches the observer",
+      (text) =>
+        text.replace(
+          `        env:\n          GITHUB_TOKEN: ${workflowExpression("github.token")}\n        run: |\n          node scripts/release/cli.mjs observe`,
+          `        env:\n          GITHUB_TOKEN: ${workflowExpression("github.token")}\n          B4_NPM_BOOTSTRAP_TOKEN: ${workflowExpression("secrets.B4_NPM_BOOTSTRAP_TOKEN")}\n        run: |\n          node scripts/release/cli.mjs observe`,
+        ),
+    ],
+    [
+      "job-level secret",
+      (text) =>
+        text.replace(
+          `    outputs:\n      npm_artifact_id: ${workflowExpression("steps.npm.outputs.artifact-id")}\n`,
+          `    outputs:\n      npm_artifact_id: ${workflowExpression("steps.npm.outputs.artifact-id")}\n    env:\n      B4_NPM_BOOTSTRAP_TOKEN: ${workflowExpression("secrets.B4_NPM_BOOTSTRAP_TOKEN")}\n`,
+        ),
+    ],
+    [
+      "second secret site",
+      (text) =>
+        text.replace(
+          "      - name: Upload exact npm evidence\n",
+          `      - name: Leak\n        env:\n          B4_NPM_BOOTSTRAP_TOKEN: ${workflowExpression("secrets.B4_NPM_BOOTSTRAP_TOKEN")}\n        run: env\n      - name: Upload exact npm evidence\n`,
+        ),
+    ],
+    [
+      "seal env dropped",
+      (text) =>
+        text.replace(`          NPM_BOOTSTRAP: ${workflowExpression("inputs.npmBootstrap")}\n`, ""),
+    ],
+    [
+      "seal accepts any non-false value",
+      (text) =>
+        text.replace(
+          'npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}}))\' "$RUNNER_TEMP/release-event.json"',
+          'npmBootstrap:process.env.NPM_BOOTSTRAP!=="false"}}))\' "$RUNNER_TEMP/release-event.json"',
+        ),
+    ],
+    [
+      "seal forwards a string",
+      (text) =>
+        text.replace(
+          'npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}}))\' "$RUNNER_TEMP/release-event.json"',
+          'npmBootstrap:process.env.NPM_BOOTSTRAP}}))\' "$RUNNER_TEMP/release-event.json"',
+        ),
+    ],
+    [
+      "relay drops the boolean",
+      (text) =>
+        text.replace(',npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}}))\')"', "}}))')\""),
+    ],
+    [
+      "another npm publisher",
+      (text) =>
+        text.replace(
+          "      - name: Upload exact npm evidence\n",
+          "      - name: Direct publish\n        run: npm publish --provenance\n      - name: Upload exact npm evidence\n",
+        ),
+    ],
+  ]
+  for (const [name, mutate] of cases) {
+    await t.test(name, () => {
+      const mutated = mutate(source)
+      assert.notEqual(mutated, source, "mutation must change the workflow")
+      assert.throws(() =>
+        assertBootstrapActivationContract(mutated, parseWorkflowSource(mutated, "release.yml")),
+      )
+    })
+  }
+})
+
+function assertBootstrapActivationContract(source, workflow) {
+  const input = workflow.on.workflow_dispatch.inputs.npmBootstrap
+  assert.deepEqual(dispatchInputContract(input), {
+    default: false,
+    required: false,
+    type: "boolean",
+  })
+  assert.deepEqual(Object.keys(workflow.on).sort(), ["push", "schedule", "workflow_dispatch"])
+  assert.equal(workflow.on.workflow_dispatch.inputs.operation.options.length, 1)
+
+  const publish = requiredJob(workflow, "publish-npm")
+  assert.equal(publish.env, undefined, "publish-npm must not hold a job-level environment")
+  assert.equal(publish.environment, undefined)
+  const publisher = onlyRunStepMatching(publish, /node scripts\/release\/publisher\.mjs\b/u)
+  assert.deepEqual(publisher.env, { ...BOOTSTRAP_PUBLISHER_ENV })
+  assertCommandFlags(publisher.run, "node scripts/release/publisher.mjs", [
+    "--candidate",
+    "--record",
+    "--artifact-dir",
+    "--report",
+    "--github-output",
+    "--npm-auth-mode",
+  ])
+  assert.match(publisher.run, /--npm-auth-mode\s+"\$NPM_AUTH_MODE"/u)
+  assert.doesNotMatch(publisher.run, /\$\{\{|inputs\.|secrets\.|vars\./u)
+  for (const step of publish.steps) {
+    if (step === publisher) continue
+    assert.doesNotMatch(JSON.stringify(step), /B4_NPM|NPM_AUTH_MODE|npm publish/u)
+  }
+
+  const detect = requiredJob(workflow, "detect")
+  const seal = onlyRunStepMatching(detect, /cp "\$GITHUB_EVENT_PATH"/u)
+  assert.deepEqual(seal.env, {
+    VERSION: workflowExpression("inputs.version"),
+    COMMIT_SHA: workflowExpression("inputs.commitSha"),
+    NPM_BOOTSTRAP: workflowExpression("inputs.npmBootstrap"),
+  })
+  assert.ok(
+    seal.run.includes(
+      'JSON.stringify({inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}})',
+    ),
+    "the sealed manual event must carry the literal boolean",
+  )
+  const observe = onlyRunStepMatching(detect, /node scripts\/release\/cli\.mjs observe\b/u)
+  assert.deepEqual(observe.env, { GITHUB_TOKEN: workflowExpression("github.token") })
+
+  const tag = requiredJob(workflow, "tag")
+  const relay = onlyRunStepMatching(tag, /2026-03-10/u)
+  assert.equal(relay.env.NPM_BOOTSTRAP, workflowExpression("inputs.npmBootstrap"))
+  assert.ok(
+    relay.run.includes(
+      'inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,operation:"reconcile",npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}',
+    ),
+    "the exact-tag relay must forward the literal boolean unchanged",
+  )
+
+  assert.equal(countMatches(source, /secrets\.B4_NPM_BOOTSTRAP_TOKEN/gu), 1)
+  assert.equal(countMatches(source, /B4_NPM_BOOTSTRAP_TOKEN/gu), 2)
+  assert.equal(countMatches(source, /vars\.B4_NPM_BOOTSTRAP_AUTHORIZATION/gu), 1)
+  assert.equal(countMatches(source, /B4_NPM_BOOTSTRAP_AUTHORIZATION/gu), 2)
+  assert.equal(countMatches(source, /inputs\.npmBootstrap == true &&/gu), 3)
+  assert.equal(countMatches(source, /inputs\.npmBootstrap/gu), 5)
+  assert.equal(countMatches(source, /NPM_BOOTSTRAP==="true"/gu), 2)
+  assert.equal(countMatches(source, /secrets\./gu), 1)
+  assert.doesNotMatch(source, /NPM_TOKEN|NODE_AUTH_TOKEN|npm\s+publish\b/u)
+  for (const [id, job] of Object.entries(workflow.jobs)) {
+    if (id === "publish-npm") continue
+    assert.doesNotMatch(JSON.stringify(job), /B4_NPM_BOOTSTRAP|NPM_AUTH_MODE|npm-auth-mode/u, id)
+  }
+}
 
 test("npm reconciliation and five controller-owned smoke lanes are separate and fail closed", async () => {
   const { workflow } = await readRequiredWorkflow("release.yml")
