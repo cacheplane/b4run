@@ -64,10 +64,13 @@ export async function coordinateIndependentAudit(input) {
   // The verifier separately authorizes its real immutable main source before
   // auditing. This coordinator performs no marker or release mutation.
   if (managed.mode === "draft") return Object.freeze({ mode: "draft-controller", ...identity })
+  if (invocation.eventName === "workflow_dispatch") {
+    return Object.freeze({ mode: "published-controller", ...identity })
+  }
   const receipt = snapshotJson(
     await invocation.github.writer.dispatchWorkflowAtRef({
       workflow: WORKFLOW,
-      ref: managed.tag,
+      ref: invocation.defaultBranch,
       inputs: identity,
     }),
   )

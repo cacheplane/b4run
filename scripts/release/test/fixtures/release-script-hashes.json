@@ -44,7 +44,7 @@
       "sha256": "c9c20a293690eeffa83c6fe59e2a0638653d16c51a249353551990032b8a2955"
     },
     "scripts/release/adapters/github-write.mjs": {
-      "sha256": "0c4d42920d9ba00d1a3778eab64e9623a18663fdcf302cdda48d67b01dc3ea84"
+      "sha256": "e74dd868c5bac7852763380ae34e826b8e01d289d1f3e526e76b2fb40c686c60"
     },
     "scripts/release/adapters/github.mjs": {
       "sha256": "1c9677eb7fc34b5b98b75c7af75ccb5f44b2649362c58098b6d291df4600ca9c"
@@ -86,7 +86,7 @@
       "sha256": "427419a41951adb53720470d80f1defca030f8eb9289dae50c704f332e5f9ac0"
     },
     "scripts/release/independent-audit-coordinator.mjs": {
-      "sha256": "c485bd1b7b240f79c74ae5366a4304ddb11890b16bcf3edc92e26db7f6f68287"
+      "sha256": "1c82ded828cc9a71424527c4b69e9827ea959dc63dca395904abc9f78fb3f913"
     },
     "scripts/release/independent-audit.mjs": {
       "sha256": "adbe0ae2adafcd82df9870ca593308430c0b8156738e13af4a3f2c6f23814028"
@@ -119,7 +119,7 @@
       "sha256": "2e09281ff952da69e985de7802307b849b76525e838e4cab49516a3d05793433"
     },
     "scripts/release/post-publication-audit.mjs": {
-      "sha256": "909600cbb051aabcf36e819ff002c3aae05d45de47c2e91a5364419bdeeea0d4"
+      "sha256": "810eec178c3cb5a85d3441e3cdc0b0febd21dd341878072e57789a1310283983"
     },
     "scripts/release/prepare-checks.mjs": {
       "sha256": "fc47929bdf777bdcd68043a8975fb4906e8cfa8e1649bbdf8f36a07dfcd1b55f"

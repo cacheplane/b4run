@@ -7,6 +7,6 @@
     "manifestSha256": "15c3afa7eea9e552d83c10e0e8bdd8ec6d9d4a6ac0b2a87e8e4ac09f5511306b"
   },
   "workflow": ".github/workflows/published-artifact-verify.yml",
-  "workflowSha256": "f7a842b853024aaaf9f218dc415e9f7ec16642b6b7f3f3674cc4ca785a75cdab",
-  "scriptPinsSha256": "7acdb54f5d50c306c306add9c00813bdd719447fa3b9ca7bcf4477b85ae1b596"
+  "workflowSha256": "4d693f46d18b4cb8d48c0dde39b814ab02e5ed3670195799d660b4781ce5f3a8",
+  "scriptPinsSha256": "75b16cb04f4df23a68612add6b26806c1ec866233a8823e177ca36f243b318c8"
 }

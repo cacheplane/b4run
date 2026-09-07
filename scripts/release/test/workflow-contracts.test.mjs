@@ -106,7 +106,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for asset counter comparisons and bounded invocation payload/Git text reuse.
 // Repinned for fixed evidence stage boundaries with fresh runtime readers.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "7acdb54f5d50c306c306add9c00813bdd719447fa3b9ca7bcf4477b85ae1b596"
+  "75b16cb04f4df23a68612add6b26806c1ec866233a8823e177ca36f243b318c8"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
@@ -1558,8 +1558,12 @@ test("the independent workflow relays default-branch audits and verifies exact t
   assert.equal(hasWritePermission(published.permissions), false)
   assert.equal(published.permissions?.checks, "read")
   assertExactIndependentTagGate(published, "published")
+  assert.match(published.if, /needs\.coordinate\.outputs\.mode == 'published-controller'/u)
+  assert.match(published.if, /github\.ref == 'refs\/heads\/main'/u)
+  assert.match(published.if, /needs\.coordinate\.outputs\.mode == 'published'/u)
+  assert.match(published.if, /github\.sha == inputs\.commitSha/u)
   const publishedCheckout = onlyStepUsing(published, ACTIONS.checkout)
-  assert.equal(publishedCheckout.with?.ref, workflowExpression("github.ref"))
+  assert.equal(publishedCheckout.with?.ref, workflowExpression("github.sha"))
   assert.equal(publishedCheckout.with?.["fetch-depth"], 0)
   assert.equal(publishedCheckout.with?.["persist-credentials"], false)
   const publishedPnpm = onlyStepUsing(published, ACTIONS.pnpm)

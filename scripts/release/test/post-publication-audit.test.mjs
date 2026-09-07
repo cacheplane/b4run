@@ -32,6 +32,57 @@ test("post-publication audit accepts only the exact published immutable terminal
   assert.deepEqual(written[0].value, result)
 })
 
+test("main post-publication audit preserves candidate identity and remains mutation-free", async () => {
+  const observation = observationForMarker({ phase: "AUDIT_VERIFIED", releaseStatus: "published" })
+  const before = structuredClone(observation)
+  const mainSha = "5".repeat(40)
+  const calls = []
+  const base = runtime(observation)
+  const result = await runPostPublicationAudit(argv(), {
+    cwd: "/tmp/dawn-post-publication-audit",
+    environment: {
+      ...environment(),
+      GITHUB_REF: "refs/heads/main",
+      GITHUB_SHA: mainSha,
+      GITHUB_WORKFLOW_REF:
+        "cacheplane/dawnai/.github/workflows/published-artifact-verify.yml@refs/heads/main",
+    },
+    now: fixedTimestamps(),
+    createRuntime: async ({ candidate, invocation }) => {
+      assert.equal(candidate.commitSha, COMMIT_SHA)
+      assert.equal(invocation.commitSha, COMMIT_SHA)
+      assert.equal(invocation.executorSha, mainSha)
+      return {
+        ...base,
+        inventory: {
+          async read({ ref }) {
+            assert.equal(ref, COMMIT_SHA)
+            return observation.inventory
+          },
+        },
+        async observeProductionCandidate(input) {
+          calls.push("observe")
+          assert.equal(input.candidate.commitSha, COMMIT_SHA)
+          return base.observeProductionCandidate(input)
+        },
+        async planRelease(input) {
+          calls.push("plan")
+          const plan = await base.planRelease(input)
+          assert.deepEqual(plan.proposedMutations, [])
+          return plan
+        },
+      }
+    },
+    writeResult: async () => {
+      calls.push("write-result")
+    },
+  })
+  assert.equal(result.conclusion, "success")
+  assert.equal(result.commitSha, COMMIT_SHA)
+  assert.deepEqual(observation, before)
+  assert.deepEqual(calls, ["observe", "plan", "write-result"])
+})
+
 test("post-publication audit writes a failure result for a mutable or draft Release", async () => {
   for (const observation of [
     observationForMarker({ phase: "AUDIT_VERIFIED", releaseStatus: "draft" }),
