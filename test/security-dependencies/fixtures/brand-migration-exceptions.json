@@ -1732,6 +1732,16 @@
       "sha256": "260c5fad5b73e08d7012cec20164f25a38ca5e3724c1b79e4eefa02ae0702816"
     },
     {
+      "path": "scripts/release/test/npm-bootstrap.test.mjs",
+      "reason": "negative-regression-fixture",
+      "sha256": "6cb7f7c15c865ef2a73e2a04751bf97341e80b01221d3cb17d14e4306221e434"
+    },
+    {
+      "path": "scripts/release/test/publisher.test.mjs",
+      "reason": "negative-regression-fixture",
+      "sha256": "313d254c0b7cd70ed5258be810a0ecb5c0d53d0906efb0ae9bf7d57eeac8b3bb"
+    },
+    {
       "path": "scripts/release/test/recovery-admission-records.test.mjs",
       "reason": "historical-fixture",
       "sha256": "9c068858a9fd86b473cf8454d9d8dbdc9e972f9d5eedacd4b5860630f9b7d113"
