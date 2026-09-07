@@ -1046,6 +1046,183 @@ test("bootstrap failures, cancellation, and deadline expiry never expose the cre
   await assert.rejects(access(deadlineFileSystem.roots[0]))
 })
 
+test("first publication resumes from any verified prefix and never republishes accepted bytes", async () => {
+  const absent = publisherFixture({ firstPublication: true })
+  assert.equal(
+    (await publishManifestSerially({ ...absent.inputs, firstPublication: true })).status,
+    "NPM_COMPLETE",
+  )
+  assert.deepEqual(absent.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+
+  const prefix = publisherFixture({
+    firstPublication: true,
+    initiallyPresent: [0, 1, 2, 3, 4, 5, 6],
+  })
+  assert.equal(
+    (await publishManifestSerially({ ...prefix.inputs, firstPublication: true })).status,
+    "NPM_COMPLETE",
+  )
+  assert.deepEqual(prefix.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER.slice(7))
+  assert.deepEqual(
+    [...new Set(prefix.verifyCalls)].sort(),
+    [...CANONICAL_RELEASE_PACKAGE_ORDER].sort(),
+    "already-published entries are verified, not trusted",
+  )
+
+  for (const failureIndex of [0, 10, 20]) {
+    const timedOut = publisherFixture({
+      firstPublication: true,
+      failAfterAcceptIndex: failureIndex,
+    })
+    await assert.rejects(
+      publishManifestSerially({ ...timedOut.inputs, firstPublication: true }),
+      /simulated runner loss/u,
+    )
+    assert.deepEqual(
+      timedOut.publishCalls,
+      CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, failureIndex + 1),
+    )
+    timedOut.disableFailure()
+    assert.equal(
+      (await publishManifestSerially({ ...timedOut.inputs, firstPublication: true })).status,
+      "NPM_COMPLETE",
+    )
+    assert.deepEqual(timedOut.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  }
+
+  const verified = publisherFixture({ firstPublication: true, initiallyPresent: "all" })
+  const replay = await publishManifestSerially({ ...verified.inputs, firstPublication: true })
+  assert.equal(replay.status, "NPM_COMPLETE")
+  assert.equal(replay.complete, true)
+  assert.deepEqual(verified.publishCalls, [])
+  assert.equal(verified.verifyCalls.length >= CANONICAL_RELEASE_PACKAGE_ORDER.length, true)
+})
+
+test("first publication stops before any further mutation on corrupt, foreign, unproven, ambiguous, or superseded state", async () => {
+  const cases = [
+    [
+      "corrupt existing bytes",
+      { initiallyPresent: [0, 1, 2, 3], corruptRegistryIndex: 3 },
+      /registry tarball|digest|bytes.*match/iu,
+    ],
+    [
+      "unrelated version",
+      { initiallyPresent: [0, 1, 2, 3, 4], foreignVersionIndex: 5 },
+      /ambiguous or unverified/u,
+    ],
+    [
+      "invalid provenance",
+      { initiallyPresent: [0, 1, 2], invalidProvenanceIndex: 2 },
+      /audit evidence is invalid/u,
+    ],
+    ["missing provenance", { initiallyPresent: [0, 1], pendingAuditIndex: 1 }, /did not converge/u],
+    [
+      "registry ambiguity",
+      { initiallyPresent: [0, 1, 2, 3], ambiguousVersionIndex: 4 },
+      /ambiguous or unverified/u,
+    ],
+    [
+      "newer latest after partial state",
+      { initiallyPresent: [0], newerLatestIndex: 1 },
+      /newer latest/u,
+    ],
+  ]
+  for (const [name, overrides, pattern] of cases) {
+    const fixture = publisherFixture({ firstPublication: true, ...overrides })
+    await assert.rejects(
+      publishManifestSerially({ ...fixture.inputs, firstPublication: true }),
+      pattern,
+      name,
+    )
+    assert.deepEqual(fixture.publishCalls, [], name)
+  }
+
+  const superseded = publisherFixture({ firstPublication: true, newerLatestIndex: 0 })
+  const result = await publishManifestSerially({ ...superseded.inputs, firstPublication: true })
+  assert.equal(result.status, "SUPERSEDED_NOOP")
+  assert.deepEqual(superseded.publishCalls, [])
+})
+
+test("bootstrap expiry between packages stops mutation and only a same-candidate replacement window resumes", async (t) => {
+  const inputs = await publisherCliInputs(t)
+  const clock = { ms: BOOTSTRAP_WINDOW_START_MS + 1 }
+  const fixture = publisherFixture({ firstPublication: true })
+  const factoryOptions = []
+  const publishEnvironments = []
+  const run = (authorization, token) =>
+    runPublisherCli([...inputs.argv, "--npm-auth-mode", "bootstrap"], {
+      npmReader: fixture.npmReader,
+      async createNpmAuditVerifier(options) {
+        factoryOptions.push(options.bootstrap)
+        return {
+          async dispose() {},
+          publisherEnvironment() {
+            return { PATH: process.env.PATH ?? "", B4_NPM_BOOTSTRAP_TOKEN: options.bootstrap.token }
+          },
+          verifyPackage: fixture.inputs.verifyPackage,
+        }
+      },
+      async runNpm(_command, args, options) {
+        if (args[0] !== "publish") throw new Error(`unexpected npm operation ${args[0]}`)
+        publishEnvironments.push(options.env.B4_NPM_BOOTSTRAP_TOKEN)
+        fixture.acceptPublish(args[1])
+        // One accepted publication per hour: the 12-hour window admits twelve packages.
+        clock.ms += 60 * 60 * 1000
+        return { stdout: "", stderr: "", exitCode: 0 }
+      },
+      poll: fixture.inputs.poll,
+      log() {},
+      now: () => clock.ms,
+      environment: bootstrapPublisherEnvironment(authorization, token),
+    })
+
+  const initial = bootstrapAuthorization(inputs)
+  await assert.rejects(run(initial, BOOTSTRAP_TOKEN), /expired/u)
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, 12))
+
+  await assert.rejects(run(initial, BOOTSTRAP_TOKEN), /expired/u)
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, 12))
+
+  // Nine packages remain at one hour each; a 12-hour replacement window covers them.
+  const replacementExpiry = new Date(clock.ms + 11 * 60 * 60 * 1000)
+    .toISOString()
+    .replace(/\.\d{3}Z$/u, "Z")
+  const replacementNotBefore = new Date(clock.ms - 60 * 60 * 1000)
+    .toISOString()
+    .replace(/\.\d{3}Z$/u, "Z")
+  const replacement = bootstrapAuthorization(inputs, {
+    notBefore: replacementNotBefore,
+    expiresAt: replacementExpiry,
+  })
+  for (const [name, invalid] of [
+    ["advanced candidate", { ...replacement, commitSha: "f".repeat(40) }],
+    ["other manifest", { ...replacement, manifestSha256: "0".repeat(64) }],
+    ["other record", { ...replacement, releaseRecordSha256: "0".repeat(64) }],
+    ["other version", { ...replacement, version: "0.8.23" }],
+  ]) {
+    await assert.rejects(run(invalid, "npm_replacementSECRET"), /bootstrap/iu, name)
+    assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, 12), name)
+  }
+
+  const resumed = await run(replacement, "npm_replacementSECRET")
+  assert.equal(resumed.status, "NPM_COMPLETE")
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  assert.deepEqual(
+    publishEnvironments,
+    [
+      ...Array.from({ length: 12 }, () => BOOTSTRAP_TOKEN),
+      ...Array.from({ length: 9 }, () => "npm_replacementSECRET"),
+    ],
+    "the replacement credential is used only for the remaining entries",
+  )
+  assert.ok(factoryOptions.every((option) => Object.keys(option).join() === "token"))
+
+  const replay = await run(replacement, "npm_replacementSECRET")
+  assert.equal(replay.status, "NPM_COMPLETE")
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  assert.equal(publishEnvironments.length, 21, "an all-verified replay needs no token mutation")
+})
+
 test("bootstrap mode cannot use unrelated package versions for initial publication or resume", async (t) => {
   const inputs = await publisherCliInputs(t)
   const environment = bootstrapPublisherEnvironment(bootstrapAuthorization(inputs))
@@ -2301,8 +2478,20 @@ function publisherFixture(overrides = {}) {
   }
   const verifyPackage = async ({ entry }) => {
     verifyCalls.push(entry.name)
+    const index = CANONICAL_RELEASE_PACKAGE_ORDER.indexOf(entry.name)
+    if (overrides.pendingAuditIndex === index) return { status: "pending" }
     const state = present.get(entry.name)
-    return state?.ready >= 3 ? verifiedAuditEvidence(entry) : { status: "pending" }
+    if (!(state?.ready >= 3)) return { status: "pending" }
+    const evidence = verifiedAuditEvidence(entry)
+    return overrides.invalidProvenanceIndex === index
+      ? {
+          ...evidence,
+          provenance: {
+            ...evidence.provenance,
+            repository: "https://github.com/cacheplane/dawnai",
+          },
+        }
+      : evidence
   }
   const npmReader = {
     observePackageMetadata({ name }) {
