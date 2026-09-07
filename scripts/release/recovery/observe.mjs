@@ -1467,7 +1467,7 @@ export async function discoverRecoveryReleaseCandidates(input) {
     if (recoveryAssets.length === 0) {
       if (
         typeof release.body === "string" &&
-        release.body.includes("DAWN_RELEASE_CONTROLLER_MARKER")
+        release.body.includes("B4_RELEASE_CONTROLLER_MARKER")
       ) {
         try {
           parseReleaseMarker(release.body)
@@ -1548,7 +1548,7 @@ export async function routeRecoveryCandidate(input) {
         release.draft === false ||
         (release.draft === true &&
           release.tag_name !== tag &&
-          release.name !== `Dawn ${tag}` &&
+          release.name !== `B4 ${tag}` &&
           !(reservation && String(release.id) === reservation.releaseId)),
     ),
   })
@@ -1563,7 +1563,7 @@ export async function routeRecoveryCandidate(input) {
       opaqueOwnership.get(String(release.id))?.tag === tag ||
       (!opaqueOwnership.has(String(release.id)) && durable?.candidate.tag === tag) ||
       release.tag_name === tag ||
-      (!opaqueOwnership.has(String(release.id)) && release.name === `Dawn ${tag}`) ||
+      (!opaqueOwnership.has(String(release.id)) && release.name === `B4 ${tag}`) ||
       (reservation && String(release.id) === reservation.releaseId)
     )
   })
@@ -1583,7 +1583,7 @@ export async function routeRecoveryCandidate(input) {
       // Only an independently valid v1 marker may enter the old interpretation.
       if (
         typeof release.body === "string" &&
-        release.body.includes("DAWN_RELEASE_CONTROLLER_MARKER")
+        release.body.includes("B4_RELEASE_CONTROLLER_MARKER")
       ) {
         try {
           parseReleaseMarker(release.body)
@@ -1630,7 +1630,7 @@ export async function routeRecoveryCandidate(input) {
       )
     else if (
       typeof release.body === "string" &&
-      release.body.includes("DAWN_RELEASE_CONTROLLER_MARKER")
+      release.body.includes("B4_RELEASE_CONTROLLER_MARKER")
     )
       requireThat(
         legacyMarkerValid,

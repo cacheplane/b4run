@@ -94,7 +94,7 @@ export function createTimelinePlan(summary) {
 	const close = requireScene(scenes, "close");
 	const plans = {
 		"product-loop": {
-			duration: 24,
+			duration: 25,
 			segments: [
 				segment(
 					"author",
@@ -114,7 +114,7 @@ export function createTimelinePlan(summary) {
 					"workbench",
 					workbench.startMs,
 					restoration.endMs,
-					9,
+					10,
 					ACT_LABELS.run,
 				),
 				segment("close", close.startMs, close.endMs, 2),

@@ -21,8 +21,8 @@ export async function auditRemote() {
     return new Response(
       JSON.stringify({
         workflow_run_id: 905,
-        run_url: "https://api.github.com/repos/cacheplane/dawnai/actions/runs/905",
-        html_url: "https://github.com/cacheplane/dawnai/actions/runs/905",
+        run_url: "https://api.github.com/repos/cacheplane/b4-run/actions/runs/905",
+        html_url: "https://github.com/cacheplane/b4-run/actions/runs/905",
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     )

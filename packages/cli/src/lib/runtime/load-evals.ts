@@ -3,7 +3,7 @@ import { access, readdir } from "node:fs/promises"
 import { basename, dirname, join, resolve, sep } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { findDawnApp } from "@dawn-ai/core/node"
+import { findB4App } from "@b4run/core/node"
 
 import { createRuntimeRegistry, type RuntimeRegistry } from "../dev/runtime-registry.js"
 import { registerTsxLoader } from "./register-tsx-loader.js"
@@ -14,10 +14,10 @@ const INDEX_FILE = "index.ts"
 
 /**
  * Structural shape of an eval definition's default export. Kept local (rather
- * than importing `EvalDefinition` from `@dawn-ai/evals`) because `@dawn-ai/evals`
- * transitively depends on `@dawn-ai/cli` via `@dawn-ai/testing`, so a direct
+ * than importing `EvalDefinition` from `@b4run/evals`) because `@b4run/evals`
+ * transitively depends on `@b4run/cli` via `@b4run/testing`, so a direct
  * dependency would introduce a build-graph cycle. The eval file itself imports
- * the real `@dawn-ai/evals` (resolved from the app), so loading it still
+ * the real `@b4run/evals` (resolved from the app), so loading it still
  * exercises the genuine package.
  */
 export interface EvalDefinition {
@@ -50,7 +50,7 @@ export class EvalLoadError extends Error {
 }
 
 export async function loadEvals(options: LoadEvalsOptions = {}): Promise<LoadedEval[]> {
-  const app = await findDawnApp(options.cwd ? { cwd: options.cwd } : {})
+  const app = await findB4App(options.cwd ? { cwd: options.cwd } : {})
   const srcDir = resolve(app.appRoot, "src")
   const evalFiles = await collectEvalFiles(srcDir, options.narrowingPath)
 
@@ -172,7 +172,7 @@ async function resolveRoute(options: {
   const entry = options.registry.entries.find((candidate) => candidate.routeFile === indexFile)
   if (!entry) {
     throw new EvalLoadError(
-      `Eval file ${options.evalFile} resolves to ${indexFile}, which is not a recognized Dawn route`,
+      `Eval file ${options.evalFile} resolves to ${indexFile}, which is not a recognized B4.run route`,
     )
   }
 

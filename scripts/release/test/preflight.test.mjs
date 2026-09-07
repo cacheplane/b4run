@@ -34,7 +34,7 @@ test("preflight rejects legacy flag-only input through the owner parser", () => 
 })
 
 test("preflight routes symlinked direct invocations through the owner parser", async (t) => {
-  const fixture = await mkdtemp(path.join(tmpdir(), "dawn-preflight-entrypoint-"))
+  const fixture = await mkdtemp(path.join(tmpdir(), "b4-preflight-entrypoint-"))
   t.after(() => rm(fixture, { recursive: true, force: true }))
   const linkedReleaseDirectory = path.join(fixture, "release")
   await symlink(

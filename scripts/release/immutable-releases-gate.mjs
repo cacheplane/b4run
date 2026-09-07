@@ -3,7 +3,7 @@
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 
-const REPOSITORY = "cacheplane/dawnai"
+const REPOSITORY = "cacheplane/b4-run"
 const API_ORIGIN = "https://api.github.com"
 const WORKFLOW = ".github/workflows/release.yml"
 const API_VERSION = "2026-03-10"

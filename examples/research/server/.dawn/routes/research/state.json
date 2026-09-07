@@ -1,0 +1,7 @@
+[
+  {
+    "name": "context",
+    "reducer": "replace",
+    "default": ""
+  }
+]

@@ -4,7 +4,7 @@ import { createAimock, createSubprocessApp, script } from "../src/index.js"
 
 const appRoot = fileURLToPath(new URL("./fixtures/probe-app", import.meta.url))
 
-it("persists thread state across a real dawn dev process restart (Layer C)", async () => {
+it("persists thread state across a real b4 dev process restart (Layer C)", async () => {
   const mock = await createAimock({
     fixtures: script().user("remember the number 42").replies("Got it, 42.").build(),
   })

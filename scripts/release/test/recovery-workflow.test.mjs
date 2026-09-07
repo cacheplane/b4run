@@ -104,7 +104,7 @@ test("owner workflow graph pins checkouts, authority jobs, all required dependen
 
 function validateRecoveryWorkflow(workflow) {
   assert.deepEqual(workflow.concurrency, {
-    group: "dawn-release-controller",
+    group: "b4-release-controller",
     "cancel-in-progress": false,
     queue: "max",
   })
@@ -145,7 +145,7 @@ test("auditor has exact inputs, independent concurrency, GET-only command and on
     "release_id",
     "request_id",
   ])
-  assert.notEqual(workflow.concurrency.group, "dawn-release-controller")
+  assert.notEqual(workflow.concurrency.group, "b4-release-controller")
   const job = workflow.jobs["recovery-audit"]
   assert.equal(job.permissions.actions, "read")
   assert.equal(job.permissions.attestations, "read")
@@ -157,7 +157,7 @@ test("auditor has exact inputs, independent concurrency, GET-only command and on
   assert.match(job.if, /github.ref == 'refs\/heads\/main'/)
   assert.match(job.if, /inputs.expected_controller_sha == github.sha/)
   for (const step of job.steps) {
-    assert.equal(step.env?.DAWN_RECOVERY_POLICY_TOKEN, undefined)
+    assert.equal(step.env?.B4_RECOVERY_POLICY_TOKEN, undefined)
     if (step.run) {
       assert.doesNotMatch(step.run, /\b(?:build|pack|publish|adopt|finalize)\b/)
       assert.ok(!step.run.includes("${{ inputs."))

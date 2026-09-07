@@ -368,7 +368,7 @@ test("the default planner integrates a smoke-complete observation with only audi
 })
 
 test("record-artifact routes exact action outputs into one canonical release record", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-cli-test-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-cli-test-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const paths = {
     candidate: join(directory, "candidate.json"),
@@ -383,7 +383,7 @@ test("record-artifact routes exact action outputs into one canonical release rec
     paths.upload,
     `${JSON.stringify({
       artifactId: "9001",
-      artifactUrl: "https://github.com/cacheplane/dawnai/actions/runs/7001/artifacts/9001",
+      artifactUrl: "https://github.com/cacheplane/b4-run/actions/runs/7001/artifacts/9001",
       artifactDigest: "a".repeat(64),
     })}\n`,
   )
@@ -424,7 +424,7 @@ test("record-artifact routes exact action outputs into one canonical release rec
 })
 
 test("tag route creates and pushes only the exact candidate annotated tag", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-tag-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-tag-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const candidatePath = join(directory, "candidate.json")
   await writeFile(candidatePath, JSON.stringify(CANDIDATE))
@@ -457,7 +457,7 @@ test("tag route creates and pushes only the exact candidate annotated tag", asyn
       {
         tag: `v${CANDIDATE.version}`,
         sha: CANDIDATE.commitSha,
-        message: `Dawn release v${CANDIDATE.version}`,
+        message: `B4 release v${CANDIDATE.version}`,
       },
     ],
     ["push", { tag: `v${CANDIDATE.version}` }],
@@ -470,7 +470,7 @@ test("tag route creates and pushes only the exact candidate annotated tag", asyn
 })
 
 test("CLI input reads stay pinned to the opened file across a path replacement race", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-pinned-input-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-pinned-input-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const candidatePath = join(directory, "candidate.json")
   await writeFile(candidatePath, JSON.stringify(CANDIDATE))
@@ -506,9 +506,9 @@ test("CLI input reads stay pinned to the opened file across a path replacement r
 })
 
 test("prepare consumes only the canonical trusted handoff and emits its exact candidate", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-prepare-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-prepare-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
-  const outputDir = join(tmpdir(), `dawn-release-prepare-output-${process.pid}`)
+  const outputDir = join(tmpdir(), `b4-release-prepare-output-${process.pid}`)
   const handoff = preparationHandoff()
   const handoffPath = join(directory, "preparation-handoff.json")
   const candidateOutput = join(directory, "candidate.json")
@@ -573,12 +573,12 @@ test("prepare consumes only the canonical trusted handoff and emits its exact ca
 })
 
 test("prepare rejects noncanonical handoff bytes and never clobbers candidate output", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-prepare-input-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-prepare-input-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const handoffPath = join(directory, "preparation-handoff.json")
   const candidateOutput = join(directory, "candidate.json")
   const victim = join(directory, "victim.json")
-  const outputDir = join(tmpdir(), `dawn-release-prepare-input-output-${process.pid}`)
+  const outputDir = join(tmpdir(), `b4-release-prepare-input-output-${process.pid}`)
   const argv = [
     "prepare",
     "--handoff",
@@ -618,7 +618,7 @@ test("prepare rejects noncanonical handoff bytes and never clobbers candidate ou
 })
 
 test("record-artifact rejects missing, discoverable-name, and mismatched URL outputs", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-cli-negative-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-cli-negative-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const candidatePath = join(directory, "candidate.json")
   const manifestPath = join(directory, "manifest.json")
@@ -679,7 +679,7 @@ test("release CLI rejects unknown, duplicate, missing, and unpaired command argu
 })
 
 test("abandon, abandonment-context, observe, and wait-audit CLI routes coexist", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-cli-routes-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-cli-routes-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const missing = (name) => join(directory, `${name}.json`)
   const routes = [
@@ -755,7 +755,7 @@ test("abandon, abandonment-context, observe, and wait-audit CLI routes coexist",
 })
 
 test("abandonment-context CLI accepts only candidate identity and writes bare canonical context", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-abandonment-context-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-abandonment-context-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const output = join(directory, "artifact-context.json")
   const context = { predecessor: "CANDIDATE_TAGGED", exact: true }
@@ -808,7 +808,7 @@ test("abandonment-context CLI accepts only candidate identity and writes bare ca
 })
 
 test("abandonment-context output is canonical, no-clobber, and rejects symlinks", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-abandonment-output-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-abandonment-output-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const output = join(directory, "artifact-context.json")
   const argv = [
@@ -852,7 +852,7 @@ test("abandonment-context output is canonical, no-clobber, and rejects symlinks"
 })
 
 test("abandonment-context leaves no destination or temporary file when production capture fails", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-abandonment-failure-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-abandonment-failure-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const output = join(directory, "artifact-context.json")
   const failure = Object.assign(new Error("production capture failed"), {
@@ -892,7 +892,7 @@ test("abandonment-context leaves no destination or temporary file when productio
 })
 
 test("abandonment-context cleans its temporary file when the no-clobber link fails", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-abandonment-link-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-abandonment-link-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const output = join(directory, "artifact-context.json")
   const failure = Object.assign(new Error("link failed"), { code: "LINK_FAILED" })
@@ -922,7 +922,7 @@ test("abandonment-context cleans its temporary file when the no-clobber link fai
 })
 
 test("abandonment-context fails closed if its output parent is replaced", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-abandonment-parent-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-abandonment-parent-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const parent = join(directory, "output")
   const displaced = join(directory, "output-displaced")
@@ -964,7 +964,7 @@ test("abandonment-context fails closed if its output parent is replaced", async 
 })
 
 test("abandon CLI rejects noncanonical artifact-context bytes before recording", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-abandon-canonical-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-abandon-canonical-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const contextPath = join(directory, "artifact-context.json")
   const artifactContext = {
@@ -1019,7 +1019,7 @@ test("abandon CLI rejects noncanonical artifact-context bytes before recording",
         github: { reader: {}, writer: {} },
         npm: { observePackageVersion: async () => assert.fail("must not observe npm") },
         environment: {
-          GITHUB_REPOSITORY: "cacheplane/dawnai",
+          GITHUB_REPOSITORY: "cacheplane/b4-run",
           GITHUB_RUN_ID: "700",
           GITHUB_RUN_ATTEMPT: "1",
           GITHUB_ACTOR: "release-operator",
@@ -1036,7 +1036,7 @@ test("abandon CLI rejects noncanonical artifact-context bytes before recording",
 })
 
 test("abandon CLI derives fresh protected evidence inside each requested mutation authorization", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-abandon-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-abandon-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const contextPath = join(directory, "artifact-context.json")
   const artifactContext = { predecessor: "CANDIDATE_TAGGED", exact: true }
@@ -1052,7 +1052,7 @@ test("abandon CLI derives fresh protected evidence inside each requested mutatio
   })
   const environment = Object.freeze({
     GITHUB_TOKEN: "must-not-cross-abandonment-authority-boundary",
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
+    GITHUB_REPOSITORY: "cacheplane/b4-run",
     GITHUB_RUN_ID: "700",
     GITHUB_RUN_ATTEMPT: "1",
     GITHUB_ACTOR: "release-operator",
@@ -1148,7 +1148,7 @@ test("abandon CLI derives fresh protected evidence inside each requested mutatio
 })
 
 test("audit CLI routes keep dispatch, marker recording, correlation, and publication distinct", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-audit-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-audit-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const paths = {
     candidate: join(directory, "candidate.json"),
@@ -1161,8 +1161,8 @@ test("audit CLI routes keep dispatch, marker recording, correlation, and publica
   const dispatchReceipt = {
     workflow: ".github/workflows/published-artifact-verify.yml",
     workflowRunId: 501,
-    runUrl: "https://api.github.com/repos/cacheplane/dawnai/actions/runs/501",
-    htmlUrl: "https://github.com/cacheplane/dawnai/actions/runs/501",
+    runUrl: "https://api.github.com/repos/cacheplane/b4-run/actions/runs/501",
+    htmlUrl: "https://github.com/cacheplane/b4-run/actions/runs/501",
   }
   const audit = {
     schemaVersion: 1,
@@ -1324,7 +1324,7 @@ test("audit CLI routes keep dispatch, marker recording, correlation, and publica
 })
 
 test("wait-audit fails closed without writing a result when the exact run stays pending", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-audit-wait-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-audit-wait-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const candidatePath = join(directory, "candidate.json")
   const dispatchPath = join(directory, "dispatch.json")
@@ -1332,8 +1332,8 @@ test("wait-audit fails closed without writing a result when the exact run stays 
   const dispatch = {
     workflow: ".github/workflows/published-artifact-verify.yml",
     workflowRunId: 777,
-    runUrl: "https://api.github.com/repos/cacheplane/dawnai/actions/runs/777",
-    htmlUrl: "https://github.com/cacheplane/dawnai/actions/runs/777",
+    runUrl: "https://api.github.com/repos/cacheplane/b4-run/actions/runs/777",
+    htmlUrl: "https://github.com/cacheplane/b4-run/actions/runs/777",
   }
   await Promise.all([
     writeFile(candidatePath, JSON.stringify(CANDIDATE)),
@@ -1383,7 +1383,7 @@ test("wait-audit fails closed without writing a result when the exact run stays 
 })
 
 test("npm and smoke reconciliation CLI routes remain separate manifest-bound transitions", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-reconcile-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-reconcile-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const smokeDirectory = join(directory, "smokes")
   await mkdir(smokeDirectory)
@@ -1509,7 +1509,7 @@ test("npm and smoke reconciliation CLI routes remain separate manifest-bound tra
 })
 
 test("smoke reconciliation rejects unsafe or inexact receipt directories before metadata", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-smoke-input-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-smoke-input-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const manifest = sealedManifest()
   const inputs = {
@@ -1646,7 +1646,7 @@ test("smoke reconciliation rejects unsafe or inexact receipt directories before 
 })
 
 test("GitHub-mutating routes lazily construct the production boundary from the exact token", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-production-github-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-production-github-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const candidatePath = join(directory, "candidate.json")
   const recordPath = join(directory, "record.json")
@@ -1703,7 +1703,7 @@ test("GitHub-mutating routes lazily construct the production boundary from the e
     {
       cwd: directory,
       environment: Object.freeze({
-        GITHUB_REPOSITORY_ID: "1210070282",
+        GITHUB_REPOSITORY_ID: "1360603908",
         GITHUB_TOKEN: "exact-test-token",
       }),
       importModule,
@@ -1713,13 +1713,13 @@ test("GitHub-mutating routes lazily construct the production boundary from the e
   const writerCall = calls.find(([name]) => name === "writer")[1]
   assert.deepEqual(readerCall, {
     owner: "cacheplane",
-    repo: "dawnai",
-    repositoryId: "1210070282",
+    repo: "b4-run",
+    repositoryId: "1360603908",
     token: "exact-test-token",
   })
   assert.deepEqual(writerCall, {
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4-run",
     token: "exact-test-token",
     reader,
   })
@@ -1732,7 +1732,7 @@ test("GitHub-mutating routes lazily construct the production boundary from the e
 })
 
 test("attestation-input writes one exact 22-subject checksum set from verified artifact bytes", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-attestation-input-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-attestation-input-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const artifactDirectory = join(directory, "artifact")
   await mkdir(artifactDirectory)
@@ -1795,7 +1795,7 @@ test("attestation-input writes one exact 22-subject checksum set from verified a
 })
 
 test("attestation-output verifies the action bundle and materializes exact write-once evidence", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-attestation-output-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-attestation-output-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const artifactDirectory = join(directory, "artifact")
   const bundlesDirectory = join(directory, "attestation-bundles")
@@ -1861,7 +1861,7 @@ test("attestation-output verifies the action bundle and materializes exact write
   const attestationSet = parseAttestationSet(JSON.parse(setBytes), {
     candidate: CANDIDATE,
     manifest,
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
   })
   assert.deepEqual(setBytes, canonicalTestJsonBytes(attestationSet))
   const names = (await readdir(bundlesDirectory)).sort()
@@ -1879,7 +1879,7 @@ test("attestation-output verifies the action bundle and materializes exact write
 })
 
 test("escrow reads one canonical attestation set and its exact pinned 22-bundle directory", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-escrow-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-escrow-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const artifactDirectory = join(directory, "artifact")
   const bundlesDirectory = join(directory, "attestation-bundles")
@@ -2011,12 +2011,12 @@ test("escrow reads one canonical attestation set and its exact pinned 22-bundle 
       now: () => Date.parse("2026-08-25T09:03:00Z"),
       environment: Object.freeze({
         GITHUB_TOKEN: "token",
-        GITHUB_REPOSITORY: "cacheplane/dawnai",
+        GITHUB_REPOSITORY: "cacheplane/b4-run",
         GITHUB_REF: `refs/tags/v${CANDIDATE.version}`,
         GITHUB_SHA: CANDIDATE.commitSha,
         GITHUB_RUN_ID: "701",
         GITHUB_RUN_ATTEMPT: "2",
-        GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/release.yml@refs/tags/v${CANDIDATE.version}`,
+        GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${CANDIDATE.version}`,
       }),
       importModule,
     },
@@ -2061,7 +2061,7 @@ test("escrow reads one canonical attestation set and its exact pinned 22-bundle 
     parseAttestationSet(received.attestationSet, {
       candidate: CANDIDATE,
       manifest,
-      repository: "cacheplane/dawnai",
+      repository: "cacheplane/b4-run",
     }),
     received.attestationSet,
   )
@@ -2102,12 +2102,12 @@ test("escrow reads one canonical attestation set and its exact pinned 22-bundle 
         now: () => Date.parse("2026-08-25T09:03:00Z"),
         environment: Object.freeze({
           GITHUB_TOKEN: "token",
-          GITHUB_REPOSITORY: "cacheplane/dawnai",
+          GITHUB_REPOSITORY: "cacheplane/b4-run",
           GITHUB_REF: `refs/tags/v${CANDIDATE.version}`,
           GITHUB_SHA: CANDIDATE.commitSha,
           GITHUB_RUN_ID: "701",
           GITHUB_RUN_ATTEMPT: "2",
-          GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/release.yml@refs/tags/v${CANDIDATE.version}`,
+          GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${CANDIDATE.version}`,
         }),
         importModule,
       },
@@ -2118,7 +2118,7 @@ test("escrow reads one canonical attestation set and its exact pinned 22-bundle 
 })
 
 test("escrow rejects attestation-set and bundle-directory drift before publication reads", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-escrow-inputs-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-escrow-inputs-cli-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const artifactDirectory = join(directory, "artifact")
   const bundlesDirectory = join(directory, "attestation-bundles")
@@ -2213,12 +2213,12 @@ function observer(values) {
 
 function abandonmentContextEnvironment() {
   return {
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
+    GITHUB_REPOSITORY: "cacheplane/b4-run",
     GITHUB_REF: `refs/tags/v${CANDIDATE.version}`,
     GITHUB_SHA: CANDIDATE.commitSha,
     GITHUB_RUN_ID: "7001",
     GITHUB_RUN_ATTEMPT: "2",
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/release.yml@refs/tags/v${CANDIDATE.version}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${CANDIDATE.version}`,
   }
 }
 
@@ -2370,7 +2370,7 @@ function attestationSetFixture(
   ]
   const bundleSha256 = digest(bundleBytes, "sha256")
   return {
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${CANDIDATE.version}`,
     commitSha: CANDIDATE.commitSha,
@@ -2399,7 +2399,7 @@ function multiSubjectAttestationBundle(manifest, { workflowRunId, runAttempt }) 
     predicate: {
       runDetails: {
         metadata: {
-          invocationId: `https://github.com/cacheplane/dawnai/actions/runs/${workflowRunId}/attempts/${runAttempt}`,
+          invocationId: `https://github.com/cacheplane/b4-run/actions/runs/${workflowRunId}/attempts/${runAttempt}`,
         },
       },
     },
@@ -2483,7 +2483,7 @@ function digest(bytes, algorithm) {
 }
 
 function artifactUrl(artifactId) {
-  return `https://github.com/cacheplane/dawnai/actions/runs/7001/artifacts/${artifactId}`
+  return `https://github.com/cacheplane/b4-run/actions/runs/7001/artifacts/${artifactId}`
 }
 
 function presentEnvelope(operation, value) {

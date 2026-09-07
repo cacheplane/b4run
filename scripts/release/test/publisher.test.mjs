@@ -35,7 +35,7 @@ import {
   TARBALL_CONVERGENCE_DEADLINE_MS,
 } from "../publisher.mjs"
 import { canonicalReleaseRecordBytes } from "../release-record.mjs"
-import { EXACT_NPM_PROVENANCE_CERTIFICATE } from "./fixtures/npm-audit-certificates.mjs"
+import { EXACT_NPM_PROVENANCE_CERTIFICATE } from "./fixtures/b4-npm-audit-certificates.mjs"
 import { observationForMarker } from "./support/marker-observation.mjs"
 
 const VERSION = "0.8.22"
@@ -48,7 +48,7 @@ const CANDIDATE = Object.freeze({
   publisherWorkflow: ".github/workflows/release.yml",
 })
 
-test("publishes missing manifest tarballs serially in dependency order with create-dawn-ai-app final", async () => {
+test("publishes missing manifest tarballs serially in dependency order with create-b4-app final", async () => {
   const fixture = publisherFixture()
 
   const result = await publishManifestSerially(fixture.inputs)
@@ -57,7 +57,7 @@ test("publishes missing manifest tarballs serially in dependency order with crea
   assert.equal(result.complete, true)
   assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
   assert.equal(fixture.concurrentPublishes.maximum, 1)
-  assert.equal(fixture.publishCalls.at(-1), "create-dawn-ai-app")
+  assert.equal(fixture.publishCalls.at(-1), "create-b4-app")
   let previousPublish = -1
   for (const name of CANONICAL_RELEASE_PACKAGE_ORDER) {
     const publishIndex = fixture.events.findIndex(
@@ -468,7 +468,7 @@ test("rejects a reordered or incomplete sealed manifest before registry reads", 
 })
 
 test("the production CLI accepts only its narrow arguments and publishes exact recorded tgzs", async (t) => {
-  const temporary = await realpath(await mkdtemp(path.join(os.tmpdir(), "dawn-publisher-cli-")))
+  const temporary = await realpath(await mkdtemp(path.join(os.tmpdir(), "b4-publisher-cli-")))
   t.after(() => rm(temporary, { recursive: true, force: true }))
   const artifactDir = path.join(temporary, "artifact")
   const inputDir = path.join(temporary, "input")
@@ -612,7 +612,7 @@ test("the production CLI accepts only its narrow arguments and publishes exact r
 test("the publisher rejects missing, extra, symlinked, and hardlinked artifact payloads", async (t) => {
   for (const kind of ["missing", "extra", "symlink", "hardlink"]) {
     await t.test(kind, async (t) => {
-      const fixture = await publisherCliFilesystem(t, `dawn-publisher-${kind}-`)
+      const fixture = await publisherCliFilesystem(t, `b4-publisher-${kind}-`)
       const first = fixture.manifest.packages[0]
       const firstPath = path.join(fixture.artifactDir, first.filename)
       if (kind === "missing") {
@@ -645,7 +645,7 @@ test("the publisher rejects missing, extra, symlinked, and hardlinked artifact p
 })
 
 test("the publisher detects artifact mutation after initial verification and during npm publish", async (t) => {
-  const beforePublish = await publisherCliFilesystem(t, "dawn-publisher-mutated-before-")
+  const beforePublish = await publisherCliFilesystem(t, "b4-publisher-mutated-before-")
   const beforeRegistry = publisherFixture({ initiallyPresent: "all-except-last" })
   const beforeTarget = path.join(
     beforePublish.artifactDir,
@@ -679,7 +679,7 @@ test("the publisher detects artifact mutation after initial verification and dur
   )
   assert.equal(npmCalls, 0)
 
-  const duringPublish = await publisherCliFilesystem(t, "dawn-publisher-mutated-during-")
+  const duringPublish = await publisherCliFilesystem(t, "b4-publisher-mutated-during-")
   const duringRegistry = publisherFixture({ initiallyPresent: "all-except-last" })
   const duringTarget = path.join(
     duringPublish.artifactDir,
@@ -705,7 +705,7 @@ test("the publisher detects artifact mutation after initial verification and dur
 
 test("the production publisher deadline cancels registry reads and poll delays", async (t) => {
   assert.equal(PUBLISHER_OVERALL_TIMEOUT_MS, 25 * 60_000)
-  const metadataFixture = await publisherCliFilesystem(t, "dawn-publisher-deadline-metadata-")
+  const metadataFixture = await publisherCliFilesystem(t, "b4-publisher-deadline-metadata-")
   let metadataSignal
   const metadataDeadline = controlledDeadline()
   const metadataReader = {
@@ -742,7 +742,7 @@ test("the production publisher deadline cancels registry reads and poll delays",
   assert.ok(metadataSignal instanceof AbortSignal)
   assert.equal(metadataSignal.aborted, true)
 
-  const pollFixture = await publisherCliFilesystem(t, "dawn-publisher-deadline-poll-")
+  const pollFixture = await publisherCliFilesystem(t, "b4-publisher-deadline-poll-")
   const delayed = publisherFixture({ initiallyPresent: "all" })
   const pollDeadline = controlledDeadline()
   let pollSignal
@@ -809,7 +809,7 @@ test("the production publisher deadline preserves OIDC and terminates the npm su
   skip: process.platform === "win32",
   timeout: 10_000,
 }, async (t) => {
-  const cli = await publisherCliFilesystem(t, "dawn-publisher-deadline-process-")
+  const cli = await publisherCliFilesystem(t, "b4-publisher-deadline-process-")
   const registry = publisherFixture()
   const binDir = path.join(cli.temporary, "bin")
   const descendantPath = path.join(cli.temporary, "descendant.pid")
@@ -1044,7 +1044,7 @@ test("the publisher sparse allowlist equals its local import closure and exclude
 async function sparseProductionFixture(t) {
   const repositoryRoot = path.resolve(import.meta.dirname, "../../..")
   const temporary = await realpath(
-    await mkdtemp(path.join(os.tmpdir(), "dawn-publisher-sparse-production-")),
+    await mkdtemp(path.join(os.tmpdir(), "b4-publisher-sparse-production-")),
   )
   t.after(() => rm(temporary, { recursive: true, force: true }))
   const sparseRoot = path.join(temporary, "sparse")
@@ -1190,12 +1190,12 @@ async function runSparseProductionSequence(fixture, scenario) {
     ...process.env,
     PATH: `${fixture.binDir}:${path.dirname(process.execPath)}:${process.env.PATH ?? ""}`,
     NODE_OPTIONS: `--import=${pathToFileURL(fixture.fetchShimPath).href}`,
-    DAWN_SPARSE_FIXTURE: fixture.fixturePath,
-    DAWN_SPARSE_SCENARIO: scenario,
-    DAWN_COMMAND_LOG: commandLog,
-    DAWN_FETCH_LOG: fetchLog,
+    B4_SPARSE_FIXTURE: fixture.fixturePath,
+    B4_SPARSE_SCENARIO: scenario,
+    B4_COMMAND_LOG: commandLog,
+    B4_FETCH_LOG: fetchLog,
     GITHUB_API_URL: "https://api.github.com",
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
+    GITHUB_REPOSITORY: "cacheplane/b4-run",
     GITHUB_TOKEN: "fixture-token",
   }
   const resolve = spawnSync(
@@ -1255,9 +1255,9 @@ async function runSparseProductionSequence(fixture, scenario) {
 function sparseFetchShimSource() {
   return `import { appendFileSync, readFileSync } from "node:fs"
 
-const fixture = JSON.parse(readFileSync(process.env.DAWN_SPARSE_FIXTURE, "utf8"))
-const scenario = process.env.DAWN_SPARSE_SCENARIO
-const fetchLog = process.env.DAWN_FETCH_LOG
+const fixture = JSON.parse(readFileSync(process.env.B4_SPARSE_FIXTURE, "utf8"))
+const scenario = process.env.B4_SPARSE_SCENARIO
+const fetchLog = process.env.B4_FETCH_LOG
 if (scenario === "timeout") {
   const nativeSetTimeout = globalThis.setTimeout
   globalThis.setTimeout = (callback, delay, ...args) =>
@@ -1274,7 +1274,7 @@ const binary = (value, status = 200) =>
     status,
     headers: { "content-type": "application/octet-stream" },
   })
-const api = "https://api.github.com/repos/cacheplane/dawnai"
+const api = "https://api.github.com/repos/cacheplane/b4-run"
 const artifactUrl = \`\${api}/actions/artifacts/\${fixture.record.actionsArtifact.id}\`
 const attemptUrl = \`\${api}/actions/runs/\${fixture.record.actionsArtifact.prepareRunId}/attempts/\${fixture.record.actionsArtifact.prepareRunAttempt}\`
 const downloadUrl = \`\${artifactUrl}/zip\`
@@ -1324,7 +1324,7 @@ globalThis.fetch = async (input, init = {}) => {
     return json([
       {
         id: fixture.release.id,
-        name: \`Dawn \${fixture.record.tag}\`,
+        name: \`B4 \${fixture.record.tag}\`,
         tag_name: "untagged-opaque",
         target_commitish: "main",
         draft: true,
@@ -1401,7 +1401,7 @@ process.exit(97)
   }
   return `#!/usr/bin/env node
 const { appendFileSync } = require("node:fs")
-appendFileSync(process.env.DAWN_COMMAND_LOG, JSON.stringify({
+appendFileSync(process.env.B4_COMMAND_LOG, JSON.stringify({
   command: ${JSON.stringify(command)},
   args: process.argv.slice(2),
 }) + "\\n")
@@ -1747,7 +1747,7 @@ function verifiedAuditEvidence() {
       predicateType: "https://slsa.dev/provenance/v1",
       workflow: CANDIDATE.publisherWorkflow,
       commitSha: COMMIT_SHA,
-      repository: "https://github.com/cacheplane/dawnai",
+      repository: "https://github.com/cacheplane/b4-run",
       ref: `refs/tags/v${VERSION}`,
     },
   }
@@ -1756,7 +1756,7 @@ function verifiedAuditEvidence() {
 function npmAuditOutput(entry) {
   assert.ok(entry)
   const ref = `refs/tags/v${VERSION}`
-  const repository = "https://github.com/cacheplane/dawnai"
+  const repository = "https://github.com/cacheplane/b4-run"
   const statement = {
     _type: "https://in-toto.io/Statement/v1",
     subject: [
@@ -1777,7 +1777,7 @@ function npmAuditOutput(entry) {
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: "https://github.com/cacheplane/dawnai/actions/runs/100/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4-run/actions/runs/100/attempts/1",
         },
       },
     },
@@ -1918,14 +1918,14 @@ function publisherProvenanceEnvironment() {
     GITHUB_ACTIONS: "true",
     GITHUB_EVENT_NAME: "workflow_dispatch",
     GITHUB_REF: `refs/tags/v${VERSION}`,
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
+    GITHUB_REPOSITORY: "cacheplane/b4-run",
     GITHUB_REPOSITORY_ID: "123456789",
     GITHUB_REPOSITORY_OWNER_ID: "987654321",
     GITHUB_RUN_ATTEMPT: "1",
     GITHUB_RUN_ID: "100",
     GITHUB_SERVER_URL: "https://github.com",
     GITHUB_SHA: COMMIT_SHA,
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
     RUNNER_ENVIRONMENT: "github-hosted",
   }
 }
@@ -1964,7 +1964,7 @@ function registryObservation(entry, ready, corrupt, rawSignature, integrityMisma
               predicateTypes: ["https://slsa.dev/provenance/v1"],
               workflow: CANDIDATE.publisherWorkflow,
               commitSha: COMMIT_SHA,
-              repository: "https://github.com/cacheplane/dawnai",
+              repository: "https://github.com/cacheplane/b4-run",
               ref: `refs/tags/v${VERSION}`,
             }
           : {
@@ -2020,7 +2020,7 @@ function multiSubjectBundleBytes(files) {
     predicate: {
       runDetails: {
         metadata: {
-          invocationId: "https://github.com/cacheplane/dawnai/actions/runs/1/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4-run/actions/runs/1/attempts/1",
         },
       },
     },

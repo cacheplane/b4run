@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url"
-import { defineThreadAccess, deny, permit, type ThreadAccessRequest } from "@dawn-ai/sdk"
+import { defineThreadAccess, deny, permit, type ThreadAccessRequest } from "@b4run/sdk"
 import { describe, expect, it } from "vitest"
 
 import { createAgentProtocolInjector } from "../src/http-inject.js"

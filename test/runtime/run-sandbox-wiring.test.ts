@@ -3,7 +3,7 @@
  * actually route into the per-thread sandbox (no Docker; fakeSandbox in-memory).
  *
  * This is the keystone test for the execution-sandbox feature: it proves that
- * configuring `sandbox: { provider }` in dawn.config.ts + threading the resolved
+ * configuring `sandbox: { provider }` in b4.config.ts + threading the resolved
  * SandboxManager (+ threadId) into streamResolvedRoute causes
  * readFile/writeFile/runBash to redirect into the thread's isolated sandbox
  * volume instead of the host filesystem.
@@ -12,7 +12,7 @@
  *   The runtime server (createRuntimeRequestListener) builds ONE SandboxManager
  *   via resolveSandboxManager(appRoot) and passes the SAME manager + the route's
  *   thread_id into every streamResolvedRoute call. We do exactly that here: build
- *   the manager once from the fixture's dawn.config.ts (which holds the
+ *   the manager once from the fixture's b4.config.ts (which holds the
  *   fakeSandbox instance), then drive streamResolvedRoute directly with
  *   { sandboxManager, threadId }. The manager keeps one provider, so each thread
  *   gets its own in-memory volume that persists across turns and is isolated
@@ -37,9 +37,9 @@ import {
   runTypegen,
   type SandboxManager,
   streamResolvedRoute,
-} from "@dawn-ai/cli/runtime"
-import { discoverRoutes } from "@dawn-ai/core/node"
-import { type Aimock, collectRunResult, createAimock } from "@dawn-ai/testing"
+} from "@b4run/cli/runtime"
+import { discoverRoutes } from "@b4run/core/node"
+import { type Aimock, collectRunResult, createAimock } from "@b4run/testing"
 import { afterAll, beforeAll, expect, it } from "vitest"
 
 const appRoot = fileURLToPath(new URL("./fixtures/sandbox-app", import.meta.url))
@@ -94,7 +94,7 @@ beforeAll(async () => {
   if (!lookup) throw new Error("sandbox-app: route /agent#agent not found")
   resolved = lookup
 
-  // Build the SandboxManager ONCE from dawn.config.ts — exactly what the runtime
+  // Build the SandboxManager ONCE from b4.config.ts — exactly what the runtime
   // server does. The fixture's config holds a single fakeSandbox provider, so the
   // manager hands each thread its own persistent in-memory volume.
   manager = await resolveSandboxManager(appRoot)

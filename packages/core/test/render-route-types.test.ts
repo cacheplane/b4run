@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 import ts from "typescript"
 import { describe, expect, test } from "vitest"
 
-import { renderDawnTypes, renderRouteTypes } from "../src/typegen/render-route-types.js"
+import { renderB4Types, renderRouteTypes } from "../src/typegen/render-route-types.js"
 import { renderScenarioTypes, SCENARIO_TYPES_FILE } from "../src/typegen/render-scenario-types.ts"
 import { type RouteStateFields, renderStateTypes } from "../src/typegen/render-state-types.js"
 import { renderToolTypes } from "../src/typegen/render-tool-types.js"
@@ -43,7 +43,7 @@ function ambientModuleExports(
   moduleName: string,
   options: { readonly expectSemanticValidity?: boolean } = {},
 ): string[] {
-  const declarationPath = "/fixture/dawn.generated.d.ts"
+  const declarationPath = "/fixture/b4.generated.d.ts"
   const scenarioPath = `/fixture/${SCENARIO_TYPES_FILE}`
   const files = new Map([
     [declarationPath, source],
@@ -89,8 +89,8 @@ function ambientModuleExports(
 // a saturated parallel run they have exceeded vitest's 5000ms default and failed
 // as timeouts rather than as anything real. The explicit suite timeout leaves
 // room for that without hiding a genuine hang.
-describe("renderDawnTypes", { timeout: 30_000 }, () => {
-  test("loads the exact stable no-state dawn:routes exports through TypeScript", () => {
+describe("renderB4Types", { timeout: 30_000 }, () => {
+  test("loads the exact stable no-state b4:routes exports through TypeScript", () => {
     const manifest: RouteManifest = {
       appRoot: "/tmp/example-app",
       routes: [
@@ -116,13 +116,13 @@ describe("renderDawnTypes", { timeout: 30_000 }, () => {
       },
     ]
 
-    const output = renderDawnTypes(manifest, toolTypes)
+    const output = renderB4Types(manifest, toolTypes)
 
     expect(output).toContain(renderToolTypes(toolTypes).trimEnd())
-    expect(ambientModuleExports(output, "dawn:routes")).toEqual([
-      "DawnRouteParams",
-      "DawnRoutePath",
-      "DawnRouteTools",
+    expect(ambientModuleExports(output, "b4:routes")).toEqual([
+      "B4RouteParams",
+      "B4RoutePath",
+      "B4RouteTools",
       "RouteTools",
     ])
   })
@@ -153,14 +153,14 @@ describe("renderDawnTypes", { timeout: 30_000 }, () => {
         ],
       },
     ]
-    const output = renderDawnTypes(manifest, toolTypes, stateTypes)
+    const output = renderB4Types(manifest, toolTypes, stateTypes)
 
     expect(output).toContain(renderStateTypes(stateTypes).trimEnd())
-    expect(ambientModuleExports(output, "dawn:routes")).toEqual([
-      "DawnRouteParams",
-      "DawnRoutePath",
-      "DawnRouteState",
-      "DawnRouteTools",
+    expect(ambientModuleExports(output, "b4:routes")).toEqual([
+      "B4RouteParams",
+      "B4RoutePath",
+      "B4RouteState",
+      "B4RouteTools",
       "RouteState",
       "RouteTools",
     ])
@@ -180,24 +180,24 @@ describe("renderDawnTypes", { timeout: 30_000 }, () => {
         },
       ],
     }
-    const output = renderDawnTypes(manifest, [
+    const output = renderB4Types(manifest, [
       {
         pathname: "/hello",
         tools: [{ name: "greet", description: "", inputType: "void", outputType: "string" }],
       },
     ])
-    const expected = ["DawnRouteParams", "DawnRoutePath", "DawnRouteTools", "RouteTools"]
+    const expected = ["B4RouteParams", "B4RoutePath", "B4RouteTools", "RouteTools"]
     const added = output.replace(
-      'declare module "dawn:routes" {',
-      'declare module "dawn:routes" {\n  export type UnexpectedRouteType = never;',
+      'declare module "b4:routes" {',
+      'declare module "b4:routes" {\n  export type UnexpectedRouteType = never;',
     )
-    const removed = output.replace(/ {2}export interface DawnRouteTools \{[\s\S]*?\n {2}\}\n\n/, "")
+    const removed = output.replace(/ {2}export interface B4RouteTools \{[\s\S]*?\n {2}\}\n\n/, "")
 
     expect(added).not.toBe(output)
     expect(removed).not.toBe(output)
-    expect(ambientModuleExports(added, "dawn:routes")).not.toEqual(expected)
+    expect(ambientModuleExports(added, "b4:routes")).not.toEqual(expected)
     expect(
-      ambientModuleExports(removed, "dawn:routes", { expectSemanticValidity: false }),
+      ambientModuleExports(removed, "b4:routes", { expectSemanticValidity: false }),
     ).not.toEqual(expected)
   })
 
@@ -233,26 +233,26 @@ describe("renderDawnTypes", { timeout: 30_000 }, () => {
       },
     ]
 
-    const output = renderDawnTypes(manifest, toolTypes)
+    const output = renderB4Types(manifest, toolTypes)
 
     expect(output.startsWith(`/// <reference path="./${SCENARIO_TYPES_FILE}" />\n\n`)).toBe(true)
     expect(output).toMatchInlineSnapshot(`
       "/// <reference path="./scenarios.generated.d.ts" />
 
-      declare module "dawn:routes" {
-        export type DawnRoutePath = "/hello/[tenant]";
+      declare module "b4:routes" {
+        export type B4RoutePath = "/hello/[tenant]";
 
-        export interface DawnRouteParams {
+        export interface B4RouteParams {
         "/hello/[tenant]": { tenant: string };
         }
 
-        export interface DawnRouteTools {
+        export interface B4RouteTools {
           "/hello/[tenant]": {
             readonly greet: (input: { readonly tenant: string; }) => Promise<{ greeting: string; }>;
           };
         }
 
-        export type RouteTools<P extends DawnRoutePath> = DawnRouteTools[P];
+        export type RouteTools<P extends B4RoutePath> = B4RouteTools[P];
       }
       "
     `)
@@ -266,23 +266,23 @@ describe("renderDawnTypes", { timeout: 30_000 }, () => {
 
     const toolTypes: RouteToolTypes[] = []
 
-    expect(renderDawnTypes(manifest, toolTypes)).toMatchInlineSnapshot(`
+    expect(renderB4Types(manifest, toolTypes)).toMatchInlineSnapshot(`
       "/// <reference path="./scenarios.generated.d.ts" />
 
-      declare module "dawn:routes" {
-        export type DawnRoutePath = never;
+      declare module "b4:routes" {
+        export type B4RoutePath = never;
 
-        export interface DawnRouteParams {}
+        export interface B4RouteParams {}
 
-        export interface DawnRouteTools {}
+        export interface B4RouteTools {}
 
-        export type RouteTools<P extends DawnRoutePath> = DawnRouteTools[P];
+        export type RouteTools<P extends B4RoutePath> = B4RouteTools[P];
       }
       "
     `)
   })
 
-  test("includes DawnRouteState and RouteState when stateTypes is provided", () => {
+  test("includes B4RouteState and RouteState when stateTypes is provided", () => {
     const manifest: RouteManifest = {
       appRoot: "/tmp/example-app",
       routes: [
@@ -312,14 +312,14 @@ describe("renderDawnTypes", { timeout: 30_000 }, () => {
       },
     ]
 
-    const output = renderDawnTypes(manifest, toolTypes, stateTypes)
-    expect(output).toContain("DawnRouteState")
+    const output = renderB4Types(manifest, toolTypes, stateTypes)
+    expect(output).toContain("B4RouteState")
     expect(output).toContain("RouteState")
     expect(output).toContain("readonly status: string;")
     expect(output).toContain("readonly count: number;")
   })
 
-  test("does NOT include DawnRouteState when stateTypes is omitted", () => {
+  test("does NOT include B4RouteState when stateTypes is omitted", () => {
     const manifest: RouteManifest = {
       appRoot: "/tmp/example-app",
       routes: [
@@ -339,8 +339,8 @@ describe("renderDawnTypes", { timeout: 30_000 }, () => {
 
     const toolTypes: RouteToolTypes[] = []
 
-    const output = renderDawnTypes(manifest, toolTypes)
-    expect(output).not.toContain("DawnRouteState")
+    const output = renderB4Types(manifest, toolTypes)
+    expect(output).not.toContain("B4RouteState")
   })
 })
 
@@ -377,9 +377,9 @@ describe("renderScenarioTypes", { timeout: 30_000 }, () => {
     ]
 
     expect(renderScenarioTypes(manifest, toolTypes)).toMatchInlineSnapshot(`
-      "import "@dawn-ai/sdk/testing"
+      "import "@b4run/sdk/testing"
 
-      declare module "@dawn-ai/sdk/testing" {
+      declare module "@b4run/sdk/testing" {
         interface RouteScenarioMap {
           "/hello/[tenant]": {
             readonly tools: {
@@ -444,10 +444,10 @@ describe("renderRouteTypes", { timeout: 30_000 }, () => {
     }
 
     expect(renderRouteTypes(manifest)).toMatchInlineSnapshot(`
-      "declare module "dawn:routes" {
-        export type DawnRoutePath = never;
+      "declare module "b4:routes" {
+        export type B4RoutePath = never;
       
-        export interface DawnRouteParams {}
+        export interface B4RouteParams {}
       }
       "
     `)
@@ -457,10 +457,10 @@ describe("renderRouteTypes", { timeout: 30_000 }, () => {
     const manifest = await loadManifestSnapshot()
 
     expect(renderRouteTypes(manifest)).toMatchInlineSnapshot(`
-      "declare module "dawn:routes" {
-        export type DawnRoutePath = "/" | "/[tenant]" | "/docs/[...path]" | "/docs/[[...path]]";
+      "declare module "b4:routes" {
+        export type B4RoutePath = "/" | "/[tenant]" | "/docs/[...path]" | "/docs/[[...path]]";
       
-        export interface DawnRouteParams {
+        export interface B4RouteParams {
         "/": {};
         "/[tenant]": { tenant: string };
         "/docs/[...path]": { path: string[] };

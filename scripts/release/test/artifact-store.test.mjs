@@ -635,7 +635,7 @@ test("the executable rejects an oversized release record before readFile", async
 })
 
 test("materialization writes only after verification into a fresh destination", async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-artifact-materialize-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-artifact-materialize-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   const fixture = artifactFixture()
   const artifact = await loadVerifiedReleaseArtifact(fixture.inputs)
@@ -694,11 +694,11 @@ test("attestation verification binds the signer, tag, commit, repository, predic
     "verify",
     "/tmp/manifest.json",
     "--repo",
-    "cacheplane/dawnai",
+    "cacheplane/b4-run",
     "--digest-alg",
     "sha256",
     "--signer-workflow",
-    "cacheplane/dawnai/.github/workflows/release.yml",
+    "cacheplane/b4-run/.github/workflows/release.yml",
     "--deny-self-hosted-runners",
     "--source-digest",
     SHA,
@@ -711,7 +711,7 @@ test("attestation verification binds the signer, tag, commit, repository, predic
     buildAttestationVerificationArguments({
       source: "actions",
       target: "/tmp/manifest.json",
-      repository: "cacheplane/dawnai",
+      repository: "cacheplane/b4-run",
       record,
     }),
     common,
@@ -720,7 +720,7 @@ test("attestation verification binds the signer, tag, commit, repository, predic
     buildAttestationVerificationArguments({
       source: "escrow",
       target: "/tmp/manifest.json",
-      repository: "cacheplane/dawnai",
+      repository: "cacheplane/b4-run",
       record,
       bundlePath: "/tmp/manifest.json.intoto.jsonl",
     }),
@@ -731,7 +731,7 @@ test("attestation verification binds the signer, tag, commit, repository, predic
 test("the CLI attestation verifier keeps the Actions path online per file with the larger budget", async () => {
   const calls = []
   const verifier = createCliAttestationVerifier({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     token: "token",
     async runGh(args, options) {
       calls.push({ args, options })
@@ -739,7 +739,7 @@ test("the CLI attestation verifier keeps the Actions path online per file with t
   })
   const subjects = [
     { name: "manifest.json", sha256: "b".repeat(64) },
-    { name: "dawn-ai-core-0.8.22.tgz", sha256: "c".repeat(64) },
+    { name: "b4run-core-0.8.22.tgz", sha256: "c".repeat(64) },
   ]
   const result = await verifier.verify({
     source: "actions",
@@ -768,7 +768,7 @@ test("attestation verifier snapshots explicit environment without ambient inheri
   const environment = { PATH: "/reviewed/bin", HOME: "/reviewed/home", GH_TOKEN: "wrong" }
   const calls = []
   const verifier = createCliAttestationVerifier({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     token: "attestation-token",
     environment,
     async runGh(_args, options) {
@@ -776,7 +776,7 @@ test("attestation verifier snapshots explicit environment without ambient inheri
       options.env.INJECTED = "must not persist"
     },
   })
-  environment.DAWN_RECOVERY_POLICY_TOKEN = "added after construction"
+  environment.B4_RECOVERY_POLICY_TOKEN = "added after construction"
   environment.PATH = "/changed/bin"
   const subjects = [{ name: "manifest.json", sha256: "b".repeat(64) }]
   for (let i = 0; i < 2; i++) {
@@ -807,7 +807,7 @@ test("escrow verification runs gh once for the anchor and proves the other 21 su
   const escrow = escrowVerificationFixture()
   const calls = []
   const verifier = createCliAttestationVerifier({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     token: "token",
     async runGh(args, options) {
       calls.push({ args, options })
@@ -836,7 +836,7 @@ test("escrow verification rejects a file whose digest is absent from the anchor'
     sha256: createHash("sha256").update(file.bytes).digest("hex"),
   }))
   const verifier = createCliAttestationVerifier({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     token: "token",
     async runGh() {},
   })
@@ -856,7 +856,7 @@ test("escrow verification rejects a file whose digest is absent from the anchor'
 test("escrow verification rejects an anchor whose subject count differs from the input", async () => {
   const escrow = escrowVerificationFixture({ statementSubjectCount: 23 })
   const verifier = createCliAttestationVerifier({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     token: "token",
     async runGh() {},
   })
@@ -871,7 +871,7 @@ test("escrow verification rejects an anchor whose subject count differs from the
 test("escrow verification rejects an anchor subject whose name does not match the file", async () => {
   const escrow = escrowVerificationFixture({ renameStatementSubject: 3 })
   const verifier = createCliAttestationVerifier({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     token: "token",
     async runGh() {},
   })
@@ -901,7 +901,7 @@ test("escrow verification stays INVALID when gh rejects a tampered anchor bundle
   }))
   let invoked = 0
   const verifier = createCliAttestationVerifier({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     token: "token",
     async runGh() {
       invoked += 1
@@ -928,7 +928,7 @@ test("escrow verification rejects a bundle that is not byte-identical to the anc
     index === 5 ? { name: bundle.name, bytes: Buffer.from("different bundle") } : bundle,
   )
   const verifier = createCliAttestationVerifier({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     token: "token",
     async runGh() {},
   })
@@ -943,7 +943,7 @@ test("attestation verification failures report the exit code, signal, and redact
   const escrow = escrowVerificationFixture()
   const leaked = `ghp_${"A".repeat(30)}`
   const timedOut = createCliAttestationVerifier({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     token: leaked,
     async runGh() {
       throw Object.assign(new Error("spawnSync gh SIGKILL"), {
@@ -967,7 +967,7 @@ test("attestation verification failures report the exit code, signal, and redact
   const jwt =
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
   const dotted = createCliAttestationVerifier({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     token: "token",
     async runGh() {
       throw Object.assign(new Error("Command failed"), {
@@ -986,7 +986,7 @@ test("attestation verification failures report the exit code, signal, and redact
   assert.match(dottedResult.reason, /v1\.\[redacted\] via registry\.npmjs\.org/u)
 
   const failed = createCliAttestationVerifier({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     token: "token",
     async runGh() {
       throw Object.assign(new Error("Command failed"), {
@@ -1343,7 +1343,7 @@ function multiSubjectBundleBytes(files, { subjects, statement } = {}) {
     predicate: {
       runDetails: {
         metadata: {
-          invocationId: "https://github.com/cacheplane/dawnai/actions/runs/1/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4-run/actions/runs/1/attempts/1",
         },
       },
     },

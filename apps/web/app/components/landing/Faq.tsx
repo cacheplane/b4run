@@ -4,14 +4,14 @@ import { Eyebrow } from "../ui/Eyebrow"
 const ITEMS = [
   {
     id: "production-ready",
-    question: "Is Dawn production-ready?",
+    question: "Is B4.run production-ready?",
     answer: (
       <p>
-        Dawn is pre-1.0. The framework's surface API is stabilizing, and the types and dev-loop
+        B4.run is pre-1.0. The framework's surface API is stabilizing, and the types and dev-loop
         layers are in active use on internal projects. Run replay evals and harness tests against a
-        representative route before adopting Dawn for production work, and use live evals locally
+        representative route before adopting B4.run for production work, and use live evals locally
         when you need real-model signal. The runtime — LangGraph.js — is production-grade today, and
-        Dawn does not change its execution model.
+        B4.run does not change its execution model.
       </p>
     ),
   },
@@ -20,8 +20,8 @@ const ITEMS = [
     question: "What's the relationship to LangGraph.js?",
     answer: (
       <p>
-        Dawn is a meta-framework. LangGraph.js is the runtime that actually executes your agents.
-        Dawn discovers routes, tools, and state, then writes LangGraph-compatible deployment
+        B4.run is a meta-framework. LangGraph.js is the runtime that actually executes your agents.
+        B4.run discovers routes, tools, and state, then writes LangGraph-compatible deployment
         artifacts at build time. You can drop into raw LangGraph by named-exporting a graph route
         whenever you need direct control.
       </p>
@@ -42,10 +42,10 @@ const ITEMS = [
   },
   {
     id: "maintainers",
-    question: "Who maintains Dawn? What's the release cadence?",
+    question: "Who maintains B4.run? What's the release cadence?",
     answer: (
       <p>
-        Dawn is maintained by Brian Love and the contributors listed on the GitHub repo. Releases
+        B4.run is maintained by Brian Love and the contributors listed on the GitHub repo. Releases
         ship under changesets on main; minor releases roughly every two to three weeks, patch
         releases as needed. Breaking changes go through deprecation periods documented in the
         changelog.
@@ -54,12 +54,12 @@ const ITEMS = [
   },
   {
     id: "license",
-    question: "What license is Dawn under?",
+    question: "What license is B4.run under?",
     answer: (
       <p>
         MIT. Free for commercial and non-commercial use. See the{" "}
         <a
-          href="https://github.com/cacheplane/dawnai/blob/main/LICENSE"
+          href="https://github.com/cacheplane/b4-run/blob/main/LICENSE"
           target="_blank"
           rel="noopener noreferrer"
           className="text-accent-saas hover:opacity-80"
@@ -72,33 +72,33 @@ const ITEMS = [
   },
   {
     id: "hosted-langgraph",
-    question: "Can we use Dawn with hosted LangGraph platforms?",
+    question: "Can we use B4.run with hosted LangGraph platforms?",
     answer: (
       <p>
-        Yes, with the deployment target doing the runtime work. `dawn build` produces
+        Yes, with the deployment target doing the runtime work. `b4 build` produces
         LangGraph-compatible entry files and `langgraph.json`; LangSmith can consume those directly,
         and self-hosted setups should run the generated artifacts in their own LangGraph runtime.
-        Dawn doesn't introduce a hosting dependency.
+        B4.run doesn't introduce a hosting dependency.
       </p>
     ),
   },
   {
     id: "langsmith",
-    question: "How does Dawn affect our LangSmith / observability setup?",
+    question: "How does B4.run affect our LangSmith / observability setup?",
     answer: (
       <p>
-        Dawn does not proxy LangSmith. Raw graph and chain routes keep whatever tracing setup you
-        already configure through LangGraph or LangChain. The local Dawn dev server also loads
+        B4.run does not proxy LangSmith. Raw graph and chain routes keep whatever tracing setup you
+        already configure through LangGraph or LangChain. The local B4.run dev server also loads
         LangSmith tracing env vars when present.
       </p>
     ),
   },
   {
     id: "cost",
-    question: "What does Dawn cost?",
+    question: "What does B4.run cost?",
     answer: (
       <p>
-        Nothing. Dawn is MIT-licensed open source with no paid tier, no usage meter, no hosted
+        Nothing. B4.run is MIT-licensed open source with no paid tier, no usage meter, no hosted
         service to sign up for. The built-in `agent()` route materializes to a LangChain chat model
         and can infer known provider families; raw graph and chain routes can instantiate providers
         directly. Provider and deployment costs are yours and flow directly to the services you
@@ -108,7 +108,7 @@ const ITEMS = [
   },
   {
     id: "migration",
-    question: "How do we migrate an existing LangGraph graph to Dawn?",
+    question: "How do we migrate an existing LangGraph graph to B4.run?",
     answer: (
       <p>
         Most migrations move state into a single Zod schema, then re-express nodes as route files
@@ -135,7 +135,7 @@ export function Faq() {
             letterSpacing: "-0.01em",
           }}
         >
-          Things people ask before adopting Dawn.
+          Things people ask before adopting B4.run.
         </h2>
         <div className="mt-10">
           <Accordion items={ITEMS} defaultOpenId="production-ready" />

@@ -8,15 +8,15 @@ import { neutralButton } from "./ui"
  *
  * `remember()` writes with `status: "candidate"` — nothing the agent proposes
  * becomes a real memory until a human says so. Without this panel that review
- * only exists in the `dawn memory` CLI, so the workbench could show the tool
+ * only exists in the `b4 memory` CLI, so the workbench could show the tool
  * call that proposed a memory and then nothing at all. This is the other half.
  *
  * Three endpoints, and they are the whole surface (see `lib/proxy-allowlist.ts`
  * — the proxy forwards these and nothing else):
  *
- * - `GET  /api/dawn/memory/candidates`             -> `{ candidates }`
- * - `POST /api/dawn/memory/candidates/:id/approve` -> `{ record, action, superseded }`
- * - `POST /api/dawn/memory/candidates/:id/reject`  -> `{ ok: true }`
+ * - `GET  /api/b4/memory/candidates`             -> `{ candidates }`
+ * - `POST /api/b4/memory/candidates/:id/approve` -> `{ record, action, superseded }`
+ * - `POST /api/b4/memory/candidates/:id/reject`  -> `{ ok: true }`
  *
  * Neither POST takes a body.
  */
@@ -26,7 +26,7 @@ import { neutralButton } from "./ui"
  * reads, and only those.
  *
  * Deliberately a local, narrower type rather than the package's: this app
- * does not depend on `@dawn-ai/memory` (the record arrives as JSON over the
+ * does not depend on `@b4run/memory` (the record arrives as JSON over the
  * proxy), and re-declaring the whole record here would be a second copy to
  * keep in sync for fields nothing renders.
  */
@@ -245,7 +245,7 @@ export function MemoryPanelView({
             {/* `<code>` is how the rest of this app names a command (see
                 `ConnectScreen`); backticks in JSX text would render as
                 literal backticks. */}
-            <code className="text-[11px]">dawn memory list</code>.
+            <code className="text-[11px]">b4 memory list</code>.
           </p>
         ) : null}
         {/*
@@ -337,8 +337,8 @@ export function MemoryPanel() {
     const isCurrent = () =>
       isMountedRef.current && readTicketRef.current === ticket && signal?.aborted !== true
     try {
-      const response = await fetch("/api/dawn/memory/candidates", signal ? { signal } : {})
-      // 502 is the proxy's one dedicated "I cannot reach Dawn" signal (see
+      const response = await fetch("/api/b4/memory/candidates", signal ? { signal } : {})
+      // 502 is the proxy's one dedicated "I cannot reach B4.run" signal (see
       // `route.ts`), and it belongs to another surface: the connect screen
       // owns this during "checking" and after a failed hydrate, and while the
       // shell is up a run failure is the surface. Either way a second
@@ -403,7 +403,7 @@ export function MemoryPanel() {
     (id: string, route: "approve" | "reject") => {
       setIsBusy(true)
       setOutcome(null)
-      void fetch(`/api/dawn/memory/candidates/${encodeURIComponent(id)}/${route}`, {
+      void fetch(`/api/b4/memory/candidates/${encodeURIComponent(id)}/${route}`, {
         method: "POST",
       })
         .then(async (response) => {

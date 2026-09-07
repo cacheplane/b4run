@@ -24,8 +24,8 @@ const COLUMNS: readonly Column[] = [
   {
     heading: "Resources",
     items: [
-      { label: "GitHub", href: "https://github.com/cacheplane/dawnai", external: true },
-      { label: "npm", href: "https://www.npmjs.com/org/dawn-ai", external: true },
+      { label: "GitHub", href: "https://github.com/cacheplane/b4-run", external: true },
+      { label: "npm", href: "https://www.npmjs.com/org/b4-run", external: true },
       {
         label: "LangGraph.js",
         href: "https://www.langchain.com/langgraph",
@@ -40,17 +40,17 @@ const COLUMNS: readonly Column[] = [
     items: [
       {
         label: "MIT License",
-        href: "https://github.com/cacheplane/dawnai/blob/main/LICENSE",
+        href: "https://github.com/cacheplane/b4-run/blob/main/LICENSE",
         external: true,
       },
       {
         label: "Code of Conduct",
-        href: "https://github.com/cacheplane/dawnai/blob/main/CODE_OF_CONDUCT.md",
+        href: "https://github.com/cacheplane/b4-run/blob/main/CODE_OF_CONDUCT.md",
         external: true,
       },
       {
         label: "Security",
-        href: "https://github.com/cacheplane/dawnai/blob/main/SECURITY.md",
+        href: "https://github.com/cacheplane/b4-run/blob/main/SECURITY.md",
         external: true,
       },
     ],
@@ -96,7 +96,7 @@ export function Footer() {
           ))}
         </div>
         <div className="mt-12 pt-6 border-t border-divider flex flex-col md:flex-row gap-2 md:justify-between text-xs text-ink-dim">
-          <span>{`© ${new Date().getFullYear()} Dawn. MIT-licensed.`}</span>
+          <span>{`© ${new Date().getFullYear()} B4.run. MIT-licensed.`}</span>
           <span>Built on the LangChain ecosystem.</span>
         </div>
       </div>

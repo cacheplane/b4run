@@ -25,7 +25,7 @@ const VERSION = "0.8.22"
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567"
 const MANIFEST_SHA256 = sha256(Buffer.from("manifest"))
 const WORKFLOW = ".github/workflows/published-artifact-verify.yml"
-const REPOSITORY = "cacheplane/dawnai"
+const REPOSITORY = "cacheplane/b4-run"
 const CANDIDATE = Object.freeze({
   version: VERSION,
   commitSha: COMMIT_SHA,
@@ -73,7 +73,7 @@ test("independent dispatch uses the exact tag workflow and direct run receipt", 
       manifestSha256: MANIFEST_SHA256,
       github: {
         async dispatchWorkflowAtRef() {
-          return { ...directReceipt(501), htmlUrl: "https://github.com/fork/dawn/actions/runs/501" }
+          return { ...directReceipt(501), htmlUrl: "https://github.com/fork/b4/actions/runs/501" }
         },
       },
     }),
@@ -793,7 +793,7 @@ function auditRemote() {
       tag_name: "untagged-opaque",
       target_commitish: "main",
       prerelease: false,
-      name: `Dawn v${VERSION}`,
+      name: `B4 v${VERSION}`,
       body: canonicalReleaseBody({ marker: fixture.marker, manifest: null }),
       draft: true,
       immutable: false,
@@ -897,7 +897,7 @@ function auditRemote() {
 function baseFixture() {
   const manifest = { name: "manifest.json", bytes: Buffer.from("manifest") }
   const tarballs = Array.from({ length: 21 }, (_unused, index) => ({
-    name: `dawn-ai-package-${String(index + 1).padStart(2, "0")}-${VERSION}.tgz`,
+    name: `b4run-package-${String(index + 1).padStart(2, "0")}-${VERSION}.tgz`,
     bytes: Buffer.from(`tarball-${index + 1}`),
   }))
   const subjects = [manifest, ...tarballs]

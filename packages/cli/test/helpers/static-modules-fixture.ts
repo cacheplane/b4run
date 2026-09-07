@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { resolveStateFields } from "@dawn-ai/core"
-import { discoverRoutes } from "@dawn-ai/core/node"
+import { resolveStateFields } from "@b4run/core"
+import { discoverRoutes } from "@b4run/core/node"
 import { expect } from "vitest"
 
 import { type Aimock, createAimock, type script } from "../../../testing/dist/index.js"
@@ -10,7 +10,7 @@ import { loadRouteMemory } from "../../src/lib/runtime/load-memory.js"
 import { normalizeRouteModule } from "../../src/lib/runtime/load-route-kind.js"
 import { createRouteAssistantId } from "../../src/lib/runtime/route-identity.js"
 import { discoverStateDefinition } from "../../src/lib/runtime/state-discovery.js"
-import type { DawnStaticModules, StaticRouteModule } from "../../src/lib/runtime/static-modules.js"
+import type { B4StaticModules, StaticRouteModule } from "../../src/lib/runtime/static-modules.js"
 import { discoverToolDefinitions } from "../../src/lib/runtime/tool-discovery.js"
 
 /**
@@ -21,12 +21,12 @@ import { discoverToolDefinitions } from "../../src/lib/runtime/tool-discovery.js
 export const cleanup: Array<() => Promise<void> | void> = []
 
 /**
- * Build a `DawnStaticModules` manifest by running the SAME dynamic loaders
+ * Build a `B4StaticModules` manifest by running the SAME dynamic loaders
  * `createRuntimeRegistry`/`loadPreparedRouteModules` use, once, against an
  * intact fixture app. Honest data — no hand-built normalized modules or
  * tool stubs.
  */
-export async function buildStaticModulesForFixture(appRoot: string): Promise<DawnStaticModules> {
+export async function buildStaticModulesForFixture(appRoot: string): Promise<B4StaticModules> {
   const manifest = await discoverRoutes({ appRoot })
 
   const routes: StaticRouteModule[] = []

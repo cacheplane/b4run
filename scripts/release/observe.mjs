@@ -1858,8 +1858,8 @@ async function mapProductionRelease({
     }
     const expectedTitle =
       releaseMarker.phase === "ABANDONED_PREPUBLICATION"
-        ? `Dawn v${candidate.version} (abandoned before publication)`
-        : `Dawn v${candidate.version}`
+        ? `B4 v${candidate.version} (abandoned before publication)`
+        : `B4 v${candidate.version}`
     if (release.name !== expectedTitle) throw observationError("RELEASE_TITLE_PHASE_MISMATCH")
     if (
       !["ATTACHING", "ESCROWED", "ABANDONED_PREPUBLICATION"].includes(releaseMarker.phase) &&
@@ -2586,8 +2586,8 @@ function terminalRecordMatchesRelease(record, release) {
 
 function normalizeReleaseIdentity(value, candidate) {
   const allowedTitles = new Set([
-    `Dawn v${candidate.version}`,
-    `Dawn v${candidate.version} (abandoned before publication)`,
+    `B4 v${candidate.version}`,
+    `B4 v${candidate.version} (abandoned before publication)`,
   ])
   if (
     !isRecord(value) ||
@@ -2911,7 +2911,7 @@ function inventoryFromAttestationSet({ inventory, manifest, marker, attestationS
   if (
     !Array.isArray(subjects) ||
     subjects.length !== 22 ||
-    observedSet.repository !== "cacheplane/dawnai" ||
+    observedSet.repository !== "cacheplane/b4-run" ||
     observedSet.workflow !== ".github/workflows/release.yml" ||
     observedSet.sourceRef !== `refs/tags/v${manifest.version}` ||
     observedSet.commitSha !== manifest.commitSha ||
@@ -3497,7 +3497,7 @@ function createObservedNpmEvidence({ candidate, manifest, registryPackages }) {
         predicateType: "https://slsa.dev/provenance/v1",
         workflow: candidate.publisherWorkflow,
         commitSha: candidate.commitSha,
-        repository: "https://github.com/cacheplane/dawnai",
+        repository: "https://github.com/cacheplane/b4-run",
         ref: `refs/tags/v${candidate.version}`,
       },
     })
@@ -3574,7 +3574,7 @@ function exactNpmAuditEvidence(value, candidate) {
     value.provenance.predicateType === "https://slsa.dev/provenance/v1" &&
     value.provenance.workflow === candidate.publisherWorkflow &&
     value.provenance.commitSha === candidate.commitSha &&
-    value.provenance.repository === "https://github.com/cacheplane/dawnai" &&
+    value.provenance.repository === "https://github.com/cacheplane/b4-run" &&
     value.provenance.ref === `refs/tags/v${candidate.version}`
   )
 }

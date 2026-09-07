@@ -1,4 +1,4 @@
-import { pureJoin } from "@dawn-ai/sdk/pure"
+import { pureJoin } from "@b4run/sdk/pure"
 import { z } from "zod"
 import type { CapabilityMarker, MarkerFs, PromptFragment } from "../types.js"
 import { parseFrontmatter } from "./frontmatter.js"

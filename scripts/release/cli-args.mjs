@@ -1,7 +1,7 @@
 import path from "node:path"
 import { isExactSemver, parseSemver } from "./semver.mjs"
 
-const DEFAULT_REPOSITORY = "cacheplane/dawnai"
+const DEFAULT_REPOSITORY = "cacheplane/b4-run"
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
 const REPOSITORY_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u
 const ARGUMENTS = new Set(["observation", "format", "version", "commit-sha", "repository"])

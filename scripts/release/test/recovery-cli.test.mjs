@@ -102,7 +102,7 @@ test("smoke child environment preserves actual host identity and drops credentia
       ImageVersion: "actual",
       GITHUB_TOKEN: "secret",
       NODE_AUTH_TOKEN: "secret",
-      DAWN_RECOVERY_POLICY_TOKEN: "secret",
+      B4_RECOVERY_POLICY_TOKEN: "secret",
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: "secret",
       NODE_OPTIONS: "--require=evil",
       NPM_CONFIG_USERCONFIG: "evil",
@@ -130,7 +130,7 @@ test("real read-only runtime never constructs invocation or policy readers and h
   const result = runtime.createRecoveryRuntime(
     {
       root: process.cwd(),
-      environment: { GITHUB_TOKEN: "api-token", DAWN_RECOVERY_POLICY_TOKEN: "policy-secret" },
+      environment: { GITHUB_TOKEN: "api-token", B4_RECOVERY_POLICY_TOKEN: "policy-secret" },
       command: "inspect",
       request: { candidate: r.c },
     },
@@ -186,7 +186,7 @@ test("composed recovery attestation child excludes policy npm and OIDC credentia
     ImageVersion: "20260901.1",
     GITHUB_TOKEN: "github-token",
     GH_TOKEN: "ambient-gh-token",
-    DAWN_RECOVERY_POLICY_TOKEN: "policy-token",
+    B4_RECOVERY_POLICY_TOKEN: "policy-token",
     NPM_TOKEN: "npm-token",
     NODE_AUTH_TOKEN: "node-auth-token",
     ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-token",
@@ -235,7 +235,7 @@ test("composed recovery attestation child excludes policy npm and OIDC credentia
           GH_TOKEN: "github-token",
         },
       ])
-      assert.equal(environment.DAWN_RECOVERY_POLICY_TOKEN, "policy-token")
+      assert.equal(environment.B4_RECOVERY_POLICY_TOKEN, "policy-token")
     }
   }
 })
@@ -290,7 +290,7 @@ test("child launch drops credentials on both success and failure", async () => {
         ImageOS: "ubuntu24",
         GITHUB_TOKEN: "secret",
         ACTIONS_RUNTIME_TOKEN: "secret",
-        DAWN_RECOVERY_POLICY_TOKEN: "secret",
+        B4_RECOVERY_POLICY_TOKEN: "secret",
       },
       spawn,
     )
@@ -452,7 +452,7 @@ test("separate policy credential is confined to finalization and publication pol
   const r = await recoveryRemote()
   const environment = {
     GITHUB_TOKEN: "api-token",
-    DAWN_RECOVERY_POLICY_TOKEN: "policy-token",
+    B4_RECOVERY_POLICY_TOKEN: "policy-token",
     GITHUB_REPOSITORY: r.c.repository,
     GITHUB_REPOSITORY_ID: r.c.repositoryId,
     GITHUB_SHA: r.e.controllerSha,

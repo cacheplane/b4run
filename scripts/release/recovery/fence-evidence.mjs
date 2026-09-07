@@ -154,12 +154,12 @@ export function validateRecoveryFenceEvidence(raw, { fixtureBytes, probeClosureS
   fenceRequire(
     typeof e.repository === "string" &&
       /^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/u.test(e.repository) &&
-      e.repository.toLowerCase() !== "cacheplane/dawnai",
+      e.repository.toLowerCase() !== "cacheplane/b4-run",
     "disposable evidence repository required",
   )
   id(e.repositoryId)
   id(e.workflowId)
-  fenceRequire(e.repositoryId !== "1210070282", "production repository ID forbidden")
+  fenceRequire(e.repositoryId !== "1360603908", "production repository ID forbidden")
   fenceRequire(
     e.workflow === ".github/workflows/recovery-fence-probe.yml" &&
       /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/u.test(e.defaultBranch),

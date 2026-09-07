@@ -4,24 +4,24 @@
     "private": true,
     "type": "module",
     "scripts": {
-      "dev": "dawn dev --port 3000",
-      "check": "dawn check",
-      "eval": "dawn eval",
+      "dev": "b4 dev --port 3000",
+      "check": "b4 check",
+      "eval": "b4 eval",
       "build": "tsc -p tsconfig.json",
       "test": "vitest run",
       "typecheck": "tsc --noEmit"
     },
     "dependencies": {
-      "@dawn-ai/cli": "latest",
-      "@dawn-ai/langchain": "latest",
-      "@dawn-ai/sdk": "latest",
+      "@b4run/cli": "latest",
+      "@b4run/langchain": "latest",
+      "@b4run/sdk": "latest",
       "zod": "^4.0.0"
     },
     "devDependencies": {
-      "@dawn-ai/config-typescript": "latest",
-      "@dawn-ai/evals": "latest",
-      "@dawn-ai/inspector": "latest",
-      "@dawn-ai/testing": "latest",
+      "@b4run/config-typescript": "latest",
+      "@b4run/evals": "latest",
+      "@b4run/inspector": "latest",
+      "@b4run/testing": "latest",
       "@types/node": "<version:@types/node>",
       "typescript": "<version:typescript>",
       "vitest": "<version:vitest>"
@@ -35,8 +35,8 @@
     "checks": [
       {
         "appRoot": "<app-root>",
-        "configPath": "<app-root>/dawn.config.ts",
-        "dawnDir": "<app-root>/.dawn",
+        "configPath": "<app-root>/b4.config.ts",
+        "b4Dir": "<app-root>/.b4",
         "name": "app",
         "routesDir": "<app-root>/src/app",
         "status": "passed"
@@ -97,6 +97,6 @@
       }
     ]
   },
-  "scenarioTypegenOutput": "import \"@dawn-ai/sdk/testing\"\n\ndeclare module \"@dawn-ai/sdk/testing\" {\n  interface RouteScenarioMap {\n    \"/hello/[tenant]\": {\n      readonly tools: {\n        readonly \"greet\": (input: Parameters<typeof import(\"../src/app/(public)/hello/[tenant]/tools/greet.js\").default>[0]) => Promise<Awaited<ReturnType<typeof import(\"../src/app/(public)/hello/[tenant]/tools/greet.js\").default>>>\n      }\n    }\n  }\n}\n",
-  "typegenOutput": "/// <reference path=\"./scenarios.generated.d.ts\" />\n\ndeclare module \"dawn:routes\" {\n  export type DawnRoutePath = \"/hello/[tenant]\";\n\n  export interface DawnRouteParams {\n  \"/hello/[tenant]\": { tenant: string };\n  }\n\n  export interface DawnRouteTools {\n    \"/hello/[tenant]\": {\n      readonly greet: (input: Parameters<typeof import(\"../src/app/(public)/hello/[tenant]/tools/greet.js\").default>[0]) => Promise<Awaited<ReturnType<typeof import(\"../src/app/(public)/hello/[tenant]/tools/greet.js\").default>>>;\n    };\n  }\n\n  export type RouteTools<P extends DawnRoutePath> = DawnRouteTools[P];\n\n  export interface DawnRouteState {\n    \"/hello/[tenant]\": {\n      readonly context: string;\n    };\n  }\n\n  export type RouteState<P extends DawnRoutePath> = DawnRouteState[P];\n}\n"
+  "scenarioTypegenOutput": "import \"@b4run/sdk/testing\"\n\ndeclare module \"@b4run/sdk/testing\" {\n  interface RouteScenarioMap {\n    \"/hello/[tenant]\": {\n      readonly tools: {\n        readonly \"greet\": (input: Parameters<typeof import(\"../src/app/(public)/hello/[tenant]/tools/greet.js\").default>[0]) => Promise<Awaited<ReturnType<typeof import(\"../src/app/(public)/hello/[tenant]/tools/greet.js\").default>>>\n      }\n    }\n  }\n}\n",
+  "typegenOutput": "/// <reference path=\"./scenarios.generated.d.ts\" />\n\ndeclare module \"b4:routes\" {\n  export type B4RoutePath = \"/hello/[tenant]\";\n\n  export interface B4RouteParams {\n  \"/hello/[tenant]\": { tenant: string };\n  }\n\n  export interface B4RouteTools {\n    \"/hello/[tenant]\": {\n      readonly greet: (input: Parameters<typeof import(\"../src/app/(public)/hello/[tenant]/tools/greet.js\").default>[0]) => Promise<Awaited<ReturnType<typeof import(\"../src/app/(public)/hello/[tenant]/tools/greet.js\").default>>>;\n    };\n  }\n\n  export type RouteTools<P extends B4RoutePath> = B4RouteTools[P];\n\n  export interface B4RouteState {\n    \"/hello/[tenant]\": {\n      readonly context: string;\n    };\n  }\n\n  export type RouteState<P extends B4RoutePath> = B4RouteState[P];\n}\n"
 }

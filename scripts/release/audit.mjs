@@ -21,7 +21,7 @@ import {
 } from "./smoke-result.mjs"
 import { canonicalAuditResultBytes, parseAuditResult } from "./terminal-records.mjs"
 
-const REPOSITORY = "cacheplane/dawnai"
+const REPOSITORY = "cacheplane/b4-run"
 const WORKFLOW = ".github/workflows/published-artifact-verify.yml"
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u
@@ -107,7 +107,7 @@ export async function recordAuditDispatch({ candidate, dispatch, github }) {
     tag: marker.tag,
     targetSha: identity.commitSha,
     expectedBodySha256: releaseBodySha256(release.body),
-    title: `Dawn v${identity.version}`,
+    title: `B4 v${identity.version}`,
     body,
   })
   release = await readManagedRelease(effects.reader, release.id)
@@ -307,7 +307,7 @@ export async function recordAuditAttempt({ candidate, dispatch, result, github }
     tag: marker.tag,
     targetSha: identity.commitSha,
     expectedBodySha256: releaseBodySha256(release.body),
-    title: `Dawn v${identity.version}`,
+    title: `B4 v${identity.version}`,
     body,
   })
   release = await readManagedRelease(effects.reader, release.id)
@@ -391,7 +391,7 @@ export async function verifyAuditSuccess({ candidate, dispatch, result, github }
     tag: marker.tag,
     targetSha: identity.commitSha,
     expectedBodySha256: releaseBodySha256(release.body),
-    title: `Dawn v${identity.version}`,
+    title: `B4 v${identity.version}`,
     body,
   })
   release = await readManagedRelease(effects.reader, release.id)
@@ -779,7 +779,7 @@ async function requireDraftRelease(reader, candidate) {
   if (matches.length !== 1) throw new Error("Managed audit draft is missing or ambiguous")
   const release = await readManagedRelease(reader, positiveId(matches[0].id, "Release ID"))
   if (
-    release.name !== `Dawn v${candidate.version}` ||
+    release.name !== `B4 v${candidate.version}` ||
     typeof release.body !== "string" ||
     release.draft !== true ||
     release.immutable !== false

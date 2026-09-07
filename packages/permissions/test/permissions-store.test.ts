@@ -8,7 +8,7 @@ import { createPermissionsStore } from "../src/node.js"
 describe("createPermissionsStore — load + match", () => {
   let appRoot: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-perms-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-perms-"))
   })
   afterEach(() => {
     rmSync(appRoot, { recursive: true, force: true })
@@ -20,10 +20,10 @@ describe("createPermissionsStore — load + match", () => {
     expect(store.match("bash", "npm install")).toBe("unknown")
   })
 
-  it("matches entries from .dawn/permissions.json", async () => {
-    mkdirSync(join(appRoot, ".dawn"), { recursive: true })
+  it("matches entries from .b4/permissions.json", async () => {
+    mkdirSync(join(appRoot, ".b4"), { recursive: true })
     writeFileSync(
-      join(appRoot, ".dawn", "permissions.json"),
+      join(appRoot, ".b4", "permissions.json"),
       JSON.stringify({ version: 1, allow: { bash: ["npm install"] }, deny: {} }),
     )
     const store = createPermissionsStore({ appRoot, config: undefined, mode: "interactive" })
@@ -33,9 +33,9 @@ describe("createPermissionsStore — load + match", () => {
   })
 
   it("merges config + runtime file (both contribute allows)", async () => {
-    mkdirSync(join(appRoot, ".dawn"), { recursive: true })
+    mkdirSync(join(appRoot, ".b4"), { recursive: true })
     writeFileSync(
-      join(appRoot, ".dawn", "permissions.json"),
+      join(appRoot, ".b4", "permissions.json"),
       JSON.stringify({ version: 1, allow: { bash: ["ls"] }, deny: {} }),
     )
     const store = createPermissionsStore({
@@ -49,9 +49,9 @@ describe("createPermissionsStore — load + match", () => {
   })
 
   it("deny from config wins over allow from runtime file", async () => {
-    mkdirSync(join(appRoot, ".dawn"), { recursive: true })
+    mkdirSync(join(appRoot, ".b4"), { recursive: true })
     writeFileSync(
-      join(appRoot, ".dawn", "permissions.json"),
+      join(appRoot, ".b4", "permissions.json"),
       JSON.stringify({ version: 1, allow: { bash: ["rm"] }, deny: {} }),
     )
     const store = createPermissionsStore({
@@ -64,9 +64,9 @@ describe("createPermissionsStore — load + match", () => {
   })
 
   it("ignores the runtime file in non-interactive mode", async () => {
-    mkdirSync(join(appRoot, ".dawn"), { recursive: true })
+    mkdirSync(join(appRoot, ".b4"), { recursive: true })
     writeFileSync(
-      join(appRoot, ".dawn", "permissions.json"),
+      join(appRoot, ".b4", "permissions.json"),
       JSON.stringify({ version: 1, allow: { bash: ["npm install"] }, deny: {} }),
     )
     const store = createPermissionsStore({
@@ -80,9 +80,9 @@ describe("createPermissionsStore — load + match", () => {
   })
 
   it("ignores everything in bypass mode", async () => {
-    mkdirSync(join(appRoot, ".dawn"), { recursive: true })
+    mkdirSync(join(appRoot, ".b4"), { recursive: true })
     writeFileSync(
-      join(appRoot, ".dawn", "permissions.json"),
+      join(appRoot, ".b4", "permissions.json"),
       JSON.stringify({ version: 1, allow: {}, deny: { bash: ["rm"] } }),
     )
     const store = createPermissionsStore({
@@ -95,8 +95,8 @@ describe("createPermissionsStore — load + match", () => {
   })
 
   it("throws on malformed JSON in the runtime file", async () => {
-    mkdirSync(join(appRoot, ".dawn"), { recursive: true })
-    writeFileSync(join(appRoot, ".dawn", "permissions.json"), "{ not valid json")
+    mkdirSync(join(appRoot, ".b4"), { recursive: true })
+    writeFileSync(join(appRoot, ".b4", "permissions.json"), "{ not valid json")
     const store = createPermissionsStore({ appRoot, config: undefined, mode: "interactive" })
     await expect(store.load()).rejects.toThrow(/permissions\.json/i)
   })
@@ -105,7 +105,7 @@ describe("createPermissionsStore — load + match", () => {
 describe("createPermissionsStore — addAllow", () => {
   let appRoot: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-perms-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-perms-"))
   })
   afterEach(() => {
     rmSync(appRoot, { recursive: true, force: true })
@@ -117,7 +117,7 @@ describe("createPermissionsStore — addAllow", () => {
     expect(store.match("bash", "npm install")).toBe("unknown")
     await store.addAllow("bash", "npm install")
     expect(store.match("bash", "npm install react")).toBe("allow")
-    const raw = readFileSync(join(appRoot, ".dawn", "permissions.json"), "utf8")
+    const raw = readFileSync(join(appRoot, ".b4", "permissions.json"), "utf8")
     const parsed = JSON.parse(raw)
     expect(parsed.allow.bash).toContain("npm install")
   })
@@ -141,31 +141,31 @@ describe("createPermissionsStore — addAllow", () => {
     expect(reloaded.match("subagent", `${supportResearcher}:extended`)).toBe("unknown")
   })
 
-  it("appends .dawn/ to .gitignore on first write (idempotent)", async () => {
+  it("appends .b4/ to .gitignore on first write (idempotent)", async () => {
     writeFileSync(join(appRoot, ".gitignore"), "node_modules/\n.next/\n")
     const store = createPermissionsStore({ appRoot, config: undefined, mode: "interactive" })
     await store.load()
     await store.addAllow("bash", "ls")
     const gi = readFileSync(join(appRoot, ".gitignore"), "utf8")
-    expect(gi).toContain(".dawn/")
+    expect(gi).toContain(".b4/")
     expect(gi).toContain("node_modules/")
   })
 
-  it("creates .gitignore with .dawn/ when none exists", async () => {
+  it("creates .gitignore with .b4/ when none exists", async () => {
     const store = createPermissionsStore({ appRoot, config: undefined, mode: "interactive" })
     await store.load()
     await store.addAllow("bash", "ls")
     const gi = readFileSync(join(appRoot, ".gitignore"), "utf8")
-    expect(gi).toBe(".dawn/\n")
+    expect(gi).toBe(".b4/\n")
   })
 
-  it("does not duplicate .dawn/ if already in .gitignore", async () => {
-    writeFileSync(join(appRoot, ".gitignore"), "node_modules/\n.dawn/\n")
+  it("does not duplicate .b4/ if already in .gitignore", async () => {
+    writeFileSync(join(appRoot, ".gitignore"), "node_modules/\n.b4/\n")
     const store = createPermissionsStore({ appRoot, config: undefined, mode: "interactive" })
     await store.load()
     await store.addAllow("bash", "ls")
     const gi = readFileSync(join(appRoot, ".gitignore"), "utf8")
-    expect(gi.match(/\.dawn\//g)?.length).toBe(1)
+    expect(gi.match(/\.b4\//g)?.length).toBe(1)
   })
 
   it("serializes concurrent addAllow calls", async () => {
@@ -176,7 +176,7 @@ describe("createPermissionsStore — addAllow", () => {
       store.addAllow("bash", "pwd"),
       store.addAllow("bash", "cat"),
     ])
-    const raw = readFileSync(join(appRoot, ".dawn", "permissions.json"), "utf8")
+    const raw = readFileSync(join(appRoot, ".b4", "permissions.json"), "utf8")
     const parsed = JSON.parse(raw)
     expect([...parsed.allow.bash].sort()).toEqual(["cat", "ls", "pwd"])
   })

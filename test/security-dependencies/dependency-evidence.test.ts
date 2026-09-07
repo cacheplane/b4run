@@ -622,7 +622,7 @@ describe("dependency evidence CLI", () => {
       fixture,
       open: fixture.open,
       publication: publicationReceiptFixture(fixture.defaultSha, sourceSha),
-      repository: "cacheplane/dawnai",
+      repository: "cacheplane/b4-run",
       sourceSha,
     })
     expect(receipt.dependabot.open).toHaveLength(59)
@@ -637,7 +637,7 @@ describe("dependency evidence CLI", () => {
         fixture: wrongFixture,
         open: fixture.open,
         publication: publicationReceiptFixture(fixture.defaultSha, sourceSha),
-        repository: "cacheplane/dawnai",
+        repository: "cacheplane/b4-run",
         sourceSha,
       }),
     ).toThrow(/UNPROVABLE/u)
@@ -649,7 +649,7 @@ describe("dependency evidence CLI", () => {
       "baseline",
       [
         "--repo",
-        "cacheplane/dawnai",
+        "cacheplane/b4-run",
         "--inventory-ref",
         "HEAD",
         "--source-sha",
@@ -672,7 +672,7 @@ describe("dependency evidence CLI", () => {
       "reconcile",
       [
         "--repo",
-        "cacheplane/dawnai",
+        "cacheplane/b4-run",
         "--pr",
         "42",
         "--reviewed-base-sha",
@@ -757,7 +757,7 @@ describe("dependency evidence CLI", () => {
   })
 
   it("writes one canonical audit receipt and prints only a bounded summary", async () => {
-    const outputRoot = await mkdtemp(resolve(tmpdir(), "dawn-audit-cli-"))
+    const outputRoot = await mkdtemp(resolve(tmpdir(), "b4-audit-cli-"))
     try {
       const output = resolve(outputRoot, "audit.json")
       const expectation = await loadAuditExpectation(baselinePath, {
@@ -803,7 +803,7 @@ describe("dependency evidence CLI", () => {
   })
 
   it("rejects a dirty or drifting audit source before writing a receipt", async () => {
-    const outputRoot = await mkdtemp(resolve(tmpdir(), "dawn-audit-source-"))
+    const outputRoot = await mkdtemp(resolve(tmpdir(), "b4-audit-source-"))
     try {
       const output = resolve(outputRoot, "audit.json")
       let auditCalls = 0
@@ -874,7 +874,7 @@ describe("dependency evidence CLI", () => {
   })
 
   it("writes exclusively through a symlinked parent to its canonical directory", async () => {
-    const outputRoot = await mkdtemp(resolve(tmpdir(), "dawn-audit-symlink-parent-"))
+    const outputRoot = await mkdtemp(resolve(tmpdir(), "b4-audit-symlink-parent-"))
     try {
       const canonicalParent = resolve(outputRoot, "canonical")
       const requestedParent = resolve(outputRoot, "requested")
@@ -926,7 +926,7 @@ describe("dependency evidence CLI", () => {
           argv: [
             "baseline",
             "--repo",
-            "cacheplane/dawnai",
+            "cacheplane/b4-run",
             "--inventory-ref",
             "HEAD",
             "--source-sha",
@@ -994,7 +994,7 @@ describe("dependency evidence CLI", () => {
         argv: [
           "reconcile",
           "--repo",
-          "cacheplane/dawnai",
+          "cacheplane/b4-run",
           "--pr",
           "42",
           "--reviewed-base-sha",
@@ -1062,7 +1062,7 @@ describe("dependency evidence CLI", () => {
         intervalMs: 15_000,
         maxAttempts: 61,
         prNumber: 42,
-        repo: "cacheplane/dawnai",
+        repo: "cacheplane/b4-run",
         timeoutMs: 900_000,
       })
       expect(inventoryRef).toBe(observationHeadSha)
@@ -1110,7 +1110,7 @@ describe("dependency evidence CLI", () => {
 
   it("rejects outside, symlinked, and oversized reconciliation inputs before dispatch", async () => {
     const internal = await mkdtemp(resolve(testDir, ".dependency-input-boundary-"))
-    const external = await mkdtemp(resolve(tmpdir(), "dawn-dependency-input-boundary-"))
+    const external = await mkdtemp(resolve(tmpdir(), "b4-dependency-input-boundary-"))
     try {
       const outside = resolve(external, "baseline.json")
       const oversized = resolve(external, "audit.json")
@@ -1153,7 +1153,7 @@ describe("dependency evidence CLI", () => {
 
   it("reads an external audit receipt through a canonical symlinked parent", async () => {
     const internal = await mkdtemp(resolve(testDir, ".dependency-external-input-"))
-    const external = await mkdtemp(resolve(tmpdir(), "dawn-dependency-external-input-"))
+    const external = await mkdtemp(resolve(tmpdir(), "b4-dependency-external-input-"))
     try {
       const canonicalParent = resolve(external, "canonical")
       const requestedParent = resolve(external, "requested")
@@ -1195,7 +1195,7 @@ describe("dependency evidence CLI", () => {
   })
 
   it("seals a canonical receipt offline and logs no payload", async () => {
-    const outputRoot = await mkdtemp(resolve(tmpdir(), "dawn-dependency-seal-cli-"))
+    const outputRoot = await mkdtemp(resolve(tmpdir(), "b4-dependency-seal-cli-"))
     await chmod(outputRoot, 0o700)
     try {
       const fixture = await import("../../scripts/security/dependabot-reconcile.mjs").then(
@@ -1263,7 +1263,7 @@ describe("dependency evidence CLI", () => {
 			}
 		`
     const loaderUrl = `data:text/javascript,${encodeURIComponent(loaderSource)}`
-    const outputRoot = resolve(tmpdir(), "dawn-unused-seal-root")
+    const outputRoot = resolve(tmpdir(), "b4-unused-seal-root")
     let stderr = ""
     try {
       await execFileAsync(
@@ -1397,13 +1397,13 @@ function publicationReceiptFixture(defaultSha: string, sourceSha: string) {
           {
             conclusion: "success",
             digest: "a".repeat(64),
-            name: "publish (dawn-app)",
+            name: "publish (b4-app)",
             noOp: true,
           },
           {
             conclusion: "success",
             digest: "b".repeat(64),
-            name: "publish (dawn-sandbox-infra)",
+            name: "publish (b4-sandbox-infra)",
             noOp: true,
           },
         ],
@@ -1456,7 +1456,7 @@ function publicationReceiptFixture(defaultSha: string, sourceSha: string) {
       })),
       requestCount: 63,
     },
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     schemaVersion: 1,
     sourceSha,
     workflows: {
@@ -1500,7 +1500,7 @@ function reconcileCliArguments(overrides: Record<string, string> = {}) {
     output: resolve(testDir, ".unused-reconciliation.json"),
     "poll-interval-ms": "15000",
     pr: "42",
-    repo: "cacheplane/dawnai",
+    repo: "cacheplane/b4-run",
     "reviewed-base-sha": "a".repeat(40),
     "reviewed-head-sha": "b".repeat(40),
     "target-version": "0.8.22",
@@ -1578,7 +1578,7 @@ function sealableReconciliationReceipt(baselineOpen: any[]) {
       reviewedHeadSha,
     },
     publication,
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     schemaVersion: 1,
     verificationRuns: [
       ".github/workflows/ci.yml",

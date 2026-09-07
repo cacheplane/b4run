@@ -1,5 +1,5 @@
-import type { DawnPlanActivityContent } from "@dawn-ai/ag-ui"
-import { type DawnActivityClassNames, PlanActivityCard } from "@dawn-ai/ag-ui/react"
+import type { B4PlanActivityContent } from "@b4run/ag-ui"
+import { type B4ActivityClassNames, PlanActivityCard } from "@b4run/ag-ui/react"
 
 /**
  * The workbench's plan card: SP1's component, customized through the ladder.
@@ -16,7 +16,7 @@ import { type DawnActivityClassNames, PlanActivityCard } from "@dawn-ai/ag-ui/re
  * judgements about one card, not shared logic. A common object would mean
  * nudging the plan's title silently restyles the subagent's name.
  */
-const planClassNames: DawnActivityClassNames = {
+const planClassNames: B4ActivityClassNames = {
   // letter-spacing — unset by the package, and it inherits, so one class gives
   // the whole card the workbench's tight tracking.
   root: "tracking-tight",
@@ -43,6 +43,6 @@ const planClassNames: DawnActivityClassNames = {
   overflow: "tabular-nums",
 }
 
-export function PlanCard({ content }: { content: DawnPlanActivityContent }) {
+export function PlanCard({ content }: { content: B4PlanActivityContent }) {
   return <PlanActivityCard content={content} classNames={planClassNames} />
 }

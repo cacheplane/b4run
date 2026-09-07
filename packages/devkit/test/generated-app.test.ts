@@ -9,7 +9,7 @@ import { createArtifactRoot, createGeneratedApp } from "../src/testing/index.ts"
 
 describe("generated app helper", () => {
   it("materializes the basic template in an isolated temp root with default specifiers", async () => {
-    const baseDir = await mkdtemp(resolve(tmpdir(), "dawn-devkit-generated-app-"))
+    const baseDir = await mkdtemp(resolve(tmpdir(), "b4-devkit-generated-app-"))
 
     try {
       const artifactRoot = await createArtifactRoot({
@@ -33,15 +33,15 @@ describe("generated app helper", () => {
         resolve(artifactRoot, "transcripts", "generated-app.log"),
       )
       expect(packageJson).toContain('"name": "sample-generated-app"')
-      expect(packageJson).toContain('"@dawn-ai/cli": "workspace:*"')
-      expect(packageJson).toContain('"@dawn-ai/langchain": "workspace:*"')
-      expect(packageJson).toContain('"@dawn-ai/sdk": "workspace:*"')
-      expect(packageJson).toContain('"@dawn-ai/config-typescript": "workspace:*"')
-      expect(packageJson).toContain('"@dawn-ai/testing": "workspace:*"')
-      expect(packageJson).toContain('"@dawn-ai/evals": "workspace:*"')
-      expect(packageJson).toContain('"@dawn-ai/inspector": "workspace:*"')
+      expect(packageJson).toContain('"@b4run/cli": "workspace:*"')
+      expect(packageJson).toContain('"@b4run/langchain": "workspace:*"')
+      expect(packageJson).toContain('"@b4run/sdk": "workspace:*"')
+      expect(packageJson).toContain('"@b4run/config-typescript": "workspace:*"')
+      expect(packageJson).toContain('"@b4run/testing": "workspace:*"')
+      expect(packageJson).toContain('"@b4run/evals": "workspace:*"')
+      expect(packageJson).toContain('"@b4run/inspector": "workspace:*"')
       expect(packageJson).toContain('"test": "vitest run"')
-      expect(packageJson).toContain('"eval": "dawn eval"')
+      expect(packageJson).toContain('"eval": "b4 eval"')
       await expect(
         access(resolve(generatedApp.appRoot, "test/agent.test.ts"), constants.F_OK),
       ).resolves.toBeUndefined()
@@ -57,7 +57,7 @@ describe("generated app helper", () => {
   })
 
   it("materializes the research template with sandbox-ready shared tools and memory scripts", async () => {
-    const baseDir = await mkdtemp(resolve(tmpdir(), "dawn-devkit-generated-research-app-"))
+    const baseDir = await mkdtemp(resolve(tmpdir(), "b4-devkit-generated-research-app-"))
 
     try {
       const artifactRoot = await createArtifactRoot({
@@ -74,7 +74,7 @@ describe("generated app helper", () => {
 
       // The research template is a two-package npm workspace. Only the
       // orchestrator manifest, the pnpm config, the tour README, and the
-      // ignore file stay at the app root; the Dawn app lives in `server/`.
+      // ignore file stay at the app root; the B4.run app lives in `server/`.
       const rootPackageJson = await readFile(resolve(generatedApp.appRoot, "package.json"), "utf8")
       const rootManifest = JSON.parse(rootPackageJson) as {
         scripts: Record<string, string>
@@ -108,7 +108,7 @@ describe("generated app helper", () => {
         "utf8",
       )
       const generatedTypes = await readFile(
-        resolve(generatedApp.appRoot, "server/.dawn/dawn.generated.d.ts"),
+        resolve(generatedApp.appRoot, "server/.b4/b4.generated.d.ts"),
         "utf8",
       )
       const rootReadme = await readFile(resolve(generatedApp.appRoot, "README.md"), "utf8")
@@ -127,7 +127,7 @@ describe("generated app helper", () => {
       )
       const gitignore = await readFile(resolve(generatedApp.appRoot, ".gitignore"), "utf8")
 
-      expect(serverPackageJson).toContain('"@dawn-ai/sandbox": "workspace:*"')
+      expect(serverPackageJson).toContain('"@b4run/sandbox": "workspace:*"')
       expect(rootManifest.workspaces).toEqual(["server", "web"])
       // Each single-workspace delegator keeps its literal trailing ` --`; see
       // `template-root-scripts.test.ts` for why deleting it breaks the harness.
@@ -147,18 +147,18 @@ describe("generated app helper", () => {
         "memory:approve": "npm run memory:approve --workspace server --",
       })
       expect(serverManifest.scripts).toEqual({
-        dev: "dawn dev --port 3002",
-        verify: "dawn verify",
-        typegen: "dawn typegen",
-        check: "dawn check",
+        dev: "b4 dev --port 3002",
+        verify: "b4 verify",
+        typegen: "b4 typegen",
+        check: "b4 check",
         typecheck: "tsc --noEmit",
         test: "vitest run",
-        eval: "dawn eval",
-        build: "dawn build",
-        start: "node --env-file-if-exists=.env .dawn/build/server.mjs",
-        "test:sandbox:docker": "DAWN_DEMO_DOCKER_SANDBOX=1 vitest run test/sandbox-docker.test.ts",
-        "memory:list": "dawn memory list",
-        "memory:approve": "dawn memory approve",
+        eval: "b4 eval",
+        build: "b4 build",
+        start: "node --env-file-if-exists=.env .b4/build/server.mjs",
+        "test:sandbox:docker": "B4_DEMO_DOCKER_SANDBOX=1 vitest run test/sandbox-docker.test.ts",
+        "memory:list": "b4 memory list",
+        "memory:approve": "b4 memory approve",
       })
       expect(rootPackageJson).not.toContain('"pnpm"')
       expect(serverPackageJson).not.toContain('"pnpm"')
@@ -166,7 +166,7 @@ describe("generated app helper", () => {
       // `writeTemplate` copies an unrecognized `{{token}}` through verbatim, so
       // a specifier missing from this helper's map ships the literal token into
       // the generated manifest instead of failing.
-      expect(webPackageJson).toContain('"@dawn-ai/ag-ui": "workspace:*"')
+      expect(webPackageJson).toContain('"@b4run/ag-ui": "workspace:*"')
       expect(webPackageJson).not.toContain("{{")
       expect(pnpmWorkspace).toContain("allowBuilds:")
       expect(pnpmWorkspace).toContain("esbuild: true")
@@ -181,7 +181,7 @@ describe("generated app helper", () => {
       expect(generatedTypes).toContain("readonly recall:")
       expect(generatedTypes).toContain("readonly remember:")
       expect(readme).toContain("Docker sandbox")
-      expect(readme).toContain("dawn memory approve")
+      expect(readme).toContain("b4 memory approve")
       expect(researchTest).toContain("seedMemory")
       expect(researchTest).toContain(`const resumed = await h.resume({
     resume: run.interrupts.map((entry) => ({
@@ -190,7 +190,7 @@ describe("generated app helper", () => {
       payload: "once",
     })),
   })`)
-      expect(sandboxTest).toContain("DAWN_DEMO_DOCKER_SANDBOX")
+      expect(sandboxTest).toContain("B4_DEMO_DOCKER_SANDBOX")
       expect(sandboxTest).toContain("dockerSandbox")
       // The corpus tools are shared at `server/src/tools/`, never route-local.
       await expect(

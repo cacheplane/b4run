@@ -1,15 +1,15 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { applyCapabilities, createCapabilityRegistry, createSkillsMarker } from "@dawn-ai/core"
-import { nodeMarkerFs } from "@dawn-ai/core/node"
+import { applyCapabilities, createCapabilityRegistry, createSkillsMarker } from "@b4run/core"
+import { nodeMarkerFs } from "@b4run/core/node"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 describe("skills capability — end-to-end shape", () => {
   let routeDir: string
 
   beforeEach(() => {
-    routeDir = mkdtempSync(join(tmpdir(), "dawn-skills-e2e-"))
+    routeDir = mkdtempSync(join(tmpdir(), "b4-skills-e2e-"))
   })
 
   afterEach(() => {

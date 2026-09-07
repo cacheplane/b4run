@@ -8,7 +8,7 @@ import { extractToolSchemasForRoute } from "../src/typegen/extract-tool-schema.j
 let tempDir: string
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), "dawn-extract-schema-"))
+  tempDir = mkdtempSync(join(tmpdir(), "b4-extract-schema-"))
 })
 
 afterEach(() => {

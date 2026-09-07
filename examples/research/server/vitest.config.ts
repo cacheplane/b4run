@@ -5,7 +5,7 @@ export default defineConfig({
     environment: "node",
     include: ["test/**/*.test.ts", "src/**/*.test.ts"],
     passWithNoTests: true,
-    // The capability suites boot in-process agents + a real dawn dev subprocess
+    // The capability suites boot in-process agents + a real b4 dev subprocess
     // and mutate process-global OPENAI_BASE_URL — run files sequentially to
     // avoid cross-file env/port races.
     fileParallelism: false,

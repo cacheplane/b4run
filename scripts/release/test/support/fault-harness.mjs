@@ -99,7 +99,7 @@ export async function createFaultHarness({
   assertLateAcquisitionSupervisor(lateAcquisitionSupervisor)
   const factories = harnessFactories(dependencies)
   const runtimeDirectory = await realpath(
-    await mkdtemp(join(tmpdir(), "dawn-release-fault-harness-")),
+    await mkdtemp(join(tmpdir(), "b4-release-fault-harness-")),
   )
   const resources = [
     resource("runtime directory", () => rm(runtimeDirectory, { recursive: true, force: true })),

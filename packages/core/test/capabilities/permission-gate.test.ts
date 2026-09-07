@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createPermissionsStore } from "@dawn-ai/permissions/node"
+import { createPermissionsStore } from "@b4run/permissions/node"
 import { Annotation, Command, END, MemorySaver, START, StateGraph } from "@langchain/langgraph"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
@@ -19,7 +19,7 @@ describe("gatePathOp interrupt suppression", () => {
   let appRoot: string
 
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-gate-test-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-gate-test-"))
   })
 
   afterEach(() => {
@@ -42,7 +42,7 @@ describe("gatePathOp interrupt suppression", () => {
     expect(result.allowed).toBe(false)
     if (!result.allowed) {
       expect(result.reason).toMatch(/allow rule/)
-      expect(result.reason).toMatch(/dawn\.config/)
+      expect(result.reason).toMatch(/b4\.config/)
     }
   })
 
@@ -64,7 +64,7 @@ describe("gatePathOp interrupt suppression", () => {
 describe("gateToolOp", () => {
   let appRoot: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-gate-tool-test-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-gate-tool-test-"))
   })
   afterEach(() => {
     rmSync(appRoot, { recursive: true, force: true })
@@ -128,7 +128,7 @@ describe("gateToolOp", () => {
     expect(result.allowed).toBe(false)
     if (!result.allowed) {
       expect(result.reason).toMatch(/allow rule/)
-      expect(result.reason).toMatch(/dawn\.config/)
+      expect(result.reason).toMatch(/b4\.config/)
     }
   })
 })
@@ -136,7 +136,7 @@ describe("gateToolOp", () => {
 describe("gateSubagentOp", () => {
   let appRoot: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-gate-subagent-test-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-gate-subagent-test-"))
   })
   afterEach(() => {
     rmSync(appRoot, { recursive: true, force: true })
@@ -191,7 +191,7 @@ describe("gateSubagentOp", () => {
     })
     expect(result).toEqual({
       allowed: false,
-      code: "DAWN_E3002",
+      code: "B4_E3002",
       reason: "Permission denied by user: subagent writer",
     })
   })
@@ -203,7 +203,7 @@ describe("gateSubagentOp", () => {
     })
     expect(result.allowed).toBe(false)
     if (!result.allowed) {
-      expect(result.code).toBe("DAWN_E3002")
+      expect(result.code).toBe("B4_E3002")
       expect(result.reason).toMatch(/fail-closed.*writer/i)
     }
   })
@@ -224,7 +224,7 @@ describe("gateSubagentOp", () => {
       )
       expect(result.allowed).toBe(false)
       if (!result.allowed) {
-        expect(result.code).toBe("DAWN_E3002")
+        expect(result.code).toBe("B4_E3002")
         expect(result.reason).toMatch(/thread ID.*interrupt support.*allow rule/i)
       }
     },
@@ -273,7 +273,7 @@ describe("gateSubagentOp", () => {
       "deny",
       {
         allowed: false,
-        code: "DAWN_E3002",
+        code: "B4_E3002",
         reason: "Permission denied by user: subagent writer",
       },
     ],
@@ -342,7 +342,7 @@ describe("gateSubagentOp", () => {
 describe("wrapToolWithApproval", () => {
   let appRoot: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-wrap-tool-test-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-wrap-tool-test-"))
   })
   afterEach(() => {
     rmSync(appRoot, { recursive: true, force: true })
@@ -407,7 +407,7 @@ describe("wrapToolWithApproval", () => {
     expect(String(await wrapped.run({}, { signal }))).toMatch(/fail-closed/)
   })
 
-  it("prefixes the denial tool result with the [DAWN_E3001] code", async () => {
+  it("prefixes the denial tool result with the [B4_E3001] code", async () => {
     const permissions = createPermissionsStore({
       appRoot,
       config: { version: 1, allow: {}, deny: { tool: ["deployProd"] } },
@@ -419,7 +419,7 @@ describe("wrapToolWithApproval", () => {
       permissions,
     )
     const result = String(await wrapped.run({}, { signal }))
-    expect(result.startsWith("[DAWN_E3001] ")).toBe(true)
+    expect(result.startsWith("[B4_E3001] ")).toBe(true)
     // The original reason is preserved after the code prefix.
     expect(result).toMatch(/denied.*deployProd/i)
   })
@@ -428,7 +428,7 @@ describe("wrapToolWithApproval", () => {
 describe("wrapToolWithConstraint", () => {
   let appRoot: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-constrain-test-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-constrain-test-"))
   })
   afterEach(() => {
     rmSync(appRoot, { recursive: true, force: true })
@@ -598,7 +598,7 @@ describe("wrapToolWithConstraint", () => {
 describe("gateMemorySupersede", () => {
   let appRoot: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-gate-memory-test-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-gate-memory-test-"))
   })
   afterEach(() => {
     rmSync(appRoot, { recursive: true, force: true })

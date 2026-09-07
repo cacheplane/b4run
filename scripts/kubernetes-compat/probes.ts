@@ -81,12 +81,12 @@ export interface NetworkControlLease {
 
 type JsonObject = Record<string, unknown>
 
-const RUN_LABEL = "dawn.sh/compat-run"
-const COMPONENT_LABEL = "dawn.sh/compat-component"
-const QUOTA_NAME = "dawn-sandbox-quota"
-const INFRASTRUCTURE_CHART = "charts/dawn-sandbox-infra"
-const APPLICATION_CHART = "charts/dawn-app"
-const REAPER_CRONJOB = "dawn-reaper"
+const RUN_LABEL = "b4.sh/compat-run"
+const COMPONENT_LABEL = "b4.sh/compat-component"
+const QUOTA_NAME = "b4-sandbox-quota"
+const INFRASTRUCTURE_CHART = "charts/b4-sandbox-infra"
+const APPLICATION_CHART = "charts/b4-app"
+const REAPER_CRONJOB = "b4-reaper"
 const REAPER_COMPONENT = "reaper-lifecycle"
 const SERVICE_COMPONENT = "app-service-ready"
 const INITIAL_REAPER_SCHEDULE = "17 * * * *"
@@ -197,7 +197,7 @@ function resourceName(runId: string, role: string): string {
   if (normalizedRole.length === 0 || !DNS_NAME_PATTERN.test(normalizedRole)) {
     throw new Error(`Probe resource role is not DNS-safe: ${role}`)
   }
-  const prefix = `dawn-compat-${normalizedRole}`
+  const prefix = `b4-compat-${normalizedRole}`
   return `${prefix.slice(0, 63 - suffix.length - 1).replaceAll(/-+$/g, "")}-${suffix}`
 }
 
@@ -712,7 +712,7 @@ export async function runNetworkControlProbe(
   const serverName = resourceName(state.runId, "network-server")
   const serviceName = resourceName(state.runId, "network-service")
   const clientName = resourceName(state.runId, "network-client")
-  const componentLabel = "dawn.sh/compat-component"
+  const componentLabel = "b4.sh/compat-component"
   const server = restrictedPod({
     name: serverName,
     namespace: state.namespace,
@@ -752,7 +752,7 @@ export async function runNetworkControlProbe(
         "let attempts=0",
         `const url=${JSON.stringify(`http://${serviceName}:8080/`)}`,
         "const fail=()=>{if(++attempts>=30)process.exit(1);setTimeout(run,1000)}",
-        'const run=()=>http.get(url,(response)=>{response.resume();response.statusCode===200?(console.log("DAWN_NETWORK_CONTROL=reachable"),process.exit(0)):fail()}).on("error",fail)',
+        'const run=()=>http.get(url,(response)=>{response.resume();response.statusCode===200?(console.log("B4_NETWORK_CONTROL=reachable"),process.exit(0)):fail()}).on("error",fail)',
         "run()",
       ].join(";"),
     ],
@@ -808,7 +808,7 @@ export async function runNetworkControlProbe(
     const logs = await state.execute(
       kubectl.command(state.context, ["logs", `pod/${clientName}`, "--namespace", state.namespace]),
     )
-    if (logs.stdout.toString("utf8") !== "DAWN_NETWORK_CONTROL=reachable\n") {
+    if (logs.stdout.toString("utf8") !== "B4_NETWORK_CONTROL=reachable\n") {
       throw new Error("Network control did not emit the exact reachability marker")
     }
     await input.verifyCleanupOwnership()
@@ -1309,7 +1309,7 @@ function infrastructureChartValues(state: ResolvedProbeState): readonly string[]
     "--set-string",
     `namespace.name=${state.namespace}`,
     "--set-string",
-    `namespace.extraLabels.dawn\\.sh/compat-run=${state.runId}`,
+    `namespace.extraLabels.b4\\.sh/compat-run=${state.runId}`,
   ]
 }
 
@@ -1542,7 +1542,7 @@ function reaperFixtureLabels(runId: string): Readonly<Record<string, string>> {
   return {
     [RUN_LABEL]: runId,
     [COMPONENT_LABEL]: REAPER_COMPONENT,
-    "app.kubernetes.io/managed-by": "dawn",
+    "app.kubernetes.io/managed-by": "b4",
   }
 }
 
@@ -1560,7 +1560,7 @@ function reaperPvc(input: {
       namespace: input.namespace,
       labels: reaperFixtureLabels(input.runId),
       ...(input.marker !== undefined
-        ? { annotations: { "dawn.sh/unbound-since": input.marker } }
+        ? { annotations: { "b4.sh/unbound-since": input.marker } }
         : {}),
     },
     spec: {
@@ -1946,7 +1946,7 @@ function assertReaperPvcOutcomes(
     newMetadata.annotations === undefined
       ? {}
       : expectObject(newMetadata.annotations, "Reaper new PVC.metadata.annotations")
-  const marker = newAnnotations["dawn.sh/unbound-since"]
+  const marker = newAnnotations["b4.sh/unbound-since"]
   if (typeof marker !== "string" || !/^[1-9]\d*$/.test(marker)) {
     throw new Error("Reaper new PVC marker must be a positive integer")
   }
@@ -1971,7 +1971,7 @@ function assertReaperPvcOutcomes(
     referencedMetadata.annotations === undefined
       ? {}
       : expectObject(referencedMetadata.annotations, "Reaper referenced PVC.metadata.annotations")
-  if (Object.hasOwn(referencedAnnotations, "dawn.sh/unbound-since")) {
+  if (Object.hasOwn(referencedAnnotations, "b4.sh/unbound-since")) {
     throw new Error("Reaper referenced PVC must be retained and unmarked")
   }
 }

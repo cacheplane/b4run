@@ -41,7 +41,7 @@ test("scaffolds, installs, typechecks, builds, and runs at the exact public vers
 
   const commands = events.filter((event) => typeof event === "object")
   assert.equal(
-    commands.some(({ args }) => args.includes(`create-dawn-ai-app@${options.version}`)),
+    commands.some(({ args }) => args.includes(`create-b4-app@${options.version}`)),
     true,
   )
   assert.equal(

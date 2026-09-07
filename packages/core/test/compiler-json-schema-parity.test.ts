@@ -10,7 +10,7 @@ import type { ExtractedToolSchema } from "../src/types.ts"
 let tempDir: string
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), "dawn-schema-parity-"))
+  tempDir = mkdtempSync(join(tmpdir(), "b4-schema-parity-"))
 })
 
 afterEach(() => {

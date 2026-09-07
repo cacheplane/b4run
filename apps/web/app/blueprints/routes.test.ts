@@ -10,7 +10,7 @@ describe("/blueprints/index.json", () => {
     expect(Array.isArray(catalog)).toBe(true)
     const otel = catalog.find((c) => c.name === "opentelemetry")
     expect(otel?.category).toBe("observability")
-    expect(otel?.url).toBe("https://dawnai.org/blueprints/opentelemetry.md")
+    expect(otel?.url).toBe("https://b4.run/blueprints/opentelemetry.md")
   })
 })
 

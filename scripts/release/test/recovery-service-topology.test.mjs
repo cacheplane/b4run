@@ -30,13 +30,13 @@ test("disposable topology preserves every production job dependency and conditio
     (s) => s.name === "Exercise actual workflow publication credential",
   )
   assert.equal(publish.if, "inputs.publish_contract")
-  assert.equal(publish.env.DAWN_RECOVERY_PUBLICATION_TOKEN, `\${{ github.token }}`)
+  assert.equal(publish.env.B4_RECOVERY_PUBLICATION_TOKEN, `\${{ github.token }}`)
   assert.equal(
-    publish.env.DAWN_RECOVERY_TEST_POLICY_TOKEN,
+    publish.env.B4_RECOVERY_TEST_POLICY_TOKEN,
     `\${{ secrets.RECOVERY_POLICY_READ_TOKEN }}`,
   )
   assert.equal(
-    publish.env.DAWN_RECOVERY_AUTHORIZED_REPOSITORY,
+    publish.env.B4_RECOVERY_AUTHORIZED_REPOSITORY,
     `\${{ vars.RECOVERY_AUTHORIZED_REPOSITORY }}`,
   )
   assert.equal(
@@ -45,9 +45,9 @@ test("disposable topology preserves every production job dependency and conditio
   )
   assert.equal(fixture.on.workflow_dispatch.inputs.publish_contract.default, false)
   for (const [input, variable] of [
-    ["existing_release_id", "DAWN_RECOVERY_TEST_EXISTING_RELEASE_ID"],
-    ["existing_tag_nonce", "DAWN_RECOVERY_TEST_EXISTING_TAG_NONCE"],
-    ["existing_tag_object_sha", "DAWN_RECOVERY_TEST_EXISTING_TAG_OBJECT_SHA"],
+    ["existing_release_id", "B4_RECOVERY_TEST_EXISTING_RELEASE_ID"],
+    ["existing_tag_nonce", "B4_RECOVERY_TEST_EXISTING_TAG_NONCE"],
+    ["existing_tag_object_sha", "B4_RECOVERY_TEST_EXISTING_TAG_OBJECT_SHA"],
   ]) {
     assert.deepEqual(fixture.on.workflow_dispatch.inputs[input], { type: "string", default: "" })
     assert.equal(publish.env[variable], `\${{ inputs.${input} }}`)

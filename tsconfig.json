@@ -14,7 +14,7 @@
       "path": "./packages/devkit"
     },
     {
-      "path": "./packages/create-dawn-app"
+      "path": "./packages/create-b4-app"
     }
   ]
 }

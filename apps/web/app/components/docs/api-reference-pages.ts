@@ -15,26 +15,24 @@ export interface ApiReferencePage<
 export const API_REFERENCE_PARENT = { label: "API Reference", href: "/docs/api" } as const
 
 export const API_REFERENCE_PAGES = [
-  referencePage("@dawn-ai/sdk", "/docs/api/sdk", ["@dawn-ai/sdk"]),
-  referencePage("@dawn-ai/cli", "/docs/api/cli", ["@dawn-ai/cli"]),
-  referencePage("@dawn-ai/core", "/docs/api/core", ["@dawn-ai/core"]),
-  referencePage("@dawn-ai/ag-ui", "/docs/api/ag-ui", ["@dawn-ai/ag-ui"]),
-  referencePage("@dawn-ai/memory", "/docs/api/memory", ["@dawn-ai/memory"]),
-  referencePage("@dawn-ai/memory-pgvector", "/docs/api/memory-pgvector", [
-    "@dawn-ai/memory-pgvector",
+  referencePage("@b4run/sdk", "/docs/api/sdk", ["@b4run/sdk"]),
+  referencePage("@b4run/cli", "/docs/api/cli", ["@b4run/cli"]),
+  referencePage("@b4run/core", "/docs/api/core", ["@b4run/core"]),
+  referencePage("@b4run/ag-ui", "/docs/api/ag-ui", ["@b4run/ag-ui"]),
+  referencePage("@b4run/memory", "/docs/api/memory", ["@b4run/memory"]),
+  referencePage("@b4run/memory-pgvector", "/docs/api/memory-pgvector", ["@b4run/memory-pgvector"]),
+  referencePage("@b4run/postgres-storage", "/docs/api/postgres-storage", [
+    "@b4run/postgres-storage",
   ]),
-  referencePage("@dawn-ai/postgres-storage", "/docs/api/postgres-storage", [
-    "@dawn-ai/postgres-storage",
-  ]),
-  referencePage("@dawn-ai/testing", "/docs/api/testing", ["@dawn-ai/testing"]),
-  referencePage("@dawn-ai/evals", "/docs/api/evals", ["@dawn-ai/evals"]),
-  referencePage("dawn:routes", "/docs/api/generated-routes", ["@dawn-ai/cli", "@dawn-ai/core"]),
-  referencePage("@dawn-ai/permissions", "/docs/api/permissions", ["@dawn-ai/permissions"]),
-  referencePage("@dawn-ai/workspace", "/docs/api/workspace", ["@dawn-ai/workspace"]),
-  referencePage("@dawn-ai/sandbox", "/docs/api/sandbox", ["@dawn-ai/sandbox"]),
-  referencePage("@dawn-ai/langgraph", "/docs/api/langgraph", ["@dawn-ai/langgraph"]),
-  referencePage("@dawn-ai/langchain", "/docs/api/langchain", ["@dawn-ai/langchain"]),
-  referencePage("@dawn-ai/sqlite-storage", "/docs/api/sqlite-storage", ["@dawn-ai/sqlite-storage"]),
+  referencePage("@b4run/testing", "/docs/api/testing", ["@b4run/testing"]),
+  referencePage("@b4run/evals", "/docs/api/evals", ["@b4run/evals"]),
+  referencePage("b4:routes", "/docs/api/generated-routes", ["@b4run/cli", "@b4run/core"]),
+  referencePage("@b4run/permissions", "/docs/api/permissions", ["@b4run/permissions"]),
+  referencePage("@b4run/workspace", "/docs/api/workspace", ["@b4run/workspace"]),
+  referencePage("@b4run/sandbox", "/docs/api/sandbox", ["@b4run/sandbox"]),
+  referencePage("@b4run/langgraph", "/docs/api/langgraph", ["@b4run/langgraph"]),
+  referencePage("@b4run/langchain", "/docs/api/langchain", ["@b4run/langchain"]),
+  referencePage("@b4run/sqlite-storage", "/docs/api/sqlite-storage", ["@b4run/sqlite-storage"]),
 ] as const satisfies readonly ApiReferencePage[]
 
 function referencePage<const SurfaceName extends string, const Href extends string>(

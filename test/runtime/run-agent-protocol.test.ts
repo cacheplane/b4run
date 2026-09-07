@@ -76,14 +76,14 @@ async function collectSseEvents(response: Response, stopOn?: string): Promise<Ss
   return events
 }
 
-const HARNESS_RUNTIME_ARTIFACT_BASE_DIR_ENV = "DAWN_RUNTIME_ARTIFACT_BASE_DIR"
+const HARNESS_RUNTIME_ARTIFACT_BASE_DIR_ENV = "B4_RUNTIME_ARTIFACT_BASE_DIR"
 const tempDirs: TrackedTempDir[] = []
 
 /**
  * Add the direct deps the agent-protocol overlays import but the base template
- * does not declare: the echo route imports @dawn-ai/sqlite-storage and
+ * does not declare: the echo route imports @b4run/sqlite-storage and
  * @langchain/langgraph directly, and the workspace/permissions capabilities need
- * their packages. @dawn-ai/* resolve from the registry at `latest`; the
+ * their packages. @b4run/* resolve from the registry at `latest`; the
  * @langchain/langgraph pin is load-bearing (the overlay compiles a StateGraph
  * against this major) so it is preserved verbatim.
  */
@@ -94,9 +94,9 @@ async function addAgentProtocolDependencies(appRoot: string): Promise<void> {
   }
   pkg.dependencies = {
     ...pkg.dependencies,
-    "@dawn-ai/permissions": "latest",
-    "@dawn-ai/sqlite-storage": "latest",
-    "@dawn-ai/workspace": "latest",
+    "@b4run/permissions": "latest",
+    "@b4run/sqlite-storage": "latest",
+    "@b4run/workspace": "latest",
     "@langchain/langgraph": "1.3.0",
   }
   await writeFile(packageJsonPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf8")
@@ -109,8 +109,8 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 // Echo-agent overlay: a zero-LLM LangGraph StateGraph that checkpoints.
 //
-// The graph is compiled with the same sqliteCheckpointer path that Dawn uses
-// (.dawn/checkpoints.sqlite), so every runs/wait call writes a real checkpoint
+// The graph is compiled with the same sqliteCheckpointer path that B4.run uses
+// (.b4/checkpoints.sqlite), so every runs/wait call writes a real checkpoint
 // that survives server restarts.
 // ---------------------------------------------------------------------------
 
@@ -119,7 +119,7 @@ function echoAgentOverlaySource(): string {
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Annotation, StateGraph } from "@langchain/langgraph";
-import { sqliteCheckpointer } from "@dawn-ai/sqlite-storage";
+import { sqliteCheckpointer } from "@b4run/sqlite-storage";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 // src/app/echo/index.ts → up 3 levels to <appRoot>
@@ -133,7 +133,7 @@ const EchoAnnotation = Annotation.Root({
 });
 
 const checkpointer = sqliteCheckpointer({
-  path: resolve(appRoot, ".dawn/checkpoints.sqlite"),
+  path: resolve(appRoot, ".b4/checkpoints.sqlite"),
 });
 
 const echoGraph = new StateGraph(EchoAnnotation)
@@ -155,7 +155,7 @@ export const agent = echoGraph;
  */
 function permAgentRouteSource(): string {
   return `
-import { agent } from "@dawn-ai/sdk";
+import { agent } from "@b4run/sdk";
 
 export default agent({
   model: "gpt-4o-mini",
@@ -166,11 +166,11 @@ export default agent({
 }
 
 /**
- * dawn.config.ts overlay that enables the workspace + permissions capabilities
+ * b4.config.ts overlay that enables the workspace + permissions capabilities
  * with an empty bash allow-list so every runBash call triggers a permission
  * interrupt.
  */
-function permDawnConfigSource(): string {
+function permB4ConfigSource(): string {
   return `
 export default {
   appDir: "src/app",
@@ -368,9 +368,9 @@ describe("agent protocol permission interrupt + resume", () => {
         await mkdir(dirname(routeFile), { recursive: true })
         await writeFile(routeFile, permAgentRouteSource(), "utf8")
 
-        // Write dawn.config.ts with empty bash allow-list → every runBash triggers interrupt
-        const dawnConfigFile = join(appRoot, "dawn.config.ts")
-        await writeFile(dawnConfigFile, permDawnConfigSource(), "utf8")
+        // Write b4.config.ts with empty bash allow-list → every runBash triggers interrupt
+        const b4ConfigFile = join(appRoot, "b4.config.ts")
+        await writeFile(b4ConfigFile, permB4ConfigSource(), "utf8")
 
         // Create a workspace directory so the workspace capability activates
         await mkdir(join(appRoot, "workspace"), { recursive: true })
@@ -476,7 +476,7 @@ describe("agent protocol permission interrupt + resume", () => {
       }
 
       // -----------------------------------------------------------------------
-      // Step 2: Restart on a new port (same appRoot → same .dawn/ SQLite).
+      // Step 2: Restart on a new port (same appRoot → same .b4/ SQLite).
       // In-memory parking is gone; SQLite checkpoint is the source of truth.
       // -----------------------------------------------------------------------
       const port2 = await allocatePort()
@@ -606,7 +606,7 @@ describe("agent protocol state persistence", () => {
 
       appRoot = generatedApp.appRoot
 
-      // Install @dawn-ai/* + @langchain/langgraph from the registry, mirroring a
+      // Install @b4run/* + @langchain/langgraph from the registry, mirroring a
       // real user (see run-runtime-contract.test.ts).
       await addAgentProtocolDependencies(appRoot)
       await writeRegistryNpmrc(appRoot, getTestRegistryUrl())
@@ -657,7 +657,7 @@ describe("agent protocol state persistence", () => {
       // runs/wait directly (the server will idempotently create the thread).
       await createThreadResp.json()
 
-      // Run the agent — this writes a checkpoint to .dawn/checkpoints.sqlite
+      // Run the agent — this writes a checkpoint to .b4/checkpoints.sqlite
       const runsWaitResp = await fetch(
         new URL(`/threads/${encodeURIComponent(threadId)}/runs/wait`, url1),
         {
@@ -693,7 +693,7 @@ describe("agent protocol state persistence", () => {
     }
 
     // ------------------------------------------------------------------
-    // 3. Restart on a new port (same appRoot → same .dawn directory)
+    // 3. Restart on a new port (same appRoot → same .b4 directory)
     // ------------------------------------------------------------------
     const port2 = await allocatePort()
     const server2 = await startDevServer({ cwd: appRoot, port: port2 })

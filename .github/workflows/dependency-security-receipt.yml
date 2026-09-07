@@ -35,6 +35,9 @@ on:
 
 jobs:
   upload:
+    # Historical Dawn receipt validators remain bound to the original repository.
+    # Re-enable only after a separately reviewed B4.run receipt pipeline exists.
+    if: false
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -88,7 +91,7 @@ jobs:
             echo "workflow dispatch SHA does not match expectedMainSha" >&2
             exit 2
           fi
-          live_main_sha="$(gh api repos/cacheplane/dawnai/git/ref/heads/main --jq '.object.sha')"
+          live_main_sha="$(gh api repos/cacheplane/b4-run/git/ref/heads/main --jq '.object.sha')"
           if [[ "$live_main_sha" != "$EXPECTED_MAIN_SHA" ]]; then
             echo "default branch moved after the reviewed observation" >&2
             exit 2

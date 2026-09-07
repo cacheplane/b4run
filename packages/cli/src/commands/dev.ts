@@ -11,11 +11,11 @@ interface DevOptions {
 export function registerDevCommand(program: Command, io: CommandIo): void {
   program
     .command("dev")
-    .description("Start the Dawn local development runtime")
-    .option("--port <number>", "Bind dawn dev to a stable localhost port")
+    .description("Start the B4.run local development runtime")
+    .option("--port <number>", "Bind b4 dev to a stable localhost port")
     .option(
       "--env-file <path>",
-      "Path to a .env file (overrides dawn.config.ts env and the default ./.env)",
+      "Path to a .env file (overrides b4.config.ts env and the default ./.env)",
     )
     .action(async (options: DevOptions) => {
       await runDevCommand(options, io)

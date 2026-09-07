@@ -212,7 +212,7 @@ export function parseRecoveryPolicy(raw) {
   )
   exact(p.fence, "concurrencyGroup contracts")
   requireThat(
-    p.fence.concurrencyGroup === "dawn-release-controller" &&
+    p.fence.concurrencyGroup === "b4-release-controller" &&
       Array.isArray(p.fence.contracts) &&
       p.fence.contracts.length <= 32 &&
       p.fence.contracts.every(

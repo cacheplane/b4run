@@ -45,8 +45,8 @@ const expectedOwnership = {
     "test/k8s-compat/",
     "test/k8s-smoke/",
     "packages/sandbox/",
-    "charts/dawn-app/",
-    "charts/dawn-sandbox-infra/",
+    "charts/b4-app/",
+    "charts/b4-sandbox-infra/",
   ],
 } as const
 
@@ -103,8 +103,8 @@ describe("Kubernetes compatibility path ownership", () => {
     "test/k8s-compatible/scope.test.ts",
     "packages/sandboxed/src/index.ts",
     "packages/workspace/src/other-sandbox-types.ts",
-    "charts/dawn-application/values.yaml",
-    "charts/dawn-sandbox-infrastructure/values.yaml",
+    "charts/b4-application/values.yaml",
+    "charts/b4-sandbox-infrastructure/values.yaml",
     "docs/kubernetes-compatibility.md",
     "./packages/sandbox/src/index.ts",
     "packages\\sandbox\\src\\index.ts",
@@ -123,7 +123,7 @@ describe("Kubernetes compatibility cache inputs", () => {
       tasks?: Record<string, { inputs?: string[] }>
     }
 
-    expect(turbo.tasks?.["@dawn-ai/sandbox#test"]?.inputs).toContain(
+    expect(turbo.tasks?.["@b4run/sandbox#test"]?.inputs).toContain(
       "$TURBO_ROOT$/.github/kubernetes-compatibility.json",
     )
   })
@@ -217,11 +217,11 @@ describe("pull-request scope", () => {
   })
 
   test("requires compatibility when an owned path is renamed out of scope", async () => {
-    const repository = await mkdtemp(join(tmpdir(), "dawn-k8s-scope-rename-"))
+    const repository = await mkdtemp(join(tmpdir(), "b4-k8s-scope-rename-"))
     temporaryDirectories.push(repository)
     git(repository, ["init", "--quiet"])
-    git(repository, ["config", "user.name", "Dawn Scope Test"])
-    git(repository, ["config", "user.email", "scope-test@dawn.invalid"])
+    git(repository, ["config", "user.name", "B4.run Scope Test"])
+    git(repository, ["config", "user.email", "scope-test@b4.invalid"])
     git(repository, ["config", "commit.gpgSign", "false"])
     git(repository, ["config", "diff.renames", "true"])
 
@@ -434,13 +434,13 @@ describe("workflow matrix", () => {
           target: lower.minor,
           version: lower.version,
           nodeImage: lower.nodeImage,
-          clusterName: "dawn-k8s-lower",
+          clusterName: "b4-k8s-lower",
         },
         {
           target: upper.minor,
           version: upper.version,
           nodeImage: upper.nodeImage,
-          clusterName: "dawn-k8s-upper",
+          clusterName: "b4-k8s-upper",
         },
       ],
     })
@@ -597,7 +597,7 @@ describe("workflow CLI", () => {
     )
     expect(workflowSource).not.toContain("GITHUB_OUTPUT")
 
-    const directory = await mkdtemp(join(tmpdir(), "dawn-k8s-workflow-output-"))
+    const directory = await mkdtemp(join(tmpdir(), "b4-k8s-workflow-output-"))
     temporaryDirectories.push(directory)
     const githubOutputPath = join(directory, "output with spaces")
     await writeFile(githubOutputPath, "sentinel\n")

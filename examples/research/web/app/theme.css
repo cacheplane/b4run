@@ -4,12 +4,12 @@
  * The workbench palette, its Tailwind tokens, and the markdown styling.
  * Restyling the app is editing this file.
  *
- * (The packaged activity cards' status colors — --dawn-activity-running/
- * -complete/-failed — deliberately stay defined in @dawn-ai/ag-ui; they are
+ * (The packaged activity cards' status colors — --b4-activity-running/
+ * -complete/-failed — deliberately stay defined in @b4run/ag-ui; they are
  * already correct and semantic, so this sheet does not override them.)
  *
- * The dawn gradient has exactly two ROLES by design — the brand mark and the
- * primary action — so the app reads as a tool that happens to be named Dawn
+ * The b4 gradient has exactly two ROLES by design — the brand mark and the
+ * primary action — so the app reads as a tool that happens to be named B4.run
  * rather than a themed demo. (Two roles, three render sites: the brand mark
  * appears in the rail and again in the empty state.)
  */
@@ -34,7 +34,7 @@
  * `@theme inline`, not plain `@theme`. Inline substitutes the *value* into the
  * generated utility, so `bg-wb-bg` compiles to `background-color: var(--wb-bg)`
  * and the `--wb-*` variables above stay the single source of truth — including
- * for the dark-mode overrides below and the --dawn-activity-* mapping. A plain
+ * for the dark-mode overrides below and the --b4-activity-* mapping. A plain
  * `@theme` would emit a second set of variables that the media query would not
  * reach, and dark mode would silently stop working for every utility.
  */
@@ -63,18 +63,18 @@
 /*
  * Rung 1: the packaged activity cards inherit the workbench palette.
  *
- * A plain `:root` is enough. @dawn-ai/ag-ui wraps all three of its own token
+ * A plain `:root` is enough. @b4run/ag-ui wraps all three of its own token
  * blocks in `:where()`, so they sit at specificity (0,0,0) and this block wins
  * in both themes and regardless of stylesheet order. (It used to read
  * `:root:root`: the package's two dark blocks were (0,2,0), so a plain `:root`
  * lost in dark mode and the cards kept the package's colors.)
  */
 :root {
-  --dawn-activity-surface: var(--wb-surface);
-  --dawn-activity-border: var(--wb-border);
-  --dawn-activity-text: var(--wb-text);
-  --dawn-activity-muted: var(--wb-muted);
-  --dawn-activity-radius: var(--wb-radius);
+  --b4-activity-surface: var(--wb-surface);
+  --b4-activity-border: var(--wb-border);
+  --b4-activity-text: var(--wb-text);
+  --b4-activity-muted: var(--wb-muted);
+  --b4-activity-radius: var(--wb-radius);
 }
 
 @media (prefers-color-scheme: dark) {

@@ -1,4 +1,4 @@
-import { BROWSE_MAX_LIMIT, type MemoryRecord } from "@dawn-ai/memory/browse"
+import { BROWSE_MAX_LIMIT, type MemoryRecord } from "@b4run/memory/browse"
 import { describe, expect, it } from "vitest"
 import {
   BROWSE_PAGE_SIZE,

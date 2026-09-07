@@ -2,7 +2,7 @@
 // The probe-app approval-chat route approve-lists deployProd; each call runs
 // gateToolOp → in interactive mode an "unknown" decision fires a LangGraph
 // interrupt (kind "tool"). Resume decisions: "once" runs the tool now, "always"
-// persists allow.tool to <appRoot>/.dawn/permissions.json then runs, "deny"
+// persists allow.tool to <appRoot>/.b4/permissions.json then runs, "deny"
 // makes the denial reason the tool's RESULT (a string — rendered JSON-quoted
 // through the tool-result path, so assertions use regex, never equality).
 // Runs in CI (no API key — aimock).
@@ -16,7 +16,7 @@ import { expectInterrupt, expectNoInterrupt, expectToolCalled } from "../src/mat
 import type { AgentRunResult } from "../src/run-result.js"
 
 const probeRoot = fileURLToPath(new URL("./fixtures/probe-app", import.meta.url))
-const permissionsPath = join(probeRoot, ".dawn", "permissions.json")
+const permissionsPath = join(probeRoot, ".b4", "permissions.json")
 
 function cleanPersistedState(): void {
   // "always" persists allow.tool into permissions.json and would leak an

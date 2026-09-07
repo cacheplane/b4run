@@ -14,7 +14,7 @@ const digest = "d".repeat(64),
   fenceDigest = "f".repeat(64)
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex")
 const candidate = {
-  repository: "example/dawn",
+  repository: "example/b4",
   repositoryId: "1",
   version: "0.8.24",
   candidateSha,
@@ -139,7 +139,7 @@ async function fixture() {
     },
     observedAt: 1000,
     expiresAt: 31000,
-    concurrencyGroup: "dawn-release-controller",
+    concurrencyGroup: "b4-release-controller",
     cancelInProgress: false,
     writers: [
       {
@@ -255,7 +255,7 @@ test("arbitrary controller SHA and wrong invocation identity fail before git or 
       f.state.context.ref = "refs/tags/v0.8.24"
     },
     (f) => {
-      f.state.context.repository = "other/dawn"
+      f.state.context.repository = "other/b4"
     },
   ]) {
     const f = await fixture()
@@ -490,7 +490,7 @@ test("real GitHub read adapter projects workflow filenames and normalized all-at
     }))
   f.dependencies.github = createGitHubReader({
     owner: "example",
-    repo: "dawn",
+    repo: "b4",
     repositoryId: "1",
     fetchImpl: async (url) => {
       const path = new URL(url).pathname
@@ -540,7 +540,7 @@ test("real GitHub read adapter projects workflow filenames and normalized all-at
   })
   const result = await authority.captureRecoveryAuthority(f.request, f.dependencies)
   assert.equal(result.executor.jobId, "51")
-  assert.ok(urls.includes("/repos/example/dawn/actions/workflows/ci.yml/runs"))
+  assert.ok(urls.includes("/repos/example/b4/actions/workflows/ci.yml/runs"))
 })
 
 test("invocation and fence observation deadlines cannot hang or grant late authority", async () => {

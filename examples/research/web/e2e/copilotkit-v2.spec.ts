@@ -17,7 +17,7 @@ test("selects the CopilotKit V2 multi-route transport", async ({ page }) => {
     }
   })
 
-  await page.route("**/api/dawn/**", async (route) => {
+  await page.route("**/api/b4/**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",

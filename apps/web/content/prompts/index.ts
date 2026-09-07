@@ -7,17 +7,17 @@ export interface PromptEntry {
   readonly body: string
 }
 
-const SCAFFOLD = `Help me scaffold a new Dawn app from the default research starter. Dawn is a TypeScript-first meta-framework for building graph-based AI agents with file-system routing, shared and route-local tools, and inferred types.
+const SCAFFOLD = `Help me scaffold a new B4.run app from the default research starter. B4.run is a TypeScript-first meta-framework for building graph-based AI agents with file-system routing, shared and route-local tools, and inferred types.
 
 1. Run the scaffold:
    \`\`\`
-   npm create dawn-ai-app@latest my-agent
+   npm create b4-app@latest my-agent
    cd my-agent
    npm install
    \`\`\`
 
 2. Walk me through the generated project structure. Explain:
-   - The two-package npm workspace: \`server/\` is the Dawn app and \`web/\` is the Dawn Workbench browser client. Every path below is relative to \`server/\`, and the root \`package.json\` scripts delegate into whichever package owns them.
+   - The two-package npm workspace: \`server/\` is the B4.run app and \`web/\` is the B4.run Workbench browser client. Every path below is relative to \`server/\`, and the root \`package.json\` scripts delegate into whichever package owns them.
    - How routes are directories containing an \`index.ts\` that exports exactly one of: default \`agent(...)\`, named \`workflow\` (async function), named \`graph\` (LangGraph graph), or named \`chain\` (LangChain LCEL Runnable).
    - \`state.ts\` — the optional Zod route state schema.
    - \`src/tools/*.ts\` — shared tools available across routes. The default research scaffold puts \`searchCorpus\` and \`readDoc\` here.
@@ -30,7 +30,7 @@ const SCAFFOLD = `Help me scaffold a new Dawn app from the default research star
    - Optional \`sandbox\` config — routes workspace filesystem and shell calls through a provider such as the Docker reference implementation.
    - Route groups like \`(public)\` — excluded from pathname when a template uses them.
    - Dynamic segments like \`[tenant]\` — preserved in the route id; provide values in JSON input when invoking the route. The optional \`--template basic\` scaffold uses \`/hello/[tenant]\`.
-   - \`.dawn/dawn.generated.d.ts\` — auto-generated ambient types from the TypeScript compiler API.
+   - \`.b4/b4.generated.d.ts\` — auto-generated ambient types from the TypeScript compiler API.
 
 3. Start with type generation, validation, typechecking, the offline deterministic agent harness tests, and the replay-backed eval. These need no model-provider key:
    \`\`\`
@@ -50,7 +50,7 @@ const SCAFFOLD = `Help me scaffold a new Dawn app from the default research star
    \`\`\`
    The generated dev script serves \`http://127.0.0.1:3002\`.
 
-5. In a second terminal, start the Dawn Workbench — the generated \`web/\` package, an AG-UI/CopilotKit client with a thread rail, streaming transcript, plan and subagent activity cards, permission prompts, and memory review:
+5. In a second terminal, start the B4.run Workbench — the generated \`web/\` package, an AG-UI/CopilotKit client with a thread rail, streaming transcript, plan and subagent activity cards, permission prompts, and memory review:
    \`\`\`
    npm run dev:web
    \`\`\`
@@ -67,12 +67,12 @@ const SCAFFOLD = `Help me scaffold a new Dawn app from the default research star
 
 7. Summarize what I can build next: add a tool, add a new route, write an agent harness test, add a replay/live eval, or opt into sandboxed execution.
 
-Key packages: \`@dawn-ai/sdk\` (authoring contract), \`@dawn-ai/langgraph\` (graphs/workflows), \`@dawn-ai/langchain\` (LCEL and provider-aware agent materialization), \`@dawn-ai/cli\` (CLI).
+Key packages: \`@b4run/sdk\` (authoring contract), \`@b4run/langgraph\` (graphs/workflows), \`@b4run/langchain\` (LCEL and provider-aware agent materialization), \`@b4run/cli\` (CLI).
 
-Reference: https://dawnai.org/llms.txt
+Reference: https://b4.run/llms.txt
 `
 
-const ADD_A_TOOL = `Help me add a new tool to an existing Dawn app. Dawn discovers shared tools in \`src/tools/*.ts\` and route-local tools in \`src/app/<route>/tools/*.ts\`; their types are generated from TypeScript — no Zod schemas or manual type wiring.
+const ADD_A_TOOL = `Help me add a new tool to an existing B4.run app. B4.run discovers shared tools in \`src/tools/*.ts\` and route-local tools in \`src/app/<route>/tools/*.ts\`; their types are generated from TypeScript — no Zod schemas or manual type wiring.
 
 1. Choose the tool's scope before creating it:
    - Put tools reused by multiple routes in \`src/tools/\`. This is where the default research scaffold keeps \`searchCorpus\` and \`readDoc\`.
@@ -88,23 +88,23 @@ const ADD_A_TOOL = `Help me add a new tool to an existing Dawn app. Dawn discove
    }
    \`\`\`
 
-3. The input parameter type and the return type are both inferred. Dawn extracts them at build time and writes them into \`.dawn/dawn.generated.d.ts\`. The tool becomes available on typed \`ctx.tools\` for eligible workflows and callable graph functions, and \`dawn build\` wires it into generated agent entries.
+3. The input parameter type and the return type are both inferred. B4.run extracts them at build time and writes them into \`.b4/b4.generated.d.ts\`. The tool becomes available on typed \`ctx.tools\` for eligible workflows and callable graph functions, and \`b4 build\` wires it into generated agent entries.
 
-4. Run \`dawn typegen\` to regenerate types after adding the tool (or leave \`dawn dev\` running — it does this on every file save).
+4. Run \`b4 typegen\` to regenerate types after adding the tool (or leave \`b4 dev\` running — it does this on every file save).
 
-5. For a \`workflow\`, or a callable \`graph\` function that explicitly receives Dawn \`RuntimeContext\`, update \`index.ts\` to call the tool via \`ctx.tools.<tool-name>({ ... })\`. A precompiled raw LangGraph object's \`.invoke()\` treats its second argument as LangGraph \`RunnableConfig\`, not Dawn's typed \`RuntimeContext\`; it keeps the tools its implementation already owns or imports rather than expecting workflow-style \`ctx.tools\`. For an \`agent\` route, leave \`index.ts\` as the default \`agent(...)\` descriptor; Dawn materializes the agent with its eligible tools.
+5. For a \`workflow\`, or a callable \`graph\` function that explicitly receives B4.run \`RuntimeContext\`, update \`index.ts\` to call the tool via \`ctx.tools.<tool-name>({ ... })\`. A precompiled raw LangGraph object's \`.invoke()\` treats its second argument as LangGraph \`RunnableConfig\`, not B4.run's typed \`RuntimeContext\`; it keeps the tools its implementation already owns or imports rather than expecting workflow-style \`ctx.tools\`. For an \`agent\` route, leave \`index.ts\` as the default \`agent(...)\` descriptor; B4.run materializes the agent with its eligible tools.
 
-6. Re-run the route with \`dawn run\` and confirm the new tool is invoked end-to-end.
+6. Re-run the route with \`b4 run\` and confirm the new tool is invoked end-to-end.
 
 Constraints:
 - The default export must be a function (arrow or async function declaration).
 - Input and output types must be serializable as JSON.
-- \`readonly\` is recommended on input fields; Dawn preserves it through type generation.
+- \`readonly\` is recommended on input fields; B4.run preserves it through type generation.
 
-Reference: https://dawnai.org/llms.txt
+Reference: https://b4.run/llms.txt
 `
 
-const WRITE_A_ROUTE = `Help me add a new route to an existing Dawn app. Routes are directories under \`src/app/\` where each directory maps to a URL-style pathname (minus route groups).
+const WRITE_A_ROUTE = `Help me add a new route to an existing B4.run app. Routes are directories under \`src/app/\` where each directory maps to a URL-style pathname (minus route groups).
 
 1. Create the route directory. For a route under a dynamic \`[topic]\` segment:
    \`\`\`
@@ -145,7 +145,7 @@ const WRITE_A_ROUTE = `Help me add a new route to an existing Dawn app. Routes a
 
    **Agent** (default descriptor):
    \`\`\`ts
-   import { agent } from "@dawn-ai/sdk"
+   import { agent } from "@b4run/sdk"
 
    export default agent({
      model: "gpt-5-mini",
@@ -155,7 +155,7 @@ const WRITE_A_ROUTE = `Help me add a new route to an existing Dawn app. Routes a
 
 4. If the route needs tools, add them at the appropriate scope: use \`src/tools/*.ts\` for tools shared across routes, or \`src/app/<new-route>/[topic]/tools/*.ts\` for route-local tools. A route-local tool shadows a same-named shared tool for that route. Then add a typed \`RuntimeContext\` parameter and call the tool through \`ctx.tools\`; otherwise keep the workflow tool-free.
 
-5. Run \`dawn routes\` to confirm Dawn discovered the new route and what pathname it computed. Then \`dawn run '<pathname>'\` with the required state via stdin.
+5. Run \`b4 routes\` to confirm B4.run discovered the new route and what pathname it computed. Then \`b4 run '<pathname>'\` with the required state via stdin.
 
 Constraints:
 - Exactly one of default \`agent(...)\`, named \`workflow\`, named \`graph\`, or named \`chain\` may be exported from \`index.ts\`.
@@ -163,17 +163,17 @@ Constraints:
 - Dynamic segment values, such as \`topic\`, come from the JSON input when invoking the parameterized route id.
 - The \`RouteTools<"/path">\` type is generated from the shared and route-local tools available to that route.
 
-Reference: https://dawnai.org/llms.txt
+Reference: https://b4.run/llms.txt
 `
 
-const WRITE_A_TEST = `Help me write tests for a Dawn route. Pick the right style for the route kind:
+const WRITE_A_TEST = `Help me write tests for a B4.run route. Pick the right style for the route kind:
 
 1. For an agent route like the default \`/research#agent\`, write a Vitest test with \`createAgentHarness\`, \`script()\` fixtures, and agent matchers:
 
    \`\`\`ts
    import { fileURLToPath } from "node:url"
    import { afterAll, it } from "vitest"
-   import { createAgentHarness, expectFinalMessage, expectToolCalled, script } from "@dawn-ai/testing"
+   import { createAgentHarness, expectFinalMessage, expectToolCalled, script } from "@b4run/testing"
 
    const appRoot = fileURLToPath(new URL("..", import.meta.url))
    const h = await createAgentHarness({ appRoot, route: "/research#agent" })
@@ -201,7 +201,7 @@ const WRITE_A_TEST = `Help me write tests for a Dawn route. Pick the right style
 2. For deterministic \`workflow\`, \`graph\`, or \`chain\` routes, use a colocated \`run.test.ts\` scenario file:
 
    \`\`\`ts
-   import { scenarios } from "@dawn-ai/sdk/testing"
+   import { scenarios } from "@b4run/sdk/testing"
 
    export default scenarios("/hello/[tenant]")
      .scenario("returns a greeting", (s) =>
@@ -216,24 +216,24 @@ const WRITE_A_TEST = `Help me write tests for a Dawn route. Pick the right style
 
 4. For an in-process scenario, replace only the external or nondeterministic application tool and assert its calls. Tool names, inputs, and awaited outputs come from the generated route types:
    \`\`\`ts
-   import { scenarios } from "@dawn-ai/sdk/testing"
+   import { scenarios } from "@b4run/sdk/testing"
 
    export default scenarios("/research").scenario("uses a controlled corpus result", (s) =>
      s
-       .input({ messages: [{ role: "user", content: "Research Dawn" }] })
+       .input({ messages: [{ role: "user", content: "Research B4.run" }] })
        .mockTool("searchCorpus", async ({ query }) => [
-         { path: "corpus/dawn.md", score: 1, snippet: query },
+         { path: "corpus/b4.md", score: 1, snippet: query },
        ])
        .expectPassed()
        .expectTool("searchCorpus", (call) =>
-         call.calledOnce().withArgs({ query: "Dawn" }),
+         call.calledOnce().withArgs({ query: "B4.run" }),
        ),
    )
    \`\`\`
 
-5. To exercise the live Dawn HTTP boundary instead, use a separate server-backed scenario. Server-backed scenarios cannot use tool mocks:
+5. To exercise the live B4.run HTTP boundary instead, use a separate server-backed scenario. Server-backed scenarios cannot use tool mocks:
    \`\`\`ts
-   import { scenarios } from "@dawn-ai/sdk/testing"
+   import { scenarios } from "@b4run/sdk/testing"
 
    export default scenarios("/hello/[tenant]").scenario(
      "returns a greeting via the dev server",
@@ -245,11 +245,11 @@ const WRITE_A_TEST = `Help me write tests for a Dawn route. Pick the right style
          .expectOutput({ tenant: "acme", greeting: "Hello, acme!" }),
    )
    \`\`\`
-   There is no command-level \`--url\` flag on \`dawn test\`.
+   There is no command-level \`--url\` flag on \`b4 test\`.
 
 6. Run agent Vitest files with the package's test runner (for the scaffold, \`npm test\`). Run route scenario suites with:
    \`\`\`
-   dawn test
+   b4 test
    \`\`\`
 
 Constraints:
@@ -257,38 +257,38 @@ Constraints:
 - \`run.test.ts\` must live in the deterministic route's directory, default-export \`scenarios("/route").scenario(...)\`, and avoid \`describe()\` / \`test()\` wrappers.
 - In-process scenarios can replace selected application tools with \`.mockTool()\` and assert calls with \`.expectTool()\`; server-backed scenarios cannot use tool mocks.
 
-Reference: https://dawnai.org/llms.txt
+Reference: https://b4.run/llms.txt
 `
 
-const DEPLOY = `Help me choose and deploy the right Dawn build target. Dawn can emit a self-hosted Node server, an opt-in edge app, generated LangGraph entries, or any combination named in \`build.targets\`.
+const DEPLOY = `Help me choose and deploy the right B4.run build target. B4.run can emit a self-hosted Node server, an opt-in edge app, generated LangGraph entries, or any combination named in \`build.targets\`.
 
 1. Verify the app before deployment:
    \`\`\`
-   dawn verify
-   dawn test
+   b4 verify
+   b4 test
    \`\`\`
-   \`dawn verify\` covers the app contract, route discovery, typegen, dependency/environment advisories, and runtime readiness. \`dawn test\` runs scenario tests. A configured \`hono\` target is capability-validated by both \`dawn check\` and \`dawn build\`.
+   \`b4 verify\` covers the app contract, route discovery, typegen, dependency/environment advisories, and runtime readiness. \`b4 test\` runs scenario tests. A configured \`hono\` target is capability-validated by both \`b4 check\` and \`b4 build\`.
 
-2. Optionally catch Dawn HTTP protocol-shape issues before a Node or Hono deploy. Add \`.server("http://127.0.0.1:3001")\` to selected \`scenarios(...)\` builder chains, then run:
+2. Optionally catch B4.run HTTP protocol-shape issues before a Node or Hono deploy. Add \`.server("http://127.0.0.1:3001")\` to selected \`scenarios(...)\` builder chains, then run:
    \`\`\`
-   dawn dev --port 3001 &
-   dawn test
+   b4 dev --port 3001 &
+   b4 test
    \`\`\`
    This exercises the Agent Protocol thread lifecycle locally. LangSmith uses a distinct \`assistant_id\` request envelope, so test that platform boundary separately.
 
-3. Make the target decision explicit in \`dawn.config.ts\`. Naming targets replaces the defaults, so include every artifact this app needs:
+3. Make the target decision explicit in \`b4.config.ts\`. Naming targets replaces the defaults, so include every artifact this app needs:
 
-   **Dawn Node runtime — full self-hosted surface**
+   **B4.run Node runtime — full self-hosted surface**
    \`\`\`ts
-   import { config } from "@dawn-ai/cli"
+   import { config } from "@b4run/cli"
 
    export default config({ build: { targets: ["node"] } })
    \`\`\`
-   This emits \`.dawn/build/server.mjs\`, a static module manifest, and a hardened Node 24 Dockerfile. Serve the Dawn runtime directly with \`dawn start\` or build the emitted Dockerfile. Ensure \`@dawn-ai/cli\` is in \`dependencies\`, not \`devDependencies\`. Supply runtime secrets in the process/container environment: \`dawn start\` does not load the file named by \`config.env\`. The Node runtime serves Agent Protocol, AG-UI, middleware, and the configured sandbox. Its default local stores and in-process run/cancel registry require one replica unless thread-keyed stickiness or distributed coordination is guaranteed.
+   This emits \`.b4/build/server.mjs\`, a static module manifest, and a hardened Node 24 Dockerfile. Serve the B4.run runtime directly with \`b4 start\` or build the emitted Dockerfile. Ensure \`@b4run/cli\` is in \`dependencies\`, not \`devDependencies\`. Supply runtime secrets in the process/container environment: \`b4 start\` does not load the file named by \`config.env\`. The Node runtime serves Agent Protocol, AG-UI, middleware, and the configured sandbox. Its default local stores and in-process run/cancel registry require one replica unless thread-keyed stickiness or distributed coordination is guaranteed.
 
    **Hono edge app — compatible subset only**
    \`\`\`ts
-   import { config } from "@dawn-ai/cli"
+   import { config } from "@b4run/cli"
 
    export default config({ build: { targets: ["hono"] } })
    \`\`\`
@@ -296,27 +296,27 @@ const DEPLOY = `Help me choose and deploy the right Dawn build target. Dawn can 
 
    **LangSmith entries — platform-owned transport**
    \`\`\`ts
-   import { config } from "@dawn-ai/cli"
+   import { config } from "@b4run/cli"
 
    export default config({ build: { targets: ["langsmith"] } })
    \`\`\`
-   This emits \`.dawn/build/langgraph.json\` and per-route entries keyed by \`<routeId>#<kind>\`, such as \`/research#agent\`. These are generated graphs, not the Dawn HTTP server: Dawn middleware, AG-UI, and the sandbox manager are absent. The generated config currently sets \`node_version: "22"\`, while Dawn packages require Node >=24. Treat that as an unresolved compatibility mismatch and confirm the platform can run the required Node version before deployment.
+   This emits \`.b4/build/langgraph.json\` and per-route entries keyed by \`<routeId>#<kind>\`, such as \`/research#agent\`. These are generated graphs, not the B4.run HTTP server: B4.run middleware, AG-UI, and the sandbox manager are absent. The generated config currently sets \`node_version: "22"\`, while B4.run packages require Node >=24. Treat that as an unresolved compatibility mismatch and confirm the platform can run the required Node version before deployment.
 
 4. Build the selected target only after verification and tests pass:
    \`\`\`
-   dawn build --clean
+   b4 build --clean
    \`\`\`
 
-5. Show me the exact files the build emitted, the command that starts or deploys them, the required runtime environment and storage, and one target-boundary smoke test. Refer to https://dawnai.org/docs/deployment for the full service and limitation matrix rather than reproducing it.
+5. Show me the exact files the build emitted, the command that starts or deploys them, the required runtime environment and storage, and one target-boundary smoke test. Refer to https://b4.run/docs/deployment for the full service and limitation matrix rather than reproducing it.
 
-Reference: https://dawnai.org/llms.txt
+Reference: https://b4.run/llms.txt
 `
 
 export const PROMPTS: readonly PromptEntry[] = [
   {
     slug: "scaffold",
-    title: "Scaffold a new Dawn app",
-    description: "Create a new Dawn project and walk through the structure.",
+    title: "Scaffold a new B4.run app",
+    description: "Create a new B4.run project and walk through the structure.",
     body: SCAFFOLD,
   },
   {
@@ -340,7 +340,7 @@ export const PROMPTS: readonly PromptEntry[] = [
   {
     slug: "deploy",
     title: "Choose a deployment target",
-    description: "Build for the Dawn Node runtime, a compatible edge app, or LangSmith.",
+    description: "Build for the B4.run Node runtime, a compatible edge app, or LangSmith.",
     body: DEPLOY,
   },
 ]

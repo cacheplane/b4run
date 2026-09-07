@@ -1,4 +1,4 @@
-import type { BrowseFilter, BrowseSortEntry } from "@dawn-ai/memory/browse"
+import type { BrowseFilter, BrowseSortEntry } from "@b4run/memory/browse"
 import { describe, expect, it } from "vitest"
 import {
   browseMatchesNothing,

@@ -1,0 +1,9 @@
+{
+  "graphs": {
+    "/research#agent": "./.dawn/build/research.ts:graph",
+    "/research/subagents/researcher#agent": "./.dawn/build/research-subagents-researcher.ts:graph"
+  },
+  "dependencies": ["."],
+  "env": ".env.example",
+  "node_version": "22"
+}

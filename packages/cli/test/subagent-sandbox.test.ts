@@ -61,13 +61,13 @@ describe("subagent sandbox preparation", () => {
 })
 
 async function fixtureApp(): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-subagent-sandbox-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-subagent-sandbox-"))
   tempDirs.push(appRoot)
   const files = {
     "package.json": '{"type":"module"}\n',
-    "dawn.config.ts": "export default {}\n",
-    "src/app/parent/index.ts": `import { agent } from "@dawn-ai/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "Parent." })\n`,
-    "src/app/parent/subagents/researcher/index.ts": `import { agent } from "@dawn-ai/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "Child." })\n`,
+    "b4.config.ts": "export default {}\n",
+    "src/app/parent/index.ts": `import { agent } from "@b4run/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "Parent." })\n`,
+    "src/app/parent/subagents/researcher/index.ts": `import { agent } from "@b4run/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "Child." })\n`,
   }
   await Promise.all(
     Object.entries(files).map(async ([relativePath, source]) => {

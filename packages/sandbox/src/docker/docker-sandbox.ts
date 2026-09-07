@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import type { SandboxHandle, SandboxPolicy, SandboxProvider } from "@dawn-ai/workspace"
+import type { SandboxHandle, SandboxPolicy, SandboxProvider } from "@b4run/workspace"
 import { sandboxUnavailable } from "../errors.js"
 import { createDocker, type Docker, type SpawnResult } from "./docker-cli.js"
 import { dockerExec } from "./docker-exec.js"
@@ -8,8 +8,8 @@ import { createThreadLifecycleCoordinator } from "./thread-lifecycle.js"
 
 const ROOT = "/workspace"
 const sanitize = (s: string) => s.replaceAll(/[^a-zA-Z0-9_.-]/g, "_")
-const containerName = (threadId: string) => `dawn-sbx-${sanitize(threadId)}`
-const volumeName = (threadId: string) => `dawn-sbx-vol-${sanitize(threadId)}`
+const containerName = (threadId: string) => `b4-sbx-${sanitize(threadId)}`
+const volumeName = (threadId: string) => `b4-sbx-vol-${sanitize(threadId)}`
 
 export interface DockerSandboxOptions {
   /** Container image for the sandbox (must include a POSIX shell). */
@@ -84,14 +84,14 @@ const keeperIdentity = (image: string, config: DockerLaunchConfig) =>
     .update(JSON.stringify({ image, launchConfig: config }))
     .digest("hex")
 
-const isDawnCodedError = (error: unknown): error is Error & { readonly code: string } =>
+const isB4CodedError = (error: unknown): error is Error & { readonly code: string } =>
   error instanceof Error &&
   typeof (error as Error & { code?: unknown }).code === "string" &&
-  /^DAWN_E\d{4}$/.test((error as Error & { code: string }).code)
+  /^B4_E\d{4}$/.test((error as Error & { code: string }).code)
 
 /**
  * Docker reference SandboxProvider. Per thread: a persistent container
- * `dawn-sbx-<threadId>` (sleep infinity) with a named volume mounted at
+ * `b4-sbx-<threadId>` (sleep infinity) with a named volume mounted at
  * /workspace. acquire() reuses only a keeper owned by this provider lifecycle
  * with a matching persisted identity; otherwise it replaces the keeper while
  * preserving the volume. release() removes the container but KEEPS the volume;
@@ -116,10 +116,10 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
     typeof token === "object" && token !== null && recoveryAttempt in token
 
   const recoveryError = (threadId: string, phase: "removal" | "recreation", error: unknown) => {
-    if (isDawnCodedError(error)) return error
+    if (isB4CodedError(error)) return error
     const detail = error instanceof Error ? error.message : String(error)
     const wrapped = sandboxUnavailable(
-      `Sandbox unavailable: Docker PID recovery ${phase} failed for thread "${threadId}": ${detail || "unknown error"}. Run \`dawn check\`.`,
+      `Sandbox unavailable: Docker PID recovery ${phase} failed for thread "${threadId}": ${detail || "unknown error"}. Run \`b4 check\`.`,
     )
     Object.defineProperty(wrapped, "cause", { value: error, configurable: true })
     return wrapped
@@ -141,7 +141,7 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
     if (existing.stdout.trim()) {
       if (reuseExisting) {
         const inspected = await docker.run(
-          ["inspect", "--format", '{{ index .Config.Labels "dawn.sandbox.identity" }}', name],
+          ["inspect", "--format", '{{ index .Config.Labels "b4.sandbox.identity" }}', name],
           { signal },
         )
         if (inspected.exitCode === 0 && inspected.stdout.trim() === expectedIdentity) {
@@ -149,7 +149,7 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
           const started = await docker.run(["start", name], { signal })
           if (started.exitCode !== 0) {
             throw sandboxUnavailable(
-              `Sandbox unavailable: could not start keeper for thread "${threadId}": ${started.stderr.trim() || "unknown error"}. Run \`dawn check\`.`,
+              `Sandbox unavailable: could not start keeper for thread "${threadId}": ${started.stderr.trim() || "unknown error"}. Run \`b4 check\`.`,
             )
           }
           return name
@@ -159,7 +159,7 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
       const removed = await docker.run(["rm", "-f", name], { signal })
       if (removed.exitCode !== 0) {
         throw sandboxUnavailable(
-          `Sandbox unavailable: could not replace stale keeper for thread "${threadId}": ${removed.stderr.trim() || "unknown error"}. Run \`dawn check\`.`,
+          `Sandbox unavailable: could not replace stale keeper for thread "${threadId}": ${removed.stderr.trim() || "unknown error"}. Run \`b4 check\`.`,
         )
       }
     }
@@ -210,7 +210,7 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
         )
         if (init.exitCode !== 0) {
           throw sandboxUnavailable(
-            `Sandbox unavailable: could not initialize workspace ownership for thread "${threadId}": ${init.stderr.trim() || "unknown error"}. Run \`dawn check\`.`,
+            `Sandbox unavailable: could not initialize workspace ownership for thread "${threadId}": ${init.stderr.trim() || "unknown error"}. Run \`b4 check\`.`,
           )
         }
       }
@@ -223,9 +223,9 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
         "--name",
         name,
         "--label",
-        `dawn.sandbox=${sanitize(threadId)}`,
+        `b4.sandbox=${sanitize(threadId)}`,
         "--label",
-        `dawn.sandbox.identity=${expectedIdentity}`,
+        `b4.sandbox.identity=${expectedIdentity}`,
         "-v",
         `${volumeName(threadId)}:${ROOT}`,
         ...net,
@@ -240,7 +240,7 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
     )
     if (created.exitCode !== 0) {
       throw sandboxUnavailable(
-        `Sandbox unavailable: docker run failed for thread "${threadId}": ${created.stderr.trim() || "unknown error"}. Run \`dawn check\`.`,
+        `Sandbox unavailable: docker run failed for thread "${threadId}": ${created.stderr.trim() || "unknown error"}. Run \`b4 check\`.`,
       )
     }
     return name
@@ -271,7 +271,7 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
             })
           if (removed.exitCode !== 0) {
             throw sandboxUnavailable(
-              `Sandbox unavailable: could not remove PID-exhausted container for thread "${threadId}": ${removed.stderr.trim() || "unknown error"}. Run \`dawn check\`.`,
+              `Sandbox unavailable: could not remove PID-exhausted container for thread "${threadId}": ${removed.stderr.trim() || "unknown error"}. Run \`b4 check\`.`,
             )
           }
           await ensureContainer(

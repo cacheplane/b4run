@@ -487,7 +487,7 @@ export async function runCanonicalFixedGroupRehearsal(options, { root, createFau
     ? FIXED_GROUP_REHEARSAL_FAULTS
     : Object.freeze([rehearsal.inject])
   const gate = createOrderedFaultGate(faultPoints)
-  const runtime = await realpath(await mkdtemp(join(tmpdir(), "dawn-fixed-group-rehearsal-")))
+  const runtime = await realpath(await mkdtemp(join(tmpdir(), "b4-fixed-group-rehearsal-")))
   const artifactDir = join(runtime, "artifact")
   const controllerDir = join(runtime, "controller")
   let registryHarness = null
@@ -1289,8 +1289,8 @@ function rehearsalNpmAuditFactory(candidate) {
 
 function releaseRehearsalEnvironment(candidate) {
   return Object.freeze({
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/${candidate.publisherWorkflow}@refs/tags/v${candidate.version}`,
+    GITHUB_REPOSITORY: "cacheplane/b4-run",
+    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/${candidate.publisherWorkflow}@refs/tags/v${candidate.version}`,
     GITHUB_REF: `refs/tags/v${candidate.version}`,
     GITHUB_SHA: candidate.commitSha,
     GITHUB_RUN_ID: "300",
@@ -1300,9 +1300,9 @@ function releaseRehearsalEnvironment(candidate) {
 
 function independentAuditEnvironment({ candidate, workflowRunId }) {
   return Object.freeze({
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
+    GITHUB_REPOSITORY: "cacheplane/b4-run",
     GITHUB_EVENT_NAME: "workflow_dispatch",
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/published-artifact-verify.yml@refs/tags/v${candidate.version}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/published-artifact-verify.yml@refs/tags/v${candidate.version}`,
     GITHUB_REF: `refs/tags/v${candidate.version}`,
     GITHUB_SHA: candidate.commitSha,
     GITHUB_RUN_ID: String(workflowRunId),
@@ -1605,7 +1605,7 @@ async function loadPreparedArtifact({ artifactDir, candidate }) {
 }
 
 function createRehearsalAttestation({ candidate, prepared }) {
-  const repository = "https://github.com/cacheplane/dawnai"
+  const repository = "https://github.com/cacheplane/b4-run"
   const ref = `refs/tags/v${candidate.version}`
   const statement = {
     _type: "https://in-toto.io/Statement/v1",
@@ -1632,7 +1632,7 @@ function createRehearsalAttestation({ candidate, prepared }) {
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: "https://github.com/cacheplane/dawnai/actions/runs/300/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4-run/actions/runs/300/attempts/1",
         },
       },
     },
@@ -1659,7 +1659,7 @@ function createRehearsalAttestation({ candidate, prepared }) {
     bytes: bundleBytes,
   }))
   const set = Object.freeze({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${candidate.version}`,
     commitSha: candidate.commitSha,
@@ -1782,7 +1782,7 @@ function verifiedNpmAudit({ candidate }) {
       predicateType: "https://slsa.dev/provenance/v1",
       workflow: candidate.publisherWorkflow,
       commitSha: candidate.commitSha,
-      repository: "https://github.com/cacheplane/dawnai",
+      repository: "https://github.com/cacheplane/b4-run",
       ref: `refs/tags/v${candidate.version}`,
     },
   })

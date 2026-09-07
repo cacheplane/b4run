@@ -1,7 +1,11 @@
+// This dated Dawn incident suite executes the exact pre-rename source.
+// Current incident file preservation is independently checked in b4-identity.test.mjs.
+
 import assert from "node:assert/strict"
 import test from "node:test"
+import { importHistoricalReleaseModule } from "./support/frozen-history.mjs"
 
-import {
+const {
   assertEvidenceEqualsProposal,
   captureDirectTargetRead,
   inspectEquivalentDrafts,
@@ -9,14 +13,18 @@ import {
   parseReleaseEvidence,
   semanticAssetProjection,
   semanticReleaseProjection,
-} from "../duplicate-draft-consolidation-evidence.mjs"
-import { RELEASE_PAYLOAD_LIMITS } from "../limits.mjs"
-import {
+} = await importHistoricalReleaseModule(
+  "scripts/release/duplicate-draft-consolidation-evidence.mjs",
+)
+const { RELEASE_PAYLOAD_LIMITS } = await importHistoricalReleaseModule("scripts/release/limits.mjs")
+const {
   createDuplicateDraftConsolidationFixture,
   DUPLICATE_DRAFT_CANDIDATE,
   DUPLICATE_DRAFT_IDS,
   DUPLICATE_DRAFT_SURVIVOR_ID,
-} from "./support/duplicate-draft-consolidation-fixture.mjs"
+} = await importHistoricalReleaseModule(
+  "scripts/release/test/support/duplicate-draft-consolidation-fixture.mjs",
+)
 
 const INPUT = (fixture) => ({
   candidate: fixture.candidate,

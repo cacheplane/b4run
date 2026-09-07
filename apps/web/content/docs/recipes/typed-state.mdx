@@ -19,8 +19,8 @@ export default z.object({
 ```
 
 ```ts title="src/app/(public)/hello/[tenant]/index.ts"
-import type { RuntimeContext } from "@dawn-ai/sdk"
-import type { RouteTools } from "dawn:routes"
+import type { RuntimeContext } from "@b4run/sdk"
+import type { RouteTools } from "b4:routes"
 import type { z } from "zod"
 import state from "./state.js"
 
@@ -43,7 +43,7 @@ export async function workflow(
 - **Route ids stay parameterized.** Run this route as `/hello/[tenant]` with input for `tenant`:
 
   ```bash
-  echo '{"tenant":"acme"}' | dawn run '/hello/[tenant]'
+  echo '{"tenant":"acme"}' | b4 run '/hello/[tenant]'
   ```
 
   For an Agent Protocol run, send the same input in the body:
@@ -52,9 +52,9 @@ export async function workflow(
   { "route": "/hello/[tenant]#workflow", "input": { "tenant": "acme" } }
   ```
 
-  A concrete `/hello/acme` path is not how Dawn populates route state.
+  A concrete `/hello/acme` path is not how B4.run populates route state.
 - **Parse workflow input explicitly.** Workflow routes do not automatically parse `state.ts`. Calling `state.parse(input)` validates the input and applies fields declared with `.default(...)` when the caller omits them.
-- **This workflow imports and parses the schema directly.** It can keep `tenant` required. For agent-state discovery, Dawn instead validates `{}` to extract defaults; if you reuse this schema for an agent route, make every top-level field accept missing input so discovery does not skip it.
+- **This workflow imports and parses the schema directly.** It can keep `tenant` required. For agent-state discovery, B4.run instead validates `{}` to extract defaults; if you reuse this schema for an agent route, make every top-level field accept missing input so discovery does not skip it.
 - **State is JSON-serializable.** It crosses the runtime boundary on every `runs/wait` and `runs/stream` call. Use primitives, plain objects, arrays.
 
 ## Related
@@ -64,5 +64,5 @@ export async function workflow(
   { href: "/docs/routes", title: "Routes", subtitle: "pathname conventions and dynamic segments" },
   { href: "/docs/recipes/add-a-tool", title: "Add a Tool", subtitle: "read state inside a tool via ctx" },
   { href: "/docs/api/generated-routes#state", title: "Generated route types", subtitle: "RouteState<P> and generated state contracts" },
-  { href: "/docs/api/sdk#dawn-aisdk-1", title: "SDK Reference", subtitle: "RuntimeContext and route-authoring types" },
+  { href: "/docs/api/sdk#b4runsdk-1", title: "SDK Reference", subtitle: "RuntimeContext and route-authoring types" },
 ]} />

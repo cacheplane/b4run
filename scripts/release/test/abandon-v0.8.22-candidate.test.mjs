@@ -1,3 +1,6 @@
+// This dated Dawn incident suite executes the exact pre-rename source.
+// Current incident file preservation is independently checked in b4-identity.test.mjs.
+
 import assert from "node:assert/strict"
 import { execFile as execFileCallback } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -7,8 +10,9 @@ import os from "node:os"
 import path from "node:path"
 import test from "node:test"
 import { promisify } from "node:util"
+import { importHistoricalReleaseModule } from "./support/frozen-history.mjs"
 
-import {
+const {
   abandonedReleaseBody,
   applyTerminalRecord,
   captureTerminalRecord,
@@ -21,45 +25,46 @@ import {
   sha256,
   TERMINAL_RECOVERY_POLICY,
   TerminalRecoveryError,
-} from "../abandon-v0.8.22-candidate.mjs"
-import {
+} = await importHistoricalReleaseModule("scripts/release/abandon-v0.8.22-candidate.mjs")
+const {
   canonicalRecoveryNotice,
   canonicalRecoveryReceipt,
   originalBodyAssetName,
   recoveryReceiptAssetName,
-} from "../duplicate-draft-recovery.mjs"
-import {
-  sha256 as adapterSha256,
+} = await importHistoricalReleaseModule("scripts/release/duplicate-draft-recovery.mjs")
+const {
+  sha256: adapterSha256,
   createDuplicateDraftRecoveryReader,
   RECOVERY_MAX_ASSET_BYTES,
-} from "../duplicate-draft-recovery-adapters.mjs"
-import { CANONICAL_RELEASE_PACKAGE_ORDER } from "../manifest.mjs"
-import { canonicalReleaseBody, parseReleaseMarker, releaseBodySha256 } from "../metadata.mjs"
-import {
-  RecoveryInputError,
-  RecoveryOutputCleanupUncertainError,
-} from "../recover-v0.8.22-duplicate-drafts.mjs"
-import {
+} = await importHistoricalReleaseModule("scripts/release/duplicate-draft-recovery-adapters.mjs")
+const { CANONICAL_RELEASE_PACKAGE_ORDER } = await importHistoricalReleaseModule(
+  "scripts/release/manifest.mjs",
+)
+const { canonicalReleaseBody, parseReleaseMarker, releaseBodySha256 } =
+  await importHistoricalReleaseModule("scripts/release/metadata.mjs")
+const { RecoveryInputError, RecoveryOutputCleanupUncertainError } =
+  await importHistoricalReleaseModule("scripts/release/recover-v0.8.22-duplicate-drafts.mjs")
+const {
   canonicalTerminalRecordBytes,
   MAX_TERMINAL_RECORD_BYTES,
   parseOperatorRecoveryRecord,
   terminalRecordPath,
-} from "../terminal-record-store.mjs"
-import {
+} = await importHistoricalReleaseModule("scripts/release/terminal-record-store.mjs")
+const {
   predecessorMarker,
   sealedManifest,
   sealedManifestBytes,
   sealedMarker,
   sealedRecord,
   TAG_OBJECT_SHA,
-} from "./support/terminal-record-fixture.mjs"
-import {
+} = await importHistoricalReleaseModule("scripts/release/test/support/terminal-record-fixture.mjs")
+const {
   binaryResponse,
   jsonResponse,
   releaseAsset,
   routingFetch,
-  sha256 as sha256Hex,
-} from "./support/terminal-recovery-fetch.mjs"
+  sha256: sha256Hex,
+} = await importHistoricalReleaseModule("scripts/release/test/support/terminal-recovery-fetch.mjs")
 
 const REVIEWED = "4".repeat(40)
 const REASON = "The tag-era release workflow cannot observe draft Releases; superseded by 0.8.23."

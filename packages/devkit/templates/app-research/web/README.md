@@ -1,15 +1,15 @@
 # {{appName}} — web
 
-The Dawn Workbench: the browser client for the `server/` package's `/research`
+The B4.run Workbench: the browser client for the `server/` package's `/research`
 agent. It is a [CopilotKit](https://docs.copilotkit.ai) v2 app
 (`@copilotkit/react-core/v2` + `@copilotkit/runtime`) on Next.js and React that
-talks to Dawn over [AG-UI](https://github.com/ag-ui-protocol/ag-ui).
+talks to B4.run over [AG-UI](https://github.com/ag-ui-protocol/ag-ui).
 
 It is a workbench rather than a chat widget: it renders its own transcript and
 composer instead of mounting `CopilotSidebar`, so plan and researcher activity
 cards, tool cards, and permission prompts appear inline in the conversation.
 
-No model credentials live in this package. The Dawn server holds them, and this
+No model credentials live in this package. The B4.run server holds them, and this
 app reaches it through a same-origin proxy.
 
 Requires Node.js 24 or later and npm 11.
@@ -22,7 +22,7 @@ Everything runs from the app root — the directory above this one, where
 ```bash
 npm install
 cp server/.env.example server/.env    # add a real OPENAI_API_KEY here
-npm run dev:server                    # Dawn server on http://127.0.0.1:3002
+npm run dev:server                    # B4.run server on http://127.0.0.1:3002
 npm run dev:web                       # this app on http://localhost:3010
 ```
 
@@ -30,7 +30,7 @@ Start the server first. Until it answers, this app shows a connect screen with
 the commands that start it; the screen re-probes every five seconds and clears
 itself the moment the server comes up, with no reload.
 
-`web/.env.example` holds one variable, `DAWN_SERVER_URL` (default
+`web/.env.example` holds one variable, `B4_SERVER_URL` (default
 `http://127.0.0.1:3002`). Copy it to `web/.env` if your server listens
 elsewhere.
 
@@ -54,8 +54,8 @@ npm run build --workspace web
 | Plan card | `app/components/PlanCard.tsx` | the packaged plan card, restyled |
 | Subagent card | `app/components/SubagentCard.tsx` | the packaged subagent card, restyled |
 | Renderer registry | `app/components/activity-renderers.tsx` | hands both cards to CopilotKit |
-| CopilotKit runtime | `app/api/copilotkit/[...path]/route.ts` | registers an `HttpAgent` on Dawn's AG-UI endpoint |
-| Server proxy | `app/api/dawn/[...path]/route.ts` | forwards allowlisted reads to Dawn |
+| CopilotKit runtime | `app/api/copilotkit/[...path]/route.ts` | registers an `HttpAgent` on B4.run's AG-UI endpoint |
+| Server proxy | `app/api/b4/[...path]/route.ts` | forwards allowlisted reads to B4.run |
 | Proxy allowlist | `app/lib/proxy-allowlist.ts` | the pure policy the proxy enforces |
 | Thread history | `app/lib/thread-source.ts`, `app/lib/hydrate.ts` | the rail's list, and restoring a saved thread |
 | Theme | `app/theme.css` | the whole palette, as CSS variables |
@@ -76,7 +76,7 @@ The palette follows the OS light/dark setting. To pin one, set
 defines both branches.
 
 The plan and researcher cards are **not forks**. They are the packaged
-`@dawn-ai/ag-ui/react` components (`PlanActivityCard`, `SubagentActivityCard`),
+`@b4run/ag-ui/react` components (`PlanActivityCard`, `SubagentActivityCard`),
 customized through that package's `classNames` ladder. To change how they look,
 edit `app/components/PlanCard.tsx` and `app/components/SubagentCard.tsx` —
 validation, bounds, and layout stay in the package, where they are tested. One
@@ -86,15 +86,15 @@ because the package's CSS is unlayered and Tailwind's utilities are not.
 `app/components/activity-renderers.tsx` states the rule and what it puts out of
 reach.
 
-The [AG-UI and Web Clients](https://dawnai.org/docs/ag-ui) guide covers the
+The [AG-UI and Web Clients](https://b4.run/docs/ag-ui) guide covers the
 protocol side, and the
-[Research Assistant Web UI](https://dawnai.org/docs/recipes/research-web-ui)
+[Research Assistant Web UI](https://b4.run/docs/recipes/research-web-ui)
 recipe walks through building a client like this one.
 
 ## The proxy is not open
 
-Dawn's dev server sets no CORS headers, so the browser reaches it through the
-same-origin catch-all at `app/api/dawn/[...path]/route.ts`. That route forwards
+B4.run's dev server sets no CORS headers, so the browser reaches it through the
+same-origin catch-all at `app/api/b4/[...path]/route.ts`. That route forwards
 five requests and nothing else:
 
 | Method | Path |
@@ -114,7 +114,7 @@ The proxy forwards with no authentication, and this scaffold installs no
 `threadAccess` policy on the server, so anything that can reach this app can
 read a thread's saved transcript by guessing its id and can permanently delete
 memory candidates. Before you expose this beyond your own machine, add a
-[`threadAccess` policy](https://dawnai.org/docs/thread-access) so a request for
+[`threadAccess` policy](https://b4.run/docs/thread-access) so a request for
 someone else's thread is refused where the data lives. The server package
 scaffolds one inert, at `server/src/thread-access.ts.example`: drop the
 `.example` suffix on it and on the `server/src/auth.ts.example` it imports, then
@@ -122,7 +122,7 @@ fill in how you authenticate a caller.
 
 ## Known limits
 
-- **Threads are local to the browser.** Dawn's server cannot enumerate threads,
+- **Threads are local to the browser.** B4.run's server cannot enumerate threads,
   so the rail keeps its own list in `localStorage` (`app/lib/thread-source.ts`).
   The list is not shared across browsers, devices, or profiles, and clearing
   site data clears it — the server still holds the conversations, but this
@@ -138,7 +138,7 @@ fill in how you authenticate a caller.
   delete on the server with no undo. It shows at most three candidates at a time
   and counts the rest, so it cannot push the thread list off the rail. It cannot
   browse, search, or edit stored memories; that is `npm run memory:list` and the
-  rest of the `dawn memory` CLI, or `npx dawn inspect --cwd server` for a browser UI.
+  rest of the `b4 memory` CLI, or `npx b4 inspect --cwd server` for a browser UI.
 - **A connection loss costs your draft.** When a probe finds the server down,
   the connect screen replaces the whole shell, which unmounts the composer.
 
@@ -150,7 +150,7 @@ mapping, the renderer registry, the thread rail, the composer, the connect
 screen, the memory panel, the tool-call card, all three permission surfaces, and
 the shell's thread-switch and server-probe behaviour. `typecheck` and `build`
 prove the CopilotKit and AG-UI wiring compiles. The activity cards themselves
-are tested in `@dawn-ai/ag-ui`.
+are tested in `@b4run/ag-ui`.
 
 There are no browser or live-model tests here. A full research run — streaming,
 activity cards, a permission gate live and across a reload, memory candidates

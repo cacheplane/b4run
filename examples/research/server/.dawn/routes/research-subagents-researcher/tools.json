@@ -1,0 +1,28 @@
+{
+  "readDoc": {
+    "description": "Read the full text of a corpus document by its workspace-relative path\n(e.g. \"corpus/agent-architectures.md\"). Large documents are offloaded by\nDawn and retrieved on demand, so reading one does not flood the context.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": ["path"],
+      "additionalProperties": false
+    }
+  },
+  "searchCorpus": {
+    "description": "Search the bundled research corpus for documents matching a query.\nReturns up to five matches ranked by how many query terms each document\ncontains, with a short snippet around the first matched term.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    }
+  }
+}

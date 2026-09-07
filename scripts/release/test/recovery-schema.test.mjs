@@ -67,7 +67,7 @@ test("candidate and executor are separate exact identities", () => {
   assert.deepEqual(parse(value, { executor: executor({ jobId: "104" }) }), value)
   assert.throws(() => parse(value, { executor: executor({ controllerSha: "a".repeat(40) }) }))
   for (const [field, invalid] of [
-    ["repository", "Cacheplane/Dawnai"],
+    ["repository", "Cacheplane/B4ai"],
     ["repositoryId", "0901"],
     ["releaseId", 902],
     ["candidateSha", "A".repeat(40)],
@@ -264,7 +264,7 @@ test("resolution identity allows installed duplicate versions and honest transit
   const lane = wireFixtures().lanes.storage
   lane.resolutions.push({
     ...lane.resolutions[0],
-    installPath: "node_modules/consumer/node_modules/@dawn-ai/sdk",
+    installPath: "node_modules/consumer/node_modules/@b4run/sdk",
     subject: false,
     requested: "^0.8.0",
     resolved: "0.8.23",
@@ -348,7 +348,7 @@ test("original canonical asset names and payload group budgets are preserved", (
     size,
   })
   const adoption = structuredClone(f.adoption)
-  adoption.baseAssets.push(extra("dawn-sdk-0.8.24.tgz", 32 * 1024 * 1024, 1000))
+  adoption.baseAssets.push(extra("b4-sdk-0.8.24.tgz", 32 * 1024 * 1024, 1000))
   adoption.baseAssets.sort((a, b) => (a.assetName < b.assetName ? -1 : 1))
   assert.throws(() => parse(adoption), /limit/)
   const bundle = structuredClone(f.adoption)

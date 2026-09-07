@@ -863,7 +863,7 @@ export function createCliAttestationVerifier({
       const bundlesByName = new Map(
         Array.isArray(bundles) ? bundles.map((bundle) => [bundle.name, bundle]) : [],
       )
-      const directory = await fileSystem.mkdtemp(path.join(os.tmpdir(), "dawn-attest-"))
+      const directory = await fileSystem.mkdtemp(path.join(os.tmpdir(), "b4-attest-"))
       try {
         const verifyOnline = async (file, bundle) => {
           const target = path.join(directory, file.name)
@@ -1064,8 +1064,8 @@ export function buildAttestationVerificationArguments({
   if (source !== "actions" && source !== "escrow") {
     throw new TypeError("Attestation source must be actions or escrow")
   }
-  if (repository !== "cacheplane/dawnai") {
-    throw new TypeError("Attestation repository must be cacheplane/dawnai")
+  if (repository !== "cacheplane/b4-run") {
+    throw new TypeError("Attestation repository must be cacheplane/b4-run")
   }
   validateAbsoluteRuntimePath(target, "attestation target")
   if (source === "escrow") validateAbsoluteRuntimePath(bundlePath, "attestation bundle")
@@ -1080,7 +1080,7 @@ export function buildAttestationVerificationArguments({
     "--digest-alg",
     "sha256",
     "--signer-workflow",
-    "cacheplane/dawnai/.github/workflows/release.yml",
+    "cacheplane/b4-run/.github/workflows/release.yml",
     "--deny-self-hosted-runners",
     "--source-digest",
     releaseRecord.commitSha,

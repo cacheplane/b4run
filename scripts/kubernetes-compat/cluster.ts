@@ -129,7 +129,7 @@ interface JsonObject {
 
 const REQUIRED_EXECUTABLES = ["kubectl", "helm", "pnpm"] as const
 const DEFAULT_STORAGE_ANNOTATION = "storageclass.kubernetes.io/is-default-class"
-const RUN_LABEL = "dawn.sh/compat-run"
+const RUN_LABEL = "b4.sh/compat-run"
 const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const
 const RELEASE_ROLES = ["infrastructure", "application"] as const
 const TARGET_MINOR_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/
@@ -219,7 +219,7 @@ export function deriveClusterNames(runId: string): ClusterNames {
   const slug = dnsComponent(rawRunId)
   if (slug.length === 0) throw new Error("Compatibility run ID must contain a letter or number")
   const hash = hashSuffix(rawRunId)
-  const base = `dawn-${slug}`
+  const base = `b4-${slug}`
   const kubernetesName = (role: string): string =>
     boundedName(base, `${role}-${hash}`, KUBERNETES_DNS_NAME_MAX_LENGTH)
   const helmReleaseName = (role: string): string =>
@@ -412,7 +412,7 @@ export async function createSecureTokenKubeconfig(
 ): Promise<SecureTokenKubeconfig> {
   const context = expectNonEmpty(input.context, "Kubernetes context")
   const token = expectNonEmpty(input.token, "ServiceAccount token")
-  const directory = await dependencies.mkdtemp(join(tmpdir(), "dawn-kubernetes-compat-"))
+  const directory = await dependencies.mkdtemp(join(tmpdir(), "b4-kubernetes-compat-"))
   try {
     const path = join(directory, "kubeconfig.yaml")
     await dependencies.chmod(directory, 0o700)

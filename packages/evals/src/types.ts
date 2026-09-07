@@ -1,4 +1,4 @@
-import type { AgentRunResult, FixtureSet, ScriptBuilder } from "@dawn-ai/testing"
+import type { AgentRunResult, FixtureSet, ScriptBuilder } from "@b4run/testing"
 
 /** One dataset row. `input` is the user message for agent routes (v1). */
 export interface EvalCase {

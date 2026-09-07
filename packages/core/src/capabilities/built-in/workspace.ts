@@ -1,17 +1,17 @@
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import { POSIX_SEP, pureJoin, pureRelative, pureResolve } from "@dawn-ai/sdk/pure"
-import type { BackendContext, ExecBackend, FilesystemBackend } from "@dawn-ai/workspace"
+import type { PermissionsStore } from "@b4run/permissions"
+import { POSIX_SEP, pureJoin, pureRelative, pureResolve } from "@b4run/sdk/pure"
+import type { BackendContext, ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import { z } from "zod"
 
 import { gateBashOp } from "../permission-gate.js"
-import type { CapabilityMarker, DawnToolDefinition } from "../types.js"
+import type { B4ToolDefinition, CapabilityMarker } from "../types.js"
 import { createWorkspaceFs } from "../workspace-fs.js"
 
 const WORKSPACE_DIRNAME = "workspace"
 
 /**
  * Resolve the workspace root relative to the given app root. In production
- * (`dawn dev`) appRoot === process.cwd(), so this is a no-op change there.
+ * (`b4 dev`) appRoot === process.cwd(), so this is a no-op change there.
  * In-process testing harnesses pass the explicit app root so capabilities
  * activate regardless of the test runner's working directory.
  */
@@ -28,7 +28,7 @@ function backendContext(workspaceRoot: string, signal: AbortSignal): BackendCont
   return { signal, workspaceRoot }
 }
 
-interface OverridableTool extends DawnToolDefinition {
+interface OverridableTool extends B4ToolDefinition {
   readonly overridable: true
 }
 
@@ -89,7 +89,7 @@ function buildWorkspaceTools(
       // uncapped-read exemption.
       const absPath = pureResolve(workspaceRoot, path)
       const rel = pureRelative(workspaceRoot, absPath)
-      // NOTE: must match SUBDIR ("tool-outputs") in @dawn-ai/langchain offload-store.ts
+      // NOTE: must match SUBDIR ("tool-outputs") in @b4run/langchain offload-store.ts
       const isToolOutput = rel === "tool-outputs" || rel.startsWith(`tool-outputs${POSIX_SEP}`)
       const data = await handle.readFile(
         path,
@@ -168,7 +168,7 @@ export function createWorkspaceMarker(): CapabilityMarker {
 
       if (permissions?.mode === "bypass") {
         console.warn(
-          "[dawn:permissions] mode=bypass — path-jail disabled, all bash unrestricted. Do not use in production.",
+          "[b4:permissions] mode=bypass — path-jail disabled, all bash unrestricted. Do not use in production.",
         )
       }
 

@@ -3,7 +3,7 @@
  * request-path core (`execute-route-core.ts`) falls back to when the caller
  * did not supply an instance, plus the CLI's disk-first `executeRoute` entry.
  *
- * This module is deliberately absent from the `@dawn-ai/cli/fetch` graph —
+ * This module is deliberately absent from the `@b4run/cli/fetch` graph —
  * everything here reaches `node:fs`, `node:sqlite`, or `tsx`. Every export the
  * core owns is re-exported from here with `bootFallbacks: nodeBootFallbacks`
  * pre-applied, so importing `execute-route.js` behaves exactly as it did
@@ -14,23 +14,23 @@ import { existsSync, readFileSync } from "node:fs"
 import { isAbsolute, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import {
-  type DawnConfig,
+  type B4Config,
   type ResolvedStateField,
   type RouteDefinition,
   type RouteManifest,
   resolveStateFields,
-} from "@dawn-ai/core"
-import { discoverRoutes, findDawnApp } from "@dawn-ai/core/node"
-import type { PermissionMode, PermissionsStore } from "@dawn-ai/permissions"
-import { createPermissionsStore } from "@dawn-ai/permissions/node"
-import { isDawnAgent } from "@dawn-ai/sdk"
-import { createThreadsStore, sqliteCheckpointer, type ThreadsStore } from "@dawn-ai/sqlite-storage"
-import type { ExecBackend, FilesystemBackend } from "@dawn-ai/workspace"
-import { localExec, localFilesystem } from "@dawn-ai/workspace/node"
+} from "@b4run/core"
+import { discoverRoutes, findB4App } from "@b4run/core/node"
+import type { PermissionMode, PermissionsStore } from "@b4run/permissions"
+import { createPermissionsStore } from "@b4run/permissions/node"
+import { isB4Agent } from "@b4run/sdk"
+import { createThreadsStore, sqliteCheckpointer, type ThreadsStore } from "@b4run/sqlite-storage"
+import type { ExecBackend, FilesystemBackend } from "@b4run/workspace"
+import { localExec, localFilesystem } from "@b4run/workspace/node"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { loadMiddleware } from "../dev/middleware-node.js"
 import { loadThreadAccess } from "../dev/thread-access-node.js"
-import { loadDawnConfig } from "../node-config.js"
+import { loadB4Config } from "../node-config.js"
 import {
   __resetDescriptorRouteIndexCacheForTests,
   getCachedDescriptorRouteIndex,
@@ -173,7 +173,7 @@ async function loadPreparedRouteModules(options: {
   const routeSlug =
     options.routeId.replace(/^\//, "").replace(/\//g, "-").replace(/\[/g, "").replace(/\]/g, "") ||
     "index"
-  const schemaManifestPath = pureJoin(options.appRoot, ".dawn", "routes", routeSlug, "tools.json")
+  const schemaManifestPath = pureJoin(options.appRoot, ".b4", "routes", routeSlug, "tools.json")
   let tools: readonly DiscoveredToolDefinition[] = discoveredTools
   if (existsSync(schemaManifestPath)) {
     try {
@@ -219,7 +219,7 @@ async function loadSubagentDescription(route: RouteDefinition): Promise<string> 
   const mod = (await import(pathToFileURL(route.entryFile).href)) as {
     default?: unknown
   }
-  return isDawnAgent(mod.default) && typeof mod.default.description === "string"
+  return isB4Agent(mod.default) && typeof mod.default.description === "string"
     ? mod.default.description
     : "No description provided."
 }
@@ -227,52 +227,52 @@ async function loadSubagentDescription(route: RouteDefinition): Promise<string> 
 /**
  * Resolves the ThreadsStore for the given appRoot.
  *
- * Uses `config.threadsStore` if the user's `dawn.config.ts` provides one;
+ * Uses `config.threadsStore` if the user's `b4.config.ts` provides one;
  * otherwise falls back to the default SQLite-backed store at
- * `<appRoot>/.dawn/threads.sqlite`. Exported so the HTTP server layer
+ * `<appRoot>/.b4/threads.sqlite`. Exported so the HTTP server layer
  * can obtain the same store instance independently of route execution.
  */
 export async function resolveThreadsStore(appRoot: string): Promise<ThreadsStore> {
   try {
-    const loaded = await loadDawnConfig({ appRoot })
+    const loaded = await loadB4Config({ appRoot })
     if (loaded.config.threadsStore) {
       return loaded.config.threadsStore
     }
   } catch {
-    // No dawn.config.ts or unreadable — fall through to default.
+    // No b4.config.ts or unreadable — fall through to default.
   }
   return createThreadsStore({
-    path: pureJoin(appRoot, ".dawn/threads.sqlite"),
+    path: pureJoin(appRoot, ".b4/threads.sqlite"),
   })
 }
 
 /**
  * Resolves the checkpointer for the given appRoot.
  *
- * Uses `config.checkpointer` if the user's `dawn.config.ts` provides one;
+ * Uses `config.checkpointer` if the user's `b4.config.ts` provides one;
  * otherwise falls back to the default SQLite-backed saver at
- * `<appRoot>/.dawn/checkpoints.sqlite`. Exported so the HTTP server layer
+ * `<appRoot>/.b4/checkpoints.sqlite`. Exported so the HTTP server layer
  * can obtain a checkpointer independently of route execution (e.g. for the
  * GET /threads/:id/state endpoint).
  */
 export async function resolveCheckpointer(appRoot: string): Promise<BaseCheckpointSaver> {
   try {
-    const loaded = await loadDawnConfig({ appRoot })
+    const loaded = await loadB4Config({ appRoot })
     if (loaded.config.checkpointer) {
       return loaded.config.checkpointer
     }
   } catch {
-    // No dawn.config.ts or unreadable — fall through to default.
+    // No b4.config.ts or unreadable — fall through to default.
   }
   return sqliteCheckpointer({
-    path: pureJoin(appRoot, ".dawn/checkpoints.sqlite"),
+    path: pureJoin(appRoot, ".b4/checkpoints.sqlite"),
   })
 }
 
 /**
  * Resolves a loaded PermissionsStore for the given appRoot: `config.permissions.store`
- * if the user's `dawn.config.ts` provides one, otherwise config-seeded
- * allow/deny + mode (env override wins) over `.dawn/permissions.json`. Either
+ * if the user's `b4.config.ts` provides one, otherwise config-seeded
+ * allow/deny + mode (env override wins) over `.b4/permissions.json`. Either
  * way the returned store has had `load()` called exactly once — THIS resolver
  * owns that call, because a store may be a cache that is empty until hydrated
  * and `match()` is synchronous. Exported so the HTTP server layer can build the
@@ -280,17 +280,17 @@ export async function resolveCheckpointer(appRoot: string): Promise<BaseCheckpoi
  * "Always" grants written mid-process fresh).
  */
 export async function resolvePermissionsStore(appRoot: string): Promise<PermissionsStore> {
-  let permissionsConfig: DawnConfig["permissions"] | undefined
+  let permissionsConfig: B4Config["permissions"] | undefined
   try {
-    const loaded = await loadDawnConfig({ appRoot })
+    const loaded = await loadB4Config({ appRoot })
     permissionsConfig = loaded.config.permissions
   } catch {
-    // No dawn.config.ts or unreadable — fall through to defaults.
+    // No b4.config.ts or unreadable — fall through to defaults.
   }
   const configStore = permissionsConfig?.store
   if (configStore) {
     // A custom store owns its own mode/allow/deny (supplied to its factory in
-    // dawn.config.ts), so neither the env mode override nor the config lists
+    // b4.config.ts), so neither the env mode override nor the config lists
     // are re-applied here — re-wrapping would silently double-apply them.
     await configStore.load()
     return configStore
@@ -307,9 +307,9 @@ export async function resolvePermissionsStore(appRoot: string): Promise<Permissi
  */
 async function buildPermissionsStore(
   appRoot: string,
-  permissionsConfig: DawnConfig["permissions"] | undefined,
+  permissionsConfig: B4Config["permissions"] | undefined,
 ): Promise<PermissionsStore> {
-  const envMode = process.env.DAWN_PERMISSIONS_MODE
+  const envMode = process.env.B4_PERMISSIONS_MODE
   const mode: PermissionMode =
     envMode === "interactive" || envMode === "non-interactive" || envMode === "bypass"
       ? envMode
@@ -339,15 +339,15 @@ async function buildPermissionsStore(
 export const nodeBootFallbacks: RuntimeBootFallbacks = {
   buildPermissionsStore,
   defaultCheckpointer: (appRoot) =>
-    sqliteCheckpointer({ path: pureJoin(appRoot, ".dawn/checkpoints.sqlite") }),
+    sqliteCheckpointer({ path: pureJoin(appRoot, ".b4/checkpoints.sqlite") }),
   defaultExec: getDefaultLocalExec,
   defaultFilesystem: getDefaultLocalFilesystem,
   defaultThreadsStore: (appRoot) =>
-    createThreadsStore({ path: pureJoin(appRoot, ".dawn/threads.sqlite") }),
+    createThreadsStore({ path: pureJoin(appRoot, ".b4/threads.sqlite") }),
   descriptorRouteIndex: getCachedDescriptorRouteIndex,
   discoverRouteManifest: discoverRoutesOncePerAppRoot,
   hasWorkspaceDir,
-  loadConfig: async (appRoot) => (await loadDawnConfig({ appRoot })).config,
+  loadConfig: async (appRoot) => (await loadB4Config({ appRoot })).config,
   loadMiddleware,
   loadRouteModules: loadPreparedRouteModules,
   loadSubagentDescription,
@@ -364,14 +364,14 @@ export const nodeBootFallbacks: RuntimeBootFallbacks = {
 
 /**
  * THE single conversion between a host-supplied app root and the
- * POSIX-normalized absolute form `@dawn-ai/core` assumes.
+ * POSIX-normalized absolute form `@b4run/core` assumes.
  *
  * Core derives the workspace root from `appRoot` and then decides containment
  * with pure POSIX arithmetic against an explicit "/" — `pureResolve` throws on
  * a relative base rather than rooting it somewhere silently. Normalizing here
  * keeps the previous semantics of the `node:path` jail (a relative root
  * resolved against `process.cwd()`) while giving core exactly one guaranteed
- * input shape. Dawn targets POSIX hosts only, so this is effectively identity;
+ * input shape. B4.run targets POSIX hosts only, so this is effectively identity;
  * a Windows port would convert here, and only here.
  */
 export function toPosixAppRoot(appRoot: string): string {
@@ -397,7 +397,7 @@ function withNodeFallbacks<T extends object>(
  * Test-only: clear the per-route module, per-appRoot manifest, and workspace
  * probe caches so suites that mutate a fixture app mid-process (new tools,
  * changed routes) observe the change on the next load. Mirrors
- * `__clearDawnConfigCacheForTests`.
+ * `__clearB4ConfigCacheForTests`.
  */
 export function __resetDescriptorRouteMapCacheForTests(): void {
   __resetDescriptorRouteIndexCacheForTests()
@@ -445,7 +445,7 @@ export async function* streamResolvedRoute(
 }
 
 // ---------------------------------------------------------------------------
-// Disk-first CLI entry (`dawn run`, `dawn test`)
+// Disk-first CLI entry (`b4 run`, `b4 test`)
 // ---------------------------------------------------------------------------
 
 export async function executeRoute(options: ExecuteRouteOptions): Promise<RuntimeExecutionResult> {
@@ -546,7 +546,7 @@ async function discoverApp(options: ExecuteRouteOptions): Promise<
     }
 > {
   try {
-    const app = await findDawnApp({
+    const app = await findB4App({
       ...(options.appRoot ? { appRoot: options.appRoot } : {}),
       ...(options.cwd ? { cwd: options.cwd } : {}),
     })

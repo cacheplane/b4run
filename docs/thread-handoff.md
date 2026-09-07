@@ -1,12 +1,14 @@
 # Thread Handoff
 
-> Historical note: much of this handoff records the route-authoring milestone;
-> the release-operations section is the current controller handoff. For current
-> user-facing behavior, prefer the website docs in `apps/web/content/docs` and
+> Historical Dawn handoff. The route milestone, verification baseline, and
+> original release operations below describe the old repository and must not
+> be used to activate B4.run publication. Current release work follows the
+> [B4.run release identity boundary](./superpowers/plans/2026-09-07-b4-release-identity.md).
+> Current user-facing behavior is documented in `apps/web/content/docs` and
 > the root `README.md`.
 
-This document is the operational handoff for the Dawn framework and its
-release-integrity controller now on `main`.
+This document preserves the Dawn framework and original release-controller
+handoff as historical context.
 
 It is intended to let a new thread re-orient quickly without rereading the full superpowers history.
 
@@ -39,7 +41,21 @@ If either fails before new work starts, stop and resolve that baseline issue fir
 For release work, also run `pnpm test:release-controller` and follow the
 [release-integrity cutover runbook](./superpowers/runbooks/2026-08-09-release-integrity-cutover.md).
 
-## Release Operations
+## Current B4.run Release Operations
+
+The source identity is `@b4run/*`, `create-b4-app`, and repository
+`cacheplane/b4-run` (1360603908). Repository Actions remain disabled during the
+rename. The current recovery policy is DORMANT and carries no admitted fence
+contracts or verifier digest. Old Dawn incident records, receipts, and operator
+authorizations remain bound to their original source and repository; they do
+not authorize a B4.run release. The old consolidation command is not exposed
+by the B4.run package scripts.
+
+Follow the [release identity boundary and verification checklist](./superpowers/plans/2026-09-07-b4-release-identity.md)
+for source review. Enabling publication or admitting recovery requires a
+separate repository-specific review and fresh owner evidence.
+
+## Historical Dawn Release Operations
 
 Release ownership is intentionally split by capability:
 

@@ -1,16 +1,16 @@
 /**
  * Where the thread rail gets its threads.
  *
- * Dawn's server can create and fetch a thread by id but cannot enumerate
+ * B4.run's server can create and fetch a thread by id but cannot enumerate
  * threads — there is no list endpoint, and adding one is a thread-access
  * authorization question rather than a UI one. So the rail keeps its own list.
  *
  * CopilotKit's `useThreads` is deliberately unused: it fetches from a platform
  * with thread endpoints and folds "runtime without thread endpoints" into its
- * error channel, which is what a Dawn backend would produce.
+ * error channel, which is what a B4.run backend would produce.
  *
- * The planned second implementation is LangGraph Platform, which Dawn already
- * deploys to (`dawn build --target langsmith`) and which can enumerate threads.
+ * The planned second implementation is LangGraph Platform, which B4.run already
+ * deploys to (`b4 build --target langsmith`) and which can enumerate threads.
  * An earlier version of this note predicted the interface would have to go
  * async for that backend; that has now come true for `hydrate` and
  * `pendingInterrupts`, which are network reads for EVERY backend — the rail's
@@ -38,7 +38,7 @@ export interface ThreadSource {
   /**
    * The thread's stored history. Async because it is a network read even for
    * the localStorage source: the rail's list lives in the browser, but the
-   * conversation lives in the Dawn server's checkpoint.
+   * conversation lives in the B4.run server's checkpoint.
    */
   hydrate(id: string): Promise<HydratedThread>
   /**
@@ -62,7 +62,7 @@ export interface ThreadSource {
  * One parked permission gate, ready for the card to render.
  *
  * `metadata` is typed by the CARD rather than here, and the import is
- * type-only. The Dawn envelope has no shape of its own on this side of the
+ * type-only. The B4.run envelope has no shape of its own on this side of the
  * wire — it is whatever `PermissionPrompt` reads out of it — so letting the
  * consumer own the type keeps one definition instead of a lib-side copy that
  * can drift from the component actually rendering it.
@@ -79,8 +79,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * `GET /threads/:id/pending_interrupts` -> what the card needs.
  *
- * `entry.value` IS the Dawn interrupt envelope — the same object
- * `@dawn-ai/ag-ui`'s `toAguiInterrupt` parks under `Interrupt.metadata` on the
+ * `entry.value` IS the B4.run interrupt envelope — the same object
+ * `@b4run/ag-ui`'s `toAguiInterrupt` parks under `Interrupt.metadata` on the
  * live path — so a hydrated gate and a live one reach `PermissionPrompt` as
  * the same shape. (`toAguiInterrupt` itself is not exported from the package
  * root, only its envelope types are, and widening a package's public API for
@@ -111,7 +111,7 @@ export function readParkedInterrupts(body: unknown): ParkedInterrupt[] {
   return parked
 }
 
-const STORAGE_KEY = "dawn.workbench.threads"
+const STORAGE_KEY = "b4.workbench.threads"
 const MAX_TITLE_LENGTH = 80
 
 function read(storage: Storage): WorkbenchThread[] {
@@ -151,8 +151,8 @@ function byMostRecent(threads: readonly WorkbenchThread[]): WorkbenchThread[] {
 /**
  * The useful half of a failed response, or "".
  *
- * The proxy's own 502 body is `{ error: "Cannot reach the Dawn server at
- * http://127.0.0.1:3002: ECONNREFUSED..." }` and the Dawn server's is
+ * The proxy's own 502 body is `{ error: "Cannot reach the B4.run server at
+ * http://127.0.0.1:3002: ECONNREFUSED..." }` and the B4.run server's is
  * `{ error: { kind, message } }` — both are written to be shown, and a bare
  * "HTTP 502" throws away the only part that says what to do about it. Any
  * failure to read or parse the body degrades to "" rather than replacing the
@@ -214,8 +214,8 @@ export function createLocalThreadSource(
       write(storage, [updated, ...threads.filter((thread) => thread.id !== id)])
     },
     async hydrate(id) {
-      const response = await fetchFn(`/api/dawn/threads/${encodeURIComponent(id)}/state`)
-      // A 404 is the ORDINARY answer, not a failure: the Dawn server returns
+      const response = await fetchFn(`/api/b4/threads/${encodeURIComponent(id)}/state`)
+      // A 404 is the ORDINARY answer, not a failure: the B4.run server returns
       // it both for a thread it has never heard of and for one that exists in
       // the rail but has never run, and a freshly created thread is in that
       // second state until its first turn finishes. A fresh literal per call,
@@ -234,7 +234,7 @@ export function createLocalThreadSource(
     },
     async pendingInterrupts(id, signal) {
       const response = await fetchFn(
-        `/api/dawn/threads/${encodeURIComponent(id)}/pending_interrupts`,
+        `/api/b4/threads/${encodeURIComponent(id)}/pending_interrupts`,
         signal === undefined ? undefined : { signal },
       )
       // EVERY non-2xx is an empty list, and none of them is worth telling the

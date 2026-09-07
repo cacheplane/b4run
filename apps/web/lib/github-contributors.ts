@@ -1,8 +1,8 @@
-const REPO = "cacheplane/dawnai"
+const REPO = "cacheplane/b4-run"
 const FALLBACK = 5
 
 /**
- * Fetches the contributor count for the Dawn repo via the GitHub API.
+ * Fetches the contributor count for the B4.run repo via the GitHub API.
  * Mirrors getGitHubStars: 1-hour ISR cache, optional GITHUB_TOKEN, graceful
  * fallback on any error. Uses the `contributors?per_page=1&anon=true` endpoint
  * and parses the `Link` header `last` page number to avoid pulling the whole

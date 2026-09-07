@@ -458,7 +458,7 @@ test("real escrow transition resumes draft creation and selected 45-asset crash 
   const snapshot = remote.snapshot()
   assert.equal(snapshot.assets.length, 45)
   assert.equal(parseReleaseMarker(snapshot.release.body).phase, "ESCROWED")
-  assert.equal(snapshot.release.name, `Dawn v${fixture.candidate.version}`)
+  assert.equal(snapshot.release.name, `B4 v${fixture.candidate.version}`)
   assert.notEqual(snapshot.release.tag_name, `v${fixture.candidate.version}`)
   assert.deepEqual(
     snapshot.releaseMutations
@@ -627,7 +627,7 @@ test("real reconciliation, audit retry, publication, and immutable replay surviv
 })
 
 test("registry harness packs without publishing and exposes one bounded real publish primitive", async (t) => {
-  const outside = await realpath(await mkdtemp(join(tmpdir(), "dawn-rehearsal-outside-")))
+  const outside = await realpath(await mkdtemp(join(tmpdir(), "b4-rehearsal-outside-")))
   t.after(() => rm(outside, { recursive: true, force: true }))
   const harness = await createFaultHarness({ fixtureDirectory: THREE_PACKAGE_FIXTURE })
   t.after(() => harness.close())
@@ -765,7 +765,7 @@ function fixedGroupArtifactFixture() {
     bytes: multiSubjectBundle,
   }))
   const attestationSet = {
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${version}`,
     commitSha,
@@ -848,7 +848,7 @@ function completeNpmEvidence(fixture) {
         predicateType: "https://slsa.dev/provenance/v1",
         workflow: ".github/workflows/release.yml",
         commitSha: fixture.candidate.commitSha,
-        repository: "https://github.com/cacheplane/dawnai",
+        repository: "https://github.com/cacheplane/b4-run",
         ref: `refs/tags/v${fixture.candidate.version}`,
       },
     })),
@@ -856,8 +856,8 @@ function completeNpmEvidence(fixture) {
 }
 
 async function createSourceRepositoryFixture(t) {
-  const sourceRoot = await realpath(await mkdtemp(join(tmpdir(), "dawn-rehearsal-source-")))
-  const runtime = await realpath(await mkdtemp(join(tmpdir(), "dawn-rehearsal-runtime-")))
+  const sourceRoot = await realpath(await mkdtemp(join(tmpdir(), "b4-rehearsal-source-")))
+  const runtime = await realpath(await mkdtemp(join(tmpdir(), "b4-rehearsal-runtime-")))
   t.after(async () => {
     await Promise.all([
       rm(sourceRoot, { recursive: true, force: true }),
@@ -888,7 +888,7 @@ function hash(algorithm, bytes) {
 }
 
 function testMultiSubjectBundle({ candidate, files }) {
-  const repository = "https://github.com/cacheplane/dawnai"
+  const repository = "https://github.com/cacheplane/b4-run"
   const ref = `refs/tags/v${candidate.version}`
   const statement = {
     _type: "https://in-toto.io/Statement/v1",
@@ -911,7 +911,7 @@ function testMultiSubjectBundle({ candidate, files }) {
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: "https://github.com/cacheplane/dawnai/actions/runs/13/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4-run/actions/runs/13/attempts/1",
         },
       },
     },

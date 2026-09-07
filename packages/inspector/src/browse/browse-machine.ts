@@ -1,4 +1,4 @@
-import type { MemoryRecord } from "@dawn-ai/memory/browse"
+import type { MemoryRecord } from "@b4run/memory/browse"
 import type { PretableDataState } from "@pretable/react"
 import { dedupeById, reconcileRefreshedWindow } from "./browse-reconcile"
 

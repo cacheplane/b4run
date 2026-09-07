@@ -1,16 +1,16 @@
-import type { JsonSchemaProperty, StreamTransformer } from "@dawn-ai/core"
+import type { JsonSchemaProperty, StreamTransformer } from "@b4run/core"
 // `/web`, not the default entry, and the difference is a hard runtime
 // constraint rather than a style preference. The default entry statically
 // imports `node:async_hooks` — it exists to INFER the config off
 // AsyncLocalStorage when a caller omits one — and that single specifier is what
-// stopped a Dawn app from linking on Cloudflare workerd without `nodejs_compat`
+// stopped a B4.run app from linking on Cloudflare workerd without `nodejs_compat`
 // (caught by the gated workerd lane; `fetch-entry-purity` externalizes
 // `@langchain/*` and structurally cannot see it). Every call in this file
 // passes an explicit config, which is exactly what `/web` requires, so nothing
 // is inferred either way and the dispatched events are identical. The global
 // AsyncLocalStorage instance the default entry installs as a side effect is
 // still installed on Node: `@langchain/langgraph`'s main entry does it, and
-// Dawn always loads that.
+// B4.run always loads that.
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch/web"
 import { ToolMessage } from "@langchain/core/messages"
 import { patchConfig } from "@langchain/core/runnables"
@@ -19,7 +19,7 @@ import { Command } from "@langchain/langgraph"
 import { z } from "zod"
 import { unwrapToolResult } from "./unwrap-tool-result.js"
 
-interface DawnToolDefinition {
+interface B4ToolDefinition {
   readonly description?: string
   readonly name: string
   readonly run: (
@@ -42,7 +42,7 @@ export type OffloadFn = (
 ) => Promise<string>
 
 export function convertToolToLangChain(
-  tool: DawnToolDefinition,
+  tool: B4ToolDefinition,
   middlewareContext?: Readonly<Record<string, unknown>>,
   offload?: OffloadFn,
   routeParamNames: readonly string[] = [],
@@ -112,7 +112,7 @@ export function convertToolToLangChain(
             ...(toolCallId ? { toolCallId } : {}),
           })) {
             await dispatchCustomEvent(
-              "dawn.capability",
+              "b4.capability",
               { event: output.event, data: output.data },
               liveConfig,
             )

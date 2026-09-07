@@ -1,4 +1,4 @@
-import type { MemoryRecord } from "@dawn-ai/memory/browse"
+import type { MemoryRecord } from "@b4run/memory/browse"
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react"
 import { Suspense, startTransition, useState } from "react"
 import { createRoot } from "react-dom/client"

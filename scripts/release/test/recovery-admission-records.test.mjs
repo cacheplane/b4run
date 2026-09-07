@@ -1,19 +1,29 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { readFile } from "node:fs/promises"
 import test from "node:test"
-import { validateRecoveryVerifier } from "../recovery/authority.mjs"
-import { parseRecoveryFenceContract } from "../recovery/fence.mjs"
-import {
-  FENCE_FIXTURES,
-  fenceCanonical,
-  fenceDigest,
-  validateRecoveryFenceEvidence,
-} from "../recovery/fence-evidence.mjs"
-import { canonicalPolicyBytes, parseRecoveryPolicy } from "../recovery/policy.mjs"
-import { canonicalRecoveryBytes, parseRecovery } from "../recovery/schema.mjs"
 
-const read = (path) => readFile(new URL(`../../../${path}`, import.meta.url))
+const { validateRecoveryVerifier } = await importHistoricalReleaseModule(
+  "scripts/release/recovery/authority.mjs",
+)
+const { parseRecoveryFenceContract } = await importHistoricalReleaseModule(
+  "scripts/release/recovery/fence.mjs",
+)
+const { FENCE_FIXTURES, fenceCanonical, fenceDigest, validateRecoveryFenceEvidence } =
+  await importHistoricalReleaseModule("scripts/release/recovery/fence-evidence.mjs")
+const { canonicalPolicyBytes, parseRecoveryPolicy } = await importHistoricalReleaseModule(
+  "scripts/release/recovery/policy.mjs",
+)
+const { canonicalRecoveryBytes, parseRecovery } = await importHistoricalReleaseModule(
+  "scripts/release/recovery/schema.mjs",
+)
+
+import {
+  HISTORICAL_RELEASE_REF,
+  importHistoricalReleaseModule,
+  readHistoricalReleaseFile,
+} from "./support/frozen-history.mjs"
+
+const read = async (path) => readHistoricalReleaseFile(path)
 
 const gitRead = (ref, path) =>
   execFileSync("git", ["show", `${ref}:${path}`], { maxBuffer: 8 * 1024 * 1024 })
@@ -37,7 +47,7 @@ async function verifyCommittedAdmission({ currentRead = read, historicalRead = g
   assert.equal(intent.candidate.releaseId, "382873833")
   assert.equal(intent.candidate.repositoryId, "1210070282")
   assert.equal(intent.candidate.candidateSha, "88c01c4afd59866fc0ea4c8f3b8444439a01c8ea")
-  const controllerSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim()
+  const controllerSha = HISTORICAL_RELEASE_REF
   const admission = await validateRecoveryVerifier(
     {
       candidate: intent.candidate,
@@ -159,7 +169,7 @@ async function verifyCommittedAdmission({ currentRead = read, historicalRead = g
   )
 }
 
-test("committed v0.8.24 admission binds exact intent, complete topology and actual service witness", async () => {
+test("frozen Dawn v0.8.24 admission binds exact intent, complete topology and actual service witness", async () => {
   await verifyCommittedAdmission()
 })
 

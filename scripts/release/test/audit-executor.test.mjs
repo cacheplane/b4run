@@ -98,20 +98,14 @@ test("missing correlated CI identifiers cannot satisfy equality checks", async (
   await assert.rejects(authorizeAuditExecutor(f))
 })
 
-test("committed v0.8.26 authorization binds the reviewed workflow and complete source pins", async () => {
-  const { readFile } = await import("node:fs/promises")
+test("frozen Dawn v0.8.26 authorization binds the reviewed workflow and complete source pins", async () => {
+  const { readHistoricalReleaseFile } = await import("./support/frozen-history.mjs")
   const { createHash } = await import("node:crypto")
-  const root = new URL("../../../", import.meta.url)
   const record = JSON.parse(
-    await readFile(
-      new URL("scripts/release/audit-executor-authorizations/v0.8.26.json", root),
-      "utf8",
-    ),
+    readHistoricalReleaseFile("scripts/release/audit-executor-authorizations/v0.8.26.json"),
   )
   const hashFile = async (path) =>
-    createHash("sha256")
-      .update(await readFile(new URL(path, root)))
-      .digest("hex")
+    createHash("sha256").update(readHistoricalReleaseFile(path)).digest("hex")
   assert.deepEqual(record.candidate, {
     version: "0.8.26",
     commitSha: "470c871f258f5cd248904208bff6a89acbf3a56c",

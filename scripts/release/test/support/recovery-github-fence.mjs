@@ -1,12 +1,13 @@
 // Test-only authority and reporting. This does not authorize production adoption.
 export function authorizeFenceProbe(env) {
-  const repository = env.DAWN_RECOVERY_TEST_REPOSITORY
-  if (env.DAWN_TEST_RECOVERY_GITHUB !== "1") throw new Error("explicit opt-in required")
+  const repository = env.B4_RECOVERY_TEST_REPOSITORY
+  if (env.B4_TEST_RECOVERY_GITHUB !== "1") throw new Error("explicit opt-in required")
   if (typeof repository !== "string" || !/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
     throw new Error("disposable repository required")
   }
-  if (repository.toLowerCase() === "cacheplane/dawnai") throw new Error("production forbidden")
-  if (env.DAWN_RECOVERY_AUTHORIZED_REPOSITORY !== repository) {
+  if (["cacheplane/b4-run", "cacheplane/dawnai"].includes(repository.toLowerCase()))
+    throw new Error("production forbidden")
+  if (env.B4_RECOVERY_AUTHORIZED_REPOSITORY !== repository) {
     throw new Error("repository must match the separately authorized repository")
   }
   return repository

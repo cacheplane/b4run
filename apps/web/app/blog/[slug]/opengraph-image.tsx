@@ -4,7 +4,7 @@ import { getAuthoredPosts, selectVisiblePosts } from "../../components/blog/post
 
 export const contentType = "image/png"
 export const size = { width: 1200, height: 630 }
-export const alt = "Dawn blog post title, type, and publication date"
+export const alt = "B4.run blog post title, type, and publication date"
 
 function visiblePosts(currentDate: string, posts = getAuthoredPosts()) {
   return selectVisiblePosts(posts, currentDate)
@@ -82,7 +82,7 @@ export function renderBlogImage(post: BlogImageContent) {
       >
         {post.title}
       </div>
-      <div style={{ fontSize: 24, color: "#6d5638" }}>dawnai.org/blog</div>
+      <div style={{ fontSize: 24, color: "#6d5638" }}>b4.run/blog</div>
     </div>,
     { ...size },
   )

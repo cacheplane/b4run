@@ -13,6 +13,7 @@ const POLICY_URL = new URL("./abandonment-workflow-policy.json", import.meta.url
 const EXPECTED_VARIANTS = Object.freeze([
   Object.freeze({ id: "disabled-2026-08-28", mode: "disabled" }),
   Object.freeze({ id: "protected-2026-08-28", mode: "protected" }),
+  Object.freeze({ id: "renamed-b4-disabled-2026-09-07", mode: "disabled" }),
 ])
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u
 

@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
-import type { RouteManifest } from "@dawn-ai/core"
-import type { DawnAgent } from "@dawn-ai/sdk"
+import type { RouteManifest } from "@b4run/core"
+import type { B4Agent } from "@b4run/sdk"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import {
@@ -30,7 +30,7 @@ describe("getCachedDescriptorRouteIndex", () => {
   let tmp: string
 
   beforeEach(() => {
-    tmp = mkdtempSync(join(tmpdir(), "dawn-cache-test-"))
+    tmp = mkdtempSync(join(tmpdir(), "b4-cache-test-"))
     __resetDescriptorRouteIndexCacheForTests()
   })
 
@@ -40,7 +40,7 @@ describe("getCachedDescriptorRouteIndex", () => {
 
   it("returns the same Map instance for the same manifest object (cache hit)", async () => {
     const entryFile = join(tmp, "a.ts")
-    writeFileSync(entryFile, `export default { __dawn: true }`)
+    writeFileSync(entryFile, `export default { __b4: true }`)
     const m = manifest([{ id: "/a", entryFile, routeDir: tmp }])
 
     const first = await getCachedDescriptorRouteIndex(m)
@@ -51,7 +51,7 @@ describe("getCachedDescriptorRouteIndex", () => {
 
   it("builds a fresh map for a different manifest object (cache miss)", async () => {
     const entryFile = join(tmp, "b.ts")
-    writeFileSync(entryFile, `export default { __dawn: true }`)
+    writeFileSync(entryFile, `export default { __b4: true }`)
     const m1 = manifest([{ id: "/b", entryFile, routeDir: tmp }])
     const m2 = manifest([{ id: "/b", entryFile, routeDir: tmp }])
 
@@ -61,11 +61,11 @@ describe("getCachedDescriptorRouteIndex", () => {
     expect(map2).not.toBe(map1)
   })
 
-  it("populates descriptor entries for routes whose default export is a DawnAgent", async () => {
+  it("populates descriptor entries for routes whose default export is a B4Agent", async () => {
     const entryFile = join(tmp, "agent.ts")
     writeFileSync(
       entryFile,
-      `import { agent } from "@dawn-ai/sdk"\nexport default agent({ model: "gpt-5", systemPrompt: "x" })\n`,
+      `import { agent } from "@b4run/sdk"\nexport default agent({ model: "gpt-5", systemPrompt: "x" })\n`,
     )
     const m = manifest([{ id: "/a", entryFile, routeDir: tmp }])
     const map = await getCachedDescriptorRouteIndex(m)
@@ -78,7 +78,7 @@ describe("getCachedDescriptorRouteIndex", () => {
     const routeB = join(tmp, "route-b.ts")
     writeFileSync(
       descriptorFile,
-      `import { agent } from "@dawn-ai/sdk"\nexport default agent({ model: "gpt-5-mini" })\n`,
+      `import { agent } from "@b4run/sdk"\nexport default agent({ model: "gpt-5-mini" })\n`,
     )
     writeFileSync(routeA, `export { default } from "./shared.js"\n`)
     writeFileSync(routeB, `export { default } from "./shared.js"\n`)
@@ -87,9 +87,8 @@ describe("getCachedDescriptorRouteIndex", () => {
       { id: "/a-route", entryFile: routeB, routeDir: tmp },
     ])
 
-    const descriptor = (
-      (await import(pathToFileURL(descriptorFile).href)) as { default: DawnAgent }
-    ).default
+    const descriptor = ((await import(pathToFileURL(descriptorFile).href)) as { default: B4Agent })
+      .default
     const map = await getCachedDescriptorRouteIndex(m)
 
     expect(map.get(descriptor)).toEqual(["/a-route", "/z-route"])

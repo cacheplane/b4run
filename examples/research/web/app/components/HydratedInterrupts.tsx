@@ -8,7 +8,7 @@ import { type PermissionDecision, PermissionPrompt } from "./PermissionPrompt"
  * The permission gates the SERVER is already holding, put back on screen.
  *
  * Reload the page while a run is parked on a gate and the prompt is gone: the
- * interrupt lives in the Dawn server's checkpoint, but the only thing that
+ * interrupt lives in the B4.run server's checkpoint, but the only thing that
  * renders it — `useInterrupt` — is fed exclusively by `onRunFinishedEvent`
  * inside its own `agent.subscribe(…)` effect. There is no public setter and
  * assigning `agent.pendingInterrupts` does not make it render, so the run is
@@ -124,7 +124,7 @@ export function HydratedInterrupts({
       // source says by calling `cancel(id)`; `resolvePendingResume`
       // (`packages/cli/src/lib/dev/pending-interrupts.ts`) maps
       // `status === "cancelled"` straight to "deny" and never looks at the
-      // payload; and it is the only shape `isDawnResumeBody` accepts on the
+      // payload; and it is the only shape `isB4ResumeBody` accepts on the
       // `POST /threads/:id/resume` endpoint, whose exact-key check rejects a
       // cancelled entry carrying a third key. This app resumes through the
       // AG-UI handler rather than that endpoint, so the last one is not the

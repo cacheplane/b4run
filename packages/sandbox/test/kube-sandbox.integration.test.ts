@@ -21,21 +21,21 @@ import {
 
 // Real-cluster lane. The compatibility harness supplies a short-lived token
 // kubeconfig and all live inputs; ordinary package tests skip this entire suite.
-const enabled = process.env.DAWN_TEST_K8S === "1"
+const enabled = process.env.B4_TEST_K8S === "1"
 
 function requiredLiveEnvironment(name: string): string {
   const value = process.env[name]
   if (enabled && (value === undefined || value.trim().length === 0)) {
-    throw new Error(`${name} is required when DAWN_TEST_K8S=1`)
+    throw new Error(`${name} is required when B4_TEST_K8S=1`)
   }
   return value ?? ""
 }
 
-const IMAGE = requiredLiveEnvironment("DAWN_TEST_K8S_IMAGE")
-const NS = requiredLiveEnvironment("DAWN_TEST_K8S_NS")
-const STORAGE_CLASS = requiredLiveEnvironment("DAWN_TEST_K8S_STORAGE_CLASS")
+const IMAGE = requiredLiveEnvironment("B4_TEST_K8S_IMAGE")
+const NS = requiredLiveEnvironment("B4_TEST_K8S_NS")
+const STORAGE_CLASS = requiredLiveEnvironment("B4_TEST_K8S_STORAGE_CLASS")
 const EGRESS_CONTROL_URL = enabled
-  ? parseEgressControlUrl(requiredLiveEnvironment("DAWN_TEST_K8S_EGRESS_CONTROL_URL"))
+  ? parseEgressControlUrl(requiredLiveEnvironment("B4_TEST_K8S_EGRESS_CONTROL_URL"))
   : ""
 const ctx = (workspaceRoot: string) => ({ signal: new AbortController().signal, workspaceRoot })
 const make = () =>
@@ -92,9 +92,9 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
       })
       const { core } = liveClients()
       const [pod, pvc] = await Promise.all([
-        core.readNamespacedPod({ name: `dawn-sbx-${threadId}`, namespace: NS }),
+        core.readNamespacedPod({ name: `b4-sbx-${threadId}`, namespace: NS }),
         core.readNamespacedPersistentVolumeClaim({
-          name: `dawn-sbx-vol-${threadId}`,
+          name: `b4-sbx-vol-${threadId}`,
           namespace: NS,
         }),
       ])
@@ -167,8 +167,8 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
       const policies = await networking.listNamespacedNetworkPolicy({ namespace: NS })
       const perThreadPolicy = policies.items.find(
         (policy) =>
-          policy.metadata?.name === `dawn-sbx-net-${threadId}` ||
-          policy.metadata?.labels?.["dawn.sh/thread"] === threadId,
+          policy.metadata?.name === `b4-sbx-net-${threadId}` ||
+          policy.metadata?.labels?.["b4.sh/thread"] === threadId,
       )
       expect(perThreadPolicy).toBeUndefined()
 
@@ -221,8 +221,8 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
   test("recreates an externally deleted keeper over the same PVC", async () => {
     const provider = make()
     const threadId = `recreate-${randomUUID().slice(0, 8)}`
-    const podName = `dawn-sbx-${threadId}`
-    const pvcName = `dawn-sbx-vol-${threadId}`
+    const podName = `b4-sbx-${threadId}`
+    const pvcName = `b4-sbx-vol-${threadId}`
     try {
       const first = await provider.acquire({
         threadId,
@@ -271,7 +271,7 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
   test("updates an existing owned NetworkPolicy on reacquire", async () => {
     const provider = make()
     const threadId = `policy-${randomUUID().slice(0, 8)}`
-    const policyName = `dawn-sbx-net-${threadId}`
+    const policyName = `b4-sbx-net-${threadId}`
     try {
       await provider.acquire({
         threadId,
@@ -284,8 +284,8 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
         namespace: NS,
       })
       expect(existing.metadata?.labels).toMatchObject({
-        "app.kubernetes.io/managed-by": "dawn",
-        "dawn.sh/thread": threadId,
+        "app.kubernetes.io/managed-by": "b4",
+        "b4.sh/thread": threadId,
       })
       expect(existing.metadata?.resourceVersion).toBeTruthy()
       expect(existing.metadata?.uid).toBeTruthy()
@@ -293,7 +293,7 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
       const modified: V1NetworkPolicy = {
         ...existing,
         spec: {
-          podSelector: { matchLabels: { "dawn.sh/thread": threadId } },
+          podSelector: { matchLabels: { "b4.sh/thread": threadId } },
           policyTypes: ["Egress"],
           egress: [],
         },
@@ -315,11 +315,11 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
       })
       expect(updated.metadata?.uid).toBe(existing.metadata?.uid)
       expect(updated.metadata?.labels).toMatchObject({
-        "app.kubernetes.io/managed-by": "dawn",
-        "dawn.sh/thread": threadId,
+        "app.kubernetes.io/managed-by": "b4",
+        "b4.sh/thread": threadId,
       })
       expect(updated.spec).toEqual({
-        podSelector: { matchLabels: { "dawn.sh/thread": threadId } },
+        podSelector: { matchLabels: { "b4.sh/thread": threadId } },
         policyTypes: ["Egress"],
         egress: [
           {

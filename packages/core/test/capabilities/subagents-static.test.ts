@@ -1,4 +1,4 @@
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 import { describe, expect, it } from "vitest"
 import { createSubagentsMarker } from "../../src/capabilities/built-in/subagents.js"
 import type { CapabilityMarkerContext } from "../../src/capabilities/types.js"

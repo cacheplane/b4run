@@ -331,8 +331,8 @@ async function captureDurableAbandonmentContext({ candidate, github }) {
 
   const expectedTitle =
     marker.phase === "ABANDONED_PREPUBLICATION"
-      ? `Dawn v${candidate.version} (abandoned before publication)`
-      : `Dawn v${candidate.version}`
+      ? `B4 v${candidate.version} (abandoned before publication)`
+      : `B4 v${candidate.version}`
   if (exact.name !== expectedTitle) {
     throw new Error("Abandonment recovery Release title conflicts with its phase")
   }
@@ -557,7 +557,7 @@ function normalizeDraftRelease(value, candidate, { bodyRequired }) {
   if (
     !isRecord(release) ||
     !isPositiveInteger(release.id) ||
-    release.name !== `Dawn v${candidate.version}` ||
+    release.name !== `B4 v${candidate.version}` ||
     release.target_commitish !== "main" ||
     release.draft !== true ||
     release.immutable !== false ||
@@ -586,8 +586,8 @@ function normalizeRecoveryDraftRelease(value, candidate, { bodyRequired }) {
     !isRecord(release) ||
     !isPositiveInteger(release.id) ||
     ![
-      `Dawn v${candidate.version}`,
-      `Dawn v${candidate.version} (abandoned before publication)`,
+      `B4 v${candidate.version}`,
+      `B4 v${candidate.version} (abandoned before publication)`,
     ].includes(release.name) ||
     release.target_commitish !== "main" ||
     release.draft !== true ||
@@ -702,10 +702,10 @@ function validateEnvironment(value, candidate) {
   const environment = snapshotJson(value)
   assertExactFields(environment, ENVIRONMENT_FIELDS, "abandonment context environment")
   const expected = {
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
+    GITHUB_REPOSITORY: "cacheplane/b4-run",
     GITHUB_REF: `refs/tags/v${candidate.version}`,
     GITHUB_SHA: candidate.commitSha,
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/release.yml@refs/tags/v${candidate.version}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${candidate.version}`,
   }
   for (const [name, expectedValue] of Object.entries(expected)) {
     if (environment[name] !== expectedValue) {

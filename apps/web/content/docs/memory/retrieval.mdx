@@ -36,7 +36,7 @@ A keyword query tokenizes the query and record content, then ranks a bounded can
 
 Ties break by newest `updatedAt`, then `id`. Matching is exact-token rather than stemming, so use consistent words for IDs, product names, and domain terms.
 
-```ts title="dawn.config.ts"
+```ts title="b4.config.ts"
 export default {
   memory: {
     recall: {
@@ -45,7 +45,7 @@ export default {
       candidatePool: 256,
     },
   },
-} satisfies import("@dawn-ai/core").DawnConfig
+} satisfies import("@b4run/core").B4Config
 ```
 
 Reproducible evaluation requires the same store snapshot, tokenization/tuning, and fixed evaluation timestamp. Advancing `now` can change expiry and recency even when no row is written.
@@ -54,8 +54,8 @@ Reproducible evaluation requires the same store snapshot, tokenization/tuning, a
 
 Add an embedder when paraphrases must match even without shared tokens:
 
-```ts title="dawn.config.ts"
-import { openaiEmbedder } from "@dawn-ai/langchain"
+```ts title="b4.config.ts"
+import { openaiEmbedder } from "@b4run/langchain"
 
 export default {
   memory: {
@@ -68,22 +68,22 @@ export default {
       confidenceWeight: 0.1,
     },
   },
-} satisfies import("@dawn-ai/core").DawnConfig
+} satisfies import("@b4run/core").B4Config
 ```
 
 Hybrid search takes the union of the keyword list and vector-nearest list, combines their ranks with Reciprocal Rank Fusion, then applies bounded recency and confidence. Keyword matches remain present because embeddings are weak on exact IDs, codes, and names.
 
 Every stored embedding carries the embedder model id. Vector comparison includes only rows whose model id matches the active embedder, preventing comparisons across incompatible vector spaces. After changing embedders, older rows still participate in keyword search until you re-embed them.
 
-Writing or recalling degrades to keyword-only if embedding fails. Set `DAWN_DEBUG_MEMORY=1` when diagnosing silent fallbacks. For deterministic tests, use a fixed embedder such as `fakeEmbedder()` from `@dawn-ai/testing`.
+Writing or recalling degrades to keyword-only if embedding fails. Set `B4_DEBUG_MEMORY=1` when diagnosing silent fallbacks. For deterministic tests, use a fixed embedder such as `fakeEmbedder()` from `@b4run/testing`.
 
 ## Postgres backend (pgvector)
 
-Install `@dawn-ai/memory-pgvector` when several app instances need a shared memory store:
+Install `@b4run/memory-pgvector` when several app instances need a shared memory store:
 
-```ts title="dawn.config.ts"
-import { openaiEmbedder } from "@dawn-ai/langchain"
-import { pgvectorMemoryStore } from "@dawn-ai/memory-pgvector"
+```ts title="b4.config.ts"
+import { openaiEmbedder } from "@b4run/langchain"
+import { pgvectorMemoryStore } from "@b4run/memory-pgvector"
 
 const embedder = openaiEmbedder()
 
@@ -95,7 +95,7 @@ export default {
     }),
     vector: { embedder },
   },
-} satisfies import("@dawn-ai/core").DawnConfig
+} satisfies import("@b4run/core").B4Config
 ```
 
 `dimensions` must match the embedder output dimension. The shared `embedder` value makes this a complete hybrid configuration; omitting `memory.vector` leaves the pgvector store on keyword-only recall even though it has a vector column.
@@ -106,7 +106,7 @@ A custom store owns ranking behavior, so the built-in `memory.recall` and `memor
 
 ## The injected index
 
-Before the model starts, Dawn performs a query-less search for a small active-memory index and adds `id: content` lines to the prompt. It is a recency-ordered orientation aid, not the whole store and not semantic ranking. The agent should call `recall` when it needs a specific topic or time window.
+Before the model starts, B4.run performs a query-less search for a small active-memory index and adds `id: content` lines to the prompt. It is a recency-ordered orientation aid, not the whole store and not semantic ranking. The agent should call `recall` when it needs a specific topic or time window.
 
 ## Evaluate retrieval
 

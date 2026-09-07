@@ -611,7 +611,7 @@ async function runEscrow(options, runtime) {
     {
       candidate,
       manifest: verified.manifest,
-      repository: "cacheplane/dawnai",
+      repository: "cacheplane/b4-run",
     },
   )
   if (!Buffer.from(attestationSetBytes).equals(canonicalJsonBytes(attestationSet))) {
@@ -1590,7 +1590,7 @@ async function runTag(options, runtime) {
   const created = await createAnnotatedTag({
     tag,
     sha: candidate.commitSha,
-    message: `Dawn release ${tag}`,
+    message: `B4 release ${tag}`,
   })
   const pushed = await pushTag({ tag })
   return Object.freeze({
@@ -1942,8 +1942,8 @@ function auditDispatchRunId(value) {
     !Number.isSafeInteger(value.workflowRunId) ||
     value.workflowRunId < 1 ||
     value.runUrl !==
-      `https://api.github.com/repos/cacheplane/dawnai/actions/runs/${value.workflowRunId}` ||
-    value.htmlUrl !== `https://github.com/cacheplane/dawnai/actions/runs/${value.workflowRunId}`
+      `https://api.github.com/repos/cacheplane/b4-run/actions/runs/${value.workflowRunId}` ||
+    value.htmlUrl !== `https://github.com/cacheplane/b4-run/actions/runs/${value.workflowRunId}`
   ) {
     throw new TypeError("Release CLI audit dispatch result is invalid")
   }
@@ -1987,7 +1987,7 @@ async function requireGitHub(runtime) {
     "GitHub reader factory",
   )({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4-run",
     ...(runtime.environment.GITHUB_REPOSITORY_ID === undefined
       ? {}
       : { repositoryId: runtime.environment.GITHUB_REPOSITORY_ID }),
@@ -1999,7 +1999,7 @@ async function requireGitHub(runtime) {
     "GitHub writer factory",
   )({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4-run",
     token,
     reader,
   })
@@ -2055,7 +2055,7 @@ async function requireProductionGitHub(runtime) {
     "GitHub reader factory",
   )({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4-run",
     ...(runtime.environment.GITHUB_REPOSITORY_ID === undefined
       ? {}
       : { repositoryId: runtime.environment.GITHUB_REPOSITORY_ID }),
@@ -2121,7 +2121,7 @@ async function requireAttestations(runtime) {
   if (typeof token !== "string" || token.length === 0 || /[\r\n]/u.test(token)) {
     throw new TypeError("Release CLI attestation verification requires GITHUB_TOKEN")
   }
-  if (runtime.environment.GITHUB_REPOSITORY !== "cacheplane/dawnai") {
+  if (runtime.environment.GITHUB_REPOSITORY !== "cacheplane/b4-run") {
     throw new TypeError("Release CLI attestation verification requires the exact GitHub repository")
   }
   const module = await runtime.importModule(new URL("./artifact-store.mjs", import.meta.url).href)
@@ -2130,7 +2130,7 @@ async function requireAttestations(runtime) {
     "createCliAttestationVerifier",
     "attestation verifier factory",
   )({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     token,
     fileSystem: runtime.fileSystem,
   })
@@ -2166,7 +2166,7 @@ function normalizeArtifactUpload(value, manifest) {
   ) {
     throw new TypeError("Artifact upload output has an invalid exact-key schema")
   }
-  const expectedUrl = `https://github.com/cacheplane/dawnai/actions/runs/${manifest.artifact.prepareRunId}/artifacts/${value.artifactId}`
+  const expectedUrl = `https://github.com/cacheplane/b4-run/actions/runs/${manifest.artifact.prepareRunId}/artifacts/${value.artifactId}`
   if (value.artifactUrl !== expectedUrl) {
     throw new TypeError("Artifact upload URL does not match the run and artifact ID")
   }

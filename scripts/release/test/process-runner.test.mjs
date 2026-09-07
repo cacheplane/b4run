@@ -124,7 +124,7 @@ test("the production preparation runner terminates descendants on timeout", {
   skip: process.platform === "win32",
   timeout: 30_000,
 }, async (t) => {
-  const temporary = await mkdtemp(path.join(os.tmpdir(), "dawn-runner-tree-"))
+  const temporary = await mkdtemp(path.join(os.tmpdir(), "b4-runner-tree-"))
   t.after(() => rm(temporary, { recursive: true, force: true }))
   const pidPath = path.join(temporary, "descendant.pid")
   // The helper renames a fully written temporary file into place so the runner can never

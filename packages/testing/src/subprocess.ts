@@ -56,23 +56,23 @@ async function waitReady(url: string, timeoutMs: number): Promise<void> {
 }
 
 /**
- * Resolve the absolute path to the dawn CLI entry point so the subprocess can
+ * Resolve the absolute path to the b4 CLI entry point so the subprocess can
  * be spawned without relying on the probe-app's local node_modules or PATH.
  * We look relative to this module's own location inside the testing package.
  */
-function resolveDawnCliEntry(): string {
+function resolveB4CliEntry(): string {
   // import.meta.url resolves to something like:
   //   .../packages/testing/src/subprocess.ts  (ts-node / source)
   //   .../packages/testing/dist/subprocess.js (compiled)
   const here = dirname(fileURLToPath(import.meta.url))
-  // Climb up to packages/testing, then into node_modules/.bin dawn → ../cli/dist/index.js
-  // The shell script points at: $basedir/../@dawn-ai/cli/dist/index.js
+  // Climb up to packages/testing, then into node_modules/.bin b4 → ../cli/dist/index.js
+  // The shell script points at: $basedir/../@b4run/cli/dist/index.js
   // $basedir = packages/testing/node_modules/.bin
-  // So the entry is: packages/testing/node_modules/@dawn-ai/cli/dist/index.js
+  // So the entry is: packages/testing/node_modules/@b4run/cli/dist/index.js
   //
   // "here" is either packages/testing/src or packages/testing/dist — one level below the package root.
   const pkgRoot = resolve(here, "..")
-  return resolve(pkgRoot, "node_modules", "@dawn-ai", "cli", "dist", "index.js")
+  return resolve(pkgRoot, "node_modules", "@b4run", "cli", "dist", "index.js")
 }
 
 function childClosePromise(child: ChildProcess): Promise<void> {
@@ -243,7 +243,7 @@ export async function createSubprocessApp(opts: {
   readonly readyTimeoutMs?: number
 }): Promise<SubprocessApp> {
   const port = opts.port ?? (await getFreePort())
-  const cliEntry = resolveDawnCliEntry()
+  const cliEntry = resolveB4CliEntry()
 
   const child: ChildProcess = spawn(process.execPath, [cliEntry, "dev", "--port", String(port)], {
     cwd: opts.appRoot,
@@ -255,12 +255,12 @@ export async function createSubprocessApp(opts: {
   const closed = childClosePromise(child)
   if (groupPid === undefined) {
     await closed
-    throw new Error("dawn dev subprocess has no process id")
+    throw new Error("b4 dev subprocess has no process id")
   }
 
   // surface server logs for debugging on failure
-  child.stdout?.on("data", (b) => process.stdout.write(`[dawn dev] ${b}`))
-  child.stderr?.on("data", (b) => process.stderr.write(`[dawn dev] ${b}`))
+  child.stdout?.on("data", (b) => process.stdout.write(`[b4 dev] ${b}`))
+  child.stderr?.on("data", (b) => process.stderr.write(`[b4 dev] ${b}`))
 
   const baseUrl = `http://127.0.0.1:${port}`
   let closePromise: Promise<void> | undefined

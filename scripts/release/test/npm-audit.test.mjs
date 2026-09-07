@@ -15,11 +15,11 @@ import {
   EXACT_NPM_PROVENANCE_CERTIFICATE,
   MULTIPLE_NPM_PROVENANCE_CERTIFICATE,
   WRONG_NPM_PROVENANCE_CERTIFICATE,
-} from "./fixtures/npm-audit-certificates.mjs"
+} from "./fixtures/b4-npm-audit-certificates.mjs"
 
 const VERSION = "0.8.22"
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567"
-const ENTRY = Object.freeze(packageEntry("@dawn-ai/sdk"))
+const ENTRY = Object.freeze(packageEntry("@b4run/sdk"))
 const CANDIDATE = Object.freeze({
   version: VERSION,
   commitSha: COMMIT_SHA,
@@ -35,7 +35,7 @@ test("parses the exact npm 11 audit shape and binds its verified SLSA statement"
       predicateType: "https://slsa.dev/provenance/v1",
       workflow: CANDIDATE.publisherWorkflow,
       commitSha: COMMIT_SHA,
-      repository: "https://github.com/cacheplane/dawnai",
+      repository: "https://github.com/cacheplane/b4-run",
       ref: `refs/tags/v${VERSION}`,
     },
   }
@@ -60,11 +60,11 @@ test("rejects unsigned, forged, or ambiguous provenance even when registry JSON 
       { attestations: { url: attestationUrl(), publish: { predicateType: "publish" } } },
       /attestation|provenance/iu,
     ],
-    [{ repository: "https://github.com/fork/dawnai" }, /repository/iu],
+    [{ repository: "https://github.com/fork/b4-run" }, /repository/iu],
     [{ workflow: ".github/workflows/other.yml" }, /workflow/iu],
     [{ ref: "refs/heads/main" }, /ref/iu],
     [{ commitSha: "f".repeat(40) }, /commit/iu],
-    [{ subjectName: "pkg:npm/%40dawn-ai/sdk@0.8.21" }, /subject/iu],
+    [{ subjectName: "pkg:npm/%40b4run/sdk@0.8.21" }, /subject/iu],
     [{ subjectSha512: "f".repeat(128) }, /subject|integrity/iu],
     [{ predicateType: "https://example.test/unsigned" }, /provenance|predicate/iu],
     [{ duplicateProvenance: true }, /duplicate|ambiguous|provenance/iu],
@@ -126,14 +126,14 @@ test("uses one synthetic exact-package tree with no install, unpack, or lockfile
     GITHUB_ACTIONS: "true",
     GITHUB_EVENT_NAME: "workflow_dispatch",
     GITHUB_REF: `refs/tags/v${VERSION}`,
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
+    GITHUB_REPOSITORY: "cacheplane/b4-run",
     GITHUB_REPOSITORY_ID: "123456789",
     GITHUB_REPOSITORY_OWNER_ID: "987654321",
     GITHUB_RUN_ATTEMPT: "1",
     GITHUB_RUN_ID: "100",
     GITHUB_SERVER_URL: "https://github.com",
     GITHUB_SHA: COMMIT_SHA,
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
     RUNNER_ENVIRONMENT: "github-hosted",
     NODE_OPTIONS: "--require=/credential/stealer.cjs",
     NPM_TOKEN: "must-not-leak",
@@ -150,12 +150,12 @@ test("uses one synthetic exact-package tree with no install, unpack, or lockfile
       if (args[0] === "--version") return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
       if (args[0] === "audit") {
         assert.deepEqual((await readdir(options.cwd)).sort(), ["node_modules", "package.json"])
-        assert.deepEqual(await readdir(path.join(options.cwd, "node_modules")), ["@dawn-ai"])
-        assert.deepEqual(await readdir(path.join(options.cwd, "node_modules", "@dawn-ai")), ["sdk"])
+        assert.deepEqual(await readdir(path.join(options.cwd, "node_modules")), ["@b4run"])
+        assert.deepEqual(await readdir(path.join(options.cwd, "node_modules", "@b4run")), ["sdk"])
         assert.deepEqual(
           JSON.parse(await readFile(path.join(options.cwd, "package.json"), "utf8")),
           {
-            name: "dawn-release-audit-consumer",
+            name: "b4-release-audit-consumer",
             version: "0.0.0",
             private: true,
             dependencies: { [ENTRY.name]: ENTRY.version },
@@ -249,9 +249,9 @@ test("uses one synthetic exact-package tree with no install, unpack, or lockfile
 
     for (const [name, invalid] of [
       ["GITHUB_REF", "refs/heads/main"],
-      ["GITHUB_REPOSITORY", "fork/dawnai"],
+      ["GITHUB_REPOSITORY", "fork/b4-run"],
       ["GITHUB_SHA", "f".repeat(40)],
-      ["GITHUB_WORKFLOW_REF", "cacheplane/dawnai/.github/workflows/other.yml@refs/tags/v0.8.22"],
+      ["GITHUB_WORKFLOW_REF", "cacheplane/b4-run/.github/workflows/other.yml@refs/tags/v0.8.22"],
       ["RUNNER_ENVIRONMENT", "self-hosted"],
     ]) {
       const valid = sourceEnvironment[name]
@@ -311,7 +311,7 @@ test("pins the exact npm CLI contract consumed by the strict audit parser", asyn
 
 function auditOutput(drift = {}) {
   const version = drift.version ?? VERSION
-  const repository = drift.repository ?? "https://github.com/cacheplane/dawnai"
+  const repository = drift.repository ?? "https://github.com/cacheplane/b4-run"
   const workflow = drift.workflow ?? CANDIDATE.publisherWorkflow
   const ref = drift.ref ?? `refs/tags/v${VERSION}`
   const commitSha = drift.commitSha ?? COMMIT_SHA
@@ -340,7 +340,7 @@ function auditOutput(drift = {}) {
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: "https://github.com/cacheplane/dawnai/actions/runs/100/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4-run/actions/runs/100/attempts/1",
         },
       },
     },
@@ -425,11 +425,11 @@ function npmSubjectName(name, version) {
 }
 
 function attestationUrl(version = VERSION) {
-  return `https://registry.npmjs.org/-/npm/v1/attestations/@dawn-ai%2fsdk@${version}`
+  return `https://registry.npmjs.org/-/npm/v1/attestations/@b4run%2fsdk@${version}`
 }
 
 const BATCH_CANDIDATE = Object.freeze({ ...CANDIDATE, ciWorkflow: "CI", ciCheck: "validate" })
-const BATCH_ENTRIES = [ENTRY, packageEntry("@dawn-ai/core"), packageEntry("create-dawn-ai-app")]
+const BATCH_ENTRIES = [ENTRY, packageEntry("@b4run/core"), packageEntry("create-b4-app")]
 function batchOutput(entries = BATCH_ENTRIES) {
   const verified = entries.map((entry) => {
     const row = JSON.parse(auditOutput()).verified[0]
@@ -461,7 +461,7 @@ async function batchVerifier(run, fileSystem = fs, signal = new AbortController(
       GITHUB_TOKEN: "secret",
       NPM_TOKEN: "secret",
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: "secret",
-      DAWN_RECOVERY_POLICY_TOKEN: "secret",
+      B4_RECOVERY_POLICY_TOKEN: "secret",
       NODE_OPTIONS: "secret",
     },
     async runNpm(command, args, options) {
@@ -480,7 +480,7 @@ async function batchVerifier(run, fileSystem = fs, signal = new AbortController(
         "GITHUB_TOKEN",
         "NPM_TOKEN",
         "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
-        "DAWN_RECOVERY_POLICY_TOKEN",
+        "B4_RECOVERY_POLICY_TOKEN",
         "NODE_OPTIONS",
       ])
         assert.equal(options.env[key], undefined)
@@ -500,13 +500,10 @@ test("batch audits the whole inventory once in a fresh exact tree on every call"
     )
     assert.deepEqual((await readdir(cwd)).sort(), ["node_modules", "package.json"])
     assert.deepEqual((await readdir(path.join(cwd, "node_modules"))).sort(), [
-      "@dawn-ai",
-      "create-dawn-ai-app",
+      "@b4run",
+      "create-b4-app",
     ])
-    assert.deepEqual((await readdir(path.join(cwd, "node_modules/@dawn-ai"))).sort(), [
-      "core",
-      "sdk",
-    ])
+    assert.deepEqual((await readdir(path.join(cwd, "node_modules/@b4run"))).sort(), ["core", "sdk"])
     for (const entry of BATCH_ENTRIES) {
       const leaf = path.join(cwd, "node_modules", entry.name)
       assert.deepEqual(await readdir(leaf), ["package.json"])
@@ -697,14 +694,14 @@ for (const stage of ["before", "after"])
         tampered = true
         if (drift === "root bytes") await writeFile(path.join(directory, "package.json"), "{}")
         if (drift === "leaf bytes")
-          await writeFile(path.join(directory, "node_modules/@dawn-ai/core/package.json"), "{}")
+          await writeFile(path.join(directory, "node_modules/@b4run/core/package.json"), "{}")
         if (drift === "scope member")
-          await fs.mkdir(path.join(directory, "node_modules/@dawn-ai/extra"))
+          await fs.mkdir(path.join(directory, "node_modules/@b4run/extra"))
         if (drift === "nested dependency")
-          await fs.mkdir(path.join(directory, "node_modules/@dawn-ai/core/node_modules"))
+          await fs.mkdir(path.join(directory, "node_modules/@b4run/core/node_modules"))
         if (drift === "lockfile") await writeFile(path.join(directory, "package-lock.json"), "{}")
         if (drift === "symlink") {
-          const file = path.join(directory, "node_modules/@dawn-ai/core/package.json")
+          const file = path.join(directory, "node_modules/@b4run/core/package.json")
           await fs.rename(file, path.join(directory, "outside.json"))
           await fs.symlink(path.join(directory, "outside.json"), file)
         }
@@ -1023,14 +1020,14 @@ for (const stage of ["before", "after"])
       async ({ cwd }) => {
         commands++
         if (stage === "after")
-          await replace(path.join(cwd, "node_modules/@dawn-ai/core/package.json"))
+          await replace(path.join(cwd, "node_modules/@b4run/core/package.json"))
         return { stdout: batchOutput() }
       },
       {
         ...fs,
         async writeFile(file, ...args) {
           await fs.writeFile(file, ...args)
-          if (stage === "before" && file.endsWith("node_modules/@dawn-ai/core/package.json"))
+          if (stage === "before" && file.endsWith("node_modules/@b4run/core/package.json"))
             await replace(file)
         },
         async readFile(file, ...args) {

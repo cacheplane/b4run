@@ -1,12 +1,12 @@
 import { existsSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
-import type { RouteManifest, RouteToolTypes } from "@dawn-ai/core"
-import { renderDawnTypes } from "@dawn-ai/core"
-import { discoverRoutes, extractToolTypesForRoute, findDawnApp } from "@dawn-ai/core/node"
-import type { DawnErrorCode } from "@dawn-ai/sdk"
-import type { SandboxProvider } from "@dawn-ai/workspace"
+import type { RouteManifest, RouteToolTypes } from "@b4run/core"
+import { renderB4Types } from "@b4run/core"
+import { discoverRoutes, extractToolTypesForRoute, findB4App } from "@b4run/core/node"
+import type { B4ErrorCode } from "@b4run/sdk"
+import type { SandboxProvider } from "@b4run/workspace"
 import { type Command, CommanderError } from "commander"
-import { loadDawnConfig } from "../lib/node-config.js"
+import { loadB4Config } from "../lib/node-config.js"
 
 import { CliError, type CommandIo, formatErrorMessage, writeLine } from "../lib/output.js"
 import { collectRouteProviders } from "../lib/runtime/collect-route-providers.js"
@@ -29,7 +29,7 @@ interface VerifyCheckCounts {
 interface VerifyAppCheckResult {
   readonly appRoot: string
   readonly configPath: string
-  readonly dawnDir: string
+  readonly b4Dir: string
   readonly name: "app"
   readonly routesDir: string
   readonly status: "passed"
@@ -70,7 +70,7 @@ type VerifyCheckResult =
   | VerifyRoutesCheckResult
   | VerifyTypegenCheckResult
 
-type DawnApp = Awaited<ReturnType<typeof findDawnApp>>
+type B4App = Awaited<ReturnType<typeof findB4App>>
 
 interface VerifySuccessResult {
   readonly appRoot: string
@@ -97,12 +97,12 @@ const PASSED_STATUS = "passed" as const
 export function registerVerifyCommand(program: Command, io: CommandIo): void {
   program
     .command("verify")
-    .description("Verify Dawn app integrity")
-    .option("--cwd <path>", "Path to the Dawn app root or a child directory within it")
+    .description("Verify B4.run app integrity")
+    .option("--cwd <path>", "Path to the B4.run app root or a child directory within it")
     .option("--json", "Print the normalized verify result as JSON")
     .option(
       "--env-file <path>",
-      "Path to a .env file (overrides dawn.config.ts env and the default ./.env)",
+      "Path to a .env file (overrides b4.config.ts env and the default ./.env)",
     )
     .action(async (options: VerifyOptions) => {
       await runVerifyCommand(options, io)
@@ -115,7 +115,7 @@ export async function runVerifyCommand(options: VerifyOptions, io: CommandIo): P
     writeLine(io.stdout, JSON.stringify(result, null, 2))
 
     if (result.status === FAILED_STATUS) {
-      throw new CommanderError(1, "dawn.verify.failed", "")
+      throw new CommanderError(1, "b4.verify.failed", "")
     }
 
     return
@@ -133,7 +133,7 @@ export async function runVerifyCommand(options: VerifyOptions, io: CommandIo): P
 
     writeLine(
       io.stdout,
-      `Dawn app integrity OK: ${result.counts.passed} checks passed, ${routesCheck?.routeCount ?? 0} routes discovered.`,
+      `B4.run app integrity OK: ${result.counts.passed} checks passed, ${routesCheck?.routeCount ?? 0} routes discovered.`,
     )
 
     if (depsCheck && depsCheck.missingPackages.length > 0) {
@@ -164,7 +164,7 @@ export async function runVerifyCommand(options: VerifyOptions, io: CommandIo): P
     }
 
     if (manifest) {
-      // Advisory model-id pass shared with `dawn check`; never affects the result.
+      // Advisory model-id pass shared with `b4 check`; never affects the result.
       const modelIdWarnings = await collectUnknownModelIdWarnings(manifest)
       for (const warning of modelIdWarnings) {
         writeLine(io.stdout, `\n${warning}`)
@@ -179,10 +179,10 @@ export async function runVerifyCommand(options: VerifyOptions, io: CommandIo): P
 }
 
 async function verifyApp(options: VerifyOptions): Promise<VerifyAppOutcome> {
-  let app: DawnApp
+  let app: B4App
 
   try {
-    app = await findDawnApp(options.cwd ? { cwd: options.cwd } : {})
+    app = await findB4App(options.cwd ? { cwd: options.cwd } : {})
   } catch (error) {
     return {
       result: createVerifyFailureResult(
@@ -198,7 +198,7 @@ async function verifyApp(options: VerifyOptions): Promise<VerifyAppOutcome> {
     {
       appRoot: app.appRoot,
       configPath: app.configPath,
-      dawnDir: app.dawnDir,
+      b4Dir: app.b4Dir,
       name: "app",
       routesDir: app.routesDir,
       status: PASSED_STATUS,
@@ -231,7 +231,7 @@ async function verifyApp(options: VerifyOptions): Promise<VerifyAppOutcome> {
       })
       routeToolTypes.push({ pathname: route.pathname, tools })
     }
-    renderedTypes = renderDawnTypes(manifest, routeToolTypes)
+    renderedTypes = renderB4Types(manifest, routeToolTypes)
   } catch (error) {
     return { manifest, result: createVerifyFailureResult(app.appRoot, checks, "typegen", error) }
   }
@@ -262,7 +262,7 @@ async function verifyApp(options: VerifyOptions): Promise<VerifyAppOutcome> {
 
   // Environment-readiness gate: Node floor + (when a sandbox is configured) the
   // provider's Docker/daemon preflight — resolved the same way collect-sandbox-errors
-  // does, from dawn.config.ts's sandbox.provider. A failed runtime check fails verify.
+  // does, from b4.config.ts's sandbox.provider. A failed runtime check fails verify.
   const sandboxProvider = await resolveSandboxProvider(app.appRoot)
   const runtime = await checkRuntime(sandboxProvider ? { sandboxProvider } : {})
   checks.push(runtime)
@@ -287,12 +287,12 @@ async function verifyApp(options: VerifyOptions): Promise<VerifyAppOutcome> {
   }
 }
 
-/** Resolve dawn.config.ts's sandbox provider (name + preflight), if configured. */
+/** Resolve b4.config.ts's sandbox provider (name + preflight), if configured. */
 async function resolveSandboxProvider(
   appRoot: string,
 ): Promise<Pick<SandboxProvider, "preflight" | "name"> | undefined> {
   try {
-    const loaded = await loadDawnConfig({ appRoot })
+    const loaded = await loadB4Config({ appRoot })
     return loaded.config.sandbox?.provider
   } catch {
     return undefined
@@ -355,12 +355,12 @@ function runtimeFailureMessage(runtime: RuntimeCheckResult): string {
 }
 
 /**
- * The DAWN_E code for a failed verify result, when the failure is
+ * The B4_E code for a failed verify result, when the failure is
  * attributable to a registered code. Only the runtime check currently
  * carries codes; a stale Node takes priority over an unreachable sandbox
  * daemon since it is reported first in `runtimeFailureMessage`.
  */
-function getFailureCode(result: VerifyFailureResult): DawnErrorCode | undefined {
+function getFailureCode(result: VerifyFailureResult): B4ErrorCode | undefined {
   const failedCheck = [...result.checks].reverse().find((check) => check.status === FAILED_STATUS)
 
   if (failedCheck?.name === "runtime") {
@@ -370,7 +370,7 @@ function getFailureCode(result: VerifyFailureResult): DawnErrorCode | undefined 
 }
 
 function inferFailureAppRoot(options: VerifyOptions, message: string): string {
-  const fromMessage = /^Invalid Dawn app at (.+?)\. Missing: /u.exec(message)?.[1]
+  const fromMessage = /^Invalid B4.run app at (.+?)\. Missing: /u.exec(message)?.[1]
 
   if (fromMessage) {
     return fromMessage
@@ -383,7 +383,7 @@ function findAppRootFromCwd(cwd = process.cwd()): string | null {
   let currentDir = resolve(cwd)
 
   while (true) {
-    if (existsSync(join(currentDir, "dawn.config.ts"))) {
+    if (existsSync(join(currentDir, "b4.config.ts"))) {
       return currentDir
     }
 

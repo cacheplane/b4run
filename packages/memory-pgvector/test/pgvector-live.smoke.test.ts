@@ -1,13 +1,13 @@
-import { openaiEmbedder } from "@dawn-ai/langchain"
-import type { MemoryRecord } from "@dawn-ai/memory"
+import { openaiEmbedder } from "@b4run/langchain"
+import type { MemoryRecord } from "@b4run/memory"
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql"
 import { afterAll, beforeAll, describe, expect, test } from "vitest"
 import { type PgvectorMemoryStore, pgvectorMemoryStore } from "../src/index.js"
 
-// Doubly gated: needs BOTH a running Docker (DAWN_TEST_PGVECTOR=1) AND a real
+// Doubly gated: needs BOTH a running Docker (B4_TEST_PGVECTOR=1) AND a real
 // OPENAI_API_KEY. This is the top-tier dogfood proof — real OpenAI embeddings +
 // real Postgres + pgvector recall across a zero-shared-token paraphrase.
-const enabled = process.env.DAWN_TEST_PGVECTOR === "1" && Boolean(process.env.OPENAI_API_KEY)
+const enabled = process.env.B4_TEST_PGVECTOR === "1" && Boolean(process.env.OPENAI_API_KEY)
 
 let container: StartedPostgreSqlContainer
 let store: PgvectorMemoryStore

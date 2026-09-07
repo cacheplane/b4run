@@ -1,4 +1,4 @@
-import { __clearSeededRuntimeEnvForTests, seedRuntimeEnv } from "@dawn-ai/core"
+import { __clearSeededRuntimeEnvForTests, seedRuntimeEnv } from "@b4run/core"
 import { AIMessage, HumanMessage } from "@langchain/core/messages"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -79,11 +79,11 @@ describe("OPENAI_BASE_URL through the runtime-env seam", () => {
   })
 })
 
-describe("DAWN_DEBUG_SUMMARIZATION under node", () => {
+describe("B4_DEBUG_SUMMARIZATION under node", () => {
   afterEach(() => {
     __clearSeededRuntimeEnvForTests()
     vi.restoreAllMocks()
-    delete process.env.DAWN_DEBUG_SUMMARIZATION
+    delete process.env.B4_DEBUG_SUMMARIZATION
   })
 
   // Over the threshold, with a summarize that throws → the fallback path that
@@ -109,7 +109,7 @@ describe("DAWN_DEBUG_SUMMARIZATION under node", () => {
 
   it("warns when set to 1", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
-    process.env.DAWN_DEBUG_SUMMARIZATION = "1"
+    process.env.B4_DEBUG_SUMMARIZATION = "1"
     const out = await failingHook()({ messages: messages() })
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("summarization failed"),
@@ -128,7 +128,7 @@ describe("DAWN_DEBUG_SUMMARIZATION under node", () => {
 
   it("is reachable on a runtime with no process, via seedRuntimeEnv", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
-    seedRuntimeEnv({ DAWN_DEBUG_SUMMARIZATION: "1" })
+    seedRuntimeEnv({ B4_DEBUG_SUMMARIZATION: "1" })
     await failingHook()({ messages: messages() })
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("summarization failed"),

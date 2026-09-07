@@ -10,7 +10,7 @@ import { canonicalReleaseBody, isManagedReleaseForTag, parseReleaseMarker } from
 import { assertLegacyAuditCompatibleRelease } from "./recovery/observe.mjs"
 import { compareSemver, isExactSemver, parseSemver } from "./semver.mjs"
 
-const REPOSITORY = "cacheplane/dawnai"
+const REPOSITORY = "cacheplane/b4-run"
 const WORKFLOW = ".github/workflows/published-artifact-verify.yml"
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u
@@ -95,7 +95,7 @@ export async function coordinateIndependentAudit(input) {
 async function readAuditableManagedRelease(reader, { defaultBranch, expected }) {
   const releases = await readEnvelopeValue(reader.listReleases(), "releases")
   if (!Array.isArray(releases)) throw new Error("GitHub Release list is malformed")
-  const name = `Dawn v${expected.version}`
+  const name = `B4 v${expected.version}`
   const matches = releases.filter(
     (release) =>
       release !== null &&
@@ -191,7 +191,7 @@ function parseManagedRelease(value, { defaultBranch, expected, allowDraft }) {
   const tag = `v${version}`
   if (
     !isReleaseVersion(version) ||
-    release.name !== `Dawn v${version}` ||
+    release.name !== `B4 v${version}` ||
     marker.version !== version ||
     marker.tag !== tag ||
     (mode === "draft" ? !isManagedReleaseForTag(release, tag) : release.tag_name !== tag) ||

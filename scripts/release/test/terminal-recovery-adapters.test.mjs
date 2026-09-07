@@ -1,14 +1,19 @@
+// This adapter can only mutate the original v0.8.22 Dawn incident.
+
 import assert from "node:assert/strict"
 import test from "node:test"
+import { importHistoricalReleaseModule } from "./support/frozen-history.mjs"
 
-import { createTerminalRecoveryReader } from "../abandon-v0.8.22-candidate.mjs"
-import {
+const { createTerminalRecoveryReader } = await importHistoricalReleaseModule(
+  "scripts/release/abandon-v0.8.22-candidate.mjs",
+)
+const {
   createDuplicateRecoveryWriterContext,
   RECOVERY_MAX_ASSET_BYTES,
   readCurrentWriterObservation,
   requestRecoveryJson,
-} from "../duplicate-draft-recovery-adapters.mjs"
-import {
+} = await importHistoricalReleaseModule("scripts/release/duplicate-draft-recovery-adapters.mjs")
+const {
   assertTerminalRecoveryWriter,
   CANONICAL_ABANDONED_TITLE,
   CANONICAL_ESCROW_TITLE,
@@ -19,16 +24,12 @@ import {
   normalizeTerminalReleaseProjection,
   normalizeTerminalReleaseSnapshot,
   TOMBSTONE_ASSET_NAME,
-} from "../terminal-recovery-adapters.mjs"
-import { sealedManifestBytes } from "./support/terminal-record-fixture.mjs"
-import {
-  binaryResponse,
-  canonicalizeForTest,
-  jsonResponse,
-  requestBody,
-  routingFetch,
-  sha256,
-} from "./support/terminal-recovery-fetch.mjs"
+} = await importHistoricalReleaseModule("scripts/release/terminal-recovery-adapters.mjs")
+const { sealedManifestBytes } = await importHistoricalReleaseModule(
+  "scripts/release/test/support/terminal-record-fixture.mjs",
+)
+const { binaryResponse, canonicalizeForTest, jsonResponse, requestBody, routingFetch, sha256 } =
+  await importHistoricalReleaseModule("scripts/release/test/support/terminal-recovery-fetch.mjs")
 
 const TOKEN = "secret-token"
 const TAG_OBJECT = "d".repeat(40)

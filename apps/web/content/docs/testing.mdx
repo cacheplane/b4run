@@ -1,13 +1,13 @@
 # Scenario Testing
 
-Scenario tests are colocated with routes as `run.test.ts` files. Each file default-exports a route-scoped suite built with `scenarios("/route")`, and `dawn test` runs every scenario through the route runtime. Plain default-exported scenario arrays are not supported.
+Scenario tests are colocated with routes as `run.test.ts` files. Each file default-exports a route-scoped suite built with `scenarios("/route")`, and `b4 test` runs every scenario through the route runtime. Plain default-exported scenario arrays are not supported.
 
 ## A minimal test
 
 A scenario file has no `describe()` or `test()` wrapper. Pass the route ID to `scenarios()`, add cases with `.scenario()`, then set the input and expected status explicitly:
 
 ```ts title="src/app/(public)/support/[tenant]/run.test.ts"
-import { scenarios } from "@dawn-ai/sdk/testing"
+import { scenarios } from "@b4run/sdk/testing"
 
 export default scenarios("/support/[tenant]").scenario("greets a tenant", (s) =>
   s
@@ -20,10 +20,10 @@ export default scenarios("/support/[tenant]").scenario("greets a tenant", (s) =>
 Run all scenarios:
 
 ```
-dawn test
+b4 test
 ```
 
-Dawn discovers every `run.test.ts` under `src/app/`, verifies that the declared route matches the file's directory, invokes the route, and evaluates the expectations. `dawn typegen` writes the route and application-tool types used by the builder, so route names, `.mockTool()`, and `.expectTool()` are discoverable in IntelliSense.
+B4.run discovers every `run.test.ts` under `src/app/`, verifies that the declared route matches the file's directory, invokes the route, and evaluates the expectations. `b4 typegen` writes the route and application-tool types used by the builder, so route names, `.mockTool()`, and `.expectTool()` are discoverable in IntelliSense.
 
 ## Builder API
 
@@ -35,16 +35,16 @@ Every `.scenario(name, configure)` callback must return a builder that has calle
 - `.expectError(value)` matches a failed route's modeled error.
 - `.expectMeta(value)` matches `{ mode, routeId, routePath, executionSource }`.
 - `.assert(callback)` runs a synchronous or asynchronous custom assertion after declarative expectations.
-- `.server(url)` sends the scenario through a running Dawn-compatible server instead of invoking in-process.
+- `.server(url)` sends the scenario through a running B4.run-compatible server instead of invoking in-process.
 - `.mockTool(name, implementation)` replaces one application tool for this in-process invocation.
 - `.expectTool(name, configure)` asserts calls made to a tool mocked earlier in the same scenario.
 
 Passing scenarios can use `.expectOutput()`; failing scenarios can use `.expectError()`. The builder's type states hide combinations that cannot succeed and the loader validates the same rules at runtime.
 
-For programmatic assertions, import the existing helpers from `@dawn-ai/sdk/testing`:
+For programmatic assertions, import the existing helpers from `@b4run/sdk/testing`:
 
 ```ts title="src/app/(public)/support/[tenant]/run.test.ts"
-import { expectMeta, expectOutput, scenarios } from "@dawn-ai/sdk/testing"
+import { expectMeta, expectOutput, scenarios } from "@b4run/sdk/testing"
 
 export default scenarios("/support/[tenant]").scenario("custom assert", (s) =>
   s
@@ -64,22 +64,22 @@ export default scenarios("/support/[tenant]").scenario("custom assert", (s) =>
 Use `.mockTool()` when an in-process scenario should replace an external or nondeterministic application tool while keeping the rest of the route real. Tool names, parameters, and awaited return values come from the generated route types:
 
 ```ts title="src/app/research/run.test.ts"
-import { scenarios } from "@dawn-ai/sdk/testing"
+import { scenarios } from "@b4run/sdk/testing"
 
 export default scenarios("/research").scenario("uses a controlled search result", (s) =>
   s
-    .input({ messages: [{ role: "user", content: "Research Dawn" }] })
+    .input({ messages: [{ role: "user", content: "Research B4.run" }] })
     .mockTool("searchWeb", async ({ query }) => ({
-      results: [{ title: "Dawn", url: "https://example.test/dawn", query }],
+      results: [{ title: "B4.run", url: "https://example.test/b4", query }],
     }))
     .expectPassed()
     .expectTool("searchWeb", (call) =>
-      call.calledOnce().withArgs({ query: "Dawn" }),
+      call.calledOnce().withArgs({ query: "B4.run" }),
     ),
 )
 ```
 
-Mocks are partial: application tools not named by `.mockTool()` keep their real implementations. Dawn resolves shared and route-local tool precedence first, then replaces only the selected definition's implementation while preserving its schema, description, scope, and source metadata.
+Mocks are partial: application tools not named by `.mockTool()` keep their real implementations. B4.run resolves shared and route-local tool precedence first, then replaces only the selected definition's implementation while preserving its schema, description, scope, and source metadata.
 
 `.expectTool()` is available only for tools mocked earlier in the same scenario. Its call builder supports:
 
@@ -93,14 +93,14 @@ Count and argument assertions are independent when combined. Multiple `.withArgs
 
 Mocks apply only to the root route's generated application-tool set: route-local tools and shared tools. They cannot shadow built-in planning, workspace, memory, skill, or subagent capability tools, and a parent route's mocks never propagate into a child subagent route.
 
-Each scenario invocation receives a fresh override set and call journal. Dawn never mutates cached route modules, so mocks cannot leak into another scenario, a later `dawn run`, a server request, or a concurrently executing invocation.
+Each scenario invocation receives a fresh override set and call journal. B4.run never mutates cached route modules, so mocks cannot leak into another scenario, a later `b4 run`, a server request, or a concurrently executing invocation.
 
 ## Against a live dev server
 
-Use `.server(url)` to exercise a scenario through a running `dawn dev`, built Dawn server, or staging deployment. There is no command-level `--url` flag on `dawn test`.
+Use `.server(url)` to exercise a scenario through a running `b4 dev`, built B4.run server, or staging deployment. There is no command-level `--url` flag on `b4 test`.
 
 ```ts title="src/app/(public)/support/[tenant]/run.test.ts"
-import { scenarios } from "@dawn-ai/sdk/testing"
+import { scenarios } from "@b4run/sdk/testing"
 
 export default scenarios("/support/[tenant]").scenario(
   "greets a tenant via dev server",
@@ -113,11 +113,11 @@ export default scenarios("/support/[tenant]").scenario(
 )
 ```
 
-Start the dev server first, then run `dawn test`:
+Start the dev server first, then run `b4 test`:
 
 ```
-dawn dev --port 3001 &
-dawn test
+b4 dev --port 3001 &
+b4 test
 ```
 
 <Callout type="tip" title="Use both execution modes">
@@ -134,22 +134,22 @@ A server-backed scenario is useful when the claim depends on:
 - packaged static modules in a built runtime; or
 - real staging infrastructure and deployment configuration.
 
-Server-backed scenarios execute in another process and exchange JSON. JavaScript mock functions cannot cross that boundary, so `.server()` and `.mockTool()` are mutually exclusive in the builder and in runtime validation. Dawn does not install a test backdoor or a serializable mock interpreter in the server.
+Server-backed scenarios execute in another process and exchange JSON. JavaScript mock functions cannot cross that boundary, so `.server()` and `.mockTool()` are mutually exclusive in the builder and in runtime validation. B4.run does not install a test backdoor or a serializable mock interpreter in the server.
 
-Control server dependencies at their real boundary instead. Start a local fake HTTP service, point the server at a model proxy, or use a dedicated staging dependency before running `dawn test`.
+Control server dependencies at their real boundary instead. Start a local fake HTTP service, point the server at a model proxy, or use a dedicated staging dependency before running `b4 test`.
 
 ## Agents, retries, and middleware
 
 Two cross-cutting features shape what scenarios assert:
 
 - **Agent retries** — `agent({ retry: { maxAttempts, baseDelay } })` retries on transient errors. To assert the exhausted-retry path, call `.expectFailed().expectError(...)` or use `.assert()` with `expectError`. See [Retry](/docs/retry).
-- **Middleware** — `src/middleware.ts` runs before local Agent Protocol run and stream requests. **Server-backed scenarios targeting a Dawn runtime exercise middleware; in-process scenarios bypass it.** A scenario whose middleware calls `reject(...)` should use `.expectFailed().expectError(...)`. See [Middleware](/docs/middleware).
+- **Middleware** — `src/middleware.ts` runs before local Agent Protocol run and stream requests. **Server-backed scenarios targeting a B4.run runtime exercise middleware; in-process scenarios bypass it.** A scenario whose middleware calls `reject(...)` should use `.expectFailed().expectError(...)`. See [Middleware](/docs/middleware).
 
 ## Rules
 
 <Steps>
   <Step title="File location">
-    `run.test.ts` must live in the route's directory, not a sibling or nested folder. Dawn matches tests to routes by directory.
+    `run.test.ts` must live in the route's directory, not a sibling or nested folder. B4.run matches tests to routes by directory.
   </Step>
   <Step title="Route-scoped suite">
     Default-export `scenarios("/route").scenario(...)`. The declared route must match the file location, and plain scenario arrays are rejected.
@@ -167,31 +167,31 @@ Two cross-cutting features shape what scenarios assert:
 
 ## CI
 
-Use `dawn verify` as the integrity gate (it covers app, routes, typegen, and deps in one call), then run `dawn test`:
+Use `b4 verify` as the integrity gate (it covers app, routes, typegen, and deps in one call), then run `b4 test`:
 
 ```yaml
-- run: pnpm exec dawn verify
-- run: pnpm exec dawn test
+- run: pnpm exec b4 verify
+- run: pnpm exec b4 test
 ```
 
-`dawn verify` runs typegen and check internally, plus the deps check (missing packages, missing env vars) that bare `dawn check && dawn typegen` does not. Typegen also refreshes `.dawn/scenarios.generated.d.ts`, which powers route and application-tool completion in `run.test.ts`. `dawn test` exits non-zero on any failure and outputs a diff per mismatched scenario.
+`b4 verify` runs typegen and check internally, plus the deps check (missing packages, missing env vars) that bare `b4 check && b4 typegen` does not. Typegen also refreshes `.b4/scenarios.generated.d.ts`, which powers route and application-tool completion in `run.test.ts`. `b4 test` exits non-zero on any failure and outputs a diff per mismatched scenario.
 
 ## Unit-testing tools and middleware
 
-The scenario harness drives a whole route through the runtime. Sometimes you want to test one unit in isolation — a single route tool, a `FilesystemMiddleware`, or `ctx.fs`-using code — without standing up an agent. `@dawn-ai/testing` ships three harnesses for this. They run against the **real** `WorkspaceFs` and filesystem backend over a temp directory, so real permission gating, realpath resolution, and parent-directory creation all apply.
+The scenario harness drives a whole route through the runtime. Sometimes you want to test one unit in isolation — a single route tool, a `FilesystemMiddleware`, or `ctx.fs`-using code — without standing up an agent. `@b4run/testing` ships three harnesses for this. They run against the **real** `WorkspaceFs` and filesystem backend over a temp directory, so real permission gating, realpath resolution, and parent-directory creation all apply.
 
-All three are async `create*Harness` factories that return a handle with `.close()` and `[Symbol.asyncDispose]` — the same convention as `createAgentHarness`. Across `@dawn-ai/testing`, every harness/handle is created with a `create*` factory and torn down with `close()` (or `await using`).
+All three are async `create*Harness` factories that return a handle with `.close()` and `[Symbol.asyncDispose]` — the same convention as `createAgentHarness`. Across `@b4run/testing`, every harness/handle is created with a `create*` factory and torn down with `close()` (or `await using`).
 
 ### A tool that uses `ctx.fs`
 
-`createToolHarness(tool)` builds the `DawnToolContext` and gives you a reusable `invoke()`. Assert both the return value and what landed on disk via `h.workspace.read(...)`:
+`createToolHarness(tool)` builds the `B4ToolContext` and gives you a reusable `invoke()`. Assert both the return value and what landed on disk via `h.workspace.read(...)`:
 
 ```ts
 import { afterEach } from "vitest"
-import { createToolHarness } from "@dawn-ai/testing"
-import type { DawnToolContext } from "@dawn-ai/sdk"
+import { createToolHarness } from "@b4run/testing"
+import type { B4ToolContext } from "@b4run/sdk"
 
-const saveNote = async (input: { name: string; body: string }, ctx: DawnToolContext) => {
+const saveNote = async (input: { name: string; body: string }, ctx: B4ToolContext) => {
   const { bytesWritten } = await ctx.fs.writeFile(`notes/${input.name}.md`, input.body)
   return { bytesWritten }
 }
@@ -216,8 +216,8 @@ test("saveNote writes into the workspace", async () => {
 `createWorkspaceHarness()` is the shared fixture the tool harness builds on. Use it directly when the code under test takes a `WorkspaceFs`. Seed the workspace with `write`, run your code against `h.fs`, and assert with `read`:
 
 ```ts
-import { createWorkspaceHarness } from "@dawn-ai/testing"
-import type { WorkspaceFs } from "@dawn-ai/sdk"
+import { createWorkspaceHarness } from "@b4run/testing"
+import type { WorkspaceFs } from "@b4run/sdk"
 
 const appendLine = async (fs: WorkspaceFs, path: string, line: string) => {
   const prev = await fs.readFile(path)
@@ -241,8 +241,8 @@ The `await using` form auto-disposes the harness (cleaning up the temp dir) at t
 `createMiddlewareHarness(mw)` composes a `FilesystemMiddleware` over a temp `localFilesystem` and exposes the wrapped `backend` plus a `ctx` to call it with. `assertForwardsAll()` catches the most common middleware bug — silently dropping a backend method (required or optional) that the middleware doesn't intercept:
 
 ```ts
-import { createMiddlewareHarness } from "@dawn-ai/testing"
-import type { FilesystemMiddleware } from "@dawn-ai/workspace"
+import { createMiddlewareHarness } from "@b4run/testing"
+import type { FilesystemMiddleware } from "@b4run/workspace"
 
 const uppercaseReads: FilesystemMiddleware = (next) => ({
   ...next,

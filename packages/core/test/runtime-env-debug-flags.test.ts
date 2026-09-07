@@ -4,7 +4,7 @@ import type { CapabilityMarkerContext, Embedder, MemoryContext } from "../src/ca
 import { __clearSeededRuntimeEnvForTests, seedRuntimeEnv } from "../src/runtime-env.js"
 
 /**
- * `DAWN_DEBUG_MEMORY` used to be read as a bare `process.env.DAWN_DEBUG_MEMORY`,
+ * `B4_DEBUG_MEMORY` used to be read as a bare `process.env.B4_DEBUG_MEMORY`,
  * which is a ReferenceError on a runtime with no `process`. It now goes through
  * `readRuntimeEnv`. These tests pin the NODE behaviour — on/off exactly as
  * before — and then prove the same flag is reachable on the edge by seeding.
@@ -70,16 +70,16 @@ async function toolNamed(name: "recall" | "remember") {
 
 const signal = () => ({ signal: new AbortController().signal })
 
-describe("DAWN_DEBUG_MEMORY under node", () => {
+describe("B4_DEBUG_MEMORY under node", () => {
   afterEach(() => {
     __clearSeededRuntimeEnvForTests()
     vi.restoreAllMocks()
-    delete process.env.DAWN_DEBUG_MEMORY
+    delete process.env.B4_DEBUG_MEMORY
   })
 
   it("warns on a failed recall embed when set to 1", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
-    process.env.DAWN_DEBUG_MEMORY = "1"
+    process.env.B4_DEBUG_MEMORY = "1"
     await (await toolNamed("recall")).run({ query: "expedite delivery" }, signal())
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("recall embed failed"))
   })
@@ -92,14 +92,14 @@ describe("DAWN_DEBUG_MEMORY under node", () => {
 
   it("stays silent for a value other than 1", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
-    process.env.DAWN_DEBUG_MEMORY = "true"
+    process.env.B4_DEBUG_MEMORY = "true"
     await (await toolNamed("recall")).run({ query: "expedite delivery" }, signal())
     expect(warn).not.toHaveBeenCalled()
   })
 
   it("warns on a failed remember embed when set to 1", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
-    process.env.DAWN_DEBUG_MEMORY = "1"
+    process.env.B4_DEBUG_MEMORY = "1"
     await (await toolNamed("remember")).run(
       { data: { subject: "x" }, content: "faster shipping" },
       signal(),
@@ -109,7 +109,7 @@ describe("DAWN_DEBUG_MEMORY under node", () => {
 
   it("is reachable on a runtime with no process, via seedRuntimeEnv", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
-    seedRuntimeEnv({ DAWN_DEBUG_MEMORY: "1" })
+    seedRuntimeEnv({ B4_DEBUG_MEMORY: "1" })
     await (await toolNamed("recall")).run({ query: "expedite delivery" }, signal())
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("recall embed failed"))
   })

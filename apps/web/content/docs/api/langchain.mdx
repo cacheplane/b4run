@@ -1,13 +1,13 @@
-# @dawn-ai/langchain
+# @b4run/langchain
 
 ## Use this when
 
-Use this integration package when framework code must materialize Dawn agent descriptors, adapt LangChain runnables, convert Dawn tools, configure provider loading, or compose the package's retry, summarization, offloading, and subagent helpers. Most application code declares agents through [`agent()`](/docs/api/sdk#agent-and-agentconfig) and lets the Dawn runtime call this layer.
+Use this integration package when framework code must materialize B4.run agent descriptors, adapt LangChain runnables, convert B4.run tools, configure provider loading, or compose the package's retry, summarization, offloading, and subagent helpers. Most application code declares agents through [`agent()`](/docs/api/sdk#agent-and-agentconfig) and lets the B4.run runtime call this layer.
 
 ## Install and import
 
 ```bash
-pnpm add @dawn-ai/langchain @langchain/core @langchain/langgraph-checkpoint
+pnpm add @b4run/langchain @langchain/core @langchain/langgraph-checkpoint
 ```
 
 ```ts
@@ -16,7 +16,7 @@ import {
   openaiEmbedder,
   resolveProvider,
   withRetry,
-} from "@dawn-ai/langchain"
+} from "@b4run/langchain"
 ```
 
 Install the optional LangChain provider package selected by your agents. `@langchain/openai` is included; Anthropic, Google, Mistral, Groq, Ollama, xAI, and OpenRouter integrations are optional peer dependencies.
@@ -25,26 +25,26 @@ Install the optional LangChain provider package selected by your agents. `@langc
 
 | Surface | Runtime | Purity | Audience | Stability |
 |---|---|---|---|---|
-| `@dawn-ai/langchain` | edge-safe | not-claimed | integration | supported |
-| `@dawn-ai/langchain/package.json` | package metadata | n/a | tooling | supported |
+| `@b4run/langchain` | edge-safe | not-claimed | integration | supported |
+| `@b4run/langchain/package.json` | package metadata | n/a | tooling | supported |
 
-The runtime root is edge-safe for Dawn's emitted Hono/workerd target. Compatibility evidence includes the emitted Hono app round trip on Node and a gated real-workerd lane without `nodejs_compat`; guards bundle the exact surface with the model layer externalized. This is not a dependency-free claim or a promise of generic browser portability: provider integrations, application tools, stores, and dynamically selected imports retain their own requirements. `./package.json` is data for tooling, not TypeScript inventory or runtime code.
+The runtime root is edge-safe for B4.run's emitted Hono/workerd target. Compatibility evidence includes the emitted Hono app round trip on Node and a gated real-workerd lane without `nodejs_compat`; guards bundle the exact surface with the model layer externalized. This is not a dependency-free claim or a promise of generic browser portability: provider integrations, application tools, stores, and dynamically selected imports retain their own requirements. `./package.json` is data for tooling, not TypeScript inventory or runtime code.
 
 ## Public exports
 
-### `@dawn-ai/langchain`
+### `@b4run/langchain`
 
 | Export | Responsibility |
 |---|---|
 | `AgentStreamChunk` | Describe streamed tokens, tool activity, interrupts, completion, and extensions. |
 | `AgentTurnResult` | Describe a settled agent turn's output and whether it parked on an interrupt. |
-| `DawnToolDefinition` | Describe a Dawn tool accepted by agent materialization. |
+| `B4ToolDefinition` | Describe a B4.run tool accepted by agent materialization. |
 | `__resetMaterializedAgentsForTests` | Reset the process-global materialized-agent cache for tests. |
 | `executeAgent` | Consume an agent stream and return its completed output. |
 | `executeAgentTurn` | Execute one materialized-agent turn and return its structured result. |
-| `materializeAgentGraph` | Compile a Dawn agent descriptor into a LangGraph graph. |
+| `materializeAgentGraph` | Compile a B4.run agent descriptor into a LangGraph graph. |
 | `streamAgent` | Stream normalized agent chunks. |
-| `chainAdapter` | Adapt a LangChain runnable to Dawn's chain backend contract. |
+| `chainAdapter` | Adapt a LangChain runnable to B4.run's chain backend contract. |
 | `BuiltInModelProviderId` | Re-export the SDK-owned built-in provider union. |
 | `ModelProviderId` | Re-export the SDK-owned provider identifier. |
 | `createChatModel` | Load and construct a selected provider chat model. |
@@ -63,15 +63,15 @@ The runtime root is edge-safe for Dawn's emitted Hono/workerd target. Compatibil
 | `offloadToolOutput` | Replace oversized output with a saved-file preview stub. |
 | `buildStub` | Format a human-readable offloaded-output stub. |
 | `OffloadFn` | Describe the tool converter's output-offload callback. |
-| `convertToolToLangChain` | Convert a Dawn tool into a LangChain structured tool. |
+| `convertToolToLangChain` | Convert a B4.run tool into a LangChain structured tool. |
 | `executeWithToolLoop` | Invoke a chain and execute bounded tool-call rounds. |
 | `UnwrappedToolResult` | Describe agent-visible content and optional state updates. |
-| `unwrapToolResult` | Decode Dawn's strict `{ result, state? }` tool-return wrapper. |
+| `unwrapToolResult` | Decode B4.run's strict `{ result, state? }` tool-return wrapper. |
 | `Command` | Re-export LangGraph's resume/state-update command. |
 | `materializeStateSchema` | Build a LangGraph annotation root from resolved state fields. |
 | `ResolvedSubagentGraph` | Describe a resolved child route graph. |
 | `SubagentResolver` | Resolve an allowed task request to a child graph or rejection. |
-| `convertSubagentTaskToLangChain` | Convert Dawn's task placeholder to a resumable LangChain tool. |
+| `convertSubagentTaskToLangChain` | Convert B4.run's task placeholder to a resumable LangChain tool. |
 | `RunningSummary` | Track summary text and covered message count. |
 | `TokenCounter` | Count text tokens synchronously or asynchronously. |
 | `SummarizeFn` | Describe the injected summarization operation. |
@@ -86,26 +86,26 @@ The runtime root is edge-safe for Dawn's emitted Hono/workerd target. Compatibil
 
 `__resetMaterializedAgentsForTests` is public so the testing harness can reach it, but its name and contract are testing-only; it mutates process-wide cache state and is not an application lifecycle API. Helpers exported by implementation modules but omitted from the root barrel—such as `composePromptMessages`, `AgentOptions`, `ResolvedStateField`, `ExecuteWithToolLoopOptions`, `BuildStubArgs`, `jsonSchemaToZod`, warning/message helpers, and default importers—are not owned exports here.
 
-### `@dawn-ai/langchain/package.json`
+### `@b4run/langchain/package.json`
 
 This subpath exposes package metadata as JSON for tooling. It has no TypeScript export inventory, runtime compatibility classification, or purity claim; do not execute it as application code.
 
 ## Key contracts
 
-```ts api-contract="@dawn-ai/langchain#.:AgentStreamChunk"
+```ts api-contract="@b4run/langchain#.:AgentStreamChunk"
 export interface AgentStreamChunk {
   readonly type: "token" | "tool_call" | "tool_result" | "interrupt" | "done" | (string & {})
   readonly data: unknown
 }
 ```
 
-**Fields: `@dawn-ai/langchain#.:AgentStreamChunk`**
+**Fields: `@b4run/langchain#.:AgentStreamChunk`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly type` | `"token" \| "tool_call" \| "tool_result" \| "interrupt" \| "done" \| (string & {})` | yes | Identify the chunk kind. |
 | `readonly data` | `unknown` | yes | Carry the chunk payload. |
 
-```ts api-contract="@dawn-ai/langchain#.:RetryOptions"
+```ts api-contract="@b4run/langchain#.:RetryOptions"
 export interface RetryOptions {
   readonly maxAttempts?: number
   readonly baseDelayMs?: number
@@ -114,7 +114,7 @@ export interface RetryOptions {
 }
 ```
 
-**Fields: `@dawn-ai/langchain#.:RetryOptions`**
+**Fields: `@b4run/langchain#.:RetryOptions`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly maxAttempts` | `number` | no | Set total attempts; defaults to `3`. |
@@ -122,21 +122,21 @@ export interface RetryOptions {
 | `readonly maxDelayMs` | `number` | no | Cap backoff; defaults to `10000`. |
 | `readonly signal` | `AbortSignal` | no | Cancel the retry loop. |
 
-```ts api-contract="@dawn-ai/langchain#.:resolveProvider"
+```ts api-contract="@b4run/langchain#.:resolveProvider"
 export declare function resolveProvider(options: {
   readonly model: string
   readonly provider?: ModelProviderId
 }): BuiltInModelProviderId
 ```
 
-```ts api-contract="@dawn-ai/langchain#.:withRetry"
+```ts api-contract="@b4run/langchain#.:withRetry"
 export declare function withRetry<T>(
   fn: () => Promise<T>,
   options?: RetryOptions,
 ): Promise<T>
 ```
 
-```ts api-contract="@dawn-ai/langchain#.:OffloadToolOutputCtx"
+```ts api-contract="@b4run/langchain#.:OffloadToolOutputCtx"
 export interface OffloadToolOutputCtx {
   readonly toolName: string
   readonly thresholdChars: number
@@ -147,7 +147,7 @@ export interface OffloadToolOutputCtx {
 }
 ```
 
-**Fields: `@dawn-ai/langchain#.:OffloadToolOutputCtx`**
+**Fields: `@b4run/langchain#.:OffloadToolOutputCtx`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly toolName` | `string` | yes | Name the output's tool. |
@@ -157,14 +157,14 @@ export interface OffloadToolOutputCtx {
 | `readonly signal` | `AbortSignal` | no | Cancel the write. |
 | `readonly toolCallId` | `string` | no | Key the filename; content hashing is the fallback. |
 
-```ts api-contract="@dawn-ai/langchain#.:UnwrappedToolResult"
+```ts api-contract="@b4run/langchain#.:UnwrappedToolResult"
 export interface UnwrappedToolResult {
   readonly content: string
   readonly stateUpdates: Record<string, unknown> | undefined
 }
 ```
 
-**Fields: `@dawn-ai/langchain#.:UnwrappedToolResult`**
+**Fields: `@b4run/langchain#.:UnwrappedToolResult`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly content` | `string` | yes | Carry agent-visible content. |
@@ -246,7 +246,7 @@ Offload thresholds count characters, and the full tool output is written into th
 ## Examples and related guides
 
 ```ts
-import { chainAdapter, resolveProvider, withRetry } from "@dawn-ai/langchain"
+import { chainAdapter, resolveProvider, withRetry } from "@b4run/langchain"
 
 const provider = resolveProvider({ model: "gpt-5-mini" })
 const runnable = {

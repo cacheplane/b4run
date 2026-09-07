@@ -22,98 +22,93 @@ const CHECK_DOCS_PATH = join(REPO_ROOT, "scripts/check-docs.mjs")
 const CHANGESET_PATH = join(REPO_ROOT, ".changeset/api-reference-coverage.md")
 
 const EXPECTED_REFERENCE_PAGES = [
-  ["@dawn-ai/sdk", "/docs/api/sdk", "@dawn-ai/sdk", ["@dawn-ai/sdk"]],
-  ["@dawn-ai/cli", "/docs/api/cli", "@dawn-ai/cli", ["@dawn-ai/cli"]],
-  ["@dawn-ai/core", "/docs/api/core", "@dawn-ai/core", ["@dawn-ai/core"]],
-  ["@dawn-ai/ag-ui", "/docs/api/ag-ui", "@dawn-ai/ag-ui", ["@dawn-ai/ag-ui"]],
-  ["@dawn-ai/memory", "/docs/api/memory", "@dawn-ai/memory", ["@dawn-ai/memory"]],
+  ["@b4run/sdk", "/docs/api/sdk", "@b4run/sdk", ["@b4run/sdk"]],
+  ["@b4run/cli", "/docs/api/cli", "@b4run/cli", ["@b4run/cli"]],
+  ["@b4run/core", "/docs/api/core", "@b4run/core", ["@b4run/core"]],
+  ["@b4run/ag-ui", "/docs/api/ag-ui", "@b4run/ag-ui", ["@b4run/ag-ui"]],
+  ["@b4run/memory", "/docs/api/memory", "@b4run/memory", ["@b4run/memory"]],
   [
-    "@dawn-ai/memory-pgvector",
+    "@b4run/memory-pgvector",
     "/docs/api/memory-pgvector",
-    "@dawn-ai/memory-pgvector",
-    ["@dawn-ai/memory-pgvector"],
+    "@b4run/memory-pgvector",
+    ["@b4run/memory-pgvector"],
   ],
   [
-    "@dawn-ai/postgres-storage",
+    "@b4run/postgres-storage",
     "/docs/api/postgres-storage",
-    "@dawn-ai/postgres-storage",
-    ["@dawn-ai/postgres-storage"],
+    "@b4run/postgres-storage",
+    ["@b4run/postgres-storage"],
   ],
-  ["@dawn-ai/testing", "/docs/api/testing", "@dawn-ai/testing", ["@dawn-ai/testing"]],
-  ["@dawn-ai/evals", "/docs/api/evals", "@dawn-ai/evals", ["@dawn-ai/evals"]],
-  ["dawn:routes", "/docs/api/generated-routes", "dawn:routes", ["@dawn-ai/cli", "@dawn-ai/core"]],
+  ["@b4run/testing", "/docs/api/testing", "@b4run/testing", ["@b4run/testing"]],
+  ["@b4run/evals", "/docs/api/evals", "@b4run/evals", ["@b4run/evals"]],
+  ["b4:routes", "/docs/api/generated-routes", "b4:routes", ["@b4run/cli", "@b4run/core"]],
+  ["@b4run/permissions", "/docs/api/permissions", "@b4run/permissions", ["@b4run/permissions"]],
+  ["@b4run/workspace", "/docs/api/workspace", "@b4run/workspace", ["@b4run/workspace"]],
+  ["@b4run/sandbox", "/docs/api/sandbox", "@b4run/sandbox", ["@b4run/sandbox"]],
+  ["@b4run/langgraph", "/docs/api/langgraph", "@b4run/langgraph", ["@b4run/langgraph"]],
+  ["@b4run/langchain", "/docs/api/langchain", "@b4run/langchain", ["@b4run/langchain"]],
   [
-    "@dawn-ai/permissions",
-    "/docs/api/permissions",
-    "@dawn-ai/permissions",
-    ["@dawn-ai/permissions"],
-  ],
-  ["@dawn-ai/workspace", "/docs/api/workspace", "@dawn-ai/workspace", ["@dawn-ai/workspace"]],
-  ["@dawn-ai/sandbox", "/docs/api/sandbox", "@dawn-ai/sandbox", ["@dawn-ai/sandbox"]],
-  ["@dawn-ai/langgraph", "/docs/api/langgraph", "@dawn-ai/langgraph", ["@dawn-ai/langgraph"]],
-  ["@dawn-ai/langchain", "/docs/api/langchain", "@dawn-ai/langchain", ["@dawn-ai/langchain"]],
-  [
-    "@dawn-ai/sqlite-storage",
+    "@b4run/sqlite-storage",
     "/docs/api/sqlite-storage",
-    "@dawn-ai/sqlite-storage",
-    ["@dawn-ai/sqlite-storage"],
+    "@b4run/sqlite-storage",
+    ["@b4run/sqlite-storage"],
   ],
 ] as const
 
 const EXPECTED_DETAILED_IMPORTS = [
-  ["@dawn-ai/sdk", "."],
-  ["@dawn-ai/sdk", "./pure"],
-  ["@dawn-ai/sdk", "./testing"],
-  ["@dawn-ai/cli", "."],
-  ["@dawn-ai/cli", "./fetch"],
-  ["@dawn-ai/cli", "./runtime"],
-  ["@dawn-ai/cli", "./testing"],
-  ["@dawn-ai/core", "."],
-  ["@dawn-ai/core", "./node"],
-  ["@dawn-ai/ag-ui", "."],
-  ["@dawn-ai/ag-ui", "./sse"],
-  ["@dawn-ai/ag-ui", "./react"],
-  ["@dawn-ai/memory", "."],
-  ["@dawn-ai/memory", "./browse"],
-  ["@dawn-ai/memory", "./namespace"],
-  ["@dawn-ai/memory", "./reconcile"],
-  ["@dawn-ai/memory-pgvector", "."],
-  ["@dawn-ai/postgres-storage", "."],
-  ["@dawn-ai/postgres-storage", "./node"],
-  ["@dawn-ai/testing", "."],
-  ["@dawn-ai/evals", "."],
-  ["@dawn-ai/permissions", "."],
-  ["@dawn-ai/permissions", "./node"],
-  ["@dawn-ai/workspace", "."],
-  ["@dawn-ai/workspace", "./node"],
-  ["@dawn-ai/sandbox", "."],
-  ["@dawn-ai/sandbox", "./testing"],
-  ["@dawn-ai/langgraph", "."],
-  ["@dawn-ai/langgraph", "./define-entry"],
-  ["@dawn-ai/langgraph", "./route-module"],
-  ["@dawn-ai/langchain", "."],
-  ["@dawn-ai/langchain", "./package.json"],
-  ["@dawn-ai/sqlite-storage", "."],
+  ["@b4run/sdk", "."],
+  ["@b4run/sdk", "./pure"],
+  ["@b4run/sdk", "./testing"],
+  ["@b4run/cli", "."],
+  ["@b4run/cli", "./fetch"],
+  ["@b4run/cli", "./runtime"],
+  ["@b4run/cli", "./testing"],
+  ["@b4run/core", "."],
+  ["@b4run/core", "./node"],
+  ["@b4run/ag-ui", "."],
+  ["@b4run/ag-ui", "./sse"],
+  ["@b4run/ag-ui", "./react"],
+  ["@b4run/memory", "."],
+  ["@b4run/memory", "./browse"],
+  ["@b4run/memory", "./namespace"],
+  ["@b4run/memory", "./reconcile"],
+  ["@b4run/memory-pgvector", "."],
+  ["@b4run/postgres-storage", "."],
+  ["@b4run/postgres-storage", "./node"],
+  ["@b4run/testing", "."],
+  ["@b4run/evals", "."],
+  ["@b4run/permissions", "."],
+  ["@b4run/permissions", "./node"],
+  ["@b4run/workspace", "."],
+  ["@b4run/workspace", "./node"],
+  ["@b4run/sandbox", "."],
+  ["@b4run/sandbox", "./testing"],
+  ["@b4run/langgraph", "."],
+  ["@b4run/langgraph", "./define-entry"],
+  ["@b4run/langgraph", "./route-module"],
+  ["@b4run/langchain", "."],
+  ["@b4run/langchain", "./package.json"],
+  ["@b4run/sqlite-storage", "."],
 ] as const
 
 const EXPECTED_CATALOG_AND_INTERNAL_IMPORTS = [
-  ["@dawn-ai/core", "./internal/compiler", "internal"],
-  ["@dawn-ai/ag-ui", "./react/styles.css", "catalog-only"],
-  ["@dawn-ai/config-biome", ".", "internal"],
-  ["@dawn-ai/config-biome", "./biome", "internal"],
-  ["@dawn-ai/config-typescript", ".", "internal"],
-  ["@dawn-ai/config-typescript", "./base", "internal"],
-  ["@dawn-ai/config-typescript", "./library", "internal"],
-  ["@dawn-ai/config-typescript", "./node", "internal"],
-  ["@dawn-ai/config-typescript", "./nextjs", "internal"],
-  ["@dawn-ai/devkit", ".", "internal"],
-  ["@dawn-ai/vite-plugin", ".", "internal"],
+  ["@b4run/core", "./internal/compiler", "internal"],
+  ["@b4run/ag-ui", "./react/styles.css", "catalog-only"],
+  ["@b4run/config-biome", ".", "internal"],
+  ["@b4run/config-biome", "./biome", "internal"],
+  ["@b4run/config-typescript", ".", "internal"],
+  ["@b4run/config-typescript", "./base", "internal"],
+  ["@b4run/config-typescript", "./library", "internal"],
+  ["@b4run/config-typescript", "./node", "internal"],
+  ["@b4run/config-typescript", "./nextjs", "internal"],
+  ["@b4run/devkit", ".", "internal"],
+  ["@b4run/vite-plugin", ".", "internal"],
 ] as const
 
 const EXPECTED_OPERATED_ARTIFACTS = [
   [
-    "@dawn-ai/cli",
-    "bin.dawn",
+    "@b4run/cli",
+    "bin.b4",
     "executable",
     "./dist/index.js",
     "detailed",
@@ -122,8 +117,8 @@ const EXPECTED_OPERATED_ARTIFACTS = [
     "supported",
   ],
   [
-    "create-dawn-ai-app",
-    "bin.create-dawn-ai-app",
+    "create-b4-app",
+    "bin.create-b4-app",
     "executable",
     "./dist/bin.js",
     "catalog-only",
@@ -132,8 +127,8 @@ const EXPECTED_OPERATED_ARTIFACTS = [
     "supported",
   ],
   [
-    "@dawn-ai/inspector",
-    "dawnInspector.server",
+    "@b4run/inspector",
+    "b4Inspector.server",
     "operated-application",
     ".next/standalone/packages/inspector/server.js",
     "catalog-only",
@@ -145,7 +140,7 @@ const EXPECTED_OPERATED_ARTIFACTS = [
 
 const EXPECTED_FINAL_ARTIFACT_POLICIES = [
   [
-    "import:@dawn-ai/config-biome:.",
+    "import:@b4run/config-biome:.",
     "internal",
     "config-artifact",
     null,
@@ -154,7 +149,7 @@ const EXPECTED_FINAL_ARTIFACT_POLICIES = [
     "supported",
   ],
   [
-    "import:@dawn-ai/config-biome:./biome",
+    "import:@b4run/config-biome:./biome",
     "internal",
     "config-artifact",
     null,
@@ -163,7 +158,7 @@ const EXPECTED_FINAL_ARTIFACT_POLICIES = [
     "supported",
   ],
   [
-    "import:@dawn-ai/config-typescript:.",
+    "import:@b4run/config-typescript:.",
     "internal",
     "config-artifact",
     null,
@@ -172,7 +167,7 @@ const EXPECTED_FINAL_ARTIFACT_POLICIES = [
     "supported",
   ],
   [
-    "import:@dawn-ai/config-typescript:./base",
+    "import:@b4run/config-typescript:./base",
     "internal",
     "config-artifact",
     null,
@@ -181,7 +176,7 @@ const EXPECTED_FINAL_ARTIFACT_POLICIES = [
     "supported",
   ],
   [
-    "import:@dawn-ai/config-typescript:./library",
+    "import:@b4run/config-typescript:./library",
     "internal",
     "config-artifact",
     null,
@@ -190,7 +185,7 @@ const EXPECTED_FINAL_ARTIFACT_POLICIES = [
     "supported",
   ],
   [
-    "import:@dawn-ai/config-typescript:./node",
+    "import:@b4run/config-typescript:./node",
     "internal",
     "config-artifact",
     null,
@@ -199,7 +194,7 @@ const EXPECTED_FINAL_ARTIFACT_POLICIES = [
     "supported",
   ],
   [
-    "import:@dawn-ai/config-typescript:./nextjs",
+    "import:@b4run/config-typescript:./nextjs",
     "internal",
     "config-artifact",
     null,
@@ -208,7 +203,7 @@ const EXPECTED_FINAL_ARTIFACT_POLICIES = [
     "supported",
   ],
   [
-    "import:@dawn-ai/devkit:.",
+    "import:@b4run/devkit:.",
     "internal",
     "typescript-runtime",
     "node-only",
@@ -217,7 +212,7 @@ const EXPECTED_FINAL_ARTIFACT_POLICIES = [
     "internal",
   ],
   [
-    "import:@dawn-ai/vite-plugin:.",
+    "import:@b4run/vite-plugin:.",
     "internal",
     "typescript-runtime",
     "node-only",
@@ -228,128 +223,128 @@ const EXPECTED_FINAL_ARTIFACT_POLICIES = [
 ] as const
 
 const EXPECTED_CATALOG_DESTINATIONS = new Map<string, string>([
-  ["@dawn-ai/config-biome", "/docs/api#dawn-aiconfig-biome"],
-  ["@dawn-ai/config-typescript", "/docs/api#dawn-aiconfig-typescript"],
-  ["@dawn-ai/devkit", "/docs/api#dawn-aidevkit"],
-  ["@dawn-ai/inspector", "/docs/api#dawn-aiinspector"],
-  ["@dawn-ai/vite-plugin", "/docs/api#dawn-aivite-plugin"],
-  ["create-dawn-ai-app", "/docs/api#create-dawn-ai-app"],
+  ["@b4run/config-biome", "/docs/api#b4runconfig-biome"],
+  ["@b4run/config-typescript", "/docs/api#b4runconfig-typescript"],
+  ["@b4run/devkit", "/docs/api#b4rundevkit"],
+  ["@b4run/inspector", "/docs/api#b4runinspector"],
+  ["@b4run/vite-plugin", "/docs/api#b4runvite-plugin"],
+  ["create-b4-app", "/docs/api#create-b4-app"],
 ] as const)
 
 const EXPECTED_REQUIRED_CONTRACT_KEYS = [
-  "@dawn-ai/langchain#.:AgentStreamChunk",
-  "@dawn-ai/langchain#.:OffloadToolOutputCtx",
-  "@dawn-ai/langchain#.:RetryOptions",
-  "@dawn-ai/langchain#.:UnwrappedToolResult",
-  "@dawn-ai/langchain#.:resolveProvider",
-  "@dawn-ai/langchain#.:withRetry",
-  "@dawn-ai/langgraph#./define-entry:defineEntry",
-  "@dawn-ai/langgraph#./route-module:GraphRouteModule",
-  "@dawn-ai/langgraph#./route-module:NormalizedRouteModule",
-  "@dawn-ai/langgraph#./route-module:RouteModule",
-  "@dawn-ai/langgraph#./route-module:WorkflowRouteModule",
-  "@dawn-ai/langgraph#./route-module:assertExactlyOneEntry",
-  "@dawn-ai/langgraph#./route-module:normalizeRouteModule",
-  "@dawn-ai/ag-ui#./sse:encodeAgUiSse",
-  "@dawn-ai/ag-ui#.:DAWN_PLAN_ACTIVITY_TYPE",
-  "@dawn-ai/ag-ui#.:DAWN_SUBAGENT_ACTIVITY_TYPE",
-  "@dawn-ai/ag-ui#.:DawnRunInput",
-  "@dawn-ai/ag-ui#.:DawnPlanActivityContent",
-  "@dawn-ai/ag-ui#.:DawnSubagentActivityContent",
-  "@dawn-ai/ag-ui#.:RunContext",
-  "@dawn-ai/ag-ui#.:ToAguiOptions",
-  "@dawn-ai/ag-ui#.:fromRunAgentInput",
-  "@dawn-ai/ag-ui#.:toAguiEvents",
-  "@dawn-ai/cli#.:ServeRuntimeOptions",
-  "@dawn-ai/cli#.:serveRuntime",
-  "@dawn-ai/core#.:loadDawnConfig",
-  "@dawn-ai/core#.:resolveStateFields",
-  "@dawn-ai/evals#.:EvalCase",
-  "@dawn-ai/evals#.:EvalDefinition",
-  "@dawn-ai/evals#.:EvalReport",
-  "@dawn-ai/evals#.:RunEvalOptions",
-  "@dawn-ai/evals#.:Scorer",
-  "@dawn-ai/evals#.:defineEval",
-  "@dawn-ai/evals#.:runEval",
-  "@dawn-ai/memory#./namespace:MemoryScopeTuple",
-  "@dawn-ai/memory#./namespace:serializeNamespace",
-  "@dawn-ai/memory#./reconcile:approveWithReconcile",
-  "@dawn-ai/memory#.:BrowsePage",
-  "@dawn-ai/memory#.:BrowseQuery",
-  "@dawn-ai/memory#.:MemoryQuery",
-  "@dawn-ai/memory#.:MemoryRecord",
-  "@dawn-ai/memory#.:MemoryStore",
-  "@dawn-ai/memory-pgvector#.:PgvectorMemoryStore",
-  "@dawn-ai/memory-pgvector#.:pgvectorMemoryStore",
-  "@dawn-ai/postgres-storage#./node:NodePostgresPermissionsStoreOptions",
-  "@dawn-ai/postgres-storage#./node:NodePostgresStoreOptions",
-  "@dawn-ai/postgres-storage#./node:createPostgresPermissionsStore",
-  "@dawn-ai/postgres-storage#./node:createPostgresThreadsStore",
-  "@dawn-ai/postgres-storage#./node:postgresCheckpointer",
-  "@dawn-ai/postgres-storage#.:PostgresPermissionsStoreOptions",
-  "@dawn-ai/postgres-storage#.:PostgresStoreOptions",
-  "@dawn-ai/postgres-storage#.:createPostgresPermissionsStore",
-  "@dawn-ai/postgres-storage#.:createPostgresThreadsStore",
-  "@dawn-ai/postgres-storage#.:postgresCheckpointer",
-  "@dawn-ai/sandbox#./testing:runProviderConformance",
-  "@dawn-ai/sandbox#.:KubeAuthorizationReviewError",
-  "@dawn-ai/sandbox#.:KubernetesSandboxOptions",
-  "@dawn-ai/sandbox#.:dockerSandbox",
-  "@dawn-ai/sandbox#.:kubernetesSandbox",
-  "@dawn-ai/permissions#.:PermissionDecision",
-  "@dawn-ai/permissions#.:PermissionMode",
-  "@dawn-ai/permissions#.:PermissionsFile",
-  "@dawn-ai/permissions#.:PermissionsStore",
-  "@dawn-ai/sdk#.:AgentConfig",
-  "@dawn-ai/sdk#.:ReasoningConfig",
-  "@dawn-ai/sdk#.:RetryConfig",
-  "@dawn-ai/sdk#.:RouteConfig",
-  "@dawn-ai/sdk#.:agent",
-  "@dawn-ai/sdk#.:allow",
-  "@dawn-ai/sdk#.:defineMemory",
-  "@dawn-ai/sdk#.:defineMiddleware",
-  "@dawn-ai/sdk#.:isDawnAgent",
-  "@dawn-ai/sdk#.:reject",
-  "@dawn-ai/sdk#.:validateModelId",
-  "@dawn-ai/sqlite-storage#.:CreateThreadInput",
-  "@dawn-ai/sqlite-storage#.:SqliteCheckpointerOptions",
-  "@dawn-ai/sqlite-storage#.:Thread",
-  "@dawn-ai/sqlite-storage#.:ThreadStatus",
-  "@dawn-ai/sqlite-storage#.:ThreadsStore",
-  "@dawn-ai/sqlite-storage#.:ThreadsStoreOptions",
-  "@dawn-ai/sqlite-storage#.:createThreadsStore",
-  "@dawn-ai/sqlite-storage#.:sqliteCheckpointer",
-  "@dawn-ai/testing#.:AgentHarness",
-  "@dawn-ai/testing#.:AgentHarnessOptions",
-  "@dawn-ai/testing#.:ScriptBuilder",
-  "@dawn-ai/testing#.:createAgentHarness",
-  "@dawn-ai/testing#.:fakeEmbedder",
-  "@dawn-ai/testing#.:loadFixtures",
-  "@dawn-ai/testing#.:runCheckpointerConformance",
-  "@dawn-ai/testing#.:runMemoryStoreConformance",
-  "@dawn-ai/testing#.:runPermissionsStoreConformance",
-  "@dawn-ai/testing#.:runThreadsStoreConformance",
-  "@dawn-ai/testing#.:writeFixtures",
-  "@dawn-ai/workspace#./node:LocalExecOptions",
-  "@dawn-ai/workspace#./node:LocalFilesystemOptions",
-  "@dawn-ai/workspace#./node:localExec",
-  "@dawn-ai/workspace#./node:localFilesystem",
-  "@dawn-ai/workspace#.:BackendContext",
-  "@dawn-ai/workspace#.:ExecBackend",
-  "@dawn-ai/workspace#.:FilesystemBackend",
-  "@dawn-ai/workspace#.:SandboxConfig",
-  "@dawn-ai/workspace#.:SandboxHandle",
-  "@dawn-ai/workspace#.:SandboxPolicy",
-  "@dawn-ai/workspace#.:SandboxProvider",
-  "@dawn-ai/workspace#.:SandboxSecurityPolicy",
-  "@dawn-ai/workspace#.:compose",
+  "@b4run/langchain#.:AgentStreamChunk",
+  "@b4run/langchain#.:OffloadToolOutputCtx",
+  "@b4run/langchain#.:RetryOptions",
+  "@b4run/langchain#.:UnwrappedToolResult",
+  "@b4run/langchain#.:resolveProvider",
+  "@b4run/langchain#.:withRetry",
+  "@b4run/langgraph#./define-entry:defineEntry",
+  "@b4run/langgraph#./route-module:GraphRouteModule",
+  "@b4run/langgraph#./route-module:NormalizedRouteModule",
+  "@b4run/langgraph#./route-module:RouteModule",
+  "@b4run/langgraph#./route-module:WorkflowRouteModule",
+  "@b4run/langgraph#./route-module:assertExactlyOneEntry",
+  "@b4run/langgraph#./route-module:normalizeRouteModule",
+  "@b4run/ag-ui#./sse:encodeAgUiSse",
+  "@b4run/ag-ui#.:B4_PLAN_ACTIVITY_TYPE",
+  "@b4run/ag-ui#.:B4_SUBAGENT_ACTIVITY_TYPE",
+  "@b4run/ag-ui#.:B4RunInput",
+  "@b4run/ag-ui#.:B4PlanActivityContent",
+  "@b4run/ag-ui#.:B4SubagentActivityContent",
+  "@b4run/ag-ui#.:RunContext",
+  "@b4run/ag-ui#.:ToAguiOptions",
+  "@b4run/ag-ui#.:fromRunAgentInput",
+  "@b4run/ag-ui#.:toAguiEvents",
+  "@b4run/cli#.:ServeRuntimeOptions",
+  "@b4run/cli#.:serveRuntime",
+  "@b4run/core#.:loadB4Config",
+  "@b4run/core#.:resolveStateFields",
+  "@b4run/evals#.:EvalCase",
+  "@b4run/evals#.:EvalDefinition",
+  "@b4run/evals#.:EvalReport",
+  "@b4run/evals#.:RunEvalOptions",
+  "@b4run/evals#.:Scorer",
+  "@b4run/evals#.:defineEval",
+  "@b4run/evals#.:runEval",
+  "@b4run/memory#./namespace:MemoryScopeTuple",
+  "@b4run/memory#./namespace:serializeNamespace",
+  "@b4run/memory#./reconcile:approveWithReconcile",
+  "@b4run/memory#.:BrowsePage",
+  "@b4run/memory#.:BrowseQuery",
+  "@b4run/memory#.:MemoryQuery",
+  "@b4run/memory#.:MemoryRecord",
+  "@b4run/memory#.:MemoryStore",
+  "@b4run/memory-pgvector#.:PgvectorMemoryStore",
+  "@b4run/memory-pgvector#.:pgvectorMemoryStore",
+  "@b4run/postgres-storage#./node:NodePostgresPermissionsStoreOptions",
+  "@b4run/postgres-storage#./node:NodePostgresStoreOptions",
+  "@b4run/postgres-storage#./node:createPostgresPermissionsStore",
+  "@b4run/postgres-storage#./node:createPostgresThreadsStore",
+  "@b4run/postgres-storage#./node:postgresCheckpointer",
+  "@b4run/postgres-storage#.:PostgresPermissionsStoreOptions",
+  "@b4run/postgres-storage#.:PostgresStoreOptions",
+  "@b4run/postgres-storage#.:createPostgresPermissionsStore",
+  "@b4run/postgres-storage#.:createPostgresThreadsStore",
+  "@b4run/postgres-storage#.:postgresCheckpointer",
+  "@b4run/sandbox#./testing:runProviderConformance",
+  "@b4run/sandbox#.:KubeAuthorizationReviewError",
+  "@b4run/sandbox#.:KubernetesSandboxOptions",
+  "@b4run/sandbox#.:dockerSandbox",
+  "@b4run/sandbox#.:kubernetesSandbox",
+  "@b4run/permissions#.:PermissionDecision",
+  "@b4run/permissions#.:PermissionMode",
+  "@b4run/permissions#.:PermissionsFile",
+  "@b4run/permissions#.:PermissionsStore",
+  "@b4run/sdk#.:AgentConfig",
+  "@b4run/sdk#.:ReasoningConfig",
+  "@b4run/sdk#.:RetryConfig",
+  "@b4run/sdk#.:RouteConfig",
+  "@b4run/sdk#.:agent",
+  "@b4run/sdk#.:allow",
+  "@b4run/sdk#.:defineMemory",
+  "@b4run/sdk#.:defineMiddleware",
+  "@b4run/sdk#.:isB4Agent",
+  "@b4run/sdk#.:reject",
+  "@b4run/sdk#.:validateModelId",
+  "@b4run/sqlite-storage#.:CreateThreadInput",
+  "@b4run/sqlite-storage#.:SqliteCheckpointerOptions",
+  "@b4run/sqlite-storage#.:Thread",
+  "@b4run/sqlite-storage#.:ThreadStatus",
+  "@b4run/sqlite-storage#.:ThreadsStore",
+  "@b4run/sqlite-storage#.:ThreadsStoreOptions",
+  "@b4run/sqlite-storage#.:createThreadsStore",
+  "@b4run/sqlite-storage#.:sqliteCheckpointer",
+  "@b4run/testing#.:AgentHarness",
+  "@b4run/testing#.:AgentHarnessOptions",
+  "@b4run/testing#.:ScriptBuilder",
+  "@b4run/testing#.:createAgentHarness",
+  "@b4run/testing#.:fakeEmbedder",
+  "@b4run/testing#.:loadFixtures",
+  "@b4run/testing#.:runCheckpointerConformance",
+  "@b4run/testing#.:runMemoryStoreConformance",
+  "@b4run/testing#.:runPermissionsStoreConformance",
+  "@b4run/testing#.:runThreadsStoreConformance",
+  "@b4run/testing#.:writeFixtures",
+  "@b4run/workspace#./node:LocalExecOptions",
+  "@b4run/workspace#./node:LocalFilesystemOptions",
+  "@b4run/workspace#./node:localExec",
+  "@b4run/workspace#./node:localFilesystem",
+  "@b4run/workspace#.:BackendContext",
+  "@b4run/workspace#.:ExecBackend",
+  "@b4run/workspace#.:FilesystemBackend",
+  "@b4run/workspace#.:SandboxConfig",
+  "@b4run/workspace#.:SandboxHandle",
+  "@b4run/workspace#.:SandboxPolicy",
+  "@b4run/workspace#.:SandboxProvider",
+  "@b4run/workspace#.:SandboxSecurityPolicy",
+  "@b4run/workspace#.:compose",
 ] as const
 
 interface ManifestFixture {
   readonly name: string
   exports?: Record<string, unknown>
   bin?: Record<string, string>
-  dawnInspector?: { server?: string }
+  b4Inspector?: { server?: string }
   imports?: Record<string, unknown>
 }
 
@@ -465,7 +460,7 @@ describe("API reference page registry", { timeout: 30_000 }, () => {
     )
 
     expect(analyzeApiReferenceRegistry(pages, ARTIFACT_REGISTRY).failures).toEqual([
-      expect.stringMatching(/page tuple.*@dawn-ai\/sdk/),
+      expect.stringMatching(/page tuple.*@b4run\/sdk/),
     ])
   })
 
@@ -581,7 +576,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
       (artifact) =>
         artifact.kind === "import" &&
         artifact.surfaceKind === "typescript-runtime" &&
-        artifact.packageName === "@dawn-ai/sandbox" &&
+        artifact.packageName === "@b4run/sandbox" &&
         artifact.subpath === "./testing",
     )
     expect(
@@ -598,7 +593,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
     expectRegistryRejection(
       {
         ...runtimeArtifact,
-        packageName: "@dawn-ai/cli",
+        packageName: "@b4run/cli",
         subpath: "./missing-guards",
         guardIds: [],
       },
@@ -607,7 +602,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
     expectRegistryRejection(
       {
         ...runtimeArtifact,
-        packageName: "@dawn-ai/cli",
+        packageName: "@b4run/cli",
         subpath: "./unknown-guard",
         guardIds: ["stale-guard-id"],
       },
@@ -616,7 +611,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
     expectRegistryRejection(
       {
         ...runtimeArtifact,
-        packageName: "@dawn-ai/cli",
+        packageName: "@b4run/cli",
         subpath: "./wrong-guard-kind",
         runtime: "edge-safe",
         guardIds: ["edge-import-bundle", "node-import-bundle"],
@@ -626,7 +621,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
     expectRegistryRejection(
       {
         ...runtimeArtifact,
-        packageName: "@dawn-ai/cli",
+        packageName: "@b4run/cli",
         subpath: "./duplicate-guard",
         guardIds: ["node-import-bundle", "node-import-bundle"],
       },
@@ -635,7 +630,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
     expectRegistryRejection(
       {
         kind: "import",
-        packageName: "@dawn-ai/config-biome",
+        packageName: "@b4run/config-biome",
         subpath: "./guarded-config",
         coverage: "catalog-only",
         surfaceKind: "config-artifact",
@@ -659,7 +654,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
     expectRegistryRejection(
       {
         ...runtimeArtifact,
-        packageName: "@dawn-ai/cli",
+        packageName: "@b4run/cli",
         subpath: "./audience-is-not-runtime",
         runtime: "testing",
       },
@@ -669,7 +664,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
       validateApiReferenceRegistries({
         pages: API_REFERENCE_PAGES,
         artifacts: ARTIFACT_REGISTRY.map((artifact) =>
-          artifactAddressFor(artifact) === "import:@dawn-ai/sdk:./testing"
+          artifactAddressFor(artifact) === "import:@b4run/sdk:./testing"
             ? ({
                 ...artifact,
                 runtime: "node-only",
@@ -686,8 +681,8 @@ describe("artifact registry", { timeout: 30_000 }, () => {
     expectRegistryRejection(
       {
         ...operatedArtifact,
-        packageName: "@dawn-ai/cli",
-        selector: "bin.edge-dawn",
+        packageName: "@b4run/cli",
+        selector: "bin.edge-b4",
         runtime: "edge-safe",
       },
       /operated.*node-only|node-only.*operated/i,
@@ -702,17 +697,17 @@ describe("artifact registry", { timeout: 30_000 }, () => {
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated")).toEqual([
       GENERATED_ROUTES_ARTIFACT,
     ])
-    expect(addresses).toContain("import:@dawn-ai/cli:.")
-    expect(addresses).toContain("operated:@dawn-ai/cli:bin.dawn")
-    expect(addresses).not.toContain("import:@dawn-ai/cli:bin.dawn")
-    expect(addresses).toContain("operated:@dawn-ai/inspector:dawnInspector.server")
-    expect(addresses).toContain("generated:dawn:routes")
+    expect(addresses).toContain("import:@b4run/cli:.")
+    expect(addresses).toContain("operated:@b4run/cli:bin.b4")
+    expect(addresses).not.toContain("import:@b4run/cli:bin.b4")
+    expect(addresses).toContain("operated:@b4run/inspector:b4Inspector.server")
+    expect(addresses).toContain("generated:b4:routes")
   })
 
   it("maps the manifest-less generated surface to its canonical page without package fields", () => {
     expect(GENERATED_ROUTES_ARTIFACT).toEqual({
       kind: "generated",
-      moduleName: "dawn:routes",
+      moduleName: "b4:routes",
       ownerHref: "/docs/api/generated-routes",
       surfaceKind: "generated-types",
       coverage: "detailed",
@@ -791,27 +786,27 @@ describe("artifact registry", { timeout: 30_000 }, () => {
 
   it("rejects address-preserving artifact policy mutations", () => {
     const coverageMutation = ARTIFACT_REGISTRY.map((artifact) =>
-      artifactAddressFor(artifact) === "import:@dawn-ai/core:./internal/compiler"
+      artifactAddressFor(artifact) === "import:@b4run/core:./internal/compiler"
         ? { ...artifact, coverage: "detailed" }
         : artifact,
     )
     const kindMutation = ARTIFACT_REGISTRY.map((artifact) =>
-      artifactAddressFor(artifact) === "import:@dawn-ai/core:./internal/compiler"
+      artifactAddressFor(artifact) === "import:@b4run/core:./internal/compiler"
         ? { ...artifact, surfaceKind: "metadata" }
         : artifact,
     )
     const guardMutation = ARTIFACT_REGISTRY.map((artifact) =>
-      artifactAddressFor(artifact) === "import:@dawn-ai/sdk:./pure"
+      artifactAddressFor(artifact) === "import:@b4run/sdk:./pure"
         ? { ...artifact, guardIds: ["edge-import-bundle"] }
         : artifact,
     )
     const runtimeMutation = ARTIFACT_REGISTRY.map((artifact) =>
-      artifactAddressFor(artifact) === "import:@dawn-ai/sdk:./testing"
+      artifactAddressFor(artifact) === "import:@b4run/sdk:./testing"
         ? { ...artifact, runtime: "testing" }
         : artifact,
     )
     const staticGuardMutation = ARTIFACT_REGISTRY.map((artifact) =>
-      artifactAddressFor(artifact) === "import:@dawn-ai/config-biome:."
+      artifactAddressFor(artifact) === "import:@b4run/config-biome:."
         ? { ...artifact, guardIds: ["edge-import-bundle"] }
         : artifact,
     )
@@ -888,8 +883,8 @@ describe("artifact registry", { timeout: 30_000 }, () => {
     expectRegistryRejection(
       {
         kind: "import",
-        packageName: "@dawn-ai/cli",
-        subpath: "bin.dawn",
+        packageName: "@b4run/cli",
+        subpath: "bin.b4",
         coverage: "detailed",
         surfaceKind: "typescript-runtime",
         runtime: "node-only",
@@ -902,7 +897,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
     expectRegistryRejection(
       {
         kind: "import",
-        packageName: "@dawn-ai/inspector",
+        packageName: "@b4run/inspector",
         subpath: ".",
         coverage: "catalog-only",
         surfaceKind: "typescript-runtime",
@@ -916,7 +911,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
     expectRegistryRejection(
       {
         kind: "import",
-        packageName: "@dawn-ai/config-biome",
+        packageName: "@b4run/config-biome",
         subpath: ".",
         coverage: "catalog-only",
         surfaceKind: "config-artifact",
@@ -924,13 +919,13 @@ describe("artifact registry", { timeout: 30_000 }, () => {
         audience: "tooling",
         stability: "supported",
       },
-      /import:@dawn-ai\/config-biome:\.[\s\S]*runtime/,
+      /import:@b4run\/config-biome:\.[\s\S]*runtime/,
     )
     expectRegistryRejection(
       {
         kind: "operated",
-        packageName: "create-dawn-ai-app",
-        selector: "bin.create-dawn-ai-app",
+        packageName: "create-b4-app",
+        selector: "bin.create-b4-app",
         operatedKind: "executable",
         coverage: "catalog-only",
         runtime: "node-only",
@@ -947,7 +942,7 @@ describe("published manifest address inventory", { timeout: 30_000 }, () => {
     const manifests = publicPackageManifests()
     expect(analyzeApiReferenceManifests(manifests).failures).toEqual([])
 
-    const langchain = manifests.find(({ name }) => name === "@dawn-ai/langchain")
+    const langchain = manifests.find(({ name }) => name === "@b4run/langchain")
     expect(langchain).toBeDefined()
     if (!langchain) throw new Error("LangChain manifest fixture is missing")
     langchain.imports = {
@@ -981,8 +976,8 @@ describe("published manifest address inventory", { timeout: 30_000 }, () => {
       },
     ],
   ])("rejects an %s exports subpath", (_name, mutate) => {
-    expect(mutatedManifestAnalysis("@dawn-ai/sdk", mutate).failures.join("\n")).toMatch(
-      /manifest.*import:@dawn-ai\/sdk/,
+    expect(mutatedManifestAnalysis("@b4run/sdk", mutate).failures.join("\n")).toMatch(
+      /manifest.*import:@b4run\/sdk/,
     )
   })
 
@@ -991,27 +986,27 @@ describe("published manifest address inventory", { timeout: 30_000 }, () => {
       "added",
       (manifest: ManifestFixture) => {
         if (!manifest.bin) throw new Error("CLI bin fixture is missing")
-        manifest.bin["dawn-extra"] = "./dist/index.js"
+        manifest.bin["b4-extra"] = "./dist/index.js"
       },
     ],
     [
       "removed",
       (manifest: ManifestFixture) => {
         if (!manifest.bin) throw new Error("CLI bin fixture is missing")
-        delete manifest.bin.dawn
+        delete manifest.bin.b4
       },
     ],
     [
       "renamed",
       (manifest: ManifestFixture) => {
         if (!manifest.bin) throw new Error("CLI bin fixture is missing")
-        manifest.bin.sunrise = manifest.bin.dawn ?? "./dist/index.js"
-        delete manifest.bin.dawn
+        manifest.bin.sunrise = manifest.bin.b4 ?? "./dist/index.js"
+        delete manifest.bin.b4
       },
     ],
   ])("rejects an %s executable bin", (_name, mutate) => {
-    expect(mutatedManifestAnalysis("@dawn-ai/cli", mutate).failures.join("\n")).toMatch(
-      /manifest.*operated:@dawn-ai\/cli/,
+    expect(mutatedManifestAnalysis("@b4run/cli", mutate).failures.join("\n")).toMatch(
+      /manifest.*operated:@b4run\/cli/,
     )
   })
 
@@ -1019,20 +1014,20 @@ describe("published manifest address inventory", { timeout: 30_000 }, () => {
     [
       "removed",
       (manifest: ManifestFixture) => {
-        if (!manifest.dawnInspector) throw new Error("Inspector fixture is missing")
-        delete manifest.dawnInspector.server
+        if (!manifest.b4Inspector) throw new Error("Inspector fixture is missing")
+        delete manifest.b4Inspector.server
       },
     ],
     [
       "changed",
       (manifest: ManifestFixture) => {
-        if (!manifest.dawnInspector) throw new Error("Inspector fixture is missing")
-        manifest.dawnInspector.server = "./different-server.js"
+        if (!manifest.b4Inspector) throw new Error("Inspector fixture is missing")
+        manifest.b4Inspector.server = "./different-server.js"
       },
     ],
   ])("rejects a %s Inspector server", (_name, mutate) => {
-    expect(mutatedManifestAnalysis("@dawn-ai/inspector", mutate).failures.join("\n")).toMatch(
-      /manifest.*operated:@dawn-ai\/inspector/,
+    expect(mutatedManifestAnalysis("@b4run/inspector", mutate).failures.join("\n")).toMatch(
+      /manifest.*operated:@b4run\/inspector/,
     )
   })
 })
@@ -1049,18 +1044,18 @@ describe("package catalog", { timeout: 30_000 }, () => {
       match[2],
     ])
     expect(entries).toEqual([
-      ["@dawn-ai/permissions", "patch"],
-      ["@dawn-ai/workspace", "patch"],
-      ["@dawn-ai/sandbox", "patch"],
-      ["@dawn-ai/langgraph", "patch"],
-      ["@dawn-ai/langchain", "patch"],
-      ["@dawn-ai/sqlite-storage", "patch"],
-      ["create-dawn-ai-app", "patch"],
-      ["@dawn-ai/config-biome", "patch"],
-      ["@dawn-ai/config-typescript", "patch"],
-      ["@dawn-ai/devkit", "patch"],
-      ["@dawn-ai/inspector", "patch"],
-      ["@dawn-ai/vite-plugin", "patch"],
+      ["@b4run/permissions", "patch"],
+      ["@b4run/workspace", "patch"],
+      ["@b4run/sandbox", "patch"],
+      ["@b4run/langgraph", "patch"],
+      ["@b4run/langchain", "patch"],
+      ["@b4run/sqlite-storage", "patch"],
+      ["create-b4-app", "patch"],
+      ["@b4run/config-biome", "patch"],
+      ["@b4run/config-typescript", "patch"],
+      ["@b4run/devkit", "patch"],
+      ["@b4run/inspector", "patch"],
+      ["@b4run/vite-plugin", "patch"],
     ])
   })
 
@@ -1068,9 +1063,9 @@ describe("package catalog", { timeout: 30_000 }, () => {
     expect(API_REQUIRED_CONTRACT_KEYS).toEqual(EXPECTED_REQUIRED_CONTRACT_KEYS)
     expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(106)
     expect(new Set(API_REQUIRED_CONTRACT_KEYS).size).toBe(API_REQUIRED_CONTRACT_KEYS.length)
-    expect(API_REQUIRED_CONTRACT_KEYS).toContain("@dawn-ai/sdk#.:agent")
-    expect(API_REQUIRED_CONTRACT_KEYS).toContain("@dawn-ai/memory#.:MemoryStore")
-    expect(API_REQUIRED_CONTRACT_KEYS).toContain("@dawn-ai/evals#.:runEval")
+    expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/sdk#.:agent")
+    expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/memory#.:MemoryStore")
+    expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/evals#.:runEval")
   })
 
   it("matches readPublicPackages bidirectionally", () => {
@@ -1105,7 +1100,7 @@ describe("package catalog", { timeout: 30_000 }, () => {
 
   it("rejects generated records that bypass their closed registry branch", () => {
     expectRegistryRejection(
-      { ...GENERATED_ROUTES_ARTIFACT, packageName: "@dawn-ai/core" },
+      { ...GENERATED_ROUTES_ARTIFACT, packageName: "@b4run/core" },
       /generated artifact|invalid artifact fields|packageName/i,
     )
   })
@@ -1113,7 +1108,7 @@ describe("package catalog", { timeout: 30_000 }, () => {
   it("routes detailed owners to leaves and all other packages to hub anchors", () => {
     const leafByOwner = new Map(
       API_REFERENCE_PAGES.flatMap((page) =>
-        page.surfaceName === "dawn:routes"
+        page.surfaceName === "b4:routes"
           ? []
           : page.ownerPackageNames.map((packageName) => [packageName, page.href] as const),
       ),

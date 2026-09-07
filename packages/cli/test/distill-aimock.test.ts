@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { type MemoryRecord, sqliteMemoryStore } from "@dawn-ai/memory"
+import { type MemoryRecord, sqliteMemoryStore } from "@b4run/memory"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { type AimockFixture, createAimock } from "../../testing/dist/index.js"
@@ -26,7 +26,7 @@ afterEach(async () => {
 // `ChatOpenAI` path — no stub model anywhere in this file.
 //
 // Fixtures match on a substring of the last user message, and the two prompts
-// from @dawn-ai/memory are distinguishable by their opening line, so ONE mock
+// from @b4run/memory are distinguishable by their opening line, so ONE mock
 // can serve consolidation and reflection without ambiguity. An unmatched
 // request gets a 404, which is how the failure cases below are provoked.
 // ---------------------------------------------------------------------------
@@ -56,7 +56,7 @@ async function startAimock(fixtures: readonly AimockFixture[]): Promise<void> {
 /** Thresholds low enough that a handful of seeded rows is real work; the model
  *  id and provider stay at their documented defaults (gpt-5-mini / openai) so
  *  this exercises the shipped provider resolution, not a test-only shortcut. */
-const DAWN_CONFIG = [
+const B4_CONFIG = [
   "export default {",
   "  memory: {",
   "    distill: {",
@@ -73,7 +73,7 @@ async function makeApp(): Promise<string> {
   const root = await mkdtemp(join(scratchRoot, "app-"))
   cleanup.push(() => rm(root, { force: true, recursive: true }))
   await writeFile(join(root, "package.json"), '{ "name": "distill-temp-app", "type": "module" }\n')
-  await writeFile(join(root, "dawn.config.ts"), DAWN_CONFIG)
+  await writeFile(join(root, "b4.config.ts"), B4_CONFIG)
   return root
 }
 
@@ -99,7 +99,7 @@ function episode(id: string, day: number, namespace = NAMESPACE): MemoryRecord {
 }
 
 async function seed(appRoot: string, records: readonly MemoryRecord[]) {
-  const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+  const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
   for (const record of records) await store.put(record)
   return store
 }
@@ -257,8 +257,8 @@ describe("distillation through the real chat-model path (aimock)", () => {
     ])
     const appRoot = await makeApp()
     await writeFile(
-      join(appRoot, "dawn.config.ts"),
-      DAWN_CONFIG.replace("distill: {", 'distill: { provider: "openai",'),
+      join(appRoot, "b4.config.ts"),
+      B4_CONFIG.replace("distill: {", 'distill: { provider: "openai",'),
     )
     const store = await seed(
       appRoot,
@@ -289,7 +289,7 @@ describe("distillation through the real chat-model path (aimock)", () => {
     await startAimock([
       { match: { userMessage: "shape probe" }, response: { content: "plain text reply" } },
     ])
-    const { createChatModel, resolveProvider } = await import("@dawn-ai/langchain")
+    const { createChatModel, resolveProvider } = await import("@b4run/langchain")
     const provider = resolveProvider({ model: "gpt-5-mini", provider: "openai" })
     const model = (await createChatModel({ model: "gpt-5-mini", provider })) as {
       invoke(prompt: string): Promise<{ content: unknown }>

@@ -28,9 +28,9 @@ import {
   createRuntimeRegistry,
   runTypegen,
   streamResolvedRoute,
-} from "@dawn-ai/cli/runtime"
-import { discoverRoutes } from "@dawn-ai/core/node"
-import { type Aimock, collectRunResult, createAimock, script } from "@dawn-ai/testing"
+} from "@b4run/cli/runtime"
+import { discoverRoutes } from "@b4run/core/node"
+import { type Aimock, collectRunResult, createAimock, script } from "@b4run/testing"
 import { afterAll, beforeAll, expect, it } from "vitest"
 
 const appRoot = fileURLToPath(new URL("./fixtures/tool-scope-app", import.meta.url))

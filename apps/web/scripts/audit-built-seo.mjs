@@ -8,7 +8,7 @@ import matter from "gray-matter"
 const scriptFile = realpathSync(fileURLToPath(import.meta.url))
 const scriptDirectory = dirname(scriptFile)
 const appRoot = resolve(scriptDirectory, "..")
-const productionOrigin = "https://dawnai.org"
+const productionOrigin = "https://b4.run"
 const currentInventoryDate = "2026-08-26"
 const currentInventoryCount = 83
 export const CURRENT_SNAPSHOT_MINIMUM_DISTINCT_LASTMOD_DATES = 23
@@ -445,15 +445,15 @@ function assertSiteEntities(entities) {
     logo: {
       "@id": `${productionOrigin}/#logo`,
       "@type": "ImageObject",
-      url: `${productionOrigin}/brand/dawn-logo-horizontal-black.svg`,
+      url: `${productionOrigin}/brand/b4-logo-horizontal-black.svg`,
     },
-    name: "Dawn AI",
+    name: "B4.run",
     url: `${productionOrigin}/`,
   }
   const expectedWebsite = {
     "@id": `${productionOrigin}/#website`,
     "@type": "WebSite",
-    name: "Dawn AI",
+    name: "B4.run",
     publisher: { "@id": `${productionOrigin}/#organization` },
     url: `${productionOrigin}/`,
   }
@@ -690,7 +690,7 @@ export async function auditBuiltSeo({ asOf, baseUrl }) {
       const regression = obviousTextRegression(body)
       if (regression !== undefined)
         throw new Error(`body contains regression marker: ${regression}`)
-      if (!body.includes("# Dawn")) throw new Error("body is missing the Dawn heading")
+      if (!body.includes("# B4.run")) throw new Error("body is missing the B4.run heading")
       summary.llms += 1
 
       if (path === "/llms-full.txt") {

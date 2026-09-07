@@ -318,8 +318,8 @@ function parseAuditDispatch(value) {
     dispatch.workflow !== ".github/workflows/published-artifact-verify.yml" ||
     !Number.isSafeInteger(id) ||
     id < 1 ||
-    dispatch.runUrl !== `https://api.github.com/repos/cacheplane/dawnai/actions/runs/${id}` ||
-    dispatch.htmlUrl !== `https://github.com/cacheplane/dawnai/actions/runs/${id}`
+    dispatch.runUrl !== `https://api.github.com/repos/cacheplane/b4-run/actions/runs/${id}` ||
+    dispatch.htmlUrl !== `https://github.com/cacheplane/b4-run/actions/runs/${id}`
   ) {
     throw new TypeError("Independent-audit dispatch identity is invalid")
   }

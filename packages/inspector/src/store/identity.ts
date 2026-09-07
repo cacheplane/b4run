@@ -10,7 +10,7 @@ export interface ResolvedIdentity {
 
 /**
  * Structural shape of a route memory definition's default export. Kept local
- * (rather than importing from `@dawn-ai/sdk`) to avoid a build-graph cycle —
+ * (rather than importing from `@b4run/sdk`) to avoid a build-graph cycle —
  * same pattern as the CLI's load-memory.ts.
  */
 interface LoadedRouteMemory {
@@ -40,7 +40,7 @@ export async function resolveIdentityKeys(
   try {
     manifest = await discoverRoutes({ appRoot })
   } catch {
-    // No dawn.config.ts / unreadable app — fall back to the default.
+    // No b4.config.ts / unreadable app — fall back to the default.
     return { keys: DEFAULT, fallback: true }
   }
   for (const route of manifest.routes) {
@@ -66,12 +66,12 @@ async function loadRouteMemory(
   registerTsxLoader: () => Promise<void>,
 ): Promise<LoadedRouteMemory> {
   // resolveStore()'s config load registers the tsx loader only when a
-  // dawn.config.ts exists; register explicitly so memory.ts (TS source) loads
+  // b4.config.ts exists; register explicitly so memory.ts (TS source) loads
   // deterministically in the no-config case too.
   await registerTsxLoader()
   // Fully-dynamic runtime import of a user file — the ignore comments keep
   // Next's bundlers from trying to trace it (same rule as runtime-imports.ts).
-  // Module-cache staleness (mirror of resolve.ts's dawn.config.ts note): the
+  // Module-cache staleness (mirror of resolve.ts's b4.config.ts note): the
   // ESM cache holds this memory.ts for the life of the process — and Node
   // caches FAILED evaluations too — so an edited (or fixed) memory.ts needs an
   // inspector restart to take effect.

@@ -2,7 +2,7 @@
 import { useConfigureSuggestions } from "@copilotkit/react-core/v2"
 
 // Starter prompts for the empty chat. The permission gate in particular is only
-// reachable if the user asks for a command that isn't on dawn.config.ts's
+// reachable if the user asks for a command that isn't on b4.config.ts's
 // allow-list, which is not something a first-time visitor would guess.
 //
 // `useConfigureSuggestions` takes a static list ({ title, message }); `available`

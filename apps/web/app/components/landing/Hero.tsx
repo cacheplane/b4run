@@ -8,14 +8,14 @@ import { CodeFrame } from "../ui/CodeFrame"
 import { Eyebrow } from "../ui/Eyebrow"
 import { MediaSwitcher } from "./MediaSwitcher"
 
-const ROUTE_CODE = `import { agent } from "@dawn-ai/sdk"
+const ROUTE_CODE = `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
   systemPrompt: "Answer for {tenant}.",
 })`
 
-const HERO_PROMPT = `Scaffold a new Dawn app and help me build an agent. Dawn is the TypeScript meta-framework for LangGraph — agents and workflows are file-system routes with shared and route-local tools, generated types, and durable threads. Run \`npm create dawn-ai-app@latest my-agent\` to scaffold, then read https://dawnai.org/AGENTS.md and https://dawnai.org/llms-full.txt for the full framework reference before writing any routes.`
+const HERO_PROMPT = `Scaffold a new B4.run app and help me build an agent. B4.run is the TypeScript meta-framework for LangGraph — agents and workflows are file-system routes with shared and route-local tools, generated types, and durable threads. Run \`npm create b4-app@latest my-agent\` to scaffold, then read https://b4.run/AGENTS.md and https://b4.run/llms-full.txt for the full framework reference before writing any routes.`
 
 export async function Hero() {
   const codeHtml = await highlightLight(ROUTE_CODE, "typescript")
@@ -36,18 +36,18 @@ export async function Hero() {
               Build LangGraph agents like Next.js apps.
             </h1>
             <p className="mt-6 text-lg text-ink-muted leading-[30px] max-w-[44ch]">
-              Dawn adds file-system routing, shared and route-local tools, per-route scoping,
+              B4.run adds file-system routing, shared and route-local tools, per-route scoping,
               generated types, and durable threads to your LangGraph.js stack.{" "}
               <strong className="text-ink font-medium">
                 Keep the runtime. Drop the boilerplate.
               </strong>
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
-              <CopyCommand command="npm create dawn-ai-app@latest my-agent" />
+              <CopyCommand command="npm create b4-app@latest my-agent" />
               <CopyPromptButton
                 prompt={HERO_PROMPT}
                 label="Copy agent prompt"
-                ariaLabel="Copy a prompt to scaffold Dawn with your coding agent"
+                ariaLabel="Copy a prompt to scaffold B4.run with your coding agent"
               />
               <Link
                 href="/docs/getting-started"
@@ -62,7 +62,7 @@ export async function Hero() {
             <MediaSwitcher
               videoLabel="Video"
               codeLabel="Code"
-              ariaLabel="Dawn product loop"
+              ariaLabel="B4.run product loop"
               video={
                 <figure>
                   <ClipPlayer

@@ -13,7 +13,7 @@ import {
 } from "./preflight-owner.mjs"
 import { createOwnerPreflightAdapters } from "./preflight-owner-adapters.mjs"
 
-const DEFAULT_REPOSITORY = "cacheplane/dawnai"
+const DEFAULT_REPOSITORY = "cacheplane/b4-run"
 const MAX_EVIDENCE_BYTES = 1024 * 1024
 const MAX_FILE_BYTES = 2 * 1024 * 1024
 const SHA_PATTERN = /^[0-9a-f]{40}$/u

@@ -4,7 +4,7 @@ import test from "node:test"
 
 import { classifyRegistryResponse, createNpmReader } from "../adapters/npm.mjs"
 
-const NAME = "@dawn-ai/sdk"
+const NAME = "@b4run/sdk"
 const VERSION = "0.8.21"
 const REGISTRY = "https://registry.npmjs.org"
 const INTEGRITY = `sha512-${"A".repeat(86)}==`
@@ -32,13 +32,13 @@ test("createNpmReader exposes only bounded metadata and tarball reads without in
     })),
     [
       {
-        url: `${REGISTRY}/%40dawn-ai%2Fsdk/0.8.21`,
+        url: `${REGISTRY}/%40b4run%2Fsdk/0.8.21`,
         method: "GET",
         redirect: "manual",
         accept: "application/json",
       },
       {
-        url: `${REGISTRY}/%40dawn-ai%2Fsdk`,
+        url: `${REGISTRY}/%40b4run%2Fsdk`,
         method: "GET",
         redirect: "manual",
         accept: "application/vnd.npm.install-v1+json",
@@ -53,7 +53,7 @@ test("createNpmReader exposes only bounded metadata and tarball reads without in
     package: {
       name: NAME,
       version: VERSION,
-      tarballUrl: `${REGISTRY}/@dawn-ai/sdk/-/sdk-${VERSION}.tgz`,
+      tarballUrl: `${REGISTRY}/@b4run/sdk/-/sdk-${VERSION}.tgz`,
       shasum: "a".repeat(40),
       integrity: INTEGRITY,
       distTags: { latest: VERSION, next: "0.9.0-beta.1" },
@@ -65,7 +65,7 @@ test("createNpmReader exposes only bounded metadata and tarball reads without in
 
 test("downloads an exact same-origin registry tarball with bounded canonical bytes and digests", async () => {
   const bytes = Buffer.from("exact registry tarball bytes")
-  const tarballUrl = `${REGISTRY}/@dawn-ai/sdk/-/sdk-${VERSION}.tgz`
+  const tarballUrl = `${REGISTRY}/@b4run/sdk/-/sdk-${VERSION}.tgz`
   const { fetchImpl, calls } = recordingFetch([
     new Response(bytes, { headers: { "content-type": "application/octet-stream" } }),
   ])
@@ -106,7 +106,7 @@ test("downloads an exact same-origin registry tarball with bounded canonical byt
 })
 
 test("registry tarball auth, redirect, oversized, malformed, and cross-origin results are never absence", async () => {
-  const tarballUrl = `${REGISTRY}/@dawn-ai/sdk/-/sdk-${VERSION}.tgz`
+  const tarballUrl = `${REGISTRY}/@b4run/sdk/-/sdk-${VERSION}.tgz`
   const responses = [
     new Response("denied", {
       status: 401,
@@ -164,7 +164,7 @@ test("observePackageMetadata reads only bounded public dist-tags independently",
     calls.map(({ url, init }) => ({ url, method: init.method, accept: init.headers.Accept })),
     [
       {
-        url: `${REGISTRY}/%40dawn-ai%2Fsdk`,
+        url: `${REGISTRY}/%40b4run%2Fsdk`,
         method: "GET",
         accept: "application/vnd.npm.install-v1+json",
       },
@@ -261,9 +261,9 @@ test("confirms npm's string-body exact-version 404 against the structured packum
   assert.deepEqual(
     calls.map(({ url, init }) => ({ url, accept: init.headers.Accept })),
     [
-      { url: `${REGISTRY}/%40dawn-ai%2Fsdk/0.8.21`, accept: "application/json" },
+      { url: `${REGISTRY}/%40b4run%2Fsdk/0.8.21`, accept: "application/json" },
       {
-        url: `${REGISTRY}/%40dawn-ai%2Fsdk`,
+        url: `${REGISTRY}/%40b4run%2Fsdk`,
         accept: "application/vnd.npm.install-v1+json",
       },
     ],
@@ -304,7 +304,7 @@ test("rejects a malformed packument used to confirm exact-version absence", asyn
       name: NAME,
       "dist-tags": { latest: previousVersion },
       versions: {
-        [previousVersion]: { name: "@dawn-ai/wrong", version: previousVersion },
+        [previousVersion]: { name: "@b4run/wrong", version: previousVersion },
       },
     }),
   ])
@@ -484,7 +484,7 @@ test("npm HTTP failures retain safe operation/status/code without registry error
 
 test("npm refuses unsafe identities and registry URLs before fetching", () => {
   const npm = createNpmReader({ registryUrl: `${REGISTRY}/`, fetchImpl: assert.fail })
-  for (const name of ["", "../sdk", "@dawn-ai", "@dawn-ai/sdk/extra", "dawn sdk", "--help"]) {
+  for (const name of ["", "../sdk", "@b4run", "@b4run/sdk/extra", "b4 sdk", "--help"]) {
     assert.throws(() => npm.observePackageVersion({ name, version: VERSION }), /package name/u)
   }
   for (const version of ["", "v0.8.21", "latest", "0.8", "0.8.21 || 1.0.0"]) {
@@ -584,7 +584,7 @@ test("npm refuses malformed or cross-origin tarball URLs", async () => {
 test("npm binds custom-registry metadata and tarballs to the exact trusted origin", async () => {
   const customRegistry = "https://registry.example.test/npm/"
   const document = versionDocument()
-  document.dist.tarball = `https://registry.example.test/@dawn-ai/sdk/-/sdk-${VERSION}.tgz`
+  document.dist.tarball = `https://registry.example.test/@b4run/sdk/-/sdk-${VERSION}.tgz`
   const recording = recordingFetch([
     jsonResponse(document),
     jsonResponse({ name: NAME, "dist-tags": { latest: VERSION } }),
@@ -704,7 +704,7 @@ function versionDocument() {
     name: NAME,
     version: VERSION,
     dist: {
-      tarball: `${REGISTRY}/@dawn-ai/sdk/-/sdk-${VERSION}.tgz`,
+      tarball: `${REGISTRY}/@b4run/sdk/-/sdk-${VERSION}.tgz`,
       shasum: "a".repeat(40),
       integrity: INTEGRITY,
       signatures: [
@@ -712,7 +712,7 @@ function versionDocument() {
         { keyid: "SHA256:key-a", sig: "signature-a" },
       ],
       attestations: {
-        url: `${REGISTRY}/-/npm/v1/attestations/@dawn-ai%2fsdk@0.8.21`,
+        url: `${REGISTRY}/-/npm/v1/attestations/@b4run%2fsdk@0.8.21`,
       },
     },
   }

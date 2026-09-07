@@ -1,0 +1,86 @@
+b4-app installed.
+
+Service URL:
+{{- if .Values.ingress.enabled }}
+{{- range $host := list .Values.ingress.host }}
+{{- if $host }}
+  http{{ if $.Values.ingress.tls.enabled }}s{{ end }}://{{ $host }}{{ $.Values.ingress.path }}
+{{- else }}
+  (ingress.enabled=true but ingress.host is unset — set it to get a URL)
+{{- end }}
+{{- end }}
+{{- else if contains "LoadBalancer" .Values.service.type }}
+  Run:
+    kubectl get svc {{ include "b4-app.fullname" . }} -n {{ .Release.Namespace }} -w
+  to watch for an EXTERNAL-IP, then browse to http://<EXTERNAL-IP>:{{ .Values.service.port }}
+{{- else if contains "NodePort" .Values.service.type }}
+  Run:
+    kubectl get svc {{ include "b4-app.fullname" . }} -n {{ .Release.Namespace }} -o jsonpath='{.spec.ports[0].nodePort}'
+  to get the NodePort, then browse to http://<NODE-IP>:<NODE-PORT>
+{{- else }}
+  Cluster-internal only (service.type=ClusterIP). Port-forward to reach it:
+    kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "b4-app.fullname" . }} 8080:{{ .Values.service.port }}
+  then browse to http://localhost:8080
+{{- end }}
+
+ServiceAccount / namespace wiring:
+
+This app's Pod runs under ServiceAccount "{{ include "b4-app.serviceAccountName" . }}"
+in the b4-app management namespace "{{ .Release.Namespace }}". Keep this namespace, the
+app credentials, and both charts' Helm release Secrets separate from the
+sandbox namespace "{{ .Values.sandboxNamespace }}". For the in-cluster
+kubernetesSandbox provider (baked into your image's b4.config.ts) to work,
+that ServiceAccount must be bound to the b4-sandbox-infra chart's orchestrator
+Role.
+
+By default, sandbox resources live in b4-sandboxes while the application,
+credentials, and Helm releases live in the separate b4-app management
+namespace.
+
+{{- if .Values.serviceAccount.create }}
+
+serviceAccount.create=true (default) — this chart created the ServiceAccount
+above in THIS namespace ("{{ .Release.Namespace }}"). An empty
+serviceAccount.name resolves to the release-scoped chart fullname.
+{{- else }}
+
+serviceAccount.create=false — this chart is using the operator-provided
+ServiceAccount named "{{ include "b4-app.serviceAccountName" . }}" in the
+management namespace. Confirm it exists before sending traffic.
+{{- end }}
+
+Before sending sandbox traffic, bind that ServiceAccount to the sandbox-infra
+orchestrator Role without overwriting existing cross-namespace subjects.
+
+First capture the installed infrastructure chart version and export the
+release's effective values:
+
+  INFRA_CHART_VERSION="$(helm get metadata b4-sandbox-infra --namespace {{ .Release.Namespace }} | awk '$1 == "VERSION:" { print $2 }')"
+  test -n "$INFRA_CHART_VERSION" || { printf '%s\n' "unable to determine installed infrastructure chart version" >&2; exit 1; }
+  helm get values b4-sandbox-infra --all --output yaml \
+    --namespace {{ .Release.Namespace }} \
+    > b4-sandbox-infra-rbac-values.yaml
+
+Edit b4-sandbox-infra-rbac-values.yaml so `orchestrator.subjects` contains the
+complete intended subject list: preserve every existing item and append the
+application ServiceAccount as a cross-namespace subject:
+
+  - kind: ServiceAccount
+    name: {{ include "b4-app.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+
+Inspect the complete file, then apply it. Helm replaces arrays, so never write
+a guessed numeric subject index:
+
+  helm upgrade b4-sandbox-infra \
+    oci://ghcr.io/cacheplane/charts/b4-sandbox-infra \
+    --version "$INFRA_CHART_VERSION" \
+    --namespace {{ .Release.Namespace }} \
+    --values b4-sandbox-infra-rbac-values.yaml
+
+Make sure your app's `b4.config.ts` points the kubernetesSandbox provider at
+the same namespace as the b4-sandbox-infra chart:
+
+  sandbox: {
+    provider: kubernetesSandbox({ namespace: "{{ .Values.sandboxNamespace }}" })
+  }

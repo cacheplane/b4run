@@ -1,6 +1,6 @@
 # {{appName}} — server
 
-A deep-research assistant built with [Dawn](https://github.com/cacheplane/dawnai).
+A deep-research assistant built with [B4.run](https://github.com/cacheplane/b4-run).
 Ask a question; it plans sub-questions, researches a bundled local corpus,
 and writes a cited report. Live research uses a real OpenAI model and API key;
 the included tests and evals use deterministic fixtures and run offline.
@@ -17,7 +17,7 @@ npm install
 cp server/.env.example server/.env
 # Add a real OPENAI_API_KEY to server/.env
 npm run verify
-npm run dev:server     # Dawn dev server on http://127.0.0.1:3002
+npm run dev:server     # B4.run dev server on http://127.0.0.1:3002
 ```
 
 Ask the research agent a question — it plans, dispatches a researcher subagent,
@@ -32,29 +32,29 @@ curl -N "http://127.0.0.1:3002/agui/%2Fresearch%23agent" \
 
 That's the [AG-UI](https://github.com/ag-ui-protocol/ag-ui) endpoint (`/agui/<route>`).
 Alongside text, root tools, and interrupts, it emits standard replacement
-`dawn.plan` and `dawn.subagent` activity messages for valid planning and matched
+`b4.plan` and `b4.subagent` activity messages for valid planning and matched
 delegated-work progress. Those activities are the whole presentation of the
 `writeTodos` and `task` calls behind them: a call whose activity was emitted
 produces no root tool events, while every other tool is unchanged.
 
 The **web UI** over this endpoint is the sibling [`web/`](../web) package — the
-Dawn Workbench: cited reports, generic tool cards, suggestion prompts, standard
+B4.run Workbench: cited reports, generic tool cards, suggestion prompts, standard
 permission handling, and memory-candidate review. Start it with
 `npm run dev:web` from the app root. If you write your own client instead, do
-not hand-build the plan and researcher cards — `@dawn-ai/ag-ui/react` ships
-them, so a React client passes `dawnActivityRenderers` to CopilotKit's
+not hand-build the plan and researcher cards — `@b4run/ag-ui/react` ships
+them, so a React client passes `b4ActivityRenderers` to CopilotKit's
 `renderActivityMessages` and is done. That is what `web/` does, and the
-[Research assistant web UI](https://dawnai.org/docs/recipes/research-web-ui)
+[Research assistant web UI](https://b4.run/docs/recipes/research-web-ui)
 recipe walks through building one.
 
-Separately, `npx dawn inspect --cwd server` opens the
-[Dawn Inspector](https://dawnai.org/docs/inspector) — a browser UI over this
+Separately, `npx b4 inspect --cwd server` opens the
+[B4.run Inspector](https://b4.run/docs/inspector) — a browser UI over this
 app's live memory store, already installed here as a devDependency.
 
 ## Check it offline
 
 ```bash
-npm run typegen    # write server/.dawn/dawn.generated.d.ts
+npm run typegen    # write server/.b4/b4.generated.d.ts
 npm run check      # validate routes, tools, and configuration without writing files
 npm run typecheck  # validate TypeScript
 npm test           # harness tests (deterministic fixtures)
@@ -75,7 +75,7 @@ npm start
 
 Run these in order: `build` writes the configured deployment artifacts, then
 `start` loads `server/.env` when present and serves
-`server/.dawn/build/server.mjs`. `start` does not build the app for you.
+`server/.b4/build/server.mjs`. `start` does not build the app for you.
 
 To dogfood the Docker sandbox, start Docker and run:
 
@@ -92,15 +92,15 @@ the sandbox test seeds a corpus document there before running the same tools.
 | Capability | File | What it shows |
 |---|---|---|
 | Agent route | `src/app/research/index.ts` | the research coordinator |
-| Tools + typegen | `src/tools/` | shared `searchCorpus`, `readDoc`; `dawn typegen` writes their generated types |
+| Tools + typegen | `src/tools/` | shared `searchCorpus`, `readDoc`; `b4 typegen` writes their generated types |
 | Subagents | `src/app/research/subagents/researcher/` | dispatched via `task({ subagent, input })` |
 | Planning | `src/app/research/plan.md` | seeded checklist becomes the thread's todos |
-| Offloading | `dawn.config.ts` + a large `readDoc` | big results spill to the workspace, stubbed in-context |
+| Offloading | `b4.config.ts` + a large `readDoc` | big results spill to the workspace, stubbed in-context |
 | Memory | `workspace/AGENTS.md`, `memory.md`, `memory.ts` | prompt memory plus typed `recall`/`remember` |
 | Skills | `src/app/research/skills/` | `cite-sources`, `synthesize-findings` |
-| HITL permissions | `dawn.config.ts` + `workspace/scripts/fetch-source.mjs` | the external fetch pauses for approval |
+| HITL permissions | `b4.config.ts` + `workspace/scripts/fetch-source.mjs` | the external fetch pauses for approval |
 | Workspace | `workspace/` | corpus + report output behind a path-jail |
-| Docker sandbox | `dawn.config.ts`, `test/sandbox-docker.test.ts` | opt-in isolated workspace via `@dawn-ai/sandbox` |
+| Docker sandbox | `b4.config.ts`, `test/sandbox-docker.test.ts` | opt-in isolated workspace via `@b4run/sandbox` |
 | Persistence | (default) | threads survive a restart (SQLite) |
 | Tests | `test/research.test.ts` | `createAgentHarness` + `script()` |
 | Evals | `src/app/research/evals/` | `defineEval` + scorers + a gate |
@@ -115,7 +115,7 @@ npm run memory:list
 npm run memory:approve -- <memory-id>
 ```
 
-`npm run memory:approve` wraps `dawn memory approve`; use either form when
+`npm run memory:approve` wraps `b4 memory approve`; use either form when
 you want to promote a candidate into active recall.
 
 The tests show both paths: seeding an active memory with `seedMemory`, and
@@ -130,10 +130,10 @@ This is a starter — extend the parts you want and delete the rest:
   `<route>/tools/` for route-local tools, then run `npm run typegen` followed by
   `npm run check`.
 - **Wire a real fetch:** edit `workspace/scripts/fetch-source.mjs` and add the
-  command to `permissions.allow.bash` in `dawn.config.ts`.
-- **Dogfood sandboxing:** keep `DAWN_DEMO_DOCKER_SANDBOX=1` for isolated
+  command to `permissions.allow.bash` in `b4.config.ts`.
+- **Dogfood sandboxing:** keep `B4_DEMO_DOCKER_SANDBOX=1` for isolated
   workspace execution, and seed any files the sandbox needs during the run.
 - **Enable summarization:** uncomment the `summarization` block in
-  `dawn.config.ts` once your threads get long.
+  `b4.config.ts` once your threads get long.
 - **Throw it away:** delete `src/app/research/` and start from a single
   `index.ts` — the toolchain (`typegen`/`check`/`build`/`test`/`eval`) still works.

@@ -1,4 +1,4 @@
-import { discoverRoutes } from "@dawn-ai/core/node"
+import { discoverRoutes } from "@b4run/core/node"
 import type { Command } from "commander"
 
 import { CliError, type CommandIo, formatErrorMessage, writeLine } from "../lib/output.js"
@@ -11,8 +11,8 @@ interface RoutesOptions {
 export function registerRoutesCommand(program: Command, io: CommandIo): void {
   program
     .command("routes")
-    .description("List discovered Dawn routes")
-    .option("--cwd <path>", "Path to the Dawn app root or a child directory within it")
+    .description("List discovered B4.run routes")
+    .option("--cwd <path>", "Path to the B4.run app root or a child directory within it")
     .option("--json", "Print route metadata as JSON")
     .action(async (options: RoutesOptions) => {
       await runRoutesCommand(options, io)
@@ -28,7 +28,10 @@ export async function runRoutesCommand(options: RoutesOptions, io: CommandIo): P
       return
     }
 
-    writeLine(io.stdout, `Discovered ${manifest.routes.length} Dawn routes in ${manifest.appRoot}`)
+    writeLine(
+      io.stdout,
+      `Discovered ${manifest.routes.length} B4.run routes in ${manifest.appRoot}`,
+    )
 
     for (const route of manifest.routes) {
       writeLine(io.stdout, `${route.pathname} -> ${route.entryFile}`)

@@ -1,9 +1,4 @@
-import type {
-  BrowseFilter,
-  BrowseSortEntry,
-  MemoryKind,
-  MemoryStatus,
-} from "@dawn-ai/memory/browse"
+import type { BrowseFilter, BrowseSortEntry, MemoryKind, MemoryStatus } from "@b4run/memory/browse"
 
 /** Which surface is browsing. Never sent to the server: it selects the kind default
  *  and the component that consumes the page.

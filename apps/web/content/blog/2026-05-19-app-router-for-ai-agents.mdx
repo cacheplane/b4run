@@ -1,6 +1,6 @@
 ---
 title: The App Router for AI Agents
-description: File-system routes, type-safe tools, and the capability layer Dawn adds around real LangGraph.js agent applications.
+description: File-system routes, type-safe tools, and the capability layer B4.run adds around real LangGraph.js agent applications.
 date: 2026-05-19
 tags: [philosophy, typescript, agents]
 type: post
@@ -17,7 +17,7 @@ I want the same thing for agent applications.
 
 Agent codebases need more than a runtime. They need a project shape that can hold tools, state, tests, memory, planning, skills, and subagents without turning into a pile of registries.
 
-That is the App Router idea behind Dawn.
+That is the App Router idea behind B4.run.
 
 ## Goals
 
@@ -34,7 +34,7 @@ If a developer can open the file tree and understand where to add the next thing
 
 ## What the route tree tells you
 
-Here is a small Dawn application:
+Here is a small B4.run application:
 
 ```text
 src/
@@ -72,7 +72,7 @@ The structure is doing work.
 
 ## Routes
 
-A Dawn route is a folder under `src/app/`. The folder path becomes the route id.
+A B4.run route is a folder under `src/app/`. The folder path becomes the route id.
 
 Route groups are ignored:
 
@@ -96,7 +96,7 @@ The route entry is `index.ts`. It exports exactly one route shape:
 The default scaffold uses an agent:
 
 ```ts
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-4o-mini",
@@ -108,7 +108,7 @@ If you need full LangGraph control, export a named `graph`. If you need a determ
 
 ## Tools
 
-In Dawn, a tool is a TypeScript file in `tools/`.
+In B4.run, a tool is a TypeScript file in `tools/`.
 
 ```ts
 // src/app/support/[tenant]/tools/lookupOrder.ts
@@ -129,7 +129,7 @@ There is no `tool()` wrapper in the route.
 
 There is no duplicate input schema.
 
-Dawn reads the function signature during type generation and build. The input type becomes the JSON schema exposed to the model, and the generated `dawn:routes` module gives route code typed access to `ctx.tools.lookupOrder`.
+B4.run reads the function signature during type generation and build. The input type becomes the JSON schema exposed to the model, and the generated `b4:routes` module gives route code typed access to `ctx.tools.lookupOrder`.
 
 This is the part I care about most: the TypeScript type is the contract.
 
@@ -137,7 +137,7 @@ This is the part I care about most: the TypeScript type is the contract.
 
 Routes can also define `state.ts`.
 
-State is the JSON shape that flows through the route runtime. The scaffold uses Zod, but Dawn accepts Zod or any Standard Schema value.
+State is the JSON shape that flows through the route runtime. The scaffold uses Zod, but B4.run accepts Zod or any Standard Schema value.
 
 ```ts
 // src/app/support/[tenant]/state.ts
@@ -149,7 +149,7 @@ export default z.object({
 })
 ```
 
-Dawn generates route state types from this file and the route path. If you rename a dynamic segment, or change the state shape, TypeScript can catch the places that still assume the old shape.
+B4.run generates route state types from this file and the route path. If you rename a dynamic segment, or change the state shape, TypeScript can catch the places that still assume the old shape.
 
 Tests live next to the route too:
 
@@ -161,19 +161,19 @@ That sounds small, but it matters. The test changes in the same pull request as 
 
 ## Agent behavior
 
-The route tree gives Dawn a place to add higher-level agent behavior.
+The route tree gives B4.run a place to add higher-level agent behavior.
 
 Here is what we have built to date.
 
 ### Memory
 
-If `workspace/AGENTS.md` exists, Dawn injects it into the agent prompt under `# Memory` on every model turn.
+If `workspace/AGENTS.md` exists, B4.run injects it into the agent prompt under `# Memory` on every model turn.
 
 The file is the memory. The agent can update it, and the next turn sees the updated content.
 
 ### Planning
 
-If a route has `plan.md`, Dawn adds a planning prompt, a `writeTodos` tool, a `todos` state channel, and a `plan_update` stream event.
+If a route has `plan.md`, B4.run adds a planning prompt, a `writeTodos` tool, a `todos` state channel, and a `plan_update` stream event.
 
 The seed file uses normal markdown checklist syntax:
 
@@ -187,7 +187,7 @@ The useful part is that planning is not just a prompt. It is prompt, tool, state
 
 ### Skills
 
-If a route has `skills/<name>/SKILL.md`, Dawn lists the available skills in the prompt and gives the agent a `readSkill({ name })` tool.
+If a route has `skills/<name>/SKILL.md`, B4.run lists the available skills in the prompt and gives the agent a `readSkill({ name })` tool.
 
 That lets the agent load longer instructions only when it needs them.
 
@@ -195,7 +195,7 @@ That lets the agent load longer instructions only when it needs them.
 
 A route can expose subagents through child routes under `subagents/` or through the `subagents` field on `agent({...})`.
 
-Dawn adds a `task({ subagent, input })` tool and a `# Subagents` prompt section. The parent agent can delegate to a specialist without the specialist becoming a random helper function hidden in another folder.
+B4.run adds a `task({ subagent, input })` tool and a `# Subagents` prompt section. The parent agent can delegate to a specialist without the specialist becoming a random helper function hidden in another folder.
 
 The boundary stays visible on disk.
 
@@ -225,20 +225,20 @@ At that point, the App Router idea earns its place:
 - generated deployment artifacts are predictable
 - memory, planning, skills, and subagents compose around the route instead of around a hidden framework object
 
-This does not make Dawn necessary for every project.
+This does not make B4.run necessary for every project.
 
 If you have one graph and two tools, raw LangGraph.js may be exactly right.
 
 But if your agent application is starting to look like an application, it needs application structure.
 
-That is what Dawn is trying to provide.
+That is what B4.run is trying to provide.
 
 ## Getting started
 
 The fastest way to try the shape is still the scaffold:
 
 ```bash
-pnpm create dawn-ai-app my-agents
+pnpm create b4-app my-agents
 cd my-agents
 pnpm dev
 ```
@@ -246,7 +246,7 @@ pnpm dev
 Then run the example route:
 
 ```bash
-echo '{"tenant":"acme"}' | pnpm exec dawn run '/hello/[tenant]'
+echo '{"tenant":"acme"}' | pnpm exec b4 run '/hello/[tenant]'
 ```
 
 For the deeper read, start with [Mental Model](/docs/mental-model), [Routes](/docs/routes), [Memory](/docs/memory), [Planning](/docs/planning), [Skills](/docs/skills), [Subagents](/docs/subagents), and [Reasoning Effort](/docs/reasoning-effort).

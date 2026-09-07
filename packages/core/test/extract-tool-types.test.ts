@@ -8,7 +8,7 @@ import { extractToolTypesForRoute } from "../src/typegen/extract-tool-types.js"
 let tempDir: string
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), "dawn-extract-tools-"))
+  tempDir = mkdtempSync(join(tmpdir(), "b4-extract-tools-"))
 })
 
 afterEach(() => {

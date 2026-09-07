@@ -1,18 +1,24 @@
+// This dated Dawn incident suite executes the exact pre-rename source.
+// Current incident file preservation is independently checked in b4-identity.test.mjs.
+
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import test from "node:test"
-import {
+import { importHistoricalReleaseModule } from "./support/frozen-history.mjs"
+
+const {
   canonicalRecoveryNotice,
   canonicalRecoveryReceipt,
   originalBodyAssetName,
   recoveryReceiptAssetName,
-} from "../duplicate-draft-recovery.mjs"
-import {
-  createDuplicateDraftRecoveryReader,
-  createDuplicateDraftRecoveryWriter,
-} from "../duplicate-draft-recovery-adapters.mjs"
-import { CANONICAL_RELEASE_PACKAGE_ORDER, canonicalManifestBytes } from "../manifest.mjs"
-import { canonicalReleaseBody, parseReleaseMarker } from "../metadata.mjs"
+} = await importHistoricalReleaseModule("scripts/release/duplicate-draft-recovery.mjs")
+const { createDuplicateDraftRecoveryReader, createDuplicateDraftRecoveryWriter } =
+  await importHistoricalReleaseModule("scripts/release/duplicate-draft-recovery-adapters.mjs")
+const { CANONICAL_RELEASE_PACKAGE_ORDER, canonicalManifestBytes } =
+  await importHistoricalReleaseModule("scripts/release/manifest.mjs")
+const { canonicalReleaseBody, parseReleaseMarker } = await importHistoricalReleaseModule(
+  "scripts/release/metadata.mjs",
+)
 
 const EXPECTED_METHODS = [
   "listCandidateReleases",

@@ -13,7 +13,7 @@ const PUBLISH_PREDICATE_TYPE = "https://github.com/npm/attestation/tree/main/spe
 const PROVENANCE_BUILD_TYPE =
   "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1"
 const GITHUB_HOSTED_BUILDER = "https://github.com/actions/runner/github-hosted"
-const EXPECTED_REPOSITORY = "https://github.com/cacheplane/dawnai"
+const EXPECTED_REPOSITORY = "https://github.com/cacheplane/b4-run"
 const STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 const DSSE_PAYLOAD_TYPE = "application/vnd.in-toto+json"
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
@@ -120,7 +120,7 @@ export async function createNpmAuditVerifier({
     }
   }
 
-  const createdRoot = await fileSystem.mkdtemp(path.join(os.tmpdir(), "dawn-npm-audit-"))
+  const createdRoot = await fileSystem.mkdtemp(path.join(os.tmpdir(), "b4-npm-audit-"))
   let root
   try {
     root = await fileSystem.realpath(createdRoot)
@@ -194,7 +194,7 @@ export async function createNpmAuditVerifier({
             path.join(directory, "package.json"),
             Buffer.from(
               `${JSON.stringify({
-                name: "dawn-release-audit-consumer",
+                name: "b4-release-audit-consumer",
                 version: "0.0.0",
                 private: true,
                 dependencies: Object.fromEntries(
@@ -295,7 +295,7 @@ export async function createNpmAuditVerifier({
           await fileSystem.mkdir(packageDirectory, { recursive: true, mode: 0o700 })
           const rootPackageJson = Buffer.from(
             `${JSON.stringify({
-              name: "dawn-release-audit-consumer",
+              name: "b4-release-audit-consumer",
               version: "0.0.0",
               private: true,
               dependencies: { [identity.entry.name]: identity.entry.version },
@@ -754,10 +754,10 @@ function validatePublisherProvenanceEnvironment(source, candidate) {
     GITHUB_ACTIONS: "true",
     GITHUB_EVENT_NAME: "workflow_dispatch",
     GITHUB_REF: ref,
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
+    GITHUB_REPOSITORY: "cacheplane/b4-run",
     GITHUB_SERVER_URL: "https://github.com",
     GITHUB_SHA: identity.commitSha,
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/${identity.publisherWorkflow}@${ref}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/${identity.publisherWorkflow}@${ref}`,
     RUNNER_ENVIRONMENT: "github-hosted",
   }
   for (const [name, value] of Object.entries(expected)) {

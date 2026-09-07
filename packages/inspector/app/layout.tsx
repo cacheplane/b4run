@@ -1,7 +1,7 @@
 import "./globals.css"
 import type { ReactNode } from "react"
 
-export const metadata = { title: "Dawn Inspector" }
+export const metadata = { title: "B4.run Inspector" }
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

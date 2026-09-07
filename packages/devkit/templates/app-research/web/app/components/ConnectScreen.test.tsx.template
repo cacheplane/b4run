@@ -17,7 +17,7 @@ describe("ConnectScreen", () => {
   test("frames the server URL as a default, not a diagnosis", () => {
     const html = render()
     expect(html).toContain("http://127.0.0.1:3002")
-    expect(html).toContain("DAWN_SERVER_URL")
+    expect(html).toContain("B4_SERVER_URL")
   })
 
   test("shows the env copy step before the command that starts the server", () => {

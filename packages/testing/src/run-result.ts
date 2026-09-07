@@ -1,4 +1,4 @@
-import type { StreamChunk } from "@dawn-ai/cli/runtime"
+import type { StreamChunk } from "@b4run/cli/runtime"
 
 export interface ObservedToolCall {
   readonly name: string

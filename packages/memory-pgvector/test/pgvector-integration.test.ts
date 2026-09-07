@@ -3,7 +3,7 @@ import { Pool } from "pg"
 import { afterAll, beforeAll, describe, expect, test } from "vitest"
 import { initSchema, pgvectorMemoryStore } from "../src/index.js"
 
-const enabled = process.env.DAWN_TEST_PGVECTOR === "1"
+const enabled = process.env.B4_TEST_PGVECTOR === "1"
 let container: StartedPostgreSqlContainer
 let url: string
 

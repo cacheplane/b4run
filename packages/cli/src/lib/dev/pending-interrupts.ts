@@ -2,7 +2,7 @@ import type { BaseCheckpointSaver, CheckpointTuple } from "@langchain/langgraph-
 
 export type PermissionDecision = "once" | "always" | "deny"
 
-export interface DawnResumeEntry {
+export interface B4ResumeEntry {
   readonly interruptId: string
   readonly status: "resolved" | "cancelled"
   readonly payload?: unknown
@@ -26,7 +26,7 @@ export interface PendingInterrupt {
    * not on the wire, such a payload does reach the client — dropping it would
    * be a wire change, so it is pinned by test rather than left incidental.
    *
-   * Optional because this interface is public API (`@dawn-ai/cli/runtime`): a
+   * Optional because this interface is public API (`@b4run/cli/runtime`): a
    * required field would stop external code from constructing the literal. The
    * parse always sets the key, so `Object.hasOwn(i, "value")` is always true.
    */
@@ -152,7 +152,7 @@ export function createPendingResumeClaims(): PendingResumeClaims {
 }
 
 export function resolvePendingResume(
-  resume: readonly DawnResumeEntry[] | undefined,
+  resume: readonly B4ResumeEntry[] | undefined,
   snapshot: PendingInterruptSnapshot,
 ): ResumeResolution {
   const pendingById = new Map(snapshot.interrupts.map((entry) => [entry.interruptId, entry]))

@@ -9,8 +9,8 @@ import { promisify } from "node:util"
 import { readBoundedFixture } from "../fixture-io.mjs"
 
 test("bounded fixture reader accepts only regular no-follow files below its root", async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-fixture-"))
-  const outside = await mkdtemp(path.join(os.tmpdir(), "dawn-outside-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-fixture-"))
+  const outside = await mkdtemp(path.join(os.tmpdir(), "b4-outside-"))
   t.after(async () => {
     const { rm } = await import("node:fs/promises")
     await rm(root, { recursive: true, force: true })

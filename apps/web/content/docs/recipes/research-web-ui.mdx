@@ -1,6 +1,6 @@
 # Research Assistant Web UI
 
-Wire a [CopilotKit](https://docs.copilotkit.ai) web client to Dawn's research
+Wire a [CopilotKit](https://docs.copilotkit.ai) web client to B4.run's research
 demo over [AG-UI](/docs/ag-ui). The example is a workbench rather than a chat
 widget: it renders its own thread rail, transcript, and composer instead of
 mounting `CopilotSidebar`, so the streamed report and the plan, researcher,
@@ -11,7 +11,7 @@ threading, and standard interrupt outcome, see [AG-UI and Web Clients](/docs/ag-
 
 ## What you'll build
 
-The demo lives in `examples/research`: a Dawn server (`server/`) and a Next.js
+The demo lives in `examples/research`: a B4.run server (`server/`) and a Next.js
 CopilotKit client (`web/`). The client provides:
 
 - **Thread rail** - "New conversation" plus the list of threads, each titled
@@ -32,7 +32,7 @@ The plan and researcher cards are informational. They never resolve or cancel
 an interrupt; interrupt outcomes and answers use the standard AG-UI fields
 documented on the protocol page.
 
-Durable-memory review is part of the Workbench: a bounded panel reaches Dawn
+Durable-memory review is part of the Workbench: a bounded panel reaches B4.run
 through the same allowlisted, same-origin proxy used for thread hydration. See
 [Approve memory candidates](#approve-memory-candidates) below.
 
@@ -54,7 +54,7 @@ cp .env.example .env   # set OPENAI_API_KEY here, not in the web app
 ```bash
 cd examples/research
 pnpm install
-pnpm dev          # Dawn server on :3002, web client on :3010
+pnpm dev          # B4.run server on :3002, web client on :3010
 ```
 
 Open [http://localhost:3010](http://localhost:3010) and ask a research question.
@@ -63,10 +63,10 @@ Open [http://localhost:3010](http://localhost:3010) and ask a research question.
 
 </Steps>
 
-## Connect the client to Dawn
+## Connect the client to B4.run
 
 The Next.js runtime route registers an AG-UI `HttpAgent` pointed at the encoded
-Dawn assistant id. Register it under CopilotKit's `default` agent id so every
+B4.run assistant id. Register it under CopilotKit's `default` agent id so every
 hook binds without per-component wiring:
 
 <CodeGroup>
@@ -78,8 +78,8 @@ import { CopilotRuntime, createCopilotRuntimeHandler } from "@copilotkit/runtime
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const dawnUrl = process.env.DAWN_SERVER_URL ?? "http://127.0.0.1:3002"
-const agUiUrl = `${dawnUrl}/agui/${encodeURIComponent("/research#agent")}`
+const b4Url = process.env.B4_SERVER_URL ?? "http://127.0.0.1:3002"
+const agUiUrl = `${b4Url}/agui/${encodeURIComponent("/research#agent")}`
 
 const handler = createCopilotRuntimeHandler({
   runtime: new CopilotRuntime({
@@ -121,12 +121,12 @@ export const POST = handler
 The required catch-all route exposes CopilotKit's V2 REST and SSE paths under
 `/api/copilotkit/*`. Setting `useSingleEndpoint={false}` makes the browser begin
 with `GET /api/copilotkit/info` instead of sending the legacy method envelope to
-the base URL. The web runtime holds no model credential; only the Dawn server has
+the base URL. The web runtime holds no model credential; only the B4.run server has
 `OPENAI_API_KEY`.
 
 <Callout type="warn" title="Register the agent as default">
   CopilotKit hooks that omit an `agentId` resolve the id `default`. Register the
-  Dawn agent under that id, or set the same explicit id on every consumer.
+  B4.run agent under that id, or set the same explicit id on every consumer.
 </Callout>
 
 Three pieces of that tree are load-bearing:
@@ -161,7 +161,7 @@ own shell:
   UI, no error, and green tests. With it set, `useInterrupt` returns the element
   and `Transcript` places it at the end of the message list.
 
-Threads are local to the browser. Dawn's server can create and fetch a thread by
+Threads are local to the browser. B4.run's server can create and fetch a thread by
 id but cannot enumerate threads, so the rail keeps its own list in
 `localStorage` behind a `ThreadSource` interface
 (`examples/research/web/app/lib/thread-source.ts`); CopilotKit's `useThreads` is
@@ -192,32 +192,32 @@ The plan and researcher cards ship with the adapter. Install the package and
 hand its renderer array to CopilotKit:
 
 ```bash
-pnpm add @dawn-ai/ag-ui
+pnpm add @b4run/ag-ui
 ```
 
 ```tsx
-import { dawnActivityRenderers } from "@dawn-ai/ag-ui/react"
+import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 
 <CopilotKit
   runtimeUrl="/api/copilotkit"
   useSingleEndpoint={false}
-  renderActivityMessages={dawnActivityRenderers}
+  renderActivityMessages={b4ActivityRenderers}
 >
 ```
 
 Then import the stylesheet once, in your root layout:
 
 ```tsx title="app/layout.tsx"
-import "@dawn-ai/ag-ui/react/styles.css"
+import "@b4run/ag-ui/react/styles.css"
 ```
 
 That import is not optional polish. The cards carry no inline styles, so without
 it they render as bare markup. Once it is in place, restyle by overriding the
-`--dawn-activity-*` custom properties in your own CSS — see the
-[package README](https://github.com/cacheplane/dawnai/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards)
+`--b4-activity-*` custom properties in your own CSS — see the
+[package README](https://github.com/cacheplane/b4-run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards)
 for the full customization ladder.
 
-`dawnActivityRenderers` is a module-scope constant, so the registry keeps a
+`b4ActivityRenderers` is a module-scope constant, so the registry keeps a
 stable identity across React renders, and each renderer is keyed by the
 adapter's own activity-type constant. Both renderers validate the public
 activity content with a strict runtime schema: a payload with unknown or
@@ -235,32 +235,32 @@ package's CSS is unlayered and Tailwind's utilities are not. What the sheet does
 claim on the card's own box — background, border color, radius, text color,
 font-size, margin and padding — plus the header's font weight and the depth
 badge's background, is reachable at rung 1 instead, through the
-`--dawn-activity-*` tokens the app sets in `app/theme.css`.
+`--b4-activity-*` tokens the app sets in `app/theme.css`.
 
 React and `@copilotkit/react-core` are optional peer dependencies of
-`@dawn-ai/ag-ui`, and only the `./react` subpath needs them. A server that uses
+`@b4run/ag-ui`, and only the `./react` subpath needs them. A server that uses
 the root or `./sse` entry installs nothing extra.
 
 To present the same activities your own way, the subpath also exports the pieces
-behind that array: `dawnPlanActivityRenderer` and `dawnSubagentActivityRenderer`
+behind that array: `b4PlanActivityRenderer` and `b4SubagentActivityRenderer`
 for registering one without the other; `PlanActivityCard`, `SubagentActivityCard`,
 and `ActivityChecklist` as plain React components; and
 `planActivityContentSchema` and `subagentActivityContentSchema` for validating
 content before rendering it yourself. The cards take a `content` prop and need
 no CopilotKit context.
 
-Root plan snapshots replace `dawn:plan:${runId}` and carry the complete todo
-list. Subagent snapshots replace `dawn:subagent:${call_id}` and carry the name,
+Root plan snapshots replace `b4:plan:${runId}` and carry the complete todo
+list. Subagent snapshots replace `b4:subagent:${call_id}` and carry the name,
 depth, `running`/`completed`/`failed` status, optional todos, up to five recent
 tool name/status summaries, the total tool count, and an optional 400-character
 failure summary. Both root and child checklist views display at most eight
 todos, while their snapshots retain the complete valid todo lists.
-The `dawn.plan` and `dawn.subagent` activity content supplied to these cards
+The `b4.plan` and `b4.subagent` activity content supplied to these cards
 excludes child reasoning or prose, prompts, tool inputs, tool outputs, final
 child answers, route ids, and raw runtime ids.
 
 These activities are the whole presentation of the two built-in orchestration
-tools. When a `writeTodos` or `task` call produced its activity, Dawn's AG-UI
+tools. When a `writeTodos` or `task` call produced its activity, B4.run's AG-UI
 adapter emits no tool call/result events for that call, so the wildcard tool
 card receives the ordinary tools (`recall`, `searchCorpus`, `readDoc`,
 `writeFile`, and `runBash` once approved) but never `writeTodos` or `task`. The
@@ -274,12 +274,12 @@ its `task` argument summary is worth keeping.
 
 Choose **Research a topic** on the empty transcript to see the root plan and
 researcher progress update before the cited answer. This live flow still uses
-the Dawn server's model key. The automated browser check proves only V2 transport
+the B4.run server's model key. The automated browser check proves only V2 transport
 selection; it does not replace this live-model flow.
 
 ## Approve memory candidates
 
-When the coordinator calls `remember()`, Dawn stores a durable-memory candidate.
+When the coordinator calls `remember()`, B4.run stores a durable-memory candidate.
 The runtime exposes candidates over HTTP:
 
 ```text
@@ -289,15 +289,15 @@ POST /memory/candidates/:id/reject
 ```
 
 The browser cannot call those routes directly unless the server sets
-[`server.cors`](/docs/configuration#server); with it absent the Dawn dev server sends no CORS
+[`server.cors`](/docs/configuration#server); with it absent the B4.run dev server sends no CORS
 headers — so the example reaches them through a same-origin catch-all,
-`app/api/dawn/[...path]/route.ts`. That proxy is **allowlisted**, not
+`app/api/b4/[...path]/route.ts`. That proxy is **allowlisted**, not
 pass-through: `app/lib/proxy-allowlist.ts` is a pure function listing the exact
 method and path shape of every route the browser may reach — the three memory
 routes above plus `GET /threads/:id/state` and
 `GET /threads/:id/pending_interrupts`. Anything else is rejected with 403 and
 never forwarded, which is what keeps `POST /threads/:id/resume` and the rest of
-the agent surface out of reach of a template every Dawn developer copies.
+the agent surface out of reach of a template every B4.run developer copies.
 
 <Callout title="Allowlist before you extend">
   Running, resuming, and cancelling a thread are deliberately absent from the
@@ -307,7 +307,7 @@ the agent surface out of reach of a template every Dawn developer copies.
   example installs no `threadAccess` policy, so it bounds which routes are
   reachable, not who may reach them — anything that can reach the Next app can
   read any thread's transcript by guessing its id. Add a `threadAccess` policy
-  on the Dawn side before this leaves your own machine.
+  on the B4.run side before this leaves your own machine.
 </Callout>
 
 `app/components/MemoryPanel.tsx` renders the candidates in the thread rail with
@@ -339,7 +339,7 @@ useEffect(() => {
 
 The panel is review-only, and only of candidates: at most three are listed and
 the rest are counted. Browsing, searching, and editing stored memories remain
-the [`dawn memory`](/docs/memory/long-term) CLI's job.
+the [`b4 memory`](/docs/memory/long-term) CLI's job.
 
 <Callout title="Deep runs need a higher recursion limit">
   The coordinator plans, dispatches subagents, and makes many tool calls. The

@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
-import * as compiler from "@dawn-ai/core/internal/compiler"
-import { discoverRoutes } from "@dawn-ai/core/node"
+import * as compiler from "@b4run/core/internal/compiler"
+import { discoverRoutes } from "@b4run/core/node"
 import { afterEach, describe, expect, test, vi } from "vitest"
 
 import { runTypegen } from "../src/lib/typegen/run-typegen.js"
@@ -12,7 +12,7 @@ import { runTypegen } from "../src/lib/typegen/run-typegen.js"
 const tempDirs: string[] = []
 const originalCwd = process.cwd()
 const repoRoot = resolve(import.meta.dirname, "../../..")
-const generatedDeclarationFiles = ["dawn.generated.d.ts", "scenarios.generated.d.ts"] as const
+const generatedDeclarationFiles = ["b4.generated.d.ts", "scenarios.generated.d.ts"] as const
 
 afterEach(async () => {
   vi.restoreAllMocks()
@@ -26,7 +26,7 @@ async function createFile(filePath: string, content: string) {
 }
 
 async function setupApp(options?: { withState?: boolean }) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-typegen-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-typegen-"))
   tempDirs.push(appRoot)
 
   const routeDir = join(appRoot, "src", "app", "hello", "[tenant]")
@@ -34,7 +34,7 @@ async function setupApp(options?: { withState?: boolean }) {
 
   await Promise.all([
     createFile(join(appRoot, "package.json"), '{"type":"module"}'),
-    createFile(join(appRoot, "dawn.config.ts"), "export default {};\n"),
+    createFile(join(appRoot, "b4.config.ts"), "export default {};\n"),
     createFile(join(routeDir, "index.ts"), "export const agent = async () => ({});\n"),
     createFile(
       join(toolsDir, "greet.ts"),
@@ -64,21 +64,21 @@ describe("runTypegen", () => {
     expect(result.toolSchemaCount).toBe(1)
     expect(extractArtifacts).toHaveBeenCalledTimes(1)
 
-    const dtsPath = join(appRoot, ".dawn", "dawn.generated.d.ts")
-    const scenarioDtsPath = join(appRoot, ".dawn", "scenarios.generated.d.ts")
+    const dtsPath = join(appRoot, ".b4", "b4.generated.d.ts")
+    const scenarioDtsPath = join(appRoot, ".b4", "scenarios.generated.d.ts")
     expect(existsSync(dtsPath)).toBe(true)
     expect(existsSync(scenarioDtsPath)).toBe(true)
 
     const content = await readFile(dtsPath, "utf8")
-    expect(content).toContain("DawnRoutePath")
+    expect(content).toContain("B4RoutePath")
     expect(content).toContain("greet")
 
     const scenarioContent = await readFile(scenarioDtsPath, "utf8")
-    expect(scenarioContent).toContain('import "@dawn-ai/sdk/testing"')
+    expect(scenarioContent).toContain('import "@b4run/sdk/testing"')
     expect(scenarioContent).toContain('"/hello/[tenant]"')
     expect(scenarioContent).toContain('readonly "greet"')
 
-    const toolsJsonPath = join(appRoot, ".dawn", "routes", "hello-tenant", "tools.json")
+    const toolsJsonPath = join(appRoot, ".b4", "routes", "hello-tenant", "tools.json")
     const toolsJson = JSON.parse(await readFile(toolsJsonPath, "utf8"))
     expect(toolsJson.greet.description).toBe("Greets the tenant.")
     expect(toolsJson.greet.parameters.properties.name.type).toBe("string")
@@ -90,7 +90,7 @@ describe("runTypegen", () => {
 
     await runTypegen({ appRoot, manifest })
 
-    const toolsJsonPath = join(appRoot, ".dawn", "routes", "hello-tenant", "tools.json")
+    const toolsJsonPath = join(appRoot, ".b4", "routes", "hello-tenant", "tools.json")
     expect(existsSync(toolsJsonPath)).toBe(true)
 
     const toolsJson = JSON.parse(await readFile(toolsJsonPath, "utf8"))
@@ -107,7 +107,7 @@ describe("runTypegen", () => {
 
     expect(result.stateRouteCount).toBe(0)
 
-    const stateJsonPath = join(appRoot, ".dawn", "routes", "hello-tenant", "state.json")
+    const stateJsonPath = join(appRoot, ".b4", "routes", "hello-tenant", "state.json")
     expect(existsSync(stateJsonPath)).toBe(false)
   })
 
@@ -118,7 +118,7 @@ describe("runTypegen", () => {
     const manifest = await discoverRoutes({ appRoot })
     await runTypegen({ appRoot, manifest })
 
-    const dtsPath = join(appRoot, ".dawn", "dawn.generated.d.ts")
+    const dtsPath = join(appRoot, ".b4", "b4.generated.d.ts")
     const content = await readFile(dtsPath, "utf8")
 
     expect(content).toContain("writeTodos")
@@ -128,10 +128,7 @@ describe("runTypegen", () => {
     // Existing user tool still present alongside the capability-contributed one
     expect(content).toContain("greet")
 
-    const scenarioContent = await readFile(
-      join(appRoot, ".dawn", "scenarios.generated.d.ts"),
-      "utf8",
-    )
+    const scenarioContent = await readFile(join(appRoot, ".b4", "scenarios.generated.d.ts"), "utf8")
     expect(scenarioContent).not.toContain("writeTodos")
   })
 
@@ -140,7 +137,7 @@ describe("runTypegen", () => {
     const manifest = await discoverRoutes({ appRoot })
     await runTypegen({ appRoot, manifest })
 
-    const dtsPath = join(appRoot, ".dawn", "dawn.generated.d.ts")
+    const dtsPath = join(appRoot, ".b4", "b4.generated.d.ts")
     const content = await readFile(dtsPath, "utf8")
 
     expect(content).not.toContain("writeTodos")
@@ -156,17 +153,14 @@ describe("runTypegen", () => {
     const manifest = await discoverRoutes({ appRoot })
     await runTypegen({ appRoot, manifest })
 
-    const dtsPath = join(appRoot, ".dawn", "dawn.generated.d.ts")
+    const dtsPath = join(appRoot, ".b4", "b4.generated.d.ts")
     const content = await readFile(dtsPath, "utf8")
 
     expect(content).toContain("task")
     expect(content).toContain("subagent: string")
     expect(content).toContain("greet")
 
-    const scenarioContent = await readFile(
-      join(appRoot, ".dawn", "scenarios.generated.d.ts"),
-      "utf8",
-    )
+    const scenarioContent = await readFile(join(appRoot, ".b4", "scenarios.generated.d.ts"), "utf8")
     expect(scenarioContent).not.toContain("task")
   })
 
@@ -178,7 +172,7 @@ describe("runTypegen", () => {
     const manifest = await discoverRoutes({ appRoot })
     await runTypegen({ appRoot, manifest })
 
-    const dtsPath = join(appRoot, ".dawn", "dawn.generated.d.ts")
+    const dtsPath = join(appRoot, ".b4", "b4.generated.d.ts")
     const content = await readFile(dtsPath, "utf8")
 
     expect(content).not.toContain("Dispatch a sub-task")
@@ -192,7 +186,7 @@ describe("runTypegen", () => {
     const manifest = await discoverRoutes({ appRoot })
     await runTypegen({ appRoot, manifest })
 
-    const dtsPath = join(appRoot, ".dawn", "dawn.generated.d.ts")
+    const dtsPath = join(appRoot, ".b4", "b4.generated.d.ts")
     const content = await readFile(dtsPath, "utf8")
 
     expect(content).toContain("readFile")
@@ -201,10 +195,7 @@ describe("runTypegen", () => {
     expect(content).toContain("runBash")
     expect(content).toContain("greet")
 
-    const scenarioContent = await readFile(
-      join(appRoot, ".dawn", "scenarios.generated.d.ts"),
-      "utf8",
-    )
+    const scenarioContent = await readFile(join(appRoot, ".b4", "scenarios.generated.d.ts"), "utf8")
     expect(scenarioContent).not.toContain("readFile")
   })
 
@@ -214,7 +205,7 @@ describe("runTypegen", () => {
     const manifest = await discoverRoutes({ appRoot })
     await runTypegen({ appRoot, manifest })
 
-    const dtsPath = join(appRoot, ".dawn", "dawn.generated.d.ts")
+    const dtsPath = join(appRoot, ".b4", "b4.generated.d.ts")
     const content = await readFile(dtsPath, "utf8")
 
     expect(content).not.toContain("Read a UTF-8 file from the workspace")
@@ -228,7 +219,7 @@ describe("runTypegen", () => {
     await createFile(
       join(routeDir, "memory.ts"),
       [
-        'import { defineMemory } from "@dawn-ai/sdk"',
+        'import { defineMemory } from "@b4run/sdk"',
         'import { z } from "zod"',
         "export default defineMemory({",
         '  kind: "semantic",',
@@ -242,7 +233,7 @@ describe("runTypegen", () => {
     const manifest = await discoverRoutes({ appRoot })
     await runTypegen({ appRoot, manifest })
 
-    const dtsPath = join(appRoot, ".dawn", "dawn.generated.d.ts")
+    const dtsPath = join(appRoot, ".b4", "b4.generated.d.ts")
     const content = await readFile(dtsPath, "utf8")
 
     expect(content).toContain("remember")
@@ -257,10 +248,7 @@ describe("runTypegen", () => {
     // Existing user tool still present alongside the capability-contributed ones
     expect(content).toContain("greet")
 
-    const scenarioContent = await readFile(
-      join(appRoot, ".dawn", "scenarios.generated.d.ts"),
-      "utf8",
-    )
+    const scenarioContent = await readFile(join(appRoot, ".b4", "scenarios.generated.d.ts"), "utf8")
     expect(scenarioContent).not.toContain("remember")
     expect(scenarioContent).not.toContain("recall")
   })
@@ -270,7 +258,7 @@ describe("runTypegen", () => {
     const manifest = await discoverRoutes({ appRoot })
     await runTypegen({ appRoot, manifest })
 
-    const dtsPath = join(appRoot, ".dawn", "dawn.generated.d.ts")
+    const dtsPath = join(appRoot, ".b4", "b4.generated.d.ts")
     const content = await readFile(dtsPath, "utf8")
 
     expect(content).not.toContain("Store a typed long-term memory")
@@ -285,7 +273,7 @@ describe("runTypegen", () => {
 
     expect(result.stateRouteCount).toBe(1)
 
-    const stateJsonPath = join(appRoot, ".dawn", "routes", "hello-tenant", "state.json")
+    const stateJsonPath = join(appRoot, ".b4", "routes", "hello-tenant", "state.json")
     expect(existsSync(stateJsonPath)).toBe(true)
 
     const stateJson = JSON.parse(await readFile(stateJsonPath, "utf8"))
@@ -295,15 +283,15 @@ describe("runTypegen", () => {
   test.each(["app-basic", "app-research"] as const)(
     "keeps the %s template declaration pair in sync with typegen",
     async (templateName) => {
-      // The research template is an npm workspace: its Dawn app (routes, tools,
-      // and the tracked `.dawn` declarations) lives in `server/`, while the root
+      // The research template is an npm workspace: its B4.run app (routes, tools,
+      // and the tracked `.b4` declarations) lives in `server/`, while the root
       // only orchestrates. Pointing at `server/` also keeps the `web/` package
       // out of `installTemplateTypegenDependencies`.
       const templateRoot = join(repoRoot, "packages", "devkit", "templates", templateName)
       const templateDir =
         templateName === "app-research" ? join(templateRoot, "server") : templateRoot
       const trackedPaths = generatedDeclarationFiles.map((fileName) =>
-        join(templateDir, ".dawn", fileName),
+        join(templateDir, ".b4", fileName),
       )
       for (const trackedPath of trackedPaths) {
         expect(existsSync(trackedPath)).toBe(true)
@@ -312,13 +300,13 @@ describe("runTypegen", () => {
         trackedPaths.map((trackedPath) => readFile(trackedPath, "utf8")),
       )
 
-      const appRoot = await mkdtemp(join(tmpdir(), `dawn-${templateName}-typegen-drift-`))
+      const appRoot = await mkdtemp(join(tmpdir(), `b4-${templateName}-typegen-drift-`))
       tempDirs.push(appRoot)
       await materializeDevkitTemplate(templateDir, appRoot)
       await installTemplateTypegenDependencies(appRoot)
       await Promise.all(
         generatedDeclarationFiles.map((fileName) =>
-          rm(join(appRoot, ".dawn", fileName), { force: true }),
+          rm(join(appRoot, ".b4", fileName), { force: true }),
         ),
       )
 
@@ -331,7 +319,7 @@ describe("runTypegen", () => {
       }
 
       for (const [index, fileName] of generatedDeclarationFiles.entries()) {
-        const regeneratedPath = join(appRoot, ".dawn", fileName)
+        const regeneratedPath = join(appRoot, ".b4", fileName)
         expect(existsSync(regeneratedPath)).toBe(true)
         await expect(readFile(regeneratedPath, "utf8")).resolves.toBe(trackedDeclarations[index])
       }
@@ -354,16 +342,16 @@ async function materializeDevkitTemplate(templateDir: string, appRoot: string): 
   await writeTemplate({
     replacements: {
       appName: "typegen-drift-check",
-      dawnAgUiSpecifier: "workspace:*",
-      dawnCliSpecifier: "workspace:*",
-      dawnConfigTypescriptSpecifier: "workspace:*",
-      dawnCoreSpecifier: "workspace:*",
-      dawnEvalsSpecifier: "workspace:*",
-      dawnInspectorSpecifier: "workspace:*",
-      dawnLangchainSpecifier: "workspace:*",
-      dawnSandboxSpecifier: "workspace:*",
-      dawnSdkSpecifier: "workspace:*",
-      dawnTestingSpecifier: "workspace:*",
+      b4AgUiSpecifier: "workspace:*",
+      b4CliSpecifier: "workspace:*",
+      b4ConfigTypescriptSpecifier: "workspace:*",
+      b4CoreSpecifier: "workspace:*",
+      b4EvalsSpecifier: "workspace:*",
+      b4InspectorSpecifier: "workspace:*",
+      b4LangchainSpecifier: "workspace:*",
+      b4SandboxSpecifier: "workspace:*",
+      b4SdkSpecifier: "workspace:*",
+      b4TestingSpecifier: "workspace:*",
     },
     targetDir: appRoot,
     templateDir,
@@ -374,23 +362,23 @@ async function installTemplateTypegenDependencies(appRoot: string): Promise<void
   const modulesDir = join(appRoot, "node_modules")
   await Promise.all([
     createModuleStub(
-      join(modulesDir, "@dawn-ai", "cli"),
-      "@dawn-ai/cli",
+      join(modulesDir, "@b4run", "cli"),
+      "@b4run/cli",
       "export const config = (value) => value\n",
       "export function config<T>(value: T): T\n",
     ),
     createModuleStub(
-      join(modulesDir, "@dawn-ai", "sandbox"),
-      "@dawn-ai/sandbox",
+      join(modulesDir, "@b4run", "sandbox"),
+      "@b4run/sandbox",
       "export const dockerSandbox = (options) => ({ options })\n",
       "export function dockerSandbox(options: unknown): unknown\n",
     ),
     createModuleStub(
-      join(modulesDir, "@dawn-ai", "sdk"),
-      "@dawn-ai/sdk",
+      join(modulesDir, "@b4run", "sdk"),
+      "@b4run/sdk",
       "export const defineMemory = (value) => value\n",
       [
-        "export interface DawnToolContext {",
+        "export interface B4ToolContext {",
         "  readonly fs: {",
         "    listDir(path?: string): Promise<string[]>",
         "    readFile(path: string): Promise<string>",

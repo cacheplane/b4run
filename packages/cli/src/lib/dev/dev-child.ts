@@ -76,14 +76,14 @@ export async function runDevChildCommand(options: DevChildCommandOptions): Promi
     throw new CliError(`Invalid dev child port: ${options.port}`, 1)
   }
 
-  const startupDelayMs = readIntFromEnv("DAWN_DEV_CHILD_STARTUP_DELAY_MS", 0)
+  const startupDelayMs = readIntFromEnv("B4_DEV_CHILD_STARTUP_DELAY_MS", 0)
 
   if (startupDelayMs > 0) {
     await delay(startupDelayMs)
   }
 
-  const childTestMode = process.env.DAWN_DEV_CHILD_TEST_MODE
-  const pidPath = process.env.DAWN_DEV_CHILD_PID_PATH
+  const childTestMode = process.env.B4_DEV_CHILD_TEST_MODE
+  const pidPath = process.env.B4_DEV_CHILD_PID_PATH
 
   if (pidPath) {
     await writeFile(pidPath, String(process.pid), "utf8")
@@ -116,7 +116,7 @@ export async function runDevChildCommand(options: DevChildCommandOptions): Promi
   // Test hook: block the real port bind until a gate file is removed. Lets a
   // test deterministically occupy the port first and exercise the EADDRINUSE
   // restart path without racing this child's startup. Never set in production.
-  const bindGatePath = process.env.DAWN_DEV_CHILD_BIND_GATE_PATH
+  const bindGatePath = process.env.B4_DEV_CHILD_BIND_GATE_PATH
   if (bindGatePath) {
     await waitForBindGateRelease(bindGatePath)
   }

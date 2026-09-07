@@ -544,7 +544,7 @@ test("resumes both safe runner-loss boundaries without replacing retained eviden
     tag_name: `v${VERSION}`,
     target_commitish: "main",
     prerelease: false,
-    name: `Dawn v${VERSION} (abandoned before publication)`,
+    name: `B4 v${VERSION} (abandoned before publication)`,
     body: terminalBody,
     draft: true,
     immutable: false,
@@ -819,7 +819,7 @@ function makeAttestationSet() {
   ]
   const bundleSha256 = sha256(bytesForName("multi-subject.intoto.jsonl"))
   return {
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${VERSION}`,
     commitSha: SHA,
@@ -910,7 +910,7 @@ function fakeGitHub({
       tag_name: "untagged-opaque",
       target_commitish: "main",
       prerelease: false,
-      name: `Dawn v${VERSION}`,
+      name: `B4 v${VERSION}`,
       body,
       draft: true,
       immutable: false,
@@ -1017,12 +1017,12 @@ async function createContextFromRemote(remote) {
     {
       candidate: CANDIDATE,
       environment: {
-        GITHUB_REPOSITORY: "cacheplane/dawnai",
+        GITHUB_REPOSITORY: "cacheplane/b4-run",
         GITHUB_REF: `refs/tags/v${VERSION}`,
         GITHUB_SHA: SHA,
         GITHUB_RUN_ID: "910",
         GITHUB_RUN_ATTEMPT: "1",
-        GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+        GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
       },
     },
     {
@@ -1104,8 +1104,8 @@ test("a tampered operator-recovery tombstone is rejected by the body parser", ()
     previousMarker: tombstone.predecessor.marker,
   })
 
-  const start = body.indexOf("\n", body.indexOf("<!-- DAWN_ABANDONMENT_RECORD_BASE64")) + 1
-  const end = body.indexOf("\nEND_DAWN_ABANDONMENT_RECORD_BASE64")
+  const start = body.indexOf("\n", body.indexOf("<!-- B4_ABANDONMENT_RECORD_BASE64")) + 1
+  const end = body.indexOf("\nEND_B4_ABANDONMENT_RECORD_BASE64")
   const mid = Math.floor((start + end) / 2)
   const tamperedMiddle = body.slice(0, mid) + (body[mid] === "A" ? "B" : "A") + body.slice(mid + 1)
   assert.notEqual(tamperedMiddle, body)

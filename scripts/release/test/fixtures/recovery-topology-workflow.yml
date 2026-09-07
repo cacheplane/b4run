@@ -301,7 +301,7 @@ jobs:
         if: inputs.publish_contract
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: cacheplane/dawnai
+          repository: cacheplane/b4-run
           ref: ${{ inputs.reviewed_controller_sha }}
           persist-credentials: false
       - name: Setup Node
@@ -312,25 +312,25 @@ jobs:
       - name: Exercise actual workflow publication credential
         if: inputs.publish_contract
         env:
-          DAWN_TEST_RECOVERY_GITHUB: "1"
-          DAWN_TEST_RECOVERY_PUBLICATION_GITHUB: "1"
-          DAWN_RECOVERY_TEST_REPOSITORY: ${{ github.repository }}
-          DAWN_RECOVERY_AUTHORIZED_REPOSITORY: ${{ vars.RECOVERY_AUTHORIZED_REPOSITORY }}
-          DAWN_RECOVERY_PUBLICATION_TOKEN: ${{ github.token }}
-          DAWN_RECOVERY_TEST_POLICY_TOKEN: ${{ secrets.RECOVERY_POLICY_READ_TOKEN }}
-          DAWN_RECOVERY_TEST_CREDENTIAL_KIND: workflow
-          DAWN_RECOVERY_TEST_SOURCE_SHA: ${{ inputs.publication_source_sha }}
-          DAWN_RECOVERY_TEST_EXISTING_TAG_NONCE: ${{ inputs.existing_tag_nonce }}
-          DAWN_RECOVERY_TEST_EXISTING_TAG_OBJECT_SHA: ${{ inputs.existing_tag_object_sha }}
-          DAWN_RECOVERY_TEST_EXISTING_RELEASE_ID: ${{ inputs.existing_release_id }}
-          DAWN_RECOVERY_TEST_DISCARD_RESPONSE: ${{ inputs.discard_response }}
+          B4_TEST_RECOVERY_GITHUB: "1"
+          B4_TEST_RECOVERY_PUBLICATION_GITHUB: "1"
+          B4_RECOVERY_TEST_REPOSITORY: ${{ github.repository }}
+          B4_RECOVERY_AUTHORIZED_REPOSITORY: ${{ vars.RECOVERY_AUTHORIZED_REPOSITORY }}
+          B4_RECOVERY_PUBLICATION_TOKEN: ${{ github.token }}
+          B4_RECOVERY_TEST_POLICY_TOKEN: ${{ secrets.RECOVERY_POLICY_READ_TOKEN }}
+          B4_RECOVERY_TEST_CREDENTIAL_KIND: workflow
+          B4_RECOVERY_TEST_SOURCE_SHA: ${{ inputs.publication_source_sha }}
+          B4_RECOVERY_TEST_EXISTING_TAG_NONCE: ${{ inputs.existing_tag_nonce }}
+          B4_RECOVERY_TEST_EXISTING_TAG_OBJECT_SHA: ${{ inputs.existing_tag_object_sha }}
+          B4_RECOVERY_TEST_EXISTING_RELEASE_ID: ${{ inputs.existing_release_id }}
+          B4_RECOVERY_TEST_DISCARD_RESPONSE: ${{ inputs.discard_response }}
         run: node --test scripts/release/test/recovery-publication-github.integration.mjs
       - name: Retain publication contract ledger
         if: always() && inputs.publish_contract
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: recovery-publication-contract-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/dawn-recovery-publication-*/ledger.json
+          path: ${{ runner.temp }}/b4-recovery-publication-*/ledger.json
           if-no-files-found: error
           overwrite: false
   recovery-report:

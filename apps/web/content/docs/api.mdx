@@ -1,48 +1,48 @@
 # API Reference
 
-Use this catalog to choose the Dawn package, subpath, or executable that owns a contract. Application developers should start with `@dawn-ai/sdk`; use the focused references for exact exports, defaults, errors, and lifecycle rules.
+Use this catalog to choose the B4.run package, subpath, or executable that owns a contract. Application developers should start with `@b4run/sdk`; use the focused references for exact exports, defaults, errors, and lifecycle rules.
 
 ## Package and surface index
 
-Application shortcuts: author routes with the [`@dawn-ai/sdk` reference](/docs/api/sdk); use the [`dawn` command or runtime entries](/docs/api/cli), including `/fetch` for supported edge integrations; test programmatically with [`@dawn-ai/testing`](/docs/api/testing); score behavior with [`@dawn-ai/evals`](/docs/api/evals); and import app-specific tool and state types from [`dawn:routes`](/docs/api/generated-routes).
+Application shortcuts: author routes with the [`@b4run/sdk` reference](/docs/api/sdk); use the [`b4` command or runtime entries](/docs/api/cli), including `/fetch` for supported edge integrations; test programmatically with [`@b4run/testing`](/docs/api/testing); score behavior with [`@b4run/evals`](/docs/api/evals); and import app-specific tool and state types from [`b4:routes`](/docs/api/generated-routes).
 
-Read the runtime column precisely: `node-only` records that a surface does not pass Dawn's edge-safety guard, not that the surface cannot run in a browser. Most `node-only` entries are genuinely server-side, but `@dawn-ai/ag-ui/react` is browser-targeted and fails the guard only because React's JSX runtime reads `process.env.NODE_ENV`.
+Read the runtime column precisely: `node-only` records that a surface does not pass B4.run's edge-safety guard, not that the surface cannot run in a browser. Most `node-only` entries are genuinely server-side, but `@b4run/ag-ui/react` is browser-targeted and fails the guard only because React's JSX runtime reads `process.env.NODE_ENV`.
 
 | Package | Purpose | Audience | Stability | Surfaces | Artifact boundaries | README | Reference | Guide |
 |---|---|---|---|---|---|---|---|---|
-| `@dawn-ai/ag-ui` | AG-UI protocol translation for Dawn runtimes and web clients. | `integration` | `supported` | `@dawn-ai/ag-ui`<br />`@dawn-ai/ag-ui/sse`<br />`@dawn-ai/ag-ui/react`<br />`@dawn-ai/ag-ui/react/styles.css` | focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `node-only` runtime · `not-claimed` purity<br />catalog summary · stylesheet asset; resolved by a bundler, never evaluated as JS · purity n/a | [README](https://github.com/cacheplane/dawnai/blob/main/packages/ag-ui/README.md) | [Reference](/docs/api/ag-ui) | [Guide](/docs/ag-ui) |
-| `@dawn-ai/cli` | Dawn development, build, type generation, and runtime commands. | `tooling` | `supported` | `@dawn-ai/cli`<br />`@dawn-ai/cli/fetch`<br />`@dawn-ai/cli/runtime`<br />`@dawn-ai/cli/testing`<br />`bin.dawn` | focused reference · `node-only` runtime · `not-claimed` purity<br />focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `node-only` runtime · `not-claimed` purity<br />focused reference · `node-only` runtime · `not-claimed` purity<br />focused reference · `node-only` executable command · purity n/a | [README](https://github.com/cacheplane/dawnai/blob/main/packages/cli/README.md) | [Reference](/docs/api/cli) | [Guide](/docs/cli) |
-| <span id="dawn-aiconfig-biome"></span>`@dawn-ai/config-biome` | Shared Biome configuration for Dawn projects. | `tooling` | `supported` | `@dawn-ai/config-biome`<br />`@dawn-ai/config-biome/biome` | internal only · static configuration; no runtime import · purity n/a<br />internal only · static configuration; no runtime import · purity n/a | [README](https://github.com/cacheplane/dawnai/blob/main/packages/config-biome/README.md) | [Reference](/docs/api#dawn-aiconfig-biome) | [Guide](/docs/getting-started) |
-| <span id="dawn-aiconfig-typescript"></span>`@dawn-ai/config-typescript` | Shared TypeScript configurations for Dawn projects. | `tooling` | `supported` | `@dawn-ai/config-typescript`<br />`@dawn-ai/config-typescript/base`<br />`@dawn-ai/config-typescript/library`<br />`@dawn-ai/config-typescript/node`<br />`@dawn-ai/config-typescript/nextjs` | internal only · static configuration; no runtime import · purity n/a<br />internal only · static configuration; no runtime import · purity n/a<br />internal only · static configuration; no runtime import · purity n/a<br />internal only · static configuration; no runtime import · purity n/a<br />internal only · static configuration; no runtime import · purity n/a | [README](https://github.com/cacheplane/dawnai/blob/main/packages/config-typescript/README.md) | [Reference](/docs/api#dawn-aiconfig-typescript) | [Guide](/docs/getting-started) |
-| `@dawn-ai/core` | Route discovery, app configuration, capabilities, and type generation. | `integration` | `low-level` | `@dawn-ai/core`<br />`@dawn-ai/core/node`<br />`@dawn-ai/core/internal/compiler` | focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `node-only` runtime · `not-claimed` purity<br />internal only · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/dawnai/blob/main/packages/core/README.md) | [Reference](/docs/api/core) | [Guide](/docs/routes) |
-| <span id="dawn-aidevkit"></span>`@dawn-ai/devkit` | Internal scaffold templates and generated-app test utilities. | `internal` | `internal` | `@dawn-ai/devkit` | internal only · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/dawnai/blob/main/packages/devkit/README.md) | [Reference](/docs/api#dawn-aidevkit) | [Guide](/docs/getting-started) |
-| `@dawn-ai/evals` | Evaluation definitions, scorers, datasets, and runners. | `testing` | `supported` | `@dawn-ai/evals` | focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/dawnai/blob/main/packages/evals/README.md) | [Reference](/docs/api/evals) | [Guide](/docs/evals) |
-| <span id="dawn-aiinspector"></span>`@dawn-ai/inspector` | Browser application for inspecting a running Dawn app. | `tooling` | `supported` | `dawnInspector.server` | catalog summary · `node-only` separately operated application · purity n/a | [README](https://github.com/cacheplane/dawnai/blob/main/packages/inspector/README.md) | [Reference](/docs/api#dawn-aiinspector) | [Guide](/docs/inspector) |
-| `@dawn-ai/langchain` | LangChain backend adapters for Dawn agents and chains. | `integration` | `supported` | `@dawn-ai/langchain`<br />`@dawn-ai/langchain/package.json` | focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · package metadata; read as data, not runtime code · purity n/a | [README](https://github.com/cacheplane/dawnai/blob/main/packages/langchain/README.md) | [Reference](/docs/api/langchain) | [Guide](/docs/agents) |
-| `@dawn-ai/langgraph` | LangGraph runtime adapters and route contracts. | `integration` | `supported` | `@dawn-ai/langgraph`<br />`@dawn-ai/langgraph/define-entry`<br />`@dawn-ai/langgraph/route-module` | focused reference · `edge-safe` runtime · `dependency-free` purity<br />focused reference · `edge-safe` runtime · `dependency-free` purity<br />focused reference · `edge-safe` runtime · `dependency-free` purity | [README](https://github.com/cacheplane/dawnai/blob/main/packages/langgraph/README.md) | [Reference](/docs/api/langgraph) | [Guide](/docs/routes) |
-| `@dawn-ai/memory` | Long-term memory storage, ranking, browsing, and reconciliation. | `application` | `supported` | `@dawn-ai/memory`<br />`@dawn-ai/memory/browse`<br />`@dawn-ai/memory/namespace`<br />`@dawn-ai/memory/reconcile` | focused reference · `node-only` runtime · `not-claimed` purity<br />focused reference · `edge-safe` runtime · `dependency-free` purity<br />focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `edge-safe` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/dawnai/blob/main/packages/memory/README.md) | [Reference](/docs/api/memory) | [Guide](/docs/memory/long-term) |
-| `@dawn-ai/memory-pgvector` | Postgres and pgvector storage for shared long-term memory. | `application` | `supported` | `@dawn-ai/memory-pgvector` | focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/dawnai/blob/main/packages/memory-pgvector/README.md) | [Reference](/docs/api/memory-pgvector) | [Guide](/docs/memory/long-term) |
-| `@dawn-ai/permissions` | Permission matching and Node-backed approval stores. | `integration` | `supported` | `@dawn-ai/permissions`<br />`@dawn-ai/permissions/node` | focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/dawnai/blob/main/packages/permissions/README.md) | [Reference](/docs/api/permissions) | [Guide](/docs/permissions) |
-| `@dawn-ai/postgres-storage` | Postgres persistence for checkpoints, threads, and permissions. | `application` | `supported` | `@dawn-ai/postgres-storage`<br />`@dawn-ai/postgres-storage/node` | focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/dawnai/blob/main/packages/postgres-storage/README.md) | [Reference](/docs/api/postgres-storage) | [Guide](/docs/persistence) |
-| `@dawn-ai/sandbox` | Docker-backed isolated workspace execution for Dawn agents. | `application` | `supported` | `@dawn-ai/sandbox`<br />`@dawn-ai/sandbox/testing` | focused reference · `node-only` runtime · `not-claimed` purity<br />focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/dawnai/blob/main/packages/sandbox/README.md) | [Reference](/docs/api/sandbox) | [Guide](/docs/sandbox) |
-| `@dawn-ai/sdk` | Author-facing declarations for agents, tools, middleware, and routes. | `application` | `supported` | `@dawn-ai/sdk`<br />`@dawn-ai/sdk/pure`<br />`@dawn-ai/sdk/testing` | focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `edge-safe` runtime · `dependency-free` purity<br />focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/dawnai/blob/main/packages/sdk/README.md) | [Reference](/docs/api/sdk) | [Guide](/docs/agents) |
-| `@dawn-ai/sqlite-storage` | Local SQLite persistence for Dawn runtime state. | `application` | `supported` | `@dawn-ai/sqlite-storage` | focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/dawnai/blob/main/packages/sqlite-storage/README.md) | [Reference](/docs/api/sqlite-storage) | [Guide](/docs/persistence) |
-| `@dawn-ai/testing` | Harnesses, fixtures, matchers, and runtime test utilities. | `testing` | `supported` | `@dawn-ai/testing` | focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/dawnai/blob/main/packages/testing/README.md) | [Reference](/docs/api/testing) | [Guide](/docs/testing-agents) |
-| <span id="dawn-aivite-plugin"></span>`@dawn-ai/vite-plugin` | Internal Vite integration for Dawn type generation. | `tooling` | `internal` | `@dawn-ai/vite-plugin` | internal only · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/dawnai/blob/main/packages/vite-plugin/README.md) | [Reference](/docs/api#dawn-aivite-plugin) | [Guide](/docs/routes) |
-| `@dawn-ai/workspace` | Filesystem and shell tools for agent workspaces. | `application` | `supported` | `@dawn-ai/workspace`<br />`@dawn-ai/workspace/node` | focused reference · `edge-safe` runtime · `dependency-free` purity<br />focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/dawnai/blob/main/packages/workspace/README.md) | [Reference](/docs/api/workspace) | [Guide](/docs/workspace) |
-| <span id="create-dawn-ai-app"></span>`create-dawn-ai-app` | Scaffolder for new Dawn applications. | `tooling` | `supported` | `bin.create-dawn-ai-app` | catalog summary · `node-only` executable command · purity n/a | [README](https://github.com/cacheplane/dawnai/blob/main/packages/create-dawn-app/README.md) | [Reference](/docs/api#create-dawn-ai-app) | [Guide](/docs/getting-started) |
+| `@b4run/ag-ui` | AG-UI protocol translation for B4.run runtimes and web clients. | `integration` | `supported` | `@b4run/ag-ui`<br />`@b4run/ag-ui/sse`<br />`@b4run/ag-ui/react`<br />`@b4run/ag-ui/react/styles.css` | focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `node-only` runtime · `not-claimed` purity<br />catalog summary · stylesheet asset; resolved by a bundler, never evaluated as JS · purity n/a | [README](https://github.com/cacheplane/b4-run/blob/main/packages/ag-ui/README.md) | [Reference](/docs/api/ag-ui) | [Guide](/docs/ag-ui) |
+| `@b4run/cli` | B4.run development, build, type generation, and runtime commands. | `tooling` | `supported` | `@b4run/cli`<br />`@b4run/cli/fetch`<br />`@b4run/cli/runtime`<br />`@b4run/cli/testing`<br />`bin.b4` | focused reference · `node-only` runtime · `not-claimed` purity<br />focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `node-only` runtime · `not-claimed` purity<br />focused reference · `node-only` runtime · `not-claimed` purity<br />focused reference · `node-only` executable command · purity n/a | [README](https://github.com/cacheplane/b4-run/blob/main/packages/cli/README.md) | [Reference](/docs/api/cli) | [Guide](/docs/cli) |
+| <span id="b4runconfig-biome"></span>`@b4run/config-biome` | Shared Biome configuration for B4.run projects. | `tooling` | `supported` | `@b4run/config-biome`<br />`@b4run/config-biome/biome` | internal only · static configuration; no runtime import · purity n/a<br />internal only · static configuration; no runtime import · purity n/a | [README](https://github.com/cacheplane/b4-run/blob/main/packages/config-biome/README.md) | [Reference](/docs/api#b4runconfig-biome) | [Guide](/docs/getting-started) |
+| <span id="b4runconfig-typescript"></span>`@b4run/config-typescript` | Shared TypeScript configurations for B4.run projects. | `tooling` | `supported` | `@b4run/config-typescript`<br />`@b4run/config-typescript/base`<br />`@b4run/config-typescript/library`<br />`@b4run/config-typescript/node`<br />`@b4run/config-typescript/nextjs` | internal only · static configuration; no runtime import · purity n/a<br />internal only · static configuration; no runtime import · purity n/a<br />internal only · static configuration; no runtime import · purity n/a<br />internal only · static configuration; no runtime import · purity n/a<br />internal only · static configuration; no runtime import · purity n/a | [README](https://github.com/cacheplane/b4-run/blob/main/packages/config-typescript/README.md) | [Reference](/docs/api#b4runconfig-typescript) | [Guide](/docs/getting-started) |
+| `@b4run/core` | Route discovery, app configuration, capabilities, and type generation. | `integration` | `low-level` | `@b4run/core`<br />`@b4run/core/node`<br />`@b4run/core/internal/compiler` | focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `node-only` runtime · `not-claimed` purity<br />internal only · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/b4-run/blob/main/packages/core/README.md) | [Reference](/docs/api/core) | [Guide](/docs/routes) |
+| <span id="b4rundevkit"></span>`@b4run/devkit` | Internal scaffold templates and generated-app test utilities. | `internal` | `internal` | `@b4run/devkit` | internal only · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/b4-run/blob/main/packages/devkit/README.md) | [Reference](/docs/api#b4rundevkit) | [Guide](/docs/getting-started) |
+| `@b4run/evals` | Evaluation definitions, scorers, datasets, and runners. | `testing` | `supported` | `@b4run/evals` | focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/b4-run/blob/main/packages/evals/README.md) | [Reference](/docs/api/evals) | [Guide](/docs/evals) |
+| <span id="b4runinspector"></span>`@b4run/inspector` | Browser application for inspecting a running B4.run app. | `tooling` | `supported` | `b4Inspector.server` | catalog summary · `node-only` separately operated application · purity n/a | [README](https://github.com/cacheplane/b4-run/blob/main/packages/inspector/README.md) | [Reference](/docs/api#b4runinspector) | [Guide](/docs/inspector) |
+| `@b4run/langchain` | LangChain backend adapters for B4.run agents and chains. | `integration` | `supported` | `@b4run/langchain`<br />`@b4run/langchain/package.json` | focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · package metadata; read as data, not runtime code · purity n/a | [README](https://github.com/cacheplane/b4-run/blob/main/packages/langchain/README.md) | [Reference](/docs/api/langchain) | [Guide](/docs/agents) |
+| `@b4run/langgraph` | LangGraph runtime adapters and route contracts. | `integration` | `supported` | `@b4run/langgraph`<br />`@b4run/langgraph/define-entry`<br />`@b4run/langgraph/route-module` | focused reference · `edge-safe` runtime · `dependency-free` purity<br />focused reference · `edge-safe` runtime · `dependency-free` purity<br />focused reference · `edge-safe` runtime · `dependency-free` purity | [README](https://github.com/cacheplane/b4-run/blob/main/packages/langgraph/README.md) | [Reference](/docs/api/langgraph) | [Guide](/docs/routes) |
+| `@b4run/memory` | Long-term memory storage, ranking, browsing, and reconciliation. | `application` | `supported` | `@b4run/memory`<br />`@b4run/memory/browse`<br />`@b4run/memory/namespace`<br />`@b4run/memory/reconcile` | focused reference · `node-only` runtime · `not-claimed` purity<br />focused reference · `edge-safe` runtime · `dependency-free` purity<br />focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `edge-safe` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/b4-run/blob/main/packages/memory/README.md) | [Reference](/docs/api/memory) | [Guide](/docs/memory/long-term) |
+| `@b4run/memory-pgvector` | Postgres and pgvector storage for shared long-term memory. | `application` | `supported` | `@b4run/memory-pgvector` | focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/b4-run/blob/main/packages/memory-pgvector/README.md) | [Reference](/docs/api/memory-pgvector) | [Guide](/docs/memory/long-term) |
+| `@b4run/permissions` | Permission matching and Node-backed approval stores. | `integration` | `supported` | `@b4run/permissions`<br />`@b4run/permissions/node` | focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/b4-run/blob/main/packages/permissions/README.md) | [Reference](/docs/api/permissions) | [Guide](/docs/permissions) |
+| `@b4run/postgres-storage` | Postgres persistence for checkpoints, threads, and permissions. | `application` | `supported` | `@b4run/postgres-storage`<br />`@b4run/postgres-storage/node` | focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/b4-run/blob/main/packages/postgres-storage/README.md) | [Reference](/docs/api/postgres-storage) | [Guide](/docs/persistence) |
+| `@b4run/sandbox` | Docker-backed isolated workspace execution for B4.run agents. | `application` | `supported` | `@b4run/sandbox`<br />`@b4run/sandbox/testing` | focused reference · `node-only` runtime · `not-claimed` purity<br />focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/b4-run/blob/main/packages/sandbox/README.md) | [Reference](/docs/api/sandbox) | [Guide](/docs/sandbox) |
+| `@b4run/sdk` | Author-facing declarations for agents, tools, middleware, and routes. | `application` | `supported` | `@b4run/sdk`<br />`@b4run/sdk/pure`<br />`@b4run/sdk/testing` | focused reference · `edge-safe` runtime · `not-claimed` purity<br />focused reference · `edge-safe` runtime · `dependency-free` purity<br />focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/b4-run/blob/main/packages/sdk/README.md) | [Reference](/docs/api/sdk) | [Guide](/docs/agents) |
+| `@b4run/sqlite-storage` | Local SQLite persistence for B4.run runtime state. | `application` | `supported` | `@b4run/sqlite-storage` | focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/b4-run/blob/main/packages/sqlite-storage/README.md) | [Reference](/docs/api/sqlite-storage) | [Guide](/docs/persistence) |
+| `@b4run/testing` | Harnesses, fixtures, matchers, and runtime test utilities. | `testing` | `supported` | `@b4run/testing` | focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/b4-run/blob/main/packages/testing/README.md) | [Reference](/docs/api/testing) | [Guide](/docs/testing-agents) |
+| <span id="b4runvite-plugin"></span>`@b4run/vite-plugin` | Internal Vite integration for B4.run type generation. | `tooling` | `internal` | `@b4run/vite-plugin` | internal only · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/b4-run/blob/main/packages/vite-plugin/README.md) | [Reference](/docs/api#b4runvite-plugin) | [Guide](/docs/routes) |
+| `@b4run/workspace` | Filesystem and shell tools for agent workspaces. | `application` | `supported` | `@b4run/workspace`<br />`@b4run/workspace/node` | focused reference · `edge-safe` runtime · `dependency-free` purity<br />focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/b4-run/blob/main/packages/workspace/README.md) | [Reference](/docs/api/workspace) | [Guide](/docs/workspace) |
+| <span id="create-b4-app"></span>`create-b4-app` | Scaffolder for new B4.run applications. | `tooling` | `supported` | `bin.create-b4-app` | catalog summary · `node-only` executable command · purity n/a | [README](https://github.com/cacheplane/b4-run/blob/main/packages/create-b4-app/README.md) | [Reference](/docs/api#create-b4-app) | [Guide](/docs/getting-started) |
 
-Generated surface: `dawn:routes` — focused reference · generated types; compile-time only, no runtime import · purity n/a.
+Generated surface: `b4:routes` — focused reference · generated types; compile-time only, no runtime import · purity n/a.
 
 ## Reference conventions
 
-**Audience** says who should import a surface: application code, integration code, tests, tooling, or Dawn internals. **Stability** distinguishes supported APIs from low-level or internal contracts. **Documentation** says whether this release provides a focused reference, a catalog summary, or an internal-only boundary. Each artifact boundary also states whether a surface is runtime code, static configuration, metadata, generated types, a command, or a separately operated application; runtime imports state their purity claim.
+**Audience** says who should import a surface: application code, integration code, tests, tooling, or B4.run internals. **Stability** distinguishes supported APIs from low-level or internal contracts. **Documentation** says whether this release provides a focused reference, a catalog summary, or an internal-only boundary. Each artifact boundary also states whether a surface is runtime code, static configuration, metadata, generated types, a command, or a separately operated application; runtime imports state their purity claim.
 
 The headings below preserve links from the former single-page reference. They point to the canonical package page and section; use the canonical destination for new links.
 
-## @dawn-ai/sdk
+## @b4run/sdk
 
-The application authoring surface now lives at [`@dawn-ai/sdk`](/docs/api/sdk#use-this-when).
+The application authoring surface now lives at [`@b4run/sdk`](/docs/api/sdk#use-this-when).
 
 ### Agent
 
@@ -64,15 +64,15 @@ See the canonical [agent configuration contract](/docs/api/sdk#agent-and-agentco
 
 See the canonical [agent configuration contract](/docs/api/sdk#agent-and-agentconfig).
 
-### `DawnAgent`
+### `B4Agent`
 
 See the canonical [agent descriptor contract](/docs/api/sdk#agent-and-agentconfig).
 
 ### Subagent delegation types
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
-### `isDawnAgent(value)`
+### `isB4Agent(value)`
 
 See the canonical [agent descriptor contract](/docs/api/sdk#agent-and-agentconfig).
 
@@ -82,7 +82,7 @@ See the canonical [middleware result contract](/docs/api/sdk#allow-and-reject).
 
 ### `defineMiddleware(fn)`
 
-See the canonical [middleware export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [middleware export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `allow(context?)`
 
@@ -92,13 +92,13 @@ See the canonical [`allow()` and `reject()` contract](/docs/api/sdk#allow-and-re
 
 See the canonical [`allow()` and `reject()` contract](/docs/api/sdk#allow-and-reject).
 
-### `DawnMiddleware`
+### `B4Middleware`
 
-See the canonical [middleware export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [middleware export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `MiddlewareRequest`
 
-See the canonical [middleware export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [middleware export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `MiddlewareResult`
 
@@ -114,19 +114,19 @@ See the canonical [middleware result contract](/docs/api/sdk#allow-and-reject).
 
 ### Memory
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1) and the [long-term memory guide](/docs/memory/long-term).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1) and the [long-term memory guide](/docs/memory/long-term).
 
 ### `defineMemory(def)`
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `DefinedMemory`
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `MemoryScopeDimension`
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### Route configuration
 
@@ -142,39 +142,39 @@ See the canonical [`RouteConfig` contract](/docs/api/sdk#routeconfig).
 
 ### Route types
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `RouteStateMap`
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `RouteToolMap`
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### Runtime
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `RuntimeContext<Tools>`
 
-See the canonical [`RuntimeContext` export](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [`RuntimeContext` export](/docs/api/sdk#b4runsdk-1).
 
 ### `RuntimeTool`
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `ToolRegistry`
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
-### `DawnToolContext`
+### `B4ToolContext`
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `WorkspaceFs`
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### Models
 
@@ -182,27 +182,27 @@ See the canonical [model validation contract](/docs/api/sdk#validatemodelid).
 
 ### `KnownModelId`
 
-See the canonical [SDK model export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK model export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `ModelProviderId`
 
-See the canonical [SDK model export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK model export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `OpenAiModelId`
 
-See the canonical [SDK model export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK model export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `GoogleModelId`
 
-See the canonical [SDK model export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK model export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `AnthropicModelId`
 
-See the canonical [SDK model export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK model export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `XaiModelId`
 
-See the canonical [SDK model export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK model export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `inferProvider(model)`
 
@@ -210,7 +210,7 @@ See the canonical [model validation contract](/docs/api/sdk#validatemodelid).
 
 ### `SUPPORTED_AGENT_PROVIDERS`
 
-See the canonical [SDK model export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK model export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `validateModelId(opts)`
 
@@ -222,27 +222,27 @@ See the canonical [`validateModelId()` contract](/docs/api/sdk#validatemodelid).
 
 ### Model id constants
 
-See the canonical [SDK model export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK model export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### Backend adapter
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `BackendAdapter`
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### Utilities
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
 ### `Prettify<T>`
 
-See the canonical [SDK public export inventory](/docs/api/sdk#dawn-aisdk-1).
+See the canonical [SDK public export inventory](/docs/api/sdk#b4runsdk-1).
 
-## @dawn-ai/cli
+## @b4run/cli
 
-The command and embedding surfaces now live at [`@dawn-ai/cli`](/docs/api/cli#use-this-when).
+The command and embedding surfaces now live at [`@b4run/cli`](/docs/api/cli#use-this-when).
 
 ### `serveRuntime(options)`
 
@@ -250,47 +250,47 @@ See the canonical [`serveRuntime()` contract](/docs/api/cli#serveruntime).
 
 ### `loadStaticModules(manifestUrl)`
 
-See the canonical [CLI public export inventory](/docs/api/cli#dawn-aicli-1).
+See the canonical [CLI public export inventory](/docs/api/cli#b4runcli-1).
 
-### `DawnStaticModules` and `StaticRouteModule`
+### `B4StaticModules` and `StaticRouteModule`
 
-See the canonical [CLI root export inventory](/docs/api/cli#dawn-aicli-1).
+See the canonical [CLI root export inventory](/docs/api/cli#b4runcli-1).
 
-### @dawn-ai/cli/fetch
+### @b4run/cli/fetch
 
-See the canonical [edge-safe fetch subpath](/docs/api/cli#dawn-aiclifetch).
+See the canonical [edge-safe fetch subpath](/docs/api/cli#b4runclifetch).
 
-### @dawn-ai/cli/runtime
+### @b4run/cli/runtime
 
-See the canonical [low-level runtime subpath](/docs/api/cli#dawn-aicliruntime).
+See the canonical [low-level runtime subpath](/docs/api/cli#b4runcliruntime).
 
-## @dawn-ai/core
+## @b4run/core
 
-The integration surface now lives at [`@dawn-ai/core`](/docs/api/core#use-this-when).
+The integration surface now lives at [`@b4run/core`](/docs/api/core#use-this-when).
 
 ### Capability exports
 
-See the canonical [Core public export inventory](/docs/api/core#dawn-aicore-1).
+See the canonical [Core public export inventory](/docs/api/core#b4runcore-1).
 
 ### `createCapabilityRegistry(markers)` and `applyCapabilities()`
 
-See the canonical [Core public export inventory](/docs/api/core#dawn-aicore-1).
+See the canonical [Core public export inventory](/docs/api/core#b4runcore-1).
 
 ### `gateToolOp()` and `wrapToolWithApproval()`
 
-See the canonical [Core public export inventory](/docs/api/core#dawn-aicore-1).
+See the canonical [Core public export inventory](/docs/api/core#b4runcore-1).
 
 ### `createWorkspaceFs(options)`
 
-See the canonical [Core public export inventory](/docs/api/core#dawn-aicore-1).
+See the canonical [Core public export inventory](/docs/api/core#b4runcore-1).
 
-### `loadDawnConfig(options)` and `config(value)`
+### `loadB4Config(options)` and `config(value)`
 
-See the canonical [`loadDawnConfig()` contract](/docs/api/core#loaddawnconfig).
+See the canonical [`loadB4Config()` contract](/docs/api/core#loadb4config).
 
-### `discoverRoutes(options)`, `findDawnApp(options)`, and route segments
+### `discoverRoutes(options)`, `findB4App(options)`, and route segments
 
-See the canonical [Core public export inventory](/docs/api/core#dawn-aicore-1).
+See the canonical [Core public export inventory](/docs/api/core#b4runcore-1).
 
 ### State and typegen helpers
 
@@ -298,19 +298,19 @@ See the canonical [`resolveStateFields()` contract](/docs/api/core#resolvestatef
 
 ### Tool scope
 
-See the canonical [Core public export inventory](/docs/api/core#dawn-aicore-1).
+See the canonical [Core public export inventory](/docs/api/core#b4runcore-1).
 
 ### Storage type re-export
 
-See the canonical [Core public export inventory](/docs/api/core#dawn-aicore-1).
+See the canonical [Core public export inventory](/docs/api/core#b4runcore-1).
 
-## @dawn-ai/ag-ui
+## @b4run/ag-ui
 
-The AG-UI adapter surface now lives at [`@dawn-ai/ag-ui`](/docs/api/ag-ui#use-this-when).
+The AG-UI adapter surface now lives at [`@b4run/ag-ui`](/docs/api/ag-ui#use-this-when).
 
 ### ID factories
 
-See the canonical [AG-UI public export inventory](/docs/api/ag-ui#dawn-aiag-ui-1).
+See the canonical [AG-UI public export inventory](/docs/api/ag-ui#b4runag-ui-1).
 
 ### `toAguiEvents(chunks, context)`
 
@@ -322,11 +322,11 @@ See the canonical [inbound and outbound contracts](/docs/api/ag-ui#inbound-and-o
 
 ### SSE subpath: `encodeAgUiSse(event, accept?)`
 
-See the canonical [SSE subpath inventory](/docs/api/ag-ui#dawn-aiag-uisse).
+See the canonical [SSE subpath inventory](/docs/api/ag-ui#b4runag-uisse).
 
-## @dawn-ai/memory
+## @b4run/memory
 
-The long-term memory package surface now lives at [`@dawn-ai/memory`](/docs/api/memory#use-this-when).
+The long-term memory package surface now lives at [`@b4run/memory`](/docs/api/memory#use-this-when).
 
 ### `MemoryStore`
 
@@ -342,15 +342,15 @@ See the canonical [store and query shapes](/docs/api/memory#store-and-query-shap
 
 ### `BrowseQuery`, `BrowsePage`, and `MemoryStats`
 
-See the canonical [browse subpath inventory](/docs/api/memory#dawn-aimemorybrowse).
+See the canonical [browse subpath inventory](/docs/api/memory#b4runmemorybrowse).
 
-### @dawn-ai/memory/browse
+### @b4run/memory/browse
 
-See the canonical [browse subpath inventory](/docs/api/memory#dawn-aimemorybrowse).
+See the canonical [browse subpath inventory](/docs/api/memory#b4runmemorybrowse).
 
-## @dawn-ai/memory-pgvector
+## @b4run/memory-pgvector
 
-The shared memory backend now lives at [`@dawn-ai/memory-pgvector`](/docs/api/memory-pgvector#use-this-when).
+The shared memory backend now lives at [`@b4run/memory-pgvector`](/docs/api/memory-pgvector#use-this-when).
 
 ### `pgvectorMemoryStore(options)`
 
@@ -372,41 +372,41 @@ See the canonical [initialization contract](/docs/api/memory-pgvector#initializa
 
 See the canonical [schema identifier contract](/docs/api/memory-pgvector#behavior-contract-memory-pgvectorschemaidentifier-validation).
 
-## @dawn-ai/postgres-storage
+## @b4run/postgres-storage
 
-The durable runtime storage surface now lives at [`@dawn-ai/postgres-storage`](/docs/api/postgres-storage#use-this-when).
+The durable runtime storage surface now lives at [`@b4run/postgres-storage`](/docs/api/postgres-storage#use-this-when).
 
 ### `PostgresStoreOptions`
 
 See the canonical [`PostgresStoreOptions` fields](/docs/api/postgres-storage#postgresstoreoptions).
 
-### `@dawn-ai/postgres-storage/node`
+### `@b4run/postgres-storage/node`
 
-See the canonical [Node subpath inventory](/docs/api/postgres-storage#dawn-aipostgres-storagenode).
+See the canonical [Node subpath inventory](/docs/api/postgres-storage#b4runpostgres-storagenode).
 
 ### `postgresCheckpointer(options)`
 
-See the canonical [Postgres root export inventory](/docs/api/postgres-storage#dawn-aipostgres-storage-1).
+See the canonical [Postgres root export inventory](/docs/api/postgres-storage#b4runpostgres-storage-1).
 
 ### `createPostgresThreadsStore(options)`
 
-See the canonical [Postgres root export inventory](/docs/api/postgres-storage#dawn-aipostgres-storage-1).
+See the canonical [Postgres root export inventory](/docs/api/postgres-storage#b4runpostgres-storage-1).
 
 ### `createPostgresPermissionsStore(options)`
 
-See the canonical [Postgres root export inventory](/docs/api/postgres-storage#dawn-aipostgres-storage-1).
+See the canonical [Postgres root export inventory](/docs/api/postgres-storage#b4runpostgres-storage-1).
 
 ### `assertIdentifier(name, value)`
 
-See the canonical [Postgres root export inventory](/docs/api/postgres-storage#dawn-aipostgres-storage-1).
+See the canonical [Postgres root export inventory](/docs/api/postgres-storage#b4runpostgres-storage-1).
 
 ### `DEFAULT_SCHEMA` / `DEFAULT_TABLE_PREFIX`
 
-See the canonical [Postgres root export inventory](/docs/api/postgres-storage#dawn-aipostgres-storage-1).
+See the canonical [Postgres root export inventory](/docs/api/postgres-storage#b4runpostgres-storage-1).
 
-## @dawn-ai/testing
+## @b4run/testing
 
-The programmatic test surface now lives at [`@dawn-ai/testing`](/docs/api/testing#use-this-when). For fixture workflows, see [Fixtures and Recording](/docs/testing-agents/fixtures).
+The programmatic test surface now lives at [`@b4run/testing`](/docs/api/testing#use-this-when). For fixture workflows, see [Fixtures and Recording](/docs/testing-agents/fixtures).
 
 ### Harnesses
 
@@ -418,11 +418,11 @@ See the canonical [harness and fixture lifecycle](/docs/api/testing#harness-and-
 
 ### Matchers
 
-See the canonical [testing public export inventory](/docs/api/testing#dawn-aitesting-1).
+See the canonical [testing public export inventory](/docs/api/testing#b4runtesting-1).
 
 ### Run-result utilities
 
-See the canonical [testing public export inventory](/docs/api/testing#dawn-aitesting-1).
+See the canonical [testing public export inventory](/docs/api/testing#b4runtesting-1).
 
 ### Memory, protocol, and subprocess helpers
 
@@ -432,9 +432,9 @@ See the canonical [harness and fixture lifecycle](/docs/api/testing#harness-and-
 
 See the canonical [testing examples](/docs/api/testing#examples-and-related-guides).
 
-## @dawn-ai/evals
+## @b4run/evals
 
-The evaluation surface now lives at [`@dawn-ai/evals`](/docs/api/evals#use-this-when).
+The evaluation surface now lives at [`@b4run/evals`](/docs/api/evals#use-this-when).
 
 ### Eval definition and execution
 
@@ -446,19 +446,19 @@ See the canonical [evaluation semantics](/docs/api/evals#evaluation-semantics).
 
 ### Built-in scorers
 
-See the canonical [eval public export inventory](/docs/api/evals#dawn-aievals-1).
+See the canonical [eval public export inventory](/docs/api/evals#b4runevals-1).
 
 ### Memory scorers
 
-See the canonical [eval public export inventory](/docs/api/evals#dawn-aievals-1).
+See the canonical [eval public export inventory](/docs/api/evals#b4runevals-1).
 
 ### Example
 
 See the canonical [eval examples](/docs/api/evals#examples-and-related-guides).
 
-## dawn:routes (generated)
+## b4:routes (generated)
 
-The generated application types now live at [`dawn:routes`](/docs/api/generated-routes#use-this-when).
+The generated application types now live at [`b4:routes`](/docs/api/generated-routes#use-this-when).
 
 ### `RouteTools<P>`
 
@@ -475,7 +475,7 @@ Start with [Agents](/docs/agents), [Routes](/docs/routes), and [Tools](/docs/too
 ## Related
 
 <RelatedCards items={[
-  { href: "/docs/getting-started", title: "Getting Started", subtitle: "build your first Dawn application" },
+  { href: "/docs/getting-started", title: "Getting Started", subtitle: "build your first B4.run application" },
   { href: "/docs/configuration", title: "Configuration Reference", subtitle: "configure application runtime behavior" },
   { href: "/docs/cli", title: "CLI Reference", subtitle: "develop, check, test, and build" },
 ]} />

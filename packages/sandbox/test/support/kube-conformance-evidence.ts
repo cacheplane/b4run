@@ -9,17 +9,17 @@ const exact = (expected: string): MarkerRule => ({
 })
 
 const restrictedMarkerRules = {
-  DAWN_PROC_CAP_EFF: {
+  B4_PROC_CAP_EFF: {
     validate: (value) => /^0+$/.test(value),
     expectedDescription: "an all-zero hexadecimal capability mask",
   },
-  DAWN_PROC_NO_NEW_PRIVS: exact("1"),
-  DAWN_PROC_SECCOMP: exact("2"),
-  DAWN_WRITE_ETC: exact("read-only"),
-  DAWN_WRITE_WORKSPACE: exact("writable"),
-  DAWN_WRITE_TMP: exact("writable"),
-  DAWN_WRITE_RUN: exact("writable"),
-  DAWN_SERVICEACCOUNT_TOKEN: exact("absent"),
+  B4_PROC_NO_NEW_PRIVS: exact("1"),
+  B4_PROC_SECCOMP: exact("2"),
+  B4_WRITE_ETC: exact("read-only"),
+  B4_WRITE_WORKSPACE: exact("writable"),
+  B4_WRITE_TMP: exact("writable"),
+  B4_WRITE_RUN: exact("writable"),
+  B4_SERVICEACCOUNT_TOKEN: exact("absent"),
 } as const satisfies Readonly<Record<string, MarkerRule>>
 
 function parseExactMarkers(
@@ -28,8 +28,8 @@ function parseExactMarkers(
 ): Readonly<Record<string, string>> {
   const observed = new Map<string, string>()
   for (const line of output.split(/\r?\n/)) {
-    if (!line.startsWith("DAWN_")) continue
-    const match = /^(DAWN_[A-Z0-9_]+)=(.*)$/.exec(line)
+    if (!line.startsWith("B4_")) continue
+    const match = /^(B4_[A-Z0-9_]+)=(.*)$/.exec(line)
     if (match === null || match[1] === undefined || match[2] === undefined) {
       throw new Error(`Invalid Kubernetes conformance evidence marker line: ${line}`)
     }
@@ -93,7 +93,7 @@ export function buildDnsProbeCommand(url: string): string {
   const source = [
     'const { promises: dns } = require("node:dns");',
     `dns.lookup(${JSON.stringify(hostname)})`,
-    '  .then(() => console.log("DAWN_DNS_RESULT=resolved"))',
+    '  .then(() => console.log("B4_DNS_RESULT=resolved"))',
     "  .catch((error) => { console.error(error); process.exitCode = 1 })",
   ].join("\n")
   return buildNodeEvalCommand(source)
@@ -102,8 +102,8 @@ export function buildDnsProbeCommand(url: string): string {
 export function buildEgressProbeCommand(url: string): string {
   const source = [
     `fetch(${JSON.stringify(url)}, { signal: AbortSignal.timeout(5000) })`,
-    '  .then(() => { console.log("DAWN_EGRESS_RESULT=reached"); process.exit(0) })',
-    '  .catch(() => { console.log("DAWN_EGRESS_RESULT=blocked"); process.exit(7) })',
+    '  .then(() => { console.log("B4_EGRESS_RESULT=reached"); process.exit(0) })',
+    '  .catch(() => { console.log("B4_EGRESS_RESULT=blocked"); process.exit(7) })',
   ].join("\n")
   return buildNodeEvalCommand(source)
 }
@@ -118,22 +118,22 @@ export function buildRestrictedSecurityProbeCommand(): string {
     '    Seccomp:) seccomp="$value" ;;',
     "  esac",
     "done < /proc/self/status",
-    'printf "DAWN_PROC_CAP_EFF=%s\\n" "$cap_eff"',
-    'printf "DAWN_PROC_NO_NEW_PRIVS=%s\\n" "$no_new_privs"',
-    'printf "DAWN_PROC_SECCOMP=%s\\n" "$seccomp"',
+    'printf "B4_PROC_CAP_EFF=%s\\n" "$cap_eff"',
+    'printf "B4_PROC_NO_NEW_PRIVS=%s\\n" "$no_new_privs"',
+    'printf "B4_PROC_SECCOMP=%s\\n" "$seccomp"',
     "for target in ETC WORKSPACE TMP RUN; do",
     '  case "$target" in',
-    '    ETC) path="/etc/dawn-compat-write" ;;',
-    '    WORKSPACE) path="/workspace/dawn-compat-write" ;;',
-    '    TMP) path="/tmp/dawn-compat-write" ;;',
-    '    RUN) path="/run/dawn-compat-write" ;;',
+    '    ETC) path="/etc/b4-compat-write" ;;',
+    '    WORKSPACE) path="/workspace/b4-compat-write" ;;',
+    '    TMP) path="/tmp/b4-compat-write" ;;',
+    '    RUN) path="/run/b4-compat-write" ;;',
     "  esac",
     '  if touch "$path" >/dev/null 2>&1; then result=writable; else result=read-only; fi',
-    '  printf "DAWN_WRITE_%s=%s\\n" "$target" "$result"',
+    '  printf "B4_WRITE_%s=%s\\n" "$target" "$result"',
     "done",
     'token_path="/var/run/secrets/kubernetes.io/serviceaccount/token"',
     'if [ -e "$token_path" ]; then token=present; else token=absent; fi',
-    'printf "DAWN_SERVICEACCOUNT_TOKEN=%s\\n" "$token"',
+    'printf "B4_SERVICEACCOUNT_TOKEN=%s\\n" "$token"',
   ].join("\n")
 }
 
@@ -142,19 +142,19 @@ export function assertRestrictedSecurityEvidence(output: string): void {
 }
 
 export function assertDnsEvidence(output: string): void {
-  parseExactMarkers(output, { DAWN_DNS_RESULT: exact("resolved") })
+  parseExactMarkers(output, { B4_DNS_RESULT: exact("resolved") })
 }
 
 export function assertEgressEvidence(output: string, expected: "blocked" | "reached"): void {
   const parsed = parseExactMarkers(output, {
-    DAWN_EGRESS_RESULT: {
+    B4_EGRESS_RESULT: {
       validate: (value) => value === "blocked" || value === "reached",
       expectedDescription: "blocked or reached",
     },
   })
-  if (parsed.DAWN_EGRESS_RESULT !== expected) {
+  if (parsed.B4_EGRESS_RESULT !== expected) {
     throw new Error(
-      `Kubernetes egress evidence expected ${expected}, received ${parsed.DAWN_EGRESS_RESULT}`,
+      `Kubernetes egress evidence expected ${expected}, received ${parsed.B4_EGRESS_RESULT}`,
     )
   }
 }

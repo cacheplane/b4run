@@ -18,7 +18,7 @@ export async function startVerdaccio({ signal, lifecycle = {} } = {}) {
     ["afterListen", "rollbackCloseServer"],
     "Disposable registry",
   )
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-verdaccio-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-verdaccio-"))
   const storage = join(directory, "storage")
   await mkdir(storage)
   const config = {

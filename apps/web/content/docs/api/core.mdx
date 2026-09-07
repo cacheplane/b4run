@@ -1,37 +1,37 @@
-# @dawn-ai/core
+# @b4run/core
 
 ## Use this when
 
-Route authors normally use [`@dawn-ai/sdk`](/docs/api/sdk), not Core. Use `@dawn-ai/core` when you build a Dawn integration around configuration, capabilities, static type generation, or route metadata. Use `/node` for filesystem discovery and compiler-backed extraction. Do not build application code on `/internal/compiler`.
+Route authors normally use [`@b4run/sdk`](/docs/api/sdk), not Core. Use `@b4run/core` when you build a B4.run integration around configuration, capabilities, static type generation, or route metadata. Use `/node` for filesystem discovery and compiler-backed extraction. Do not build application code on `/internal/compiler`.
 
 ## Install and import
 
 ```bash
-pnpm add @dawn-ai/core
+pnpm add @b4run/core
 ```
 
 ```ts
-import { config, renderDawnTypes } from "@dawn-ai/core"
-import { discoverRoutes } from "@dawn-ai/core/node"
+import { config, renderB4Types } from "@b4run/core"
+import { discoverRoutes } from "@b4run/core/node"
 ```
 
 ## Compatibility and audience
 
 | Surface | Runtime | Purity | Audience | Stability |
 |---|---|---|---|---|
-| `@dawn-ai/core` | edge-safe | not-claimed | integration | low-level |
-| `@dawn-ai/core/node` | node-only | not-claimed | integration | low-level |
-| `@dawn-ai/core/internal/compiler` | node-only | not-claimed | internal | internal |
+| `@b4run/core` | edge-safe | not-claimed | integration | low-level |
+| `@b4run/core/node` | node-only | not-claimed | integration | low-level |
+| `@b4run/core/internal/compiler` | node-only | not-claimed | internal | internal |
 
-Importing `/node` registers the disk-backed `dawn.config.ts` loader. The root remains free of that filesystem-loader edge so a static runtime can seed configuration instead.
+Importing `/node` registers the disk-backed `b4.config.ts` loader. The root remains free of that filesystem-loader edge so a static runtime can seed configuration instead.
 
 ## Public exports
 
-### `@dawn-ai/core`
+### `@b4run/core`
 
 | Export | Responsibility |
 |---|---|
-| `ThreadsStore` | Re-export the `@dawn-ai/sqlite-storage` thread-store contract; its deep reference is deferred. |
+| `ThreadsStore` | Re-export the `@b4run/sqlite-storage` thread-store contract; its deep reference is deferred. |
 | `createAgentsMdMarker` | Create the AGENTS.md capability marker. |
 | `createMemoryMarker` | Create the typed-memory capability marker. |
 | `createMemoryMdMarker` | Create the memory.md capability marker. |
@@ -62,7 +62,7 @@ Importing `/node` registers the disk-backed `dawn.config.ts` loader. The root re
 | `CapabilityContribution` | Describe capability-provided runtime features. |
 | `CapabilityMarker` | Define capability detection and loading. |
 | `CapabilityMarkerContext` | Provide capability marker context. |
-| `DawnToolDefinition` | Describe a contributed Dawn tool. |
+| `B4ToolDefinition` | Describe a contributed B4.run tool. |
 | `Embedder` | Define the memory embedding seam. |
 | `MarkerFs` | Define capability filesystem operations. |
 | `MemoryContext` | Provide memory tool context. |
@@ -78,12 +78,12 @@ Importing `/node` registers the disk-backed `dawn.config.ts` loader. The root re
 | `StreamTransformerOutput` | Describe a stream-transform output. |
 | `CreateWorkspaceFsOptions` | Configure workspace filesystem creation. |
 | `createWorkspaceFs` | Create a workspace filesystem facade. |
-| `DawnConfigLoader` | Define the configuration loader seam. |
-| `__clearDawnConfigCacheForTests` | Clear the config memo in tests. |
-| `loadDawnConfig` | Load or read a memoized app configuration. |
+| `B4ConfigLoader` | Define the configuration loader seam. |
+| `__clearB4ConfigCacheForTests` | Clear the config memo in tests. |
+| `loadB4Config` | Load or read a memoized app configuration. |
 | `registerConfigLoader` | Register a runtime-specific config loader. |
-| `seedDawnConfig` | Seed configuration for a static runtime. |
-| `config` | Preserve types for a Dawn config object. |
+| `seedB4Config` | Seed configuration for a static runtime. |
+| `config` | Preserve types for a B4.run config object. |
 | `isPrivateSegment` | Test whether a route segment is private. |
 | `isRouteGroupSegment` | Test whether a route segment is a group. |
 | `toRouteSegments` | Parse filesystem route segments. |
@@ -106,7 +106,7 @@ Importing `/node` registers the disk-backed `dawn.config.ts` loader. The root re
 | `ToolOrigin` | Identify where a tool came from. |
 | `resolveToolScope` | Apply route tool policy. |
 | `toolOrigin` | Read a tool's origin. |
-| `renderDawnTypes` | Render the complete generated route module. |
+| `renderB4Types` | Render the complete generated route module. |
 | `renderRouteTypes` | Render route path and parameter types. |
 | `renderScenarioTypes` | Render scenario map augmentation. |
 | `SCENARIO_TYPES_FILE` | Name the generated scenario declaration file. |
@@ -114,64 +114,64 @@ Importing `/node` registers the disk-backed `dawn.config.ts` loader. The root re
 | `renderStateTypes` | Render route state types. |
 | `renderToolTypes` | Render route tool types. |
 | `CorsConfig` | Configure cross-origin access to the runtime. |
-| `DawnConfig` | Configure a Dawn application. |
-| `DiscoveredDawnApp` | Describe a located Dawn application. |
+| `B4Config` | Configure a B4.run application. |
+| `DiscoveredB4App` | Describe a located B4.run application. |
 | `DiscoverRoutesOptions` | Configure route discovery. |
 | `ExtractedToolSchema` | Describe one extracted JSON tool schema. |
 | `ExtractedToolType` | Describe one extracted tool type. |
-| `FindDawnAppOptions` | Configure application-root discovery. |
+| `FindB4AppOptions` | Configure application-root discovery. |
 | `JsonSchemaProperty` | Describe a JSON Schema property. |
-| `LoadDawnConfigOptions` | Select the application whose config is loaded. |
-| `LoadedDawnConfig` | Return config, root, and config path. |
+| `LoadB4ConfigOptions` | Select the application whose config is loaded. |
+| `LoadedB4Config` | Return config, root, and config path. |
 | `NormalizedRouteModule` | Describe a normalized route module. |
 | `ResolvedStateField` | Describe a normalized state field. |
 | `RouteDefinition` | Describe one discovered route. |
-| `RouteKind` | Re-export the [`@dawn-ai/sdk` route-kind type](/docs/api/sdk#dawn-aisdk). |
+| `RouteKind` | Re-export the [`@b4run/sdk` route-kind type](/docs/api/sdk#b4runsdk). |
 | `RouteManifest` | Describe all routes in an application. |
 | `RouteSegment` | Describe a static or dynamic route segment. |
 | `RouteToolSchemas` | Group extracted schemas by route. |
 | `RouteToolTypes` | Group extracted tool types by route. |
 | `StateFieldReducer` | Name a built-in state reducer. |
 
-### `@dawn-ai/core/node`
+### `@b4run/core/node`
 
 | Export | Responsibility |
 |---|---|
-| `loadDawnConfigUncached` | Load `dawn.config.ts` directly from disk. |
+| `loadB4ConfigUncached` | Load `b4.config.ts` directly from disk. |
 | `registerNodeConfigLoader` | Register the disk-backed config loader. |
 | `registerTsxLoader` | Register TypeScript module loading. |
 | `discoverRoutes` | Discover filesystem routes. |
-| `assertDawnRoutesDir` | Validate the routes directory. |
-| `findDawnApp` | Locate a Dawn application root. |
+| `assertB4RoutesDir` | Validate the routes directory. |
+| `findB4App` | Locate a B4.run application root. |
 | `nodeMarkerFs` | Provide Node filesystem operations to capability markers. |
 | `ExtractToolSchemasOptions` | Configure compiler-backed schema extraction. |
 | `extractToolSchemasForRoute` | Extract tool schemas for a route. |
 | `ExtractToolTypesOptions` | Configure compiler-backed type extraction. |
 | `extractToolTypesForRoute` | Extract tool types for a route. |
 
-### `@dawn-ai/core/internal/compiler`
+### `@b4run/core/internal/compiler`
 
 This discoverable subpath is internal. It has no application compatibility promise; the CLI owns its use during type generation.
 
 ## Key contracts
 
-### `loadDawnConfig()`
+### `loadB4Config()`
 
 Use this low-level seam when an integration owns configuration loading. Most Node callers import `/node` to register disk loading; static runtimes seed config instead.
 
-```ts api-contract="@dawn-ai/core#.:loadDawnConfig"
-export declare function loadDawnConfig(options: LoadDawnConfigOptions): Promise<LoadedDawnConfig>
+```ts api-contract="@b4run/core#.:loadB4Config"
+export declare function loadB4Config(options: LoadB4ConfigOptions): Promise<LoadedB4Config>
 ```
 
 #### Behavior contract `core.load-config.failed-load-eviction`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/core/test/config-loader-seam.test.ts","testNames":["dispatches through the registered loader and memoizes its result","a seed survives an in-flight registered load rejecting after the seed lands"]}] */}
-loadDawnConfig memoizes per app root. A failed in-flight load is evicted only while that same promise remains cached, so a seed written during the load survives its later rejection.
+loadB4Config memoizes per app root. A failed in-flight load is evicted only while that same promise remains cached, so a seed written during the load survives its later rejection.
 
 ### `resolveStateFields()`
 
 This low-level helper turns state defaults and optional reducer overrides into the normalized fields consumed by type generation and runtime state assembly.
 
-```ts api-contract="@dawn-ai/core#.:resolveStateFields"
+```ts api-contract="@b4run/core#.:resolveStateFields"
 export declare function resolveStateFields(
   options: ResolveStateFieldsOptions,
 ): readonly ResolvedStateField[]
@@ -183,12 +183,12 @@ resolveStateFields infers append for array defaults and replace for scalar defau
 
 ### Configuration ownership
 
-Use [Configuration Reference](/docs/configuration) for the full `DawnConfig` schema. The root loader is a runtime seam: Node callers import `/node` to register disk loading, while edge callers seed an already-constructed config.
+Use [Configuration Reference](/docs/configuration) for the full `B4Config` schema. The root loader is a runtime seam: Node callers import `/node` to register disk loading, while edge callers seed an already-constructed config.
 
 ## Examples and related guides
 
 ```ts
-import { config } from "@dawn-ai/core"
+import { config } from "@b4run/core"
 
 export default config({
   appDir: "src/app",
@@ -196,4 +196,4 @@ export default config({
 })
 ```
 
-Continue with [Configuration Reference](/docs/configuration), [Routes](/docs/routes), [State](/docs/state), and [`dawn:routes`](/docs/api/generated-routes).
+Continue with [Configuration Reference](/docs/configuration), [Routes](/docs/routes), [State](/docs/state), and [`b4:routes`](/docs/api/generated-routes).

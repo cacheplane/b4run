@@ -13,7 +13,7 @@ const SHA256_C = "c".repeat(64)
 
 export function attestationSet() {
   return {
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${VERSION}`,
     commitSha: COMMIT_SHA,
@@ -211,7 +211,7 @@ export function sealedAttestationSet() {
   const bundle = Buffer.from("sealed-attestation-bundle\n", "utf8")
   const bundleSha256 = createHash("sha256").update(bundle).digest("hex")
   return {
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4-run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${VERSION}`,
     commitSha: COMMIT_SHA,

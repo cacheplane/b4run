@@ -1,11 +1,11 @@
 import type { Interrupt } from "@ag-ui/core"
 
 /**
- * The interrupt envelope Dawn's capabilities emit inside an `interrupt` chunk
+ * The interrupt envelope B4.run's capabilities emit inside an `interrupt` chunk
  * (`entry.value` from LangGraph). Always carries `interruptId`; other keys are
  * capability-specific and preserved verbatim.
  */
-export interface DawnInterruptEnvelope {
+export interface B4InterruptEnvelope {
   readonly interruptId: string
   readonly type?: string
   readonly kind?: string
@@ -16,8 +16,8 @@ export interface DawnInterruptEnvelope {
   readonly [key: string]: unknown
 }
 
-/** A resume instruction addressed to one open Dawn interrupt. */
-export interface DawnResumeRequest {
+/** A resume instruction addressed to one open B4.run interrupt. */
+export interface B4ResumeRequest {
   readonly interruptId: string
   readonly status: "resolved" | "cancelled"
   readonly payload?: unknown
@@ -32,7 +32,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Map a Dawn interrupt envelope to an AG-UI `Interrupt`. The full envelope is
+ * Map a B4.run interrupt envelope to an AG-UI `Interrupt`. The full envelope is
  * preserved under `metadata` so no capability-specific information is lost on
  * the way to the client.
  */
@@ -44,7 +44,7 @@ export function toAguiInterrupt(data: unknown): Interrupt | null {
   }
   const env = data
   const reason = typeof env.kind === "string" ? env.kind : "interrupt"
-  // Dawn's envelopes name the model tool-call id of the `task`/tool call an
+  // B4.run's envelopes name the model tool-call id of the `task`/tool call an
   // interrupt belongs to `callId` (see permission-gate.ts and
   // agent-adapter.ts's projectInterruptValue); AG-UI's `Interrupt` names the
   // same concept `toolCallId`. Prefer an explicit `toolCallId` if an envelope
@@ -66,8 +66,8 @@ export function toAguiInterrupt(data: unknown): Interrupt | null {
 }
 
 /**
- * Map AG-UI resume entries to Dawn resume requests. Vocabulary-agnostic: the
- * consumer decides how a `{ status, payload }` becomes Dawn's per-interrupt
+ * Map AG-UI resume entries to B4.run resume requests. Vocabulary-agnostic: the
+ * consumer decides how a `{ status, payload }` becomes B4.run's per-interrupt
  * decision. We only guarantee `interruptId` survives.
  */
 export function fromAguiResume(
@@ -76,7 +76,7 @@ export function fromAguiResume(
     status: "resolved" | "cancelled"
     payload?: unknown
   }>,
-): DawnResumeRequest[] {
+): B4ResumeRequest[] {
   return resume.map((entry) => ({
     interruptId: entry.interruptId,
     status: entry.status,

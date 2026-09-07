@@ -1,8 +1,8 @@
-const REPO = "cacheplane/dawnai"
+const REPO = "cacheplane/b4-run"
 const FALLBACK = 100
 
 /**
- * Fetches the GitHub star count for the Dawn repo.
+ * Fetches the GitHub star count for the B4.run repo.
  * Uses Next.js fetch revalidation (1 hour) so the value is cached during
  * production builds and refreshed during ISR. Returns a fallback on error.
  */

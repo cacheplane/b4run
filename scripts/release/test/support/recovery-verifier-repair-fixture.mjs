@@ -14,7 +14,7 @@ export async function verifierRepairFixture(options = {}) {
   const current = options.current ?? "a".repeat(40),
     baseline = options.baseline ?? "b".repeat(40)
   const candidate = options.candidate ?? {
-    repository: "example/dawn",
+    repository: "example/b4",
     repositoryId: "1",
     version: "0.8.24",
     candidateSha: "c".repeat(40),

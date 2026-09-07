@@ -118,14 +118,14 @@ function toNetworkPolicyManifest(s: KubeNetworkPolicySpec): V1NetworkPolicy {
   return {
     metadata: { name: s.name, labels: { ...s.labels } },
     spec: {
-      podSelector: { matchLabels: { "dawn.sh/thread": s.threadLabelValue } },
+      podSelector: { matchLabels: { "b4.sh/thread": s.threadLabelValue } },
       policyTypes: ["Egress"],
       egress: [dnsEgress, ...cidrEgress],
     },
   }
 }
 
-/** @internal Validates that a live policy is the Dawn-owned object we intend to
+/** @internal Validates that a live policy is the B4.run-owned object we intend to
  * replace, then carries only its optimistic-concurrency token into the desired body. */
 export function prepareNetworkPolicyReplacement(
   existing: V1NetworkPolicy,
@@ -136,10 +136,10 @@ export function prepareNetworkPolicyReplacement(
   if (!desiredName || existing.metadata?.name !== desiredName) {
     throw new Error("Cannot replace NetworkPolicy: existing name does not match desired name.")
   }
-  if (existing.metadata.labels?.["app.kubernetes.io/managed-by"] !== "dawn") {
-    throw new Error("Cannot replace NetworkPolicy: existing object is not Dawn-owned.")
+  if (existing.metadata.labels?.["app.kubernetes.io/managed-by"] !== "b4") {
+    throw new Error("Cannot replace NetworkPolicy: existing object is not B4.run-owned.")
   }
-  if (existing.metadata.labels?.["dawn.sh/thread"] !== threadLabelValue) {
+  if (existing.metadata.labels?.["b4.sh/thread"] !== threadLabelValue) {
     throw new Error("Cannot replace NetworkPolicy: existing thread label does not match.")
   }
   const resourceVersion = existing.metadata.resourceVersion

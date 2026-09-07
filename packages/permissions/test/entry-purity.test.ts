@@ -42,7 +42,7 @@ function nodeImportEdges(metafile: Metafile): string[] {
   return [...edges].sort()
 }
 
-describe("@dawn-ai/permissions entry purity", () => {
+describe("@b4run/permissions entry purity", () => {
   it("reaches no node: import from the '.' barrel", async () => {
     expect(nodeImportEdges(await bundle("index.ts"))).toEqual([])
   }, 60_000)

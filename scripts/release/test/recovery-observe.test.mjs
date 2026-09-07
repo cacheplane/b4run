@@ -22,7 +22,7 @@ test("v2 metadata round trips canonical bounded wire without a legacy interpreta
   assert.throws(() =>
     metadata.renderRecoveryReleaseBody({
       marker,
-      body: "<!-- DAWN_RELEASE_CONTROLLER_MARKER\n",
+      body: "<!-- B4_RELEASE_CONTROLLER_MARKER\n",
     }),
   )
 })
@@ -75,7 +75,7 @@ test("adopted draft uses separate recovery facts without a fake v1 smoke or publ
   assert.equal(result.observation, undefined)
 })
 
-for (const body of ["corrupt <!-- DAWN_RELEASE_CONTROLLER_MARKER\n{", "", "Human edited notes"]) {
+for (const body of ["corrupt <!-- B4_RELEASE_CONTROLLER_MARKER\n{", "", "Human edited notes"]) {
   test(`published immutable finalization remains terminal despite display body ${JSON.stringify(body)}`, async () => {
     const remote = await recoveryRemote({ published: true })
     remote.release.body = body
@@ -417,7 +417,7 @@ for (const [name, options] of [
     {
       mutateLane(lane) {
         if (lane.lane === "metadata")
-          lane.checks = lane.checks.filter((c) => c.name !== "package-dawn-ai-sdk")
+          lane.checks = lane.checks.filter((c) => c.name !== "package-b4run-sdk")
       },
     },
   ],
@@ -478,7 +478,7 @@ for (const [name, options] of [
       mutateInstallation(value) {
         value.resolutions.push({
           ...value.resolutions[0],
-          installPath: "node_modules/z/node_modules/@dawn-ai/sdk",
+          installPath: "node_modules/z/node_modules/@b4run/sdk",
           subject: false,
           requested: "^0.7.0",
           resolved: "0.7.0",

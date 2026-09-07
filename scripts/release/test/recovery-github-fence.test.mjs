@@ -3,9 +3,9 @@ import test from "node:test"
 import { authorizeFenceProbe, classifyFenceProbe } from "./support/recovery-github-fence.mjs"
 
 const env = {
-  DAWN_TEST_RECOVERY_GITHUB: "1",
-  DAWN_RECOVERY_TEST_REPOSITORY: "example/release-lab",
-  DAWN_RECOVERY_AUTHORIZED_REPOSITORY: "example/release-lab",
+  B4_TEST_RECOVERY_GITHUB: "1",
+  B4_RECOVERY_TEST_REPOSITORY: "example/release-lab",
+  B4_RECOVERY_AUTHORIZED_REPOSITORY: "example/release-lab",
 }
 
 test("fence experiment requires an enabled, explicitly authorized disposable repository", () => {
@@ -13,13 +13,20 @@ test("fence experiment requires an enabled, explicitly authorized disposable rep
   for (const key of Object.keys(env)) {
     assert.throws(() => authorizeFenceProbe({ ...env, [key]: "" }), /required|authorized/)
   }
-  for (const repository of ["cacheplane/dawnai", "CachePlane/DawnAI", "../dawnai", "a/b/c"]) {
+  for (const repository of [
+    "cacheplane/b4-run",
+    "CachePlane/B4-Run",
+    "cacheplane/dawnai",
+    "CachePlane/DawnAI",
+    "../b4-run",
+    "a/b/c",
+  ]) {
     assert.throws(
       () =>
         authorizeFenceProbe({
           ...env,
-          DAWN_RECOVERY_TEST_REPOSITORY: repository,
-          DAWN_RECOVERY_AUTHORIZED_REPOSITORY: repository,
+          B4_RECOVERY_TEST_REPOSITORY: repository,
+          B4_RECOVERY_AUTHORIZED_REPOSITORY: repository,
         }),
       /production|repository/,
     )
@@ -28,7 +35,7 @@ test("fence experiment requires an enabled, explicitly authorized disposable rep
     () =>
       authorizeFenceProbe({
         ...env,
-        DAWN_RECOVERY_AUTHORIZED_REPOSITORY: "example/another",
+        B4_RECOVERY_AUTHORIZED_REPOSITORY: "example/another",
       }),
     /authorized/,
   )

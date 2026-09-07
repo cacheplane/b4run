@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { ThreadAccessPolicy } from "@dawn-ai/sdk"
+import type { ThreadAccessPolicy } from "@b4run/sdk"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import { MemorySaver } from "@langchain/langgraph"
 import {
@@ -12,7 +12,7 @@ import {
 } from "@langchain/langgraph-checkpoint"
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
-import { type DawnPostgresSaver, postgresCheckpointer } from "../../postgres-storage/dist/node.js"
+import { type B4PostgresSaver, postgresCheckpointer } from "../../postgres-storage/dist/node.js"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { script } from "../../testing/dist/fixture-builder.js"
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
@@ -58,7 +58,7 @@ const BLOCKING_ROUTE = [
 /** Agent route whose `deployProd` tool requires human approval, so the first
  * call to it parks the turn on a real checkpointer-backed HITL interrupt. */
 const PARK_ROUTE = [
-  'import { agent } from "@dawn-ai/sdk"',
+  'import { agent } from "@b4run/sdk"',
   "export default agent({",
   '  model: "gpt-5-mini",',
   '  systemPrompt: "You are a test agent. Use the provided tools when asked.",',
@@ -71,7 +71,7 @@ const PARK_ROUTE = [
  * graph executes — no checkpoint written, nothing consumed. Agent-kind, so it
  * gets past the `canPark` short-circuit that a plain graph stops at. */
 const BROKEN_AGENT_ROUTE = [
-  'import { agent } from "@dawn-ai/sdk"',
+  'import { agent } from "@b4run/sdk"',
   "export default agent({",
   '  model: "definitely-not-a-real-model-id",',
   '  systemPrompt: "You are a test agent.",',
@@ -111,10 +111,10 @@ const DEPLOY_TOOL = [
 ].join("\n")
 
 async function fixtureApp(overrides: Record<string, string> = {}): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-pending-interrupts-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-pending-interrupts-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "pending-interrupts-fixture", "type": "module" }\n',
     "src/app/blocking/index.ts": BLOCKING_ROUTE,
     "src/app/echo/index.ts": ECHO_ROUTE,
@@ -451,7 +451,7 @@ describe("GET /threads/:thread_id/pending_interrupts", () => {
 /** Rejects unless `x-allow` is present, echoing what it observed so a test can
  * pin the middleware inputs a body-less GET produces. */
 const ECHO_MIDDLEWARE = [
-  'import { allow, defineMiddleware, reject } from "@dawn-ai/sdk"',
+  'import { allow, defineMiddleware, reject } from "@b4run/sdk"',
   "export default defineMiddleware((req) =>",
   '  req.headers["x-allow"] ? allow() : reject(403, { method: req.method, routeId: req.routeId }),',
   ")",
@@ -465,7 +465,7 @@ const ECHO_MIDDLEWARE = [
  * ECHO_MIDDLEWARE above cannot express that, which is why one route per thread
  * was enough for every other gating test here. */
 const ADMIN_PARK_MIDDLEWARE = [
-  'import { allow, defineMiddleware, reject } from "@dawn-ai/sdk"',
+  'import { allow, defineMiddleware, reject } from "@b4run/sdk"',
   "export default defineMiddleware((req) =>",
   '  req.routeId !== "/park" || req.headers["x-admin"]',
   "    ? allow()",
@@ -523,7 +523,7 @@ describe("GET /threads/:thread_id/pending_interrupts — gating", () => {
 
     const rejected = await handler.fetch(pendingInterruptsRequest(threadId))
     expect(rejected.status).toBe(403)
-    // Dawn's first AP endpoint where middleware sees a method other than POST.
+    // B4.run's first AP endpoint where middleware sees a method other than POST.
     expect(await rejected.json()).toEqual({ method: "GET", routeId: "/echo" })
 
     const allowed = await handler.fetch(pendingInterruptsRequest(threadId, { "x-allow": "1" }))
@@ -1178,7 +1178,7 @@ function allowEverythingPolicy(): ThreadAccessPolicy {
  * composition assertion below unambiguous rather than a coincidence of codes.
  */
 const UNAUTHENTICATED_MIDDLEWARE = [
-  'import { allow, defineMiddleware, reject } from "@dawn-ai/sdk"',
+  'import { allow, defineMiddleware, reject } from "@b4run/sdk"',
   "export default defineMiddleware((req) =>",
   '  req.headers["x-allow"] ? allow() : reject(401, { code: "unauthenticated" }),',
   ")",
@@ -1404,13 +1404,13 @@ describe("terminalStatus", () => {
 // and both 409 arms return before the checkpointer is touched, and the threads
 // store that serves them has its own real-Postgres suite. Everything above runs
 // on sqlite; this runs the same park → list → resume → empty arc against real
-// Postgres. Gated on DAWN_TEST_PGSTORAGE=1 (needs Docker), matching
+// Postgres. Gated on B4_TEST_PGSTORAGE=1 (needs Docker), matching
 // packages/postgres-storage/test/*.
 // ---------------------------------------------------------------------------
 
 /** The one place the gate's env var is spelled, so the self-check below and the
  * suite it watches can never drift onto different names. */
-const PGSTORAGE_LANE_REQUESTED = process.env.DAWN_TEST_PGSTORAGE === "1"
+const PGSTORAGE_LANE_REQUESTED = process.env.B4_TEST_PGSTORAGE === "1"
 
 /** Flipped by the gated test itself. Vitest has no flag that fails a run for
  * SKIPPING tests — `--passWithNoTests` (already false by default in vitest 4)
@@ -1431,7 +1431,7 @@ describe.skipIf(!PGSTORAGE_LANE_REQUESTED)(
     // (packages/postgres-storage/test/assume-migrated.test.ts), because here the
     // ORDERING is what matters: afterEach's handler.close() drains runs that may
     // still be writing checkpoints, so the pool has to outlive the test body.
-    const savers: DawnPostgresSaver[] = []
+    const savers: B4PostgresSaver[] = []
 
     beforeAll(async () => {
       // A loaded CI runner can take minutes to pull postgres:16 and accept the
@@ -1513,7 +1513,7 @@ describe.skipIf(!PGSTORAGE_LANE_REQUESTED)(
 // ---------------------------------------------------------------------------
 
 describe("gated Postgres lane", () => {
-  it("runs its assertions whenever DAWN_TEST_PGSTORAGE asks for them", () => {
+  it("runs its assertions whenever B4_TEST_PGSTORAGE asks for them", () => {
     // Also pins the gate's polarity from the ordinary no-Docker lane: a suite
     // that ran without being asked would be starting containers everywhere.
     expect(postgresLaneRan).toBe(PGSTORAGE_LANE_REQUESTED)

@@ -2006,7 +2006,7 @@ test("production observation accepts npm presence only through exact tarball and
                 predicateType: "https://slsa.dev/provenance/v1",
                 workflow: ".github/workflows/release.yml",
                 commitSha: COMMIT_SHA,
-                repository: "https://github.com/cacheplane/dawnai",
+                repository: "https://github.com/cacheplane/b4-run",
                 ref: `refs/tags/v${VERSION}`,
               },
             }
@@ -2452,8 +2452,8 @@ for (const mainExecutor of [false, true]) {
     assert.deepEqual(recovery.auditDispatch, {
       workflow: ".github/workflows/published-artifact-verify.yml",
       workflowRunId: audited.auditResult.workflowRunId,
-      runUrl: `https://api.github.com/repos/cacheplane/dawnai/actions/runs/${audited.auditResult.workflowRunId}`,
-      htmlUrl: `https://github.com/cacheplane/dawnai/actions/runs/${audited.auditResult.workflowRunId}`,
+      runUrl: `https://api.github.com/repos/cacheplane/b4-run/actions/runs/${audited.auditResult.workflowRunId}`,
+      htmlUrl: `https://github.com/cacheplane/b4-run/actions/runs/${audited.auditResult.workflowRunId}`,
     })
   })
 }
@@ -2462,7 +2462,7 @@ test("production observation rejects a noncanonical Release body or title outsid
   const audited = auditedReleaseFixture()
   for (const release of [
     { ...audited.release, body: `${audited.release.body}tampered\n` },
-    { ...audited.release, name: `Dawn release ${VERSION}` },
+    { ...audited.release, name: `B4 release ${VERSION}` },
     { ...audited.release, prerelease: true },
   ]) {
     const github = githubReader({
@@ -2994,7 +2994,7 @@ test("production observation requires complete verified escrow for attested aban
 })
 
 test("observe CLI resolves the immutable candidate, runs the dry one-transition controller, and writes canonical outputs", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-cli-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-cli-"))
   try {
     const eventPath = path.join(directory, "event.json")
     const reportPath = path.join(directory, "report.json")
@@ -3072,7 +3072,7 @@ test("observe CLI resolves the immutable candidate, runs the dry one-transition 
 })
 
 test("observe CLI resolves checkout HEAD once and pins both candidate calls despite HEAD movement", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-head-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-head-"))
   try {
     const eventPath = path.join(directory, "event.json")
     const reportPath = path.join(directory, "report.json")
@@ -3133,7 +3133,7 @@ for (const head of [
   [null],
 ])
   test(`observe CLI rejects non-singleton immutable checkout HEAD ${JSON.stringify(head)}`, async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-invalid-head-"))
+    const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-invalid-head-"))
     try {
       const eventPath = path.join(directory, "event.json")
       const reportPath = path.join(directory, "report.json")
@@ -3176,7 +3176,7 @@ for (const head of [
   })
 
 test("observe CLI identifies its exact current tag attempt before downstream jobs materialize", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-current-run-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-current-run-"))
   try {
     const eventPath = path.join(directory, "event.json")
     const reportPath = path.join(directory, "report.json")
@@ -3268,7 +3268,7 @@ test("observe CLI identifies its exact current tag attempt before downstream job
 })
 
 test("observe CLI waits within a fixed budget for the exact main CI before authorizing tagging", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-cli-ci-wait-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-cli-ci-wait-"))
   try {
     const eventPath = path.join(directory, "event.json")
     const reportPath = path.join(directory, "report.json")
@@ -3328,7 +3328,7 @@ test("observe CLI waits within a fixed budget for the exact main CI before autho
 })
 
 test("observe CLI reports an authorization failure as blocked ambiguity, never as absence", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-cli-auth-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-cli-auth-"))
   try {
     const eventPath = path.join(directory, "event.json")
     const reportPath = path.join(directory, "report.json")
@@ -3364,7 +3364,7 @@ test("observe CLI reports an authorization failure as blocked ambiguity, never a
 })
 
 test("observe CLI preserves throttling as a transient discovery diagnostic", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-cli-throttle-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-cli-throttle-"))
   try {
     const eventPath = path.join(directory, "event.json")
     const reportPath = path.join(directory, "report.json")
@@ -3399,7 +3399,7 @@ test("observe CLI preserves throttling as a transient discovery diagnostic", asy
 })
 
 test("observe CLI rejects every overlapping event, report, and GitHub output path", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-cli-paths-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-cli-paths-"))
   try {
     const eventPath = path.join(directory, "event.json")
     const reportPath = path.join(directory, "report.json")
@@ -3427,7 +3427,7 @@ test("observe CLI rejects every overlapping event, report, and GitHub output pat
 })
 
 test("observe CLI rejects case-folded and symlink-parent output aliases", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-cli-aliases-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-cli-aliases-"))
   try {
     const eventPath = path.join(directory, "event.json")
     await writeFile(eventPath, `${JSON.stringify({ ref: "refs/heads/main", after: COMMIT_SHA })}\n`)
@@ -3838,7 +3838,7 @@ function publishedNpmFixture(manifest) {
                 predicateType: "https://slsa.dev/provenance/v1",
                 workflow: ".github/workflows/release.yml",
                 commitSha: COMMIT_SHA,
-                repository: "https://github.com/cacheplane/dawnai",
+                repository: "https://github.com/cacheplane/b4-run",
                 ref: `refs/tags/v${VERSION}`,
               },
             }
@@ -3877,7 +3877,7 @@ function completeNpmEvidenceFixture(manifest) {
           predicateType: "https://slsa.dev/provenance/v1",
           workflow: ".github/workflows/release.yml",
           commitSha: COMMIT_SHA,
-          repository: "https://github.com/cacheplane/dawnai",
+          repository: "https://github.com/cacheplane/b4-run",
           ref: `refs/tags/v${VERSION}`,
         },
       }
@@ -3979,7 +3979,7 @@ function productionAttestationBundle(
   { workflowRunId = prepared.manifest.artifact.prepareRunId, runAttempt = 1 } = {},
 ) {
   const ref = `refs/tags/v${VERSION}`
-  const repository = "https://github.com/cacheplane/dawnai"
+  const repository = "https://github.com/cacheplane/b4-run"
   const statement = {
     _type: "https://in-toto.io/Statement/v1",
     subject: [
@@ -4010,7 +4010,7 @@ function productionAttestationBundle(
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: `https://github.com/cacheplane/dawnai/actions/runs/${workflowRunId}/attempts/${runAttempt}`,
+          invocationId: `https://github.com/cacheplane/b4-run/actions/runs/${workflowRunId}/attempts/${runAttempt}`,
         },
       },
     },
@@ -4087,7 +4087,7 @@ function attestedReleaseFixture({ ci } = {}) {
     releaseRecordSha256: digest(prepared.recordBytes),
     baseAssetSetSha256: digest(Buffer.from(`${JSON.stringify(baseEntries)}\n`, "utf8")),
     attestationSet: {
-      repository: "cacheplane/dawnai",
+      repository: "cacheplane/b4-run",
       workflow: ".github/workflows/release.yml",
       sourceRef: `refs/tags/v${VERSION}`,
       commitSha: COMMIT_SHA,
@@ -4125,7 +4125,7 @@ function attestedReleaseFixture({ ci } = {}) {
     bytesById,
     release: {
       id: 900,
-      name: `Dawn v${VERSION}`,
+      name: `B4 v${VERSION}`,
       tag_name: `v${VERSION}`,
       target_commitish: "main",
       draft: true,
@@ -4265,7 +4265,7 @@ function durableSmokeFixture(manifestSha256) {
       lane: receipt.lane,
       actionsArtifactId: String(4_000 + index),
       actionsArtifactName: `smoke-result-${receipt.lane}-${workflowRunId}-${runAttempt}`,
-      actionsArtifactUrl: `https://github.com/cacheplane/dawnai/actions/runs/${workflowRunId}/artifacts/${4_000 + index}`,
+      actionsArtifactUrl: `https://github.com/cacheplane/b4-run/actions/runs/${workflowRunId}/artifacts/${4_000 + index}`,
       actionsArtifactServiceDigest: `sha256:${"8".repeat(64)}`,
       releaseAssetId: receipt.releaseAssetId,
       releaseAssetName: receipt.releaseAssetName,
@@ -4330,8 +4330,8 @@ function auditedReleaseFixture() {
     audit: {
       workflow: ".github/workflows/published-artifact-verify.yml",
       workflowRunId: auditResult.workflowRunId,
-      runUrl: `https://api.github.com/repos/cacheplane/dawnai/actions/runs/${auditResult.workflowRunId}`,
-      htmlUrl: `https://github.com/cacheplane/dawnai/actions/runs/${auditResult.workflowRunId}`,
+      runUrl: `https://api.github.com/repos/cacheplane/b4-run/actions/runs/${auditResult.workflowRunId}`,
+      htmlUrl: `https://github.com/cacheplane/b4-run/actions/runs/${auditResult.workflowRunId}`,
       runAttempt: auditResult.runAttempt,
       attemptAssetName: `audit-attempt-${auditResult.workflowRunId}-${auditResult.runAttempt}.json`,
       attemptSha256: auditSha256,
@@ -4544,7 +4544,7 @@ function abandonedReleaseFixture() {
     ],
     release: {
       id: 901,
-      name: `Dawn v${VERSION} (abandoned before publication)`,
+      name: `B4 v${VERSION} (abandoned before publication)`,
       tag_name: `v${VERSION}`,
       target_commitish: "main",
       draft: true,
@@ -4596,7 +4596,7 @@ function preparedAbandonedReleaseFixture(prepared) {
     ],
     release: {
       id: 902,
-      name: `Dawn v${VERSION} (abandoned before publication)`,
+      name: `B4 v${VERSION} (abandoned before publication)`,
       tag_name: `v${VERSION}`,
       target_commitish: "main",
       draft: true,
@@ -4654,7 +4654,7 @@ function strongAbandonedReleaseFixture(retainedNames) {
     bytesById: new Map([...escrow.bytesById, [tombstoneAsset.id, tombstoneBytes]]),
     release: {
       id: escrow.release.id,
-      name: `Dawn v${VERSION} (abandoned before publication)`,
+      name: `B4 v${VERSION} (abandoned before publication)`,
       tag_name: `v${VERSION}`,
       target_commitish: "main",
       draft: true,
@@ -4870,7 +4870,7 @@ function stampedTerminalDraft(escrow, value) {
     bytesById: new Map([...escrow.bytesById, [tombstoneAsset.id, bytes]]),
     release: {
       ...escrow.release,
-      name: `Dawn v${VERSION} (abandoned before publication)`,
+      name: `B4 v${VERSION} (abandoned before publication)`,
       body: canonicalAbandonmentReleaseBody({
         marker,
         tombstone: value,
@@ -4929,7 +4929,7 @@ test("a terminal record with a published package blocks with TERMINAL_RECORD_PUB
   const bytes = canonicalTerminalRecordBytes(recordFor())
   const npm = npmReader({
     async observePackageVersion({ name, version }) {
-      if (name !== "@dawn-ai/core") return envelope("ABSENT", "package-version", 404, "E404")
+      if (name !== "@b4run/core") return envelope("ABSENT", "package-version", 404, "E404")
       return {
         status: "PRESENT",
         operation: "package-version",

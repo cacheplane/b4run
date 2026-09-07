@@ -105,8 +105,10 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for the exact adopted-verifier repair and bounded smoke failure diagnostics.
 // Repinned for asset counter comparisons and bounded invocation payload/Git text reuse.
 // Repinned for fixed evidence stage boundaries with fresh runtime readers.
+// Repinned for the B4.run source identity. Historical incident authorizations retain
+// their original bytes and are checked at the immutable pre-rename revision.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "75b16cb04f4df23a68612add6b26806c1ec866233a8823e177ca36f243b318c8"
+  "b0bc14dd16b34c081b3c9f1382aaf8eaca7f7644ba8d202bbb56fa47460c52ba"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
@@ -238,25 +240,25 @@ test("workflow isolation rejects Release DELETE bypasses in each execution conte
     [
       "curl compact method",
       runWorkflow(
-        "curl -XDELETE https://api.github.com/repos/cacheplane/dawnai/releases/379982100",
+        "curl -XDELETE https://api.github.com/repos/cacheplane/b4-run/releases/379982100",
       ),
     ],
     [
       "curl spaced method",
       runWorkflow(
-        "curl -x   DeLeTe https://api.github.com/repos/cacheplane/dawnai/releases/379982100",
+        "curl -x   DeLeTe https://api.github.com/repos/cacheplane/b4-run/releases/379982100",
       ),
     ],
     [
       "curl request method",
       runWorkflow(
-        "curl --request DELETE https://api.github.com/repos/cacheplane/dawnai/releases/379982100",
+        "curl --request DELETE https://api.github.com/repos/cacheplane/b4-run/releases/379982100",
       ),
     ],
     [
       "curl request equals method",
       runWorkflow(
-        "curl --request=delete https://api.github.com/repos/cacheplane/dawnai/releases/379982100",
+        "curl --request=delete https://api.github.com/repos/cacheplane/b4-run/releases/379982100",
       ),
     ],
     [
@@ -299,7 +301,7 @@ repos/\${{ github.repository }}/releases/379982100`,
       "job environment",
       runWorkflow('curl -X "$HTTP_METHOD" "$RELEASE_ENDPOINT"', "|", undefined, {
         HTTP_METHOD: "DELETE",
-        RELEASE_ENDPOINT: "/repos/cacheplane/dawnai/releases/379982100",
+        RELEASE_ENDPOINT: "/repos/cacheplane/b4-run/releases/379982100",
       }),
     ],
     [
@@ -362,7 +364,7 @@ repos/\${{ github.repository }}/releases/379982100`,
           include: [
             {
               method: "DELETE",
-              endpoint: "/repos/cacheplane/dawnai/releases/379982100",
+              endpoint: "/repos/cacheplane/b4-run/releases/379982100",
             },
           ],
         },
@@ -374,7 +376,7 @@ repos/\${{ github.repository }}/releases/379982100`,
       matrixWorkflow(
         {
           a: ["GET", "DELETE"],
-          b: ["/repos/cacheplane/dawnai/releases/379982100"],
+          b: ["/repos/cacheplane/b4-run/releases/379982100"],
         },
         `gh api --method "\${{ matrix.a }}" "\${{ matrix.b }}"`,
       ),
@@ -398,7 +400,7 @@ repos/\${{ github.repository }}/releases/379982100`,
       matrixWorkflow(
         {
           v: ["DELETE"],
-          r: ["/repos/cacheplane/dawnai/releases/379982100"],
+          r: ["/repos/cacheplane/b4-run/releases/379982100"],
         },
         `curl --request "\${{ matrix['v'] }}" "\${{ matrix["r"] }}"`,
       ),
@@ -410,7 +412,7 @@ repos/\${{ github.repository }}/releases/379982100`,
           prefix: ["DEL"],
           suffix: ["ETE"],
           owner: ["cacheplane"],
-          repository: ["dawnai"],
+          repository: ["b4-run"],
           release: ["379982100"],
         },
         `gh api --method "\${{ matrix.prefix }}\${{ matrix.suffix }}" "repos/\${{ matrix.owner }}/\${{ matrix.repository }}/releases/\${{ matrix.release }}"`,
@@ -455,7 +457,7 @@ repos/\${{ github.repository }}/releases/379982100`,
       "generic environment indirection",
       runWorkflow('curl --request "$A" "$B"', "|", {
         A: "DELETE",
-        B: "/repos/cacheplane/dawnai/releases/379982100",
+        B: "/repos/cacheplane/b4-run/releases/379982100",
       }),
     ],
     [
@@ -477,18 +479,18 @@ repos/\${{ github.repository }}/releases/379982100`,
 })
 
 test("workflow isolation permits comments, documentation, GETs, and separate invocations", () => {
-  const safe = `name: "Documentation: DELETE /repos/cacheplane/dawnai/releases/379982100"
+  const safe = `name: "Documentation: DELETE /repos/cacheplane/b4-run/releases/379982100"
 on:
   workflow_dispatch: {}
 jobs:
   safe:
     runs-on: ubuntu-latest
     steps:
-      # curl -XDELETE https://api.github.com/repos/cacheplane/dawnai/releases/379982100
-      - name: "DELETE /repos/cacheplane/dawnai/releases/379982100 is forbidden"
+      # curl -XDELETE https://api.github.com/repos/cacheplane/b4-run/releases/379982100
+      - name: "DELETE /repos/cacheplane/b4-run/releases/379982100 is forbidden"
         run: gh api --method GET repos/\${{ github.repository }}/releases/379982100
       - run: echo --method DELETE
-      - run: echo /repos/cacheplane/dawnai/releases/379982100
+      - run: echo /repos/cacheplane/b4-run/releases/379982100
 `
   assert.doesNotThrow(() => assertNoDuplicateDraftWorkflowMutation({ "safe.yml": safe }))
 
@@ -509,9 +511,9 @@ jobs:
   const unusedDangerousMatrix = matrixWorkflow(
     {
       a: ["DELETE"],
-      b: ["/repos/cacheplane/dawnai/releases/379982100"],
+      b: ["/repos/cacheplane/b4-run/releases/379982100"],
       safeMethod: ["GET"],
-      safeEndpoint: ["/repos/cacheplane/dawnai/releases/379982100"],
+      safeEndpoint: ["/repos/cacheplane/b4-run/releases/379982100"],
     },
     `gh api --method "\${{ matrix.safeMethod }}" "\${{ matrix.safeEndpoint }}"`,
   )
@@ -535,7 +537,7 @@ jobs:
   endpoint:
     runs-on: ubuntu-latest
     steps:
-      - run: echo /repos/cacheplane/dawnai/releases/379982100
+      - run: echo /repos/cacheplane/b4-run/releases/379982100
 `
   assert.doesNotThrow(() =>
     assertNoDuplicateDraftWorkflowMutation({
@@ -546,7 +548,7 @@ jobs:
   const separateMatrixSteps = matrixWorkflow(
     {
       a: ["DELETE"],
-      b: ["/repos/cacheplane/dawnai/releases/379982100"],
+      b: ["/repos/cacheplane/b4-run/releases/379982100"],
     },
     [`echo "\${{ matrix.a }}"`, `echo "\${{ matrix.b }}"`],
   )
@@ -569,7 +571,7 @@ jobs:
   const excludedDeleteRow = matrixWorkflow(
     {
       a: ["GET", "DELETE"],
-      b: ["/repos/cacheplane/dawnai/releases/379982100"],
+      b: ["/repos/cacheplane/b4-run/releases/379982100"],
       exclude: [{ a: "DELETE" }],
     },
     `curl --request "\${{ matrix.a }}" "\${{ matrix.b }}"`,
@@ -583,7 +585,7 @@ jobs:
   const nonComposingInclude = matrixWorkflow(
     {
       a: ["GET"],
-      b: ["/repos/cacheplane/dawnai/releases/379982100"],
+      b: ["/repos/cacheplane/b4-run/releases/379982100"],
       include: [{ a: "DELETE", c: "https://example.invalid/not-a-release" }],
     },
     `curl --request "\${{ matrix.a }}" "\${{ matrix.b }}\${{ matrix.c }}"`,
@@ -597,7 +599,7 @@ jobs:
   const standaloneIncludesDoNotCompose = matrixWorkflow(
     {
       method: ["GET"],
-      include: [{ method: "DELETE" }, { endpoint: "/repos/cacheplane/dawnai/releases/1" }],
+      include: [{ method: "DELETE" }, { endpoint: "/repos/cacheplane/b4-run/releases/1" }],
     },
     `curl --request "\${{ matrix.method }}" "\${{ matrix.endpoint }}"`,
   )
@@ -647,7 +649,7 @@ test("workflow isolation follows every repository-local executable transitively"
       files: {
         "scripts/first.sh": "bash scripts/second.sh\n",
         "scripts/second.sh":
-          "curl --request DELETE https://api.github.com/repos/cacheplane/dawnai/releases/379982100\n",
+          "curl --request DELETE https://api.github.com/repos/cacheplane/b4-run/releases/379982100\n",
       },
     },
     {
@@ -771,7 +773,7 @@ test("workflow isolation follows every repository-local executable transitively"
     const root = await createWorkflowReachabilityFixture(t, {
       workflow: "bash scripts/escape.sh",
     })
-    const outside = await mkdtemp(path.join(os.tmpdir(), "dawn-workflow-outside-"))
+    const outside = await mkdtemp(path.join(os.tmpdir(), "b4-workflow-outside-"))
     t.after(() => rm(outside, { recursive: true, force: true }))
     await writeFile(path.join(outside, "escape.sh"), "echo safe\n")
     await mkdir(path.join(root, "scripts"), { recursive: true })
@@ -1454,7 +1456,7 @@ test("release.yml makes workflow abandonment unreachable", async () => {
   assert.equal(schema.abandonmentEnvironment, "release-abandonment")
   const liveBytes = await readFile(path.join(WORKFLOWS, "release.yml"))
   const disabledBytes = await readFile(
-    path.join(ROOT, "scripts/release/test/fixtures/release-workflow-disabled.yml"),
+    path.join(ROOT, "scripts/release/test/fixtures/release-workflow-b4-disabled.yml"),
   )
   assert.deepEqual(liveBytes, disabledBytes)
   assert.equal(
@@ -1742,7 +1744,7 @@ test("recovery containment runs on an actual eligible Linux host without publica
   assert.deepEqual(job.steps[0].with, { "persist-credentials": false })
   assert.equal(job.steps[1].uses, "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020")
   assert.deepEqual(job.steps[1].with, { "node-version": "24.19.0" })
-  assert.deepEqual(job.steps[2].env, { DAWN_TEST_RECOVERY_RUNNER: "1" })
+  assert.deepEqual(job.steps[2].env, { B4_TEST_RECOVERY_RUNNER: "1" })
   assert.equal(
     job.steps[2].run,
     "node --test scripts/release/test/recovery-strict-runner.integration.mjs",
@@ -1791,14 +1793,14 @@ test("testing-windows has the exact safe descriptors and executable classificati
         classification: "safe",
         descriptor: {
           name: "Build testing dependency closure",
-          run: "pnpm --filter @dawn-ai/testing... build",
+          run: "pnpm --filter @b4run/testing... build",
         },
       },
       {
         classification: "safe",
         descriptor: {
           name: "Native Windows subprocess shutdown tests",
-          run: 'pnpm --filter @dawn-ai/testing exec vitest --run --config vitest.config.ts test/subprocess.test.ts --testNamePattern "Windows process tree|injected Windows tree kill"',
+          run: 'pnpm --filter @b4run/testing exec vitest --run --config vitest.config.ts test/subprocess.test.ts --testNamePattern "Windows process tree|injected Windows tree kill"',
         },
       },
       {
@@ -1824,8 +1826,8 @@ test("testing-windows has the exact safe descriptors and executable classificati
 
   const sources = await readWorkflowSourcesFromRoot(ROOT)
   const mutated = sources["ci.yml"].replace(
-    "pnpm --filter @dawn-ai/testing... build",
-    "pnpm --filter @dawn-ai/testing... build && echo bypass",
+    "pnpm --filter @b4run/testing... build",
+    "pnpm --filter @b4run/testing... build && echo bypass",
   )
   assert.throws(
     () => auditWorkflowEntrypoints({ ...sources, "ci.yml": mutated }, descriptors.workflows),
@@ -1907,6 +1909,16 @@ test("dependency-security-browser has one exact isolated read-only descriptor", 
   )
 })
 
+test("historical Dawn security receipt uploader stays unconditionally disabled in B4.run", async () => {
+  const source = await readBoundedFixture(path.join(WORKFLOWS, "dependency-security-receipt.yml"), {
+    root: ROOT,
+  })
+  const workflow = parse(source, { maxAliasCount: 0, uniqueKeys: true })
+  assert.deepEqual(Object.keys(workflow.jobs), ["upload"])
+  assert.equal(workflow.jobs.upload.if, false)
+  assert.match(source, /^ {4}if: false$/mu)
+})
+
 test("dependency security receipt uploader is exact, offline, read-only, and write-once", async () => {
   const source = await readBoundedFixture(path.join(WORKFLOWS, "dependency-security-receipt.yml"), {
     root: ROOT,
@@ -1985,7 +1997,7 @@ test("dependency security receipt uploader is exact, offline, read-only, and wri
     GH_TOKEN: githubToken,
   })
   assert.match(requireHead.run, /GITHUB_SHA/u)
-  assert.match(requireHead.run, /repos\/cacheplane\/dawnai\/git\/ref\/heads\/main/u)
+  assert.match(requireHead.run, /repos\/cacheplane\/b4-run\/git\/ref\/heads\/main/u)
   assert.deepEqual(prepare.env, {
     RECEIPT_OUTPUT_ROOT: `${runnerTemp}/dependency-security-receipt-root`,
   })
@@ -2093,6 +2105,16 @@ test("dependency security workflow mutations fail closed", async (t) => {
           job.replace("pnpm install --frozen-lockfile", "pnpm install"),
         ),
     ],
+    ...[
+      ["receipt uploader activation", "    if: true\n"],
+      ["receipt uploader condition removal", ""],
+      ["receipt uploader expression", `    if: ${workflowExpression("always()")}\n`],
+      ["receipt uploader string false", '    if: "false"\n'],
+    ].map(([name, replacement]) => [
+      name,
+      "dependency-security-receipt.yml",
+      (source) => source.replace("    if: false\n", replacement),
+    ]),
     [
       "receipt trigger expansion",
       "dependency-security-receipt.yml",
@@ -2196,8 +2218,8 @@ test("dependency security workflow mutations fail closed", async (t) => {
       "dependency-security-receipt.yml",
       (source) =>
         source.replace(
-          "repos/cacheplane/dawnai/git/ref/heads/main",
-          "repos/cacheplane/dawnai/git/ref/heads/reviewed-head",
+          "repos/cacheplane/b4-run/git/ref/heads/main",
+          "repos/cacheplane/b4-run/git/ref/heads/reviewed-head",
         ),
     ],
     [
@@ -2299,7 +2321,7 @@ test("workflow audit binds complete execution descriptors and byte-exact run str
   }
 
   const backslash = "\\"
-  const line = `DAWN_TEST_WORKERD=1 pnpm --filter @dawn-ai/cli test workerd-lane ${backslash}\n`
+  const line = `B4_TEST_WORKERD=1 pnpm --filter @b4run/cli test workerd-lane ${backslash}\n`
   assert.ok(sources["ci.yml"].includes(line))
   assert.throws(
     () =>
@@ -2451,8 +2473,8 @@ test("workflow parsing rejects duplicate keys, aliases, accessors, sparse data, 
 })
 
 test("workflow reads are bounded, contained, regular, and no-follow", async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-workflow-read-"))
-  const outside = await mkdtemp(path.join(os.tmpdir(), "dawn-workflow-outside-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-workflow-read-"))
+  const outside = await mkdtemp(path.join(os.tmpdir(), "b4-workflow-outside-"))
   t.after(() =>
     Promise.all([
       rm(root, { recursive: true, force: true }),
@@ -2475,8 +2497,8 @@ test("workflow reads are bounded, contained, regular, and no-follow", async (t) 
 })
 
 test("workflow directory traversal is anchored at regular repository components", async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-workflow-root-"))
-  const outside = await mkdtemp(path.join(os.tmpdir(), "dawn-workflow-external-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-workflow-root-"))
+  const outside = await mkdtemp(path.join(os.tmpdir(), "b4-workflow-external-"))
   t.after(() =>
     Promise.all([
       rm(root, { recursive: true, force: true }),
@@ -2541,7 +2563,7 @@ test("final release reachability fails closed on hidden scripts and package indi
   const packageJson = {
     scripts: { version: "changeset version && node scripts/sync.mjs" },
   }
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-release-reach-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-release-reach-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   await mkdir(path.join(root, "scripts"), { recursive: true })
   await writeFile(path.join(root, "scripts", "visible.mjs"), "export {}\n")
@@ -2612,7 +2634,7 @@ test("final release reachability fails closed on hidden scripts and package indi
 
 test("final release reachability pins the transitive import closure of every entrypoint", async (t) => {
   const packageJson = { scripts: {} }
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-release-imports-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-release-imports-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   for (const directory of ["nested", "release"]) {
     await mkdir(path.join(root, "scripts", directory), { recursive: true })
@@ -2777,7 +2799,7 @@ test("final release reachability pins the transitive import closure of every ent
 })
 
 test("script content pins fail closed on drift and on a pinned script that went missing", async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-script-pins-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-script-pins-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   await mkdir(path.join(root, "scripts", "release"), { recursive: true })
   const file = "scripts/release/example.mjs"
@@ -3625,7 +3647,7 @@ jobs:
 }
 
 async function createWorkflowReachabilityFixture(t, fixture) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-workflow-reachability-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-workflow-reachability-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   await mkdir(path.join(root, ".github", "workflows"), { recursive: true })
   const step =

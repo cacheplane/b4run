@@ -3,10 +3,10 @@ import type { RouteToolTypes } from "../types.js"
 export function renderToolTypes(routeTools: readonly RouteToolTypes[]): string {
   const routesWithTools = routeTools.filter((r) => r.tools.length > 0)
 
-  const routeToolsType = "  export type RouteTools<P extends DawnRoutePath> = DawnRouteTools[P];"
+  const routeToolsType = "  export type RouteTools<P extends B4RoutePath> = B4RouteTools[P];"
 
   if (routesWithTools.length === 0) {
-    return ["  export interface DawnRouteTools {}", "", routeToolsType, ""].join("\n")
+    return ["  export interface B4RouteTools {}", "", routeToolsType, ""].join("\n")
   }
 
   const routeLines: string[] = []
@@ -22,7 +22,7 @@ export function renderToolTypes(routeTools: readonly RouteToolTypes[]): string {
     routeLines.push("    };")
   }
 
-  return ["  export interface DawnRouteTools {", ...routeLines, "  }", "", routeToolsType, ""].join(
+  return ["  export interface B4RouteTools {", ...routeLines, "  }", "", routeToolsType, ""].join(
     "\n",
   )
 }

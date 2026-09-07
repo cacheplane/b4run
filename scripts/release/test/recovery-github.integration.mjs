@@ -25,12 +25,12 @@ import {
 // fixture, creates two named tags, and retains commits/runs as evidence. No
 // production identity, release resource, or npm publication is allowed here.
 test("disposable GitHub workflow disable across current and historical sources", {
-  skip: Reflect.get(process.env, "DAWN_TEST_RECOVERY_GITHUB") !== "1",
+  skip: Reflect.get(process.env, "B4_TEST_RECOVERY_GITHUB") !== "1",
   timeout: 3_000_000,
 }, async (t) => {
   const repository = authorizeFenceProbe(process.env)
   const base = `/repos/${repository}`
-  const directory = await mkdtemp(join(tmpdir(), "dawn-recovery-fence-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-recovery-fence-"))
   const ledgerPath = join(directory, "raw-ledger.json")
   const ledger = {
     repository,
@@ -141,7 +141,7 @@ test("disposable GitHub workflow disable across current and historical sources",
   )
   const repositoryCall = await get(base)
   const repo = repositoryCall.response
-  assert.notEqual(repo.id, 1210070282, "production repository ID forbidden")
+  assert.notEqual(repo.id, 1360603908, "production repository ID forbidden")
   assert.equal(repo.full_name.toLowerCase(), repository.toLowerCase(), "redirect forbidden")
   assert.match(repo.default_branch, /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/u)
   const defaultBranch = repo.default_branch,

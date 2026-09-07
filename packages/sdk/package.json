@@ -1,26 +1,26 @@
 {
-  "name": "@dawn-ai/sdk",
+  "name": "@b4run/sdk",
   "version": "0.8.26",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "description": "Author-facing TypeScript SDK for defining Dawn agents, tools, middleware, memory, and routes.",
+  "description": "Author-facing TypeScript SDK for defining B4.run agents, tools, middleware, memory, and routes.",
   "keywords": [
-    "dawn",
+    "b4",
     "typescript",
     "langgraph",
     "ai-agents",
     "sdk",
     "agent-framework"
   ],
-  "homepage": "https://github.com/cacheplane/dawnai/tree/main/packages/sdk#readme",
+  "homepage": "https://github.com/cacheplane/b4-run/tree/main/packages/sdk#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/dawnai.git",
+    "url": "git+https://github.com/cacheplane/b4-run.git",
     "directory": "packages/sdk"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/dawnai/issues"
+    "url": "https://github.com/cacheplane/b4-run/issues"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -61,7 +61,7 @@
     }
   },
   "devDependencies": {
-    "@dawn-ai/config-typescript": "workspace:*",
+    "@b4run/config-typescript": "workspace:*",
     "@types/node": "26.1.2",
     "zod": "^4.4.3"
   }

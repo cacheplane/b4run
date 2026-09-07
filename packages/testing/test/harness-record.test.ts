@@ -36,7 +36,7 @@ it("records a case against a local upstream, then replays it deterministically",
   expect(fixtures.length).toBeGreaterThanOrEqual(1)
   expect(fixtures[0]?.match.turnIndex).toBe(0)
 
-  const dir = mkdtempSync(join(tmpdir(), "dawn-rec-"))
+  const dir = mkdtempSync(join(tmpdir(), "b4-rec-"))
   const file = join(dir, "smoke.case.fixtures.json")
   writeFixtures(file, fixtures)
 

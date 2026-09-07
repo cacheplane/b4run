@@ -1,4 +1,4 @@
-import { fakeSandbox } from "@dawn-ai/sandbox/testing"
+import { fakeSandbox } from "@b4run/sandbox/testing"
 import { describe, expect, test, vi } from "vitest"
 import { SandboxManager } from "../src/lib/runtime/sandbox-manager.js"
 

@@ -26,7 +26,7 @@ importers:
       '@copilotkit/aimock':
         specifier: ^1.37.4
         version: 1.38.0(vitest@4.1.10)
-      '@dawn-ai/sdk':
+      '@b4run/sdk':
         specifier: workspace:*
         version: link:packages/sdk
       '@playwright/test':
@@ -71,7 +71,7 @@ importers:
 
   apps/web:
     dependencies:
-      '@dawn-ai/sdk':
+      '@b4run/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
       '@mdx-js/loader':
@@ -129,10 +129,10 @@ importers:
         specifier: ^4.3.3
         version: 4.3.3
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../../packages/config-typescript
-      '@dawn-ai/core':
+      '@b4run/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@types/mdx':
@@ -162,29 +162,29 @@ importers:
 
   examples/chat/server:
     dependencies:
-      '@dawn-ai/cli':
+      '@b4run/cli':
         specifier: workspace:*
         version: link:../../../packages/cli
-      '@dawn-ai/core':
+      '@b4run/core':
         specifier: workspace:*
         version: link:../../../packages/core
-      '@dawn-ai/langchain':
+      '@b4run/langchain':
         specifier: workspace:*
         version: link:../../../packages/langchain
-      '@dawn-ai/sdk':
+      '@b4run/sdk':
         specifier: workspace:*
         version: link:../../../packages/sdk
       zod:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../../../packages/config-typescript
-      '@dawn-ai/evals':
+      '@b4run/evals':
         specifier: workspace:*
         version: link:../../../packages/evals
-      '@dawn-ai/testing':
+      '@b4run/testing':
         specifier: workspace:*
         version: link:../../../packages/testing
       '@types/node':
@@ -208,7 +208,7 @@ importers:
       '@copilotkit/runtime':
         specifier: ^1.70.0
         version: 1.70.0(@anthropic-ai/sdk@0.115.0(zod@4.4.3))(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(@langchain/langgraph-sdk@1.9.28(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@langchain/openai@1.5.6(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(ws@8.21.0))(@opentelemetry/api@1.9.1)(langchain@1.5.2(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(ws@8.21.0))(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.10)
-      '@dawn-ai/ag-ui':
+      '@b4run/ag-ui':
         specifier: workspace:*
         version: link:../../../packages/ag-ui
       next:
@@ -221,7 +221,7 @@ importers:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../../../packages/config-typescript
       '@playwright/test':
@@ -242,32 +242,32 @@ importers:
 
   examples/memory/server:
     dependencies:
-      '@dawn-ai/cli':
+      '@b4run/cli':
         specifier: workspace:*
         version: link:../../../packages/cli
-      '@dawn-ai/core':
+      '@b4run/core':
         specifier: workspace:*
         version: link:../../../packages/core
-      '@dawn-ai/langchain':
+      '@b4run/langchain':
         specifier: workspace:*
         version: link:../../../packages/langchain
-      '@dawn-ai/memory-pgvector':
+      '@b4run/memory-pgvector':
         specifier: workspace:*
         version: link:../../../packages/memory-pgvector
-      '@dawn-ai/sdk':
+      '@b4run/sdk':
         specifier: workspace:*
         version: link:../../../packages/sdk
       zod:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../../../packages/config-typescript
-      '@dawn-ai/inspector':
+      '@b4run/inspector':
         specifier: workspace:*
         version: link:../../../packages/inspector
-      '@dawn-ai/testing':
+      '@b4run/testing':
         specifier: workspace:*
         version: link:../../../packages/testing
       '@types/node':
@@ -282,32 +282,32 @@ importers:
 
   examples/research/server:
     dependencies:
-      '@dawn-ai/cli':
+      '@b4run/cli':
         specifier: workspace:*
         version: link:../../../packages/cli
-      '@dawn-ai/core':
+      '@b4run/core':
         specifier: workspace:*
         version: link:../../../packages/core
-      '@dawn-ai/langchain':
+      '@b4run/langchain':
         specifier: workspace:*
         version: link:../../../packages/langchain
-      '@dawn-ai/sandbox':
+      '@b4run/sandbox':
         specifier: workspace:*
         version: link:../../../packages/sandbox
-      '@dawn-ai/sdk':
+      '@b4run/sdk':
         specifier: workspace:*
         version: link:../../../packages/sdk
       zod:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../../../packages/config-typescript
-      '@dawn-ai/evals':
+      '@b4run/evals':
         specifier: workspace:*
         version: link:../../../packages/evals
-      '@dawn-ai/testing':
+      '@b4run/testing':
         specifier: workspace:*
         version: link:../../../packages/testing
       '@types/node':
@@ -331,7 +331,7 @@ importers:
       '@copilotkit/runtime':
         specifier: ^1.70.0
         version: 1.70.0(@anthropic-ai/sdk@0.115.0(zod@4.4.3))(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(@langchain/langgraph-sdk@1.9.28(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@langchain/openai@1.5.6(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(ws@8.21.0))(@opentelemetry/api@1.9.1)(langchain@1.5.2(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(ws@8.21.0))(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.10)
-      '@dawn-ai/ag-ui':
+      '@b4run/ag-ui':
         specifier: workspace:*
         version: link:../../../packages/ag-ui
       '@tailwindcss/postcss':
@@ -390,7 +390,7 @@ importers:
       '@copilotkit/react-core':
         specifier: ^1.70.0
         version: 1.70.0(@types/mdast@4.0.4)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(graphql@16.14.2)(micromark-util-types@2.0.2)(micromark@4.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
       '@types/node':
@@ -417,28 +417,28 @@ importers:
       '@ag-ui/core':
         specifier: 0.0.59
         version: 0.0.59
-      '@dawn-ai/ag-ui':
+      '@b4run/ag-ui':
         specifier: workspace:*
         version: link:../ag-ui
-      '@dawn-ai/core':
+      '@b4run/core':
         specifier: workspace:*
         version: link:../core
-      '@dawn-ai/langchain':
+      '@b4run/langchain':
         specifier: workspace:*
         version: link:../langchain
-      '@dawn-ai/langgraph':
+      '@b4run/langgraph':
         specifier: workspace:*
         version: link:../langgraph
-      '@dawn-ai/memory':
+      '@b4run/memory':
         specifier: workspace:*
         version: link:../memory
-      '@dawn-ai/permissions':
+      '@b4run/permissions':
         specifier: workspace:*
         version: link:../permissions
-      '@dawn-ai/sdk':
+      '@b4run/sdk':
         specifier: workspace:*
         version: link:../sdk
-      '@dawn-ai/sqlite-storage':
+      '@b4run/sqlite-storage':
         specifier: workspace:*
         version: link:../sqlite-storage
       commander:
@@ -451,13 +451,13 @@ importers:
         specifier: ^4.23.5
         version: 4.23.10
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
-      '@dawn-ai/sandbox':
+      '@b4run/sandbox':
         specifier: workspace:*
         version: link:../sandbox
-      '@dawn-ai/workspace':
+      '@b4run/workspace':
         specifier: workspace:*
         version: link:../workspace
       '@hono/node-server':
@@ -516,16 +516,16 @@ importers:
 
   packages/core:
     dependencies:
-      '@dawn-ai/permissions':
+      '@b4run/permissions':
         specifier: workspace:*
         version: link:../permissions
-      '@dawn-ai/sdk':
+      '@b4run/sdk':
         specifier: workspace:*
         version: link:../sdk
-      '@dawn-ai/sqlite-storage':
+      '@b4run/sqlite-storage':
         specifier: workspace:*
         version: link:../sqlite-storage
-      '@dawn-ai/workspace':
+      '@b4run/workspace':
         specifier: workspace:*
         version: link:../workspace
       '@langchain/langgraph':
@@ -544,7 +544,7 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
       '@langchain/langgraph-checkpoint':
@@ -554,13 +554,13 @@ importers:
         specifier: 26.1.2
         version: 26.1.2
 
-  packages/create-dawn-app:
+  packages/create-b4-app:
     dependencies:
-      '@dawn-ai/devkit':
+      '@b4run/devkit':
         specifier: workspace:*
         version: link:../devkit
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
       '@types/node':
@@ -569,7 +569,7 @@ importers:
 
   packages/devkit:
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
       '@types/node':
@@ -578,10 +578,10 @@ importers:
 
   packages/evals:
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
-      '@dawn-ai/testing':
+      '@b4run/testing':
         specifier: workspace:*
         version: link:../testing
       '@types/node':
@@ -590,10 +590,10 @@ importers:
 
   packages/inspector:
     dependencies:
-      '@dawn-ai/core':
+      '@b4run/core':
         specifier: workspace:*
         version: link:../core
-      '@dawn-ai/memory':
+      '@b4run/memory':
         specifier: workspace:*
         version: link:../memory
       '@pretable/core':
@@ -621,7 +621,7 @@ importers:
         specifier: ^3.6.0
         version: 3.6.0
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
       '@playwright/test':
@@ -666,13 +666,13 @@ importers:
 
   packages/langchain:
     dependencies:
-      '@dawn-ai/core':
+      '@b4run/core':
         specifier: workspace:*
         version: link:../core
-      '@dawn-ai/sdk':
+      '@b4run/sdk':
         specifier: workspace:*
         version: link:../sdk
-      '@dawn-ai/workspace':
+      '@b4run/workspace':
         specifier: workspace:*
         version: link:../workspace
       '@langchain/langgraph':
@@ -685,7 +685,7 @@ importers:
         specifier: ^3.4.0
         version: 3.4.0
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
       '@langchain/anthropic':
@@ -724,11 +724,11 @@ importers:
 
   packages/langgraph:
     dependencies:
-      '@dawn-ai/sdk':
+      '@b4run/sdk':
         specifier: workspace:*
         version: link:../sdk
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
       '@types/node':
@@ -737,11 +737,11 @@ importers:
 
   packages/memory:
     dependencies:
-      '@dawn-ai/sqlite-storage':
+      '@b4run/sqlite-storage':
         specifier: workspace:*
         version: link:../sqlite-storage
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
       '@types/node':
@@ -750,7 +750,7 @@ importers:
 
   packages/memory-pgvector:
     dependencies:
-      '@dawn-ai/memory':
+      '@b4run/memory':
         specifier: workspace:*
         version: link:../memory
       pg:
@@ -760,13 +760,13 @@ importers:
         specifier: ^0.3.0
         version: 0.3.0
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
-      '@dawn-ai/langchain':
+      '@b4run/langchain':
         specifier: workspace:*
         version: link:../langchain
-      '@dawn-ai/testing':
+      '@b4run/testing':
         specifier: workspace:*
         version: link:../testing
       '@testcontainers/postgresql':
@@ -781,11 +781,11 @@ importers:
 
   packages/permissions:
     dependencies:
-      '@dawn-ai/sdk':
+      '@b4run/sdk':
         specifier: workspace:*
         version: link:../sdk
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
       '@types/node':
@@ -797,20 +797,20 @@ importers:
 
   packages/postgres-storage:
     dependencies:
-      '@dawn-ai/permissions':
+      '@b4run/permissions':
         specifier: workspace:*
         version: link:../permissions
       pg:
         specifier: ^8.22.0
         version: 8.22.0
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
-      '@dawn-ai/sqlite-storage':
+      '@b4run/sqlite-storage':
         specifier: workspace:*
         version: link:../sqlite-storage
-      '@dawn-ai/testing':
+      '@b4run/testing':
         specifier: workspace:*
         version: link:../testing
       '@langchain/core':
@@ -837,17 +837,17 @@ importers:
 
   packages/sandbox:
     dependencies:
-      '@dawn-ai/sdk':
+      '@b4run/sdk':
         specifier: workspace:*
         version: link:../sdk
-      '@dawn-ai/workspace':
+      '@b4run/workspace':
         specifier: workspace:*
         version: link:../workspace
       '@kubernetes/client-node':
         specifier: ^1.4.0
         version: 1.4.0
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
       '@types/node':
@@ -859,7 +859,7 @@ importers:
 
   packages/sdk:
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
       '@types/node':
@@ -871,7 +871,7 @@ importers:
 
   packages/sqlite-storage:
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
       '@langchain/core':
@@ -889,32 +889,32 @@ importers:
       '@copilotkit/aimock':
         specifier: ^1.37.4
         version: 1.38.0(vitest@4.1.10)
-      '@dawn-ai/memory':
+      '@b4run/memory':
         specifier: workspace:*
         version: link:../memory
     devDependencies:
-      '@dawn-ai/cli':
+      '@b4run/cli':
         specifier: workspace:*
         version: link:../cli
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
-      '@dawn-ai/core':
+      '@b4run/core':
         specifier: workspace:*
         version: link:../core
-      '@dawn-ai/langchain':
+      '@b4run/langchain':
         specifier: workspace:*
         version: link:../langchain
-      '@dawn-ai/permissions':
+      '@b4run/permissions':
         specifier: workspace:*
         version: link:../permissions
-      '@dawn-ai/sdk':
+      '@b4run/sdk':
         specifier: workspace:*
         version: link:../sdk
-      '@dawn-ai/sqlite-storage':
+      '@b4run/sqlite-storage':
         specifier: workspace:*
         version: link:../sqlite-storage
-      '@dawn-ai/workspace':
+      '@b4run/workspace':
         specifier: workspace:*
         version: link:../workspace
       '@langchain/langgraph-checkpoint':
@@ -932,11 +932,11 @@ importers:
 
   packages/vite-plugin:
     dependencies:
-      '@dawn-ai/core':
+      '@b4run/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
       '@types/node':
@@ -951,11 +951,11 @@ importers:
 
   packages/workspace:
     dependencies:
-      '@dawn-ai/sdk':
+      '@b4run/sdk':
         specifier: workspace:*
         version: link:../sdk
     devDependencies:
-      '@dawn-ai/config-typescript':
+      '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
       '@types/node':

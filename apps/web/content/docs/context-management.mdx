@@ -1,10 +1,10 @@
 # Context Management
 
-Long agent runs accumulate messages: tool results, model replies, and subagent exchanges. Left unmanaged, that history can exceed the model's context window and cause errors or truncation. Dawn manages the context window two ways — tool-output offloading (on by default) and conversation summarization (opt-in) — so agents keep working even when a thread grows long.
+Long agent runs accumulate messages: tool results, model replies, and subagent exchanges. Left unmanaged, that history can exceed the model's context window and cause errors or truncation. B4.run manages the context window two ways — tool-output offloading (on by default) and conversation summarization (opt-in) — so agents keep working even when a thread grows long.
 
 ## Tool-output offloading
 
-When a tool returns a large result, Dawn writes the full output to `workspace/tool-outputs/` and replaces the in-context payload with a short stub. The stub contains a configurable number of preview lines plus a file handle. When the agent needs the full content it calls `readFile` with that handle — the content is retrieved from disk and fed into the next model turn.
+When a tool returns a large result, B4.run writes the full output to `workspace/tool-outputs/` and replaces the in-context payload with a short stub. The stub contains a configurable number of preview lines plus a file handle. When the agent needs the full content it calls `readFile` with that handle — the content is retrieved from disk and fed into the next model turn.
 
 Offloading is active as soon as a `workspace/` directory exists at the app root. No additional configuration is required to enable it.
 
@@ -26,7 +26,7 @@ The model can proceed with the preview or call `readFile` to fetch more. Because
 
 ### Configuration
 
-```ts title="dawn.config.ts"
+```ts title="b4.config.ts"
 export default {
   toolOutput: {
     offloadThresholdChars: 40000, // default
@@ -48,7 +48,7 @@ export default {
 | `gcThrottleMs` | `number` | `10000` | Minimum milliseconds between GC scans. Default is 10 seconds. |
 | `noOffloadTools` | `string[]` | `[]` | Additional tool names whose output is never offloaded. Merged with the built-in exempt set (`readFile`, `listDir`). |
 
-Offloading needs a filesystem to spill to, so `toolOutput` is [gated off the `hono` edge target](/docs/deployment/edge#what-the-edge-cannot-serve) at build time, and a runtime with no filesystem raises `DAWN_E1005` per request rather than reading the settings and ignoring them. Summarization below has no such dependency and runs on every target.
+Offloading needs a filesystem to spill to, so `toolOutput` is [gated off the `hono` edge target](/docs/deployment/edge#what-the-edge-cannot-serve) at build time, and a runtime with no filesystem raises `B4_E1005` per request rather than reading the settings and ignoring them. Summarization below has no such dependency and runs on every target.
 
 ### Exemptions
 
@@ -56,15 +56,15 @@ Offloading needs a filesystem to spill to, so `toolOutput` is [gated off the `ho
 
 ### Garbage collection
 
-Dawn runs a GC pass (at most once per `gcThrottleMs`) that removes files older than `ttlMs` and, if the total size still exceeds `maxBytes`, deletes oldest files first until the budget is satisfied. The GC runs in the background and does not block agent turns.
+B4.run runs a GC pass (at most once per `gcThrottleMs`) that removes files older than `ttlMs` and, if the total size still exceeds `maxBytes`, deletes oldest files first until the budget is satisfied. The GC runs in the background and does not block agent turns.
 
 ## Conversation summarization
 
 Summarization compresses older message history once a thread's token count exceeds a threshold. The most recent turns stay verbatim; everything older is folded into a rolling summary that is prepended to the conversation on the next model call.
 
-Summarization is opt-in. Enable it in `dawn.config.ts`:
+Summarization is opt-in. Enable it in `b4.config.ts`:
 
-```ts title="dawn.config.ts"
+```ts title="b4.config.ts"
 export default {
   summarization: {
     enabled: true,
@@ -94,7 +94,7 @@ Offloading and summarization address different axes of context growth:
 
 Both can be active at the same time. A typical configuration for a long-running research agent:
 
-```ts title="dawn.config.ts"
+```ts title="b4.config.ts"
 export default {
   toolOutput: {
     offloadThresholdChars: 1500, // tight threshold for a research agent
@@ -111,6 +111,6 @@ export default {
 ## Related
 
 <RelatedCards items={[
-  { href: "/docs/configuration", title: "Configuration Reference", subtitle: "complete dawn.config.ts reference for toolOutput and summarization" },
+  { href: "/docs/configuration", title: "Configuration Reference", subtitle: "complete b4.config.ts reference for toolOutput and summarization" },
   { href: "/docs/workspace", title: "Workspace Filesystem", subtitle: "workspace/tool-outputs/ and the readFile tool" },
 ]} />

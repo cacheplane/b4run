@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible Dawn bug.
+description: Report a reproducible B4 bug.
 title: "[Bug]: "
 labels:
   - bug
@@ -38,11 +38,11 @@ body:
     id: package
     attributes:
       label: Affected package or command
-      placeholder: "@dawn-ai/cli, @dawn-ai/sdk, dawn build, dawn dev"
+      placeholder: "@b4run/cli, @b4run/sdk, b4 build, b4 dev"
   - type: input
     id: version
     attributes:
-      label: Dawn version or commit
+      label: B4 version or commit
       placeholder: "0.0.0 or commit SHA"
   - type: input
     id: node

@@ -6,9 +6,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { script } from "../../testing/dist/index.js"
 
 // Passthrough spy — counts default sqlite memory-store constructions without
-// changing behavior. Everything else @dawn-ai/memory exports stays real.
-vi.mock("@dawn-ai/memory", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@dawn-ai/memory")>()
+// changing behavior. Everything else @b4run/memory exports stays real.
+vi.mock("@b4run/memory", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@b4run/memory")>()
   return {
     ...actual,
     sqliteMemoryStore: vi.fn(actual.sqliteMemoryStore),
@@ -17,16 +17,16 @@ vi.mock("@dawn-ai/memory", async (importOriginal) => {
 
 // Passthrough spy — counts default localFilesystem backend constructions on
 // the request path (createWorkspaceFs / buildOffload fallbacks).
-vi.mock("@dawn-ai/workspace/node", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@dawn-ai/workspace/node")>()
+vi.mock("@b4run/workspace/node", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@b4run/workspace/node")>()
   return {
     ...actual,
     localFilesystem: vi.fn(actual.localFilesystem),
   }
 })
 
-import { sqliteMemoryStore } from "@dawn-ai/memory"
-import { localFilesystem } from "@dawn-ai/workspace/node"
+import { sqliteMemoryStore } from "@b4run/memory"
+import { localFilesystem } from "@b4run/workspace/node"
 
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
 import { hasWorkspaceDir } from "../src/lib/runtime/execute-route.js"
@@ -45,12 +45,12 @@ async function tempDir(prefix: string): Promise<string> {
 
 /** Minimal agent fixture: no config backends, no memory.ts, no workspace/. */
 async function fixtureApp(): Promise<string> {
-  const appRoot = await tempDir("dawn-lazy-node-backends-")
+  const appRoot = await tempDir("b4-lazy-node-backends-")
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "lazy-node-backends-fixture", "type": "module" }\n',
     "src/app/chat/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\n' +
+      'import { agent } from "@b4run/sdk"\n' +
       'export default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
   }
   for (const [rel, body] of Object.entries(files)) {
@@ -67,14 +67,14 @@ describe("resolve-memory — sqlite store is lazy", () => {
     // the default sqlite store.
     expect(vi.mocked(sqliteMemoryStore)).not.toHaveBeenCalled()
 
-    const appRoot = await tempDir("dawn-lazy-memory-")
+    const appRoot = await tempDir("b4-lazy-memory-")
     const store = await resolveMemoryStore(appRoot)
 
     // Construction happens at CALL time, against the default path — and the
     // dynamically-imported factory is the same (mock-visible) module binding.
     expect(vi.mocked(sqliteMemoryStore)).toHaveBeenCalledTimes(1)
     expect(vi.mocked(sqliteMemoryStore)).toHaveBeenCalledWith(
-      expect.objectContaining({ path: join(appRoot, ".dawn", "memory.sqlite") }),
+      expect.objectContaining({ path: join(appRoot, ".b4", "memory.sqlite") }),
     )
     expect(typeof store.put).toBe("function")
     expect(typeof store.search).toBe("function")
@@ -119,7 +119,7 @@ describe("execute-route — default localFilesystem is memoized", () => {
 
 describe("execute-route — offload workspace/ probe memoizes only positives", () => {
   it("re-probes negatives (workspace/ created mid-process is seen) and caches positives", async () => {
-    const appRoot = await tempDir("dawn-lazy-probe-")
+    const appRoot = await tempDir("b4-lazy-probe-")
 
     expect(hasWorkspaceDir(appRoot)).toBe(false)
 

@@ -1,8 +1,8 @@
-# @dawn-ai/config-typescript
+# @b4run/config-typescript
 
-Shared TypeScript compiler configurations for Dawn packages and applications.
+Shared TypeScript compiler configurations for B4.run packages and applications.
 
-**Use this when:** You are extending Dawn's shared TypeScript configurations instead of maintaining the same strict compiler defaults yourself.
+**Use this when:** You are extending B4.run's shared TypeScript configurations instead of maintaining the same strict compiler defaults yourself.
 
 ## Install
 
@@ -10,9 +10,9 @@ Install the config as a dev dependency with TypeScript and the ambient types req
 
 ```bash
 # /node
-pnpm add -D @dawn-ai/config-typescript typescript @types/node
+pnpm add -D @b4run/config-typescript typescript @types/node
 # /nextjs
-pnpm add -D @dawn-ai/config-typescript typescript @types/node @types/react @types/react-dom
+pnpm add -D @b4run/config-typescript typescript @types/node @types/react @types/react-dom
 ```
 
 ## Configuration
@@ -21,12 +21,12 @@ Choose the configuration that matches the project runtime in `tsconfig.json`:
 
 ```json
 {
-  "extends": "@dawn-ai/config-typescript/node",
+  "extends": "@b4run/config-typescript/node",
   "include": ["src/**/*.ts"]
 }
 ```
 
-Use `@dawn-ai/config-typescript/nextjs` in `extends` for a Next.js application.
+Use `@b4run/config-typescript/nextjs` in `extends` for a Next.js application.
 
 ## Runtime and stability
 
@@ -36,14 +36,14 @@ These are tooling artifacts, not runtime imports. Consumer projects install thes
 
 ## Related
 
-- [`@dawn-ai/config-biome`](https://www.npmjs.com/package/@dawn-ai/config-biome) — shared lint and formatting configuration.
-- [API catalog entry](https://dawnai.org/docs/api#dawn-aiconfig-typescript) — published configuration surfaces.
-- [Getting Started](https://dawnai.org/docs/getting-started) — scaffold a Dawn application with TypeScript configured.
+- [`@b4run/config-biome`](https://www.npmjs.com/package/@b4run/config-biome) — shared lint and formatting configuration.
+- [API catalog entry](https://b4.run/docs/api#b4runconfig-typescript) — published configuration surfaces.
+- [Getting Started](https://b4.run/docs/getting-started) — scaffold a B4.run application with TypeScript configured.
 
 ## Maturity and support
 
-This package is pre-1.0 and releases in Dawn's fixed package group. Review the [changelog](https://github.com/cacheplane/dawnai/blob/main/packages/config-typescript/CHANGELOG.md) before upgrading. For support, [open an issue](https://github.com/cacheplane/dawnai/issues).
+This package is pre-1.0 and releases in B4.run's fixed package group. Review the [changelog](https://github.com/cacheplane/b4-run/blob/main/packages/config-typescript/CHANGELOG.md) before upgrading. For support, [open an issue](https://github.com/cacheplane/b4-run/issues).
 
 ## License
 
-MIT. See the [repository license](https://github.com/cacheplane/dawnai/blob/main/LICENSE).
+MIT. See the [repository license](https://github.com/cacheplane/b4-run/blob/main/LICENSE).

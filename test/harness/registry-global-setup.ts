@@ -22,10 +22,10 @@ export async function setup(): Promise<void> {
   }
   process.env[REGISTRY_URL_ENV] = registry.url
   // The scaffolded .npmrc (writeRegistryNpmrc) pins both the default registry and
-  // the @dawn-ai scope, and clears an inherited default scope. Keep an environment-
+  // the @b4run scope, and clears an inherited default scope. Keep an environment-
   // level default-registry backstop for pnpm code paths that bypass project config
   // while resolving transitive dependencies. This does not override arbitrary
-  // scope-specific registry mappings; the project @dawn-ai mapping handles Dawn
+  // scope-specific registry mappings; the project @b4run mapping handles B4.run
   // packages. Spawned installs inherit the backstop via process.env. A test that
   // manages its own registry (local-registry.test.ts) overrides it per command.
   process.env[NPM_REGISTRY_ENV] = registry.url

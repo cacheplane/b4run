@@ -52,7 +52,7 @@ export async function executeScaffoldSmoke(
     dependencies.probeContainment,
   )
   const root = await check("temporary-project", "clean temporary project created", () =>
-    dependencies.makeTempDir("dawn-published-scaffold-"),
+    dependencies.makeTempDir("b4-published-scaffold-"),
   )
   deferCleanup("cleanup", "clean scaffold project removed", () => dependencies.removeDir(root))
   const installer = path.join(root, "installer")
@@ -70,16 +70,16 @@ export async function executeScaffoldSmoke(
         "--ignore-scripts",
         "--save-exact",
         "--package-lock=false",
-        `create-dawn-ai-app@${options.version}`,
+        `create-b4-app@${options.version}`,
       ],
       { cwd: installer },
     )
     await captureInstallation("scaffolder-install", installer)
   })
 
-  await check("scaffold-create", "basic scaffold created with exact Dawn specifiers", () =>
+  await check("scaffold-create", "basic scaffold created with exact B4 specifiers", () =>
     dependencies.runCommand(
-      path.join(installer, "node_modules", ".bin", "create-dawn-ai-app"),
+      path.join(installer, "node_modules", ".bin", "create-b4-app"),
       [scaffold, "--template", "basic", "--dist-tag", options.version],
       { cwd: installer },
     ),
@@ -90,10 +90,8 @@ export async function executeScaffoldSmoke(
     })
     await captureInstallation("dependency-install", scaffold)
   })
-  await check(
-    "exact-versions",
-    "all scaffold Dawn dependencies resolved to the exact version",
-    () => dependencies.verifyExactScaffold(scaffold, options.version),
+  await check("exact-versions", "all scaffold B4 dependencies resolved to the exact version", () =>
+    dependencies.verifyExactScaffold(scaffold, options.version),
   )
   await check("typecheck", "scaffold typecheck passed", () =>
     dependencies.runCommand("npm", ["run", "typecheck"], { cwd: scaffold }),
@@ -114,11 +112,11 @@ export async function verifyExactScaffold(root, version) {
     ...manifest.dependencies,
     ...manifest.devDependencies,
   }
-  const dawnPackages = Object.entries(declared).filter(
-    ([name]) => name.startsWith("@dawn-ai/") || name === "create-dawn-ai-app",
+  const b4Packages = Object.entries(declared).filter(
+    ([name]) => name.startsWith("@b4run/") || name === "create-b4-app",
   )
-  if (dawnPackages.length === 0) throw new Error("Scaffold declares no Dawn packages")
-  for (const [name, specifier] of dawnPackages) {
+  if (b4Packages.length === 0) throw new Error("Scaffold declares no B4 packages")
+  for (const [name, specifier] of b4Packages) {
     if (specifier !== version) {
       throw new Error(`${name} uses ${specifier}, expected exact ${version}`)
     }

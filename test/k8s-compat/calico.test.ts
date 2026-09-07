@@ -337,7 +337,7 @@ spec:
 
 describe("Calico manifest download", () => {
   it("downloads, verifies, and atomically replaces the destination", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "dawn-calico-success-"))
+    const directory = await mkdtemp(join(tmpdir(), "b4-calico-success-"))
     const outputPath = join(directory, "calico.yaml")
     const raw = encode(syntheticManifest())
     const policy = calicoPolicy(raw)
@@ -362,7 +362,7 @@ describe("Calico manifest download", () => {
   })
 
   it("passes a live abort signal to the injected fetch", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "dawn-calico-signal-"))
+    const directory = await mkdtemp(join(tmpdir(), "b4-calico-signal-"))
     const outputPath = join(directory, "calico.yaml")
     const raw = encode(syntheticManifest())
     let receivedSignal: AbortSignal | null | undefined
@@ -383,7 +383,7 @@ describe("Calico manifest download", () => {
   })
 
   it("aborts a stalled download after 30 seconds", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "dawn-calico-timeout-"))
+    const directory = await mkdtemp(join(tmpdir(), "b4-calico-timeout-"))
     const outputPath = join(directory, "calico.yaml")
     const raw = encode(syntheticManifest())
     let receivedSignal: AbortSignal | null | undefined
@@ -412,7 +412,7 @@ describe("Calico manifest download", () => {
   })
 
   it("rejects non-ok responses with the HTTP status", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "dawn-calico-status-"))
+    const directory = await mkdtemp(join(tmpdir(), "b4-calico-status-"))
     const outputPath = join(directory, "calico.yaml")
     const raw = encode(syntheticManifest())
     const fetchImpl: typeof fetch = async () =>
@@ -434,7 +434,7 @@ describe("Calico manifest download", () => {
   })
 
   it("wraps response body read failures with the original cause", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "dawn-calico-body-read-"))
+    const directory = await mkdtemp(join(tmpdir(), "b4-calico-body-read-"))
     const outputPath = join(directory, "calico.yaml")
     const raw = encode(syntheticManifest())
     const bodyReadCause = new Error("synthetic response body failure")
@@ -456,7 +456,7 @@ describe("Calico manifest download", () => {
   })
 
   it("preserves an existing destination when verification fails", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "dawn-calico-verification-"))
+    const directory = await mkdtemp(join(tmpdir(), "b4-calico-verification-"))
     const outputPath = join(directory, "calico.yaml")
     const raw = encode(syntheticManifest())
     const policy = { ...calicoPolicy(raw), sha256: "0".repeat(64) }
@@ -477,7 +477,7 @@ describe("Calico manifest download", () => {
   })
 
   it("removes its sibling temporary file when the atomic rename fails", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "dawn-calico-cleanup-"))
+    const directory = await mkdtemp(join(tmpdir(), "b4-calico-cleanup-"))
     const outputPath = join(directory, "calico.yaml")
     const raw = encode(syntheticManifest())
     const fetchImpl: typeof fetch = async () => responseWithBytes(raw)

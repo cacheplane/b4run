@@ -13,7 +13,7 @@ periodically — an upstream fix may make a residual entry resolvable.
   No js-yaml 3.x patch exists. The fix must come upstream (changesets replacing
   `@manypkg/get-packages`, or `read-yaml-file` migrating to `yaml.load()`).
 - **Exposure:** Dev/release tooling only (changesets). Not pulled by any published
-  `@dawn-ai/*` package or `create-dawn-ai-app` runtime dependency.
+  `@b4run/*` package or `create-b4-app` runtime dependency.
 
 ## OSSF Scorecard Code-Review credit
 

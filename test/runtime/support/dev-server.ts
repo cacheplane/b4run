@@ -58,7 +58,7 @@ export async function appendDevServerTranscript(
   await appendFile(
     transcriptPath,
     [
-      "$ dawn dev",
+      "$ b4 dev",
       devServer.stdout.trimEnd(),
       devServer.stderr.trimEnd().length > 0 ? "[stderr]" : "",
       devServer.stderr.trimEnd(),
@@ -114,7 +114,7 @@ export async function startDevServer(options: {
   readonly env?: Readonly<Record<string, string>>
   readonly port?: number
 }): Promise<DevServerHandle> {
-  const args = ["exec", "dawn", "dev"]
+  const args = ["exec", "b4", "dev"]
 
   if (typeof options.port === "number") {
     args.push("--port", String(options.port))
@@ -232,7 +232,7 @@ export class DevServerHandle {
   }
 
   readyCount(): number {
-    return countOccurrences(this.stdout, "Dawn dev ready at")
+    return countOccurrences(this.stdout, "B4.run dev ready at")
   }
 
   async waitForNextReady(
@@ -272,7 +272,7 @@ export class DevServerHandle {
     }
 
     throw new Error(
-      `Timed out waiting for dawn dev readiness\nSTDOUT:\n${this.stdout}\nSTDERR:\n${this.stderr}`,
+      `Timed out waiting for b4 dev readiness\nSTDOUT:\n${this.stdout}\nSTDERR:\n${this.stderr}`,
     )
   }
 
@@ -299,7 +299,7 @@ export class DevServerHandle {
     }
 
     throw new Error(
-      `Timed out waiting for dawn dev to become not-ready\nSTDOUT:\n${this.stdout}\nSTDERR:\n${this.stderr}`,
+      `Timed out waiting for b4 dev to become not-ready\nSTDOUT:\n${this.stdout}\nSTDERR:\n${this.stderr}`,
     )
   }
 
@@ -327,7 +327,7 @@ export class DevServerHandle {
     }
 
     throw new Error(
-      `Timed out waiting for dawn dev URL\nSTDOUT:\n${this.stdout}\nSTDERR:\n${this.stderr}`,
+      `Timed out waiting for b4 dev URL\nSTDOUT:\n${this.stdout}\nSTDERR:\n${this.stderr}`,
     )
   }
 }

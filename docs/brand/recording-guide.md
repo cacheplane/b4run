@@ -1,7 +1,7 @@
-# Dawn product-loop recording guide
+# B4.run product-loop recording guide
 
 This guide rebuilds the silent flagship product-loop video, its three proof
-clips, the GitHub/npm GIF, and four poster fallbacks from the current local Dawn
+clips, the GitHub/npm GIF, and four poster fallbacks from the current local B4.run
 source tree.
 
 ## Prerequisites
@@ -26,7 +26,7 @@ pnpm media:readme:capture
 The command checks Node and pnpm before it builds the repository, creates the
 current research starter in a temporary directory with `--mode internal`,
 installs it, and runs the generated root `npm test` command. It then starts
-aimock, the Dawn server, and the generated Workbench on assigned loopback ports
+aimock, the B4.run server, and the generated Workbench on assigned loopback ports
 and records at 1440×810. ffmpeg is exercised when encoding begins; ffprobe is
 exercised by the local checker, so a missing executable, encoder, or probe fails
 at that boundary with the command's diagnostic.
@@ -46,7 +46,7 @@ After Playwright finalizes its recording and the capture summary is published,
 ffmpeg creates four timelines:
 
 1. `product-loop` — **Author** source → **Prove** test → **Run** Workbench →
-   Close, 24 seconds.
+   Close, 25 seconds.
 2. `author` — **Author**, the generated route and shared tool, 9 seconds.
 3. `test` — **Prove**, the real offline passing result, 9 seconds.
 4. `run` — **Run**, completed Workbench run → browser reload → restored
@@ -61,7 +61,7 @@ always identify the same act.
 The raw scenes are shorter than their delivery windows. The encoder uses only
 frozen-frame holds around actual captured frames to make source, terminal, and
 restored transcript text legible. It does not synthesize product events. The Run
-clip demonstrates browser-reload restoration while the same Dawn server remains
+clip demonstrates browser-reload restoration while the same B4.run server remains
 running; it does not claim a server restart.
 
 ## Validate
@@ -127,13 +127,13 @@ URL remains uncertain; the catalog is again withheld. Use exactly one
 credential mode: the preferred short-lived `VERCEL_OIDC_TOKEN` together with
 `BLOB_STORE_ID`, or the legacy `BLOB_READ_WRITE_TOKEN`. The OIDC store ID and
 the store ID encoded in a canonical legacy token must both match the authorized
-Dawn media store. In either mode, `DAWN_MEDIA_PUBLIC_BASE_URL` is pinned to that
+B4.run media store. In either mode, `B4_MEDIA_PUBLIC_BASE_URL` is pinned to that
 store's exact public origin. Credential values with surrounding whitespace are
 rejected before local validation or remote I/O.
 
 Vercel issues local OIDC tokens only for the development environment through
 `vercel env pull`, even when another environment was previously pulled. The
-Dawn Blob store connection must therefore include the development environment
+B4.run Blob store connection must therefore include the development environment
 for local publication. Pull the token into an untracked or temporary environment
 file, export it without printing it, and remove that file after the command. The
 preferred invocation is:
@@ -141,7 +141,7 @@ preferred invocation is:
 ```bash
 VERCEL_OIDC_TOKEN='<short-lived OIDC token>' \
 BLOB_STORE_ID='store_9RQ8eZyGheVy0wOp' \
-DAWN_MEDIA_PUBLIC_BASE_URL='https://9rq8ezyghevy0wop.public.blob.vercel-storage.com' \
+B4_MEDIA_PUBLIC_BASE_URL='https://9rq8ezyghevy0wop.public.blob.vercel-storage.com' \
 pnpm media:readme:upload -- --apply
 ```
 

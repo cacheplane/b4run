@@ -14,8 +14,8 @@ test("recovery policy contract exists", () => {
 test("production admission is explicit and its probe closure excludes the policy self-hash", async () => {
   const policy = await fixture()
   const parsed = policyModule.parseRecoveryPolicy(policyModule.canonicalPolicyBytes(policy))
-  assert.equal(parsed.status, "ADMITTED")
-  assert.match(parsed.verifierClosure.sha256, /^[a-f0-9]{64}$/u)
+  assert.equal(parsed.status, "DORMANT")
+  assert.equal(parsed.verifierClosure.sha256, null)
   assert.deepEqual(parsed.receiptVersions, [2])
   assert.deepEqual(
     parsed.lanes.map((x) => x.name),
@@ -225,7 +225,7 @@ test("only recognized metadata-present tarball propagation is retried", async ()
 
 test("pinned current probe closure is complete and v2 obligations include explicit aggregate cleanup and registry checks", async () => {
   const policy = await fixture()
-  assert.match(policy.verifierClosure.sha256, /^[a-f0-9]{64}$/u)
+  assert.equal(policy.verifierClosure.sha256, null)
   assert.ok(policy.lanes.every((lane) => lane.requiredChecks.includes("cleanup")))
   assert.ok(policy.lanes[0].requiredChecks.includes("registry-packages"))
   assert.ok(policy.verifierClosure.inputs.includes("scripts/release/recovery/schema.mjs"))
@@ -364,50 +364,17 @@ test("reviewed probe inventory equals independently discovered local executable 
   }
   const policy = await fixture()
   assert.deepEqual(policy.verifierClosure.inputs, [...seen].sort())
-  // The complete source graph remains exact. An adopted verifier repair must
-  // independently validate its immutable baseline and explicit source manifest.
-  const { execFileSync } = await import("node:child_process")
-  const { validateRecoveryVerifier } = await import("../recovery/authority.mjs")
-  const controllerSha = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: root,
-    encoding: "utf8",
-  }).trim()
-  const candidate = JSON.parse(
-    await readFile(path.join(root, "scripts/release/recovery-adoptions/v0.8.24.json"), "utf8"),
-  ).candidate
-  const admission = await validateRecoveryVerifier(
-    {
-      candidate,
-      controllerSha,
-      policy,
-      rawPolicy: await readFile(path.join(root, "scripts/release/recovery/policy.json"), "utf8"),
-    },
-    {
-      showFile: ({ ref, path: file }) =>
-        ref === controllerSha
-          ? readFile(path.join(root, file), "utf8")
-          : execFileSync("git", ["show", `${ref}:${file}`], {
-              cwd: root,
-              encoding: "utf8",
-              maxBuffer: 8 * 1024 * 1024,
-            }),
-      isAncestor: ({ ancestor, descendant }) => {
-        try {
-          execFileSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], { cwd: root })
-          return true
-        } catch {
-          return false
-        }
-      },
-    },
+  // Dormancy keeps the full independently discovered closure without admitting
+  // its bytes. The original Dawn admission is checked at its frozen source in
+  // recovery-admission-records.test.mjs; it cannot authorize this closure.
+  assert.equal(policy.status, "DORMANT")
+  assert.deepEqual(policy.fence.contracts, [])
+  assert.equal(policy.verifierClosure.sha256, null)
+  const actual = await policyModule.hashVerifierClosure(
+    { controllerSha: "a".repeat(40), inputs: policy.verifierClosure.inputs },
+    ({ path: file }) => readFile(path.join(root, file), "utf8"),
   )
-  assert.equal(
-    admission.actualClosureSha256,
-    await policyModule.hashVerifierClosure(
-      { controllerSha, inputs: policy.verifierClosure.inputs },
-      ({ path: file }) => readFile(path.join(root, file), "utf8"),
-    ),
-  )
+  assert.match(actual, /^[a-f0-9]{64}$/u)
 })
 
 test("policy source permits reviewable whitespace while its canonical token identity rejects duplicates", async () => {
@@ -489,7 +456,7 @@ test("real GitHub primary-rate-limit responses retry within policy while ordinar
     let reads = 0
     const reader = createGitHubReader({
       owner: "example",
-      repo: "dawn",
+      repo: "b4",
       fetchImpl: async () => {
         reads++
         return new Response(
@@ -522,7 +489,7 @@ test("real adapter TIMEOUT is terminal when an abort-ignoring fetch has not sett
     maximumActive = 0
   const reader = createGitHubReader({
     owner: "example",
-    repo: "dawn",
+    repo: "b4",
     timeoutMs: 1,
     fetchImpl: () => {
       reads++
@@ -563,7 +530,7 @@ test("stalled transient HTTP bodies cannot become retryable server or throttle r
       maximumActive = 0
     const reader = createGitHubReader({
       owner: "example",
-      repo: "dawn",
+      repo: "b4",
       timeoutMs: 1,
       fetchImpl: async () => ({
         status,

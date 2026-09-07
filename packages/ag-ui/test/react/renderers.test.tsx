@@ -1,10 +1,10 @@
 import { isValidElement, type ReactElement, type ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { DAWN_PLAN_ACTIVITY_TYPE, DAWN_SUBAGENT_ACTIVITY_TYPE } from "../../src/activities.js"
+import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "../../src/activities.js"
 import { ActivityChecklist } from "../../src/react/ActivityChecklist.js"
 import { PlanActivityCard } from "../../src/react/PlanActivityCard.js"
-import { dawnActivityRenderers } from "../../src/react/renderers.js"
+import { b4ActivityRenderers } from "../../src/react/renderers.js"
 import { SubagentActivityCard } from "../../src/react/SubagentActivityCard.js"
 import {
   planActivityContentSchema,
@@ -279,7 +279,7 @@ describe("subagent activity card", () => {
     )
 
     expect(markup).toContain('role="alert"')
-    expect(markup).toContain("dawn-activity__error")
+    expect(markup).toContain("b4-activity__error")
     expect(markup).toContain(boundedError)
   })
 
@@ -351,7 +351,7 @@ describe("activity card quality boundaries", () => {
     )
 
     expect(markup).toContain(longContent)
-    expect(markup.match(/dawn-activity__item-label/g)).toHaveLength(1)
+    expect(markup.match(/b4-activity__item-label/g)).toHaveLength(1)
   })
 
   it("protects long unbroken subagent and tool names from overflowing", () => {
@@ -371,8 +371,8 @@ describe("activity card quality boundaries", () => {
 
     expect(markup).toContain(longName)
     expect(markup).toContain(longToolName)
-    expect(markup.match(/dawn-activity__title/g)).toHaveLength(1)
-    expect(markup.match(/dawn-activity__item-label/g)).toHaveLength(1)
+    expect(markup.match(/b4-activity__title/g)).toHaveLength(1)
+    expect(markup.match(/b4-activity__item-label/g)).toHaveLength(1)
   })
 
   it("retains explicit list semantics for the markerless checklist", () => {
@@ -402,9 +402,9 @@ describe("activity card quality boundaries", () => {
 
 describe("activity renderer registry", () => {
   it("registers the public activity types in order", () => {
-    expect(dawnActivityRenderers.map((renderer) => renderer.activityType)).toEqual([
-      DAWN_PLAN_ACTIVITY_TYPE,
-      DAWN_SUBAGENT_ACTIVITY_TYPE,
+    expect(b4ActivityRenderers.map((renderer) => renderer.activityType)).toEqual([
+      B4_PLAN_ACTIVITY_TYPE,
+      B4_SUBAGENT_ACTIVITY_TYPE,
     ])
   })
 
@@ -420,7 +420,7 @@ describe("activity renderer registry", () => {
       },
     ] as const
 
-    dawnActivityRenderers.forEach((renderer, index) => {
+    b4ActivityRenderers.forEach((renderer, index) => {
       const result = renderer.content["~standard"].validate(representativeContent[index])
       expect(result).not.toBeInstanceOf(Promise)
       if (result instanceof Promise) throw new Error("activity validation must be synchronous")

@@ -97,11 +97,11 @@ test("candidate discovery rejects nonuniform deltas and package-set drift", asyn
     {
       status: "valid",
       packages: [
-        { name: "@dawn-ai/a", version: "0.8.21" },
-        { name: "@dawn-ai/b", version: "0.8.20" },
+        { name: "@b4run/a", version: "0.8.21" },
+        { name: "@b4run/b", version: "0.8.20" },
       ],
     },
-    { status: "valid", packages: [{ name: "@dawn-ai/a", version: "0.8.21" }] },
+    { status: "valid", packages: [{ name: "@b4run/a", version: "0.8.21" }] },
   ]) {
     let reads = 0
     const inventory = {
@@ -132,7 +132,7 @@ test("current-main inventory validation fails closed for every release policy de
     let assertions = 0
     let stderr = ""
     const code = await runShadowReconcile({
-      argv: ["--repository", "cacheplane/dawnai", "--format", "json"],
+      argv: ["--repository", "cacheplane/b4-run", "--format", "json"],
       env: {},
       stdout: { write: assert.fail },
       stderr: { write: (value) => (stderr += value) },
@@ -178,7 +178,7 @@ test("current-main fallback is limited to typed ref absence and reports exact se
     const calls = []
     let output = ""
     const code = await runShadowReconcile({
-      argv: ["--repository", "cacheplane/dawnai", "--format", "json"],
+      argv: ["--repository", "cacheplane/b4-run", "--format", "json"],
       env: {},
       stdout: { write: (value) => (output += value) },
       stderr: { write: assert.fail },
@@ -217,7 +217,7 @@ test("current-main does not fall back on policy, parse, auth, or unrelated Git f
       },
     })
     const code = await runShadowReconcile({
-      argv: ["--repository", "cacheplane/dawnai", "--format", "json"],
+      argv: ["--repository", "cacheplane/b4-run", "--format", "json"],
       env: {},
       stdout: { write: assert.fail },
       stderr: { write: (value) => (stderr += value) },
@@ -950,7 +950,7 @@ test("live 0.8.21 reporting preserves the frozen incident run attempt", async ()
   const code = await runShadowReconcile({
     argv: [
       "--repository",
-      "cacheplane/dawnai",
+      "cacheplane/b4-run",
       "--version",
       "0.8.21",
       "--commit-sha",
@@ -1015,7 +1015,7 @@ test("live 0.8.21 reporting preserves the frozen incident run attempt", async ()
       },
       validateReleaseInventory() {
         return {
-          packages: ["@dawn-ai/sdk"],
+          packages: ["@b4run/sdk"],
           version: "0.8.21",
           structuralErrors: [],
           workspaceDuplicates: [],
@@ -1024,7 +1024,7 @@ test("live 0.8.21 reporting preserves the frozen incident run attempt", async ()
           unknownMembers: [],
           versionMismatches: [],
           extra: [],
-          missing: ["@dawn-ai/sandbox"],
+          missing: ["@b4run/sandbox"],
         }
       },
     },
@@ -1070,9 +1070,9 @@ test("live skipped history uses independent latest metadata for audit-only super
 })
 
 test("historical package facts reject mismatched or missing exact package identity", async () => {
-  const base = historicalPresentPackage("@dawn-ai/sdk", "0.8.19")
+  const base = historicalPresentPackage("@b4run/sdk", "0.8.19")
   for (const item of [
-    { name: "name mismatch", package: { ...base.package, name: "@dawn-ai/core" } },
+    { name: "name mismatch", package: { ...base.package, name: "@b4run/core" } },
     { name: "version mismatch", package: { ...base.package, version: "0.8.18" } },
     { name: "name missing", package: withoutFields(base.package, ["name"]) },
     { name: "version missing", package: withoutFields(base.package, ["version"]) },
@@ -1096,7 +1096,7 @@ test("historical package facts reject mismatched or missing exact package identi
     assert.deepEqual(
       report.historicalFacts.npmPackages[0],
       {
-        name: "@dawn-ai/sdk",
+        name: "@b4run/sdk",
         status: "ERROR",
         code: "PACKAGE_IDENTITY_MISMATCH",
         version: null,
@@ -1248,7 +1248,7 @@ function candidate() {
 function releaseInventory(version) {
   return {
     status: "valid",
-    packages: ["@dawn-ai/a", "@dawn-ai/b"].map((name) => ({ name, version })),
+    packages: ["@b4run/a", "@b4run/b"].map((name) => ({ name, version })),
   }
 }
 
@@ -1257,12 +1257,12 @@ function managedInventory() {
     status: "valid",
     manifestSha256: "e".repeat(64),
     requiredSmokeLanes: [],
-    packages: ["@dawn-ai/a", "@dawn-ai/b"].map((name, index) => ({
+    packages: ["@b4run/a", "@b4run/b"].map((name, index) => ({
       name,
       version: "0.8.21",
-      filename: `dawn-ai-${name.endsWith("a") ? "a" : "b"}-0.8.21.tgz`,
+      filename: `b4run-${name.endsWith("a") ? "a" : "b"}-0.8.21.tgz`,
       tarballSha256: String(index + 1).repeat(64),
-      attestationFilename: `dawn-ai-${name.endsWith("a") ? "a" : "b"}-0.8.21.tgz.intoto.jsonl`,
+      attestationFilename: `b4run-${name.endsWith("a") ? "a" : "b"}-0.8.21.tgz.intoto.jsonl`,
       attestationSha256: String(index + 3).repeat(64),
       integrity: `sha512-${name.endsWith("a") ? "a" : "b"}`,
     })),
@@ -1405,7 +1405,7 @@ function currentMainDependencies({ scenario, calls }) {
       return {}
     },
     assertValidReleaseInventory() {
-      return { packages: ["@dawn-ai/sdk"], version: "0.8.21" }
+      return { packages: ["@b4run/sdk"], version: "0.8.21" }
     },
     async discoverShadowCandidate({ ref }) {
       calls.push(["discover", ref])
@@ -1466,7 +1466,7 @@ function historicalLiveDependencies({
     },
     validateReleaseInventory() {
       return {
-        packages: ["@dawn-ai/sdk"],
+        packages: ["@b4run/sdk"],
         version,
         structuralErrors: [],
         workspaceDuplicates: [],

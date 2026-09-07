@@ -1,114 +1,114 @@
-# @dawn-ai/ag-ui
+# @b4run/ag-ui
 
 ## Use this when
 
-Use this package when a web client speaks AG-UI and your Dawn route emits Dawn stream chunks. Most applications should start with [AG-UI and Web Clients](/docs/ag-ui); use this reference when you are wiring a custom transport or client adapter.
+Use this package when a web client speaks AG-UI and your B4.run route emits B4.run stream chunks. Most applications should start with [AG-UI and Web Clients](/docs/ag-ui); use this reference when you are wiring a custom transport or client adapter.
 
 ## Install and import
 
 ```bash
-pnpm add @dawn-ai/ag-ui
+pnpm add @b4run/ag-ui
 ```
 
 ```ts
-import { fromRunAgentInput, toAguiEvents } from "@dawn-ai/ag-ui"
-import { encodeAgUiSse } from "@dawn-ai/ag-ui/sse"
+import { fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
+import { encodeAgUiSse } from "@b4run/ag-ui/sse"
 ```
 
 In a React client, and only there, import the renderers from the `./react` subpath:
 
 ```tsx
-import { dawnActivityRenderers } from "@dawn-ai/ag-ui/react"
+import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 ```
 
 ## Compatibility and audience
 
 | Surface | Runtime | Purity | Audience | Stability |
 |---|---|---|---|---|
-| `@dawn-ai/ag-ui` | edge-safe | not-claimed | integration | supported |
-| `@dawn-ai/ag-ui/sse` | edge-safe | not-claimed | integration | supported |
-| `@dawn-ai/ag-ui/react` | node-only | not-claimed | application | supported |
-| `@dawn-ai/ag-ui/react/styles.css` | n/a | n/a | integration | supported |
+| `@b4run/ag-ui` | edge-safe | not-claimed | integration | supported |
+| `@b4run/ag-ui/sse` | edge-safe | not-claimed | integration | supported |
+| `@b4run/ag-ui/react` | node-only | not-claimed | application | supported |
+| `@b4run/ag-ui/react/styles.css` | n/a | n/a | integration | supported |
 
 The adapter translates protocol data; it does not authenticate a caller or make client-supplied thread, run, state, tool, or context data authoritative.
 
-`@dawn-ai/ag-ui/react` is the client-side entry: it ships ready-made CopilotKit renderers for Dawn's built-in orchestration activities, and React and `@copilotkit/react-core` are optional peer dependencies, so a server-only consumer that imports only the root or `/sse` entry installs neither. Its runtime is recorded as `node-only` because Dawn's edge guard requires an import graph free of unguarded Node globals, and React's own JSX runtime reaches for `process.env.NODE_ENV`. The entry is meant for browser bundles, where an application bundler substitutes that value as usual; it simply cannot carry Dawn's stricter edge-safe claim.
+`@b4run/ag-ui/react` is the client-side entry: it ships ready-made CopilotKit renderers for B4.run's built-in orchestration activities, and React and `@copilotkit/react-core` are optional peer dependencies, so a server-only consumer that imports only the root or `/sse` entry installs neither. Its runtime is recorded as `node-only` because B4.run's edge guard requires an import graph free of unguarded Node globals, and React's own JSX runtime reaches for `process.env.NODE_ENV`. The entry is meant for browser bundles, where an application bundler substitutes that value as usual; it simply cannot carry B4.run's stricter edge-safe claim.
 
 ## Public exports
 
-### `@dawn-ai/ag-ui`
+### `@b4run/ag-ui`
 
 | Export | Responsibility |
 |---|---|
 | `createCounterIdFactory` | Create deterministic IDs for tests and reproducible adapters. |
 | `createDefaultIdFactory` | Create unique runtime event IDs. |
-| `DAWN_PLAN_ACTIVITY_TYPE` | Identify Dawn plan activity snapshots as `dawn.plan`. |
-| `DAWN_SUBAGENT_ACTIVITY_TYPE` | Identify Dawn subagent activity snapshots as `dawn.subagent`. |
-| `DawnPlanActivityContent` | Describe the complete public plan snapshot. |
-| `DawnSubagentActivityContent` | Describe allowlisted subagent progress. |
+| `B4_PLAN_ACTIVITY_TYPE` | Identify B4.run plan activity snapshots as `b4.plan`. |
+| `B4_SUBAGENT_ACTIVITY_TYPE` | Identify B4.run subagent activity snapshots as `b4.subagent`. |
+| `B4PlanActivityContent` | Describe the complete public plan snapshot. |
+| `B4SubagentActivityContent` | Describe allowlisted subagent progress. |
 | `IdFactory` | Define event-ID generation. |
-| `DawnMessage` | Describe a normalized inbound message. |
-| `DawnRunInput` | Describe normalized Dawn run input. |
-| `fromRunAgentInput` | Translate AG-UI run input to Dawn input. |
-| `DawnInterruptEnvelope` | Describe a Dawn interrupt payload. |
-| `DawnResumeRequest` | Describe one resume decision. |
+| `B4Message` | Describe a normalized inbound message. |
+| `B4RunInput` | Describe normalized B4.run run input. |
+| `fromRunAgentInput` | Translate AG-UI run input to B4.run input. |
+| `B4InterruptEnvelope` | Describe a B4.run interrupt payload. |
+| `B4ResumeRequest` | Describe one resume decision. |
 | `AguiOutboundEvent` | Name events emitted by the outbound mapper. |
 | `ToAguiOptions` | Configure outbound event IDs. |
-| `toAguiEvents` | Translate a Dawn stream into AG-UI events. |
-| `DawnAgentStreamChunk` | Describe accepted Dawn stream chunks. |
+| `toAguiEvents` | Translate a B4.run stream into AG-UI events. |
+| `B4AgentStreamChunk` | Describe accepted B4.run stream chunks. |
 | `RunContext` | Supply thread and run IDs for outbound events. |
 
-### `@dawn-ai/ag-ui/sse`
+### `@b4run/ag-ui/sse`
 
 | Export | Responsibility |
 |---|---|
 | `encodeAgUiSse` | Encode one AG-UI event as an SSE frame. |
 
-### `@dawn-ai/ag-ui/react`
+### `@b4run/ag-ui/react`
 
 | Export | Responsibility |
 |---|---|
-| `dawnActivityRenderers` | Register both built-in Dawn activity renderers with CopilotKit's `renderActivityMessages`. |
-| `dawnPlanActivityRenderer` | Register only the plan activity renderer. |
-| `dawnSubagentActivityRenderer` | Register only the subagent activity renderer. |
+| `b4ActivityRenderers` | Register both built-in B4.run activity renderers with CopilotKit's `renderActivityMessages`. |
+| `b4PlanActivityRenderer` | Register only the plan activity renderer. |
+| `b4SubagentActivityRenderer` | Register only the subagent activity renderer. |
 | `PlanActivityCard` | Present one plan snapshot from its `content`. |
 | `SubagentActivityCard` | Present one subagent snapshot from its `content`. |
 | `ActivityChecklist` | Present a todo list from `todos`, truncated at `limit`. |
 | `planActivityContentSchema` | Validate plan activity content in a custom renderer. |
 | `subagentActivityContentSchema` | Validate subagent activity content in a custom renderer. |
 | `SubagentActivityContentOutput` | Describe parsed subagent content, which admits an explicit `undefined` `todos`. |
-| `DawnActivityClassNames` | Name the per-part classes a card appends to its defaults (customization rung 2). |
-| `DawnActivityComponents` | Name the leaf slots (`TodoRow`, `ToolRow`) a card lets a consumer replace (customization rung 3). |
-| `DawnTodoRowProps` | Describe the props passed to a replacement `TodoRow`. |
-| `DawnToolRowProps` | Describe the props passed to a replacement `ToolRow`. |
+| `B4ActivityClassNames` | Name the per-part classes a card appends to its defaults (customization rung 2). |
+| `B4ActivityComponents` | Name the leaf slots (`TodoRow`, `ToolRow`) a card lets a consumer replace (customization rung 3). |
+| `B4TodoRowProps` | Describe the props passed to a replacement `TodoRow`. |
+| `B4ToolRowProps` | Describe the props passed to a replacement `ToolRow`. |
 | `cx` | Join a package default class with an optional consumer class (customization rung 4: what an ejected card imports in place of its internal `./parts.js` path). |
 
-`dawnActivityRenderers` is the drop-in default; the two individual renderers exist for clients that register only one of them or mix them with their own. The cards are plain React components and need no CopilotKit. `SubagentActivityContentOutput` is wider than the published `DawnSubagentActivityContent` in exactly one way: this package compiles with `exactOptionalPropertyTypes` and zod does not, so a parsed value can carry an explicit `todos: undefined`. `ActivityChecklist`, `PlanActivityCard`, and `SubagentActivityCard` all accept optional `classNames` and `components` props built from these two types; see [`@dawn-ai/ag-ui/react/styles.css`](#dawn-aiag-uireactstylescss) below for rung 1 and the [package README](https://github.com/cacheplane/dawnai/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) for a runnable example of every rung.
+`b4ActivityRenderers` is the drop-in default; the two individual renderers exist for clients that register only one of them or mix them with their own. The cards are plain React components and need no CopilotKit. `SubagentActivityContentOutput` is wider than the published `B4SubagentActivityContent` in exactly one way: this package compiles with `exactOptionalPropertyTypes` and zod does not, so a parsed value can carry an explicit `todos: undefined`. `ActivityChecklist`, `PlanActivityCard`, and `SubagentActivityCard` all accept optional `classNames` and `components` props built from these two types; see [`@b4run/ag-ui/react/styles.css`](#b4runag-uireactstylescss) below for rung 1 and the [package README](https://github.com/cacheplane/b4-run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) for a runnable example of every rung.
 
-### `@dawn-ai/ag-ui/react/styles.css`
+### `@b4run/ag-ui/react/styles.css`
 
 This subpath exposes the activity cards' default appearance as a stylesheet asset. It has no TypeScript export inventory, runtime compatibility classification, or purity claim; a bundler resolves it and it is never evaluated as JavaScript. Import it once, wherever your application imports its global CSS:
 
 ```ts
-import "@dawn-ai/ag-ui/react/styles.css"
+import "@b4run/ag-ui/react/styles.css"
 ```
 
-The sheet is optional — the cards render without it — and every rule that styles an element is scoped to the `dawn-activity` prefix, so it cannot restyle the rest of an application; it additionally declares `--dawn-activity-*` custom properties on `:root`. Restyle it by overriding its custom properties in your own CSS: `--dawn-activity-surface`, `--dawn-activity-border`, `--dawn-activity-text`, `--dawn-activity-muted`, `--dawn-activity-running`, `--dawn-activity-complete`, `--dawn-activity-failed`, `--dawn-activity-badge-bg`, `--dawn-activity-radius`, `--dawn-activity-gap`, `--dawn-activity-font-size`, `--dawn-activity-margin`, `--dawn-activity-padding`, and `--dawn-activity-header-weight`. `--dawn-activity-badge-bg` defaults to `var(--dawn-activity-border)`, so the depth badge follows the palette unless it is pointed elsewhere. Put the overrides in plain, unlayered CSS — a Tailwind `@theme` block is not a substitute, because token values declared there lose to this sheet. A dark palette applies under `prefers-color-scheme: dark`; setting `data-dawn-theme="light"` or `data-dawn-theme="dark"` on the root element pins one explicitly (the selectors match only `:root`, not an arbitrary ancestor). All three token blocks are wrapped in `:where()`, so they carry no specificity and an application's own `:root` override wins in every theme regardless of stylesheet order.
+The sheet is optional — the cards render without it — and every rule that styles an element is scoped to the `b4-activity` prefix, so it cannot restyle the rest of an application; it additionally declares `--b4-activity-*` custom properties on `:root`. Restyle it by overriding its custom properties in your own CSS: `--b4-activity-surface`, `--b4-activity-border`, `--b4-activity-text`, `--b4-activity-muted`, `--b4-activity-running`, `--b4-activity-complete`, `--b4-activity-failed`, `--b4-activity-badge-bg`, `--b4-activity-radius`, `--b4-activity-gap`, `--b4-activity-font-size`, `--b4-activity-margin`, `--b4-activity-padding`, and `--b4-activity-header-weight`. `--b4-activity-badge-bg` defaults to `var(--b4-activity-border)`, so the depth badge follows the palette unless it is pointed elsewhere. Put the overrides in plain, unlayered CSS — a Tailwind `@theme` block is not a substitute, because token values declared there lose to this sheet. A dark palette applies under `prefers-color-scheme: dark`; setting `data-b4-theme="light"` or `data-b4-theme="dark"` on the root element pins one explicitly (the selectors match only `:root`, not an arbitrary ancestor). All three token blocks are wrapped in `:where()`, so they carry no specificity and an application's own `:root` override wins in every theme regardless of stylesheet order.
 
 ## Key contracts
 
 ### Activity identifiers and payloads
 
-```ts api-contract="@dawn-ai/ag-ui#.:DAWN_PLAN_ACTIVITY_TYPE"
-export declare const DAWN_PLAN_ACTIVITY_TYPE: "dawn.plan"
+```ts api-contract="@b4run/ag-ui#.:B4_PLAN_ACTIVITY_TYPE"
+export declare const B4_PLAN_ACTIVITY_TYPE: "b4.plan"
 ```
 
-```ts api-contract="@dawn-ai/ag-ui#.:DAWN_SUBAGENT_ACTIVITY_TYPE"
-export declare const DAWN_SUBAGENT_ACTIVITY_TYPE: "dawn.subagent"
+```ts api-contract="@b4run/ag-ui#.:B4_SUBAGENT_ACTIVITY_TYPE"
+export declare const B4_SUBAGENT_ACTIVITY_TYPE: "b4.subagent"
 ```
 
-```ts api-contract="@dawn-ai/ag-ui#.:DawnPlanActivityContent"
-export interface DawnPlanActivityContent {
+```ts api-contract="@b4run/ag-ui#.:B4PlanActivityContent"
+export interface B4PlanActivityContent {
   readonly todos: ReadonlyArray<{
     readonly content: string
     readonly status: "pending" | "in_progress" | "completed"
@@ -116,12 +116,12 @@ export interface DawnPlanActivityContent {
 }
 ```
 
-```ts api-contract="@dawn-ai/ag-ui#.:DawnSubagentActivityContent"
-export interface DawnSubagentActivityContent {
+```ts api-contract="@b4run/ag-ui#.:B4SubagentActivityContent"
+export interface B4SubagentActivityContent {
   readonly name: string
   readonly depth: number
   readonly status: "running" | "completed" | "failed"
-  readonly todos?: DawnPlanActivityContent["todos"]
+  readonly todos?: B4PlanActivityContent["todos"]
   readonly tools: ReadonlyArray<{
     readonly name: string
     readonly status: "running" | "completed" | "incomplete"
@@ -133,7 +133,7 @@ export interface DawnSubagentActivityContent {
 
 #### Behavior contract `ag-ui.activities.plan-snapshot`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/ag-ui/test/outbound.test.ts","testNames":["plan activity does not flush an open text message"]}] */}
-A valid plan update becomes a complete replacement snapshot with activity type `dawn.plan` and the stable message ID `dawn:plan:<runId>` without breaking an open assistant text message.
+A valid plan update becomes a complete replacement snapshot with activity type `b4.plan` and the stable message ID `b4:plan:<runId>` without breaking an open assistant text message.
 
 #### Behavior contract `ag-ui.activities.subagent-privacy`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/ag-ui/test/activities.test.ts","testNames":["retains only the five newest tool summaries while counting each id once","completes once, marks running tools incomplete, and freezes terminal state","caps failure errors at 400 characters","consumes child messages and exposes only allowlisted public fields"]}] */}
@@ -143,54 +143,54 @@ A subagent snapshot exposes allowlisted progress only: name, depth, status, opti
 
 Supply an `IdFactory` when emitted IDs must be deterministic. Production integrations normally accept the default factory.
 
-```ts api-contract="@dawn-ai/ag-ui#.:ToAguiOptions"
+```ts api-contract="@b4run/ag-ui#.:ToAguiOptions"
 export interface ToAguiOptions {
   readonly idFactory?: IdFactory
 }
 ```
 
-**Fields: `@dawn-ai/ag-ui#.:ToAguiOptions`**
+**Fields: `@b4run/ag-ui#.:ToAguiOptions`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly idFactory` | `IdFactory` | no | Override outbound event-ID generation. |
 
 ### Inbound and outbound calls
 
-```ts api-contract="@dawn-ai/ag-ui#.:DawnRunInput"
-export interface DawnRunInput {
-  readonly messages: DawnMessage[]
-  readonly resume?: DawnResumeRequest[]
+```ts api-contract="@b4run/ag-ui#.:B4RunInput"
+export interface B4RunInput {
+  readonly messages: B4Message[]
+  readonly resume?: B4ResumeRequest[]
   readonly raw: RunAgentInput
 }
 ```
 
-**Fields: `@dawn-ai/ag-ui#.:DawnRunInput`**
+**Fields: `@b4run/ag-ui#.:B4RunInput`**
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `readonly messages` | `DawnMessage[]` | yes | Supply normalized messages. |
-| `readonly resume` | `DawnResumeRequest[]` | no | Supply normalized resume decisions. |
+| `readonly messages` | `B4Message[]` | yes | Supply normalized messages. |
+| `readonly resume` | `B4ResumeRequest[]` | no | Supply normalized resume decisions. |
 | `readonly raw` | `RunAgentInput` | yes | Preserve the untouched AG-UI input. |
 
-```ts api-contract="@dawn-ai/ag-ui#.:RunContext"
+```ts api-contract="@b4run/ag-ui#.:RunContext"
 export interface RunContext {
   readonly threadId: string
   readonly runId: string
 }
 ```
 
-```ts api-contract="@dawn-ai/ag-ui#.:fromRunAgentInput"
-export declare function fromRunAgentInput(input: RunAgentInput): DawnRunInput
+```ts api-contract="@b4run/ag-ui#.:fromRunAgentInput"
+export declare function fromRunAgentInput(input: RunAgentInput): B4RunInput
 ```
 
-```ts api-contract="@dawn-ai/ag-ui#.:toAguiEvents"
+```ts api-contract="@b4run/ag-ui#.:toAguiEvents"
 export declare function toAguiEvents(
-  chunks: AsyncIterable<DawnAgentStreamChunk>,
+  chunks: AsyncIterable<B4AgentStreamChunk>,
   ctx: RunContext,
   options?: ToAguiOptions,
 ): AsyncGenerator<AguiOutboundEvent>
 ```
 
-```ts api-contract="@dawn-ai/ag-ui#./sse:encodeAgUiSse"
+```ts api-contract="@b4run/ag-ui#./sse:encodeAgUiSse"
 export declare function encodeAgUiSse(event: BaseEvent, accept?: string): string
 ```
 
@@ -199,8 +199,8 @@ export declare function encodeAgUiSse(event: BaseEvent, accept?: string): string
 toAguiEvents turns an upstream throw into a final `RUN_ERROR` event and closes an open text frame instead of throwing to the consumer.
 
 #### Behavior contract `ag-ui.inbound.lossless-input`
-{/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/ag-ui/test/inbound.test.ts","testNames":["maps user and assistant messages to Dawn messages","maps a resume array to Dawn resume requests","omits the resume property for an empty resume array","raw preserves the original input for tools/state/context access"]}] */}
-fromRunAgentInput maps supported messages and resume entries into Dawn shapes, omits resume for an empty array, and preserves the untouched AG-UI input under raw for tools, state, and context.
+{/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/ag-ui/test/inbound.test.ts","testNames":["maps user and assistant messages to B4.run messages","maps a resume array to B4.run resume requests","omits the resume property for an empty resume array","raw preserves the original input for tools/state/context access"]}] */}
+fromRunAgentInput maps supported messages and resume entries into B4.run shapes, omits resume for an empty array, and preserves the untouched AG-UI input under raw for tools, state, and context.
 
 ### Stream boundaries
 
@@ -211,10 +211,10 @@ Unknown chunk kinds are ignored after closing an open text frame. A stream that 
 ## Examples and related guides
 
 ```ts
-import { type DawnAgentStreamChunk, toAguiEvents } from "@dawn-ai/ag-ui"
-import { encodeAgUiSse } from "@dawn-ai/ag-ui/sse"
+import { type B4AgentStreamChunk, toAguiEvents } from "@b4run/ag-ui"
+import { encodeAgUiSse } from "@b4run/ag-ui/sse"
 
-async function* aguiFrames(chunks: AsyncIterable<DawnAgentStreamChunk>) {
+async function* aguiFrames(chunks: AsyncIterable<B4AgentStreamChunk>) {
   for await (const event of toAguiEvents(chunks, { threadId: "thread-1", runId: "run-1" })) {
     yield encodeAgUiSse(event)
   }

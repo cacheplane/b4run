@@ -1,8 +1,8 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { ThreadAccessPolicy, ThreadAccessRequest } from "@dawn-ai/sdk"
-import type { ThreadsStore } from "@dawn-ai/sqlite-storage"
+import type { ThreadAccessPolicy, ThreadAccessRequest } from "@b4run/sdk"
+import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import type {
   BaseCheckpointSaver,
@@ -37,10 +37,10 @@ async function setup(
 ): Promise<{
   readonly handler: Awaited<ReturnType<typeof createRuntimeFetchHandler>>
 }> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-thread-access-resuming-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-thread-access-resuming-"))
   cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "thread-access-resuming-fixture", "type": "module" }\n',
     "src/app/hello/index.ts": TRIVIAL_ROUTE,
   }

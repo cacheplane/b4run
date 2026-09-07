@@ -56,7 +56,7 @@ function validateClip(value: unknown, key: DemoClipKey): DemoClip {
     !isNonemptyString(ariaLabel) ||
     !isNonemptyString(transcript) ||
     !transcript.startsWith(
-      "https://github.com/cacheplane/dawnai/blob/main/docs/brand/demo/transcript.md#",
+      "https://github.com/cacheplane/b4-run/blob/main/docs/brand/demo/transcript.md#",
     )
   ) {
     throw new Error(`Demo media entry ${key} violates the clip contract`)

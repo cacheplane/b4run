@@ -13,7 +13,7 @@ const templatesRoot = resolve(packageRoot, "templates")
 export async function resolveTemplateDir(templateName: string): Promise<string> {
   if (!isTemplateName(templateName)) {
     throw new Error(
-      `Unsupported Dawn template "${templateName}". Supported templates: ${TEMPLATE_NAMES.join(", ")}`,
+      `Unsupported B4.run template "${templateName}". Supported templates: ${TEMPLATE_NAMES.join(", ")}`,
     )
   }
 

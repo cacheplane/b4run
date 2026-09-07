@@ -40,7 +40,7 @@ const PROVENANCE_FIELDS = Object.freeze([
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u
 const SHA512_PATTERN = /^[0-9a-f]{128}$/u
-const EXPECTED_REPOSITORY = "https://github.com/cacheplane/dawnai"
+const EXPECTED_REPOSITORY = "https://github.com/cacheplane/b4-run"
 const EXPECTED_PREDICATE_TYPE = "https://slsa.dev/provenance/v1"
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true })
 

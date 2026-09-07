@@ -1,13 +1,13 @@
-# dawn-sandbox-infra overrides for the sandbox-k8s-e2e smoke lane.
+# b4-sandbox-infra overrides for the sandbox-k8s-e2e smoke lane.
 #
-# The smoke app runs in namespace `dawn-app` under its own ServiceAccount
-# (`dawn-app`, created by the dawn-app chart), but creates sandbox Pods in the
-# `dawn-sandboxes` namespace. For that cross-namespace call to be authorized,
+# The smoke app runs in namespace `b4-app` under its own ServiceAccount
+# (`b4-app`, created by the b4-app chart), but creates sandbox Pods in the
+# `b4-sandboxes` namespace. For that cross-namespace call to be authorized,
 # the app SA must be a subject of the orchestrator RoleBinding this chart
-# installs in `dawn-sandboxes`. Everything else stays at chart defaults
+# installs in `b4-sandboxes`. Everything else stays at chart defaults
 # (default-deny egress, ResourceQuota/LimitRange, PSS, PVC reaper).
 orchestrator:
   subjects:
     - kind: ServiceAccount
-      name: dawn-app
-      namespace: dawn-app
+      name: b4-app
+      namespace: b4-app
