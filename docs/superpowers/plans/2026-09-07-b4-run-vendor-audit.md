@@ -88,3 +88,9 @@ The globally installed Vercel CLI is `35.2.1` and does not expose the current Bl
 - The first full source test run completed: 5,671 passed, 218 skipped, 13 failed. All failures subsequently passed focused verification after URL/anchor/text-length/source-offset fixes; the timed Docker ownership case passed alone with its original watchdog. Full validation will rerun on the committed source.
 - Release review identified a historical security receipt uploader that could still run in B4. It is now unconditionally disabled, with activation/removal/expression rejection tests. Historical security tooling remains unchanged. A separately reviewed B4 receipt implementation is required before re-enabling that optional uploader.
 - Vercel Blob label remains `dawnai-website-assets`. The published API exposes no rename operation and the available dashboard browser is unauthenticated; storage data and its opaque URL remain intact. Relabel through an authenticated dashboard during the final vendor cleanup.
+
+## Latest credential and repository follow-up
+
+- User refreshed `OPENAI_API_KEY` in the primary root `.env`; the retry returned HTTP 200 and confirmed `gpt-5-mini` is available. Provider verification is no longer blocked by authentication. The key remains outside this repository.
+- Target repository discussion support, disabled wiki and automatic branch deletion now match the source project; neutral repository topics are copied. Actions remain disabled. npm CLI profile confirms `blove` with `auth-and-writes` two-factor mode; first publication may need a fresh npm write authorization.
+- Initial preparation commit is `946bd6ed`. A subsequent sitemap test correction validates every date against its content source instead of requiring an arbitrary number of distinct timestamps: a repository-wide rename legitimately updates many pages at once. Focused sitemap tests pass 8 cases.

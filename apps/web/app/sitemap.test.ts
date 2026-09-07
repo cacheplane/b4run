@@ -10,6 +10,7 @@ const blogContentDirectory = resolve(appDirectory, "../content/blog")
 const PRODUCTION_AS_OF = "2026-08-26"
 
 interface ExpectedPost {
+  readonly date: string
   readonly slug: string
   readonly tags: readonly string[]
 }
@@ -209,7 +210,19 @@ describe("sitemap documentation entries", () => {
       expect(value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/)
       expect(Number.isNaN(Date.parse(value))).toBe(false)
     }
-    expect(new Set(lastModified).size).toBeGreaterThan(10)
+    const manifest = JSON.parse(
+      readFileSync(resolve(appDirectory, "seo/lastmod.generated.json"), "utf8"),
+    )
+    const posts = visibleProductionPosts(PRODUCTION_AS_OF)
+    for (const entry of entries) {
+      const route = new URL(entry.url).pathname
+      const post = posts.find(({ slug }) => route === `/blog/${slug}`)
+      const expected = post
+        ? new Date(`${post.date}T00:00:00Z`).toISOString()
+        : manifest.routes[route]?.lastModified
+      expect(expected, route).toBeDefined()
+      expect(entry.lastModified, route).toBe(expected)
+    }
   })
 
   it("keeps the production sitemap runtime free of Git and mtime discovery", () => {
