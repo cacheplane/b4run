@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
+import * as fsPromises from "node:fs/promises"
 import {
   access,
   chmod,
@@ -617,6 +618,11 @@ const BOOTSTRAP_NOT_BEFORE = "2026-09-08T00:00:00Z"
 const BOOTSTRAP_EXPIRES_AT = "2026-09-08T12:00:00Z"
 const BOOTSTRAP_WINDOW_START_MS = Date.parse(BOOTSTRAP_NOT_BEFORE)
 const BOOTSTRAP_TOKEN = "npm_bootstrapSECRETtoken0123456789"
+// The publish npmrc carries a literal environment reference, never the value.
+const NPMRC_TOKEN_REFERENCE = [
+  "//registry.npmjs.org/:_authToken=$",
+  "{B4_NPM_BOOTSTRAP_TOKEN}\n",
+].join("")
 
 test("the publisher accepts only the oidc or bootstrap auth mode and defaults to oidc", () => {
   const base = [
@@ -851,6 +857,193 @@ test("bootstrap mode fails closed before any npm process without exact candidate
     assert.deepEqual(fixture.observeCalls, [], name)
     await assert.rejects(access(inputs.reportPath), undefined, name)
   }
+})
+
+test("bootstrap mode forwards the token only to npm publish through the private npmrc reference and redacts every output", async (t) => {
+  const inputs = await publisherCliInputs(t)
+  const environment = bootstrapPublisherEnvironment(bootstrapAuthorization(inputs))
+  const fixture = publisherFixture({ firstPublication: true })
+  const npmCalls = []
+  const logs = []
+  const fileSystem = recordingFileSystem()
+  const result = await runPublisherCli([...inputs.argv, "--npm-auth-mode", "bootstrap"], {
+    npmReader: fixture.npmReader,
+    fileSystem: fileSystem.api,
+    async runNpm(command, args, options) {
+      npmCalls.push({
+        command,
+        args,
+        options,
+        userconfig: await readFile(options.env.npm_config_userconfig, "utf8"),
+      })
+      if (args[0] === "--version") return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+      if (args[0] === "audit") {
+        const consumer = JSON.parse(await readFile(path.join(options.cwd, "package.json"), "utf8"))
+        const name = Object.keys(consumer.dependencies)[0]
+        const entry = inputs.manifest.packages.find((item) => item.name === name)
+        return { stdout: npmAuditOutput(entry), stderr: "", exitCode: 0 }
+      }
+      if (args[0] === "publish") {
+        fixture.acceptPublish(args[1])
+        return {
+          stdout: `npm notice auth ${BOOTSTRAP_TOKEN}\n`,
+          stderr: `npm warn ${Buffer.from(BOOTSTRAP_TOKEN).toString("base64")}\n`,
+          exitCode: 0,
+        }
+      }
+      throw new Error(`unexpected npm operation ${args[0]}`)
+    },
+    poll: fixture.inputs.poll,
+    log(event) {
+      logs.push(event)
+    },
+    now: () => BOOTSTRAP_WINDOW_START_MS + 1 + fixture.inputs.now(),
+    environment,
+  })
+
+  assert.equal(result.status, "NPM_COMPLETE")
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  const publishes = npmCalls.filter(({ args }) => args[0] === "publish")
+  assert.equal(publishes.length, 21)
+  for (const call of publishes) {
+    assert.deepEqual(call.args.slice(2), [
+      "--tag",
+      "latest",
+      "--access",
+      "public",
+      "--provenance",
+      "--ignore-scripts",
+    ])
+    assert.equal(call.options.env.B4_NPM_BOOTSTRAP_TOKEN, BOOTSTRAP_TOKEN)
+    assert.equal(call.options.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN, "exact-oidc-token")
+    assert.equal(call.userconfig, NPMRC_TOKEN_REFERENCE)
+    assert.equal(
+      call.args.some((arg) => arg.includes(BOOTSTRAP_TOKEN)),
+      false,
+    )
+  }
+  for (const call of npmCalls.filter(({ args }) => args[0] !== "publish")) {
+    assert.equal(call.userconfig, "")
+    assert.equal(
+      Object.entries(call.options.env).some(
+        ([name, value]) => name.startsWith("B4_NPM") || String(value).includes(BOOTSTRAP_TOKEN),
+      ),
+      false,
+      call.args[0],
+    )
+  }
+  assert.equal(fileSystem.writtenSecrets(BOOTSTRAP_TOKEN), 0)
+  const modeEvents = logs.filter((event) => event.event === "npm-auth-mode")
+  assert.equal(modeEvents.length, 1)
+  assert.equal(modeEvents[0].mode, "bootstrap")
+  assert.match(modeEvents[0].authorizationSha256, /^[0-9a-f]{64}$/u)
+  assert.deepEqual(Object.keys(modeEvents[0]).sort(), [
+    "authorizationSha256",
+    "commitSha",
+    "event",
+    "expiresAt",
+    "mode",
+    "notBefore",
+    "version",
+  ])
+  const rendered = [
+    JSON.stringify(logs),
+    await readFile(inputs.reportPath, "utf8"),
+    await readFile(inputs.githubOutputPath, "utf8"),
+  ].join("\n")
+  assert.doesNotMatch(rendered, /npm_bootstrapSECRET/u)
+  assert.doesNotMatch(rendered, new RegExp(Buffer.from(BOOTSTRAP_TOKEN).toString("base64"), "u"))
+  assert.equal(fileSystem.roots.length, 1)
+  assert.ok(fileSystem.removed.includes(fileSystem.roots[0]))
+  await assert.rejects(access(fileSystem.roots[0]))
+})
+
+test("bootstrap failures, cancellation, and deadline expiry never expose the credential and always clean up", async (t) => {
+  const failing = await publisherCliInputs(t)
+  const environment = bootstrapPublisherEnvironment(bootstrapAuthorization(failing))
+  const encoded = Buffer.from(BOOTSTRAP_TOKEN).toString("base64")
+  const failure = publisherFixture({ firstPublication: true })
+  const failureFileSystem = recordingFileSystem()
+  let caught = null
+  try {
+    await runPublisherCli([...failing.argv, "--npm-auth-mode", "bootstrap"], {
+      npmReader: failure.npmReader,
+      fileSystem: failureFileSystem.api,
+      async runNpm(_command, args, options) {
+        if (args[0] === "--version") return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+        if (args[0] === "publish") {
+          assert.equal(options.env.B4_NPM_BOOTSTRAP_TOKEN, BOOTSTRAP_TOKEN)
+          const inner = new Error(`npm ERR! 401 ${BOOTSTRAP_TOKEN} rejected`)
+          inner.stdout = `token ${BOOTSTRAP_TOKEN}`
+          inner.stderr = `encoded ${encoded} ${encodeURIComponent(BOOTSTRAP_TOKEN)}`
+          throw new AggregateError([inner], `publish failed ${BOOTSTRAP_TOKEN}`, {
+            cause: new Error(`cause ${encoded}`),
+          })
+        }
+        throw new Error(`unexpected npm operation ${args[0]}`)
+      },
+      poll: failure.inputs.poll,
+      log() {},
+      now: () => BOOTSTRAP_WINDOW_START_MS + 1,
+      environment,
+    })
+  } catch (error) {
+    caught = error
+  }
+  assert.ok(caught instanceof Error)
+  assert.match(caught.message, /publish failed \[REDACTED\]/u)
+  assert.doesNotMatch(renderError(caught), /npm_bootstrapSECRET/u)
+  assert.doesNotMatch(renderError(caught), new RegExp(encoded, "u"))
+  assert.doesNotMatch(
+    renderError(caught),
+    new RegExp(encodeURIComponent(BOOTSTRAP_TOKEN).replaceAll(/[%]/gu, "\\%"), "u"),
+  )
+  assert.equal(failureFileSystem.roots.length, 1)
+  assert.ok(failureFileSystem.removed.includes(failureFileSystem.roots[0]))
+  await assert.rejects(access(failureFileSystem.roots[0]))
+  await assert.rejects(access(failing.reportPath))
+
+  const expiring = await publisherCliInputs(t)
+  const deadline = controlledDeadline()
+  const stalled = publisherFixture({ firstPublication: true })
+  const deadlineFileSystem = recordingFileSystem()
+  let publishSignal
+  let deadlineError = null
+  try {
+    await runPublisherCli([...expiring.argv, "--npm-auth-mode", "bootstrap"], {
+      npmReader: stalled.npmReader,
+      fileSystem: deadlineFileSystem.api,
+      async runNpm(_command, args, options) {
+        if (args[0] === "--version") return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+        if (args[0] === "publish") {
+          publishSignal = options.signal
+          queueMicrotask(deadline.expire)
+          return new Promise((_resolve, reject) => {
+            options.signal.addEventListener("abort", () =>
+              reject(new Error(`aborted with ${BOOTSTRAP_TOKEN}`)),
+            )
+          })
+        }
+        throw new Error(`unexpected npm operation ${args[0]}`)
+      },
+      poll: stalled.inputs.poll,
+      log() {},
+      now: () => BOOTSTRAP_WINDOW_START_MS + 1,
+      environment: bootstrapPublisherEnvironment(bootstrapAuthorization(expiring)),
+      overallTimeoutMs: 20,
+      ...deadline.options,
+    })
+  } catch (error) {
+    deadlineError = error
+  }
+  assert.ok(deadlineError instanceof Error)
+  assert.match(deadlineError.message, /publisher overall deadline/iu)
+  assert.ok(publishSignal instanceof AbortSignal)
+  assert.equal(publishSignal.aborted, true)
+  assert.doesNotMatch(renderError(deadlineError), /npm_bootstrapSECRET/u)
+  assert.equal(deadlineFileSystem.roots.length, 1)
+  assert.ok(deadlineFileSystem.removed.includes(deadlineFileSystem.roots[0]))
+  await assert.rejects(access(deadlineFileSystem.roots[0]))
 })
 
 test("bootstrap mode cannot use unrelated package versions for initial publication or resume", async (t) => {
@@ -1888,6 +2081,36 @@ function renderError(error, seen = new Set()) {
     error.cause === undefined ? "" : renderError(error.cause, seen),
     ...(Array.isArray(error.errors) ? error.errors.map((inner) => renderError(inner, seen)) : []),
   ].join("\n")
+}
+
+function recordingFileSystem() {
+  const roots = []
+  const removed = []
+  const writes = []
+  const api = {
+    ...fsPromises,
+    async mkdtemp(prefix, options) {
+      const created = await fsPromises.mkdtemp(prefix, options)
+      if (path.basename(created).startsWith("b4-npm-audit-")) roots.push(await realpath(created))
+      return created
+    },
+    async rm(target, options) {
+      removed.push(target)
+      return fsPromises.rm(target, options)
+    },
+    async writeFile(target, data, options) {
+      writes.push(Buffer.isBuffer(data) ? data.toString("utf8") : String(data))
+      return fsPromises.writeFile(target, data, options)
+    },
+  }
+  return {
+    api,
+    roots,
+    removed,
+    writtenSecrets(secret) {
+      return writes.filter((content) => content.includes(secret)).length
+    },
+  }
 }
 
 async function publisherCliFilesystem(t, prefix) {

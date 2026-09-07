@@ -359,6 +359,9 @@ export async function runPublisherCli(argv, options = {}) {
     )
   } catch (error) {
     if (deadline.signal.aborted) {
+      // The in-flight run may still be unwinding behind the race; release the isolated npm
+      // homes (and any bootstrap credential reference) now rather than whenever it settles.
+      await deadline.runCleanups()
       throw new Error("npm publisher overall deadline expired", { cause: error })
     }
     throw error
@@ -431,6 +434,7 @@ async function runPublisherCliWithinDeadline(
         throw new TypeError(`npm audit verifier must expose ${method}`)
       }
     }
+    deadline.registerCleanup(() => auditVerifier.dispose())
     const observeRegistry = ({ name, version }) =>
       deadline.race(
         version === undefined
@@ -567,6 +571,7 @@ async function runBootstrapPublisher({
         throw new TypeError(`npm audit verifier must expose ${method}`)
       }
     }
+    deadline.registerCleanup(() => auditVerifier.dispose())
     const observeRegistry = ({ name, version }) =>
       deadline.race(
         version === undefined
@@ -1100,10 +1105,25 @@ function createPublisherDeadline(timeoutMs, { scheduleTimeout, cancelTimeout }) 
     controller.abort()
     rejectExpiration(new Error("npm publisher overall deadline expired"))
   }, timeoutMs)
+  // Keep the expiration rejection observed even when no race is pending.
+  expiration.catch(() => undefined)
+  const cleanups = []
   return {
     signal: controller.signal,
     race(value) {
       return Promise.race([Promise.resolve(value), expiration])
+    },
+    registerCleanup(cleanup) {
+      cleanups.push(cleanup)
+    },
+    async runCleanups() {
+      for (const cleanup of cleanups.splice(0)) {
+        try {
+          await cleanup()
+        } catch {
+          // Deadline failure is already the reported error; cleanup is best effort here.
+        }
+      }
     },
     dispose() {
       cancelTimeout(timer)

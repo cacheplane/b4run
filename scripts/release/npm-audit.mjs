@@ -5,6 +5,7 @@ import path from "node:path"
 
 import { snapshotJson } from "./adapter-normalize.mjs"
 import { assertPreparedTarballPayload } from "./limits.mjs"
+import { BOOTSTRAP_TOKEN_VARIABLE, validateBootstrapToken } from "./npm-bootstrap.mjs"
 import { isExactSemver, parseSemver } from "./semver.mjs"
 
 const PUBLIC_REGISTRY_ORIGIN = "https://registry.npmjs.org"
@@ -104,6 +105,7 @@ export async function createNpmAuditVerifier({
   fileSystem = defaultFileSystem,
   environment = process.env,
   signal,
+  bootstrap,
 } = {}) {
   if (
     typeof runNpm !== "function" ||
@@ -119,6 +121,10 @@ export async function createNpmAuditVerifier({
       throw new TypeError(`npm audit verifier file system must expose ${method}`)
     }
   }
+  // The explicit first-publication credential. It is validated before any directory exists,
+  // it reaches only the publish home as a literal environment reference (never the value), and
+  // it is exported only by publisherEnvironment(), which only `npm publish` receives.
+  const bootstrapToken = validateBootstrapOption(bootstrap)
 
   const createdRoot = await fileSystem.mkdtemp(path.join(os.tmpdir(), "b4-npm-audit-"))
   let root
@@ -145,7 +151,12 @@ export async function createNpmAuditVerifier({
     )
     await Promise.all([
       writeEmptyNpmConfigs(fileSystem, auditHome),
-      writeEmptyNpmConfigs(fileSystem, publishHome),
+      writeEmptyNpmConfigs(fileSystem, publishHome, {
+        userconfig:
+          bootstrapToken === null
+            ? ""
+            : `//registry.npmjs.org/:_authToken=\${${BOOTSTRAP_TOKEN_VARIABLE}}\n`,
+      }),
     ])
     const auditEnvironment = npmEnvironment(environment, {
       home: auditHome,
@@ -168,7 +179,10 @@ export async function createNpmAuditVerifier({
           home: publishHome,
           cache: publishCache,
           preserveOidc: true,
-          additionalEnvironment: provenanceEnvironment,
+          additionalEnvironment: {
+            ...provenanceEnvironment,
+            ...(bootstrapToken === null ? {} : { [BOOTSTRAP_TOKEN_VARIABLE]: bootstrapToken }),
+          },
         })
       },
       verifyPackages(input) {
@@ -861,11 +875,25 @@ async function assertSyntheticAuditTree(fileSystem, consumer, packageName) {
   }
 }
 
-async function writeEmptyNpmConfigs(fileSystem, home) {
+async function writeEmptyNpmConfigs(fileSystem, home, { userconfig = "" } = {}) {
   await Promise.all([
-    fileSystem.writeFile(path.join(home, ".npmrc"), "", { flag: "wx", mode: 0o600 }),
+    fileSystem.writeFile(path.join(home, ".npmrc"), userconfig, { flag: "wx", mode: 0o600 }),
     fileSystem.writeFile(path.join(home, "global.npmrc"), "", { flag: "wx", mode: 0o600 }),
   ])
+}
+
+function validateBootstrapOption(bootstrap) {
+  if (bootstrap === undefined) return null
+  if (
+    bootstrap === null ||
+    Array.isArray(bootstrap) ||
+    typeof bootstrap !== "object" ||
+    Object.keys(bootstrap).length !== 1 ||
+    !Object.hasOwn(bootstrap, "token")
+  ) {
+    throw new TypeError("npm audit verifier bootstrap option must be exactly { token }")
+  }
+  return validateBootstrapToken(bootstrap.token)
 }
 
 function assertNpm11Version(output) {
