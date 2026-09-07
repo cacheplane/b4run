@@ -313,7 +313,37 @@ test("redaction removes literal, base64, and URL-encoded credential forms from s
   assert.match(safe.cause.message, /cause \[REDACTED\]/u)
   assert.equal(safe.errors.length, 2)
   assert.equal(redactBootstrapError("plain", token), "plain")
+
+  // Structured diagnostics hung off a rejection must be redacted too: a runner
+  // that attaches captured output as an object or array must not leak the
+  // credential through JSON rendering.
+  const structured = new Error("structured failure")
+  structured.details = { output: [`arr ${token}`], nested: { deep: `deep ${token}` } }
+  structured.cycle = structured.details
+  structured.details.self = structured.details
+  structured.untouched = 7
+  const safeStructured = redactBootstrapError(structured, token)
+  const structuredRendered = JSON.stringify(safeStructured, (_key, value) =>
+    typeof value === "object" && value !== null && value.self
+      ? { ...value, self: "[cycle]" }
+      : value,
+  )
+  assert.equal(structuredRendered.includes(token), false)
+  assert.equal(safeStructured.details.output[0], "arr [REDACTED]")
+  assert.equal(safeStructured.details.nested.deep, "deep [REDACTED]")
+  assert.equal(safeStructured.details.self, safeStructured.details)
+  assert.equal(safeStructured.cycle, safeStructured.details)
+  assert.equal(safeStructured.untouched, 7)
+  assert.equal(originalIsUnredacted(structured, token), true)
 })
+
+// The original error must never be mutated in place; redaction returns a copy.
+function originalIsUnredacted(original, token) {
+  return (
+    original.details.output[0] === `arr ${token}` &&
+    original.details.nested.deep === `deep ${token}`
+  )
+}
 
 function authorization({ manifest = releaseManifest(), record = releaseRecord(manifest) } = {}) {
   return {

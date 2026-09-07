@@ -232,16 +232,41 @@ export function redactBootstrapError(error, token, seen = new Map()) {
     if (["message", "stack", "cause", "errors", "name"].includes(key)) continue
     const descriptor = Object.getOwnPropertyDescriptor(error, key)
     if (descriptor === undefined || !("value" in descriptor)) continue
-    replacement[key] =
-      typeof descriptor.value === "string"
-        ? redactBootstrapCredential(descriptor.value, token)
-        : descriptor.value instanceof Error
-          ? redactBootstrapError(descriptor.value, token, seen)
-          : Buffer.isBuffer(descriptor.value)
-            ? Buffer.from(redactBootstrapCredential(descriptor.value.toString("utf8"), token))
-            : descriptor.value
+    replacement[key] = redactBootstrapValue(descriptor.value, token, seen)
   }
   return replacement
+}
+
+// Own properties can carry structured diagnostics (a captured `{stdout, stderr}`
+// object, an array of log lines). Copying them verbatim would leak the
+// credential through JSON rendering, so every container is redacted in place of
+// its original. Cycles resolve through the same `seen` map as nested errors.
+function redactBootstrapValue(value, token, seen) {
+  if (typeof value === "string") return redactBootstrapCredential(value, token)
+  if (value instanceof Error) return redactBootstrapError(value, token, seen)
+  if (Buffer.isBuffer(value)) {
+    return Buffer.from(redactBootstrapCredential(value.toString("utf8"), token))
+  }
+  if (value === null || typeof value !== "object") return value
+  if (seen.has(value)) return seen.get(value)
+  if (Array.isArray(value)) {
+    const copy = []
+    seen.set(value, copy)
+    for (const entry of value) copy.push(redactBootstrapValue(entry, token, seen))
+    return copy
+  }
+  const prototype = Object.getPrototypeOf(value)
+  // Only plain objects are rebuilt. An exotic instance is replaced by its
+  // redacted string form rather than reconstructed with a wrong prototype.
+  if (prototype !== Object.prototype && prototype !== null) {
+    return redactBootstrapCredential(String(value), token)
+  }
+  const copy = {}
+  seen.set(value, copy)
+  for (const [key, entry] of Object.entries(value)) {
+    copy[key] = redactBootstrapValue(entry, token, seen)
+  }
+  return copy
 }
 
 function credentialForms(token) {

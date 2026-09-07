@@ -107,7 +107,7 @@
       "sha256": "d61f222b85d47245944aa947f64e61a43a9b912a8fc09e2a4129640edb68e061"
     },
     "scripts/release/npm-bootstrap.mjs": {
-      "sha256": "e1e002f4614c9f4f78b98350bcbf07f92e424039cd590e3301d532a4fdc02a96"
+      "sha256": "ef86ff152167aaebf6f966bd8a939ee0e2ccdc618b29de066d6e1747e18b91d8"
     },
     "scripts/release/npm-evidence.mjs": {
       "sha256": "3bd1ae6bc95e4285259133c571a1a50dacad0447b844f04c403ad17bcf57c157"

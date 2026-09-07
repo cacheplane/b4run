@@ -110,7 +110,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for the first-publication npm bootstrap: the new npm-bootstrap.mjs policy module
 // and the bootstrap-aware npm adapter, observer, CLI, audit verifier, and publisher.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "7a76a27e69c4bd3c56efec360b9687dfcd65334904df0331e74a53561918c648"
+  "1f9363127f4cb3a554d87108fcc81bf3f2402b34d364f7cc8c6f62182ec5456b"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
