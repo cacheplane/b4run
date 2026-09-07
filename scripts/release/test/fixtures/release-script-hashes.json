@@ -86,7 +86,7 @@
       "sha256": "5a154fa94961395be30a52eabb6518b53042ef7b6ecc482a6b93386c131f0a2b"
     },
     "scripts/release/independent-audit.mjs": {
-      "sha256": "32746a3162b0fbf97990e3ad01952a4f581fa92ece87aaf8252a9a7fa4a68dd8"
+      "sha256": "6c9d842c11df29dbf06d63f107ee2335fbc4aad48de43d72ec25c0ccc0562fc9"
     },
     "scripts/release/inventory.mjs": {
       "sha256": "3fbe259101ba7cf46f3921549bacaee536b306eb60fe78cb47914860548cb0dd"

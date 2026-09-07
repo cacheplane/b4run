@@ -316,17 +316,14 @@ async function waitForDispatchMarker({
 }) {
   const deadline = boundedDeadline(clock, timeoutMs)
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const envelope = normalizeAdapterEnvelope(
-      await withinDeadline(
-        Promise.resolve().then(() => github.getReleaseByTag({ tag: `v${candidate.version}` })),
-        deadline,
-        clock,
-        setTimer,
-        clearTimer,
-      ),
-      { source: "github", operation: "release", payloadKey: "value" },
+    const envelope = await withinDeadline(
+      Promise.resolve().then(() => readDispatchRelease(github, candidate, deadline, clock)),
+      deadline,
+      clock,
+      setTimer,
+      clearTimer,
     )
-    if (envelope.status === "PRESENT") {
+    if (envelope !== null) {
       const marker = parseDispatchRelease(envelope.value, candidate, manifestSha256)
       if (
         marker.phase === "AUDIT_DISPATCHED" &&
@@ -335,8 +332,6 @@ async function waitForDispatchMarker({
       ) {
         return marker
       }
-    } else if (!(envelope.status === "AMBIGUOUS" && envelope.httpStatus === 404)) {
-      throw auditFailure("RELEASE_DISPATCH_READ_AMBIGUOUS")
     }
     if (attempt < attempts) {
       const remaining = deadline - monotonicTime(clock)
@@ -351,6 +346,52 @@ async function waitForDispatchMarker({
     }
   }
   throw auditFailure("AUDIT_DISPATCH_MARKER_TIMEOUT")
+}
+
+// Tag lookup excludes drafts. Enumerate the complete inventory before selecting
+// one ID, then independently read that release for the existing marker checks.
+async function readDispatchRelease(github, candidate, deadline, clock) {
+  const listed = normalizeAdapterEnvelope(await github.listReleases(), {
+    source: "github",
+    operation: "releases",
+    payloadKey: "value",
+  })
+  if (monotonicTime(clock) >= deadline) throw auditFailure("AUDIT_DISPATCH_MARKER_TIMEOUT")
+  if (listed.status !== "PRESENT") throw auditFailure("RELEASE_DISPATCH_READ_AMBIGUOUS")
+  if (!Array.isArray(listed.value)) throw auditFailure("RELEASE_DISPATCH_DISCOVERY_AMBIGUOUS")
+  const tag = `v${candidate.version}`
+  const matches = [],
+    ids = new Set()
+  for (const release of listed.value) {
+    if (
+      !isRecord(release) ||
+      !isPositiveInteger(release.id) ||
+      ids.has(release.id) ||
+      typeof release.tag_name !== "string" ||
+      release.tag_name.length === 0 ||
+      !(release.name === null || typeof release.name === "string") ||
+      !(release.body === null || typeof release.body === "string") ||
+      typeof release.draft !== "boolean"
+    )
+      throw auditFailure("RELEASE_DISPATCH_DISCOVERY_AMBIGUOUS")
+    ids.add(release.id)
+    if (
+      release.tag_name === tag ||
+      release.name === `Dawn ${tag}` ||
+      isManagedReleaseForTag(release, tag)
+    )
+      matches.push(release)
+  }
+  if (matches.length > 1) throw auditFailure("RELEASE_DISPATCH_DISCOVERY_AMBIGUOUS")
+  if (matches.length === 0) return null
+  const release = normalizeAdapterEnvelope(await github.getRelease({ releaseId: matches[0].id }), {
+    source: "github",
+    operation: "release",
+    payloadKey: "value",
+  })
+  if (release.status !== "PRESENT") throw auditFailure("RELEASE_DISPATCH_READ_AMBIGUOUS")
+  if (release.value?.id !== matches[0].id) throw auditFailure("RELEASE_DISPATCH_IDENTITY_INVALID")
+  return release
 }
 
 function parseDispatchRelease(value, candidate, manifestSha256) {
@@ -638,7 +679,12 @@ function normalizeExecutionDependencies(overrides) {
 function normalizeRuntime(value) {
   if (!isRecord(value)) throw new TypeError("Independent audit runtime is invalid")
   requiredMethod(value.inventory, "read", "inventory reader")
-  for (const method of ["getReleaseByTag", "getActionsRunAttempt", "listActionsRunJobs"]) {
+  for (const method of [
+    "listReleases",
+    "getRelease",
+    "getActionsRunAttempt",
+    "listActionsRunJobs",
+  ]) {
     requiredMethod(value.github, method, "GitHub reader")
   }
   requiredMethod(value, "observeProductionCandidate", "production observer")
