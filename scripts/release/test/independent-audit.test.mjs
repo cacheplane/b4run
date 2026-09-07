@@ -1061,3 +1061,82 @@ for (const [label, mutate, expectedCode] of [
       )
   })
 }
+
+test("main invocation separates actual executor SHA from immutable payload identity", () => {
+  const executorSha = "5".repeat(40)
+  const invocation = parseIndependentAuditEnvironment(
+    environment({
+      GITHUB_REF: "refs/heads/main",
+      GITHUB_WORKFLOW_REF:
+        "cacheplane/dawnai/.github/workflows/published-artifact-verify.yml@refs/heads/main",
+      GITHUB_SHA: executorSha,
+    }),
+    parseIndependentAuditArgs(argv()),
+  )
+  assert.equal(invocation.commitSha, COMMIT_SHA)
+  assert.equal(invocation.executorSha, executorSha)
+  assert.equal(invocation.ref, "refs/heads/main")
+})
+
+test("authorized main executor audits the original payload and rejects unbound source", async () => {
+  const { auditExecutorFixture } = await import("./support/audit-executor-fixture.mjs")
+  for (const authorized of [true, false]) {
+    const f = auditExecutorFixture()
+    f.candidate = releaseCandidate()
+    f.manifestSha256 = MANIFEST_SHA256
+    f.authorization.candidate = {
+      version: VERSION,
+      commitSha: COMMIT_SHA,
+      manifestSha256: MANIFEST_SHA256,
+    }
+    f.files.set(
+      `scripts/release/audit-executor-authorizations/v${VERSION}.json`,
+      JSON.stringify(f.authorization),
+    )
+    if (!authorized) f.files.set("scripts/release/independent-audit.mjs", "unreviewed source")
+    const calls = [],
+      results = []
+    const runtime = auditRuntime({ calls, observation: fiveLaneAuditObservation() })
+    const original = runtime.github
+    runtime.git = f.git
+    runtime.github = {
+      ...original,
+      ...f.github,
+      getActionsRunAttempt: async (args) =>
+        args.runId === 500
+          ? present("actions-run-attempt", {
+              ...f.run,
+              id: 500,
+              status: "in_progress",
+              conclusion: null,
+            })
+          : f.github.getActionsRunAttempt(args),
+      listActionsRunJobs: (args) =>
+        args.runId === 500 ? original.listActionsRunJobs(args) : f.github.listActionsRunJobs(args),
+    }
+    const operation = runIndependentAudit(argv(), {
+      environment: environment({
+        GITHUB_REF: "refs/heads/main",
+        GITHUB_SHA: f.run.head_sha,
+        GITHUB_WORKFLOW_REF:
+          "cacheplane/dawnai/.github/workflows/published-artifact-verify.yml@refs/heads/main",
+      }),
+      createRuntime: async () => runtime,
+      now: fixedTimestamps(),
+      writeResult: async (_, result) => results.push(result),
+    })
+    if (authorized) {
+      const result = await operation
+      assert.equal(result.conclusion, "success")
+      assert.equal(result.commitSha, COMMIT_SHA)
+      assert.equal(result.workflowRunId, 500)
+      assert.ok(
+        calls.some(([name, input]) => name === "inventory.read" && input.ref === COMMIT_SHA),
+      )
+    } else {
+      await assert.rejects(operation)
+      assert.equal(results[0].conclusion, "failure")
+      assert.ok(!calls.some(([name]) => name === "observeProductionCandidate"))
+    }
+  }
+})

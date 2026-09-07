@@ -106,7 +106,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for asset counter comparisons and bounded invocation payload/Git text reuse.
 // Repinned for fixed evidence stage boundaries with fresh runtime readers.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "a1332b7424f7238ba606d7f1bf803a8f2bee4b29db4bba890dcd91517f0e0f22"
+  "7acdb54f5d50c306c306add9c00813bdd719447fa3b9ca7bcf4477b85ae1b596"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
@@ -1516,8 +1516,10 @@ test("the independent workflow relays default-branch audits and verifies exact t
   assertContentsWriteOnly(draft)
   assert.equal(draft.permissions?.checks, "read")
   assertExactIndependentTagGate(draft, "draft")
+  assert.match(draft.if, /needs\.coordinate\.outputs\.mode == 'draft-controller'/u)
+  assert.match(draft.if, /github\.ref == 'refs\/heads\/main'/u)
   const checkout = onlyStepUsing(draft, ACTIONS.checkout)
-  assert.equal(checkout.with?.ref, workflowExpression("github.ref"))
+  assert.equal(checkout.with?.ref, workflowExpression("github.sha"))
   assert.equal(checkout.with?.["fetch-depth"], 0)
   assert.equal(checkout.with?.["persist-credentials"], false)
   const draftPnpm = onlyStepUsing(draft, ACTIONS.pnpm)

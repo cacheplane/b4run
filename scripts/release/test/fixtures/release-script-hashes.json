@@ -58,14 +58,17 @@
     "scripts/release/artifact-store.mjs": {
       "sha256": "a9920592396029bfdacf4daaab9d453216f02c3114c50c35cd563058c8cac9dd"
     },
+    "scripts/release/audit-executor.mjs": {
+      "sha256": "0572a15efd3062e8c673e4715e7ed442fd6f092e989e0e6ac5b2d93f358ca00d"
+    },
     "scripts/release/audit.mjs": {
-      "sha256": "8d18331b857ba0743a9a2109b51f07639639cecb7a572375973452356b81a60f"
+      "sha256": "40d8e8b05ba34f385695e2127c383dd1382c2149d586bf969db4139c9eb8ee63"
     },
     "scripts/release/candidate.mjs": {
       "sha256": "8be85623d581e05a8bf3e54c95d5fc7a695e2a94b8ccda4b5481f983ada0ebfa"
     },
     "scripts/release/cli.mjs": {
-      "sha256": "f822541947889e47bb1a8167598459d699ab4f2e118dc443f4b0e5e2b9884e57"
+      "sha256": "b4b12f24156dc933de5ddeb5b314093fd9cbed06cfa82a636b47219b80dda801"
     },
     "scripts/release/conflicts.mjs": {
       "sha256": "9fb3ff5154dab04d975b56baf29255493ece213824801e3504fad534ae81db7f"
@@ -83,10 +86,10 @@
       "sha256": "427419a41951adb53720470d80f1defca030f8eb9289dae50c704f332e5f9ac0"
     },
     "scripts/release/independent-audit-coordinator.mjs": {
-      "sha256": "5a154fa94961395be30a52eabb6518b53042ef7b6ecc482a6b93386c131f0a2b"
+      "sha256": "c485bd1b7b240f79c74ae5366a4304ddb11890b16bcf3edc92e26db7f6f68287"
     },
     "scripts/release/independent-audit.mjs": {
-      "sha256": "6c9d842c11df29dbf06d63f107ee2335fbc4aad48de43d72ec25c0ccc0562fc9"
+      "sha256": "adbe0ae2adafcd82df9870ca593308430c0b8156738e13af4a3f2c6f23814028"
     },
     "scripts/release/inventory.mjs": {
       "sha256": "3fbe259101ba7cf46f3921549bacaee536b306eb60fe78cb47914860548cb0dd"
@@ -110,7 +113,7 @@
       "sha256": "fc3847533cbf01b8fa2420f484680a7576b8b2b4edf4d6f41f56df925f4914c3"
     },
     "scripts/release/observe.mjs": {
-      "sha256": "e44cab0e8637e1bf5d2ae5100ee0a1a272c359352c2e30e55d36fe3305e032eb"
+      "sha256": "92569c564cd45de069d258a371d9fee24e53f67225b51139f527400087ce0632"
     },
     "scripts/release/planner.mjs": {
       "sha256": "2e09281ff952da69e985de7802307b849b76525e838e4cab49516a3d05793433"

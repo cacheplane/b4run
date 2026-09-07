@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "repository": "cacheplane/dawnai",
+  "candidate": {
+    "version": "0.8.26",
+    "commitSha": "470c871f258f5cd248904208bff6a89acbf3a56c",
+    "manifestSha256": "15c3afa7eea9e552d83c10e0e8bdd8ec6d9d4a6ac0b2a87e8e4ac09f5511306b"
+  },
+  "workflow": ".github/workflows/published-artifact-verify.yml",
+  "workflowSha256": "f7a842b853024aaaf9f218dc415e9f7ec16642b6b7f3f3674cc4ca785a75cdab",
+  "scriptPinsSha256": "7acdb54f5d50c306c306add9c00813bdd719447fa3b9ca7bcf4477b85ae1b596"
+}

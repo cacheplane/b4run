@@ -245,3 +245,19 @@ test("scheduled legacy audit ignores older recovery history when the newest rele
   assert.equal(calls.length, 1)
   assert.equal(calls[0].ref, `v${VERSION}`)
 })
+
+test("a main draft dispatch selects controller verification without relaying frozen code", async () => {
+  const draft = managedRelease({ id: 11, version: VERSION, commitSha: COMMIT_SHA, draft: true })
+  const calls = []
+  const result = await coordinateIndependentAudit({
+    eventName: "workflow_dispatch",
+    ref: "refs/heads/main",
+    sha: MAIN_SHA,
+    defaultBranch: "main",
+    inputs: { version: VERSION, commitSha: COMMIT_SHA, manifestSha256: MANIFEST_SHA256 },
+    github: githubBoundary({ releases: [draft], calls }),
+  })
+  assert.equal(result.mode, "draft-controller")
+  assert.equal(result.commitSha, COMMIT_SHA)
+  assert.deepEqual(calls, [])
+})

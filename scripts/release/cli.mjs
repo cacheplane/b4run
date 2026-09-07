@@ -1453,6 +1453,7 @@ async function runWaitAudit(options, runtime) {
   )({
     runId,
     candidate,
+    git: await requireProductionGit(runtime),
     github: github.reader,
     attempts: 181,
     delayMs: 10_000,

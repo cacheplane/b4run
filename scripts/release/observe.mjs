@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { canonicalAbandonmentBytes, parseAbandonmentReleaseBody } from "./abandonment.mjs"
 import { normalizeAdapterEnvelope, snapshotJson } from "./adapter-normalize.mjs"
 import { extractActionsArtifactZip } from "./artifact-store.mjs"
+import { auditExecutorIdentity, authorizeAuditExecutor } from "./audit-executor.mjs"
 import { discoverManagedCandidate, discoverScheduledCandidate } from "./candidate.mjs"
 import { assertValidReleaseInventory, readReleaseInventory } from "./inventory.mjs"
 import { assertPayloadByteLength, RELEASE_PAYLOAD_LIMITS } from "./limits.mjs"
@@ -529,6 +530,7 @@ export async function observeProductionCandidate({
   })
   const artifactState = preparedArtifactState
   const releaseState = await mapProductionRelease({
+    git,
     result: releasesResult,
     candidate: identity,
     inventory: managedInventory,
@@ -1787,6 +1789,7 @@ function emptyProductionArtifacts(inventory) {
 }
 
 async function mapProductionRelease({
+  git,
   result,
   candidate,
   inventory,
@@ -2004,6 +2007,7 @@ async function mapProductionRelease({
         ),
       )
     const terminal = await observeReleaseTerminal({
+      git,
       candidate,
       controllerMarker,
       release,
@@ -2987,6 +2991,7 @@ function markerBaseAssets(marker) {
 }
 
 async function observeReleaseTerminal({
+  git,
   candidate,
   release,
   marker,
@@ -3043,7 +3048,15 @@ async function observeReleaseTerminal({
   if (runResult.status !== "PRESENT" || jobsResult.status !== "PRESENT") {
     throw observationError("RELEASE_AUDIT_RUN_AMBIGUOUS")
   }
+  const executor = await authorizeAuditExecutor({
+    candidate,
+    manifestSha256: marker.manifestSha256,
+    run: runResult.value,
+    git,
+    github,
+  })
   const run = validateProductionAuditRun({
+    executor,
     value: runResult.value,
     jobs:
       exactAttempt === null
@@ -3107,14 +3120,15 @@ async function observeReleaseTerminal({
   }
 }
 
-export function validateProductionAuditRun({ value, jobs, candidate, marker }) {
+export function validateProductionAuditRun({ value, jobs, candidate, marker, executor }) {
+  const identity = auditExecutorIdentity({ candidate, executor })
   if (
     !isRecord(value) ||
     String(value.id) !== String(marker.audit.workflowRunId) ||
     !isPositiveSafeInteger(value.run_attempt) ||
     value.run_attempt > MAX_AUDIT_ATTEMPTS ||
-    value.head_sha !== candidate.commitSha ||
-    value.head_branch !== `v${candidate.version}` ||
+    value.head_sha !== identity.headSha ||
+    value.head_branch !== identity.headBranch ||
     value.event !== "workflow_dispatch" ||
     value.path !== ".github/workflows/published-artifact-verify.yml" ||
     !ACTIONS_RUN_STATUSES.includes(value.status) ||

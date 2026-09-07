@@ -11,6 +11,7 @@ import { createGitReader } from "./adapters/git.mjs"
 import { createGitHubReader } from "./adapters/github.mjs"
 import { createNpmReader } from "./adapters/npm.mjs"
 import { createCliAttestationVerifier } from "./artifact-store.mjs"
+import { auditExecutorIdentity, authorizeAuditExecutor } from "./audit-executor.mjs"
 import { readBoundedFixture } from "./fixture-io.mjs"
 import { RELEASE_PAYLOAD_LIMITS } from "./limits.mjs"
 import { CANONICAL_RELEASE_PACKAGE_ORDER } from "./manifest.mjs"
@@ -113,7 +114,6 @@ export function parseIndependentAuditEnvironment(environment, options) {
     throw new TypeError("Independent audit environment is invalid")
   }
   const expectedRef = `refs/tags/v${identity.version}`
-  const expectedWorkflowRef = `${REPOSITORY}/${WORKFLOW}@${expectedRef}`
   const values = Object.fromEntries(
     [
       "GITHUB_REPOSITORY",
@@ -125,12 +125,15 @@ export function parseIndependentAuditEnvironment(environment, options) {
       "GITHUB_RUN_ATTEMPT",
     ].map((name) => [name, environmentString(environment, name)]),
   )
+  const isMain = values.GITHUB_REF === "refs/heads/main"
+  const actualRef = isMain ? "refs/heads/main" : expectedRef
+  const expectedWorkflowRef = `${REPOSITORY}/${WORKFLOW}@${actualRef}`
   if (
     values.GITHUB_REPOSITORY !== REPOSITORY ||
     values.GITHUB_EVENT_NAME !== "workflow_dispatch" ||
     values.GITHUB_WORKFLOW_REF !== expectedWorkflowRef ||
-    values.GITHUB_REF !== expectedRef ||
-    values.GITHUB_SHA !== identity.commitSha
+    values.GITHUB_REF !== actualRef ||
+    (isMain ? !SHA_PATTERN.test(values.GITHUB_SHA) : values.GITHUB_SHA !== identity.commitSha)
   ) {
     throw new TypeError("Independent audit GitHub invocation identity is invalid")
   }
@@ -139,8 +142,9 @@ export function parseIndependentAuditEnvironment(environment, options) {
   return deepFreeze({
     repository: REPOSITORY,
     workflow: WORKFLOW,
-    ref: expectedRef,
+    ref: actualRef,
     commitSha: identity.commitSha,
+    ...(isMain ? { executorSha: values.GITHUB_SHA } : {}),
     workflowRunId,
     runAttempt,
   })
@@ -200,6 +204,7 @@ export async function runIndependentAudit(argv, overrides = {}) {
           marker: releaseMarker,
           invocation,
           github: runtime.github,
+          git: runtime.git,
         }),
     )
     const immutableInventory = await auditCheck(
@@ -424,7 +429,7 @@ function parseDispatchRelease(value, candidate, manifestSha256) {
   return marker
 }
 
-async function readExactWorkflowAttempt({ candidate, marker, invocation, github }) {
+async function readExactWorkflowAttempt({ candidate, marker, invocation, github, git }) {
   const [runEnvelope, jobsEnvelope] = await Promise.all([
     github.getActionsRunAttempt({
       runId: invocation.workflowRunId,
@@ -448,7 +453,22 @@ async function readExactWorkflowAttempt({ candidate, marker, invocation, github 
   if (run.value.run_attempt !== invocation.runAttempt) {
     throw auditFailure("AUDIT_RUN_ATTEMPT_IDENTITY_MISMATCH")
   }
+  const executor = await authorizeAuditExecutor({
+    candidate,
+    manifestSha256: marker.manifestSha256,
+    run: run.value,
+    github,
+    git,
+  })
+  const source = auditExecutorIdentity({ candidate, executor })
+  if (
+    source.headSha !== (invocation.executorSha ?? invocation.commitSha) ||
+    invocation.ref !==
+      (source.headBranch === "main" ? "refs/heads/main" : `refs/tags/${source.headBranch}`)
+  )
+    throw auditFailure("AUDIT_RUN_ATTEMPT_IDENTITY_MISMATCH")
   validateProductionAuditRun({
+    executor,
     value: run.value,
     jobs: jobs.value.filter((job) => job?.runAttempt <= invocation.runAttempt),
     candidate,
@@ -1035,10 +1055,12 @@ function isInvocation(value, candidate) {
       "commitSha",
       "workflowRunId",
       "runAttempt",
+      ...(value.ref === "refs/heads/main" ? ["executorSha"] : []),
     ]) &&
     value.repository === REPOSITORY &&
     value.workflow === WORKFLOW &&
-    value.ref === `refs/tags/v${candidate.version}` &&
+    (value.ref === `refs/tags/v${candidate.version}` ||
+      (value.ref === "refs/heads/main" && SHA_PATTERN.test(value.executorSha))) &&
     value.commitSha === candidate.commitSha &&
     isPositiveInteger(value.workflowRunId) &&
     isPositiveInteger(value.runAttempt) &&
