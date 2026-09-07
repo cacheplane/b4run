@@ -105,7 +105,7 @@ export function kubernetesSandbox(opts: KubernetesSandboxOptions): SandboxProvid
     signal: AbortSignal,
   ): Promise<string> => {
     const name = podName(threadId)
-    const labels = { "app.kubernetes.io/managed-by": "b4", "b4.sh/thread": sanitize(threadId) }
+    const labels = { "app.kubernetes.io/managed-by": "b4", "b4.run/thread": sanitize(threadId) }
 
     await client.createNamespacedPvcIfAbsent(ns, {
       name: pvcName(threadId),

@@ -129,7 +129,7 @@ interface JsonObject {
 
 const REQUIRED_EXECUTABLES = ["kubectl", "helm", "pnpm"] as const
 const DEFAULT_STORAGE_ANNOTATION = "storageclass.kubernetes.io/is-default-class"
-const RUN_LABEL = "b4.sh/compat-run"
+const RUN_LABEL = "b4.run/compat-run"
 const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const
 const RELEASE_ROLES = ["infrastructure", "application"] as const
 const TARGET_MINOR_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/

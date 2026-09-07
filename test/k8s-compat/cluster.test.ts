@@ -476,7 +476,7 @@ describe("namespace ownership and cleanup", () => {
 
   function namespace(ownership: NamespaceOwnership, label = ownership.runId, uid = ownership.uid) {
     return {
-      metadata: { name: ownership.name, uid, labels: { "b4.sh/compat-run": label } },
+      metadata: { name: ownership.name, uid, labels: { "b4.run/compat-run": label } },
     }
   }
 

@@ -81,8 +81,8 @@ export interface NetworkControlLease {
 
 type JsonObject = Record<string, unknown>
 
-const RUN_LABEL = "b4.sh/compat-run"
-const COMPONENT_LABEL = "b4.sh/compat-component"
+const RUN_LABEL = "b4.run/compat-run"
+const COMPONENT_LABEL = "b4.run/compat-component"
 const QUOTA_NAME = "b4-sandbox-quota"
 const INFRASTRUCTURE_CHART = "charts/b4-sandbox-infra"
 const APPLICATION_CHART = "charts/b4-app"
@@ -712,7 +712,7 @@ export async function runNetworkControlProbe(
   const serverName = resourceName(state.runId, "network-server")
   const serviceName = resourceName(state.runId, "network-service")
   const clientName = resourceName(state.runId, "network-client")
-  const componentLabel = "b4.sh/compat-component"
+  const componentLabel = "b4.run/compat-component"
   const server = restrictedPod({
     name: serverName,
     namespace: state.namespace,
@@ -1309,7 +1309,7 @@ function infrastructureChartValues(state: ResolvedProbeState): readonly string[]
     "--set-string",
     `namespace.name=${state.namespace}`,
     "--set-string",
-    `namespace.extraLabels.b4\\.sh/compat-run=${state.runId}`,
+    `namespace.extraLabels.b4\\.run/compat-run=${state.runId}`,
   ]
 }
 
@@ -1560,7 +1560,7 @@ function reaperPvc(input: {
       namespace: input.namespace,
       labels: reaperFixtureLabels(input.runId),
       ...(input.marker !== undefined
-        ? { annotations: { "b4.sh/unbound-since": input.marker } }
+        ? { annotations: { "b4.run/unbound-since": input.marker } }
         : {}),
     },
     spec: {
@@ -1946,7 +1946,7 @@ function assertReaperPvcOutcomes(
     newMetadata.annotations === undefined
       ? {}
       : expectObject(newMetadata.annotations, "Reaper new PVC.metadata.annotations")
-  const marker = newAnnotations["b4.sh/unbound-since"]
+  const marker = newAnnotations["b4.run/unbound-since"]
   if (typeof marker !== "string" || !/^[1-9]\d*$/.test(marker)) {
     throw new Error("Reaper new PVC marker must be a positive integer")
   }
@@ -1971,7 +1971,7 @@ function assertReaperPvcOutcomes(
     referencedMetadata.annotations === undefined
       ? {}
       : expectObject(referencedMetadata.annotations, "Reaper referenced PVC.metadata.annotations")
-  if (Object.hasOwn(referencedAnnotations, "b4.sh/unbound-since")) {
+  if (Object.hasOwn(referencedAnnotations, "b4.run/unbound-since")) {
     throw new Error("Reaper referenced PVC must be retained and unmarked")
   }
 }

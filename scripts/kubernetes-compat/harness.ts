@@ -79,7 +79,7 @@ const DEFAULT_EXPECTED_TESTS_PATH = resolve(
   "test/k8s-compat/expected-tests.json",
 )
 const SUPPORTED_TARGETS = new Set(["1.34", "1.35", "1.36"])
-const RUN_LABEL = "b4.sh/compat-run"
+const RUN_LABEL = "b4.run/compat-run"
 const ORCHESTRATOR_SERVICE_ACCOUNT = "b4-orchestrator"
 const PROVIDER_TIMEOUT_MS = 12 * 60 * 1_000
 const PROVIDER_STDOUT_LIMIT_BYTES = 64 * 1_024

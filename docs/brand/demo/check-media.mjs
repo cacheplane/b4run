@@ -17,7 +17,7 @@ export const MEDIA_CAPTIONS = Object.freeze({
   author:
     "Inspect the generated research route, co-located route files, shared searchCorpus tool, and offline test harness.",
   test: "Run npm test and see the deterministic research scenario pass without a provider key.",
-  run: "Complete a fixture-backed Workbench run, reload the browser, reopen the same thread, and restore its transcript.",
+  run: "Complete a fixture-backed Workbench run, then restore the same thread and its checkpointed transcript after a browser reload.",
 })
 
 export const MEDIA_CONTRACTS = Object.freeze(

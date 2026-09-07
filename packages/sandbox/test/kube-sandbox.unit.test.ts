@@ -40,7 +40,7 @@ test("acquire creates PVC + Pod with hardened SecurityContext and fsGroup", asyn
     readOnlyRootFilesystem: true,
     capabilities: { drop: ["ALL"] },
   })
-  expect(pod?.spec.labels["b4.sh/thread"]).toBe("t1")
+  expect(pod?.spec.labels["b4.run/thread"]).toBe("t1")
   expect(pod?.spec.automountServiceAccountToken).toBe(false)
 })
 
@@ -119,8 +119,8 @@ test("sanitize strips trailing dash from the thread label", async () => {
   const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
   await p.acquire({ threadId: "abc/", policy, signal: signal() })
   const pod = k.pods.get("b4-sbx-abc")
-  expect(pod?.spec.labels["b4.sh/thread"]).toBe("abc")
-  expect(pod?.spec.labels["b4.sh/thread"]?.endsWith("-")).toBe(false)
+  expect(pod?.spec.labels["b4.run/thread"]).toBe("abc")
+  expect(pod?.spec.labels["b4.run/thread"]?.endsWith("-")).toBe(false)
 })
 
 test("existing Pending pod is waited on, not recreated (no 409)", async () => {

@@ -27,7 +27,7 @@
     "mp4": "https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/run.mp4",
     "webm": "https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/run.webm",
     "poster": "/demo/run-poster.webp",
-    "caption": "Complete a fixture-backed Workbench run, reload the browser, reopen the same thread, and restore its transcript.",
+    "caption": "Complete a fixture-backed Workbench run, then restore the same thread and its checkpointed transcript after a browser reload.",
     "ariaLabel": "B4.run Run clip: reload and restore the same Workbench thread",
     "transcript": "https://github.com/cacheplane/b4-run/blob/main/docs/brand/demo/transcript.md#run-clip-10-seconds"
   }

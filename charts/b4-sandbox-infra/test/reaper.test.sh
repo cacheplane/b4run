@@ -60,6 +60,16 @@ if [ "${1:-}" = "get" ] && [ "${2:-}" = "pvc" ]; then
       printf 'Error from server (NotFound): persistentvolumeclaims "%s" not found\n' "${3:-}" >&2
       exit 1
     fi
+    selector=""
+    for argument do
+      case "$argument" in
+        jsonpath=*) selector="$argument" ;;
+      esac
+    done
+    if [ "$selector" != 'jsonpath={.metadata.annotations.b4\.run/unbound-since}{"x"}' ]; then
+      printf 'unexpected annotation selector: %s\n' "$selector" >&2
+      exit 1
+    fi
     marker="$FIX/annotations/${3:-}"
     [ ! -f "$marker" ] || cat "$marker"
     case "$*" in
@@ -180,25 +190,25 @@ EOF
 run_reaper
 
 require_call "fresh unbound PVC is marked" \
-  "annotate --overwrite pvc b4-sbx-vol-fresh-unbound b4.sh/unbound-since="
+  "annotate --overwrite pvc b4-sbx-vol-fresh-unbound b4.run/unbound-since="
 require_call "stale unbound PVC is deleted without waiting for watch permission" \
   "delete pvc b4-sbx-vol-stale-unbound --wait=false"
 require_call "bound PVC marker is cleared" \
-  "annotate pvc b4-sbx-vol-bound b4.sh/unbound-since-"
+  "annotate pvc b4-sbx-vol-bound b4.run/unbound-since-"
 reject_call "within-TTL PVC is not re-marked" \
   "annotate --overwrite pvc b4-sbx-vol-within-ttl"
 reject_call "within-TTL PVC is not deleted" \
   "delete pvc b4-sbx-vol-within-ttl"
 require_call "multiline marker is re-marked" \
-  "annotate --overwrite pvc b4-sbx-vol-attacker b4.sh/unbound-since="
+  "annotate --overwrite pvc b4-sbx-vol-attacker b4.run/unbound-since="
 reject_call "injected victim record is never deleted" \
   "delete pvc b4-sbx-vol-injected-victim"
 require_call "trailing-newline marker is re-marked" \
-  "annotate --overwrite pvc b4-sbx-vol-trailing-newline b4.sh/unbound-since="
+  "annotate --overwrite pvc b4-sbx-vol-trailing-newline b4.run/unbound-since="
 require_call "zero marker is re-marked" \
-  "annotate --overwrite pvc b4-sbx-vol-zero b4.sh/unbound-since="
+  "annotate --overwrite pvc b4-sbx-vol-zero b4.run/unbound-since="
 require_call "leading-zero marker is re-marked" \
-  "annotate --overwrite pvc b4-sbx-vol-leading-zero b4.sh/unbound-since="
+  "annotate --overwrite pvc b4-sbx-vol-leading-zero b4.run/unbound-since="
 
 # A digit string longer than NOW must be rejected before shell arithmetic.
 reset_fixtures
@@ -208,7 +218,7 @@ printf '%s\n' 'b4-sbx-vol-oversized 9999999999999999999999999999999999999999' \
   > "$FIX/legacy-pvc-records.jsonpath"
 run_reaper
 require_call "oversized numeric marker is re-marked" \
-  "annotate --overwrite pvc b4-sbx-vol-oversized b4.sh/unbound-since="
+  "annotate --overwrite pvc b4-sbx-vol-oversized b4.run/unbound-since="
 reject_call "oversized numeric marker never drives deletion" \
   "delete pvc b4-sbx-vol-oversized"
 
@@ -220,7 +230,7 @@ printf '%s' "$FUTURE_SINCE" > "$FIX/annotations/b4-sbx-vol-future"
 printf 'b4-sbx-vol-future %s\n' "$FUTURE_SINCE" > "$FIX/legacy-pvc-records.jsonpath"
 run_reaper
 require_call "future marker is re-marked" \
-  "annotate --overwrite pvc b4-sbx-vol-future b4.sh/unbound-since="
+  "annotate --overwrite pvc b4-sbx-vol-future b4.run/unbound-since="
 reject_call "future marker never drives deletion" \
   "delete pvc b4-sbx-vol-future"
 
@@ -241,7 +251,7 @@ reject_call "disappeared PVC is not annotated" \
 reject_call "disappeared PVC is not deleted" \
   "delete pvc b4-sbx-vol-disappeared"
 require_call "processing continues after a disappeared PVC" \
-  "annotate --overwrite pvc b4-sbx-vol-after-disappeared b4.sh/unbound-since="
+  "annotate --overwrite pvc b4-sbx-vol-after-disappeared b4.run/unbound-since="
 
 # --ignore-not-found must not turn genuine API failures into successful reads.
 reset_fixtures
@@ -274,7 +284,7 @@ run_reaper
 require_call "failed clear confirms concurrent PVC deletion" \
   "get pvc b4-sbx-vol-bound-gone --ignore-not-found -o name"
 require_call "processing continues after concurrent bound PVC deletion" \
-  "annotate --overwrite pvc b4-sbx-vol-after-bound-gone b4.sh/unbound-since="
+  "annotate --overwrite pvc b4-sbx-vol-after-bound-gone b4.run/unbound-since="
 
 # A genuine API error from the follow-up existence check must remain fatal.
 reset_fixtures

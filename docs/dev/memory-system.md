@@ -1,5 +1,9 @@
 # Long-term memory — developer walkthrough
 
+> Historical design snapshot, retained to explain earlier implementation decisions.
+> For current B4.run behavior and commands, use the [documentation](https://b4.run/docs/getting-started)
+> and the repository README. This document is not a current implementation guide.
+
 > Draft developer documentation. A full, code-grounded walkthrough of Dawn's
 > long-term memory system as it exists on `main` (post-PR #250 + #257). Written
 > to help assess the current design and guide the "smarter recall" follow-up.

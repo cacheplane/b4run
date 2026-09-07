@@ -47,6 +47,7 @@ test("historical release evidence and incident tools retain their exact original
   const preserved = paths.filter(
     (path) =>
       path.startsWith("scripts/security/") ||
+      path === "scripts/deprecate-legacy-dawn-versions.sh" ||
       path === "scripts/release/terminal-recovery-adapters.mjs" ||
       /^scripts\/release\/(?:terminal-records|smoke-adjudications|recovery-adoptions|recovery-verifier-repairs|audit-executor-authorizations|recovery-fence-contracts|recovery-fence-evidence|recovery-platform-reviews)\//.test(
         path,

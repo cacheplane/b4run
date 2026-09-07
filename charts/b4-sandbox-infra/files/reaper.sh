@@ -15,19 +15,19 @@ PVC_NAMES="$(kubectl -n "$NS" get pvc -l app.kubernetes.io/managed-by=b4 \
 printf '%s\n' "$PVC_NAMES" | while IFS= read -r NAME; do
     [ -z "$NAME" ] && continue
     SINCE_WITH_SENTINEL="$(kubectl -n "$NS" get pvc "$NAME" --ignore-not-found \
-      -o jsonpath='{.metadata.annotations.b4\.sh/unbound-since}{"x"}')"
+      -o jsonpath='{.metadata.annotations.b4\.run/unbound-since}{"x"}')"
     [ -z "$SINCE_WITH_SENTINEL" ] && continue
     SINCE="${SINCE_WITH_SENTINEL%?}"
 
     if printf '%s\n' "$BOUND" | grep -Fxq "$NAME"; then
       # bound → clear any marker
       [ -z "${SINCE:-}" ] && continue
-      if kubectl -n "$NS" annotate pvc "$NAME" b4.sh/unbound-since- >/dev/null; then
+      if kubectl -n "$NS" annotate pvc "$NAME" b4.run/unbound-since- >/dev/null; then
         continue
       fi
       PVC_AFTER_CLEAR="$(kubectl -n "$NS" get pvc "$NAME" --ignore-not-found -o name)"
       [ -z "$PVC_AFTER_CLEAR" ] && continue
-      echo "failed to clear b4.sh/unbound-since from bound PVC $NAME" >&2
+      echo "failed to clear b4.run/unbound-since from bound PVC $NAME" >&2
       exit 1
     fi
 
@@ -35,21 +35,21 @@ printf '%s\n' "$PVC_NAMES" | while IFS= read -r NAME; do
     # may reach shell arithmetic. Invalid/tampered markers reset the clock.
     case "${SINCE:-}" in
       "" | 0* | *[!0-9]*)
-        kubectl -n "$NS" annotate --overwrite pvc "$NAME" "b4.sh/unbound-since=$NOW" >/dev/null
+        kubectl -n "$NS" annotate --overwrite pvc "$NAME" "b4.run/unbound-since=$NOW" >/dev/null
         echo "marked $NAME"
         continue
         ;;
     esac
 
     if [ "${#SINCE}" -gt "${#NOW}" ]; then
-      kubectl -n "$NS" annotate --overwrite pvc "$NAME" "b4.sh/unbound-since=$NOW" >/dev/null
+      kubectl -n "$NS" annotate --overwrite pvc "$NAME" "b4.run/unbound-since=$NOW" >/dev/null
       echo "marked $NAME"
       continue
     fi
 
     AGE=$(( NOW - SINCE ))
     if [ "$AGE" -lt 0 ]; then
-      kubectl -n "$NS" annotate --overwrite pvc "$NAME" "b4.sh/unbound-since=$NOW" >/dev/null
+      kubectl -n "$NS" annotate --overwrite pvc "$NAME" "b4.run/unbound-since=$NOW" >/dev/null
       echo "marked $NAME"
     elif [ "$AGE" -gt "$TTL_SECONDS" ]; then
       kubectl -n "$NS" delete pvc "$NAME" --wait=false >/dev/null

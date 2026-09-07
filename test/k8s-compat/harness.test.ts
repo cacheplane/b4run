@@ -121,7 +121,7 @@ function namespace(name: string, uid: string): unknown {
     metadata: {
       name,
       uid,
-      labels: { "b4.sh/compat-run": RUN_ID },
+      labels: { "b4.run/compat-run": RUN_ID },
     },
   }
 }
@@ -700,7 +700,7 @@ describe("portable compatibility lifecycle", () => {
       kind: "Namespace",
       metadata: {
         name: NAMES.managementNamespace,
-        labels: { "b4.sh/compat-run": RUN_ID },
+        labels: { "b4.run/compat-run": RUN_ID },
       },
     })
 
@@ -1053,7 +1053,7 @@ describe("failure boundaries and cleanup", () => {
             metadata: {
               name: NAMES.sandboxNamespace,
               uid: "sandbox-uid",
-              labels: { "b4.sh/compat-run": "another-run" },
+              labels: { "b4.run/compat-run": "another-run" },
             },
           })
         }
@@ -2421,7 +2421,7 @@ describe("failure reports and diagnostics", () => {
         metadata: {
           name: NAMES.sandboxNamespace,
           uid: "replacement-uid",
-          labels: { "b4.sh/compat-run": RUN_ID },
+          labels: { "b4.run/compat-run": RUN_ID },
         },
       },
     },
@@ -2433,7 +2433,7 @@ describe("failure reports and diagnostics", () => {
         metadata: {
           name: NAMES.sandboxNamespace,
           uid: "sandbox-uid",
-          labels: { "b4.sh/compat-run": "another-run" },
+          labels: { "b4.run/compat-run": "another-run" },
         },
       },
     },

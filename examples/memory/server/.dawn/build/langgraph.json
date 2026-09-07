@@ -1,8 +1,0 @@
-{
-  "graphs": {
-    "/notes#agent": "./.dawn/build/notes.ts:graph"
-  },
-  "dependencies": ["."],
-  "env": ".env",
-  "node_version": "22"
-}

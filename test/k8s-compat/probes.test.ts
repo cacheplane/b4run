@@ -145,7 +145,7 @@ function expectRestrictedPod(
 ): void {
   expect(pod.kind).toBe("Pod")
   expect(metadata(pod).namespace).toBe(namespace)
-  expect(metadata(pod).labels).toMatchObject({ "b4.sh/compat-run": runId })
+  expect(metadata(pod).labels).toMatchObject({ "b4.run/compat-run": runId })
   const spec = podSpec(pod)
   expect(spec.automountServiceAccountToken).toBe(false)
   expect(spec.securityContext).toMatchObject({
@@ -401,7 +401,7 @@ interface ReaperRunnerOptions {
 }
 
 const scheduledJobsApiPath = `/apis/batch/v1/namespaces/${encodeURIComponent(names.sandboxNamespace)}/jobs`
-const reaperPvcSelector = `b4.sh/compat-run=${runId},b4.sh/compat-component=reaper-lifecycle`
+const reaperPvcSelector = `b4.run/compat-run=${runId},b4.run/compat-component=reaper-lifecycle`
 const reaperPvcsApiPath = `/api/v1/namespaces/${encodeURIComponent(names.sandboxNamespace)}/persistentvolumeclaims?labelSelector=${encodeURIComponent(reaperPvcSelector)}`
 const applicationSelector = `app.kubernetes.io/instance=${names.appRelease}`
 const deploymentsApiPath = `/apis/apps/v1/namespaces/${encodeURIComponent(names.managementNamespace)}/deployments?labelSelector=${encodeURIComponent(applicationSelector)}`
@@ -565,7 +565,7 @@ function createReaperRunner(options: ReaperRunnerOptions = {}): {
       const observedFresh = structuredClone(fresh)
       if (options.markNew !== false) {
         metadata(observedFresh).annotations = {
-          "b4.sh/unbound-since": options.newMarker ?? String(REAPER_TEST_EPOCH_SECONDS),
+          "b4.run/unbound-since": options.newMarker ?? String(REAPER_TEST_EPOCH_SECONDS),
         }
       }
       if (options.deletingNew === true) {
@@ -574,7 +574,7 @@ function createReaperRunner(options: ReaperRunnerOptions = {}): {
       const observedReferenced = structuredClone(referenced)
       metadata(observedReferenced).annotations =
         options.markReferenced === true
-          ? { "b4.sh/unbound-since": String(REAPER_TEST_EPOCH_SECONDS) }
+          ? { "b4.run/unbound-since": String(REAPER_TEST_EPOCH_SECONDS) }
           : {}
       if (options.deletingReferenced === true) {
         metadata(observedReferenced).deletionTimestamp = "2033-05-18T03:33:20Z"
@@ -656,7 +656,7 @@ describe("positive and negative pod fixtures", () => {
     expect(pods).toHaveLength(2)
     for (const pod of pods) expectRestrictedPod(pod, policy.images.sandboxWorkload)
     for (const manifest of manifests) {
-      expect(metadata(manifest).labels).toMatchObject({ "b4.sh/compat-run": runId })
+      expect(metadata(manifest).labels).toMatchObject({ "b4.run/compat-run": runId })
     }
     const service = manifests.find((item) => item.kind === "Service")
     if (service === undefined) throw new Error("Expected network control Service manifest")
@@ -714,8 +714,8 @@ describe("positive and negative pod fixtures", () => {
       retainedCleanupCalls.map(([command]) => command.args[command.args.indexOf("--selector") + 1]),
     ).toEqual(
       expect.arrayContaining([
-        `b4.sh/compat-run=${runId},b4.sh/compat-component=${String(metadata(pods[0] as JsonObject).name)}`,
-        `b4.sh/compat-run=${runId},b4.sh/compat-component=${String(metadata(service).name)}`,
+        `b4.run/compat-run=${runId},b4.run/compat-component=${String(metadata(pods[0] as JsonObject).name)}`,
+        `b4.run/compat-run=${runId},b4.run/compat-component=${String(metadata(service).name)}`,
       ]),
     )
     const cleanupCalls = execute.mock.calls.filter(([command]) => command.args.includes("delete"))
@@ -959,13 +959,13 @@ describe("positive and negative pod fixtures", () => {
     await runLimitRangeProbe({ context, kubeconfig, runId, policy, execute: limitRange })
 
     expect(quota.mock.calls.at(-1)?.[0].args).toContain(
-      `b4.sh/compat-run=${runId},b4.sh/compat-component=quota-admission`,
+      `b4.run/compat-run=${runId},b4.run/compat-component=quota-admission`,
     )
     expect(restricted.mock.calls.at(-1)?.[0].args).toContain(
-      `b4.sh/compat-run=${runId},b4.sh/compat-component=restricted-admission`,
+      `b4.run/compat-run=${runId},b4.run/compat-component=restricted-admission`,
     )
     expect(limitRange.mock.calls.at(-1)?.[0].args).toContain(
-      `b4.sh/compat-run=${runId},b4.sh/compat-component=limit-range`,
+      `b4.run/compat-run=${runId},b4.run/compat-component=limit-range`,
     )
   })
 })
@@ -1006,7 +1006,7 @@ describe("same-candidate chart operations", () => {
           "--set-string",
           `namespace.name=${names.sandboxNamespace}`,
           "--set-string",
-          `namespace.extraLabels.b4\\.sh/compat-run=${runId}`,
+          `namespace.extraLabels.b4\\.run/compat-run=${runId}`,
         ]),
       )
     }
@@ -1821,7 +1821,7 @@ describe("reaper and application Service probes", () => {
       expect(metadata(claim).namespace).toBe(names.sandboxNamespace)
       expect(metadata(claim).labels).toMatchObject({
         "app.kubernetes.io/managed-by": "b4",
-        "b4.sh/compat-run": runId,
+        "b4.run/compat-run": runId,
       })
       expect((claim.spec as JsonObject).storageClassName).toBe("")
     }
@@ -1836,8 +1836,8 @@ describe("reaper and application Service probes", () => {
       metadata: {
         labels: {
           "app.kubernetes.io/name": "b4-sandbox-infra",
-          "b4.sh/compat-run": runId,
-          "b4.sh/compat-component": "reaper-lifecycle",
+          "b4.run/compat-run": runId,
+          "b4.run/compat-component": "reaper-lifecycle",
         },
       },
       spec: {
@@ -1877,10 +1877,10 @@ describe("reaper and application Service probes", () => {
     expect(staleWait?.[1]?.timeoutMs).toBe(60_000)
     expect(metadata(job)).toMatchObject({
       namespace: names.sandboxNamespace,
-      labels: { "b4.sh/compat-run": runId },
+      labels: { "b4.run/compat-run": runId },
     })
     expect(metadata((job.spec as JsonObject).template as JsonObject).labels).toMatchObject({
-      "b4.sh/compat-run": runId,
+      "b4.run/compat-run": runId,
     })
 
     const cleanup = execute.mock.calls.filter(
@@ -1894,7 +1894,7 @@ describe("reaper and application Service probes", () => {
           "--namespace",
           names.sandboxNamespace,
           "--selector",
-          `b4.sh/compat-run=${runId},b4.sh/compat-component=reaper-lifecycle`,
+          `b4.run/compat-run=${runId},b4.run/compat-component=reaper-lifecycle`,
           "--ignore-not-found=true",
           "--wait=true",
         ]),
@@ -2017,7 +2017,9 @@ describe("reaper and application Service probes", () => {
     const cleanup = execute.mock.calls.filter(
       ([command]) =>
         command.args.includes("delete") &&
-        command.args.includes(`b4.sh/compat-run=${runId},b4.sh/compat-component=app-service-ready`),
+        command.args.includes(
+          `b4.run/compat-run=${runId},b4.run/compat-component=app-service-ready`,
+        ),
     )
     expect(cleanup).toHaveLength(4)
   })
@@ -2265,7 +2267,7 @@ describe("probe command routing, evidence, and cleanup", () => {
     const outside = stdinObject(requests[2]?.[1] ?? {})
     expect(metadata(role)).toMatchObject({
       namespace: names.sandboxNamespace,
-      labels: { "b4.sh/compat-run": runId },
+      labels: { "b4.run/compat-run": runId },
     })
     expect(outside).toEqual({
       apiVersion: "networking.k8s.io/v1",
@@ -2274,15 +2276,15 @@ describe("probe command routing, evidence, and cleanup", () => {
         name: expect.stringMatching(/^b4-compat-outside-namespace-rbac-probe-[0-9a-f]{8}$/),
         namespace: names.managementNamespace,
         labels: {
-          "b4.sh/compat-run": runId,
-          "b4.sh/compat-component": "outside-namespace-rbac-probe",
+          "b4.run/compat-run": runId,
+          "b4.run/compat-component": "outside-namespace-rbac-probe",
         },
       },
       spec: {
         podSelector: {
           matchLabels: {
-            "b4.sh/compat-run": runId,
-            "b4.sh/compat-component": "outside-namespace-rbac-probe",
+            "b4.run/compat-run": runId,
+            "b4.run/compat-component": "outside-namespace-rbac-probe",
           },
         },
         policyTypes: ["Ingress", "Egress"],
@@ -2298,7 +2300,7 @@ describe("probe command routing, evidence, and cleanup", () => {
         "--namespace",
         names.managementNamespace,
         "--selector",
-        `b4.sh/compat-run=${runId},b4.sh/compat-component=outside-namespace-rbac-probe`,
+        `b4.run/compat-run=${runId},b4.run/compat-component=outside-namespace-rbac-probe`,
         "--ignore-not-found=true",
         "--wait=true",
       ],
@@ -2516,7 +2518,7 @@ describe("probe command routing, evidence, and cleanup", () => {
         "--namespace",
         names.sandboxNamespace,
         "--selector",
-        `b4.sh/compat-run=${runId}`,
+        `b4.run/compat-run=${runId}`,
       ]),
     )
   })
@@ -2591,8 +2593,8 @@ describe("probe command routing, evidence, and cleanup", () => {
         ]),
       )
       const selector = cleanupCommand.args[cleanupCommand.args.indexOf("--selector") + 1]
-      expect(selector).toContain(`b4.sh/compat-run=${runId}`)
-      expect(selector).toContain("b4.sh/compat-component=")
+      expect(selector).toContain(`b4.run/compat-run=${runId}`)
+      expect(selector).toContain("b4.run/compat-component=")
     }
   })
 
@@ -2644,7 +2646,7 @@ describe("probe command routing, evidence, and cleanup", () => {
         metadata: {
           name: names.sandboxNamespace,
           uid: "replacement-uid",
-          labels: { "b4.sh/compat-run": runId },
+          labels: { "b4.run/compat-run": runId },
         },
       },
     },
@@ -2656,7 +2658,7 @@ describe("probe command routing, evidence, and cleanup", () => {
         metadata: {
           name: names.sandboxNamespace,
           uid: sandboxOwnership.uid,
-          labels: { "b4.sh/compat-run": "another-run" },
+          labels: { "b4.run/compat-run": "another-run" },
         },
       },
     },
@@ -2686,7 +2688,7 @@ describe("probe command routing, evidence, and cleanup", () => {
               metadata: {
                 name: names.sandboxNamespace,
                 uid: sandboxOwnership.uid,
-                labels: { "b4.sh/compat-run": runId },
+                labels: { "b4.run/compat-run": runId },
               },
             },
         sandboxOwnership,
@@ -2721,7 +2723,7 @@ describe("probe command routing, evidence, and cleanup", () => {
         metadata: {
           name: names.sandboxNamespace,
           uid: "replacement-uid",
-          labels: { "b4.sh/compat-run": runId },
+          labels: { "b4.run/compat-run": runId },
         },
       },
     },
@@ -2733,7 +2735,7 @@ describe("probe command routing, evidence, and cleanup", () => {
         metadata: {
           name: names.sandboxNamespace,
           uid: sandboxOwnership.uid,
-          labels: { "b4.sh/compat-run": "another-run" },
+          labels: { "b4.run/compat-run": "another-run" },
         },
       },
     },

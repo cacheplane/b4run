@@ -168,7 +168,7 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
       const perThreadPolicy = policies.items.find(
         (policy) =>
           policy.metadata?.name === `b4-sbx-net-${threadId}` ||
-          policy.metadata?.labels?.["b4.sh/thread"] === threadId,
+          policy.metadata?.labels?.["b4.run/thread"] === threadId,
       )
       expect(perThreadPolicy).toBeUndefined()
 
@@ -285,7 +285,7 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
       })
       expect(existing.metadata?.labels).toMatchObject({
         "app.kubernetes.io/managed-by": "b4",
-        "b4.sh/thread": threadId,
+        "b4.run/thread": threadId,
       })
       expect(existing.metadata?.resourceVersion).toBeTruthy()
       expect(existing.metadata?.uid).toBeTruthy()
@@ -293,7 +293,7 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
       const modified: V1NetworkPolicy = {
         ...existing,
         spec: {
-          podSelector: { matchLabels: { "b4.sh/thread": threadId } },
+          podSelector: { matchLabels: { "b4.run/thread": threadId } },
           policyTypes: ["Egress"],
           egress: [],
         },
@@ -316,10 +316,10 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
       expect(updated.metadata?.uid).toBe(existing.metadata?.uid)
       expect(updated.metadata?.labels).toMatchObject({
         "app.kubernetes.io/managed-by": "b4",
-        "b4.sh/thread": threadId,
+        "b4.run/thread": threadId,
       })
       expect(updated.spec).toEqual({
-        podSelector: { matchLabels: { "b4.sh/thread": threadId } },
+        podSelector: { matchLabels: { "b4.run/thread": threadId } },
         policyTypes: ["Egress"],
         egress: [
           {

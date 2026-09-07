@@ -25,7 +25,7 @@ export interface KubePvcSpec {
 export interface KubeNetworkPolicySpec {
   readonly name: string
   readonly labels: Readonly<Record<string, string>>
-  readonly threadLabelValue: string // podSelector matches b4.sh/thread=<value>
+  readonly threadLabelValue: string // podSelector matches b4.run/thread=<value>
   readonly mode: "deny" | "allow"
   readonly allowlist?: readonly string[] // CIDRs, allow mode only
 }

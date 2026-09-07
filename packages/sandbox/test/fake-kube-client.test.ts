@@ -1,7 +1,7 @@
 import { expect, test } from "vitest"
 import { fakeKubeClient } from "./support/fake-kube-client.ts"
 
-const LABELS = { "b4.sh/thread": "t" }
+const LABELS = { "b4.run/thread": "t" }
 
 test("PVC filestore survives pod deletion and is adopted by a new pod", async () => {
   const k = fakeKubeClient()

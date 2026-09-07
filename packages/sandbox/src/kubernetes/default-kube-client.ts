@@ -118,7 +118,7 @@ function toNetworkPolicyManifest(s: KubeNetworkPolicySpec): V1NetworkPolicy {
   return {
     metadata: { name: s.name, labels: { ...s.labels } },
     spec: {
-      podSelector: { matchLabels: { "b4.sh/thread": s.threadLabelValue } },
+      podSelector: { matchLabels: { "b4.run/thread": s.threadLabelValue } },
       policyTypes: ["Egress"],
       egress: [dnsEgress, ...cidrEgress],
     },
@@ -139,7 +139,7 @@ export function prepareNetworkPolicyReplacement(
   if (existing.metadata.labels?.["app.kubernetes.io/managed-by"] !== "b4") {
     throw new Error("Cannot replace NetworkPolicy: existing object is not B4.run-owned.")
   }
-  if (existing.metadata.labels?.["b4.sh/thread"] !== threadLabelValue) {
+  if (existing.metadata.labels?.["b4.run/thread"] !== threadLabelValue) {
     throw new Error("Cannot replace NetworkPolicy: existing thread label does not match.")
   }
   const resourceVersion = existing.metadata.resourceVersion

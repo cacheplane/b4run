@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # One-time cleanup: DEPRECATE the pre-realignment npm versions of
-# @b4run/testing and @b4run/evals that sit ABOVE the unified 0.8.0 line.
+# @dawn-ai/testing and @dawn-ai/evals that sit ABOVE the unified 0.8.0 line.
 #
 # Why deprecate, not unpublish: npm blocks self-service `npm unpublish` for any
 # version older than 72 hours ("You can no longer unpublish this package."). All
@@ -17,16 +17,16 @@
 # orphaned; this marks them deprecated so nobody pins them by accident.
 #
 # Requirements:
-#   - Logged in to npm as a @b4run owner/maintainer with publish rights
+#   - Logged in to npm as a @dawn-ai owner/maintainer with publish rights
 #     (`npm login`) — required only for --apply, NOT for the dry run.
 #   - 0.8.0 already published + tagged `latest` for each package (orphan guard
 #     below refuses to run otherwise).
 #   - 2FA: pass NPM_OTP, or let npm prompt interactively.
 #
 # Usage:
-#   bash scripts/deprecate-legacy-b4-versions.sh             # dry run (read-only, no auth)
-#   npm login                                                  # as a @b4run owner
-#   NPM_OTP=123456 bash scripts/deprecate-legacy-b4-versions.sh --apply
+#   bash scripts/deprecate-legacy-dawn-versions.sh             # dry run (read-only, no auth)
+#   npm login                                                  # as a @dawn-ai owner
+#   NPM_OTP=123456 bash scripts/deprecate-legacy-dawn-versions.sh --apply
 #
 # Undo one version:  npm deprecate <pkg>@<version> ""
 
@@ -40,8 +40,8 @@ APPLY=0
 OTP_ARG=()
 [[ -n "${NPM_OTP:-}" ]] && OTP_ARG=(--otp "${NPM_OTP}")
 
-MSG_TESTING='Superseded by the unified 0.8.0 release line; install @b4run/testing@^0.8.0'
-MSG_EVALS='Superseded by the unified 0.8.0 release line; install @b4run/evals@^0.8.0'
+MSG_TESTING='Superseded by the unified 0.8.0 release line; install @dawn-ai/testing@^0.8.0'
+MSG_EVALS='Superseded by the unified 0.8.0 release line; install @dawn-ai/evals@^0.8.0'
 
 # package -> space-separated list of legacy versions ABOVE the 0.8.0 line.
 TESTING_VERSIONS="1.0.0 2.0.0 3.0.0 4.0.0 5.0.0"
@@ -88,24 +88,24 @@ deprecate_set() {
 if [[ "$APPLY" == "1" ]]; then
   WHO=$(npm whoami 2>/dev/null || true)
   if [[ -z "$WHO" ]]; then
-    echo "ERROR: not logged in to npm. Run 'npm login' as a @b4run owner first." >&2
+    echo "ERROR: not logged in to npm. Run 'npm login' as a @dawn-ai owner first." >&2
     exit 1
   fi
   echo "==> logged in as: $WHO"
 fi
 
-preflight "@b4run/testing"
-preflight "@b4run/evals"
+preflight "@dawn-ai/testing"
+preflight "@dawn-ai/evals"
 
 if [[ "$APPLY" != "1" ]]; then
   echo
   echo "DRY RUN — nothing changed. After 'npm login', re-run with --apply."
 fi
 
-echo "==> @b4run/testing"
-deprecate_set "@b4run/testing" "$MSG_TESTING" $TESTING_VERSIONS
-echo "==> @b4run/evals"
-deprecate_set "@b4run/evals" "$MSG_EVALS" $EVALS_VERSIONS
+echo "==> @dawn-ai/testing"
+deprecate_set "@dawn-ai/testing" "$MSG_TESTING" $TESTING_VERSIONS
+echo "==> @dawn-ai/evals"
+deprecate_set "@dawn-ai/evals" "$MSG_EVALS" $EVALS_VERSIONS
 
 if [[ "$APPLY" == "1" ]]; then
   echo

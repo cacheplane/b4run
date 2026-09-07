@@ -35,8 +35,8 @@ printf '%s\n' "$NAMESPACE" | assert "pss warn restricted" 'pod-security.kubernet
 printf '%s\n' "$NAMESPACE" | assert "pss audit restricted" 'pod-security.kubernetes.io/audit: restricted'
 
 COMPAT_NAMESPACE="$(tmpl --show-only templates/namespace.yaml \
-  --set-string 'namespace.extraLabels.b4\.sh/compat-run=run-123')"
-printf '%s\n' "$COMPAT_NAMESPACE" | assert "compat run label" 'b4\.sh/compat-run: run-123'
+  --set-string 'namespace.extraLabels.b4\.run/compat-run=run-123')"
+printf '%s\n' "$COMPAT_NAMESPACE" | assert "compat run label" 'b4\.run/compat-run: run-123'
 
 EXTRA_LABEL_NAMESPACE="$(tmpl --show-only templates/namespace.yaml \
   --set-string 'namespace.extraLabels.example\.com/team=platform')"
