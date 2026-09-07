@@ -293,12 +293,12 @@ async function runObserve(options, runtime) {
     "waitForRequiredCi",
     "required CI waiter",
   )
-  classifyEvent(event)
+  const invocation = classifyEvent(event)
 
   const [git, github, npm, attestations, marker] = await Promise.all([
     requireProductionGit(runtime),
     requireProductionGitHub(runtime),
-    requireNpm(runtime),
+    requireNpm(runtime, { firstPublication: invocation.npmBootstrap === true }),
     requireAttestations(runtime),
     readControllerMarker(runtime),
   ])
@@ -2103,13 +2103,32 @@ async function requireNpmAuditFactory(runtime) {
   })
 }
 
-async function requireNpm(runtime) {
-  if (runtime.npm !== undefined) {
-    requiredMethod(runtime.npm, "observePackageVersion", "npm reader")
-    return runtime.npm
+async function requireNpm(runtime, { firstPublication = false } = {}) {
+  if (firstPublication !== true) {
+    if (runtime.npm !== undefined) {
+      requiredMethod(runtime.npm, "observePackageVersion", "npm reader")
+      return runtime.npm
+    }
+    const module = await runtime.importModule(new URL("./adapters/npm.mjs", import.meta.url).href)
+    return moduleFunction(module, "createNpmReader", "npm reader factory")()
   }
+  // Read-only first-publication detection: the explicitly selected reader may report a
+  // whole-package absence from npm's own not-found responses. It receives no credential and
+  // confers no publishing authority; the publisher re-validates its own bootstrap policy.
   const module = await runtime.importModule(new URL("./adapters/npm.mjs", import.meta.url).href)
-  return moduleFunction(module, "createNpmReader", "npm reader factory")()
+  if (runtime.npm !== undefined) {
+    requiredMethod(runtime.npm, "observeFirstPublicationPackage", "first-publication npm reader")
+    return moduleFunction(
+      module,
+      "adaptFirstPublicationNpmReader",
+      "first-publication npm reader adapter",
+    )(runtime.npm)
+  }
+  return moduleFunction(
+    module,
+    "createFirstPublicationNpmReader",
+    "first-publication npm reader factory",
+  )()
 }
 
 async function requireAttestations(runtime) {
