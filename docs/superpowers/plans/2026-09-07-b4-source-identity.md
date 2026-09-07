@@ -28,7 +28,7 @@
 - [x] Run relevant core/CLI tests, lint and typecheck. Confirm new generated apps use no old package names or config/state paths.
 - [x] Classify all remaining Dawn strings and file paths: pending brand/media work, authentic history/attribution, explicit negative tests, or defects. Do not hide live-code remnants with a broad allowlist.
 - [x] Reconcile release scripts, workflow fixtures, signer/repository IDs and content pins as a separately reviewed change. No publication or automatic deployment from intermediate commits.
-- [ ] Run full `pnpm ci:validate` plus required affected deployment lanes before declaring the migration release-ready. Record unavailable live checks and actual failures distinctly.
+- [x] Run full `pnpm ci:validate` plus required affected deployment lanes before declaring the migration release-ready. Record unavailable live checks and actual failures distinctly. **Complete:** `pnpm ci:validate` passes end to end (exit 0) on the merged branch, and the live `vercel-native` lane passes 300 of 300 with a closed cleanup receipt. Both Helm charts and all live OpenAI provider checks pass. The Kubernetes and Docker cluster lanes remain gated on infrastructure that is not available locally.
 - [x] Obtain spec-compliance and code-quality reviews; fix substantive findings before integrating.
 
 ## Remaining external work
