@@ -173,3 +173,8 @@ restored transcript, and the **Author**, **Prove**, and **Run** labels correspon
 exactly to
 [the transcript](./demo/transcript.md). No remote upload or store mutation is
 part of regeneration or local validation.
+
+The B4.run uploader writes the eight stable video paths under `b4/demo/` in the
+existing media store. The legacy `demo/` video paths are outside its upload
+allowlist. Upload and verify B4.run media before switching the website; retire
+legacy media during the domain and website cutover.

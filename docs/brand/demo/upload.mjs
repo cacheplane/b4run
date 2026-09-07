@@ -58,7 +58,7 @@ const CLIPS = Object.freeze([
 ])
 
 export const MEDIA_UPLOAD_PATHS = Object.freeze(
-  CLIPS.flatMap(({ name }) => [`demo/${name}.mp4`, `demo/${name}.webm`]),
+  CLIPS.flatMap(({ name }) => [`b4/demo/${name}.mp4`, `b4/demo/${name}.webm`]),
 )
 
 const UPLOAD_PATH_SET = new Set(MEDIA_UPLOAD_PATHS)
@@ -127,7 +127,7 @@ export function createUploadPlan({ repoRoot, pointer, manifest, baseUrl }) {
     baseUrl === undefined ? PUBLIC_BASE_PLACEHOLDER : validatePublicBaseUrl(baseUrl)
   return CLIPS.flatMap(({ name }) =>
     ["mp4", "webm"].map((format) => {
-      const pathname = validateUploadPathname(`demo/${name}.${format}`)
+      const pathname = validateUploadPathname(`b4/demo/${name}.${format}`)
       return Object.freeze({
         clip: name,
         format,
@@ -144,8 +144,8 @@ export function buildDemoMediaCatalog({ manifest, plan }) {
   const byPath = new Map(plan.map((entry) => [entry.pathname, entry]))
   const catalog = Object.fromEntries(
     CLIPS.map(({ name, catalogKey, ariaLabel, transcript }) => {
-      const mp4 = byPath.get(`demo/${name}.mp4`)
-      const webm = byPath.get(`demo/${name}.webm`)
+      const mp4 = byPath.get(`b4/demo/${name}.mp4`)
+      const webm = byPath.get(`b4/demo/${name}.webm`)
       if (mp4 === undefined || webm === undefined) {
         throw new Error(`${name} upload plan is incomplete`)
       }

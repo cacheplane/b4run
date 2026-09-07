@@ -472,7 +472,7 @@ function requireHttpsUrl(value, description) {
 function requireStableMediaUrl(value, key, format) {
   const description = `${key}.${format}`
   const parsed = requireHttpsUrl(value, description)
-  const expectedPath = `/demo/${DEMO_MEDIA_NAMES[key]}.${format}`
+  const expectedPath = `/b4/demo/${DEMO_MEDIA_NAMES[key]}.${format}`
   if (parsed.pathname !== expectedPath || parsed.search !== "" || parsed.hash !== "") {
     throw new Error(
       `${description} must use the exact stable path ${expectedPath} with no query or fragment`,

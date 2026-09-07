@@ -3002,14 +3002,14 @@ test("non-record-only capture cleans up when the encoder fails", async () => {
 })
 
 const EXPECTED_UPLOAD_PATHS = [
-  "demo/product-loop.mp4",
-  "demo/product-loop.webm",
-  "demo/author.mp4",
-  "demo/author.webm",
-  "demo/test.mp4",
-  "demo/test.webm",
-  "demo/run.mp4",
-  "demo/run.webm",
+  "b4/demo/product-loop.mp4",
+  "b4/demo/product-loop.webm",
+  "b4/demo/author.mp4",
+  "b4/demo/author.webm",
+  "b4/demo/test.mp4",
+  "b4/demo/test.webm",
+  "b4/demo/run.mp4",
+  "b4/demo/run.webm",
 ]
 const AUTHORIZED_MEDIA_STORE_ID = "store_9RQ8eZyGheVy0wOp"
 const AUTHORIZED_MEDIA_ORIGIN = "https://9rq8ezyghevy0wop.public.blob.vercel-storage.com"
@@ -3029,7 +3029,7 @@ function validUploadFixture(repoRoot = "/repo", runId = "run-upload") {
 function uploadBodies(manifest) {
   return new Map(
     EXPECTED_UPLOAD_PATHS.map((pathname) => {
-      const [name, format] = pathname.slice("demo/".length).split(".")
+      const [name, format] = pathname.slice("b4/demo/".length).split(".")
       const sourcePath = manifest.clips[name][format]
       return [sourcePath, Buffer.from(`immutable:${pathname}`)]
     }),
@@ -3092,7 +3092,7 @@ test("upload plan binds the exact suffix-free paths to the validated run manifes
     plan.map(({ sourcePath }) => sourcePath),
     EXPECTED_UPLOAD_PATHS.map(
       (pathname) =>
-        `${repoRoot}/docs/brand/demo/artifacts/runs/run-upload/output/${pathname.slice("demo/".length)}`,
+        `${repoRoot}/docs/brand/demo/artifacts/runs/run-upload/output/${pathname.slice("b4/demo/".length)}`,
     ),
   )
   assert.deepEqual(
@@ -3166,7 +3166,8 @@ test("upload validation rejects unsafe bases and randomized or nested path suffi
     assert.throws(() => validatePublicBaseUrl(unsafeBase), /public base URL/i)
   }
   for (const unsafePath of [
-    "demo/product-loop-abc123.mp4",
+    "demo/product-loop.mp4",
+    "b4/demo/product-loop-abc123.mp4",
     "demo/nested/product-loop.mp4",
     "../demo/product-loop.mp4",
     "demo/product-loop.mov",
@@ -3534,7 +3535,7 @@ test("provider failures expose no token-bearing cause, stack, or serialized prop
     captured = error
   }
   assert.ok(captured instanceof Error)
-  assert.match(captured.message, /Upload did not converge at demo\/product-loop\.mp4/)
+  assert.match(captured.message, /Upload did not converge at b4\/demo\/product-loop\.mp4/)
   assert.match(captured.message, /provider rejected Authorization: Bearer <redacted>/)
   assert.equal(captured.cause, undefined)
   assert.doesNotMatch(captured.stack, new RegExp(token))
@@ -3747,7 +3748,7 @@ test("partial provider failure reports safe convergence and a full replay succee
     assert.equal(
       put.body,
       bodies.get(
-        manifest.clips[put.pathname.split("/")[1].split(".")[0]][
+        manifest.clips[put.pathname.split("/")[2].split(".")[0]][
           put.pathname.endsWith(".mp4") ? "mp4" : "webm"
         ],
       ),
@@ -3987,7 +3988,7 @@ test("HEAD timeout after all puts preserves safe identity and post-mutation guid
   assert.match(captured.message, /catalog.*not written|catalog.*withheld/i)
   assert.match(
     captured.message,
-    /verification outcome.*uncertain.*https:\/\/9rq8ezyghevy0wop\.public\.blob\.vercel-storage\.com\/demo\/product-loop\.mp4/is,
+    /verification outcome.*uncertain.*https:\/\/9rq8ezyghevy0wop\.public\.blob\.vercel-storage\.com\/b4\/demo\/product-loop\.mp4/is,
   )
   assert.match(captured.message, /full eight-path.*replay|re-verif/is)
   assert.doesNotMatch(inspectErrorSurface(captured), new RegExp(token))
@@ -4075,7 +4076,7 @@ test("stalled put and HEAD operations abort at the bounded timeout", async () =>
       },
       log() {},
     }),
-    /put demo\/product-loop\.mp4 timed out after 5ms/,
+    /put b4\/demo\/product-loop\.mp4 timed out after 5ms/,
   )
   assert.equal(putSignal.aborted, true)
 
