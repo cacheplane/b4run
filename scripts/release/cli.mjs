@@ -2126,7 +2126,7 @@ async function requireNpm(runtime, { firstPublication = false } = {}) {
   }
   return moduleFunction(
     module,
-    "createFirstPublicationNpmReader",
+    "createFirstPublicationAwareNpmReader",
     "first-publication npm reader factory",
   )()
 }

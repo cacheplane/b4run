@@ -9,6 +9,35 @@ import { isExactSemver } from "./semver.mjs"
 import { orderReleasePackages } from "./topology.mjs"
 
 export const RELEASE_MANIFEST_SCHEMA_VERSION = 1
+// The exact package family the original repository released, in sorted order.
+// Releases published before B4.run's first version name these packages, so the
+// controller must still recognize them when it reads its own history. It is
+// written out rather than derived so that changing the current group can never
+// rewrite what history says was published.
+export const HISTORICAL_RELEASE_PACKAGE_NAMES = Object.freeze([
+  "@dawn-ai/ag-ui",
+  "@dawn-ai/cli",
+  "@dawn-ai/config-biome",
+  "@dawn-ai/config-typescript",
+  "@dawn-ai/core",
+  "@dawn-ai/devkit",
+  "@dawn-ai/evals",
+  "@dawn-ai/inspector",
+  "@dawn-ai/langchain",
+  "@dawn-ai/langgraph",
+  "@dawn-ai/memory",
+  "@dawn-ai/memory-pgvector",
+  "@dawn-ai/permissions",
+  "@dawn-ai/postgres-storage",
+  "@dawn-ai/sandbox",
+  "@dawn-ai/sdk",
+  "@dawn-ai/sqlite-storage",
+  "@dawn-ai/testing",
+  "@dawn-ai/vite-plugin",
+  "@dawn-ai/workspace",
+  "create-dawn-ai-app",
+])
+
 export const CANONICAL_RELEASE_PACKAGE_ORDER = Object.freeze([
   "@b4run/ag-ui",
   "@b4run/config-biome",

@@ -9,6 +9,7 @@ import { assertPayloadByteLength, RELEASE_PAYLOAD_LIMITS } from "./limits.mjs"
 import {
   CANONICAL_RELEASE_PACKAGE_ORDER,
   canonicalManifestBytes,
+  HISTORICAL_RELEASE_PACKAGE_NAMES,
   manifestSha256,
   parseSealedReleaseManifest,
 } from "./manifest.mjs"
@@ -73,6 +74,9 @@ const DEFAULT_CANDIDATE_POLICY = Object.freeze({
 })
 const REQUIRED_SMOKE_LANES = REQUIRED_RELEASE_SMOKE_LANES
 const ACTIVE_PACKAGE_NAMES = Object.freeze([...CANONICAL_RELEASE_PACKAGE_ORDER].sort(compareText))
+const HISTORICAL_PACKAGE_NAMES = Object.freeze(
+  [...HISTORICAL_RELEASE_PACKAGE_NAMES].sort(compareText),
+)
 const PRODUCTION_SELECTION_STATES = new Set(Object.values(ReleaseState))
 const PRODUCTION_SELECTION_DISPOSITIONS = new Set([
   "selected",
@@ -365,7 +369,15 @@ export function createProductionInventoryReader({
         throw new TypeError("Production release inventory validation is malformed")
       }
       const names = [...validated.packages].sort(compareText)
-      if (!arraysEqual(names, ACTIVE_PACKAGE_NAMES)) {
+      // The inventory must be exactly one of the two known 21-package families:
+      // the current one, or the one the original repository released. Version is
+      // not a usable discriminator, because the rename commit carries the new
+      // family at the previous version number. Which family a candidate may
+      // actually publish is bound by its sealed manifest, not here.
+      if (
+        !arraysEqual(names, ACTIVE_PACKAGE_NAMES) &&
+        !arraysEqual(names, HISTORICAL_PACKAGE_NAMES)
+      ) {
         throw new Error("Production release inventory must match the canonical 21-package set")
       }
       return deepFreeze({

@@ -53,7 +53,7 @@
       "sha256": "aacd907d447b6756b3335ebe19b0bb09b02ffbe76b3adaaa52fbf6c94b5b752b"
     },
     "scripts/release/adapters/npm.mjs": {
-      "sha256": "c6b5140db58625bbd8cae8bfaebee5bb0743219856f2a64932077e1161e97691"
+      "sha256": "b08e8c8939732b47fc578a405503428c91c90efac66ebad254387fea63f3a269"
     },
     "scripts/release/artifact-store.mjs": {
       "sha256": "7a695cb7a1e9c0326f41da6f7629833d8f07f02d2de62b1c597cadb709787142"
@@ -68,7 +68,7 @@
       "sha256": "ee270eccf9b2e2fd88d2b093f907e419a53e5847c0b45f8d9f33bfada9a738c4"
     },
     "scripts/release/cli.mjs": {
-      "sha256": "0d87362d499f6b8dc66ba6597dea8b2c04173bf090d2c30f0b2e6c51ced4a7b0"
+      "sha256": "0da6189a6245a24a6cf57f62e1b4e9c0725195f23bb8690a082c4e21269dd5d4"
     },
     "scripts/release/conflicts.mjs": {
       "sha256": "9fb3ff5154dab04d975b56baf29255493ece213824801e3504fad534ae81db7f"
@@ -98,10 +98,10 @@
       "sha256": "6ace39d22cdf5dbedff3b14b444c00cd3102082f8ef733ee458d0e6b52f1982f"
     },
     "scripts/release/manifest.mjs": {
-      "sha256": "59f37a519d602c43423efc9f352a6b349da1bd97c1284e729748c8a1a177e8da"
+      "sha256": "cf1326964b3c4d7006ef838d24af9fe38616d7cce256710b1e04547be43ce8ca"
     },
     "scripts/release/metadata.mjs": {
-      "sha256": "da065436775a0cc689a2439c680d029a2444a4c9b081a20c2e4756c75de96ed5"
+      "sha256": "8ab20fe39ccb1c10ddd44b51d29dca3396bcd1e3c1abb075cb7340e28f1277b0"
     },
     "scripts/release/npm-audit.mjs": {
       "sha256": "b501c6563709d0452af2bd20eb1523b540e21bdcfb13c1bfdb2f4a834385a699"
@@ -116,7 +116,7 @@
       "sha256": "fc3847533cbf01b8fa2420f484680a7576b8b2b4edf4d6f41f56df925f4914c3"
     },
     "scripts/release/observe.mjs": {
-      "sha256": "e7e40d4443000dd5286b750e4af4bccb3b768c7636d1786b1565f0a8a10412dd"
+      "sha256": "c815bde8e229f81da80cd77edb4b9e7c328ee34f7d8b9b5ce5ac0ed661db8e8a"
     },
     "scripts/release/planner.mjs": {
       "sha256": "2e09281ff952da69e985de7802307b849b76525e838e4cab49516a3d05793433"
@@ -254,7 +254,7 @@
       "sha256": "b03fa68167e7297458ca19a26b9deeaebea04bb90b0566e461896e8b645c0e15"
     },
     "scripts/release/terminal-record-store.mjs": {
-      "sha256": "cd5561d0dfb8e959ae180f851791b26b7611e2252c6cb4ac4a6718bdeab0225a"
+      "sha256": "b7c91a9348292b655b608006a991085f3c5febdaa523e5d99ca4359e1de949e7"
     },
     "scripts/release/terminal-records.mjs": {
       "sha256": "17151da8acf77431decd76ea3b78af41243b7e5a92cb572427c8aa8196af61d1"
