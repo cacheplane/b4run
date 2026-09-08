@@ -2,8 +2,8 @@ apiVersion: v2
 name: b4-sandbox-infra
 description: Cluster-side infrastructure for the B4.run kubernetesSandbox provider — namespace, least-privilege RBAC, default-deny egress, quotas/limits, Pod Security Standards, and a PVC reaper.
 type: application
-version: 0.1.9
-appVersion: "0.8.27"
+version: 0.1.10
+appVersion: "0.8.28"
 keywords: [b4, sandbox, kubernetes, security]
 home: https://b4.run
 sources: [https://github.com/cacheplane/b4run]

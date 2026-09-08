@@ -1,5 +1,13 @@
 # @dawn-ai/sandbox
 
+## 0.8.28
+
+### Patch Changes
+
+- Updated dependencies [39ceb2e]
+  - @b4run/sdk@0.8.28
+  - @b4run/workspace@0.8.28
+
 ## 0.8.27
 
 ### Patch Changes
