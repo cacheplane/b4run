@@ -500,12 +500,12 @@ export function recordingGitHub(
   }
   const reader = legacy.modules.reader.createGitHubReader({
     owner: "cacheplane",
-    repo: "b4-run",
+    repo: "b4run",
     fetchImpl,
   })
   const writer = legacy.modules.writer.createGitHubWriter({
     owner: "cacheplane",
-    repo: "b4-run",
+    repo: "b4run",
     reader,
     fetchImpl,
   })

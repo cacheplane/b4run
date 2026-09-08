@@ -768,7 +768,7 @@ export async function createIndependentAuditRuntime(input, overrides = {}) {
   const git = dependencies.createGitReader({ root })
   const github = dependencies.createGitHubReader({
     owner: "cacheplane",
-    repo: "b4-run",
+    repo: "b4run",
     repositoryId,
     token,
     maxResponseBytes: RELEASE_PAYLOAD_LIMITS.actionsArchiveBytes,

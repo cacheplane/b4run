@@ -235,7 +235,7 @@ test("constructs only bounded read-only production boundaries and never a writer
       "createGitHubReader",
       {
         owner: "cacheplane",
-        repo: "b4-run",
+        repo: "b4run",
         repositoryId: "1210070282",
         token,
         maxResponseBytes: RELEASE_PAYLOAD_LIMITS.actionsArchiveBytes,

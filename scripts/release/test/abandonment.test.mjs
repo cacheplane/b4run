@@ -1111,7 +1111,10 @@ test("a tampered operator-recovery tombstone is rejected by the body parser", ()
   assert.notEqual(tamperedMiddle, body)
   assert.throws(
     () => parseAbandonmentReleaseBody(tamperedMiddle),
-    /not canonical|does not match|not exact|invalid/iu,
+    // Flipping one base64 character can fail at any layer: decoding, UTF-8 JSON
+    // parsing, canonical re-encoding or digest comparison. The test's claim is
+    // that tampering anywhere is rejected, not that one specific layer catches it.
+    /not canonical|does not match|not exact|invalid|not valid UTF-8/iu,
   )
 
   const quarter = start + Math.floor((end - start) / 4)
@@ -1120,7 +1123,10 @@ test("a tampered operator-recovery tombstone is rejected by the body parser", ()
   assert.notEqual(tamperedFirstQuarter, body)
   assert.throws(
     () => parseAbandonmentReleaseBody(tamperedFirstQuarter),
-    /not canonical|does not match|not exact|invalid/iu,
+    // Flipping one base64 character can fail at any layer: decoding, UTF-8 JSON
+    // parsing, canonical re-encoding or digest comparison. The test's claim is
+    // that tampering anywhere is rejected, not that one specific layer catches it.
+    /not canonical|does not match|not exact|invalid|not valid UTF-8/iu,
   )
 })
 

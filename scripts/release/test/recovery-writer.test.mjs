@@ -279,7 +279,7 @@ test("production GitHub reader redownloads uploaded bytes using numeric IDs and 
   const reads = []
   const production = createGitHubReader({
     owner: "cacheplane",
-    repo: "b4-run",
+    repo: "b4run",
     repositoryId: r.c.repositoryId,
     token: "test-reader-token",
     fetchImpl: async (url, options) => {

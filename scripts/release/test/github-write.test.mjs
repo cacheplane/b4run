@@ -10,7 +10,7 @@ import { canonicalAuditResultBytes } from "../terminal-records.mjs"
 import { SMOKE_LANES, smokeDescriptor } from "./support/marker-observation.mjs"
 
 const OWNER = "cacheplane"
-const REPO = "b4-run"
+const REPO = "b4run"
 const VERSION = "0.8.22"
 const TAG = `v${VERSION}`
 const SHA = "0123456789abcdef0123456789abcdef01234567"

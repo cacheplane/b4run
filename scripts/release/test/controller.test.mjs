@@ -1713,13 +1713,13 @@ test("GitHub-mutating routes lazily construct the production boundary from the e
   const writerCall = calls.find(([name]) => name === "writer")[1]
   assert.deepEqual(readerCall, {
     owner: "cacheplane",
-    repo: "b4-run",
+    repo: "b4run",
     repositoryId: "1210070282",
     token: "exact-test-token",
   })
   assert.deepEqual(writerCall, {
     owner: "cacheplane",
-    repo: "b4-run",
+    repo: "b4run",
     token: "exact-test-token",
     reader,
   })

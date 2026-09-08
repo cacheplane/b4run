@@ -110,7 +110,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for the first-publication npm bootstrap: the new npm-bootstrap.mjs policy module
 // and the bootstrap-aware npm adapter, observer, CLI, audit verifier, and publisher.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "10d9ba5375dfbe889c079e293391bf22e7a9f093829ddacafcc99308babd0d75"
+  "ef71fd730d67602b91d049f6322a5c4a33642d2714eddb47603c1884b63656cf"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
@@ -412,7 +412,7 @@ repos/\${{ github.repository }}/releases/379982100`,
           prefix: ["DEL"],
           suffix: ["ETE"],
           owner: ["cacheplane"],
-          repository: ["b4-run"],
+          repository: ["b4run"],
           release: ["379982100"],
         },
         `gh api --method "\${{ matrix.prefix }}\${{ matrix.suffix }}" "repos/\${{ matrix.owner }}/\${{ matrix.repository }}/releases/\${{ matrix.release }}"`,

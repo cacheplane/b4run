@@ -353,7 +353,7 @@ export async function createRecoveryHttpRehearsal({
     const result = {
       github: createGitHubReader({
         owner: "cacheplane",
-        repo: "b4-run",
+        repo: "b4run",
         repositoryId: r.c.repositoryId,
         token: "fixture-token",
         fetchImpl: mappedFetch,

@@ -12,7 +12,7 @@ const unchanged = (etag = '"one"', headers = {}) =>
 const reader = (fetchImpl, options = {}) =>
   createGitHubReader({
     owner: "cacheplane",
-    repo: "b4-run",
+    repo: "b4run",
     token: "fixture",
     fetchImpl,
     conditionalReads: true,

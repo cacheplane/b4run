@@ -82,7 +82,7 @@ export function createRecoveryRuntime(
   const git = (overrides.createGitReader ?? createGitReader)({ root })
   const github = (overrides.createGitHubReader ?? createGitHubReader)({
     owner: "cacheplane",
-    repo: "b4-run",
+    repo: "b4run",
     repositoryId,
     token,
     fetchImpl,
@@ -134,7 +134,7 @@ export function createRecoveryRuntime(
   if (["finalize", "publish"].includes(command) && environment.B4_RECOVERY_POLICY_TOKEN) {
     const policyReader = createRecoveryImmutablePolicyReader({
       owner: "cacheplane",
-      repo: "b4-run",
+      repo: "b4run",
       repositoryId,
       token: environment.B4_RECOVERY_POLICY_TOKEN,
       fetchImpl,

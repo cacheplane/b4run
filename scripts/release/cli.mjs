@@ -1987,7 +1987,7 @@ async function requireGitHub(runtime) {
     "GitHub reader factory",
   )({
     owner: "cacheplane",
-    repo: "b4-run",
+    repo: "b4run",
     ...(runtime.environment.GITHUB_REPOSITORY_ID === undefined
       ? {}
       : { repositoryId: runtime.environment.GITHUB_REPOSITORY_ID }),
@@ -1999,7 +1999,7 @@ async function requireGitHub(runtime) {
     "GitHub writer factory",
   )({
     owner: "cacheplane",
-    repo: "b4-run",
+    repo: "b4run",
     token,
     reader,
   })
@@ -2055,7 +2055,7 @@ async function requireProductionGitHub(runtime) {
     "GitHub reader factory",
   )({
     owner: "cacheplane",
-    repo: "b4-run",
+    repo: "b4run",
     ...(runtime.environment.GITHUB_REPOSITORY_ID === undefined
       ? {}
       : { repositoryId: runtime.environment.GITHUB_REPOSITORY_ID }),
