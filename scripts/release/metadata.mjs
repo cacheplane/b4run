@@ -2589,7 +2589,15 @@ function dataValue(value, key) {
   return descriptor.value
 }
 
-export function validateMarker(value, { attestationRepositories = [ATTESTATION_REPOSITORY] } = {}) {
+// Reading a marker accepts either identity this repository has released under.
+// The current identity is what new releases must carry; the previous one is a
+// frozen, known value that appears in evidence written before the rename and
+// must stay readable. Reading is not authorization: publication is bound by the
+// sealed manifest, the code-owned package set and verified provenance.
+export function validateMarker(
+  value,
+  { attestationRepositories = [ATTESTATION_REPOSITORY, HISTORICAL_ATTESTATION_REPOSITORY] } = {},
+) {
   const marker = snapshotJson(value)
   assertExactFields(marker, MARKER_FIELDS, "release marker")
   if (

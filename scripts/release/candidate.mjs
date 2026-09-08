@@ -6,6 +6,7 @@ import {
   parseAnyAbandonmentRecord,
 } from "./abandonment.mjs"
 import { assertPayloadByteLength, RELEASE_PAYLOAD_LIMITS } from "./limits.mjs"
+import { HISTORICAL_RELEASE_PACKAGE_NAMES } from "./manifest.mjs"
 import { canonicalReleaseBody, isManagedReleaseForTag, parseReleaseMarker } from "./metadata.mjs"
 import { planCandidateArbitration } from "./planner.mjs"
 import {
@@ -18,6 +19,23 @@ import { compareSemver, isExactSemver, parseSemver } from "./semver.mjs"
 
 // The first version released under the B4.run identity.
 const FIRST_B4_RELEASE_VERSION = "0.8.27"
+
+// Whether a Release belongs to the identity that preceded B4.run. Two shapes
+// exist in this repository's history: fixed-group tags like `v0.8.24`, and the
+// per-package tags of an earlier scheme, such as `@dawn-ai/sdk@0.8.21`. The
+// second is matched against the exact historical package names so it can never
+// misfire on a current one.
+function isBelowReleaseFloor(tag) {
+  if (typeof tag !== "string") return false
+  if (tag.startsWith("v")) {
+    const version = tag.slice(1)
+    return isExactSemver(version) && compareSemver(version, FIRST_B4_RELEASE_VERSION) < 0
+  }
+  const separator = tag.lastIndexOf("@")
+  if (separator <= 0) return false
+  return HISTORICAL_RELEASE_PACKAGE_NAMES.includes(tag.slice(0, separator))
+}
+
 import { ReleaseState } from "./state.mjs"
 import { readTerminalRecord } from "./terminal-record-store.mjs"
 import { canonicalAuditResultBytes, parseAuditResult } from "./terminal-records.mjs"
@@ -497,7 +515,14 @@ async function inspectManagedReleases({
     } catch {
       /* Existing tombstone validation below fails closed. */
     }
-    return !recorded.has(tag)
+    if (recorded.has(tag)) return false
+    // B4.run's release train begins at its own first version. Releases made
+    // under the previous identity are not routed into recovery here, which is
+    // the single point where GitHub Releases enter recovery discovery. That
+    // identity no longer exists and this repository deliberately does not
+    // inherit its recovery authority; those releases and their packages are
+    // already public. A B4.run release is always at or above the floor.
+    return !isBelowReleaseFloor(tag)
   })
   const recovered = []
   const recoveryTags = new Set()

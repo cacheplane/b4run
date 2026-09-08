@@ -39,7 +39,6 @@ export const HISTORICAL_RELEASE_PACKAGE_ORDER = Object.freeze([
 
 export const HISTORICAL_RELEASE_PACKAGE_NAMES = HISTORICAL_RELEASE_PACKAGE_ORDER
 
-
 export const CANONICAL_RELEASE_PACKAGE_ORDER = Object.freeze([
   "@b4run/ag-ui",
   "@b4run/config-biome",

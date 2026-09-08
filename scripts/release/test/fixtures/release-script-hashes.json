@@ -65,7 +65,7 @@
       "sha256": "c2558913a95111ad8fe88a56f1bff8183adbc52484f45362a9d4dd010868c515"
     },
     "scripts/release/candidate.mjs": {
-      "sha256": "ee270eccf9b2e2fd88d2b093f907e419a53e5847c0b45f8d9f33bfada9a738c4"
+      "sha256": "58a32201eef82c8b899092e59a540b0b352106c033ac70903aa22c7867e6be32"
     },
     "scripts/release/cli.mjs": {
       "sha256": "0da6189a6245a24a6cf57f62e1b4e9c0725195f23bb8690a082c4e21269dd5d4"
@@ -98,10 +98,10 @@
       "sha256": "6ace39d22cdf5dbedff3b14b444c00cd3102082f8ef733ee458d0e6b52f1982f"
     },
     "scripts/release/manifest.mjs": {
-      "sha256": "cf1326964b3c4d7006ef838d24af9fe38616d7cce256710b1e04547be43ce8ca"
+      "sha256": "18bccf85dd397706a9eaf6f1cc13817a51098b046cd600305b8bdd0c1daf1eae"
     },
     "scripts/release/metadata.mjs": {
-      "sha256": "8ab20fe39ccb1c10ddd44b51d29dca3396bcd1e3c1abb075cb7340e28f1277b0"
+      "sha256": "9a4e4263711eb51315a5ba61c56e6c6912b223b10babede76baf49ace6041667"
     },
     "scripts/release/npm-audit.mjs": {
       "sha256": "b501c6563709d0452af2bd20eb1523b540e21bdcfb13c1bfdb2f4a834385a699"
@@ -254,7 +254,7 @@
       "sha256": "b03fa68167e7297458ca19a26b9deeaebea04bb90b0566e461896e8b645c0e15"
     },
     "scripts/release/terminal-record-store.mjs": {
-      "sha256": "ec3d304985a22fae8a80d2f1d2997bea1d302c0d1d123aab349324bf561a8da5"
+      "sha256": "8315d7b5b2a4590ad0afe75eb8140fe59a48d201f97bb3be590d04d10b8760c6"
     },
     "scripts/release/terminal-records.mjs": {
       "sha256": "17151da8acf77431decd76ea3b78af41243b7e5a92cb572427c8aa8196af61d1"

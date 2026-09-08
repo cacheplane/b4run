@@ -2,11 +2,7 @@ import { createHash } from "node:crypto"
 
 import { snapshotJson } from "./adapter-normalize.mjs"
 import { CANONICAL_RELEASE_PACKAGE_ORDER, HISTORICAL_RELEASE_PACKAGE_NAMES } from "./manifest.mjs"
-import {
-  ATTESTATION_REPOSITORY,
-  HISTORICAL_ATTESTATION_REPOSITORY,
-  validateMarker,
-} from "./metadata.mjs"
+import { validateMarker } from "./metadata.mjs"
 import { isExactSemver, parseSemver } from "./semver.mjs"
 
 export const TERMINAL_RECORD_DIRECTORY = "scripts/release/terminal-records"
@@ -182,13 +178,7 @@ function validatePredecessor(value, record) {
   ) {
     throw new TypeError("Terminal record predecessor is not an escrowed draft")
   }
-  // Records written before the B4.run rename embed the original repository's
-  // attestation identity, and the controller must still read its own history.
-  // Exactly these two identities are accepted; a record's authority comes from
-  // its digests and authority section, not from which identity it names.
-  const marker = validateMarker(value.marker, {
-    attestationRepositories: [ATTESTATION_REPOSITORY, HISTORICAL_ATTESTATION_REPOSITORY],
-  })
+  const marker = validateMarker(value.marker)
   if (
     marker.phase !== "ESCROWED" ||
     marker.version !== record.version ||
