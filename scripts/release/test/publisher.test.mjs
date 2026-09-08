@@ -803,7 +803,7 @@ test("bootstrap mode fails closed before any npm process without exact candidate
       {},
       /bootstrap/iu,
     ],
-    ["old repository id", { GITHUB_REPOSITORY_ID: "1210070282" }, {}, /bootstrap/iu],
+    ["a foreign repository id", { GITHUB_REPOSITORY_ID: "999999999" }, {}, /bootstrap/iu],
     ["old repository", { GITHUB_REPOSITORY: "cacheplane/dawnai" }, {}, /bootstrap/iu],
     ["push event", { GITHUB_EVENT_NAME: "push" }, {}, /bootstrap/iu],
     ["expired window", {}, { now: () => Date.parse(BOOTSTRAP_EXPIRES_AT) }, /expired/iu],
@@ -952,7 +952,13 @@ test("bootstrap mode forwards the token only to npm publish through the private 
     await readFile(inputs.githubOutputPath, "utf8"),
   ].join("\n")
   assert.doesNotMatch(rendered, /npm_bootstrapSECRET/u)
-  assert.doesNotMatch(rendered, new RegExp(Buffer.from(BOOTSTRAP_TOKEN).toString("base64"), "u"))
+  // Exact substring checks, not regexes built from the credential: base64 and
+  // percent-encoded forms can contain regex metacharacters, which would make
+  // the assertion throw or silently match the wrong thing.
+  assert.ok(
+    !rendered.includes(Buffer.from(BOOTSTRAP_TOKEN).toString("base64")),
+    "base64 credential form must not appear",
+  )
   assert.equal(fileSystem.roots.length, 1)
   assert.ok(fileSystem.removed.includes(fileSystem.roots[0]))
   await assert.rejects(access(fileSystem.roots[0]))
@@ -993,10 +999,10 @@ test("bootstrap failures, cancellation, and deadline expiry never expose the cre
   assert.ok(caught instanceof Error)
   assert.match(caught.message, /publish failed \[REDACTED\]/u)
   assert.doesNotMatch(renderError(caught), /npm_bootstrapSECRET/u)
-  assert.doesNotMatch(renderError(caught), new RegExp(encoded, "u"))
-  assert.doesNotMatch(
-    renderError(caught),
-    new RegExp(encodeURIComponent(BOOTSTRAP_TOKEN).replaceAll(/[%]/gu, "\\%"), "u"),
+  assert.ok(!renderError(caught).includes(encoded), "base64 credential form must not appear")
+  assert.ok(
+    !renderError(caught).includes(encodeURIComponent(BOOTSTRAP_TOKEN)),
+    "percent-encoded credential form must not appear",
   )
   assert.equal(failureFileSystem.roots.length, 1)
   assert.ok(failureFileSystem.removed.includes(failureFileSystem.roots[0]))
