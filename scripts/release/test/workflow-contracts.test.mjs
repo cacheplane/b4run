@@ -241,9 +241,7 @@ test("workflow isolation rejects Release DELETE bypasses in each execution conte
     ],
     [
       "curl compact method",
-      runWorkflow(
-        "curl -XDELETE https://api.github.com/repos/cacheplane/b4run/releases/379982100",
-      ),
+      runWorkflow("curl -XDELETE https://api.github.com/repos/cacheplane/b4run/releases/379982100"),
     ],
     [
       "curl spaced method",
