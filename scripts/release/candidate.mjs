@@ -143,6 +143,13 @@ export async function discoverScheduledCandidate({
   npm,
   npmAuditFactory,
   attestations,
+  // Versions below this are excluded from arbitration entirely. Production
+  // supplies B4.run's first version, so releases made under the repository
+  // identity that preceded the rename are not adopted: that identity no longer
+  // exists and this repository deliberately does not inherit its recovery
+  // authority, and those releases and their packages are already public.
+  // Unset means no floor, which is the historical behaviour.
+  releaseFloorVersion = null,
 }) {
   normalizeActiveMarker(marker)
   if (typeof terminalRecordRef !== "string" || terminalRecordRef.length === 0) {
@@ -177,7 +184,14 @@ export async function discoverScheduledCandidate({
   ])
   const tagRecords = presentList(tagResult, "managed tag refs")
   const releaseRecords = presentList(releaseResult, "GitHub Releases")
-  const tags = await normalizeManagedTags(tagRecords, git, github)
+  const allTags = await normalizeManagedTags(tagRecords, git, github)
+  const tags =
+    releaseFloorVersion === null
+      ? allTags
+      : allTags.filter(
+          (tag) =>
+            !(isExactSemver(tag.version) && compareSemver(tag.version, releaseFloorVersion) < 0),
+        )
   const tagsByName = new Map(tags.map((tag) => [tag.tag, tag]))
   // Committed terminal records are authoritative for their version regardless of
   // what the GitHub token can see; a record is read at the controller's own

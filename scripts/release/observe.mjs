@@ -73,6 +73,9 @@ const DEFAULT_CANDIDATE_POLICY = Object.freeze({
   publisherWorkflow: ".github/workflows/release.yml",
 })
 const REQUIRED_SMOKE_LANES = REQUIRED_RELEASE_SMOKE_LANES
+// B4.run's first release version; releases below it predate this identity.
+const FIRST_B4_RELEASE_VERSION = "0.8.27"
+
 const ACTIVE_PACKAGE_NAMES = Object.freeze([...CANONICAL_RELEASE_PACKAGE_ORDER].sort(compareText))
 const HISTORICAL_PACKAGE_NAMES = Object.freeze(
   [...HISTORICAL_RELEASE_PACKAGE_NAMES].sort(compareText),
@@ -217,6 +220,7 @@ export async function resolveProductionCandidate({
       npm,
       npmAuditFactory,
       attestations,
+      releaseFloorVersion: FIRST_B4_RELEASE_VERSION,
       ...(verifyTerminalAbandonment === undefined ? {} : { verifyTerminalAbandonment }),
     })
   let normalized
