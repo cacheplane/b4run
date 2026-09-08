@@ -26,6 +26,6 @@
     "@b4run/testing": "workspace:*",
     "@types/node": "26.1.2",
     "typescript": "7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }
