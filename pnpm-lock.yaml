@@ -17,6 +17,9 @@ importers:
 
   .:
     devDependencies:
+      '@b4run/sdk':
+        specifier: workspace:*
+        version: link:packages/sdk
       '@biomejs/biome':
         specifier: 2.5.6
         version: 2.5.6
@@ -26,9 +29,6 @@ importers:
       '@copilotkit/aimock':
         specifier: ^1.37.4
         version: 1.38.0(vitest@4.1.10)
-      '@b4run/sdk':
-        specifier: workspace:*
-        version: link:packages/sdk
       '@playwright/test':
         specifier: 1.62.1
         version: 1.62.1
@@ -202,15 +202,15 @@ importers:
       '@ag-ui/client':
         specifier: 0.0.59
         version: 0.0.59
+      '@b4run/ag-ui':
+        specifier: workspace:*
+        version: link:../../../packages/ag-ui
       '@copilotkit/react-core':
         specifier: ^1.70.0
         version: 1.70.0(@types/mdast@4.0.4)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(graphql@16.14.2)(micromark-util-types@2.0.2)(micromark@4.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
       '@copilotkit/runtime':
         specifier: ^1.70.0
         version: 1.70.0(@anthropic-ai/sdk@0.115.0(zod@4.4.3))(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(@langchain/langgraph-sdk@1.9.28(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@langchain/openai@1.5.6(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(ws@8.21.0))(@opentelemetry/api@1.9.1)(langchain@1.5.2(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(ws@8.21.0))(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.10)
-      '@b4run/ag-ui':
-        specifier: workspace:*
-        version: link:../../../packages/ag-ui
       next:
         specifier: 16.3.0
         version: 16.3.0(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@26.1.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -325,15 +325,15 @@ importers:
       '@ag-ui/client':
         specifier: 0.0.59
         version: 0.0.59
+      '@b4run/ag-ui':
+        specifier: workspace:*
+        version: link:../../../packages/ag-ui
       '@copilotkit/react-core':
         specifier: ^1.70.0
         version: 1.70.0(@types/mdast@4.0.4)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(graphql@16.14.2)(micromark-util-types@2.0.2)(micromark@4.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
       '@copilotkit/runtime':
         specifier: ^1.70.0
         version: 1.70.0(@anthropic-ai/sdk@0.115.0(zod@4.4.3))(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(@langchain/langgraph-sdk@1.9.28(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@langchain/openai@1.5.6(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(ws@8.21.0))(@opentelemetry/api@1.9.1)(langchain@1.5.2(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(ws@8.21.0))(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.10)
-      '@b4run/ag-ui':
-        specifier: workspace:*
-        version: link:../../../packages/ag-ui
       '@tailwindcss/postcss':
         specifier: ^4.3.3
         version: 4.3.3
@@ -387,12 +387,12 @@ importers:
       '@ag-ui/client':
         specifier: 0.0.59
         version: 0.0.59
-      '@copilotkit/react-core':
-        specifier: ^1.70.0
-        version: 1.70.0(@types/mdast@4.0.4)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(graphql@16.14.2)(micromark-util-types@2.0.2)(micromark@4.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
       '@b4run/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
+      '@copilotkit/react-core':
+        specifier: ^1.70.0
+        version: 1.70.0(@types/mdast@4.0.4)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(graphql@16.14.2)(micromark-util-types@2.0.2)(micromark@4.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
       '@types/node':
         specifier: 26.1.2
         version: 26.1.2
@@ -462,7 +462,7 @@ importers:
         version: link:../workspace
       '@hono/node-server':
         specifier: ^2.1.0
-        version: 2.1.1(hono@4.13.3)
+        version: 2.1.1(hono@4.13.5)
       '@langchain/core':
         specifier: 1.2.5
         version: 1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0)
@@ -485,8 +485,8 @@ importers:
         specifier: ^8.20.4
         version: 8.20.4
       hono:
-        specifier: ^4.12.28
-        version: 4.13.3
+        specifier: ^4.13.5
+        version: 4.13.5
       pg:
         specifier: ^8.22.0
         version: 8.22.0
@@ -886,12 +886,12 @@ importers:
 
   packages/testing:
     dependencies:
-      '@copilotkit/aimock':
-        specifier: ^1.37.4
-        version: 1.38.0(vitest@4.1.10)
       '@b4run/memory':
         specifier: workspace:*
         version: link:../memory
+      '@copilotkit/aimock':
+        specifier: ^1.37.4
+        version: 1.38.0(vitest@4.1.10)
     devDependencies:
       '@b4run/cli':
         specifier: workspace:*
@@ -6118,6 +6118,10 @@ packages:
     resolution: {integrity: sha512-r8AO2mYHoLxSHkgafNeC/BXyb2vWRxD3jem4Ts+ptav8oTG5FIRifAjuJEmZI4bSvvc2ns0GxmIYiZnHqN3mMw==}
     engines: {node: '>=16.9.0'}
 
+  hono@4.13.5:
+    resolution: {integrity: sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw==}
+    engines: {node: '>=16.9.0'}
+
   hpagent@1.2.0:
     resolution: {integrity: sha512-A91dYTeIB6NoXG+PxTQpCCDDnfHsW9kc06Lvpu1TEe9gnd6ZFeiBoRO9JvzEv6xK7EX97/dUE8g/vBMTqTS3CA==}
     engines: {node: '>=14'}
@@ -10422,9 +10426,13 @@ snapshots:
     dependencies:
       hono: 4.13.3
 
-  '@hono/node-server@2.1.1(hono@4.13.3)':
+  '@hono/node-server@1.19.17(hono@4.13.5)':
     dependencies:
-      hono: 4.13.3
+      hono: 4.13.5
+
+  '@hono/node-server@2.1.1(hono@4.13.5)':
+    dependencies:
+      hono: 4.13.5
 
   '@iconify/types@2.0.0': {}
 
@@ -10978,7 +10986,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@3.25.76)':
     dependencies:
-      '@hono/node-server': 1.19.17(hono@4.13.3)
+      '@hono/node-server': 1.19.17(hono@4.13.5)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -10988,7 +10996,7 @@ snapshots:
       eventsource-parser: 3.1.0
       express: 5.2.1
       express-rate-limit: 8.5.2(express@5.2.1)
-      hono: 4.13.3
+      hono: 4.13.5
       jose: 6.2.3
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -14700,6 +14708,8 @@ snapshots:
   help-me@5.0.0: {}
 
   hono@4.13.3: {}
+
+  hono@4.13.5: {}
 
   hpagent@1.2.0: {}
 
