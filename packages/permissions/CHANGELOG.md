@@ -1,5 +1,12 @@
 # @dawn-ai/permissions
 
+## 0.8.27
+
+### Patch Changes
+
+- Updated dependencies [b05b96d]
+  - @b4run/sdk@0.8.27
+
 ## 0.8.26
 
 ### Patch Changes

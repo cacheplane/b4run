@@ -1,5 +1,12 @@
 # @dawn-ai/web
 
+## 0.0.6
+
+### Patch Changes
+
+- Updated dependencies [b05b96d]
+  - @b4run/sdk@0.8.27
+
 ## 0.0.5
 
 ### Patch Changes

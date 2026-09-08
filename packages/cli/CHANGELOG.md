@@ -1,5 +1,19 @@
 # @dawn-ai/cli
 
+## 0.8.27
+
+### Patch Changes
+
+- Updated dependencies [b05b96d]
+  - @b4run/sdk@0.8.27
+  - @b4run/core@0.8.27
+  - @b4run/langchain@0.8.27
+  - @b4run/langgraph@0.8.27
+  - @b4run/permissions@0.8.27
+  - @b4run/ag-ui@0.8.27
+  - @b4run/memory@0.8.27
+  - @b4run/sqlite-storage@0.8.27
+
 ## 0.8.26
 
 ### Patch Changes
