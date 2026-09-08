@@ -164,7 +164,7 @@
       "sha256": "c3ec38f93cdb5c01082bb3b66727bdec952d0f48deef7bb398a9105782198d01"
     },
     "scripts/release/recovery/fence.mjs": {
-      "sha256": "856f11a7b718ff99a22ff86f10fd7edd717c2ad05817a84ee12a20bf6ff0a41e"
+      "sha256": "da51ebd11c1488215a150c3f5feac9197ba5ad517e90575a82dd76ae440e949d"
     },
     "scripts/release/recovery/finalize.mjs": {
       "sha256": "6c9503d1a9f3ea4d21c6678b2b0d0c34d5a3beea57ae3cc434026c7444378ddb"
