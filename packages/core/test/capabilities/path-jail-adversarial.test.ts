@@ -17,12 +17,12 @@
  * `<root>/etc/passwd`, which passes the containment check — a silent jail escape.
  */
 
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import type { FilesystemBackend } from "@dawn-ai/workspace"
+import type { PermissionsStore } from "@b4run/permissions"
+import type { FilesystemBackend } from "@b4run/workspace"
 import { describe, expect, it } from "vitest"
 
 import { createWorkspaceMarker } from "../../src/capabilities/built-in/workspace.js"
-import type { CapabilityMarkerContext, DawnToolDefinition } from "../../src/capabilities/types.js"
+import type { B4ToolDefinition, CapabilityMarkerContext } from "../../src/capabilities/types.js"
 import { createWorkspaceFs } from "../../src/capabilities/workspace-fs.js"
 
 const WORKSPACE_ROOT = "/app/workspace"
@@ -203,9 +203,9 @@ describe("workspace path jail — non-absolute roots are rejected at the boundar
 // ---------------------------------------------------------------------------
 
 function findTool(
-  tools: ReadonlyArray<DawnToolDefinition> | undefined,
+  tools: ReadonlyArray<B4ToolDefinition> | undefined,
   name: string,
-): DawnToolDefinition {
+): B4ToolDefinition {
   const tool = (tools ?? []).find((t) => t.name === name)
   if (!tool) throw new Error(`Tool ${name} not found`)
   return tool

@@ -34,7 +34,7 @@ const CANDIDATE = Object.freeze({
   ciCheck: "validate",
   publisherWorkflow: ".github/workflows/release.yml",
 })
-const REPOSITORY = "cacheplane/dawnai"
+const REPOSITORY = "cacheplane/b4run"
 const SMOKE_RUN = Object.freeze({ workflowRunId: 200, runAttempt: 1 })
 const SMOKE_LANES = REQUIRED_RELEASE_SMOKE_LANES
 
@@ -44,7 +44,7 @@ test("release bodies contain one canonical exact marker and reject phase-invalid
   const body = canonicalReleaseBody({ marker, manifest: fixture.manifest })
 
   assert.deepEqual(parseReleaseMarker(body), marker)
-  assert.match(body, /^# Dawn v0\.8\.22/mu)
+  assert.match(body, /^# B4 v0\.8\.22/mu)
   assert.equal(releaseBodySha256(body), sha256(Buffer.from(body)))
   assert.equal(Object.isFrozen(parseReleaseMarker(body)), true)
 
@@ -71,8 +71,8 @@ test("release bodies contain one canonical exact marker and reject phase-invalid
   )
 
   const foreignRepositoryBody = body.replace(
-    '"repository":"cacheplane/dawnai"',
-    '"repository":"fork/dawnai"',
+    '"repository":"cacheplane/b4run"',
+    '"repository":"fork/b4-run"',
   )
   assert.throws(
     () => parseReleaseMarker(foreignRepositoryBody),
@@ -83,7 +83,7 @@ test("release bodies contain one canonical exact marker and reject phase-invalid
       canonicalReleaseBody({
         marker: {
           ...marker,
-          attestationSet: { ...marker.attestationSet, repository: "fork/dawnai" },
+          attestationSet: { ...marker.attestationSet, repository: "fork/b4-run" },
         },
         manifest: fixture.manifest,
       }),
@@ -291,7 +291,7 @@ test("escrow invokes the bounded verifier for all 22 bundles before any Release 
       candidate: CANDIDATE,
       record: fixture.record,
       artifact: fixture.artifact,
-      attestationSet: { ...fixture.attestationSet, repository: "fork/dawnai" },
+      attestationSet: { ...fixture.attestationSet, repository: "fork/b4-run" },
       bundles: fixture.bundles,
       publicationState: publicationState(fixture),
       attestations: verifiedAttestations(fixture),
@@ -488,8 +488,8 @@ test("publication audit history has independent count and aggregate byte bounds"
     audit: {
       workflow: ".github/workflows/published-artifact-verify.yml",
       workflowRunId: 300,
-      runUrl: "https://api.github.com/repos/cacheplane/dawnai/actions/runs/300",
-      htmlUrl: "https://github.com/cacheplane/dawnai/actions/runs/300",
+      runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/300",
+      htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/300",
       runAttempt: 1,
       attemptAssetName: "audit-attempt-300-1.json",
       attemptSha256: auditDigest,
@@ -714,7 +714,7 @@ test("escrow resumes the exact attaching draft whose opaque tag is bound by its 
     tag_name: "untagged-opaque",
     target_commitish: "main",
     prerelease: false,
-    name: `Dawn v${VERSION}`,
+    name: `B4 v${VERSION}`,
     body: canonicalReleaseBody({ marker: attachingMarker(fixture), manifest: fixture.manifest }),
     draft: true,
     immutable: false,
@@ -755,7 +755,7 @@ test("escrow rejects duplicate marker-bearing drafts before mutation", async () 
       tag_name: "untagged-opaque-a",
       target_commitish: "main",
       prerelease: false,
-      name: `Dawn v${VERSION}`,
+      name: `B4 v${VERSION}`,
       body,
       draft: true,
       immutable: false,
@@ -765,7 +765,7 @@ test("escrow rejects duplicate marker-bearing drafts before mutation", async () 
       tag_name: "untagged-opaque-b",
       target_commitish: "main",
       prerelease: false,
-      name: `Dawn v${VERSION}`,
+      name: `B4 v${VERSION}`,
       body,
       draft: true,
       immutable: false,
@@ -961,7 +961,7 @@ test("npm and smoke reconciliation are separate one-transition body compare-and-
       lane,
       actionsArtifactId: String(900 + index),
       actionsArtifactName: `smoke-result-${lane}-200-1`,
-      actionsArtifactUrl: `https://github.com/cacheplane/dawnai/actions/runs/200/artifacts/${900 + index}`,
+      actionsArtifactUrl: `https://github.com/cacheplane/b4run/actions/runs/200/artifacts/${900 + index}`,
       actionsArtifactServiceDigest: remote.actionsArtifacts[index].digest,
       releaseAssetId: 46 + index,
       releaseAssetName: `smoke-result-${lane}-200-1.json`,
@@ -1466,8 +1466,8 @@ test("reconciliation rejects a foreign embedded attestation repository with zero
     github: remote.github,
   })
   remote.release.body = remote.release.body.replace(
-    '"repository":"cacheplane/dawnai"',
-    '"repository":"fork/dawnai"',
+    '"repository":"cacheplane/b4run"',
+    '"repository":"fork/b4-run"',
   )
   const updates = remote.updateCount
 
@@ -1537,8 +1537,8 @@ test("consolidated publication accepts only attached canonical audit bytes and p
     audit: {
       workflow: ".github/workflows/published-artifact-verify.yml",
       workflowRunId: 300,
-      runUrl: "https://api.github.com/repos/cacheplane/dawnai/actions/runs/300",
-      htmlUrl: "https://github.com/cacheplane/dawnai/actions/runs/300",
+      runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/300",
+      htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/300",
       runAttempt: 1,
       attemptAssetName: "audit-attempt-300-1.json",
       attemptSha256: auditDigest,
@@ -1586,8 +1586,8 @@ test("consolidated publication accepts only attached canonical audit bytes and p
   remote.assets.delete("audit-attempt-299-1.json")
 
   remote.release.body = bodyBefore.replace(
-    '"repository":"cacheplane/dawnai"',
-    '"repository":"fork/dawnai"',
+    '"repository":"cacheplane/b4run"',
+    '"repository":"fork/b4-run"',
   )
   await assert.rejects(
     publishConsolidatedRelease({
@@ -1765,7 +1765,7 @@ function attestationBundleBytes(subjectFiles, { runId, runAttempt, signature }) 
     predicate: {
       runDetails: {
         metadata: {
-          invocationId: `https://github.com/cacheplane/dawnai/actions/runs/${runId}/attempts/${runAttempt}`,
+          invocationId: `https://github.com/cacheplane/b4run/actions/runs/${runId}/attempts/${runAttempt}`,
         },
       },
     },
@@ -1922,7 +1922,7 @@ function completeNpmEvidence(fixture) {
         predicateType: "https://slsa.dev/provenance/v1",
         workflow: ".github/workflows/release.yml",
         commitSha: COMMIT_SHA,
-        repository: "https://github.com/cacheplane/dawnai",
+        repository: "https://github.com/cacheplane/b4run",
         ref: `refs/tags/v${VERSION}`,
       },
     })),
@@ -1985,7 +1985,7 @@ function smokeDescriptor(aggregateSha256 = "f".repeat(64)) {
       lane: receipt.lane,
       actionsArtifactId: String(900 + index),
       actionsArtifactName: `smoke-result-${receipt.lane}-${SMOKE_RUN.workflowRunId}-${SMOKE_RUN.runAttempt}`,
-      actionsArtifactUrl: `https://github.com/cacheplane/dawnai/actions/runs/${SMOKE_RUN.workflowRunId}/artifacts/${900 + index}`,
+      actionsArtifactUrl: `https://github.com/cacheplane/b4run/actions/runs/${SMOKE_RUN.workflowRunId}/artifacts/${900 + index}`,
       actionsArtifactServiceDigest: `sha256:${"9".repeat(64)}`,
       releaseAssetId: receipt.releaseAssetId,
       releaseAssetName: receipt.releaseAssetName,

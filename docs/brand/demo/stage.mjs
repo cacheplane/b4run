@@ -1,45 +1,44 @@
-const ACTS = ["author", "test", "close"];
+const ACTS = ["author", "test", "close"]
 export const GENERATED_PATHS = Object.freeze([
-	"server/src/app/research/index.ts",
-	"server/src/app/research/state.ts",
-	"server/src/app/research/plan.md",
-	"server/src/tools/searchCorpus.ts",
-	"server/test/research.test.ts",
-]);
+  "server/src/app/research/index.ts",
+  "server/src/app/research/state.ts",
+  "server/src/app/research/plan.md",
+  "server/src/tools/searchCorpus.ts",
+  "server/test/research.test.ts",
+])
 
 function escapeHtml(value) {
-	return value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;")
-		.replaceAll("'", "&#39;");
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
 }
 
 function assertString(value, name) {
-	if (typeof value !== "string")
-		throw new TypeError(`${name} must be a string`);
+  if (typeof value !== "string") throw new TypeError(`${name} must be a string`)
 }
 
 function assertGeneratedTree(tree) {
-	if (
-		!Array.isArray(tree) ||
-		tree.length !== GENERATED_PATHS.length ||
-		tree.some((path, index) => path !== GENERATED_PATHS[index])
-	) {
-		throw new TypeError(
-			`tree must contain exactly these generated paths in order: ${GENERATED_PATHS.join(", ")}`,
-		);
-	}
+  if (
+    !Array.isArray(tree) ||
+    tree.length !== GENERATED_PATHS.length ||
+    tree.some((path, index) => path !== GENERATED_PATHS[index])
+  ) {
+    throw new TypeError(
+      `tree must contain exactly these generated paths in order: ${GENERATED_PATHS.join(", ")}`,
+    )
+  }
 }
 
 function page(content) {
-	return `<!doctype html>
+  return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dawn demo</title>
+  <title>B4.run demo</title>
   <style>
     :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
     * { box-sizing: border-box; }
@@ -63,54 +62,47 @@ function page(content) {
   </style>
 </head>
 <body>${content}</body>
-</html>`;
+</html>`
 }
 
 function brandHeader() {
-	return '<header><span class="mark" aria-hidden="true"></span><span>Dawn</span></header>';
+  return '<header><span class="mark" aria-hidden="true"></span><span>B4.run</span></header>'
 }
 
-export function renderStage({
-	act,
-	tree,
-	primarySource,
-	secondarySource,
-	testLog,
-} = {}) {
-	if (!ACTS.includes(act))
-		throw new TypeError(`act must be one of: ${ACTS.join(", ")}`);
+export function renderStage({ act, tree, primarySource, secondarySource, testLog } = {}) {
+  if (!ACTS.includes(act)) throw new TypeError(`act must be one of: ${ACTS.join(", ")}`)
 
-	if (act === "author") {
-		assertGeneratedTree(tree);
-		assertString(primarySource, "primarySource");
-		assertString(secondarySource, "secondarySource");
-		return page(`<main>
+  if (act === "author") {
+    assertGeneratedTree(tree)
+    assertString(primarySource, "primarySource")
+    assertString(secondarySource, "secondarySource")
+    return page(`<main>
   ${brandHeader()}
-  <section class="grid" aria-label="Generated Dawn application">
+  <section class="grid" aria-label="Generated B4.run application">
     <div class="panel"><div class="bar">Generated files</div><pre><code>${escapeHtml(tree.join("\n"))}</code></pre></div>
     <div class="stack">
       <div class="panel"><div class="bar">research/index.ts</div><pre><code>${escapeHtml(primarySource)}</code></pre></div>
       <div class="panel"><div class="bar">tools/searchCorpus.ts</div><pre><code>${escapeHtml(secondarySource)}</code></pre></div>
     </div>
   </section>
-</main>`);
-	}
+</main>`)
+  }
 
-	if (act === "test") {
-		assertString(testLog, "testLog");
-		return page(`<main>
+  if (act === "test") {
+    assertString(testLog, "testLog")
+    return page(`<main>
   ${brandHeader()}
-  <section class="panel terminal" aria-label="Dawn test run">
+  <section class="panel terminal" aria-label="B4.run test run">
     <div class="bar">npm test</div>
     <pre><code>${escapeHtml(testLog)}</code></pre>
   </section>
-</main>`);
-	}
+</main>`)
+  }
 
-	return page(`<main class="close">
+  return page(`<main class="close">
   ${brandHeader()}
   <p class="category">TypeScript meta-framework for LangGraph.js</p>
   <h1>Build LangGraph agents like Next.js apps</h1>
-  <pre class="command"><code>npm create dawn-ai-app@latest my-agent</code></pre>
-</main>`);
+  <pre class="command"><code>npm create b4-app@latest my-agent</code></pre>
+</main>`)
 }

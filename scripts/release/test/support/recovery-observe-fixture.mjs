@@ -35,7 +35,7 @@ export async function recoveryRemote({
     async () => source,
   )
   const c = {
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     repositoryId: "901",
     version: CANDIDATE.version,
     candidateSha: CANDIDATE.commitSha,
@@ -167,7 +167,7 @@ export async function recoveryRemote({
           : [
               {
                 ...lane.resolutions[0],
-                integrity: npmEvidence.packages.find((p) => p.name === "@dawn-ai/sdk").integrity,
+                integrity: npmEvidence.packages.find((p) => p.name === "@b4run/sdk").integrity,
               },
             ],
     }
@@ -318,7 +318,7 @@ export async function recoveryRemote({
     audit: auditRef,
     assets: sort(all()),
     metadata: {
-      title: `Dawn ${c.tag}`,
+      title: `B4 ${c.tag}`,
       body: "Original release notes",
       markerRevision: 5,
     },
@@ -336,7 +336,7 @@ export async function recoveryRemote({
   const release = {
     id: 902,
     tag_name: published ? c.tag : "untagged-902",
-    name: `Dawn ${c.tag}`,
+    name: `B4 ${c.tag}`,
     body: legacyBody,
     target_commitish: "main",
     prerelease: false,

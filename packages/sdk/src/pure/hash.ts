@@ -5,8 +5,8 @@
  *
  * WHY: the episode recorder derives a stable record id by hashing
  * `namespace|sourceId|startedAt`, and it runs on the REQUEST path — i.e. inside
- * the `@dawn-ai/cli/fetch` graph, which may not import `node:crypto` (see
- * `@dawn-ai/cli`'s test/fetch-entry-purity.test.ts). The offload store names
+ * the `@b4run/cli/fetch` graph, which may not import `node:crypto` (see
+ * `@b4run/cli`'s test/fetch-entry-purity.test.ts). The offload store names
  * files after a SHA-256 of their content on the same path. Web Crypto has no
  * synchronous digest, so
  * the algorithm is ported here instead. Output matches node's exactly;

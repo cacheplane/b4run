@@ -1,4 +1,4 @@
-import type { SandboxProvider } from "@dawn-ai/workspace"
+import type { SandboxProvider } from "@b4run/workspace"
 import { expect, test } from "vitest"
 
 const ctx = (workspaceRoot: string) => ({ signal: new AbortController().signal, workspaceRoot })

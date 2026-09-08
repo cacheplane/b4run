@@ -222,8 +222,8 @@ test("fresh request can replace a failed selected audit without regressing the p
       ? new Response(
           JSON.stringify({
             workflow_run_id: 908,
-            run_url: "https://api.github.com/repos/cacheplane/dawnai/actions/runs/908",
-            html_url: "https://github.com/cacheplane/dawnai/actions/runs/908",
+            run_url: "https://api.github.com/repos/cacheplane/b4run/actions/runs/908",
+            html_url: "https://github.com/cacheplane/b4run/actions/runs/908",
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         )

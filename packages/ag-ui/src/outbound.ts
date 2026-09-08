@@ -13,14 +13,14 @@ import type {
   ToolCallStartEvent,
 } from "@ag-ui/core"
 import { EventType } from "@ag-ui/core"
-import { createDawnActivityProjector, isDawnActivityChunkType } from "./activities.js"
+import { createB4ActivityProjector, isB4ActivityChunkType } from "./activities.js"
 import { createDefaultIdFactory, type IdFactory } from "./ids.js"
 import { toAguiInterrupt } from "./interrupts.js"
 import { createOrchestrationLedger } from "./orchestration-ledger.js"
 import {
   asToolCallData,
   asToolResultData,
-  type DawnAgentStreamChunk,
+  type B4AgentStreamChunk,
   type RunContext,
 } from "./types.js"
 
@@ -62,19 +62,19 @@ function stringifyContent(output: unknown): string {
 }
 
 /**
- * Map a Dawn agent stream (`token | tool_call | tool_result | interrupt |
- * done`) to AG-UI events, including snapshots for recognized Dawn plan and
+ * Map a B4.run agent stream (`token | tool_call | tool_result | interrupt |
+ * done`) to AG-UI events, including snapshots for recognized B4.run plan and
  * subagent activity chunks. Stateful: it frames assistant text and tool calls
- * that Dawn emits implicitly, and it never throws into the consumer - an
+ * that B4.run emits implicitly, and it never throws into the consumer - an
  * upstream error becomes a `RUN_ERROR` event and a clean return.
  */
 export async function* toAguiEvents(
-  chunks: AsyncIterable<DawnAgentStreamChunk>,
+  chunks: AsyncIterable<B4AgentStreamChunk>,
   ctx: RunContext,
   options: ToAguiOptions = {},
 ): AsyncGenerator<AguiOutboundEvent> {
   const nextId = options.idFactory ?? createDefaultIdFactory()
-  const activityProjector = createDawnActivityProjector(ctx.runId)
+  const activityProjector = createB4ActivityProjector(ctx.runId)
   const ledger = createOrchestrationLedger()
   let openMessageId: string | null = null
   const pendingFallbackToolCallIds = new Map<string, string[]>()
@@ -109,7 +109,7 @@ export async function* toAguiEvents(
         continue
       }
 
-      if (isDawnActivityChunkType(chunk.type)) {
+      if (isB4ActivityChunkType(chunk.type)) {
         const projection = activityProjector.project(chunk.type, chunk.data)
         if (projection.event !== null) {
           yield* ledger.onActivity(projection.event, projection.orchestration)
@@ -181,7 +181,7 @@ export async function* toAguiEvents(
             yield* ledger.settle()
             yield {
               type: EventType.RUN_ERROR,
-              message: "Malformed Dawn interrupt: missing interruptId",
+              message: "Malformed B4.run interrupt: missing interruptId",
             }
             return
           }

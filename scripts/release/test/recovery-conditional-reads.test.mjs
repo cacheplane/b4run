@@ -12,7 +12,7 @@ const unchanged = (etag = '"one"', headers = {}) =>
 const reader = (fetchImpl, options = {}) =>
   createGitHubReader({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     token: "fixture",
     fetchImpl,
     conditionalReads: true,
@@ -112,7 +112,7 @@ test("304 with pagination headers cannot reuse a single-page collection", async 
     ++n === 1
       ? json({ total_count: 0, workflows: [] })
       : unchanged('"one"', {
-          link: '<https://api.github.com/repos/cacheplane/dawnai/actions/workflows?page=2>; rel="next"',
+          link: '<https://api.github.com/repos/cacheplane/b4run/actions/workflows?page=2>; rel="next"',
         }),
   )
   await github.listRepositoryWorkflowsComplete()
@@ -281,7 +281,7 @@ test("a partial collection with a Link header stays unconditional on both pages"
       : json(
           { total_count: 2, workflows: [{ id: 1 }] },
           {
-            link: '<https://api.github.com/repos/cacheplane/dawnai/actions/workflows?per_page=100&page=2>; rel="next"',
+            link: '<https://api.github.com/repos/cacheplane/b4run/actions/workflows?per_page=100&page=2>; rel="next"',
           },
         )
   })
@@ -384,7 +384,7 @@ test("paginated recovery inventories revalidate every numeric-link page with abs
   assert.deepEqual(second.value, first.value)
   assert.equal(second.httpStatus, 304)
   assert.equal(calls.length, 4)
-  const canonicalNext = next.replace("/repositories/1210070282/", "/repos/cacheplane/dawnai/")
+  const canonicalNext = next.replace("/repositories/1210070282/", "/repos/cacheplane/b4run/")
   assert.equal(calls[1].url, canonicalNext)
   assert.equal(calls[3].url, canonicalNext)
   assert.equal(calls[2].init.headers["If-None-Match"], 'W/"page-1"')
@@ -395,14 +395,14 @@ test("paginated revalidation preserves actual headers and separates retained nav
   const { createConditionalJsonReader } = await import("../adapters/conditional-json.mjs")
   let count = 0
   const link =
-    '<https://api.github.com/repos/cacheplane/dawnai/actions/workflows?per_page=100&page=2>; rel="next"'
+    '<https://api.github.com/repos/cacheplane/b4run/actions/workflows?per_page=100&page=2>; rel="next"'
   const http = createHttpGet({
     fetchImpl: async () =>
       ++count === 1 ? json({ total_count: 101, workflows: [] }, { link }) : unchanged(),
   })
   const client = createConditionalJsonReader({ http })
   const request = {
-    url: "https://api.github.com/repos/cacheplane/dawnai/actions/workflows?per_page=100",
+    url: "https://api.github.com/repos/cacheplane/b4run/actions/workflows?per_page=100",
     headers: { Authorization: "Bearer fixture" },
   }
   const policy = {
@@ -604,7 +604,7 @@ test("paginated history preserves fence authority fields within unchanged snapsh
   const identity = {
     workflowId: "1",
     workflow: ".github/workflows/release.yml",
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     repositoryId: "1210070282",
   }
   const runs = Array.from({ length: 514 }, (_, i) => ({
@@ -649,7 +649,7 @@ test("history projection follows raw validation and preserves malformed authorit
   const identity = {
     workflowId: "1",
     workflow: ".github/workflows/release.yml",
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     repositoryId: "1210070282",
   }
   const valid = {
@@ -733,7 +733,7 @@ test("history projection cannot mutate retained raw metadata or reduce its byte 
         body,
         page === 1
           ? {
-              link: '<https://api.github.com/repos/cacheplane/dawnai/actions/workflows/1/runs?per_page=100&page=2>; rel="next"',
+              link: '<https://api.github.com/repos/cacheplane/b4run/actions/workflows/1/runs?per_page=100&page=2>; rel="next"',
             }
           : {},
       )
@@ -749,7 +749,7 @@ test("repository identity reads exclude authenticated repository credentials on 
     ++calls === 1
       ? json({
           id: 1210070282,
-          full_name: "cacheplane/dawnai",
+          full_name: "cacheplane/b4run",
           default_branch: "main",
           temp_clone_token: "repository-clone-credential",
           security_and_analysis: { secret_scanning: { status: "enabled" } },
@@ -763,7 +763,7 @@ test("repository identity reads exclude authenticated repository credentials on 
     assert.equal(result.httpStatus, status)
     assert.deepEqual(result.value, {
       id: 1210070282,
-      full_name: "cacheplane/dawnai",
+      full_name: "cacheplane/b4run",
       default_branch: "main",
     })
     assert.doesNotMatch(JSON.stringify(result), /credential|temp_clone_token|secret_scanning/)
@@ -772,7 +772,7 @@ test("repository identity reads exclude authenticated repository credentials on 
 
 test("repository identity projection retains unsafe-key rejection inside selected fields", async () => {
   const github = reader(async () =>
-    json({ id: 1, full_name: "cacheplane/dawnai", default_branch: { secret: "hidden" } }),
+    json({ id: 1, full_name: "cacheplane/b4run", default_branch: { secret: "hidden" } }),
   )
   const result = await github.getRepository()
   assert.equal(result.status, "ERROR")

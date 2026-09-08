@@ -7,7 +7,7 @@ const SHA = "0123456789abcdef0123456789abcdef01234567"
 const OTHER_SHA = "abcdef0123456789abcdef0123456789abcdef01"
 const TAG_OBJECT_SHA = "b".repeat(40)
 const OTHER_TAG_OBJECT_SHA = "c".repeat(40)
-const ROOT = "/tmp/dawn-release-writer-test"
+const ROOT = "/tmp/b4-release-writer-test"
 
 test("candidate tag writer exposes only annotated creation and push", () => {
   const writer = createCandidateTagWriter({ root: ROOT, run: async () => "" })
@@ -17,10 +17,10 @@ test("candidate tag writer exposes only annotated creation and push", () => {
 
 test("createAnnotatedTag validates exact v<SemVer>, SHA, message, and main ancestry before mutation", async () => {
   for (const input of [
-    { tag: "0.8.22", sha: SHA, message: "Dawn v0.8.22 candidate" },
-    { tag: "v01.8.22", sha: SHA, message: "Dawn v0.8.22 candidate" },
-    { tag: "v0.8.22+build", sha: SHA, message: "Dawn v0.8.22 candidate" },
-    { tag: "v0.8.22", sha: "short", message: "Dawn v0.8.22 candidate" },
+    { tag: "0.8.22", sha: SHA, message: "B4 v0.8.22 candidate" },
+    { tag: "v01.8.22", sha: SHA, message: "B4 v0.8.22 candidate" },
+    { tag: "v0.8.22+build", sha: SHA, message: "B4 v0.8.22 candidate" },
+    { tag: "v0.8.22", sha: "short", message: "B4 v0.8.22 candidate" },
     { tag: "v0.8.22", sha: SHA, message: "" },
   ]) {
     let calls = 0
@@ -48,7 +48,7 @@ test("createAnnotatedTag validates exact v<SemVer>, SHA, message, and main ances
     writer.createAnnotatedTag({
       tag: "v0.8.22",
       sha: SHA,
-      message: "Dawn v0.8.22 candidate",
+      message: "B4 v0.8.22 candidate",
     }),
     /reachable from main/u,
   )
@@ -75,7 +75,7 @@ test("createAnnotatedTag is idempotent only when the existing tag resolves to th
     const operation = writer.createAnnotatedTag({
       tag: "v0.8.22",
       sha: SHA,
-      message: "Dawn v0.8.22 candidate",
+      message: "B4 v0.8.22 candidate",
     })
 
     if (existingSha === SHA) {
@@ -118,20 +118,20 @@ test("createAnnotatedTag creates one annotated tag with argument arrays when it 
   const result = await writer.createAnnotatedTag({
     tag: "v0.8.22",
     sha: SHA,
-    message: "Dawn v0.8.22 candidate",
+    message: "B4 v0.8.22 candidate",
   })
 
   assert.deepEqual(result, { status: "created", tag: "v0.8.22", sha: SHA })
   assert.deepEqual(calls.at(-1)[1], [
     "-c",
-    "user.name=Dawn Release Bot",
+    "user.name=B4 Release Bot",
     "-c",
-    "user.email=dawn-release-bot@users.noreply.github.com",
+    "user.email=b4-release-bot@users.noreply.github.com",
     "tag",
     "--annotate",
     "v0.8.22",
     "--message",
-    "Dawn v0.8.22 candidate",
+    "B4 v0.8.22 candidate",
     SHA,
   ])
   assert.ok(calls.every(([, , options]) => options.cwd === ROOT && options.shell === false))
@@ -162,7 +162,7 @@ test("a local tag lookup failure is never reclassified as exact absence", async 
     writer.createAnnotatedTag({
       tag: "v0.8.22",
       sha: SHA,
-      message: "Dawn v0.8.22 candidate",
+      message: "B4 v0.8.22 candidate",
     }),
     /local object database failed/u,
   )
@@ -266,7 +266,7 @@ test("candidate tag writer rejects a local lightweight tag", async () => {
     writer.createAnnotatedTag({
       tag: "v0.8.22",
       sha: SHA,
-      message: "Dawn v0.8.22 candidate",
+      message: "B4 v0.8.22 candidate",
     }),
     /annotated.*tag|tag.*object/iu,
   )

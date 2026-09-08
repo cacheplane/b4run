@@ -6,7 +6,7 @@ description: How to recover when a tool call fails — diagnose, not blindly ret
 
 When a tool call returns an error:
 
-1. **Read the error message first.** Most Dawn tool errors are self-explanatory:
+1. **Read the error message first.** Most B4.run tool errors are self-explanatory:
    path-jail violations, file-too-large, command exit codes.
 2. **Don't retry the exact same call.** If `readFile({ path: "missing.txt" })`
    returned "ENOENT", calling it again won't help. Either list the directory to

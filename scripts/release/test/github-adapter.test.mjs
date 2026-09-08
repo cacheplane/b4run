@@ -4,11 +4,11 @@ import { Worker } from "node:worker_threads"
 
 import { createGitHubReader } from "../adapters/github.mjs"
 
-const OWNER = "dawn-ai"
-const REPO = "dawn"
+const OWNER = "b4run"
+const REPO = "b4"
 const TOKEN = "github_secret_token"
 const SHA = "0123456789abcdef0123456789abcdef01234567"
-const BASE = "https://api.github.com/repos/dawn-ai/dawn"
+const BASE = "https://api.github.com/repos/b4run/b4"
 const REPOSITORY_ID = "1210070282"
 const ALLOWED_METHODS = [
   "downloadActionsArtifact",
@@ -219,8 +219,8 @@ test("GitHub all-attempt coverage rejects a max-safe sparse attempt in bounded t
     ;(async () => {
       const { createGitHubReader } = await import(${JSON.stringify(moduleUrl)})
       const github = createGitHubReader({
-        owner: "dawn-ai",
-        repo: "dawn",
+        owner: "b4run",
+        repo: "b4",
         fetchImpl: async () => new Response(JSON.stringify({
           jobs: [{
             id: 1,
@@ -1047,8 +1047,8 @@ test("GitHub attestation pagination rejects another subject endpoint", async () 
 test("GitHub validates repository identity and every dynamic argument before fetching", () => {
   for (const identity of [
     { owner: "", repo: REPO },
-    { owner: "../dawn-ai", repo: REPO },
-    { owner: OWNER, repo: "dawn/repo" },
+    { owner: "../b4run", repo: REPO },
+    { owner: OWNER, repo: "b4/repo" },
     { owner: OWNER, repo: "--help" },
   ]) {
     assert.throws(
@@ -1105,7 +1105,7 @@ test("GitHub rejects oversized identity and operation inputs before parsing or f
 
 test("GitHub validation errors never echo control characters", () => {
   assert.throws(
-    () => createGitHubReader({ owner: "dawn\nforged", repo: REPO, fetchImpl: assert.fail }),
+    () => createGitHubReader({ owner: "b4\nforged", repo: REPO, fetchImpl: assert.fail }),
     errorWithoutControls,
   )
   const github = createGitHubReader({ owner: OWNER, repo: REPO, fetchImpl: assert.fail })

@@ -154,7 +154,7 @@ export function validateRecoveryFenceEvidence(raw, { fixtureBytes, probeClosureS
   fenceRequire(
     typeof e.repository === "string" &&
       /^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/u.test(e.repository) &&
-      e.repository.toLowerCase() !== "cacheplane/dawnai",
+      e.repository.toLowerCase() !== "cacheplane/b4run",
     "disposable evidence repository required",
   )
   id(e.repositoryId)

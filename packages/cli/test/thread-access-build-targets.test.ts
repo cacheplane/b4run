@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { RouteManifest } from "@dawn-ai/core"
+import type { RouteManifest } from "@b4run/core"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { buildTargets } from "../src/lib/build/targets/index.js"
@@ -18,10 +18,10 @@ afterEach(async () => {
 const POLICY_FILE = 'export default { fallback: () => ({ decision: "allow" }) }\n'
 
 async function fixtureApp(files: Readonly<Record<string, string>> = {}): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-thread-access-build-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-thread-access-build-"))
   tempDirs.push(appRoot)
   const appFiles: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "build-probe-fixture", "type": "module" }\n',
     ...files,
   }
@@ -36,7 +36,7 @@ async function fixtureApp(files: Readonly<Record<string, string>> = {}): Promise
 function emitContext(appRoot: string) {
   return {
     appRoot,
-    buildDir: join(appRoot, ".dawn/build"),
+    buildDir: join(appRoot, ".b4/build"),
     manifest: { appRoot, routes: [] } as unknown as RouteManifest,
   }
 }
@@ -47,14 +47,14 @@ describe("assertNoThreadAccessPolicy", () => {
     expect(() => assertNoThreadAccessPolicy(appRoot, "hono")).not.toThrow()
   })
 
-  it("throws DAWN_E1005 naming the target and the file", async () => {
+  it("throws B4_E1005 naming the target and the file", async () => {
     const appRoot = await fixtureApp({ "src/thread-access.ts": POLICY_FILE })
     expect(() => assertNoThreadAccessPolicy(appRoot, "hono")).toThrow(/src\/thread-access\.ts/)
     try {
       assertNoThreadAccessPolicy(appRoot, "hono")
       expect.unreachable("expected a CliError")
     } catch (error) {
-      expect(error).toMatchObject({ code: "DAWN_E1005" })
+      expect(error).toMatchObject({ code: "B4_E1005" })
       expect(String(error)).toContain("hono")
     }
   })
@@ -69,7 +69,7 @@ describe("build targets that cannot carry a policy", () => {
   it("fails the langsmith build", async () => {
     const appRoot = await fixtureApp({ "src/thread-access.ts": POLICY_FILE })
     await expect(buildTargets.langsmith?.emit(emitContext(appRoot))).rejects.toMatchObject({
-      code: "DAWN_E1005",
+      code: "B4_E1005",
     })
   })
 
@@ -96,9 +96,9 @@ describe("web targets carry the policy", () => {
     const appRoot = await fixtureApp({ "src/thread-access.ts": POLICY_FILE })
     await buildTargets.hono?.emit(emitContext(appRoot))
 
-    const modules = await readFile(join(appRoot, ".dawn/build/modules.edge.mjs"), "utf8")
+    const modules = await readFile(join(appRoot, ".b4/build/modules.edge.mjs"), "utf8")
     expect(modules).toContain(
-      'import { buildStaticRouteModule, normalizeThreadAccessModule } from "@dawn-ai/cli/fetch"',
+      'import { buildStaticRouteModule, normalizeThreadAccessModule } from "@b4run/cli/fetch"',
     )
     expect(modules).toContain('import * as threadAccessModule from "../../src/thread-access.ts"')
     expect(modules).toContain("  threadAccess: normalizeThreadAccessModule(threadAccessModule),")
@@ -108,7 +108,7 @@ describe("web targets carry the policy", () => {
     const appRoot = await fixtureApp({ "src/thread-access.ts": POLICY_FILE })
     await buildTargets.hono?.emit(emitContext(appRoot))
 
-    const entry = await readFile(join(appRoot, ".dawn/build/app.mjs"), "utf8")
+    const entry = await readFile(join(appRoot, ".b4/build/app.mjs"), "utf8")
     expect(entry).toContain("threadAccessExpected: true,")
   })
 
@@ -116,8 +116,8 @@ describe("web targets carry the policy", () => {
     const appRoot = await fixtureApp()
     await buildTargets.hono?.emit(emitContext(appRoot))
 
-    const modules = await readFile(join(appRoot, ".dawn/build/modules.edge.mjs"), "utf8")
-    const entry = await readFile(join(appRoot, ".dawn/build/app.mjs"), "utf8")
+    const modules = await readFile(join(appRoot, ".b4/build/modules.edge.mjs"), "utf8")
+    const entry = await readFile(join(appRoot, ".b4/build/app.mjs"), "utf8")
     expect(modules).not.toContain("normalizeThreadAccessModule")
     expect(modules).not.toContain("threadAccessModule")
     expect(entry).not.toContain("threadAccessExpected")
@@ -125,7 +125,7 @@ describe("web targets carry the policy", () => {
 
   it("carries it through the shared web emitter for vercel too", async () => {
     const appRoot = await fixtureApp({ "src/thread-access.ts": POLICY_FILE })
-    const outputDir = join(appRoot, ".vercel/.dawn-vercel-test/runtime")
+    const outputDir = join(appRoot, ".vercel/.b4-vercel-test/runtime")
     const runtime = await emitWebRuntimeArtifacts(emitContext(appRoot), {
       outputDir,
       targetName: "vercel",
@@ -133,7 +133,7 @@ describe("web targets carry the policy", () => {
 
     const modules = await readFile(runtime.modulesPath, "utf8")
     const entry = await readFile(runtime.appPath, "utf8")
-    expect(modules).toContain("Generated by dawn build (vercel target)")
+    expect(modules).toContain("Generated by b4 build (vercel target)")
     expect(modules).toContain("  threadAccess: normalizeThreadAccessModule(threadAccessModule),")
     expect(entry).toContain("threadAccessExpected: true,")
   })

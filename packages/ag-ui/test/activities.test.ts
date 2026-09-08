@@ -1,10 +1,10 @@
 import { ActivitySnapshotEventSchema, EventType } from "@ag-ui/core"
 import { describe, expect, test } from "vitest"
 import {
-  createDawnActivityProjector as createUncheckedDawnActivityProjector,
-  DAWN_PLAN_ACTIVITY_TYPE,
-  DAWN_SUBAGENT_ACTIVITY_TYPE,
-  isDawnActivityChunkType,
+  B4_PLAN_ACTIVITY_TYPE,
+  B4_SUBAGENT_ACTIVITY_TYPE,
+  createB4ActivityProjector as createUncheckedB4ActivityProjector,
+  isB4ActivityChunkType,
 } from "../src/activities.ts"
 
 const identity = {
@@ -19,8 +19,8 @@ const todos = [
   { content: "Read the best source", status: "in_progress" },
 ] as const
 
-function createDawnActivityProjector(runId: string) {
-  const projector = createUncheckedDawnActivityProjector(runId)
+function createB4ActivityProjector(runId: string) {
+  const projector = createUncheckedB4ActivityProjector(runId)
   return {
     project(...args: Parameters<typeof projector.project>) {
       const { event } = projector.project(...args)
@@ -30,7 +30,7 @@ function createDawnActivityProjector(runId: string) {
   }
 }
 
-describe("isDawnActivityChunkType", () => {
+describe("isB4ActivityChunkType", () => {
   test("recognizes exactly the seven activity chunk types", () => {
     for (const type of [
       "plan_update",
@@ -41,7 +41,7 @@ describe("isDawnActivityChunkType", () => {
       "subagent.message",
       "subagent.end",
     ]) {
-      expect(isDawnActivityChunkType(type)).toBe(true)
+      expect(isB4ActivityChunkType(type)).toBe(true)
     }
 
     for (const type of [
@@ -52,45 +52,45 @@ describe("isDawnActivityChunkType", () => {
       "subagent.unknown",
       "subagent.start.extra",
     ]) {
-      expect(isDawnActivityChunkType(type)).toBe(false)
+      expect(isB4ActivityChunkType(type)).toBe(false)
     }
   })
 })
 
-describe("createDawnActivityProjector", () => {
+describe("createB4ActivityProjector", () => {
   test("emits complete plan replacements with one stable run-scoped id", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
     const first = projector.project("plan_update", { todos: [todos[0]] })
     const second = projector.project("plan_update", { todos })
 
     expect(first).toEqual({
       type: EventType.ACTIVITY_SNAPSHOT,
-      messageId: "dawn:plan:run-1",
-      activityType: DAWN_PLAN_ACTIVITY_TYPE,
+      messageId: "b4:plan:run-1",
+      activityType: B4_PLAN_ACTIVITY_TYPE,
       replace: true,
       content: { todos: [todos[0]] },
     })
     expect(second).toEqual({
       type: EventType.ACTIVITY_SNAPSHOT,
-      messageId: "dawn:plan:run-1",
-      activityType: DAWN_PLAN_ACTIVITY_TYPE,
+      messageId: "b4:plan:run-1",
+      activityType: B4_PLAN_ACTIVITY_TYPE,
       replace: true,
       content: { todos },
     })
-    expect(DAWN_SUBAGENT_ACTIVITY_TYPE).toBe("dawn.subagent")
+    expect(B4_SUBAGENT_ACTIVITY_TYPE).toBe("b4.subagent")
     expect(ActivitySnapshotEventSchema.parse(first)).toEqual(first)
     expect(ActivitySnapshotEventSchema.parse(second)).toEqual(second)
   })
 
   test("starts a subagent and replaces its complete child plan", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
     const start = projector.project("subagent.start", identity)
     const plan = projector.project("subagent.plan_update", { ...identity, todos })
 
     expect(start).toEqual({
       type: EventType.ACTIVITY_SNAPSHOT,
-      messageId: "dawn:subagent:call-research-1",
-      activityType: DAWN_SUBAGENT_ACTIVITY_TYPE,
+      messageId: "b4:subagent:call-research-1",
+      activityType: B4_SUBAGENT_ACTIVITY_TYPE,
       replace: true,
       content: {
         name: "researcher",
@@ -102,8 +102,8 @@ describe("createDawnActivityProjector", () => {
     })
     expect(plan).toEqual({
       type: EventType.ACTIVITY_SNAPSHOT,
-      messageId: "dawn:subagent:call-research-1",
-      activityType: DAWN_SUBAGENT_ACTIVITY_TYPE,
+      messageId: "b4:subagent:call-research-1",
+      activityType: B4_SUBAGENT_ACTIVITY_TYPE,
       replace: true,
       content: {
         name: "researcher",
@@ -119,7 +119,7 @@ describe("createDawnActivityProjector", () => {
   })
 
   test("ignores child plans before start and payloads without canonical identity", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
 
     expect(projector.project("subagent.plan_update", { ...identity, todos })).toBeNull()
     expect(
@@ -132,7 +132,7 @@ describe("createDawnActivityProjector", () => {
   })
 
   test("ignores identity conflicts after start", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
     expect(projector.project("subagent.start", identity)).not.toBeNull()
 
     expect(
@@ -153,14 +153,14 @@ describe("createDawnActivityProjector", () => {
       { ...identity, subagent: `  ${identity.subagent}  ` },
       { ...identity, route_id: `  ${identity.route_id}  ` },
     ]) {
-      const projector = createDawnActivityProjector("run-1")
+      const projector = createB4ActivityProjector("run-1")
       expect(projector.project("subagent.start", identity)).not.toBeNull()
       expect(projector.project("subagent.plan_update", { ...paddedIdentity, todos })).toBeNull()
     }
   })
 
   test("correlates child tool calls and results without exposing inputs or outputs", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
     projector.project("subagent.start", identity)
 
     const call = projector.project("subagent.tool_call", {
@@ -190,7 +190,7 @@ describe("createDawnActivityProjector", () => {
   })
 
   test("preserves tool ids for exact correlation while trimming public names", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
     projector.project("subagent.start", identity)
 
     const called = projector.project("subagent.tool_call", {
@@ -246,7 +246,7 @@ describe("createDawnActivityProjector", () => {
   })
 
   test("retains only the five newest tool summaries while counting each id once", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
     projector.project("subagent.start", identity)
 
     let snapshot = null
@@ -304,7 +304,7 @@ describe("createDawnActivityProjector", () => {
   })
 
   test("completes once, marks running tools incomplete, and freezes terminal state", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
     projector.project("subagent.start", identity)
     projector.project("subagent.plan_update", { ...identity, todos })
     projector.project("subagent.tool_call", {
@@ -350,7 +350,7 @@ describe("createDawnActivityProjector", () => {
   })
 
   test("caps failure errors at 400 characters", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
     projector.project("subagent.start", identity)
 
     const ended = projector.project("subagent.end", {
@@ -366,7 +366,7 @@ describe("createDawnActivityProjector", () => {
   })
 
   test("rejects a present non-string error without ending, while whitespace completes", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
     projector.project("subagent.start", identity)
 
     expect(
@@ -379,7 +379,7 @@ describe("createDawnActivityProjector", () => {
   })
 
   test("re-emits an identical repeated start without discarding progress", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
     projector.project("subagent.start", identity)
     projector.project("subagent.plan_update", { ...identity, todos })
     projector.project("subagent.tool_call", {
@@ -401,7 +401,7 @@ describe("createDawnActivityProjector", () => {
   })
 
   test("ignores lifecycle events received before start", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
 
     expect(
       projector.project("subagent.tool_call", {
@@ -416,7 +416,7 @@ describe("createDawnActivityProjector", () => {
   })
 
   test("keeps interleaved call ids isolated", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
     const writerIdentity = {
       call_id: "call-writer-1",
       subagent: "writer",
@@ -441,13 +441,13 @@ describe("createDawnActivityProjector", () => {
       ...writerIdentity,
       id: "writer-tool",
     })
-    expect(researchEnded?.messageId).toBe("dawn:subagent:call-research-1")
+    expect(researchEnded?.messageId).toBe("b4:subagent:call-research-1")
     expect(researchEnded?.content).toMatchObject({
       name: "researcher",
       status: "completed",
       tools: [{ name: "searchCorpus", status: "incomplete" }],
     })
-    expect(writerProgress?.messageId).toBe("dawn:subagent:call-writer-1")
+    expect(writerProgress?.messageId).toBe("b4:subagent:call-writer-1")
     expect(writerProgress?.content).toMatchObject({
       name: "writer",
       status: "running",
@@ -458,7 +458,7 @@ describe("createDawnActivityProjector", () => {
   })
 
   test("consumes child messages and exposes only allowlisted public fields", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
     projector.project("subagent.start", { ...identity, private_start: "secret-start" })
     expect(
       projector.project("subagent.message", {
@@ -516,7 +516,7 @@ describe("createDawnActivityProjector", () => {
   })
 
   test("rejects malformed plans and canonical subagent fields", () => {
-    const malformedPlanProjector = createDawnActivityProjector("run-plan")
+    const malformedPlanProjector = createB4ActivityProjector("run-plan")
     for (const data of [
       null,
       [],
@@ -540,13 +540,13 @@ describe("createDawnActivityProjector", () => {
       { ...identity, depth: "1" },
     ]
     for (const data of malformedIdentities) {
-      const projector = createDawnActivityProjector("run-subagent")
+      const projector = createB4ActivityProjector("run-subagent")
       expect(projector.project("subagent.start", data)).toBeNull()
     }
   })
 
   test("normalizes todo prose but preserves accepted identity strings", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
     const plan = projector.project("plan_update", {
       todos: [{ content: "  Search the corpus  ", status: "pending" }],
     })
@@ -561,7 +561,7 @@ describe("createDawnActivityProjector", () => {
     expect(plan?.content).toEqual({
       todos: [{ content: "Search the corpus", status: "pending" }],
     })
-    expect(start?.messageId).toBe("dawn:subagent:  call-trimmed  ")
+    expect(start?.messageId).toBe("b4:subagent:  call-trimmed  ")
     expect(start?.content).toMatchObject({ name: "  researcher  " })
     expect(
       projector.project("subagent.plan_update", {
@@ -576,7 +576,7 @@ describe("createDawnActivityProjector", () => {
   })
 
   test("rejects malformed child plans, tool ids, tool names, and unknown results", () => {
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
     projector.project("subagent.start", identity)
 
     expect(
@@ -614,17 +614,17 @@ describe("createDawnActivityProjector", () => {
       },
     })
     expect(() =>
-      createDawnActivityProjector("run-1").project("subagent.start", throwingIdentity),
+      createB4ActivityProjector("run-1").project("subagent.start", throwingIdentity),
     ).not.toThrow()
     expect(
-      createDawnActivityProjector("run-1").project("subagent.start", throwingIdentity),
+      createB4ActivityProjector("run-1").project("subagent.start", throwingIdentity),
     ).toBeNull()
     expect(() =>
-      createDawnActivityProjector("run-1").project("plan_update", throwingTodos),
+      createB4ActivityProjector("run-1").project("plan_update", throwingTodos),
     ).not.toThrow()
-    expect(createDawnActivityProjector("run-1").project("plan_update", throwingTodos)).toBeNull()
+    expect(createB4ActivityProjector("run-1").project("plan_update", throwingTodos)).toBeNull()
 
-    const projector = createDawnActivityProjector("run-1")
+    const projector = createB4ActivityProjector("run-1")
     projector.project("subagent.start", identity)
     const hostileTool = Object.defineProperty({ ...identity, tool: "searchCorpus" }, "id", {
       get() {
@@ -660,7 +660,7 @@ describe("orchestration correlation", () => {
   } as const
 
   test("a valid plan update correlates to its writeTodos call", () => {
-    const projector = createUncheckedDawnActivityProjector("run-1")
+    const projector = createUncheckedB4ActivityProjector("run-1")
     const projection = projector.project("plan_update", {
       todos: [{ content: "Search", status: "pending" }],
       tool_call_id: "call_writeTodos_0_1",
@@ -675,7 +675,7 @@ describe("orchestration correlation", () => {
   })
 
   test("a plan update without a correlation id yields no correlation", () => {
-    const projector = createUncheckedDawnActivityProjector("run-1")
+    const projector = createUncheckedB4ActivityProjector("run-1")
     const projection = projector.project("plan_update", {
       todos: [{ content: "Search", status: "pending" }],
     })
@@ -685,7 +685,7 @@ describe("orchestration correlation", () => {
   })
 
   test("an empty or non-string correlation id yields no correlation", () => {
-    const projector = createUncheckedDawnActivityProjector("run-1")
+    const projector = createUncheckedB4ActivityProjector("run-1")
     const todos = [{ content: "Search", status: "pending" }]
 
     expect(
@@ -697,7 +697,7 @@ describe("orchestration correlation", () => {
   })
 
   test("a malformed plan update yields neither event nor correlation", () => {
-    const projector = createUncheckedDawnActivityProjector("run-1")
+    const projector = createUncheckedB4ActivityProjector("run-1")
     const projection = projector.project("plan_update", {
       todos: [{ content: "bad", status: "unknown" }],
       tool_call_id: "call_writeTodos_0_1",
@@ -708,7 +708,7 @@ describe("orchestration correlation", () => {
   })
 
   test("the first subagent start correlates to its task call by call_id", () => {
-    const projector = createUncheckedDawnActivityProjector("run-1")
+    const projector = createUncheckedB4ActivityProjector("run-1")
     const projection = projector.project("subagent.start", IDENTITY)
 
     expect(projection.event).not.toBeNull()
@@ -719,7 +719,7 @@ describe("orchestration correlation", () => {
   })
 
   test("a repeated subagent start re-emits the snapshot without re-correlating", () => {
-    const projector = createUncheckedDawnActivityProjector("run-1")
+    const projector = createUncheckedB4ActivityProjector("run-1")
     projector.project("subagent.start", IDENTITY)
     const repeat = projector.project("subagent.start", IDENTITY)
 
@@ -728,7 +728,7 @@ describe("orchestration correlation", () => {
   })
 
   test("subagent lifecycle updates after start carry no correlation", () => {
-    const projector = createUncheckedDawnActivityProjector("run-1")
+    const projector = createUncheckedB4ActivityProjector("run-1")
     projector.project("subagent.start", IDENTITY)
 
     const planUpdate = projector.project("subagent.plan_update", {
@@ -749,7 +749,7 @@ describe("orchestration correlation", () => {
   })
 
   test("a malformed subagent start yields neither event nor correlation", () => {
-    const projector = createUncheckedDawnActivityProjector("run-1")
+    const projector = createUncheckedB4ActivityProjector("run-1")
     const projection = projector.project("subagent.start", { ...IDENTITY, depth: 0 })
 
     expect(projection.event).toBeNull()

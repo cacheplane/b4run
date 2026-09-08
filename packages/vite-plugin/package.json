@@ -1,26 +1,26 @@
 {
-  "name": "@dawn-ai/vite-plugin",
+  "name": "@b4run/vite-plugin",
   "version": "0.8.26",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "description": "Vite integration for Dawn route discovery and generated TypeScript types.",
+  "description": "Vite integration for B4.run route discovery and generated TypeScript types.",
   "keywords": [
-    "dawn",
+    "b4",
     "typescript",
     "vite",
     "langgraph",
     "type-generation",
     "developer-tools"
   ],
-  "homepage": "https://github.com/cacheplane/dawnai/tree/main/packages/vite-plugin#readme",
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/vite-plugin#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/dawnai.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/vite-plugin"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/dawnai/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -45,10 +45,10 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@dawn-ai/core": "workspace:*"
+    "@b4run/core": "workspace:*"
   },
   "devDependencies": {
-    "@dawn-ai/config-typescript": "workspace:*",
+    "@b4run/config-typescript": "workspace:*",
     "@types/node": "26.1.2",
     "vite": "6.4.3",
     "zod": "4.4.3"

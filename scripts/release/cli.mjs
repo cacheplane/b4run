@@ -293,12 +293,12 @@ async function runObserve(options, runtime) {
     "waitForRequiredCi",
     "required CI waiter",
   )
-  classifyEvent(event)
+  const invocation = classifyEvent(event)
 
   const [git, github, npm, attestations, marker] = await Promise.all([
     requireProductionGit(runtime),
     requireProductionGitHub(runtime),
-    requireNpm(runtime),
+    requireNpm(runtime, { firstPublication: invocation.npmBootstrap === true }),
     requireAttestations(runtime),
     readControllerMarker(runtime),
   ])
@@ -611,7 +611,7 @@ async function runEscrow(options, runtime) {
     {
       candidate,
       manifest: verified.manifest,
-      repository: "cacheplane/dawnai",
+      repository: "cacheplane/b4run",
     },
   )
   if (!Buffer.from(attestationSetBytes).equals(canonicalJsonBytes(attestationSet))) {
@@ -1590,7 +1590,7 @@ async function runTag(options, runtime) {
   const created = await createAnnotatedTag({
     tag,
     sha: candidate.commitSha,
-    message: `Dawn release ${tag}`,
+    message: `B4 release ${tag}`,
   })
   const pushed = await pushTag({ tag })
   return Object.freeze({
@@ -1942,8 +1942,8 @@ function auditDispatchRunId(value) {
     !Number.isSafeInteger(value.workflowRunId) ||
     value.workflowRunId < 1 ||
     value.runUrl !==
-      `https://api.github.com/repos/cacheplane/dawnai/actions/runs/${value.workflowRunId}` ||
-    value.htmlUrl !== `https://github.com/cacheplane/dawnai/actions/runs/${value.workflowRunId}`
+      `https://api.github.com/repos/cacheplane/b4run/actions/runs/${value.workflowRunId}` ||
+    value.htmlUrl !== `https://github.com/cacheplane/b4run/actions/runs/${value.workflowRunId}`
   ) {
     throw new TypeError("Release CLI audit dispatch result is invalid")
   }
@@ -1987,7 +1987,7 @@ async function requireGitHub(runtime) {
     "GitHub reader factory",
   )({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     ...(runtime.environment.GITHUB_REPOSITORY_ID === undefined
       ? {}
       : { repositoryId: runtime.environment.GITHUB_REPOSITORY_ID }),
@@ -1999,7 +1999,7 @@ async function requireGitHub(runtime) {
     "GitHub writer factory",
   )({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     token,
     reader,
   })
@@ -2055,7 +2055,7 @@ async function requireProductionGitHub(runtime) {
     "GitHub reader factory",
   )({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     ...(runtime.environment.GITHUB_REPOSITORY_ID === undefined
       ? {}
       : { repositoryId: runtime.environment.GITHUB_REPOSITORY_ID }),
@@ -2103,13 +2103,32 @@ async function requireNpmAuditFactory(runtime) {
   })
 }
 
-async function requireNpm(runtime) {
-  if (runtime.npm !== undefined) {
-    requiredMethod(runtime.npm, "observePackageVersion", "npm reader")
-    return runtime.npm
+async function requireNpm(runtime, { firstPublication = false } = {}) {
+  if (firstPublication !== true) {
+    if (runtime.npm !== undefined) {
+      requiredMethod(runtime.npm, "observePackageVersion", "npm reader")
+      return runtime.npm
+    }
+    const module = await runtime.importModule(new URL("./adapters/npm.mjs", import.meta.url).href)
+    return moduleFunction(module, "createNpmReader", "npm reader factory")()
   }
+  // Read-only first-publication detection: the explicitly selected reader may report a
+  // whole-package absence from npm's own not-found responses. It receives no credential and
+  // confers no publishing authority; the publisher re-validates its own bootstrap policy.
   const module = await runtime.importModule(new URL("./adapters/npm.mjs", import.meta.url).href)
-  return moduleFunction(module, "createNpmReader", "npm reader factory")()
+  if (runtime.npm !== undefined) {
+    requiredMethod(runtime.npm, "observeFirstPublicationPackage", "first-publication npm reader")
+    return moduleFunction(
+      module,
+      "adaptFirstPublicationNpmReader",
+      "first-publication npm reader adapter",
+    )(runtime.npm)
+  }
+  return moduleFunction(
+    module,
+    "createFirstPublicationNpmReader",
+    "first-publication npm reader factory",
+  )()
 }
 
 async function requireAttestations(runtime) {
@@ -2121,7 +2140,7 @@ async function requireAttestations(runtime) {
   if (typeof token !== "string" || token.length === 0 || /[\r\n]/u.test(token)) {
     throw new TypeError("Release CLI attestation verification requires GITHUB_TOKEN")
   }
-  if (runtime.environment.GITHUB_REPOSITORY !== "cacheplane/dawnai") {
+  if (runtime.environment.GITHUB_REPOSITORY !== "cacheplane/b4run") {
     throw new TypeError("Release CLI attestation verification requires the exact GitHub repository")
   }
   const module = await runtime.importModule(new URL("./artifact-store.mjs", import.meta.url).href)
@@ -2130,7 +2149,7 @@ async function requireAttestations(runtime) {
     "createCliAttestationVerifier",
     "attestation verifier factory",
   )({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     token,
     fileSystem: runtime.fileSystem,
   })
@@ -2166,7 +2185,7 @@ function normalizeArtifactUpload(value, manifest) {
   ) {
     throw new TypeError("Artifact upload output has an invalid exact-key schema")
   }
-  const expectedUrl = `https://github.com/cacheplane/dawnai/actions/runs/${manifest.artifact.prepareRunId}/artifacts/${value.artifactId}`
+  const expectedUrl = `https://github.com/cacheplane/b4run/actions/runs/${manifest.artifact.prepareRunId}/artifacts/${value.artifactId}`
   if (value.artifactUrl !== expectedUrl) {
     throw new TypeError("Artifact upload URL does not match the run and artifact ID")
   }

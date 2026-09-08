@@ -40,8 +40,8 @@ The `(public)/` segment is excluded from the path, so this route is `/hello/[ten
 A `workflow` is a deterministic async function. The first argument is the typed route state; the second is a `RuntimeContext` that exposes the route's discovered tools.
 
 ```ts title="src/app/(public)/hello/[tenant]/index.ts"
-import type { RuntimeContext } from "@dawn-ai/sdk"
-import type { RouteTools } from "dawn:routes"
+import type { RuntimeContext } from "@b4run/sdk"
+import type { RouteTools } from "b4:routes"
 import type { z } from "zod"
 import type state from "./state.js"
 
@@ -73,7 +73,7 @@ export const graph = new StateGraph<HelloState>({ channels: { /* ... */ } })
   .compile()
 ```
 
-The graph receives the same typed state and runs through Dawn's runtime. State channels still need to be declared (LangGraph requirement).
+The graph receives the same typed state and runs through B4.run's runtime. State channels still need to be declared (LangGraph requirement).
 
 ## chain
 
@@ -92,8 +92,8 @@ export const chain = RunnableSequence.from([
 Routes dispatch by path:
 
 ```bash
-$ echo '{"tenant":"acme"}' | dawn run '/hello/[tenant]'
-$ dawn dev    # HMR + dev server
+$ echo '{"tenant":"acme"}' | b4 run '/hello/[tenant]'
+$ b4 dev    # HMR + dev server
 ```
 
 Programmatic dispatch is also available — see [Agent Protocol](/docs/dev-server/agent-protocol) for the runtime API and the `runs/wait` / `runs/stream` endpoints.

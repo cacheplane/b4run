@@ -26,6 +26,7 @@ import { startFaultProxy } from "./support/fault-proxy.mjs"
 import {
   createCandidateRepositoryFixture,
   createExactCandidateCommandRunner,
+  createFirstPublicationRehearsalNpmReader,
   createOrderedFaultGate,
   createRehearsalDurableState,
   FIXED_GROUP_REHEARSAL_FAULTS,
@@ -458,7 +459,7 @@ test("real escrow transition resumes draft creation and selected 45-asset crash 
   const snapshot = remote.snapshot()
   assert.equal(snapshot.assets.length, 45)
   assert.equal(parseReleaseMarker(snapshot.release.body).phase, "ESCROWED")
-  assert.equal(snapshot.release.name, `Dawn v${fixture.candidate.version}`)
+  assert.equal(snapshot.release.name, `B4 v${fixture.candidate.version}`)
   assert.notEqual(snapshot.release.tag_name, `v${fixture.candidate.version}`)
   assert.deepEqual(
     snapshot.releaseMutations
@@ -627,7 +628,7 @@ test("real reconciliation, audit retry, publication, and immutable replay surviv
 })
 
 test("registry harness packs without publishing and exposes one bounded real publish primitive", async (t) => {
-  const outside = await realpath(await mkdtemp(join(tmpdir(), "dawn-rehearsal-outside-")))
+  const outside = await realpath(await mkdtemp(join(tmpdir(), "b4-rehearsal-outside-")))
   t.after(() => rm(outside, { recursive: true, force: true }))
   const harness = await createFaultHarness({ fixtureDirectory: THREE_PACKAGE_FIXTURE })
   t.after(() => harness.close())
@@ -666,6 +667,82 @@ test("registry harness packs without publishing and exposes one bounded real pub
     harness.publishPreparedTarball({ tarballPath: untrustedTarball }),
     /allowed.*root|tarball.*root/iu,
   )
+})
+
+test("first-publication rehearsal reader proves whole-package absence, then exact presence, over the real registry", async (t) => {
+  const harness = await createFaultHarness({ fixtureDirectory: THREE_PACKAGE_FIXTURE })
+  t.after(() => harness.close())
+  const packed = await harness.packFixtureTarballs()
+  assert.equal(packed.length, 3)
+  const reader = createFirstPublicationRehearsalNpmReader(harness)
+  const [target, sibling] = packed
+  const identity = { name: target.name, version: target.version }
+
+  assert.deepEqual(await reader.observeFirstPublicationPackage(identity), {
+    status: "ABSENT",
+    operation: "first-publication-package",
+    httpStatus: 404,
+    code: "E404",
+  })
+  assert.deepEqual(await reader.observePackageVersion(identity), {
+    status: "ABSENT",
+    operation: "package-version",
+    httpStatus: 404,
+    code: "E404",
+  })
+  assert.deepEqual(await reader.observePackageMetadata(identity), {
+    status: "ABSENT",
+    operation: "package-metadata",
+    httpStatus: 404,
+    code: "E404",
+  })
+
+  // A 404 whose body is not npm's not-found representation is never absence.
+  harness.proxy.setMode("package-e404")
+  const injected = await reader.observeFirstPublicationPackage(identity)
+  assert.equal(injected.status, "AMBIGUOUS")
+  assert.equal(injected.httpStatus, 404)
+  harness.proxy.setMode("unauthorized")
+  assert.equal((await reader.observeFirstPublicationPackage(identity)).status, "AMBIGUOUS")
+  harness.proxy.reset()
+
+  await harness.publishPreparedTarball({ tarballPath: target.tarballPath })
+  const present = await reader.observeFirstPublicationPackage(identity)
+  assert.equal(present.status, "PRESENT")
+  assert.deepEqual(present.package.versions, [target.version])
+  assert.equal(present.package.latest, target.version)
+  assert.equal(present.package.candidate.name, target.name)
+  assert.equal(present.package.candidate.version, target.version)
+  const exact = await reader.observePackageVersion(identity)
+  assert.equal(exact.status, "PRESENT")
+  assert.deepEqual(exact.package, present.package.candidate)
+  assert.equal(new URL(exact.package.tarballUrl).origin, "https://registry.npmjs.org")
+  const metadata = await reader.observePackageMetadata(identity)
+  assert.deepEqual(metadata, {
+    status: "PRESENT",
+    operation: "package-metadata",
+    httpStatus: 200,
+    code: null,
+    metadata: { name: target.name, latest: target.version },
+  })
+  const download = await reader.downloadRegistryTarball({ tarballUrl: exact.package.tarballUrl })
+  assert.equal(download.status, "PRESENT")
+  assert.equal(
+    download.tarball.sha512,
+    createHash("sha512")
+      .update(await readFile(target.tarballPath))
+      .digest("hex"),
+  )
+
+  // A published sibling does not change the still-absent name, and an unrelated version of
+  // the published name is the only prior state first publication refuses.
+  assert.equal(
+    (await reader.observePackageVersion({ name: sibling.name, version: sibling.version })).status,
+    "ABSENT",
+  )
+  const foreign = await reader.observePackageVersion({ name: target.name, version: "999.0.0" })
+  assert.equal(foreign.status, "AMBIGUOUS")
+  assert.equal(foreign.code, "FIRST_PUBLICATION_FOREIGN_VERSION")
 })
 
 test("fault proxy preserves a canonical release tarball larger than the small fixture", async (t) => {
@@ -765,7 +842,7 @@ function fixedGroupArtifactFixture() {
     bytes: multiSubjectBundle,
   }))
   const attestationSet = {
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${version}`,
     commitSha,
@@ -848,7 +925,7 @@ function completeNpmEvidence(fixture) {
         predicateType: "https://slsa.dev/provenance/v1",
         workflow: ".github/workflows/release.yml",
         commitSha: fixture.candidate.commitSha,
-        repository: "https://github.com/cacheplane/dawnai",
+        repository: "https://github.com/cacheplane/b4run",
         ref: `refs/tags/v${fixture.candidate.version}`,
       },
     })),
@@ -856,8 +933,8 @@ function completeNpmEvidence(fixture) {
 }
 
 async function createSourceRepositoryFixture(t) {
-  const sourceRoot = await realpath(await mkdtemp(join(tmpdir(), "dawn-rehearsal-source-")))
-  const runtime = await realpath(await mkdtemp(join(tmpdir(), "dawn-rehearsal-runtime-")))
+  const sourceRoot = await realpath(await mkdtemp(join(tmpdir(), "b4-rehearsal-source-")))
+  const runtime = await realpath(await mkdtemp(join(tmpdir(), "b4-rehearsal-runtime-")))
   t.after(async () => {
     await Promise.all([
       rm(sourceRoot, { recursive: true, force: true }),
@@ -888,7 +965,7 @@ function hash(algorithm, bytes) {
 }
 
 function testMultiSubjectBundle({ candidate, files }) {
-  const repository = "https://github.com/cacheplane/dawnai"
+  const repository = "https://github.com/cacheplane/b4run"
   const ref = `refs/tags/v${candidate.version}`
   const statement = {
     _type: "https://in-toto.io/Statement/v1",
@@ -911,7 +988,7 @@ function testMultiSubjectBundle({ candidate, files }) {
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: "https://github.com/cacheplane/dawnai/actions/runs/13/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4run/actions/runs/13/attempts/1",
         },
       },
     },

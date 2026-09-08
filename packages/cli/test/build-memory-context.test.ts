@@ -1,4 +1,4 @@
-import type { MemoryStoreLike } from "@dawn-ai/core"
+import type { MemoryStoreLike } from "@b4run/core"
 import { describe, expect, it } from "vitest"
 import { buildMemoryContext } from "../src/lib/runtime/resolve-memory.js"
 

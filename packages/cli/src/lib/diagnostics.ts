@@ -62,7 +62,7 @@ function readManifest(appRoot: string, pkg: string): PackageManifest | null {
 function requiredCoreRange(): string | null {
   try {
     const require = createRequire(import.meta.url)
-    const manifestPath = require.resolve("@dawn-ai/langchain/package.json")
+    const manifestPath = require.resolve("@b4run/langchain/package.json")
     const pkg = JSON.parse(readFileSync(manifestPath, "utf8")) as {
       peerDependencies?: Record<string, string>
     }
@@ -87,9 +87,9 @@ export function diagnose(error: unknown, opts?: { readonly appRoot?: string }): 
     const range = requiredCoreRange()
     const need = range ? `a version satisfying ${range}` : "a newer version"
     return {
-      summary: `${pkg} does not provide the export "${failure.missingExport}" that Dawn's runtime imports.`,
+      summary: `${pkg} does not provide the export "${failure.missingExport}" that B4.run's runtime imports.`,
       hint:
-        `Your installed @langchain/core is ${installed}; Dawn needs ${need}. ` +
+        `Your installed @langchain/core is ${installed}; B4.run needs ${need}. ` +
         "An older @langchain/core was likely hoisted into your install. " +
         'Run "npm ls @langchain/core" (or your package manager\'s equivalent) to find the stale copy, ' +
         "then upgrade or dedupe it.",
@@ -100,7 +100,7 @@ export function diagnose(error: unknown, opts?: { readonly appRoot?: string }): 
     return {
       summary: `Cannot import "${failure.missingExport}" from "${pkg}".`,
       hint:
-        `"${pkg}" is a CommonJS package, and Dawn loads route/tool/config modules through Node's ` +
+        `"${pkg}" is a CommonJS package, and B4.run loads route/tool/config modules through Node's ` +
         "ESM resolver, which can't always bind named exports from CommonJS. " +
         `Use a default import and destructure: import pkg from "${pkg}"; const { ${failure.missingExport} } = pkg. ` +
         'If the package ships an ESM build ("type": "module"), upgrade to it.',

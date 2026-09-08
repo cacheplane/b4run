@@ -31,7 +31,7 @@ async function finalizeRecoveryCandidateInInvocation(request, config, dependenci
     if (current.phase !== "AUDIT_VERIFIED")
       throw new Error("Successful independent audit required before finalization")
     const facts = current.facts
-    const delimiter = "\n\n<!-- DAWN_RELEASE_CONTROLLER_MARKER\n"
+    const delimiter = "\n\n<!-- B4_RELEASE_CONTROLLER_MARKER\n"
     const start = facts.release.body.indexOf(delimiter)
     const body = facts.release.body.slice(0, start)
     if (

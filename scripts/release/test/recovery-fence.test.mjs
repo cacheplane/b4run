@@ -23,7 +23,7 @@ for (const [name, damage] of Object.entries({
     f.evidence.cases.pop()
   },
   "production repo": (f) => {
-    f.evidence.repository = "cacheplane/dawnai"
+    f.evidence.repository = "cacheplane/b4run"
   },
   "production ID": (f) => {
     f.evidence.repositoryId = "1210070282"
@@ -63,7 +63,7 @@ for (const [name, damage] of Object.entries({
     f.evidence.restoration.finalInventoryCalls = []
   },
   "production call": (f) => {
-    f.evidence.calls[0].path = "/repos/cacheplane/dawnai"
+    f.evidence.calls[0].path = "/repos/cacheplane/b4run"
   },
   "fixture mismatch": (f) => {
     f.fixtureBytes.current += "# changed\n"

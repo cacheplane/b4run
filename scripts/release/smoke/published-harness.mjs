@@ -101,7 +101,7 @@ export async function executePublishedHarnessSmoke(
     () => dependencies.readManifest(options),
   )
   const root = await check("temporary-project", "clean published harness consumer created", () =>
-    dependencies.makeTempDir("dawn-published-harness-"),
+    dependencies.makeTempDir("b4-published-harness-"),
   )
   deferCleanup("cleanup", "published harness consumer removed", () => dependencies.removeDir(root))
   deferCleanup("cleanup-docker-probe", "installed Docker probe resources removed", () =>
@@ -186,8 +186,8 @@ export function publishedDockerProbeIdentity(randomUUID = defaultRandomUUID) {
   const threadId = `published-uuid-${token}`
   return Object.freeze({
     threadId,
-    containerName: `dawn-sbx-${threadId}`,
-    volumeName: `dawn-sbx-vol-${threadId}`,
+    containerName: `b4-sbx-${threadId}`,
+    volumeName: `b4-sbx-vol-${threadId}`,
   })
 }
 
@@ -218,8 +218,8 @@ function assertDockerProbeIdentity(identity) {
     Array.isArray(identity) ||
     Object.keys(identity).sort().join(",") !== "containerName,threadId,volumeName" ||
     !/^published-uuid-[0-9a-f]{32}$/u.test(identity.threadId) ||
-    identity.containerName !== `dawn-sbx-${identity.threadId}` ||
-    identity.volumeName !== `dawn-sbx-vol-${identity.threadId}`
+    identity.containerName !== `b4-sbx-${identity.threadId}` ||
+    identity.volumeName !== `b4-sbx-vol-${identity.threadId}`
   ) {
     throw new TypeError("Published Docker probe identity is invalid")
   }
@@ -336,11 +336,11 @@ async function defaultRunHarnessAssertion(root, lane, version, runCommand) {
 
 export function publishedHarnessProbeSource() {
   return `import assert from "node:assert/strict"
-import { agent, allow, defineMiddleware, reject } from "@dawn-ai/sdk"
-import { discoverRoutes } from "@dawn-ai/core/node"
-import { graphAdapter } from "@dawn-ai/langgraph"
-import { createAimock } from "@dawn-ai/testing"
-import { toAguiEvents } from "@dawn-ai/ag-ui"
+import { agent, allow, defineMiddleware, reject } from "@b4run/sdk"
+import { discoverRoutes } from "@b4run/core/node"
+import { graphAdapter } from "@b4run/langgraph"
+import { createAimock } from "@b4run/testing"
+import { toAguiEvents } from "@b4run/ag-ui"
 
 const lane = process.argv[2]
 const version = process.argv[3]

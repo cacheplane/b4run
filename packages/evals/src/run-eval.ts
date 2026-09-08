@@ -1,4 +1,4 @@
-import type { AgentRunResult } from "@dawn-ai/testing"
+import type { AgentRunResult } from "@b4run/testing"
 import { resolveGate } from "./gate.js"
 import { resolveDataset } from "./resolve-dataset.js"
 import { type NormalizedScore, normalizeScore } from "./score.js"

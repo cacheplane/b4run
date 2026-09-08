@@ -99,7 +99,7 @@ async function controller(request, config, dependencies) {
       phase,
       audit: phase === "AUDIT_PENDING" ? selected.dispatchRef : selected.resultRef,
     })
-    const prefix = observed.facts.release.body.split("\n\n<!-- DAWN_RELEASE_CONTROLLER_MARKER\n")[0]
+    const prefix = observed.facts.release.body.split("\n\n<!-- B4_RELEASE_CONTROLLER_MARKER\n")[0]
     return writer.updateRecoveryDraft({
       ...common,
       title: observed.facts.release.name,

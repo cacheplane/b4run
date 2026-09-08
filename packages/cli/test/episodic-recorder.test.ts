@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { type MemoryRecord, sqliteMemoryStore } from "@dawn-ai/memory"
+import { type MemoryRecord, sqliteMemoryStore } from "@b4run/memory"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { readPendingInterrupts, resolvePendingResume } from "../src/lib/dev/pending-interrupts.js"
@@ -18,7 +18,7 @@ import { type EpisodeInput, recordEpisode } from "../src/lib/runtime/record-epis
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 
 // Like eval-command.test.ts, temp apps live *inside* the repo tree so node
-// module resolution walks up to the workspace node_modules (@dawn-ai/sdk is
+// module resolution walks up to the workspace node_modules (@b4run/sdk is
 // resolvable from packages/cli/node_modules).
 const scratchRoot = resolve(repoRoot, "packages", "cli", ".tmp-episodic-apps")
 
@@ -29,8 +29,8 @@ afterEach(async () => {
 })
 
 // ---------------------------------------------------------------------------
-// Harness loader: @dawn-ai/testing cannot be a dependency of @dawn-ai/cli
-// (it depends on @dawn-ai/cli — a cycle), so the aimock harness is loaded from
+// Harness loader: @b4run/testing cannot be a dependency of @b4run/cli
+// (it depends on @b4run/cli — a cycle), so the aimock harness is loaded from
 // its built output, exactly the way the eval-command tests exercise it via the
 // temp app's node_modules. Requires `pnpm build` (CI builds before testing).
 // ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ async function loadTesting(): Promise<TestingModule> {
 // ---------------------------------------------------------------------------
 
 async function makeApp(
-  dawnConfig: string,
+  b4Config: string,
   opts?: { readonly approveDeploy?: boolean },
 ): Promise<string> {
   await mkdir(scratchRoot, { recursive: true })
@@ -90,14 +90,14 @@ async function makeApp(
   tempDirs.push(root)
 
   await writeFile(join(root, "package.json"), '{ "name": "episodic-temp-app", "type": "module" }\n')
-  await writeFile(join(root, "dawn.config.ts"), dawnConfig)
+  await writeFile(join(root, "b4.config.ts"), b4Config)
 
   const routeDir = join(root, "src", "app", "chat")
   await mkdir(join(routeDir, "tools"), { recursive: true })
   await writeFile(
     join(routeDir, "index.ts"),
     [
-      'import { agent } from "@dawn-ai/sdk"',
+      'import { agent } from "@b4run/sdk"',
       "export default agent({",
       '  model: "gpt-4o-mini",',
       '  systemPrompt: "You are a test agent. Use the provided tools when asked.",',
@@ -143,7 +143,7 @@ async function makeApp(
   await writeFile(
     join(routeDir, "memory.ts"),
     [
-      'import { defineMemory } from "@dawn-ai/sdk"',
+      'import { defineMemory } from "@b4run/sdk"',
       'import { z } from "zod"',
       "export default defineMemory({",
       '  kind: "semantic",',
@@ -159,7 +159,7 @@ async function makeApp(
 const NAMESPACE = "route=/chat" // scope ["route"] for the /chat route
 
 async function episodicRecords(appRoot: string): Promise<MemoryRecord[]> {
-  const store = sqliteMemoryStore({ path: join(appRoot, ".dawn", "memory.sqlite") })
+  const store = sqliteMemoryStore({ path: join(appRoot, ".b4", "memory.sqlite") })
   const page = await store.browse({ kind: "episodic", limit: 100 })
   return [...page.records]
 }
@@ -533,7 +533,7 @@ function episode(overrides: Partial<EpisodeInput> & { readonly runId: string }):
 
 describe("recordEpisode against a real sqlite store", () => {
   it("is idempotent: the same EpisodeInput recorded twice yields ONE row", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "dawn-episodic-idem-"))
+    const dir = await mkdtemp(join(tmpdir(), "b4-episodic-idem-"))
     tempDirs.push(dir)
     const store = sqliteMemoryStore({ path: join(dir, "memory.sqlite") })
 
@@ -547,7 +547,7 @@ describe("recordEpisode against a real sqlite store", () => {
   })
 
   it("CONCURRENCY: 8 parallel recordEpisode calls with cap 5 settle to exactly 5 well-formed rows", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "dawn-episodic-conc-"))
+    const dir = await mkdtemp(join(tmpdir(), "b4-episodic-conc-"))
     tempDirs.push(dir)
     const store = sqliteMemoryStore({ path: join(dir, "memory.sqlite") })
 

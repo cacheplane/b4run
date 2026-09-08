@@ -11,7 +11,7 @@ const CONTROL_OUTPUT_BYTES = 1024 * 1024
 const READY_ATTEMPTS = 200
 const EMPTY_ATTEMPTS = 40
 const POLL_MS = 50
-const UNIT_PATTERN = /^dawn-release-smoke-[0-9a-f]{32}\.service$/u
+const UNIT_PATTERN = /^b4-release-smoke-[0-9a-f]{32}\.service$/u
 const IMAGE_VALUE_PATTERN = /^[A-Za-z0-9._+-]{1,128}$/u
 const DEFAULT_PATHS = Object.freeze({
   sudo: "/usr/bin/sudo",
@@ -284,8 +284,8 @@ async function performContainedInvocation(dependencies, invocation, { probe = fa
   }
   const token = dependencies.randomUUID().replaceAll("-", "")
   if (!/^[0-9a-f]{32}$/u.test(token)) throw new Error("Containment unit nonce is invalid")
-  const unit = `dawn-release-smoke-${token}.service`
-  const root = await dependencies.fileSystem.mkdtemp(path.join(os.tmpdir(), "dawn-smoke-control-"))
+  const unit = `b4-release-smoke-${token}.service`
+  const root = await dependencies.fileSystem.mkdtemp(path.join(os.tmpdir(), "b4-smoke-control-"))
   const descriptorPath = path.join(root, "command.json")
   const readyPath = path.join(root, "ready")
   const gatePath = path.join(root, "gate")

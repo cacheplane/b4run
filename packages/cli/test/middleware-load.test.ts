@@ -16,7 +16,7 @@ afterEach(async () => {
 })
 
 async function makeAppRoot(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "dawn-middleware-"))
+  const root = await mkdtemp(join(tmpdir(), "b4-middleware-"))
   roots.push(root)
   await mkdir(join(root, "src"), { recursive: true })
   return root
@@ -78,11 +78,11 @@ describe("loadMiddleware — a middleware file that cannot be imported", () => {
     )
   })
 
-  it("carries the DAWN_E3004 error code", async () => {
+  it("carries the B4_E3004 error code", async () => {
     const root = await makeAppRoot()
     await writeMiddleware(root, 'throw new Error("MIDDLEWARE_BOOM")\n')
 
-    await expect(loadMiddleware(root)).rejects.toMatchObject({ code: "DAWN_E3004" })
+    await expect(loadMiddleware(root)).rejects.toMatchObject({ code: "B4_E3004" })
   })
 
   it("does not fall through to a later candidate that would load", async () => {
@@ -165,14 +165,14 @@ describe("loadMiddleware — a middleware file that binds nothing", () => {
  * The load-bearing claim of the design: this is a BOOT failure, not a loader
  * detail. Asserting it at `createRuntimeFetchHandler` is what proves the
  * rejection actually reaches the caller that would otherwise have started
- * serving — `dawn dev`'s child, `dawn start`, and a built `server.mjs` all
+ * serving — `b4 dev`'s child, `b4 start`, and a built `server.mjs` all
  * await this one function.
  */
 describe("the runtime boot", () => {
   async function bootableApp(files: Readonly<Record<string, string>> = {}): Promise<string> {
     const root = await makeAppRoot()
     const all: Record<string, string> = {
-      "dawn.config.ts": "export default {}\n",
+      "b4.config.ts": "export default {}\n",
       "package.json": '{ "name": "middleware-boot-fixture", "type": "module" }\n',
       "src/app/probe/index.ts":
         "export const workflow = async (_input: unknown) => ({ ok: true })\n",

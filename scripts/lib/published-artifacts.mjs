@@ -12,14 +12,14 @@ import { validatePackageDiscoveryMetadata } from "./readme-contracts.mjs"
 
 export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 export const PUBLISHED_RELEASE_WORKFLOW = ".github/workflows/release.yml"
-export const PUBLISHED_RELEASE_REPOSITORY = "https://github.com/cacheplane/dawnai"
+export const PUBLISHED_RELEASE_REPOSITORY = "https://github.com/cacheplane/b4run"
 
 export const packageSets = {
-  "ag-ui": ["@dawn-ai/ag-ui"],
-  "docker-sandbox": ["@dawn-ai/sandbox"],
-  "memory-pgvector-core": ["@dawn-ai/memory-pgvector", "@dawn-ai/memory", "@dawn-ai/langchain"],
+  "ag-ui": ["@b4run/ag-ui"],
+  "docker-sandbox": ["@b4run/sandbox"],
+  "memory-pgvector-core": ["@b4run/memory-pgvector", "@b4run/memory", "@b4run/langchain"],
   public: null,
-  "typescript-tooling": ["@dawn-ai/sdk", "@dawn-ai/core", "@dawn-ai/vite-plugin", "@dawn-ai/cli"],
+  "typescript-tooling": ["@b4run/sdk", "@b4run/core", "@b4run/vite-plugin", "@b4run/cli"],
 }
 
 export const MAX_WAIT_DELAY_MS = 59_999
@@ -50,7 +50,7 @@ const FATAL_NPM_VIEW_CODES = new Set([
 ])
 
 const packageFileExpectations = {
-  "@dawn-ai/ag-ui": [
+  "@b4run/ag-ui": [
     "dist/activities.js",
     "dist/activities.d.ts",
     "dist/index.js",
@@ -60,8 +60,8 @@ const packageFileExpectations = {
     "README.md",
     "package.json",
   ],
-  "@dawn-ai/memory-pgvector": ["dist/index.js", "dist/index.d.ts", "README.md", "package.json"],
-  "@dawn-ai/postgres-storage": [
+  "@b4run/memory-pgvector": ["dist/index.js", "dist/index.d.ts", "README.md", "package.json"],
+  "@b4run/postgres-storage": [
     "dist/index.js",
     "dist/index.d.ts",
     "dist/node.js",
@@ -69,9 +69,9 @@ const packageFileExpectations = {
     "README.md",
     "package.json",
   ],
-  "@dawn-ai/memory": ["dist/index.js", "dist/index.d.ts", "README.md", "package.json"],
-  "@dawn-ai/langchain": ["dist/index.js", "dist/index.d.ts", "README.md", "package.json"],
-  "@dawn-ai/sandbox": ["dist/index.js", "dist/index.d.ts", "README.md", "package.json"],
+  "@b4run/memory": ["dist/index.js", "dist/index.d.ts", "README.md", "package.json"],
+  "@b4run/langchain": ["dist/index.js", "dist/index.d.ts", "README.md", "package.json"],
+  "@b4run/sandbox": ["dist/index.js", "dist/index.d.ts", "README.md", "package.json"],
 }
 
 export function resolvePackageSet(name, publicPackages = []) {
@@ -244,13 +244,13 @@ export function validatePackageMetadata(packageName, packageJson, expectedVersio
   }
 
   // A published package must declare SOME way to be consumed. Three shapes qualify:
-  // `exports` (importable), `bin` (executable), and `dawnInspector.server` — a runnable
-  // app whose entry is a built server that `dawn inspect` resolves and launches.
-  // @dawn-ai/inspector is deliberately none of the first two (it is a Next standalone
+  // `exports` (importable), `bin` (executable), and `b4Inspector.server` — a runnable
+  // app whose entry is a built server that `b4 inspect` resolves and launches.
+  // @b4run/inspector is deliberately none of the first two (it is a Next standalone
   // app, not a library), so requiring exports-or-bin reported a false positive against
   // every published release from 0.8.14 on.
-  if (!packageJson.exports && !packageJson.bin && !packageJson.dawnInspector?.server) {
-    failures.push(`${packageName}: package.json must expose exports, bin, or dawnInspector.server`)
+  if (!packageJson.exports && !packageJson.bin && !packageJson.b4Inspector?.server) {
+    failures.push(`${packageName}: package.json must expose exports, bin, or b4Inspector.server`)
   }
 
   if (packageJson.exports && exportsRequireTypes(packageJson.exports) && !packageJson.types) {
@@ -376,25 +376,25 @@ export async function assertInstalledCoreResolution({ consumerRoot, expectedCore
   const vitePackageJsonPath = join(
     consumerRoot,
     "node_modules",
-    "@dawn-ai",
+    "@b4run",
     "vite-plugin",
     "package.json",
   )
   const viteRequire = createRequire(pathToFileURL(vitePackageJsonPath))
-  const rootCoreEntry = await realpath(rootRequire.resolve("@dawn-ai/core"))
-  const viteCoreEntry = await realpath(viteRequire.resolve("@dawn-ai/core"))
+  const rootCoreEntry = await realpath(rootRequire.resolve("@b4run/core"))
+  const viteCoreEntry = await realpath(viteRequire.resolve("@b4run/core"))
 
   if (viteCoreEntry !== rootCoreEntry) {
     throw new Error(
-      `Vite resolves @dawn-ai/core to ${viteCoreEntry}, expected root artifact ${rootCoreEntry}`,
+      `Vite resolves @b4run/core to ${viteCoreEntry}, expected root artifact ${rootCoreEntry}`,
     )
   }
 
-  const coreManifestPath = join(consumerRoot, "node_modules", "@dawn-ai", "core", "package.json")
+  const coreManifestPath = join(consumerRoot, "node_modules", "@b4run", "core", "package.json")
   const coreManifest = JSON.parse(await readFile(coreManifestPath, "utf8"))
   if (coreManifest.version !== expectedCoreVersion) {
     throw new Error(
-      `resolved @dawn-ai/core version ${coreManifest.version}, expected version ${expectedCoreVersion}`,
+      `resolved @b4run/core version ${coreManifest.version}, expected version ${expectedCoreVersion}`,
     )
   }
 

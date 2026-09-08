@@ -21,7 +21,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: dawn-recovery-audit-${{ inputs.request_id }}
+  group: b4-recovery-audit-${{ inputs.request_id }}
   cancel-in-progress: false
   queue: max
 jobs:

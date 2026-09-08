@@ -32,7 +32,7 @@ export interface SqlPool {
 export function throwNoPool(): never {
   throw new Error(
     "postgres-storage: `pool` is required. Pass a pg.Pool (or any driver with " +
-      "{ query, connect, end }), or import from `@dawn-ai/postgres-storage/node` " +
+      "{ query, connect, end }), or import from `@b4run/postgres-storage/node` " +
       "to build one from a connection string.",
   )
 }

@@ -1,26 +1,26 @@
 {
-  "name": "@dawn-ai/config-typescript",
+  "name": "@b4run/config-typescript",
   "version": "0.8.26",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "description": "Shared TypeScript compiler configurations for Dawn packages and applications.",
+  "description": "Shared TypeScript compiler configurations for B4.run packages and applications.",
   "keywords": [
-    "dawn",
+    "b4",
     "typescript",
     "tsconfig",
     "configuration",
     "nodejs",
     "nextjs"
   ],
-  "homepage": "https://github.com/cacheplane/dawnai/tree/main/packages/config-typescript#readme",
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/config-typescript#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/dawnai.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/config-typescript"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/dawnai/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"

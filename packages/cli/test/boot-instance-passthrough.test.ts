@@ -1,8 +1,8 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import type { ThreadsStore } from "@dawn-ai/sqlite-storage"
+import type { PermissionsStore } from "@b4run/permissions"
+import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
@@ -12,8 +12,8 @@ import { prepareRouteExecution } from "../src/lib/runtime/execute-route.js"
 // calls: createThreadsStore / sqliteCheckpointer each open exactly one
 // DatabaseSync via the package-internal openDb, so counting factory calls
 // counts sqlite opens. The mock passes through to the real implementations.
-vi.mock("@dawn-ai/sqlite-storage", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@dawn-ai/sqlite-storage")>()
+vi.mock("@b4run/sqlite-storage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@b4run/sqlite-storage")>()
   return {
     ...actual,
     createThreadsStore: vi.fn(actual.createThreadsStore),
@@ -21,7 +21,7 @@ vi.mock("@dawn-ai/sqlite-storage", async (importOriginal) => {
   }
 })
 
-import { createThreadsStore, sqliteCheckpointer } from "@dawn-ai/sqlite-storage"
+import { createThreadsStore, sqliteCheckpointer } from "@b4run/sqlite-storage"
 
 const cleanup: Array<() => Promise<void> | void> = []
 
@@ -30,10 +30,10 @@ afterEach(async () => {
 })
 
 async function fixtureApp(overrides: Record<string, string> = {}): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-boot-passthrough-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-boot-passthrough-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "boot-passthrough-fixture", "type": "module" }\n',
     "src/app/probe/index.ts": "export const workflow = async (_input: unknown) => ({ ok: true })\n",
     ...overrides,
@@ -50,11 +50,11 @@ async function fixtureApp(overrides: Record<string, string> = {}): Promise<strin
  * so every request runs the permission gate against the live store. The route
  * catches the denial so the AP runs/wait output reports the decision. */
 async function permissionProbeApp(): Promise<{ appRoot: string; secretPath: string }> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-boot-passthrough-perm-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-boot-passthrough-perm-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const secretPath = join(appRoot, "secret.txt")
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "boot-passthrough-perm-fixture", "type": "module" }\n',
     "secret.txt": "top-secret",
     "src/app/probe/index.ts": [
@@ -104,7 +104,7 @@ async function runsWait(
 }
 
 async function writeAllowAllReads(appRoot: string): Promise<void> {
-  const dir = join(appRoot, ".dawn")
+  const dir = join(appRoot, ".b4")
   await mkdir(dir, { recursive: true })
   await writeFile(
     join(dir, "permissions.json"),

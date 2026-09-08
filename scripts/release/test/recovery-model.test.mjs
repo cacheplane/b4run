@@ -64,7 +64,7 @@ const prerequisites = {
       f.adoption.baseAssets.pop()
     },
     (f) => {
-      f.adoption.manifestPackages.push("@dawn-ai/core")
+      f.adoption.manifestPackages.push("@b4run/core")
     },
     (f) => {
       f.adoption.npmEvidence.packages[0].sourceSha = "e".repeat(40)
@@ -712,7 +712,7 @@ for (const [name, mutate] of [
     (v) => {
       v.resolutions.push({
         ...v.resolutions[0],
-        installPath: "node_modules/z/node_modules/@dawn-ai/sdk",
+        installPath: "node_modules/z/node_modules/@b4run/sdk",
         subject: false,
         requested: "^0.7.0",
         resolved: "0.7.0",

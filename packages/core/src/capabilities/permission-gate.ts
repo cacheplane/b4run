@@ -1,22 +1,20 @@
-import type { PermissionsStore } from "@dawn-ai/permissions"
+import type { PermissionsStore } from "@b4run/permissions"
 import {
   subagentPermissionPattern,
   suggestedCommandPattern,
   suggestedMemoryPattern,
   suggestedPathPattern,
-} from "@dawn-ai/permissions"
-import type { ConstraintContext, ConstraintPredicate, DawnErrorCode } from "@dawn-ai/sdk"
-import { POSIX_SEP } from "@dawn-ai/sdk/pure"
+} from "@b4run/permissions"
+import type { B4ErrorCode, ConstraintContext, ConstraintPredicate } from "@b4run/sdk"
+import { POSIX_SEP } from "@b4run/sdk/pure"
 import { interrupt } from "@langchain/langgraph"
 
 export type PathOperation = "readFile" | "writeFile" | "listDir"
 
-export type GateResult =
-  | { allowed: true }
-  | { allowed: false; reason: string; code?: DawnErrorCode }
+export type GateResult = { allowed: true } | { allowed: false; reason: string; code?: B4ErrorCode }
 
 /** Prefix a denial reason with its error code when the tool result is returned to the model. */
-function codedReason(gate: { reason: string; code?: DawnErrorCode }): string {
+function codedReason(gate: { reason: string; code?: B4ErrorCode }): string {
   return gate.code ? `[${gate.code}] ${gate.reason}` : gate.reason
 }
 
@@ -56,7 +54,7 @@ export async function gatePathOp(
       reason:
         `Permission denied: ${absPath} is outside the workspace and interactive ` +
         `permission prompts are not available in this execution context. ` +
-        `Add an allow rule for "${operation}" to the permissions config in dawn.config.ts.`,
+        `Add an allow rule for "${operation}" to the permissions config in b4.config.ts.`,
     }
   }
   // Interactive: emit LangGraph interrupt and await user decision.
@@ -101,8 +99,8 @@ export async function gateBashOp(
 /**
  * Generic per-tool approval gate (tools.approve). Name-level: the decision
  * covers the tool name; argsPreview is display-only. Persisted decisions live
- * under the reserved "tool" key in .dawn/permissions.json (exact-name match —
- * see @dawn-ai/permissions pattern-matching).
+ * under the reserved "tool" key in .b4/permissions.json (exact-name match —
+ * see @b4run/permissions pattern-matching).
  */
 export async function gateToolOp(
   permissions: PermissionsStore | undefined,
@@ -119,14 +117,14 @@ export async function gateToolOp(
     return {
       allowed: false,
       reason: `Permission denied by user: tool ${toolName}`,
-      code: "DAWN_E3001",
+      code: "B4_E3001",
     }
   }
   if (permissions.mode === "non-interactive") {
     return {
       allowed: false,
       reason: `Permission denied (fail-closed): tool ${toolName}`,
-      code: "DAWN_E3001",
+      code: "B4_E3001",
     }
   }
   if (opts?.interruptCapable === false) {
@@ -135,8 +133,8 @@ export async function gateToolOp(
       reason:
         `Permission denied: tool "${toolName}" requires approval and interactive ` +
         `permission prompts are not available in this execution context. ` +
-        `Add an allow rule for "tool" to the permissions config in dawn.config.ts.`,
-      code: "DAWN_E3001",
+        `Add an allow rule for "tool" to the permissions config in b4.config.ts.`,
+      code: "B4_E3001",
     }
   }
   const result = await emitPermissionInterrupt({
@@ -149,7 +147,7 @@ export async function gateToolOp(
     return {
       allowed: false,
       reason: `Permission denied by user: tool ${toolName}`,
-      code: "DAWN_E3001",
+      code: "B4_E3001",
     }
   }
   return { allowed: true }
@@ -181,14 +179,14 @@ export async function gateSubagentOp(
       return {
         allowed: false,
         reason: `Permission denied by user: subagent ${request.subagentName}`,
-        code: "DAWN_E3002",
+        code: "B4_E3002",
       }
     }
     if (permissions.mode === "non-interactive") {
       return {
         allowed: false,
         reason: `Permission denied (fail-closed): subagent ${request.subagentName}`,
-        code: "DAWN_E3002",
+        code: "B4_E3002",
       }
     }
   }
@@ -204,8 +202,8 @@ export async function gateSubagentOp(
       reason:
         `Permission denied: subagent "${request.subagentName}" requires approval. ` +
         `Provide a non-empty resumable thread ID and enable interrupt support, or add an allow ` +
-        `rule for "subagent" to the permissions config in dawn.config.ts.`,
-      code: "DAWN_E3002",
+        `rule for "subagent" to the permissions config in b4.config.ts.`,
+      code: "B4_E3002",
     }
   }
 
@@ -225,7 +223,7 @@ export async function gateSubagentOp(
     return {
       allowed: false,
       reason: `Permission denied by user: subagent ${request.subagentName}`,
-      code: "DAWN_E3002",
+      code: "B4_E3002",
     }
   }
   return { allowed: true }
@@ -300,13 +298,13 @@ function truncateDisplay(value: string): string {
  * a returned denial flows through the normal on_tool_end path, so stream
  * consumers and streamTransformers see a regular tool result and the model can
  * adapt, without touching error-retry handling. Generic over the tool shape so
- * DiscoveredToolDefinition (cli) and DawnToolDefinition (core) both survive
+ * DiscoveredToolDefinition (cli) and B4ToolDefinition (core) both survive
  * wrapping with their extra fields (filePath, schema, scope, …) intact.
  * The generic constraint means run's return type must accept a string (both
  * planned call sites declare `Promise<unknown> | unknown`).
  *
  * On an "unknown" decision in interactive mode the gate calls LangGraph's
- * `interrupt()`, which throws a raw error outside a running graph. Dawn's own
+ * `interrupt()`, which throws a raw error outside a running graph. B4.run's own
  * call sites wrap agent-route tools (always in-graph); out-of-graph callers
  * should pass `interruptCapable: false` to fail closed with actionable
  * guidance instead (mirrors gatePathOp's option).

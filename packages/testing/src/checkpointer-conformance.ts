@@ -69,7 +69,7 @@ const noteOf = (metadata: CheckpointMetadata | undefined): unknown =>
   (metadata as { note?: unknown } | undefined)?.note
 
 /**
- * The contract every checkpointer must satisfy. Run against Dawn's SQLite saver
+ * The contract every checkpointer must satisfy. Run against B4.run's SQLite saver
  * (in-process, always) and any other backend (e.g. Postgres, gated) so they
  * cannot drift. Pass vitest's `describe`; `makeSaver` returns a FRESH empty
  * saver per call.
@@ -90,7 +90,7 @@ const noteOf = (metadata: CheckpointMetadata | undefined): unknown =>
  *
  * The two hostile round-trips (a NUL byte and a lone surrogate, in metadata AND
  * in a channel name and value) are not edge-case trivia: they are exactly where
- * a jsonb-backed store diverges from the BLOB-backed incumbent, and Dawn
+ * a jsonb-backed store diverges from the BLOB-backed incumbent, and B4.run
  * produces such payloads for real — sandbox stdout flows unmodified into tool
  * results and from there into checkpoint metadata. They are deliberately NOT
  * asserted for a pending write's channel column, which is plain text in every

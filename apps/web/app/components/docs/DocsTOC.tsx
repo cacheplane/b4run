@@ -20,7 +20,7 @@ export function DocsTOC() {
   const [activeId, setActiveId] = useState<string | null>(null)
 
   useEffect(() => {
-    const article = document.querySelector("article.prose-dawn")
+    const article = document.querySelector("article.prose-b4")
     if (!article) return
 
     const elements = Array.from(article.querySelectorAll<HTMLHeadingElement>("h2, h3"))

@@ -14,14 +14,14 @@ interface InspectOptions {
 }
 
 const INSTALL_HINT =
-  "The Dawn Inspector is not installed in this app.\n  npm i -D @dawn-ai/inspector\nthen re-run `dawn inspect`."
+  "The B4.run Inspector is not installed in this app.\n  npm i -D @b4run/inspector\nthen re-run `b4 inspect`."
 
 const READY_ATTEMPTS = 120
 const READY_INTERVAL_MS = 500
 
 /**
  * Resolve the inspector's standalone server.js from the APP's node_modules,
- * or null when the package (or its dawnInspector manifest field) is absent.
+ * or null when the package (or its b4Inspector manifest field) is absent.
  *
  * Walks the node_modules chain from the app root upward (standard Node
  * resolution, so hoisted workspace installs work) and reads package.json
@@ -31,17 +31,17 @@ const READY_INTERVAL_MS = 500
 export function resolveInspectorServer(appRoot: string): string | null {
   let dir = resolve(appRoot)
   while (true) {
-    const pkgJsonPath = join(dir, "node_modules", "@dawn-ai", "inspector", "package.json")
+    const pkgJsonPath = join(dir, "node_modules", "@b4run", "inspector", "package.json")
     if (existsSync(pkgJsonPath)) {
-      let pkg: { dawnInspector?: { server?: string } }
+      let pkg: { b4Inspector?: { server?: string } }
       try {
         pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as {
-          dawnInspector?: { server?: string }
+          b4Inspector?: { server?: string }
         }
       } catch {
         return null
       }
-      const rel = pkg.dawnInspector?.server
+      const rel = pkg.b4Inspector?.server
       if (typeof rel !== "string" || rel.length === 0) return null
       return join(dirname(pkgJsonPath), rel)
     }
@@ -54,12 +54,12 @@ export function resolveInspectorServer(appRoot: string): string | null {
 export function registerInspectCommand(program: Command, io: CommandIo): void {
   program
     .command("inspect")
-    .description("Open the Dawn Inspector (browser UI) for this app")
-    .option("--cwd <path>", "Path to the Dawn app root")
+    .description("Open the B4.run Inspector (browser UI) for this app")
+    .option("--cwd <path>", "Path to the B4.run app root")
     .option("--port <number>", "Bind the inspector to a stable localhost port")
     .option(
       "--env-file <path>",
-      "Path to a .env file (overrides dawn.config.ts env and the default ./.env)",
+      "Path to a .env file (overrides b4.config.ts env and the default ./.env)",
     )
     .action(async (options: InspectOptions) => {
       await runInspectCommand(options, io)
@@ -82,13 +82,13 @@ export async function runInspectCommand(options: InspectOptions, io: CommandIo):
   }
   if (!existsSync(serverJs)) {
     throw new CliError(
-      `@dawn-ai/inspector is installed but its standalone server is missing at ${serverJs} — the package may be corrupted or built incorrectly; try reinstalling.`,
+      `@b4run/inspector is installed but its standalone server is missing at ${serverJs} — the package may be corrupted or built incorrectly; try reinstalling.`,
       1,
-      { code: "DAWN_E5201" },
+      { code: "B4_E5201" },
     )
   }
 
-  // Mirror dawn dev's env precedence: --env-file flag > dawn.config.ts env >
+  // Mirror b4 dev's env precedence: --env-file flag > b4.config.ts env >
   // "<appRoot>/.env"; relative paths resolve against the app root.
   await loadAppEnv({ appRoot, flag: options.envFile, io })
 
@@ -96,7 +96,7 @@ export async function runInspectCommand(options: InspectOptions, io: CommandIo):
   const url = `http://127.0.0.1:${port}`
 
   const child = spawn(process.execPath, [serverJs], {
-    env: { ...process.env, DAWN_APP_ROOT: appRoot, PORT: String(port), HOSTNAME: "127.0.0.1" },
+    env: { ...process.env, B4_APP_ROOT: appRoot, PORT: String(port), HOSTNAME: "127.0.0.1" },
     stdio: ["ignore", "inherit", "inherit"],
   })
 
@@ -130,30 +130,30 @@ export async function runInspectCommand(options: InspectOptions, io: CommandIo):
         throw new CliError(
           `Failed to start the inspector server: ${formatErrorMessage(spawnError)}`,
           1,
-          { code: "DAWN_E5201" },
+          { code: "B4_E5201" },
         )
       }
       throw new CliError(
         `Inspector server exited before becoming ready (code ${code}, signal ${signal})`,
         1,
-        { code: "DAWN_E5201" },
+        { code: "B4_E5201" },
       )
     })
     await Promise.race([waitForReady(`${url}/healthz`), earlyExit])
     ready = true
 
-    writeLine(io.stdout, `Dawn Inspector ready at ${url}`)
+    writeLine(io.stdout, `B4.run Inspector ready at ${url}`)
     openBrowser(url)
 
     // Stay foreground until the server exits (Ctrl+C → SIGTERM → clean exit).
     const { code, spawnError } = await exited
     if (spawnError) {
       throw new CliError(`Inspector server failed: ${formatErrorMessage(spawnError)}`, 1, {
-        code: "DAWN_E5201",
+        code: "B4_E5201",
       })
     }
     if (!shutdownRequested && code !== null && code !== 0) {
-      throw new CliError(`Inspector server exited with code ${code}`, 1, { code: "DAWN_E5201" })
+      throw new CliError(`Inspector server exited with code ${code}`, 1, { code: "B4_E5201" })
     }
   } finally {
     process.removeListener("SIGINT", onSignal)
@@ -175,7 +175,7 @@ async function waitForReady(healthUrl: string): Promise<void> {
     await new Promise((r) => setTimeout(r, READY_INTERVAL_MS))
   }
   throw new CliError(`Inspector server never became ready at ${healthUrl}`, 1, {
-    code: "DAWN_E5201",
+    code: "B4_E5201",
   })
 }
 

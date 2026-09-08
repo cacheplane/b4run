@@ -25,7 +25,7 @@ export const PHASES = [
   "COMPLETE",
 ]
 export const candidate = () => ({
-  repository: "cacheplane/dawnai",
+  repository: "cacheplane/b4run",
   repositoryId: "901",
   version: "0.8.24",
   candidateSha: "a".repeat(40),
@@ -62,8 +62,8 @@ export function wireFixtures({ retainedCount = 0 } = {}) {
     ...fields,
   })
   const baseAssets = [
-    asset("dawn-ai-sdk-0.8.24.tgz", "tarball", 15),
-    asset("dawn-ai-sdk-0.8.24.tgz.intoto.jsonl", "original sdk attestation", 16),
+    asset("b4run-sdk-0.8.24.tgz", "tarball", 15),
+    asset("b4run-sdk-0.8.24.tgz.intoto.jsonl", "original sdk attestation", 16),
     asset("manifest.json", "original manifest", 11),
     asset("manifest.json.intoto.jsonl", "original manifest attestation", 17),
     asset("release-record.json", "original record", 12),
@@ -96,7 +96,7 @@ export function wireFixtures({ retainedCount = 0 } = {}) {
       manifestSha256: c.manifestSha256,
       packages: [
         {
-          name: "@dawn-ai/sdk",
+          name: "@b4run/sdk",
           version: c.version,
           sourceSha: c.candidateSha,
           integrity: `sha512-${Buffer.alloc(64, 1).toString("base64")}`,
@@ -139,7 +139,7 @@ export function wireFixtures({ retainedCount = 0 } = {}) {
             ? [
                 ...checks,
                 {
-                  name: metadataCheckName("package:@dawn-ai/sdk"),
+                  name: metadataCheckName("package:@b4run/sdk"),
                   conclusion: "success",
                 },
               ].sort((a, b) => (a.name < b.name ? -1 : 1))
@@ -149,9 +149,9 @@ export function wireFixtures({ retainedCount = 0 } = {}) {
             ? []
             : [
                 {
-                  installPath: "node_modules/@dawn-ai/sdk",
+                  installPath: "node_modules/@b4run/sdk",
                   subject: true,
-                  name: "@dawn-ai/sdk",
+                  name: "@b4run/sdk",
                   requested: "0.8.24",
                   resolved: "0.8.24",
                   source: "registry",
@@ -349,7 +349,7 @@ export function recoveryFacts({ phase = "NPM_COMPLETE", retainedCount = 0 } = {}
       candidate: c,
       executor: e,
       policySha256: f.intent.policySha256,
-      manifestPackages: ["@dawn-ai/sdk"],
+      manifestPackages: ["@b4run/sdk"],
       capability: {
         schemaVersion: 2,
         policySha256: f.intent.policySha256,
@@ -373,7 +373,7 @@ export function recoveryFacts({ phase = "NPM_COMPLETE", retainedCount = 0 } = {}
       ownership: {
         candidate: c,
         controllerSha: e.controllerSha,
-        concurrencyGroup: "dawn-release-controller",
+        concurrencyGroup: "b4-release-controller",
         fence: "verified-exclusive",
         legacyWriters: "drained-and-rejected",
       },
@@ -391,7 +391,7 @@ export function recoveryFacts({ phase = "NPM_COMPLETE", retainedCount = 0 } = {}
         archive: f.adoption.archive,
         baseAssets: f.adoption.baseAssets,
         npmEvidence: f.adoption.npmEvidence,
-        manifestPackages: ["@dawn-ai/sdk"],
+        manifestPackages: ["@b4run/sdk"],
       },
       verification: {
         set: f.set,

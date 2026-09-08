@@ -19,22 +19,22 @@ function executableExists(name: string): boolean {
 const helmAvailable = executableExists("helm")
 // The root-only compatibility lane does not use Turbo caching.
 // biome-ignore lint/suspicious/noUndeclaredEnvVars: this opt-in controls a direct Vitest run.
-const requireHelm = process.env.DAWN_REQUIRE_HELM === "1"
+const requireHelm = process.env.B4_REQUIRE_HELM === "1"
 
-describe("dawn-orchestrator Role parity", () => {
+describe("b4-orchestrator Role parity", () => {
   test.skipIf(!helmAvailable && !requireHelm)(
     "matches the provider permission declaration exactly",
     async () => {
-      expect(helmAvailable, "Helm is required when DAWN_REQUIRE_HELM=1").toBe(true)
+      expect(helmAvailable, "Helm is required when B4_REQUIRE_HELM=1").toBe(true)
       const rendered = await executeCommand(
         {
           file: "helm",
           args: [
             "template",
-            "dawn-sandbox-infra",
-            "charts/dawn-sandbox-infra",
+            "b4-sandbox-infra",
+            "charts/b4-sandbox-infra",
             "--namespace",
-            "dawn-sandbox",
+            "b4-sandbox",
           ],
         },
         { cwd: process.cwd() },
@@ -44,7 +44,7 @@ describe("dawn-orchestrator Role parity", () => {
         .find(
           (document) =>
             document.kind === "Role" &&
-            (document.metadata as { name?: string } | undefined)?.name === "dawn-orchestrator",
+            (document.metadata as { name?: string } | undefined)?.name === "b4-orchestrator",
         ) as
         | {
             rules?: readonly {

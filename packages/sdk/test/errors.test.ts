@@ -1,24 +1,24 @@
 import { describe, expect, it } from "vitest"
 
 import {
-  DAWN_ERRORS,
-  type DawnErrorCode,
-  type DawnErrorDescriptor,
+  B4_ERRORS,
+  type B4ErrorCode,
+  type B4ErrorDescriptor,
   describeError,
   errorDocsUrl,
 } from "../src/errors.js"
 
-const CODE_RE = /^DAWN_E\d{4}$/
+const CODE_RE = /^B4_E\d{4}$/
 const DOCS_PATH_RE = /^\/docs\/[a-z0-9-]+(#[a-z0-9-]+)?$/
 
-describe("DAWN_ERRORS registry", () => {
-  const entries: Array<[string, DawnErrorDescriptor]> = Object.entries(DAWN_ERRORS)
+describe("B4_ERRORS registry", () => {
+  const entries: Array<[string, B4ErrorDescriptor]> = Object.entries(B4_ERRORS)
 
   it("has at least the wired families", () => {
     expect(entries.length).toBeGreaterThanOrEqual(10)
   })
 
-  it("every descriptor code matches DAWN_E\\d{4} and equals its key", () => {
+  it("every descriptor code matches B4_E\\d{4} and equals its key", () => {
     for (const [key, descriptor] of entries) {
       expect(descriptor.code).toMatch(CODE_RE)
       expect(descriptor.code).toBe(key)
@@ -45,60 +45,60 @@ describe("DAWN_ERRORS registry", () => {
   })
 
   it("registers delegation policy, denial, and dispatch failure errors", () => {
-    expect(DAWN_ERRORS.DAWN_E1004).toEqual({
-      code: "DAWN_E1004",
+    expect(B4_ERRORS.B4_E1004).toEqual({
+      code: "B4_E1004",
       title: "Invalid delegation policy",
       docsPath: "/docs/subagents#delegation-policy",
     })
-    expect(DAWN_ERRORS.DAWN_E3002).toEqual({
-      code: "DAWN_E3002",
+    expect(B4_ERRORS.B4_E3002).toEqual({
+      code: "B4_E3002",
       title: "Subagent dispatch denied",
       docsPath: "/docs/subagents#delegation-policy",
     })
-    expect(DAWN_ERRORS.DAWN_E5003).toEqual({
-      code: "DAWN_E5003",
+    expect(B4_ERRORS.B4_E5003).toEqual({
+      code: "B4_E5003",
       title: "Subagent unavailable or dispatch failed",
       docsPath: "/docs/subagents#dispatch-failures",
     })
-    expect(errorDocsUrl("DAWN_E1004")).toBe("https://dawnai.org/docs/subagents#delegation-policy")
-    expect(errorDocsUrl("DAWN_E3002")).toBe("https://dawnai.org/docs/subagents#delegation-policy")
-    expect(errorDocsUrl("DAWN_E5003")).toBe("https://dawnai.org/docs/subagents#dispatch-failures")
+    expect(errorDocsUrl("B4_E1004")).toBe("https://b4.run/docs/subagents#delegation-policy")
+    expect(errorDocsUrl("B4_E3002")).toBe("https://b4.run/docs/subagents#delegation-policy")
+    expect(errorDocsUrl("B4_E5003")).toBe("https://b4.run/docs/subagents#dispatch-failures")
   })
 
   it("registers the thread access load failure in the permissions band", () => {
-    expect(DAWN_ERRORS.DAWN_E3003).toEqual({
-      code: "DAWN_E3003",
+    expect(B4_ERRORS.B4_E3003).toEqual({
+      code: "B4_E3003",
       title: "Thread access policy failed to load",
       docsPath: "/docs/thread-access#load-failures",
     })
-    expect(errorDocsUrl("DAWN_E3003")).toBe("https://dawnai.org/docs/thread-access#load-failures")
+    expect(errorDocsUrl("B4_E3003")).toBe("https://b4.run/docs/thread-access#load-failures")
   })
 })
 
 describe("describeError", () => {
   it("returns the descriptor for a code", () => {
-    expect(describeError("DAWN_E2001")).toBe(DAWN_ERRORS.DAWN_E2001)
+    expect(describeError("B4_E2001")).toBe(B4_ERRORS.B4_E2001)
   })
 })
 
 describe("errorDocsUrl", () => {
   it("returns the canonical URL when the code has a docsPath", () => {
-    const url = errorDocsUrl("DAWN_E2001")
-    expect(url).toBe("https://dawnai.org/docs/sandbox#what-it-is--and-isnt")
+    const url = errorDocsUrl("B4_E2001")
+    expect(url).toBe("https://b4.run/docs/sandbox#what-it-is--and-isnt")
   })
 
   it("returns undefined for a code without a docsPath", () => {
-    const codeWithoutDocs = Object.values(DAWN_ERRORS).find(
-      (d: DawnErrorDescriptor) => d.docsPath === undefined,
+    const codeWithoutDocs = Object.values(B4_ERRORS).find(
+      (d: B4ErrorDescriptor) => d.docsPath === undefined,
     )
     expect(codeWithoutDocs).toBeDefined()
     if (codeWithoutDocs) {
-      expect(errorDocsUrl(codeWithoutDocs.code as DawnErrorCode)).toBeUndefined()
+      expect(errorDocsUrl(codeWithoutDocs.code as B4ErrorCode)).toBeUndefined()
     }
   })
 
   it("honors a custom base", () => {
-    expect(errorDocsUrl("DAWN_E2001", "https://example.test")).toBe(
+    expect(errorDocsUrl("B4_E2001", "https://example.test")).toBe(
       "https://example.test/docs/sandbox#what-it-is--and-isnt",
     )
   })

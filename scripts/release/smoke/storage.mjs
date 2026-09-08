@@ -66,7 +66,7 @@ export async function executeStorageSmoke(
     dependencies.probeContainment,
   )
   const root = await check("temporary-project", "clean storage consumer created", () =>
-    dependencies.makeTempDir("dawn-published-storage-"),
+    dependencies.makeTempDir("b4-published-storage-"),
   )
   deferCleanup("cleanup-project", "storage consumer removed", () => dependencies.removeDir(root))
   deferCleanup("cleanup-pgvector", "pgvector container removed", () =>
@@ -87,9 +87,9 @@ export async function executeStorageSmoke(
         "install",
         "--save-exact",
         "--package-lock=false",
-        `@dawn-ai/memory-pgvector@${options.version}`,
-        `@dawn-ai/langchain@${options.version}`,
-        `@dawn-ai/postgres-storage@${options.version}`,
+        `@b4run/memory-pgvector@${options.version}`,
+        `@b4run/langchain@${options.version}`,
+        `@b4run/postgres-storage@${options.version}`,
       ],
       { cwd: root },
     )
@@ -142,8 +142,8 @@ async function captureContainerImage(container, runCommand, capture) {
 export function storageDockerIdentities(randomUUID = defaultRandomUUID) {
   const token = dockerUuidToken(randomUUID, "Storage Docker probe")
   return Object.freeze({
-    pgvector: `dawn-storage-pgvector-${token}`,
-    postgres: `dawn-storage-postgres-${token}`,
+    pgvector: `b4-storage-pgvector-${token}`,
+    postgres: `b4-storage-postgres-${token}`,
   })
 }
 
@@ -204,7 +204,7 @@ function defaultSleep(milliseconds) {
 }
 
 export async function cleanupStorageContainer(name, { runCommand } = {}) {
-  if (!/^dawn-storage-(?:pgvector|postgres)-[0-9a-f]{32}$/u.test(name)) {
+  if (!/^b4-storage-(?:pgvector|postgres)-[0-9a-f]{32}$/u.test(name)) {
     throw new TypeError("Storage Docker container identity is invalid")
   }
   await removeAndVerifyDockerResource({ kind: "container", name, runCommand })
@@ -231,14 +231,14 @@ async function defaultPostgresProbe(root, databaseUrl, runCommand) {
     cwd: root,
     env: {
       DATABASE_URL: databaseUrl,
-      SMOKE_TABLE_PREFIX: `dawn_published_postgres_${process.pid}_${Date.now()}`,
+      SMOKE_TABLE_PREFIX: `b4_published_postgres_${process.pid}_${Date.now()}`,
     },
   })
 }
 
 export function postgresProbeSource() {
   return `import assert from "node:assert/strict"
-import { createPostgresThreadsStore } from "@dawn-ai/postgres-storage/node"
+import { createPostgresThreadsStore } from "@b4run/postgres-storage/node"
 
 const connectionString = process.env.DATABASE_URL
 assert.ok(connectionString, "DATABASE_URL is required")

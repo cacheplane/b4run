@@ -119,12 +119,12 @@ export type PostgresCheckpointerOptions = PostgresStoreOptions
  * A LangGraph checkpointer backed by Postgres, storing the serialized
  * checkpoint, metadata and pending-write values as opaque BYTEA.
  *
- * BYTEA rather than jsonb is the whole design: Dawn's payloads reach Postgres
+ * BYTEA rather than jsonb is the whole design: B4.run's payloads reach Postgres
  * carrying raw model and tool output, and jsonb rejects a NUL byte (22P05) and
  * a lone surrogate (22P02) outright. Bytes produced by the inherited
  * `JsonPlusSerializer` round-trip losslessly, matching the SQLite saver.
  */
-export class DawnPostgresSaver extends BaseCheckpointSaver {
+export class B4PostgresSaver extends BaseCheckpointSaver {
   private readonly pool: SqlPool
   private readonly ownsPool: boolean
   private readonly schema: string
@@ -282,7 +282,7 @@ export class DawnPostgresSaver extends BaseCheckpointSaver {
   ): Promise<RunnableConfig> {
     const threadId = config.configurable?.thread_id as string | undefined
     if (!threadId) {
-      throw new Error("[DawnPostgresSaver] config.configurable.thread_id is required")
+      throw new Error("[B4PostgresSaver] config.configurable.thread_id is required")
     }
     await this.ready()
     const ns = (config.configurable?.checkpoint_ns as string | undefined) ?? ""
@@ -321,12 +321,12 @@ export class DawnPostgresSaver extends BaseCheckpointSaver {
   ): Promise<void> {
     const threadId = config.configurable?.thread_id as string | undefined
     if (!threadId) {
-      throw new Error("[DawnPostgresSaver] config.configurable.thread_id is required")
+      throw new Error("[B4PostgresSaver] config.configurable.thread_id is required")
     }
     const ns = (config.configurable?.checkpoint_ns as string | undefined) ?? ""
     const ckptId = config.configurable?.checkpoint_id as string | undefined
     if (!ckptId) {
-      throw new Error("[DawnPostgresSaver] config.configurable.checkpoint_id is required")
+      throw new Error("[B4PostgresSaver] config.configurable.checkpoint_id is required")
     }
     await this.ready()
 
@@ -353,7 +353,7 @@ export class DawnPostgresSaver extends BaseCheckpointSaver {
   }
 
   async deleteThread(threadId: string): Promise<void> {
-    if (!threadId) throw new Error("[DawnPostgresSaver] deleteThread requires a thread_id")
+    if (!threadId) throw new Error("[B4PostgresSaver] deleteThread requires a thread_id")
     await this.ready()
     await withTransaction(this.pool, async (client) => {
       await client.query(`DELETE FROM ${this.writesTable} WHERE thread_id = $1`, [threadId])
@@ -363,6 +363,6 @@ export class DawnPostgresSaver extends BaseCheckpointSaver {
 }
 
 /** Build a Postgres-backed LangGraph checkpointer. Migrations run lazily. */
-export function postgresCheckpointer(options: PostgresCheckpointerOptions = {}): DawnPostgresSaver {
-  return new DawnPostgresSaver(options)
+export function postgresCheckpointer(options: PostgresCheckpointerOptions = {}): B4PostgresSaver {
+  return new B4PostgresSaver(options)
 }

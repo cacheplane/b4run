@@ -13,7 +13,7 @@ function esmError(specifier: string, name: string): SyntaxError {
 describe("diagnose", () => {
   let appRoot: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-diag-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-diag-"))
   })
   afterEach(() => {
     rmSync(appRoot, { recursive: true, force: true })
@@ -38,10 +38,10 @@ describe("diagnose", () => {
     expect(d?.hint).toMatch(/npm ls @langchain\/core/)
   })
 
-  it("includes Dawn's required @langchain/core range in the #3 hint", () => {
+  it("includes B4.run's required @langchain/core range in the #3 hint", () => {
     installPkg("@langchain/core", { name: "@langchain/core", version: "1.1.40", type: "module" })
     const d = diagnose(esmError("@langchain/core", "tool"), { appRoot })
-    // requiredCoreRange resolves @dawn-ai/langchain from the cli package location,
+    // requiredCoreRange resolves @b4run/langchain from the cli package location,
     // independent of the temp appRoot. Expect the real floor, e.g. "^1.1.47".
     expect(d?.hint).toMatch(/satisfying \^?1\.1\.\d+/)
   })

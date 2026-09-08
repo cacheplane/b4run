@@ -19,8 +19,8 @@ import {
 } from "./smoke-result.mjs"
 import { canonicalAuditResultBytes, parseAuditResult } from "./terminal-records.mjs"
 
-const MARKER_START = "<!-- DAWN_RELEASE_CONTROLLER_MARKER\n"
-const MARKER_END = "\nEND_DAWN_RELEASE_CONTROLLER_MARKER -->"
+const MARKER_START = "<!-- B4_RELEASE_CONTROLLER_MARKER\n"
+const MARKER_END = "\nEND_B4_RELEASE_CONTROLLER_MARKER -->"
 const MARKER_FIELDS = Object.freeze([
   "schemaVersion",
   "epoch",
@@ -155,7 +155,7 @@ const ASSET_NAME_PATTERN = /^(?!\.{1,2}$)[A-Za-z0-9][A-Za-z0-9._@+-]{0,511}$/u
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
 const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u
 const AUDIT_WORKFLOW = ".github/workflows/published-artifact-verify.yml"
-const ATTESTATION_REPOSITORY = "cacheplane/dawnai"
+const ATTESTATION_REPOSITORY = "cacheplane/b4run"
 export const MAX_AUDIT_ATTEMPTS = 128
 export const MAX_SMOKE_ATTEMPTS = 128
 const BASE_ASSET_COUNT = 45
@@ -247,7 +247,7 @@ export function canonicalReleaseBody(input) {
   }
 
   const lines = [
-    `# Dawn v${marker.version}`,
+    `# B4 v${marker.version}`,
     "",
     `Candidate commit: \`${marker.commitSha}\``,
     `Controller phase: \`${marker.phase}\``,
@@ -979,7 +979,7 @@ export async function escrowCandidate(input) {
   })
   assertAttestationRunAuthorized(inputAttestationSet, publicationState)
   const github = argumentsSnapshot.github
-  const title = `Dawn v${candidate.version}`
+  const title = `B4 v${candidate.version}`
   const desiredMarker = {
     schemaVersion: 1,
     epoch: "fixed-group-v1",
@@ -1217,7 +1217,7 @@ export async function reconcileNpmEvidence({ candidate, record, manifest, npmEvi
     tag: marker.tag,
     targetSha: identity.commitSha,
     expectedBodySha256: releaseBodySha256(release.body),
-    title: `Dawn v${identity.version}`,
+    title: `B4 v${identity.version}`,
     body,
   })
   release = await readManagedRelease(effects.reader, release.id)
@@ -1358,7 +1358,7 @@ export async function reconcileSmokeEvidence(input) {
     tag: marker.tag,
     targetSha: identity.commitSha,
     expectedBodySha256: releaseBodySha256(release.body),
-    title: `Dawn v${identity.version}`,
+    title: `B4 v${identity.version}`,
     body,
   })
   release = await readManagedRelease(effects.reader, release.id)
@@ -1977,7 +1977,7 @@ function validateMultiSubjectAttestationBundle(bytes, { manifest, attestationSet
   const invocationId = statement.predicate?.runDetails?.metadata?.invocationId
   const invocation =
     typeof invocationId === "string"
-      ? /^https:\/\/github\.com\/cacheplane\/dawnai\/actions\/runs\/([1-9][0-9]*)\/attempts\/([1-9][0-9]*)$/u.exec(
+      ? /^https:\/\/github\.com\/cacheplane\/b4run\/actions\/runs\/([1-9][0-9]*)\/attempts\/([1-9][0-9]*)$/u.exec(
           invocationId,
         )
       : null
@@ -2311,7 +2311,7 @@ async function readManagedRelease(reader, releaseId) {
 async function requireDraftRelease(reader, candidate) {
   const release = await findManagedRelease(reader, `v${candidate.version}`)
   if (release === null) throw new Error("Managed draft Release is missing")
-  assertMutableCandidateRelease(release, `Dawn v${candidate.version}`)
+  assertMutableCandidateRelease(release, `B4 v${candidate.version}`)
   return release
 }
 

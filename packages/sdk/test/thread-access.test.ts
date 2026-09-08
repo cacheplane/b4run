@@ -57,8 +57,8 @@ describe("defineThreadAccess", () => {
 })
 
 describe("THREAD_ACCESS_METADATA_KEY", () => {
-  it("is the reserved `dawn:access` key", () => {
-    expect(THREAD_ACCESS_METADATA_KEY).toBe("dawn:access")
+  it("is the reserved `b4:access` key", () => {
+    expect(THREAD_ACCESS_METADATA_KEY).toBe("b4:access")
   })
 
   it("cannot be written as a JS property identifier, which is why stripping it is safe", () => {

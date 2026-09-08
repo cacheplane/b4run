@@ -91,12 +91,12 @@ describe("corsResponseHeaders", () => {
   })
 
   it("exposes configured response headers", () => {
-    const policy = resolveCorsPolicy({ origins: [ORIGIN], exposeHeaders: ["x-dawn-run-id"] })
+    const policy = resolveCorsPolicy({ origins: [ORIGIN], exposeHeaders: ["x-b4-run-id"] })
     expect(
       corsResponseHeaders(policy, req("GET", { origin: ORIGIN }))?.[
         "access-control-expose-headers"
       ],
-    ).toBe("x-dawn-run-id")
+    ).toBe("x-b4-run-id")
   })
 })
 

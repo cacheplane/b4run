@@ -9,7 +9,7 @@ Use it when one agent route needs a different reasoning budget than the rest of 
 Set `reasoning.effort` on an `agent()` descriptor:
 
 ```ts title="src/app/support/[tenant]/index.ts"
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -18,11 +18,11 @@ export default agent({
 })
 ```
 
-`ReasoningConfig` is exported from `@dawn-ai/sdk`.
+`ReasoningConfig` is exported from `@b4run/sdk`.
 
 ## Supported values
 
-Dawn's type surface accepts:
+B4.run's type surface accepts:
 
 ```ts
 type ReasoningEffort =
@@ -34,13 +34,13 @@ type ReasoningEffort =
   | "xhigh"
 ```
 
-The model provider decides which values are meaningful for a given model. Non-reasoning models ignore the setting in Dawn's current OpenAI-backed materialization path.
+The model provider decides which values are meaningful for a given model. Non-reasoning models ignore the setting in B4.run's current OpenAI-backed materialization path.
 
-If you omit `reasoning`, Dawn does not pass a `reasoningEffort` value. The model/provider default applies.
+If you omit `reasoning`, B4.run does not pass a `reasoningEffort` value. The model/provider default applies.
 
 ## Where it applies
 
-Reasoning effort applies to Dawn's `agent()` descriptor path, where `@dawn-ai/langchain` materializes the descriptor with `ChatOpenAI`.
+Reasoning effort applies to B4.run's `agent()` descriptor path, where `@b4run/langchain` materializes the descriptor with `ChatOpenAI`.
 
 It does not automatically affect:
 
@@ -51,9 +51,9 @@ It does not automatically affect:
 
 For those paths, configure reasoning on the model instance you create.
 
-## What Dawn passes through
+## What B4.run passes through
 
-Dawn maps:
+B4.run maps:
 
 ```ts
 reasoning: { effort: "high" }

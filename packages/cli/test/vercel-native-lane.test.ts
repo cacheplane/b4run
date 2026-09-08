@@ -17,7 +17,7 @@ import { delimiter, dirname, join } from "node:path"
 import { PassThrough } from "node:stream"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { discoverRoutes } from "@dawn-ai/core/node"
+import { discoverRoutes } from "@b4run/core/node"
 import { transform } from "esbuild"
 
 import { afterEach, describe, expect, test, vi } from "vitest"
@@ -54,9 +54,9 @@ import {
   createNativeVercelApiClient,
   createNativeVercelLaneDependencies,
   createSecretRedactor,
-  deriveDawnPackageClosure,
+  deriveB4PackageClosure,
   deriveNativeAttemptEvidence,
-  NATIVE_DIRECT_DAWN_DEPENDENCIES,
+  NATIVE_DIRECT_B4_DEPENDENCIES,
   NATIVE_VERCEL_CHILD_TIMEOUT_MS,
   NATIVE_VERCEL_READINESS_CLI_TIMEOUT_MS,
   NATIVE_VERCEL_READINESS_TIMEOUT_MS,
@@ -112,7 +112,7 @@ afterEach(async () => {
 })
 
 async function makeTempDir(): Promise<string> {
-  const path = await mkdtemp(join(tmpdir(), "dawn-vercel-native-"))
+  const path = await mkdtemp(join(tmpdir(), "b4-vercel-native-"))
   tempDirs.push(path)
   return path
 }
@@ -122,9 +122,7 @@ function validDeployment(kind: "source" | "prebuilt") {
     kind,
     deploymentId: kind === "source" ? "dpl_Source1" : "dpl_Prebuilt2",
     canonicalOrigin:
-      kind === "source"
-        ? "https://dawn-source-abc.vercel.app"
-        : "https://dawn-prebuilt-def.vercel.app",
+      kind === "source" ? "https://b4-source-abc.vercel.app" : "https://b4-prebuilt-def.vercel.app",
     apiBindingVerified: true,
     config: { fluid: true, sha256: "a".repeat(64) },
     readyState: "READY",
@@ -222,20 +220,20 @@ function workspacePackage(
   manifest: Omit<NativeWorkspacePackage["manifest"], "name" | "version"> = {},
 ): NativeWorkspacePackage {
   return {
-    dir: `packages/${name.slice("@dawn-ai/".length)}`,
+    dir: `packages/${name.slice("@b4run/".length)}`,
     manifest: { name, version: "0.0.0-test", ...manifest },
     name,
   }
 }
 
 function packedArtifact(packageName: string): NativePackedArtifact {
-  const stem = packageName.slice("@dawn-ai/".length)
+  const stem = packageName.slice("@b4run/".length)
   return {
     packageJson: { name: packageName, version: "0.0.0-test" },
     packageName,
     packageVersion: "0.0.0-test",
-    tarballName: `dawn-ai-${stem}-0.0.0-test.tgz`,
-    tarballPath: `/packs/dawn-ai-${stem}-0.0.0-test.tgz`,
+    tarballName: `b4-run-${stem}-0.0.0-test.tgz`,
+    tarballPath: `/packs/b4-run-${stem}-0.0.0-test.tgz`,
   }
 }
 
@@ -290,7 +288,7 @@ function renderTestNativeLockfile(artifacts: readonly NativePackedArtifact[]): s
     identity: `${artifact.packageName}@file:vendor/${artifact.tarballName}`,
     reference: `file:vendor/${artifact.tarballName}`,
   }))
-  const direct = NATIVE_DIRECT_DAWN_DEPENDENCIES.map((name) => {
+  const direct = NATIVE_DIRECT_B4_DEPENDENCIES.map((name) => {
     const entry = entries.find(({ artifact }) => artifact.packageName === name)
     if (!entry) throw new Error(`missing test artifact ${name}`)
     return entry
@@ -332,23 +330,23 @@ async function makeAssemblyWorkspace() {
   const runRoot = join(ownerRoot, "run")
   await mkdir(join(repoRoot, "packages"), { recursive: true })
   const entries = [
-    workspacePackage("@dawn-ai/cli", {
-      dependencies: { "@dawn-ai/core": "workspace:*" },
-      optionalDependencies: { "@dawn-ai/langchain": "workspace:*" },
-      peerDependencies: { "@dawn-ai/sdk": "workspace:*" },
+    workspacePackage("@b4run/cli", {
+      dependencies: { "@b4run/core": "workspace:*" },
+      optionalDependencies: { "@b4run/langchain": "workspace:*" },
+      peerDependencies: { "@b4run/sdk": "workspace:*" },
     }),
-    workspacePackage("@dawn-ai/core", {
-      dependencies: { "@dawn-ai/sdk": "workspace:*" },
+    workspacePackage("@b4run/core", {
+      dependencies: { "@b4run/sdk": "workspace:*" },
     }),
-    workspacePackage("@dawn-ai/langchain", {
-      dependencies: { "@dawn-ai/memory": "workspace:*" },
+    workspacePackage("@b4run/langchain", {
+      dependencies: { "@b4run/memory": "workspace:*" },
     }),
-    workspacePackage("@dawn-ai/memory"),
-    workspacePackage("@dawn-ai/postgres-storage", {
-      dependencies: { "@dawn-ai/core": "workspace:*" },
+    workspacePackage("@b4run/memory"),
+    workspacePackage("@b4run/postgres-storage", {
+      dependencies: { "@b4run/core": "workspace:*" },
     }),
-    workspacePackage("@dawn-ai/sdk"),
-    workspacePackage("@dawn-ai/unrelated"),
+    workspacePackage("@b4run/sdk"),
+    workspacePackage("@b4run/unrelated"),
   ]
   for (const entry of entries) {
     const packageRoot = join(repoRoot, entry.dir)
@@ -364,7 +362,7 @@ async function makeAssemblyWorkspace() {
 
 async function makeUploadFixture(kind: "source" | "prebuilt") {
   const root = await realpath(await makeTempDir())
-  const expectedTarballs = ["dawn-ai-cli-0.0.0-test.tgz", "dawn-ai-sdk-0.0.0-test.tgz"]
+  const expectedTarballs = ["b4-run-cli-0.0.0-test.tgz", "b4-run-sdk-0.0.0-test.tgz"]
   await mkdir(join(root, "vendor"), { recursive: true })
   await mkdir(join(root, ".vercel"), { recursive: true })
   for (const name of expectedTarballs) await writeFile(join(root, "vendor", name), name, "utf8")
@@ -402,14 +400,14 @@ async function makeModelFreeNativeFixture(
   const root = await realpath(await makeTempDir())
   const manifest = {
     ...renderNativeFixtureManifest("prebuilt", [
-      packedArtifact("@dawn-ai/cli"),
-      packedArtifact("@dawn-ai/postgres-storage"),
-      packedArtifact("@dawn-ai/sdk"),
+      packedArtifact("@b4run/cli"),
+      packedArtifact("@b4run/postgres-storage"),
+      packedArtifact("@b4run/sdk"),
     ]),
     dependencies: {
-      "@dawn-ai/cli": "0.0.0-test",
-      "@dawn-ai/postgres-storage": "0.0.0-test",
-      "@dawn-ai/sdk": "0.0.0-test",
+      "@b4run/cli": "0.0.0-test",
+      "@b4run/postgres-storage": "0.0.0-test",
+      "@b4run/sdk": "0.0.0-test",
       "@langchain/core": "1.2.5",
       "@langchain/langgraph": "1.4.9",
       "@langchain/langgraph-checkpoint": "1.1.3",
@@ -421,11 +419,11 @@ async function makeModelFreeNativeFixture(
   }
   const fixtureFiles = {
     "package.json": `${JSON.stringify(manifest, null, 2)}\n`,
-    "dawn.config.ts": 'export default { build: { targets: ["vercel"] } }\n',
+    "b4.config.ts": 'export default { build: { targets: ["vercel"] } }\n',
     "vercel.json": `${JSON.stringify(
       {
         $schema: "https://openapi.vercel.sh/vercel.json",
-        buildCommand: "node node_modules/@dawn-ai/cli/dist/index.js build",
+        buildCommand: "node node_modules/@b4run/cli/dist/index.js build",
         fluid: true,
       },
       null,
@@ -440,12 +438,12 @@ async function makeModelFreeNativeFixture(
   }
 
   const dependencies = {
-    "@dawn-ai/cli": cliPackageRoot,
-    "@dawn-ai/core": join(repoRoot, "packages", "core"),
-    "@dawn-ai/langchain": join(repoRoot, "packages", "langchain"),
-    "@dawn-ai/langgraph": join(repoRoot, "packages", "langgraph"),
-    "@dawn-ai/postgres-storage": join(repoRoot, "packages", "postgres-storage"),
-    "@dawn-ai/sdk": join(repoRoot, "packages", "sdk"),
+    "@b4run/cli": cliPackageRoot,
+    "@b4run/core": join(repoRoot, "packages", "core"),
+    "@b4run/langchain": join(repoRoot, "packages", "langchain"),
+    "@b4run/langgraph": join(repoRoot, "packages", "langgraph"),
+    "@b4run/postgres-storage": join(repoRoot, "packages", "postgres-storage"),
+    "@b4run/sdk": join(repoRoot, "packages", "sdk"),
     "@langchain/core": join(cliPackageRoot, "node_modules", "@langchain", "core"),
     "@langchain/langgraph": join(cliPackageRoot, "node_modules", "@langchain", "langgraph"),
     "@langchain/langgraph-checkpoint": join(
@@ -506,7 +504,7 @@ describe("native harness trust boundary", () => {
     expect(nativeLaneEnabled(undefined)).toBe(false)
     expect(nativeLaneEnabled("1")).toBe(true)
     for (const value of ["", "0", "true", "01", " 1 "]) {
-      expect(() => nativeLaneEnabled(value)).toThrow(/DAWN_TEST_VERCEL/)
+      expect(() => nativeLaneEnabled(value)).toThrow(/B4_TEST_VERCEL/)
     }
   })
 
@@ -514,14 +512,14 @@ describe("native harness trust boundary", () => {
     expect(() =>
       readNativeLaneEnvironment(
         {
-          DAWN_VERCEL_ARTIFACT_DIR: "relative-artifacts",
-          DAWN_VERCEL_ORG_ID: "user_personal",
-          DAWN_VERCEL_PROJECT_ID: "project-no-prefix",
+          B4_VERCEL_ARTIFACT_DIR: "relative-artifacts",
+          B4_VERCEL_ORG_ID: "user_personal",
+          B4_VERCEL_PROJECT_ID: "project-no-prefix",
         },
         "23.9.0",
       ),
     ).toThrow(
-      /Node 24.*DAWN_VERCEL_ARTIFACT_DIR.*DAWN_VERCEL_TOKEN.*DAWN_VERCEL_DATABASE_URL.*DAWN_VERCEL_ORG_ID.*DAWN_VERCEL_PROJECT_ID/,
+      /Node 24.*B4_VERCEL_ARTIFACT_DIR.*B4_VERCEL_TOKEN.*B4_VERCEL_DATABASE_URL.*B4_VERCEL_ORG_ID.*B4_VERCEL_PROJECT_ID/,
     )
   })
 
@@ -529,16 +527,16 @@ describe("native harness trust boundary", () => {
     expect(
       readNativeLaneEnvironment(
         {
-          DAWN_VERCEL_ARTIFACT_DIR: "/tmp/dawn-vercel-artifacts",
-          DAWN_VERCEL_TOKEN: "test-token",
-          DAWN_VERCEL_ORG_ID: "team_AbC123",
-          DAWN_VERCEL_PROJECT_ID: "prj_DeF456",
-          DAWN_VERCEL_DATABASE_URL: "postgres://test.invalid/db",
+          B4_VERCEL_ARTIFACT_DIR: "/tmp/b4-vercel-artifacts",
+          B4_VERCEL_TOKEN: "test-token",
+          B4_VERCEL_ORG_ID: "team_AbC123",
+          B4_VERCEL_PROJECT_ID: "prj_DeF456",
+          B4_VERCEL_DATABASE_URL: "postgres://test.invalid/db",
         },
         "24.14.0",
       ),
     ).toEqual({
-      artifactDir: "/tmp/dawn-vercel-artifacts",
+      artifactDir: "/tmp/b4-vercel-artifacts",
       token: "test-token",
       orgId: "team_AbC123",
       projectId: "prj_DeF456",
@@ -570,28 +568,28 @@ describe("native harness trust boundary", () => {
   })
 
   test("canonicalizes only root HTTPS Vercel deployment origins", () => {
-    expect(canonicalizeVercelOrigin("dawn-native-abc.vercel.app")).toBe(
-      "https://dawn-native-abc.vercel.app",
+    expect(canonicalizeVercelOrigin("b4-native-abc.vercel.app")).toBe(
+      "https://b4-native-abc.vercel.app",
     )
-    expect(canonicalizeVercelOrigin("https://dawn-native-abc.vercel.app/")).toBe(
-      "https://dawn-native-abc.vercel.app",
+    expect(canonicalizeVercelOrigin("https://b4-native-abc.vercel.app/")).toBe(
+      "https://b4-native-abc.vercel.app",
     )
     for (const value of [
-      "http://dawn-native-abc.vercel.app",
-      "https://user:pass@dawn-native-abc.vercel.app",
-      "https://dawn-native-abc.vercel.app:443",
-      "https://dawn-native-abc.vercel.app/path",
-      "https://dawn-native-abc.vercel.app?query=1",
-      "https://dawn-native-abc.vercel.app/#fragment",
+      "http://b4-native-abc.vercel.app",
+      "https://user:pass@b4-native-abc.vercel.app",
+      "https://b4-native-abc.vercel.app:443",
+      "https://b4-native-abc.vercel.app/path",
+      "https://b4-native-abc.vercel.app?query=1",
+      "https://b4-native-abc.vercel.app/#fragment",
       "https://not-vercel.example",
       "bad host.vercel.app",
       "https://-bad.vercel.app",
-      "//dawn-native-abc.vercel.app",
-      "\\\\dawn-native-abc.vercel.app",
-      "https://dawn-native-abc.vercel.app/%2e",
-      "https://dawn-native-abc.vercel.app/%2e%2e",
-      "https://dawn-native-abc.vercel.app\\",
-      "https://dawn-native-abc%2evercel.app",
+      "//b4-native-abc.vercel.app",
+      "\\\\b4-native-abc.vercel.app",
+      "https://b4-native-abc.vercel.app/%2e",
+      "https://b4-native-abc.vercel.app/%2e%2e",
+      "https://b4-native-abc.vercel.app\\",
+      "https://b4-native-abc%2evercel.app",
       `${"a".repeat(63)}.${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(63)}.vercel.app`,
     ]) {
       expect(() => canonicalizeVercelOrigin(value)).toThrow()
@@ -738,13 +736,13 @@ describe("native harness trust boundary", () => {
       {
         PATH: "/safe/bin",
         CI: "1",
-        DAWN_VERCEL_TOKEN: "ambient-dawn",
+        B4_VERCEL_TOKEN: "ambient-b4",
         VERCEL_TOKEN: "ambient-vercel",
         VERCEL_ORG_ID: "ambient-org",
         NOW_TOKEN: "ambient-now",
         DATABASE_URL: "ambient-db",
         RELEASE_TOKEN: "ambient-release",
-        DAWN_RELEASE_HEADER: "ambient-header",
+        B4_RELEASE_HEADER: "ambient-header",
       },
       {
         VERCEL_TELEMETRY_DISABLED: "1",
@@ -847,7 +845,7 @@ describe("native harness trust boundary", () => {
       validDeployment("source"),
       {
         ...validDeployment("prebuilt"),
-        canonicalOrigin: "https://dawn-source-abc.vercel.app",
+        canonicalOrigin: "https://b4-source-abc.vercel.app",
       },
     ]
     expect(() => parseNativeReceipt(duplicateOrigin)).toThrow(/canonicalOrigin/)
@@ -996,70 +994,68 @@ describe("native harness trust boundary", () => {
 })
 
 describe("fixture package closure", () => {
-  test("derives only the recursive Dawn runtime closure across required dependency kinds", () => {
-    const root = workspacePackage("@dawn-ai/root", {
+  test("derives only the recursive B4.run runtime closure across required dependency kinds", () => {
+    const root = workspacePackage("@b4run/root", {
       dependencies: {
-        "@dawn-ai/dependency": "workspace:*",
+        "@b4run/dependency": "workspace:*",
         external: "1.0.0",
       },
-      optionalDependencies: { "@dawn-ai/optional": "workspace:*" },
+      optionalDependencies: { "@b4run/optional": "workspace:*" },
       peerDependencies: {
-        "@dawn-ai/optional-peer": "workspace:*",
-        "@dawn-ai/required-peer": "workspace:*",
+        "@b4run/optional-peer": "workspace:*",
+        "@b4run/required-peer": "workspace:*",
       },
-      peerDependenciesMeta: { "@dawn-ai/optional-peer": { optional: true } },
+      peerDependenciesMeta: { "@b4run/optional-peer": { optional: true } },
     })
-    const dependency = workspacePackage("@dawn-ai/dependency", {
-      dependencies: { "@dawn-ai/root": "workspace:*" },
+    const dependency = workspacePackage("@b4run/dependency", {
+      dependencies: { "@b4run/root": "workspace:*" },
     })
     const packages = new Map(
       [
         root,
         dependency,
-        workspacePackage("@dawn-ai/optional"),
-        workspacePackage("@dawn-ai/required-peer"),
-        workspacePackage("@dawn-ai/optional-peer"),
-        workspacePackage("@dawn-ai/unrelated"),
+        workspacePackage("@b4run/optional"),
+        workspacePackage("@b4run/required-peer"),
+        workspacePackage("@b4run/optional-peer"),
+        workspacePackage("@b4run/unrelated"),
       ].map((entry) => [entry.name, entry]),
     )
 
-    expect(deriveDawnPackageClosure([root.name], packages).map(({ name }) => name)).toEqual([
-      "@dawn-ai/dependency",
-      "@dawn-ai/optional",
-      "@dawn-ai/required-peer",
-      "@dawn-ai/root",
+    expect(deriveB4PackageClosure([root.name], packages).map(({ name }) => name)).toEqual([
+      "@b4run/dependency",
+      "@b4run/optional",
+      "@b4run/required-peer",
+      "@b4run/root",
     ])
   })
 
-  test("fails closed when a root or reachable Dawn package is absent", () => {
-    const root = workspacePackage("@dawn-ai/root", {
-      dependencies: { "@dawn-ai/missing": "workspace:*" },
+  test("fails closed when a root or reachable B4.run package is absent", () => {
+    const root = workspacePackage("@b4run/root", {
+      dependencies: { "@b4run/missing": "workspace:*" },
     })
     const packages = new Map([[root.name, root]])
-    expect(() => deriveDawnPackageClosure(["@dawn-ai/absent"], packages)).toThrow(/absent/)
-    expect(() => deriveDawnPackageClosure([root.name], packages)).toThrow(/missing/)
+    expect(() => deriveB4PackageClosure(["@b4run/absent"], packages)).toThrow(/absent/)
+    expect(() => deriveB4PackageClosure([root.name], packages)).toThrow(/missing/)
   })
 
-  test("accepts only one matching vendored resolution for every expected Dawn package", () => {
-    const artifacts = [packedArtifact("@dawn-ai/root"), packedArtifact("@dawn-ai/dependency")]
+  test("accepts only one matching vendored resolution for every expected B4.run package", () => {
+    const artifacts = [packedArtifact("@b4run/root"), packedArtifact("@b4run/dependency")]
     expect(() =>
       validateNativeFixtureLockfile(validNativeLockfile(artifacts), artifacts),
     ).not.toThrow()
 
     const missing = structuredClone(validNativeLockfile(artifacts))
-    delete missing.packages[
-      `@dawn-ai/dependency@file:vendor/${artifacts[1]?.tarballName as string}`
-    ]
+    delete missing.packages[`@b4run/dependency@file:vendor/${artifacts[1]?.tarballName as string}`]
     expect(() => validateNativeFixtureLockfile(missing, artifacts)).toThrow(/dependency/)
 
     const duplicate = structuredClone(validNativeLockfile(artifacts))
     duplicate.packages[
-      `@dawn-ai/root@file:vendor/${artifacts[0]?.tarballName as string}(peer@1.0.0)`
+      `@b4run/root@file:vendor/${artifacts[0]?.tarballName as string}(peer@1.0.0)`
     ] = {}
     expect(() => validateNativeFixtureLockfile(duplicate, artifacts)).toThrow(/root/)
 
     const peerContext = structuredClone(validNativeLockfile(artifacts))
-    const rootIdentity = `@dawn-ai/root@file:vendor/${artifacts[0]?.tarballName as string}`
+    const rootIdentity = `@b4run/root@file:vendor/${artifacts[0]?.tarballName as string}`
     const rootPackage = peerContext.packages[rootIdentity]
     const rootSnapshot = peerContext.snapshots[rootIdentity]
     delete peerContext.packages[rootIdentity]
@@ -1078,21 +1074,21 @@ describe("fixture package closure", () => {
     expect(() => validateNativeFixtureLockfile(truncatedPeerContext, artifacts)).toThrow(/root/)
 
     const registryCopy = structuredClone(validNativeLockfile(artifacts))
-    registryCopy.packages["@dawn-ai/root@0.0.0-test(peer@1.0.0)"] = {
+    registryCopy.packages["@b4run/root@0.0.0-test(peer@1.0.0)"] = {
       resolution: { integrity: "sha512-not-the-vendored-tarball" },
       version: "0.0.0-test",
     }
-    registryCopy.snapshots["@dawn-ai/root@0.0.0-test(peer@1.0.0)"] = {}
+    registryCopy.snapshots["@b4run/root@0.0.0-test(peer@1.0.0)"] = {}
     expect(() => validateNativeFixtureLockfile(registryCopy, artifacts)).toThrow(/root/)
 
     const unexpected = structuredClone(validNativeLockfile(artifacts))
-    unexpected.packages["@dawn-ai/unexpected@file:vendor/unexpected.tgz"] = {}
-    unexpected.snapshots["@dawn-ai/unexpected@file:vendor/unexpected.tgz"] = {}
+    unexpected.packages["@b4run/unexpected@file:vendor/unexpected.tgz"] = {}
+    unexpected.snapshots["@b4run/unexpected@file:vendor/unexpected.tgz"] = {}
     expect(() => validateNativeFixtureLockfile(unexpected, artifacts)).toThrow(/unexpected/)
   })
 
   test("accepts only complete nested pnpm peer contexts on vendored importer versions", () => {
-    const artifacts = [packedArtifact("@dawn-ai/root")]
+    const artifacts = [packedArtifact("@b4run/root")]
     const lockfile = structuredClone(validNativeLockfile(artifacts))
     const artifact = artifacts[0] as NativePackedArtifact
     const reference = `file:vendor/${artifact.tarballName}`
@@ -1125,8 +1121,8 @@ describe("fixture package closure", () => {
     }
   })
 
-  test("rejects every nonlocal, ambiguous, or mismatched Dawn lockfile reference", () => {
-    const artifacts = [packedArtifact("@dawn-ai/root"), packedArtifact("@dawn-ai/dependency")]
+  test("rejects every nonlocal, ambiguous, or mismatched B4.run lockfile reference", () => {
+    const artifacts = [packedArtifact("@b4run/root"), packedArtifact("@b4run/dependency")]
     expect(() =>
       validateNativeFixtureLockfile(validNativeLockfile(artifacts), artifacts),
     ).not.toThrow()
@@ -1141,13 +1137,13 @@ describe("fixture package closure", () => {
     ]
     for (const reference of badReferences) {
       const lockfile = structuredClone(validNativeLockfile(artifacts))
-      lockfile.overrides["@dawn-ai/root"] = reference
+      lockfile.overrides["@b4run/root"] = reference
       expect(() => validateNativeFixtureLockfile(lockfile, artifacts), reference).toThrow()
     }
 
     const mismatchedPeerVersion = structuredClone(validNativeLockfile(artifacts))
     const dependencyReference = `file:vendor/${artifacts[1]?.tarballName as string}`
-    const rootImporter = mismatchedPeerVersion.importers["."].dependencies["@dawn-ai/root"] as {
+    const rootImporter = mismatchedPeerVersion.importers["."].dependencies["@b4run/root"] as {
       version: string
     }
     rootImporter.version = `${dependencyReference}(peer@1.0.0)`
@@ -1168,21 +1164,21 @@ describe("fixture package closure", () => {
 
   test("renders an exact isolated fixture manifest, workspace, and parsed lockfile", () => {
     const artifacts = [
-      packedArtifact("@dawn-ai/cli"),
-      packedArtifact("@dawn-ai/postgres-storage"),
-      packedArtifact("@dawn-ai/sdk"),
-      packedArtifact("@dawn-ai/transitive"),
+      packedArtifact("@b4run/cli"),
+      packedArtifact("@b4run/postgres-storage"),
+      packedArtifact("@b4run/sdk"),
+      packedArtifact("@b4run/transitive"),
     ]
     const manifest = renderNativeFixtureManifest("source", artifacts)
     expect(manifest).toMatchObject({
-      name: "dawn-vercel-native-source",
+      name: "b4-vercel-native-source",
       private: true,
       packageManager: "pnpm@10.33.0",
-      scripts: { build: "dawn build" },
+      scripts: { build: "b4 build" },
       dependencies: {
-        "@dawn-ai/cli": `file:vendor/${artifacts[0]?.tarballName as string}`,
-        "@dawn-ai/postgres-storage": `file:vendor/${artifacts[1]?.tarballName as string}`,
-        "@dawn-ai/sdk": `file:vendor/${artifacts[2]?.tarballName as string}`,
+        "@b4run/cli": `file:vendor/${artifacts[0]?.tarballName as string}`,
+        "@b4run/postgres-storage": `file:vendor/${artifacts[1]?.tarballName as string}`,
+        "@b4run/sdk": `file:vendor/${artifacts[2]?.tarballName as string}`,
         "@langchain/core": "1.2.5",
         "@langchain/langgraph": "1.4.9",
         "@langchain/langgraph-checkpoint": "1.1.3",
@@ -1192,7 +1188,7 @@ describe("fixture package closure", () => {
         zod: "4.4.3",
       },
     })
-    expect((manifest.dependencies as Record<string, string>)["@dawn-ai/transitive"]).toBeUndefined()
+    expect((manifest.dependencies as Record<string, string>)["@b4run/transitive"]).toBeUndefined()
 
     const workspace = renderNativeWorkspaceYaml(artifacts)
     expect(workspace).toContain("onlyBuiltDependencies:\n  - esbuild")
@@ -1249,29 +1245,29 @@ describe("fixture package closure", () => {
     })
 
     const expectedClosure = [
-      "@dawn-ai/cli",
-      "@dawn-ai/core",
-      "@dawn-ai/langchain",
-      "@dawn-ai/memory",
-      "@dawn-ai/postgres-storage",
-      "@dawn-ai/sdk",
+      "@b4run/cli",
+      "@b4run/core",
+      "@b4run/langchain",
+      "@b4run/memory",
+      "@b4run/postgres-storage",
+      "@b4run/sdk",
     ]
     expect(assembly.closure.map(({ name }) => name)).toEqual(expectedClosure)
     expect(packCalls).toEqual(expectedClosure)
-    expect(packCalls).not.toContain("@dawn-ai/unrelated")
+    expect(packCalls).not.toContain("@b4run/unrelated")
     expect(commands[0]).toMatchObject({
       executable: "corepack",
       args: ["pnpm", "build"],
       cwd: workspace.repoRoot,
       timeoutMs: 120_000,
     })
-    expect(commands[0]?.env).not.toHaveProperty("DAWN_VERCEL_TOKEN")
+    expect(commands[0]?.env).not.toHaveProperty("B4_VERCEL_TOKEN")
     expect(commands[0]?.env).not.toHaveProperty("VERCEL_TOKEN")
     expect(commands.filter(({ args }) => args.includes("--lockfile-only"))).toHaveLength(2)
     expect(commands.filter(({ args }) => args.includes("--frozen-lockfile"))).toEqual([
       expect.objectContaining({ cwd: assembly.prebuilt.root }),
     ])
-    expect(commands.some(({ executable }) => executable.endsWith(join(".bin", "dawn")))).toBe(false)
+    expect(commands.some(({ executable }) => executable.endsWith(join(".bin", "b4")))).toBe(false)
 
     for (const fixture of [assembly.source, assembly.prebuilt]) {
       expect(
@@ -1279,10 +1275,10 @@ describe("fixture package closure", () => {
       ).toEqual({ orgId: "team_Test123", projectId: "prj_Test456" })
       expect(JSON.parse(await readFile(join(fixture.root, "vercel.json"), "utf8"))).toEqual({
         $schema: "https://openapi.vercel.sh/vercel.json",
-        buildCommand: "node node_modules/@dawn-ai/cli/dist/index.js build",
+        buildCommand: "node node_modules/@b4run/cli/dist/index.js build",
         fluid: true,
       })
-      expect(await readFile(join(fixture.root, "dawn.config.ts"), "utf8")).toBe(
+      expect(await readFile(join(fixture.root, "b4.config.ts"), "utf8")).toBe(
         'export default { build: { targets: ["vercel"] } }\n',
       )
       expect(await readFile(join(fixture.root, "src", "fixture.ts"), "utf8")).toContain(
@@ -1303,7 +1299,7 @@ describe("fixture package closure", () => {
     await expect(lstat(join(assembly.source.root, "node_modules"))).rejects.toMatchObject({
       code: "ENOENT",
     })
-    await expect(lstat(join(assembly.source.root, ".dawn"))).rejects.toMatchObject({
+    await expect(lstat(join(assembly.source.root, ".b4"))).rejects.toMatchObject({
       code: "ENOENT",
     })
     await expect(lstat(join(assembly.prebuilt.root, ".vercel", "output"))).rejects.toMatchObject({
@@ -1501,7 +1497,7 @@ describe("pinned vercel boundary", () => {
       parentEnv: {
         PATH: process.env.PATH,
         DATABASE_URL: "ambient-database",
-        DAWN_VERCEL_TOKEN: "ambient-dawn-token",
+        B4_VERCEL_TOKEN: "ambient-b4-token",
         NOW_TOKEN: "ambient-now-token",
         RELEASE_TOKEN: "ambient-release-token",
         VERCEL_TOKEN: "ambient-vercel-token",
@@ -1522,7 +1518,7 @@ describe("pinned vercel boundary", () => {
             exitCode: 0,
             stderr: "",
             stdout:
-              '{"id":"dpl_Source123","url":"dawn-source-abc.vercel.app","readyState":"READY"}\n',
+              '{"id":"dpl_Source123","url":"b4-source-abc.vercel.app","readyState":"READY"}\n',
           }
         }
         if (request.args[0] === "logs") {
@@ -1533,13 +1529,13 @@ describe("pinned vercel boundary", () => {
             exitCode: 0,
             stderr: "",
             stdout:
-              '{"status":"ok","message":"deployed","next":"inspect","deployment":{"id":"dpl_Prebuilt456","url":"dawn-prebuilt-def.vercel.app","readyState":"BUILDING"}}\n',
+              '{"status":"ok","message":"deployed","next":"inspect","deployment":{"id":"dpl_Prebuilt456","url":"b4-prebuilt-def.vercel.app","readyState":"BUILDING"}}\n',
           }
         }
         return {
           exitCode: 0,
           stderr: "",
-          stdout: '{"id":"dpl_Source123","url":"dawn-source-abc.vercel.app"}\n',
+          stdout: '{"id":"dpl_Source123","url":"b4-source-abc.vercel.app"}\n',
         }
       },
       token: "vercel-token-secret",
@@ -1554,7 +1550,7 @@ describe("pinned vercel boundary", () => {
         marker: `vclrun_${"a".repeat(32)}`,
       }),
     ).resolves.toEqual({
-      canonicalOrigin: "https://dawn-source-abc.vercel.app",
+      canonicalOrigin: "https://b4-source-abc.vercel.app",
       commandEvidence: {
         command: "deploy",
         positionalPathAbsent: true,
@@ -1570,7 +1566,7 @@ describe("pinned vercel boundary", () => {
         marker: `vclrun_${"b".repeat(32)}`,
       }),
     ).resolves.toEqual({
-      canonicalOrigin: "https://dawn-prebuilt-def.vercel.app",
+      canonicalOrigin: "https://b4-prebuilt-def.vercel.app",
       commandEvidence: {
         command: "deploy",
         positionalPathAbsent: true,
@@ -1580,7 +1576,7 @@ describe("pinned vercel boundary", () => {
     })
     await expect(
       boundary.inspect({
-        canonicalOrigin: "https://dawn-source-abc.vercel.app",
+        canonicalOrigin: "https://b4-source-abc.vercel.app",
         deploymentId: "dpl_Source123",
       }),
     ).resolves.toEqual({ readyState: "READY" })
@@ -1622,7 +1618,7 @@ describe("pinned vercel boundary", () => {
       "--target",
       "preview",
       "--meta",
-      `dawnVercelRun=vclrun_${"a".repeat(32)}`,
+      `b4VercelRun=vclrun_${"a".repeat(32)}`,
       "--scope",
       "team_Test123",
       "--non-interactive",
@@ -1648,7 +1644,7 @@ describe("pinned vercel boundary", () => {
       VERCEL_TELEMETRY_DISABLED: "1",
       VERCEL_TOKEN: "vercel-token-secret",
     })
-    expect(deploy.env).not.toHaveProperty("DAWN_VERCEL_TOKEN")
+    expect(deploy.env).not.toHaveProperty("B4_VERCEL_TOKEN")
     expect(deploy.env).not.toHaveProperty("RELEASE_TOKEN")
 
     const prebuilt = requests[2] as NativeVercelChildRequest
@@ -1659,7 +1655,7 @@ describe("pinned vercel boundary", () => {
       "--target",
       "preview",
       "--meta",
-      `dawnVercelRun=vclrun_${"b".repeat(32)}`,
+      `b4VercelRun=vclrun_${"b".repeat(32)}`,
       "--scope",
       "team_Test123",
       "--non-interactive",
@@ -1835,7 +1831,7 @@ describe("pinned vercel boundary", () => {
     }
     const attemptStartMs = 1_800_000_000_000
     const expectedPreimage = [
-      "dawn-vercel-marker-v1",
+      "b4-vercel-marker-v1",
       "123456",
       "987654",
       "2",
@@ -1864,7 +1860,7 @@ describe("pinned vercel boundary", () => {
       localConfigPath,
       `${JSON.stringify({
         $schema: "https://openapi.vercel.sh/vercel.json",
-        buildCommand: "node node_modules/@dawn-ai/cli/dist/index.js build",
+        buildCommand: "node node_modules/@b4run/cli/dist/index.js build",
         fluid: true,
       })}\n`,
       "utf8",
@@ -1883,12 +1879,12 @@ describe("pinned vercel boundary", () => {
           return {
             body: {
               id: "dpl_Source123",
-              url: "dawn-source-abc.vercel.app",
+              url: "b4-source-abc.vercel.app",
               projectId: "prj_Test456",
               ownerId: "team_Test123",
               createdAt: attemptStartMs,
               target: null,
-              meta: { dawnVercelRun: expectedMarker },
+              meta: { b4VercelRun: expectedMarker },
             },
             status: 200,
           }
@@ -1902,7 +1898,7 @@ describe("pinned vercel boundary", () => {
         deploy: async ({ marker }) => {
           order.push(`spawn:${marker}`)
           return {
-            canonicalOrigin: "https://dawn-source-abc.vercel.app",
+            canonicalOrigin: "https://b4-source-abc.vercel.app",
             commandEvidence: {
               command: "deploy",
               positionalPathAbsent: true,
@@ -1954,7 +1950,7 @@ describe("pinned vercel boundary", () => {
         ownerIdMatched: true,
         projectIdMatched: true,
       },
-      canonicalOrigin: "https://dawn-source-abc.vercel.app",
+      canonicalOrigin: "https://b4-source-abc.vercel.app",
       deploymentId: "dpl_Source123",
       config: { fluid: true, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) },
       readyState: "READY",
@@ -1981,7 +1977,7 @@ describe("pinned vercel boundary", () => {
       localConfigPath,
       `${JSON.stringify({
         $schema: "https://openapi.vercel.sh/vercel.json",
-        buildCommand: "node node_modules/@dawn-ai/cli/dist/index.js build",
+        buildCommand: "node node_modules/@b4run/cli/dist/index.js build",
         fluid: true,
       })}\n`,
       "utf8",
@@ -2009,12 +2005,12 @@ describe("pinned vercel boundary", () => {
                 : {
                     body: {
                       id: "dpl_Source123",
-                      url: "dawn-source-abc.vercel.app",
+                      url: "b4-source-abc.vercel.app",
                       projectId: "prj_Test456",
                       ownerId: "team_Test123",
                       createdAt: 1_800_000_000_000,
                       target: null,
-                      meta: { dawnVercelRun: attemptMarker },
+                      meta: { b4VercelRun: attemptMarker },
                     },
                     status: 200,
                   }
@@ -2026,7 +2022,7 @@ describe("pinned vercel boundary", () => {
             deploy: async () => {
               deployCalls += 1
               return {
-                canonicalOrigin: "https://dawn-source-abc.vercel.app",
+                canonicalOrigin: "https://b4-source-abc.vercel.app",
                 commandEvidence: {
                   command: "deploy",
                   positionalPathAbsent: true,
@@ -2134,7 +2130,7 @@ describe("pinned vercel boundary", () => {
       deploy: async () => {
         order.push("deploy")
         return {
-          canonicalOrigin: "https://dawn-source-abc.vercel.app",
+          canonicalOrigin: "https://b4-source-abc.vercel.app",
           commandEvidence: {
             command: "deploy" as const,
             positionalPathAbsent: true as const,
@@ -2263,12 +2259,12 @@ describe("pinned vercel boundary", () => {
             return {
               body: {
                 id: "dpl_Source123",
-                url: "dawn-source-abc.vercel.app",
+                url: "b4-source-abc.vercel.app",
                 projectId: "prj_Test456",
                 ownerId: "team_Test123",
                 createdAt: attemptStartMs,
                 target: null,
-                meta: { dawnVercelRun: marker },
+                meta: { b4VercelRun: marker },
               },
               status: 200,
             }
@@ -2292,7 +2288,7 @@ describe("pinned vercel boundary", () => {
         deploy: async (request) => {
           marker = request.marker
           return {
-            canonicalOrigin: "https://dawn-source-abc.vercel.app",
+            canonicalOrigin: "https://b4-source-abc.vercel.app",
             commandEvidence: {
               command: "deploy" as const,
               positionalPathAbsent: true as const,
@@ -2416,14 +2412,13 @@ describe("readiness budget", () => {
         return {
           exitCode: 0,
           stderr: "",
-          stdout:
-            '{"id":"dpl_Source123","url":"dawn-source-abc.vercel.app","readyState":"READY"}\n',
+          stdout: '{"id":"dpl_Source123","url":"b4-source-abc.vercel.app","readyState":"READY"}\n',
         }
       }
       return {
         exitCode: 0,
         stderr: "",
-        stdout: '{"id":"dpl_Source123","url":"dawn-source-abc.vercel.app"}\n',
+        stdout: '{"id":"dpl_Source123","url":"b4-source-abc.vercel.app"}\n',
       }
     })
 
@@ -2435,7 +2430,7 @@ describe("readiness budget", () => {
       marker: `vclrun_${"a".repeat(32)}`,
     })
     await boundary.inspect({
-      canonicalOrigin: "https://dawn-source-abc.vercel.app",
+      canonicalOrigin: "https://b4-source-abc.vercel.app",
       deploymentId: "dpl_Source123",
     })
 
@@ -2474,9 +2469,9 @@ describe("readiness budget", () => {
     // as a wrong deployment id.
     expect(() =>
       parseNativeVercelInspectReceipt(
-        '{"id":"dpl_Source123","url":"dawn-source-abc.vercel.app","readyState":"BUILDING"}',
+        '{"id":"dpl_Source123","url":"b4-source-abc.vercel.app","readyState":"BUILDING"}',
         {
-          canonicalOrigin: "https://dawn-source-abc.vercel.app",
+          canonicalOrigin: "https://b4-source-abc.vercel.app",
           deploymentId: "dpl_Source123",
         },
       ),
@@ -2503,7 +2498,7 @@ describe("readiness budget", () => {
     await boundary.assertVersion()
     const caught = await boundary
       .inspect({
-        canonicalOrigin: "https://dawn-source-abc.vercel.app",
+        canonicalOrigin: "https://b4-source-abc.vercel.app",
         deploymentId: "dpl_Source123",
       })
       .then(
@@ -2524,33 +2519,33 @@ describe("deployment receipt", () => {
   test("accepts only the two pinned 58.9.0 JSON shapes", () => {
     expect(
       parseNativeVercelDeploymentReceipt(
-        '{"id":"dpl_Source123","url":"dawn-source-abc.vercel.app"}\n',
+        '{"id":"dpl_Source123","url":"b4-source-abc.vercel.app"}\n',
       ),
     ).toEqual({
-      canonicalOrigin: "https://dawn-source-abc.vercel.app",
+      canonicalOrigin: "https://b4-source-abc.vercel.app",
       deploymentId: "dpl_Source123",
     })
     expect(
       parseNativeVercelDeploymentReceipt(
-        '{"status":"ok","message":"deployed","next":"inspect","deployment":{"id":"dpl_Prebuilt456","url":"https://dawn-prebuilt-def.vercel.app/","readyState":"BUILDING"}}',
+        '{"status":"ok","message":"deployed","next":"inspect","deployment":{"id":"dpl_Prebuilt456","url":"https://b4-prebuilt-def.vercel.app/","readyState":"BUILDING"}}',
       ),
     ).toEqual({
-      canonicalOrigin: "https://dawn-prebuilt-def.vercel.app",
+      canonicalOrigin: "https://b4-prebuilt-def.vercel.app",
       deploymentId: "dpl_Prebuilt456",
     })
   })
 
   test.each([
-    "https://dawn-source-abc.vercel.app",
-    'prefix {"id":"dpl_Source123","url":"dawn-source-abc.vercel.app"}',
-    '{"id":"dpl_Source123","url":"dawn-source-abc.vercel.app"} suffix',
-    '{"id":"dpl_Source123","url":"dawn-source-abc.vercel.app","deployment":{"id":"dpl_Other1","url":"other.vercel.app"}}',
+    "https://b4-source-abc.vercel.app",
+    'prefix {"id":"dpl_Source123","url":"b4-source-abc.vercel.app"}',
+    '{"id":"dpl_Source123","url":"b4-source-abc.vercel.app"} suffix',
+    '{"id":"dpl_Source123","url":"b4-source-abc.vercel.app","deployment":{"id":"dpl_Other1","url":"other.vercel.app"}}',
     '{"status":"ok","id":"dpl_Source123","deployment":{"id":"dpl_Other1","url":"other.vercel.app"}}',
-    '{"status":"failed","deployment":{"id":"dpl_Source123","url":"dawn-source-abc.vercel.app"}}',
-    '{"result":{"id":"dpl_Source123","url":"dawn-source-abc.vercel.app"}}',
-    '{"id":"project-name","url":"dawn-source-abc.vercel.app"}',
-    '{"id":"dpl_Source123","url":"http://dawn-source-abc.vercel.app"}',
-    '{"id":"dpl_Source123","url":"dawn-source-abc.vercel.app/path"}',
+    '{"status":"failed","deployment":{"id":"dpl_Source123","url":"b4-source-abc.vercel.app"}}',
+    '{"result":{"id":"dpl_Source123","url":"b4-source-abc.vercel.app"}}',
+    '{"id":"project-name","url":"b4-source-abc.vercel.app"}',
+    '{"id":"dpl_Source123","url":"http://b4-source-abc.vercel.app"}',
+    '{"id":"dpl_Source123","url":"b4-source-abc.vercel.app/path"}',
   ])("rejects noncanonical or ambiguous stdout: %s", (stdout) => {
     expect(() => parseNativeVercelDeploymentReceipt(stdout)).toThrow()
   })
@@ -2574,7 +2569,7 @@ describe("deployment receipt", () => {
     const configSource = `${JSON.stringify(
       {
         $schema: "https://openapi.vercel.sh/vercel.json",
-        buildCommand: "node node_modules/@dawn-ai/cli/dist/index.js build",
+        buildCommand: "node node_modules/@b4run/cli/dist/index.js build",
         fluid: true,
       },
       null,
@@ -2589,7 +2584,7 @@ describe("deployment receipt", () => {
     const expected = {
       attemptLowerBoundMs: 1_799_999_700_000,
       attemptUpperBoundMs: 1_800_000_300_000,
-      canonicalOrigin: "https://dawn-source-abc.vercel.app",
+      canonicalOrigin: "https://b4-source-abc.vercel.app",
       deploymentId: "dpl_Source123",
       marker: `vclrun_${"a".repeat(32)}`,
       orgId: "team_Test123",
@@ -2598,18 +2593,18 @@ describe("deployment receipt", () => {
     const binding = parseNativeVercelDeploymentBinding(
       {
         id: "dpl_Source123",
-        url: "dawn-source-abc.vercel.app",
+        url: "b4-source-abc.vercel.app",
         projectId: "prj_Test456",
         ownerId: "team_Test123",
         createdAt: 1_800_000_000_000,
         target: null,
-        meta: { dawnVercelRun: `vclrun_${"a".repeat(32)}` },
+        meta: { b4VercelRun: `vclrun_${"a".repeat(32)}` },
         env: { SECRET: "must-not-be-projected" },
       },
       expected,
     )
     expect(binding).toEqual({
-      canonicalOrigin: "https://dawn-source-abc.vercel.app",
+      canonicalOrigin: "https://b4-source-abc.vercel.app",
       createdAt: 1_800_000_000_000,
       deploymentId: "dpl_Source123",
       marker: `vclrun_${"a".repeat(32)}`,
@@ -2622,7 +2617,7 @@ describe("deployment receipt", () => {
 
     expect(
       parseNativeVercelInspectReceipt(
-        '{"id":"dpl_Source123","url":"dawn-source-abc.vercel.app","readyState":"READY"}',
+        '{"id":"dpl_Source123","url":"b4-source-abc.vercel.app","readyState":"READY"}',
         expected,
       ),
     ).toEqual({ readyState: "READY" })
@@ -2653,7 +2648,7 @@ describe("deployment receipt", () => {
     const expected = {
       attemptLowerBoundMs: 1_799_999_700_000,
       attemptUpperBoundMs: 1_800_000_300_000,
-      canonicalOrigin: "https://dawn-source-abc.vercel.app",
+      canonicalOrigin: "https://b4-source-abc.vercel.app",
       deploymentId: "dpl_Source123",
       marker: `vclrun_${"a".repeat(32)}`,
       orgId: "team_Test123",
@@ -2661,17 +2656,17 @@ describe("deployment receipt", () => {
     }
     const valid = {
       id: "dpl_Source123",
-      url: "dawn-source-abc.vercel.app",
+      url: "b4-source-abc.vercel.app",
       projectId: "prj_Test456",
       ownerId: "team_Test123",
       createdAt: 1_800_000_000_000,
       target: "preview",
-      meta: { dawnVercelRun: `vclrun_${"a".repeat(32)}` },
+      meta: { b4VercelRun: `vclrun_${"a".repeat(32)}` },
     }
     for (const body of [
       { ...valid, id: "dpl_Other" },
       { ...valid, url: "other.vercel.app" },
-      { ...valid, url: "https://dawn-source-abc.vercel.app" },
+      { ...valid, url: "https://b4-source-abc.vercel.app" },
       { ...valid, projectId: "prj_Other" },
       { ...valid, ownerId: "team_Other" },
       { ...valid, createdAt: "1800000000000" },
@@ -2682,17 +2677,17 @@ describe("deployment receipt", () => {
       { ...valid, target: "staging" },
       { ...valid, target: undefined },
       { ...valid, meta: undefined },
-      { ...valid, meta: { dawnVercelRun: 1 } },
-      { ...valid, meta: { dawnVercelRun: `vclrun_${"b".repeat(32)}` } },
+      { ...valid, meta: { b4VercelRun: 1 } },
+      { ...valid, meta: { b4VercelRun: `vclrun_${"b".repeat(32)}` } },
     ]) {
       expect(() => parseNativeVercelDeploymentBinding(body, expected)).toThrow()
     }
     for (const stdout of [
-      '{"id":"dpl_Other","url":"dawn-source-abc.vercel.app","readyState":"READY"}',
+      '{"id":"dpl_Other","url":"b4-source-abc.vercel.app","readyState":"READY"}',
       '{"id":"dpl_Source123","url":"other.vercel.app","readyState":"READY"}',
-      '{"id":"dpl_Source123","url":"dawn-source-abc.vercel.app","readyState":"BUILDING"}',
-      '{"id":"dpl_Source123","url":"dawn-source-abc.vercel.app","readyState":"READY","error":{"code":"BOOT_FAILED"}}',
-      '{"id":"dpl_Source123","url":"dawn-source-abc.vercel.app","readyState":"READY","protection":{"enabled":true}}',
+      '{"id":"dpl_Source123","url":"b4-source-abc.vercel.app","readyState":"BUILDING"}',
+      '{"id":"dpl_Source123","url":"b4-source-abc.vercel.app","readyState":"READY","error":{"code":"BOOT_FAILED"}}',
+      '{"id":"dpl_Source123","url":"b4-source-abc.vercel.app","readyState":"READY","protection":{"enabled":true}}',
     ]) {
       expect(() => parseNativeVercelInspectReceipt(stdout, expected)).toThrow()
     }
@@ -2742,9 +2737,9 @@ describe("marker reconciliation", () => {
   ) {
     return {
       uid: "dpl_Reconciled1",
-      url: "dawn-reconciled-abc.vercel.app",
+      url: "b4-reconciled-abc.vercel.app",
       created: attemptStartMs,
-      meta: { dawnVercelRun: attempt.marker },
+      meta: { b4VercelRun: attempt.marker },
       ...overrides,
     }
   }
@@ -2755,12 +2750,12 @@ describe("marker reconciliation", () => {
   ) {
     return {
       id: "dpl_Reconciled1",
-      url: "dawn-reconciled-abc.vercel.app",
+      url: "b4-reconciled-abc.vercel.app",
       projectId,
       ownerId: orgId,
       createdAt: attemptStartMs,
       target: null,
-      meta: { dawnVercelRun: attempt.marker },
+      meta: { b4VercelRun: attempt.marker },
       ...overrides,
     }
   }
@@ -2793,7 +2788,7 @@ describe("marker reconciliation", () => {
           expect(query.pathname).toBe("/v6/deployments")
           expect(query.searchParams.get("teamId")).toBe(orgId)
           expect(query.searchParams.get("projectId")).toBe(projectId)
-          expect(query.searchParams.get("meta-dawnVercelRun")).toBe(attempt.marker)
+          expect(query.searchParams.get("meta-b4VercelRun")).toBe(attempt.marker)
           expect(query.searchParams.get("since")).toBe(String(attempt.attemptLowerBoundMs))
           expect(query.searchParams.get("limit")).toBe("100")
           const until = Number(query.searchParams.get("until"))
@@ -2846,7 +2841,7 @@ describe("marker reconciliation", () => {
       method: "GET",
       path:
         `/v6/deployments?teamId=${orgId}&projectId=${projectId}` +
-        `&meta-dawnVercelRun=${attempt.marker}&since=${attempt.attemptLowerBoundMs}` +
+        `&meta-b4VercelRun=${attempt.marker}&since=${attempt.attemptLowerBoundMs}` +
         `&until=${attemptStartMs + 300_000}&limit=100`,
     })
     expect(firstPageUntilValues.slice(0, 3)).toEqual([
@@ -2862,7 +2857,7 @@ describe("marker reconciliation", () => {
     expect(result).toEqual({
       deployments: [
         {
-          canonicalOrigin: "https://dawn-reconciled-abc.vercel.app",
+          canonicalOrigin: "https://b4-reconciled-abc.vercel.app",
           createdAt: attemptStartMs,
           deploymentId: "dpl_Reconciled1",
           marker: attempt.marker,
@@ -2943,11 +2938,11 @@ describe("marker reconciliation", () => {
 
   test.each([
     { uid: "project-name" },
-    { url: "https://dawn-reconciled-abc.vercel.app" },
+    { url: "https://b4-reconciled-abc.vercel.app" },
     { created: String(attemptStartMs) },
     { created: attemptStartMs - 300_001 },
     { created: attemptStartMs + 300_001 },
-    { meta: { dawnVercelRun: `vclrun_${"b".repeat(32)}` } },
+    { meta: { b4VercelRun: `vclrun_${"b".repeat(32)}` } },
   ])("rejects a malformed or out-of-window v6 row: %j", async (override) => {
     const attempt = attemptEvidence()
     const { clock } = fakeClock()
@@ -3136,7 +3131,7 @@ describe("marker reconciliation", () => {
     { projectId: "prj_Other" },
     { ownerId: "team_Other" },
     { target: "production" },
-    { meta: { dawnVercelRun: `vclrun_${"b".repeat(32)}` } },
+    { meta: { b4VercelRun: `vclrun_${"b".repeat(32)}` } },
   ])("rejects an unauthorized v13 candidate before persistence: %j", async (override) => {
     const attempt = attemptEvidence()
     const { clock } = fakeClock()
@@ -3189,7 +3184,7 @@ describe("marker reconciliation", () => {
             return {
               body: {
                 deployments: [
-                  listRow(attempt, listCalls > 1 ? { url: "dawn-conflict-def.vercel.app" } : {}),
+                  listRow(attempt, listCalls > 1 ? { url: "b4-conflict-def.vercel.app" } : {}),
                 ],
                 pagination: {},
               },
@@ -3251,7 +3246,7 @@ describe("marker reconciliation", () => {
             return {
               body: authoritativeBody(attempt, {
                 id: "dpl_Reconciled2",
-                url: "dawn-reconciled-def.vercel.app",
+                url: "b4-reconciled-def.vercel.app",
               }),
               status: 200,
             }
@@ -3263,7 +3258,7 @@ describe("marker reconciliation", () => {
                 listRow(attempt),
                 listRow(attempt, {
                   uid: "dpl_Reconciled2",
-                  url: "dawn-reconciled-def.vercel.app",
+                  url: "b4-reconciled-def.vercel.app",
                 }),
               ],
               pagination: {},
@@ -3372,7 +3367,7 @@ describe("authenticated cleanup", () => {
 
   function binding(deploymentId: string, suffix: string) {
     return {
-      canonicalOrigin: `https://dawn-cleanup-${suffix}.vercel.app`,
+      canonicalOrigin: `https://b4-cleanup-${suffix}.vercel.app`,
       createdAt: 1_800_000_000_000,
       deploymentId,
       marker,
@@ -3390,7 +3385,7 @@ describe("authenticated cleanup", () => {
       ownerId: orgId,
       createdAt: value.createdAt,
       target: null,
-      meta: { dawnVercelRun: value.marker },
+      meta: { b4VercelRun: value.marker },
     }
   }
 
@@ -3824,7 +3819,7 @@ describe("authenticated cleanup", () => {
     { projectId: "prj_Other" },
     { ownerId: "team_Other" },
     { target: "production" },
-    { meta: { dawnVercelRun: `vclrun_${"b".repeat(32)}` } },
+    { meta: { b4VercelRun: `vclrun_${"b".repeat(32)}` } },
   ])("blocks DELETE when the pre-delete binding mismatches: %j", async (override) => {
     const value = binding("dpl_Mismatch1", "mismatch")
     const { clock } = fakeClock()
@@ -4296,7 +4291,7 @@ describe("causal SSE", () => {
   })
 
   test("runs the identical persisted state, middleware, causal stream, later request, and log proof", async () => {
-    const canonicalOrigin = "https://dawn-native-blackbox.vercel.app"
+    const canonicalOrigin = "https://b4-native-blackbox.vercel.app"
     const deploymentId = "dpl_BlackBox123"
     const orgId = "team_Test123"
     const projectId = "prj_Test456"
@@ -4314,7 +4309,7 @@ describe("causal SSE", () => {
     const releaseAuthorization = createNativeReleaseAuthorization()
     const expectedPrivateHeaders = new Headers()
     releaseAuthorization.apply(expectedPrivateHeaders)
-    const expectedReleaseCredential = expectedPrivateHeaders.get("x-dawn-vercel-release") as string
+    const expectedReleaseCredential = expectedPrivateHeaders.get("x-b4-vercel-release") as string
     const events: string[] = []
     const requests: Array<{
       readonly body?: unknown
@@ -4387,15 +4382,15 @@ describe("causal SSE", () => {
           databaseRequests.push(request)
           events.push(`sql:${request.sql.split("\n", 1)[0]}`)
           if (request.sql.includes("CREATE TABLE IF NOT EXISTS")) return { rows: [] }
-          if (request.sql.includes("INSERT INTO public.dawn_vercel_test_barriers")) {
+          if (request.sql.includes("INSERT INTO public.b4_vercel_test_barriers")) {
             expect(request.params).toEqual([ids.targetBarrierId, ids.sentinelBarrierId])
             return { rows: [] }
           }
-          if (request.sql.includes("FROM public.dawn_checkpoints")) {
+          if (request.sql.includes("FROM public.b4_checkpoints")) {
             expect(request.params).toEqual([ids.stateThreadId])
             return { rows: [{ checkpoint_count: 1 }] }
           }
-          if (request.sql.includes("FROM public.dawn_vercel_test_barriers")) {
+          if (request.sql.includes("FROM public.b4_vercel_test_barriers")) {
             return {
               rows: [
                 { barrier_id: ids.sentinelBarrierId, released: false },
@@ -4418,8 +4413,8 @@ describe("causal SSE", () => {
             projectId,
             responseStatusCode: 200,
             level: "info",
-            message: `dawn-vercel-fixture-log ${ids.logMarker}`,
-            logs: [{ level: "info", message: `dawn-vercel-fixture-log ${ids.logMarker}` }],
+            message: `b4-vercel-fixture-log ${ids.logMarker}`,
+            logs: [{ level: "info", message: `b4-vercel-fixture-log ${ids.logMarker}` }],
           })}\n`
         },
       },
@@ -4476,7 +4471,7 @@ describe("causal SSE", () => {
             input: { barrierId: ids.targetBarrierId },
             route: "/release#graph",
           })
-          const releaseHeader = request.headers.get("x-dawn-vercel-release")
+          const releaseHeader = request.headers.get("x-b4-vercel-release")
           if (releaseHeader === null || releaseHeader === "incorrect-release-credential") {
             return statusOnlyResponse(path, 401, { error: "unauthorized" })
           }
@@ -4595,12 +4590,12 @@ describe("causal SSE", () => {
     expect(
       requests
         .filter(({ url }) => !url.endsWith(`/threads/${ids.releaseThreadId}/runs/wait`))
-        .every(({ headers }) => headers.get("x-dawn-vercel-release") === null),
+        .every(({ headers }) => headers.get("x-b4-vercel-release") === null),
     ).toBe(true)
     expect(
       requests
         .filter(({ url }) => url.endsWith(`/threads/${ids.releaseThreadId}/runs/wait`))
-        .map(({ headers }) => headers.get("x-dawn-vercel-release")),
+        .map(({ headers }) => headers.get("x-b4-vercel-release")),
     ).toEqual([null, "incorrect-release-credential", expectedReleaseCredential])
     expect(
       databaseRequests.every(({ timeoutMs }) => Number.isFinite(timeoutMs) && timeoutMs > 0),
@@ -4622,10 +4617,10 @@ describe("causal SSE", () => {
       events.indexOf(`http:POST:/threads/${ids.streamThreadId}/runs/stream`),
     )
     expect(events.indexOf(`persist-barrier:target:${ids.targetBarrierId}`)).toBeLessThan(
-      events.indexOf("sql:CREATE TABLE IF NOT EXISTS public.dawn_vercel_test_barriers ("),
+      events.indexOf("sql:CREATE TABLE IF NOT EXISTS public.b4_vercel_test_barriers ("),
     )
     expect(events.indexOf(`persist-barrier:sentinel:${ids.sentinelBarrierId}`)).toBeLessThan(
-      events.indexOf("sql:CREATE TABLE IF NOT EXISTS public.dawn_vercel_test_barriers ("),
+      events.indexOf("sql:CREATE TABLE IF NOT EXISTS public.b4_vercel_test_barriers ("),
     )
     expect(events.indexOf("persist-dispatch:state")).toBeGreaterThan(
       events.indexOf("sql:SELECT COUNT(*)::integer AS checkpoint_count"),
@@ -4651,22 +4646,22 @@ describe("causal SSE", () => {
       new Set([
         [
           "SELECT COUNT(*)::integer AS checkpoint_count",
-          "FROM public.dawn_checkpoints",
+          "FROM public.b4_checkpoints",
           "WHERE thread_id = $1",
         ].join("\n"),
         [
-          "INSERT INTO public.dawn_vercel_test_barriers (barrier_id, released)",
+          "INSERT INTO public.b4_vercel_test_barriers (barrier_id, released)",
           "VALUES ($1, false), ($2, false)",
         ].join("\n"),
         [
-          "CREATE TABLE IF NOT EXISTS public.dawn_vercel_test_barriers (",
+          "CREATE TABLE IF NOT EXISTS public.b4_vercel_test_barriers (",
           "  barrier_id text PRIMARY KEY,",
           "  released boolean NOT NULL DEFAULT false",
           ")",
         ].join("\n"),
         [
           "SELECT barrier_id, released",
-          "FROM public.dawn_vercel_test_barriers",
+          "FROM public.b4_vercel_test_barriers",
           "WHERE barrier_id = ANY($1::text[])",
           "ORDER BY barrier_id",
         ].join("\n"),
@@ -4674,7 +4669,7 @@ describe("causal SSE", () => {
     )
     const barrierSelectSql = [
       "SELECT barrier_id, released",
-      "FROM public.dawn_vercel_test_barriers",
+      "FROM public.b4_vercel_test_barriers",
       "WHERE barrier_id = ANY($1::text[])",
       "ORDER BY barrier_id",
     ].join("\n")
@@ -4735,7 +4730,7 @@ describe("causal SSE", () => {
     "later JSON",
     "log secret",
   ] as const)("fails closed on %s without advancing later evidence", async (fault) => {
-    const canonicalOrigin = "https://dawn-native-blackbox.vercel.app"
+    const canonicalOrigin = "https://b4-native-blackbox.vercel.app"
     const deploymentId = "dpl_BlackBox123"
     const projectId = "prj_Test456"
     const validIds = {
@@ -4772,7 +4767,7 @@ describe("causal SSE", () => {
     const releaseAuthorization = createNativeReleaseAuthorization()
     const expectedPrivateHeaders = new Headers()
     releaseAuthorization.apply(expectedPrivateHeaders)
-    const expectedReleaseCredential = expectedPrivateHeaders.get("x-dawn-vercel-release") as string
+    const expectedReleaseCredential = expectedPrivateHeaders.get("x-b4-vercel-release") as string
     const makeResponse = (
       path: string,
       status: number,
@@ -4830,7 +4825,7 @@ describe("causal SSE", () => {
           if (
             sql ===
             [
-              "CREATE TABLE IF NOT EXISTS public.dawn_vercel_test_barriers (",
+              "CREATE TABLE IF NOT EXISTS public.b4_vercel_test_barriers (",
               "  barrier_id text PRIMARY KEY,",
               "  released boolean NOT NULL DEFAULT false",
               ")",
@@ -4842,7 +4837,7 @@ describe("causal SSE", () => {
             sql ===
             [
               "SELECT COUNT(*)::integer AS checkpoint_count",
-              "FROM public.dawn_checkpoints",
+              "FROM public.b4_checkpoints",
               "WHERE thread_id = $1",
             ].join("\n")
           ) {
@@ -4869,7 +4864,7 @@ describe("causal SSE", () => {
           if (
             sql ===
             [
-              "INSERT INTO public.dawn_vercel_test_barriers (barrier_id, released)",
+              "INSERT INTO public.b4_vercel_test_barriers (barrier_id, released)",
               "VALUES ($1, false), ($2, false)",
             ].join("\n")
           ) {
@@ -4880,7 +4875,7 @@ describe("causal SSE", () => {
             sql ===
             [
               "SELECT barrier_id, released",
-              "FROM public.dawn_vercel_test_barriers",
+              "FROM public.b4_vercel_test_barriers",
               "WHERE barrier_id = ANY($1::text[])",
               "ORDER BY barrier_id",
             ].join("\n")
@@ -4939,9 +4934,9 @@ describe("causal SSE", () => {
             projectId,
             responseStatusCode: 200,
             level: "info",
-            message: `dawn-vercel-fixture-log ${validIds.logMarker}`,
+            message: `b4-vercel-fixture-log ${validIds.logMarker}`,
             ...(fault === "log secret" ? { echoed: expectedReleaseCredential } : {}),
-            logs: [{ level: "info", message: `dawn-vercel-fixture-log ${validIds.logMarker}` }],
+            logs: [{ level: "info", message: `b4-vercel-fixture-log ${validIds.logMarker}` }],
           })}\n`,
       },
       orgId: "team_Test123",
@@ -4963,7 +4958,7 @@ describe("causal SSE", () => {
       request: (request) => {
         if (
           fault === "transport secret" &&
-          request.headers.get("x-dawn-vercel-release") === expectedReleaseCredential
+          request.headers.get("x-b4-vercel-release") === expectedReleaseCredential
         ) {
           throw new Error(expectedReleaseCredential)
         }
@@ -5018,7 +5013,7 @@ describe("causal SSE", () => {
           })
         }
         if (path === `/threads/${validIds.releaseThreadId}/runs/wait`) {
-          const releaseHeader = request.headers.get("x-dawn-vercel-release")
+          const releaseHeader = request.headers.get("x-b4-vercel-release")
           if (releaseHeader === null || releaseHeader === "incorrect-release-credential") {
             return makeJson(
               path,
@@ -5153,7 +5148,7 @@ describe("causal SSE", () => {
     if (fault === "barrier persistence") {
       expect(databaseSql).not.toContain(
         [
-          "CREATE TABLE IF NOT EXISTS public.dawn_vercel_test_barriers (",
+          "CREATE TABLE IF NOT EXISTS public.b4_vercel_test_barriers (",
           "  barrier_id text PRIMARY KEY,",
           "  released boolean NOT NULL DEFAULT false",
           ")",
@@ -5161,7 +5156,7 @@ describe("causal SSE", () => {
       )
       expect(databaseSql).not.toContain(
         [
-          "INSERT INTO public.dawn_vercel_test_barriers (barrier_id, released)",
+          "INSERT INTO public.b4_vercel_test_barriers (barrier_id, released)",
           "VALUES ($1, false), ($2, false)",
         ].join("\n"),
       )
@@ -5228,7 +5223,7 @@ describe("runtime log scan", () => {
       logs: [
         {
           level: "info",
-          message: `dawn-vercel-fixture-log ${logMarker}`,
+          message: `b4-vercel-fixture-log ${logMarker}`,
           messageTruncated: false,
           context: { sequence: 1 },
         },
@@ -5255,7 +5250,7 @@ describe("runtime log scan", () => {
         logs: [
           {
             level: "info",
-            message: `dawn-vercel-fixture-log ${logMarker}`,
+            message: `b4-vercel-fixture-log ${logMarker}`,
             messageTruncated: false,
             context: { sequence: 2 },
           },
@@ -5279,7 +5274,7 @@ describe("runtime log scan", () => {
           {
             context: { sequence: 1 },
             messageTruncated: false,
-            message: `dawn-vercel-fixture-log ${logMarker}`,
+            message: `b4-vercel-fixture-log ${logMarker}`,
             level: "info",
           },
         ],
@@ -5309,7 +5304,7 @@ describe("runtime log scan", () => {
       versions: [],
     })
     const row = validLogRow({
-      logs: [{ level: "info", message: `dawn-vercel-fixture-log ${logMarker}` }],
+      logs: [{ level: "info", message: `b4-vercel-fixture-log ${logMarker}` }],
       messageTruncated: undefined,
     })
     delete (row as { messageTruncated?: unknown }).messageTruncated
@@ -5322,7 +5317,7 @@ describe("runtime log scan", () => {
       }),
     ).toMatchObject({ markerOccurrences: 1, versions: [{ id: "request-1" }] })
 
-    const projectedMessage = `dawn-vercel-fixture-log ${logMarker}`
+    const projectedMessage = `b4-vercel-fixture-log ${logMarker}`
     expect(
       scan([
         validLogRow({
@@ -5671,7 +5666,7 @@ describe("runtime log scan", () => {
     let calls = 0
     const markerEntry = (version: number) => ({
       level: "info",
-      message: `dawn-vercel-fixture-log ${logMarker}`,
+      message: `b4-vercel-fixture-log ${logMarker}`,
       context: { version },
     })
     await expect(
@@ -5809,10 +5804,10 @@ describe("database cleanup", () => {
   const barrierIds = [`b-vcl-${"a".repeat(32)}`, `b-vcl-${"b".repeat(32)}`] as const
   const threadIds = [`t-vcl-${"c".repeat(32)}`, `t-vcl-${"d".repeat(32)}`] as const
   const tables = [
-    "public.dawn_vercel_test_barriers",
-    "public.dawn_writes",
-    "public.dawn_checkpoints",
-    "public.dawn_threads",
+    "public.b4_vercel_test_barriers",
+    "public.b4_writes",
+    "public.b4_checkpoints",
+    "public.b4_threads",
   ] as const
   const toRegclassSql =
     "SELECT CASE WHEN to_regclass($1) IS NULL THEN NULL ELSE $1::text END AS relation"
@@ -5866,21 +5861,19 @@ describe("database cleanup", () => {
     const expectedMutations = [
       ...barrierIds.flatMap((barrierId) => [
         {
-          sql: deleteSql("public.dawn_vercel_test_barriers", "barrier_id"),
+          sql: deleteSql("public.b4_vercel_test_barriers", "barrier_id"),
           params: [barrierId],
         },
         {
-          sql: verifySql("public.dawn_vercel_test_barriers", "barrier_id"),
+          sql: verifySql("public.b4_vercel_test_barriers", "barrier_id"),
           params: [barrierId],
         },
       ]),
       ...threadIds.flatMap((threadId) =>
-        ["public.dawn_writes", "public.dawn_checkpoints", "public.dawn_threads"].flatMap(
-          (table) => [
-            { sql: deleteSql(table, "thread_id"), params: [threadId] },
-            { sql: verifySql(table, "thread_id"), params: [threadId] },
-          ],
-        ),
+        ["public.b4_writes", "public.b4_checkpoints", "public.b4_threads"].flatMap((table) => [
+          { sql: deleteSql(table, "thread_id"), params: [threadId] },
+          { sql: verifySql(table, "thread_id"), params: [threadId] },
+        ]),
       ),
     ]
     const expectedRun = [
@@ -5921,7 +5914,7 @@ describe("database cleanup", () => {
   })
 
   test("deletes only tables present in a partial migration and still verifies each resource", async () => {
-    const existing = new Set(["public.dawn_vercel_test_barriers", "public.dawn_checkpoints"])
+    const existing = new Set(["public.b4_vercel_test_barriers", "public.b4_checkpoints"])
     const requests: Array<{ readonly params: readonly unknown[]; readonly sql: string }> = []
     const cleaned: string[] = []
     await expect(
@@ -5950,17 +5943,17 @@ describe("database cleanup", () => {
     expect(requests.slice(4).map(({ sql, params }) => ({ sql, params }))).toEqual([
       ...barrierIds.flatMap((barrierId) => [
         {
-          sql: deleteSql("public.dawn_vercel_test_barriers", "barrier_id"),
+          sql: deleteSql("public.b4_vercel_test_barriers", "barrier_id"),
           params: [barrierId],
         },
         {
-          sql: verifySql("public.dawn_vercel_test_barriers", "barrier_id"),
+          sql: verifySql("public.b4_vercel_test_barriers", "barrier_id"),
           params: [barrierId],
         },
       ]),
       ...threadIds.flatMap((threadId) => [
-        { sql: deleteSql("public.dawn_checkpoints", "thread_id"), params: [threadId] },
-        { sql: verifySql("public.dawn_checkpoints", "thread_id"), params: [threadId] },
+        { sql: deleteSql("public.b4_checkpoints", "thread_id"), params: [threadId] },
+        { sql: verifySql("public.b4_checkpoints", "thread_id"), params: [threadId] },
       ]),
     ])
     expect(cleaned).toEqual([
@@ -5983,19 +5976,16 @@ describe("database cleanup", () => {
             return { rows: [{ relation: params[0] }] }
           }
           if (
-            sql === deleteSql("public.dawn_vercel_test_barriers", "barrier_id") &&
+            sql === deleteSql("public.b4_vercel_test_barriers", "barrier_id") &&
             params[0] === barrierIds[0]
           ) {
             throw new Error("first barrier delete failed")
           }
-          if (
-            sql === deleteSql("public.dawn_writes", "thread_id") &&
-            params[0] === threeThreads[0]
-          ) {
+          if (sql === deleteSql("public.b4_writes", "thread_id") && params[0] === threeThreads[0]) {
             throw new Error("first thread writes delete failed")
           }
           if (
-            sql === verifySql("public.dawn_checkpoints", "thread_id") &&
+            sql === verifySql("public.b4_checkpoints", "thread_id") &&
             params[0] === threeThreads[1]
           ) {
             return { rows: [{ remaining: 1 }] }
@@ -6030,14 +6020,15 @@ describe("database cleanup", () => {
           .filter((entry) => entry.endsWith(`\0${JSON.stringify([threadId])}`))
           .map((entry) => entry.split("\0", 1)[0]),
       ).toEqual(
-        ["public.dawn_writes", "public.dawn_checkpoints", "public.dawn_threads"].flatMap(
-          (table) => [deleteSql(table, "thread_id"), verifySql(table, "thread_id")],
-        ),
+        ["public.b4_writes", "public.b4_checkpoints", "public.b4_threads"].flatMap((table) => [
+          deleteSql(table, "thread_id"),
+          verifySql(table, "thread_id"),
+        ]),
       )
       for (const table of [
-        "public.dawn_writes",
-        "public.dawn_checkpoints",
-        "public.dawn_threads",
+        "public.b4_writes",
+        "public.b4_checkpoints",
+        "public.b4_threads",
       ] as const) {
         expect(attempted).toContain(
           `${deleteSql(table, "thread_id")}\0${JSON.stringify([threadId])}`,
@@ -6093,14 +6084,14 @@ describe("database cleanup", () => {
     [
       "duplicate existence rows",
       [
-        { relation: "public.dawn_vercel_test_barriers" },
-        { relation: "public.dawn_vercel_test_barriers" },
+        { relation: "public.b4_vercel_test_barriers" },
+        { relation: "public.b4_vercel_test_barriers" },
       ],
     ],
     ["mismatched relation", [{ relation: "public.other" }]],
     ["nonstring relation", [{ relation: 1 }]],
     ["missing relation field", [{ wrong: null }]],
-    ["additional relation field", [{ relation: "public.dawn_vercel_test_barriers", extra: true }]],
+    ["additional relation field", [{ relation: "public.b4_vercel_test_barriers", extra: true }]],
   ] as const)("rejects %s without mutating the affected table", async (_label, malformedRows) => {
     const mutated: string[] = []
     const caught = await cleanupNativeDatabase({
@@ -6110,7 +6101,7 @@ describe("database cleanup", () => {
           if (sql === toRegclassSql) {
             return {
               rows:
-                params[0] === "public.dawn_vercel_test_barriers"
+                params[0] === "public.b4_vercel_test_barriers"
                   ? [...malformedRows]
                   : [{ relation: null }],
             }
@@ -6150,7 +6141,7 @@ describe("database cleanup", () => {
             return {
               rows: [
                 {
-                  relation: params[0] === "public.dawn_vercel_test_barriers" ? params[0] : null,
+                  relation: params[0] === "public.b4_vercel_test_barriers" ? params[0] : null,
                 },
               ],
             }
@@ -6401,7 +6392,7 @@ describe("native orchestration and evidence closure", () => {
     return { barrierIds, bindings, threadIds }
   }
   const sourceBuildPayloads = [
-    "Build complete: .dawn/build",
+    "Build complete: .b4/build",
     "3 route(s) compiled",
     "targets: vercel",
     "wrote .vercel/output/config.json",
@@ -6443,12 +6434,12 @@ describe("native orchestration and evidence closure", () => {
           await expect(lstat(join(source.root, "node_modules"))).rejects.toMatchObject({
             code: "ENOENT",
           })
-          await expect(lstat(join(source.root, ".dawn"))).rejects.toMatchObject({ code: "ENOENT" })
+          await expect(lstat(join(source.root, ".b4"))).rejects.toMatchObject({ code: "ENOENT" })
           await expect(lstat(join(source.root, ".vercel", "output"))).rejects.toMatchObject({
             code: "ENOENT",
           })
           return {
-            canonicalOrigin: "https://dawn-source-abc.vercel.app",
+            canonicalOrigin: "https://b4-source-abc.vercel.app",
             commandEvidence: sourceDeployCommand,
             deploymentId: "dpl_Source1",
           }
@@ -6460,7 +6451,7 @@ describe("native orchestration and evidence closure", () => {
         parentEnv: {
           PATH: process.env.PATH,
           DATABASE_URL: protectedValues[3],
-          DAWN_VERCEL_TOKEN: protectedValues[0],
+          B4_VERCEL_TOKEN: protectedValues[0],
           RELEASE_TOKEN: protectedValues[4],
           VERCEL_TOKEN: protectedValues[0],
         },
@@ -6479,14 +6470,14 @@ describe("native orchestration and evidence closure", () => {
     ).resolves.toMatchObject({
       commandEvidence: sourceDeployCommand,
       localOutputValidated: false,
-      sourceTree: { dawnAbsent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
+      sourceTree: { b4Absent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
     })
     expect(sourceDeployed).toBe(true)
 
     const prebuilt = await makeUploadFixture("source")
-    const dawnExecutable = join(prebuilt.root, "node_modules", ".bin", "dawn")
-    await mkdir(dirname(dawnExecutable), { recursive: true })
-    await writeFile(dawnExecutable, "#!/usr/bin/env node\n", { encoding: "utf8", mode: 0o700 })
+    const b4Executable = join(prebuilt.root, "node_modules", ".bin", "b4")
+    await mkdir(dirname(b4Executable), { recursive: true })
+    await writeFile(b4Executable, "#!/usr/bin/env node\n", { encoding: "utf8", mode: 0o700 })
     const buildRequests: NativeVercelChildRequest[] = []
     const diagnostics: Array<{ readonly contents: string; readonly name: string }> = []
     let outputValidated = false
@@ -6497,7 +6488,7 @@ describe("native orchestration and evidence closure", () => {
           prebuiltDeployed = true
           expect(outputValidated).toBe(true)
           return {
-            canonicalOrigin: "https://dawn-prebuilt-def.vercel.app",
+            canonicalOrigin: "https://b4-prebuilt-def.vercel.app",
             commandEvidence: prebuiltDeployCommand,
             deploymentId: "dpl_Prebuilt2",
           }
@@ -6509,7 +6500,7 @@ describe("native orchestration and evidence closure", () => {
         parentEnv: {
           PATH: process.env.PATH,
           DATABASE_URL: protectedValues[3],
-          DAWN_VERCEL_TOKEN: protectedValues[0],
+          B4_VERCEL_TOKEN: protectedValues[0],
           NOW_TOKEN: protectedValues[0],
           RELEASE_TOKEN: protectedValues[4],
         },
@@ -6545,11 +6536,11 @@ describe("native orchestration and evidence closure", () => {
     expect(buildRequests[0]).toMatchObject({
       args: ["build"],
       cwd: prebuilt.root,
-      executable: dawnExecutable,
+      executable: b4Executable,
       timeoutMs: 120_000,
     })
     expect(buildRequests[0]?.env).not.toHaveProperty("DATABASE_URL")
-    expect(buildRequests[0]?.env).not.toHaveProperty("DAWN_VERCEL_TOKEN")
+    expect(buildRequests[0]?.env).not.toHaveProperty("B4_VERCEL_TOKEN")
     expect(buildRequests[0]?.env).not.toHaveProperty("NOW_TOKEN")
     expect(buildRequests[0]?.env).not.toHaveProperty("RELEASE_TOKEN")
     expect(diagnostics).toEqual([
@@ -6562,14 +6553,14 @@ describe("native orchestration and evidence closure", () => {
 
   test("rejects stale source output and protected prebuilt bundles before deploy", async () => {
     const staleSource = await makeUploadFixture("source")
-    await mkdir(join(staleSource.root, ".dawn"))
+    await mkdir(join(staleSource.root, ".b4"))
     let deployCalls = 0
     await expect(
       prepareNativeFixtureDeployment({
         deploy: async () => {
           deployCalls += 1
           return {
-            canonicalOrigin: "https://dawn-source-abc.vercel.app",
+            canonicalOrigin: "https://b4-source-abc.vercel.app",
             commandEvidence: sourceDeployCommand,
             deploymentId: "dpl_Source1",
           }
@@ -6585,18 +6576,18 @@ describe("native orchestration and evidence closure", () => {
         validateOutput: async () => {},
         writeDiagnostic: async () => {},
       }),
-    ).rejects.toThrow(/source|\.dawn|upload/)
+    ).rejects.toThrow(/source|\.b4|upload/)
 
     const unsafePrebuilt = await makeUploadFixture("source")
-    const dawnExecutable = join(unsafePrebuilt.root, "node_modules", ".bin", "dawn")
-    await mkdir(dirname(dawnExecutable), { recursive: true })
-    await writeFile(dawnExecutable, "#!/usr/bin/env node\n", "utf8")
+    const b4Executable = join(unsafePrebuilt.root, "node_modules", ".bin", "b4")
+    await mkdir(dirname(b4Executable), { recursive: true })
+    await writeFile(b4Executable, "#!/usr/bin/env node\n", "utf8")
     await expect(
       prepareNativeFixtureDeployment({
         deploy: async () => {
           deployCalls += 1
           return {
-            canonicalOrigin: "https://dawn-prebuilt-def.vercel.app",
+            canonicalOrigin: "https://b4-prebuilt-def.vercel.app",
             commandEvidence: prebuiltDeployCommand,
             deploymentId: "dpl_Prebuilt2",
           }
@@ -6629,16 +6620,16 @@ describe("native orchestration and evidence closure", () => {
   test("captures and sanitizes failed local build output and synchronous child failures", async () => {
     for (const failure of ["nonzero", "synchronous"] as const) {
       const fixture = await makeUploadFixture("source")
-      const dawnExecutable = join(fixture.root, "node_modules", ".bin", "dawn")
-      await mkdir(dirname(dawnExecutable), { recursive: true })
-      await writeFile(dawnExecutable, "#!/usr/bin/env node\n", "utf8")
+      const b4Executable = join(fixture.root, "node_modules", ".bin", "b4")
+      await mkdir(dirname(b4Executable), { recursive: true })
+      await writeFile(b4Executable, "#!/usr/bin/env node\n", "utf8")
       const diagnostics: string[] = []
       let deployCalls = 0
       const caught = await prepareNativeFixtureDeployment({
         deploy: async () => {
           deployCalls += 1
           return {
-            canonicalOrigin: "https://dawn-prebuilt-def.vercel.app",
+            canonicalOrigin: "https://b4-prebuilt-def.vercel.app",
             commandEvidence: prebuiltDeployCommand,
             deploymentId: "dpl_Prebuilt2",
           }
@@ -6715,13 +6706,13 @@ describe("native orchestration and evidence closure", () => {
           return {
             exitCode: 0,
             stderr: "",
-            stdout: '{"id":"dpl_Prebuilt2","url":"dawn-prebuilt-def.vercel.app"}\n',
+            stdout: '{"id":"dpl_Prebuilt2","url":"b4-prebuilt-def.vercel.app"}\n',
           }
         }
         return {
           exitCode: 0,
           stderr: "",
-          stdout: '{"id":"dpl_Source1","url":"dawn-source-abc.vercel.app"}\n',
+          stdout: '{"id":"dpl_Source1","url":"b4-source-abc.vercel.app"}\n',
         }
       },
       token: protectedValues[0],
@@ -6818,7 +6809,7 @@ describe("native orchestration and evidence closure", () => {
         inspectBuildLogs: normalizedBlank,
         kind: "source",
         localOutputValidated: false,
-        sourceTree: { dawnAbsent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
+        sourceTree: { b4Absent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
       }),
     ).toMatchObject({ remoteBuildObserved: true })
     expect(
@@ -6827,7 +6818,7 @@ describe("native orchestration and evidence closure", () => {
         inspectBuildLogs: sourceLogs,
         kind: "source",
         localOutputValidated: false,
-        sourceTree: { dawnAbsent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
+        sourceTree: { b4Absent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
       }),
     ).toEqual({ cleanSource: true, prebuiltOutputAbsent: true, remoteBuildObserved: true })
     expect(
@@ -6836,7 +6827,7 @@ describe("native orchestration and evidence closure", () => {
         inspectBuildLogs: prebuiltLogs,
         kind: "prebuilt",
         localOutputValidated: true,
-        sourceTree: { dawnAbsent: false, nodeModulesAbsent: false, prebuiltOutputAbsent: false },
+        sourceTree: { b4Absent: false, nodeModulesAbsent: false, prebuiltOutputAbsent: false },
       }),
     ).toEqual({
       localOutputValidated: true,
@@ -6868,7 +6859,7 @@ describe("native orchestration and evidence closure", () => {
         inspectBuildLogs: noisySourceLogs,
         kind: "source",
         localOutputValidated: false,
-        sourceTree: { dawnAbsent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
+        sourceTree: { b4Absent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
       }),
     ).toEqual({ cleanSource: true, prebuiltOutputAbsent: true, remoteBuildObserved: true })
 
@@ -6884,7 +6875,7 @@ describe("native orchestration and evidence closure", () => {
         inspectBuildLogs: prebuiltWithoutEvents,
         kind: "prebuilt",
         localOutputValidated: true,
-        sourceTree: { dawnAbsent: false, nodeModulesAbsent: false, prebuiltOutputAbsent: false },
+        sourceTree: { b4Absent: false, nodeModulesAbsent: false, prebuiltOutputAbsent: false },
       }),
     ).toEqual({
       localOutputValidated: true,
@@ -6911,28 +6902,28 @@ describe("native orchestration and evidence closure", () => {
         inspectBuildLogs: duplicatedSourceLogs,
         kind: "source" as const,
         localOutputValidated: false,
-        sourceTree: { dawnAbsent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
+        sourceTree: { b4Absent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
       },
       {
         deployCommand: sourceDeployCommand,
         inspectBuildLogs: reorderedSourceLogs,
         kind: "source" as const,
         localOutputValidated: false,
-        sourceTree: { dawnAbsent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
+        sourceTree: { b4Absent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
       },
       {
         deployCommand: { ...sourceDeployCommand, extra: true },
         inspectBuildLogs: sourceLogs,
         kind: "source" as const,
         localOutputValidated: false,
-        sourceTree: { dawnAbsent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
+        sourceTree: { b4Absent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
       },
       {
         deployCommand: prebuiltDeployCommand,
         inspectBuildLogs: sourceLogs,
         kind: "source" as const,
         localOutputValidated: false,
-        sourceTree: { dawnAbsent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
+        sourceTree: { b4Absent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
       },
       {
         deployCommand: sourceDeployCommand,
@@ -6943,21 +6934,21 @@ describe("native orchestration and evidence closure", () => {
         }),
         kind: "source" as const,
         localOutputValidated: false,
-        sourceTree: { dawnAbsent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
+        sourceTree: { b4Absent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
       },
       {
         deployCommand: prebuiltDeployCommand,
         inspectBuildLogs: sourceLogs,
         kind: "prebuilt" as const,
         localOutputValidated: true,
-        sourceTree: { dawnAbsent: false, nodeModulesAbsent: false, prebuiltOutputAbsent: false },
+        sourceTree: { b4Absent: false, nodeModulesAbsent: false, prebuiltOutputAbsent: false },
       },
       {
         deployCommand: sourceDeployCommand,
         inspectBuildLogs: sourceLogs,
         kind: "source" as const,
         localOutputValidated: false,
-        sourceTree: { dawnAbsent: false, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
+        sourceTree: { b4Absent: false, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
       },
     ]) {
       expect(() => parseNativeBuildProvenance(malformed)).toThrow(
@@ -6975,7 +6966,7 @@ describe("native orchestration and evidence closure", () => {
         kind: "source",
         localOutputValidated: false,
         protectedValues,
-        sourceTree: { dawnAbsent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
+        sourceTree: { b4Absent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
       }),
     ).toThrow(/protected|provenance|build/)
 
@@ -7034,9 +7025,9 @@ describe("native orchestration and evidence closure", () => {
       if (kind === "source") {
         await mkdir(join(fixture.root, "node_modules"), { recursive: true })
       } else {
-        const dawnExecutable = join(fixture.root, "node_modules", ".bin", "dawn")
-        await mkdir(dirname(dawnExecutable), { recursive: true })
-        await writeFile(dawnExecutable, "#!/usr/bin/env node\n", "utf8")
+        const b4Executable = join(fixture.root, "node_modules", ".bin", "b4")
+        await mkdir(dirname(b4Executable), { recursive: true })
+        await writeFile(b4Executable, "#!/usr/bin/env node\n", "utf8")
       }
       const attempt = attemptFor(kind, kind === "source" ? "0" : "1")
       const binding = bindingFor(kind, attempt.marker)
@@ -7217,7 +7208,7 @@ describe("native orchestration and evidence closure", () => {
       const complete = validDeployment("source")
       const mismatched = {
         ...binding,
-        canonicalOrigin: "https://dawn-other-xyz.vercel.app",
+        canonicalOrigin: "https://b4-other-xyz.vercel.app",
         deploymentId: "dpl_Other3",
       }
       const reconciled =
@@ -7599,7 +7590,7 @@ describe("native orchestration and evidence closure", () => {
       const artifactDir = await makeTempDir()
       const store = await createNativeEvidenceStore({ artifactDir, protectedValues })
       if (kind === "prebuilt") {
-        const executable = join(fixture.root, "node_modules", ".bin", "dawn")
+        const executable = join(fixture.root, "node_modules", ".bin", "b4")
         await mkdir(dirname(executable), { recursive: true })
         await writeFile(executable, "#!/usr/bin/env node\n")
       }
@@ -7725,7 +7716,7 @@ describe("native orchestration and evidence closure", () => {
           }
           if (path.startsWith("/v6/deployments?")) {
             const marker = new URL(path, "https://api.vercel.com").searchParams.get(
-              "meta-dawnVercelRun",
+              "meta-b4VercelRun",
             )
             const binding = bindingByMarker.get(marker ?? "")
             if (!binding) throw new Error("unexpected reconciliation marker")
@@ -7734,7 +7725,7 @@ describe("native orchestration and evidence closure", () => {
                 deployments: [
                   {
                     created: binding.createdAt,
-                    meta: { dawnVercelRun: binding.marker },
+                    meta: { b4VercelRun: binding.marker },
                     state: deleted.has(binding.deploymentId) ? "DELETED" : "READY",
                     uid: binding.deploymentId,
                     url: new URL(binding.canonicalOrigin).hostname,
@@ -7761,7 +7752,7 @@ describe("native orchestration and evidence closure", () => {
             body: {
               createdAt: binding.createdAt,
               id: binding.deploymentId,
-              meta: { dawnVercelRun: binding.marker },
+              meta: { b4VercelRun: binding.marker },
               ownerId: "team_Test123",
               projectId: "prj_Test456",
               target: null,
@@ -7835,7 +7826,7 @@ describe("native orchestration and evidence closure", () => {
                   deployments: [
                     {
                       created: binding.createdAt,
-                      meta: { dawnVercelRun: binding.marker },
+                      meta: { b4VercelRun: binding.marker },
                       state: deleted ? "DELETED" : "READY",
                       uid: binding.deploymentId,
                       url: new URL(binding.canonicalOrigin).hostname,
@@ -7859,7 +7850,7 @@ describe("native orchestration and evidence closure", () => {
               body: {
                 createdAt: binding.createdAt,
                 id: binding.deploymentId,
-                meta: { dawnVercelRun: binding.marker },
+                meta: { b4VercelRun: binding.marker },
                 ownerId: "team_Test123",
                 projectId: "prj_Test456",
                 target: null,
@@ -7916,7 +7907,7 @@ describe("native orchestration and evidence closure", () => {
     const receiptBinding = bindingFor("source", attempt.marker)
     const extraBinding = {
       ...receiptBinding,
-      canonicalOrigin: "https://dawn-extra-abc.vercel.app",
+      canonicalOrigin: "https://b4-extra-abc.vercel.app",
       deploymentId: "dpl_Extra3",
     }
     await store.persistProjectBindingVerified()
@@ -7946,7 +7937,7 @@ describe("native orchestration and evidence closure", () => {
               body: {
                 deployments: bindings.map((binding) => ({
                   created: binding.createdAt,
-                  meta: { dawnVercelRun: binding.marker },
+                  meta: { b4VercelRun: binding.marker },
                   state: deleted.has(binding.deploymentId) ? "DELETED" : "READY",
                   uid: binding.deploymentId,
                   url: new URL(binding.canonicalOrigin).hostname,
@@ -7969,7 +7960,7 @@ describe("native orchestration and evidence closure", () => {
             body: {
               createdAt: binding.createdAt,
               id: binding.deploymentId,
-              meta: { dawnVercelRun: binding.marker },
+              meta: { b4VercelRun: binding.marker },
               ownerId: "team_Test123",
               projectId: "prj_Test456",
               target: null,
@@ -8078,7 +8069,7 @@ describe("native orchestration and evidence closure", () => {
     const main = bindingFor("source", attempt.marker)
     const extra = {
       ...main,
-      canonicalOrigin: "https://dawn-extra-retry.vercel.app",
+      canonicalOrigin: "https://b4-extra-retry.vercel.app",
       deploymentId: "dpl_ExtraRetry4",
     }
     await store.persistProjectBindingVerified()
@@ -8115,7 +8106,7 @@ describe("native orchestration and evidence closure", () => {
                 deployments: [
                   {
                     created: extra.createdAt,
-                    meta: { dawnVercelRun: extra.marker },
+                    meta: { b4VercelRun: extra.marker },
                     state: extraDeleted ? "DELETED" : "READY",
                     uid: extra.deploymentId,
                     url: new URL(extra.canonicalOrigin).hostname,
@@ -8136,7 +8127,7 @@ describe("native orchestration and evidence closure", () => {
             body: {
               createdAt: extra.createdAt,
               id: extra.deploymentId,
-              meta: { dawnVercelRun: extra.marker },
+              meta: { b4VercelRun: extra.marker },
               ownerId: "team_Test123",
               projectId: "prj_Test456",
               target: null,
@@ -8189,7 +8180,7 @@ describe("native orchestration and evidence closure", () => {
           }
           if (path.startsWith("/v6/deployments?")) {
             const marker = new URL(path, "https://api.vercel.com").searchParams.get(
-              "meta-dawnVercelRun",
+              "meta-b4VercelRun",
             )
             const binding = bindingByMarker.get(marker ?? "") as (typeof seeded.bindings)[number]
             return {
@@ -8197,7 +8188,7 @@ describe("native orchestration and evidence closure", () => {
                 deployments: [
                   {
                     created: binding.createdAt,
-                    meta: { dawnVercelRun: binding.marker },
+                    meta: { b4VercelRun: binding.marker },
                     state: "READY",
                     uid: binding.deploymentId,
                     url: new URL(binding.canonicalOrigin).hostname,
@@ -8219,7 +8210,7 @@ describe("native orchestration and evidence closure", () => {
             body: {
               createdAt: binding.createdAt,
               id: binding.deploymentId,
-              meta: { dawnVercelRun: binding.marker },
+              meta: { b4VercelRun: binding.marker },
               ownerId: "team_Test123",
               projectId: "prj_Test456",
               target: null,
@@ -8332,12 +8323,12 @@ describe("native orchestration and evidence closure", () => {
     const resources = new Map<"prebuilt" | "source", string>()
     const receipt = await runNativeVercelLane({
       env: {
-        DAWN_TEST_VERCEL: "1",
-        DAWN_VERCEL_ARTIFACT_DIR: artifactDir,
-        DAWN_VERCEL_DATABASE_URL: protectedValues[3],
-        DAWN_VERCEL_ORG_ID: "team_Test123",
-        DAWN_VERCEL_PROJECT_ID: "prj_Test456",
-        DAWN_VERCEL_TOKEN: protectedValues[0],
+        B4_TEST_VERCEL: "1",
+        B4_VERCEL_ARTIFACT_DIR: artifactDir,
+        B4_VERCEL_DATABASE_URL: protectedValues[3],
+        B4_VERCEL_ORG_ID: "team_Test123",
+        B4_VERCEL_PROJECT_ID: "prj_Test456",
+        B4_VERCEL_TOKEN: protectedValues[0],
         GITHUB_JOB: "vercel-native",
         GITHUB_REPOSITORY_ID: "123456",
         GITHUB_RUN_ATTEMPT: "2",
@@ -8350,8 +8341,8 @@ describe("native orchestration and evidence closure", () => {
           return {
             artifacts: [
               {
-                packageJson: { name: "@dawn-ai/cli", version: "0.0.0" },
-                packageName: "@dawn-ai/cli",
+                packageJson: { name: "@b4run/cli", version: "0.0.0" },
+                packageName: "@b4run/cli",
                 packageVersion: "0.0.0",
                 tarballName: "fixture.tgz",
                 tarballPath: join(artifactDir, "fixture.tgz"),
@@ -8481,14 +8472,14 @@ describe("native orchestration and evidence closure", () => {
     const prebuilt = await makeUploadFixture("source")
     const vercelConfig = `${JSON.stringify({
       $schema: "https://openapi.vercel.sh/vercel.json",
-      buildCommand: "node node_modules/@dawn-ai/cli/dist/index.js build",
+      buildCommand: "node node_modules/@b4run/cli/dist/index.js build",
       fluid: true,
     })}\n`
     await writeFile(join(source.root, "vercel.json"), vercelConfig, "utf8")
     await writeFile(join(prebuilt.root, "vercel.json"), vercelConfig, "utf8")
-    const dawnExecutable = join(prebuilt.root, "node_modules", ".bin", "dawn")
-    await mkdir(dirname(dawnExecutable), { recursive: true })
-    await writeFile(dawnExecutable, "#!/usr/bin/env node\n", { encoding: "utf8", mode: 0o700 })
+    const b4Executable = join(prebuilt.root, "node_modules", ".bin", "b4")
+    await mkdir(dirname(b4Executable), { recursive: true })
+    await writeFile(b4Executable, "#!/usr/bin/env node\n", { encoding: "utf8", mode: 0o700 })
     const bindings = new Map<string, ReturnType<typeof bindingFor>>()
     const deleted = new Set<string>()
     let nowMs = Date.now()
@@ -8506,12 +8497,12 @@ describe("native orchestration and evidence closure", () => {
     }
     const caught = await runNativeVercelLane({
       env: {
-        DAWN_TEST_VERCEL: "1",
-        DAWN_VERCEL_ARTIFACT_DIR: artifactDir,
-        DAWN_VERCEL_DATABASE_URL: protectedValues[3],
-        DAWN_VERCEL_ORG_ID: "team_Test123",
-        DAWN_VERCEL_PROJECT_ID: "prj_Test456",
-        DAWN_VERCEL_TOKEN: protectedValues[0],
+        B4_TEST_VERCEL: "1",
+        B4_VERCEL_ARTIFACT_DIR: artifactDir,
+        B4_VERCEL_DATABASE_URL: protectedValues[3],
+        B4_VERCEL_ORG_ID: "team_Test123",
+        B4_VERCEL_PROJECT_ID: "prj_Test456",
+        B4_VERCEL_TOKEN: protectedValues[0],
         GITHUB_JOB: "vercel-native",
         GITHUB_REPOSITORY_ID: "123456",
         GITHUB_RUN_ATTEMPT: "2",
@@ -8564,7 +8555,7 @@ describe("native orchestration and evidence closure", () => {
               }
             }
             if (url.pathname === "/v6/deployments") {
-              const binding = bindings.get(url.searchParams.get("meta-dawnVercelRun") ?? "")
+              const binding = bindings.get(url.searchParams.get("meta-b4VercelRun") ?? "")
               return {
                 body: {
                   deployments:
@@ -8572,7 +8563,7 @@ describe("native orchestration and evidence closure", () => {
                       ? [
                           {
                             created: binding.createdAt,
-                            meta: { dawnVercelRun: binding.marker },
+                            meta: { b4VercelRun: binding.marker },
                             state: "READY",
                             uid: binding.deploymentId,
                             url: new URL(binding.canonicalOrigin).hostname,
@@ -8597,7 +8588,7 @@ describe("native orchestration and evidence closure", () => {
               body: {
                 createdAt: binding.createdAt,
                 id: deploymentId,
-                meta: { dawnVercelRun: binding.marker },
+                meta: { b4VercelRun: binding.marker },
                 ownerId: "team_Test123",
                 projectId: "prj_Test456",
                 target: null,
@@ -8715,12 +8706,12 @@ describe("native orchestration and evidence closure", () => {
     await expect(
       runNativeVercelLane({
         env: {
-          DAWN_TEST_VERCEL: "1",
-          DAWN_VERCEL_ARTIFACT_DIR: artifactDir,
-          DAWN_VERCEL_DATABASE_URL: protectedValues[3],
-          DAWN_VERCEL_ORG_ID: "team_Test123",
-          DAWN_VERCEL_PROJECT_ID: "prj_Test456",
-          DAWN_VERCEL_TOKEN: protectedValues[0],
+          B4_TEST_VERCEL: "1",
+          B4_VERCEL_ARTIFACT_DIR: artifactDir,
+          B4_VERCEL_DATABASE_URL: protectedValues[3],
+          B4_VERCEL_ORG_ID: "team_Test123",
+          B4_VERCEL_PROJECT_ID: "prj_Test456",
+          B4_VERCEL_TOKEN: protectedValues[0],
           GITHUB_JOB: "vercel-native",
           GITHUB_REPOSITORY_ID: "123456",
           GITHUB_RUN_ATTEMPT: "2",
@@ -8794,7 +8785,7 @@ describe("native orchestration and evidence closure", () => {
     const completed = await runNativeLocalChild({
       args: [
         "-e",
-        "process.stdout.write(JSON.stringify({safe:process.env.SAFE_VALUE,secret:process.env.DAWN_VERCEL_TOKEN}))",
+        "process.stdout.write(JSON.stringify({safe:process.env.SAFE_VALUE,secret:process.env.B4_VERCEL_TOKEN}))",
       ],
       cwd: root,
       env: { SAFE_VALUE: "present" },
@@ -9037,7 +9028,7 @@ describe("native orchestration and evidence closure", () => {
         method: "POST",
         redirect: "manual",
         timeoutMs: 250,
-        url: "https://dawn-source-abc.vercel.app/threads/t-vcl-test/runs/wait",
+        url: "https://b4-source-abc.vercel.app/threads/t-vcl-test/runs/wait",
       }),
     ).resolves.toBeInstanceOf(Response)
     expect(fetchCalls).toHaveLength(2)
@@ -9164,7 +9155,7 @@ describe("native orchestration and evidence closure", () => {
       method: "GET",
       redirect: "manual",
       timeoutMs: 25,
-      url: "https://dawn-source-abc.vercel.app/threads/t-vcl-test/state",
+      url: "https://b4-source-abc.vercel.app/threads/t-vcl-test/state",
     })
     await expect(blackBoxResponse.json()).rejects.toThrow()
 
@@ -9181,7 +9172,7 @@ describe("native orchestration and evidence closure", () => {
       method: "GET",
       redirect: "manual",
       timeoutMs: 25,
-      url: "https://dawn-source-abc.vercel.app/threads/t-vcl-test/state",
+      url: "https://b4-source-abc.vercel.app/threads/t-vcl-test/state",
     })
     await expect(validJsonResponse.json()).rejects.toThrow(/deadline|abort|body|stream/)
     const stalledSseResponse = await validThenStalled.blackBoxRequest({
@@ -9189,7 +9180,7 @@ describe("native orchestration and evidence closure", () => {
       method: "GET",
       redirect: "manual",
       timeoutMs: 25,
-      url: "https://dawn-source-abc.vercel.app/threads/t-vcl-test/runs/stream",
+      url: "https://b4-source-abc.vercel.app/threads/t-vcl-test/runs/stream",
     })
     const stalledSseReader = stalledSseResponse.body?.getReader()
     await expect(stalledSseReader?.read()).resolves.toMatchObject({ done: false })
@@ -9371,7 +9362,7 @@ describe("native orchestration and evidence closure", () => {
     await expect(
       cleanupModule.runNativeVercelCleanupCli({
         argv: ["--assert-receipt"],
-        env: { DAWN_VERCEL_ARTIFACT_DIR: artifactDir },
+        env: { B4_VERCEL_ARTIFACT_DIR: artifactDir },
       }),
     ).resolves.toMatchObject({ mode: "assert-receipt" })
     const manifestPath = join(artifactDir, "cleanup-manifest.json")
@@ -9385,7 +9376,7 @@ describe("native orchestration and evidence closure", () => {
     await expect(
       cleanupModule.runNativeVercelCleanupCli({
         argv: ["--assert-receipt"],
-        env: { DAWN_VERCEL_ARTIFACT_DIR: artifactDir },
+        env: { B4_VERCEL_ARTIFACT_DIR: artifactDir },
       }),
     ).rejects.toThrow(/receipt does not match cleanup manifest/)
     await writeFile(receiptPath, closedReceipt, "utf8")
@@ -9402,7 +9393,7 @@ describe("native orchestration and evidence closure", () => {
     await expect(
       cleanupModule.runNativeVercelCleanupCli({
         argv: ["--assert-receipt"],
-        env: { DAWN_VERCEL_ARTIFACT_DIR: artifactDir },
+        env: { B4_VERCEL_ARTIFACT_DIR: artifactDir },
       }),
     ).rejects.toThrow(/cleanup|receipt|manifest|binding/)
     await writeFile(manifestPath, closedManifest, "utf8")
@@ -9412,7 +9403,7 @@ describe("native orchestration and evidence closure", () => {
     await expect(
       cleanupModule.runNativeVercelCleanupCli({
         argv: ["--assert-receipt"],
-        env: { DAWN_VERCEL_ARTIFACT_DIR: artifactDir },
+        env: { B4_VERCEL_ARTIFACT_DIR: artifactDir },
       }),
     ).rejects.toThrow(/receipt|evidence|regular|symlink|unreadable/)
     await rm(receiptPath)
@@ -9423,7 +9414,7 @@ describe("native orchestration and evidence closure", () => {
     await expect(
       cleanupModule.runNativeVercelCleanupCli({
         argv: ["--assert-receipt"],
-        env: { DAWN_VERCEL_ARTIFACT_DIR: symlinkedArtifactDir },
+        env: { B4_VERCEL_ARTIFACT_DIR: symlinkedArtifactDir },
       }),
     ).rejects.toThrow(/artifact|directory|regular|symlink/)
     const invalidVitestPath = join(artifactDir, "vitest.json")
@@ -9435,7 +9426,7 @@ describe("native orchestration and evidence closure", () => {
     await expect(
       cleanupModule.runNativeVercelCleanupCli({
         argv: ["--assert-receipt"],
-        env: { DAWN_VERCEL_ARTIFACT_DIR: artifactDir },
+        env: { B4_VERCEL_ARTIFACT_DIR: artifactDir },
       }),
     ).rejects.toThrow(/Vitest|successful|passed/)
     await writeFile(invalidVitestPath, validVitest, "utf8")
@@ -9445,7 +9436,7 @@ describe("native orchestration and evidence closure", () => {
     await expect(
       cleanupModule.runNativeVercelCleanupCli({
         argv: ["--assert-receipt"],
-        env: { DAWN_VERCEL_ARTIFACT_DIR: artifactDir },
+        env: { B4_VERCEL_ARTIFACT_DIR: artifactDir },
       }),
     ).rejects.toThrow(/cleanup|closed|manifest/)
     await writeFile(manifestPath, closedManifest, "utf8")
@@ -9458,11 +9449,11 @@ describe("native orchestration and evidence closure", () => {
       cleanupModule.runNativeVercelCleanupCli({
         argv: ["--prepare-artifacts"],
         env: {
-          DAWN_VERCEL_ARTIFACT_DIR: missingVitestArtifacts,
-          DAWN_VERCEL_DATABASE_URL: protectedValues[3],
-          DAWN_VERCEL_ORG_ID: protectedValues[1],
-          DAWN_VERCEL_PROJECT_ID: protectedValues[2],
-          DAWN_VERCEL_TOKEN: protectedValues[0],
+          B4_VERCEL_ARTIFACT_DIR: missingVitestArtifacts,
+          B4_VERCEL_DATABASE_URL: protectedValues[3],
+          B4_VERCEL_ORG_ID: protectedValues[1],
+          B4_VERCEL_PROJECT_ID: protectedValues[2],
+          B4_VERCEL_TOKEN: protectedValues[0],
         },
       }),
     ).rejects.toThrow(/Vitest|vitest|artifact|evidence/)
@@ -9470,11 +9461,11 @@ describe("native orchestration and evidence closure", () => {
       cleanupModule.runNativeVercelCleanupCli({
         argv: ["--prepare-artifacts"],
         env: {
-          DAWN_VERCEL_ARTIFACT_DIR: artifactDir,
-          DAWN_VERCEL_DATABASE_URL: protectedValues[3],
-          DAWN_VERCEL_ORG_ID: protectedValues[1],
-          DAWN_VERCEL_PROJECT_ID: protectedValues[2],
-          DAWN_VERCEL_TOKEN: protectedValues[0],
+          B4_VERCEL_ARTIFACT_DIR: artifactDir,
+          B4_VERCEL_DATABASE_URL: protectedValues[3],
+          B4_VERCEL_ORG_ID: protectedValues[1],
+          B4_VERCEL_PROJECT_ID: protectedValues[2],
+          B4_VERCEL_TOKEN: protectedValues[0],
         },
       }),
     ).resolves.toMatchObject({ mode: "prepare-artifacts" })
@@ -9493,7 +9484,7 @@ describe("native orchestration and evidence closure", () => {
     const asserted = await runNativeLocalChild({
       args: [cleanupScript, "--assert-receipt"],
       cwd: repoRoot,
-      env: { DAWN_VERCEL_ARTIFACT_DIR: artifactDir },
+      env: { B4_VERCEL_ARTIFACT_DIR: artifactDir },
       executable: process.execPath,
       timeoutMs: 20_000,
     })
@@ -9503,11 +9494,11 @@ describe("native orchestration and evidence closure", () => {
       args: [cleanupScript, "--prepare-artifacts"],
       cwd: repoRoot,
       env: {
-        DAWN_VERCEL_ARTIFACT_DIR: artifactDir,
-        DAWN_VERCEL_DATABASE_URL: protectedValues[3],
-        DAWN_VERCEL_ORG_ID: protectedValues[1],
-        DAWN_VERCEL_PROJECT_ID: protectedValues[2],
-        DAWN_VERCEL_TOKEN: protectedValues[0],
+        B4_VERCEL_ARTIFACT_DIR: artifactDir,
+        B4_VERCEL_DATABASE_URL: protectedValues[3],
+        B4_VERCEL_ORG_ID: protectedValues[1],
+        B4_VERCEL_PROJECT_ID: protectedValues[2],
+        B4_VERCEL_TOKEN: protectedValues[0],
       },
       executable: process.execPath,
       timeoutMs: 20_000,
@@ -9519,7 +9510,7 @@ describe("native orchestration and evidence closure", () => {
         runNativeLocalChild({
           args: [cleanupScript, ...args],
           cwd: repoRoot,
-          env: { DAWN_VERCEL_ARTIFACT_DIR: artifactDir },
+          env: { B4_VERCEL_ARTIFACT_DIR: artifactDir },
           executable: process.execPath,
           timeoutMs: 20_000,
         }),
@@ -9545,11 +9536,11 @@ describe("native orchestration and evidence closure", () => {
           }),
         },
         env: {
-          DAWN_VERCEL_ARTIFACT_DIR: cleanupArtifacts,
-          DAWN_VERCEL_DATABASE_URL: protectedValues[3],
-          DAWN_VERCEL_ORG_ID: protectedValues[1],
-          DAWN_VERCEL_PROJECT_ID: protectedValues[2],
-          DAWN_VERCEL_TOKEN: protectedValues[0],
+          B4_VERCEL_ARTIFACT_DIR: cleanupArtifacts,
+          B4_VERCEL_DATABASE_URL: protectedValues[3],
+          B4_VERCEL_ORG_ID: protectedValues[1],
+          B4_VERCEL_PROJECT_ID: protectedValues[2],
+          B4_VERCEL_TOKEN: protectedValues[0],
         },
       }),
     ).resolves.toEqual({ finalized: false, mode: "cleanup" })
@@ -9575,11 +9566,11 @@ describe("native orchestration and evidence closure", () => {
           },
         },
         env: {
-          DAWN_VERCEL_ARTIFACT_DIR: cleanupArtifacts,
-          DAWN_VERCEL_DATABASE_URL: protectedValues[3],
-          DAWN_VERCEL_ORG_ID: protectedValues[1],
-          DAWN_VERCEL_PROJECT_ID: protectedValues[2],
-          DAWN_VERCEL_TOKEN: protectedValues[0],
+          B4_VERCEL_ARTIFACT_DIR: cleanupArtifacts,
+          B4_VERCEL_DATABASE_URL: protectedValues[3],
+          B4_VERCEL_ORG_ID: protectedValues[1],
+          B4_VERCEL_PROJECT_ID: protectedValues[2],
+          B4_VERCEL_TOKEN: protectedValues[0],
         },
       })
       .then(
@@ -9626,11 +9617,11 @@ describe("native orchestration and evidence closure", () => {
           }),
         },
         env: {
-          DAWN_VERCEL_ARTIFACT_DIR: completeArtifacts,
-          DAWN_VERCEL_DATABASE_URL: protectedValues[3],
-          DAWN_VERCEL_ORG_ID: protectedValues[1],
-          DAWN_VERCEL_PROJECT_ID: protectedValues[2],
-          DAWN_VERCEL_TOKEN: protectedValues[0],
+          B4_VERCEL_ARTIFACT_DIR: completeArtifacts,
+          B4_VERCEL_DATABASE_URL: protectedValues[3],
+          B4_VERCEL_ORG_ID: protectedValues[1],
+          B4_VERCEL_PROJECT_ID: protectedValues[2],
+          B4_VERCEL_TOKEN: protectedValues[0],
         },
       }),
     ).resolves.toEqual({ finalized: true, mode: "cleanup" })
@@ -9654,11 +9645,11 @@ describe("native orchestration and evidence closure", () => {
           }),
         },
         env: {
-          DAWN_VERCEL_ARTIFACT_DIR: cleanupArtifacts,
-          DAWN_VERCEL_DATABASE_URL: protectedValues[3],
-          DAWN_VERCEL_ORG_ID: protectedValues[1],
-          DAWN_VERCEL_PROJECT_ID: protectedValues[2],
-          DAWN_VERCEL_TOKEN: protectedValues[0],
+          B4_VERCEL_ARTIFACT_DIR: cleanupArtifacts,
+          B4_VERCEL_DATABASE_URL: protectedValues[3],
+          B4_VERCEL_ORG_ID: protectedValues[1],
+          B4_VERCEL_PROJECT_ID: protectedValues[2],
+          B4_VERCEL_TOKEN: protectedValues[0],
         },
       })
       .then(
@@ -9726,7 +9717,7 @@ describe("model-free native fixture", () => {
 
     const privateHeaders = new Headers()
     authorization.apply(privateHeaders)
-    expect(privateHeaders.get("x-dawn-vercel-release")).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(privateHeaders.get("x-b4-vercel-release")).toMatch(/^[A-Za-z0-9_-]{43}$/)
     expect(() =>
       authorization.assertSafe("private release header", Object.fromEntries(privateHeaders)),
     ).toThrow(/private release header/)
@@ -9785,12 +9776,12 @@ describe("model-free native fixture", () => {
     const priorDatabaseUrl = process.env.DATABASE_URL
     try {
       process.env.DATABASE_URL =
-        "postgres://fixture:password@localhost:5432/dawn?application_name=native&sslmode=require"
+        "postgres://fixture:password@localhost:5432/b4?application_name=native&sslmode=require"
       const configured = (await import(`${pathToFileURL(databaseModulePath).href}?configured`)) as {
         readonly pool: { readonly options: { readonly connectionString?: string } }
       }
       expect(configured.pool.options.connectionString).toBe(
-        "postgres://fixture:password@localhost:5432/dawn?application_name=native&sslmode=verify-full",
+        "postgres://fixture:password@localhost:5432/b4?application_name=native&sslmode=verify-full",
       )
 
       delete process.env.DATABASE_URL
@@ -9870,13 +9861,13 @@ describe("model-free native fixture", () => {
       status: 401,
     })
     await expect(
-      runMiddleware(new Headers({ "x-dawn-vercel-release": "malformed value" })),
+      runMiddleware(new Headers({ "x-b4-vercel-release": "malformed value" })),
     ).resolves.toMatchObject({ action: "reject", status: 401 })
     await expect(
-      runMiddleware(new Headers({ "x-dawn-vercel-release": "A".repeat(43) })),
+      runMiddleware(new Headers({ "x-b4-vercel-release": "A".repeat(43) })),
     ).resolves.toMatchObject({ action: "reject", status: 401 })
     await expect(
-      runMiddleware(new Headers({ "x-dawn-vercel-release": authorization.digestSha256 })),
+      runMiddleware(new Headers({ "x-b4-vercel-release": authorization.digestSha256 })),
     ).resolves.toMatchObject({ action: "reject", status: 401 })
     const authorizedHeaders = new Headers()
     authorization.apply(authorizedHeaders)
@@ -9891,7 +9882,7 @@ describe("model-free native fixture", () => {
         diagnostics: { message: "safe", stderr, stdout },
         environment: sanitizeChildEnvironment(process.env, {}),
         files,
-        logs: ["dawn-vercel-fixture-log safe"],
+        logs: ["b4-vercel-fixture-log safe"],
         outputFiles,
         packageManifest,
         receipt: validReceipt(),
@@ -9944,7 +9935,7 @@ test("registers the protected native lane with a finite timeout below its CI job
   expect(registrations[0]?.timeoutMs).toBeLessThan(45 * 60_000)
 })
 
-const nativeEnabled = nativeLaneEnabled(process.env.DAWN_TEST_VERCEL)
+const nativeEnabled = nativeLaneEnabled(process.env.B4_TEST_VERCEL)
 const nativeTest = nativeEnabled ? test : test.skip
 
 registerNativeVercelGatedTest((name, handler, timeoutMs) => {

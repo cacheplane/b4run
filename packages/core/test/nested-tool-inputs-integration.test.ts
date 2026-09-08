@@ -15,7 +15,7 @@ import { extractToolTypesForRoute } from "../src/typegen/extract-tool-types.js"
 let tempDir: string
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), "dawn-nested-integration-"))
+  tempDir = mkdtempSync(join(tmpdir(), "b4-nested-integration-"))
 })
 
 afterEach(() => {

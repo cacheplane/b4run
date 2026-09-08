@@ -15,17 +15,17 @@ interface Props {
 export function BrandLogo({ className, imageClassName, variant = "light" }: Props) {
   const src =
     variant === "dark"
-      ? "/brand/dawn-logo-horizontal-black.svg"
-      : "/brand/dawn-logo-horizontal-white.svg"
+      ? "/brand/b4-logo-horizontal-black.svg"
+      : "/brand/b4-logo-horizontal-white.svg"
   return (
     <Link
       href="/"
       className={`inline-flex items-center text-ink ${className ?? ""}`}
-      aria-label="Dawn home"
+      aria-label="B4.run home"
     >
       <Image
         src={src}
-        alt="Dawn"
+        alt="B4.run"
         width={720}
         height={220}
         className={`block h-7 w-auto ${imageClassName ?? ""}`}

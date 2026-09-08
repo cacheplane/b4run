@@ -24,7 +24,7 @@ export interface BlueprintEntry {
   readonly body: string
 }
 
-const SITE = "https://dawnai.org"
+const SITE = "https://b4.run"
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url))
 
 function defaultDir(): string {

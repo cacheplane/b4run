@@ -9,8 +9,8 @@ const MAX_MESSAGE_BYTES = 4_096
 const MAX_OUTPUT_BYTES = 1024 * 1024
 const COMMAND_TIMEOUT_MS = 15_000
 const PRODUCTION_MAIN_REF = "refs/remotes/origin/main"
-const RELEASE_TAGGER_NAME = "Dawn Release Bot"
-const RELEASE_TAGGER_EMAIL = "dawn-release-bot@users.noreply.github.com"
+const RELEASE_TAGGER_NAME = "B4 Release Bot"
+const RELEASE_TAGGER_EMAIL = "b4-release-bot@users.noreply.github.com"
 
 export function createCandidateTagWriter({ root, run = runCommand }) {
   validateRoot(root)

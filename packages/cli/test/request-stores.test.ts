@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { ThreadsStore } from "@dawn-ai/sqlite-storage"
+import type { ThreadsStore } from "@b4run/sqlite-storage"
 import { MemorySaver } from "@langchain/langgraph"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createRuntimeFetchHandler, isEventStream } from "../src/lib/dev/runtime-fetch-core.js"
@@ -188,7 +188,7 @@ describe("per-request stores", () => {
     }
     expect(body.error.message).toContain("threadsStore")
     expect(body.error.details?.store).toBe("threadsStore")
-    expect(body.error.code).toBe("DAWN_E5301")
+    expect(body.error.code).toBe("B4_E5301")
     expect(body.error.docsUrl).toContain("/docs/deployment")
     expect(errors.join("\n")).toContain("threadsStore")
 
@@ -364,7 +364,7 @@ function storeProbe() {
 }
 
 async function setupBlockingApp() {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-request-store-lifetime-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-request-store-lifetime-"))
   cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
 
   const startedFile = join(appRoot, "started.json")
@@ -372,7 +372,7 @@ async function setupBlockingApp() {
   const literalStartedFile = join(appRoot, "started-literal.json")
 
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "request-store-lifetime-fixture", "type": "module" }\n',
     "src/app/blocking/index.ts": BLOCKING_ROUTE,
     "src/app/literal/index.ts": blockingRouteWithLiterals(literalStartedFile, releaseFile),

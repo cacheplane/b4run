@@ -571,7 +571,7 @@ async function verifyPackage(packageName, requestedVersion) {
 
   console.log(`META PASS ${packageName}@${resolvedVersion} registry version present`)
 
-  const tempDir = await makeTempDir("dawn-published-artifact-")
+  const tempDir = await makeTempDir("b4-published-artifact-")
   try {
     const tarballPath = await packPackage({
       packageName,
@@ -661,7 +661,7 @@ async function verifyDownloadedPackageContents(entry, contentBase64, runCommand)
   if (typeof runCommand !== "function") {
     throw new TypeError("Release package extraction requires strict command containment")
   }
-  const tempDir = await makeTempDir("dawn-published-release-verify-")
+  const tempDir = await makeTempDir("b4-published-release-verify-")
   try {
     const tarballPath = resolve(tempDir, entry.filename)
     await writeFile(tarballPath, Buffer.from(contentBase64, "base64"))

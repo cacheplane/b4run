@@ -16,7 +16,7 @@ let tempDir: string
 const originalEnv: Record<string, string | undefined> = {}
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), "dawn-deps-"))
+  tempDir = mkdtempSync(join(tmpdir(), "b4-deps-"))
 })
 
 afterEach(() => {
@@ -41,7 +41,7 @@ describe("checkDependencies", () => {
     writeFileSync(
       join(tempDir, "package.json"),
       JSON.stringify({
-        dependencies: { "@dawn-ai/cli": "0.1.6", "@dawn-ai/sdk": "0.1.6" },
+        dependencies: { "@b4run/cli": "0.1.6", "@b4run/sdk": "0.1.6" },
       }),
     )
 
@@ -196,7 +196,7 @@ describe("checkDependencies", () => {
  * from appRoot — not by looking only in `appRoot/node_modules`.
  *
  * Motivating regression: the generated research app became an npm workspace, so
- * `dawn.config.ts` (and therefore appRoot) moved to `<app>/server` while npm
+ * `b4.config.ts` (and therefore appRoot) moved to `<app>/server` while npm
  * hoisted every dependency to `<app>/node_modules`. The flat probe reported the
  * three `@langchain/*` packages missing on every `npm run verify` even though
  * they were installed one directory up.
@@ -258,7 +258,7 @@ describe("checkDependencies package resolution", () => {
 
     const result = await checkDependencies({ appRoot, providers: ["openai"] })
 
-    // Dawn's own layer first, then the app's provider packages.
+    // B4.run's own layer first, then the app's provider packages.
     expect(result.missingPackages).toEqual([
       "@langchain/core",
       "@langchain/langgraph",
@@ -312,17 +312,17 @@ describe("checkDependencies package resolution", () => {
  * Two defects motivated this, one in each direction. An Anthropic-only app was
  * told to install `@langchain/openai`, which it does not import, and was NOT
  * told about `@langchain/anthropic`, which it does — an optional peer of
- * `@dawn-ai/langchain` that no install step provides, so the app builds green
+ * `@b4run/langchain` that no install step provides, so the app builds green
  * and dies at the first model call with ERR_MODULE_NOT_FOUND. That is precisely
- * the failure `dawn verify` exists to catch, and it was the one provider case
+ * the failure `b4 verify` exists to catch, and it was the one provider case
  * the check could not see.
  *
- * `providerPackages` is the same map `dawn build`'s web-runtime target uses to
+ * `providerPackages` is the same map `b4 build`'s web-runtime target uses to
  * decide which specifiers to bake into an edge bundle, so verify and build now
  * answer "which model package does this app need" from one source.
  */
 describe("checkDependencies provider packages", () => {
-  /** An app that declares the Dawn-layer packages, so only provider packages can be reported. */
+  /** An app that declares the B4.run-layer packages, so only provider packages can be reported. */
   function writeAppDeclaring(...packages: readonly string[]) {
     writeFileSync(
       join(tempDir, "package.json"),
@@ -332,10 +332,10 @@ describe("checkDependencies provider packages", () => {
     )
   }
 
-  const DAWN_LAYER = ["@langchain/core", "@langchain/langgraph"] as const
+  const B4_LAYER = ["@langchain/core", "@langchain/langgraph"] as const
 
   test("reports the provider package an Anthropic app needs", async () => {
-    writeAppDeclaring(...DAWN_LAYER)
+    writeAppDeclaring(...B4_LAYER)
 
     const result = await checkDependencies({ appRoot: tempDir, providers: ["anthropic"] })
 
@@ -343,7 +343,7 @@ describe("checkDependencies provider packages", () => {
   })
 
   test("does not report @langchain/openai for an app with no OpenAI route", async () => {
-    writeAppDeclaring(...DAWN_LAYER)
+    writeAppDeclaring(...B4_LAYER)
 
     const result = await checkDependencies({ appRoot: tempDir, providers: ["groq"] })
 
@@ -351,7 +351,7 @@ describe("checkDependencies provider packages", () => {
   })
 
   test("reports one package per provider, deduped and ordered", async () => {
-    writeAppDeclaring(...DAWN_LAYER)
+    writeAppDeclaring(...B4_LAYER)
 
     const result = await checkDependencies({
       appRoot: tempDir,
@@ -362,7 +362,7 @@ describe("checkDependencies provider packages", () => {
   })
 
   test("passes when the provider package is declared", async () => {
-    writeAppDeclaring(...DAWN_LAYER, "@langchain/anthropic")
+    writeAppDeclaring(...B4_LAYER, "@langchain/anthropic")
 
     const result = await checkDependencies({ appRoot: tempDir, providers: ["anthropic"] })
 
@@ -372,7 +372,7 @@ describe("checkDependencies provider packages", () => {
   test("requires no provider package for a keyless local provider", async () => {
     // Ollama needs no API key, but it does need its model package — the package
     // check and the env-var check are independent.
-    writeAppDeclaring(...DAWN_LAYER)
+    writeAppDeclaring(...B4_LAYER)
 
     const result = await checkDependencies({ appRoot: tempDir, providers: ["ollama"] })
 
@@ -380,7 +380,7 @@ describe("checkDependencies provider packages", () => {
   })
 
   test("checks no provider package when the app has no routes", async () => {
-    writeAppDeclaring(...DAWN_LAYER)
+    writeAppDeclaring(...B4_LAYER)
 
     const result = await checkDependencies({ appRoot: tempDir, providers: [] })
 
@@ -388,9 +388,9 @@ describe("checkDependencies provider packages", () => {
   })
 
   test("ignores a provider with no known model package", async () => {
-    // `providers` comes from route model ids; an id Dawn cannot map must not
+    // `providers` comes from route model ids; an id B4.run cannot map must not
     // crash verify or invent a package name.
-    writeAppDeclaring(...DAWN_LAYER)
+    writeAppDeclaring(...B4_LAYER)
 
     const result = await checkDependencies({ appRoot: tempDir, providers: ["not-a-provider"] })
 
@@ -399,22 +399,22 @@ describe("checkDependencies provider packages", () => {
 })
 
 /**
- * The Dawn-layer packages are imported by `@dawn-ai/langchain`, not by the
+ * The B4.run-layer packages are imported by `@b4run/langchain`, not by the
  * user's app — so the question is whether THAT package can resolve them, not
  * whether the app can.
  *
  * Motivating regression: under pnpm's strict layout the flagship example
  * reported all three of `@langchain/core`, `@langchain/openai` and
- * `@langchain/langgraph` missing on every `dawn verify`, telling the user to
+ * `@langchain/langgraph` missing on every `b4 verify`, telling the user to
  * install packages that were installed and working. pnpm keeps a package's own
  * dependencies inside the store next to it, reachable from the importer and
  * deliberately not from the app — exactly the layout the appRoot-only walk
  * cannot see.
  */
 describe("checkDependencies importer resolution", () => {
-  /** Lay out `<app>/node_modules/@dawn-ai/langchain` with its own deps beside it. */
+  /** Lay out `<app>/node_modules/@b4run/langchain` with its own deps beside it. */
   function installLangchainPackage(appRoot: string, ownDeps: readonly string[]) {
-    const pkgDir = join(appRoot, "node_modules", "@dawn-ai", "langchain")
+    const pkgDir = join(appRoot, "node_modules", "@b4run", "langchain")
     mkdirSync(pkgDir, { recursive: true })
     for (const dep of ownDeps) {
       mkdirSync(join(pkgDir, "node_modules", dep), { recursive: true })
@@ -422,7 +422,7 @@ describe("checkDependencies importer resolution", () => {
     return pkgDir
   }
 
-  test("finds packages resolvable only from @dawn-ai/langchain", async () => {
+  test("finds packages resolvable only from @b4run/langchain", async () => {
     writeFileSync(join(tempDir, "package.json"), JSON.stringify({ dependencies: {} }))
     installLangchainPackage(tempDir, ["@langchain/core", "@langchain/langgraph"])
 
@@ -431,17 +431,17 @@ describe("checkDependencies importer resolution", () => {
     expect(result.missingPackages).toEqual([])
   })
 
-  test("follows a symlinked @dawn-ai/langchain to where its real deps live", async () => {
+  test("follows a symlinked @b4run/langchain to where its real deps live", async () => {
     // pnpm's layout: the app's entry is a symlink into the store, and the
     // package's dependencies sit beside the REAL directory, not the link.
-    const store = join(tempDir, "store", "@dawn-ai", "langchain")
+    const store = join(tempDir, "store", "@b4run", "langchain")
     mkdirSync(join(store, "node_modules", "@langchain", "core"), { recursive: true })
     mkdirSync(join(store, "node_modules", "@langchain", "langgraph"), { recursive: true })
 
     const appRoot = join(tempDir, "app")
-    mkdirSync(join(appRoot, "node_modules", "@dawn-ai"), { recursive: true })
+    mkdirSync(join(appRoot, "node_modules", "@b4run"), { recursive: true })
     writeFileSync(join(appRoot, "package.json"), JSON.stringify({ dependencies: {} }))
-    symlinkSync(store, join(appRoot, "node_modules", "@dawn-ai", "langchain"), "dir")
+    symlinkSync(store, join(appRoot, "node_modules", "@b4run", "langchain"), "dir")
 
     const result = await checkDependencies({ appRoot })
 
@@ -457,7 +457,7 @@ describe("checkDependencies importer resolution", () => {
     expect(result.missingPackages).toEqual(["@langchain/langgraph"])
   })
 
-  test("falls back to the appRoot walk when @dawn-ai/langchain is absent", async () => {
+  test("falls back to the appRoot walk when @b4run/langchain is absent", async () => {
     writeFileSync(join(tempDir, "package.json"), JSON.stringify({ dependencies: {} }))
     mkdirSync(join(tempDir, "node_modules", "@langchain", "core"), { recursive: true })
     mkdirSync(join(tempDir, "node_modules", "@langchain", "langgraph"), { recursive: true })
@@ -468,7 +468,7 @@ describe("checkDependencies importer resolution", () => {
   })
 
   test("resolves a provider package from the importer too", async () => {
-    // Optional peers are hoisted next to `@dawn-ai/langchain` by npm and kept in
+    // Optional peers are hoisted next to `@b4run/langchain` by npm and kept in
     // the store by pnpm; either way the importer is what has to see them.
     writeFileSync(join(tempDir, "package.json"), JSON.stringify({ dependencies: {} }))
     installLangchainPackage(tempDir, [

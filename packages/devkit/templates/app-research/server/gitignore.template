@@ -1,6 +1,6 @@
 node_modules/
 dist/
-.dawn/
+.b4/
 
 # Runtime workspace outputs (the agent writes these at run time).
 workspace/reports/

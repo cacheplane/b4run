@@ -1,5 +1,5 @@
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import type { DelegationContext } from "@dawn-ai/sdk"
+import type { PermissionsStore } from "@b4run/permissions"
+import type { DelegationContext } from "@b4run/sdk"
 
 import { gateSubagentOp } from "../capabilities/permission-gate.js"
 import { readRuntimeEnv } from "../runtime-env.js"
@@ -13,7 +13,7 @@ export type GuardedSubagentResult<T> =
   | { readonly ok: true; readonly entry: ResolvedSubagent; readonly value: T }
   | {
       readonly ok: false
-      readonly code: "DAWN_E3002" | "DAWN_E5003"
+      readonly code: "B4_E3002" | "B4_E5003"
       readonly message: string
     }
 
@@ -29,11 +29,11 @@ export interface ResolveGuardedSubagentArgs<T> {
 }
 
 function denied(reason: string): GuardedSubagentResult<never> {
-  return { ok: false, code: "DAWN_E3002", message: `[DAWN_E3002] ${reason}` }
+  return { ok: false, code: "B4_E3002", message: `[B4_E3002] ${reason}` }
 }
 
 function unavailable(reason: string): GuardedSubagentResult<never> {
-  return { ok: false, code: "DAWN_E5003", message: `[DAWN_E5003] ${reason}` }
+  return { ok: false, code: "B4_E5003", message: `[B4_E5003] ${reason}` }
 }
 
 type ApprovalVerdictValidation =
@@ -70,10 +70,10 @@ function debugConstraintFailure(
   // Was a hand-rolled `typeof process === "undefined"` guard — the only one in
   // the codebase, and the reason this site alone survived the edge bundle. It
   // now shares the one seam so the purity gate can stay zero-tolerance.
-  if (readRuntimeEnv("DAWN_DEBUG_CONSTRAINTS") !== "1") return
+  if (readRuntimeEnv("B4_DEBUG_CONSTRAINTS") !== "1") return
   try {
     console.warn(
-      `[dawn:constraints] parent ${parentRouteId} subagent ${subagentName} constraint failed:`,
+      `[b4:constraints] parent ${parentRouteId} subagent ${subagentName} constraint failed:`,
       detail,
     )
   } catch {

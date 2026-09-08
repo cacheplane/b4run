@@ -1,3 +1,6 @@
+// This dated Dawn incident suite executes the exact pre-rename source.
+// Current incident file preservation is independently checked in b4-identity.test.mjs.
+
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { mkdirSync, renameSync } from "node:fs"
@@ -16,46 +19,49 @@ import {
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
-import {
+import { importHistoricalReleaseModule } from "./support/frozen-history.mjs"
+
+const {
   inspectDuplicateDrafts,
   performDuplicateDraftConsolidation,
   performOneDuplicateDeletion,
   verifyDuplicateDraftConsolidation,
-} from "../duplicate-draft-consolidation.mjs"
-import { createDuplicateDraftConsolidationAdapters } from "../duplicate-draft-consolidation-adapters.mjs"
-import { runDuplicateDraftConsolidationCli } from "../duplicate-draft-consolidation-cli.mjs"
-import {
-  captureDirectTargetRead,
-  semanticAssetProjection,
-  semanticReleaseProjection,
-} from "../duplicate-draft-consolidation-evidence.mjs"
-import {
-  readPrivateEnvelope,
-  readTrackedReceipt,
-  writePrivateEnvelope,
-  writeTrackedReceipt,
-} from "../duplicate-draft-consolidation-files.mjs"
-import {
+} = await importHistoricalReleaseModule("scripts/release/duplicate-draft-consolidation.mjs")
+const { createDuplicateDraftConsolidationAdapters } = await importHistoricalReleaseModule(
+  "scripts/release/duplicate-draft-consolidation-adapters.mjs",
+)
+const { runDuplicateDraftConsolidationCli } = await importHistoricalReleaseModule(
+  "scripts/release/duplicate-draft-consolidation-cli.mjs",
+)
+const { captureDirectTargetRead, semanticAssetProjection, semanticReleaseProjection } =
+  await importHistoricalReleaseModule("scripts/release/duplicate-draft-consolidation-evidence.mjs")
+const { readPrivateEnvelope, readTrackedReceipt, writePrivateEnvelope, writeTrackedReceipt } =
+  await importHistoricalReleaseModule("scripts/release/duplicate-draft-consolidation-files.mjs")
+const {
   appendJournalEvent,
   createConsolidationJournal,
   createFinalConsolidationReceipt,
   deriveConsolidationState,
-} from "../duplicate-draft-consolidation-journal.mjs"
-import {
+} = await importHistoricalReleaseModule("scripts/release/duplicate-draft-consolidation-journal.mjs")
+const {
   canonicalConsolidationEnvelopeBytes,
   canonicalEventEnvelope,
   canonicalRecordSha256,
   createConsolidationEnvelope,
   DUPLICATE_DRAFT_CONSOLIDATION_LIMITS,
   parseConsolidationEnvelope,
-} from "../duplicate-draft-consolidation-schema.mjs"
-import { CANONICAL_RELEASE_PACKAGE_ORDER } from "../manifest.mjs"
-import {
+} = await importHistoricalReleaseModule("scripts/release/duplicate-draft-consolidation-schema.mjs")
+const { CANONICAL_RELEASE_PACKAGE_ORDER } = await importHistoricalReleaseModule(
+  "scripts/release/manifest.mjs",
+)
+const {
   createDuplicateDraftConsolidationFixture,
   DUPLICATE_DRAFT_CANDIDATE,
   DUPLICATE_DRAFT_IDS,
   DUPLICATE_DRAFT_SURVIVOR_ID,
-} from "./support/duplicate-draft-consolidation-fixture.mjs"
+} = await importHistoricalReleaseModule(
+  "scripts/release/test/support/duplicate-draft-consolidation-fixture.mjs",
+)
 
 const OUTPUT = ".dawn/release/duplicate-draft-consolidation.proposed.json"
 const BASE_TIME = Date.parse("2026-09-01T12:00:00.000Z")

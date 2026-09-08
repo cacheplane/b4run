@@ -30,7 +30,7 @@ export default function BlogIndexPage() {
           className="font-display text-4xl md:text-5xl font-semibold tracking-tight mb-3 text-ink"
           style={{ fontVariationSettings: "'opsz' 144, 'SOFT' 50" }}
         >
-          Notes on Dawn
+          Notes on B4.run
         </h1>
         <p className="text-lg text-ink-muted mb-8 max-w-[60ch]">
           Writing on the agent stack, type-safety, and the tools we're building.

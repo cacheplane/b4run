@@ -1,12 +1,12 @@
 # Workspace Filesystem
 
-A Dawn app's sandboxed file area is the `workspace/` directory at the app root. Creating that directory opts an agent route into four built-in tools: `listDir`, `readFile`, `writeFile`, and `runBash`. No configuration is required — the directory's presence is the activation signal. All file I/O in the runtime flows through one permission gate, whether the request comes from the LLM calling an agent-facing tool or from your own code calling `ctx.fs`.
+A B4.run app's sandboxed file area is the `workspace/` directory at the app root. Creating that directory opts an agent route into four built-in tools: `listDir`, `readFile`, `writeFile`, and `runBash`. No configuration is required — the directory's presence is the activation signal. All file I/O in the runtime flows through one permission gate, whether the request comes from the LLM calling an agent-facing tool or from your own code calling `ctx.fs`.
 
 There are three layers:
 
-- **The pluggable backend** (`@dawn-ai/workspace`) — a plain-object interface that reads, writes, and lists files. `localFilesystem()` ships as the default; you can substitute any backend in `dawn.config.ts`.
+- **The pluggable backend** (`@b4run/workspace`) — a plain-object interface that reads, writes, and lists files. `localFilesystem()` ships as the default; you can substitute any backend in `b4.config.ts`.
 - **Agent-facing workspace tools** — `readFile`, `writeFile`, `listDir`, and `runBash`, wired into agent routes when a `workspace/` directory exists at the app root. The LLM calls these by name; they gate through the permission system before touching the backend.
-- **`ctx.fs`** — the `WorkspaceFs` handle available on `DawnToolContext` (route tools) and `RuntimeContext` (workflow/graph entries). Same gate, same backend, but your code drives it. Always present on the context; reads simply surface `ENOENT` if the `workspace/` directory doesn't exist yet.
+- **`ctx.fs`** — the `WorkspaceFs` handle available on `B4ToolContext` (route tools) and `RuntimeContext` (workflow/graph entries). Same gate, same backend, but your code drives it. Always present on the context; reads simply surface `ENOENT` if the `workspace/` directory doesn't exist yet.
 
 ## The pluggable backend
 
@@ -29,9 +29,9 @@ There are three layers:
 - **256 KiB read cap** per call. Override per-call with `opts.maxBytes` (e.g. `Number.POSITIVE_INFINITY` for uncapped reads).
 - **`writeFile` creates missing parent directories** — writing to `reports/result.md` works without a separate `mkdir` call.
 
-Configure a custom backend in `dawn.config.ts`:
+Configure a custom backend in `b4.config.ts`:
 
-```ts title="dawn.config.ts"
+```ts title="b4.config.ts"
 import { myRemoteBackend } from "./backends/remote.js"
 
 export default {
@@ -45,9 +45,9 @@ export default {
 
 `FilesystemMiddleware` is `(next: FilesystemBackend) => FilesystemBackend`. Wrap the default backend with `compose()` to add cross-cutting behavior:
 
-```ts title="dawn.config.ts"
-import { compose, withFilesystemLogging } from "@dawn-ai/workspace"
-import { localFilesystem } from "@dawn-ai/workspace/node"
+```ts title="b4.config.ts"
+import { compose, withFilesystemLogging } from "@b4run/workspace"
+import { localFilesystem } from "@b4run/workspace/node"
 
 export default {
   backends: {
@@ -151,13 +151,13 @@ Paths are **workspace-relative** — `"images/logo.png"` resolves to `<appRoot>/
 **Example: a route tool reading a binary file**
 
 ```ts title="src/app/(public)/describe/tools/describeImage.ts"
-import type { DawnToolContext } from "@dawn-ai/sdk"
+import type { B4ToolContext } from "@b4run/sdk"
 
 export const description = "Describe an image stored in the workspace."
 
 export default async (
   input: { readonly path: string },
-  ctx: DawnToolContext,
+  ctx: B4ToolContext,
 ) => {
   const bytes = await ctx.fs.readBinaryFile(input.path)
   const dataUrl = `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`
@@ -171,8 +171,8 @@ export default async (
 **Example: a workflow entry listing and reading files**
 
 ```ts title="src/app/(public)/report/index.ts"
-import type { RuntimeContext } from "@dawn-ai/sdk"
-import type { RouteTools } from "dawn:routes"
+import type { RuntimeContext } from "@b4run/sdk"
+import type { RouteTools } from "b4:routes"
 
 export async function workflow(
   state: { readonly topic: string },
@@ -190,7 +190,7 @@ export async function workflow(
 
 ## Research scaffold example
 
-The `research` template (`create-dawn-ai-app --template research`) shows how these tools fit together. Paths below are relative to the Dawn app root, which is the generated workspace's `server/` package:
+The `research` template (`create-b4-app --template research`) shows how these tools fit together. Paths below are relative to the B4.run app root, which is the generated workspace's `server/` package:
 
 ```text
 workspace/
@@ -206,14 +206,14 @@ The agent uses `listDir` and `readFile` to explore and read corpus documents. It
 Agent memory lives at `workspace/AGENTS.md` and is automatically injected into the system prompt. See [Memory](/docs/memory) for details.
 
 <Callout type="warn" title="Treat AGENTS.md as shared prompt input">
-  Dawn re-reads the host app root's `workspace/AGENTS.md` into prompt context on every turn for every consuming `agent()` route and subagent. With the default local app-root filesystem, `writeFile({ path: "AGENTS.md", ... })` targets that same file, so a route can persist instructions that affect later requests and other consuming agents sharing the app root. A sandbox or custom filesystem backend may send `writeFile` to a different filesystem and does not automatically change the host file this prompt marker reads. Raw graph, workflow, and chain routes do not consume this prompt file.
+  B4.run re-reads the host app root's `workspace/AGENTS.md` into prompt context on every turn for every consuming `agent()` route and subagent. With the default local app-root filesystem, `writeFile({ path: "AGENTS.md", ... })` targets that same file, so a route can persist instructions that affect later requests and other consuming agents sharing the app root. A sandbox or custom filesystem backend may send `writeFile` to a different filesystem and does not automatically change the host file this prompt marker reads. Raw graph, workflow, and chain routes do not consume this prompt file.
 
   Use separate app roots or prompt-memory trust domains for different tenants. A per-thread sandbox alone does not isolate this host prompt source. Constrain or deny writes from untrusted agents when they can reach it, review seeded content, and never copy raw untrusted text into `workspace/AGENTS.md`.
 </Callout>
 
 ## Tool-output offloading
 
-When a tool returns a large result, Dawn can spill it to `workspace/tool-outputs/` and replace the in-context payload with a short stub the agent can read back on demand using `readFile`. This keeps the context window tidy without losing information. See [Context Management](/docs/context-management) for configuration options and how offloading composes with conversation summarization.
+When a tool returns a large result, B4.run can spill it to `workspace/tool-outputs/` and replace the in-context payload with a short stub the agent can read back on demand using `readFile`. This keeps the context window tidy without losing information. See [Context Management](/docs/context-management) for configuration options and how offloading composes with conversation summarization.
 
 ## Permissions
 
@@ -234,7 +234,7 @@ All file I/O — whether initiated by the LLM calling a workspace tool or by you
 ```
 Permission denied: /etc/hosts is outside the workspace and interactive
 permission prompts are not available in this execution context.
-Add an allow rule for "readFile" to the permissions config in dawn.config.ts.
+Add an allow rule for "readFile" to the permissions config in b4.config.ts.
 ```
 
 One permission model regardless of whether the LLM or your code initiates the I/O.
@@ -255,6 +255,6 @@ One permission model regardless of whether the LLM or your code initiates the I/
   { href: "/docs/permissions", title: "Permissions", subtitle: "control which paths and runBash commands require human approval" },
   { href: "/docs/memory", title: "Memory", subtitle: "workspace/AGENTS.md re-read by consuming agent routes" },
   { href: "/docs/context-management", title: "Context Management", subtitle: "tool-output offloading and conversation summarization" },
-  { href: "/docs/configuration", title: "Configuration Reference", subtitle: "dawn.config.ts reference including backends" },
+  { href: "/docs/configuration", title: "Configuration Reference", subtitle: "b4.config.ts reference including backends" },
   { href: "/docs/agents", title: "Agents", subtitle: "agent routes and how tools are wired in" },
 ]} />

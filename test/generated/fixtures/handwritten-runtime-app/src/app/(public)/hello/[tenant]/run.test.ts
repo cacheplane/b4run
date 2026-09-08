@@ -1,4 +1,4 @@
-import { expectMeta, expectOutput, scenarios } from "@dawn-ai/sdk/testing"
+import { expectMeta, expectOutput, scenarios } from "@b4run/sdk/testing"
 
 export default scenarios("/hello/[tenant]")
   .scenario("handwritten in-process scenario", (s) =>

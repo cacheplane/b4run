@@ -6,8 +6,8 @@ import {
   snapshotRecoveryData,
 } from "./schema.mjs"
 
-export const RECOVERY_MARKER_START = "<!-- DAWN_RELEASE_CONTROLLER_MARKER\n"
-const END = "\nEND_DAWN_RELEASE_CONTROLLER_MARKER -->"
+export const RECOVERY_MARKER_START = "<!-- B4_RELEASE_CONTROLLER_MARKER\n"
+const END = "\nEND_B4_RELEASE_CONTROLLER_MARKER -->"
 
 export function parseRecoveryReleaseMarker(body) {
   if (typeof body !== "string" || Buffer.byteLength(body) > RECOVERY_LIMITS.selectionBytes)
@@ -30,7 +30,7 @@ export function renderRecoveryReleaseBody(input) {
   const { marker, body } = snapshotRecoveryData(input)
   if (
     typeof body !== "string" ||
-    body.includes("DAWN_RELEASE_CONTROLLER_MARKER") ||
+    body.includes("B4_RELEASE_CONTROLLER_MARKER") ||
     Buffer.byteLength(body) > 128 * 1024
   )
     throw new TypeError("Recovery notes contain marker delimiters or exceed their boundary")
@@ -70,7 +70,7 @@ export function validateRecoveryDraftMetadata({ title, body }) {
   if (typeof title !== "string" || title.length === 0 || Buffer.byteLength(title) > 512)
     throw new TypeError("Bounded recovery title required")
   const marker = parseRecoveryReleaseMarker(body)
-  const start = body.indexOf("\n\n<!-- DAWN_RELEASE_CONTROLLER_MARKER\n")
+  const start = body.indexOf("\n\n<!-- B4_RELEASE_CONTROLLER_MARKER\n")
   if (start < 0 || body !== renderRecoveryReleaseBody({ marker, body: body.slice(0, start) }))
     throw new TypeError("Canonical v2 body required")
   return marker

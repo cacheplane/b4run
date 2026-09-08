@@ -168,12 +168,12 @@ function assertExplicitKubernetesContexts(
     for (const line of activeShellLines(step.run)) {
       if (/(^|[;&|()]\s*|!\s+)kubectl\s/.test(line)) {
         expect(line, `${label}: ${String(step.name)}`).toContain(
-          'kubectl --context "$DAWN_TEST_K8S_CONTEXT"',
+          'kubectl --context "$B4_TEST_K8S_CONTEXT"',
         )
       }
       if (/(^|[;&|()]\s*|!\s+)helm\s/.test(line)) {
         expect(line, `${label}: ${String(step.name)}`).toContain(
-          'helm --kube-context "$DAWN_TEST_K8S_CONTEXT"',
+          'helm --kube-context "$B4_TEST_K8S_CONTEXT"',
         )
       }
     }
@@ -183,7 +183,7 @@ function assertExplicitKubernetesContexts(
 function assertVerifiedCalicoSteps(steps: readonly Record<string, unknown>[]): void {
   const prepare = requireNamedStep(steps, "Prepare verified Calico manifest")
   const install = requireNamedStep(steps, "Install verified Calico")
-  const expectedManifest = `${githubExpression("runner.temp")}/dawn-calico.yaml`
+  const expectedManifest = `${githubExpression("runner.temp")}/b4-calico.yaml`
 
   expect(prepare.env).toEqual({ CALICO_MANIFEST: expectedManifest })
   expect(prepare.run).toBe(
@@ -192,7 +192,7 @@ function assertVerifiedCalicoSteps(steps: readonly Record<string, unknown>[]): v
   expect(install.env).toEqual({ CALICO_MANIFEST: expectedManifest })
   const installRun = requireString(install.run, "Install verified Calico.run")
   expect(installRun).toContain(
-    'kubectl --context "$DAWN_TEST_K8S_CONTEXT" apply --filename "$CALICO_MANIFEST"',
+    'kubectl --context "$B4_TEST_K8S_CONTEXT" apply --filename "$CALICO_MANIFEST"',
   )
   expect(installRun).not.toMatch(/https?:\/\//)
   expect(installRun.match(/\bapply\b/g)).toHaveLength(1)
@@ -345,8 +345,8 @@ describe("dedicated Kubernetes compatibility workflow", () => {
       githubExpression("fromJSON(needs.scope.outputs.matrix)"),
     )
     expect(compat.env).toEqual({
-      DAWN_TEST_K8S_CONTEXT: `kind-${githubExpression("matrix.clusterName")}`,
-      DAWN_K8S_TARGET: githubExpression("matrix.target"),
+      B4_TEST_K8S_CONTEXT: `kind-${githubExpression("matrix.clusterName")}`,
+      B4_K8S_TARGET: githubExpression("matrix.target"),
     })
 
     expect(requireNamedStep(steps, "Checkout").uses).toBe(checkoutAction)
@@ -365,7 +365,7 @@ describe("dedicated Kubernetes compatibility workflow", () => {
 
     const harness = requireNamedStep(steps, "Run Kubernetes compatibility harness")
     expect(harness.run).toBe(
-      'pnpm verify:k8s:compat -- --target "$DAWN_K8S_TARGET" --context "$DAWN_TEST_K8S_CONTEXT"',
+      'pnpm verify:k8s:compat -- --target "$B4_K8S_TARGET" --context "$B4_TEST_K8S_CONTEXT"',
     )
     assertExplicitKubernetesContexts(steps, "compat")
   })
@@ -451,19 +451,19 @@ describe("canonical Kubernetes CI evidence", () => {
     const job = requireJob(ciWorkflow, "sandbox-k8s", "CI workflow")
     const steps = requireSteps(job, "jobs.sandbox-k8s")
     expect(job.env).toEqual({
-      DAWN_TEST_K8S_CONTEXT: "kind-dawn-k8s-canonical",
+      B4_TEST_K8S_CONTEXT: "kind-b4-k8s-canonical",
     })
     assertPolicyToolchain(steps, { helm: true })
-    assertCanonicalKindStep(steps, "dawn-k8s-canonical")
+    assertCanonicalKindStep(steps, "b4-k8s-canonical")
     assertVerifiedCalicoSteps(steps)
 
     const parity = requireNamedStep(steps, "Verify chart/provider permission parity")
-    expect(parity.env).toEqual({ DAWN_REQUIRE_HELM: "1" })
+    expect(parity.env).toEqual({ B4_REQUIRE_HELM: "1" })
     expect(parity.run).toContain("chart-rbac")
 
     const harness = requireNamedStep(steps, "Run Kubernetes 1.35 compatibility harness")
     expect(harness.run).toBe(
-      `pnpm verify:k8s:compat -- --target ${canonical.minor} --context "$DAWN_TEST_K8S_CONTEXT"`,
+      `pnpm verify:k8s:compat -- --target ${canonical.minor} --context "$B4_TEST_K8S_CONTEXT"`,
     )
     assertExplicitKubernetesContexts(steps, "sandbox-k8s")
   })
@@ -472,11 +472,11 @@ describe("canonical Kubernetes CI evidence", () => {
     const job = requireJob(ciWorkflow, "sandbox-k8s-e2e", "CI workflow")
     const steps = requireSteps(job, "jobs.sandbox-k8s-e2e")
     expect(requireRecord(job.env, "jobs.sandbox-k8s-e2e.env")).toMatchObject({
-      DAWN_TEST_K8S_CONTEXT: "kind-dawn-smoke",
-      KIND_CLUSTER: "dawn-smoke",
+      B4_TEST_K8S_CONTEXT: "kind-b4-smoke",
+      KIND_CLUSTER: "b4-smoke",
     })
     assertPolicyToolchain(steps, { helm: true })
-    assertCanonicalKindStep(steps, "dawn-smoke")
+    assertCanonicalKindStep(steps, "b4-smoke")
     assertVerifiedCalicoSteps(steps)
     expect(requireNamedStep(steps, "Build and load smoke app image (Verdaccio)").run).toContain(
       "test/k8s-smoke/build-image.sh k8s",
@@ -489,21 +489,21 @@ describe("canonical Kubernetes CI evidence", () => {
       requireNamedStep(steps, "Install sandbox-infra chart").run,
       "sandbox-k8s-e2e infrastructure install",
     )
-    expect(infraInstall).toContain("install dawn-sandbox-infra charts/dawn-sandbox-infra")
-    expect(infraInstall).toContain("-n dawn-app")
-    expect(infraInstall).not.toContain("-n dawn-sandboxes")
+    expect(infraInstall).toContain("install b4-sandbox-infra charts/b4-sandbox-infra")
+    expect(infraInstall).toContain("-n b4-app")
+    expect(infraInstall).not.toContain("-n b4-sandboxes")
     expect(infraInstall).not.toContain("--create-namespace")
 
     const cleanup = requireString(
       requireNamedStep(steps, "Diagnostics + cleanup").run,
       "sandbox-k8s-e2e cleanup",
     )
-    expect(cleanup).toContain("uninstall dawn-sandbox-infra -n dawn-app")
-    expect(cleanup).not.toContain("uninstall dawn-sandbox-infra -n dawn-sandboxes")
+    expect(cleanup).toContain("uninstall b4-sandbox-infra -n b4-app")
+    expect(cleanup).not.toContain("uninstall b4-sandbox-infra -n b4-sandboxes")
 
     const appValues = requireRecord(
-      parse(readFileSync(resolve(repoRoot, "test/k8s-smoke/values-dawn-app.yaml"), "utf8")),
-      "full-arc dawn-app values",
+      parse(readFileSync(resolve(repoRoot, "test/k8s-smoke/values-b4-app.yaml"), "utf8")),
+      "full-arc b4-app values",
     )
     expect(appValues).not.toHaveProperty("serviceAccount")
     assertExplicitKubernetesContexts(steps, "sandbox-k8s-e2e")
@@ -512,16 +512,13 @@ describe("canonical Kubernetes CI evidence", () => {
   test("pins chart apply and passes policy images through digest-aware inputs", () => {
     const job = requireJob(ciWorkflow, "chart-apply-smoke", "CI workflow")
     const steps = requireSteps(job, "jobs.chart-apply-smoke")
-    expect(job.env).toEqual({ DAWN_TEST_K8S_CONTEXT: "kind-dawn-chart-apply" })
+    expect(job.env).toEqual({ B4_TEST_K8S_CONTEXT: "kind-b4-chart-apply" })
     const helm = requireNamedStep(steps, "Setup Helm")
     expect(helm.uses).toBe(helmSetupAction)
     expect(helm.with).toEqual({ version: policy.toolchain.helm })
-    assertCanonicalKindStep(steps, "dawn-chart-apply", false)
+    assertCanonicalKindStep(steps, "b4-chart-apply", false)
 
-    const apply = requireNamedStep(
-      steps,
-      "Install dawn-app (placeholder image) and verify it serves",
-    )
+    const apply = requireNamedStep(steps, "Install b4-app (placeholder image) and verify it serves")
     const run = requireString(apply.run, "chart apply run")
     expect(run).toContain(".images.placeholderApp")
     expect(run).toContain(".images.reachabilityProbe")
@@ -546,7 +543,7 @@ describe("immutable Kubernetes workflow and smoke inputs", () => {
       resolve(repoRoot, "packages/sandbox/test/docker-sandbox.integration.test.ts"),
       "utf8",
     )
-    const smokeConfig = readFileSync(resolve(repoRoot, "test/k8s-smoke/app/dawn.config.ts"), "utf8")
+    const smokeConfig = readFileSync(resolve(repoRoot, "test/k8s-smoke/app/b4.config.ts"), "utf8")
     const aimockDockerfile = readFileSync(
       resolve(repoRoot, "test/k8s-smoke/aimock/Dockerfile"),
       "utf8",
@@ -573,7 +570,7 @@ describe("immutable Kubernetes workflow and smoke inputs", () => {
       compatibilityWorkflowSource,
       ciWorkflowSource,
       readFileSync(resolve(repoRoot, "test/k8s-smoke/aimock/Dockerfile"), "utf8"),
-      readFileSync(resolve(repoRoot, "test/k8s-smoke/app/dawn.config.ts"), "utf8"),
+      readFileSync(resolve(repoRoot, "test/k8s-smoke/app/b4.config.ts"), "utf8"),
       readFileSync(resolve(repoRoot, "test/k8s-smoke/build-image.sh"), "utf8"),
       readFileSync(
         resolve(repoRoot, "packages/sandbox/test/docker-sandbox.integration.test.ts"),
@@ -596,7 +593,7 @@ describe("immutable Kubernetes workflow and smoke inputs", () => {
 
   test("reconstructs the exact policy reaper image from chart repository, tag, and digest", () => {
     const values = requireRecord(
-      parse(readFileSync(resolve(repoRoot, "charts/dawn-sandbox-infra/values.yaml"), "utf8")),
+      parse(readFileSync(resolve(repoRoot, "charts/b4-sandbox-infra/values.yaml"), "utf8")),
       "sandbox-infra values",
     )
     const reaper = requireRecord(values.reaper, "sandbox-infra values.reaper")
@@ -606,8 +603,8 @@ describe("immutable Kubernetes workflow and smoke inputs", () => {
 
   test("routes every smoke assertion kubectl command through the context wrapper", () => {
     const source = readFileSync(resolve(repoRoot, "test/k8s-smoke/assert-k8s.sh"), "utf8")
-    expect(source).toContain('DAWN_TEST_K8S_CONTEXT="${DAWN_TEST_K8S_CONTEXT:?')
-    expect(source).toContain('command kubectl --context "$DAWN_TEST_K8S_CONTEXT" "$@"')
+    expect(source).toContain('B4_TEST_K8S_CONTEXT="${B4_TEST_K8S_CONTEXT:?')
+    expect(source).toContain('command kubectl --context "$B4_TEST_K8S_CONTEXT" "$@"')
     const ambientCalls = activeShellLines(source).filter(
       (line) => /(^|[;&|()]\s*|!\s+)kubectl\s/.test(line) && !line.startsWith("command kubectl"),
     )

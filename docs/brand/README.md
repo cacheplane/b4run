@@ -1,12 +1,12 @@
 # Brand assets
 
-The Dawn logos and reproducible product-loop media live here.
+The B4.run logos and reproducible product-loop media live here.
 
 ## Logos
 
-- `dawn-logo-horizontal-black-on-white.png` — primary logo, light background.
-- `dawn-logo-horizontal-white-on-black.png` — inverted, dark background.
-- `dawn-social-avatar-white-on-black-1024.png` — square social/avatar.
+- `b4-logo-horizontal-black-on-white.png` — primary logo, light background.
+- `b4-logo-horizontal-white-on-black.png` — inverted, dark background.
+- `b4-social-avatar-white-on-black-1024.png` — square social/avatar.
 
 ## Product-loop media
 
@@ -59,4 +59,4 @@ a source file, test result, tool call, response, reload, or restored state.
 Sharp renders deterministic **Author**, **Prove**, and **Run** label chips into
 the ignored run artifacts; ffmpeg composites them over the matching captured
 segments. Posters are extracted from the labeled MP4 output, so their act and
-footage remain in sync without changing Dawn runtime behavior.
+footage remain in sync without changing B4.run runtime behavior.

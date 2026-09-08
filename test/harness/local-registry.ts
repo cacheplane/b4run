@@ -32,21 +32,21 @@ export async function startLocalRegistry(
   options: StartLocalRegistryOptions = {},
 ): Promise<LocalRegistry> {
   const bindHost = options.host ?? "127.0.0.1"
-  const storage = await mkdtemp(join(tmpdir(), "dawn-verdaccio-"))
+  const storage = await mkdtemp(join(tmpdir(), "b4-verdaccio-"))
   const config = {
     configPath: join(storage, "config.yaml"),
     storage,
     uplinks: { npmjs: { url: "https://registry.npmjs.org/", maxage: "30m" } },
     packages: {
-      // Dawn's own packages: local publish only, no npmjs proxy so versions
+      // B4.run's own packages: local publish only, no npmjs proxy so versions
       // already on the public registry don't shadow our local publish.
-      "@dawn-ai/*": { access: "$all", publish: "$anonymous", unpublish: "$anonymous" },
-      "create-dawn-ai-app": { access: "$all", publish: "$anonymous", unpublish: "$anonymous" },
+      "@b4run/*": { access: "$all", publish: "$anonymous", unpublish: "$anonymous" },
+      "create-b4-app": { access: "$all", publish: "$anonymous", unpublish: "$anonymous" },
       // Everything else: proxy through npmjs for transitive deps
       "**": { access: "$all", publish: "$anonymous", proxy: "npmjs" },
     },
     log: { type: "stdout", format: "pretty", level: "warn" },
-    // Verdaccio's default max_body_size is 10mb — @dawn-ai/inspector's tarball
+    // Verdaccio's default max_body_size is 10mb — @b4run/inspector's tarball
     // (a Next.js .next/standalone bundle with its traced node_modules) is ~11MB
     // and rejected with E413 at the default. Generous headroom; loopback-only.
     max_body_size: "64mb",
@@ -84,7 +84,7 @@ export async function publishWorkspace(url: string): Promise<void> {
   const packages = await readPublicPackages()
 
   const host = url.replace(/^https?:\/\//, "").replace(/\/$/, "")
-  const publishRoot = await mkdtemp(join(tmpdir(), "dawn-publish-"))
+  const publishRoot = await mkdtemp(join(tmpdir(), "b4-publish-"))
 
   try {
     const packsDir = await mkdtemp(join(publishRoot, "packs-"))
@@ -105,11 +105,11 @@ export async function publishWorkspace(url: string): Promise<void> {
     // ROOT CAUSE this guards against: `npm publish` resolves the *publish* registry by
     // scope, not from the top-level `registry`. Two failure modes, both silently
     // routing to registry.npmjs.org → ENEEDAUTH/E404 on a developer or CI machine:
-    //   1. A SCOPED package (@dawn-ai/*) uses `@<scope>:registry` and falls back to
+    //   1. A SCOPED package (@b4run/*) uses `@<scope>:registry` and falls back to
     //      the public registry — NOT the top-level `registry` — when that scope has no
     //      registry. We set `npm_config_@<scope>:registry` per package below.
     //   2. An inherited default `scope=@foo` in ~/.npmrc routes EVERY publish (even
-    //      unscoped create-dawn-ai-app) through `@foo:registry`, ignoring both
+    //      unscoped create-b4-app) through `@foo:registry`, ignoring both
     //      `--registry` and `npm_config_registry`. We pass `--scope=` to clear it so
     //      unscoped publishes fall back to the top-level `registry`.
     const baseEnv: NodeJS.ProcessEnv = {
@@ -192,7 +192,7 @@ async function readPublicPackages(): Promise<Array<{ dir: string; name: string }
   return packages.sort((a, b) => a.name.localeCompare(b.name))
 }
 
-const REGISTRY_URL_ENV = "DAWN_TEST_REGISTRY_URL"
+const REGISTRY_URL_ENV = "B4_TEST_REGISTRY_URL"
 
 /** Read the registry URL published by the lane's globalSetup. Throws if setup did not run. */
 export function getTestRegistryUrl(): string {

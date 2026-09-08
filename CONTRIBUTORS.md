@@ -2,14 +2,14 @@
 
 ## Overview
 
-This guide is for engineers working inside the Dawn monorepo. It covers the current repo layout, package boundaries, local setup, verification commands, and where the living documentation lives.
+This guide is for engineers working inside the B4.run monorepo. It covers the current repo layout, package boundaries, local setup, verification commands, and where the living documentation lives.
 
 Canonical standards (workspace map, Definition of Done, and conventions) live in [AGENTS.md](./AGENTS.md); see that first.
 
 ## Repository Layout
 
 - `apps/web` contains the documentation website and user-facing docs pages.
-- `packages/*` contains the publishable packages and internal workspace packages that implement Dawn.
+- `packages/*` contains the publishable packages and internal workspace packages that implement B4.run.
 - `test/*` contains repo-level verification lanes, including runtime, generated-app, and smoke coverage.
 - `scripts/*` contains workspace scripts for validation, harness reporting, smoke checks, and packaging checks.
 - `docs/*` contains the design specs, implementation plans, and other superpowers-era project history.
@@ -33,19 +33,19 @@ don't re-list packages here.
 For local authoring work, the canonical contributor-local path is:
 
 ```bash
-pnpm --filter create-dawn-ai-app build
-node packages/create-dawn-app/dist/bin.js ../my-dawn-app --mode internal --template basic
-cd ../my-dawn-app
+pnpm --filter create-b4-app build
+node packages/create-b4-app/dist/bin.js ../my-b4-app --mode internal --template basic
+cd ../my-b4-app
 pnpm install
 ```
 
 From that generated app root, the supported contributor-local commands are:
 
 ```bash
-pnpm exec dawn verify
-echo '{"tenant":"acme"}' | pnpm exec dawn run '/hello/[tenant]'
-pnpm exec dawn test
-pnpm exec dawn dev
+pnpm exec b4 verify
+echo '{"tenant":"acme"}' | pnpm exec b4 run '/hello/[tenant]'
+pnpm exec b4 test
+pnpm exec b4 dev
 ```
 
 The generated `basic` app is a single flat package, and demonstrates the route authoring lane with:
@@ -53,9 +53,9 @@ The generated `basic` app is a single flat package, and demonstrates the route a
 - `src/app/(public)/hello/[tenant]/index.ts`
 - `src/app/(public)/hello/[tenant]/tools/greet.ts`
 
-Drop `--template basic` to scaffold the default `research` app instead. That one is a two-package workspace (`server/` holds the Dawn app, `web/` the Dawn Workbench UI), so the Dawn CLI runs from `server/` rather than the generated root, and the root `package.json` scripts delegate there for you.
+Drop `--template basic` to scaffold the default `research` app instead. That one is a two-package workspace (`server/` holds the B4.run app, `web/` the B4.run Workbench UI), so the B4.run CLI runs from `server/` rather than the generated root, and the root `package.json` scripts delegate there for you.
 
-Use this path only when you intentionally want the generated app wired to the local Dawn checkout. The public user path remains `pnpm create dawn-ai-app`.
+Use this path only when you intentionally want the generated app wired to the local B4.run checkout. The public user path remains `pnpm create b4-app`.
 
 ## Common Commands
 

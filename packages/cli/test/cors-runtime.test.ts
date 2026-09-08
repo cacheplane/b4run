@@ -10,7 +10,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { __clearDawnConfigCacheForTests } from "@dawn-ai/core"
+import { __clearB4ConfigCacheForTests } from "@b4run/core"
 import { afterEach, expect, it } from "vitest"
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
 
@@ -23,14 +23,14 @@ afterEach(async () => {
   // The config memo is keyed by appRoot and lives for the process; each test
   // here boots a DIFFERENT config from a fresh temp root, so a leftover memo
   // from a previous test would be read instead of this one's.
-  __clearDawnConfigCacheForTests()
+  __clearB4ConfigCacheForTests()
 })
 
 async function bootHandler(configSource: string) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cors-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cors-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   for (const [rel, body] of Object.entries({
-    "dawn.config.ts": configSource,
+    "b4.config.ts": configSource,
     "package.json": '{ "name": "cors-fixture", "type": "module" }\n',
     "src/app/.gitkeep": "",
   })) {

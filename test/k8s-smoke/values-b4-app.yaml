@@ -1,0 +1,46 @@
+# b4-app overrides for the sandbox-k8s-e2e smoke lane.
+#
+# Runs the locally-built `b4-smoke-app:k8s` image (built the user-facing way
+# via `b4 build`'s node target, loaded into kind with `kind load`). The app
+# boots serveRuntime, serves the Agent Protocol on :8000, and — because
+# b4.config.ts selects kubernetesSandbox when B4_SMOKE_SANDBOX!=docker —
+# spawns a real sandbox Pod in `b4-sandboxes` when the /smoke route runs
+# runBash.
+image:
+  repository: b4-smoke-app
+  tag: k8s
+  # Never: the image only exists in kind's local containerd (kind load), never
+  # on a registry.
+  pullPolicy: Never
+
+# Exercise the chart defaults: serviceAccount.create is true and an empty name
+# resolves to the release fullname (`b4-app`). values-sandbox-infra.yaml adds
+# that application-owned ServiceAccount as a cross-namespace orchestrator
+# subject so it can create sandbox Pods in b4-sandboxes. The chart's
+# automountServiceAccountToken default remains true because the app needs the
+# token to call the Kubernetes API.
+
+# The node-target server listens on :8000 and serves health at /healthz
+# (chart defaults, restated here for clarity).
+containerPort: 8000
+healthPath: /healthz
+
+# Expose the Service on 8000 too so `kubectl port-forward svc/b4-app 8000:8000`
+# maps cleanly (targetPort is the named `http` port = containerPort).
+service:
+  port: 8000
+
+# Deterministic, no-key model source: the baked aimock Deployment/Service
+# (aimock.k8s.yaml) in this same namespace, reached over cluster DNS.
+env:
+  - name: B4_SMOKE_SANDBOX
+    value: k8s
+  # runBash is gated by the interactive bash-permission HITL by default; a
+  # headless server would park the run at __interrupt__ and never execute the
+  # tool. Bypass it for the deterministic smoke (the docker lane does the same).
+  - name: B4_PERMISSIONS_MODE
+    value: bypass
+  - name: OPENAI_BASE_URL
+    value: http://aimock.b4-app.svc.cluster.local:4010/v1
+  - name: OPENAI_API_KEY
+    value: dummy

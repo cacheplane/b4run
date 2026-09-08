@@ -15,10 +15,10 @@ function githubExpression(expression: string): string {
 
 const vercelArtifactDirectory = `${githubExpression("runner.temp")}/vercel-native`
 const protectedVercelEnvironment = {
-  DAWN_VERCEL_DATABASE_URL: githubExpression("secrets.DAWN_VERCEL_DATABASE_URL"),
-  DAWN_VERCEL_ORG_ID: githubExpression("secrets.DAWN_VERCEL_ORG_ID"),
-  DAWN_VERCEL_PROJECT_ID: githubExpression("secrets.DAWN_VERCEL_PROJECT_ID"),
-  DAWN_VERCEL_TOKEN: githubExpression("secrets.DAWN_VERCEL_TOKEN"),
+  B4_VERCEL_DATABASE_URL: githubExpression("secrets.B4_VERCEL_DATABASE_URL"),
+  B4_VERCEL_ORG_ID: githubExpression("secrets.B4_VERCEL_ORG_ID"),
+  B4_VERCEL_PROJECT_ID: githubExpression("secrets.B4_VERCEL_PROJECT_ID"),
+  B4_VERCEL_TOKEN: githubExpression("secrets.B4_VERCEL_TOKEN"),
 }
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -94,7 +94,7 @@ if (canonicalTarget === undefined) {
   throw new Error("Expected one canonical Kubernetes target")
 }
 const chartValues = readFileSync(
-  new URL("../../../charts/dawn-sandbox-infra/values.yaml", import.meta.url),
+  new URL("../../../charts/b4-sandbox-infra/values.yaml", import.meta.url),
   "utf8",
 )
 
@@ -112,7 +112,7 @@ describe("Kubernetes CI dependency pins", () => {
     })
     expect(requireNamedStep(steps, "Setup Helm").with).toEqual({ version: toolchain.helm })
     expect(requireNamedStep(steps, "Run Kubernetes 1.35 compatibility harness").run).toBe(
-      `pnpm verify:k8s:compat -- --target ${String(canonicalTarget.minor)} --context "$DAWN_TEST_K8S_CONTEXT"`,
+      `pnpm verify:k8s:compat -- --target ${String(canonicalTarget.minor)} --context "$B4_TEST_K8S_CONTEXT"`,
     )
   })
 
@@ -120,9 +120,9 @@ describe("Kubernetes CI dependency pins", () => {
     const workflow = requireRecord(parse(ciWorkflow), "CI workflow")
     const jobs = requireRecord(workflow.jobs, "CI workflow jobs")
     const expected = [
-      ["sandbox-k8s", "dawn-k8s-canonical", true],
-      ["sandbox-k8s-e2e", "dawn-smoke", true],
-      ["chart-apply-smoke", "dawn-chart-apply", false],
+      ["sandbox-k8s", "b4-k8s-canonical", true],
+      ["sandbox-k8s-e2e", "b4-smoke", true],
+      ["chart-apply-smoke", "b4-chart-apply", false],
     ] as const
 
     for (const [jobId, clusterName, useCalicoConfig] of expected) {
@@ -140,7 +140,7 @@ describe("Kubernetes CI dependency pins", () => {
       })
       expect(helm.uses).toBe(helmSetupAction)
       expect(helm.with).toEqual({ version: toolchain.helm })
-      expect(requireRecord(job.env, `jobs.${jobId}.env`).DAWN_TEST_K8S_CONTEXT).toBe(
+      expect(requireRecord(job.env, `jobs.${jobId}.env`).B4_TEST_K8S_CONTEXT).toBe(
         `kind-${clusterName}`,
       )
     }
@@ -211,7 +211,7 @@ describe("Kubernetes CI dependency pins", () => {
     const diagnostics = requireNamedStep(steps, "Diagnostics + cleanup")
     const run = String(diagnostics.run)
     const describeIndex = run.indexOf(
-      "-n dawn-sandboxes describe pods -l app.kubernetes.io/managed-by=dawn",
+      "-n b4-sandboxes describe pods -l app.kubernetes.io/managed-by=b4",
     )
     const teardownIndex = run.indexOf('echo "----- teardown -----"')
 
@@ -301,21 +301,21 @@ describe("native Vercel job", () => {
 
     const nativeTestEnvironment = {
       ...protectedVercelEnvironment,
-      DAWN_TEST_VERCEL: "1",
-      DAWN_VERCEL_ARTIFACT_DIR: vercelArtifactDirectory,
+      B4_TEST_VERCEL: "1",
+      B4_VERCEL_ARTIFACT_DIR: vercelArtifactDirectory,
     }
     const cleanupEnvironment = {
       ...protectedVercelEnvironment,
-      DAWN_VERCEL_ARTIFACT_DIR: vercelArtifactDirectory,
+      B4_VERCEL_ARTIFACT_DIR: vercelArtifactDirectory,
     }
     const receiptEnvironment = {
-      DAWN_VERCEL_ARTIFACT_DIR: vercelArtifactDirectory,
+      B4_VERCEL_ARTIFACT_DIR: vercelArtifactDirectory,
     }
 
     expect(nativeTest.id).toBe("native-vercel")
     expect(nativeTest.env).toEqual(nativeTestEnvironment)
     expect(normalizedExpression(nativeTest.run)).toBe(
-      "pnpm --filter @dawn-ai/cli test vercel-native-lane.test.ts " +
+      "pnpm --filter @b4run/cli test vercel-native-lane.test.ts " +
         "--reporter=json " +
         `--outputFile.json="${vercelArtifactDirectory}/vitest.json"`,
     )
@@ -374,8 +374,8 @@ describe("native Vercel job", () => {
       Object.fromEntries(
         Object.entries(env).filter(
           ([name, value]) =>
-            name === "DAWN_TEST_VERCEL" ||
-            name.startsWith("DAWN_VERCEL_") ||
+            name === "B4_TEST_VERCEL" ||
+            name.startsWith("B4_VERCEL_") ||
             (typeof value === "string" && secretContextReference.test(value)),
         ),
       )

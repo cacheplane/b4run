@@ -18,23 +18,23 @@ import {
 import { writeRegistryNpmrc } from "../harness/scaffold-packaging.js"
 import { expectBasicAuthoringLane } from "./harness.ts"
 
-// @dawn-ai workspace packages a generated app may depend on. Used only to build
+// @b4run workspace packages a generated app may depend on. Used only to build
 // the internal-mode <repo:...> fixture (external mode installs from the registry).
 const SCAFFOLD_PACKAGES: readonly string[] = [
-  "@dawn-ai/ag-ui",
-  "@dawn-ai/cli",
-  "@dawn-ai/config-typescript",
-  "@dawn-ai/core",
-  "@dawn-ai/evals",
-  "@dawn-ai/inspector",
-  "@dawn-ai/langchain",
-  "@dawn-ai/langgraph",
-  "@dawn-ai/memory",
-  "@dawn-ai/permissions",
-  "@dawn-ai/sdk",
-  "@dawn-ai/sqlite-storage",
-  "@dawn-ai/testing",
-  "@dawn-ai/workspace",
+  "@b4run/ag-ui",
+  "@b4run/cli",
+  "@b4run/config-typescript",
+  "@b4run/core",
+  "@b4run/evals",
+  "@b4run/inspector",
+  "@b4run/langchain",
+  "@b4run/langgraph",
+  "@b4run/memory",
+  "@b4run/permissions",
+  "@b4run/sdk",
+  "@b4run/sqlite-storage",
+  "@b4run/testing",
+  "@b4run/workspace",
 ]
 
 const REPO_ROOT = resolve(import.meta.dirname, "../..")
@@ -134,19 +134,19 @@ describe("generated app publish harness", () => {
       }),
     ).toEqual(expected)
     await expectBasicAuthoringLane(contributorLocal.artifacts.appRoot)
-    expect(transcript).toContain(`$ (cd ${REPO_ROOT} && pnpm --filter create-dawn-ai-app build)`)
+    expect(transcript).toContain(`$ (cd ${REPO_ROOT} && pnpm --filter create-b4-app build)`)
     expect(transcript).toContain(
-      `node packages/create-dawn-app/dist/bin.js ${contributorLocal.artifacts.appRoot} --mode internal --template basic`,
+      `node packages/create-b4-app/dist/bin.js ${contributorLocal.artifacts.appRoot} --mode internal --template basic`,
     )
     expect(transcript).toContain(`$ (cd ${contributorLocal.artifacts.appRoot} && pnpm install)`)
     expect(transcript).toContain(
-      `$ (cd ${contributorLocal.artifacts.appRoot} && pnpm exec dawn verify --json)`,
+      `$ (cd ${contributorLocal.artifacts.appRoot} && pnpm exec b4 verify --json)`,
     )
     expect(transcript).toContain(
-      `$ (cd ${contributorLocal.artifacts.appRoot} && pnpm exec dawn routes --json)`,
+      `$ (cd ${contributorLocal.artifacts.appRoot} && pnpm exec b4 routes --json)`,
     )
     expect(transcript).toContain(
-      `$ (cd ${contributorLocal.artifacts.appRoot} && pnpm exec dawn typegen)`,
+      `$ (cd ${contributorLocal.artifacts.appRoot} && pnpm exec b4 typegen)`,
     )
     expect(transcript).not.toContain("--pack-destination")
     expect(transcript).not.toContain("pnpm add ")
@@ -213,9 +213,9 @@ async function runGeneratedAppScenario(
     if (scaffoldMode === "external") {
       const expected = await readExpectedFixture(options.expectedFixtureName)
 
-      expect(
-        normalizeForFixture(result, { appRoot, dawnVersion: await readDawnVersion() }),
-      ).toEqual(expected)
+      expect(normalizeForFixture(result, { appRoot, b4Version: await readB4Version() })).toEqual(
+        expected,
+      )
     }
 
     return {
@@ -246,7 +246,7 @@ async function scaffoldApp(options: {
   if (options.mode === "internal") {
     await runCommand({
       args: [
-        "packages/create-dawn-app/dist/bin.js",
+        "packages/create-b4-app/dist/bin.js",
         options.appRoot,
         "--mode",
         "internal",
@@ -263,7 +263,7 @@ async function scaffoldApp(options: {
     // deterministic even when a long-lived test registry has older templates.
     const { installerDir } = await installPackagedScaffolder(dirname(options.appRoot))
     await runPackagedCommand({
-      args: ["exec", "create-dawn-ai-app", options.appRoot, "--template", "basic"],
+      args: ["exec", "create-b4-app", options.appRoot, "--template", "basic"],
       command: "pnpm",
       cwd: installerDir,
       transcriptPath: options.transcriptPath,
@@ -277,10 +277,10 @@ async function scaffoldApp(options: {
 
 async function rewriteToCustomAppDirLayout(appRoot: string): Promise<void> {
   await rm(join(appRoot, "src"), { force: true, recursive: true })
-  await cp(join(CUSTOM_APP_DIR_FIXTURE_ROOT, "dawn.config.ts"), join(appRoot, "dawn.config.ts"))
-  await mkdir(join(appRoot, "src/dawn-app/support/[tenant]"), { recursive: true })
+  await cp(join(CUSTOM_APP_DIR_FIXTURE_ROOT, "b4.config.ts"), join(appRoot, "b4.config.ts"))
+  await mkdir(join(appRoot, "src/b4-app/support/[tenant]"), { recursive: true })
   await writeFile(
-    join(appRoot, "src/dawn-app/support/[tenant]/index.ts"),
+    join(appRoot, "src/b4-app/support/[tenant]/index.ts"),
     [
       'import type { SupportTenantState } from "./state.js"',
       "",
@@ -293,7 +293,7 @@ async function rewriteToCustomAppDirLayout(appRoot: string): Promise<void> {
     "utf8",
   )
   await writeFile(
-    join(appRoot, "src/dawn-app/support/[tenant]/state.ts"),
+    join(appRoot, "src/b4-app/support/[tenant]/state.ts"),
     [
       "export interface SupportTenantState {",
       "  greeting?: string",
@@ -317,19 +317,19 @@ async function runLifecycle(options: {
   })
 
   const verifyResult = await runCommand({
-    args: ["exec", "dawn", "verify", "--json"],
+    args: ["exec", "b4", "verify", "--json"],
     command: "pnpm",
     cwd: options.appRoot,
     transcriptPath: options.transcriptPath,
   })
   const routesResult = await runCommand({
-    args: ["exec", "dawn", "routes", "--json"],
+    args: ["exec", "b4", "routes", "--json"],
     command: "pnpm",
     cwd: options.appRoot,
     transcriptPath: options.transcriptPath,
   })
   const typegenResult = await runCommand({
-    args: ["exec", "dawn", "typegen"],
+    args: ["exec", "b4", "typegen"],
     command: "pnpm",
     cwd: options.appRoot,
     transcriptPath: options.transcriptPath,
@@ -355,8 +355,8 @@ async function runLifecycle(options: {
   delete packageJson.packageManager
   const verifyJson = JSON.parse(verifyResult.stdout)
   const routesJson = JSON.parse(routesResult.stdout)
-  const typegenOutputPath = join(options.appRoot, ".dawn", "dawn.generated.d.ts")
-  const scenarioTypegenOutputPath = join(options.appRoot, ".dawn", "scenarios.generated.d.ts")
+  const typegenOutputPath = join(options.appRoot, ".b4", "b4.generated.d.ts")
+  const scenarioTypegenOutputPath = join(options.appRoot, ".b4", "scenarios.generated.d.ts")
   await expect(stat(typegenOutputPath)).resolves.toBeDefined()
   await expect(stat(scenarioTypegenOutputPath)).resolves.toBeDefined()
 
@@ -438,7 +438,7 @@ async function readExpectedFixture(fixtureName: string): Promise<unknown> {
 
 async function buildLocalContributorPackages(transcriptPath: string): Promise<void> {
   await runCommand({
-    args: ["--filter", "create-dawn-ai-app", "build"],
+    args: ["--filter", "create-b4-app", "build"],
     command: "pnpm",
     cwd: REPO_ROOT,
     transcriptPath,
@@ -457,7 +457,7 @@ async function createExpectedInternalFixture(
     }
   }
 
-  // Internal mode rewrites every Dawn specifier from "latest" to a repo file: URL
+  // Internal mode rewrites every B4.run specifier from "latest" to a repo file: URL
   // (normalized to <repo:...>). Package-manager overrides live in
   // pnpm-workspace.yaml, not package.json.
   return {
@@ -467,16 +467,16 @@ async function createExpectedInternalFixture(
       name: appName,
       dependencies: {
         ...expected.packageJson.dependencies,
-        "@dawn-ai/cli": "<repo:@dawn-ai/cli>",
-        "@dawn-ai/langchain": "<repo:@dawn-ai/langchain>",
-        "@dawn-ai/sdk": "<repo:@dawn-ai/sdk>",
+        "@b4run/cli": "<repo:@b4run/cli>",
+        "@b4run/langchain": "<repo:@b4run/langchain>",
+        "@b4run/sdk": "<repo:@b4run/sdk>",
       },
       devDependencies: {
         ...expected.packageJson.devDependencies,
-        "@dawn-ai/config-typescript": "<repo:@dawn-ai/config-typescript>",
-        "@dawn-ai/evals": "<repo:@dawn-ai/evals>",
-        "@dawn-ai/inspector": "<repo:@dawn-ai/inspector>",
-        "@dawn-ai/testing": "<repo:@dawn-ai/testing>",
+        "@b4run/config-typescript": "<repo:@b4run/config-typescript>",
+        "@b4run/evals": "<repo:@b4run/evals>",
+        "@b4run/inspector": "<repo:@b4run/inspector>",
+        "@b4run/testing": "<repo:@b4run/testing>",
       },
     },
   }
@@ -484,12 +484,12 @@ async function createExpectedInternalFixture(
 
 function normalizeForFixture(
   value: GeneratedAppScenarioResult,
-  context: { readonly appRoot: string; readonly dawnVersion: string },
+  context: { readonly appRoot: string; readonly b4Version: string },
 ): GeneratedAppScenarioResult {
   return normalizeValue(value, [
     [`/private${context.appRoot}`, "<app-root>"],
     [context.appRoot, "<app-root>"],
-    [context.dawnVersion, "<dawn-version>"],
+    [context.b4Version, "<b4-version>"],
     ["25.6.0", "<version:@types/node>"],
     ["7.0.2", "<version:typescript>"],
     ["^4.1.10", "<version:vitest>"],
@@ -499,13 +499,13 @@ function normalizeForFixture(
   ]) as GeneratedAppScenarioResult
 }
 
-async function readDawnVersion(): Promise<string> {
+async function readB4Version(): Promise<string> {
   const corePackageJson = JSON.parse(
     await readFile(resolve(REPO_ROOT, "packages/core/package.json"), "utf8"),
   ) as { version?: string }
 
   if (!corePackageJson.version) {
-    throw new Error("Could not read @dawn-ai/core version for fixture normalization")
+    throw new Error("Could not read @b4run/core version for fixture normalization")
   }
 
   return corePackageJson.version
@@ -533,7 +533,7 @@ function normalizeForInternalFixture(
 }
 
 function pathToRepoPackageFileSpecifier(packageName: string): string {
-  const packageDir = resolve(REPO_ROOT, "packages", packageName.replace("@dawn-ai/", ""))
+  const packageDir = resolve(REPO_ROOT, "packages", packageName.replace("@b4run/", ""))
 
   return pathToFileURL(packageDir).toString()
 }

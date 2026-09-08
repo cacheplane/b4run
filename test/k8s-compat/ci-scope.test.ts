@@ -93,7 +93,7 @@ describe("metadata-only CI scope", () => {
   })
 
   test("includes feature changes already present at the base endpoint", async () => {
-    const temporary = mkdtempSync(resolve(tmpdir(), "dawn-ci-scope-"))
+    const temporary = mkdtempSync(resolve(tmpdir(), "b4-ci-scope-"))
     const git = (...args: string[]) =>
       execFileSync("git", args, { cwd: temporary, encoding: "utf8" }).trim()
     try {

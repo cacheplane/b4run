@@ -24,7 +24,7 @@ import {
 //   it — the workbench renders its own transcript and composer — but the import path is
 //   recorded because the mistake is easy to repeat.
 // - Components/hooks that omit agentId resolve CopilotKit's default id ("default").
-//   The catch-all route (api/copilotkit/[...path]/route.ts) registers the Dawn /research route
+//   The catch-all route (api/copilotkit/[...path]/route.ts) registers the B4.run /research route
 //   under "default", so every hook binds without per-component agentId wiring.
 // - `defaultThrottleMs` coalesces the useAgent re-renders that the transcript and panels
 //   get from OnMessagesChanged/OnStateChanged. It defaults to UNTHROTTLED,

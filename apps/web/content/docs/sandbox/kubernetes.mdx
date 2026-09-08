@@ -1,40 +1,40 @@
 # Kubernetes Sandbox
 
-Use `kubernetesSandbox` when the Dawn runtime already runs in Kubernetes and each Agent Protocol thread needs an isolated Pod-backed workspace. This is a container boundary, not a microVM boundary. Before production use, provide a dynamic volume provisioner, a compatible sandbox image, and sufficient Pod/PVC quota. If NetworkPolicy is part of the security boundary, provide a policy-enforcing CNI.
+Use `kubernetesSandbox` when the B4.run runtime already runs in Kubernetes and each Agent Protocol thread needs an isolated Pod-backed workspace. This is a container boundary, not a microVM boundary. Before production use, provide a dynamic volume provisioner, a compatible sandbox image, and sufficient Pod/PVC quota. If NetworkPolicy is part of the security boundary, provide a policy-enforcing CNI.
 
-The application process needs Kubernetes API credentials to create and exec into sandbox workloads. The sandbox Pods themselves do not: Dawn sets `automountServiceAccountToken: false` on every provider-managed Pod.
+The application process needs Kubernetes API credentials to create and exec into sandbox workloads. The sandbox Pods themselves do not: B4.run sets `automountServiceAccountToken: false` on every provider-managed Pod.
 
 ## Install the sandbox infrastructure
 
-The `dawn-sandbox-infra` chart creates the target namespace, orchestrator ServiceAccount and RBAC, default-deny egress backstop, resource controls, Pod Security Standard labels, and PVC reaper. Keep its Helm release, the Dawn app, and application credentials in the separate `dawn-app` management namespace while sandbox resources live in `dawn-sandboxes`.
+The `b4-sandbox-infra` chart creates the target namespace, orchestrator ServiceAccount and RBAC, default-deny egress backstop, resource controls, Pod Security Standard labels, and PVC reaper. Keep its Helm release, the B4.run app, and application credentials in the separate `b4-app` management namespace while sandbox resources live in `b4-sandboxes`.
 
 For a fresh release, prepare a values file containing every planned application ServiceAccount. For an existing release, export its effective values first. In either case, `orchestrator.subjects` must contain the complete intended subject list: preserve every existing item and append each application ServiceAccount as a cross-namespace subject. Helm replaces arrays, so never write a guessed numeric subject index. Follow [Kubernetes deployment](/docs/deployment/kubernetes) for the complete ordered workflow.
 
 Install the infrastructure once per cluster or environment:
 
 ```bash
-helm upgrade --install dawn-sandbox-infra \
-  oci://ghcr.io/cacheplane/charts/dawn-sandbox-infra \
-  --namespace dawn-app \
+helm upgrade --install b4-sandbox-infra \
+  oci://ghcr.io/cacheplane/charts/b4-sandbox-infra \
+  --namespace b4-app \
   --create-namespace \
-  --values dawn-sandbox-infra-values.yaml
+  --values b4-sandbox-infra-values.yaml
 ```
 
-The Helm release namespace does not control where sandbox workloads run. The chart's `namespace.name` default remains `dawn-sandboxes`; review values before changing namespace ownership or disabling a control.
+The Helm release namespace does not control where sandbox workloads run. The chart's `namespace.name` default remains `b4-sandboxes`; review values before changing namespace ownership or disabling a control.
 
 ## Configure the provider
 
 Point the provider at exactly the namespace the infrastructure chart manages:
 
-```ts title="dawn.config.ts"
-import { config } from "@dawn-ai/cli"
-import { kubernetesSandbox } from "@dawn-ai/sandbox"
+```ts title="b4.config.ts"
+import { config } from "@b4run/cli"
+import { kubernetesSandbox } from "@b4run/sandbox"
 
 export default config({
   sandbox: {
     provider: kubernetesSandbox({
       image: "node:24-slim",
-      namespace: "dawn-sandboxes",
+      namespace: "b4-sandboxes",
     }),
     network: { mode: "deny" },
     resources: { memoryMb: 512, cpus: 1, diskGb: 2 },
@@ -50,12 +50,12 @@ The provider replaces the image entrypoint with `sleep infinity` and runs shell 
 
 ## Wire application RBAC
 
-The app Pod's ServiceAccount must be a subject of the infrastructure chart's `dawn-orchestrator` RoleBinding. That Role is limited to the provider's Pod, Pod exec, PVC, and NetworkPolicy operations; it does not grant Secret access.
+The app Pod's ServiceAccount must be a subject of the infrastructure chart's `b4-orchestrator` RoleBinding. That Role is limited to the provider's Pod, Pod exec, PVC, and NetworkPolicy operations; it does not grant Secret access.
 
 Add the management-namespace app ServiceAccount to the complete `orchestrator.subjects` list before deploying the app so there is no running-but-unauthorized interval. Follow [Kubernetes deployment](/docs/deployment/kubernetes) for the ordered RoleBinding and application-chart commands. Keep these three values aligned:
 
-- `dawn-sandbox-infra`'s `namespace.name`;
-- `kubernetesSandbox({ namespace: "dawn-sandboxes" })`;
+- `b4-sandbox-infra`'s `namespace.name`;
+- `kubernetesSandbox({ namespace: "b4-sandboxes" })`;
 - the application chart's informational `sandboxNamespace`.
 
 Changing `sandboxNamespace` alone does not move workloads or change RBAC.
@@ -68,7 +68,7 @@ Each distinct provider resource key receives one keeper Pod and one `ReadWriteOn
 - `release()` deletes the Pod and retains the PVC for the next turn.
 - `destroy()` deletes the Pod, per-thread NetworkPolicy, and PVC.
 
-Idle reap and server shutdown both call `release()`, so their Pods disappear while their PVCs remain unreferenced. With the chart reaper enabled, that storage is not retained indefinitely: the reaper has no Dawn thread metadata and considers every unreferenced Dawn PVC eligible. On its default hourly schedule, a run marks an unreferenced PVC that has no valid marker and clears the marker from a PVC it observes referenced by a Pod. A scheduled reaper run deletes a currently unreferenced PVC when its stored marker is older than `reaper.ttlHours` (default `168`). A reattachment resets the marker only if a reaper run observes the PVC referenced by a Pod. A short reattachment entirely between scheduled runs may therefore leave an old marker in place; after the Pod is released, the next run can delete the PVC after recent use. This includes a still-live thread released by idle reap or shutdown. If its PVC is deleted, the next `acquire()` provisions a replacement and starts with an empty workspace. Operators who need thread workspaces to survive longer must tune `reaper.ttlHours` or disable the reaper and own cleanup another way.
+Idle reap and server shutdown both call `release()`, so their Pods disappear while their PVCs remain unreferenced. With the chart reaper enabled, that storage is not retained indefinitely: the reaper has no B4.run thread metadata and considers every unreferenced B4.run PVC eligible. On its default hourly schedule, a run marks an unreferenced PVC that has no valid marker and clears the marker from a PVC it observes referenced by a Pod. A scheduled reaper run deletes a currently unreferenced PVC when its stored marker is older than `reaper.ttlHours` (default `168`). A reattachment resets the marker only if a reaper run observes the PVC referenced by a Pod. A short reattachment entirely between scheduled runs may therefore leave an old marker in place; after the Pod is released, the next run can delete the PVC after recent use. This includes a still-live thread released by idle reap or shutdown. If its PVC is deleted, the next `acquire()` provisions a replacement and starts with an empty workspace. Operators who need thread workspaces to survive longer must tune `reaper.ttlHours` or disable the reaper and own cleanup another way.
 
 The provider applies non-root execution, dropped capabilities, no privilege escalation, RuntimeDefault seccomp, and writable scratch mounts around its read-only-root default. The chart enforces Restricted Pod Security Standards by default. Baseline is needed only for workloads or settings that actually violate Restricted admission, such as `security.runAsNonRoot: false`. Setting `security.readOnlyRootFilesystem: false` alone remains Restricted-compatible and does not require lowering the namespace to Baseline. The chart never downgrades automatically, and the cluster admission controller decides whether an image and policy are accepted. Validate your image under the profile you enforce.
 
@@ -76,11 +76,11 @@ The provider applies non-root execution, dropped capabilities, no privilege esca
 
 ## NetworkPolicy and DNS
 
-The infrastructure chart installs a default-deny egress backstop for Pods labeled `app.kubernetes.io/managed-by=dawn`, with UDP/TCP port 53 allowed to `kube-system`. Therefore deny mode is **not zero egress**: DNS remains allowed, including the DNS-tunneling risk that follows from that exception.
+The infrastructure chart installs a default-deny egress backstop for Pods labeled `app.kubernetes.io/managed-by=b4`, with UDP/TCP port 53 allowed to `kube-system`. Therefore deny mode is **not zero egress**: DNS remains allowed, including the DNS-tunneling risk that follows from that exception.
 
 NetworkPolicy objects have no effect unless the cluster uses a policy-enforcing CNI such as Calico or Cilium. The chart does not install or configure a CNI. Operators must test DNS and policy behavior on the actual cluster.
 
-The chart backstop and provider policy are additive. With `networkPolicy.defaultDenyEgress=true`, a provider setting of `network: { mode: "allow" }` cannot override the chart policy and does not reopen egress. In allow mode the provider emits no per-thread NetworkPolicy and does not enforce `denylist`; the chart backstop is the only Dawn-supplied egress restriction. If you disable that backstop without an operator-owned replacement, egress is open. In deny mode, the provider creates a per-thread policy with DNS and configured CIDR exceptions.
+The chart backstop and provider policy are additive. With `networkPolicy.defaultDenyEgress=true`, a provider setting of `network: { mode: "allow" }` cannot override the chart policy and does not reopen egress. In allow mode the provider emits no per-thread NetworkPolicy and does not enforce `denylist`; the chart backstop is the only B4.run-supplied egress restriction. If you disable that backstop without an operator-owned replacement, egress is open. In deny mode, the provider creates a per-thread policy with DNS and configured CIDR exceptions.
 
 ## PID and resource exhaustion
 
@@ -90,7 +90,7 @@ CPU, memory, ephemeral-storage, PVC count, and requested storage remain chart-ma
 
 ## Preflight and end-to-end verification
 
-`dawn check` calls the provider's `preflight()`. It runs a SelfSubjectAccessReview for every Kubernetes API operation the provider can perform: create/get/delete Pods; create/get/delete PVCs; create/get `pods/exec`; and create/get/list/update/delete NetworkPolicies. It checks the complete set even when one review is denied or fails, then reports missing permissions, authorization-review failures, and API transport failures separately. Only after every required permission is granted does it check NetworkPolicy enforcement; an unconfirmed policy-capable CNI produces a warning rather than a successful enforcement claim.
+`b4 check` calls the provider's `preflight()`. It runs a SelfSubjectAccessReview for every Kubernetes API operation the provider can perform: create/get/delete Pods; create/get/delete PVCs; create/get `pods/exec`; and create/get/list/update/delete NetworkPolicies. It checks the complete set even when one review is denied or fails, then reports missing permissions, authorization-review failures, and API transport failures separately. Only after every required permission is granted does it check NetworkPolicy enforcement; an unconfirmed policy-capable CNI produces a warning rather than a successful enforcement claim.
 
 The compatibility command preflights storage selection, but it does not create a claim PVC during preflight. Dynamic RWO provisioning is a runtime prerequisite verified by the lifecycle, not proven by preflight.
 
@@ -108,14 +108,14 @@ pnpm verify:k8s:compat -- --target <1.34|1.35|1.36> --context <exact-context> [-
 
 The target must match the server minor and the context must exactly match the current context. The command does not switch contexts.
 
-Dawn's Kind/Calico coverage does not certify managed Kubernetes services, other CNI implementations, or storage drivers.
+B4.run's Kind/Calico coverage does not certify managed Kubernetes services, other CNI implementations, or storage drivers.
 
-Use both gated lanes as combined evidence. `sandbox-k8s-e2e`, enabled with `DAWN_TEST_SMOKE_E2E=1`, proves the built app and provider are wired together: it creates a Pod, PVC, and per-thread NetworkPolicy, executes as a non-root user, and removes the Pod and PVC on thread deletion. The `sandbox-k8s-e2e` lane does not test DNS or blocked egress. The separate `sandbox-k8s` integration lane runs against kind with Calico and proves DNS resolution plus blocked egress, including the chart backstop around an allow-mode sandbox. Neither substitutes for verifying the StorageClass, CNI, DNS, admission, quotas, and cleanup settings in your production cluster.
+Use both gated lanes as combined evidence. `sandbox-k8s-e2e`, enabled with `B4_TEST_SMOKE_E2E=1`, proves the built app and provider are wired together: it creates a Pod, PVC, and per-thread NetworkPolicy, executes as a non-root user, and removes the Pod and PVC on thread deletion. The `sandbox-k8s-e2e` lane does not test DNS or blocked egress. The separate `sandbox-k8s` integration lane runs against kind with Calico and proves DNS resolution plus blocked egress, including the chart backstop around an allow-mode sandbox. Neither substitutes for verifying the StorageClass, CNI, DNS, admission, quotas, and cleanup settings in your production cluster.
 
 ## Operational references
 
 - [Kubernetes deployment](/docs/deployment/kubernetes) — build the Node image, install the app chart, wire its ServiceAccount, and plan rollouts and replicas.
-- [`dawn-sandbox-infra` chart README](https://github.com/cacheplane/dawnai/blob/main/charts/dawn-sandbox-infra/README.md) — infrastructure behavior, reaper compatibility, and honest scope.
-- [`dawn-sandbox-infra` values](https://github.com/cacheplane/dawnai/blob/main/charts/dawn-sandbox-infra/values.yaml) — namespace, PSS, quota, network, and reaper settings.
-- [`dawn-app` chart values](https://github.com/cacheplane/dawnai/blob/main/charts/dawn-app/values.yaml) — application ServiceAccount and sandbox namespace settings.
+- [`b4-sandbox-infra` chart README](https://github.com/cacheplane/b4run/blob/main/charts/b4-sandbox-infra/README.md) — infrastructure behavior, reaper compatibility, and honest scope.
+- [`b4-sandbox-infra` values](https://github.com/cacheplane/b4run/blob/main/charts/b4-sandbox-infra/values.yaml) — namespace, PSS, quota, network, and reaper settings.
+- [`b4-app` chart values](https://github.com/cacheplane/b4run/blob/main/charts/b4-app/values.yaml) — application ServiceAccount and sandbox namespace settings.
 - [Execution Sandbox](/docs/sandbox) — portable provider contract, Docker reference behavior, and custom-provider testing.

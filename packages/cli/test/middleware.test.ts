@@ -1,4 +1,4 @@
-import type { DawnMiddleware, MiddlewareRequest } from "@dawn-ai/sdk"
+import type { B4Middleware, MiddlewareRequest } from "@b4run/sdk"
 import { describe, expect, test } from "vitest"
 import { runMiddleware } from "../src/lib/dev/middleware.js"
 
@@ -21,14 +21,14 @@ describe("runMiddleware", () => {
   })
 
   test("returns continue when middleware passes", async () => {
-    const mw: DawnMiddleware = async () => ({ action: "continue" })
+    const mw: B4Middleware = async () => ({ action: "continue" })
 
     const result = await runMiddleware(mw, createMockRequest())
     expect(result.action).toBe("continue")
   })
 
   test("returns reject when middleware rejects", async () => {
-    const mw: DawnMiddleware = async () => ({
+    const mw: B4Middleware = async () => ({
       action: "reject",
       status: 401,
       body: { error: "Unauthorized" },
@@ -43,7 +43,7 @@ describe("runMiddleware", () => {
   })
 
   test("passes context through on continue", async () => {
-    const mw: DawnMiddleware = async () => ({
+    const mw: B4Middleware = async () => ({
       action: "continue",
       context: { userId: "user-1" },
     })
@@ -58,7 +58,7 @@ describe("runMiddleware", () => {
   test("receives parsed request with headers and params", async () => {
     let receivedReq: MiddlewareRequest | undefined
 
-    const mw: DawnMiddleware = async (req) => {
+    const mw: B4Middleware = async (req) => {
       receivedReq = req
       return { action: "continue" }
     }

@@ -11,6 +11,11 @@
       "id": "protected-2026-08-28",
       "mode": "protected",
       "canonicalSha256": "211162b0d506fb84863f07e94408c6295f782efea411d72c984baff29918b096"
+    },
+    {
+      "id": "renamed-b4-disabled-2026-09-07",
+      "mode": "disabled",
+      "canonicalSha256": "c4251c300f01f9bacb85f0ecd7e11db671a96a9959d029b2cd78b8384b00af9c"
     }
   ]
 }

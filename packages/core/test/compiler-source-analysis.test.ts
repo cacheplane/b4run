@@ -87,7 +87,7 @@ export default async (input: { id: string }) => input
   })
 
   test("does not report erased values through type-only alias chains or ambient declarations", () => {
-    const directory = mkdtempSync(join(tmpdir(), "dawn-compiler-exports-"))
+    const directory = mkdtempSync(join(tmpdir(), "b4-compiler-exports-"))
     tempDirectories.push(directory)
     const sourceFile = join(directory, "tool.ts")
     const source = `
@@ -505,7 +505,7 @@ export default async (input: WithId<{ name: string }>) => input
   })
 
   test("resolves imported input and output types from the source filename", () => {
-    const directory = mkdtempSync(join(tmpdir(), "dawn-compiler-analysis-"))
+    const directory = mkdtempSync(join(tmpdir(), "b4-compiler-analysis-"))
     tempDirectories.push(directory)
     const sourceFile = join(directory, "imported-tool.ts")
     const source = `

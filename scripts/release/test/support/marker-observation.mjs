@@ -164,9 +164,9 @@ export function observationForMarker({
 function packageIdentities() {
   return Array.from({ length: 21 }, (_unused, index) => {
     const ordinal = String(index + 1).padStart(2, "0")
-    const filename = `dawn-ai-package-${ordinal}-${VERSION}.tgz`
+    const filename = `b4run-package-${ordinal}-${VERSION}.tgz`
     return {
-      name: `@dawn-ai/package-${ordinal}`,
+      name: `@b4run/package-${ordinal}`,
       version: VERSION,
       filename,
       tarballSha256: (index + 1).toString(16).padStart(64, "0"),
@@ -182,8 +182,8 @@ function releaseMarker(phase, packages) {
     ? {
         workflow: ".github/workflows/published-artifact-verify.yml",
         workflowRunId: 500,
-        runUrl: "https://api.github.com/repos/cacheplane/dawnai/actions/runs/500",
-        htmlUrl: "https://github.com/cacheplane/dawnai/actions/runs/500",
+        runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/500",
+        htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/500",
         runAttempt: phase === "AUDIT_DISPATCHED" ? null : 1,
         attemptAssetName: phase === "AUDIT_DISPATCHED" ? null : "audit-attempt-500-1.json",
         attemptSha256: phase === "AUDIT_DISPATCHED" ? null : AUDIT_SHA256,
@@ -221,7 +221,7 @@ function releaseMarker(phase, packages) {
       phase === "ATTACHING"
         ? null
         : {
-            repository: "cacheplane/dawnai",
+            repository: "cacheplane/b4run",
             workflow: ".github/workflows/release.yml",
             sourceRef: `refs/tags/v${VERSION}`,
             commitSha: COMMIT_SHA,
@@ -272,7 +272,7 @@ export function smokeDescriptor({
       lane: receipt.lane,
       actionsArtifactId: String(900 + index),
       actionsArtifactName: `smoke-result-${receipt.lane}-${workflowRunId}-${runAttempt}`,
-      actionsArtifactUrl: `https://github.com/cacheplane/dawnai/actions/runs/${workflowRunId}/artifacts/${900 + index}`,
+      actionsArtifactUrl: `https://github.com/cacheplane/b4run/actions/runs/${workflowRunId}/artifacts/${900 + index}`,
       actionsArtifactServiceDigest: `sha256:${"8".repeat(64)}`,
       releaseAssetId: receipt.releaseAssetId,
       releaseAssetName: receipt.releaseAssetName,

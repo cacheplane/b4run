@@ -14,7 +14,7 @@ describe("CapabilityRegistry + applyCapabilities", () => {
   let routeDir: string
 
   beforeEach(() => {
-    routeDir = mkdtempSync(join(tmpdir(), "dawn-cap-"))
+    routeDir = mkdtempSync(join(tmpdir(), "b4-cap-"))
   })
 
   afterEach(() => {

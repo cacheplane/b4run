@@ -444,8 +444,8 @@ describe("local Mermaid UI compatibility harness", () => {
       resolveUiDependencyReceipt("examples/research/web"),
     ]
     expect(receipts).toMatchObject([
-      { app: "@dawn-example/chat-web" },
-      { app: "@dawn-example/research-web" },
+      { app: "@b4-example/chat-web" },
+      { app: "@b4-example/research-web" },
     ])
     for (const importerName of ["examples/chat/web", "examples/research/web"] as const) {
       expect(lockUiDependencyChain(importerName)).toEqual({

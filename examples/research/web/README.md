@@ -1,9 +1,9 @@
-# Dawn Workbench — the research example's web client
+# B4.run Workbench — the research example's web client
 
 A [CopilotKit](https://docs.copilotkit.ai) v2 app (`@copilotkit/react-core/v2` +
-`@copilotkit/runtime/v2`) that talks to Dawn's `/research` agent over AG-UI. Its
+`@copilotkit/runtime/v2`) that talks to B4.run's `/research` agent over AG-UI. Its
 required catch-all route (`app/api/copilotkit/[...path]/route.ts`) registers an
-`HttpAgent` pointed at Dawn's encoded `/research#agent` endpoint. It is a
+`HttpAgent` pointed at B4.run's encoded `/research#agent` endpoint. It is a
 workbench rather than a chat widget: the app renders its own transcript and composer
 instead of mounting `CopilotSidebar`, so the plan and researcher activity cards appear
 inline in the conversation.
@@ -15,9 +15,9 @@ a legacy base-URL POST.
 ## Layout
 
 - **Connect screen** (`app/components/ConnectScreen.tsx`) — replaces the whole shell when
-  the Dawn server is not answering, with the two commands that start it. It re-probes
-  every 5 seconds through `GET /api/dawn/memory/candidates` (an allowlisted read, so it
-  measures Dawn's own liveness rather than this Next process's), and clears itself the
+  the B4.run server is not answering, with the two commands that start it. It re-probes
+  every 5 seconds through `GET /api/b4/memory/candidates` (an allowlisted read, so it
+  measures B4.run's own liveness rather than this Next process's), and clears itself the
   moment the server comes up — no reload. "Try again" probes immediately.
 - **Thread rail** (left, `app/components/ThreadRail.tsx`) — "New conversation" plus the
   list of threads, each titled from its first user message.
@@ -34,7 +34,7 @@ a legacy base-URL POST.
 ```
 browser
   → /api/copilotkit/* (app/api/copilotkit/[...path]/route.ts, this app, no API key)
-    → HttpAgent → POST /agui/%2Fresearch%23agent  (Dawn dev server, holds OPENAI_API_KEY)
+    → HttpAgent → POST /agui/%2Fresearch%23agent  (B4.run dev server, holds OPENAI_API_KEY)
       → live /research agent
         → AG-UI event stream back to the browser
 ```
@@ -43,14 +43,14 @@ browser
   `agents: { default: new HttpAgent(...) }`, served through
   `createCopilotRuntimeHandler` from `@copilotkit/runtime/v2` with
   `basePath: "/api/copilotkit"` and shared `GET`/`POST` exports. No LLM credentials
-  live here; the Dawn server holds `OPENAI_API_KEY`.
+  live here; the B4.run server holds `OPENAI_API_KEY`.
 - `app/page.tsx` — `CopilotKit` (`runtimeUrl="/api/copilotkit"`,
   `useSingleEndpoint={false}`) plus a `CopilotChatConfigurationProvider` carrying the
   active thread id. The workbench renders its own transcript and composer, with
   `renderActivityMessages={workbenchActivityRenderers}` and a 100 ms render throttle.
 
 Components/hooks that omit `agentId` resolve CopilotKit's default agent id
-(`"default"`), which the runtime route registers as the Dawn `/research` agent — same
+(`"default"`), which the runtime route registers as the B4.run `/research` agent — same
 pattern as `examples/chat/web`, no per-component wiring needed.
 
 ## Thread history
@@ -83,8 +83,8 @@ aliases CopilotKit's resume path never minted.
 
 ## The proxy
 
-The Dawn dev server sets no CORS headers, so the browser reaches it through the
-same-origin catch-all at `app/api/dawn/[...path]/route.ts`. That proxy is **not** open.
+The B4.run dev server sets no CORS headers, so the browser reaches it through the
+same-origin catch-all at `app/api/b4/[...path]/route.ts`. That proxy is **not** open.
 `app/lib/proxy-allowlist.ts` is a pure function listing every route the browser may
 reach — five of them:
 
@@ -111,7 +111,7 @@ server with no undo — hence the label, not "Dismiss"). It shows at most three 
 and counts the rest, so it cannot push the thread list off the rail. With no candidates it
 renders nothing at all — except the one line reporting the outcome of the decision you
 just made, or a load failure. It cannot browse, search, or edit stored
-memories — that is still `dawn memory list` and the rest of the `dawn memory` CLI.
+memories — that is still `b4 memory list` and the rest of the `b4 memory` CLI.
 
 ## Running
 
@@ -119,20 +119,20 @@ This demo needs a real model API key. There is no keyless or mock demo mode.
 
 ```bash
 pnpm install
-pnpm build                           # build the Dawn packages this app uses through dist
+pnpm build                           # build the B4.run packages this app uses through dist
 cd examples/research
 cp server/.env.example server/.env   # set OPENAI_API_KEY here — the server needs it, not this app
 pnpm dev                             # server on :3002, web on :3010
 # open http://localhost:3010
 ```
 
-`web/.env.example` holds only `DAWN_SERVER_URL` (default `http://127.0.0.1:3002`); copy
+`web/.env.example` holds only `B4_SERVER_URL` (default `http://127.0.0.1:3002`); copy
 it to `web/.env` if your server listens elsewhere.
 
-`pnpm --filter @dawn-ai/ag-ui test` renders the cards on the server and checks their
+`pnpm --filter @b4run/ag-ui test` renders the cards on the server and checks their
 schemas and bounds. Here, `typecheck` / `build` verify the CopilotKit/AG-UI wiring
 compiles and the Next.js app builds. The repository's packaged research activation
-proves the deterministic wire path. `pnpm --filter @dawn-example/research-web
+proves the deterministic wire path. `pnpm --filter @b4-example/research-web
 test:e2e` drives the real page in a browser to verify V2 transport selection. None of
 these checks exercises a live model; this client intentionally has no demo/mock mode.
 
@@ -143,7 +143,7 @@ variables and re-exported as Tailwind tokens via `@theme inline`, which is why t
 utilities read `bg-wb-surface`, `border-wb-border`, `text-wb-muted`, `rounded-wb`. Change
 a `--wb-*` value and the light and dark palettes, the activity-card tokens, and every
 utility move together. The same file holds the single focus ring (`wb-focus`), the two
-roles the dawn gradient is allowed to play (`.wb-brand-mark`, `.wb-primary-action`), and
+roles the b4 gradient is allowed to play (`.wb-brand-mark`, `.wb-primary-action`), and
 the `.wb-prose` rules for rendered markdown.
 
 The palette follows the OS light/dark setting. To pin one regardless, set
@@ -151,7 +151,7 @@ The palette follows the OS light/dark setting. To pin one regardless, set
 branches.
 
 The plan and researcher cards are **not forks**. They are the packaged
-`@dawn-ai/ag-ui/react` components (`PlanActivityCard`, `SubagentActivityCard`),
+`@b4run/ag-ui/react` components (`PlanActivityCard`, `SubagentActivityCard`),
 customized through that package's `classNames` ladder. To change how they look, edit
 `app/components/PlanCard.tsx` (and `app/components/SubagentCard.tsx`) — validation,
 bounds, and layout stay in the package where they are tested. One constraint is worth
@@ -162,13 +162,13 @@ what it puts out of reach.
 
 ## Test coverage
 
-`pnpm --filter @dawn-example/research-web test` runs 15 test files: the proxy route and
+`pnpm --filter @b4-example/research-web test` runs 15 test files: the proxy route and
 its allowlist, the thread source, the checkpoint hydrator, the transcript mapping, the
 renderer registry, the thread rail, the composer, the connect screen, the memory panel,
 the tool-call card, all three permission surfaces (`PermissionPrompt`,
 `PermissionInterrupt`, `HydratedInterrupts`), and the shell's thread-switch and
 server-probe behaviour. `typecheck` and `build` prove the CopilotKit/AG-UI wiring
-compiles. The activity cards themselves are tested in `@dawn-ai/ag-ui`.
+compiles. The activity cards themselves are tested in `@b4run/ag-ui`.
 
 The model-free `test:e2e` browser test proves the V2 transport begins with
 `GET /api/copilotkit/info` rather than the legacy single-endpoint `POST`. The connect
@@ -182,7 +182,7 @@ by unit tests only.
 ## What it does not do yet
 
 - **Threads are local to the browser.** The rail keeps its own list in `localStorage`
-  (`app/lib/thread-source.ts`) because the Dawn server cannot enumerate threads. The
+  (`app/lib/thread-source.ts`) because the B4.run server cannot enumerate threads. The
   list is not shared across browsers, devices, or profiles, and clearing site data
   clears it — the server still holds the conversations, but this client would no longer
   know their ids.
@@ -190,7 +190,7 @@ by unit tests only.
   calls and results, and the plan. Subagent activity cards from earlier runs are not
   saved and do not return.
 - **Memory review is candidates only** — see above. No browsing, searching, or editing.
-- **A connection loss costs you your draft.** When a probe finds the Dawn server down,
+- **A connection loss costs you your draft.** When a probe finds the B4.run server down,
   the connect screen replaces the whole shell — which unmounts the composer, so anything
   typed but not sent is gone when the server comes back.
 
@@ -199,12 +199,12 @@ by unit tests only.
 Same as the server: tools run against the workspace with real network and filesystem
 access as configured. Do not point untrusted users at this example.
 
-The proxy adds a second exposure, and the allowlist does not close it. `/api/dawn/[...path]`
-is same-origin and forwards to Dawn with **no authentication of any kind**, and this
+The proxy adds a second exposure, and the allowlist does not close it. `/api/b4/[...path]`
+is same-origin and forwards to B4.run with **no authentication of any kind**, and this
 example installs no `threadAccess` policy — so anything that can reach this Next app can
 read any thread's full checkpoint transcript by guessing its id, and can permanently
 delete memory candidates through `/reject`. The allowlist bounds WHICH routes are
 reachable, not WHO may reach them: it is a blast-radius limit, not an access control.
-The fix belongs on the Dawn side — a `threadAccess` policy on the server, so a request
+The fix belongs on the B4.run side — a `threadAccess` policy on the server, so a request
 for someone else's thread is refused where the data lives rather than in front of it.
 Until that is in place, run this only on a trusted machine you are the sole user of.

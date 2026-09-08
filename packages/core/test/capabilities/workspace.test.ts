@@ -1,12 +1,12 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createPermissionsStore } from "@dawn-ai/permissions/node"
-import { localExec, localFilesystem } from "@dawn-ai/workspace/node"
+import { createPermissionsStore } from "@b4run/permissions/node"
+import { localExec, localFilesystem } from "@b4run/workspace/node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createWorkspaceMarker } from "../../src/capabilities/built-in/workspace.js"
-import type { CapabilityMarkerContext, DawnToolDefinition } from "../../src/capabilities/types.js"
+import type { B4ToolDefinition, CapabilityMarkerContext } from "../../src/capabilities/types.js"
 import { nodeMarkerFs } from "../../src/node-marker-fs.js"
 
 const originalCwd = process.cwd()
@@ -24,7 +24,7 @@ function ctx(
     descriptor: undefined,
     appRoot,
     markerFs: nodeMarkerFs,
-    // What the node runtime (`dawn dev`/`start`) supplies: core owns no
+    // What the node runtime (`b4 dev`/`start`) supplies: core owns no
     // default backend of its own. Absent both these and `backends`, a tool
     // invocation fails loudly — see workspace-injection.test.ts.
     backendFactories: { filesystem: () => localFilesystem(), exec: () => localExec() },
@@ -33,9 +33,9 @@ function ctx(
 }
 
 function findTool(
-  tools: ReadonlyArray<DawnToolDefinition> | undefined,
+  tools: ReadonlyArray<B4ToolDefinition> | undefined,
   name: string,
-): DawnToolDefinition {
+): B4ToolDefinition {
   const tool = (tools ?? []).find((t) => t.name === name)
   if (!tool) throw new Error(`Tool ${name} not found`)
   return tool
@@ -45,7 +45,7 @@ describe("createWorkspaceMarker — detect", () => {
   let appRoot: string
   let routeDir: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-workspace-cap-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-workspace-cap-"))
     routeDir = join(appRoot, "route")
     mkdirSync(routeDir)
     process.chdir(appRoot)
@@ -72,7 +72,7 @@ describe("createWorkspaceMarker — load", () => {
   let routeDir: string
   let workspaceDir: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-workspace-cap-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-workspace-cap-"))
     routeDir = join(appRoot, "route")
     mkdirSync(routeDir)
     workspaceDir = join(appRoot, "workspace")

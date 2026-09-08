@@ -23,7 +23,7 @@ import { useRenderTool } from "@copilotkit/react-core/v2"
 //   `parameters`, while sibling prop-based renderer APIs use `args`.
 //
 // With no agentId, this binds to CopilotKit's default agent id ("default"),
-// which the runtime route registers as our Dawn /research agent — same as
+// which the runtime route registers as our B4.run /research agent — same as
 // every other CopilotKit hook in this app.
 
 /** The three states `useRenderTool` reports a call in. */
@@ -43,7 +43,7 @@ export interface ToolCallViewProps {
  * (`app/lib/hydrate.ts`'s header states the same pair from the other side).
  * The dominant `on_chat_model_end` path announces a root tool call's args as a
  * real object; the held `on_tool_start` path carries LangGraph's own `{input}`
- * wrapper, whose value is itself a JSON string. Either way `@dawn-ai/ag-ui`'s
+ * wrapper, whose value is itself a JSON string. Either way `@b4run/ag-ui`'s
  * outbound layer serializes the whole thing to the JSON string this card
  * receives, so after the caller parses it `parameters` is either the args
  * object directly or `{ input: '{"path":"corpus/x.md"}' }`. The `input` branch
@@ -132,15 +132,15 @@ const STATUS: Record<ToolCallStatus, { readonly glyph: string; readonly label: s
  *
  * `executing` borrows the PACKAGE's running token rather than redefining it,
  * because a running tool and a running todo should be the same blue:
- * `app/theme.css` says outright that `--dawn-activity-running` stays owned by
- * `@dawn-ai/ag-ui` (it is already semantic and dark-mode aware), and
+ * `app/theme.css` says outright that `--b4-activity-running` stays owned by
+ * `@b4run/ag-ui` (it is already semantic and dark-mode aware), and
  * `app/layout.tsx` imports that stylesheet globally. The `currentColor`
  * fallback is not defensive noise: if that import ever went away, the glyph
  * should drop to the card's own text color by declaration rather than by
  * invalid-at-computed-value-time accident, which would inherit some unrelated
  * ancestor's color instead.
  *
- * `complete` stays MUTED, and does not take `--dawn-activity-complete`, because
+ * `complete` stays MUTED, and does not take `--b4-activity-complete`, because
  * green would claim an outcome the wire never conveys. CopilotKit's `status` is
  * a lifecycle: a tool that threw still arrives here as `"complete"`, and this
  * card sees only the result string — the `ToolMessage`'s own success/error flag
@@ -152,7 +152,7 @@ const STATUS: Record<ToolCallStatus, { readonly glyph: string; readonly label: s
  */
 const STATUS_GLYPH_CLASS: Record<ToolCallStatus, string> = {
   inProgress: "text-wb-muted",
-  executing: "text-[var(--dawn-activity-running,currentColor)]",
+  executing: "text-[var(--b4-activity-running,currentColor)]",
   complete: "text-wb-muted",
 }
 
@@ -160,11 +160,11 @@ const STATUS_GLYPH_CLASS: Record<ToolCallStatus, string> = {
  * One tool call, in the workbench's design.
  *
  * ORDINARY TAILWIND UTILITIES ARE FINE HERE — unlike `PlanCard`/`SubagentCard`
- * next door, which may only set properties `@dawn-ai/ag-ui`'s unlayered
+ * next door, which may only set properties `@b4run/ag-ui`'s unlayered
  * stylesheet leaves unset. That constraint is about *that* stylesheet: it ships
  * unlayered, so its declarations beat Tailwind's `utilities` layer no matter
  * what the app writes. This card is markup the app owns outright — no package
- * CSS touches it, nothing here is `.dawn-activity*` — so every utility below
+ * CSS touches it, nothing here is `.b4-activity*` — so every utility below
  * simply applies. The rhythm (13px text, 8px/10px padding, 6px block margin,
  * 11px meta) is matched by hand to the activity cards' tokens rather than
  * inherited from them, which is why the numbers look hard-coded.
@@ -192,7 +192,7 @@ export function ToolCallView({ name, status, parameters, result }: ToolCallViewP
         {/*
           `overflow-wrap: anywhere`, not `break-all`: a long tool name should
           break only when it genuinely cannot fit, the same rule the package
-          puts on `.dawn-activity__title`. `break-all` splits mid-token even
+          puts on `.b4-activity__title`. `break-all` splits mid-token even
           when there is room, which turns `searchCorpus` into `searchCorp/us`.
 
           The radius is `rounded-wb-sm` (7px), a deliberate departure from the

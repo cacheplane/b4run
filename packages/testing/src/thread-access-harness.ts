@@ -1,4 +1,4 @@
-import { normalizeThreadAccessResult } from "@dawn-ai/cli/runtime"
+import { normalizeThreadAccessResult } from "@b4run/cli/runtime"
 import type {
   ThreadAccessPolicy,
   ThreadAccessRequest,
@@ -6,7 +6,7 @@ import type {
   ThreadAction,
   ThreadOperation,
   ThreadSubject,
-} from "@dawn-ai/sdk"
+} from "@b4run/sdk"
 
 /** A partial `ThreadAccessRequest`: only `action` is required. */
 export interface ThreadAccessCheckSpec {

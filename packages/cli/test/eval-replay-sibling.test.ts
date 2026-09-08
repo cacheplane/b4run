@@ -9,8 +9,8 @@ import { caseSlug, siblingFixturePath } from "../src/lib/runtime/eval-fixture-pa
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 // Create temp apps *inside* the repo tree so node module resolution walks up to
-// the workspace root node_modules (where @dawn-ai/sdk is hoisted). @dawn-ai/evals
-// and @dawn-ai/testing are not hoisted, so they are symlinked into the temp app's
+// the workspace root node_modules (where @b4run/sdk is hoisted). @b4run/evals
+// and @b4run/testing are not hoisted, so they are symlinked into the temp app's
 // node_modules explicitly — this satisfies both the eval file's value imports and
 // the command's importFromApp() resolution.
 const scratchRoot = resolve(repoRoot, "packages", "cli", ".tmp-eval-apps")
@@ -27,18 +27,18 @@ async function makeApp(evalSource: string): Promise<string> {
   tempDirs.push(root)
 
   await writeFile(join(root, "package.json"), '{ "name": "eval-temp-app", "type": "module" }\n')
-  await writeFile(join(root, "dawn.config.ts"), "export default {}\n")
+  await writeFile(join(root, "b4.config.ts"), "export default {}\n")
 
   // Symlink the non-hoisted workspace packages the eval file + command need.
-  await mkdir(join(root, "node_modules", "@dawn-ai"), { recursive: true })
+  await mkdir(join(root, "node_modules", "@b4run"), { recursive: true })
   await symlink(
     join(repoRoot, "packages", "evals"),
-    join(root, "node_modules", "@dawn-ai", "evals"),
+    join(root, "node_modules", "@b4run", "evals"),
     "dir",
   )
   await symlink(
     join(repoRoot, "packages", "testing"),
-    join(root, "node_modules", "@dawn-ai", "testing"),
+    join(root, "node_modules", "@b4run", "testing"),
     "dir",
   )
 
@@ -49,7 +49,7 @@ async function makeApp(evalSource: string): Promise<string> {
   await writeFile(
     join(routeDir, "index.ts"),
     [
-      'import { agent } from "@dawn-ai/sdk"',
+      'import { agent } from "@b4run/sdk"',
       "export default agent({",
       '  model: "gpt-4o-mini",',
       '  systemPrompt: "You are a test agent. Use the provided tools when asked.",',
@@ -76,13 +76,13 @@ async function makeApp(evalSource: string): Promise<string> {
   return root
 }
 
-describe("dawn eval (replay sibling fixture auto-load)", () => {
+describe("b4 eval (replay sibling fixture auto-load)", () => {
   it("replays from a sibling fixture file when the case has no inline fixtures", async () => {
     // Build an app with a no-inline-fixtures eval case.
     const caseName = "open"
     const root = await makeApp(
       [
-        'import { contains, defineEval } from "@dawn-ai/evals"',
+        'import { contains, defineEval } from "@b4run/evals"',
         "",
         "export default defineEval({",
         '  name: "filter",',

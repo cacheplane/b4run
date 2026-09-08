@@ -1,5 +1,5 @@
-import type { MemoryKind, MemoryRecord, MemoryStatus } from "@dawn-ai/memory"
-import type { BrowseSortEntry } from "@dawn-ai/memory/browse"
+import type { MemoryKind, MemoryRecord, MemoryStatus } from "@b4run/memory"
+import type { BrowseSortEntry } from "@b4run/memory/browse"
 
 /** The Inspector's request window (design §11 "default window / page size"). A PROPOSAL
  *  until tasks 18 and 21 measure it; pinned here so a change to it is a deliberate edit

@@ -12,7 +12,7 @@ const live = Boolean(process.env.OPENAI_API_KEY)
 const episodicRoot = fileURLToPath(new URL("./fixtures/probe-app-episodic", import.meta.url))
 
 function dbPath(root: string): string {
-  return join(root, ".dawn", "memory.sqlite")
+  return join(root, ".b4", "memory.sqlite")
 }
 function cleanDb(root: string): void {
   for (const s of ["", "-wal", "-shm"]) rmSync(`${dbPath(root)}${s}`, { force: true })

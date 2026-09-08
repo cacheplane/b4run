@@ -72,7 +72,7 @@ async function loadToolScope(options: {
 
     if (existingFile) {
       throw new Error(
-        `Duplicate ${options.scope} Dawn tool name "${tool.name}" detected at ${existingFile} and ${filePath}`,
+        `Duplicate ${options.scope} B4.run tool name "${tool.name}" detected at ${existingFile} and ${filePath}`,
       )
     }
 

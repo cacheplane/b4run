@@ -15,14 +15,14 @@ import {
 const repoRoot = resolve(__dirname, "../..")
 const documentationPaths = {
   contributorStandards: resolve(repoRoot, "AGENTS.md"),
-  chart: resolve(repoRoot, "charts/dawn-sandbox-infra/README.md"),
-  sandboxInfraChart: resolve(repoRoot, "charts/dawn-sandbox-infra/Chart.yaml"),
-  chartValues: resolve(repoRoot, "charts/dawn-sandbox-infra/values.yaml"),
-  chartNotes: resolve(repoRoot, "charts/dawn-sandbox-infra/templates/NOTES.txt"),
-  dawnAppChart: resolve(repoRoot, "charts/dawn-app/Chart.yaml"),
-  dawnAppReadme: resolve(repoRoot, "charts/dawn-app/README.md"),
-  dawnAppValues: resolve(repoRoot, "charts/dawn-app/values.yaml"),
-  dawnAppNotes: resolve(repoRoot, "charts/dawn-app/templates/NOTES.txt"),
+  chart: resolve(repoRoot, "charts/b4-sandbox-infra/README.md"),
+  sandboxInfraChart: resolve(repoRoot, "charts/b4-sandbox-infra/Chart.yaml"),
+  chartValues: resolve(repoRoot, "charts/b4-sandbox-infra/values.yaml"),
+  chartNotes: resolve(repoRoot, "charts/b4-sandbox-infra/templates/NOTES.txt"),
+  b4AppChart: resolve(repoRoot, "charts/b4-app/Chart.yaml"),
+  b4AppReadme: resolve(repoRoot, "charts/b4-app/README.md"),
+  b4AppValues: resolve(repoRoot, "charts/b4-app/values.yaml"),
+  b4AppNotes: resolve(repoRoot, "charts/b4-app/templates/NOTES.txt"),
   sandboxGuide: resolve(repoRoot, "apps/web/content/docs/sandbox/kubernetes.mdx"),
   deploymentGuide: resolve(repoRoot, "apps/web/content/docs/deployment/kubernetes.mdx"),
   contributors: resolve(repoRoot, "CONTRIBUTORS.md"),
@@ -37,31 +37,31 @@ const baselineDocumentation = ["chart", "chartValues", "chartNotes", "sandboxGui
 const infrastructureHelmDocumentation = [
   "chart",
   "chartNotes",
-  "dawnAppReadme",
-  "dawnAppNotes",
+  "b4AppReadme",
+  "b4AppNotes",
   "sandboxGuide",
   "deploymentGuide",
 ] as const
 const crossNamespaceDocumentation = [
   "chart",
   "chartNotes",
-  "dawnAppReadme",
-  "dawnAppNotes",
+  "b4AppReadme",
+  "b4AppNotes",
   "sandboxGuide",
   "deploymentGuide",
 ] as const
-const rbacOnlyUpgradeDocumentation = ["chart", "dawnAppNotes", "deploymentGuide"] as const
+const rbacOnlyUpgradeDocumentation = ["chart", "b4AppNotes", "deploymentGuide"] as const
 const preflightDocumentation = ["chart", "sandboxGuide"] as const
 const storageDocumentation = ["chart", "sandboxGuide", "contributors"] as const
 const compatibilityDisclaimer =
-  "Dawn's Kind/Calico coverage does not certify managed Kubernetes services, other CNI implementations, or storage drivers."
-const publishedInfrastructureChart = "oci://ghcr.io/cacheplane/charts/dawn-sandbox-infra"
+  "B4.run's Kind/Calico coverage does not certify managed Kubernetes services, other CNI implementations, or storage drivers."
+const publishedInfrastructureChart = "oci://ghcr.io/cacheplane/charts/b4-sandbox-infra"
 const installedChartVersionGuard = `test -n "$INFRA_CHART_VERSION" || { printf '%s\\n' "unable to determine installed infrastructure chart version" >&2; exit 1; }`
 const canonicalAppSubjectValues = `orchestrator:
   subjects:
     - kind: ServiceAccount
-      name: dawn-app
-      namespace: dawn-app`
+      name: b4-app
+      namespace: b4-app`
 const sentenceSegmenter = new Intl.Segmenter("en", { granularity: "sentence" })
 
 interface HelmCommandBlock {
@@ -147,7 +147,7 @@ function infrastructureHelmCommands(source: string): readonly HelmCommandBlock[]
     }
 
     const command = commandLines.join(" ").replaceAll(/\s+/g, " ").trim()
-    if (!command.includes("dawn-sandbox-infra")) continue
+    if (!command.includes("b4-sandbox-infra")) continue
 
     const context = lines
       .slice(Math.max(0, index - 8), index)
@@ -214,7 +214,7 @@ function isDynamicRwoStoragePrerequisite(text: string): boolean {
 }
 
 function isStorageCompatibilityBoundary(text: string): boolean {
-  return /^Dawn does not certify storage[- ]drivers?[.!?]?$/i.test(text)
+  return /^B4.run does not certify storage[- ]drivers?[.!?]?$/i.test(text)
 }
 
 function isCniCompatibilityBoundary(text: string): boolean {
@@ -305,12 +305,12 @@ function compareChartVersions(left: string, right: string): number {
 
 describe("Kubernetes compatibility documentation policy", () => {
   test("ships the infrastructure documentation patch at chart 0.1.4 or later", async () => {
-    const { dawnAppChart, sandboxInfraChart } = await loadDocumentation()
+    const { b4AppChart, sandboxInfraChart } = await loadDocumentation()
     const infrastructureMetadata = parse(sandboxInfraChart) as {
       readonly version?: unknown
       readonly appVersion?: unknown
     }
-    const applicationMetadata = parse(dawnAppChart) as { readonly appVersion?: unknown }
+    const applicationMetadata = parse(b4AppChart) as { readonly appVersion?: unknown }
 
     // The documentation patch first shipped in chart 0.1.4. Version Packages
     // bumps the chart patch on every release, so pin a floor, not a literal.
@@ -417,7 +417,7 @@ describe("Kubernetes compatibility documentation policy", () => {
   })
 
   test.each([
-    "Dawn certifies managed Kubernetes services.",
+    "B4.run certifies managed Kubernetes services.",
     "Kind is compatible with every CNI.",
     "Kind validates managed Kubernetes services.",
     `Kind coverage proves compatibility across all
@@ -445,14 +445,14 @@ managed Kubernetes services.`,
     "Kind provides CNI certification.",
     "The Kind suite is proving CNI compatibility.",
     "Other CNI implementations require separate validation, but Kind validates them.",
-    "Dawn does not certify storage drivers, but Kind validates them.",
+    "B4.run does not certify storage drivers, but Kind validates them.",
   ])("rejects semantic compatibility overclaim: %s", (claim) => {
     expect(normalizedProseStatements(claim).some(makesUnsupportedCompatibilityClaim)).toBe(true)
   })
 
   test.each([
     compatibilityDisclaimer,
-    `Dawn's Kind/Calico coverage does not certify managed Kubernetes services,
+    `B4.run's Kind/Calico coverage does not certify managed Kubernetes services,
 other CNI implementations, or storage drivers.`,
     "A policy-enforcing CNI is required for NetworkPolicy egress controls.",
     "CNIs that do not enforce NetworkPolicy leave egress open.",
@@ -461,7 +461,7 @@ other CNI implementations, or storage drivers.`,
     "Kind does not guarantee CNI compatibility.",
     "Kind provides no CNI certification.",
     "Other CNI implementations require separate validation.",
-    "Dawn does not certify storage drivers.",
+    "B4.run does not certify storage drivers.",
     "Dynamic ReadWriteOnce storage provisioning is required.",
     "The storage driver must support dynamic ReadWriteOnce provisioning.",
     "Managed Kubernetes services are outside Kind evidence.",
@@ -540,7 +540,7 @@ Managed Kubernetes services require separate validation.`,
 
       for (const { command, context, verb } of commands) {
         const commandTokens = command.split(/\s+/)
-        const hasLiteralManagementNamespace = /(?:^|\s)--namespace\s+dawn-app(?=\s|$)/.test(command)
+        const hasLiteralManagementNamespace = /(?:^|\s)--namespace\s+b4-app(?=\s|$)/.test(command)
         const hasRenderedReleaseNamespace =
           /--namespace\s+"?\{\{\s*\.Release\.Namespace\s*\}\}"?/.test(command)
         expect(
@@ -555,7 +555,7 @@ Managed Kubernetes services require separate validation.`,
           ).toBe(true)
           expect(
             commandTokens.includes("--values") &&
-              commandTokens.includes("dawn-sandbox-infra-values.yaml"),
+              commandTokens.includes("b4-sandbox-infra-values.yaml"),
             `${name} install must apply the planned subject values file: ${command}`,
           ).toBe(true)
         }
@@ -565,7 +565,7 @@ Managed Kubernetes services require separate validation.`,
             /local checkout/i,
           )
           expect(
-            commandTokens.includes("./charts/dawn-sandbox-infra"),
+            commandTokens.includes("./charts/b4-sandbox-infra"),
             `${name} local chart command must use the checkout-relative path`,
           ).toBe(true)
         }
@@ -591,13 +591,13 @@ Managed Kubernetes services require separate validation.`,
     for (const name of rbacOnlyUpgradeDocumentation) {
       const source = documentation[name]
       const captureIndex = source.indexOf(
-        'INFRA_CHART_VERSION="$(helm get metadata dawn-sandbox-infra',
+        'INFRA_CHART_VERSION="$(helm get metadata b4-sandbox-infra',
       )
       const guardIndex = source.indexOf(installedChartVersionGuard, captureIndex)
       const versionReuseIndex = source.indexOf('--version "$INFRA_CHART_VERSION"', captureIndex)
       const upgrades = infrastructureHelmCommands(source).filter(
         ({ command, verb }) =>
-          verb === "upgrade" && command.includes("--values dawn-sandbox-infra-rbac-values.yaml"),
+          verb === "upgrade" && command.includes("--values b4-sandbox-infra-rbac-values.yaml"),
       )
 
       expect(
@@ -639,7 +639,7 @@ Managed Kubernetes services require separate validation.`,
         installedChartVersionGuard,
       ])
 
-      const directory = await mkdtemp(join(tmpdir(), "dawn-chart-version-guard-"))
+      const directory = await mkdtemp(join(tmpdir(), "b4-chart-version-guard-"))
       const marker = join(directory, "marker")
       const script = `${guards[0]}\nprintf '%s\\n' reached > marker`
       try {
@@ -675,22 +675,22 @@ Managed Kubernetes services require separate validation.`,
 
   test("defines the canonical app subject before the initial infrastructure and app installs", async () => {
     const { chart, deploymentGuide } = await loadDocumentation()
-    const standaloneValuesMarker = "For a fresh release, prepare `dawn-sandbox-infra-values.yaml`"
+    const standaloneValuesMarker = "For a fresh release, prepare `b4-sandbox-infra-values.yaml`"
     const standaloneValuesSource = chart.slice(chart.indexOf(standaloneValuesMarker))
     const standaloneValuesMatch = /```yaml[^\n]*\n([\s\S]*?)```/.exec(standaloneValuesSource)
     const standaloneValues = standaloneValuesMatch?.[1]?.trim()
-    const initialValuesFence = `\`\`\`yaml title="dawn-sandbox-infra-values.yaml"
+    const initialValuesFence = `\`\`\`yaml title="b4-sandbox-infra-values.yaml"
 ${canonicalAppSubjectValues}
 \`\`\``
-    const existingValuesFence = `\`\`\`yaml title="dawn-sandbox-infra-rbac-values.yaml"
+    const existingValuesFence = `\`\`\`yaml title="b4-sandbox-infra-rbac-values.yaml"
 ${canonicalAppSubjectValues}
 \`\`\``
     const initialValuesIndex = deploymentGuide.indexOf(initialValuesFence)
     const initialInfrastructureIndex = deploymentGuide.indexOf(
-      "helm upgrade --install dawn-sandbox-infra",
+      "helm upgrade --install b4-sandbox-infra",
     )
     const initialAppIndex = deploymentGuide.indexOf(
-      "helm install dawn-app oci://ghcr.io/cacheplane/charts/dawn-app",
+      "helm install b4-app oci://ghcr.io/cacheplane/charts/b4-app",
     )
 
     expect(
@@ -715,23 +715,21 @@ ${canonicalAppSubjectValues}
     ).toBeGreaterThan(initialInfrastructureIndex)
 
     const initialInfrastructureCommand = infrastructureHelmCommands(deploymentGuide).find(
-      ({ command }) => command.startsWith("helm upgrade --install dawn-sandbox-infra "),
+      ({ command }) => command.startsWith("helm upgrade --install b4-sandbox-infra "),
     )
-    expect(initialInfrastructureCommand?.command).toContain(
-      "--values dawn-sandbox-infra-values.yaml",
-    )
+    expect(initialInfrastructureCommand?.command).toContain("--values b4-sandbox-infra-values.yaml")
   })
 
   test("describes application-owned cross-namespace ServiceAccount wiring", async () => {
     const {
       contributorStandards,
-      dawnAppChart,
-      dawnAppNotes,
-      dawnAppReadme,
-      dawnAppValues,
+      b4AppChart,
+      b4AppNotes,
+      b4AppReadme,
+      b4AppValues,
       deploymentGuide,
     } = await loadDocumentation()
-    const parsedValues = parse(dawnAppValues) as {
+    const parsedValues = parse(b4AppValues) as {
       readonly serviceAccount?: {
         readonly create?: unknown
         readonly name?: unknown
@@ -739,54 +737,54 @@ ${canonicalAppSubjectValues}
     }
 
     expect(parsedValues.serviceAccount).toMatchObject({ create: true, name: "" })
-    expect(dawnAppReadme).toContain(
+    expect(b4AppReadme).toContain(
       "| `serviceAccount.create` | `true` | Creates an application-owned ServiceAccount in the release namespace. |",
     )
-    expect(dawnAppReadme).toContain(
-      '| `serviceAccount.name` | `""` | Defaults to the release-scoped chart fullname (`dawn-app` for the canonical release). |',
+    expect(b4AppReadme).toContain(
+      '| `serviceAccount.name` | `""` | Defaults to the release-scoped chart fullname (`b4-app` for the canonical release). |',
     )
     expect(deploymentGuide).toContain("- `serviceAccount.create=true`;")
     expect(deploymentGuide).toContain(
-      '- `serviceAccount.name=""`, which resolves to the release-scoped chart fullname (`dawn-app` for the canonical release);',
+      '- `serviceAccount.name=""`, which resolves to the release-scoped chart fullname (`b4-app` for the canonical release);',
     )
-    expect(dawnAppNotes).toContain("serviceAccount.create=true (default)")
-    expect(dawnAppChart).toContain("application-owned ServiceAccount")
+    expect(b4AppNotes).toContain("serviceAccount.create=true (default)")
+    expect(b4AppChart).toContain("application-owned ServiceAccount")
     expect(contributorStandards).toContain(
       "with an application-owned ServiceAccount in the chart release namespace",
     )
 
     for (const [name, source] of Object.entries({
       contributorStandards,
-      dawnAppChart,
-      dawnAppNotes,
-      dawnAppReadme,
-      dawnAppValues,
+      b4AppChart,
+      b4AppNotes,
+      b4AppReadme,
+      b4AppValues,
       deploymentGuide,
     })) {
       expect(
         source,
         `${name} must not retain the retired orchestrator ServiceAccount default`,
-      ).not.toContain("dawn-orchestrator")
+      ).not.toContain("b4-orchestrator")
     }
 
-    expect(dawnAppReadme).toContain(
-      "The application runs under an application-owned ServiceAccount in the `dawn-app` management namespace.",
+    expect(b4AppReadme).toContain(
+      "The application runs under an application-owned ServiceAccount in the `b4-app` management namespace.",
     )
-    expect(dawnAppReadme).toContain(
-      "That ServiceAccount is bound as a cross-namespace subject to the `dawn-sandbox-infra` orchestrator Role in `dawn-sandboxes`.",
+    expect(b4AppReadme).toContain(
+      "That ServiceAccount is bound as a cross-namespace subject to the `b4-sandbox-infra` orchestrator Role in `b4-sandboxes`.",
     )
-    expect(dawnAppReadme).not.toContain(
-      "via the ServiceAccount +\nnamespace provisioned by the `dawn-sandbox-infra` chart",
+    expect(b4AppReadme).not.toContain(
+      "via the ServiceAccount +\nnamespace provisioned by the `b4-sandbox-infra` chart",
     )
   })
 
   test("requires credential-safe cross-namespace ServiceAccount wiring in chart NOTES", async () => {
     const documentation = await loadDocumentation()
     const { chartNotes } = documentation
-    expect(chartNotes).not.toContain("Bind an in-cluster Dawn app to this ServiceAccount")
+    expect(chartNotes).not.toContain("Bind an in-cluster B4.run app to this ServiceAccount")
     expect(chartNotes).not.toMatch(/serviceAccountName:\s+\{\{.*orchestratorSAName/)
     expect(chartNotes).toContain(
-      "Create or use the Dawn app ServiceAccount in a separate management namespace.",
+      "Create or use the B4.run app ServiceAccount in a separate management namespace.",
     )
     expect(chartNotes).toContain(
       "Configure the app Pod to use that management-namespace ServiceAccount.",
@@ -822,10 +820,10 @@ ${canonicalAppSubjectValues}
     for (const name of infrastructureHelmDocumentation) {
       const source = proseText(documentation[name])
       expect(source, `${name} must identify the management namespace`).toMatch(
-        /dawn-app management namespace/i,
+        /b4-app management namespace/i,
       )
       expect(source, `${name} must identify the sandbox resource namespace`).toMatch(
-        /sandbox resources[^.]*dawn-sandboxes|dawn-sandboxes[^.]*sandbox resources/i,
+        /sandbox resources[^.]*b4-sandboxes|b4-sandboxes[^.]*sandbox resources/i,
       )
     }
   })

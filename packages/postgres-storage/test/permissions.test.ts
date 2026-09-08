@@ -1,10 +1,10 @@
-import { runPermissionsStoreConformance } from "@dawn-ai/testing"
+import { runPermissionsStoreConformance } from "@b4run/testing"
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql"
 import { Pool } from "pg"
 import { afterAll, beforeAll, describe, expect, test } from "vitest"
 import { createPostgresPermissionsStore, type PostgresPermissionsStore } from "../src/node.js"
 
-const enabled = process.env.DAWN_TEST_PGSTORAGE === "1"
+const enabled = process.env.B4_TEST_PGSTORAGE === "1"
 let container: StartedPostgreSqlContainer
 let url: string
 

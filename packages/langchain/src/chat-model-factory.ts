@@ -1,6 +1,6 @@
-import { readRuntimeEnv } from "@dawn-ai/core"
-import type { BuiltInModelProviderId, ReasoningConfig } from "@dawn-ai/sdk"
-import { errorDocsUrl, validateModelId } from "@dawn-ai/sdk"
+import { readRuntimeEnv } from "@b4run/core"
+import type { BuiltInModelProviderId, ReasoningConfig } from "@b4run/sdk"
+import { errorDocsUrl, validateModelId } from "@b4run/sdk"
 
 import { defaultModelImporter } from "#default-model-importer"
 
@@ -67,7 +67,7 @@ export const providerPackages: Readonly<Record<BuiltInModelProviderId, string>> 
  * The importer used when a call site passes none. Seeded, not injected,
  * because every `createChatModel` call sits behind route execution and threading
  * an option down to it would touch every layer in between — the same reason
- * `seedDawnConfig` exists.
+ * `seedB4Config` exists.
  *
  * Set by a build-emitted edge entry point, whose bundle cannot contain the
  * default below: `import(specifier)` on a variable is unresolvable to a bundler,
@@ -95,7 +95,7 @@ export function warnOnUnknownModelId(opts: {
   warnedModelIds.add(key)
   const suggestions = verdict.suggestions.map((s) => `"${s}"`).join(", ")
   console.warn(
-    `[dawn:models] [DAWN_E4002] model "${opts.model}" is not a known ${verdict.provider} model id.` +
+    `[b4:models] [B4_E4002] model "${opts.model}" is not a known ${verdict.provider} model id.` +
       (suggestions ? ` Did you mean ${suggestions}?` : "") +
       " Proceeding anyway.",
   )
@@ -105,9 +105,9 @@ export function missingProviderPackageMessage(
   provider: BuiltInModelProviderId,
   packageName: string,
 ): string {
-  const url = errorDocsUrl("DAWN_E4001")
+  const url = errorDocsUrl("B4_E4001")
   const docs = url ? ` See ${url}` : ""
-  return `Provider "${provider}" requires ${packageName}. Install it with: pnpm add ${packageName} [DAWN_E4001]${docs}`
+  return `Provider "${provider}" requires ${packageName}. Install it with: pnpm add ${packageName} [B4_E4001]${docs}`
 }
 
 export async function createChatModel(options: {

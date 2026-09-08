@@ -13,7 +13,7 @@ const webExampleRoot = resolve(repoRoot, "examples/research/web")
 const SERVER_PARITY_ROOTS = [
   ".env.example",
   "AGENTS.md",
-  "dawn.config.ts",
+  "b4.config.ts",
   "src",
   "test",
   "workspace",
@@ -332,7 +332,7 @@ describe("research template parity with examples/research/server", () => {
   })
 
   it("ignores gitignored runtime workspace outputs", async () => {
-    const fixtureRoot = await mkdtemp(join(tmpdir(), "dawn-research-parity-runtime-"))
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "b4-research-parity-runtime-"))
     const fixtureExampleRoot = join(fixtureRoot, "example")
     const fixtureTemplateRoot = join(fixtureRoot, "template")
 
@@ -366,7 +366,7 @@ describe("research template parity with examples/research/server", () => {
   })
 
   it("classifies missing, unexpected, colliding, and drifted paths independently", async () => {
-    const fixtureRoot = await mkdtemp(join(tmpdir(), "dawn-research-parity-"))
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "b4-research-parity-"))
     const fixtureExampleRoot = join(fixtureRoot, "example")
     const fixtureTemplateRoot = join(fixtureRoot, "template")
 
@@ -382,12 +382,12 @@ describe("research template parity with examples/research/server", () => {
       await Promise.all([
         writeFile(join(fixtureExampleRoot, ".env.example"), ""),
         writeFile(join(fixtureExampleRoot, "AGENTS.md"), "same"),
-        writeFile(join(fixtureExampleRoot, "dawn.config.ts"), "example"),
+        writeFile(join(fixtureExampleRoot, "b4.config.ts"), "example"),
         writeFile(join(fixtureExampleRoot, "src/collision.ts"), "same"),
         writeFile(join(fixtureExampleRoot, "src/missing.ts"), "example only"),
         writeFile(join(fixtureTemplateRoot, ".env.example"), ""),
         writeFile(join(fixtureTemplateRoot, "AGENTS.md"), "same"),
-        writeFile(join(fixtureTemplateRoot, "dawn.config.ts"), "template"),
+        writeFile(join(fixtureTemplateRoot, "b4.config.ts"), "template"),
         writeFile(join(fixtureTemplateRoot, "src/collision.ts"), "same"),
         writeFile(join(fixtureTemplateRoot, "src/collision.ts.template"), "same"),
         writeFile(join(fixtureTemplateRoot, "src/unexpected.ts.template"), "template only"),
@@ -396,7 +396,7 @@ describe("research template parity with examples/research/server", () => {
       expect(
         await compareParityTrees(fixtureExampleRoot, fixtureTemplateRoot, SERVER_PARITY_SCOPE),
       ).toEqual({
-        contentDriftedPaths: ["dawn.config.ts"],
+        contentDriftedPaths: ["b4.config.ts"],
         missingTemplatePaths: ["src/missing.ts"],
         normalizedPathCollisions: [
           {
@@ -413,7 +413,7 @@ describe("research template parity with examples/research/server", () => {
   })
 
   it("excludes only documented runtime workspace subtrees from parity", async () => {
-    const fixtureRoot = await mkdtemp(join(tmpdir(), "dawn-research-parity-runtime-"))
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "b4-research-parity-runtime-"))
     const fixtureExampleRoot = join(fixtureRoot, "example")
     const fixtureTemplateRoot = join(fixtureRoot, "template")
 
@@ -446,7 +446,7 @@ describe("research template parity with examples/research/server", () => {
   })
 
   it("detects normalized root collisions and mirrors special template output names", async () => {
-    const fixtureRoot = await mkdtemp(join(tmpdir(), "dawn-research-parity-roots-"))
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "b4-research-parity-roots-"))
     const fixtureExampleRoot = join(fixtureRoot, "example")
     const fixtureTemplateRoot = join(fixtureRoot, "template")
 
@@ -463,12 +463,12 @@ describe("research template parity with examples/research/server", () => {
       await Promise.all([
         writeFile(join(fixtureExampleRoot, ".env.example"), "same"),
         writeFile(join(fixtureExampleRoot, "AGENTS.md"), "same"),
-        writeFile(join(fixtureExampleRoot, "dawn.config.ts"), "same"),
+        writeFile(join(fixtureExampleRoot, "b4.config.ts"), "same"),
         writeFile(join(fixtureExampleRoot, "workspace/.gitignore"), "same gitignore"),
         writeFile(join(fixtureExampleRoot, "workspace/.npmrc"), "same npmrc"),
         writeFile(join(fixtureTemplateRoot, ".env.example"), "same"),
         writeFile(join(fixtureTemplateRoot, "AGENTS.md"), "same"),
-        writeFile(join(fixtureTemplateRoot, "dawn.config.ts"), "same"),
+        writeFile(join(fixtureTemplateRoot, "b4.config.ts"), "same"),
         writeFile(join(fixtureTemplateRoot, "workspace/gitignore.template"), "same gitignore"),
         writeFile(join(fixtureTemplateRoot, "workspace/npmrc.template"), "same npmrc"),
       ])

@@ -34,7 +34,7 @@ import { runBuildCommand } from "../../src/commands/build.js"
 //
 //   • `hono-node-roundtrip.test.ts` — ungated, boots `app.mjs` under
 //     `@hono/node-server` in a Node child process;
-//   • `workerd-lane.test.ts` — gated on DAWN_TEST_WORKERD, boots the very same
+//   • `workerd-lane.test.ts` — gated on B4_TEST_WORKERD, boots the very same
 //     `app.mjs` under real Cloudflare workerd via `wrangler dev --local`.
 //
 // They share a fixture app, a container pair, and the AG-UI plumbing precisely
@@ -87,7 +87,7 @@ export interface DockerStatus {
  * first time ever, and only the `*-docker` jobs were supposed to.
  *
  * A silent skip is its own hazard, though — a suite that stops running is
- * indistinguishable from one that passes. `DAWN_REQUIRE_DOCKER=1`, which CI
+ * indistinguishable from one that passes. `B4_REQUIRE_DOCKER=1`, which CI
  * sets on the job that runs `pnpm test`, turns the skip back into a hard
  * failure, so the escape hatch cannot become a way to lose the coverage.
  */
@@ -112,8 +112,8 @@ export async function probeDocker(): Promise<DockerStatus> {
 /** The message a skipped-but-required run fails with. */
 export function requireDockerFailure(status: DockerStatus): Error {
   return new Error(
-    "DAWN_REQUIRE_DOCKER=1 is set, so this suite may not skip — but no Docker daemon is " +
-      `reachable, so it would have. Start Docker, or unset DAWN_REQUIRE_DOCKER to allow the ` +
+    "B4_REQUIRE_DOCKER=1 is set, so this suite may not skip — but no Docker daemon is " +
+      `reachable, so it would have. Start Docker, or unset B4_REQUIRE_DOCKER to allow the ` +
       `skip locally. Probe said: ${status.detail}`,
   )
 }
@@ -151,7 +151,7 @@ export async function startEdgeContainers(): Promise<EdgeContainers> {
   const network = await new Network().start()
   const postgres = await new PostgreSqlContainer(POSTGRES_IMAGE)
     .withNetwork(network)
-    .withNetworkAliases("dawn-pg")
+    .withNetworkAliases("b4-pg")
     .withCommand(["postgres", "-c", "log_statement=all"])
     .withStartupTimeout(180_000)
     .start()
@@ -185,7 +185,7 @@ export async function startEdgeContainers(): Promise<EdgeContainers> {
  * The bindings a deployed worker receives, built from a started container pair.
  *
  * `DATABASE_URL`'s host is the container-network ALIAS, because the proxy dials
- * it from inside that network; `DAWN_PG_WS_PROXY` is the host-mapped address,
+ * it from inside that network; `B4_PG_WS_PROXY` is the host-mapped address,
  * because the runtime dials the proxy from outside it. Bare `host:port` with no
  * scheme — `@neondatabase/serverless` prefixes that itself.
  */
@@ -195,8 +195,8 @@ export function edgeBindings(
 ): Record<string, string> {
   const { postgres, wsproxy } = containers
   return {
-    DATABASE_URL: `postgres://${postgres.getUsername()}:${postgres.getPassword()}@dawn-pg:5432/${postgres.getDatabase()}`,
-    DAWN_PG_WS_PROXY: `${wsproxy.getHost()}:${wsproxy.getMappedPort(80)}`,
+    DATABASE_URL: `postgres://${postgres.getUsername()}:${postgres.getPassword()}@b4-pg:5432/${postgres.getDatabase()}`,
+    B4_PG_WS_PROXY: `${wsproxy.getHost()}:${wsproxy.getMappedPort(80)}`,
     ...extra,
   }
 }
@@ -215,23 +215,23 @@ export function edgeBindings(
  * entry points ever stop lining up with what the target emits.
  *
  * THIS LIST IS NOT THE SET OF PACKAGES UNDER TEST. Each entry drags in its own
- * `workspace:` dependencies through its own `node_modules` — `@dawn-ai/cli`
- * alone brings eight, `@dawn-ai/langchain` among them — and those resolve from
+ * `workspace:` dependencies through its own `node_modules` — `@b4run/cli`
+ * alone brings eight, `@b4run/langchain` among them — and those resolve from
  * `dist` just as literally. {@link edgeDistPackages} is the honest inventory.
  */
 const LINKED_PACKAGES: readonly (readonly [string, string])[] = [
   // app.mjs + modules.edge.mjs
-  ["@dawn-ai/cli", join(repoRoot, "packages", "cli")],
+  ["@b4run/cli", join(repoRoot, "packages", "cli")],
   ["hono", join(repoRoot, "packages", "cli", "node_modules", "hono")],
   ["@hono/node-server", join(repoRoot, "packages", "cli", "node_modules", "@hono", "node-server")],
   // stores.mjs
-  ["@dawn-ai/postgres-storage", join(repoRoot, "packages", "postgres-storage")],
+  ["@b4run/postgres-storage", join(repoRoot, "packages", "postgres-storage")],
   [
     "@neondatabase/serverless",
     join(repoRoot, "packages", "cli", "node_modules", "@neondatabase", "serverless"),
   ],
   // the route module, and the provider package app.mjs's static importer names
-  ["@dawn-ai/sdk", join(repoRoot, "packages", "sdk")],
+  ["@b4run/sdk", join(repoRoot, "packages", "sdk")],
   [
     "@langchain/openai",
     join(repoRoot, "packages", "langchain", "node_modules", "@langchain", "openai"),
@@ -242,7 +242,7 @@ const LINKED_PACKAGES: readonly (readonly [string, string])[] = [
 // Freshness of the linked `dist` — READ THIS BEFORE CHANGING ANYTHING BELOW.
 //
 // These suites run BUILT OUTPUT. `buildFixture` imports `runBuildCommand` from
-// `../../src`, and this package's vitest config aliases every `@dawn-ai/*`
+// `../../src`, and this package's vitest config aliases every `@b4run/*`
 // specifier to `src` too — so the build LOGIC is always whatever vitest just
 // transformed, while the runtime UNDER TEST is whatever `dist` happens to hold.
 // The two can be arbitrarily far apart, and a stale `dist` yields either a red
@@ -277,11 +277,11 @@ const LINKED_PACKAGES: readonly (readonly [string, string])[] = [
 const DIST_ROOT_PACKAGES: readonly string[] = [
   // Linked into the fixture by LINKED_PACKAGES, so the emitted files resolve
   // their `dist` for real.
-  "@dawn-ai/cli",
-  "@dawn-ai/postgres-storage",
-  "@dawn-ai/sdk",
+  "@b4run/cli",
+  "@b4run/postgres-storage",
+  "@b4run/sdk",
   // Imported straight out of `dist` by the suites themselves (aimock).
-  "@dawn-ai/testing",
+  "@b4run/testing",
 ]
 
 interface WorkspacePackage {
@@ -330,9 +330,9 @@ async function readWorkspacePackages(): Promise<Map<string, WorkspacePackage>> {
  * The workspace packages whose `dist` these suites actually execute: the roots
  * above plus the transitive closure of their `workspace:` dependencies.
  *
- * DERIVED RATHER THAN LISTED, on purpose. `@dawn-ai/langchain` appears nowhere
+ * DERIVED RATHER THAN LISTED, on purpose. `@b4run/langchain` appears nowhere
  * in {@link LINKED_PACKAGES} — it arrives through `packages/cli/node_modules`,
- * one edge down from `@dawn-ai/cli` — so a reader auditing that list would not
+ * one edge down from `@b4run/cli` — so a reader auditing that list would not
  * even know it is in play. It is also the package whose stale `dist` produced
  * the phantom review failure. A hand-maintained list would have missed it; a
  * closure cannot.
@@ -359,9 +359,9 @@ export async function edgeDistPackages(): Promise<readonly { dir: string; name: 
   // langchain — a dropped dependency edge, a rewritten walk — the guard has
   // silently stopped covering the only case anyone has actually been burned by,
   // and would go on passing while doing nothing.
-  if (!reached.has("@dawn-ai/langchain")) {
+  if (!reached.has("@b4run/langchain")) {
     throw new Error(
-      "the dist-freshness closure no longer reaches @dawn-ai/langchain, whose stale `dist` is " +
+      "the dist-freshness closure no longer reaches @b4run/langchain, whose stale `dist` is " +
         "the failure this guard was written for. Check the `workspace:` dependency edges from " +
         `${DIST_ROOT_PACKAGES.join(", ")}.`,
     )
@@ -437,7 +437,7 @@ async function buildLinkedDists(): Promise<void> {
 }
 
 /**
- * Create a one-route Dawn app configured for the `hono` target, with every
+ * Create a one-route B4.run app configured for the `hono` target, with every
  * runtime package linked in. Returns its root; the caller disposes it.
  *
  * `targets` overrides the configured build targets. It exists for
@@ -459,18 +459,18 @@ export async function createFixtureApp(
   const appRoot = await realpath(await mkdtemp(join(tmpdir(), prefix)))
 
   const files: Record<string, string> = {
-    "dawn.config.ts": `export default { build: { targets: ${JSON.stringify(targets)} } }\n`,
+    "b4.config.ts": `export default { build: { targets: ${JSON.stringify(targets)} } }\n`,
     "package.json": `${JSON.stringify({
       dependencies: {
-        "@dawn-ai/cli": "workspace:*",
-        "@dawn-ai/postgres-storage": "workspace:*",
+        "@b4run/cli": "workspace:*",
+        "@b4run/postgres-storage": "workspace:*",
         "@neondatabase/serverless": "^1.1.0",
         hono: "^4.12.28",
       },
       name: "hono-edge-fixture",
       type: "module",
     })}\n`,
-    "src/app/chat/index.ts": `import { agent } from "@dawn-ai/sdk"
+    "src/app/chat/index.ts": `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -499,10 +499,10 @@ export default agent({
 export const removeFixtureApp = (appRoot: string): Promise<void> =>
   rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 })
 
-/** Build the fixture with the `hono` target, returning `.dawn/build`. */
+/** Build the fixture with the `hono` target, returning `.b4/build`. */
 export async function buildFixture(appRoot: string): Promise<string> {
   await runBuildCommand({ clean: true, cwd: appRoot }, { stderr: () => {}, stdout: () => {} })
-  const buildDir = join(appRoot, ".dawn", "build")
+  const buildDir = join(appRoot, ".b4", "build")
   for (const name of ["app.mjs", "stores.mjs", "modules.edge.mjs"]) {
     expect(existsSync(join(buildDir, name))).toBe(true)
   }

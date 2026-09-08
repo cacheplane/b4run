@@ -13,7 +13,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: dawn-release-controller
+  group: b4-release-controller
   cancel-in-progress: false
   queue: max
 jobs:
@@ -676,7 +676,7 @@ jobs:
         id: execute
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          DAWN_RECOVERY_POLICY_TOKEN: ${{ secrets.RELEASE_POLICY_READ_TOKEN }}
+          B4_RECOVERY_POLICY_TOKEN: ${{ secrets.RELEASE_POLICY_READ_TOKEN }}
         run: node scripts/release/recovery/cli.mjs finalize --request "$RUNNER_TEMP/request.json" --output "$RUNNER_TEMP/result.json"
         if: always()
       - name: Retain command diagnostic
@@ -731,7 +731,7 @@ jobs:
         id: execute
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          DAWN_RECOVERY_POLICY_TOKEN: ${{ secrets.RELEASE_POLICY_READ_TOKEN }}
+          B4_RECOVERY_POLICY_TOKEN: ${{ secrets.RELEASE_POLICY_READ_TOKEN }}
         run: node scripts/release/recovery/cli.mjs publish --request "$RUNNER_TEMP/request.json" --output "$RUNNER_TEMP/result.json"
         if: always()
       - name: Retain command diagnostic

@@ -1,5 +1,5 @@
-import type { RouteManifest } from "@dawn-ai/core"
-import { isDawnAgent, validateModelId } from "@dawn-ai/sdk"
+import type { RouteManifest } from "@b4run/core"
+import { isB4Agent, validateModelId } from "@b4run/sdk"
 
 import { type NormalizedRouteModule, normalizeRouteModule } from "./load-route-kind.js"
 
@@ -20,7 +20,7 @@ export async function collectUnknownModelIdWarnings(
     } catch {
       continue // load failures are surfaced by discovery paths, not this advisory pass
     }
-    if (!isDawnAgent(normalized.entry)) continue
+    if (!isB4Agent(normalized.entry)) continue
     const verdict = validateModelId({
       model: normalized.entry.model,
       ...(normalized.entry.provider ? { provider: normalized.entry.provider } : {}),

@@ -1,12 +1,23 @@
+// This dated Dawn incident suite executes the exact pre-rename source.
+// Current incident file preservation is independently checked in b4-identity.test.mjs.
+import {
+  historicalReleaseModuleUrl,
+  importHistoricalReleaseModule,
+} from "./support/frozen-history.mjs"
+
+const HISTORICAL_TEST_URL = await historicalReleaseModuleUrl(
+  "scripts/release/test/duplicate-draft-consolidation-adapters.test.mjs",
+)
+
 import assert from "node:assert/strict"
 import { readFile, rm } from "node:fs/promises"
 import test from "node:test"
 
-import {
-  createDuplicateDraftConsolidationAdapters,
-  createExactDuplicateDeleteEffect,
-} from "../duplicate-draft-consolidation-adapters.mjs"
-import { createAuthorizedDeleteHarness } from "./support/duplicate-draft-consolidation-authorized-delete.mjs"
+const { createDuplicateDraftConsolidationAdapters, createExactDuplicateDeleteEffect } =
+  await importHistoricalReleaseModule("scripts/release/duplicate-draft-consolidation-adapters.mjs")
+const { createAuthorizedDeleteHarness } = await importHistoricalReleaseModule(
+  "scripts/release/test/support/duplicate-draft-consolidation-authorized-delete.mjs",
+)
 
 const REPOSITORY = "cacheplane/dawnai"
 const API_ORIGIN = "https://api.github.com"
@@ -407,7 +418,7 @@ test("token inputs and command output are strictly bounded and never echoed in e
   }
 
   const source = await readFile(
-    new URL("../duplicate-draft-consolidation-adapters.mjs", import.meta.url),
+    new URL("../duplicate-draft-consolidation-adapters.mjs", HISTORICAL_TEST_URL),
     "utf8",
   )
   assert.equal(source.includes(TOKEN), false)
@@ -771,7 +782,7 @@ test("asset downloads preserve the production one-hop signed-host boundary", asy
   assert.equal(Object.hasOwn(extraHop.calls[1].init.headers, "Authorization"), false)
 
   const source = await readFile(
-    new URL("../duplicate-draft-consolidation-adapters.mjs", import.meta.url),
+    new URL("../duplicate-draft-consolidation-adapters.mjs", HISTORICAL_TEST_URL),
     "utf8",
   )
   for (const duplicatedAuthority of [

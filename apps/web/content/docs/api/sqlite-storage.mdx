@@ -1,4 +1,4 @@
-# @dawn-ai/sqlite-storage
+# @b4run/sqlite-storage
 
 ## Use this when
 
@@ -7,29 +7,29 @@ Use this Node-only package for local, single-process checkpoint and Agent Protoc
 ## Install and import
 
 ```bash
-pnpm add @dawn-ai/sqlite-storage
+pnpm add @b4run/sqlite-storage
 ```
 
 ```ts
-import { createThreadsStore, sqliteCheckpointer } from "@dawn-ai/sqlite-storage"
+import { createThreadsStore, sqliteCheckpointer } from "@b4run/sqlite-storage"
 ```
 
 ## Compatibility and audience
 
 | Surface | Runtime | Purity | Audience | Stability |
 |---|---|---|---|---|
-| `@dawn-ai/sqlite-storage` | node-only | not-claimed | application | supported |
+| `@b4run/sqlite-storage` | node-only | not-claimed | application | supported |
 
 The package uses Node's `node:sqlite` `DatabaseSync` and LangGraph checkpoint contracts.
 
 ## Public exports
 
-### `@dawn-ai/sqlite-storage`
+### `@b4run/sqlite-storage`
 
 | Export | Responsibility |
 |---|---|
 | `SqliteCheckpointerOptions` | Select the checkpoint database path. |
-| `DawnSqliteSaver` | Implement the LangGraph checkpoint saver methods. |
+| `B4SqliteSaver` | Implement the LangGraph checkpoint saver methods. |
 | `sqliteCheckpointer` | Open, migrate, and return a checkpoint saver. |
 | `CreateThreadInput` | Supply an optional thread ID and metadata. |
 | `Thread` | Describe persisted thread identity, timestamps, metadata, and status. |
@@ -40,21 +40,21 @@ The package uses Node's `node:sqlite` `DatabaseSync` and LangGraph checkpoint co
 
 ## Key contracts
 
-```ts api-contract="@dawn-ai/sqlite-storage#.:SqliteCheckpointerOptions"
+```ts api-contract="@b4run/sqlite-storage#.:SqliteCheckpointerOptions"
 export interface SqliteCheckpointerOptions {
   readonly path: string
 }
 ```
 
-```ts api-contract="@dawn-ai/sqlite-storage#.:sqliteCheckpointer"
-export declare function sqliteCheckpointer(options: SqliteCheckpointerOptions): DawnSqliteSaver
+```ts api-contract="@b4run/sqlite-storage#.:sqliteCheckpointer"
+export declare function sqliteCheckpointer(options: SqliteCheckpointerOptions): B4SqliteSaver
 ```
 
-```ts api-contract="@dawn-ai/sqlite-storage#.:ThreadStatus"
+```ts api-contract="@b4run/sqlite-storage#.:ThreadStatus"
 export type ThreadStatus = "idle" | "busy" | "interrupted"
 ```
 
-```ts api-contract="@dawn-ai/sqlite-storage#.:Thread"
+```ts api-contract="@b4run/sqlite-storage#.:Thread"
 export interface Thread {
   readonly thread_id: string
   readonly created_at: string
@@ -64,14 +64,14 @@ export interface Thread {
 }
 ```
 
-```ts api-contract="@dawn-ai/sqlite-storage#.:CreateThreadInput"
+```ts api-contract="@b4run/sqlite-storage#.:CreateThreadInput"
 export interface CreateThreadInput {
   readonly thread_id?: string
   readonly metadata?: Record<string, unknown>
 }
 ```
 
-```ts api-contract="@dawn-ai/sqlite-storage#.:ThreadsStore"
+```ts api-contract="@b4run/sqlite-storage#.:ThreadsStore"
 export interface ThreadsStore {
   createThread(input: CreateThreadInput): Promise<Thread>
   getThread(threadId: string): Promise<Thread | undefined>
@@ -82,13 +82,13 @@ export interface ThreadsStore {
 }
 ```
 
-```ts api-contract="@dawn-ai/sqlite-storage#.:ThreadsStoreOptions"
+```ts api-contract="@b4run/sqlite-storage#.:ThreadsStoreOptions"
 export interface ThreadsStoreOptions {
   readonly path: string
 }
 ```
 
-```ts api-contract="@dawn-ai/sqlite-storage#.:createThreadsStore"
+```ts api-contract="@b4run/sqlite-storage#.:createThreadsStore"
 export declare function createThreadsStore(
   options: ThreadsStoreOptions,
 ): import("./store.js").ThreadsStore
@@ -115,7 +115,7 @@ SQLite opens with WAL mode, foreign keys enabled, and synchronous NORMAL.
 WAL applies only to file-backed databases; `:memory:` skips the WAL statement.
 
 #### Behavior contract `sqlite.public.no-close`
-{/* api-behavior-authorities: [{"kind":"source-ast","file":"packages/sqlite-storage/src/checkpointer/saver.ts","selector":"DawnSqliteSaver.publicMembers"},{"kind":"source-ast","file":"packages/sqlite-storage/src/threads/store.ts","selector":"ThreadsStore.publicMembers"}] */}
+{/* api-behavior-authorities: [{"kind":"source-ast","file":"packages/sqlite-storage/src/checkpointer/saver.ts","selector":"B4SqliteSaver.publicMembers"},{"kind":"source-ast","file":"packages/sqlite-storage/src/threads/store.ts","selector":"ThreadsStore.publicMembers"}] */}
 The public SQLite saver and thread store expose no explicit close method.
 
 #### Database lifecycle and query caveats
@@ -127,10 +127,10 @@ Saver `list()` orders lexically by checkpoint ID, ignores the `filter` option, a
 ## Examples and related guides
 
 ```ts
-import { createThreadsStore, sqliteCheckpointer } from "@dawn-ai/sqlite-storage"
+import { createThreadsStore, sqliteCheckpointer } from "@b4run/sqlite-storage"
 
-export const checkpointer = sqliteCheckpointer({ path: ".dawn/checkpoints.sqlite" })
-export const threadsStore = createThreadsStore({ path: ".dawn/threads.sqlite" })
+export const checkpointer = sqliteCheckpointer({ path: ".b4/checkpoints.sqlite" })
+export const threadsStore = createThreadsStore({ path: ".b4/threads.sqlite" })
 ```
 
 Continue with [Persistence and Tenancy](/docs/persistence) and [CLI API](/docs/api/cli).

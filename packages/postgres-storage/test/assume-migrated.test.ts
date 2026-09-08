@@ -88,7 +88,7 @@ describe("assumeMigrated", () => {
  * against real Postgres because the fake-pool cases above can only show that no
  * statements were issued — not that the resulting store still works.
  */
-describe.skipIf(process.env.DAWN_TEST_PGSTORAGE !== "1")(
+describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")(
   "assumeMigrated against real Postgres",
   () => {
     let container: StartedPostgreSqlContainer

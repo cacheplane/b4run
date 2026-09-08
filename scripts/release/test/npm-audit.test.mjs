@@ -2,7 +2,8 @@ import assert from "node:assert/strict"
 import { execFileSync, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import * as fs from "node:fs/promises"
-import { access, readdir, readFile, writeFile } from "node:fs/promises"
+import { access, readdir, readFile, stat, writeFile } from "node:fs/promises"
+import os from "node:os"
 import path from "node:path"
 import test from "node:test"
 
@@ -15,11 +16,11 @@ import {
   EXACT_NPM_PROVENANCE_CERTIFICATE,
   MULTIPLE_NPM_PROVENANCE_CERTIFICATE,
   WRONG_NPM_PROVENANCE_CERTIFICATE,
-} from "./fixtures/npm-audit-certificates.mjs"
+} from "./fixtures/b4-npm-audit-certificates.mjs"
 
 const VERSION = "0.8.22"
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567"
-const ENTRY = Object.freeze(packageEntry("@dawn-ai/sdk"))
+const ENTRY = Object.freeze(packageEntry("@b4run/sdk"))
 const CANDIDATE = Object.freeze({
   version: VERSION,
   commitSha: COMMIT_SHA,
@@ -35,7 +36,7 @@ test("parses the exact npm 11 audit shape and binds its verified SLSA statement"
       predicateType: "https://slsa.dev/provenance/v1",
       workflow: CANDIDATE.publisherWorkflow,
       commitSha: COMMIT_SHA,
-      repository: "https://github.com/cacheplane/dawnai",
+      repository: "https://github.com/cacheplane/b4run",
       ref: `refs/tags/v${VERSION}`,
     },
   }
@@ -60,11 +61,11 @@ test("rejects unsigned, forged, or ambiguous provenance even when registry JSON 
       { attestations: { url: attestationUrl(), publish: { predicateType: "publish" } } },
       /attestation|provenance/iu,
     ],
-    [{ repository: "https://github.com/fork/dawnai" }, /repository/iu],
+    [{ repository: "https://github.com/fork/b4-run" }, /repository/iu],
     [{ workflow: ".github/workflows/other.yml" }, /workflow/iu],
     [{ ref: "refs/heads/main" }, /ref/iu],
     [{ commitSha: "f".repeat(40) }, /commit/iu],
-    [{ subjectName: "pkg:npm/%40dawn-ai/sdk@0.8.21" }, /subject/iu],
+    [{ subjectName: "pkg:npm/%40b4run/sdk@0.8.21" }, /subject/iu],
     [{ subjectSha512: "f".repeat(128) }, /subject|integrity/iu],
     [{ predicateType: "https://example.test/unsigned" }, /provenance|predicate/iu],
     [{ duplicateProvenance: true }, /duplicate|ambiguous|provenance/iu],
@@ -126,14 +127,14 @@ test("uses one synthetic exact-package tree with no install, unpack, or lockfile
     GITHUB_ACTIONS: "true",
     GITHUB_EVENT_NAME: "workflow_dispatch",
     GITHUB_REF: `refs/tags/v${VERSION}`,
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_REPOSITORY_ID: "123456789",
     GITHUB_REPOSITORY_OWNER_ID: "987654321",
     GITHUB_RUN_ATTEMPT: "1",
     GITHUB_RUN_ID: "100",
     GITHUB_SERVER_URL: "https://github.com",
     GITHUB_SHA: COMMIT_SHA,
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
     RUNNER_ENVIRONMENT: "github-hosted",
     NODE_OPTIONS: "--require=/credential/stealer.cjs",
     NPM_TOKEN: "must-not-leak",
@@ -150,12 +151,12 @@ test("uses one synthetic exact-package tree with no install, unpack, or lockfile
       if (args[0] === "--version") return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
       if (args[0] === "audit") {
         assert.deepEqual((await readdir(options.cwd)).sort(), ["node_modules", "package.json"])
-        assert.deepEqual(await readdir(path.join(options.cwd, "node_modules")), ["@dawn-ai"])
-        assert.deepEqual(await readdir(path.join(options.cwd, "node_modules", "@dawn-ai")), ["sdk"])
+        assert.deepEqual(await readdir(path.join(options.cwd, "node_modules")), ["@b4run"])
+        assert.deepEqual(await readdir(path.join(options.cwd, "node_modules", "@b4run")), ["sdk"])
         assert.deepEqual(
           JSON.parse(await readFile(path.join(options.cwd, "package.json"), "utf8")),
           {
-            name: "dawn-release-audit-consumer",
+            name: "b4-release-audit-consumer",
             version: "0.0.0",
             private: true,
             dependencies: { [ENTRY.name]: ENTRY.version },
@@ -249,9 +250,9 @@ test("uses one synthetic exact-package tree with no install, unpack, or lockfile
 
     for (const [name, invalid] of [
       ["GITHUB_REF", "refs/heads/main"],
-      ["GITHUB_REPOSITORY", "fork/dawnai"],
+      ["GITHUB_REPOSITORY", "fork/b4-run"],
       ["GITHUB_SHA", "f".repeat(40)],
-      ["GITHUB_WORKFLOW_REF", "cacheplane/dawnai/.github/workflows/other.yml@refs/tags/v0.8.22"],
+      ["GITHUB_WORKFLOW_REF", "cacheplane/b4run/.github/workflows/other.yml@refs/tags/v0.8.22"],
       ["RUNNER_ENVIRONMENT", "self-hosted"],
     ]) {
       const valid = sourceEnvironment[name]
@@ -267,6 +268,176 @@ test("uses one synthetic exact-package tree with no install, unpack, or lockfile
   }
   await assert.rejects(access(root))
 })
+
+const BOOTSTRAP_TOKEN = "npm_bootstrapSECRETtoken0123456789"
+// The publish npmrc carries a literal environment reference, never the value.
+const NPMRC_TOKEN_REFERENCE = [
+  "//registry.npmjs.org/:_authToken=$",
+  "{B4_NPM_BOOTSTRAP_TOKEN}\n",
+].join("")
+
+test("OIDC verifier writes empty npm configs and forwards no registry credential despite ambient tokens", async () => {
+  const verifier = await createNpmAuditVerifier({
+    environment: {
+      ...provenanceEnvironment(),
+      NPM_TOKEN: "ambient-must-not-leak",
+      NODE_AUTH_TOKEN: "ambient-must-not-leak",
+      B4_NPM_BOOTSTRAP_TOKEN: BOOTSTRAP_TOKEN,
+      B4_NPM_BOOTSTRAP_AUTHORIZATION: "{}",
+      npm_config__authToken: "ambient-must-not-leak",
+      NPM_CONFIG__AUTHTOKEN: "ambient-must-not-leak",
+    },
+    signal: new AbortController().signal,
+    async runNpm(_command, args) {
+      if (args[0] === "--version") return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+      throw new Error(`unexpected npm operation ${args[0]}`)
+    },
+  })
+  try {
+    for (const home of ["audit-home", "publish-home"]) {
+      assert.equal(await readFile(path.join(verifier.root, home, ".npmrc"), "utf8"), "")
+      assert.equal(await readFile(path.join(verifier.root, home, "global.npmrc"), "utf8"), "")
+    }
+    const publish = verifier.publisherEnvironment({ candidate: CANDIDATE })
+    for (const name of Object.keys(publish)) {
+      assert.doesNotMatch(name, /B4_NPM|NPM_TOKEN|NODE_AUTH_TOKEN|_authToken|AUTHTOKEN/iu, name)
+      assert.doesNotMatch(String(publish[name]), /must-not-leak|npm_bootstrap/u, name)
+    }
+    assert.equal(publish.ACTIONS_ID_TOKEN_REQUEST_TOKEN, "exact-oidc-token")
+  } finally {
+    await verifier.dispose()
+  }
+})
+
+test("explicit bootstrap configuration confines the token reference to the publish npmrc and the token to npm publish", async () => {
+  const calls = []
+  const verifier = await createNpmAuditVerifier({
+    environment: { ...provenanceEnvironment(), B4_NPM_BOOTSTRAP_TOKEN: "ambient-ignored" },
+    signal: new AbortController().signal,
+    bootstrap: { token: BOOTSTRAP_TOKEN },
+    async runNpm(command, args, options) {
+      calls.push({ command, args, options })
+      if (args[0] === "--version") return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+      if (args[0] === "audit") return { stdout: auditOutput(), stderr: "", exitCode: 0 }
+      throw new Error(`unexpected npm operation ${args[0]}`)
+    },
+  })
+  const root = verifier.root
+  try {
+    const publishNpmrc = path.join(root, "publish-home", ".npmrc")
+    assert.equal(await readFile(publishNpmrc, "utf8"), NPMRC_TOKEN_REFERENCE)
+    assert.equal((await stat(publishNpmrc)).mode & 0o777, 0o600)
+    assert.equal((await stat(path.join(root, "publish-home"))).mode & 0o777, 0o700)
+    assert.equal(await readFile(path.join(root, "publish-home", "global.npmrc"), "utf8"), "")
+    assert.equal(await readFile(path.join(root, "audit-home", ".npmrc"), "utf8"), "")
+    assert.equal(await readFile(path.join(root, "audit-home", "global.npmrc"), "utf8"), "")
+    for (const file of await listFiles(root)) {
+      assert.doesNotMatch(await readFile(file, "utf8"), /npm_bootstrapSECRET/u, file)
+    }
+
+    assert.equal(
+      (await verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE })).status,
+      "verified",
+    )
+    assert.deepEqual(
+      calls.map(({ args }) => args[0]),
+      ["--version", "audit"],
+    )
+    for (const { options } of calls) {
+      assert.equal(options.env.B4_NPM_BOOTSTRAP_TOKEN, undefined)
+      assert.equal(options.env.npm_config_userconfig, path.join(root, "audit-home", ".npmrc"))
+      assert.doesNotMatch(JSON.stringify(options.env), /npm_bootstrapSECRET|ambient-ignored/u)
+    }
+
+    const publish = verifier.publisherEnvironment({ candidate: CANDIDATE })
+    assert.equal(publish.B4_NPM_BOOTSTRAP_TOKEN, BOOTSTRAP_TOKEN)
+    assert.equal(publish.npm_config_userconfig, publishNpmrc)
+    assert.equal(publish.npm_config_globalconfig, path.join(root, "publish-home", "global.npmrc"))
+    assert.equal(publish.npm_config_registry, "https://registry.npmjs.org/")
+    assert.equal(publish.ACTIONS_ID_TOKEN_REQUEST_TOKEN, "exact-oidc-token")
+    assert.equal(
+      publish.ACTIONS_ID_TOKEN_REQUEST_URL,
+      "https://token.actions.githubusercontent.com/exact",
+    )
+    assert.equal(publish.NPM_TOKEN, undefined)
+    assert.equal(publish.NODE_AUTH_TOKEN, undefined)
+    assert.equal(publish.B4_NPM_BOOTSTRAP_AUTHORIZATION, undefined)
+    assert.equal(
+      Object.values(publish).filter((value) => String(value).includes(BOOTSTRAP_TOKEN)).length,
+      1,
+    )
+  } finally {
+    await verifier.dispose()
+  }
+  await assert.rejects(access(root))
+})
+
+test("bootstrap configuration rejects malformed options and credentials without echoing them and cleans up", async () => {
+  const before = new Set(await readdir(os.tmpdir()))
+  for (const bootstrap of [
+    null,
+    "token",
+    {},
+    { token: "" },
+    { token: `${BOOTSTRAP_TOKEN}\n` },
+    { token: `${BOOTSTRAP_TOKEN} ` },
+    { token: `${BOOTSTRAP_TOKEN}\0` },
+    { token: BOOTSTRAP_TOKEN, extra: true },
+    { token: 42 },
+  ]) {
+    let caught = null
+    try {
+      await createNpmAuditVerifier({
+        environment: provenanceEnvironment(),
+        signal: new AbortController().signal,
+        bootstrap,
+        async runNpm() {
+          throw new Error("npm must not run before the bootstrap option is validated")
+        },
+      })
+    } catch (error) {
+      caught = error
+    }
+    assert.ok(caught instanceof TypeError, JSON.stringify(bootstrap))
+    assert.doesNotMatch(caught.message, /npm_bootstrapSECRET/u)
+    assert.doesNotMatch(String(caught.stack), /npm_bootstrapSECRET/u)
+  }
+  const after = (await readdir(os.tmpdir())).filter(
+    (entry) => entry.startsWith("b4-npm-audit-") && !before.has(entry),
+  )
+  assert.deepEqual(after, [])
+})
+
+function provenanceEnvironment() {
+  return {
+    PATH: process.env.PATH ?? "",
+    GITHUB_ACTIONS: "true",
+    GITHUB_EVENT_NAME: "workflow_dispatch",
+    GITHUB_REF: `refs/tags/v${VERSION}`,
+    GITHUB_REPOSITORY: "cacheplane/b4run",
+    GITHUB_REPOSITORY_ID: "1210070282",
+    GITHUB_REPOSITORY_OWNER_ID: "987654321",
+    GITHUB_RUN_ATTEMPT: "1",
+    GITHUB_RUN_ID: "100",
+    GITHUB_SERVER_URL: "https://github.com",
+    GITHUB_SHA: COMMIT_SHA,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+    RUNNER_ENVIRONMENT: "github-hosted",
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: "exact-oidc-token",
+    ACTIONS_ID_TOKEN_REQUEST_URL: "https://token.actions.githubusercontent.com/exact",
+  }
+}
+
+async function listFiles(root) {
+  const entries = await readdir(root, { withFileTypes: true })
+  const files = []
+  for (const entry of entries) {
+    const target = path.join(root, entry.name)
+    if (entry.isDirectory()) files.push(...(await listFiles(target)))
+    else files.push(target)
+  }
+  return files
+}
 
 test("rejects an audit command that creates a lockfile in the synthetic tree", async () => {
   const verifier = await createNpmAuditVerifier({
@@ -311,7 +482,7 @@ test("pins the exact npm CLI contract consumed by the strict audit parser", asyn
 
 function auditOutput(drift = {}) {
   const version = drift.version ?? VERSION
-  const repository = drift.repository ?? "https://github.com/cacheplane/dawnai"
+  const repository = drift.repository ?? "https://github.com/cacheplane/b4run"
   const workflow = drift.workflow ?? CANDIDATE.publisherWorkflow
   const ref = drift.ref ?? `refs/tags/v${VERSION}`
   const commitSha = drift.commitSha ?? COMMIT_SHA
@@ -340,7 +511,7 @@ function auditOutput(drift = {}) {
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: "https://github.com/cacheplane/dawnai/actions/runs/100/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4run/actions/runs/100/attempts/1",
         },
       },
     },
@@ -425,11 +596,11 @@ function npmSubjectName(name, version) {
 }
 
 function attestationUrl(version = VERSION) {
-  return `https://registry.npmjs.org/-/npm/v1/attestations/@dawn-ai%2fsdk@${version}`
+  return `https://registry.npmjs.org/-/npm/v1/attestations/@b4run%2fsdk@${version}`
 }
 
 const BATCH_CANDIDATE = Object.freeze({ ...CANDIDATE, ciWorkflow: "CI", ciCheck: "validate" })
-const BATCH_ENTRIES = [ENTRY, packageEntry("@dawn-ai/core"), packageEntry("create-dawn-ai-app")]
+const BATCH_ENTRIES = [ENTRY, packageEntry("@b4run/core"), packageEntry("create-b4-app")]
 function batchOutput(entries = BATCH_ENTRIES) {
   const verified = entries.map((entry) => {
     const row = JSON.parse(auditOutput()).verified[0]
@@ -461,7 +632,7 @@ async function batchVerifier(run, fileSystem = fs, signal = new AbortController(
       GITHUB_TOKEN: "secret",
       NPM_TOKEN: "secret",
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: "secret",
-      DAWN_RECOVERY_POLICY_TOKEN: "secret",
+      B4_RECOVERY_POLICY_TOKEN: "secret",
       NODE_OPTIONS: "secret",
     },
     async runNpm(command, args, options) {
@@ -480,7 +651,7 @@ async function batchVerifier(run, fileSystem = fs, signal = new AbortController(
         "GITHUB_TOKEN",
         "NPM_TOKEN",
         "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
-        "DAWN_RECOVERY_POLICY_TOKEN",
+        "B4_RECOVERY_POLICY_TOKEN",
         "NODE_OPTIONS",
       ])
         assert.equal(options.env[key], undefined)
@@ -500,13 +671,10 @@ test("batch audits the whole inventory once in a fresh exact tree on every call"
     )
     assert.deepEqual((await readdir(cwd)).sort(), ["node_modules", "package.json"])
     assert.deepEqual((await readdir(path.join(cwd, "node_modules"))).sort(), [
-      "@dawn-ai",
-      "create-dawn-ai-app",
+      "@b4run",
+      "create-b4-app",
     ])
-    assert.deepEqual((await readdir(path.join(cwd, "node_modules/@dawn-ai"))).sort(), [
-      "core",
-      "sdk",
-    ])
+    assert.deepEqual((await readdir(path.join(cwd, "node_modules/@b4run"))).sort(), ["core", "sdk"])
     for (const entry of BATCH_ENTRIES) {
       const leaf = path.join(cwd, "node_modules", entry.name)
       assert.deepEqual(await readdir(leaf), ["package.json"])
@@ -697,14 +865,14 @@ for (const stage of ["before", "after"])
         tampered = true
         if (drift === "root bytes") await writeFile(path.join(directory, "package.json"), "{}")
         if (drift === "leaf bytes")
-          await writeFile(path.join(directory, "node_modules/@dawn-ai/core/package.json"), "{}")
+          await writeFile(path.join(directory, "node_modules/@b4run/core/package.json"), "{}")
         if (drift === "scope member")
-          await fs.mkdir(path.join(directory, "node_modules/@dawn-ai/extra"))
+          await fs.mkdir(path.join(directory, "node_modules/@b4run/extra"))
         if (drift === "nested dependency")
-          await fs.mkdir(path.join(directory, "node_modules/@dawn-ai/core/node_modules"))
+          await fs.mkdir(path.join(directory, "node_modules/@b4run/core/node_modules"))
         if (drift === "lockfile") await writeFile(path.join(directory, "package-lock.json"), "{}")
         if (drift === "symlink") {
-          const file = path.join(directory, "node_modules/@dawn-ai/core/package.json")
+          const file = path.join(directory, "node_modules/@b4run/core/package.json")
           await fs.rename(file, path.join(directory, "outside.json"))
           await fs.symlink(path.join(directory, "outside.json"), file)
         }
@@ -1023,14 +1191,14 @@ for (const stage of ["before", "after"])
       async ({ cwd }) => {
         commands++
         if (stage === "after")
-          await replace(path.join(cwd, "node_modules/@dawn-ai/core/package.json"))
+          await replace(path.join(cwd, "node_modules/@b4run/core/package.json"))
         return { stdout: batchOutput() }
       },
       {
         ...fs,
         async writeFile(file, ...args) {
           await fs.writeFile(file, ...args)
-          if (stage === "before" && file.endsWith("node_modules/@dawn-ai/core/package.json"))
+          if (stage === "before" && file.endsWith("node_modules/@b4run/core/package.json"))
             await replace(file)
         },
         async readFile(file, ...args) {

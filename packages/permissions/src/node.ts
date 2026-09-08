@@ -1,8 +1,8 @@
 /**
- * The NODE layer of `@dawn-ai/permissions`: the disk-backed store that reads
- * and writes `.dawn/permissions.json`.
+ * The NODE layer of `@b4run/permissions`: the disk-backed store that reads
+ * and writes `.b4/permissions.json`.
  *
- * It lives behind the explicitly node-only "@dawn-ai/permissions/node" subpath
+ * It lives behind the explicitly node-only "@b4run/permissions/node" subpath
  * (NOT the "." barrel) so `node:fs` / `node:path` stay out of the default
  * import graph — edge entries import the barrel for `matchPermission`, the
  * suggested-pattern helpers and the `PermissionsStore` interface, and inject
@@ -16,7 +16,7 @@ import { join } from "node:path"
 import { matchPermission } from "./pattern-matching.js"
 import type { PermissionMode, PermissionsFile, PermissionsStore } from "./types.js"
 
-const PERMISSIONS_DIR = ".dawn"
+const PERMISSIONS_DIR = ".b4"
 const PERMISSIONS_FILE = "permissions.json"
 
 interface CreateOptions {
@@ -118,11 +118,11 @@ export function createPermissionsStore(opts: CreateOptions): PermissionsStore {
     let content = ""
     if (existsSync(gitignorePath)) {
       content = await readFile(gitignorePath, "utf8")
-      if (content.split("\n").some((line) => line.trim() === ".dawn/")) return
+      if (content.split("\n").some((line) => line.trim() === ".b4/")) return
       if (!content.endsWith("\n") && content.length > 0) content += "\n"
-      content += ".dawn/\n"
+      content += ".b4/\n"
     } else {
-      content = ".dawn/\n"
+      content = ".b4/\n"
     }
     await writeFile(gitignorePath, content, "utf8")
   }

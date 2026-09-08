@@ -8,14 +8,14 @@ import type {
   RouteManifest,
   RouteStateFields,
   RouteToolTypes,
-} from "@dawn-ai/core"
+} from "@b4run/core"
 import {
-  renderDawnTypes,
+  renderB4Types,
   renderScenarioTypes,
   resolveStateFields,
   SCENARIO_TYPES_FILE,
-} from "@dawn-ai/core"
-import { extractToolArtifactsForRoute } from "@dawn-ai/core/internal/compiler"
+} from "@b4run/core"
+import { extractToolArtifactsForRoute } from "@b4run/core/internal/compiler"
 
 import { discoverStateDefinition } from "../runtime/state-discovery.js"
 
@@ -118,8 +118,8 @@ function hasMemory(routeDir: string): boolean {
   return existsSync(join(routeDir, "memory.ts"))
 }
 
-function memoryExtraTools(routeDir: string, dawnDir: string): readonly ExtractedToolType[] {
-  const memoryModule = moduleSpecifierFromDts(dawnDir, join(routeDir, "memory.ts"))
+function memoryExtraTools(routeDir: string, b4Dir: string): readonly ExtractedToolType[] {
+  const memoryModule = moduleSpecifierFromDts(b4Dir, join(routeDir, "memory.ts"))
   const dataType = `import("zod").infer<(typeof import(${JSON.stringify(memoryModule)}).default)["schema"]>`
   return [
     {
@@ -157,7 +157,7 @@ export async function runTypegen(options: {
   readonly manifest: RouteManifest
 }): Promise<TypegenResult> {
   const { appRoot, manifest } = options
-  const dawnDir = join(appRoot, ".dawn")
+  const b4Dir = join(appRoot, ".b4")
   const sharedToolsDir = join(appRoot, "src")
 
   const routeToolTypes: RouteToolTypes[] = []
@@ -169,7 +169,7 @@ export async function runTypegen(options: {
     const { types: tools, schemas } = extractToolArtifactsForRoute({
       routeDir: route.routeDir,
       sharedToolsDir,
-      typeReferenceFileName: join(dawnDir, SCENARIO_TYPES_FILE),
+      typeReferenceFileName: join(b4Dir, SCENARIO_TYPES_FILE),
     })
 
     scenarioToolTypes.push({ pathname: route.pathname, tools })
@@ -192,7 +192,7 @@ export async function runTypegen(options: {
       extraTools.push(...WORKSPACE_EXTRA_TOOLS)
     }
     if (hasMemory(route.routeDir)) {
-      extraTools.push(...memoryExtraTools(route.routeDir, dawnDir))
+      extraTools.push(...memoryExtraTools(route.routeDir, b4Dir))
     }
 
     routeToolTypes.push({
@@ -202,7 +202,7 @@ export async function runTypegen(options: {
 
     if (schemas.length > 0) {
       toolSchemaCount += schemas.length
-      await writeToolSchemas(dawnDir, route.id, schemas)
+      await writeToolSchemas(b4Dir, route.id, schemas)
     }
 
     // Discover state
@@ -213,7 +213,7 @@ export async function runTypegen(options: {
         reducerOverrides: stateDefinition.reducerOverrides,
       })
 
-      await writeStateManifest(dawnDir, route.id, fields)
+      await writeStateManifest(b4Dir, route.id, fields)
 
       routeStateFields.push({
         pathname: route.pathname,
@@ -225,11 +225,11 @@ export async function runTypegen(options: {
     }
   }
 
-  const dtsContent = renderDawnTypes(manifest, routeToolTypes, routeStateFields)
+  const dtsContent = renderB4Types(manifest, routeToolTypes, routeStateFields)
   const scenarioDtsContent = renderScenarioTypes(manifest, scenarioToolTypes)
-  const dtsPath = join(dawnDir, "dawn.generated.d.ts")
-  const scenarioDtsPath = join(dawnDir, SCENARIO_TYPES_FILE)
-  await mkdir(dawnDir, { recursive: true })
+  const dtsPath = join(b4Dir, "b4.generated.d.ts")
+  const scenarioDtsPath = join(b4Dir, SCENARIO_TYPES_FILE)
+  await mkdir(b4Dir, { recursive: true })
   await Promise.all([
     writeFile(dtsPath, dtsContent, "utf8"),
     writeFile(scenarioDtsPath, scenarioDtsContent, "utf8"),
@@ -243,12 +243,12 @@ export async function runTypegen(options: {
 }
 
 async function writeToolSchemas(
-  dawnDir: string,
+  b4Dir: string,
   routeId: string,
   schemas: readonly ExtractedToolSchema[],
 ): Promise<void> {
   const routeSlug = routeIdToSlug(routeId)
-  const dir = join(dawnDir, "routes", routeSlug)
+  const dir = join(b4Dir, "routes", routeSlug)
   await mkdir(dir, { recursive: true })
 
   const output: Record<string, unknown> = {}
@@ -263,12 +263,12 @@ async function writeToolSchemas(
 }
 
 async function writeStateManifest(
-  dawnDir: string,
+  b4Dir: string,
   routeId: string,
   fields: readonly ResolvedStateField[],
 ): Promise<void> {
   const routeSlug = routeIdToSlug(routeId)
-  const dir = join(dawnDir, "routes", routeSlug)
+  const dir = join(b4Dir, "routes", routeSlug)
   await mkdir(dir, { recursive: true })
 
   const output = fields.map((f) => ({

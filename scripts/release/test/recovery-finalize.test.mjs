@@ -191,7 +191,7 @@ for (const [name, mutate] of [
   [
     "unrenderable notes",
     (r) => {
-      r.release.body = `DAWN_RELEASE_CONTROLLER_MARKER notes\n${r.release.body}`
+      r.release.body = `B4_RELEASE_CONTROLLER_MARKER notes\n${r.release.body}`
     },
   ],
   [

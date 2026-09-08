@@ -1,7 +1,7 @@
 #!/bin/sh
 # sandbox-docker-e2e assertions (docker-out-of-docker / DooD).
 #
-# Drives a containerized Dawn app over the Agent Protocol and proves that a
+# Drives a containerized B4.run app over the Agent Protocol and proves that a
 # real, non-root, read-only sibling sandbox executes runBash and is destroyed.
 set -eu
 
@@ -9,11 +9,11 @@ set -eu
 exec 3>&2
 
 # --- Parameters -------------------------------------------------------------
-APP_IMAGE="${APP_IMAGE:-dawn-smoke-app:docker}"
-AIMOCK_IMAGE="${AIMOCK_IMAGE:-dawn-smoke-aimock:latest}"
-NET="${NET:-dawn-smoke-net}"
-APP_NAME="${APP_NAME:-dawn-smoke-app}"
-AIMOCK_NAME="${AIMOCK_NAME:-dawn-smoke-aimock}"
+APP_IMAGE="${APP_IMAGE:-b4-smoke-app:docker}"
+AIMOCK_IMAGE="${AIMOCK_IMAGE:-b4-smoke-aimock:latest}"
+NET="${NET:-b4-smoke-net}"
+APP_NAME="${APP_NAME:-b4-smoke-app}"
+AIMOCK_NAME="${AIMOCK_NAME:-b4-smoke-aimock}"
 APP_PORT="${APP_PORT:-8000}"
 AIMOCK_PORT="${AIMOCK_PORT:-4010}"
 DOCKER_SOCK="${DOCKER_SOCK:-/var/run/docker.sock}"
@@ -33,8 +33,8 @@ SMOKE_SUPERVISOR_REAP_POLL_ATTEMPTS="${SMOKE_SUPERVISOR_REAP_POLL_ATTEMPTS:-100}
 SMOKE_SUPERVISOR_RESPONSE_MARGIN_MILLISECONDS="${SMOKE_SUPERVISOR_RESPONSE_MARGIN_MILLISECONDS:-1000}"
 BASE="http://127.0.0.1:${APP_PORT}"
 ROUTE='/smoke#agent'
-SBX_PREFIX="dawn-sbx-"
-SBX_VOL_PREFIX="dawn-sbx-vol-"
+SBX_PREFIX="b4-sbx-"
+SBX_VOL_PREFIX="b4-sbx-vol-"
 
 case "$SMOKE_COMMAND_TIMEOUT_SECONDS" in
   '' | *[!0-9]* | 0)
@@ -183,7 +183,7 @@ initialize_smoke_run_directory() {
   [ -n "$SMOKE_TMP_ROOT" ] || SMOKE_TMP_ROOT=/tmp
   SMOKE_TMP_ATTEMPT=0
   while [ "$SMOKE_TMP_ATTEMPT" -lt 100 ]; do
-    SMOKE_RUN_DIRECTORY="${SMOKE_TMP_ROOT}/dawn-docker-smoke.$$.${SMOKE_TMP_ATTEMPT}"
+    SMOKE_RUN_DIRECTORY="${SMOKE_TMP_ROOT}/b4-docker-smoke.$$.${SMOKE_TMP_ATTEMPT}"
     if mkdir "$SMOKE_RUN_DIRECTORY" 2>/dev/null; then
       return 0
     fi
@@ -212,7 +212,7 @@ initialize_bounded_supervisor() {
     return 1
   fi
 
-  # Dawn's CI/local harness targets Darwin and Linux, whose FIFO implementations
+  # B4.run's CI/local harness targets Darwin and Linux, whose FIFO implementations
   # support read-write opens. Holding both ends before helper startup prevents a
   # blocking endpoint race and preserves READY if the helper exits after writing.
   if ! exec 8<>"$RB_REQUEST_FIFO"; then
@@ -631,20 +631,20 @@ read_container_format() {
 }
 
 read_sandbox_thread_label() {
-  read_container_format '{{ index .Config.Labels "dawn.sandbox" }}' "$1"
+  read_container_format '{{ index .Config.Labels "b4.sandbox" }}' "$1"
 }
 
 read_sandbox_identity_label() {
-  read_container_format '{{ index .Config.Labels "dawn.sandbox.identity" }}' "$1"
+  read_container_format '{{ index .Config.Labels "b4.sandbox.identity" }}' "$1"
 }
 
 read_container_run_label() {
-  read_container_format '{{ index .Config.Labels "dawn.smoke.run" }}' "$1"
+  read_container_format '{{ index .Config.Labels "b4.smoke.run" }}' "$1"
 }
 
 read_network_run_label() {
   if run_bounded_capture docker network inspect \
-    --format '{{ index .Labels "dawn.smoke.run" }}' "$1" 2>/dev/null; then
+    --format '{{ index .Labels "b4.smoke.run" }}' "$1" 2>/dev/null; then
     normalize_read_result
   else
     return $?
@@ -1067,7 +1067,7 @@ adopt_sandbox_claims() {
     if read_sandbox_thread_label "$ADOPTED_ID"; then
       ADOPTED_THREAD_LABEL=$READ_RESULT
     else
-      echo "CLEANUP OWNERSHIP ERROR: could not read dawn.sandbox label from ${ADOPTED_ID}" >&2
+      echo "CLEANUP OWNERSHIP ERROR: could not read b4.sandbox label from ${ADOPTED_ID}" >&2
       return 1
     fi
     if [ "$ADOPTED_THREAD_LABEL" != "$SANITIZED_TID" ]; then
@@ -1747,7 +1747,7 @@ echo "==> docker socket group gid = ${SOCK_GID}"
 NETWORK_CREATE_STATE="pending"
 NETWORK_CREATE_STATUS=0
 CREATED_NETWORK_ID=""
-if run_bounded_capture docker network create --label "dawn.smoke.run=${RUN_TOKEN}" "$NET" \
+if run_bounded_capture docker network create --label "b4.smoke.run=${RUN_TOKEN}" "$NET" \
   2>/dev/null; then :; else
   NETWORK_CREATE_STATUS=$?
 fi
@@ -1781,7 +1781,7 @@ echo "==> network ${NET} ready (${NETWORK_ID})"
 AIMOCK_CREATE_STATE="pending"
 AIMOCK_CREATE_STATUS=0
 CREATED_AIMOCK_ID=""
-if run_bounded_capture docker run -d --label "dawn.smoke.run=${RUN_TOKEN}" \
+if run_bounded_capture docker run -d --label "b4.smoke.run=${RUN_TOKEN}" \
   --name "$AIMOCK_NAME" --network "$NET" "$AIMOCK_IMAGE"; then :; else
   AIMOCK_CREATE_STATUS=$?
 fi
@@ -1816,12 +1816,12 @@ APP_CREATE_STATE="pending"
 APP_REMOVAL_REQUIRED=1
 APP_CREATE_STATUS=0
 CREATED_APP_ID=""
-if run_bounded_capture docker run -d --label "dawn.smoke.run=${RUN_TOKEN}" \
+if run_bounded_capture docker run -d --label "b4.smoke.run=${RUN_TOKEN}" \
     --name "$APP_NAME" --network "$NET" \
     -v "${DOCKER_SOCK}:/var/run/docker.sock" \
     --group-add "$SOCK_GID" \
-    -e DAWN_SMOKE_SANDBOX=docker \
-    -e DAWN_PERMISSIONS_MODE=bypass \
+    -e B4_SMOKE_SANDBOX=docker \
+    -e B4_PERMISSIONS_MODE=bypass \
     -e "OPENAI_BASE_URL=http://${AIMOCK_NAME}:${AIMOCK_PORT}/v1" \
     -e OPENAI_API_KEY=dummy \
     -p "${APP_PORT}:8000" \

@@ -5,10 +5,10 @@ import { AIMessage, HumanMessage } from "@langchain/core/messages"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { sqliteCheckpointer } from "../src/checkpointer/index.js"
 
-describe("DawnSqliteSaver", () => {
+describe("B4SqliteSaver", () => {
   let dir: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "dawn-ckpt-"))
+    dir = mkdtempSync(join(tmpdir(), "b4-ckpt-"))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })

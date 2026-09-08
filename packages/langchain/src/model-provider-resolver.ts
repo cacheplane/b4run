@@ -1,5 +1,5 @@
-import type { BuiltInModelProviderId, ModelProviderId } from "@dawn-ai/sdk"
-import { inferProvider, SUPPORTED_AGENT_PROVIDERS } from "@dawn-ai/sdk"
+import type { BuiltInModelProviderId, ModelProviderId } from "@b4run/sdk"
+import { inferProvider, SUPPORTED_AGENT_PROVIDERS } from "@b4run/sdk"
 
 export { inferProvider, SUPPORTED_AGENT_PROVIDERS }
 

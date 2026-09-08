@@ -16,7 +16,7 @@ describe("createSkillsMarker", () => {
   let routeDir: string
 
   beforeEach(() => {
-    routeDir = mkdtempSync(join(tmpdir(), "dawn-skills-"))
+    routeDir = mkdtempSync(join(tmpdir(), "b4-skills-"))
   })
 
   afterEach(() => {

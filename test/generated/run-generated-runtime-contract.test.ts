@@ -36,7 +36,7 @@ describe("generated app runtime contract", () => {
 
     await expectBasicAuthoringLane(prepared.appRoot)
     expect(runTestSource).toContain(
-      'import { expectMeta, expectOutput, scenarios } from "@dawn-ai/sdk/testing"',
+      'import { expectMeta, expectOutput, scenarios } from "@b4run/sdk/testing"',
     )
     expect(runTestSource).toContain('export default scenarios("/hello/[tenant]")')
     expect(runTestSource).not.toContain("export default [")
@@ -94,19 +94,19 @@ describe("generated app runtime contract", () => {
     const transcript = await readFile(prepared.transcriptPath, "utf8")
 
     expectGeneratedRuntimeScenario(result, expected)
-    expect(transcript).toContain(`$ (cd ${REPO_ROOT} && pnpm --filter create-dawn-ai-app build)`)
+    expect(transcript).toContain(`$ (cd ${REPO_ROOT} && pnpm --filter create-b4-app build)`)
     expect(transcript).toContain(
-      `node packages/create-dawn-app/dist/bin.js ${prepared.appRoot} --mode internal --template basic`,
+      `node packages/create-b4-app/dist/bin.js ${prepared.appRoot} --mode internal --template basic`,
     )
     expect(transcript).toContain(`$ (cd ${prepared.appRoot} && pnpm install)`)
     expect(transcript).toContain(
-      `$ (cd ${prepared.appRoot} && pnpm exec dawn run src/app/(public)/hello/[tenant]/index.ts)`,
+      `$ (cd ${prepared.appRoot} && pnpm exec b4 run src/app/(public)/hello/[tenant]/index.ts)`,
     )
     expect(transcript).toContain(
-      `$ (cd ${prepared.appRoot} && pnpm exec dawn run src/app/(public)/hello/[tenant]/index.ts --url`,
+      `$ (cd ${prepared.appRoot} && pnpm exec b4 run src/app/(public)/hello/[tenant]/index.ts --url`,
     )
-    expect(transcript).toContain(`$ (cd ${prepared.appRoot} && pnpm exec dawn test)`)
-    expect(transcript).toContain("$ dawn dev")
+    expect(transcript).toContain(`$ (cd ${prepared.appRoot} && pnpm exec b4 test)`)
+    expect(transcript).toContain("$ b4 dev")
     expect(transcript).not.toContain("--pack-destination")
     expect(transcript).not.toContain("pnpm add ")
   })

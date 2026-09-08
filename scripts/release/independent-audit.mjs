@@ -33,7 +33,7 @@ import { isExactSemver, parseSemver } from "./semver.mjs"
 import { REQUIRED_RELEASE_SMOKE_LANES } from "./smoke-result.mjs"
 import { canonicalAuditResultBytes, parseAuditResult } from "./terminal-records.mjs"
 
-const REPOSITORY = "cacheplane/dawnai"
+const REPOSITORY = "cacheplane/b4run"
 const WORKFLOW = ".github/workflows/published-artifact-verify.yml"
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u
@@ -382,7 +382,7 @@ async function readDispatchRelease(github, candidate, deadline, clock) {
     ids.add(release.id)
     if (
       release.tag_name === tag ||
-      release.name === `Dawn ${tag}` ||
+      release.name === `B4 ${tag}` ||
       isManagedReleaseForTag(release, tag)
     )
       matches.push(release)
@@ -404,7 +404,7 @@ function parseDispatchRelease(value, candidate, manifestSha256) {
   if (
     !isRecord(release) ||
     !isPositiveInteger(release.id) ||
-    release.name !== `Dawn v${candidate.version}` ||
+    release.name !== `B4 v${candidate.version}` ||
     !isManagedReleaseForTag(release, `v${candidate.version}`) ||
     release.target_commitish !== "main" ||
     release.draft !== true ||
@@ -768,7 +768,7 @@ export async function createIndependentAuditRuntime(input, overrides = {}) {
   const git = dependencies.createGitReader({ root })
   const github = dependencies.createGitHubReader({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     repositoryId,
     token,
     maxResponseBytes: RELEASE_PAYLOAD_LIMITS.actionsArchiveBytes,

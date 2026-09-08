@@ -1,4 +1,4 @@
-import { chainAdapter } from "@dawn-ai/langchain"
+import { chainAdapter } from "@b4run/langchain"
 import { describe, expect, test } from "vitest"
 
 describe("chainAdapter", () => {

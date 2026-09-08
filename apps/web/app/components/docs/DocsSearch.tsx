@@ -158,7 +158,7 @@ export function DocsSearch({ index }: Props) {
                     setActive(0)
                   }}
                   onKeyDown={onInputKey}
-                  placeholder="Search Dawn docs..."
+                  placeholder="Search B4.run docs..."
                   className="flex-1 bg-transparent text-ink placeholder-text-muted focus:outline-none text-sm"
                 />
                 <button

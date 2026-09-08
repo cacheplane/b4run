@@ -1,9 +1,9 @@
-import { runCheckpointerConformance } from "@dawn-ai/testing"
+import { runCheckpointerConformance } from "@b4run/testing"
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql"
 import { afterAll, beforeAll, describe, expect, test } from "vitest"
-import { type DawnPostgresSaver, postgresCheckpointer } from "../src/node.js"
+import { type B4PostgresSaver, postgresCheckpointer } from "../src/node.js"
 
-const enabled = process.env.DAWN_TEST_PGSTORAGE === "1"
+const enabled = process.env.B4_TEST_PGSTORAGE === "1"
 let container: StartedPostgreSqlContainer
 let url: string
 
@@ -30,7 +30,7 @@ describe.skipIf(!enabled)("postgres-storage real-Postgres conformance", () => {
     // Both are real capabilities here: list() hydrates pendingWrites and
     // evaluates options.filter app-side.
     supports: { listPendingWrites: true, listFilter: true },
-    close: (saver) => (saver as DawnPostgresSaver).close(),
+    close: (saver) => (saver as B4PostgresSaver).close(),
   })
 
   test("concurrent cold-start migrations against a virgin database all succeed", async () => {

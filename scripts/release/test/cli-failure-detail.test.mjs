@@ -163,8 +163,8 @@ for (const [label, message] of [
 }
 
 test("safeDetail leaves dotted identifiers shorter than a JWT segment alone", () => {
-  const detail = safeDetail(new Error("resolved @dawn-ai/core@0.8.24 from registry.npmjs.org"))
-  assert.equal(detail, "resolved @dawn-ai/core@0.8.24 from registry.npmjs.org")
+  const detail = safeDetail(new Error("resolved @b4run/core@0.8.24 from registry.npmjs.org"))
+  assert.equal(detail, "resolved @b4run/core@0.8.24 from registry.npmjs.org")
 })
 
 test("safeDetail redacts a lowercase bearer scheme", () => {

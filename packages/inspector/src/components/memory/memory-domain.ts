@@ -1,4 +1,4 @@
-import type { MemoryKind, MemoryStatus } from "@dawn-ai/memory/browse"
+import type { MemoryKind, MemoryStatus } from "@b4run/memory/browse"
 
 /**
  * The closed sets the funnels offer and the query mapping validates against.

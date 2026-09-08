@@ -1,26 +1,26 @@
 {
-  "name": "@dawn-ai/workspace",
+  "name": "@b4run/workspace",
   "version": "0.8.26",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "description": "Filesystem and shell workspace contracts and tools for Dawn agent applications.",
+  "description": "Filesystem and shell workspace contracts and tools for B4.run agent applications.",
   "keywords": [
-    "dawn",
+    "b4",
     "typescript",
     "ai-agents",
     "filesystem",
     "shell",
     "developer-tools"
   ],
-  "homepage": "https://github.com/cacheplane/dawnai/tree/main/packages/workspace#readme",
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/workspace#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/dawnai.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/workspace"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/dawnai/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -49,10 +49,10 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@dawn-ai/sdk": "workspace:*"
+    "@b4run/sdk": "workspace:*"
   },
   "devDependencies": {
-    "@dawn-ai/config-typescript": "workspace:*",
+    "@b4run/config-typescript": "workspace:*",
     "@types/node": "26.1.2"
   }
 }

@@ -210,7 +210,7 @@ async function collectRecoveryEvidenceInInvocation(request, config, dependencies
     phase: "VERIFICATION_COMPLETE",
     verificationSet: current.facts.verification.ref,
   })
-  const prefix = current.facts.release.body.split("\n\n<!-- DAWN_RELEASE_CONTROLLER_MARKER\n")[0]
+  const prefix = current.facts.release.body.split("\n\n<!-- B4_RELEASE_CONTROLLER_MARKER\n")[0]
   const result = await writer.updateRecoveryDraft({
     ...common,
     title: current.facts.release.name,

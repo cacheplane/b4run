@@ -1,33 +1,33 @@
-# @dawn-ai/sandbox
+# @b4run/sandbox
 
 ## Use this when
 
-Use this Node-only package when a Dawn application needs the reference Docker or Kubernetes `SandboxProvider`, or when a provider author needs the shared conformance suite. The portable sandbox interfaces are re-exported for discovery, but their canonical field owner is [Workspace](/docs/api/workspace).
+Use this Node-only package when a B4.run application needs the reference Docker or Kubernetes `SandboxProvider`, or when a provider author needs the shared conformance suite. The portable sandbox interfaces are re-exported for discovery, but their canonical field owner is [Workspace](/docs/api/workspace).
 
 ## Install and import
 
 ```bash
-pnpm add @dawn-ai/sandbox
+pnpm add @b4run/sandbox
 pnpm add -D vitest
 ```
 
 ```ts
-import { dockerSandbox, kubernetesSandbox } from "@dawn-ai/sandbox"
-import { fakeSandbox, runProviderConformance } from "@dawn-ai/sandbox/testing"
+import { dockerSandbox, kubernetesSandbox } from "@b4run/sandbox"
+import { fakeSandbox, runProviderConformance } from "@b4run/sandbox/testing"
 ```
 
 ## Compatibility and audience
 
 | Surface | Runtime | Purity | Audience | Stability |
 |---|---|---|---|---|
-| `@dawn-ai/sandbox` | node-only | not-claimed | application | supported |
-| `@dawn-ai/sandbox/testing` | node-only | not-claimed | testing | supported |
+| `@b4run/sandbox` | node-only | not-claimed | application | supported |
+| `@b4run/sandbox/testing` | node-only | not-claimed | testing | supported |
 
 The root uses Node APIs, Docker process execution, and the Kubernetes client. `/testing` imports Vitest and is test-facing. Ordinary package tests use fakes; real-provider evidence lives in gated Docker and Kubernetes integration lanes.
 
 ## Public exports
 
-### `@dawn-ai/sandbox`
+### `@b4run/sandbox`
 
 | Export | Responsibility |
 |---|---|
@@ -43,7 +43,7 @@ The root uses Node APIs, Docker process execution, and the Kubernetes client. `/
 | `KubernetesSandboxOptions` | Configure the Kubernetes image, namespace, storage class, timeout, and client seam. |
 | `kubernetesSandbox` | Create the Kubernetes provider. |
 
-### `@dawn-ai/sandbox/testing`
+### `@b4run/sandbox/testing`
 
 | Export | Responsibility |
 |---|---|
@@ -52,7 +52,7 @@ The root uses Node APIs, Docker process execution, and the Kubernetes client. `/
 
 ## Key contracts
 
-```ts api-contract="@dawn-ai/sandbox#.:KubernetesSandboxOptions"
+```ts api-contract="@b4run/sandbox#.:KubernetesSandboxOptions"
 export interface KubernetesSandboxOptions {
   readonly image: string
   readonly namespace?: string
@@ -62,7 +62,7 @@ export interface KubernetesSandboxOptions {
 }
 ```
 
-```ts api-contract="@dawn-ai/sandbox#.:KubeAuthorizationReviewError"
+```ts api-contract="@b4run/sandbox#.:KubeAuthorizationReviewError"
 export declare class KubeAuthorizationReviewError extends Error {
   readonly kind: "api" | "transport"
   constructor(kind: "api" | "transport", message: string, options?: ErrorOptions)
@@ -74,15 +74,15 @@ authorization review cannot complete. Use `api` when the Kubernetes API answers
 but rejects or cannot process the review, and `transport` when the API cannot be
 reached.
 
-```ts api-contract="@dawn-ai/sandbox#.:dockerSandbox"
+```ts api-contract="@b4run/sandbox#.:dockerSandbox"
 export declare function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider
 ```
 
-```ts api-contract="@dawn-ai/sandbox#.:kubernetesSandbox"
+```ts api-contract="@b4run/sandbox#.:kubernetesSandbox"
 export declare function kubernetesSandbox(opts: KubernetesSandboxOptions): SandboxProvider
 ```
 
-```ts api-contract="@dawn-ai/sandbox#./testing:runProviderConformance"
+```ts api-contract="@b4run/sandbox#./testing:runProviderConformance"
 export declare function runProviderConformance(opts: {
   readonly name: string
   readonly makeProvider: () => SandboxProvider
@@ -111,8 +111,8 @@ Kubernetes `network:allow` without an allowlist emits no NetworkPolicy.
 The absence of a provider-created policy does not promise unrestricted egress: cluster defaults, infrastructure policies, and CNI behavior still apply. Preflight checks Kubernetes API reachability and the complete runtime permission set, reporting authorization denials, review failures, and transport failures separately. Unknown CNI enforcement produces a warning; preflight does not prove NetworkPolicy enforcement.
 
 #### Behavior contract `sandbox.error.create`
-{/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/sandbox/test/sandbox-error-code.test.ts","testNames":["a failed container creation throws an error tagged DAWN_E2001"]}] */}
-A failed sandbox container creation is tagged `DAWN_E2001`.
+{/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/sandbox/test/sandbox-error-code.test.ts","testNames":["a failed container creation throws an error tagged B4_E2001"]}] */}
+A failed sandbox container creation is tagged `B4_E2001`.
 
 #### Provider identity and reattachment caveat
 
@@ -121,7 +121,7 @@ Provider names sanitize caller-supplied thread IDs and can collide; applications
 ## Examples and related guides
 
 ```ts
-import { dockerSandbox } from "@dawn-ai/sandbox"
+import { dockerSandbox } from "@b4run/sandbox"
 
 const provider = dockerSandbox({ image: "node:24-slim" })
 const status = await provider.preflight?.()

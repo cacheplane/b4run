@@ -122,18 +122,18 @@ describe("administrative permission declaration", () => {
 
   test("locks every expanded tuple and namespace scope", () => {
     const expanded = expandAdministrativePermissions({
-      managementNamespace: "dawn-management-a",
-      sandboxNamespace: "dawn-sandbox-a",
+      managementNamespace: "b4-management-a",
+      sandboxNamespace: "b4-sandbox-a",
     })
     const expected = EXPECTED_GROUPS.flatMap((group) => {
       const namespaces =
         group.scope === "cluster"
           ? [undefined]
           : group.scope === "management"
-            ? ["dawn-management-a"]
+            ? ["b4-management-a"]
             : group.scope === "sandbox"
-              ? ["dawn-sandbox-a"]
-              : ["dawn-management-a", "dawn-sandbox-a"]
+              ? ["b4-sandbox-a"]
+              : ["b4-management-a", "b4-sandbox-a"]
       return group.resources.flatMap((resource) =>
         group.verbs.flatMap((verb) =>
           namespaces.map((namespace) => ({
@@ -169,9 +169,9 @@ describe("administrative authorization preflight", () => {
 
     const reviewed = await assertAdministrativePermissions(
       {
-        context: "kind-dawn",
-        managementNamespace: "dawn-management-a",
-        sandboxNamespace: "dawn-sandbox-a",
+        context: "kind-b4",
+        managementNamespace: "b4-management-a",
+        sandboxNamespace: "b4-sandbox-a",
       },
       execute,
     )
@@ -184,7 +184,7 @@ describe("administrative authorization preflight", () => {
         file: "kubectl",
         args: [
           "--context",
-          "kind-dawn",
+          "kind-b4",
           "create",
           "--raw",
           "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
@@ -236,17 +236,17 @@ describe("administrative authorization preflight", () => {
 
     const error = await assertAdministrativePermissions(
       {
-        context: "kind-dawn",
-        managementNamespace: "dawn-management-a",
-        sandboxNamespace: "dawn-sandbox-a",
+        context: "kind-b4",
+        managementNamespace: "b4-management-a",
+        sandboxNamespace: "b4-sandbox-a",
       },
       execute,
     ).catch((cause: unknown) => cause)
 
     expect(execute).toHaveBeenCalledTimes(
       expandAdministrativePermissions({
-        managementNamespace: "dawn-management-a",
-        sandboxNamespace: "dawn-sandbox-a",
+        managementNamespace: "b4-management-a",
+        sandboxNamespace: "b4-sandbox-a",
       }).length,
     )
     expect(error).toBeInstanceOf(AdministrativePermissionError)

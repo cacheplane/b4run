@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { snapshotJson } from "./adapter-normalize.mjs"
 import { isExactSemver } from "./semver.mjs"
 
-const REPOSITORY = "cacheplane/dawnai"
+const REPOSITORY = "cacheplane/b4run"
 const REPOSITORY_ID = 1210070282
 const WORKFLOW = ".github/workflows/published-artifact-verify.yml"
 const PINS_PATH = "scripts/release/test/fixtures/release-script-hashes.json"

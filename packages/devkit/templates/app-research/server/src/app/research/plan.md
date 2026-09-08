@@ -1,5 +1,5 @@
 <!--
-The presence of this file opts this route into Dawn's planning capability.
+The presence of this file opts this route into B4.run's planning capability.
 The seeded checklist items below become the thread's initial `todos`. Edit them,
 add your own, or empty the list — the agent will adapt the plan to each question.
 -->

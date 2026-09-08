@@ -1,4 +1,4 @@
-import type { TypeInfo } from "@dawn-ai/core/internal/compiler"
+import type { TypeInfo } from "@b4run/core/internal/compiler"
 import { describe, expect, it } from "vitest"
 
 import { generateZodSchema } from "../src/zod-generator.js"

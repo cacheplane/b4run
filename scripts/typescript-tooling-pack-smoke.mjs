@@ -27,12 +27,12 @@ export const ZOD_VERSION = "4.4.3"
  * `assertPackedClosureIsComplete`, which enforces exactly that.
  */
 export const TOOLING_PACKAGES = [
-  { dir: "packages/sdk", name: "@dawn-ai/sdk" },
-  { dir: "packages/permissions", name: "@dawn-ai/permissions" },
-  { dir: "packages/sqlite-storage", name: "@dawn-ai/sqlite-storage" },
-  { dir: "packages/workspace", name: "@dawn-ai/workspace" },
-  { dir: "packages/core", name: "@dawn-ai/core" },
-  { dir: "packages/vite-plugin", name: "@dawn-ai/vite-plugin" },
+  { dir: "packages/sdk", name: "@b4run/sdk" },
+  { dir: "packages/permissions", name: "@b4run/permissions" },
+  { dir: "packages/sqlite-storage", name: "@b4run/sqlite-storage" },
+  { dir: "packages/workspace", name: "@b4run/workspace" },
+  { dir: "packages/core", name: "@b4run/core" },
+  { dir: "packages/vite-plugin", name: "@b4run/vite-plugin" },
 ]
 
 /**
@@ -91,12 +91,12 @@ export async function runTypeScriptToolingPackSmoke(overrides = {}) {
 
   await dependencies.assertPackedClosureIsComplete({ repoRoot: dependencies.repoRoot })
 
-  const tempRoot = await dependencies.makeTempDir("dawn-typescript-tooling-pack-")
+  const tempRoot = await dependencies.makeTempDir("b4-typescript-tooling-pack-")
   try {
     const packDir = join(tempRoot, "packs")
     const consumerRoot = join(tempRoot, "consumer")
 
-    await dependencies.runCommand("pnpm", ["--filter", "@dawn-ai/vite-plugin...", "build"], {
+    await dependencies.runCommand("pnpm", ["--filter", "@b4run/vite-plugin...", "build"], {
       cwd: dependencies.repoRoot,
     })
 
@@ -140,7 +140,7 @@ export async function runTypeScriptToolingPackSmoke(overrides = {}) {
       ...Object.fromEntries(
         packedArtifacts.map(({ packageName, packageVersion }) => [packageName, packageVersion]),
       ),
-      "@dawn-ai/core": packedCoreVersion,
+      "@b4run/core": packedCoreVersion,
       tsx: TSX_VERSION,
       typescript: TYPESCRIPT_VERSION,
       zod: ZOD_VERSION,
@@ -244,9 +244,9 @@ export function assertPackedWorkspaceDependencies(packedArtifacts) {
   const artifactsByName = new Map(
     packedArtifacts.map((artifact) => [artifact.packageName, artifact]),
   )
-  const coreArtifact = artifactsByName.get("@dawn-ai/core")
+  const coreArtifact = artifactsByName.get("@b4run/core")
   if (!coreArtifact) {
-    throw new Error("TypeScript tooling smoke is missing the packed @dawn-ai/core artifact")
+    throw new Error("TypeScript tooling smoke is missing the packed @b4run/core artifact")
   }
 
   for (const artifact of packedArtifacts) {
@@ -256,7 +256,7 @@ export function assertPackedWorkspaceDependencies(packedArtifacts) {
       ["peerDependencies", artifact.packageJson.peerDependencies],
     ]) {
       for (const [dependencyName, dependencySpec] of Object.entries(dependencies ?? {})) {
-        if (!dependencyName.startsWith("@dawn-ai/")) continue
+        if (!dependencyName.startsWith("@b4run/")) continue
         const dependencyArtifact = artifactsByName.get(dependencyName)
         if (
           dependencyKind === "peerDependencies" &&
@@ -294,7 +294,7 @@ async function initializeCleanConsumerProject(consumerRoot) {
     join(consumerRoot, "package.json"),
     `${JSON.stringify(
       {
-        name: "dawn-typescript-tooling-pack-smoke",
+        name: "b4-typescript-tooling-pack-smoke",
         private: true,
         type: "module",
       },

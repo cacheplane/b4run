@@ -10,7 +10,7 @@ import { canonicalAuditResultBytes } from "../terminal-records.mjs"
 import { SMOKE_LANES, smokeDescriptor } from "./support/marker-observation.mjs"
 
 const OWNER = "cacheplane"
-const REPO = "dawnai"
+const REPO = "b4run"
 const VERSION = "0.8.22"
 const TAG = `v${VERSION}`
 const SHA = "0123456789abcdef0123456789abcdef01234567"
@@ -45,7 +45,7 @@ test("draft creation proves an annotated tag and re-reads the exact created draf
       tag_name: "untagged-opaque",
       target_commitish: "main",
       prerelease: false,
-      name: `Dawn v${VERSION}`,
+      name: `B4 v${VERSION}`,
       body: "candidate body",
       draft: true,
       immutable: false,
@@ -64,7 +64,7 @@ test("draft creation proves an annotated tag and re-reads the exact created draf
   const result = await writer.createDraftRelease({
     tag: TAG,
     targetSha: SHA,
-    title: `Dawn v${VERSION}`,
+    title: `B4 v${VERSION}`,
     body: "candidate body",
   })
   assert.deepEqual(result, {
@@ -77,7 +77,7 @@ test("draft creation proves an annotated tag and re-reads the exact created draf
   assert.equal(calls[0].init.method, "POST")
   assert.deepEqual(JSON.parse(calls[0].init.body), {
     tag_name: TAG,
-    name: `Dawn v${VERSION}`,
+    name: `B4 v${VERSION}`,
     body: "candidate body",
     draft: true,
     generate_release_notes: false,
@@ -99,7 +99,7 @@ test("draft creation discovers one exact mutable draft despite an opaque tempora
     await writer.createDraftRelease({
       tag: TAG,
       targetSha: SHA,
-      title: `Dawn v${VERSION}`,
+      title: `B4 v${VERSION}`,
       body: fixture.body,
     }),
     {
@@ -131,7 +131,7 @@ test("draft creation reconciles one exact opaque-tag race and rejects ambiguous 
     await raced.createDraftRelease({
       tag: TAG,
       targetSha: SHA,
-      title: `Dawn v${VERSION}`,
+      title: `B4 v${VERSION}`,
       body: fixture.body,
     }),
     {
@@ -159,7 +159,7 @@ test("draft creation reconciles one exact opaque-tag race and rejects ambiguous 
     duplicate.createDraftRelease({
       tag: TAG,
       targetSha: SHA,
-      title: `Dawn v${VERSION}`,
+      title: `B4 v${VERSION}`,
       body: fixture.body,
     }),
     /duplicate|ambiguous/iu,
@@ -191,7 +191,7 @@ test("draft updates and asset uploads preserve tag verification around opaque-ta
       tag: TAG,
       targetSha: SHA,
       expectedBodySha256: releaseBodySha256("old body"),
-      title: `Dawn v${VERSION}`,
+      title: `B4 v${VERSION}`,
       body: "new body",
     }),
     {
@@ -353,7 +353,7 @@ test("draft creation rejects a raced prerelease before returning an existing rec
     writer.createDraftRelease({
       tag: TAG,
       targetSha: SHA,
-      title: `Dawn v${VERSION}`,
+      title: `B4 v${VERSION}`,
       body: "candidate body",
     }),
     /identity|metadata|prerelease/iu,
@@ -380,7 +380,7 @@ test("writer revalidates an annotated tag before returning an existing-resource 
     writer.createDraftRelease({
       tag: TAG,
       targetSha: SHA,
-      title: `Dawn v${VERSION}`,
+      title: `B4 v${VERSION}`,
       body: "candidate body",
     }),
     /annotated|tag|target|commit/iu,
@@ -691,7 +691,7 @@ test("writer bounds response time, content type, redirects, and output bytes", a
   await assert.rejects(dispatch(oversized), /byte limit/iu)
 })
 
-const DRAFT_INPUT = { tag: TAG, targetSha: SHA, title: `Dawn v${VERSION}`, body: "candidate body" }
+const DRAFT_INPUT = { tag: TAG, targetSha: SHA, title: `B4 v${VERSION}`, body: "candidate body" }
 const FAKE_TOKEN = `ghp_${"A".repeat(30)}`
 
 function draftWriter(fetchImpl, options = {}) {
@@ -862,7 +862,7 @@ test("draft update, asset upload, publication, and dispatch failures carry the H
           tag: TAG,
           targetSha: SHA,
           expectedBodySha256: releaseBodySha256("old body"),
-          title: `Dawn v${VERSION}`,
+          title: `B4 v${VERSION}`,
           body: "new body",
         }),
       )
@@ -964,7 +964,7 @@ test("publication binds the exact tag and requires an exact immutable unchanged 
         tag_name: releaseReads === 1 ? "untagged-opaque" : TAG,
         target_commitish: "main",
         prerelease: false,
-        name: `Dawn v${VERSION}`,
+        name: `B4 v${VERSION}`,
         body: fixture.body,
         draft: releaseReads === 1,
         immutable: releaseReads > 1,
@@ -1291,7 +1291,7 @@ function draftRelease(body) {
     tag_name: TAG,
     target_commitish: "main",
     prerelease: false,
-    name: `Dawn v${VERSION}`,
+    name: `B4 v${VERSION}`,
     body,
     draft: true,
     immutable: false,
@@ -1408,7 +1408,7 @@ function verifiedPublicationFixture() {
 }
 
 function markerBody(marker) {
-  return `# release\n\n<!-- DAWN_RELEASE_CONTROLLER_MARKER\n${JSON.stringify(canonicalize(marker))}\nEND_DAWN_RELEASE_CONTROLLER_MARKER -->\n`
+  return `# release\n\n<!-- B4_RELEASE_CONTROLLER_MARKER\n${JSON.stringify(canonicalize(marker))}\nEND_B4_RELEASE_CONTROLLER_MARKER -->\n`
 }
 
 function jsonResponse(body, status) {

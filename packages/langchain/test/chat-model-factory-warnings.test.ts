@@ -14,7 +14,7 @@ describe("model id warnings", () => {
     warnOnUnknownModelId({ model: "gpt-5", provider: "openai" })
     expect(console.warn).toHaveBeenCalledTimes(1)
     const message = vi.mocked(console.warn).mock.calls[0]?.[0] as string
-    expect(message).toContain("[dawn:models]")
+    expect(message).toContain("[b4:models]")
     expect(message).toContain('"gpt-5"')
     expect(message).toContain("gpt-5.5")
     expect(message).toContain("Proceeding anyway")

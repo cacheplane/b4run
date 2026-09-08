@@ -1,3 +1,6 @@
+// This dated Dawn incident suite executes the exact pre-rename source.
+// Current incident file preservation is independently checked in b4-identity.test.mjs.
+
 import assert from "node:assert/strict"
 import { execFile as execFileCallback } from "node:child_process"
 import { EventEmitter } from "node:events"
@@ -18,13 +21,17 @@ import os from "node:os"
 import path from "node:path"
 import test from "node:test"
 import { promisify } from "node:util"
-import { planRelease } from "../planner.mjs"
-import * as recoveryCliModule from "../recover-v0.8.22-duplicate-drafts.mjs"
-import {
+import { importHistoricalReleaseModule } from "./support/frozen-history.mjs"
+
+const { planRelease } = await importHistoricalReleaseModule("scripts/release/planner.mjs")
+const recoveryCliModule = await importHistoricalReleaseModule(
+  "scripts/release/recover-v0.8.22-duplicate-drafts.mjs",
+)
+const {
   parseDuplicateDraftRecoveryCliArguments,
   readCandidateControllerMarker,
   runDuplicateDraftRecoveryCli,
-} from "../recover-v0.8.22-duplicate-drafts.mjs"
+} = await importHistoricalReleaseModule("scripts/release/recover-v0.8.22-duplicate-drafts.mjs")
 
 const execFile = promisify(execFileCallback)
 const REVIEWED_COMMIT = "a".repeat(40)

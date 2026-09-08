@@ -1,4 +1,4 @@
-import type { BrowseSortEntry } from "@dawn-ai/memory/browse"
+import type { BrowseSortEntry } from "@b4run/memory/browse"
 import { describe, expect, it } from "vitest"
 import {
   BROWSE_PAGE_SIZE,

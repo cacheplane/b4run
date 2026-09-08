@@ -279,7 +279,7 @@ test("production GitHub reader redownloads uploaded bytes using numeric IDs and 
   const reads = []
   const production = createGitHubReader({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     repositoryId: r.c.repositoryId,
     token: "test-reader-token",
     fetchImpl: async (url, options) => {
@@ -288,9 +288,9 @@ test("production GitHub reader redownloads uploaded bytes using numeric IDs and 
       reads.push(url)
       const path = decodeURIComponent(new URL(url).pathname)
       let result
-      if (path === "/repos/cacheplane/dawnai/releases/902")
+      if (path === "/repos/cacheplane/b4run/releases/902")
         result = await original.getRelease({ releaseId: "902" })
-      else if (path === "/repos/cacheplane/dawnai/releases/902/assets")
+      else if (path === "/repos/cacheplane/b4run/releases/902/assets")
         result = await original.listReleaseAssets({ releaseId: "902" })
       else if (path.includes("/releases/assets/")) {
         result = await original.downloadReleaseAsset({ assetId: path.split("/").at(-1) })
@@ -575,7 +575,7 @@ for (const result of [
 
 for (const status of [
   { repository: "foreign/repo", enabled: true },
-  { repository: "cacheplane/dawnai", enabled: false },
+  { repository: "cacheplane/b4run", enabled: false },
   {},
   "enabled",
 ])

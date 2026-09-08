@@ -38,7 +38,7 @@ const ACTIVE_MARKER = Object.freeze({
 })
 const ACTIVE_MARKER_FIELDS = Object.freeze(Object.keys(ACTIVE_MARKER).sort())
 const TERMINAL_ABANDONMENT_ASSET = "abandonment.json"
-const RELEASE_MARKER_TOKEN = "<!-- DAWN_RELEASE_CONTROLLER_MARKER\n"
+const RELEASE_MARKER_TOKEN = "<!-- B4_RELEASE_CONTROLLER_MARKER\n"
 const MAX_ABANDONMENT_ASSETS = 46
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u
 
@@ -710,7 +710,7 @@ function assertExactAuditVerifiedDraft({
   tagIdentity,
 }) {
   if (
-    release.name !== `Dawn v${tagIdentity.version}` ||
+    release.name !== `B4 v${tagIdentity.version}` ||
     release.target_commitish !== "main" ||
     release.draft !== true ||
     release.immutable !== false ||
@@ -802,7 +802,7 @@ async function inspectAbandonmentRelease({
   const bodyTombstoneBytes =
     bodyTombstone === null ? null : canonicalAbandonmentBytes(bodyTombstone)
   if (terminal) {
-    const expectedTitle = `Dawn v${tagIdentity.version} (abandoned before publication)`
+    const expectedTitle = `B4 v${tagIdentity.version} (abandoned before publication)`
     if (
       release.name !== expectedTitle ||
       release.target_commitish !== "main" ||

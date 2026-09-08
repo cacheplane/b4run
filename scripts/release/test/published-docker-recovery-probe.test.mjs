@@ -11,10 +11,10 @@ const execute = promisify(execFile)
 // Execute the generated ESM script against a full-cgroup Docker model that still
 // admits shell builtins. This checks probe control flow, not installed-package correctness.
 async function runGeneratedProbe(scenario) {
-  const root = await mkdtemp(join(tmpdir(), "dawn-generated-pid-probe-"))
+  const root = await mkdtemp(join(tmpdir(), "b4-generated-pid-probe-"))
   try {
     const bin = join(root, "bin")
-    const sandbox = join(root, "node_modules/@dawn-ai/sandbox")
+    const sandbox = join(root, "node_modules/@b4run/sandbox")
     await mkdir(bin, { recursive: true })
     await mkdir(sandbox, { recursive: true })
     const statePath = join(root, "state.json")
@@ -30,7 +30,7 @@ async function runGeneratedProbe(scenario) {
     )
     const stateIo = `
 import { readFileSync, writeFileSync } from "node:fs"
-const statePath = process.env.DAWN_PID_PROBE_FIXTURE
+const statePath = process.env.B4_PID_PROBE_FIXTURE
 const load = () => JSON.parse(readFileSync(statePath, "utf8"))
 const save = state => writeFileSync(statePath, JSON.stringify(state))
 `
@@ -118,7 +118,7 @@ save(state)
           env: {
             ...process.env,
             PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
-            DAWN_PID_PROBE_FIXTURE: statePath,
+            B4_PID_PROBE_FIXTURE: statePath,
           },
           timeout: 15000,
         })),

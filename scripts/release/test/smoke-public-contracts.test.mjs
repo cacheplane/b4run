@@ -10,7 +10,7 @@ import { edgeEntryProbeSource } from "../smoke/runtime-targets.mjs"
 
 const execute = promisify(execFile)
 async function withConsumer(operation, adapter = '{ kind: "graph", execute() {}, stream() {} }') {
-  const root = await mkdtemp(join(tmpdir(), "dawn-public-contract-"))
+  const root = await mkdtemp(join(tmpdir(), "b4-public-contract-"))
   try {
     for (const [name, source, exports] of [
       [
@@ -24,11 +24,11 @@ async function withConsumer(operation, adapter = '{ kind: "graph", execute() {},
       ["ag-ui", "export const toAguiEvents = () => {}", "./index.js"],
       ["postgres-storage", "export const createPostgresThreadsStore = () => {}", "./index.js"],
     ]) {
-      const directory = join(root, "node_modules", "@dawn-ai", name)
+      const directory = join(root, "node_modules", "@b4run", name)
       await mkdir(directory, { recursive: true })
       await writeFile(
         join(directory, "package.json"),
-        JSON.stringify({ name: `@dawn-ai/${name}`, type: "module", exports }),
+        JSON.stringify({ name: `@b4run/${name}`, type: "module", exports }),
       )
       await writeFile(join(directory, "index.js"), source)
       // The published pure entry exports path/hash helpers, never agent().

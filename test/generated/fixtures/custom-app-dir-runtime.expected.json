@@ -8,7 +8,7 @@
       "tenant": "custom-tenant"
     },
     "routeId": "/support/[tenant]",
-    "routePath": "src/dawn-app/support/[tenant]/index.ts",
+    "routePath": "src/b4-app/support/[tenant]/index.ts",
     "status": "passed"
   },
   "runServerJson": {
@@ -20,7 +20,7 @@
       "tenant": "custom-tenant"
     },
     "routeId": "/support/[tenant]",
-    "routePath": "src/dawn-app/support/[tenant]/index.ts",
+    "routePath": "src/b4-app/support/[tenant]/index.ts",
     "status": "passed"
   },
   "serverRequest": {

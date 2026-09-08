@@ -13,7 +13,7 @@ test("post-publication audit accepts only the exact published immutable terminal
   const written = []
   const observation = observationForMarker({ phase: "AUDIT_VERIFIED", releaseStatus: "published" })
   const result = await runPostPublicationAudit(argv(), {
-    cwd: "/tmp/dawn-post-publication-audit",
+    cwd: "/tmp/b4-post-publication-audit",
     environment: environment(),
     now: fixedTimestamps(),
     createRuntime: async () => runtime(observation),
@@ -39,13 +39,13 @@ test("main post-publication audit preserves candidate identity and remains mutat
   const calls = []
   const base = runtime(observation)
   const result = await runPostPublicationAudit(argv(), {
-    cwd: "/tmp/dawn-post-publication-audit",
+    cwd: "/tmp/b4-post-publication-audit",
     environment: {
       ...environment(),
       GITHUB_REF: "refs/heads/main",
       GITHUB_SHA: mainSha,
       GITHUB_WORKFLOW_REF:
-        "cacheplane/dawnai/.github/workflows/published-artifact-verify.yml@refs/heads/main",
+        "cacheplane/b4run/.github/workflows/published-artifact-verify.yml@refs/heads/main",
     },
     now: fixedTimestamps(),
     createRuntime: async ({ candidate, invocation }) => {
@@ -97,7 +97,7 @@ test("post-publication audit writes a failure result for a mutable or draft Rele
     const written = []
     await assert.rejects(
       runPostPublicationAudit(argv(), {
-        cwd: "/tmp/dawn-post-publication-audit",
+        cwd: "/tmp/b4-post-publication-audit",
         environment: environment(),
         now: fixedTimestamps(),
         createRuntime: async () => runtime(observation),
@@ -115,7 +115,7 @@ test("post-publication audit rejects a planner result that is not a mutation-fre
   const written = []
   await assert.rejects(
     runPostPublicationAudit(argv(), {
-      cwd: "/tmp/dawn-post-publication-audit",
+      cwd: "/tmp/b4-post-publication-audit",
       environment: environment(),
       now: fixedTimestamps(),
       createRuntime: async () =>
@@ -150,9 +150,9 @@ function argv() {
 
 function environment() {
   return {
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_EVENT_NAME: "workflow_dispatch",
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/published-artifact-verify.yml@refs/tags/v${VERSION}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/published-artifact-verify.yml@refs/tags/v${VERSION}`,
     GITHUB_REF: `refs/tags/v${VERSION}`,
     GITHUB_SHA: COMMIT_SHA,
     GITHUB_RUN_ID: "700",

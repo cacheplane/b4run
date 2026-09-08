@@ -44,7 +44,7 @@ export function checkToolNameUniqueness(input: ToolNameCheckInput): ToolNameChec
     if (input.reservedNames.has(t.name)) {
       return {
         ok: false,
-        message: `Reserved tool name: "${t.name}" is reserved by the Dawn harness and cannot be used as a user tool name.`,
+        message: `Reserved tool name: "${t.name}" is reserved by the B4.run harness and cannot be used as a user tool name.`,
       }
     }
   }

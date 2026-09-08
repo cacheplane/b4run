@@ -1,5 +1,5 @@
 "use client"
-import type { MemoryRecord } from "@dawn-ai/memory"
+import type { MemoryRecord } from "@b4run/memory"
 import { Badge } from "../ui/badge"
 
 function dayOf(r: MemoryRecord): string {

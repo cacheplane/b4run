@@ -1,10 +1,10 @@
 import { describe, expect, test } from "vitest"
 import { config } from "../src/config-helper.ts"
-import type { DawnConfig } from "../src/types.ts"
+import type { B4Config } from "../src/types.ts"
 
 describe("config()", () => {
   test("returns the same object (identity) for IntelliSense", () => {
-    const c: DawnConfig = { appDir: "src/app" }
+    const c: B4Config = { appDir: "src/app" }
     expect(config(c)).toBe(c)
   })
 

@@ -2,9 +2,9 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { __clearDawnConfigCacheForTests } from "@dawn-ai/core"
-import { discoverRoutes } from "@dawn-ai/core/node"
-import { __resetMaterializedAgentsForTests } from "@dawn-ai/langchain"
+import { __clearB4ConfigCacheForTests } from "@b4run/core"
+import { discoverRoutes } from "@b4run/core/node"
+import { __resetMaterializedAgentsForTests } from "@b4run/langchain"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { type AimockFixture, createAimock } from "../../testing/dist/index.js"
@@ -36,7 +36,7 @@ afterEach(async () => {
 //   - state.ts with a custom reducer (reducers/count.ts sums) and an inferred
 //     append reducer (notes: [])
 //   - memory.ts (semantic route memory — adds memory tools/prompt plumbing)
-//   - .dawn/routes/chat/tools.json (typegen schemas to inject/inline)
+//   - .b4/routes/chat/tools.json (typegen schemas to inject/inline)
 //
 // The IDENTICAL multi-turn conversation is driven twice against the SAME
 // fixture: first dynamically (filesystem discovery), then statically (real
@@ -53,7 +53,7 @@ afterEach(async () => {
 async function fixtureApp(): Promise<string> {
   // realpath: macOS tmpdir sits behind a /var → /private/var symlink and the
   // loader resolves module URLs to real paths — keep every path resolved.
-  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "dawn-static-equivalence-")))
+  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "b4-static-equivalence-")))
   cleanup.push(() =>
     rm(appRoot, {
       force: true,
@@ -63,7 +63,7 @@ async function fixtureApp(): Promise<string> {
     }),
   )
   const files: Record<string, string> = {
-    ".dawn/routes/chat/tools.json": `${JSON.stringify(
+    ".b4/routes/chat/tools.json": `${JSON.stringify(
       {
         echo: {
           description: "Echoes the input back",
@@ -85,10 +85,10 @@ async function fixtureApp(): Promise<string> {
       null,
       2,
     )}\n`,
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "static-equivalence-fixture", "type": "module" }\n',
     "src/app/chat/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\n' +
+      'import { agent } from "@b4run/sdk"\n' +
       'export default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
     "src/app/chat/memory.ts":
       "export default {\n" +
@@ -442,10 +442,10 @@ describe("static vs dynamic equivalence", () => {
     expect(dynamic.aguiEventTypes.at(-1)).toBe("RUN_FINISHED")
 
     // ---- Generate the static manifest with the REAL emitter ----
-    await mkdir(join(appRoot, "node_modules", "@dawn-ai"), { recursive: true })
+    await mkdir(join(appRoot, "node_modules", "@b4run"), { recursive: true })
     await symlink(
       join(repoRoot, "packages", "cli"),
-      join(appRoot, "node_modules", "@dawn-ai", "cli"),
+      join(appRoot, "node_modules", "@b4run", "cli"),
       "dir",
     )
     const manifest = await discoverRoutes({ appRoot })
@@ -453,7 +453,7 @@ describe("static vs dynamic equivalence", () => {
     for (const route of manifest.routes) {
       discoveries.push(await collectRouteStaticDiscovery({ appRoot, route }))
     }
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
     await mkdir(buildDir, { recursive: true })
     const modulesPath = join(buildDir, "modules.mjs")
     await writeFile(modulesPath, emitModulesFile({ appRoot, buildDir, discoveries }), "utf8")
@@ -462,7 +462,7 @@ describe("static vs dynamic equivalence", () => {
     // inherit the dynamic run's loaded modules, config, or materialized
     // agents (which also capture the now-closed aimock's base URL). ----
     __resetRouteLoadCachesForTests()
-    __clearDawnConfigCacheForTests()
+    __clearB4ConfigCacheForTests()
     __resetMaterializedAgentsForTests()
 
     // ---- Run 2: STATIC (same fixture, fresh thread ids) ----

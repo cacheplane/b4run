@@ -1,14 +1,14 @@
 blank_issues_enabled: false
 contact_links:
   - name: Documentation
-    url: https://dawnai.org/docs/getting-started
-    about: Read Dawn's public documentation.
+    url: https://b4.run/docs/getting-started
+    about: Read B4's public documentation.
   - name: Discussions
-    url: https://github.com/cacheplane/dawnai/discussions
+    url: https://github.com/cacheplane/b4run/discussions
     about: Ask usage questions and discuss designs.
   - name: Security reports
-    url: https://github.com/cacheplane/dawnai/security/advisories/new
+    url: https://github.com/cacheplane/b4run/security/advisories/new
     about: Report vulnerabilities privately.
   - name: Brand assets
-    url: https://dawnai.org/brand
-    about: Download Dawn logos and media assets.
+    url: https://b4.run/brand
+    about: Download B4 logos and media assets.
