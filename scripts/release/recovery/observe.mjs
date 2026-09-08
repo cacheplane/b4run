@@ -6,6 +6,7 @@ import { canonicalManifestBytes, parseSealedReleaseManifest } from "../manifest.
 import { parseReleaseMarker, verifyReleaseAttestationAnchor } from "../metadata.mjs"
 import { NPM_AUDIT_VERIFIER } from "../npm-audit.mjs"
 import { canonicalReleaseRecordBytes, parseReleaseRecord } from "../release-record.mjs"
+import { compareSemver } from "../semver.mjs"
 import {
   auditArtifactName,
   auditName,
@@ -37,12 +38,16 @@ import {
   runRecoveryRead,
 } from "./policy.mjs"
 import {
+
   canonicalRecoveryBytes,
   metadataCheckName,
   parseRecovery,
   RECOVERY_LIMITS,
   snapshotRecoveryData,
 } from "./schema.mjs"
+
+// The first version released under the B4.run identity.
+const FIRST_B4_RELEASE_VERSION = "0.8.27"
 
 export const RECOVERY_FINALIZATION_ASSET = "recovery-v2-finalization.json"
 const requireThat = (ok, message) => {
@@ -1638,6 +1643,11 @@ export async function routeRecoveryCandidate(input) {
       )
   }
   if (!owned) return null
+  // B4.run's release train begins at its own first version. A recovery reserved
+  // under the previous identity is not adopted here: that repository identity no
+  // longer exists and this repository deliberately does not inherit its recovery
+  // authority. Its packages and Release are already public.
+  if (compareSemver(candidate.version, FIRST_B4_RELEASE_VERSION) < 0) return null
   requireThat(
     identity.version === candidate.version &&
       identity.candidateSha === candidate.commitSha &&

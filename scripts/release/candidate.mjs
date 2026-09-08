@@ -15,6 +15,9 @@ import {
 } from "./recovery/observe.mjs"
 import { releaseRecordSha256 } from "./release-record.mjs"
 import { compareSemver, isExactSemver, parseSemver } from "./semver.mjs"
+
+// The first version released under the B4.run identity.
+const FIRST_B4_RELEASE_VERSION = "0.8.27"
 import { ReleaseState } from "./state.mjs"
 import { readTerminalRecord } from "./terminal-record-store.mjs"
 import { canonicalAuditResultBytes, parseAuditResult } from "./terminal-records.mjs"
@@ -524,6 +527,11 @@ async function inspectManagedReleases({
   }
   for (const tag of recoverySubjects.values()) {
     if (recorded.has(tag.tag)) continue
+    // Recovery reserved under the previous identity is not adopted: that
+    // repository identity no longer exists and this repository deliberately does
+    // not inherit its recovery authority. Those releases and their packages are
+    // already public. This is checked before any recovery evidence is read.
+    if (compareSemver(tag.version, FIRST_B4_RELEASE_VERSION) < 0) continue
     const routed = await routeRecoveryCandidate({
       candidate: candidateIdentity(tag.version, tag.commitSha),
       git: recoveryGit,
@@ -568,6 +576,14 @@ async function inspectManagedReleases({
     if (tagIdentity === undefined) {
       throw new Error(`Managed GitHub Release ${tag} has no matching tag ref`)
     }
+    // B4.run's release train begins at its own first version. Releases made
+    // under the previous identity are closed as far as this controller is
+    // concerned: their packages and GitHub Releases are already public, and any
+    // unfinished ceremony belonged to a repository identity that no longer
+    // exists and whose recovery authority this repository deliberately does not
+    // inherit. Skipping them cannot hide a B4.run release, which is always at or
+    // above the floor.
+    if (compareSemver(tagIdentity.version, FIRST_B4_RELEASE_VERSION) < 0) continue
     // A committed terminal record settles this version, so no Release evidence
     // is read for it: the controller must reach the same classification whether
     // or not its token can see this draft at all. A visible Release must still
