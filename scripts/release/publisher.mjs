@@ -657,7 +657,29 @@ async function waitUntilVerified({
   const startedAt = now()
   for (;;) {
     attempt += 1
-    const metadata = await observeMetadata(observeRegistry, entry.name)
+    // A package published for the first time is not immediately readable: its
+    // packument can still answer not-found for a short window. That is the same
+    // convergence this loop already waits out for tarballs and versions, so it
+    // is polled rather than treated as a verification failure. Any other
+    // ambiguity still fails, and the deadline below still bounds the wait.
+    let metadata
+    try {
+      metadata = await observeMetadata(observeRegistry, entry.name)
+    } catch (error) {
+      const elapsed = Math.max(0, now() - startedAt)
+      if (elapsed >= TARBALL_CONVERGENCE_DEADLINE_MS) throw error
+      log({
+        event: "registry-pending",
+        name: entry.name,
+        reason: "metadata-pending",
+        attempt,
+        elapsedMs: elapsed,
+        delayMs: POLL_DELAY_MS,
+        deadlineMs: TARBALL_CONVERGENCE_DEADLINE_MS,
+      })
+      await poll({ name: entry.name, attempt, delayMs: POLL_DELAY_MS })
+      continue
+    }
     const latest = metadata.metadata.latest
     if (latest !== null && compareSemver(latest, candidate.version) > 0) {
       failNewerLatest(entry.name)
