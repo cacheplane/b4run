@@ -198,7 +198,10 @@ test("binds the authorization to the exact candidate, artifacts, environment, an
       ),
     ],
     ["old repository", { environment: { ...environment, GITHUB_REPOSITORY: "cacheplane/dawnai" } }],
-    ["a foreign repository id", { environment: { ...environment, GITHUB_REPOSITORY_ID: "999999999" } }],
+    [
+      "a foreign repository id",
+      { environment: { ...environment, GITHUB_REPOSITORY_ID: "999999999" } },
+    ],
     ["missing repository id", { environment: omit(environment, "GITHUB_REPOSITORY_ID") }],
     ["push event", { environment: { ...environment, GITHUB_EVENT_NAME: "push" } }],
     ["other ref", { environment: { ...environment, GITHUB_REF: "refs/heads/main" } }],
