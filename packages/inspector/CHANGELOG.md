@@ -1,5 +1,12 @@
 # @dawn-ai/inspector
 
+## 0.8.27
+
+### Patch Changes
+
+- @b4run/core@0.8.27
+- @b4run/memory@0.8.27
+
 ## 0.8.26
 
 ### Patch Changes
