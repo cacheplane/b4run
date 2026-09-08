@@ -671,7 +671,13 @@ async function runEscrow(options, runtime) {
   }
   const [github, npm, attestations] = await Promise.all([
     requireGitHub(runtime),
-    requireNpm(runtime),
+    // Escrow proves each package version absent before sealing. A version missing
+    // from an existing package already reads as an exact E404, but a package that
+    // has never been published reads as ambiguous. That is every package of a
+    // first publication, and any package newly joining the fixed group. The
+    // first-publication reader resolves exactly that case, only for code-owned
+    // names and only from the trusted registry's own not-found response.
+    requireNpm(runtime, { firstPublication: true }),
     requireAttestations(runtime),
   ])
   const escrow = moduleFunction(metadataModule, "escrowCandidate", "candidate escrow")
