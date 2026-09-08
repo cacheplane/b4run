@@ -9,6 +9,36 @@ import { isExactSemver } from "./semver.mjs"
 import { orderReleasePackages } from "./topology.mjs"
 
 export const RELEASE_MANIFEST_SCHEMA_VERSION = 1
+// The exact package family the original repository released, in its sealed
+// fixed-group dependency order, taken from the v0.8.24 release manifest. It is
+// written out rather than derived so that changing the current group can never
+// rewrite what history says was published.
+export const HISTORICAL_RELEASE_PACKAGE_ORDER = Object.freeze([
+  "@dawn-ai/ag-ui",
+  "@dawn-ai/config-biome",
+  "@dawn-ai/config-typescript",
+  "@dawn-ai/devkit",
+  "@dawn-ai/sdk",
+  "@dawn-ai/langgraph",
+  "@dawn-ai/permissions",
+  "@dawn-ai/postgres-storage",
+  "@dawn-ai/sqlite-storage",
+  "@dawn-ai/memory",
+  "@dawn-ai/memory-pgvector",
+  "@dawn-ai/workspace",
+  "@dawn-ai/core",
+  "@dawn-ai/inspector",
+  "@dawn-ai/langchain",
+  "@dawn-ai/cli",
+  "@dawn-ai/sandbox",
+  "@dawn-ai/testing",
+  "@dawn-ai/evals",
+  "@dawn-ai/vite-plugin",
+  "create-dawn-ai-app",
+])
+
+export const HISTORICAL_RELEASE_PACKAGE_NAMES = HISTORICAL_RELEASE_PACKAGE_ORDER
+
 export const CANONICAL_RELEASE_PACKAGE_ORDER = Object.freeze([
   "@b4run/ag-ui",
   "@b4run/config-biome",
@@ -155,7 +185,13 @@ export function validateSealedReleaseManifest(value, { candidate } = {}) {
     packageOrder: manifest.packageOrder,
     version: manifest.version,
   })
-  if (!arraysEqual(manifest.packageOrder, CANONICAL_RELEASE_PACKAGE_ORDER)) {
+  // A sealed manifest carries the dependency order of the family it published:
+  // the current one, or the original repository's for releases sealed before
+  // the rename. Both orders are code-owned constants.
+  if (
+    !arraysEqual(manifest.packageOrder, CANONICAL_RELEASE_PACKAGE_ORDER) &&
+    !arraysEqual(manifest.packageOrder, HISTORICAL_RELEASE_PACKAGE_ORDER)
+  ) {
     throw new Error("packageOrder must match the sealed fixed-group-v1 dependency order")
   }
   return deepFreeze(manifest)
@@ -227,7 +263,13 @@ function validatePackageOrder(packageOrder, inventoryNames) {
   if (duplicate !== undefined) {
     throw new Error(`packageOrder contains duplicate package ${duplicate}`)
   }
-  if (!arraysEqual([...packageOrder].sort(compareNames), inventoryNames)) {
+  const sorted = [...packageOrder].sort(compareNames)
+  // Evidence written before the B4.run rename names the original package
+  // family, and the controller must still read it. Exactly the two canonical
+  // families are accepted; what a candidate may publish is bound by its sealed
+  // manifest and the code-owned first-publication set, not by this check.
+  const historical = [...HISTORICAL_RELEASE_PACKAGE_NAMES].sort(compareNames)
+  if (!arraysEqual(sorted, inventoryNames) && !arraysEqual(sorted, historical)) {
     throw new Error("packageOrder must exactly match the canonical release inventory")
   }
 }
@@ -251,7 +293,13 @@ function validatePackages(packages, { inventoryNames, packageOrder, version }) {
   if (duplicate !== undefined) {
     throw new Error(`packages contains duplicate package ${duplicate}`)
   }
-  if (!arraysEqual([...packageNames].sort(compareNames), inventoryNames)) {
+  // Same two-family rule as packageOrder: pre-rename evidence names the original
+  // package family and must stay readable.
+  const sortedNames = [...packageNames].sort(compareNames)
+  if (
+    !arraysEqual(sortedNames, inventoryNames) &&
+    !arraysEqual(sortedNames, [...HISTORICAL_RELEASE_PACKAGE_NAMES].sort(compareNames))
+  ) {
     throw new Error("packages must exactly match the canonical release inventory")
   }
   if (!arraysEqual(packageNames, packageOrder)) {

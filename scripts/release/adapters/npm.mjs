@@ -65,6 +65,36 @@ export function createFirstPublicationNpmReader(options = {}) {
   return { ...adaptFirstPublicationNpmReader(raw), ...raw }
 }
 
+// First publication needs absence for the candidate's own package family, but
+// every other observation - above all the repository's already published
+// history - must keep the default fail-closed reading. This composes the two:
+// the default reader answers everything, and only a not-found on a package in
+// the current family is re-read through the dedicated first-publication reader.
+export function createFirstPublicationAwareNpmReader({ eligiblePackages = [], ...options } = {}) {
+  const standard = createNpmReader(options)
+  const first = createFirstPublicationNpmReader(options)
+  // The caller supplies the package family eligible for first publication. With
+  // none supplied this reader is exactly the default reader, so the widened
+  // reading can never be reached by accident.
+  const eligible = new Set(eligiblePackages)
+  const observe = (method) => async (input) => {
+    const observed = await standard[method](input)
+    if (
+      observed?.status !== "AMBIGUOUS" ||
+      observed.httpStatus !== 404 ||
+      !eligible.has(input?.name)
+    ) {
+      return observed
+    }
+    return first[method](input)
+  }
+  return {
+    ...standard,
+    observePackageMetadata: observe("observePackageMetadata"),
+    observePackageVersion: observe("observePackageVersion"),
+  }
+}
+
 export function adaptFirstPublicationNpmReader(reader) {
   for (const method of ["observeFirstPublicationPackage", "downloadRegistryTarball"]) {
     if (typeof reader?.[method] !== "function") {

@@ -155,7 +155,14 @@ const ASSET_NAME_PATTERN = /^(?!\.{1,2}$)[A-Za-z0-9][A-Za-z0-9._@+-]{0,511}$/u
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
 const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u
 const AUDIT_WORKFLOW = ".github/workflows/published-artifact-verify.yml"
-const ATTESTATION_REPOSITORY = "cacheplane/b4run"
+export const ATTESTATION_REPOSITORY = "cacheplane/b4run"
+// The original repository that produced every release before the B4.run rename.
+// Its frozen records embed this identity and must stay readable; naming it here
+// never authorizes a B4.run release, which requires ATTESTATION_REPOSITORY.
+export const HISTORICAL_ATTESTATION_REPOSITORY = "cacheplane/dawnai"
+// The first version released under the B4.run identity. Any marker below it was
+// produced by the original repository, so its attestation names that repository.
+export const FIRST_B4_RELEASE_VERSION = "0.8.27"
 export const MAX_AUDIT_ATTEMPTS = 128
 export const MAX_SMOKE_ATTEMPTS = 128
 const BASE_ASSET_COUNT = 45
@@ -2582,7 +2589,15 @@ function dataValue(value, key) {
   return descriptor.value
 }
 
-export function validateMarker(value) {
+// Reading a marker accepts either identity this repository has released under.
+// The current identity is what new releases must carry; the previous one is a
+// frozen, known value that appears in evidence written before the rename and
+// must stay readable. Reading is not authorization: publication is bound by the
+// sealed manifest, the code-owned package set and verified provenance.
+export function validateMarker(
+  value,
+  { attestationRepositories = [ATTESTATION_REPOSITORY, HISTORICAL_ATTESTATION_REPOSITORY] } = {},
+) {
   const marker = snapshotJson(value)
   assertExactFields(marker, MARKER_FIELDS, "release marker")
   if (
@@ -2622,7 +2637,8 @@ export function validateMarker(value) {
     throw new TypeError("Release marker artifact fields are invalid for its phase")
   }
   validateMarkerEvidence(marker)
-  if (marker.attestationSet !== null) validateEmbeddedAttestation(marker.attestationSet, marker)
+  if (marker.attestationSet !== null)
+    validateEmbeddedAttestation(marker.attestationSet, marker, attestationRepositories)
   return deepFreeze(marker)
 }
 
@@ -2842,10 +2858,14 @@ function validateAuditMarker(audit, marker) {
   }
 }
 
-function validateEmbeddedAttestation(attestation, marker) {
+function validateEmbeddedAttestation(
+  attestation,
+  marker,
+  expectedRepositories = [ATTESTATION_REPOSITORY],
+) {
   assertExactFields(attestation, ATTESTATION_FIELDS, "attestation set")
   if (
-    attestation.repository !== ATTESTATION_REPOSITORY ||
+    !expectedRepositories.includes(attestation.repository) ||
     attestation.workflow !== ".github/workflows/release.yml" ||
     attestation.sourceRef !== `refs/tags/${marker.tag}` ||
     attestation.commitSha !== marker.commitSha ||

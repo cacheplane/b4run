@@ -6,7 +6,12 @@ import {
   parseAnyAbandonmentRecord,
 } from "./abandonment.mjs"
 import { assertPayloadByteLength, RELEASE_PAYLOAD_LIMITS } from "./limits.mjs"
-import { canonicalReleaseBody, isManagedReleaseForTag, parseReleaseMarker } from "./metadata.mjs"
+import {
+  ATTESTATION_REPOSITORY,
+  canonicalReleaseBody,
+  isManagedReleaseForTag,
+  parseReleaseMarker,
+} from "./metadata.mjs"
 import { planCandidateArbitration } from "./planner.mjs"
 import {
   discoverRecoveryReleaseCandidates,
@@ -18,6 +23,16 @@ import { compareSemver, isExactSemver, parseSemver } from "./semver.mjs"
 import { ReleaseState } from "./state.mjs"
 import { readTerminalRecord } from "./terminal-record-store.mjs"
 import { canonicalAuditResultBytes, parseAuditResult } from "./terminal-records.mjs"
+
+// A recovery subject reserved under a different repository identity is not
+// adopted. Recovery reserved before this repository was renamed belongs to an
+// identity that no longer exists and whose recovery authority this repository
+// deliberately does not inherit; those releases and their packages are already
+// public. A subject naming this repository, or naming none, is handled normally.
+function isForeignRecoverySubject(candidate) {
+  const repository = candidate?.repository
+  return typeof repository === "string" && repository !== ATTESTATION_REPOSITORY
+}
 
 const MARKER_PATH = "scripts/release/controller-schema.json"
 const PRODUCTION_MAIN_REF = "refs/remotes/origin/main"
@@ -509,6 +524,7 @@ async function inspectManagedReleases({
     terminalRecordRef,
   })) {
     const c = intent.candidate
+    if (isForeignRecoverySubject(c)) continue
     const existing = recoverySubjects.get(c.tag)
     if (existing && existing.commitSha !== c.candidateSha)
       throw new Error("Recovery reservation conflicts with annotated tag")
@@ -517,6 +533,7 @@ async function inspectManagedReleases({
   for (const c of (
     await discoverRecoveryReleaseCandidates({ github, releaseRecords: routingRecords })
   ).values()) {
+    if (isForeignRecoverySubject(c)) continue
     const existing = recoverySubjects.get(c.tag)
     if (existing && existing.commitSha !== c.candidateSha)
       throw new Error("Durable recovery identity conflicts with candidate tag")

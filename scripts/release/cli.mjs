@@ -2124,11 +2124,20 @@ async function requireNpm(runtime, { firstPublication = false } = {}) {
       "first-publication npm reader adapter",
     )(runtime.npm)
   }
+  const manifestModule = await runtime.importModule(new URL("./manifest.mjs", import.meta.url).href)
+  const eligiblePackages = moduleValue(
+    manifestModule,
+    "CANONICAL_RELEASE_PACKAGE_ORDER",
+    "release package inventory",
+  )
+  if (!Array.isArray(eligiblePackages)) {
+    throw new TypeError("Release CLI first-publication package inventory is invalid")
+  }
   return moduleFunction(
     module,
-    "createFirstPublicationNpmReader",
+    "createFirstPublicationAwareNpmReader",
     "first-publication npm reader factory",
-  )()
+  )({ eligiblePackages })
 }
 
 async function requireAttestations(runtime) {

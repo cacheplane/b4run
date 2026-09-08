@@ -91,3 +91,25 @@ test("historical release evidence and incident tools retain their exact original
     assert.deepEqual(await readFile(path), readHistoricalReleaseFile(path), path)
   }
 })
+
+test("the committed historical terminal record still parses under the adopted identity", async () => {
+  // Candidate discovery reads every committed terminal record on each run, so a
+  // record it cannot parse blocks all releases. The v0.8.22 record is frozen
+  // evidence produced by the original repository and embeds that repository's
+  // attestation identity; adopting a new identity must not make its own history
+  // unreadable. Parsing it is not authorization: the record only states that
+  // v0.8.22 is terminal.
+  const { readTerminalRecord } = await import("../terminal-record-store.mjs")
+  const { readFile } = await import("node:fs/promises")
+  const path = "scripts/release/terminal-records/v0.8.22.json"
+  const bytes = await readFile(new URL(`../terminal-records/v0.8.22.json`, import.meta.url), "utf8")
+  const git = {
+    listTree: async () => `${path}\n`,
+    showFile: async ({ path: requested }) => (requested === path ? bytes : null),
+  }
+
+  const record = await readTerminalRecord({ git, ref: "HEAD", version: "0.8.22" })
+
+  assert.equal(record.version, "0.8.22")
+  assert.equal(record.predecessor.marker.attestationSet.repository, "cacheplane/dawnai")
+})
