@@ -677,7 +677,7 @@ async function runEscrow(options, runtime) {
     // first publication, and any package newly joining the fixed group. The
     // first-publication reader resolves exactly that case, only for code-owned
     // names and only from the trusted registry's own not-found response.
-    requireNpm(runtime, { firstPublication: true }),
+    requireNpm(runtime, { firstPublication: true, tolerateInjectedPlainReader: true }),
     requireAttestations(runtime),
   ])
   const escrow = moduleFunction(metadataModule, "escrowCandidate", "candidate escrow")
@@ -2109,7 +2109,10 @@ async function requireNpmAuditFactory(runtime) {
   })
 }
 
-async function requireNpm(runtime, { firstPublication = false } = {}) {
+async function requireNpm(
+  runtime,
+  { firstPublication = false, tolerateInjectedPlainReader = false } = {},
+) {
   if (firstPublication !== true) {
     if (runtime.npm !== undefined) {
       requiredMethod(runtime.npm, "observePackageVersion", "npm reader")
@@ -2123,6 +2126,17 @@ async function requireNpm(runtime, { firstPublication = false } = {}) {
   // confers no publishing authority; the publisher re-validates its own bootstrap policy.
   const module = await runtime.importModule(new URL("./adapters/npm.mjs", import.meta.url).href)
   if (runtime.npm !== undefined) {
+    // Observation selected by the bootstrap boolean must never fall back to a
+    // reader that cannot prove absence, so it requires the operation. Escrow
+    // opts into tolerating an injected reader that lacks it, because there the
+    // caller supplies the exact observations to use.
+    if (
+      tolerateInjectedPlainReader &&
+      typeof runtime.npm.observeFirstPublicationPackage !== "function"
+    ) {
+      requiredMethod(runtime.npm, "observePackageVersion", "npm reader")
+      return runtime.npm
+    }
     requiredMethod(runtime.npm, "observeFirstPublicationPackage", "first-publication npm reader")
     return moduleFunction(
       module,
