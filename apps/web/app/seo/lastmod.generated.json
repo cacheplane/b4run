@@ -2,9 +2,9 @@
   "version": 2,
   "routes": {
     "/": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "f72046bb28163e4e346c2c1b455293213919ac5a4851fe4610c1b49ef9d5ab4f",
-      "recordDigest": "0525ddbb34f2d5553e8a0ab9af4c47f5ec1254ecd081c41c9472cbd65ac1e980"
+      "lastModified": "2026-09-08T01:24:31.438Z",
+      "sourceDigest": "cc6a806489bee45e2a013724ecb3ffaad66a9327bde943a0059ff27b938ed51c",
+      "recordDigest": "f3dbb91ecff84a80ab6e25795aa77a365293782f24a8455217e91b7d2abd2b95"
     },
     "/blog": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -32,9 +32,9 @@
       "recordDigest": "92e952b7ca16c67ee5921b15ac26f8cce252c574099eef7e8452d5baed4da9e1"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "a485fbf45f06d76dde379de4e7426261a452033f7b3b23e53198c37baedd52d8",
-      "recordDigest": "4003eef870fef3d199e632ffb31efe9b7f712c71de2488934748a8a76fd3977b"
+      "lastModified": "2026-09-08T01:24:31.438Z",
+      "sourceDigest": "ad2ab05b9a266abae6e83e7d8d3f3bd7737268ca4ee7d7f3556224fba40dee55",
+      "recordDigest": "d063ce50a1f95afa4c0a878ca81ca0662cc30d7bd8bc47929ba50dca74262f23"
     },
     "/docs/agents": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -42,14 +42,14 @@
       "recordDigest": "1496b3ffd3f45036e22023eafbb65670aa5b5291d85f9c4049ffd85e898efe7d"
     },
     "/docs/api": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "8d15797ac2240ff87bba98b1b4e1e9576783742fe22d7a1b0966d0cbc432900b",
-      "recordDigest": "392585175b95d68c27282ed5fbdcdf60174ef38a6930e85a469a544bb4c239cf"
+      "lastModified": "2026-09-08T01:24:31.438Z",
+      "sourceDigest": "d76c8835a2c6120a09eb75d8ee8478012bbc6469a29daa320483dbf6183f001f",
+      "recordDigest": "d5ffb378005d01008ab952b3b6dd20b47c4f475c99305092ff431bfde80e7b74"
     },
     "/docs/api/ag-ui": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "ee68cc32fd5be719f9b9e16292e3946f635acb1b5dd85f208511a2b2702c7ade",
-      "recordDigest": "a969ed383e290206d30ad21d1cd8942e1eb9aee90601c07132545a416a7fd519"
+      "lastModified": "2026-09-08T01:24:31.438Z",
+      "sourceDigest": "6a0e74b880e588cd93b60d77bb7e85608b86afbead71f75d4d944a13bbce1c91",
+      "recordDigest": "46b7653d72c2d977877526a323453fb51d4b7274f50b506846b14eacb3008950"
     },
     "/docs/api/cli": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -157,9 +157,9 @@
       "recordDigest": "1ab4291cda54668672c1eae5c586ac069ea74f1b816252ec168516f815cd63bc"
     },
     "/docs/deployment/kubernetes": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "0a177d3ad0b0ffe5d901825a6e1277f1995683819f3d80769825269968325a24",
-      "recordDigest": "295ef139079610032581a6364e5b2ccd010916ed6582be28bf7835d02c95693b"
+      "lastModified": "2026-09-08T01:24:31.438Z",
+      "sourceDigest": "19cf013d5c922955e75333e65b2e0078375c58015f30bc3d4af7fcfe596c787d",
+      "recordDigest": "fca446f1ad7d05edd71f88218703615379482ecf42e9e3bad5ddc1cea6969d5d"
     },
     "/docs/deployment/langsmith": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -307,9 +307,9 @@
       "recordDigest": "bb3846c0ff848068da630632f450cee96847c2bad1640924e9ab730b6999b323"
     },
     "/docs/recipes/research-web-ui": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "ea98f571d0b5bc68ac0bbbb1b9b16088212804c401cc71ee18f832038e4b77fb",
-      "recordDigest": "a39394f7d54ceab7d0e625bc700f41f5bad0a604e685d17191f6cd4113f4a684"
+      "lastModified": "2026-09-08T01:24:31.438Z",
+      "sourceDigest": "59f21abf7a91a3461062a174967cd344b82b6734835478b4a68ed1a2a0c73b25",
+      "recordDigest": "6cdd8312425a4fa79c698ed86533318430a8cc9d5c0ed1fa27b7e4070ce5e4b4"
     },
     "/docs/recipes/retry-flaky-tools": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -342,9 +342,9 @@
       "recordDigest": "8b811287a14efa4a29bc6503a812ee5c43c4414da86060accccfc2ed9b43e432"
     },
     "/docs/sandbox/kubernetes": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "bb6025ab437954acad6f8afac2dd575be98f5d5d2de82892822f91d15b815008",
-      "recordDigest": "9324613d468c8cd4b5f2a9913503192a7079b8f1e261ad25a972eef07c7b2637"
+      "lastModified": "2026-09-08T01:24:31.438Z",
+      "sourceDigest": "6e4268304194a19979347bba7ac1343b0a35833a6410586f07d4983638118a9f",
+      "recordDigest": "5e2d688339ae52502e49f316eac464949fa40862dff3157a18d9c88ec212a616"
     },
     "/docs/security-architecture": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -392,9 +392,9 @@
       "recordDigest": "0a8a01fcca720f46a645f7f3b1aa4191a43a2e0926a7776de195577b6436157a"
     },
     "/docs/upgrading": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "02e62ea66f7322110dc532032f418b0c276f063ba3f236f5f05750bd5498e3dc",
-      "recordDigest": "fcef5da95a808cf4f4f4581ea255129871b411d9f11f5c8ae031d1eef9948f90"
+      "lastModified": "2026-09-08T01:24:31.438Z",
+      "sourceDigest": "551d833dceaf007f087e332b359ec11714c259b55a16328a605ab0fd70f56299",
+      "recordDigest": "d13633534bd357f9d69c455a1f056e7f9dfdc3781d560c34c1f432b7e2e59743"
     },
     "/docs/workspace": {
       "lastModified": "2026-09-07T19:58:55.550Z",

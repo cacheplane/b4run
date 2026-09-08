@@ -699,17 +699,17 @@
     {
       "path": "docs/superpowers/plans/2026-09-07-b4-run-rename.md",
       "reason": "migration-explanation",
-      "sha256": "cf8c01806940326bea0fe387a1f3f649d110fcdbde80ce726af500f04b2e752d"
+      "sha256": "7d3f655d52968b4d389b4e6200c635927839b59821ba6aae3f8623de31a8c5bc"
     },
     {
       "path": "docs/superpowers/plans/2026-09-07-b4-run-vendor-audit.md",
       "reason": "migration-explanation",
-      "sha256": "dd8fc46943ef7b4050c281d4ddbb726cf3d5359658b0cacbe32947339382ee04"
+      "sha256": "b90f6d3fc492b61be97cb5c954d0ff7f473b59410f9e0093400cf5f4331dd6a7"
     },
     {
       "path": "docs/superpowers/plans/2026-09-07-b4-source-identity.md",
       "reason": "migration-explanation",
-      "sha256": "073396b35d72d1a3b71947429d82c0bf7b626e1da3225fc2fee7a5af401c2a4a"
+      "sha256": "79efcfb24e18bcbfb04c5aa8e5423bcd8dd594266df694cff5f455062045ced2"
     },
     {
       "path": "docs/superpowers/runbooks/2026-06-19-memory-live-smoke-runbook.md",
@@ -1644,7 +1644,7 @@
     {
       "path": "scripts/release/test/b4-identity.test.mjs",
       "reason": "negative-regression-fixture",
-      "sha256": "83d818d1492bfe2e5ba64088640edc9693c9a822b55d0f38116b60c054cf1c0d"
+      "sha256": "03a7551e8a62158e72bfcadaecd2d7bff0f2f6050fe9a6a2cc0e8496ecba954f"
     },
     {
       "path": "scripts/release/test/duplicate-draft-consolidation-adapters.test.mjs",
@@ -1779,7 +1779,7 @@
     {
       "path": "scripts/release/test/support/recovery-github-fence.mjs",
       "reason": "negative-regression-fixture",
-      "sha256": "a3593a56011376791a1cbca8cf47ad1957a247b1409975aa72d7bf802c6fc6f1"
+      "sha256": "1ffcf953503a5bbfbb6e6cae5d006c4cb7a7ae77d9210e796061d51832d1315f"
     },
     {
       "path": "scripts/release/test/terminal-recovery-adapters.test.mjs",
