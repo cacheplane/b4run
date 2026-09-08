@@ -131,3 +131,19 @@ The globally installed Vercel CLI is `35.2.1` and does not expose the current Bl
 - **Two link defects the mechanical rename introduced were fixed:** the site footer pointed at a nonexistent npm organization, and three escaped-regex slugs kept an unused spelling.
 - The Vercel project still deploys from this repository by id, so its Git connection survived the rename; its cached repository name is stale and self-heals. Both `b4.run` and the old domain are attached to that one project.
 - **Ordering constraint for cutover:** publish the packages before merging the rename to `main`. Merging first would deploy documentation whose install commands do not yet resolve. `release.yml` also triggers on push to `main` and on a daily schedule, so release runs will report a blocked candidate until the first publication exists.
+
+## Adoption fallout found by re-running every gate
+
+Adopting the original repository's identity broke things a text replacement could not have caught, all found by tests rather than by reading:
+
+- **Sixteen bare `"b4-run"` repository fields** survived, because the first pass matched only the owner-qualified form. Three were in production modules that build GitHub API URLs, so the release tooling would have addressed a repository that no longer exists. The root workspace package keeps its own name deliberately.
+- **Three negative tests went vacuous.** They proved a foreign repository is rejected by using the other repository's id, which is now our own. They use an unrelated id.
+- **Three synthetic provenance certificates** encoded the unused slug in their subject alternative names, so identity verification failed. Regenerated; the fork case stays deliberately mismatched.
+- **A production guard's case-insensitivity test** stopped exercising the guard, because its case variant lowercased to the unused spelling.
+- **An abandonment tampering assertion** was too narrow. Flipping one base64 character can fail at decoding, UTF-8 JSON parsing, canonical re-encoding or digest comparison, and the shorter slug moved which layer catches it first.
+- **Two link defects from the first mechanical rename:** the site footer pointed at an npm organization that does not exist, and three escaped-regex slugs kept the wrong spelling.
+- **A latent test bug** CodeQL flagged: three assertions built regular expressions out of the encoded credential, and base64 can contain regex metacharacters. They are exact substring checks now. That was the only new code-scanning alert; the other six pre-exist on `main` and re-report only because the rename touched those files.
+
+**CI configuration:** the `vercel-preview` environment still held four `DAWN_VERCEL_*` secrets while the renamed workflow read `B4_VERCEL_*`, so the live lane failed instantly and its cleanup could not authenticate. Nothing leaked, because it failed before creating anything. The four `B4_VERCEL_*` secrets now exist and that lane passes in CI. The old `DAWN_VERCEL_*` secrets remain, unreferenced, because a GitHub secret value can never be read back and deleting is irreversible; remove them at cutover.
+
+**Known non-blocking failures:** `review` fails its Anthropic preflight because the organization's credit balance is exhausted, so the pull request gets no automated review until that is topped up. `CodeQL` reports the six pre-existing alerts. Only `validate` is required to merge, and it depends on source, controller, packaging and harness lanes.
