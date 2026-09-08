@@ -254,7 +254,7 @@
       "sha256": "b03fa68167e7297458ca19a26b9deeaebea04bb90b0566e461896e8b645c0e15"
     },
     "scripts/release/terminal-record-store.mjs": {
-      "sha256": "b7c91a9348292b655b608006a991085f3c5febdaa523e5d99ca4359e1de949e7"
+      "sha256": "ec3d304985a22fae8a80d2f1d2997bea1d302c0d1d123aab349324bf561a8da5"
     },
     "scripts/release/terminal-records.mjs": {
       "sha256": "17151da8acf77431decd76ea3b78af41243b7e5a92cb572427c8aa8196af61d1"

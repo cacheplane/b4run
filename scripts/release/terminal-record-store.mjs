@@ -1,10 +1,7 @@
 import { createHash } from "node:crypto"
 
 import { snapshotJson } from "./adapter-normalize.mjs"
-import {
-  CANONICAL_RELEASE_PACKAGE_ORDER,
-  HISTORICAL_RELEASE_PACKAGE_NAMES,
-} from "./manifest.mjs"
+import { CANONICAL_RELEASE_PACKAGE_ORDER, HISTORICAL_RELEASE_PACKAGE_NAMES } from "./manifest.mjs"
 import {
   ATTESTATION_REPOSITORY,
   HISTORICAL_ATTESTATION_REPOSITORY,
