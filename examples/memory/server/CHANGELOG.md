@@ -1,5 +1,16 @@
 # @dawn-example/memory
 
+## 0.0.21
+
+### Patch Changes
+
+- Updated dependencies [481489e]
+  - @b4run/sdk@0.8.29
+  - @b4run/cli@0.8.29
+  - @b4run/core@0.8.29
+  - @b4run/langchain@0.8.29
+  - @b4run/memory-pgvector@0.8.29
+
 ## 0.0.20
 
 ### Patch Changes
