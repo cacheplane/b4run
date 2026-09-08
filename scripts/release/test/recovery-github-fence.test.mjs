@@ -15,10 +15,10 @@ test("fence experiment requires an enabled, explicitly authorized disposable rep
   }
   for (const repository of [
     "cacheplane/b4run",
-    "CachePlane/B4-Run",
+    "CachePlane/B4Run",
     "cacheplane/dawnai",
     "CachePlane/DawnAI",
-    "../b4-run",
+    "../b4run",
     "a/b/c",
   ]) {
     assert.throws(
