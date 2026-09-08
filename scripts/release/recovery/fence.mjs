@@ -49,7 +49,6 @@ export const RECOVERY_FENCE_PROBE_INPUTS = Object.freeze([
   "scripts/release/adapters/http.mjs",
   "scripts/release/adapters/npm.mjs",
   "scripts/release/limits.mjs",
-  "scripts/release/manifest.mjs",
   "scripts/release/recovery/fence-evidence.mjs",
   "scripts/release/recovery/invocation.mjs",
   "scripts/release/recovery/policy.mjs",
@@ -58,7 +57,6 @@ export const RECOVERY_FENCE_PROBE_INPUTS = Object.freeze([
   "scripts/release/test/recovery-github.integration.mjs",
   "scripts/release/test/support/recovery-github-fence.mjs",
   "scripts/release/test/support/recovery-github-probe.mjs",
-  "scripts/release/topology.mjs",
 ])
 const PROBE_PATHS = new Set(RECOVERY_FENCE_PROBE_INPUTS)
 const READ_ERROR_CODES = new Set([

@@ -2,7 +2,6 @@ import { createHash } from "node:crypto"
 
 import { snapshotJson } from "../adapter-normalize.mjs"
 import { RELEASE_PAYLOAD_LIMITS } from "../limits.mjs"
-import { CANONICAL_RELEASE_PACKAGE_ORDER } from "../manifest.mjs"
 import { isExactSemver } from "../semver.mjs"
 import { createHttpGet } from "./http.mjs"
 
@@ -71,10 +70,13 @@ export function createFirstPublicationNpmReader(options = {}) {
 // history - must keep the default fail-closed reading. This composes the two:
 // the default reader answers everything, and only a not-found on a package in
 // the current family is re-read through the dedicated first-publication reader.
-export function createFirstPublicationAwareNpmReader(options = {}) {
+export function createFirstPublicationAwareNpmReader({ eligiblePackages = [], ...options } = {}) {
   const standard = createNpmReader(options)
   const first = createFirstPublicationNpmReader(options)
-  const eligible = new Set(CANONICAL_RELEASE_PACKAGE_ORDER)
+  // The caller supplies the package family eligible for first publication. With
+  // none supplied this reader is exactly the default reader, so the widened
+  // reading can never be reached by accident.
+  const eligible = new Set(eligiblePackages)
   const observe = (method) => async (input) => {
     const observed = await standard[method](input)
     if (
