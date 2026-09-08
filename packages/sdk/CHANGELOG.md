@@ -1,5 +1,13 @@
 # @dawn-ai/sdk
 
+## 0.8.29
+
+### Patch Changes
+
+- 481489e: Publish the B4.run package family with the first-publication registry
+  convergence fix in effect, so every package is published and verified in a
+  single release rather than stalling on each newly created packument.
+
 ## 0.8.28
 
 ### Patch Changes

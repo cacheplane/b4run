@@ -1,6 +1,6 @@
 {
   "name": "@b4run/langgraph",
-  "version": "0.8.28",
+  "version": "0.8.29",
   "private": false,
   "type": "module",
   "license": "MIT",
