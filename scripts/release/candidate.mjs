@@ -6,8 +6,12 @@ import {
   parseAnyAbandonmentRecord,
 } from "./abandonment.mjs"
 import { assertPayloadByteLength, RELEASE_PAYLOAD_LIMITS } from "./limits.mjs"
-import { HISTORICAL_RELEASE_PACKAGE_NAMES } from "./manifest.mjs"
-import { canonicalReleaseBody, isManagedReleaseForTag, parseReleaseMarker } from "./metadata.mjs"
+import {
+  ATTESTATION_REPOSITORY,
+  canonicalReleaseBody,
+  isManagedReleaseForTag,
+  parseReleaseMarker,
+} from "./metadata.mjs"
 import { planCandidateArbitration } from "./planner.mjs"
 import {
   discoverRecoveryReleaseCandidates,
@@ -16,29 +20,19 @@ import {
 } from "./recovery/observe.mjs"
 import { releaseRecordSha256 } from "./release-record.mjs"
 import { compareSemver, isExactSemver, parseSemver } from "./semver.mjs"
-
-// The first version released under the B4.run identity.
-const FIRST_B4_RELEASE_VERSION = "0.8.27"
-
-// Whether a Release belongs to the identity that preceded B4.run. Two shapes
-// exist in this repository's history: fixed-group tags like `v0.8.24`, and the
-// per-package tags of an earlier scheme, such as `@dawn-ai/sdk@0.8.21`. The
-// second is matched against the exact historical package names so it can never
-// misfire on a current one.
-function isBelowReleaseFloor(tag) {
-  if (typeof tag !== "string") return false
-  if (tag.startsWith("v")) {
-    const version = tag.slice(1)
-    return isExactSemver(version) && compareSemver(version, FIRST_B4_RELEASE_VERSION) < 0
-  }
-  const separator = tag.lastIndexOf("@")
-  if (separator <= 0) return false
-  return HISTORICAL_RELEASE_PACKAGE_NAMES.includes(tag.slice(0, separator))
-}
-
 import { ReleaseState } from "./state.mjs"
 import { readTerminalRecord } from "./terminal-record-store.mjs"
 import { canonicalAuditResultBytes, parseAuditResult } from "./terminal-records.mjs"
+
+// A recovery subject reserved under a different repository identity is not
+// adopted. Recovery reserved before this repository was renamed belongs to an
+// identity that no longer exists and whose recovery authority this repository
+// deliberately does not inherit; those releases and their packages are already
+// public. A subject naming this repository, or naming none, is handled normally.
+function isForeignRecoverySubject(candidate) {
+  const repository = candidate?.repository
+  return typeof repository === "string" && repository !== ATTESTATION_REPOSITORY
+}
 
 const MARKER_PATH = "scripts/release/controller-schema.json"
 const PRODUCTION_MAIN_REF = "refs/remotes/origin/main"
@@ -515,14 +509,7 @@ async function inspectManagedReleases({
     } catch {
       /* Existing tombstone validation below fails closed. */
     }
-    if (recorded.has(tag)) return false
-    // B4.run's release train begins at its own first version. Releases made
-    // under the previous identity are not routed into recovery here, which is
-    // the single point where GitHub Releases enter recovery discovery. That
-    // identity no longer exists and this repository deliberately does not
-    // inherit its recovery authority; those releases and their packages are
-    // already public. A B4.run release is always at or above the floor.
-    return !isBelowReleaseFloor(tag)
+    return !recorded.has(tag)
   })
   const recovered = []
   const recoveryTags = new Set()
@@ -537,6 +524,7 @@ async function inspectManagedReleases({
     terminalRecordRef,
   })) {
     const c = intent.candidate
+    if (isForeignRecoverySubject(c)) continue
     const existing = recoverySubjects.get(c.tag)
     if (existing && existing.commitSha !== c.candidateSha)
       throw new Error("Recovery reservation conflicts with annotated tag")
@@ -545,6 +533,7 @@ async function inspectManagedReleases({
   for (const c of (
     await discoverRecoveryReleaseCandidates({ github, releaseRecords: routingRecords })
   ).values()) {
+    if (isForeignRecoverySubject(c)) continue
     const existing = recoverySubjects.get(c.tag)
     if (existing && existing.commitSha !== c.candidateSha)
       throw new Error("Durable recovery identity conflicts with candidate tag")
@@ -552,11 +541,6 @@ async function inspectManagedReleases({
   }
   for (const tag of recoverySubjects.values()) {
     if (recorded.has(tag.tag)) continue
-    // Recovery reserved under the previous identity is not adopted: that
-    // repository identity no longer exists and this repository deliberately does
-    // not inherit its recovery authority. Those releases and their packages are
-    // already public. This is checked before any recovery evidence is read.
-    if (compareSemver(tag.version, FIRST_B4_RELEASE_VERSION) < 0) continue
     const routed = await routeRecoveryCandidate({
       candidate: candidateIdentity(tag.version, tag.commitSha),
       git: recoveryGit,
@@ -601,14 +585,6 @@ async function inspectManagedReleases({
     if (tagIdentity === undefined) {
       throw new Error(`Managed GitHub Release ${tag} has no matching tag ref`)
     }
-    // B4.run's release train begins at its own first version. Releases made
-    // under the previous identity are closed as far as this controller is
-    // concerned: their packages and GitHub Releases are already public, and any
-    // unfinished ceremony belonged to a repository identity that no longer
-    // exists and whose recovery authority this repository deliberately does not
-    // inherit. Skipping them cannot hide a B4.run release, which is always at or
-    // above the floor.
-    if (compareSemver(tagIdentity.version, FIRST_B4_RELEASE_VERSION) < 0) continue
     // A committed terminal record settles this version, so no Release evidence
     // is read for it: the controller must reach the same classification whether
     // or not its token can see this draft at all. A visible Release must still
