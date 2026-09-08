@@ -6,6 +6,7 @@ import {
   parseAnyAbandonmentRecord,
 } from "./abandonment.mjs"
 import { assertPayloadByteLength, RELEASE_PAYLOAD_LIMITS } from "./limits.mjs"
+import { CANONICAL_RELEASE_PACKAGE_ORDER, HISTORICAL_RELEASE_PACKAGE_NAMES } from "./manifest.mjs"
 import {
   ATTESTATION_REPOSITORY,
   canonicalReleaseBody,
@@ -32,6 +33,25 @@ import { canonicalAuditResultBytes, parseAuditResult } from "./terminal-records.
 function isForeignRecoverySubject(candidate) {
   const repository = candidate?.repository
   return typeof repository === "string" && repository !== ATTESTATION_REPOSITORY
+}
+
+// The one-time transition from the previous identity's package family to the
+// current one, in that direction only.
+function isRenameTransition(parentNames, currentNames) {
+  const historical = [...HISTORICAL_RELEASE_PACKAGE_NAMES].sort(compareText)
+  const active = [...CANONICAL_RELEASE_PACKAGE_ORDER].sort(compareText)
+  return (
+    arraysEqual([...parentNames].sort(compareText), historical) &&
+    arraysEqual([...currentNames].sort(compareText), active)
+  )
+}
+
+// Whether a tag names a version below the supplied release floor. With no floor
+// nothing is below it, which is the historical behaviour.
+function isBelowReleaseFloor(tag, floor) {
+  if (floor === null || typeof tag !== "string") return false
+  const version = managedVersionFromTag(tag)
+  return version !== null && isExactSemver(version) && compareSemver(version, floor) < 0
 }
 
 const MARKER_PATH = "scripts/release/controller-schema.json"
@@ -98,7 +118,15 @@ async function discoverManagedCandidateDetails({ ref, inventory, git, marker }) 
   const current = normalizeDiscoveryInventory(currentRaw, "current")
   const parent = normalizeDiscoveryInventory(parentRaw, "first-parent")
   if (!arraysEqual(current.names, parent.names)) {
-    throw new TypeError("Release inventory package set changed across the candidate commit")
+    // The rename from the previous identity changed all 21 package names in one
+    // commit. That exact transition is allowed, from the historical family to
+    // the current one, and only in that direction; both sides are code-owned
+    // constants, so no other change of package set can pass here.
+    if (!isRenameTransition(parent.names, current.names)) {
+      throw new TypeError("Release inventory package set changed across the candidate commit")
+    }
+    // A commit that renames the family is not itself a release candidate.
+    return candidateDetails(noCandidate(), current.names)
   }
   if (current.version === parent.version) {
     return candidateDetails(noCandidate(), current.names)
@@ -185,13 +213,7 @@ export async function discoverScheduledCandidate({
   const tagRecords = presentList(tagResult, "managed tag refs")
   const releaseRecords = presentList(releaseResult, "GitHub Releases")
   const allTags = await normalizeManagedTags(tagRecords, git, github)
-  const tags =
-    releaseFloorVersion === null
-      ? allTags
-      : allTags.filter(
-          (tag) =>
-            !(isExactSemver(tag.version) && compareSemver(tag.version, releaseFloorVersion) < 0),
-        )
+  const tags = allTags.filter((tag) => !isBelowReleaseFloor(tag.tag, releaseFloorVersion))
   const tagsByName = new Map(tags.map((tag) => [tag.tag, tag]))
   // Committed terminal records are authoritative for their version regardless of
   // what the GitHub token can see; a record is read at the controller's own
@@ -215,6 +237,7 @@ export async function discoverScheduledCandidate({
     recorded.set(tag.tag, terminalRecord)
   }
   const releases = await inspectManagedReleases({
+    releaseFloorVersion,
     records: releaseRecords,
     tagsByName,
     recorded,
@@ -478,6 +501,7 @@ function normalizeGithubRef(value) {
 }
 
 async function inspectManagedReleases({
+  releaseFloorVersion = null,
   records,
   tagsByName,
   recorded,
@@ -597,6 +621,9 @@ async function inspectManagedReleases({
     }
     const tagIdentity = tagsByName.get(tag)
     if (tagIdentity === undefined) {
+      // A Release whose tag was excluded by the floor is excluded with it, so
+      // the two views stay consistent. Any other missing tag is still a fault.
+      if (isBelowReleaseFloor(tag, releaseFloorVersion)) continue
       throw new Error(`Managed GitHub Release ${tag} has no matching tag ref`)
     }
     // A committed terminal record settles this version, so no Release evidence
