@@ -1,6 +1,6 @@
 # {{appName}}
 
-A deep-research assistant built with [B4.run](https://github.com/cacheplane/b4-run),
+A deep-research assistant built with [B4.run](https://github.com/cacheplane/b4run),
 shipped as an npm workspace with two packages:
 
 - **`server/`** — the B4.run app: the research route, tools, a researcher

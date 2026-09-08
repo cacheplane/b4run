@@ -59,7 +59,7 @@ const ITEMS = [
       <p>
         MIT. Free for commercial and non-commercial use. See the{" "}
         <a
-          href="https://github.com/cacheplane/b4-run/blob/main/LICENSE"
+          href="https://github.com/cacheplane/b4run/blob/main/LICENSE"
           target="_blank"
           rel="noopener noreferrer"
           className="text-accent-saas hover:opacity-80"

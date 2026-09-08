@@ -13,14 +13,14 @@
     "scaffolding",
     "create-app"
   ],
-  "homepage": "https://github.com/cacheplane/b4-run/tree/main/packages/create-b4-app#readme",
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/create-b4-app#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/b4-run.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/create-b4-app"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/b4-run/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"

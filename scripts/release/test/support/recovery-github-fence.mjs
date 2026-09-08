@@ -5,7 +5,7 @@ export function authorizeFenceProbe(env) {
   if (typeof repository !== "string" || !/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
     throw new Error("disposable repository required")
   }
-  if (["cacheplane/b4-run", "cacheplane/dawnai"].includes(repository.toLowerCase()))
+  if (["cacheplane/b4run", "cacheplane/dawnai"].includes(repository.toLowerCase()))
     throw new Error("production forbidden")
   if (env.B4_RECOVERY_AUTHORIZED_REPOSITORY !== repository) {
     throw new Error("repository must match the separately authorized repository")

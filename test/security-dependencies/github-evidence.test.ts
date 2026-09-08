@@ -17,9 +17,9 @@ import {
   safeEvidenceError,
 } from "../../scripts/security/github-evidence.mjs"
 
-const repo = "cacheplane/b4-run"
+const repo = "cacheplane/b4run"
 const alertsUrl =
-  "https://api.github.com/repos/cacheplane/b4-run/dependabot/alerts?state=open&per_page=100"
+  "https://api.github.com/repos/cacheplane/b4run/dependabot/alerts?state=open&per_page=100"
 
 function processIsRunning(pid: number): boolean {
   try {
@@ -345,7 +345,7 @@ describe("GitHub evidence pagination", () => {
 
   it("accepts GitHub's exact numeric-repository workflow-runs next link", () => {
     const initial =
-      "https://api.github.com/repos/cacheplane/b4-run/actions/workflows/260503756/runs?per_page=100"
+      "https://api.github.com/repos/cacheplane/b4run/actions/workflows/260503756/runs?per_page=100"
     expect(
       parseNextLink(
         '<https://api.github.com/repositories/1210070282/actions/workflows/260503756/runs?per_page=100&page=2>; rel="next"',
@@ -358,7 +358,7 @@ describe("GitHub evidence pagination", () => {
 
   it("rejects a numeric-repository next link with the wrong repository ID", () => {
     const initial =
-      "https://api.github.com/repos/cacheplane/b4-run/actions/workflows/260503756/runs?per_page=100"
+      "https://api.github.com/repos/cacheplane/b4run/actions/workflows/260503756/runs?per_page=100"
     expect(() =>
       parseNextLink(
         '<https://api.github.com/repositories/999/actions/workflows/260503756/runs?per_page=100&page=2>; rel="next"',
@@ -372,8 +372,8 @@ describe("GitHub evidence pagination", () => {
     `<${alertsUrl}&before=a&after=b>; rel="next"`,
     `<${alertsUrl}&after=a&after=b>; rel="next"`,
     `<${alertsUrl}&after=a&extra=1>; rel="next"`,
-    `<https://evil.example/repos/cacheplane/b4-run/dependabot/alerts?state=open&per_page=100&after=a>; rel="next"`,
-    `<https://user:secret@api.github.com/repos/cacheplane/b4-run/dependabot/alerts?state=open&per_page=100&after=a>; rel="next"`,
+    `<https://evil.example/repos/cacheplane/b4run/dependabot/alerts?state=open&per_page=100&after=a>; rel="next"`,
+    `<https://user:secret@api.github.com/repos/cacheplane/b4run/dependabot/alerts?state=open&per_page=100&after=a>; rel="next"`,
     `<https://api.github.com/repos/cacheplane/other/dependabot/alerts?state=open&per_page=100&after=a>; rel="next"`,
     `<${alertsUrl}&after=a>; rel="next", <${alertsUrl}&after=b>; rel="next"`,
     `<${alertsUrl}&after=a>; rel="next prev"`,
@@ -416,12 +416,12 @@ describe("GitHub evidence pagination", () => {
     ],
     [
       "backwards page",
-      `<https://api.github.com/repos/cacheplane/b4-run/actions/artifacts?per_page=100&page=2>; rel="next"`,
-      "https://api.github.com/repos/cacheplane/b4-run/actions/artifacts?per_page=100",
+      `<https://api.github.com/repos/cacheplane/b4run/actions/artifacts?per_page=100&page=2>; rel="next"`,
+      "https://api.github.com/repos/cacheplane/b4run/actions/artifacts?per_page=100",
       new Set([
-        "https://api.github.com/repos/cacheplane/b4-run/actions/artifacts?per_page=100",
-        "https://api.github.com/repos/cacheplane/b4-run/actions/artifacts?per_page=100&page=2",
-        "https://api.github.com/repos/cacheplane/b4-run/actions/artifacts?per_page=100&page=3",
+        "https://api.github.com/repos/cacheplane/b4run/actions/artifacts?per_page=100",
+        "https://api.github.com/repos/cacheplane/b4run/actions/artifacts?per_page=100&page=2",
+        "https://api.github.com/repos/cacheplane/b4run/actions/artifacts?per_page=100&page=3",
       ]),
     ],
   ])("rejects %s", (_name, link, initialUrl, seen) => {
@@ -630,7 +630,7 @@ describe("GitHub evidence pagination", () => {
   })
 
   it("requires stable total_count and exact retrieved count", async () => {
-    const first = "https://api.github.com/repos/cacheplane/b4-run/actions/artifacts?per_page=100"
+    const first = "https://api.github.com/repos/cacheplane/b4run/actions/artifacts?per_page=100"
     const reader = createGitHubReader({
       budget: createEvidenceBudget({
         maxPages: 3,
@@ -716,7 +716,7 @@ describe("bounded fixed-argv subprocess transport", () => {
       maxBytes: 1024,
       responseType: "json",
       timeoutMs: 1000,
-      url: "https://api.github.com/repos/cacheplane/b4-run/commits/main",
+      url: "https://api.github.com/repos/cacheplane/b4run/commits/main",
     })
     expect(observed).toEqual([
       {
@@ -731,7 +731,7 @@ describe("bounded fixed-argv subprocess transport", () => {
           "Accept: application/vnd.github+json",
           "-H",
           "X-GitHub-Api-Version: 2022-11-28",
-          "repos/cacheplane/b4-run/commits/main",
+          "repos/cacheplane/b4run/commits/main",
         ],
         command: "gh",
         maxBytes: 1024,
@@ -742,9 +742,9 @@ describe("bounded fixed-argv subprocess transport", () => {
   })
 
   it.each([
-    "https://api.github.com/repos/cacheplane/b4-run/commits/main?access_token=secret",
-    "https://api.github.com/repos/cacheplane/b4-run/commits/main?authorization=secret",
-    "https://api.github.com/repos/cacheplane/b4-run/commits/main?token=secret",
+    "https://api.github.com/repos/cacheplane/b4run/commits/main?access_token=secret",
+    "https://api.github.com/repos/cacheplane/b4run/commits/main?authorization=secret",
+    "https://api.github.com/repos/cacheplane/b4run/commits/main?token=secret",
   ])("rejects credential-shaped query before invoking gh: %s", async (url) => {
     let invoked = false
     const transport = createGhApiTransport({

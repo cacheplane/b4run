@@ -25,7 +25,7 @@ const VERSION = "0.8.22"
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567"
 const MANIFEST_SHA256 = sha256(Buffer.from("manifest"))
 const WORKFLOW = ".github/workflows/published-artifact-verify.yml"
-const REPOSITORY = "cacheplane/b4-run"
+const REPOSITORY = "cacheplane/b4run"
 const CANDIDATE = Object.freeze({
   version: VERSION,
   commitSha: COMMIT_SHA,

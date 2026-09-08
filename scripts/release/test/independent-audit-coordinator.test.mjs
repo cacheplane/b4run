@@ -126,8 +126,8 @@ test("coordinator rejects a relay receipt whose run URLs do not bind the returne
   const github = githubBoundary({ releases: [release], calls: [] })
   github.writer.dispatchWorkflowAtRef = async () => ({
     workflowRunId: 100,
-    runUrl: "https://api.github.com/repos/cacheplane/b4-run/actions/runs/99",
-    htmlUrl: "https://github.com/cacheplane/b4-run/actions/runs/100",
+    runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/99",
+    htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/100",
   })
   await assert.rejects(
     coordinateIndependentAudit({
@@ -209,8 +209,8 @@ function githubBoundary({ releases, calls, refType = "tag", tagTargetSha }) {
         calls.push(input)
         return {
           workflowRunId: 100,
-          runUrl: "https://api.github.com/repos/cacheplane/b4-run/actions/runs/100",
-          htmlUrl: "https://github.com/cacheplane/b4-run/actions/runs/100",
+          runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/100",
+          htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/100",
         }
       },
     },

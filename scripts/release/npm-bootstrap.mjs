@@ -17,8 +17,8 @@ import { isExactSemver, parseSemver } from "./semver.mjs"
 export const NPM_AUTH_MODES = Object.freeze(["oidc", "bootstrap"])
 export const BOOTSTRAP_AUTHORIZATION_VARIABLE = "B4_NPM_BOOTSTRAP_AUTHORIZATION"
 export const BOOTSTRAP_TOKEN_VARIABLE = "B4_NPM_BOOTSTRAP_TOKEN"
-export const BOOTSTRAP_REPOSITORY = "cacheplane/b4-run"
-export const BOOTSTRAP_REPOSITORY_ID = "1360603908"
+export const BOOTSTRAP_REPOSITORY = "cacheplane/b4run"
+export const BOOTSTRAP_REPOSITORY_ID = "1210070282"
 export const BOOTSTRAP_PUBLISHER_WORKFLOW = ".github/workflows/release.yml"
 export const BOOTSTRAP_MAX_WINDOW_MS = 24 * 60 * 60 * 1000
 export const BOOTSTRAP_AUTHORIZATION_MAX_BYTES = 2048

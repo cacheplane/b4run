@@ -490,7 +490,7 @@ test("every execution-affecting workflow surface is bound by the full digest", (
       "reusable workflow",
       (workflow) => {
         workflow.jobs.reusable = {
-          uses: "cacheplane/b4-run/.github/workflows/ci.yml@main",
+          uses: "cacheplane/b4run/.github/workflows/ci.yml@main",
         }
       },
     ],

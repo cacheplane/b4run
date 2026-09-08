@@ -14,7 +14,7 @@ test("fence experiment requires an enabled, explicitly authorized disposable rep
     assert.throws(() => authorizeFenceProbe({ ...env, [key]: "" }), /required|authorized/)
   }
   for (const repository of [
-    "cacheplane/b4-run",
+    "cacheplane/b4run",
     "CachePlane/B4-Run",
     "cacheplane/dawnai",
     "CachePlane/DawnAI",

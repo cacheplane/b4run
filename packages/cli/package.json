@@ -13,14 +13,14 @@
     "ai-agents",
     "developer-tools"
   ],
-  "homepage": "https://github.com/cacheplane/b4-run/tree/main/packages/cli#readme",
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/cli#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/b4-run.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/cli"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/b4-run/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"

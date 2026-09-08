@@ -51,7 +51,7 @@ const ROOT_LINK_CONTRACTS = {
   transcript: {
     relative: new Set(["docs/brand/demo/transcript.md", "./docs/brand/demo/transcript.md"]),
     absolute: new Set([
-      "https://github.com/cacheplane/b4-run/blob/main/docs/brand/demo/transcript.md",
+      "https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md",
     ]),
   },
 }
@@ -73,17 +73,17 @@ Keep the runtime. Drop the boilerplate.`
 
 const CANONICAL_ROOT_BADGES = `<p align="center">
   <a href="https://www.npmjs.com/package/create-b4-app"><img src="https://img.shields.io/npm/v/create-b4-app?label=create-b4-app" alt="create-b4-app npm version"></a>
-  <a href="https://github.com/cacheplane/b4-run/actions/workflows/ci.yml"><img src="https://github.com/cacheplane/b4-run/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/cacheplane/b4run/actions/workflows/ci.yml"><img src="https://github.com/cacheplane/b4run/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-111827.svg" alt="MIT license"></a>
-  <a href="https://github.com/cacheplane/b4-run/stargazers"><img src="https://img.shields.io/github/stars/cacheplane/b4-run" alt="GitHub stars"></a>
-  <a href="https://github.com/cacheplane/b4-run/actions/workflows/scorecard.yml"><img src="https://github.com/cacheplane/b4-run/actions/workflows/scorecard.yml/badge.svg" alt="OpenSSF Scorecard"></a>
+  <a href="https://github.com/cacheplane/b4run/stargazers"><img src="https://img.shields.io/github/stars/cacheplane/b4run" alt="GitHub stars"></a>
+  <a href="https://github.com/cacheplane/b4run/actions/workflows/scorecard.yml"><img src="https://github.com/cacheplane/b4run/actions/workflows/scorecard.yml/badge.svg" alt="OpenSSF Scorecard"></a>
 </p>`
 
 const CANONICAL_ROOT_NAVIGATION = `<p align="center">
   <a href="https://b4.run/docs/getting-started">Get started</a> ·
   <a href="https://b4.run/docs/migrating-from-langgraph">Migrate from LangGraph.js</a> ·
   <a href="https://b4.run/docs">Documentation</a> ·
-  <a href="https://github.com/cacheplane/b4-run/discussions">Discussions</a>
+  <a href="https://github.com/cacheplane/b4run/discussions">Discussions</a>
 </p>`
 
 const CANONICAL_PRODUCT_LOOP_BLOCK = `<p align="center">

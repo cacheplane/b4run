@@ -15,17 +15,17 @@ Keep the runtime. Drop the boilerplate.
 
 <p align="center">
   <a href="https://www.npmjs.com/package/create-b4-app"><img src="https://img.shields.io/npm/v/create-b4-app?label=create-b4-app" alt="create-b4-app npm version"></a>
-  <a href="https://github.com/cacheplane/b4-run/actions/workflows/ci.yml"><img src="https://github.com/cacheplane/b4-run/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/cacheplane/b4run/actions/workflows/ci.yml"><img src="https://github.com/cacheplane/b4run/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-111827.svg" alt="MIT license"></a>
-  <a href="https://github.com/cacheplane/b4-run/stargazers"><img src="https://img.shields.io/github/stars/cacheplane/b4-run" alt="GitHub stars"></a>
-  <a href="https://github.com/cacheplane/b4-run/actions/workflows/scorecard.yml"><img src="https://github.com/cacheplane/b4-run/actions/workflows/scorecard.yml/badge.svg" alt="OpenSSF Scorecard"></a>
+  <a href="https://github.com/cacheplane/b4run/stargazers"><img src="https://img.shields.io/github/stars/cacheplane/b4run" alt="GitHub stars"></a>
+  <a href="https://github.com/cacheplane/b4run/actions/workflows/scorecard.yml"><img src="https://github.com/cacheplane/b4run/actions/workflows/scorecard.yml/badge.svg" alt="OpenSSF Scorecard"></a>
 </p>
 
 <p align="center">
   <a href="https://b4.run/docs/getting-started">Get started</a> ·
   <a href="https://b4.run/docs/migrating-from-langgraph">Migrate from LangGraph.js</a> ·
   <a href="https://b4.run/docs">Documentation</a> ·
-  <a href="https://github.com/cacheplane/b4-run/discussions">Discussions</a>
+  <a href="https://github.com/cacheplane/b4run/discussions">Discussions</a>
 </p>
 
 ```bash
@@ -201,13 +201,13 @@ manage its secrets.
 ## Maturity and support
 
 B4.run is pre-1.0 and its API surface is moving. Pin versions and read the
-[release notes](https://github.com/cacheplane/b4-run/releases) and
+[release notes](https://github.com/cacheplane/b4run/releases) and
 [upgrade guide](https://b4.run/docs/upgrading). Supported means documented
 public surfaces on the current release line, not a 1.0 stability or long-term
 support guarantee.
 
 - Follow [SUPPORT.md](./SUPPORT.md) for support routes, and ask usage questions
-  in [GitHub Discussions](https://github.com/cacheplane/b4-run/discussions).
+  in [GitHub Discussions](https://github.com/cacheplane/b4run/discussions).
 - Report security issues through the process in [SECURITY.md](./SECURITY.md).
 - See [CONTRIBUTING.md](./CONTRIBUTING.md) and [CONTRIBUTORS.md](./CONTRIBUTORS.md) before contributing.
 - Follow the [Code of Conduct](./CODE_OF_CONDUCT.md).

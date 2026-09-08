@@ -1,5 +1,5 @@
 import { HeaderInner } from "./HeaderInner"
 
 export function Header() {
-  return <HeaderInner repoUrl="https://github.com/cacheplane/b4-run" />
+  return <HeaderInner repoUrl="https://github.com/cacheplane/b4run" />
 }

@@ -15,7 +15,11 @@ test("B4.run recovery starts dormant without inherited contracts or verifier aut
   assert.equal(policy.fence.concurrencyGroup, "b4-release-controller")
 })
 
-test("B4.run audit executor rejects the original repository even with otherwise valid evidence", async () => {
+// B4.run adopted the original repository, so its numeric id no longer separates
+// B4.run authority from historical Dawn authority. The remaining discriminators
+// are the repository name recorded in every historical document and the exact
+// candidate, workflow and pin digests. Both are asserted below.
+test("B4.run audit executor rejects the original repository name on the adopted id", async () => {
   const fixture = auditExecutorFixture()
   fixture.run.repository = { id: 1210070282, full_name: "cacheplane/dawnai" }
   await assert.rejects(authorizeAuditExecutor(fixture), /invalid main run identity/)
@@ -23,13 +27,37 @@ test("B4.run audit executor rejects the original repository even with otherwise 
 
 test("B4.run cannot use the historical v0.8.26 audit authorization", async () => {
   const fixture = auditExecutorFixture()
-  fixture.run.repository = { id: 1360603908, full_name: "cacheplane/b4-run" }
+  fixture.run.repository = { id: 1210070282, full_name: "cacheplane/b4run" }
   const historical = await readFile(
     new URL("../audit-executor-authorizations/v0.8.26.json", import.meta.url),
     "utf8",
   )
   fixture.files.set("scripts/release/audit-executor-authorizations/v0.8.26.json", historical)
   await assert.rejects(authorizeAuditExecutor(fixture), /invalid source authorization/)
+})
+
+test("the historical authorization stays rejected even with its repository forged", async () => {
+  // Defense in depth for the adopted identity: rewriting the historical record's
+  // repository to the current name must not make it authorize a B4.run
+  // candidate. The candidate and digest bindings must reject it on their own.
+  const fixture = auditExecutorFixture()
+  fixture.run.repository = { id: 1210070282, full_name: "cacheplane/b4run" }
+  const historical = JSON.parse(
+    await readFile(
+      new URL("../audit-executor-authorizations/v0.8.26.json", import.meta.url),
+      "utf8",
+    ),
+  )
+  assert.equal(historical.repository, "cacheplane/dawnai")
+  fixture.files.set(
+    "scripts/release/audit-executor-authorizations/v0.8.26.json",
+    JSON.stringify({ ...historical, repository: "cacheplane/b4run" }),
+  )
+  await assert.rejects(
+    authorizeAuditExecutor(fixture),
+    /authorization does not match candidate/,
+    "a forged repository field must still fail on the candidate and digest bindings",
+  )
 })
 
 test("historical release evidence and incident tools retain their exact original bytes", async () => {

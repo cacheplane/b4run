@@ -611,7 +611,7 @@ async function runEscrow(options, runtime) {
     {
       candidate,
       manifest: verified.manifest,
-      repository: "cacheplane/b4-run",
+      repository: "cacheplane/b4run",
     },
   )
   if (!Buffer.from(attestationSetBytes).equals(canonicalJsonBytes(attestationSet))) {
@@ -1942,8 +1942,8 @@ function auditDispatchRunId(value) {
     !Number.isSafeInteger(value.workflowRunId) ||
     value.workflowRunId < 1 ||
     value.runUrl !==
-      `https://api.github.com/repos/cacheplane/b4-run/actions/runs/${value.workflowRunId}` ||
-    value.htmlUrl !== `https://github.com/cacheplane/b4-run/actions/runs/${value.workflowRunId}`
+      `https://api.github.com/repos/cacheplane/b4run/actions/runs/${value.workflowRunId}` ||
+    value.htmlUrl !== `https://github.com/cacheplane/b4run/actions/runs/${value.workflowRunId}`
   ) {
     throw new TypeError("Release CLI audit dispatch result is invalid")
   }
@@ -2140,7 +2140,7 @@ async function requireAttestations(runtime) {
   if (typeof token !== "string" || token.length === 0 || /[\r\n]/u.test(token)) {
     throw new TypeError("Release CLI attestation verification requires GITHUB_TOKEN")
   }
-  if (runtime.environment.GITHUB_REPOSITORY !== "cacheplane/b4-run") {
+  if (runtime.environment.GITHUB_REPOSITORY !== "cacheplane/b4run") {
     throw new TypeError("Release CLI attestation verification requires the exact GitHub repository")
   }
   const module = await runtime.importModule(new URL("./artifact-store.mjs", import.meta.url).href)
@@ -2149,7 +2149,7 @@ async function requireAttestations(runtime) {
     "createCliAttestationVerifier",
     "attestation verifier factory",
   )({
-    repository: "cacheplane/b4-run",
+    repository: "cacheplane/b4run",
     token,
     fileSystem: runtime.fileSystem,
   })
@@ -2185,7 +2185,7 @@ function normalizeArtifactUpload(value, manifest) {
   ) {
     throw new TypeError("Artifact upload output has an invalid exact-key schema")
   }
-  const expectedUrl = `https://github.com/cacheplane/b4-run/actions/runs/${manifest.artifact.prepareRunId}/artifacts/${value.artifactId}`
+  const expectedUrl = `https://github.com/cacheplane/b4run/actions/runs/${manifest.artifact.prepareRunId}/artifacts/${value.artifactId}`
   if (value.artifactUrl !== expectedUrl) {
     throw new TypeError("Artifact upload URL does not match the run and artifact ID")
   }

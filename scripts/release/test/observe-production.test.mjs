@@ -2045,7 +2045,7 @@ test("production observation accepts npm presence only through exact tarball and
                 predicateType: "https://slsa.dev/provenance/v1",
                 workflow: ".github/workflows/release.yml",
                 commitSha: COMMIT_SHA,
-                repository: "https://github.com/cacheplane/b4-run",
+                repository: "https://github.com/cacheplane/b4run",
                 ref: `refs/tags/v${VERSION}`,
               },
             }
@@ -2491,8 +2491,8 @@ for (const mainExecutor of [false, true]) {
     assert.deepEqual(recovery.auditDispatch, {
       workflow: ".github/workflows/published-artifact-verify.yml",
       workflowRunId: audited.auditResult.workflowRunId,
-      runUrl: `https://api.github.com/repos/cacheplane/b4-run/actions/runs/${audited.auditResult.workflowRunId}`,
-      htmlUrl: `https://github.com/cacheplane/b4-run/actions/runs/${audited.auditResult.workflowRunId}`,
+      runUrl: `https://api.github.com/repos/cacheplane/b4run/actions/runs/${audited.auditResult.workflowRunId}`,
+      htmlUrl: `https://github.com/cacheplane/b4run/actions/runs/${audited.auditResult.workflowRunId}`,
     })
   })
 }
@@ -3972,7 +3972,7 @@ function publishedNpmFixture(manifest) {
                 predicateType: "https://slsa.dev/provenance/v1",
                 workflow: ".github/workflows/release.yml",
                 commitSha: COMMIT_SHA,
-                repository: "https://github.com/cacheplane/b4-run",
+                repository: "https://github.com/cacheplane/b4run",
                 ref: `refs/tags/v${VERSION}`,
               },
             }
@@ -4011,7 +4011,7 @@ function completeNpmEvidenceFixture(manifest) {
           predicateType: "https://slsa.dev/provenance/v1",
           workflow: ".github/workflows/release.yml",
           commitSha: COMMIT_SHA,
-          repository: "https://github.com/cacheplane/b4-run",
+          repository: "https://github.com/cacheplane/b4run",
           ref: `refs/tags/v${VERSION}`,
         },
       }
@@ -4113,7 +4113,7 @@ function productionAttestationBundle(
   { workflowRunId = prepared.manifest.artifact.prepareRunId, runAttempt = 1 } = {},
 ) {
   const ref = `refs/tags/v${VERSION}`
-  const repository = "https://github.com/cacheplane/b4-run"
+  const repository = "https://github.com/cacheplane/b4run"
   const statement = {
     _type: "https://in-toto.io/Statement/v1",
     subject: [
@@ -4144,7 +4144,7 @@ function productionAttestationBundle(
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: `https://github.com/cacheplane/b4-run/actions/runs/${workflowRunId}/attempts/${runAttempt}`,
+          invocationId: `https://github.com/cacheplane/b4run/actions/runs/${workflowRunId}/attempts/${runAttempt}`,
         },
       },
     },
@@ -4221,7 +4221,7 @@ function attestedReleaseFixture({ ci } = {}) {
     releaseRecordSha256: digest(prepared.recordBytes),
     baseAssetSetSha256: digest(Buffer.from(`${JSON.stringify(baseEntries)}\n`, "utf8")),
     attestationSet: {
-      repository: "cacheplane/b4-run",
+      repository: "cacheplane/b4run",
       workflow: ".github/workflows/release.yml",
       sourceRef: `refs/tags/v${VERSION}`,
       commitSha: COMMIT_SHA,
@@ -4399,7 +4399,7 @@ function durableSmokeFixture(manifestSha256) {
       lane: receipt.lane,
       actionsArtifactId: String(4_000 + index),
       actionsArtifactName: `smoke-result-${receipt.lane}-${workflowRunId}-${runAttempt}`,
-      actionsArtifactUrl: `https://github.com/cacheplane/b4-run/actions/runs/${workflowRunId}/artifacts/${4_000 + index}`,
+      actionsArtifactUrl: `https://github.com/cacheplane/b4run/actions/runs/${workflowRunId}/artifacts/${4_000 + index}`,
       actionsArtifactServiceDigest: `sha256:${"8".repeat(64)}`,
       releaseAssetId: receipt.releaseAssetId,
       releaseAssetName: receipt.releaseAssetName,
@@ -4464,8 +4464,8 @@ function auditedReleaseFixture() {
     audit: {
       workflow: ".github/workflows/published-artifact-verify.yml",
       workflowRunId: auditResult.workflowRunId,
-      runUrl: `https://api.github.com/repos/cacheplane/b4-run/actions/runs/${auditResult.workflowRunId}`,
-      htmlUrl: `https://github.com/cacheplane/b4-run/actions/runs/${auditResult.workflowRunId}`,
+      runUrl: `https://api.github.com/repos/cacheplane/b4run/actions/runs/${auditResult.workflowRunId}`,
+      htmlUrl: `https://github.com/cacheplane/b4run/actions/runs/${auditResult.workflowRunId}`,
       runAttempt: auditResult.runAttempt,
       attemptAssetName: `audit-attempt-${auditResult.workflowRunId}-${auditResult.runAttempt}.json`,
       attemptSha256: auditSha256,

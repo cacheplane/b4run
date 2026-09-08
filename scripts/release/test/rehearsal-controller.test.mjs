@@ -890,7 +890,7 @@ function preparedObservation(fixture) {
 }
 
 function multiSubjectBundle(fixture) {
-  const repository = "https://github.com/cacheplane/b4-run"
+  const repository = "https://github.com/cacheplane/b4run"
   const ref = `refs/tags/v${VERSION}`
   const statement = {
     _type: "https://in-toto.io/Statement/v1",
@@ -913,7 +913,7 @@ function multiSubjectBundle(fixture) {
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: "https://github.com/cacheplane/b4-run/actions/runs/300/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4run/actions/runs/300/attempts/1",
         },
       },
     },
@@ -1039,7 +1039,7 @@ function verifiedAudit(candidate, entry) {
       predicateType: "https://slsa.dev/provenance/v1",
       workflow: candidate.publisherWorkflow,
       commitSha: candidate.commitSha,
-      repository: "https://github.com/cacheplane/b4-run",
+      repository: "https://github.com/cacheplane/b4run",
       ref: `refs/tags/v${candidate.version}`,
       subject: { name: entry.name, version: entry.version },
     },
@@ -1058,7 +1058,7 @@ function attestationFixture(fixture) {
   return {
     bundleBytes,
     set: {
-      repository: "cacheplane/b4-run",
+      repository: "cacheplane/b4run",
       workflow: fixture.candidate.publisherWorkflow,
       sourceRef: `refs/tags/v${fixture.candidate.version}`,
       commitSha: fixture.candidate.commitSha,
@@ -1093,8 +1093,8 @@ async function writeEscrowInputs({ directory, fixture, bundleBytes }) {
 
 function releaseEnvironment(candidate) {
   return {
-    GITHUB_REPOSITORY: "cacheplane/b4-run",
-    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/${candidate.publisherWorkflow}@refs/tags/v${candidate.version}`,
+    GITHUB_REPOSITORY: "cacheplane/b4run",
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/${candidate.publisherWorkflow}@refs/tags/v${candidate.version}`,
     GITHUB_REF: `refs/tags/v${candidate.version}`,
     GITHUB_SHA: candidate.commitSha,
     GITHUB_RUN_ID: "300",
@@ -1281,7 +1281,7 @@ function npmEvidenceFixture(fixture) {
           predicateType: "https://slsa.dev/provenance/v1",
           workflow: fixture.candidate.publisherWorkflow,
           commitSha: fixture.candidate.commitSha,
-          repository: "https://github.com/cacheplane/b4-run",
+          repository: "https://github.com/cacheplane/b4run",
           ref: `refs/tags/v${fixture.candidate.version}`,
         },
       }

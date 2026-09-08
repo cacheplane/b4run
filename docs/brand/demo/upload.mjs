@@ -23,7 +23,7 @@ const DEFAULT_REPO_ROOT = resolve(import.meta.dirname, "../../..")
 const PUBLIC_BASE_PLACEHOLDER = "<B4_MEDIA_PUBLIC_BASE_URL>"
 const CATALOG_PATH = "apps/web/app/lib/demo-media.json"
 const TRANSCRIPT_BASE_URL =
-  "https://github.com/cacheplane/b4-run/blob/main/docs/brand/demo/transcript.md"
+  "https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md"
 const AUTHORIZED_OIDC_STORE_ID = "store_9RQ8eZyGheVy0wOp"
 const AUTHORIZED_LEGACY_STORE_ID = AUTHORIZED_OIDC_STORE_ID.slice("store_".length)
 const AUTHORIZED_OIDC_ORIGIN = "https://9rq8ezyghevy0wop.public.blob.vercel-storage.com"

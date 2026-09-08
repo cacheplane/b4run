@@ -15,7 +15,7 @@ import {
 
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url))
 const FIXTURE_ROOT = `${ROOT}/scripts/release/test/fixtures`
-const REPOSITORY = "cacheplane/b4-run"
+const REPOSITORY = "cacheplane/b4run"
 const HEAD_SHA = "0123456789abcdef0123456789abcdef01234567"
 const OTHER_HEAD_SHA = "1123456789abcdef0123456789abcdef01234567"
 const TAG_OBJECT_SHA_1 = "2123456789abcdef0123456789abcdef01234567"

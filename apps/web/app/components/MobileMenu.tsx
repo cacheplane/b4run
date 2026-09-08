@@ -16,7 +16,7 @@ const SITE_LINKS: readonly SiteLink[] = [
   { label: "Docs", href: "/docs/getting-started" },
   { label: "Blog", href: "/blog" },
   { label: "Brand", href: "/brand" },
-  { label: "GitHub", href: "https://github.com/cacheplane/b4-run", external: true },
+  { label: "GitHub", href: "https://github.com/cacheplane/b4run", external: true },
 ]
 
 /**

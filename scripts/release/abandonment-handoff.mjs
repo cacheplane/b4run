@@ -702,10 +702,10 @@ function validateEnvironment(value, candidate) {
   const environment = snapshotJson(value)
   assertExactFields(environment, ENVIRONMENT_FIELDS, "abandonment context environment")
   const expected = {
-    GITHUB_REPOSITORY: "cacheplane/b4-run",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_REF: `refs/tags/v${candidate.version}`,
     GITHUB_SHA: candidate.commitSha,
-    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${candidate.version}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${candidate.version}`,
   }
   for (const [name, expectedValue] of Object.entries(expected)) {
     if (environment[name] !== expectedValue) {

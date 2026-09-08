@@ -383,7 +383,7 @@ test("record-artifact routes exact action outputs into one canonical release rec
     paths.upload,
     `${JSON.stringify({
       artifactId: "9001",
-      artifactUrl: "https://github.com/cacheplane/b4-run/actions/runs/7001/artifacts/9001",
+      artifactUrl: "https://github.com/cacheplane/b4run/actions/runs/7001/artifacts/9001",
       artifactDigest: "a".repeat(64),
     })}\n`,
   )
@@ -1019,7 +1019,7 @@ test("abandon CLI rejects noncanonical artifact-context bytes before recording",
         github: { reader: {}, writer: {} },
         npm: { observePackageVersion: async () => assert.fail("must not observe npm") },
         environment: {
-          GITHUB_REPOSITORY: "cacheplane/b4-run",
+          GITHUB_REPOSITORY: "cacheplane/b4run",
           GITHUB_RUN_ID: "700",
           GITHUB_RUN_ATTEMPT: "1",
           GITHUB_ACTOR: "release-operator",
@@ -1052,7 +1052,7 @@ test("abandon CLI derives fresh protected evidence inside each requested mutatio
   })
   const environment = Object.freeze({
     GITHUB_TOKEN: "must-not-cross-abandonment-authority-boundary",
-    GITHUB_REPOSITORY: "cacheplane/b4-run",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_RUN_ID: "700",
     GITHUB_RUN_ATTEMPT: "1",
     GITHUB_ACTOR: "release-operator",
@@ -1161,8 +1161,8 @@ test("audit CLI routes keep dispatch, marker recording, correlation, and publica
   const dispatchReceipt = {
     workflow: ".github/workflows/published-artifact-verify.yml",
     workflowRunId: 501,
-    runUrl: "https://api.github.com/repos/cacheplane/b4-run/actions/runs/501",
-    htmlUrl: "https://github.com/cacheplane/b4-run/actions/runs/501",
+    runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/501",
+    htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/501",
   }
   const audit = {
     schemaVersion: 1,
@@ -1332,8 +1332,8 @@ test("wait-audit fails closed without writing a result when the exact run stays 
   const dispatch = {
     workflow: ".github/workflows/published-artifact-verify.yml",
     workflowRunId: 777,
-    runUrl: "https://api.github.com/repos/cacheplane/b4-run/actions/runs/777",
-    htmlUrl: "https://github.com/cacheplane/b4-run/actions/runs/777",
+    runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/777",
+    htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/777",
   }
   await Promise.all([
     writeFile(candidatePath, JSON.stringify(CANDIDATE)),
@@ -1703,7 +1703,7 @@ test("GitHub-mutating routes lazily construct the production boundary from the e
     {
       cwd: directory,
       environment: Object.freeze({
-        GITHUB_REPOSITORY_ID: "1360603908",
+        GITHUB_REPOSITORY_ID: "1210070282",
         GITHUB_TOKEN: "exact-test-token",
       }),
       importModule,
@@ -1714,7 +1714,7 @@ test("GitHub-mutating routes lazily construct the production boundary from the e
   assert.deepEqual(readerCall, {
     owner: "cacheplane",
     repo: "b4-run",
-    repositoryId: "1360603908",
+    repositoryId: "1210070282",
     token: "exact-test-token",
   })
   assert.deepEqual(writerCall, {
@@ -1861,7 +1861,7 @@ test("attestation-output verifies the action bundle and materializes exact write
   const attestationSet = parseAttestationSet(JSON.parse(setBytes), {
     candidate: CANDIDATE,
     manifest,
-    repository: "cacheplane/b4-run",
+    repository: "cacheplane/b4run",
   })
   assert.deepEqual(setBytes, canonicalTestJsonBytes(attestationSet))
   const names = (await readdir(bundlesDirectory)).sort()
@@ -2011,12 +2011,12 @@ test("escrow reads one canonical attestation set and its exact pinned 22-bundle 
       now: () => Date.parse("2026-08-25T09:03:00Z"),
       environment: Object.freeze({
         GITHUB_TOKEN: "token",
-        GITHUB_REPOSITORY: "cacheplane/b4-run",
+        GITHUB_REPOSITORY: "cacheplane/b4run",
         GITHUB_REF: `refs/tags/v${CANDIDATE.version}`,
         GITHUB_SHA: CANDIDATE.commitSha,
         GITHUB_RUN_ID: "701",
         GITHUB_RUN_ATTEMPT: "2",
-        GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${CANDIDATE.version}`,
+        GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${CANDIDATE.version}`,
       }),
       importModule,
     },
@@ -2061,7 +2061,7 @@ test("escrow reads one canonical attestation set and its exact pinned 22-bundle 
     parseAttestationSet(received.attestationSet, {
       candidate: CANDIDATE,
       manifest,
-      repository: "cacheplane/b4-run",
+      repository: "cacheplane/b4run",
     }),
     received.attestationSet,
   )
@@ -2102,12 +2102,12 @@ test("escrow reads one canonical attestation set and its exact pinned 22-bundle 
         now: () => Date.parse("2026-08-25T09:03:00Z"),
         environment: Object.freeze({
           GITHUB_TOKEN: "token",
-          GITHUB_REPOSITORY: "cacheplane/b4-run",
+          GITHUB_REPOSITORY: "cacheplane/b4run",
           GITHUB_REF: `refs/tags/v${CANDIDATE.version}`,
           GITHUB_SHA: CANDIDATE.commitSha,
           GITHUB_RUN_ID: "701",
           GITHUB_RUN_ATTEMPT: "2",
-          GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${CANDIDATE.version}`,
+          GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${CANDIDATE.version}`,
         }),
         importModule,
       },
@@ -2213,12 +2213,12 @@ function observer(values) {
 
 function abandonmentContextEnvironment() {
   return {
-    GITHUB_REPOSITORY: "cacheplane/b4-run",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_REF: `refs/tags/v${CANDIDATE.version}`,
     GITHUB_SHA: CANDIDATE.commitSha,
     GITHUB_RUN_ID: "7001",
     GITHUB_RUN_ATTEMPT: "2",
-    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${CANDIDATE.version}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${CANDIDATE.version}`,
   }
 }
 
@@ -2370,7 +2370,7 @@ function attestationSetFixture(
   ]
   const bundleSha256 = digest(bundleBytes, "sha256")
   return {
-    repository: "cacheplane/b4-run",
+    repository: "cacheplane/b4run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${CANDIDATE.version}`,
     commitSha: CANDIDATE.commitSha,
@@ -2399,7 +2399,7 @@ function multiSubjectAttestationBundle(manifest, { workflowRunId, runAttempt }) 
     predicate: {
       runDetails: {
         metadata: {
-          invocationId: `https://github.com/cacheplane/b4-run/actions/runs/${workflowRunId}/attempts/${runAttempt}`,
+          invocationId: `https://github.com/cacheplane/b4run/actions/runs/${workflowRunId}/attempts/${runAttempt}`,
         },
       },
     },
@@ -2483,7 +2483,7 @@ function digest(bytes, algorithm) {
 }
 
 function artifactUrl(artifactId) {
-  return `https://github.com/cacheplane/b4-run/actions/runs/7001/artifacts/${artifactId}`
+  return `https://github.com/cacheplane/b4run/actions/runs/7001/artifacts/${artifactId}`
 }
 
 function presentEnvelope(operation, value) {

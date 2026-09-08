@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/b4-logo-horizontal-black-on-white.png" alt="B4.run" width="180" />
+  <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/b4-logo-horizontal-black-on-white.png" alt="B4.run" width="180" />
 </p>
 
 # @b4run/ag-ui
@@ -154,8 +154,8 @@ They translate protocol data; they do not authenticate callers or make client-pr
 
 ## Maturity and support
 
-B4.run is pre-1.0, and its public surface can change. All publishable B4.run packages release together as a fixed group; review the [`@b4run/ag-ui` changelog](https://github.com/cacheplane/b4-run/blob/main/packages/ag-ui/CHANGELOG.md) and [upgrading guide](https://b4.run/docs/upgrading) before upgrading. For support, use [GitHub Discussions](https://github.com/cacheplane/b4-run/discussions); report defects in [GitHub Issues](https://github.com/cacheplane/b4-run/issues).
+B4.run is pre-1.0, and its public surface can change. All publishable B4.run packages release together as a fixed group; review the [`@b4run/ag-ui` changelog](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/CHANGELOG.md) and [upgrading guide](https://b4.run/docs/upgrading) before upgrading. For support, use [GitHub Discussions](https://github.com/cacheplane/b4run/discussions); report defects in [GitHub Issues](https://github.com/cacheplane/b4run/issues).
 
 ## License
 
-MIT. See the [repository license](https://github.com/cacheplane/b4-run/blob/main/LICENSE).
+MIT. See the [repository license](https://github.com/cacheplane/b4run/blob/main/LICENSE).

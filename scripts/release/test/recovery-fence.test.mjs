@@ -23,10 +23,10 @@ for (const [name, damage] of Object.entries({
     f.evidence.cases.pop()
   },
   "production repo": (f) => {
-    f.evidence.repository = "cacheplane/b4-run"
+    f.evidence.repository = "cacheplane/b4run"
   },
   "production ID": (f) => {
-    f.evidence.repositoryId = "1360603908"
+    f.evidence.repositoryId = "1210070282"
   },
   "accepted disabled request": (f) => {
     const c = f.evidence.cases.find((c) => c.stage === "disabled")
@@ -63,7 +63,7 @@ for (const [name, damage] of Object.entries({
     f.evidence.restoration.finalInventoryCalls = []
   },
   "production call": (f) => {
-    f.evidence.calls[0].path = "/repos/cacheplane/b4-run"
+    f.evidence.calls[0].path = "/repos/cacheplane/b4run"
   },
   "fixture mismatch": (f) => {
     f.fixtureBytes.current += "# changed\n"
@@ -93,7 +93,7 @@ async function runtimeFixture() {
   const { candidate: candidateFixture } = await import("./support/recovery-fixture.mjs")
   const candidate = {
     ...candidateFixture(),
-    repositoryId: "1360603908",
+    repositoryId: "1210070282",
     candidateSha: sourceSha,
   }
   const executor = {
@@ -219,7 +219,7 @@ async function runtimeFixture() {
     calls = []
   const values = {
     getRepository: {
-      id: 1360603908,
+      id: 1210070282,
       full_name: candidate.repository,
       default_branch: "main",
     },

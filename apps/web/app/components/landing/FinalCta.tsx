@@ -38,7 +38,7 @@ export function FinalCta() {
         <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
           <CopyCommand command="npm create b4-app@latest my-agent" />
           <a
-            href="https://github.com/cacheplane/b4-run"
+            href="https://github.com/cacheplane/b4run"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-sm font-medium text-ink hover:text-accent-saas transition-colors"

@@ -11,7 +11,7 @@ export function auditExecutorFixture() {
     head_branch: "main",
     event: "workflow_dispatch",
     path: workflow,
-    repository: { id: 1360603908, full_name: "cacheplane/b4-run" },
+    repository: { id: 1210070282, full_name: "cacheplane/b4run" },
   }
   const hash = (s) => createHash("sha256").update(s).digest("hex")
   const files = new Map([
@@ -32,7 +32,7 @@ export function auditExecutorFixture() {
   files.set("scripts/release/test/fixtures/release-script-hashes.json", pins)
   const authorization = {
     schemaVersion: 1,
-    repository: "cacheplane/b4-run",
+    repository: "cacheplane/b4run",
     candidate: { ...candidate, manifestSha256 },
     workflow,
     workflowSha256: hash(files.get(workflow)),

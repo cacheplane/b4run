@@ -32,8 +32,8 @@ pnpm exec b4 inspect
 
 ## Maturity and support
 
-B4.run is pre-1.0, and its public surface can change. All publishable B4.run packages release together as a fixed group; review the [`@b4run/inspector` changelog](https://github.com/cacheplane/b4-run/blob/main/packages/inspector/CHANGELOG.md) and [upgrading guide](https://b4.run/docs/upgrading) before upgrading. For support, use [GitHub Discussions](https://github.com/cacheplane/b4-run/discussions); report defects in [GitHub Issues](https://github.com/cacheplane/b4-run/issues).
+B4.run is pre-1.0, and its public surface can change. All publishable B4.run packages release together as a fixed group; review the [`@b4run/inspector` changelog](https://github.com/cacheplane/b4run/blob/main/packages/inspector/CHANGELOG.md) and [upgrading guide](https://b4.run/docs/upgrading) before upgrading. For support, use [GitHub Discussions](https://github.com/cacheplane/b4run/discussions); report defects in [GitHub Issues](https://github.com/cacheplane/b4run/issues).
 
 ## License
 
-MIT. See the [repository license](https://github.com/cacheplane/b4-run/blob/main/LICENSE).
+MIT. See the [repository license](https://github.com/cacheplane/b4run/blob/main/LICENSE).

@@ -44,7 +44,7 @@ For release work, also run `pnpm test:release-controller` and follow the
 ## Current B4.run Release Operations
 
 The source identity is `@b4run/*`, `create-b4-app`, and repository
-`cacheplane/b4-run` (1360603908). Repository Actions remain disabled during the
+`cacheplane/b4run` (1210070282). Repository Actions remain disabled during the
 rename. The current recovery policy is DORMANT and carries no admitted fence
 contracts or verifier digest. Old Dawn incident records, receipts, and operator
 authorizations remain bound to their original source and repository; they do

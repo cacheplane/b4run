@@ -15,7 +15,7 @@ import {
 import { runOwnerPreflightCli } from "../preflight-owner-cli.mjs"
 
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url))
-const REPOSITORY = "cacheplane/b4-run"
+const REPOSITORY = "cacheplane/b4run"
 const SHA = "0123456789abcdef0123456789abcdef01234567"
 const OTHER_SHA = "1123456789abcdef0123456789abcdef01234567"
 const BLOB_SHA = "2123456789abcdef0123456789abcdef01234567"

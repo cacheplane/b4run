@@ -1843,7 +1843,7 @@ async function runSparseProductionSequence(fixture, scenario) {
     B4_COMMAND_LOG: commandLog,
     B4_FETCH_LOG: fetchLog,
     GITHUB_API_URL: "https://api.github.com",
-    GITHUB_REPOSITORY: "cacheplane/b4-run",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_TOKEN: "fixture-token",
   }
   const resolve = spawnSync(
@@ -1922,7 +1922,7 @@ const binary = (value, status = 200) =>
     status,
     headers: { "content-type": "application/octet-stream" },
   })
-const api = "https://api.github.com/repos/cacheplane/b4-run"
+const api = "https://api.github.com/repos/cacheplane/b4run"
 const artifactUrl = \`\${api}/actions/artifacts/\${fixture.record.actionsArtifact.id}\`
 const attemptUrl = \`\${api}/actions/runs/\${fixture.record.actionsArtifact.prepareRunId}/attempts/\${fixture.record.actionsArtifact.prepareRunAttempt}\`
 const downloadUrl = \`\${artifactUrl}/zip\`
@@ -2207,8 +2207,8 @@ function bootstrapAuthorization({ manifest, record }, overrides = {}) {
   return {
     schemaVersion: 1,
     status: "enabled",
-    repository: "cacheplane/b4-run",
-    repositoryId: "1360603908",
+    repository: "cacheplane/b4run",
+    repositoryId: "1210070282",
     publisherWorkflow: ".github/workflows/release.yml",
     version: VERSION,
     commitSha: COMMIT_SHA,
@@ -2233,7 +2233,7 @@ function canonicalAuthorization(document) {
 function bootstrapPublisherEnvironment(authorization, token = BOOTSTRAP_TOKEN) {
   return {
     ...publisherProvenanceEnvironment(),
-    GITHUB_REPOSITORY_ID: "1360603908",
+    GITHUB_REPOSITORY_ID: "1210070282",
     B4_NPM_BOOTSTRAP_AUTHORIZATION: canonicalAuthorization(authorization),
     B4_NPM_BOOTSTRAP_TOKEN: token,
   }
@@ -2586,7 +2586,7 @@ function verifiedAuditEvidence() {
       predicateType: "https://slsa.dev/provenance/v1",
       workflow: CANDIDATE.publisherWorkflow,
       commitSha: COMMIT_SHA,
-      repository: "https://github.com/cacheplane/b4-run",
+      repository: "https://github.com/cacheplane/b4run",
       ref: `refs/tags/v${VERSION}`,
     },
   }
@@ -2595,7 +2595,7 @@ function verifiedAuditEvidence() {
 function npmAuditOutput(entry) {
   assert.ok(entry)
   const ref = `refs/tags/v${VERSION}`
-  const repository = "https://github.com/cacheplane/b4-run"
+  const repository = "https://github.com/cacheplane/b4run"
   const statement = {
     _type: "https://in-toto.io/Statement/v1",
     subject: [
@@ -2616,7 +2616,7 @@ function npmAuditOutput(entry) {
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: "https://github.com/cacheplane/b4-run/actions/runs/100/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4run/actions/runs/100/attempts/1",
         },
       },
     },
@@ -2757,14 +2757,14 @@ function publisherProvenanceEnvironment() {
     GITHUB_ACTIONS: "true",
     GITHUB_EVENT_NAME: "workflow_dispatch",
     GITHUB_REF: `refs/tags/v${VERSION}`,
-    GITHUB_REPOSITORY: "cacheplane/b4-run",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_REPOSITORY_ID: "123456789",
     GITHUB_REPOSITORY_OWNER_ID: "987654321",
     GITHUB_RUN_ATTEMPT: "1",
     GITHUB_RUN_ID: "100",
     GITHUB_SERVER_URL: "https://github.com",
     GITHUB_SHA: COMMIT_SHA,
-    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
     RUNNER_ENVIRONMENT: "github-hosted",
   }
 }
@@ -2803,7 +2803,7 @@ function registryObservation(entry, ready, corrupt, rawSignature, integrityMisma
               predicateTypes: ["https://slsa.dev/provenance/v1"],
               workflow: CANDIDATE.publisherWorkflow,
               commitSha: COMMIT_SHA,
-              repository: "https://github.com/cacheplane/b4-run",
+              repository: "https://github.com/cacheplane/b4run",
               ref: `refs/tags/v${VERSION}`,
             }
           : {
@@ -2859,7 +2859,7 @@ function multiSubjectBundleBytes(files) {
     predicate: {
       runDetails: {
         metadata: {
-          invocationId: "https://github.com/cacheplane/b4-run/actions/runs/1/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4run/actions/runs/1/attempts/1",
         },
       },
     },

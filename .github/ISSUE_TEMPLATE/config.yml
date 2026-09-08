@@ -4,10 +4,10 @@ contact_links:
     url: https://b4.run/docs/getting-started
     about: Read B4's public documentation.
   - name: Discussions
-    url: https://github.com/cacheplane/b4-run/discussions
+    url: https://github.com/cacheplane/b4run/discussions
     about: Ask usage questions and discuss designs.
   - name: Security reports
-    url: https://github.com/cacheplane/b4-run/security/advisories/new
+    url: https://github.com/cacheplane/b4run/security/advisories/new
     about: Report vulnerabilities privately.
   - name: Brand assets
     url: https://b4.run/brand

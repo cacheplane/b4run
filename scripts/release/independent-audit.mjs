@@ -33,7 +33,7 @@ import { isExactSemver, parseSemver } from "./semver.mjs"
 import { REQUIRED_RELEASE_SMOKE_LANES } from "./smoke-result.mjs"
 import { canonicalAuditResultBytes, parseAuditResult } from "./terminal-records.mjs"
 
-const REPOSITORY = "cacheplane/b4-run"
+const REPOSITORY = "cacheplane/b4run"
 const WORKFLOW = ".github/workflows/published-artifact-verify.yml"
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u

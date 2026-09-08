@@ -643,16 +643,16 @@ function packedManifest(
   } = {},
 ) {
   return {
-    bugs: { url: "https://github.com/cacheplane/b4-run/issues" },
+    bugs: { url: "https://github.com/cacheplane/b4run/issues" },
     description: "B4 package fixture for TypeScript tooling pack verification.",
     engines: { node: ">=22.12.0" },
     exports: { ".": { default: "./dist/index.js", types: "./dist/index.d.ts" } },
-    homepage: `https://github.com/cacheplane/b4-run/tree/main/${name}`,
+    homepage: `https://github.com/cacheplane/b4run/tree/main/${name}`,
     keywords: ["b4", "typescript", "developer-tools"],
     license: "MIT",
     name,
     publishConfig: { access: "public" },
-    repository: { type: "git", url: "git+https://github.com/cacheplane/b4-run.git" },
+    repository: { type: "git", url: "git+https://github.com/cacheplane/b4run.git" },
     types: "./dist/index.d.ts",
     version: PACKAGE_VERSION,
     ...(name === "@b4run/vite-plugin"

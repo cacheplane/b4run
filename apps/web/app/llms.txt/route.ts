@@ -160,7 +160,7 @@ function buildLlmsTxt(): string {
       "https://b4.run/llms-full.txt",
       "",
       "## Source",
-      "https://github.com/cacheplane/b4-run",
+      "https://github.com/cacheplane/b4run",
     ].join("\n") + blogSection
   )
 }

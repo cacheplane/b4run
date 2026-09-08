@@ -83,7 +83,7 @@ test("parses only the exact canonical bounded authorization document", () => {
     ["status", canonical({ ...document, status: "disabled" })],
     ["old repository", canonical({ ...document, repository: "cacheplane/dawnai" })],
     ["old repository id", canonical({ ...document, repositoryId: "1210070282" })],
-    ["numeric repository id", canonical({ ...document, repositoryId: 1360603908 })],
+    ["numeric repository id", canonical({ ...document, repositoryId: 1210070282 })],
     ["workflow", canonical({ ...document, publisherWorkflow: ".github/workflows/publish.yml" })],
     ["prerelease version", canonical({ ...document, version: "0.9.0-rc.1" })],
     ["build version", canonical({ ...document, version: "0.9.0+build" })],
@@ -208,7 +208,7 @@ test("binds the authorization to the exact candidate, artifacts, environment, an
       {
         environment: {
           ...environment,
-          GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/ci.yml@refs/tags/v${VERSION}`,
+          GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/ci.yml@refs/tags/v${VERSION}`,
         },
       },
     ],
@@ -349,8 +349,8 @@ function authorization({ manifest = releaseManifest(), record = releaseRecord(ma
   return {
     schemaVersion: 1,
     status: "enabled",
-    repository: "cacheplane/b4-run",
-    repositoryId: "1360603908",
+    repository: "cacheplane/b4run",
+    repositoryId: "1210070282",
     publisherWorkflow: ".github/workflows/release.yml",
     version: VERSION,
     commitSha: COMMIT_SHA,
@@ -381,11 +381,11 @@ function bootstrapEnvironment() {
     GITHUB_ACTIONS: "true",
     GITHUB_EVENT_NAME: "workflow_dispatch",
     GITHUB_REF: `refs/tags/v${VERSION}`,
-    GITHUB_REPOSITORY: "cacheplane/b4-run",
-    GITHUB_REPOSITORY_ID: "1360603908",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
+    GITHUB_REPOSITORY_ID: "1210070282",
     GITHUB_SERVER_URL: "https://github.com",
     GITHUB_SHA: COMMIT_SHA,
-    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
     RUNNER_ENVIRONMENT: "github-hosted",
   }
 }

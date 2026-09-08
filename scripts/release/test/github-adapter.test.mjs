@@ -9,7 +9,7 @@ const REPO = "b4"
 const TOKEN = "github_secret_token"
 const SHA = "0123456789abcdef0123456789abcdef01234567"
 const BASE = "https://api.github.com/repos/b4run/b4"
-const REPOSITORY_ID = "1360603908"
+const REPOSITORY_ID = "1210070282"
 const ALLOWED_METHODS = [
   "downloadActionsArtifact",
   "downloadReleaseAsset",

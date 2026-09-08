@@ -155,7 +155,7 @@ const ASSET_NAME_PATTERN = /^(?!\.{1,2}$)[A-Za-z0-9][A-Za-z0-9._@+-]{0,511}$/u
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
 const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u
 const AUDIT_WORKFLOW = ".github/workflows/published-artifact-verify.yml"
-const ATTESTATION_REPOSITORY = "cacheplane/b4-run"
+const ATTESTATION_REPOSITORY = "cacheplane/b4run"
 export const MAX_AUDIT_ATTEMPTS = 128
 export const MAX_SMOKE_ATTEMPTS = 128
 const BASE_ASSET_COUNT = 45
@@ -1977,7 +1977,7 @@ function validateMultiSubjectAttestationBundle(bytes, { manifest, attestationSet
   const invocationId = statement.predicate?.runDetails?.metadata?.invocationId
   const invocation =
     typeof invocationId === "string"
-      ? /^https:\/\/github\.com\/cacheplane\/b4-run\/actions\/runs\/([1-9][0-9]*)\/attempts\/([1-9][0-9]*)$/u.exec(
+      ? /^https:\/\/github\.com\/cacheplane\/b4run\/actions\/runs\/([1-9][0-9]*)\/attempts\/([1-9][0-9]*)$/u.exec(
           invocationId,
         )
       : null

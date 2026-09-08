@@ -1064,8 +1064,8 @@ export function buildAttestationVerificationArguments({
   if (source !== "actions" && source !== "escrow") {
     throw new TypeError("Attestation source must be actions or escrow")
   }
-  if (repository !== "cacheplane/b4-run") {
-    throw new TypeError("Attestation repository must be cacheplane/b4-run")
+  if (repository !== "cacheplane/b4run") {
+    throw new TypeError("Attestation repository must be cacheplane/b4run")
   }
   validateAbsoluteRuntimePath(target, "attestation target")
   if (source === "escrow") validateAbsoluteRuntimePath(bundlePath, "attestation bundle")
@@ -1080,7 +1080,7 @@ export function buildAttestationVerificationArguments({
     "--digest-alg",
     "sha256",
     "--signer-workflow",
-    "cacheplane/b4-run/.github/workflows/release.yml",
+    "cacheplane/b4run/.github/workflows/release.yml",
     "--deny-self-hosted-runners",
     "--source-digest",
     releaseRecord.commitSha,

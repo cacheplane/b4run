@@ -132,7 +132,7 @@ test("current-main inventory validation fails closed for every release policy de
     let assertions = 0
     let stderr = ""
     const code = await runShadowReconcile({
-      argv: ["--repository", "cacheplane/b4-run", "--format", "json"],
+      argv: ["--repository", "cacheplane/b4run", "--format", "json"],
       env: {},
       stdout: { write: assert.fail },
       stderr: { write: (value) => (stderr += value) },
@@ -178,7 +178,7 @@ test("current-main fallback is limited to typed ref absence and reports exact se
     const calls = []
     let output = ""
     const code = await runShadowReconcile({
-      argv: ["--repository", "cacheplane/b4-run", "--format", "json"],
+      argv: ["--repository", "cacheplane/b4run", "--format", "json"],
       env: {},
       stdout: { write: (value) => (output += value) },
       stderr: { write: assert.fail },
@@ -217,7 +217,7 @@ test("current-main does not fall back on policy, parse, auth, or unrelated Git f
       },
     })
     const code = await runShadowReconcile({
-      argv: ["--repository", "cacheplane/b4-run", "--format", "json"],
+      argv: ["--repository", "cacheplane/b4run", "--format", "json"],
       env: {},
       stdout: { write: assert.fail },
       stderr: { write: (value) => (stderr += value) },
@@ -950,7 +950,7 @@ test("live 0.8.21 reporting preserves the frozen incident run attempt", async ()
   const code = await runShadowReconcile({
     argv: [
       "--repository",
-      "cacheplane/b4-run",
+      "cacheplane/b4run",
       "--version",
       "0.8.21",
       "--commit-sha",

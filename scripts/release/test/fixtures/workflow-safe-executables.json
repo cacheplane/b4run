@@ -1464,7 +1464,7 @@
         "stepIndex": 3,
         "step": "Require unchanged default branch head",
         "kind": "run",
-        "value": "set -euo pipefail\nif [[ \"$GITHUB_SHA\" != \"$EXPECTED_MAIN_SHA\" ]]; then\n  echo \"workflow dispatch SHA does not match expectedMainSha\" >&2\n  exit 2\nfi\nlive_main_sha=\"$(gh api repos/cacheplane/b4-run/git/ref/heads/main --jq '.object.sha')\"\nif [[ \"$live_main_sha\" != \"$EXPECTED_MAIN_SHA\" ]]; then\n  echo \"default branch moved after the reviewed observation\" >&2\n  exit 2\nfi\n"
+        "value": "set -euo pipefail\nif [[ \"$GITHUB_SHA\" != \"$EXPECTED_MAIN_SHA\" ]]; then\n  echo \"workflow dispatch SHA does not match expectedMainSha\" >&2\n  exit 2\nfi\nlive_main_sha=\"$(gh api repos/cacheplane/b4run/git/ref/heads/main --jq '.object.sha')\"\nif [[ \"$live_main_sha\" != \"$EXPECTED_MAIN_SHA\" ]]; then\n  echo \"default branch moved after the reviewed observation\" >&2\n  exit 2\nfi\n"
       },
       {
         "classification": "safe",

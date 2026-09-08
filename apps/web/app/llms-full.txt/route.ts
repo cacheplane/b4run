@@ -27,7 +27,7 @@ async function buildLlmsFull(): Promise<string> {
     "Generated reference for coding agents. This file is the concatenation of every B4.run documentation page, task-specific prompt, and agent config template served by b4.run.",
     "",
     "For the compact summary: https://b4.run/llms.txt",
-    "For source: https://github.com/cacheplane/b4-run",
+    "For source: https://github.com/cacheplane/b4run",
     "",
     "## Brand Assets",
     "Official B4.run logos, icons, favicons, and social assets:",

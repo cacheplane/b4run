@@ -28,7 +28,7 @@ There is also a concrete registry-observation prerequisite: `scripts/release/ada
 
 ## Exact authority and package set
 
-Require repository `cacheplane/b4-run`, numeric repository ID `1360603908`, publisher workflow `.github/workflows/release.yml`, `workflow_dispatch`, GitHub-hosted runner, and `refs/tags/v<version>` resolving to the exact selected candidate SHA. Keep the existing environment contract with no GitHub environment configured; adding one would require a separate reviewed change to that contract and later npm trust configuration.
+Require repository `cacheplane/b4run`, numeric repository ID `1210070282`, publisher workflow `.github/workflows/release.yml`, `workflow_dispatch`, GitHub-hosted runner, and `refs/tags/v<version>` resolving to the exact selected candidate SHA. Keep the existing environment contract with no GitHub environment configured; adding one would require a separate reviewed change to that contract and later npm trust configuration.
 
 Require exactly these 21 names, compared as a set with no duplicates, in the sealed manifest; a scope wildcard is insufficient:
 
@@ -69,8 +69,8 @@ Use two explicit controls in addition to the existing candidate selection:
 type BootstrapAuthorization = {
   schemaVersion: 1
   status: "enabled"
-  repository: "cacheplane/b4-run"
-  repositoryId: "1360603908"
+  repository: "cacheplane/b4run"
+  repositoryId: "1210070282"
   publisherWorkflow: ".github/workflows/release.yml"
   version: string                 // exact selected release version
   commitSha: string               // exact 40-character lowercase SHA
@@ -185,7 +185,7 @@ If authorization or credential expires after some packages succeed, stop further
 - [ ] The owner provisions the fresh npm credential with confirmed scope/creation rights and saves it in the dedicated repository secret through a secret-safe interface. Separately provision the already-requested repo-scoped GitHub release credentials; those do not substitute for npm authentication.
 - [ ] Explicitly dispatch the exact tag/candidate with `npmBootstrap: true`. Record only nonsecret activation identity, validity window and auth-mode events alongside normal run links; existing npm evidence remains authoritative for package verification.
 - [ ] Resume only the same candidate as described above until all 21 packages pass normal npm verification.
-- [ ] Configure npm trust for each exact package with `npm trust github <package> --repo cacheplane/b4-run --file release.yml --allow-publish`, using supported owner authentication and interactive 2FA. Do not pass `--env` while the publisher has no environment. Verify each configuration with `npm trust list <package>` and preserve nonsecret receipts. No stage-publish permission is needed. The bootstrap bypass-2FA credential is not supported for trust-management commands. See [npm trust](https://docs.npmjs.com/cli/v11/commands/npm-trust/).
+- [ ] Configure npm trust for each exact package with `npm trust github <package> --repo cacheplane/b4run --file release.yml --allow-publish`, using supported owner authentication and interactive 2FA. Do not pass `--env` while the publisher has no environment. Verify each configuration with `npm trust list <package>` and preserve nonsecret receipts. No stage-publish permission is needed. The bootstrap bypass-2FA credential is not supported for trust-management commands. See [npm trust](https://docs.npmjs.com/cli/v11/commands/npm-trust/).
 - [ ] Revoke the bootstrap credential at npm, delete the GitHub secret and remove the enabled authorization variable. Verify absence/revocation without printing credential contents. This disables old-tag replay even before source retirement lands.
 - [ ] Remove the bootstrap input, auth path and policy module in a follow-up change after publication/trust configuration; update current pins/contracts again. Retain regression tests proving ambient credentials never affect permanent OIDC mode, plus nonsecret operational history.
 - [ ] Finish normal smoke/finalization gates for the first release. Verify actual trusted-publisher authentication on the next legitimate version publication; rerunning an already-present version only verifies evidence and does not prove OIDC publishing works. Do not publish a throwaway version solely to test authentication.

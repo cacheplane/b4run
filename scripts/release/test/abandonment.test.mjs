@@ -819,7 +819,7 @@ function makeAttestationSet() {
   ]
   const bundleSha256 = sha256(bytesForName("multi-subject.intoto.jsonl"))
   return {
-    repository: "cacheplane/b4-run",
+    repository: "cacheplane/b4run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${VERSION}`,
     commitSha: SHA,
@@ -1017,12 +1017,12 @@ async function createContextFromRemote(remote) {
     {
       candidate: CANDIDATE,
       environment: {
-        GITHUB_REPOSITORY: "cacheplane/b4-run",
+        GITHUB_REPOSITORY: "cacheplane/b4run",
         GITHUB_REF: `refs/tags/v${VERSION}`,
         GITHUB_SHA: SHA,
         GITHUB_RUN_ID: "910",
         GITHUB_RUN_ATTEMPT: "1",
-        GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+        GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
       },
     },
     {

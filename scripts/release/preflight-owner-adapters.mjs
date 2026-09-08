@@ -642,7 +642,7 @@ function exactVersion(value, label) {
 }
 
 function repositoryFromEnvironment(environment) {
-  const repository = environment.GITHUB_REPOSITORY ?? "cacheplane/b4-run"
+  const repository = environment.GITHUB_REPOSITORY ?? "cacheplane/b4run"
   assertRepository(repository)
   return repository
 }

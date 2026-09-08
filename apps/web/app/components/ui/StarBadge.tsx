@@ -33,7 +33,7 @@ export async function StarBadge({ className = "" }: StarBadgeProps) {
   const stars = await getGitHubStars()
   return (
     <a
-      href="https://github.com/cacheplane/b4-run"
+      href="https://github.com/cacheplane/b4run"
       target="_blank"
       rel="noopener noreferrer"
       aria-label={`${formatStars(stars)} stars on GitHub — star B4.run`}

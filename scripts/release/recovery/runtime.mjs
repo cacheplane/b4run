@@ -70,7 +70,7 @@ export function createRecoveryRuntime(
   const repository = candidate?.repository ?? environment.GITHUB_REPOSITORY
   const repositoryId = candidate?.repositoryId ?? environment.GITHUB_REPOSITORY_ID
   requireThat(
-    repository === "cacheplane/b4-run" && /^[1-9][0-9]{0,31}$/u.test(repositoryId),
+    repository === "cacheplane/b4run" && /^[1-9][0-9]{0,31}$/u.test(repositoryId),
     "Exact recovery repository required",
   )
   const token = environment.GITHUB_TOKEN ?? ""
@@ -221,7 +221,7 @@ export async function resolveRecoveryAuditRequest(inputs, runtime, actualSha) {
   })
   const matches = reservations.filter(
     (r) =>
-      r.intent.candidate.repository === "cacheplane/b4-run" &&
+      r.intent.candidate.repository === "cacheplane/b4run" &&
       r.intent.candidate.releaseId === inputs.release_id,
   )
   requireThat(matches.length === 1, "Unique committed audit reservation required")

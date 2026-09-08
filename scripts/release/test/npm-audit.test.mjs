@@ -36,7 +36,7 @@ test("parses the exact npm 11 audit shape and binds its verified SLSA statement"
       predicateType: "https://slsa.dev/provenance/v1",
       workflow: CANDIDATE.publisherWorkflow,
       commitSha: COMMIT_SHA,
-      repository: "https://github.com/cacheplane/b4-run",
+      repository: "https://github.com/cacheplane/b4run",
       ref: `refs/tags/v${VERSION}`,
     },
   }
@@ -127,14 +127,14 @@ test("uses one synthetic exact-package tree with no install, unpack, or lockfile
     GITHUB_ACTIONS: "true",
     GITHUB_EVENT_NAME: "workflow_dispatch",
     GITHUB_REF: `refs/tags/v${VERSION}`,
-    GITHUB_REPOSITORY: "cacheplane/b4-run",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_REPOSITORY_ID: "123456789",
     GITHUB_REPOSITORY_OWNER_ID: "987654321",
     GITHUB_RUN_ATTEMPT: "1",
     GITHUB_RUN_ID: "100",
     GITHUB_SERVER_URL: "https://github.com",
     GITHUB_SHA: COMMIT_SHA,
-    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
     RUNNER_ENVIRONMENT: "github-hosted",
     NODE_OPTIONS: "--require=/credential/stealer.cjs",
     NPM_TOKEN: "must-not-leak",
@@ -252,7 +252,7 @@ test("uses one synthetic exact-package tree with no install, unpack, or lockfile
       ["GITHUB_REF", "refs/heads/main"],
       ["GITHUB_REPOSITORY", "fork/b4-run"],
       ["GITHUB_SHA", "f".repeat(40)],
-      ["GITHUB_WORKFLOW_REF", "cacheplane/b4-run/.github/workflows/other.yml@refs/tags/v0.8.22"],
+      ["GITHUB_WORKFLOW_REF", "cacheplane/b4run/.github/workflows/other.yml@refs/tags/v0.8.22"],
       ["RUNNER_ENVIRONMENT", "self-hosted"],
     ]) {
       const valid = sourceEnvironment[name]
@@ -414,14 +414,14 @@ function provenanceEnvironment() {
     GITHUB_ACTIONS: "true",
     GITHUB_EVENT_NAME: "workflow_dispatch",
     GITHUB_REF: `refs/tags/v${VERSION}`,
-    GITHUB_REPOSITORY: "cacheplane/b4-run",
-    GITHUB_REPOSITORY_ID: "1360603908",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
+    GITHUB_REPOSITORY_ID: "1210070282",
     GITHUB_REPOSITORY_OWNER_ID: "987654321",
     GITHUB_RUN_ATTEMPT: "1",
     GITHUB_RUN_ID: "100",
     GITHUB_SERVER_URL: "https://github.com",
     GITHUB_SHA: COMMIT_SHA,
-    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
     RUNNER_ENVIRONMENT: "github-hosted",
     ACTIONS_ID_TOKEN_REQUEST_TOKEN: "exact-oidc-token",
     ACTIONS_ID_TOKEN_REQUEST_URL: "https://token.actions.githubusercontent.com/exact",
@@ -482,7 +482,7 @@ test("pins the exact npm CLI contract consumed by the strict audit parser", asyn
 
 function auditOutput(drift = {}) {
   const version = drift.version ?? VERSION
-  const repository = drift.repository ?? "https://github.com/cacheplane/b4-run"
+  const repository = drift.repository ?? "https://github.com/cacheplane/b4run"
   const workflow = drift.workflow ?? CANDIDATE.publisherWorkflow
   const ref = drift.ref ?? `refs/tags/v${VERSION}`
   const commitSha = drift.commitSha ?? COMMIT_SHA
@@ -511,7 +511,7 @@ function auditOutput(drift = {}) {
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: "https://github.com/cacheplane/b4-run/actions/runs/100/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4run/actions/runs/100/attempts/1",
         },
       },
     },

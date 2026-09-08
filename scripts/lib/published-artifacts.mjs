@@ -12,7 +12,7 @@ import { validatePackageDiscoveryMetadata } from "./readme-contracts.mjs"
 
 export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 export const PUBLISHED_RELEASE_WORKFLOW = ".github/workflows/release.yml"
-export const PUBLISHED_RELEASE_REPOSITORY = "https://github.com/cacheplane/b4-run"
+export const PUBLISHED_RELEASE_REPOSITORY = "https://github.com/cacheplane/b4run"
 
 export const packageSets = {
   "ag-ui": ["@b4run/ag-ui"],

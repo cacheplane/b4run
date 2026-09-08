@@ -3,7 +3,7 @@ import { CANONICAL_RELEASE_PACKAGE_ORDER } from "./manifest.mjs"
 import { validateAllAttemptJobs } from "./metadata.mjs"
 import { isExactSemver, parseSemver } from "./semver.mjs"
 
-const REPOSITORY = "cacheplane/b4-run"
+const REPOSITORY = "cacheplane/b4run"
 const WORKFLOW = "release.yml"
 const ENVIRONMENT = "release-abandonment"
 const MINIMUM_OBSERVATION_GAP_MS = 60_000

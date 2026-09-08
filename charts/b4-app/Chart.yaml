@@ -6,6 +6,6 @@ version: 0.2.4
 appVersion: "0.8.26"
 keywords: [b4, langgraph, kubernetes, deployment]
 home: https://b4.run
-sources: [https://github.com/cacheplane/b4-run]
+sources: [https://github.com/cacheplane/b4run]
 maintainers:
   - name: B4.run

@@ -6,6 +6,6 @@ version: 0.1.8
 appVersion: "0.8.26"
 keywords: [b4, sandbox, kubernetes, security]
 home: https://b4.run
-sources: [https://github.com/cacheplane/b4-run]
+sources: [https://github.com/cacheplane/b4run]
 maintainers:
   - name: B4.run

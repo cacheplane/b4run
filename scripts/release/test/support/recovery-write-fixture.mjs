@@ -53,7 +53,7 @@ export async function recoveryWriteRemote(options = {}) {
     if (options.method === "POST") {
       if (
         parsed.origin !== "https://uploads.github.com" ||
-        parsed.pathname !== "/repos/cacheplane/b4-run/releases/902/assets"
+        parsed.pathname !== "/repos/cacheplane/b4run/releases/902/assets"
       )
         throw new Error("unbounded write")
       const name = parsed.searchParams.get("name")
@@ -63,7 +63,7 @@ export async function recoveryWriteRemote(options = {}) {
       assets.push(ref)
       r.setAssets(assets)
     } else if (options.method === "PATCH") {
-      if (parsed.href !== "https://api.github.com/repos/cacheplane/b4-run/releases/902")
+      if (parsed.href !== "https://api.github.com/repos/cacheplane/b4run/releases/902")
         throw new Error("unbounded write")
       const body = JSON.parse(options.body)
       if (Object.keys(body).sort().join() === "draft,tag_name") {

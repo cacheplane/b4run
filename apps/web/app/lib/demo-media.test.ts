@@ -38,7 +38,7 @@ describe("demoMedia", () => {
       expect(clip.caption.trim(), `${key} caption`).not.toBe("")
       expect(clip.ariaLabel.trim(), `${key} aria label`).not.toBe("")
       expect(clip.transcript, `${key} transcript`).toMatch(
-        /^https:\/\/github\.com\/cacheplane\/b4-run\/blob\/main\/docs\/brand\/demo\/transcript\.md#/u,
+        /^https:\/\/github\.com\/cacheplane\/b4run\/blob\/main\/docs\/brand\/demo\/transcript\.md#/u,
       )
     }
   })

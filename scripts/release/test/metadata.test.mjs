@@ -34,7 +34,7 @@ const CANDIDATE = Object.freeze({
   ciCheck: "validate",
   publisherWorkflow: ".github/workflows/release.yml",
 })
-const REPOSITORY = "cacheplane/b4-run"
+const REPOSITORY = "cacheplane/b4run"
 const SMOKE_RUN = Object.freeze({ workflowRunId: 200, runAttempt: 1 })
 const SMOKE_LANES = REQUIRED_RELEASE_SMOKE_LANES
 
@@ -71,7 +71,7 @@ test("release bodies contain one canonical exact marker and reject phase-invalid
   )
 
   const foreignRepositoryBody = body.replace(
-    '"repository":"cacheplane/b4-run"',
+    '"repository":"cacheplane/b4run"',
     '"repository":"fork/b4-run"',
   )
   assert.throws(
@@ -488,8 +488,8 @@ test("publication audit history has independent count and aggregate byte bounds"
     audit: {
       workflow: ".github/workflows/published-artifact-verify.yml",
       workflowRunId: 300,
-      runUrl: "https://api.github.com/repos/cacheplane/b4-run/actions/runs/300",
-      htmlUrl: "https://github.com/cacheplane/b4-run/actions/runs/300",
+      runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/300",
+      htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/300",
       runAttempt: 1,
       attemptAssetName: "audit-attempt-300-1.json",
       attemptSha256: auditDigest,
@@ -961,7 +961,7 @@ test("npm and smoke reconciliation are separate one-transition body compare-and-
       lane,
       actionsArtifactId: String(900 + index),
       actionsArtifactName: `smoke-result-${lane}-200-1`,
-      actionsArtifactUrl: `https://github.com/cacheplane/b4-run/actions/runs/200/artifacts/${900 + index}`,
+      actionsArtifactUrl: `https://github.com/cacheplane/b4run/actions/runs/200/artifacts/${900 + index}`,
       actionsArtifactServiceDigest: remote.actionsArtifacts[index].digest,
       releaseAssetId: 46 + index,
       releaseAssetName: `smoke-result-${lane}-200-1.json`,
@@ -1466,7 +1466,7 @@ test("reconciliation rejects a foreign embedded attestation repository with zero
     github: remote.github,
   })
   remote.release.body = remote.release.body.replace(
-    '"repository":"cacheplane/b4-run"',
+    '"repository":"cacheplane/b4run"',
     '"repository":"fork/b4-run"',
   )
   const updates = remote.updateCount
@@ -1537,8 +1537,8 @@ test("consolidated publication accepts only attached canonical audit bytes and p
     audit: {
       workflow: ".github/workflows/published-artifact-verify.yml",
       workflowRunId: 300,
-      runUrl: "https://api.github.com/repos/cacheplane/b4-run/actions/runs/300",
-      htmlUrl: "https://github.com/cacheplane/b4-run/actions/runs/300",
+      runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/300",
+      htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/300",
       runAttempt: 1,
       attemptAssetName: "audit-attempt-300-1.json",
       attemptSha256: auditDigest,
@@ -1586,7 +1586,7 @@ test("consolidated publication accepts only attached canonical audit bytes and p
   remote.assets.delete("audit-attempt-299-1.json")
 
   remote.release.body = bodyBefore.replace(
-    '"repository":"cacheplane/b4-run"',
+    '"repository":"cacheplane/b4run"',
     '"repository":"fork/b4-run"',
   )
   await assert.rejects(
@@ -1765,7 +1765,7 @@ function attestationBundleBytes(subjectFiles, { runId, runAttempt, signature }) 
     predicate: {
       runDetails: {
         metadata: {
-          invocationId: `https://github.com/cacheplane/b4-run/actions/runs/${runId}/attempts/${runAttempt}`,
+          invocationId: `https://github.com/cacheplane/b4run/actions/runs/${runId}/attempts/${runAttempt}`,
         },
       },
     },
@@ -1922,7 +1922,7 @@ function completeNpmEvidence(fixture) {
         predicateType: "https://slsa.dev/provenance/v1",
         workflow: ".github/workflows/release.yml",
         commitSha: COMMIT_SHA,
-        repository: "https://github.com/cacheplane/b4-run",
+        repository: "https://github.com/cacheplane/b4run",
         ref: `refs/tags/v${VERSION}`,
       },
     })),
@@ -1985,7 +1985,7 @@ function smokeDescriptor(aggregateSha256 = "f".repeat(64)) {
       lane: receipt.lane,
       actionsArtifactId: String(900 + index),
       actionsArtifactName: `smoke-result-${receipt.lane}-${SMOKE_RUN.workflowRunId}-${SMOKE_RUN.runAttempt}`,
-      actionsArtifactUrl: `https://github.com/cacheplane/b4-run/actions/runs/${SMOKE_RUN.workflowRunId}/artifacts/${900 + index}`,
+      actionsArtifactUrl: `https://github.com/cacheplane/b4run/actions/runs/${SMOKE_RUN.workflowRunId}/artifacts/${900 + index}`,
       actionsArtifactServiceDigest: `sha256:${"9".repeat(64)}`,
       releaseAssetId: receipt.releaseAssetId,
       releaseAssetName: receipt.releaseAssetName,

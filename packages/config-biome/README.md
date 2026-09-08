@@ -38,12 +38,12 @@ The root export and `@b4run/config-biome/biome` both resolve to the supported `b
 - [`@b4run/config-typescript`](https://www.npmjs.com/package/@b4run/config-typescript) — shared compiler configurations for the same workspace packages.
 - [API catalog entry](https://b4.run/docs/api#b4runconfig-biome) — published configuration surfaces.
 - [Getting Started](https://b4.run/docs/getting-started) — scaffold a B4.run application with workspace tooling configured.
-- [B4.run repository contribution guide](https://github.com/cacheplane/b4-run/blob/main/CONTRIBUTING.md) — workspace development commands and checks.
+- [B4.run repository contribution guide](https://github.com/cacheplane/b4run/blob/main/CONTRIBUTING.md) — workspace development commands and checks.
 
 ## Maturity and support
 
-This package is pre-1.0 and releases in B4.run's fixed package group. Review the [changelog](https://github.com/cacheplane/b4-run/blob/main/packages/config-biome/CHANGELOG.md) before upgrading. For support, [open an issue](https://github.com/cacheplane/b4-run/issues).
+This package is pre-1.0 and releases in B4.run's fixed package group. Review the [changelog](https://github.com/cacheplane/b4run/blob/main/packages/config-biome/CHANGELOG.md) before upgrading. For support, [open an issue](https://github.com/cacheplane/b4run/issues).
 
 ## License
 
-MIT. See the [repository license](https://github.com/cacheplane/b4-run/blob/main/LICENSE).
+MIT. See the [repository license](https://github.com/cacheplane/b4run/blob/main/LICENSE).

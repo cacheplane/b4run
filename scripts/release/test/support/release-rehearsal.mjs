@@ -1289,8 +1289,8 @@ function rehearsalNpmAuditFactory(candidate) {
 
 function releaseRehearsalEnvironment(candidate) {
   return Object.freeze({
-    GITHUB_REPOSITORY: "cacheplane/b4-run",
-    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/${candidate.publisherWorkflow}@refs/tags/v${candidate.version}`,
+    GITHUB_REPOSITORY: "cacheplane/b4run",
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/${candidate.publisherWorkflow}@refs/tags/v${candidate.version}`,
     GITHUB_REF: `refs/tags/v${candidate.version}`,
     GITHUB_SHA: candidate.commitSha,
     GITHUB_RUN_ID: "300",
@@ -1300,9 +1300,9 @@ function releaseRehearsalEnvironment(candidate) {
 
 function independentAuditEnvironment({ candidate, workflowRunId }) {
   return Object.freeze({
-    GITHUB_REPOSITORY: "cacheplane/b4-run",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_EVENT_NAME: "workflow_dispatch",
-    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/published-artifact-verify.yml@refs/tags/v${candidate.version}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/published-artifact-verify.yml@refs/tags/v${candidate.version}`,
     GITHUB_REF: `refs/tags/v${candidate.version}`,
     GITHUB_SHA: candidate.commitSha,
     GITHUB_RUN_ID: String(workflowRunId),
@@ -1605,7 +1605,7 @@ async function loadPreparedArtifact({ artifactDir, candidate }) {
 }
 
 function createRehearsalAttestation({ candidate, prepared }) {
-  const repository = "https://github.com/cacheplane/b4-run"
+  const repository = "https://github.com/cacheplane/b4run"
   const ref = `refs/tags/v${candidate.version}`
   const statement = {
     _type: "https://in-toto.io/Statement/v1",
@@ -1632,7 +1632,7 @@ function createRehearsalAttestation({ candidate, prepared }) {
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: "https://github.com/cacheplane/b4-run/actions/runs/300/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4run/actions/runs/300/attempts/1",
         },
       },
     },
@@ -1659,7 +1659,7 @@ function createRehearsalAttestation({ candidate, prepared }) {
     bytes: bundleBytes,
   }))
   const set = Object.freeze({
-    repository: "cacheplane/b4-run",
+    repository: "cacheplane/b4run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${candidate.version}`,
     commitSha: candidate.commitSha,
@@ -1878,7 +1878,7 @@ function verifiedNpmAudit({ candidate }) {
       predicateType: "https://slsa.dev/provenance/v1",
       workflow: candidate.publisherWorkflow,
       commitSha: candidate.commitSha,
-      repository: "https://github.com/cacheplane/b4-run",
+      repository: "https://github.com/cacheplane/b4run",
       ref: `refs/tags/v${candidate.version}`,
     },
   })

@@ -2926,7 +2926,7 @@ function inventoryFromAttestationSet({ inventory, manifest, marker, attestationS
   if (
     !Array.isArray(subjects) ||
     subjects.length !== 22 ||
-    observedSet.repository !== "cacheplane/b4-run" ||
+    observedSet.repository !== "cacheplane/b4run" ||
     observedSet.workflow !== ".github/workflows/release.yml" ||
     observedSet.sourceRef !== `refs/tags/v${manifest.version}` ||
     observedSet.commitSha !== manifest.commitSha ||
@@ -3512,7 +3512,7 @@ function createObservedNpmEvidence({ candidate, manifest, registryPackages }) {
         predicateType: "https://slsa.dev/provenance/v1",
         workflow: candidate.publisherWorkflow,
         commitSha: candidate.commitSha,
-        repository: "https://github.com/cacheplane/b4-run",
+        repository: "https://github.com/cacheplane/b4run",
         ref: `refs/tags/v${candidate.version}`,
       },
     })
@@ -3589,7 +3589,7 @@ function exactNpmAuditEvidence(value, candidate) {
     value.provenance.predicateType === "https://slsa.dev/provenance/v1" &&
     value.provenance.workflow === candidate.publisherWorkflow &&
     value.provenance.commitSha === candidate.commitSha &&
-    value.provenance.repository === "https://github.com/cacheplane/b4-run" &&
+    value.provenance.repository === "https://github.com/cacheplane/b4run" &&
     value.provenance.ref === `refs/tags/v${candidate.version}`
   )
 }

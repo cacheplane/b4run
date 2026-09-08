@@ -45,10 +45,10 @@ function argv(overrides = {}) {
 
 function environment(overrides = {}) {
   return {
-    GITHUB_REPOSITORY: "cacheplane/b4-run",
-    GITHUB_REPOSITORY_ID: "1360603908",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
+    GITHUB_REPOSITORY_ID: "1210070282",
     GITHUB_EVENT_NAME: "workflow_dispatch",
-    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/published-artifact-verify.yml@refs/tags/v${VERSION}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/published-artifact-verify.yml@refs/tags/v${VERSION}`,
     GITHUB_REF: `refs/tags/v${VERSION}`,
     GITHUB_SHA: COMMIT_SHA,
     GITHUB_RUN_ID: "500",
@@ -66,7 +66,7 @@ test("accepts only the exact independent-audit arguments and GitHub invocation i
     result: "audit-result.json",
   })
   assert.deepEqual(parseIndependentAuditEnvironment(environment(), options), {
-    repository: "cacheplane/b4-run",
+    repository: "cacheplane/b4run",
     workflow: ".github/workflows/published-artifact-verify.yml",
     ref: `refs/tags/v${VERSION}`,
     commitSha: COMMIT_SHA,
@@ -95,7 +95,7 @@ test("rejects malformed, missing, duplicate, unknown, or mismatched invocation i
     environment({ GITHUB_REPOSITORY: "someone/else" }),
     environment({ GITHUB_EVENT_NAME: "push" }),
     environment({
-      GITHUB_WORKFLOW_REF: "cacheplane/b4-run/.github/workflows/release.yml@main",
+      GITHUB_WORKFLOW_REF: "cacheplane/b4run/.github/workflows/release.yml@main",
     }),
     environment({ GITHUB_REF: "refs/heads/main" }),
     environment({ GITHUB_SHA: "f".repeat(40) }),
@@ -236,7 +236,7 @@ test("constructs only bounded read-only production boundaries and never a writer
       {
         owner: "cacheplane",
         repo: "b4-run",
-        repositoryId: "1360603908",
+        repositoryId: "1210070282",
         token,
         maxResponseBytes: RELEASE_PAYLOAD_LIMITS.actionsArchiveBytes,
       },
@@ -287,8 +287,8 @@ test("waits for its exact dispatch marker and audits through the production obse
     audit: {
       ...exactMarker.audit,
       workflowRunId: 499,
-      runUrl: "https://api.github.com/repos/cacheplane/b4-run/actions/runs/499",
-      htmlUrl: "https://github.com/cacheplane/b4-run/actions/runs/499",
+      runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/499",
+      htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/499",
     },
   }
   const releases = [previousMarker, wrongRunMarker, exactMarker]
@@ -486,8 +486,8 @@ test("a missing or wrong-run dispatch marker times out into one canonical failur
     audit: {
       ...observation.release.marker.audit,
       workflowRunId: 499,
-      runUrl: "https://api.github.com/repos/cacheplane/b4-run/actions/runs/499",
-      htmlUrl: "https://github.com/cacheplane/b4-run/actions/runs/499",
+      runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/499",
+      htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/499",
     },
   }
   const calls = []
@@ -777,7 +777,7 @@ function durableAuditFixture() {
       lane: receipt.lane,
       actionsArtifactId: String(4_000 + index),
       actionsArtifactName: `smoke-result-${receipt.lane}-${workflowRunId}-${runAttempt}`,
-      actionsArtifactUrl: `https://github.com/cacheplane/b4-run/actions/runs/${workflowRunId}/artifacts/${4_000 + index}`,
+      actionsArtifactUrl: `https://github.com/cacheplane/b4run/actions/runs/${workflowRunId}/artifacts/${4_000 + index}`,
       actionsArtifactServiceDigest: `sha256:${"8".repeat(64)}`,
       releaseAssetId: receipt.releaseAssetId,
       releaseAssetName: receipt.releaseAssetName,
@@ -1068,7 +1068,7 @@ test("main invocation separates actual executor SHA from immutable payload ident
     environment({
       GITHUB_REF: "refs/heads/main",
       GITHUB_WORKFLOW_REF:
-        "cacheplane/b4-run/.github/workflows/published-artifact-verify.yml@refs/heads/main",
+        "cacheplane/b4run/.github/workflows/published-artifact-verify.yml@refs/heads/main",
       GITHUB_SHA: executorSha,
     }),
     parseIndependentAuditArgs(argv()),
@@ -1119,7 +1119,7 @@ test("authorized main executor audits the original payload and rejects unbound s
         GITHUB_REF: "refs/heads/main",
         GITHUB_SHA: f.run.head_sha,
         GITHUB_WORKFLOW_REF:
-          "cacheplane/b4-run/.github/workflows/published-artifact-verify.yml@refs/heads/main",
+          "cacheplane/b4run/.github/workflows/published-artifact-verify.yml@refs/heads/main",
       }),
       createRuntime: async () => runtime,
       now: fixedTimestamps(),

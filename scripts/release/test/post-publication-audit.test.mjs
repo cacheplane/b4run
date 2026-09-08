@@ -45,7 +45,7 @@ test("main post-publication audit preserves candidate identity and remains mutat
       GITHUB_REF: "refs/heads/main",
       GITHUB_SHA: mainSha,
       GITHUB_WORKFLOW_REF:
-        "cacheplane/b4-run/.github/workflows/published-artifact-verify.yml@refs/heads/main",
+        "cacheplane/b4run/.github/workflows/published-artifact-verify.yml@refs/heads/main",
     },
     now: fixedTimestamps(),
     createRuntime: async ({ candidate, invocation }) => {
@@ -150,9 +150,9 @@ function argv() {
 
 function environment() {
   return {
-    GITHUB_REPOSITORY: "cacheplane/b4-run",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_EVENT_NAME: "workflow_dispatch",
-    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/published-artifact-verify.yml@refs/tags/v${VERSION}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/published-artifact-verify.yml@refs/tags/v${VERSION}`,
     GITHUB_REF: `refs/tags/v${VERSION}`,
     GITHUB_SHA: COMMIT_SHA,
     GITHUB_RUN_ID: "700",

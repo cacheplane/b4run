@@ -6,7 +6,7 @@ Please do not report security vulnerabilities through public GitHub issues.
 
 Use GitHub private vulnerability reporting for this repository:
 
-https://github.com/cacheplane/b4-run/security/advisories/new
+https://github.com/cacheplane/b4run/security/advisories/new
 
 If private vulnerability reporting is unavailable, contact the maintainers through the least-public GitHub channel available and avoid posting exploit details publicly.
 

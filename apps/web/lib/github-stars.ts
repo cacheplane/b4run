@@ -1,4 +1,4 @@
-const REPO = "cacheplane/b4-run"
+const REPO = "cacheplane/b4run"
 const FALLBACK = 100
 
 /**

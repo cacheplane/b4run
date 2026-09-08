@@ -89,7 +89,7 @@ function printNextSteps(options: CliOptions): void {
     ...(options.template === "research" ? researchSteps : basicSteps),
     "",
     options.template === "research"
-      ? "See README.md for the full tour, or https://github.com/cacheplane/b4-run"
+      ? "See README.md for the full tour, or https://github.com/cacheplane/b4run"
       : "See AGENTS.md for the app's conventions, or https://b4.run/docs/getting-started",
     "",
   ]

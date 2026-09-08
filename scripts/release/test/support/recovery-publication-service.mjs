@@ -26,7 +26,7 @@ export async function runPublicationServiceProbe({
   sleep = delay,
 }) {
   assert.match(repository, /^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/u)
-  assert.notEqual(repository.toLowerCase(), "cacheplane/b4-run")
+  assert.notEqual(repository.toLowerCase(), "cacheplane/b4run")
   assert.match(sourceSha, /^[a-f0-9]{40}$/u)
   assert.match(nonce, /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u)
   if (existingTagObjectSha !== null) assert.match(existingTagObjectSha, /^[a-f0-9]{40}$/u)
@@ -58,7 +58,7 @@ export async function runPublicationServiceProbe({
   }
   const repo = await get(base)
   assert.ok(
-    Number.isSafeInteger(repo.id) && repo.id > 0 && repo.id !== 1360603908,
+    Number.isSafeInteger(repo.id) && repo.id > 0 && repo.id !== 1210070282,
     "disposable repository ID required",
   )
   assert.equal(repo.full_name.toLowerCase(), repository.toLowerCase(), "redirect forbidden")

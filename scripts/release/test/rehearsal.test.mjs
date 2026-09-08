@@ -842,7 +842,7 @@ function fixedGroupArtifactFixture() {
     bytes: multiSubjectBundle,
   }))
   const attestationSet = {
-    repository: "cacheplane/b4-run",
+    repository: "cacheplane/b4run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${version}`,
     commitSha,
@@ -925,7 +925,7 @@ function completeNpmEvidence(fixture) {
         predicateType: "https://slsa.dev/provenance/v1",
         workflow: ".github/workflows/release.yml",
         commitSha: fixture.candidate.commitSha,
-        repository: "https://github.com/cacheplane/b4-run",
+        repository: "https://github.com/cacheplane/b4run",
         ref: `refs/tags/v${fixture.candidate.version}`,
       },
     })),
@@ -965,7 +965,7 @@ function hash(algorithm, bytes) {
 }
 
 function testMultiSubjectBundle({ candidate, files }) {
-  const repository = "https://github.com/cacheplane/b4-run"
+  const repository = "https://github.com/cacheplane/b4run"
   const ref = `refs/tags/v${candidate.version}`
   const statement = {
     _type: "https://in-toto.io/Statement/v1",
@@ -988,7 +988,7 @@ function testMultiSubjectBundle({ candidate, files }) {
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: "https://github.com/cacheplane/b4-run/actions/runs/13/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4run/actions/runs/13/attempts/1",
         },
       },
     },

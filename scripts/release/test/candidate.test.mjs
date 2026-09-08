@@ -1617,8 +1617,8 @@ function auditVerifiedDraftRelease(id, version, commitSha) {
     audit: {
       ...template.audit,
       workflowRunId: release.auditResult.workflowRunId,
-      runUrl: `https://api.github.com/repos/cacheplane/b4-run/actions/runs/${release.auditResult.workflowRunId}`,
-      htmlUrl: `https://github.com/cacheplane/b4-run/actions/runs/${release.auditResult.workflowRunId}`,
+      runUrl: `https://api.github.com/repos/cacheplane/b4run/actions/runs/${release.auditResult.workflowRunId}`,
+      htmlUrl: `https://github.com/cacheplane/b4run/actions/runs/${release.auditResult.workflowRunId}`,
       runAttempt: release.auditResult.runAttempt,
       attemptAssetName: `audit-attempt-${release.auditResult.workflowRunId}-${release.auditResult.runAttempt}.json`,
       attemptSha256: auditSha256,
@@ -1685,7 +1685,7 @@ function terminalAttestedAbandonmentRelease(id, version, commitSha) {
     }
   })
   const attestationSet = {
-    repository: "cacheplane/b4-run",
+    repository: "cacheplane/b4run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${version}`,
     commitSha,
@@ -2349,7 +2349,7 @@ function operatorRecoveryAbandonmentRelease(id) {
     }
   })
   const attestationSet = {
-    repository: "cacheplane/b4-run",
+    repository: "cacheplane/b4run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${version}`,
     commitSha,

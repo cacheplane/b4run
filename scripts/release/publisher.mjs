@@ -61,7 +61,7 @@ const SHA512_PATTERN = /^[0-9a-f]{128}$/u
 const MAX_CANDIDATE_BYTES = 16 * 1024
 const POLL_DELAY_MS = 2_000
 const PUBLISH_COMMAND_TIMEOUT_MS = 5 * 60_000
-const EXPECTED_REPOSITORY = "https://github.com/cacheplane/b4-run"
+const EXPECTED_REPOSITORY = "https://github.com/cacheplane/b4run"
 
 // One registry propagation budget per package covers exact-version absence,
 // metadata/dist-tag lag, explicit audit-pending evidence, and tarball HTTP 404.

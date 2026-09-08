@@ -9,7 +9,7 @@ interface PageActionsProps {
   readonly promptBody?: string
 }
 
-const GITHUB_EDIT_BASE = "https://github.com/cacheplane/b4-run/edit/main/apps/web/content/docs"
+const GITHUB_EDIT_BASE = "https://github.com/cacheplane/b4run/edit/main/apps/web/content/docs"
 
 type Feedback = "idle" | "copying" | "copied" | "error"
 

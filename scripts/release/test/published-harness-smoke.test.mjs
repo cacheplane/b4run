@@ -423,7 +423,7 @@ function auditOutput(release, packages = CANONICAL_RELEASE_PACKAGE_ORDER, drift 
     missing: [],
     verified: packages.map((name) => {
       const entry = release.packages.find((item) => item.name === name)
-      const repository = drift.repository ?? "https://github.com/cacheplane/b4-run"
+      const repository = drift.repository ?? "https://github.com/cacheplane/b4run"
       const workflow = drift.workflow ?? ".github/workflows/release.yml"
       const ref = drift.ref ?? `refs/tags/v${release.version}`
       const commitSha = drift.commitSha ?? release.commitSha
@@ -448,7 +448,7 @@ function auditOutput(release, packages = CANONICAL_RELEASE_PACKAGE_ORDER, drift 
           runDetails: {
             builder: { id: "https://github.com/actions/runner/github-hosted" },
             metadata: {
-              invocationId: "https://github.com/cacheplane/b4-run/actions/runs/801/attempts/1",
+              invocationId: "https://github.com/cacheplane/b4run/actions/runs/801/attempts/1",
             },
           },
         },

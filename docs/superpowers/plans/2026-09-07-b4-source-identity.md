@@ -11,12 +11,12 @@
 - [x] Build baseline successfully (25 tasks) and verify 33 release-integrity tests.
 - [x] Verify npm CLI owner membership of `b4run`.
 - [x] Rename the existing Vercel docs project to `b4-run` by its stable ID.
-- [x] Create `cacheplane/b4-run` (ID `1360603908`) with Actions disabled.
+- [x] Create `cacheplane/b4run` (ID `1210070282`) with Actions disabled.
 
 ## Source changes
 
 - [x] Run new `packages/core/test/b4-config-contract.test.ts` and `packages/cli/test/b4-state-contract.test.ts` against old code; verify expected assertion failures. Preserve their literal old-name negative cases during replacements.
-- [x] Map `@dawn-ai/*` → `@b4run/*`, private examples → `@b4-example/*`, scaffolder → `create-b4-app`, root package → `b4-run` and package metadata → `cacheplane/b4-run`/`b4.run`.
+- [x] Map `@dawn-ai/*` → `@b4run/*`, private examples → `@b4-example/*`, scaffolder → `create-b4-app`, root package → `b4-run` and package metadata → `cacheplane/b4run`/`b4.run`.
 - [x] Rename branded source identifiers (`DawnConfig` → `B4Config`, `loadDawnConfig` → `loadB4Config`, `dawnDir` → `b4Dir`, `DAWN_*` → `B4_*`), config/typegen/state filenames and machine namespaces. Preserve neutral/vendor-defined contracts.
 - [x] Rename CLI executable/help text and generated scaffold scripts, imports, config filenames, defaults and ambient declarations. Rename `packages/create-dawn-app` → `packages/create-b4-app` and all relevant tracked fixture paths.
 - [x] Update consumers across examples, test harnesses, Inspector/Workbench and build targets together. Read new `.b4` state only; never import old `.dawn` state implicitly.

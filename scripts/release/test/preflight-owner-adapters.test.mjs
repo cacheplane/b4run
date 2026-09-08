@@ -3,7 +3,7 @@ import test from "node:test"
 
 import { createOwnerPreflightAdapters } from "../preflight-owner-adapters.mjs"
 
-const REPOSITORY = "cacheplane/b4-run"
+const REPOSITORY = "cacheplane/b4run"
 const WORKFLOW_PATH = ".github/workflows/release.yml"
 const SHA = "0123456789abcdef0123456789abcdef01234567"
 const TAG_SHA = "123456789abcdef0123456789abcdef012345678"
@@ -106,18 +106,18 @@ test("owner adapters execute only exact argv-based read commands", async () => {
       ["npm", ["--version"]],
       ["npm", ["trust", "list", "@b4run/sdk", "--json"]],
       ["gh", ["--version"]],
-      ["gh", apiArgs("repos/cacheplane/b4-run")],
-      ["gh", apiArgs("repos/cacheplane/b4-run/actions/workflows/release.yml")],
-      ["gh", apiArgs("repos/cacheplane/b4-run/environments/release-abandonment")],
-      ["gh", apiArgs("repos/cacheplane/b4-run/immutable-releases")],
-      ["gh", apiArgs("repos/cacheplane/b4-run/git/ref/heads/main")],
-      ["gh", paginatedApiArgs("repos/cacheplane/b4-run/git/matching-refs/tags/v?per_page=100")],
-      ["gh", apiArgs(`repos/cacheplane/b4-run/git/tags/${TAG_SHA}`)],
-      ["gh", apiArgs(`repos/cacheplane/b4-run/contents/.github/workflows/release.yml?ref=${SHA}`)],
+      ["gh", apiArgs("repos/cacheplane/b4run")],
+      ["gh", apiArgs("repos/cacheplane/b4run/actions/workflows/release.yml")],
+      ["gh", apiArgs("repos/cacheplane/b4run/environments/release-abandonment")],
+      ["gh", apiArgs("repos/cacheplane/b4run/immutable-releases")],
+      ["gh", apiArgs("repos/cacheplane/b4run/git/ref/heads/main")],
+      ["gh", paginatedApiArgs("repos/cacheplane/b4run/git/matching-refs/tags/v?per_page=100")],
+      ["gh", apiArgs(`repos/cacheplane/b4run/git/tags/${TAG_SHA}`)],
+      ["gh", apiArgs(`repos/cacheplane/b4run/contents/.github/workflows/release.yml?ref=${SHA}`)],
       [
         "gh",
         releaseRunsApiArgs(
-          "repos/cacheplane/b4-run/actions/workflows/.github%2Fworkflows%2Frelease.yml/runs?per_page=100&page=1",
+          "repos/cacheplane/b4run/actions/workflows/.github%2Fworkflows%2Frelease.yml/runs?per_page=100&page=1",
         ),
       ],
     ],

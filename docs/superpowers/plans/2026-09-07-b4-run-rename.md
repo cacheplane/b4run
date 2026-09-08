@@ -8,7 +8,7 @@
 
 **Tech stack:** TypeScript, pnpm/Turbo, Next.js, GitHub Actions and attestations, npm, Vercel hosting and Blob, Squarespace DNS, Helm/GHCR, Docker/Kubernetes, LangGraph/LangChain, SQLite/Postgres.
 
-**Status:** Migration direction approved; npm organization **`b4run`** confirmed by the product owner. The repository source, wordmarks, brand downloads, demo recordings and media uploads are prepared; final validation and public cutover remain pending. Execution has begun: the existing Vercel docs project was renamed to `b4-run`, npm CLI login confirms `blove` owns `b4run`, and `cacheplane/b4-run` was created with Actions disabled. Source migration is in the isolated `blove/b4-run-rename` worktree. Per-package publishing configuration remains an execution prerequisite.
+**Status:** Migration direction approved; npm organization **`b4run`** confirmed by the product owner. The repository source, wordmarks, brand downloads, demo recordings and media uploads are prepared; final validation and public cutover remain pending. Execution has begun: the existing Vercel docs project was renamed to `b4-run`, npm CLI login confirms `blove` owns `b4run`, and `cacheplane/b4run` was created with Actions disabled. Source migration is in the isolated `blove/b4-run-rename` worktree. Per-package publishing configuration remains an execution prerequisite.
 
 **Follow-up:** The [authenticated vendor audit](2026-09-07-b4-run-vendor-audit.md) records CLI/API checks using the primary checkout's root `.env`, exact Vercel resources, LangSmith and Resend findings, remaining credential issues and the next source work tranche. Its later observations supersede the initial access limitations below. Prefer CLI and API for execution. **User-directed hosting decision:** retain and rename the existing Vercel project; `b4.run` is already attached and verified. The user changed nameservers to Vercel; an authoritative trace confirms the registry now delegates to Vercel DNS. Do not create a replacement docs project or return DNS management to Squarespace.
 
@@ -42,7 +42,7 @@ GitHub's redirect behavior is documented in [Renaming a repository](https://docs
 |---|---|---|
 | Product and prose | Dawn / Dawn AI | B4.run |
 | Canonical origin | `https://dawnai.org` | `https://b4.run` |
-| GitHub repository | `cacheplane/dawnai` | `cacheplane/b4-run` initially; dedicated organization is optional |
+| GitHub repository | `cacheplane/dawnai` | `cacheplane/b4run` initially; dedicated organization is optional |
 | npm organization/scope | `@dawn-ai` | **`b4run` / `@b4run` — confirmed** |
 | Framework packages | `@dawn-ai/sdk`, etc. | `@b4run/sdk`, etc. |
 | CLI executable | `dawn` | `b4` |
@@ -282,7 +282,7 @@ Planning allowance: roughly **8–15 engineering days plus brand production and 
 Execution prerequisites and defaults:
 
 1. **Naming confirmed:** npm organization `b4run`, scope `@b4run/*`. Retain the plan's other defaults: `b4`, `create-b4-app`, `.b4`, and `b4.config.ts`.
-2. **Account access:** npm CLI ownership is verified. Verify unscoped scaffolder ownership and configure package publishers. The target repository is now `cacheplane/b4-run`, numerical ID `1360603908`; configure new release trust against that identity.
+2. **Account access:** npm CLI ownership is verified. Verify unscoped scaffolder ownership and configure package publishers. The target repository is now `cacheplane/b4run`, numerical ID `1210070282`; configure new release trust against that identity.
 3. **Release baseline:** select the actual unused pre-1.0 version at freeze time and apply the archived-history treatment described above.
 4. **Vendor completeness:** identify account owners and off-repo services/assets missing from the register; choose actual cutover date once preflight is green.
 

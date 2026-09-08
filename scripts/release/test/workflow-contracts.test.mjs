@@ -110,7 +110,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for the first-publication npm bootstrap: the new npm-bootstrap.mjs policy module
 // and the bootstrap-aware npm adapter, observer, CLI, audit verifier, and publisher.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "1f9363127f4cb3a554d87108fcc81bf3f2402b34d364f7cc8c6f62182ec5456b"
+  "10d9ba5375dfbe889c079e293391bf22e7a9f093829ddacafcc99308babd0d75"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
@@ -242,25 +242,25 @@ test("workflow isolation rejects Release DELETE bypasses in each execution conte
     [
       "curl compact method",
       runWorkflow(
-        "curl -XDELETE https://api.github.com/repos/cacheplane/b4-run/releases/379982100",
+        "curl -XDELETE https://api.github.com/repos/cacheplane/b4run/releases/379982100",
       ),
     ],
     [
       "curl spaced method",
       runWorkflow(
-        "curl -x   DeLeTe https://api.github.com/repos/cacheplane/b4-run/releases/379982100",
+        "curl -x   DeLeTe https://api.github.com/repos/cacheplane/b4run/releases/379982100",
       ),
     ],
     [
       "curl request method",
       runWorkflow(
-        "curl --request DELETE https://api.github.com/repos/cacheplane/b4-run/releases/379982100",
+        "curl --request DELETE https://api.github.com/repos/cacheplane/b4run/releases/379982100",
       ),
     ],
     [
       "curl request equals method",
       runWorkflow(
-        "curl --request=delete https://api.github.com/repos/cacheplane/b4-run/releases/379982100",
+        "curl --request=delete https://api.github.com/repos/cacheplane/b4run/releases/379982100",
       ),
     ],
     [
@@ -303,7 +303,7 @@ repos/\${{ github.repository }}/releases/379982100`,
       "job environment",
       runWorkflow('curl -X "$HTTP_METHOD" "$RELEASE_ENDPOINT"', "|", undefined, {
         HTTP_METHOD: "DELETE",
-        RELEASE_ENDPOINT: "/repos/cacheplane/b4-run/releases/379982100",
+        RELEASE_ENDPOINT: "/repos/cacheplane/b4run/releases/379982100",
       }),
     ],
     [
@@ -366,7 +366,7 @@ repos/\${{ github.repository }}/releases/379982100`,
           include: [
             {
               method: "DELETE",
-              endpoint: "/repos/cacheplane/b4-run/releases/379982100",
+              endpoint: "/repos/cacheplane/b4run/releases/379982100",
             },
           ],
         },
@@ -378,7 +378,7 @@ repos/\${{ github.repository }}/releases/379982100`,
       matrixWorkflow(
         {
           a: ["GET", "DELETE"],
-          b: ["/repos/cacheplane/b4-run/releases/379982100"],
+          b: ["/repos/cacheplane/b4run/releases/379982100"],
         },
         `gh api --method "\${{ matrix.a }}" "\${{ matrix.b }}"`,
       ),
@@ -402,7 +402,7 @@ repos/\${{ github.repository }}/releases/379982100`,
       matrixWorkflow(
         {
           v: ["DELETE"],
-          r: ["/repos/cacheplane/b4-run/releases/379982100"],
+          r: ["/repos/cacheplane/b4run/releases/379982100"],
         },
         `curl --request "\${{ matrix['v'] }}" "\${{ matrix["r"] }}"`,
       ),
@@ -459,7 +459,7 @@ repos/\${{ github.repository }}/releases/379982100`,
       "generic environment indirection",
       runWorkflow('curl --request "$A" "$B"', "|", {
         A: "DELETE",
-        B: "/repos/cacheplane/b4-run/releases/379982100",
+        B: "/repos/cacheplane/b4run/releases/379982100",
       }),
     ],
     [
@@ -481,18 +481,18 @@ repos/\${{ github.repository }}/releases/379982100`,
 })
 
 test("workflow isolation permits comments, documentation, GETs, and separate invocations", () => {
-  const safe = `name: "Documentation: DELETE /repos/cacheplane/b4-run/releases/379982100"
+  const safe = `name: "Documentation: DELETE /repos/cacheplane/b4run/releases/379982100"
 on:
   workflow_dispatch: {}
 jobs:
   safe:
     runs-on: ubuntu-latest
     steps:
-      # curl -XDELETE https://api.github.com/repos/cacheplane/b4-run/releases/379982100
-      - name: "DELETE /repos/cacheplane/b4-run/releases/379982100 is forbidden"
+      # curl -XDELETE https://api.github.com/repos/cacheplane/b4run/releases/379982100
+      - name: "DELETE /repos/cacheplane/b4run/releases/379982100 is forbidden"
         run: gh api --method GET repos/\${{ github.repository }}/releases/379982100
       - run: echo --method DELETE
-      - run: echo /repos/cacheplane/b4-run/releases/379982100
+      - run: echo /repos/cacheplane/b4run/releases/379982100
 `
   assert.doesNotThrow(() => assertNoDuplicateDraftWorkflowMutation({ "safe.yml": safe }))
 
@@ -513,9 +513,9 @@ jobs:
   const unusedDangerousMatrix = matrixWorkflow(
     {
       a: ["DELETE"],
-      b: ["/repos/cacheplane/b4-run/releases/379982100"],
+      b: ["/repos/cacheplane/b4run/releases/379982100"],
       safeMethod: ["GET"],
-      safeEndpoint: ["/repos/cacheplane/b4-run/releases/379982100"],
+      safeEndpoint: ["/repos/cacheplane/b4run/releases/379982100"],
     },
     `gh api --method "\${{ matrix.safeMethod }}" "\${{ matrix.safeEndpoint }}"`,
   )
@@ -539,7 +539,7 @@ jobs:
   endpoint:
     runs-on: ubuntu-latest
     steps:
-      - run: echo /repos/cacheplane/b4-run/releases/379982100
+      - run: echo /repos/cacheplane/b4run/releases/379982100
 `
   assert.doesNotThrow(() =>
     assertNoDuplicateDraftWorkflowMutation({
@@ -550,7 +550,7 @@ jobs:
   const separateMatrixSteps = matrixWorkflow(
     {
       a: ["DELETE"],
-      b: ["/repos/cacheplane/b4-run/releases/379982100"],
+      b: ["/repos/cacheplane/b4run/releases/379982100"],
     },
     [`echo "\${{ matrix.a }}"`, `echo "\${{ matrix.b }}"`],
   )
@@ -573,7 +573,7 @@ jobs:
   const excludedDeleteRow = matrixWorkflow(
     {
       a: ["GET", "DELETE"],
-      b: ["/repos/cacheplane/b4-run/releases/379982100"],
+      b: ["/repos/cacheplane/b4run/releases/379982100"],
       exclude: [{ a: "DELETE" }],
     },
     `curl --request "\${{ matrix.a }}" "\${{ matrix.b }}"`,
@@ -587,7 +587,7 @@ jobs:
   const nonComposingInclude = matrixWorkflow(
     {
       a: ["GET"],
-      b: ["/repos/cacheplane/b4-run/releases/379982100"],
+      b: ["/repos/cacheplane/b4run/releases/379982100"],
       include: [{ a: "DELETE", c: "https://example.invalid/not-a-release" }],
     },
     `curl --request "\${{ matrix.a }}" "\${{ matrix.b }}\${{ matrix.c }}"`,
@@ -601,7 +601,7 @@ jobs:
   const standaloneIncludesDoNotCompose = matrixWorkflow(
     {
       method: ["GET"],
-      include: [{ method: "DELETE" }, { endpoint: "/repos/cacheplane/b4-run/releases/1" }],
+      include: [{ method: "DELETE" }, { endpoint: "/repos/cacheplane/b4run/releases/1" }],
     },
     `curl --request "\${{ matrix.method }}" "\${{ matrix.endpoint }}"`,
   )
@@ -651,7 +651,7 @@ test("workflow isolation follows every repository-local executable transitively"
       files: {
         "scripts/first.sh": "bash scripts/second.sh\n",
         "scripts/second.sh":
-          "curl --request DELETE https://api.github.com/repos/cacheplane/b4-run/releases/379982100\n",
+          "curl --request DELETE https://api.github.com/repos/cacheplane/b4run/releases/379982100\n",
       },
     },
     {
@@ -2239,7 +2239,7 @@ test("dependency security receipt uploader is exact, offline, read-only, and wri
     GH_TOKEN: githubToken,
   })
   assert.match(requireHead.run, /GITHUB_SHA/u)
-  assert.match(requireHead.run, /repos\/cacheplane\/b4-run\/git\/ref\/heads\/main/u)
+  assert.match(requireHead.run, /repos\/cacheplane\/b4run\/git\/ref\/heads\/main/u)
   assert.deepEqual(prepare.env, {
     RECEIPT_OUTPUT_ROOT: `${runnerTemp}/dependency-security-receipt-root`,
   })
@@ -2460,8 +2460,8 @@ test("dependency security workflow mutations fail closed", async (t) => {
       "dependency-security-receipt.yml",
       (source) =>
         source.replace(
-          "repos/cacheplane/b4-run/git/ref/heads/main",
-          "repos/cacheplane/b4-run/git/ref/heads/reviewed-head",
+          "repos/cacheplane/b4run/git/ref/heads/main",
+          "repos/cacheplane/b4run/git/ref/heads/reviewed-head",
         ),
     ],
     [

@@ -35,7 +35,7 @@ export async function recoveryRemote({
     async () => source,
   )
   const c = {
-    repository: "cacheplane/b4-run",
+    repository: "cacheplane/b4run",
     repositoryId: "901",
     version: CANDIDATE.version,
     candidateSha: CANDIDATE.commitSha,

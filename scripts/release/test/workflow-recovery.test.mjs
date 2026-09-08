@@ -175,8 +175,8 @@ function recoveryReport({ state, transition, npm = false, audit = false }) {
     ? {
         workflow: ".github/workflows/published-artifact-verify.yml",
         workflowRunId: 500,
-        runUrl: "https://api.github.com/repos/cacheplane/b4-run/actions/runs/500",
-        htmlUrl: "https://github.com/cacheplane/b4-run/actions/runs/500",
+        runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/500",
+        htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/500",
       }
     : null
   const auditResult = audit
@@ -310,7 +310,7 @@ function npmEvidenceFor(manifest) {
             predicateType: "https://slsa.dev/provenance/v1",
             workflow: ".github/workflows/release.yml",
             commitSha: COMMIT_SHA,
-            repository: "https://github.com/cacheplane/b4-run",
+            repository: "https://github.com/cacheplane/b4run",
             ref: `refs/tags/v${VERSION}`,
           },
         })),

@@ -1,6 +1,6 @@
 # Research demo — server
 
-The flagship [B4.run](https://github.com/cacheplane/b4-run) example: a deep-research
+The flagship [B4.run](https://github.com/cacheplane/b4run) example: a deep-research
 assistant that plans sub-questions, researches a bundled local corpus with a
 specialist subagent, and writes a cited report. Live research uses a real model
 and API key; the included tests and evals use deterministic fixtures and run

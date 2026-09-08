@@ -62,7 +62,7 @@ export async function ProofStrip() {
 
           <div className="flex items-center gap-5 md:gap-6">
             <a
-              href="https://github.com/cacheplane/b4-run"
+              href="https://github.com/cacheplane/b4run"
               target="_blank"
               rel="noopener noreferrer"
               aria-label={`${formatCount(stars)} stars on GitHub — star B4.run`}

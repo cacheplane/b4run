@@ -35,7 +35,7 @@ Author-facing TypeScript SDK.
 
 ## License
 
-![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/product-loop.gif)`
+![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)`
 
 const rootReadme = `# B4.run
 
@@ -404,25 +404,25 @@ const relatedPackageDestinations = new Map([
 const entryReadmeAssets = new Map([
   [
     "logo",
-    "https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/b4-logo-horizontal-black-on-white.png",
+    "https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/b4-logo-horizontal-black-on-white.png",
   ],
   [
     "product loop",
-    "https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/product-loop.gif",
+    "https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif",
   ],
 ])
 const entryReadmeBlocks = new Map([
   [
     "logo",
     `<p align="center">
-  <img src="https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/b4-logo-horizontal-black-on-white.png" alt="B4.run" width="180">
+  <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/b4-logo-horizontal-black-on-white.png" alt="B4.run" width="180">
 </p>`,
   ],
   [
     "product loop",
     `<p align="center">
   <a href="https://b4.run/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
   </a>
 </p>`,
   ],
@@ -618,10 +618,10 @@ describe("validatePackageReadme", () => {
 
   it("accepts the planned raw HTML product-loop thumbnail", () => {
     const readme = entryReadme.replace(
-      "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/product-loop.gif)",
+      "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)",
       `<p align="center">
   <a href="https://b4.run/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
   </a>
 </p>`,
     )
@@ -635,10 +635,10 @@ describe("validatePackageReadme", () => {
         "Author-facing TypeScript SDK. Inline `<script>` is documentation text.",
       )
       .replace(
-        "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/product-loop.gif)",
+        "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)",
         `<p align="center">
   <a href="https://b4.run/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
   </a>
 </p>`,
       )
@@ -672,10 +672,10 @@ describe("validatePackageReadme", () => {
         "Author-facing TypeScript SDK. Escaped \\<script> is prose.",
       )
       .replace(
-        "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/product-loop.gif)",
+        "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)",
         `<p align="center">
   <a href="https://b4.run/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
   </a>
 </p>`,
       )
@@ -848,7 +848,7 @@ describe("validatePackageReadme", () => {
 
   it("does not accept an entry image hidden in a fenced code block", () => {
     const readme = entryReadme.replace(
-      "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/product-loop.gif)",
+      "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)",
       "```md\n![B4.run product loop](docs/brand/product-loop.gif)\n```",
     )
     assertFailure(
@@ -859,7 +859,7 @@ describe("validatePackageReadme", () => {
 
   it("does not accept an entry image written as inline code", () => {
     const readme = entryReadme.replace(
-      "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/product-loop.gif)",
+      "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)",
       "`![B4.run product loop](docs/brand/product-loop.gif)`",
     )
     assertFailure(
@@ -1940,7 +1940,7 @@ describe("validateRootReadme", () => {
       .replace("/docs/migrating-from-langgraph", "https://b4.run/docs/migrating-from-langgraph")
       .replace(
         "docs/brand/demo/transcript.md",
-        "https://github.com/cacheplane/b4-run/blob/main/docs/brand/demo/transcript.md",
+        "https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md",
       )
     assert.deepEqual(validateRootReadme(absoluteLinks), [])
   })

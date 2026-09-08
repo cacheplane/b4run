@@ -25,7 +25,7 @@ export const PHASES = [
   "COMPLETE",
 ]
 export const candidate = () => ({
-  repository: "cacheplane/b4-run",
+  repository: "cacheplane/b4run",
   repositoryId: "901",
   version: "0.8.24",
   candidateSha: "a".repeat(40),

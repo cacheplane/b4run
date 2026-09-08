@@ -622,7 +622,7 @@ describe("dependency evidence CLI", () => {
       fixture,
       open: fixture.open,
       publication: publicationReceiptFixture(fixture.defaultSha, sourceSha),
-      repository: "cacheplane/b4-run",
+      repository: "cacheplane/b4run",
       sourceSha,
     })
     expect(receipt.dependabot.open).toHaveLength(59)
@@ -637,7 +637,7 @@ describe("dependency evidence CLI", () => {
         fixture: wrongFixture,
         open: fixture.open,
         publication: publicationReceiptFixture(fixture.defaultSha, sourceSha),
-        repository: "cacheplane/b4-run",
+        repository: "cacheplane/b4run",
         sourceSha,
       }),
     ).toThrow(/UNPROVABLE/u)
@@ -649,7 +649,7 @@ describe("dependency evidence CLI", () => {
       "baseline",
       [
         "--repo",
-        "cacheplane/b4-run",
+        "cacheplane/b4run",
         "--inventory-ref",
         "HEAD",
         "--source-sha",
@@ -672,7 +672,7 @@ describe("dependency evidence CLI", () => {
       "reconcile",
       [
         "--repo",
-        "cacheplane/b4-run",
+        "cacheplane/b4run",
         "--pr",
         "42",
         "--reviewed-base-sha",
@@ -926,7 +926,7 @@ describe("dependency evidence CLI", () => {
           argv: [
             "baseline",
             "--repo",
-            "cacheplane/b4-run",
+            "cacheplane/b4run",
             "--inventory-ref",
             "HEAD",
             "--source-sha",
@@ -994,7 +994,7 @@ describe("dependency evidence CLI", () => {
         argv: [
           "reconcile",
           "--repo",
-          "cacheplane/b4-run",
+          "cacheplane/b4run",
           "--pr",
           "42",
           "--reviewed-base-sha",
@@ -1062,7 +1062,7 @@ describe("dependency evidence CLI", () => {
         intervalMs: 15_000,
         maxAttempts: 61,
         prNumber: 42,
-        repo: "cacheplane/b4-run",
+        repo: "cacheplane/b4run",
         timeoutMs: 900_000,
       })
       expect(inventoryRef).toBe(observationHeadSha)
@@ -1456,7 +1456,7 @@ function publicationReceiptFixture(defaultSha: string, sourceSha: string) {
       })),
       requestCount: 63,
     },
-    repository: "cacheplane/b4-run",
+    repository: "cacheplane/b4run",
     schemaVersion: 1,
     sourceSha,
     workflows: {
@@ -1500,7 +1500,7 @@ function reconcileCliArguments(overrides: Record<string, string> = {}) {
     output: resolve(testDir, ".unused-reconciliation.json"),
     "poll-interval-ms": "15000",
     pr: "42",
-    repo: "cacheplane/b4-run",
+    repo: "cacheplane/b4run",
     "reviewed-base-sha": "a".repeat(40),
     "reviewed-head-sha": "b".repeat(40),
     "target-version": "0.8.22",
@@ -1578,7 +1578,7 @@ function sealableReconciliationReceipt(baselineOpen: any[]) {
       reviewedHeadSha,
     },
     publication,
-    repository: "cacheplane/b4-run",
+    repository: "cacheplane/b4run",
     schemaVersion: 1,
     verificationRuns: [
       ".github/workflows/ci.yml",

@@ -141,7 +141,7 @@ test("disposable GitHub workflow disable across current and historical sources",
   )
   const repositoryCall = await get(base)
   const repo = repositoryCall.response
-  assert.notEqual(repo.id, 1360603908, "production repository ID forbidden")
+  assert.notEqual(repo.id, 1210070282, "production repository ID forbidden")
   assert.equal(repo.full_name.toLowerCase(), repository.toLowerCase(), "redirect forbidden")
   assert.match(repo.default_branch, /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/u)
   const defaultBranch = repo.default_branch,

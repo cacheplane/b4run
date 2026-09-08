@@ -1899,8 +1899,8 @@ function releaseMarker(phase) {
     ? {
         workflow: ".github/workflows/published-artifact-verify.yml",
         workflowRunId: 300,
-        runUrl: "https://api.github.com/repos/cacheplane/b4-run/actions/runs/300",
-        htmlUrl: "https://github.com/cacheplane/b4-run/actions/runs/300",
+        runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/300",
+        htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/300",
         runAttempt: phase === "AUDIT_DISPATCHED" ? null : 1,
         attemptAssetName: phase === "AUDIT_DISPATCHED" ? null : "audit-attempt-300-1.json",
         attemptSha256: phase === "AUDIT_DISPATCHED" ? null : auditDigest,
@@ -1933,7 +1933,7 @@ function releaseMarker(phase) {
       phase === "ATTACHING"
         ? null
         : {
-            repository: "cacheplane/b4-run",
+            repository: "cacheplane/b4run",
             workflow: ".github/workflows/release.yml",
             sourceRef: `refs/tags/v${VERSION}`,
             commitSha: COMMIT_SHA,

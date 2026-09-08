@@ -18,7 +18,7 @@ export const CANDIDATE = Object.freeze({
   ciCheck: "validate",
   publisherWorkflow: ".github/workflows/release.yml",
 })
-const REPOSITORY = "cacheplane/b4-run"
+const REPOSITORY = "cacheplane/b4run"
 const TAG_SHA = "abcdef0123456789abcdef0123456789abcdef01"
 export const API_BASE = `https://api.github.com/repos/${REPOSITORY}`
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
@@ -175,7 +175,7 @@ export function candidateFixture(legacy) {
       predicate: {
         runDetails: {
           metadata: {
-            invocationId: `https://github.com/cacheplane/b4-run/actions/runs/${runId}/attempts/${runAttempt}`,
+            invocationId: `https://github.com/cacheplane/b4run/actions/runs/${runId}/attempts/${runAttempt}`,
           },
         },
       },
@@ -343,7 +343,7 @@ export function candidateFixture(legacy) {
           predicateType: "https://slsa.dev/provenance/v1",
           workflow: ".github/workflows/release.yml",
           commitSha: COMMIT_SHA,
-          repository: "https://github.com/cacheplane/b4-run",
+          repository: "https://github.com/cacheplane/b4run",
           ref: `refs/tags/v${VERSION}`,
         },
       })),
@@ -443,7 +443,7 @@ export function recordingGitHub(
           {
             workflow_run_id: 501,
             run_url: `${API_BASE}/actions/runs/501`,
-            html_url: "https://github.com/cacheplane/b4-run/actions/runs/501",
+            html_url: "https://github.com/cacheplane/b4run/actions/runs/501",
           },
           200,
         )
@@ -460,7 +460,7 @@ export function recordingGitHub(
       if (
         method === "POST" &&
         upload.origin === "https://uploads.github.com" &&
-        upload.pathname === "/repos/cacheplane/b4-run/releases/7/assets"
+        upload.pathname === "/repos/cacheplane/b4run/releases/7/assets"
       ) {
         const asset = {
           id: 1000,
@@ -569,7 +569,7 @@ export function auditFixture(fixture) {
     workflow: ".github/workflows/published-artifact-verify.yml",
     workflowRunId: 501,
     runUrl: `${API_BASE}/actions/runs/501`,
-    htmlUrl: "https://github.com/cacheplane/b4-run/actions/runs/501",
+    htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/501",
   }
   const result = {
     schemaVersion: 1,

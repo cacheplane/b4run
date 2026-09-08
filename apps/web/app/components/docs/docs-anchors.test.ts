@@ -536,7 +536,7 @@ function catalogRow(entry: (typeof PACKAGE_CATALOG)[number]): string {
   const catalogAnchor = entry.canonicalReferenceDestination.startsWith("/docs/api#")
     ? `<span id="${entry.canonicalReferenceDestination.slice("/docs/api#".length)}"></span>`
     : ""
-  return `| ${catalogAnchor}\`${entry.packageName}\` | ${entry.purpose} | \`${entry.audience}\` | \`${entry.stability}\` | ${artifacts} | ${boundaries} | [README](https://github.com/cacheplane/b4-run/blob/main/${entry.readmePath}) | [Reference](${entry.canonicalReferenceDestination}) | [Guide](${entry.conceptualGuideDestination}) |`
+  return `| ${catalogAnchor}\`${entry.packageName}\` | ${entry.purpose} | \`${entry.audience}\` | \`${entry.stability}\` | ${artifacts} | ${boundaries} | [README](https://github.com/cacheplane/b4run/blob/main/${entry.readmePath}) | [Reference](${entry.canonicalReferenceDestination}) | [Guide](${entry.conceptualGuideDestination}) |`
 }
 
 function visibleTableLines(source: string): string[] {

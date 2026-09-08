@@ -163,7 +163,7 @@ test("accepts preparation identity only from the exact tag-bound release workflo
     [
       "workflow ref",
       {
-        GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/other.yml@refs/tags/v${VERSION}`,
+        GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/other.yml@refs/tags/v${VERSION}`,
       },
     ],
   ]
@@ -745,12 +745,12 @@ function rawInventory() {
 
 function productionEnvironment() {
   return {
-    GITHUB_REPOSITORY: "cacheplane/b4-run",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_REF: `refs/tags/v${VERSION}`,
     GITHUB_SHA: COMMIT_SHA,
     GITHUB_RUN_ID: "7001",
     GITHUB_RUN_ATTEMPT: "3",
-    GITHUB_WORKFLOW_REF: `cacheplane/b4-run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
     PATH: "/not-authority",
   }
 }

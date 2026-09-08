@@ -1,6 +1,6 @@
 # {{appName}} — server
 
-A deep-research assistant built with [B4.run](https://github.com/cacheplane/b4-run).
+A deep-research assistant built with [B4.run](https://github.com/cacheplane/b4run).
 Ask a question; it plans sub-questions, researches a bundled local corpus,
 and writes a cited report. Live research uses a real OpenAI model and API key;
 the included tests and evals use deterministic fixtures and run offline.

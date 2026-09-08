@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/b4-logo-horizontal-black-on-white.png" alt="B4.run" width="180">
+  <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/b4-logo-horizontal-black-on-white.png" alt="B4.run" width="180">
 </p>
 
 # @b4run/cli
@@ -10,7 +10,7 @@ Command-line development tools and runtime embedding entry points for B4.run app
 
 <p align="center">
   <a href="https://b4.run/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/b4-run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
   </a>
 </p>
 
@@ -69,12 +69,12 @@ console.log(runtime.url)
 - [CLI API reference](https://b4.run/docs/api/cli)
 - [Embed the runtime](https://b4.run/docs/embedding)
 - [Deployment options](https://b4.run/docs/deployment)
-- [`@b4run/cli` changelog](https://github.com/cacheplane/b4-run/blob/main/packages/cli/CHANGELOG.md)
+- [`@b4run/cli` changelog](https://github.com/cacheplane/b4run/blob/main/packages/cli/CHANGELOG.md)
 
 ## Maturity and support
 
-B4.run is pre-1.0, and its public surface can change. All publishable B4.run packages release together as a fixed group; review the [`@b4run/cli` changelog](https://github.com/cacheplane/b4-run/blob/main/packages/cli/CHANGELOG.md) and [upgrading guide](https://b4.run/docs/upgrading) before upgrading. For support, use [GitHub Discussions](https://github.com/cacheplane/b4-run/discussions); report defects in [GitHub Issues](https://github.com/cacheplane/b4-run/issues).
+B4.run is pre-1.0, and its public surface can change. All publishable B4.run packages release together as a fixed group; review the [`@b4run/cli` changelog](https://github.com/cacheplane/b4run/blob/main/packages/cli/CHANGELOG.md) and [upgrading guide](https://b4.run/docs/upgrading) before upgrading. For support, use [GitHub Discussions](https://github.com/cacheplane/b4run/discussions); report defects in [GitHub Issues](https://github.com/cacheplane/b4run/issues).
 
 ## License
 
-MIT. See the [repository license](https://github.com/cacheplane/b4-run/blob/main/LICENSE).
+MIT. See the [repository license](https://github.com/cacheplane/b4run/blob/main/LICENSE).

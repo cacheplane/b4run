@@ -4571,7 +4571,7 @@ if (apiReferenceRegistry) {
     const boundaries = entry.artifactAddresses
       .map((address) => apiReferenceRegistry.artifactBoundaryFor(artifactByAddress.get(address)))
       .join("<br />")
-    return `| ${explicitAnchor}\`${entry.packageName}\` | ${entry.purpose} | \`${entry.audience}\` | \`${entry.stability}\` | ${artifacts} | ${boundaries} | [README](https://github.com/cacheplane/b4-run/blob/main/${entry.readmePath}) | [Reference](${entry.canonicalReferenceDestination}) | [Guide](${entry.conceptualGuideDestination}) |`
+    return `| ${explicitAnchor}\`${entry.packageName}\` | ${entry.purpose} | \`${entry.audience}\` | \`${entry.stability}\` | ${artifacts} | ${boundaries} | [README](https://github.com/cacheplane/b4run/blob/main/${entry.readmePath}) | [Reference](${entry.canonicalReferenceDestination}) | [Guide](${entry.conceptualGuideDestination}) |`
   })
   const catalogSource = catalogRange ? apiHubSource.slice(catalogRange.start, catalogRange.end) : ""
   const catalogLines = catalogSource.split(/\r?\n/)
