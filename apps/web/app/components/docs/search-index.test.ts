@@ -71,8 +71,8 @@ describe("documentation search index", () => {
       expect(packageName).toBeDefined()
       expect(filterDocsSearchResults(packageName ?? "", results)[0]?.href).toBe(href)
     }
-    expect(filterDocsSearchResults("@dawn-ai/sdk/pure", results)[0]?.href).toBe("/docs/api/sdk")
-    expect(filterDocsSearchResults("@dawn-ai/config-typescript/nextjs", results)[0]?.href).toBe(
+    expect(filterDocsSearchResults("@b4run/sdk/pure", results)[0]?.href).toBe("/docs/api/sdk")
+    expect(filterDocsSearchResults("@b4run/config-typescript/nextjs", results)[0]?.href).toBe(
       "/docs/api",
     )
   })
@@ -85,7 +85,7 @@ describe("documentation search index", () => {
   it.each([
     ["config", "/docs/api/core"],
     ["RuntimeEnv", "/docs/api/core"],
-    ["seedDawnConfig", "/docs/api/core"],
+    ["seedB4Config", "/docs/api/core"],
   ])("ranks the canonical owner first for the exact %s re-export alias", (alias, href) => {
     const results = flattenDocsSearchIndex(DOCS_INDEX)
     const matches = filterDocsSearchResults(alias, results)
@@ -135,7 +135,7 @@ describe("documentation search index", () => {
 
 <!--
 ## Public exports
-### \`@dawn-ai/ghost\`
+### \`@b4run/ghost\`
 | Export | Responsibility |
 |---|---|
 | \`Ghost\` | Ignore a comment. |
@@ -143,7 +143,7 @@ describe("documentation search index", () => {
 
 \`\`\`md
 ## Public exports
-### \`@dawn-ai/fenced\`
+### \`@b4run/fenced\`
 | Export | Responsibility |
 |---|---|
 | \`Fenced\` | Ignore a fence. |
@@ -151,7 +151,7 @@ describe("documentation search index", () => {
 
 ~~~md
 ## Public exports
-### \`@dawn-ai/tilde-fenced\`
+### \`@b4run/tilde-fenced\`
 | Export | Responsibility |
 |---|---|
 | \`TildeFenced\` | Ignore a tilde fence. |
@@ -159,7 +159,7 @@ describe("documentation search index", () => {
 
 {/*
 ## Public exports
-### \`@dawn-ai/mdx-comment\`
+### \`@b4run/mdx-comment\`
 | Export | Responsibility |
 |---|---|
 | \`MdxComment\` | Ignore an MDX comment. |
@@ -171,18 +171,18 @@ describe("documentation search index", () => {
 |---|---|
 | \`ordinary\` | Ignore an unrelated table. |
 
-### \`@dawn-ai/example\`
+### \`@b4run/example\`
 
 | Export | Responsibility |
 |---|---|
 | \`owned\` | Canonical owner. |
-| \`forwarded\` | Re-export [the owner](/docs/api/core#dawn-aicore). |
+| \`forwarded\` | Re-export [the owner](/docs/api/core#b4runcore). |
 
 ## Key contracts`
 
     expect(
       parsePublicExportAliases(source, "/docs/api/example", [
-        { heading: "@dawn-ai/example", firstHeader: "Export" },
+        { heading: "@b4run/example", firstHeader: "Export" },
       ]),
     ).toEqual({
       aliases: ["owned", "forwarded"],
@@ -194,20 +194,20 @@ describe("documentation search index", () => {
     ["missing", "# Reference\n\n## Key contracts"],
     [
       "malformed header",
-      "# Reference\n\n## Public exports\n\n### `@dawn-ai/example`\n\n| Name | Responsibility |\n|---|---|\n| `owned` | Owner. |\n\n## Key contracts",
+      "# Reference\n\n## Public exports\n\n### `@b4run/example`\n\n| Name | Responsibility |\n|---|---|\n| `owned` | Owner. |\n\n## Key contracts",
     ],
     [
       "malformed row",
-      "# Reference\n\n## Public exports\n\n### `@dawn-ai/example`\n\n| Export | Responsibility |\n|---|---|\n| owned | Owner. |\n\n## Key contracts",
+      "# Reference\n\n## Public exports\n\n### `@b4run/example`\n\n| Export | Responsibility |\n|---|---|\n| owned | Owner. |\n\n## Key contracts",
     ],
     [
       "table after the next heading",
-      "# Reference\n\n## Public exports\n\n### `@dawn-ai/example`\n\n### `bin:example`\n\n| Export | Responsibility |\n|---|---|\n| `owned` | Owner. |\n\n## Key contracts",
+      "# Reference\n\n## Public exports\n\n### `@b4run/example`\n\n### `bin:example`\n\n| Export | Responsibility |\n|---|---|\n| `owned` | Owner. |\n\n## Key contracts",
     ],
   ])("rejects a %s intended export inventory", (_name, source) => {
     expect(() =>
       parsePublicExportAliases(source, "/docs/api/example", [
-        { heading: "@dawn-ai/example", firstHeader: "Export" },
+        { heading: "@b4run/example", firstHeader: "Export" },
       ]),
     ).toThrow(/Public exports|ownership table|Export/i)
   })
@@ -217,13 +217,13 @@ describe("documentation search index", () => {
 
 ## Public exports
 
-### \`@dawn-ai/example\`
+### \`@b4run/example\`
 
 | Export | Responsibility |
 |---|---|
 | \`owned\` | Owner. |
 
-### \`@dawn-ai/unregistered\`
+### \`@b4run/unregistered\`
 
 | Export | Responsibility |
 |---|---|
@@ -232,7 +232,7 @@ describe("documentation search index", () => {
 ## Key contracts`
     expect(() =>
       parsePublicExportAliases(source, "/docs/api/example", [
-        { heading: "@dawn-ai/example", firstHeader: "Export" },
+        { heading: "@b4run/example", firstHeader: "Export" },
       ]),
     ).toThrow(/unregistered surface/i)
   })
@@ -242,17 +242,17 @@ describe("documentation search index", () => {
 
 ## Public exports
 
-### \`dawn:routes\`
+### \`b4:routes\`
 
 | Generated export | Responsibility |
 |---|---|
-| \`DawnRoutePath\` | Generated route paths. |
+| \`B4RoutePath\` | Generated route paths. |
 
 ## Key contracts`
     expect(
       parsePublicExportAliases(source, "/docs/api/generated-routes", [
-        { heading: "dawn:routes", firstHeader: "Generated export" },
+        { heading: "b4:routes", firstHeader: "Generated export" },
       ]),
-    ).toEqual({ aliases: ["DawnRoutePath"], canonicalAliases: ["DawnRoutePath"] })
+    ).toEqual({ aliases: ["B4RoutePath"], canonicalAliases: ["B4RoutePath"] })
   })
 })

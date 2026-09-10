@@ -6,7 +6,7 @@ You want execution authentication that rejects unauthenticated route-execution r
 
 <CodeGroup>
 ```ts title="src/middleware.ts"
-import { allow, defineMiddleware, reject } from "@dawn-ai/sdk"
+import { allow, defineMiddleware, reject } from "@b4run/sdk"
 
 export default defineMiddleware(async (req) => {
   const auth = req.headers["authorization"]
@@ -49,8 +49,8 @@ export default async (
 ```
 
 ```ts title="src/app/(private)/account/[tenant]/index.ts"
-import type { RuntimeContext } from "@dawn-ai/sdk"
-import type { RouteTools } from "dawn:routes"
+import type { RuntimeContext } from "@b4run/sdk"
+import type { RouteTools } from "b4:routes"
 
 type AccountState = { readonly tenant: string; readonly profile?: unknown }
 
@@ -71,10 +71,10 @@ export async function workflow(
 - **`reject` short-circuits.** The route never executes; the body of `reject(status, body?)` is the HTTP response.
 - **`allow(context)` flows to tools.** Whatever you pass becomes `ctx.middleware` on every tool call for that request. It is `undefined` if you call `allow()` with no arguments.
 - **Throwing equals 500.** Any uncaught error becomes HTTP 500. Prefer explicit `reject(401, ...)` with a real body so callers see a useful response.
-- **Deployment scope matters.** This middleware runs under `dawn dev`, the Node Dawn HTTP runtime (`dawn start` or generated `server.mjs`), and Hono builds. Generated LangSmith graph entries do not include Dawn HTTP middleware, so enforce authentication at that platform boundary separately.
+- **Deployment scope matters.** This middleware runs under `b4 dev`, the Node B4.run HTTP runtime (`b4 start` or generated `server.mjs`), and Hono builds. Generated LangSmith graph entries do not include B4.run HTTP middleware, so enforce authentication at that platform boundary separately.
 
 <Callout type="warn" title="This is execution auth, not service auth">
-  Dawn middleware covers Agent Protocol stream, wait, and resume execution plus AG-UI. Thread create/read/delete/state, cancellation, memory-candidate management, and health checks bypass it. Put authentication, tenant authorization, and network policy around the entire Dawn HTTP surface in an outer host or reverse proxy; exempt only probes you deliberately make public. See [Security Architecture](/docs/security-architecture) for the endpoint boundary.
+  B4.run middleware covers Agent Protocol stream, wait, and resume execution plus AG-UI. Thread create/read/delete/state, cancellation, memory-candidate management, and health checks bypass it. Put authentication, tenant authorization, and network policy around the entire B4.run HTTP surface in an outer host or reverse proxy; exempt only probes you deliberately make public. See [Security Architecture](/docs/security-architecture) for the endpoint boundary.
 </Callout>
 
 ## Related

@@ -63,8 +63,8 @@ describe("Next TypeScript CLI configuration", () => {
     expect(inspectorConfig.output).toBe("standalone")
     expect(inspectorConfig.outputFileTracingRoot).toBe(repoRoot)
     expect(inspectorConfig.serverExternalPackages).toEqual([
-      "@dawn-ai/core",
-      "@dawn-ai/memory",
+      "@b4run/core",
+      "@b4run/memory",
       "tsx",
       "typescript",
     ])

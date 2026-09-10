@@ -1,3 +1,4 @@
+import { createConditionalJsonReader } from "./conditional-json.mjs"
 import { createHttpGet, DEFAULT_HTTP_MAX_RESPONSE_BYTES, DEFAULT_HTTP_TIMEOUT_MS } from "./http.mjs"
 
 const API_ORIGIN = "https://api.github.com"
@@ -6,6 +7,10 @@ const JSON_ACCEPT = "application/vnd.github+json"
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u
 const OWNER_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u
+// A GitHub login: alphanumeric segments joined by single hyphens, never
+// leading or trailing. Stricter than OWNER_PATTERN on purpose, so an
+// authenticated-user read cannot report a login the record store would reject.
+const LOGIN_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/u
 const REPOSITORY_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})$/u
 const SAFE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
 const CURSOR_PATTERN = /^[A-Za-z0-9._~+/=-]{1,512}$/u
@@ -35,16 +40,20 @@ const MAX_GITHUB_TOKEN_BYTES = 4_096
 export function createGitHubReader({
   owner,
   repo,
+  repositoryId,
   token,
+  apiOrigin = API_ORIGIN,
   fetchImpl = fetch,
   timeoutMs,
   maxResponseBytes,
   maxPages = DEFAULT_GITHUB_MAX_PAGES,
   maxRecords = DEFAULT_GITHUB_MAX_RECORDS,
   now = Date.now,
+  conditionalReads = false,
 }) {
   assertIdentity(owner, OWNER_PATTERN, "GitHub owner", MAX_GITHUB_OWNER_BYTES)
   assertIdentity(repo, REPOSITORY_PATTERN, "GitHub repository", MAX_GITHUB_REPOSITORY_BYTES)
+  const normalizedRepositoryId = repositoryId === undefined ? null : normalizeId(repositoryId)
   assertInputByteLength(token, MAX_GITHUB_TOKEN_BYTES, "GitHub token")
   if (
     token !== undefined &&
@@ -55,14 +64,23 @@ export function createGitHubReader({
   assertBoundedInteger(maxPages, 1, MAX_GITHUB_PAGES, "GitHub maximum pages")
   assertBoundedInteger(maxRecords, 1, MAX_GITHUB_RECORDS, "GitHub maximum records")
   if (typeof now !== "function") throw new TypeError("Invalid GitHub clock")
-  const base = `${API_ORIGIN}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
+  const normalizedApiOrigin = normalizeApiOrigin(apiOrigin)
+  if (token !== undefined && normalizedApiOrigin !== API_ORIGIN) {
+    throw new TypeError("GitHub token requires the trusted GitHub API origin")
+  }
+  const base = `${normalizedApiOrigin}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
   const http = createHttpGet({
     fetchImpl,
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
     ...(maxResponseBytes === undefined ? {} : { maxResponseBytes }),
   })
+  const conditional = conditionalReads ? createConditionalJsonReader({ http, now }) : null
   const context = {
+    conditional,
     base,
+    apiOrigin: normalizedApiOrigin,
+    repositoryId: normalizedRepositoryId,
+    repositoryPath: new URL(base).pathname,
     http,
     token: token ?? null,
     timeoutMs: timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS,
@@ -73,6 +91,107 @@ export function createGitHubReader({
   }
 
   return {
+    ...(conditional ? { dispose: () => conditional.dispose() } : {}),
+    getRepository(args = {}, options = {}) {
+      exactArguments(args, [])
+      return readObject(recoveryContext(context, options), {
+        url: base,
+        operation: "repository",
+        // Authenticated repository responses include temporary clone credentials and
+        // security settings. Recovery consumes only these identity fields.
+        project: (value) =>
+          Object.fromEntries(
+            ["id", "full_name", "default_branch"]
+              .filter((key) => Object.hasOwn(value, key))
+              .map((key) => [key, value[key]]),
+          ),
+      })
+    },
+    listRepositoryWorkflowsComplete(args = {}, options = {}) {
+      exactArguments(args, [])
+      return readPaginated(recoveryContext(context, options), {
+        initialUrl: `${base}/actions/workflows?per_page=100`,
+        operation: "repository-workflows-complete",
+        extract: objectArray("workflows"),
+        compare: compareIdThenName,
+        strictTotal: true,
+      })
+    },
+    getWorkflowById(args, options = {}) {
+      exactArguments(args, ["workflowId"])
+      return readObject(recoveryContext(context, options), {
+        url: `${base}/actions/workflows/${normalizeId(args.workflowId)}`,
+        operation: "workflow-by-id",
+      })
+    },
+    listWorkflowRunsAllShasComplete(args, options = {}) {
+      exactArguments(args, ["workflowId"])
+      return readPaginated(recoveryContext(context, options), {
+        initialUrl: `${base}/actions/workflows/${normalizeId(args.workflowId)}/runs?per_page=100`,
+        operation: "workflow-runs-all-shas-complete",
+        extract: objectArray("workflow_runs"),
+        compare: compareIdThenName,
+        strictTotal: true,
+        pageConcurrency: 4,
+      }).then((result) => {
+        if (result.status !== "PRESENT") return result
+        // Keep all records and fence authority values after full raw validation.
+        // Unused GitHub metadata must not consume the downstream proof node budget.
+        const fields = [
+          "id",
+          "run_attempt",
+          "workflow_id",
+          "path",
+          "repository",
+          "head_sha",
+          "status",
+          "conclusion",
+        ]
+        const value = result.value.map((record) => {
+          const selected = Object.fromEntries(
+            fields.filter((key) => Object.hasOwn(record, key)).map((key) => [key, record[key]]),
+          )
+          if (isObject(selected.repository))
+            selected.repository = Object.freeze(
+              Object.fromEntries(
+                ["id", "full_name"]
+                  .filter((key) => Object.hasOwn(selected.repository, key))
+                  .map((key) => [key, selected.repository[key]]),
+              ),
+            )
+          return Object.freeze(selected)
+        })
+        return { ...result, value: Object.freeze(value) }
+      })
+    },
+    async listActionsRunJobsComplete(args, options = {}) {
+      exactArguments(args, ["runId"])
+      const raw = await readPaginated(recoveryContext(context, options), {
+        initialUrl: `${base}/actions/runs/${normalizeId(args.runId)}/jobs?filter=all&per_page=100`,
+        operation: "actions-run-jobs-complete",
+        extract: objectArray("jobs"),
+        compare: compareRunAttemptThenId,
+        strictTotal: true,
+      })
+      const normalized = normalizeAllAttemptJobs(raw)
+      if (normalized.status !== "PRESENT") return normalized
+      for (const job of normalized.value) {
+        const original = raw.value.find((value) => value.id === job.id)
+        if (
+          String(original.run_id) !== normalizeId(args.runId) ||
+          !SHA_PATTERN.test(original.head_sha)
+        )
+          return failure(
+            "ERROR",
+            normalized.operation,
+            normalized.httpStatus,
+            "JOB_SOURCE_MISMATCH",
+          )
+        job.run_id = original.run_id
+        job.head_sha = original.head_sha
+      }
+      return normalized
+    },
     getCommitCheckRuns({ commitSha }) {
       assertCommitSha(commitSha)
       return readPaginated(context, {
@@ -82,11 +201,19 @@ export function createGitHubReader({
         compare: compareIdThenName,
       })
     },
-    getRef({ ref }) {
+    getRef({ ref }, options = {}) {
       assertRef(ref, "GitHub ref")
       return readObject(context, {
         url: `${base}/git/ref/${encodeURIComponent(ref)}`,
+        requestBudget: readOptions(context, options),
         operation: "ref",
+      })
+    },
+    getGitTag({ tagSha }) {
+      assertCommitSha(tagSha)
+      return readObject(context, {
+        url: `${base}/git/tags/${tagSha}`,
+        operation: "git-tag",
       })
     },
     listTagRefs() {
@@ -97,10 +224,25 @@ export function createGitHubReader({
         compare: compareStringFieldThenCanonical("ref"),
       })
     },
+    listReleases() {
+      return readPaginated(context, {
+        initialUrl: `${base}/releases?per_page=100`,
+        operation: "releases",
+        extract: arrayBody,
+        compare: compareIdThenName,
+      })
+    },
     getReleaseByTag({ tag }) {
       assertTag(tag)
       return readObject(context, {
         url: `${base}/releases/tags/${encodeURIComponent(tag)}`,
+        operation: "release",
+      })
+    },
+    getRelease({ releaseId }) {
+      const id = normalizeId(releaseId)
+      return readObject(context, {
+        url: `${base}/releases/${id}`,
         operation: "release",
       })
     },
@@ -113,11 +255,15 @@ export function createGitHubReader({
         compare: compareIdThenName,
       })
     },
-    downloadReleaseAsset({ assetId }) {
+    downloadReleaseAsset({ assetId, maximumBytes } = {}) {
       const id = normalizeId(assetId)
+      const limit = normalizeReadLimit(maximumBytes, context.maxResponseBytes)
       return readBinary(context, {
         url: `${base}/releases/assets/${id}`,
         operation: "release-asset-download",
+        // Release assets return their bytes (via one signed redirect) only for this media type.
+        accept: "application/octet-stream",
+        ...(limit === null ? {} : { maximumBytes: limit }),
       })
     },
     listActionsArtifacts({ name } = {}) {
@@ -135,11 +281,55 @@ export function createGitHubReader({
         compare: compareIdThenName,
       })
     },
+    async listActionsRunArtifacts({ runId }) {
+      const id = normalizeId(runId)
+      const result = await readPaginated(context, {
+        initialUrl: `${base}/actions/runs/${id}/artifacts?per_page=100`,
+        operation: "actions-run-artifacts",
+        extract: objectArray("artifacts"),
+        compare: compareIdThenName,
+      })
+      return rejectDuplicateNumericIds(result, "DUPLICATE_ARTIFACT_ID")
+    },
+    async listActionsRunJobs({ runId }) {
+      const id = normalizeId(runId)
+      const result = await readPaginated(context, {
+        initialUrl: `${base}/actions/runs/${id}/jobs?filter=all&per_page=100`,
+        operation: "actions-run-jobs",
+        extract: objectArray("jobs"),
+        compare: compareRunAttemptThenId,
+      })
+      return normalizeAllAttemptJobs(result)
+    },
     getActionsRun({ runId }) {
       const id = normalizeId(runId)
       return readObject(context, {
         url: `${base}/actions/runs/${id}`,
         operation: "actions-run",
+      })
+    },
+    getActionsRunAttempt({ runId, attempt }, options = {}) {
+      const id = normalizeId(runId)
+      const attemptNumber = normalizeId(attempt)
+      return readObject(context, {
+        url: `${base}/actions/runs/${id}/attempts/${attemptNumber}`,
+        requestBudget: readOptions(context, options),
+        operation: "actions-run-attempt",
+      })
+    },
+    getWorkflowRunApprovals({ runId }) {
+      const id = normalizeId(runId)
+      return readObject(context, {
+        url: `${base}/actions/runs/${id}/approvals`,
+        operation: "workflow-run-approvals",
+        validate: (value) => Array.isArray(value) && value.length <= context.maxRecords,
+      })
+    },
+    getActionsArtifact({ artifactId }) {
+      const id = normalizeId(artifactId)
+      return readObject(context, {
+        url: `${base}/actions/artifacts/${id}`,
+        operation: "actions-artifact",
       })
     },
     listWorkflowRuns({ workflow, commitSha }) {
@@ -153,11 +343,16 @@ export function createGitHubReader({
         compare: compareIdThenName,
       })
     },
-    downloadActionsArtifact({ artifactId }) {
+    downloadActionsArtifact({ artifactId, maximumBytes } = {}) {
       const id = normalizeId(artifactId)
+      const limit = normalizeReadLimit(maximumBytes, context.maxResponseBytes)
       return readBinary(context, {
         url: `${base}/actions/artifacts/${id}/zip`,
         operation: "actions-artifact-download",
+        // The artifact archive endpoint answers 302 to the documented JSON media type and,
+        // since 2026-09-03, HTTP 415 to application/octet-stream (observed in production).
+        accept: JSON_ACCEPT,
+        ...(limit === null ? {} : { maximumBytes: limit }),
       })
     },
     getAttestations({ subjectDigest }) {
@@ -200,6 +395,16 @@ export function createGitHubReader({
         compare: compareStringFieldThenCanonical("name"),
       })
     },
+    // The only read on this reader that is not scoped to the repository: it
+    // names the identity the configured token acts as.
+    getAuthenticatedUser() {
+      return readObject(context, {
+        url: `${context.apiOrigin}/user`,
+        operation: "authenticated-user",
+        validate: (body) =>
+          isObject(body) && typeof body.login === "string" && LOGIN_PATTERN.test(body.login),
+      })
+    },
     getBranchProtection({ branch }) {
       assertRef(branch, "GitHub branch")
       return readObject(context, {
@@ -210,8 +415,11 @@ export function createGitHubReader({
   }
 }
 
-async function readObject(context, { url, operation, validate = isObject }) {
-  const result = await readJson(context, { url, operation })
+async function readObject(
+  context,
+  { url, operation, validate = isObject, requestBudget = {}, project = (value) => value },
+) {
+  const result = await readJson(context, { url, operation, requestBudget })
   if (result.status !== "PRESENT") {
     return publicResult(result)
   }
@@ -220,7 +428,7 @@ async function readObject(context, { url, operation, validate = isObject }) {
   }
   let value
   try {
-    value = canonicalJson(result.body, context.token)
+    value = canonicalJson(project(result.body), context.token)
   } catch (error) {
     return failure(
       "ERROR",
@@ -237,11 +445,53 @@ async function readObject(context, { url, operation, validate = isObject }) {
 
 async function readPaginated(
   context,
-  { initialUrl, operation, extract, compare, cursorPagination = false },
+  {
+    initialUrl,
+    operation,
+    extract,
+    compare,
+    cursorPagination = false,
+    strictTotal = false,
+    pageConcurrency = 1,
+  },
 ) {
   const records = []
+  let total = null
+  const ids = new Set()
   const budget = createOperationBudget(context)
   let url = initialUrl
+  const seenUrls = new Set([new URL(initialUrl).href])
+  let prefetched = []
+  const loadPage = (page, url, requestBudget) =>
+    readJson(context, {
+      url,
+      operation,
+      requestBudget,
+      conditionalBody: (body) =>
+        isObject(body) &&
+        Number.isSafeInteger(body.total_count) &&
+        body.total_count >= 0 &&
+        Array.isArray(extract(body)) &&
+        extract(body).length === body.total_count,
+      ...(strictTotal && !cursorPagination
+        ? {
+            conditionalPage: (body, link) => {
+              const count = body?.total_count
+              const items = extract(body)
+              return (
+                isObject(body) &&
+                Number.isSafeInteger(count) &&
+                count >= 0 &&
+                count <= context.maxRecords &&
+                Array.isArray(items) &&
+                (count === 0 ? page === 0 : page * 100 < count) &&
+                items.length === Math.min(100, Math.max(0, count - page * 100)) &&
+                strictPaginationLinks(link, initialUrl, page + 1, context, count)
+              )
+            },
+          }
+        : {}),
+    })
   for (let page = 0; page < context.maxPages; page += 1) {
     if (budget.deadline <= budget.now()) {
       return failure("AMBIGUOUS", operation, null, "TIMEOUT")
@@ -253,11 +503,9 @@ async function readPaginated(
     if (requestBudget === null) {
       return failure("AMBIGUOUS", operation, null, "TIMEOUT")
     }
-    const result = await readJson(context, {
-      url,
-      operation,
-      requestBudget,
-    })
+    const queued = prefetched.shift()
+    if (queued?.status === "rejected") throw queued.reason
+    const result = queued ? queued.value : await loadPage(page, url, requestBudget)
     if (result.code === "RESPONSE_TOO_LARGE") {
       return failure("ERROR", operation, result.httpStatus, "OPERATION_TOO_LARGE")
     }
@@ -265,6 +513,21 @@ async function readPaginated(
       return publicResult(result)
     }
     budget.remainingBytes -= result.bodyBytes
+    if (strictTotal && budget.now() >= budget.deadline)
+      return failure("AMBIGUOUS", operation, result.httpStatus, "TIMEOUT")
+    if (strictTotal) {
+      if (!strictPaginationLinks(result.paginationLinkHeader, initialUrl, page + 1, context))
+        return failure("ERROR", operation, result.httpStatus, "AMBIGUOUS_PAGINATION")
+      const count = result.body?.total_count
+      if (
+        !Number.isSafeInteger(count) ||
+        count < 0 ||
+        count > context.maxRecords ||
+        (total !== null && total !== count)
+      )
+        return failure("ERROR", operation, result.httpStatus, "INCOMPLETE_INVENTORY")
+      total = count
+    }
     const pageRecords = extract(result.body)
     if (pageRecords === null) {
       return failure("ERROR", operation, result.httpStatus, "MALFORMED_SCHEMA")
@@ -287,35 +550,112 @@ async function readPaginated(
       if (!isObject(normalized)) {
         return failure("ERROR", operation, result.httpStatus, "MALFORMED_SCHEMA")
       }
+      if (strictTotal) {
+        let id
+        try {
+          id = normalizeId(normalized.id)
+        } catch {
+          return failure("ERROR", operation, result.httpStatus, "MALFORMED_ID")
+        }
+        if (ids.has(id)) return failure("ERROR", operation, result.httpStatus, "DUPLICATE_ID")
+        ids.add(id)
+      }
       records.push(normalized)
     }
+    if (
+      strictTotal &&
+      (records.length > total ||
+        (result.nextUrl !== null && (pageRecords.length === 0 || records.length >= total)))
+    )
+      return failure("ERROR", operation, result.httpStatus, "INCOMPLETE_INVENTORY")
     if (result.nextUrl === null) {
+      if (prefetched.length > 0)
+        return failure("ERROR", operation, result.httpStatus, "INCOMPLETE_INVENTORY")
+      if (strictTotal && records.length !== total)
+        return failure("ERROR", operation, result.httpStatus, "INCOMPLETE_INVENTORY")
       records.sort(compare)
       return { ...publicResult(result), value: records }
     }
     if (page + 1 >= context.maxPages) {
       return failure("ERROR", operation, result.httpStatus, "PAGE_LIMIT_EXCEEDED")
     }
-    const nextUrl = normalizeNextUrl(result.nextUrl, initialUrl, cursorPagination)
-    if (nextUrl === null) {
+    const nextUrl = normalizeNextUrl(
+      result.nextUrl,
+      initialUrl,
+      cursorPagination,
+      context.apiOrigin,
+      context.repositoryPath,
+      context.repositoryId,
+    )
+    if (
+      nextUrl === null ||
+      (strictTotal &&
+        (new URL(nextUrl).searchParams.get("page") !== String(page + 2) ||
+          new URL(nextUrl).searchParams.get("per_page") !== "100"))
+    ) {
       return failure("ERROR", operation, result.httpStatus, "UNSAFE_PAGINATION_URL")
     }
+    if (seenUrls.has(nextUrl)) {
+      return failure("ERROR", operation, result.httpStatus, "PAGINATION_LOOP")
+    }
+    seenUrls.add(nextUrl)
     url = nextUrl
+    if (pageConcurrency > 1 && strictTotal && !cursorPagination && prefetched.length === 0) {
+      // Each concurrent request reserves a disjoint share of the remaining
+      // operation bytes, with at least 16MiB per page. Small budgets stay serial.
+      const count = Math.min(
+        pageConcurrency,
+        Math.floor(budget.remainingBytes / (16 * 1024 * 1024)),
+        Math.ceil(total / 100) - page - 1,
+        context.maxPages - page - 1,
+      )
+      if (count > 1) {
+        const batchBudget = remainingRequestBudget(budget)
+        if (batchBudget === null) return failure("AMBIGUOUS", operation, null, "TIMEOUT")
+        const share = Math.floor(budget.remainingBytes / count)
+        // Only derive numeric pages from the already validated next URL. Join
+        // every started request before consuming any result, including failures.
+        prefetched = await Promise.allSettled(
+          Array.from({ length: count }, (_, offset) => {
+            const pageUrl = new URL(nextUrl)
+            pageUrl.searchParams.set("page", String(page + 2 + offset))
+            return loadPage(page + 1 + offset, pageUrl.href, {
+              ...batchBudget,
+              maxResponseBytes: share,
+            })
+          }),
+        )
+      }
+    }
   }
   return failure("ERROR", operation, null, "PAGE_LIMIT_EXCEEDED")
 }
 
-async function readJson(context, { url, operation, requestBudget = {} }) {
-  const response = await context.http.getJson({
-    url,
-    headers: requestHeaders(context.token, JSON_ACCEPT),
-    ...requestBudget,
-  })
+async function readJson(
+  context,
+  { url, operation, requestBudget = {}, conditionalBody = isObject, conditionalPage },
+) {
+  const response = await (context.conditional ?? context.http).getJson(
+    {
+      url,
+      headers: {
+        ...requestHeaders(context.token, JSON_ACCEPT),
+        ...(context.apiVersion ? { "X-GitHub-Api-Version": context.apiVersion } : {}),
+      },
+      ...(context.signal ? { signal: context.signal } : {}),
+      timeoutMs: context.timeoutMs,
+      ...requestBudget,
+    },
+    { canRetain: conditionalBody, ...(conditionalPage ? { canRetainPage: conditionalPage } : {}) },
+  )
   const classification = classifyGitHubResponse(response, operation)
   if (classification.status !== "PRESENT") {
     return classification
   }
-  const link = parseNextLink(response.headers.link)
+  const paginationLinkHeader = response.revalidatedPage
+    ? response.revalidatedPage.link
+    : response.headers.link
+  const link = parseNextLink(paginationLinkHeader)
   if (link.status === "ERROR") {
     return failure("ERROR", operation, response.httpStatus, "MALFORMED_LINK_HEADER")
   }
@@ -324,18 +664,20 @@ async function readJson(context, { url, operation, requestBudget = {} }) {
     body: response.body,
     bodyBytes: response.bodyBytes,
     nextUrl: link.nextUrl,
+    linkHeader: response.headers.link,
+    paginationLinkHeader,
   }
 }
 
-async function readBinary(context, { url, operation }) {
-  const budget = createOperationBudget(context)
+async function readBinary(context, { url, operation, maximumBytes, accept }) {
+  const budget = createOperationBudget(context, maximumBytes)
   const firstRequest = remainingRequestBudget(budget)
   if (firstRequest === null) {
     return failure("AMBIGUOUS", operation, null, "TIMEOUT")
   }
   const result = await context.http.getBinary({
     url,
-    headers: requestHeaders(context.token, "application/octet-stream"),
+    headers: requestHeaders(context.token, accept),
     ...firstRequest,
   })
   if (result.code === "RESPONSE_TOO_LARGE") {
@@ -372,12 +714,20 @@ async function readBinary(context, { url, operation }) {
     : classification
 }
 
-function createOperationBudget(context) {
+function createOperationBudget(context, maximumBytes = context.maxResponseBytes) {
   return {
     deadline: context.now() + context.timeoutMs,
-    remainingBytes: context.maxResponseBytes,
+    remainingBytes: maximumBytes,
     now: context.now,
   }
+}
+
+function normalizeReadLimit(value, maximum) {
+  if (value === undefined) return null
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
+    throw new TypeError("GitHub download byte limit is invalid")
+  }
+  return value
 }
 
 function remainingRequestBudget(budget) {
@@ -406,10 +756,18 @@ function normalizeSignedDownloadUrl(value) {
   }
 }
 
-function classifyGitHubResponse(result, operation) {
+export function classifyGitHubResponse(result, operation) {
   const httpStatus = result.httpStatus
-  if (result.code === "MALFORMED_RESPONSE") {
-    return failure("ERROR", operation, httpStatus, result.code)
+  // HTTP status is not evidence that its body was read successfully. Preserve
+  // timeout/cancellation and deterministic transport failures before classifying
+  // completed HTTP errors, so consumers cannot retry an unsettled body read.
+  if (result.status === "ERROR") {
+    return failure(
+      ["ABORTED", "NETWORK_ERROR", "TIMEOUT"].includes(result.code) ? "AMBIGUOUS" : "ERROR",
+      operation,
+      httpStatus,
+      result.code,
+    )
   }
   if (httpStatus === 404) {
     return failure("AMBIGUOUS", operation, httpStatus, "NOT_FOUND_OR_HIDDEN")
@@ -426,6 +784,13 @@ function classifyGitHubResponse(result, operation) {
   if (httpStatus >= 500) {
     return failure("AMBIGUOUS", operation, httpStatus, "SERVER_ERROR")
   }
+  if (
+    httpStatus === 304 &&
+    result.status === "NOT_MODIFIED" &&
+    result.code === "NOT_MODIFIED" &&
+    Object.hasOwn(result, "body")
+  )
+    return failure("PRESENT", operation, httpStatus, "NOT_MODIFIED")
   if (httpStatus !== null && (httpStatus < 200 || httpStatus >= 300)) {
     return result.code === "REDIRECT"
       ? failure("ERROR", operation, httpStatus, "REDIRECT")
@@ -450,20 +815,64 @@ function requestHeaders(token, accept) {
   }
 }
 
-function normalizeNextUrl(value, initialValue, cursorPagination) {
+function normalizeNextUrl(
+  value,
+  initialValue,
+  cursorPagination,
+  apiOrigin,
+  repositoryPath,
+  repositoryId,
+) {
   try {
     const url = new URL(value)
     const initial = new URL(initialValue)
-    return url.origin === API_ORIGIN &&
-      url.username === "" &&
-      url.password === "" &&
-      url.hash === "" &&
-      url.pathname === initial.pathname &&
-      paginationQueryMatches(url.searchParams, initial.searchParams, cursorPagination)
-      ? url.href
-      : null
+    if (
+      url.origin !== apiOrigin ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.hash !== "" ||
+      !paginationPathMatches(url.pathname, initial.pathname, repositoryPath, repositoryId) ||
+      !paginationQueryMatches(url.searchParams, initial.searchParams, cursorPagination)
+    ) {
+      return null
+    }
+    url.pathname = initial.pathname
+    return url.href
   } catch {
     return null
+  }
+}
+
+function paginationPathMatches(actual, initial, repositoryPath, repositoryId) {
+  if (actual === initial) return true
+  if (repositoryId === null || !initial.startsWith(`${repositoryPath}/`)) {
+    return false
+  }
+  const endpointSuffix = initial.slice(repositoryPath.length)
+  return actual === `/repositories/${repositoryId}${endpointSuffix}`
+}
+
+function normalizeApiOrigin(value) {
+  if (typeof value !== "string" || Buffer.byteLength(value) > MAX_GITHUB_REF_BYTES) {
+    throw new TypeError("Invalid GitHub API origin")
+  }
+  try {
+    const url = new URL(value)
+    const loopback = ["localhost", "127.0.0.1", "::1"].includes(url.hostname)
+    if (
+      !["https:", ...(loopback ? ["http:"] : [])].includes(url.protocol) ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.pathname !== "/" ||
+      url.search !== "" ||
+      url.hash !== ""
+    ) {
+      throw new TypeError("Invalid GitHub API origin")
+    }
+    return url.origin
+  } catch (error) {
+    if (error instanceof TypeError && error.message === "Invalid GitHub API origin") throw error
+    throw new TypeError("Invalid GitHub API origin", { cause: error })
   }
 }
 
@@ -651,6 +1060,90 @@ function compareIdThenName(left, right) {
   return nameComparison === 0 ? compareCanonicalJson(left, right) : nameComparison
 }
 
+function compareRunAttemptThenId(left, right) {
+  const leftAttempt = Number.isSafeInteger(left.run_attempt)
+    ? left.run_attempt
+    : Number.MAX_SAFE_INTEGER
+  const rightAttempt = Number.isSafeInteger(right.run_attempt)
+    ? right.run_attempt
+    : Number.MAX_SAFE_INTEGER
+  if (leftAttempt !== rightAttempt) return leftAttempt - rightAttempt
+  return compareIdThenName(left, right)
+}
+
+function rejectDuplicateNumericIds(result, code) {
+  if (result.status !== "PRESENT") return result
+  const ids = new Set()
+  for (const record of result.value) {
+    if (!Number.isSafeInteger(record.id) || record.id < 1) {
+      return failure("ERROR", result.operation, result.httpStatus, "MALFORMED_SCHEMA")
+    }
+    if (ids.has(record.id)) {
+      return failure("ERROR", result.operation, result.httpStatus, code)
+    }
+    ids.add(record.id)
+  }
+  return result
+}
+
+function normalizeAllAttemptJobs(result) {
+  if (result.status !== "PRESENT") return result
+  if (result.value.length === 0) {
+    return failure("ERROR", result.operation, result.httpStatus, "ATTEMPT_COVERAGE_INCOMPLETE")
+  }
+  const identities = new Set()
+  const attempts = new Set()
+  const jobs = []
+  let maximumAttempt = 0
+  for (const record of result.value) {
+    if (
+      !Number.isSafeInteger(record.id) ||
+      record.id < 1 ||
+      !Number.isSafeInteger(record.run_attempt) ||
+      record.run_attempt < 1 ||
+      typeof record.name !== "string" ||
+      record.name.length === 0 ||
+      typeof record.status !== "string" ||
+      record.status.length === 0 ||
+      !(record.conclusion === null || typeof record.conclusion === "string") ||
+      !isNullableTimestamp(record.started_at) ||
+      !isNullableTimestamp(record.completed_at)
+    ) {
+      return failure("ERROR", result.operation, result.httpStatus, "MALFORMED_ATTEMPT_IDENTITY")
+    }
+    const identity = `${record.run_attempt}:${record.id}`
+    if (identities.has(identity)) {
+      return failure("ERROR", result.operation, result.httpStatus, "DUPLICATE_ATTEMPT_JOB")
+    }
+    identities.add(identity)
+    attempts.add(record.run_attempt)
+    maximumAttempt = Math.max(maximumAttempt, record.run_attempt)
+    jobs.push({
+      id: record.id,
+      runAttempt: record.run_attempt,
+      name: record.name,
+      status: record.status,
+      conclusion: record.conclusion,
+      startedAt: record.started_at,
+      completedAt: record.completed_at,
+    })
+  }
+  if (attempts.size !== maximumAttempt) {
+    return failure("ERROR", result.operation, result.httpStatus, "ATTEMPT_COVERAGE_INCOMPLETE")
+  }
+  jobs.sort((left, right) => left.runAttempt - right.runAttempt || left.id - right.id)
+  return { ...publicResult(result), value: jobs }
+}
+
+function isNullableTimestamp(value) {
+  return (
+    value === null ||
+    (typeof value === "string" &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u.test(value) &&
+      Number.isFinite(Date.parse(value)))
+  )
+}
+
 function compareAttestations(left, right) {
   if (Number.isSafeInteger(left.id) && Number.isSafeInteger(right.id) && left.id !== right.id) {
     return left.id - right.id
@@ -759,4 +1252,66 @@ function assertBoundedInteger(value, minimum, maximum, label) {
   if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
     throw new TypeError(`Invalid ${label}`)
   }
+}
+
+function exactArguments(value, keys) {
+  if (!isObject(value) || Object.keys(value).sort().join(" ") !== keys.sort().join(" "))
+    throw new TypeError("Exact GitHub read arguments required")
+}
+function readOptions(context, options) {
+  if (
+    !isObject(options) ||
+    Object.keys(options).some((key) => !["signal", "timeoutMs"].includes(key))
+  )
+    throw new TypeError("Invalid GitHub read options")
+  const result = {}
+  if (options.timeoutMs !== undefined) {
+    assertBoundedInteger(options.timeoutMs, 1, MAX_HTTP_READ_TIMEOUT, "GitHub read timeout")
+    result.timeoutMs = Math.min(context.timeoutMs, options.timeoutMs)
+  }
+  if (options.signal !== undefined) result.signal = options.signal
+  return result
+}
+const MAX_HTTP_READ_TIMEOUT = 300_000
+function recoveryContext(context, options) {
+  return { ...context, ...readOptions(context, options), apiVersion: "2026-03-10" }
+}
+
+function strictPaginationLinks(header, initialUrl, page, context, total = null) {
+  if (header === null) return total === null || page * 100 >= total
+  const relations = new Map()
+  for (const part of header.split(",")) {
+    const match = /^\s*<([^<>\s]+)>((?:\s*;[^;]*)+)\s*$/u.exec(part)
+    if (!match) return false
+    const parameters = parseLinkParameters(match[2])
+    const next = normalizeNextUrl(
+      match[1],
+      initialUrl,
+      false,
+      context.apiOrigin,
+      context.repositoryPath,
+      context.repositoryId,
+    )
+    if (!parameters?.has("rel") || next === null) return false
+    const url = new URL(next)
+    if (url.searchParams.get("per_page") !== "100") return false
+    const number = Number(url.searchParams.get("page"))
+    if (!Number.isSafeInteger(number) || number < 1) return false
+    for (const relation of parameters.get("rel").split(/\s+/u)) {
+      if (!["next", "prev", "first", "last"].includes(relation) || relations.has(relation))
+        return false
+      relations.set(relation, number)
+    }
+  }
+  return (
+    (total === null || relations.has("next") === page * 100 < total) &&
+    (total === null ||
+      !relations.has("last") ||
+      relations.get("last") === Math.max(1, Math.ceil(total / 100))) &&
+    (!relations.has("next") || relations.get("next") === page + 1) &&
+    (!relations.has("prev") || relations.get("prev") === page - 1) &&
+    (!relations.has("first") || relations.get("first") === 1) &&
+    (!relations.has("last") ||
+      (relations.get("last") >= page && (relations.get("last") === page || relations.has("next"))))
+  )
 }

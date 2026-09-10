@@ -1,22 +1,22 @@
 # Upgrading
 
-Dawn is pre-1.0. The API surface is still moving, and the safest posture is to pin a version, read what changed, and upgrade deliberately rather than floating on a range. This page is the workflow, not a changelog — the actual list of what changed between any two versions lives on GitHub, not here.
+B4.run is pre-1.0. The API surface is still moving, and the safest posture is to pin a version, read what changed, and upgrade deliberately rather than floating on a range. This page is the workflow, not a changelog — the actual list of what changed between any two versions lives on GitHub, not here.
 
 ## Fixed-group versioning
 
-Every publishable Dawn package — `@dawn-ai/cli`, `@dawn-ai/core`, `@dawn-ai/sdk`, the other `@dawn-ai/*` packages, and `create-dawn-ai-app` — is released together under one version number via [Changesets](https://github.com/changesets/changesets)' fixed-group mode. If `@dawn-ai/cli` is at `0.8.12`, so is every other package in that release. There's no independent versioning between packages to reason about, and no compatibility matrix to check — install matching versions and you're done.
+Every publishable B4.run package — `@b4run/cli`, `@b4run/core`, `@b4run/sdk`, the other `@b4run/*` packages, and `create-b4-app` — is released together under one version number via [Changesets](https://github.com/changesets/changesets)' fixed-group mode. If `@b4run/cli` is at `0.8.12`, so is every other package in that release. There's no independent versioning between packages to reason about, and no compatibility matrix to check — install matching versions and you're done.
 
-The two Helm charts (`dawn-sandbox-infra`, `dawn-app`) track the same package train through their `appVersion` field, but they're published separately as OCI artifacts, not npm packages — see [Kubernetes](/docs/deployment/kubernetes) for how to pull a specific chart version.
+The two Helm charts (`b4-sandbox-infra`, `b4-app`) track the same package train through their `appVersion` field, but they're published separately as OCI artifacts, not npm packages — see [Kubernetes](/docs/deployment/kubernetes) for how to pull a specific chart version.
 
 ## How to read what changed
 
 Each release is built from the changeset entries merged since the previous one — short, per-change Markdown files that describe what changed and why, written by whoever made the change. Two places to read them:
 
-- **GitHub Releases** — [github.com/cacheplane/dawnai/releases](https://github.com/cacheplane/dawnai/releases) lists every published version with its changeset entries rolled up into release notes. This is the fastest way to scan what changed between two versions.
+- **GitHub Releases** — [github.com/cacheplane/b4run/releases](https://github.com/cacheplane/b4run/releases) lists every published version with its changeset entries rolled up into release notes. This is the fastest way to scan what changed between two versions.
 - **Per-package `CHANGELOG.md`** — each package under `packages/*/CHANGELOG.md` in the repository carries its own changelog, generated from the same changeset entries but scoped to that package.
 
 <Callout type="info" title="Read the entries between your current and target version">
-  Before bumping `@dawn-ai/cli` (and its siblings) to a new version, skim the GitHub release notes for every version between the one you're on and the one you're moving to — not just the latest. A changeset entry that looks unrelated to your app (a sandbox hardening default, a memory recall tuning change) can still change runtime behavior you depend on.
+  Before bumping `@b4run/cli` (and its siblings) to a new version, skim the GitHub release notes for every version between the one you're on and the one you're moving to — not just the latest. A changeset entry that looks unrelated to your app (a sandbox hardening default, a memory recall tuning change) can still change runtime behavior you depend on.
 </Callout>
 
 ## Upgrade workflow
@@ -24,50 +24,50 @@ Each release is built from the changeset entries merged since the previous one �
 <Steps>
   <Step title="Check the current version">
     ```
-    pnpm why @dawn-ai/cli
+    pnpm why @b4run/cli
     ```
 
-    or check the `@dawn-ai/*` entries in your `package.json`.
+    or check the `@b4run/*` entries in your `package.json`.
   </Step>
   <Step title="Read the release notes">
-    Open [GitHub Releases](https://github.com/cacheplane/dawnai/releases) and read every entry between your current version and the target version.
+    Open [GitHub Releases](https://github.com/cacheplane/b4run/releases) and read every entry between your current version and the target version.
   </Step>
   <Step title="Bump and reinstall">
-    Bump every `@dawn-ai/*` dependency in `package.json` to the same target version, then reinstall.
+    Bump every `@b4run/*` dependency in `package.json` to the same target version, then reinstall.
   </Step>
   <Step title="Regenerate and verify">
     ```
-    dawn typegen
-    dawn verify
-    dawn test
+    b4 typegen
+    b4 verify
+    b4 test
     ```
 
-    `dawn verify` runs five phases: app discovery and config validation; route discovery; tool type extraction and typegen rendering; advisory checks for missing dependencies and provider environment variables; and runtime readiness for Node plus any configured sandbox provider. `dawn test` re-runs your scenario coverage against the new version. See [CLI](/docs/cli) and [Testing](/docs/testing).
+    `b4 verify` runs five phases: app discovery and config validation; route discovery; tool type extraction and typegen rendering; advisory checks for missing dependencies and provider environment variables; and runtime readiness for Node plus any configured sandbox provider. `b4 test` re-runs your scenario coverage against the new version. See [CLI](/docs/cli) and [Testing](/docs/testing).
   </Step>
 </Steps>
 
 ## Node 24 is the minimum
 
-Current Dawn packages declare `node >=24.0.0`, and `create-dawn-ai-app` refuses to scaffold on older releases. Before upgrading dependencies, move local version-manager files, CI runners, and custom container bases to Node 24 or later, reinstall with that runtime, and run `dawn verify`. Node 24 also supplies the npm and unflagged `node:sqlite` versions the scaffold expects.
+Current B4.run packages declare `node >=24.0.0`, and `create-b4-app` refuses to scaffold on older releases. Before upgrading dependencies, move local version-manager files, CI runners, and custom container bases to Node 24 or later, reinstall with that runtime, and run `b4 verify`. Node 24 also supplies the npm and unflagged `node:sqlite` versions the scaffold expects.
 
 ## Node-only imports moved to `/node`
 
 If application tooling imports filesystem or process-backed helpers, update the import specifier while keeping the symbol unchanged:
 
-- From `@dawn-ai/core/node`: `discoverRoutes`, `findDawnApp`, `assertDawnRoutesDir`, `extractToolSchemasForRoute`, `extractToolTypesForRoute`, and `registerTsxLoader`.
-- From `@dawn-ai/permissions/node`: `createPermissionsStore`.
-- From `@dawn-ai/workspace/node`: `localFilesystem` and `localExec`.
+- From `@b4run/core/node`: `discoverRoutes`, `findB4App`, `assertB4RoutesDir`, `extractToolSchemasForRoute`, `extractToolTypesForRoute`, and `registerTsxLoader`.
+- From `@b4run/permissions/node`: `createPermissionsStore`.
+- From `@b4run/workspace/node`: `localFilesystem` and `localExec`.
 
-For example, change `import { discoverRoutes } from "@dawn-ai/core"` to `import { discoverRoutes } from "@dawn-ai/core/node"`. Runtime-agnostic contracts and helpers remain on each package's main entry; use `/node` only for the explicit Node surface.
+For example, change `import { discoverRoutes } from "@b4run/core"` to `import { discoverRoutes } from "@b4run/core/node"`. Runtime-agnostic contracts and helpers remain on each package's main entry; use `/node` only for the explicit Node surface.
 
 ## Pinning
 
-Pin exact versions (no `^` or `~` ranges) for `@dawn-ai/*` packages until the project reaches 1.0 — a floating range means an unreviewed minor bump can land in CI or production without the deliberate read-the-notes step above.
+Pin exact versions (no `^` or `~` ranges) for `@b4run/*` packages until the project reaches 1.0 — a floating range means an unreviewed minor bump can land in CI or production without the deliberate read-the-notes step above.
 
 ## `toolOutput` is now gated off the `hono` target
 
 If your app configures `toolOutput` **and** names `"hono"` in `build.targets`,
-`dawn build` and `dawn check` now fail with `DAWN_E1005` where they used to pass.
+`b4 build` and `b4 check` now fail with `B4_E1005` where they used to pass.
 Nothing about your app changed; the gate did. [Tool-output
 offloading](/docs/context-management) spills oversized tool results to a file
 under `workspace/` and hands the model a pointer to it, and an edge runtime has
@@ -78,7 +78,7 @@ build boundary, while `toolOutput` was inlined into the bundle intact and then
 ignored at runtime. A green build and a worker that silently never offloads is
 worse than a failed build.
 
-Two ways forward: remove `toolOutput` from `dawn.config.ts`, or drop `"hono"`
+Two ways forward: remove `toolOutput` from `b4.config.ts`, or drop `"hono"`
 from `build.targets` and deploy with the `node` target, which serves offloading
 normally. An empty `toolOutput: {}` expresses no intent and is not gated.
 
@@ -89,12 +89,12 @@ target, and the matching runtime check (below) cannot fire on Node at all.
 
 `sandbox`, route [skills](/docs/skills), and `toolOutput` used to be read and then
 quietly do nothing on a runtime with no filesystem. All three now raise
-`DAWN_E1005` on every request instead, naming the feature and the config key that
+`B4_E1005` on every request instead, naming the feature and the config key that
 introduced it. See [What the edge cannot
 serve](/docs/deployment/edge#what-the-edge-cannot-serve).
 
 This closes a gap the build gate could not: composing an entry by hand over
-`@dawn-ai/cli/fetch` is a supported way to deploy, and such an app never runs the
+`@b4run/cli/fetch` is a supported way to deploy, and such an app never runs the
 `hono` target, so it never met the build gate at all.
 
 **No Node app can hit this, whatever it configures.** The check short-circuits
@@ -104,9 +104,9 @@ sandbox on Node remains the documented degrade it has always been. The
 deployments that can hit it are edge ones, and for them the affected config was
 already doing nothing.
 
-## `@dawn-ai/postgres-storage` now requires a `pool` on its main entry
+## `@b4run/postgres-storage` now requires a `pool` on its main entry
 
-`connectionString` has moved to a new `@dawn-ai/postgres-storage/node` subpath.
+`connectionString` has moved to a new `@b4run/postgres-storage/node` subpath.
 In `0.8.19` the main entry accepted either and built its own `pg` pool from a
 connection string; it no longer does, because it now imports `pg` for **types
 only** so that the package links on a runtime with no TCP sockets — which is
@@ -120,7 +120,7 @@ pool. Nothing fails silently. Two ways to migrate:
 ```ts
 // 1. Change the import — same factories, connectionString still works, and the
 //    store still builds and owns its pool.
-import { postgresCheckpointer } from "@dawn-ai/postgres-storage/node"
+import { postgresCheckpointer } from "@b4run/postgres-storage/node"
 
 // 2. Or build the pool yourself and keep the main entry. This is what you want
 //    anyway when one pool serves all three stores.
@@ -150,7 +150,7 @@ usually one line. Pool ownership is unchanged in both shapes: a pool the store
 built is ended by `close()`, an injected pool is left alone (`ownsPool`,
 defaulting to `false`). This shipped as a **patch** despite being breaking: under
 [fixed-group versioning](#fixed-group-versioning) a minor bump would move every
-`@dawn-ai/*` package to `1.0.0`, which is not what a pre-1.0 project wants to say
+`@b4run/*` package to `1.0.0`, which is not what a pre-1.0 project wants to say
 about one entry-point split. It is also why the advice at the top of this page —
 pin exact versions and read the notes — is not boilerplate.
 
@@ -161,7 +161,7 @@ pin exact versions and read the notes — is not boilerplate.
 accept it — previously it was typed but threw *"memory kind 'reflection' is not
 yet wired"* at write time. Reflections are **append-only** (like episodic
 writes): a later insight never supersedes an earlier one, and `ask` mode never
-prompts for one. `dawn memory reflect` produces them, as `candidate` records by
+prompts for one. `b4 memory reflect` produces them, as `candidate` records by
 default.
 
 `procedural` remains the one typed-but-unwired kind and still throws.
@@ -184,7 +184,7 @@ The `MemoryStore` contract gained two required methods to power the
   optionally scoped to a `namespacePrefix`.
 
 The built-in SQLite and pgvector stores already implement both, and the
-`runMemoryStoreConformance` kit in `@dawn-ai/testing` covers them — run it
+`runMemoryStoreConformance` kit in `@b4run/testing` covers them — run it
 against a custom store to verify the contract.
 
 Two related behavior changes in the same release:
@@ -192,8 +192,8 @@ Two related behavior changes in the same release:
 - The config-facing store type is now the **full** `MemoryStore` contract —
   `delete` and `listCandidates` included — rather than the narrower
   capability-facing surface. A custom store that already satisfied the CLI's
-  `dawn memory` commands is unaffected.
-- `dawn memory approve` (and the Inspector's Approve) now **reconciles
+  `b4 memory` commands is unaffected.
+- `b4 memory approve` (and the Inspector's Approve) now **reconciles
   supersession**: approving a candidate that contradicts an active record with
   the same identity key supersedes the old record instead of leaving two active
   rows; approving an identical duplicate dedupes it.
@@ -220,7 +220,7 @@ Semantics:
   deleting the oldest beyond it. No `cap` means no cap pass.
 
 The runtime episode recorder calls `prune` lazily after each write, and
-`dawn memory prune` runs it manually.
+`b4 memory prune` runs it manually.
 
 Two related behavior changes in the same release:
 
@@ -231,13 +231,13 @@ Two related behavior changes in the same release:
   expired rows** (`expiresAt <= now`). Queries without `now` are unchanged.
 
 The built-in SQLite and pgvector stores already implement all of this, and the
-`runMemoryStoreConformance` kit in `@dawn-ai/testing` covers it — run the kit
+`runMemoryStoreConformance` kit in `@b4run/testing` covers it — run the kit
 against a custom store to verify the contract.
 
 ## Related
 
 <RelatedCards items={[
-  { href: "/docs/cli", title: "CLI Reference", subtitle: "dawn verify and dawn typegen for post-upgrade checks" },
+  { href: "/docs/cli", title: "CLI Reference", subtitle: "b4 verify and b4 typegen for post-upgrade checks" },
   { href: "/docs/testing", title: "Scenario Testing", subtitle: "scenario coverage to re-run after an upgrade" },
   { href: "/docs/deployment", title: "Deployment Options", subtitle: "the node, langsmith, and hono build targets, and the Helm charts' own versioning" },
   { href: "/docs/faq", title: "FAQ", subtitle: "the pre-1.0 stability note this page backs" },

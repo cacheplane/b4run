@@ -1,10 +1,9 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { ThreadsStore } from "@dawn-ai/sqlite-storage"
+import type { ThreadsStore } from "@b4run/sqlite-storage"
 import { MemorySaver } from "@langchain/langgraph"
 import { afterEach, describe, expect, it, vi } from "vitest"
-
 import { createRuntimeFetchHandler, isEventStream } from "../src/lib/dev/runtime-fetch-core.js"
 import { createRuntimeFetchHandler as createNodeRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
 import type { RequestStores } from "../src/lib/dev/runtime-server.js"
@@ -16,6 +15,7 @@ import {
   memoryThreadsStore,
   simpleScript,
 } from "./helpers/fetch-entry-fixture.js"
+import { atomicWriteLines, waitForFile } from "./helpers/probe-file.js"
 import {
   buildStaticModulesForFixture,
   cleanup,
@@ -188,7 +188,7 @@ describe("per-request stores", () => {
     }
     expect(body.error.message).toContain("threadsStore")
     expect(body.error.details?.store).toBe("threadsStore")
-    expect(body.error.code).toBe("DAWN_E5301")
+    expect(body.error.code).toBe("B4_E5301")
     expect(body.error.docsUrl).toContain("/docs/deployment")
     expect(errors.join("\n")).toContain("threadsStore")
 
@@ -269,12 +269,14 @@ describe("per-request stores", () => {
 
 /** Blocks until `releaseFile` exists; the paths arrive as route input. */
 const BLOCKING_ROUTE = [
-  'import { readFile, writeFile } from "node:fs/promises"',
+  'import { readFile, rename, writeFile } from "node:fs/promises"',
   "export const graph = async (",
   "  input: { startedFile?: string; releaseFile?: string } | undefined,",
   "  _ctx: { signal: AbortSignal },",
   ") => {",
-  "  if (input?.startedFile) await writeFile(input.startedFile, 'started')",
+  "  if (input?.startedFile) {",
+  ...atomicWriteLines("input.startedFile", "'started'", "    "),
+  "  }",
   "  const deadline = Date.now() + 15000",
   "  while (Date.now() < deadline) {",
   "    if (!input?.releaseFile) break",
@@ -293,9 +295,9 @@ const BLOCKING_ROUTE = [
  */
 function blockingRouteWithLiterals(startedFile: string, releaseFile: string): string {
   return [
-    'import { readFile, writeFile } from "node:fs/promises"',
+    'import { readFile, rename, writeFile } from "node:fs/promises"',
     "export const graph = async () => {",
-    `  await writeFile(${JSON.stringify(startedFile)}, 'started')`,
+    ...atomicWriteLines(JSON.stringify(startedFile), "'started'"),
     "  const deadline = Date.now() + 15000",
     "  while (Date.now() < deadline) {",
     `    try { await readFile(${JSON.stringify(releaseFile)}, 'utf8'); break } catch {}`,
@@ -318,19 +320,6 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 /** One macrotask, so a promise chain that was already settled can run. */
 function tick(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 10))
-}
-
-async function waitForFile(path: string, timeoutMs = 15_000): Promise<void> {
-  const startedAt = Date.now()
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      await readFile(path, "utf8")
-      return
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 25))
-    }
-  }
-  throw new Error(`probe file never appeared: ${path}`)
 }
 
 async function waitUntil(predicate: () => boolean, what: string, timeoutMs = 15_000) {
@@ -375,7 +364,7 @@ function storeProbe() {
 }
 
 async function setupBlockingApp() {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-request-store-lifetime-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-request-store-lifetime-"))
   cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
 
   const startedFile = join(appRoot, "started.json")
@@ -383,7 +372,7 @@ async function setupBlockingApp() {
   const literalStartedFile = join(appRoot, "started-literal.json")
 
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "request-store-lifetime-fixture", "type": "module" }\n',
     "src/app/blocking/index.ts": BLOCKING_ROUTE,
     "src/app/literal/index.ts": blockingRouteWithLiterals(literalStartedFile, releaseFile),
@@ -435,7 +424,7 @@ describe("per-request stores outlive the response when the run does", () => {
         method: "POST",
       }),
     )
-    await waitForFile(startedFile)
+    await waitForFile(startedFile, { what: "started probe" })
 
     const cancelResponse = await handler.fetch(
       new Request(`http://localhost/threads/${threadId}/cancel`, { method: "POST" }),

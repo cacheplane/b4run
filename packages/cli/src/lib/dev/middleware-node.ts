@@ -13,7 +13,7 @@
 
 import { lstatSync } from "node:fs"
 import { pathToFileURL } from "node:url"
-import type { DawnMiddleware } from "@dawn-ai/sdk"
+import type { B4Middleware } from "@b4run/sdk"
 
 import { diagnose } from "../diagnostics.js"
 import { CliError } from "../output.js"
@@ -68,11 +68,11 @@ function candidateExists(path: string, statPath: StatPath): boolean {
     const errno = errnoOf(error)
     if (errno === "ENOENT" || errno === "ENOTDIR") return false
     throw new CliError(
-      `Middleware at ${path} could not be probed (${errno ?? "unknown error"}), so Dawn cannot ` +
+      `Middleware at ${path} could not be probed (${errno ?? "unknown error"}), so B4.run cannot ` +
         "tell whether this app has middleware and will not start ungated. " +
         `Fix the path's permissions, or delete it if this app has no middleware.\n\n${String(error)}`,
       1,
-      { cause: error, code: "DAWN_E3004" },
+      { cause: error, code: "B4_E3004" },
     )
   }
 }
@@ -84,7 +84,7 @@ function candidateExists(path: string, statPath: StatPath): boolean {
  * Shared with the build targets (`nodeTarget.emit`, `emitWebRuntimeArtifacts`)
  * so the static build resolves the same file, by the same rule, that the
  * dynamic probe does. Those two used `existsSync`; had they kept it, an
- * app whose middleware file is present but unprobeable would fail `dawn dev`
+ * app whose middleware file is present but unprobeable would fail `b4 dev`
  * and still build an artifact with no middleware in it — the fail-open moved
  * rather than fixed.
  */
@@ -102,8 +102,8 @@ export function findMiddlewareFile(
  * mean "the middleware is broken":
  *
  *   • every candidate definitively absent      -> undefined (no gate; unchanged)
- *   • a candidate cannot be probed at all      -> THROW (DAWN_E3004)
- *   • the first existing candidate won't import-> THROW (DAWN_E3004)
+ *   • a candidate cannot be probed at all      -> THROW (B4_E3004)
+ *   • the first existing candidate won't import-> THROW (B4_E3004)
  *   • it imports but binds no function         -> undefined, with a warning
  *
  * The bare `catch {}` this replaces conflated the first two lines with the
@@ -128,7 +128,7 @@ export function findMiddlewareFile(
 export async function loadMiddleware(
   appRoot: string,
   options?: LoadMiddlewareOptions,
-): Promise<DawnMiddleware | undefined> {
+): Promise<B4Middleware | undefined> {
   const path = findMiddlewareFile(appRoot, options?.statPath ?? lstatSync)
   if (!path) return undefined
 
@@ -149,14 +149,14 @@ export async function loadMiddleware(
       `Middleware at ${path} failed to import, so every endpoint it gates would run ungated. ` +
         `Fix the file, or delete it if this app has no middleware.\n\n${detail}`,
       1,
-      { cause: error, code: "DAWN_E3004" },
+      { cause: error, code: "B4_E3004" },
     )
   }
 
   const selected = selectMiddlewareExport(mod)
   if (!selected) {
     console.warn(
-      `Dawn: ${path} exists but exports no middleware function, so it is being ignored and every ` +
+      `B4.run: ${path} exists but exports no middleware function, so it is being ignored and every ` +
         "endpoint it would gate runs ungated. Export it with " +
         "`export default defineMiddleware(async (req) => { … })`.",
     )

@@ -16,10 +16,10 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })))
 })
 
-describe("dawn start", () => {
+describe("b4 start", () => {
   test("boots the production runtime, serves healthz, and logs the bound url", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
@@ -32,7 +32,7 @@ describe("dawn start", () => {
     handles.push(handle)
 
     expect(handle.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
-    expect(stdout.join("")).toContain(`dawn start listening on ${handle.url}`)
+    expect(stdout.join("")).toContain(`b4 start listening on ${handle.url}`)
 
     const response = await fetch(new URL("/healthz", handle.url))
     expect(response.status).toBe(200)
@@ -41,7 +41,7 @@ describe("dawn start", () => {
 
   test("registers idempotent SIGTERM/SIGINT handlers and removes them after close", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
@@ -77,7 +77,7 @@ describe("dawn start", () => {
 
   test("accepts --port 0 as a kernel-assigned ephemeral port", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
@@ -108,7 +108,7 @@ describe("dawn start", () => {
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-start-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-start-"))
   tempDirs.push(appRoot)
 
   await Promise.all(

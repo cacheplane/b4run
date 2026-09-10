@@ -1,0 +1,18 @@
+{
+  "run": 34000385602,
+  "sha": "a1cfe8ed7882f6b146bb8c426a73f136bbc98b8f",
+  "observations": [
+    {
+      "probe": "org-registry-metadata",
+      "status": 200,
+      "value": {
+        "total_count": 0,
+        "listed_count": 0,
+        "keys": [
+          "configurations",
+          "total_count"
+        ]
+      }
+    }
+  ]
+}

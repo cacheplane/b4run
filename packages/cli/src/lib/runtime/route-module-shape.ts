@@ -1,14 +1,14 @@
 /**
  * The `node:`-free half of `load-route-kind.ts`: classify an already-imported
  * route module namespace. Shared by the tsx-backed disk loader and
- * `buildStaticRouteModule`, and reachable from the `@dawn-ai/cli/fetch` graph
+ * `buildStaticRouteModule`, and reachable from the `@b4run/cli/fetch` graph
  * (which the loader is not).
  */
 
-import type { NormalizedRouteModule } from "@dawn-ai/core"
-import { isDawnAgent } from "@dawn-ai/sdk"
+import type { NormalizedRouteModule } from "@b4run/core"
+import { isB4Agent } from "@b4run/sdk"
 
-export type { NormalizedRouteModule } from "@dawn-ai/core"
+export type { NormalizedRouteModule } from "@b4run/core"
 
 /**
  * The object-normalizing core of {@link normalizeRouteModule}: classify an
@@ -30,8 +30,8 @@ export function normalizeRouteModuleObject(
     readonly workflow?: unknown
   }
 
-  // Check default export for DawnAgent descriptor (preferred path)
-  if ("default" in routeModule && isDawnAgent(routeModule.default)) {
+  // Check default export for B4Agent descriptor (preferred path)
+  if ("default" in routeModule && isB4Agent(routeModule.default)) {
     return { kind: "agent", entry: routeModule.default, config: routeModule.config ?? {} }
   }
 

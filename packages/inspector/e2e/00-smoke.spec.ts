@@ -1,4 +1,4 @@
-import type { MemoryRecord } from "@dawn-ai/memory"
+import type { MemoryRecord } from "@b4run/memory"
 import {
   BROWSE_PAGE_SIZE,
   BROWSE_SEED_COUNT,

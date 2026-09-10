@@ -1,5 +1,5 @@
 ---
-"@dawn-ai/cli": patch
+"@b4run/cli": patch
 ---
 
 Authorize a thread's row before claiming its run slot on `POST /agui/:routeId`.

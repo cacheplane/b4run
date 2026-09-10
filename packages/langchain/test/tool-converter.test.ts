@@ -1,4 +1,4 @@
-import type { StreamTransformerInput } from "@dawn-ai/core"
+import type { StreamTransformerInput } from "@b4run/core"
 import { type Command, isCommand } from "@langchain/langgraph"
 import { beforeEach, describe, expect, it, test, vi } from "vitest"
 import { convertToolToLangChain, jsonSchemaToZod } from "../src/tool-converter.ts"
@@ -62,7 +62,7 @@ describe("convertToolToLangChain", () => {
     // exact identity with the raw `config` object.
     expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
       1,
-      "dawn.capability",
+      "b4.capability",
       { event: "first", data: { index: 1 } },
       expect.objectContaining({
         configurable: config.configurable,
@@ -73,7 +73,7 @@ describe("convertToolToLangChain", () => {
     )
     expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
       2,
-      "dawn.capability",
+      "b4.capability",
       { event: "second", data: { index: 2 } },
       expect.objectContaining({
         configurable: config.configurable,
@@ -177,7 +177,7 @@ describe("convertToolToLangChain", () => {
 
     expect(isCommand(result)).toBe(true)
     expect(dispatchCustomEvent).toHaveBeenCalledWith(
-      "dawn.capability",
+      "b4.capability",
       { event: "state_update", data: { value: 42 } },
       config,
     )
@@ -235,8 +235,8 @@ describe("convertToolToLangChain", () => {
     expect((result as InstanceType<typeof Command>).update).toMatchObject({ value: 42 })
   })
 
-  test("converts a basic Dawn tool to a DynamicStructuredTool", async () => {
-    const dawnTool = {
+  test("converts a basic B4.run tool to a DynamicStructuredTool", async () => {
+    const b4Tool = {
       name: "greet",
       description: "Greet a user",
       filePath: "/app/tools/greet.ts",
@@ -244,7 +244,7 @@ describe("convertToolToLangChain", () => {
       scope: "shared" as const,
     }
 
-    const langchainTool = convertToolToLangChain(dawnTool)
+    const langchainTool = convertToolToLangChain(b4Tool)
 
     expect(langchainTool.name).toBe("greet")
     expect(langchainTool.description).toBe("Greet a user")
@@ -253,21 +253,21 @@ describe("convertToolToLangChain", () => {
   })
 
   test("uses empty description when none provided", () => {
-    const dawnTool = {
+    const b4Tool = {
       name: "ping",
       filePath: "/app/tools/ping.ts",
       run: async () => ({ pong: true }),
       scope: "shared" as const,
     }
 
-    const langchainTool = convertToolToLangChain(dawnTool)
+    const langchainTool = convertToolToLangChain(b4Tool)
 
     expect(langchainTool.name).toBe("ping")
     expect(langchainTool.description).toBe("")
   })
 
   test("converts JSON Schema from tools.json to Zod schema", async () => {
-    const dawnTool = {
+    const b4Tool = {
       name: "greet",
       description: "Greet a tenant",
       filePath: "/app/tools/greet.ts",
@@ -283,7 +283,7 @@ describe("convertToolToLangChain", () => {
       scope: "shared" as const,
     }
 
-    const langchainTool = convertToolToLangChain(dawnTool)
+    const langchainTool = convertToolToLangChain(b4Tool)
 
     expect(langchainTool.name).toBe("greet")
     const result = await langchainTool.invoke({ tenant: "acme" })
@@ -294,7 +294,7 @@ describe("convertToolToLangChain", () => {
     const { z } = await import("zod")
     const schema = z.object({ id: z.string().describe("Customer ID") })
 
-    const dawnTool = {
+    const b4Tool = {
       name: "lookup",
       description: "Look up customer",
       filePath: "/app/tools/lookup.ts",
@@ -303,7 +303,7 @@ describe("convertToolToLangChain", () => {
       scope: "shared" as const,
     }
 
-    const langchainTool = convertToolToLangChain(dawnTool)
+    const langchainTool = convertToolToLangChain(b4Tool)
 
     expect(langchainTool.schema).toBe(schema)
   })
@@ -384,7 +384,9 @@ describe("convertToolToLangChain — {result, state} wrapped returns", () => {
 
 describe("convertToolToLangChain — config.configurable forwarding", () => {
   it("forwards thread_id and route params from config.configurable into the tool run context", async () => {
-    let seen: { threadId?: string; params?: Record<string, string> } | undefined
+    let seen:
+      | { threadId: string | undefined; params: Record<string, string> | undefined }
+      | undefined
     const tool = {
       name: "probe",
       run: (_input: unknown, ctx: { threadId?: string; params?: Record<string, string> }) => {

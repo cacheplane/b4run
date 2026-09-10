@@ -17,8 +17,8 @@ afterEach(async () => {
 })
 
 describe("resolveMemoryStore", () => {
-  test("returns a store with put/get/search functions when no dawn.config.ts exists", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-memory-"))
+  test("returns a store with put/get/search functions when no b4.config.ts exists", async () => {
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-memory-"))
     tempDirs.push(appRoot)
 
     const store = await resolveMemoryStore(appRoot)
@@ -29,7 +29,7 @@ describe("resolveMemoryStore", () => {
   })
 
   test("default store round-trips a put + get", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-memory-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-memory-"))
     tempDirs.push(appRoot)
 
     const store = await resolveMemoryStore(appRoot)
@@ -53,11 +53,11 @@ describe("resolveMemoryStore", () => {
   })
 
   test("threads config.memory.recall into the default sqlite store", async () => {
-    // App root with a dawn.config.ts that caps the ranked candidate pool at 1.
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-memory-"))
+    // App root with a b4.config.ts that caps the ranked candidate pool at 1.
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-memory-"))
     tempDirs.push(appRoot)
     await writeFile(
-      join(appRoot, "dawn.config.ts"),
+      join(appRoot, "b4.config.ts"),
       `export default { memory: { recall: { candidatePool: 1 } } }\n`,
     )
 
@@ -96,8 +96,8 @@ describe("resolveMemoryStore", () => {
 })
 
 describe("resolveMemoryWrites", () => {
-  test("defaults to 'candidate' when no dawn.config.ts exists", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-memory-"))
+  test("defaults to 'candidate' when no b4.config.ts exists", async () => {
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-memory-"))
     tempDirs.push(appRoot)
 
     const writes = await resolveMemoryWrites(appRoot)
@@ -106,8 +106,8 @@ describe("resolveMemoryWrites", () => {
 })
 
 describe("resolveEpisodesConfig", () => {
-  test("returns defaults (disabled) when no dawn.config.ts exists", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-episodes-"))
+  test("returns defaults (disabled) when no b4.config.ts exists", async () => {
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-episodes-"))
     tempDirs.push(appRoot)
 
     const episodes = await resolveEpisodesConfig(appRoot)
@@ -121,10 +121,10 @@ describe("resolveEpisodesConfig", () => {
   })
 
   test("returns defaults when config has memory but no episodes block", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-episodes-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-episodes-"))
     tempDirs.push(appRoot)
     await writeFile(
-      join(appRoot, "dawn.config.ts"),
+      join(appRoot, "b4.config.ts"),
       `export default { memory: { writes: "auto" } }\n`,
     )
 
@@ -135,10 +135,10 @@ describe("resolveEpisodesConfig", () => {
   })
 
   test("threads configured values through", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-episodes-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-episodes-"))
     tempDirs.push(appRoot)
     await writeFile(
-      join(appRoot, "dawn.config.ts"),
+      join(appRoot, "b4.config.ts"),
       `export default { memory: { episodes: { enabled: true, ttlMs: 3_600_000, cap: 3, includeFailedRuns: false } } }\n`,
     )
 
@@ -155,10 +155,10 @@ describe("resolveEpisodesConfig", () => {
   test("embed: true resolves to false and warns exactly once per process", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
-      const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-episodes-"))
+      const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-episodes-"))
       tempDirs.push(appRoot)
       await writeFile(
-        join(appRoot, "dawn.config.ts"),
+        join(appRoot, "b4.config.ts"),
         `export default { memory: { episodes: { enabled: true, embed: true } } }\n`,
       )
 
@@ -178,8 +178,8 @@ describe("resolveEpisodesConfig", () => {
 })
 
 describe("resolveDistillConfig", () => {
-  test("returns documented defaults when no dawn.config.ts exists", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-distill-"))
+  test("returns documented defaults when no b4.config.ts exists", async () => {
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-distill-"))
     tempDirs.push(appRoot)
 
     expect(await resolveDistillConfig(appRoot)).toEqual({
@@ -198,9 +198,9 @@ describe("resolveDistillConfig", () => {
   })
 
   test("returns defaults when config has memory but no distill block", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-distill-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-distill-"))
     tempDirs.push(appRoot)
-    await writeFile(join(appRoot, "dawn.config.ts"), `export default { memory: {} }\n`)
+    await writeFile(join(appRoot, "b4.config.ts"), `export default { memory: {} }\n`)
 
     expect(await resolveDistillConfig(appRoot)).toEqual({
       model: "gpt-5-mini",
@@ -218,10 +218,10 @@ describe("resolveDistillConfig", () => {
   })
 
   test("honors overrides and leaves untouched defaults intact", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-distill-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-distill-"))
     tempDirs.push(appRoot)
     await writeFile(
-      join(appRoot, "dawn.config.ts"),
+      join(appRoot, "b4.config.ts"),
       `export default { memory: { distill: { model: "gpt-5", maxBatches: 2, consolidate: { minBatchSize: 3 }, reflect: { writes: "auto" } } } }\n`,
     )
 
@@ -241,10 +241,10 @@ describe("resolveDistillConfig", () => {
   // is ALWAYS resolved: consolidation must hand the superseded sources' cap
   // budget back, so "no expiry" is not an option the default may take.
   test("honors an override of consolidate.sourceTtlMs", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-distill-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-distill-"))
     tempDirs.push(appRoot)
     await writeFile(
-      join(appRoot, "dawn.config.ts"),
+      join(appRoot, "b4.config.ts"),
       `export default { memory: { distill: { consolidate: { sourceTtlMs: 86400000 } } } }\n`,
     )
 
@@ -255,10 +255,10 @@ describe("resolveDistillConfig", () => {
   })
 
   test("threads an explicit provider through and passes consolidate.ttlMs when set", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-distill-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-distill-"))
     tempDirs.push(appRoot)
     await writeFile(
-      join(appRoot, "dawn.config.ts"),
+      join(appRoot, "b4.config.ts"),
       `export default { memory: { distill: { provider: "anthropic", consolidate: { ttlMs: 1000 } } } }\n`,
     )
 
@@ -270,20 +270,20 @@ describe("resolveDistillConfig", () => {
   test("flags whether the provider was AUTHORED or merely inferred", async () => {
     // `provider` is always populated (the documented default survives), so the
     // only way a caller can tell a deliberate choice from an inferred one is
-    // this flag — `dawn memory <cmd> --model` relies on it to decide whether
+    // this flag — `b4 memory <cmd> --model` relies on it to decide whether
     // re-inferring from the flag's model id is safe.
-    const authoredRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-distill-"))
+    const authoredRoot = await mkdtemp(join(tmpdir(), "b4-resolve-distill-"))
     tempDirs.push(authoredRoot)
     await writeFile(
-      join(authoredRoot, "dawn.config.ts"),
+      join(authoredRoot, "b4.config.ts"),
       `export default { memory: { distill: { provider: "anthropic" } } }\n`,
     )
     expect((await resolveDistillConfig(authoredRoot)).providerAuthored).toBe(true)
 
-    const inferredRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-distill-"))
+    const inferredRoot = await mkdtemp(join(tmpdir(), "b4-resolve-distill-"))
     tempDirs.push(inferredRoot)
     await writeFile(
-      join(inferredRoot, "dawn.config.ts"),
+      join(inferredRoot, "b4.config.ts"),
       `export default { memory: { distill: { model: "claude-sonnet-4-5" } } }\n`,
     )
     const inferred = await resolveDistillConfig(inferredRoot)
@@ -292,10 +292,10 @@ describe("resolveDistillConfig", () => {
   })
 
   test("infers the provider from the configured model when none is set", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-distill-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-distill-"))
     tempDirs.push(appRoot)
     await writeFile(
-      join(appRoot, "dawn.config.ts"),
+      join(appRoot, "b4.config.ts"),
       `export default { memory: { distill: { model: "claude-sonnet-4-5" } } }\n`,
     )
 
@@ -304,10 +304,10 @@ describe("resolveDistillConfig", () => {
   })
 
   test("falls back to openai when the model's provider cannot be inferred", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-distill-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-distill-"))
     tempDirs.push(appRoot)
     await writeFile(
-      join(appRoot, "dawn.config.ts"),
+      join(appRoot, "b4.config.ts"),
       `export default { memory: { distill: { model: "some-local-model" } } }\n`,
     )
 
@@ -315,12 +315,12 @@ describe("resolveDistillConfig", () => {
     expect(c.provider).toBe("openai")
   })
 
-  test("returns defaults (never throws) when dawn.config.ts is invalid", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-distill-"))
+  test("returns defaults (never throws) when b4.config.ts is invalid", async () => {
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-distill-"))
     tempDirs.push(appRoot)
-    // Not an object default export → loadDawnConfig rejects, same catch path the
-    // "no dawn.config.ts" case exercises.
-    await writeFile(join(appRoot, "dawn.config.ts"), `export default 42\n`)
+    // Not an object default export → loadB4Config rejects, same catch path the
+    // "no b4.config.ts" case exercises.
+    await writeFile(join(appRoot, "b4.config.ts"), `export default 42\n`)
 
     expect(await resolveDistillConfig(appRoot)).toEqual({
       model: "gpt-5-mini",

@@ -1,4 +1,4 @@
-import { sha1Hex } from "@dawn-ai/sdk/pure"
+import { sha1Hex } from "@b4run/sdk/pure"
 import { z } from "zod"
 import { readRuntimeEnv } from "../../runtime-env.js"
 import { gateMemorySupersede } from "../permission-gate.js"
@@ -147,10 +147,10 @@ export function createMemoryMarker(): CapabilityMarker {
             } catch (err) {
               // Gated: silent embed failures are an ops footgun (user thinks
               // vector recall works while every embed errors). Mirrors the
-              // summarization hook's DAWN_DEBUG_SUMMARIZATION convention.
-              if (readRuntimeEnv("DAWN_DEBUG_MEMORY") === "1") {
+              // summarization hook's B4_DEBUG_SUMMARIZATION convention.
+              if (readRuntimeEnv("B4_DEBUG_MEMORY") === "1") {
                 console.warn(
-                  `[dawn:memory] recall embed failed, falling back to keyword-only: ${String(err)}`,
+                  `[b4:memory] recall embed failed, falling back to keyword-only: ${String(err)}`,
                 )
               }
               queryVec = undefined
@@ -201,7 +201,7 @@ export function createMemoryMarker(): CapabilityMarker {
           if (!validated.ok) return { result: `Rejected: ${validated.errors}` }
           const data = validated.value
 
-          // Per-kind write policy. Core cannot import @dawn-ai/memory (its
+          // Per-kind write policy. Core cannot import @b4run/memory (its
           // barrel pulls node:sqlite), so the policy is inlined: semantic →
           // reconcile, episodic/reflection → append, procedural → not yet wired.
           // Mirrored in packages/memory/src/reconcile.ts writePolicyFor — keep in sync.
@@ -268,9 +268,9 @@ export function createMemoryMarker(): CapabilityMarker {
             } catch (err) {
               // Gated warn — see the recall catch above. The write still lands
               // keyword-only (putOpts undefined); we never lose the memory.
-              if (readRuntimeEnv("DAWN_DEBUG_MEMORY") === "1") {
+              if (readRuntimeEnv("B4_DEBUG_MEMORY") === "1") {
                 console.warn(
-                  `[dawn:memory] remember embed failed, storing keyword-only: ${String(err)}`,
+                  `[b4:memory] remember embed failed, storing keyword-only: ${String(err)}`,
                 )
               }
               putOpts = undefined
@@ -291,7 +291,7 @@ export function createMemoryMarker(): CapabilityMarker {
           }
 
           if (autoLike) {
-            // Inline identity key helper — avoids importing from @dawn-ai/memory
+            // Inline identity key helper — avoids importing from @b4run/memory
             const identityKey = (d: Record<string, unknown>) =>
               identityKeys.map((k) => JSON.stringify(d[k] ?? null)).join(" ")
 

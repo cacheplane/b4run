@@ -1,12 +1,12 @@
 # Production Topology
 
-Start with one Dawn process and add infrastructure only for a measured requirement. Shared persistence, replica coordination, streaming behavior, readiness, and shutdown are separate design decisions.
+Start with one B4.run process and add infrastructure only for a measured requirement. Shared persistence, replica coordination, streaming behavior, readiness, and shutdown are separate design decisions.
 
 ## Start with one process
 
 The smallest production shape is the Node runtime with a durable local disk. One process owns the HTTP listener and its in-memory run registry; default SQLite files hold checkpoints and thread metadata, while the default permission store uses a local file.
 
-Bind the service to a private interface or put it behind an authenticated edge, persist the app's `.dawn/` and `workspace/` data, and arrange signal-driven shutdown. This topology avoids cross-replica races because every run for the service reaches the same process.
+Bind the service to a private interface or put it behind an authenticated edge, persist the app's `.b4/` and `workspace/` data, and arrange signal-driven shutdown. This topology avoids cross-replica races because every run for the service reaches the same process.
 
 ## Where state lives
 
@@ -23,13 +23,13 @@ See [Persistence and Tenancy](/docs/persistence) for the data lifecycle matrix.
 
 ## Move to ephemeral compute
 
-Before replacing local disk with ephemeral instances, move checkpoints, thread metadata, and permission decisions to Postgres with the three `@dawn-ai/postgres-storage` adapters. Choose a separate backend for long-term memory. Decide explicitly whether workspace files and sandbox volumes must survive process or pod replacement.
+Before replacing local disk with ephemeral instances, move checkpoints, thread metadata, and permission decisions to Postgres with the three `@b4run/postgres-storage` adapters. Choose a separate backend for long-term memory. Decide explicitly whether workspace files and sandbox volumes must survive process or pod replacement.
 
 Use one application-owned pool where the host permits it, handle idle pool errors, and close the runtime handler before ending the pool. An edge runtime may instead require request-scoped pools; follow the generated Hono store lifetime rather than reusing request-bound sockets across invocations.
 
 ## Add replicas safely
 
-Replicas need both shared persistence **and** guaranteed thread-aware routing or serialization. Dawn has no distributed run coordinator: each handler's one-run-per-thread gate and cancellation registry are process-local.
+Replicas need both shared persistence **and** guaranteed thread-aware routing or serialization. B4.run has no distributed run coordinator: each handler's one-run-per-thread gate and cancellation registry are process-local.
 
 For Agent Protocol routes, the thread id is present in paths such as `/threads/:thread_id/runs/stream` and `/threads/:thread_id/cancel`. Route all operations for an active thread—including cancellation—to the instance that owns its run, or place a distributed coordinator in front of execution. A persisted `busy` status is metadata, not a safe lock.
 
@@ -53,11 +53,11 @@ When invoked, the runtime handler's `close()` stops accepting requests, aborts s
 
 Injected stores and pools remain application-owned. Await `close()` before closing those resources so in-flight routes do not write through a pool that has already ended.
 
-`dawn start` opts into SIGINT/SIGTERM handling. `serveRuntime` defaults signal installation off, and the generated Node `server.mjs` calls it without that option, so the generated server does not currently install signal handlers. Use `dawn start` or provide a host entry that receives platform signals, invokes and awaits `close()`, and exits according to your supervisor's contract.
+`b4 start` opts into SIGINT/SIGTERM handling. `serveRuntime` defaults signal installation off, and the generated Node `server.mjs` calls it without that option, so the generated server does not currently install signal handlers. Use `b4 start` or provide a host entry that receives platform signals, invokes and awaits `close()`, and exits according to your supervisor's contract.
 
 ## Kubernetes implications
 
-An HPA adds or removes replicas; a PodDisruptionBudget limits simultaneous voluntary disruption. Both can improve availability, but neither serializes a thread, routes cancellation, drains a Dawn handler, or makes local disk shared.
+An HPA adds or removes replicas; a PodDisruptionBudget limits simultaneous voluntary disruption. Both can improve availability, but neither serializes a thread, routes cancellation, drains a B4.run handler, or makes local disk shared.
 
 For Kubernetes, combine an application-level readiness probe, a termination grace period longer than the chosen drain budget, a signal-aware entry point, and verified thread-affinity or coordination. Exercise rolling updates with a live Agent Protocol stream, an AG-UI disconnect, a cancel request, and a pod replacement while shared stores remain available.
 

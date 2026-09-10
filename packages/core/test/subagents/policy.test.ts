@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createPermissionsStore } from "@dawn-ai/permissions/node"
+import { createPermissionsStore } from "@b4run/permissions/node"
 import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/langgraph"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -55,13 +55,13 @@ describe("resolveGuardedSubagent", () => {
   let appRoot: string
 
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-subagent-policy-test-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-subagent-policy-test-"))
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
-    delete process.env.DAWN_DEBUG_CONSTRAINTS
+    delete process.env.B4_DEBUG_CONSTRAINTS
     rmSync(appRoot, { recursive: true, force: true })
   })
 
@@ -103,8 +103,8 @@ describe("resolveGuardedSubagent", () => {
       }),
     ).resolves.toEqual({
       ok: false,
-      code: "DAWN_E3002",
-      message: "[DAWN_E3002] Drafts are disabled.",
+      code: "B4_E3002",
+      message: "[B4_E3002] Drafts are disabled.",
     })
     expect(resolve).not.toHaveBeenCalled()
   })
@@ -112,8 +112,8 @@ describe("resolveGuardedSubagent", () => {
   it("uses a stable default reason for a static denial", async () => {
     await expect(call({ registry: [entry({ action: "deny" })] })).resolves.toEqual({
       ok: false,
-      code: "DAWN_E3002",
-      message: "[DAWN_E3002] Delegation to subagent 'writer' is denied.",
+      code: "B4_E3002",
+      message: "[B4_E3002] Delegation to subagent 'writer' is denied.",
     })
   })
 
@@ -121,8 +121,8 @@ describe("resolveGuardedSubagent", () => {
     const resolve = vi.fn(async () => "child")
     await expect(call({ registry: [], resolve })).resolves.toEqual({
       ok: false,
-      code: "DAWN_E5003",
-      message: "[DAWN_E5003] No subagent named 'writer' is available.",
+      code: "B4_E5003",
+      message: "[B4_E5003] No subagent named 'writer' is available.",
     })
     expect(resolve).not.toHaveBeenCalled()
   })
@@ -140,11 +140,11 @@ describe("resolveGuardedSubagent", () => {
         store: await permissions("interactive", {
           deny: { subagent: [pattern] },
         }),
-        expected: { ok: false, code: "DAWN_E3002" },
+        expected: { ok: false, code: "B4_E3002" },
       },
       {
         store: await permissions("non-interactive"),
-        expected: { ok: false, code: "DAWN_E3002" },
+        expected: { ok: false, code: "B4_E3002" },
       },
     ] as const
 
@@ -182,7 +182,7 @@ describe("resolveGuardedSubagent", () => {
         interruptCapable,
         resolve,
       })
-      expect(result).toMatchObject({ ok: false, code: "DAWN_E3002" })
+      expect(result).toMatchObject({ ok: false, code: "B4_E3002" })
       if (!result.ok) expect(result.message).toMatch(/thread ID.*interrupt support.*allow rule/i)
       expect(resolve).not.toHaveBeenCalled()
     },
@@ -198,7 +198,7 @@ describe("resolveGuardedSubagent", () => {
         registry: [entry({ action: "deny", reason: "No drafts." })],
         permissions: store,
       }),
-    ).resolves.toMatchObject({ ok: false, code: "DAWN_E3002" })
+    ).resolves.toMatchObject({ ok: false, code: "B4_E3002" })
     await expect(
       call({
         registry: [entry({ action: "constrain", predicate: () => "No draft input." })],
@@ -206,8 +206,8 @@ describe("resolveGuardedSubagent", () => {
       }),
     ).resolves.toEqual({
       ok: false,
-      code: "DAWN_E3002",
-      message: "[DAWN_E3002] No draft input.",
+      code: "B4_E3002",
+      message: "[B4_E3002] No draft input.",
     })
   })
 
@@ -227,8 +227,8 @@ describe("resolveGuardedSubagent", () => {
       }),
     ).resolves.toEqual({
       ok: false,
-      code: "DAWN_E3002",
-      message: "[DAWN_E3002] Tenant blocked.",
+      code: "B4_E3002",
+      message: "[B4_E3002] Tenant blocked.",
     })
     await expect(
       call({
@@ -295,9 +295,9 @@ describe("resolveGuardedSubagent", () => {
     })
     expect(result).toEqual({
       ok: false,
-      code: "DAWN_E3002",
+      code: "B4_E3002",
       message:
-        "[DAWN_E3002] Subagent delegation constraint check failed. The subagent was not started.",
+        "[B4_E3002] Subagent delegation constraint check failed. The subagent was not started.",
     })
     expect(resolve).not.toHaveBeenCalled()
   })
@@ -318,9 +318,9 @@ describe("resolveGuardedSubagent", () => {
       }),
     ).resolves.toEqual({
       ok: false,
-      code: "DAWN_E3002",
+      code: "B4_E3002",
       message:
-        "[DAWN_E3002] Subagent delegation constraint check failed. The subagent was not started.",
+        "[B4_E3002] Subagent delegation constraint check failed. The subagent was not started.",
     })
   })
 
@@ -350,10 +350,11 @@ describe("resolveGuardedSubagent", () => {
 
       expect(result).toEqual({
         ok: false,
-        code: "DAWN_E3002",
+        code: "B4_E3002",
         message:
-          "[DAWN_E3002] Subagent delegation constraint check failed. The subagent was not started.",
+          "[B4_E3002] Subagent delegation constraint check failed. The subagent was not started.",
       })
+      if (result.ok) throw new Error("Expected a denied delegation result")
       expect(result.message).not.toContain(secret.message)
       expect(warn).not.toHaveBeenCalled()
       expect(resolve).not.toHaveBeenCalled()
@@ -372,13 +373,13 @@ describe("resolveGuardedSubagent", () => {
       },
     )
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
-    process.env.DAWN_DEBUG_CONSTRAINTS = "1"
+    process.env.B4_DEBUG_CONSTRAINTS = "1"
 
     const result = await call({
       registry: [entry({ action: "constrain", predicate: (() => verdict) as never })],
     })
 
-    expect(result).toMatchObject({ ok: false, code: "DAWN_E3002" })
+    expect(result).toMatchObject({ ok: false, code: "B4_E3002" })
     if (!result.ok) expect(result.message).not.toContain(secret.message)
     expect(warn).toHaveBeenCalledWith(
       expect.stringMatching(/parent.*\/parent.*subagent.*writer/i),
@@ -397,11 +398,11 @@ describe("resolveGuardedSubagent", () => {
         }),
       ],
     })
-    expect(result).toMatchObject({ ok: false, code: "DAWN_E3002" })
+    expect(result).toMatchObject({ ok: false, code: "B4_E3002" })
     if (!result.ok) expect(result.message).not.toContain("secret tenant detail")
   })
 
-  it("logs thrown and invalid verdict details only under DAWN_DEBUG_CONSTRAINTS=1", async () => {
+  it("logs thrown and invalid verdict details only under B4_DEBUG_CONSTRAINTS=1", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     const thrown = new Error("predicate exploded")
     await call({
@@ -416,7 +417,7 @@ describe("resolveGuardedSubagent", () => {
     })
     expect(warn).not.toHaveBeenCalled()
 
-    process.env.DAWN_DEBUG_CONSTRAINTS = "1"
+    process.env.B4_DEBUG_CONSTRAINTS = "1"
     await call({
       registry: [
         entry({
@@ -476,7 +477,7 @@ describe("resolveGuardedSubagent", () => {
       runtime: { parentRouteId: "/parent", signal: controller.signal },
       resolve,
     })
-    expect(result).toMatchObject({ ok: false, code: "DAWN_E3002" })
+    expect(result).toMatchObject({ ok: false, code: "B4_E3002" })
     if (!result.ok) expect(result.message).not.toContain("private abort reason")
     expect(predicate).not.toHaveBeenCalled()
     expect(resolve).not.toHaveBeenCalled()
@@ -491,14 +492,14 @@ describe("resolveGuardedSubagent", () => {
           action: "constrain",
           predicate: async () => {
             controller.abort()
-            return true
+            return true as const
           },
         }),
       ],
       runtime: { parentRouteId: "/parent", signal: controller.signal },
       resolve,
     })
-    expect(result).toMatchObject({ ok: false, code: "DAWN_E3002" })
+    expect(result).toMatchObject({ ok: false, code: "B4_E3002" })
     expect(resolve).not.toHaveBeenCalled()
   })
 
@@ -520,7 +521,7 @@ describe("resolveGuardedSubagent", () => {
       runtime: { parentRouteId: "/parent", signal: controller.signal },
       resolve,
     })
-    expect(result).toMatchObject({ ok: false, code: "DAWN_E3002" })
+    expect(result).toMatchObject({ ok: false, code: "B4_E3002" })
     expect(resolve).not.toHaveBeenCalled()
   })
 
@@ -532,7 +533,7 @@ describe("resolveGuardedSubagent", () => {
           action: "constrain",
           predicate: async () => {
             order.push("policy")
-            return true
+            return true as const
           },
         }),
       ],
@@ -544,8 +545,8 @@ describe("resolveGuardedSubagent", () => {
     expect(order).toEqual(["policy", "resolve"])
     expect(result).toEqual({
       ok: false,
-      code: "DAWN_E5003",
-      message: "[DAWN_E5003] Subagent 'writer' could not be started.",
+      code: "B4_E5003",
+      message: "[B4_E5003] Subagent 'writer' could not be started.",
     })
   })
 })

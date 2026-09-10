@@ -4,11 +4,11 @@
  * REQUEST PATH — this module is reached from `execute-route-core.ts`, so it
  * must stay free of `node:` imports (see test/fetch-entry-purity.test.ts).
  * That is why the record id hashes through `pure-hash.ts` rather than
- * `node:crypto`; the digest is the same either way. The `@dawn-ai/memory`
+ * `node:crypto`; the digest is the same either way. The `@b4run/memory`
  * import below is TYPE-ONLY and therefore erased at bundle time — it never
  * pulls the barrel (and its `node:sqlite`) onto the graph.
  */
-import type { MemoryRecord, MemoryStore } from "@dawn-ai/memory"
+import type { MemoryRecord, MemoryStore } from "@b4run/memory"
 import { sha1Hex } from "./pure-hash.js"
 
 /** The two store methods the recorder needs. `Pick`ed so both the memory
@@ -31,14 +31,14 @@ let warnedEmbedUnsupported = false
  *
  * Defaults: disabled, 30-day TTL, 500-episode per-namespace cap, failed runs
  * included, no embeddings. Absent/undefined config ⇒ all defaults, which is
- * why an app with no `dawn.config.ts` records nothing.
+ * why an app with no `b4.config.ts` records nothing.
  *
  * `embed: true` is not supported this cycle — it resolves to `false` and logs
  * a one-line warning once per process (honest, forward-compatible).
  *
- * Pure by design: the request path derives this from the `DawnConfig` it has
+ * Pure by design: the request path derives this from the `B4Config` it has
  * already loaded (or that the caller injected), while the node-side
- * `resolveEpisodesConfig` in `resolve-memory.ts` reads `dawn.config.ts` from
+ * `resolveEpisodesConfig` in `resolve-memory.ts` reads `b4.config.ts` from
  * disk and delegates here. One defaulting rule, two entry points.
  */
 export function resolveEpisodesFromConfig(
@@ -55,7 +55,7 @@ export function resolveEpisodesFromConfig(
   if (episodes?.embed === true && !warnedEmbedUnsupported) {
     warnedEmbedUnsupported = true
     console.warn(
-      "[dawn] memory.episodes.embed is not yet supported; episodes are recorded without embeddings",
+      "[b4] memory.episodes.embed is not yet supported; episodes are recorded without embeddings",
     )
   }
   return {
@@ -130,7 +130,7 @@ export async function recordEpisode(
   } catch (error) {
     if (!warnedOnce) {
       warnedOnce = true
-      console.warn(`[dawn] episode recording failed (further failures muted): ${String(error)}`)
+      console.warn(`[b4] episode recording failed (further failures muted): ${String(error)}`)
     }
   }
 }
@@ -194,11 +194,11 @@ export function extractToolNames(output: unknown): string[] {
  * True when a final LangGraph output represents a PARKED (interrupted) turn
  * rather than a completed run: a graph driven through LangGraph's own
  * `invoke()` can surface pending HITL interrupts as a non-empty `__interrupt__`
- * array on the final state. The only such caller in Dawn is the directly
+ * array on the final state. The only such caller in B4.run is the directly
  * invoked subagent graph (`withEpisodeRecording` in execute-route-core), where
  * this complements the `GraphInterrupt` throw that path also handles.
  *
- * It is NOT a park detector for a Dawn route. Both route paths — streaming and
+ * It is NOT a park detector for a B4.run route. Both route paths — streaming and
  * non-streaming — go through the agent-adapter, which drives `streamEvents`;
  * that final output never carries `__interrupt__` (the interrupt arrives as a
  * separate stream chunk). Those callers pass `parked` to the recorder instead.

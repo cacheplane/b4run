@@ -1,8 +1,14 @@
 import { createHash } from "node:crypto"
-import type { SandboxHandle, SandboxPolicy, SandboxProvider } from "@dawn-ai/workspace"
+import type { SandboxHandle, SandboxPolicy, SandboxProvider } from "@b4run/workspace"
 import { sandboxUnavailable } from "../errors.js"
 import { createDefaultKubeClient } from "./default-kube-client.js"
-import type { KubeClient, KubePodSpec } from "./kube-client.js"
+import {
+  KubeAuthorizationReviewError,
+  type KubeClient,
+  type KubePermission,
+  type KubePodSpec,
+  REQUIRED_KUBE_PERMISSIONS,
+} from "./kube-client.js"
 import { kubeExec } from "./kube-exec.js"
 import { kubeFilesystem } from "./kube-filesystem.js"
 
@@ -27,9 +33,13 @@ const sanitize = (s: string) => {
   const hash = createHash("sha256").update(s).digest("hex").slice(0, 8)
   return `${trimDashes(clean.slice(0, 31))}-${hash}`
 }
-const podName = (t: string) => `dawn-sbx-${sanitize(t)}`
-const pvcName = (t: string) => `dawn-sbx-vol-${sanitize(t)}`
-const netpolName = (t: string) => `dawn-sbx-net-${sanitize(t)}`
+const podName = (t: string) => `b4-sbx-${sanitize(t)}`
+const pvcName = (t: string) => `b4-sbx-vol-${sanitize(t)}`
+const netpolName = (t: string) => `b4-sbx-net-${sanitize(t)}`
+const permissionLabel = (permission: KubePermission): string =>
+  `${permission.verb} ${permission.apiGroup || "core"}/${permission.resource}${
+    permission.subresource === undefined ? "" : `/${permission.subresource}`
+  }`
 
 export interface KubernetesSandboxOptions {
   readonly image: string
@@ -80,12 +90,12 @@ export function resolveSecurity(policy: SandboxPolicy): {
   return { podSecurityContext, containerSecurityContext, readOnly, user }
 }
 
-/** Kubernetes SandboxProvider. Per thread: a keeper Pod `dawn-sbx-<t>` (sleep
- * infinity) + a PVC `dawn-sbx-vol-<t>` at /workspace. acquire = create-or-reattach;
+/** Kubernetes SandboxProvider. Per thread: a keeper Pod `b4-sbx-<t>` (sleep
+ * infinity) + a PVC `b4-sbx-vol-<t>` at /workspace. acquire = create-or-reattach;
  * release deletes the Pod (keeps the PVC); destroy deletes both. Hardening maps to
  * SecurityContext; fsGroup chowns the PVC (no chown-init); the pod mounts no SA token. */
 export function kubernetesSandbox(opts: KubernetesSandboxOptions): SandboxProvider {
-  const ns = opts.namespace ?? "dawn-sandboxes"
+  const ns = opts.namespace ?? "b4-sandboxes"
   const startupTimeoutMs = opts.startupTimeoutMs ?? 60_000
   const client = opts.client ?? createDefaultKubeClient()
 
@@ -95,7 +105,7 @@ export function kubernetesSandbox(opts: KubernetesSandboxOptions): SandboxProvid
     signal: AbortSignal,
   ): Promise<string> => {
     const name = podName(threadId)
-    const labels = { "app.kubernetes.io/managed-by": "dawn", "dawn.sh/thread": sanitize(threadId) }
+    const labels = { "app.kubernetes.io/managed-by": "b4", "b4.run/thread": sanitize(threadId) }
 
     await client.createNamespacedPvcIfAbsent(ns, {
       name: pvcName(threadId),
@@ -200,18 +210,51 @@ export function kubernetesSandbox(opts: KubernetesSandboxOptions): SandboxProvid
     },
     async preflight() {
       const warnings: string[] = []
-      let canCreate: boolean
-      try {
-        canCreate = await client.canI(ns, "create", "pods")
-      } catch (error) {
-        return {
-          ok: false,
-          detail: `Kubernetes API not reachable: ${error instanceof Error ? error.message : String(error)}.`,
+      const denied: string[] = []
+      const apiFailures: string[] = []
+      const transportFailures: string[] = []
+      const labels = REQUIRED_KUBE_PERMISSIONS.map(permissionLabel)
+      const reviews = await Promise.allSettled(
+        REQUIRED_KUBE_PERMISSIONS.map((permission) => client.canI(ns, permission)),
+      )
+
+      for (const [index, review] of reviews.entries()) {
+        const label = labels[index]
+        if (label === undefined) continue
+        if (review.status === "fulfilled") {
+          if (!review.value) denied.push(label)
+        } else if (
+          review.reason instanceof KubeAuthorizationReviewError &&
+          review.reason.kind === "api"
+        ) {
+          apiFailures.push(label)
+        } else {
+          transportFailures.push(label)
         }
       }
-      if (!canCreate) {
-        return { ok: false, detail: `No permission to create pods in namespace "${ns}".` }
+
+      denied.sort()
+      apiFailures.sort()
+      transportFailures.sort()
+      const failureDetails = [
+        ...(transportFailures.length > 0
+          ? [
+              `Kubernetes API not reachable while reviewing permissions in namespace "${ns}": ${transportFailures.join(", ")}.`,
+            ]
+          : []),
+        ...(apiFailures.length > 0
+          ? [
+              `Kubernetes authorization review failed in namespace "${ns}": ${apiFailures.join(", ")}.`,
+            ]
+          : []),
+        ...(denied.length > 0
+          ? [`Missing Kubernetes permissions in namespace "${ns}": ${denied.join(", ")}.`]
+          : []),
+      ]
+      if (failureDetails.length > 0) {
+        return { ok: false, detail: failureDetails.join(" ") }
       }
+
       const enforced = await client.networkPolicyEnforced(ns).catch(() => "unknown" as const)
       if (enforced !== true) {
         warnings.push(
@@ -220,7 +263,7 @@ export function kubernetesSandbox(opts: KubernetesSandboxOptions): SandboxProvid
       }
       return {
         ok: true,
-        detail: `Kubernetes reachable; can create pods in "${ns}".`,
+        detail: `Kubernetes reachable; required permissions granted in "${ns}".`,
         ...(warnings.length > 0 ? { warnings } : {}),
       }
     },
@@ -241,19 +284,19 @@ async function waitForRunning(
     if (phase === "Running") return
     if (phase === null) {
       throw sandboxUnavailable(
-        `Sandbox unavailable: pod "${name}" disappeared while starting. Run \`dawn check\`.`,
+        `Sandbox unavailable: pod "${name}" disappeared while starting. Run \`b4 check\`.`,
       )
     }
     if (phase === "Failed" || phase === "Succeeded") {
       // A SIGTERM'd `sleep infinity` exits 0 → Succeeded; treat it as a dead keeper
       // rather than polling out the full timeout waiting for a Running it'll never reach.
       throw sandboxUnavailable(
-        `Sandbox unavailable: pod "${name}" entered ${phase}. Run \`dawn check\`.`,
+        `Sandbox unavailable: pod "${name}" entered ${phase}. Run \`b4 check\`.`,
       )
     }
     if (Date.now() > deadline) {
       throw sandboxUnavailable(
-        `Sandbox unavailable: pod "${name}" not Running within ${timeoutMs}ms. Run \`dawn check\`.`,
+        `Sandbox unavailable: pod "${name}" not Running within ${timeoutMs}ms. Run \`b4 check\`.`,
       )
     }
     await new Promise((r) => setTimeout(r, 250))
@@ -275,7 +318,7 @@ async function waitForGone(
     if ((await client.readNamespacedPodPhase(ns, name)) === null) return
     if (Date.now() > deadline) {
       throw sandboxUnavailable(
-        `Sandbox unavailable: pod "${name}" still terminating after ${timeoutMs}ms. Run \`dawn check\`.`,
+        `Sandbox unavailable: pod "${name}" still terminating after ${timeoutMs}ms. Run \`b4 check\`.`,
       )
     }
     await new Promise((r) => setTimeout(r, 250))

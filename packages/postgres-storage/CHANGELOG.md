@@ -1,5 +1,67 @@
 # @dawn-ai/postgres-storage
 
+## 0.8.29
+
+### Patch Changes
+
+- @b4run/permissions@0.8.29
+
+## 0.8.28
+
+### Patch Changes
+
+- @b4run/permissions@0.8.28
+
+## 0.8.27
+
+### Patch Changes
+
+- @b4run/permissions@0.8.27
+
+## 0.8.26
+
+### Patch Changes
+
+- @dawn-ai/permissions@0.8.26
+
+## 0.8.25
+
+### Patch Changes
+
+- @dawn-ai/permissions@0.8.25
+
+## 0.8.24
+
+### Patch Changes
+
+- @dawn-ai/permissions@0.8.24
+
+## 0.8.23
+
+### Patch Changes
+
+- 7e62bb1: Refresh the GitHub and npm documentation surfaces, add package discovery
+  metadata, and introduce reproducible product-loop media. No runtime API changed.
+- Updated dependencies [7e62bb1]
+  - @dawn-ai/permissions@0.8.23
+
+## 0.8.22
+
+### Patch Changes
+
+- a530e70: Documentation only: this package gains a canonical API reference on dawnai.org
+  and a concise npm entrypoint. No runtime behavior changed. (`dawn docs` also
+  now discovers every registered detailed API page.)
+- 3c68800: Say which Vercel runtime the `/node` entry works on. The README listed "Vercel
+  functions" among the hosts where `pg` opens a raw TCP connection, which is true
+  of Vercel's Node.js runtime and false of its Edge runtime — the latter has no
+  raw TCP socket, exactly like workerd, and needs the injected
+  `@neondatabase/serverless` pool instead. The configuration docs carried the same
+  unqualified claim in a _Works_ column and now also record that nothing here has
+  been run on Vercel: it is inference from the driver, not a measurement.
+- Updated dependencies [bedad77]
+  - @dawn-ai/permissions@0.8.22
+
 ## 0.8.21
 
 ### Patch Changes

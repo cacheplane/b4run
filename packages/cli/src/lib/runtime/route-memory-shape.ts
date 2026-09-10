@@ -1,12 +1,12 @@
 /**
  * The `node:`-free half of `load-memory.ts`: the descriptor shape and its
  * validator, shared by the disk loader and `buildStaticRouteModule`. Split out
- * so the `@dawn-ai/cli/fetch` graph never reaches the tsx-backed loader.
+ * so the `@b4run/cli/fetch` graph never reaches the tsx-backed loader.
  */
 
 /**
  * Structural shape of a memory definition's default export. Kept local (rather
- * than importing `DefinedMemory` from `@dawn-ai/sdk`) to avoid any potential
+ * than importing `DefinedMemory` from `@b4run/sdk`) to avoid any potential
  * build-graph cycle — the same cycle-avoidance pattern used in load-evals.ts.
  */
 export interface LoadedRouteMemory {

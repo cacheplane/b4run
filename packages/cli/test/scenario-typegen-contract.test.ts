@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
-import { SCENARIO_TYPES_FILE } from "@dawn-ai/core"
-import { discoverRoutes } from "@dawn-ai/core/node"
+import { SCENARIO_TYPES_FILE } from "@b4run/core"
+import { discoverRoutes } from "@b4run/core/node"
 import { afterEach, expect, test } from "vitest"
 
 import { runTypegen } from "../src/lib/typegen/run-typegen.js"
@@ -28,12 +28,12 @@ async function createFile(filePath: string, content: string): Promise<void> {
 test("generated scenario declarations compile with private application tool types", {
   timeout: 15_000,
 }, async () => {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-scenario-typegen-contract-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-scenario-typegen-contract-"))
   tempDirs.push(appRoot)
 
   await Promise.all([
     createFile(join(appRoot, "package.json"), '{"type":"module"}\n'),
-    createFile(join(appRoot, "dawn.config.ts"), "export default {}\n"),
+    createFile(join(appRoot, "b4.config.ts"), "export default {}\n"),
     createFile(
       join(appRoot, "src", "app", "hello", "index.ts"),
       "export const agent = async () => ({})\n",
@@ -63,7 +63,7 @@ test("generated scenario declarations compile with private application tool type
     createFile(
       join(appRoot, "run.test.ts"),
       [
-        'import { expectOutput, scenarios } from "@dawn-ai/sdk/testing"',
+        'import { expectOutput, scenarios } from "@b4run/sdk/testing"',
         "",
         'export default scenarios("/hello").scenario("greets with a mocked tool", (scenario) =>',
         "  scenario",
@@ -95,14 +95,14 @@ test("generated scenario declarations compile with private application tool type
           moduleResolution: "NodeNext",
           noEmit: true,
           paths: {
-            "@dawn-ai/sdk/testing": [sdkTestingEntry],
+            "@b4run/sdk/testing": [sdkTestingEntry],
           },
           strict: true,
           target: "ES2022",
           typeRoots: [nodeTypesRoot],
           types: ["node"],
         },
-        files: ["run.test.ts", ".dawn/dawn.generated.d.ts", `.dawn/${SCENARIO_TYPES_FILE}`],
+        files: ["run.test.ts", ".b4/b4.generated.d.ts", `.b4/${SCENARIO_TYPES_FILE}`],
       },
       null,
       2,
@@ -121,7 +121,7 @@ test("generated scenario declarations compile with private application tool type
       .join("\n"),
   ).toBe(0)
 
-  const scenarioTypesPath = join(appRoot, ".dawn", SCENARIO_TYPES_FILE)
+  const scenarioTypesPath = join(appRoot, ".b4", SCENARIO_TYPES_FILE)
   const scenarioTypes = await readFile(scenarioTypesPath, "utf8")
   expect(scenarioTypes).toContain(
     'Parameters<typeof import("../src/app/hello/tools/greet.js").default>[0]',
@@ -132,7 +132,7 @@ test("generated scenario declarations compile with private application tool type
 })
 
 test("terminates the compiler process when its timeout expires", { timeout: 5_000 }, async () => {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-scenario-compiler-timeout-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-scenario-compiler-timeout-"))
   tempDirs.push(appRoot)
   const compilerPath = join(appRoot, "hanging-compiler.mjs")
   await createFile(

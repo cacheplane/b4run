@@ -1,4 +1,4 @@
-import type { Thread, ThreadsStore } from "@dawn-ai/sqlite-storage"
+import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import { expect, test } from "vitest"
 
 const ISO_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
@@ -247,7 +247,7 @@ export function runThreadsStoreConformance(opts: {
         // overwriting the stored row's — is not conformant on either.
         //
         // Thread ids are `t-` plus four random bytes, so collisions are a
-        // 32-bit birthday problem, not a hypothetical. Dawn stores each
+        // 32-bit birthday problem, not a hypothetical. B4.run stores each
         // thread's authorization stamp under a reserved metadata key, so a
         // store that let a second create rewrite metadata would let whoever
         // draws (or guesses) a live id restamp someone else's thread and then
@@ -267,7 +267,7 @@ export function runThreadsStoreConformance(opts: {
         // The companion to the shallow-merge case above. That one pins what a
         // patch REPLACES; this one pins what it must not touch.
         //
-        // `dawn:access` is the reserved key Dawn's thread-access stamp lives
+        // `b4:access` is the reserved key B4.run's thread-access stamp lives
         // under (`THREAD_ACCESS_METADATA_KEY`), written once at create and
         // never again. Every later `route` and `parked_route` write is a patch
         // like the two below. If a patch could drop an unrelated key, a thread
@@ -276,12 +276,12 @@ export function runThreadsStoreConformance(opts: {
         // admin-only, or as nobody's.
         await s.createThread({
           thread_id: "t-untouched",
-          metadata: { "dawn:access": { ownerId: "u-1" }, user: "brian" },
+          metadata: { "b4:access": { ownerId: "u-1" }, user: "brian" },
         })
         await s.updateMetadata("t-untouched", { route: "/chat#agent" })
         await s.updateMetadata("t-untouched", { parked_route: "/chat#agent" })
         expect((await s.getThread("t-untouched"))?.metadata).toEqual({
-          "dawn:access": { ownerId: "u-1" },
+          "b4:access": { ownerId: "u-1" },
           parked_route: "/chat#agent",
           route: "/chat#agent",
           user: "brian",

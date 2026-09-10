@@ -1,8 +1,8 @@
-const REPO = "cacheplane/dawnai"
+const REPO = "cacheplane/b4run"
 const FALLBACK = 5
 
 /**
- * Fetches the contributor count for the Dawn repo via the GitHub API.
+ * Fetches the contributor count for the B4.run repo via the GitHub API.
  * Mirrors getGitHubStars: 1-hour ISR cache, optional GITHUB_TOKEN, graceful
  * fallback on any error. Uses the `contributors?per_page=1&anon=true` endpoint
  * and parses the `Link` header `last` page number to avoid pulling the whole
@@ -17,7 +17,7 @@ export async function getGitHubContributors(): Promise<number> {
     }
     const response = await fetch(
       `https://api.github.com/repos/${REPO}/contributors?per_page=1&anon=true`,
-      { headers, next: { revalidate: 3600 } }
+      { headers, next: { revalidate: 3600 } },
     )
     if (!response.ok) return FALLBACK
     const link = response.headers.get("link") ?? ""

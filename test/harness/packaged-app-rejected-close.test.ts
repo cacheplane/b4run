@@ -132,7 +132,7 @@ function stopProcessGroup(pid: number): void {
 it.skipIf(process.platform === "win32")(
   "paces force escalation and records the original child error after an abort",
   async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "dawn-rejected-close-abort-"))
+    const tempRoot = await mkdtemp(join(tmpdir(), "b4-rejected-close-abort-"))
     const readyPath = join(tempRoot, "ready.json")
     const transcriptPath = join(tempRoot, "commands.log")
     const controller = new AbortController()
@@ -215,7 +215,7 @@ it.runIf(process.platform !== "win32")(
   "waits for Windows child close before recording its original rejection",
   async () => {
     const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform")
-    const tempRoot = await mkdtemp(join(tmpdir(), "dawn-windows-rejected-close-"))
+    const tempRoot = await mkdtemp(join(tmpdir(), "b4-windows-rejected-close-"))
     const readyPath = join(tempRoot, "ready.json")
     const transcriptPath = join(tempRoot, "commands.log")
     const controller = new AbortController()

@@ -18,7 +18,7 @@ import {
   tokenize,
   type VectorRankingOptions,
   validateBrowseQuery,
-} from "@dawn-ai/memory"
+} from "@b4run/memory"
 import { Pool, type PoolClient, type QueryResult } from "pg"
 import pgvector from "pgvector/pg"
 import { appendPgBrowseFilter, pgKeysetWhere } from "./browse-sql.js"
@@ -54,13 +54,13 @@ export function pgvectorMemoryStore(opts: {
   schema?: string
   /** Table name prefix (isolates multiple stores in one database). */
   tablePrefix?: string
-  /** Recall ranking tuning; all fields defaulted. See @dawn-ai/memory score.ts. */
+  /** Recall ranking tuning; all fields defaulted. See @b4run/memory score.ts. */
   recall?: RecallRankingOptions
   /** Store-level hybrid tuning; used when a query omits `vector`. All fields defaulted. */
   vector?: VectorRankingOptions
 }): PgvectorMemoryStore {
   const schema = opts.schema ?? "public"
-  const prefix = opts.tablePrefix ?? "dawn_memory"
+  const prefix = opts.tablePrefix ?? "b4_memory"
   assertIdentifier("schema", schema)
   assertIdentifier("tablePrefix", prefix)
   vectorColumnDef(opts.dimensions)
@@ -92,9 +92,7 @@ export function pgvectorMemoryStore(opts: {
     // lifecycle and its error handling — pg requires every pool to have a listener,
     // so attaching one to someone else's pool would mask that contract.
     pool.on("error", (error) => {
-      console.warn(
-        `[dawn:memory] pgvector pool client error (connection dropped): ${String(error)}`,
-      )
+      console.warn(`[b4:memory] pgvector pool client error (connection dropped): ${String(error)}`)
     })
   }
 

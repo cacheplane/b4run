@@ -3,7 +3,7 @@ import {
   expectMeta,
   expectOutput,
   type ScenarioToolCallRecord,
-} from "@dawn-ai/sdk/testing"
+} from "@b4run/sdk/testing"
 import { type Command, CommanderError } from "commander"
 
 import { CliError, type CommandIo, formatErrorMessage, writeLine } from "../lib/output.js"
@@ -40,8 +40,8 @@ type ScenarioOutcome = ScenarioAssertionFailure | ScenarioExecutionFailure | Sce
 export function registerTestCommand(program: Command, io: CommandIo): void {
   program
     .command("test [path]")
-    .description("Run Dawn route scenarios")
-    .option("--cwd <path>", "Path to the Dawn app root or a child directory within it")
+    .description("Run B4.run route scenarios")
+    .option("--cwd <path>", "Path to the B4.run app root or a child directory within it")
     .action(async (path: string | undefined, options: TestOptions) => {
       await runTestCommand(path, options, io)
     })
@@ -81,7 +81,7 @@ export async function runTestCommand(
     writeLine(io.stdout, `Summary: ${passed} passed, ${failed} failed`)
 
     if (failed > 0) {
-      throw new CommanderError(1, "dawn.test.failed", "")
+      throw new CommanderError(1, "b4.test.failed", "")
     }
   } catch (error) {
     if (error instanceof CliError || error instanceof CommanderError) {

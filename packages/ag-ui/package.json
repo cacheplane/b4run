@@ -1,17 +1,26 @@
 {
-  "name": "@dawn-ai/ag-ui",
-  "version": "0.8.21",
+  "name": "@b4run/ag-ui",
+  "version": "0.8.29",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "homepage": "https://github.com/cacheplane/dawnai/tree/main/packages/ag-ui#readme",
+  "description": "AG-UI protocol adapters for streaming B4.run agent runs to compatible clients.",
+  "keywords": [
+    "b4",
+    "typescript",
+    "langgraph",
+    "ag-ui",
+    "ai-agents",
+    "streaming"
+  ],
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/ag-ui#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/dawnai.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/ag-ui"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/dawnai/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -40,13 +49,13 @@
   },
   "scripts": {
     "build": "node -e \"const fs = require('node:fs'); const path = require('node:path'); if (fs.existsSync('dist')) for (const entry of fs.readdirSync('dist', { withFileTypes: true })) if (entry.isFile() && /^(?:encode|run-input|translate)\\./.test(entry.name)) fs.rmSync(path.join('dist', entry.name))\" && tsc -b tsconfig.json && node -e \"const fs = require('node:fs'); fs.mkdirSync('dist/react', { recursive: true }); fs.copyFileSync('src/react/styles.css', 'dist/react/styles.css')\"",
-    "lint": "biome check --config-path ../config-biome/biome.json package.json src tsconfig.json vitest.config.ts",
+    "lint": "biome check --config-path ../config-biome/biome.json package.json src test tsconfig.json vitest.config.ts",
     "test": "vitest --run --config vitest.config.ts --passWithNoTests",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@ag-ui/core": "0.0.57",
-    "@ag-ui/encoder": "0.0.57",
+    "@ag-ui/core": "0.0.59",
+    "@ag-ui/encoder": "0.0.59",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
@@ -62,14 +71,14 @@
     }
   },
   "devDependencies": {
-    "@ag-ui/client": "0.0.57",
-    "@copilotkit/react-core": "^1.68.3",
-    "@dawn-ai/config-typescript": "workspace:*",
+    "@ag-ui/client": "0.0.59",
+    "@copilotkit/react-core": "^1.70.0",
+    "@b4run/config-typescript": "workspace:*",
     "@types/node": "26.1.2",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "rxjs": "7.8.2"
+    "rxjs": "7.8.1"
   }
 }

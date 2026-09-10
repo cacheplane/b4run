@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { discoverRoutes } from "@dawn-ai/core/node"
+import { discoverRoutes } from "@b4run/core/node"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { script } from "../../testing/dist/index.js"
@@ -31,13 +31,13 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_EXPORT_MIDDLEWARE =
-  'import { allow, defineMiddleware, reject } from "@dawn-ai/sdk"\n' +
+  'import { allow, defineMiddleware, reject } from "@b4run/sdk"\n' +
   "export default defineMiddleware((req) =>\n" +
   '  req.headers["x-ok"] ? allow() : reject(401, { error: "missing x-ok" }),\n' +
   ")\n"
 
 const NAMED_EXPORT_MIDDLEWARE =
-  'import { allow, defineMiddleware, reject } from "@dawn-ai/sdk"\n' +
+  'import { allow, defineMiddleware, reject } from "@b4run/sdk"\n' +
   "export const middleware = defineMiddleware((req) =>\n" +
   '  req.headers["x-ok"] ? allow() : reject(401, { error: "missing x-ok" }),\n' +
   ")\n"
@@ -48,13 +48,13 @@ async function fixtureApp(
   // realpath: on macOS the tmpdir is behind a /var → /private/var symlink, and
   // the loader resolves module URLs to their real paths — keep every path in
   // the test on the resolved side so absolute-path assertions line up.
-  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "dawn-static-middleware-")))
+  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "b4-static-middleware-")))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "static-middleware-fixture", "type": "module" }\n',
     "src/app/chat/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\n' +
+      'import { agent } from "@b4run/sdk"\n' +
       'export default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
     ...middlewareFiles,
   }
@@ -75,13 +75,13 @@ async function collectFixtureDiscoveries(appRoot: string): Promise<RouteStaticDi
   return discoveries
 }
 
-/** Link the real @dawn-ai/cli package into the fixture so the emitted
- * manifest's `"@dawn-ai/cli/runtime"` import resolves from the tmpdir. */
+/** Link the real @b4run/cli package into the fixture so the emitted
+ * manifest's `"@b4run/cli/runtime"` import resolves from the tmpdir. */
 async function linkCliPackage(appRoot: string): Promise<void> {
-  await mkdir(join(appRoot, "node_modules", "@dawn-ai"), { recursive: true })
+  await mkdir(join(appRoot, "node_modules", "@b4run"), { recursive: true })
   await symlink(
     join(repoRoot, "packages", "cli"),
-    join(appRoot, "node_modules", "@dawn-ai", "cli"),
+    join(appRoot, "node_modules", "@b4run", "cli"),
     "dir",
   )
 }
@@ -96,7 +96,7 @@ describe("emitModulesFile — middleware", () => {
   it("emits the namespace import and normalize call when middlewareFile is set", async () => {
     const appRoot = await fixtureApp()
     const discoveries = await collectFixtureDiscoveries(appRoot)
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
 
     const text = emitModulesFile({
       appRoot,
@@ -106,7 +106,7 @@ describe("emitModulesFile — middleware", () => {
     })
 
     expect(text).toContain(
-      'import { buildStaticRouteModule, normalizeMiddlewareModule } from "@dawn-ai/cli/runtime"',
+      'import { buildStaticRouteModule, normalizeMiddlewareModule } from "@b4run/cli/runtime"',
     )
     expect(text).toContain('import * as middlewareModule from "../../src/middleware.ts"')
     expect(text).toContain("  middleware: normalizeMiddlewareModule(middlewareModule),")
@@ -120,7 +120,7 @@ describe("emitModulesFile — middleware", () => {
   it("JSON-escapes hostile middleware specifiers", () => {
     const text = emitModulesFile({
       appRoot: "/app",
-      buildDir: "/app/.dawn/build",
+      buildDir: "/app/.b4/build",
       discoveries: [],
       middlewareFile: '/app/src/mid"dleware.ts',
     })
@@ -135,7 +135,7 @@ describe("emitModulesFile — middleware", () => {
     const discoveries = await collectFixtureDiscoveries(appRoot)
     const text = emitModulesFile({
       appRoot,
-      buildDir: join(appRoot, ".dawn", "build"),
+      buildDir: join(appRoot, ".b4", "build"),
       discoveries,
     })
     expect(text).not.toContain("normalizeMiddlewareModule")
@@ -144,7 +144,7 @@ describe("emitModulesFile — middleware", () => {
     // named-import line is now composed from a list — a hook entry appearing
     // for an app that never asked for one would otherwise go unnoticed.
     expect(text).not.toContain("normalizeThreadAccessModule")
-    expect(text).toContain('import { buildStaticRouteModule } from "@dawn-ai/cli/runtime"')
+    expect(text).toContain('import { buildStaticRouteModule } from "@b4run/cli/runtime"')
   })
 })
 
@@ -160,7 +160,7 @@ describe("static manifest middleware — round-trip", () => {
     await linkCliPackage(appRoot)
 
     const discoveries = await collectFixtureDiscoveries(appRoot)
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
     await mkdir(buildDir, { recursive: true })
     const modulesPath = join(buildDir, "modules.mjs")
     await writeFile(
@@ -217,7 +217,7 @@ describe("static manifest middleware — round-trip", () => {
     await linkCliPackage(appRoot)
 
     const discoveries = await collectFixtureDiscoveries(appRoot)
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
     await mkdir(buildDir, { recursive: true })
     const modulesPath = join(buildDir, "modules.mjs")
     await writeFile(
@@ -240,7 +240,7 @@ describe("static manifest middleware — round-trip", () => {
     await linkCliPackage(appRoot)
 
     const discoveries = await collectFixtureDiscoveries(appRoot)
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
     await mkdir(buildDir, { recursive: true })
     const modulesPath = join(buildDir, "modules.mjs")
     await writeFile(
@@ -263,7 +263,7 @@ describe("static manifest middleware — round-trip", () => {
     await rm(join(appRoot, "src", "middleware.ts"))
     await writeFile(
       join(appRoot, "middleware.ts"),
-      'import { allow, defineMiddleware, reject } from "@dawn-ai/sdk"\n' +
+      'import { allow, defineMiddleware, reject } from "@b4run/sdk"\n' +
         "export default defineMiddleware((req) =>\n" +
         '  req.headers["x-disk"] ? allow() : reject(401, { error: "missing x-disk" }),\n' +
         ")\n",
@@ -339,7 +339,7 @@ describe("normalizeMiddlewareModule — selection parity", () => {
 
 describe("loadStaticModules — middleware validation", () => {
   async function writeManifest(body: string): Promise<string> {
-    const dir = await realpath(await mkdtemp(join(tmpdir(), "dawn-static-middleware-manifest-")))
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "b4-static-middleware-manifest-")))
     cleanup.push(() => rm(dir, { force: true, recursive: true }))
     const manifestPath = join(dir, "modules.mjs")
     await writeFile(manifestPath, body, "utf8")
@@ -351,7 +351,7 @@ describe("loadStaticModules — middleware validation", () => {
       'export default { middleware: "not-a-function", routes: [] }\n',
     )
     await expect(loadStaticModules(pathToFileURL(manifestPath))).rejects.toThrow(
-      /middleware.*re-run `dawn build`/s,
+      /middleware.*re-run `b4 build`/s,
     )
   })
 
@@ -373,7 +373,7 @@ describe("loadStaticModules — middleware validation", () => {
 describe("node target — middleware probe", () => {
   async function emitFixture(appRoot: string): Promise<string> {
     const manifest = await discoverRoutes({ appRoot })
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
     await mkdir(buildDir, { recursive: true })
     await nodeTarget.emit({ appRoot, buildDir, manifest })
     return readFile(join(buildDir, "modules.mjs"), "utf8")

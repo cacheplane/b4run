@@ -1,4 +1,4 @@
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 import { AIMessage } from "@langchain/core/messages"
 import { MemorySaver } from "@langchain/langgraph"
 import { describe, expect, test, vi } from "vitest"
@@ -29,21 +29,21 @@ async function collectCustomEvents(
       yield {
         event: "on_custom_event",
         run_id: "custom-1",
-        name: "dawn.capability",
+        name: "b4.capability",
         data: { event: "plan_update", data: { todos: ["one"] } },
         ...(metadata ? { metadata } : {}),
       }
       yield {
         event: "on_custom_event",
         run_id: "custom-2",
-        name: "dawn.capability",
+        name: "b4.capability",
         data: { event: 42, data: "invalid" },
         ...(metadata ? { metadata } : {}),
       }
       yield {
         event: "on_custom_event",
         run_id: "custom-3",
-        name: "dawn.capability",
+        name: "b4.capability",
         data: inheritedEvent,
         ...(metadata ? { metadata } : {}),
       }
@@ -58,7 +58,7 @@ async function collectCustomEvents(
         yield {
           event: "on_custom_event",
           run_id: `custom-extra-${index}`,
-          name: "dawn.capability",
+          name: "b4.capability",
           data,
           ...(metadata ? { metadata } : {}),
         }
@@ -105,9 +105,9 @@ describe("capability custom events", () => {
     ])
   })
 
-  test("namespaces a child capability payload from Dawn subagent metadata", async () => {
+  test("namespaces a child capability payload from B4.run subagent metadata", async () => {
     const chunks = await collectCustomEvents({
-      dawn: {
+      b4: {
         subagent_stack: [{ callId: "call-1", name: "researcher", routeId: "/researcher" }],
       },
     })
@@ -157,7 +157,7 @@ describe("capability custom events", () => {
   test("strips the child's tool-call id from a namespaced capability chunk", async () => {
     const chunks = await collectCustomEvents(
       {
-        dawn: {
+        b4: {
           subagent_stack: [{ callId: "call-child", name: "researcher", routeId: "/researcher" }],
         },
       },
@@ -198,7 +198,7 @@ describe("capability custom events", () => {
 
 describe("native subagent event projection", () => {
   const metadata = {
-    dawn: {
+    b4: {
       subagent_stack: [
         { callId: "call-outer", name: "planner", routeId: "/planner" },
         { callId: "call-child", name: "researcher", routeId: "/planner/researcher" },
@@ -225,7 +225,7 @@ describe("native subagent event projection", () => {
         yield {
           event: "on_custom_event",
           run_id: "child-start",
-          name: "dawn.subagent",
+          name: "b4.subagent",
           data: {
             phase: "start",
             call_id: "call-child",
@@ -271,7 +271,7 @@ describe("native subagent event projection", () => {
         yield {
           event: "on_custom_event",
           run_id: "child-capability",
-          name: "dawn.capability",
+          name: "b4.capability",
           data: { event: "plan_update", data: { todos: ["inspect"] } },
           metadata,
           parent_ids: ["root-run", "parent-task-run", "child-graph"],
@@ -287,7 +287,7 @@ describe("native subagent event projection", () => {
         yield {
           event: "on_custom_event",
           run_id: "child-end",
-          name: "dawn.subagent",
+          name: "b4.subagent",
           data: {
             phase: "end",
             call_id: "call-child",
@@ -387,9 +387,9 @@ describe("native subagent event projection", () => {
     expect(chunks.filter(({ type }) => type === "tool_result")).toHaveLength(1)
   })
 
-  test("treats malformed Dawn stacks as root metadata", async () => {
+  test("treats malformed B4.run stacks as root metadata", async () => {
     const malformedMetadata = {
-      dawn: {
+      b4: {
         subagent_stack: [
           { callId: "valid", name: "researcher", routeId: "/researcher" },
           { callId: "", name: "nested", routeId: "/researcher/nested" },
@@ -410,7 +410,7 @@ describe("native subagent event projection", () => {
         yield {
           event: "on_custom_event",
           run_id: "capability",
-          name: "dawn.capability",
+          name: "b4.capability",
           data: { event: "plan_update", data: { todos: ["root"] } },
           metadata: malformedMetadata,
           parent_ids: ["root"],
@@ -439,12 +439,12 @@ describe("native subagent event projection", () => {
 
   test("correlates metadata-less native child errors without crossing parallel siblings", async () => {
     const researcherMetadata = {
-      dawn: {
+      b4: {
         subagent_stack: [{ callId: "call-researcher", name: "researcher", routeId: "/researcher" }],
       },
     }
     const writerMetadata = {
-      dawn: {
+      b4: {
         subagent_stack: [{ callId: "call-writer", name: "writer", routeId: "/writer" }],
       },
     }
@@ -461,7 +461,7 @@ describe("native subagent event projection", () => {
         yield {
           event: "on_custom_event",
           run_id: "shared-custom-event-run",
-          name: "dawn.subagent",
+          name: "b4.subagent",
           data: {
             phase: "start",
             call_id: "call-researcher",
@@ -475,7 +475,7 @@ describe("native subagent event projection", () => {
         yield {
           event: "on_custom_event",
           run_id: "shared-custom-event-run",
-          name: "dawn.subagent",
+          name: "b4.subagent",
           data: {
             phase: "start",
             call_id: "call-writer",
@@ -653,7 +653,7 @@ describe("native subagent event projection", () => {
   })
 })
 
-describe("executeAgent with DawnAgent descriptors", () => {
+describe("executeAgent with B4Agent descriptors", () => {
   test("materializes v2 agents so parallel tool calls have independent graph tasks", async () => {
     const createReactAgent = vi.fn(() => ({ invoke: vi.fn() }))
     vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
@@ -770,7 +770,7 @@ describe("executeAgent with DawnAgent descriptors", () => {
     }
   })
 
-  test("DawnAgent descriptor is recognized and does not throw invoke error", async () => {
+  test("B4Agent descriptor is recognized and does not throw invoke error", async () => {
     let openAIModel: unknown
 
     vi.doMock("@langchain/langgraph/prebuilt", () => ({
@@ -814,7 +814,7 @@ describe("executeAgent with DawnAgent descriptors", () => {
     })
   })
 
-  test("DawnAgent descriptor explicit provider overrides model inference", async () => {
+  test("B4Agent descriptor explicit provider overrides model inference", async () => {
     let groqModel: unknown
 
     vi.doMock("@langchain/langgraph/prebuilt", () => ({
@@ -867,7 +867,7 @@ describe("executeAgent with DawnAgent descriptors", () => {
     })
   })
 
-  test("DawnAgent descriptor rejects explicit falsy invalid provider", async () => {
+  test("B4Agent descriptor rejects explicit falsy invalid provider", async () => {
     vi.doMock("@langchain/openai", () => ({
       ChatOpenAI: class {
         constructor() {
@@ -900,7 +900,7 @@ describe("executeAgent with DawnAgent descriptors", () => {
     expect((error as Error).message).not.toContain("ChatOpenAI")
   })
 
-  test("DawnAgent descriptor infers non-OpenAI provider from model", async () => {
+  test("B4Agent descriptor infers non-OpenAI provider from model", async () => {
     let anthropicModel: unknown
 
     vi.doMock("@langchain/langgraph/prebuilt", () => ({
@@ -1346,7 +1346,7 @@ describe("logical-identity root tool projection", () => {
 
   test("child tool events are untouched by the root re-key", async () => {
     const metadata = {
-      dawn: {
+      b4: {
         subagent_stack: [{ callId: "call-child", name: "researcher", routeId: "/researcher" }],
       },
     }

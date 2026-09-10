@@ -2,15 +2,15 @@ import { createHash } from "node:crypto"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { FilesystemBackend } from "@dawn-ai/workspace"
-import { localFilesystem } from "@dawn-ai/workspace/node"
+import type { FilesystemBackend } from "@b4run/workspace"
+import { localFilesystem } from "@b4run/workspace/node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { buildOffloadFileName, OffloadStore } from "../src/offload/offload-store.js"
 
 describe("OffloadStore", () => {
   let dir: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "dawn-offload-"))
+    dir = mkdtempSync(join(tmpdir(), "b4-offload-"))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })

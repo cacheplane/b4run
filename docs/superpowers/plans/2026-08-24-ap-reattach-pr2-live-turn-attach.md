@@ -29,9 +29,9 @@ Base is `origin/main` at or after `239cf18d` **plus** the PR2-preceding audit co
 - **Node 24 or the suite lies.** `source ~/.nvm/nvm.sh && nvm use 24` before any test command.
 - **A fresh worktree has no `node_modules`.** `pnpm install --frozen-lockfile` then `pnpm build` before the first test.
 - **Capture exit codes; never pipe a gate through `tail`/`grep`.** `cmd > /tmp/x.log 2>&1; echo "EXIT=$?"` — a piped pnpm gate reports the pipe's status and has produced a false green here.
-- **Build before typecheck.** `packages/sdk` typecheck resolves `@dawn-ai/*` through `dist/`; an unbuilt tree lies. Run `pnpm build` after a source edit, before `pnpm typecheck`.
+- **Build before typecheck.** `packages/sdk` typecheck resolves `@b4run/*` through `dist/`; an unbuilt tree lies. Run `pnpm build` after a source edit, before `pnpm typecheck`.
 - **Never a bare `biome check --write`** (mass-reformats). Use the package `lint` script, or scope biome to explicit paths: `npx biome check --config-path ../config-biome/biome.json --write <paths>`.
-- **Changeset required** (`packages/*/src/` changes) — `@dawn-ai/cli` only. **Patch only** (the fixed 0.x group turns a minor into 1.0.0). Commit the changeset BEFORE running `node scripts/check-changesets.mjs` (it diffs commits).
+- **Changeset required** (`packages/*/src/` changes) — `@b4run/cli` only. **Patch only** (the fixed 0.x group turns a minor into 1.0.0). Commit the changeset BEFORE running `node scripts/check-changesets.mjs` (it diffs commits).
 - **vitest glob is `test/**/*.test.ts`.** A scratch file not ending `.test.ts` is silently skipped.
 
 ## File Structure
@@ -588,7 +588,7 @@ Expected: PASS.
 - [ ] **Step 8: Build, typecheck, lint, commit**
 
 ```bash
-cd ../.. && pnpm build > /tmp/b.log 2>&1; echo EXIT=$? && pnpm --filter @dawn-ai/cli typecheck
+cd ../.. && pnpm build > /tmp/b.log 2>&1; echo EXIT=$? && pnpm --filter @b4run/cli typecheck
 # lint scoped:
 npx biome check --config-path packages/config-biome/biome.json packages/cli/src/lib/dev/runtime-fetch-core.ts packages/cli/test/ap-attach-endpoint.test.ts packages/cli/test/thread-access-coverage.test.ts
 git add packages/cli/src/lib/dev/runtime-fetch-core.ts packages/cli/test/ap-attach-endpoint.test.ts packages/cli/test/thread-access-coverage.test.ts
@@ -624,7 +624,7 @@ try {
     input: apInput, // the validated payload that started the turn
   })
 } catch (error) {
-  console.warn(`Dawn: live-turn anchor read failed for ${threadId}; attach degrades to the durable path.`, error)
+  console.warn(`B4: live-turn anchor read failed for ${threadId}; attach degrades to the durable path.`, error)
 }
 ```
 
@@ -699,7 +699,7 @@ Add a test: open a live turn, attach, call `handler.close()`, assert the attach 
 - [ ] **Step 8: Full CLI suite, lint, typecheck, commit**
 
 ```bash
-cd ../.. && pnpm build > /tmp/b.log 2>&1; echo EXIT=$? && pnpm --filter @dawn-ai/cli test > /tmp/t.log 2>&1; echo EXIT=$?
+cd ../.. && pnpm build > /tmp/b.log 2>&1; echo EXIT=$? && pnpm --filter @b4run/cli test > /tmp/t.log 2>&1; echo EXIT=$?
 git add packages/cli/src/lib/dev/runtime-fetch-core.ts packages/cli/src/lib/dev/agui-handler.ts packages/cli/test/ap-attach-endpoint.test.ts
 git commit -m "feat(cli): publish live-turn frames from the AP, resume, and AG-UI producers"
 ```
@@ -709,18 +709,18 @@ git commit -m "feat(cli): publish live-turn frames from the AP, resume, and AG-U
 ## Task 4: Docs + changeset
 
 **Files:**
-- Modify: `apps/web/content/docs/dev-server.mdx` (attach endpoint, the `state` frame shape, `apAttach*` knobs, `event: state` as a Dawn extension to the AP wire, the empty-`interrupts`-during-resume rule, `run_started_at` client rule).
+- Modify: `apps/web/content/docs/dev-server.mdx` (attach endpoint, the `state` frame shape, `apAttach*` knobs, `event: state` as a B4 extension to the AP wire, the empty-`interrupts`-during-resume rule, `run_started_at` client rule).
 - Create: `.changeset/ap-reattach-live-turn-attach.md`
 
 - [ ] **Step 1: Document the endpoint**
 
-Add a "Reattaching to a running turn" section: the GET mirror, `event: state` (a Dawn extension), live vs durable paths, the `interrupts:[]`-during-resume rule, `run_started_at` correlation, and the `apAttachDigestMaxBytes` / `apAttachMaxViewers` knobs. If a new page is added, add its nav entry + `page.tsx` wrapper and re-run `node scripts/check-docs.mjs` (reads the BUILT `packages/cli/dist/index.js` — build first).
+Add a "Reattaching to a running turn" section: the GET mirror, `event: state` (a B4 extension), live vs durable paths, the `interrupts:[]`-during-resume rule, `run_started_at` correlation, and the `apAttachDigestMaxBytes` / `apAttachMaxViewers` knobs. If a new page is added, add its nav entry + `page.tsx` wrapper and re-run `node scripts/check-docs.mjs` (reads the BUILT `packages/cli/dist/index.js` — build first).
 
 - [ ] **Step 2: Write the changeset (patch, cli only)**
 
 ```markdown
 ---
-"@dawn-ai/cli": patch
+"@b4run/cli": patch
 ---
 
 Add `GET /threads/{id}/runs/stream` — reattach to a running turn. A disconnected
@@ -748,9 +748,9 @@ Run: `pnpm ci:validate > /tmp/v.log 2>&1; echo EXIT=$?` (do NOT pipe through tai
 
 ## Self-Review (completed during drafting)
 
-**Spec coverage:** §1 attach endpoint → Task 2 (durable) + Task 3 (live). §2 LiveTurnHub → Task 1; produce/close-ordering/bounds/pull-delivery → Task 1 + Task 3. §3 `pending_interrupts` value → **already shipped (#443)**, reused in Task 2, no task needed. §4 parked-status honesty → **already shipped with PR1**, unchanged. §5 `dawn threads tail` → **PR3, out of scope.** Resume-run semantics → Task 3 Step 5. Error cases table → Task 2 Steps 1/5 + Task 3.
+**Spec coverage:** §1 attach endpoint → Task 2 (durable) + Task 3 (live). §2 LiveTurnHub → Task 1; produce/close-ordering/bounds/pull-delivery → Task 1 + Task 3. §3 `pending_interrupts` value → **already shipped (#443)**, reused in Task 2, no task needed. §4 parked-status honesty → **already shipped with PR1**, unchanged. §5 `b4 threads tail` → **PR3, out of scope.** Resume-run semantics → Task 3 Step 5. Error cases table → Task 2 Steps 1/5 + Task 3.
 
-**Coverage gaps deliberately deferred to PR3:** `dawn threads tail`, the workerd live-attach deploy lane (durable path is the workerd guarantee; live attach is best-effort-until-proven), and end-to-end multi-tab retry-jitter behavior.
+**Coverage gaps deliberately deferred to PR3:** `b4 threads tail`, the workerd live-attach deploy lane (durable path is the workerd guarantee; live attach is best-effort-until-proven), and end-to-end multi-tab retry-jitter behavior.
 
 **Placeholder scan:** none — every code step carries real code or a pinned anchor.
 

@@ -39,7 +39,7 @@ function captureConsoleError(): string[] {
 // ---------------------------------------------------------------------------
 
 describe("edge runtime diagnostics", () => {
-  it("fires DAWN_E5301 for a missing memoryStore, like the docs say", async () => {
+  it("fires B4_E5301 for a missing memoryStore, like the docs say", async () => {
     // memoryStore is the one store slot with no `requireStore` call site of its
     // own, and `/memory/candidates*` is registered UNCONDITIONALLY — so it is
     // reachable on a deployed worker whose `stores.mjs` (correctly, for the
@@ -68,7 +68,7 @@ describe("edge runtime diagnostics", () => {
     const body = (await response.json()) as {
       error: { message: string; code?: string; details?: { store?: string }; docsUrl?: string }
     }
-    expect(body.error.code).toBe("DAWN_E5301")
+    expect(body.error.code).toBe("B4_E5301")
     expect(body.error.message).toContain("memoryStore")
     expect(body.error.details?.store).toBe("memoryStore")
     expect(body.error.docsUrl).toContain("/docs/deployment")
@@ -119,9 +119,9 @@ describe("edge runtime diagnostics", () => {
 // ---------------------------------------------------------------------------
 // GATED FEATURES THAT USED TO NO-OP IN SILENCE.
 //
-// The build gate (DAWN_E1005, edge-capabilities.ts) rejects all of these — but
+// The build gate (B4_E1005, edge-capabilities.ts) rejects all of these — but
 // it only runs when the `hono` target does, and hand-composing an entry over
-// `@dawn-ai/cli/fetch` is a documented way to deploy. Such an app never runs the
+// `@b4run/cli/fetch` is a documented way to deploy. Such an app never runs the
 // target, so before these guards a `sandbox` block reached a worker, was read,
 // and did nothing at all. Same code, same words, raised at request time.
 // ---------------------------------------------------------------------------
@@ -147,7 +147,7 @@ async function edgeHandler(
 }
 
 describe("edge runtime capability guards", () => {
-  it("raises DAWN_E1005 for a configured `sandbox` no edge runtime can start", async () => {
+  it("raises B4_E1005 for a configured `sandbox` no edge runtime can start", async () => {
     const appRoot = await chatFixtureApp()
     const modules = await buildStaticModulesForFixture(appRoot)
     const errors = captureConsoleError()
@@ -165,20 +165,20 @@ describe("edge runtime capability guards", () => {
     const body = (await response.json()) as {
       error: { message: string; code?: string; docsUrl?: string }
     }
-    expect(body.error.code).toBe("DAWN_E1005")
+    expect(body.error.code).toBe("B4_E1005")
     expect(body.error.message).toContain("sandbox")
-    expect(body.error.message).toContain("`sandbox` in dawn.config.ts")
+    expect(body.error.message).toContain("`sandbox` in b4.config.ts")
     expect(body.error.docsUrl).toBeTruthy()
     expect(errors.join("\n")).toContain("sandbox")
 
     // Deduped like every other deployment misconfiguration.
     await handler.fetch(new Request("http://localhost/healthz"))
     expect(
-      errors.filter((line) => line.includes("DAWN_E1005") || line.includes("sandbox")),
+      errors.filter((line) => line.includes("B4_E1005") || line.includes("sandbox")),
     ).toHaveLength(1)
   }, 120_000)
 
-  it("raises DAWN_E1005 for `toolOutput`, which has nowhere to spill", async () => {
+  it("raises B4_E1005 for `toolOutput`, which has nowhere to spill", async () => {
     const appRoot = await chatFixtureApp()
     const modules = await buildStaticModulesForFixture(appRoot)
     captureConsoleError()
@@ -190,17 +190,17 @@ describe("edge runtime capability guards", () => {
     const response = await handler.fetch(new Request("http://localhost/healthz"))
     expect(response.status).toBe(500)
     const body = (await response.json()) as { error: { message: string; code?: string } }
-    expect(body.error.code).toBe("DAWN_E1005")
+    expect(body.error.code).toBe("B4_E1005")
     expect(body.error.message).toContain("tool-output offloading")
-    expect(body.error.message).toContain("`toolOutput` in dawn.config.ts")
+    expect(body.error.message).toContain("`toolOutput` in b4.config.ts")
   }, 120_000)
 
-  it("raises DAWN_E1005 for a route whose skills would vanish from the prompt", async () => {
+  it("raises B4_E1005 for a route whose skills would vanish from the prompt", async () => {
     const appRoot = await chatFixtureApp()
     const built = await buildStaticModulesForFixture(appRoot)
     captureConsoleError()
 
-    // What `dawn build` records into the manifest for a route with a
+    // What `b4 build` records into the manifest for a route with a
     // `skills/<name>/SKILL.md` — the only trace of them that survives to
     // request time, since the capability's `detect` needs a MarkerFs.
     const modules = {
@@ -212,7 +212,7 @@ describe("edge runtime capability guards", () => {
     const response = await handler.fetch(new Request("http://localhost/healthz"))
     expect(response.status).toBe(500)
     const body = (await response.json()) as { error: { message: string; code?: string } }
-    expect(body.error.code).toBe("DAWN_E1005")
+    expect(body.error.code).toBe("B4_E1005")
     expect(body.error.message).toContain("skills")
     expect(body.error.message).toContain("cite-sources")
   }, 120_000)
@@ -251,7 +251,7 @@ describe("node runtime — the same config raises nothing", () => {
     }
     const errors = captureConsoleError()
 
-    // Same three inputs that produced three DAWN_E1005s above. The ONLY
+    // Same three inputs that produced three B4_E1005s above. The ONLY
     // difference is the entry point, which supplies the node fallback bag.
     const handler = await createNodeRuntimeFetchHandler({
       appRoot,
@@ -265,6 +265,6 @@ describe("node runtime — the same config raises nothing", () => {
 
     const response = await handler.fetch(new Request("http://localhost/healthz"))
     expect(response.status).toBe(200)
-    expect(errors.join("\n")).not.toContain("DAWN_E1005")
+    expect(errors.join("\n")).not.toContain("B4_E1005")
   }, 120_000)
 })

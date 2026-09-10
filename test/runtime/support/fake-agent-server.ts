@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net"
 
 // Keep the fake server around for isolated client-transport tests. Runtime parity now
-// uses the real `dawn dev` helper under test/runtime/support/dev-server.ts.
+// uses the real `b4 dev` helper under test/runtime/support/dev-server.ts.
 export interface FakeAgentServerRequest {
   readonly jsonBody: Record<string, unknown>
   readonly request: IncomingMessage

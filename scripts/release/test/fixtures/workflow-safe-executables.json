@@ -14,6 +14,30 @@
     "ci.yml": [
       {
         "classification": "safe",
+        "job": "metadata_scope",
+        "stepIndex": 0,
+        "step": "Checkout",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "metadata_scope",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "metadata_scope",
+        "stepIndex": 2,
+        "step": "Classify metadata-only change",
+        "kind": "run",
+        "value": "set -eu\nMETADATA_ONLY=\"$(node scripts/ci-scope.mjs --event pull_request --base \"$BASE_SHA\" --head \"$HEAD_SHA\")\"\ncase \"$METADATA_ONLY\" in\n  true|false) ;;\n  *) echo \"Malformed metadata-only scope output\" >&2; exit 1 ;;\nesac\nprintf 'metadata_only=%s\\n' \"$METADATA_ONLY\" >> \"$GITHUB_OUTPUT\"\n"
+      },
+      {
+        "classification": "safe",
         "job": "changesets",
         "stepIndex": 0,
         "step": "Checkout",
@@ -30,7 +54,7 @@
       },
       {
         "classification": "safe",
-        "job": "validate",
+        "job": "source-validate",
         "stepIndex": 0,
         "step": "Checkout",
         "kind": "step-uses",
@@ -38,7 +62,7 @@
       },
       {
         "classification": "safe",
-        "job": "validate",
+        "job": "source-validate",
         "stepIndex": 1,
         "step": "Setup pnpm",
         "kind": "step-uses",
@@ -46,7 +70,7 @@
       },
       {
         "classification": "safe",
-        "job": "validate",
+        "job": "source-validate",
         "stepIndex": 2,
         "step": "Setup Node.js",
         "kind": "step-uses",
@@ -54,7 +78,7 @@
       },
       {
         "classification": "safe",
-        "job": "validate",
+        "job": "source-validate",
         "stepIndex": 3,
         "step": "Install",
         "kind": "run",
@@ -62,63 +86,63 @@
       },
       {
         "classification": "safe",
-        "job": "validate",
+        "job": "source-validate",
         "stepIndex": 4,
+        "step": "Release Integrity Preflight",
+        "kind": "run",
+        "value": "pnpm test:release-integrity"
+      },
+      {
+        "classification": "safe",
+        "job": "source-validate",
+        "stepIndex": 5,
         "step": "Lint",
         "kind": "run",
         "value": "pnpm lint"
       },
       {
         "classification": "safe",
-        "job": "validate",
-        "stepIndex": 5,
+        "job": "source-validate",
+        "stepIndex": 6,
         "step": "Build Cache Config",
         "kind": "run",
         "value": "pnpm check:build-cache"
       },
       {
         "classification": "safe",
-        "job": "validate",
-        "stepIndex": 6,
+        "job": "source-validate",
+        "stepIndex": 7,
         "step": "Build",
         "kind": "run",
         "value": "pnpm build"
       },
       {
         "classification": "safe",
-        "job": "validate",
-        "stepIndex": 7,
+        "job": "source-validate",
+        "stepIndex": 8,
         "step": "Typecheck",
         "kind": "run",
         "value": "pnpm typecheck"
       },
       {
         "classification": "safe",
-        "job": "validate",
-        "stepIndex": 8,
+        "job": "source-validate",
+        "stepIndex": 9,
         "step": "Source Tests",
         "kind": "run",
         "value": "pnpm test"
       },
       {
         "classification": "safe",
-        "job": "validate",
-        "stepIndex": 9,
+        "job": "source-validate",
+        "stepIndex": 10,
         "step": "Release Inventory",
         "kind": "run",
         "value": "pnpm check:release-inventory"
       },
       {
         "classification": "safe",
-        "job": "validate",
-        "stepIndex": 10,
-        "step": "Release Controller Tests",
-        "kind": "run",
-        "value": "pnpm test:release-controller"
-      },
-      {
-        "classification": "safe",
-        "job": "validate",
+        "job": "source-validate",
         "stepIndex": 11,
         "step": "Docs Check",
         "kind": "run",
@@ -126,56 +150,192 @@
       },
       {
         "classification": "safe",
+        "job": "release-controller",
+        "stepIndex": 0,
+        "step": "Checkout",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "release-controller",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271"
+      },
+      {
+        "classification": "safe",
+        "job": "release-controller",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "release-controller",
+        "stepIndex": 3,
+        "step": "Install",
+        "kind": "run",
+        "value": "pnpm install --frozen-lockfile"
+      },
+      {
+        "classification": "safe",
+        "job": "release-controller",
+        "stepIndex": 4,
+        "step": "Release Integrity Preflight",
+        "kind": "run",
+        "value": "pnpm test:release-integrity"
+      },
+      {
+        "classification": "safe",
+        "job": "release-controller",
+        "stepIndex": 5,
+        "step": "Release Controller Tests",
+        "kind": "run",
+        "value": "pnpm test:release-controller"
+      },
+      {
+        "classification": "safe",
         "job": "validate",
-        "stepIndex": 12,
+        "stepIndex": 0,
+        "step": "Require every validation lane",
+        "kind": "run",
+        "value": "for result in \"$LANE_0\" \"$LANE_1\" \"$LANE_2\" \"$LANE_3\"; do\n  if [ \"$result\" != success ]; then\n    echo \"Required validation lane did not succeed: $result\" >&2\n    exit 1\n  fi\ndone\n"
+      },
+      {
+        "classification": "safe",
+        "job": "pack-smoke",
+        "stepIndex": 0,
+        "step": "Checkout",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "pack-smoke",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271"
+      },
+      {
+        "classification": "safe",
+        "job": "pack-smoke",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "pack-smoke",
+        "stepIndex": 3,
+        "step": "Install",
+        "kind": "run",
+        "value": "pnpm install --frozen-lockfile"
+      },
+      {
+        "classification": "safe",
+        "job": "pack-smoke",
+        "stepIndex": 4,
+        "step": "Build",
+        "kind": "run",
+        "value": "pnpm build"
+      },
+      {
+        "classification": "safe",
+        "job": "pack-smoke",
+        "stepIndex": 5,
         "step": "Pack Check",
         "kind": "run",
         "value": "pnpm pack:check"
       },
       {
         "classification": "safe",
-        "job": "validate",
-        "stepIndex": 13,
+        "job": "pack-smoke",
+        "stepIndex": 6,
         "step": "TypeScript Tooling Pack Smoke",
         "kind": "run",
         "value": "pnpm verify:typescript-tooling-pack"
       },
       {
         "classification": "safe",
-        "job": "validate",
-        "stepIndex": 14,
+        "job": "harness-verify",
+        "stepIndex": 0,
+        "step": "Checkout",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "harness-verify",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271"
+      },
+      {
+        "classification": "safe",
+        "job": "harness-verify",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "harness-verify",
+        "stepIndex": 3,
+        "step": "Install",
+        "kind": "run",
+        "value": "pnpm install --frozen-lockfile"
+      },
+      {
+        "classification": "safe",
+        "job": "harness-verify",
+        "stepIndex": 4,
+        "step": "Build",
+        "kind": "run",
+        "value": "pnpm build"
+      },
+      {
+        "classification": "safe",
+        "job": "harness-verify",
+        "stepIndex": 5,
         "step": "Harness Coordinator Self-Test",
         "kind": "run",
         "value": "pnpm verify:harness:self-test"
       },
       {
         "classification": "safe",
-        "job": "validate",
-        "stepIndex": 15,
+        "job": "harness-verify",
+        "stepIndex": 6,
         "step": "Framework Verification",
         "kind": "run",
         "value": "pnpm verify:harness:framework"
       },
       {
         "classification": "safe",
-        "job": "validate",
-        "stepIndex": 16,
+        "job": "harness-verify",
+        "stepIndex": 7,
         "step": "Runtime Contract Verification",
         "kind": "run",
         "value": "pnpm verify:harness:runtime"
       },
       {
         "classification": "safe",
-        "job": "validate",
-        "stepIndex": 17,
+        "job": "harness-verify",
+        "stepIndex": 8,
         "step": "Smoke Harness Verification",
         "kind": "run",
         "value": "pnpm verify:harness:smoke"
       },
       {
         "classification": "safe",
-        "job": "validate",
-        "stepIndex": 18,
+        "job": "harness-verify",
+        "stepIndex": 9,
         "step": "Upload Harness Artifacts",
         "kind": "step-uses",
         "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
@@ -218,7 +378,7 @@
         "stepIndex": 4,
         "step": "Build testing dependency closure",
         "kind": "run",
-        "value": "pnpm --filter @dawn-ai/testing... build"
+        "value": "pnpm --filter @b4run/testing... build"
       },
       {
         "classification": "safe",
@@ -226,7 +386,7 @@
         "stepIndex": 5,
         "step": "Native Windows subprocess shutdown tests",
         "kind": "run",
-        "value": "pnpm --filter @dawn-ai/testing exec vitest --run --config vitest.config.ts test/subprocess.test.ts --testNamePattern \"Windows process tree|injected Windows tree kill\""
+        "value": "pnpm --filter @b4run/testing exec vitest --run --config vitest.config.ts test/subprocess.test.ts --testNamePattern \"Windows process tree|injected Windows tree kill\""
       },
       {
         "classification": "safe",
@@ -322,15 +482,15 @@
         "stepIndex": 4,
         "step": "Build sandbox package",
         "kind": "run",
-        "value": "pnpm --filter @dawn-ai/sandbox... build"
+        "value": "pnpm --filter @b4run/sandbox... build"
       },
       {
         "classification": "safe",
         "job": "sandbox-docker",
         "stepIndex": 5,
-        "step": "Pull sandbox image",
+        "step": "Pull sandbox workload image",
         "kind": "run",
-        "value": "docker pull node:22-slim"
+        "value": "SANDBOX_IMAGE=\"$(\n  pnpm exec tsx -e 'import { loadCompatibilityPolicy } from \"./scripts/kubernetes-compat/policy.ts\"; loadCompatibilityPolicy().then((policy) => process.stdout.write(policy.images.sandboxWorkload))'\n)\"\ndocker pull \"$SANDBOX_IMAGE\"\n"
       },
       {
         "classification": "safe",
@@ -338,7 +498,7 @@
         "stepIndex": 6,
         "step": "Real-Docker sandbox conformance + e2e",
         "kind": "run",
-        "value": "DAWN_TEST_DOCKER=1 pnpm --filter @dawn-ai/sandbox test docker-sandbox.integration"
+        "value": "B4_TEST_DOCKER=1 pnpm --filter @b4run/sandbox test docker-sandbox.integration"
       },
       {
         "classification": "safe",
@@ -386,7 +546,7 @@
         "stepIndex": 5,
         "step": "Real-Postgres pgvector tests",
         "kind": "run",
-        "value": "DAWN_TEST_PGVECTOR=1 pnpm --filter @dawn-ai/memory-pgvector test"
+        "value": "B4_TEST_PGVECTOR=1 pnpm --filter @b4run/memory-pgvector test"
       },
       {
         "classification": "safe",
@@ -434,7 +594,7 @@
         "stepIndex": 5,
         "step": "Real-Postgres storage tests",
         "kind": "run",
-        "value": "DAWN_TEST_PGSTORAGE=1 pnpm --filter @dawn-ai/postgres-storage test"
+        "value": "B4_TEST_PGSTORAGE=1 pnpm --filter @b4run/postgres-storage test"
       },
       {
         "classification": "safe",
@@ -442,7 +602,7 @@
         "stepIndex": 6,
         "step": "Real-Postgres Agent Protocol pending-interrupts tests",
         "kind": "run",
-        "value": "DAWN_TEST_PGSTORAGE=1 pnpm --filter @dawn-ai/cli test pending-interrupts-endpoint"
+        "value": "B4_TEST_PGSTORAGE=1 pnpm --filter @b4run/cli test pending-interrupts-endpoint"
       },
       {
         "classification": "safe",
@@ -490,7 +650,7 @@
         "stepIndex": 5,
         "step": "Real-workerd edge lane",
         "kind": "run",
-        "value": "DAWN_TEST_WORKERD=1 pnpm --filter @dawn-ai/cli test workerd-lane \\\n  --reporter=default --reporter=json \\\n  --outputFile.json=\"${{ runner.temp }}/workerd-lane-report.json\"\n"
+        "value": "B4_TEST_WORKERD=1 pnpm --filter @b4run/cli test workerd-lane \\\n  --reporter=default --reporter=json \\\n  --outputFile.json=\"${{ runner.temp }}/workerd-lane-report.json\"\n"
       },
       {
         "classification": "safe",
@@ -498,7 +658,7 @@
         "stepIndex": 6,
         "step": "Assert the workerd lane did not skip",
         "kind": "run",
-        "value": "node -e '\n  const fs = require(\"node:fs\")\n  const path = process.argv[1]\n  if (!fs.existsSync(path)) {\n    throw new Error(\"no vitest report at \" + path + \" — the lane produced no run at all.\")\n  }\n  const report = JSON.parse(fs.readFileSync(path, \"utf8\"))\n  const passed = report.numPassedTests ?? 0\n  const skipped = report.numPendingTests ?? 0\n  if (passed === 0 || skipped > 0) {\n    throw new Error(\n      \"the workerd lane reported \" + passed + \" passed and \" + skipped + \" skipped. \" +\n        \"This job is the only place DAWN_TEST_WORKERD=1 is set, so a skip here means the \" +\n        \"merge gate ran nothing while still exiting 0. Check that the flag name in \" +\n        \"packages/cli/test/workerd-lane.test.ts still matches the one this job exports.\",\n    )\n  }\n  console.log(\"workerd lane ran: \" + passed + \" passed, 0 skipped.\")\n' \"${{ runner.temp }}/workerd-lane-report.json\"\n"
+        "value": "node -e '\n  const fs = require(\"node:fs\")\n  const path = process.argv[1]\n  if (!fs.existsSync(path)) {\n    throw new Error(\"no vitest report at \" + path + \" — the lane produced no run at all.\")\n  }\n  const report = JSON.parse(fs.readFileSync(path, \"utf8\"))\n  const passed = report.numPassedTests ?? 0\n  const skipped = report.numPendingTests ?? 0\n  if (passed === 0 || skipped > 0) {\n    throw new Error(\n      \"the workerd lane reported \" + passed + \" passed and \" + skipped + \" skipped. \" +\n        \"This job is the only place B4_TEST_WORKERD=1 is set, so a skip here means the \" +\n        \"merge gate ran nothing while still exiting 0. Check that the flag name in \" +\n        \"packages/cli/test/workerd-lane.test.ts still matches the one this job exports.\",\n    )\n  }\n  console.log(\"workerd lane ran: \" + passed + \" passed, 0 skipped.\")\n' \"${{ runner.temp }}/workerd-lane-report.json\"\n"
       },
       {
         "classification": "safe",
@@ -538,7 +698,7 @@
         "stepIndex": 4,
         "step": "Install Chromium",
         "kind": "run",
-        "value": "pnpm --filter @dawn-example/chat-web exec playwright install --with-deps chromium"
+        "value": "pnpm --filter @b4-example/chat-web exec playwright install --with-deps chromium"
       },
       {
         "classification": "safe",
@@ -546,7 +706,7 @@
         "stepIndex": 5,
         "step": "Build example workspace dependencies",
         "kind": "run",
-        "value": "pnpm --filter @dawn-ai/ag-ui build"
+        "value": "pnpm --filter @b4run/ag-ui build"
       },
       {
         "classification": "safe",
@@ -554,7 +714,7 @@
         "stepIndex": 6,
         "step": "Verify chat transport",
         "kind": "run",
-        "value": "pnpm --filter @dawn-example/chat-web test:e2e"
+        "value": "pnpm --filter @b4-example/chat-web test:e2e"
       },
       {
         "classification": "safe",
@@ -562,7 +722,7 @@
         "stepIndex": 7,
         "step": "Verify research transport",
         "kind": "run",
-        "value": "pnpm --filter @dawn-example/research-web test:e2e"
+        "value": "pnpm --filter @b4-example/research-web test:e2e"
       },
       {
         "classification": "safe",
@@ -618,7 +778,7 @@
         "stepIndex": 6,
         "step": "Run native Vercel previews",
         "kind": "run",
-        "value": "pnpm --filter @dawn-ai/cli test vercel-native-lane.test.ts --reporter=json --outputFile.json=\"${{ runner.temp }}/vercel-native/vitest.json\""
+        "value": "pnpm --filter @b4run/cli test vercel-native-lane.test.ts --reporter=json --outputFile.json=\"${{ runner.temp }}/vercel-native/vitest.json\""
       },
       {
         "classification": "safe",
@@ -690,7 +850,7 @@
         "stepIndex": 4,
         "step": "Build inspector + workspace deps",
         "kind": "run",
-        "value": "pnpm turbo run build --filter=@dawn-ai/inspector..."
+        "value": "pnpm turbo run build --filter=@b4run/inspector..."
       },
       {
         "classification": "safe",
@@ -698,7 +858,7 @@
         "stepIndex": 5,
         "step": "Inspector standalone e2e",
         "kind": "run",
-        "value": "DAWN_TEST_INSPECTOR=1 pnpm --filter @dawn-ai/inspector test"
+        "value": "B4_TEST_INSPECTOR=1 pnpm --filter @b4run/inspector test"
       },
       {
         "classification": "safe",
@@ -706,7 +866,7 @@
         "stepIndex": 6,
         "step": "Install Playwright browsers",
         "kind": "run",
-        "value": "pnpm --filter @dawn-ai/inspector exec playwright install --with-deps chromium"
+        "value": "pnpm --filter @b4run/inspector exec playwright install --with-deps chromium"
       },
       {
         "classification": "safe",
@@ -714,7 +874,7 @@
         "stepIndex": 7,
         "step": "Inspector browser verification",
         "kind": "run",
-        "value": "pnpm --filter @dawn-ai/inspector test:e2e"
+        "value": "pnpm --filter @b4run/inspector test:e2e"
       },
       {
         "classification": "safe",
@@ -752,9 +912,9 @@
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 3,
-        "step": "Helm lint (strict) — dawn-sandbox-infra",
+        "step": "Helm lint (strict) — b4-sandbox-infra",
         "kind": "run",
-        "value": "helm lint --strict charts/dawn-sandbox-infra"
+        "value": "helm lint --strict charts/b4-sandbox-infra"
       },
       {
         "classification": "safe",
@@ -762,63 +922,63 @@
         "stepIndex": 4,
         "step": "Reaper unit test",
         "kind": "run",
-        "value": "sh charts/dawn-sandbox-infra/test/reaper.test.sh"
+        "value": "sh charts/b4-sandbox-infra/test/reaper.test.sh"
       },
       {
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 5,
-        "step": "Render assertions — dawn-sandbox-infra",
+        "step": "Render assertions — b4-sandbox-infra",
         "kind": "run",
-        "value": "sh charts/dawn-sandbox-infra/test/render.sh"
+        "value": "sh charts/b4-sandbox-infra/test/render.sh"
       },
       {
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 6,
-        "step": "kubeconform (default values) — dawn-sandbox-infra",
+        "step": "kubeconform (default values) — b4-sandbox-infra",
         "kind": "run",
-        "value": "helm template test charts/dawn-sandbox-infra \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
+        "value": "helm template test charts/b4-sandbox-infra \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
       },
       {
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 7,
-        "step": "kubeconform (restricted PSS, reaper disabled) — dawn-sandbox-infra",
+        "step": "kubeconform (restricted PSS, reaper disabled) — b4-sandbox-infra",
         "kind": "run",
-        "value": "helm template test charts/dawn-sandbox-infra \\\n  --set podSecurityStandard.enforce=restricted \\\n  --set reaper.enabled=false \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
+        "value": "helm template test charts/b4-sandbox-infra \\\n  --set podSecurityStandard.enforce=restricted \\\n  --set reaper.enabled=false \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
       },
       {
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 8,
-        "step": "Helm lint (strict) — dawn-app",
+        "step": "Helm lint (strict) — b4-app",
         "kind": "run",
-        "value": "helm lint --strict charts/dawn-app"
+        "value": "helm lint --strict charts/b4-app"
       },
       {
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 9,
-        "step": "Render assertions — dawn-app",
+        "step": "Render assertions — b4-app",
         "kind": "run",
-        "value": "sh charts/dawn-app/test/render.sh"
+        "value": "sh charts/b4-app/test/render.sh"
       },
       {
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 10,
-        "step": "kubeconform (default values) — dawn-app",
+        "step": "kubeconform (default values) — b4-app",
         "kind": "run",
-        "value": "helm template test charts/dawn-app --set image.repository=example/app \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
+        "value": "helm template test charts/b4-app --set image.repository=example/app \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
       },
       {
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 11,
-        "step": "kubeconform (full override) — dawn-app",
+        "step": "kubeconform (full override) — b4-app",
         "kind": "run",
-        "value": "helm template test charts/dawn-app \\\n  --set image.repository=example/app \\\n  --set ingress.enabled=true \\\n  --set ingress.host=app.example.com \\\n  --set autoscaling.enabled=true \\\n  --set podDisruptionBudget.enabled=true \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
+        "value": "helm template test charts/b4-app \\\n  --set image.repository=example/app \\\n  --set ingress.enabled=true \\\n  --set ingress.host=app.example.com \\\n  --set autoscaling.enabled=true \\\n  --set podDisruptionBudget.enabled=true \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
       },
       {
         "classification": "safe",
@@ -856,14 +1016,6 @@
         "classification": "safe",
         "job": "sandbox-k8s",
         "stepIndex": 4,
-        "step": "Build sandbox package",
-        "kind": "run",
-        "value": "pnpm --filter @dawn-ai/sandbox... build"
-      },
-      {
-        "classification": "safe",
-        "job": "sandbox-k8s",
-        "stepIndex": 5,
         "step": "Setup Helm",
         "kind": "step-uses",
         "value": "azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310"
@@ -871,16 +1023,24 @@
       {
         "classification": "safe",
         "job": "sandbox-k8s",
+        "stepIndex": 5,
+        "step": "Verify chart/provider permission parity",
+        "kind": "run",
+        "value": "pnpm exec vitest --run --config test/k8s-compat/vitest.config.ts chart-rbac"
+      },
+      {
+        "classification": "safe",
+        "job": "sandbox-k8s",
         "stepIndex": 6,
         "step": "Prime kind tool cache",
         "kind": "run",
-        "value": "scripts/prime-kind-cache.sh v0.31.0 v1.35.0"
+        "value": "scripts/prime-kind-cache.sh v0.32.0 v1.35.6"
       },
       {
         "classification": "safe",
         "job": "sandbox-k8s",
         "stepIndex": 7,
-        "step": "Create kind cluster (no default CNI)",
+        "step": "Create kind cluster",
         "kind": "step-uses",
         "value": "helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc"
       },
@@ -888,49 +1048,33 @@
         "classification": "safe",
         "job": "sandbox-k8s",
         "stepIndex": 8,
-        "step": "Install Calico (enforces NetworkPolicy)",
+        "step": "Prepare verified Calico manifest",
         "kind": "run",
-        "value": "kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.32.1/manifests/calico.yaml\nkubectl -n kube-system rollout status daemonset/calico-node --timeout=180s\nkubectl wait --for=condition=Ready nodes --all --timeout=180s\n"
+        "value": "pnpm exec tsx scripts/kubernetes-compat/workflow.ts prepare-calico --output \"$CALICO_MANIFEST\""
       },
       {
         "classification": "safe",
         "job": "sandbox-k8s",
         "stepIndex": 9,
-        "step": "Install sandbox-infra chart",
+        "step": "Install verified Calico",
         "kind": "run",
-        "value": "helm install dawn-sandbox-infra charts/dawn-sandbox-infra --wait\nkubectl -n dawn-sandboxes get role,rolebinding,networkpolicy,resourcequota,limitrange,cronjob,serviceaccount\n"
+        "value": "set -eu\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" apply --filename \"$CALICO_MANIFEST\"\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" -n kube-system rollout status daemonset/calico-node --timeout=180s\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" wait --for=condition=Ready nodes --all --timeout=180s\n"
       },
       {
         "classification": "safe",
         "job": "sandbox-k8s",
         "stepIndex": 10,
-        "step": "Prepare chart NetworkPolicy control",
+        "step": "Run Kubernetes 1.35 compatibility harness",
         "kind": "run",
-        "value": "sh test/k8s-smoke/setup-network-policy-control.sh"
+        "value": "pnpm verify:k8s:compat -- --target 1.35 --context \"$B4_TEST_K8S_CONTEXT\""
       },
       {
         "classification": "safe",
         "job": "sandbox-k8s",
         "stepIndex": 11,
-        "step": "Assert orchestrator RBAC (least privilege)",
-        "kind": "run",
-        "value": "SA=system:serviceaccount:dawn-sandboxes:dawn-orchestrator\nkubectl auth can-i create pods --as=$SA -n dawn-sandboxes | grep -qx yes\nkubectl auth can-i create pods/exec --as=$SA -n dawn-sandboxes | grep -qx yes\n# WebSocket exec (@kubernetes/client-node) authorizes as `get pods/exec`\nkubectl auth can-i get pods/exec --as=$SA -n dawn-sandboxes | grep -qx yes\nkubectl auth can-i create persistentvolumeclaims --as=$SA -n dawn-sandboxes | grep -qx yes\nkubectl auth can-i create networkpolicies.networking.k8s.io --as=$SA -n dawn-sandboxes | grep -qx yes\nkubectl auth can-i create secrets --as=$SA -n dawn-sandboxes | grep -qx no\n"
-      },
-      {
-        "classification": "safe",
-        "job": "sandbox-k8s",
-        "stepIndex": 12,
-        "step": "Real-cluster sandbox conformance + e2e",
-        "kind": "run",
-        "value": "DAWN_TEST_K8S=1 pnpm --filter @dawn-ai/sandbox test kube-sandbox.integration"
-      },
-      {
-        "classification": "safe",
-        "job": "sandbox-k8s",
-        "stepIndex": 13,
-        "step": "Exercise PVC reaper",
-        "kind": "run",
-        "value": "sh test/k8s-smoke/assert-reaper.sh"
+        "step": "Upload Kubernetes compatibility artifacts",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
       },
       {
         "classification": "safe",
@@ -984,86 +1128,102 @@
         "classification": "safe",
         "job": "sandbox-k8s-e2e",
         "stepIndex": 6,
-        "step": "Prime kind tool cache",
+        "step": "Verify chart/provider permission parity",
         "kind": "run",
-        "value": "scripts/prime-kind-cache.sh v0.31.0 v1.35.0"
+        "value": "pnpm exec vitest --run --config test/k8s-compat/vitest.config.ts chart-rbac"
       },
       {
         "classification": "safe",
         "job": "sandbox-k8s-e2e",
         "stepIndex": 7,
-        "step": "Create kind cluster (no default CNI)",
+        "step": "Prime kind tool cache",
+        "kind": "run",
+        "value": "scripts/prime-kind-cache.sh v0.32.0 v1.35.6"
+      },
+      {
+        "classification": "safe",
+        "job": "sandbox-k8s-e2e",
+        "stepIndex": 8,
+        "step": "Create kind cluster",
         "kind": "step-uses",
         "value": "helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc"
       },
       {
         "classification": "safe",
         "job": "sandbox-k8s-e2e",
-        "stepIndex": 8,
-        "step": "Install Calico (enforces NetworkPolicy)",
-        "kind": "run",
-        "value": "kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.32.1/manifests/calico.yaml\nkubectl -n kube-system rollout status daemonset/calico-node --timeout=180s\nkubectl wait --for=condition=Ready nodes --all --timeout=180s\n"
-      },
-      {
-        "classification": "safe",
-        "job": "sandbox-k8s-e2e",
         "stepIndex": 9,
-        "step": "Preload sandbox workload image into kind",
+        "step": "Prepare verified Calico manifest",
         "kind": "run",
-        "value": "docker pull node:22-slim\nkind load docker-image node:22-slim --name \"$KIND_CLUSTER\"\n"
+        "value": "pnpm exec tsx scripts/kubernetes-compat/workflow.ts prepare-calico --output \"$CALICO_MANIFEST\""
       },
       {
         "classification": "safe",
         "job": "sandbox-k8s-e2e",
         "stepIndex": 10,
-        "step": "Build and load smoke app image (Verdaccio)",
+        "step": "Install verified Calico",
         "kind": "run",
-        "value": "set -eu\nURLFILE=\"$(mktemp)\"\npnpm exec tsx test/k8s-smoke/serve-registry.ts \"$URLFILE\" &\nREG_PID=$!\nfor _ in $(seq 1 180); do\n  [ -s \"$URLFILE\" ] && break\n  kill -0 \"$REG_PID\" 2>/dev/null || { echo \"serve-registry exited before publishing\"; exit 1; }\n  sleep 1\ndone\n[ -s \"$URLFILE\" ] || { echo \"registry URL never became ready\"; kill \"$REG_PID\" 2>/dev/null || true; exit 1; }\nREG_URL=\"$(cat \"$URLFILE\")\"\necho \"registry ready at $REG_URL\"\nsh test/k8s-smoke/build-image.sh k8s \"$REG_URL\"\nkill \"$REG_PID\" 2>/dev/null || true\nkind load docker-image dawn-smoke-app:k8s --name \"$KIND_CLUSTER\"\n"
+        "value": "set -eu\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" apply --filename \"$CALICO_MANIFEST\"\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" -n kube-system rollout status daemonset/calico-node --timeout=180s\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" wait --for=condition=Ready nodes --all --timeout=180s\n"
       },
       {
         "classification": "safe",
         "job": "sandbox-k8s-e2e",
         "stepIndex": 11,
-        "step": "Build and load aimock image",
+        "step": "Preload sandbox workload image into kind",
         "kind": "run",
-        "value": "docker build -t dawn-smoke-aimock:latest -f test/k8s-smoke/aimock/Dockerfile test/k8s-smoke\nkind load docker-image dawn-smoke-aimock:latest --name \"$KIND_CLUSTER\"\n"
+        "value": "SANDBOX_IMAGE=\"$(\n  pnpm exec tsx -e 'import { loadCompatibilityPolicy } from \"./scripts/kubernetes-compat/policy.ts\"; loadCompatibilityPolicy().then((policy) => process.stdout.write(policy.images.sandboxWorkload))'\n)\"\ndocker exec \"${KIND_CLUSTER}-control-plane\" crictl pull \"$SANDBOX_IMAGE\"\ndocker exec \"${KIND_CLUSTER}-control-plane\" crictl inspecti \"$SANDBOX_IMAGE\" >/dev/null\n"
       },
       {
         "classification": "safe",
         "job": "sandbox-k8s-e2e",
         "stepIndex": 12,
-        "step": "Create app namespace",
+        "step": "Build and load smoke app image (Verdaccio)",
         "kind": "run",
-        "value": "kubectl create namespace dawn-app"
+        "value": "set -eu\nURLFILE=\"$(mktemp)\"\npnpm exec tsx test/k8s-smoke/serve-registry.ts \"$URLFILE\" &\nREG_PID=$!\nfor _ in $(seq 1 180); do\n  [ -s \"$URLFILE\" ] && break\n  kill -0 \"$REG_PID\" 2>/dev/null || { echo \"serve-registry exited before publishing\"; exit 1; }\n  sleep 1\ndone\n[ -s \"$URLFILE\" ] || { echo \"registry URL never became ready\"; kill \"$REG_PID\" 2>/dev/null || true; exit 1; }\nREG_URL=\"$(cat \"$URLFILE\")\"\necho \"registry ready at $REG_URL\"\nsh test/k8s-smoke/build-image.sh k8s \"$REG_URL\"\nkill \"$REG_PID\" 2>/dev/null || true\nkind load docker-image b4-smoke-app:k8s --name \"$KIND_CLUSTER\"\n"
       },
       {
         "classification": "safe",
         "job": "sandbox-k8s-e2e",
         "stepIndex": 13,
-        "step": "Install sandbox-infra chart",
+        "step": "Build and load aimock image",
         "kind": "run",
-        "value": "helm install dawn-sandbox-infra charts/dawn-sandbox-infra \\\n  -n dawn-sandboxes --create-namespace \\\n  -f test/k8s-smoke/values-sandbox-infra.yaml --wait\n"
+        "value": "docker build -t b4-smoke-aimock:latest -f test/k8s-smoke/aimock/Dockerfile test/k8s-smoke\nkind load docker-image b4-smoke-aimock:latest --name \"$KIND_CLUSTER\"\n"
       },
       {
         "classification": "safe",
         "job": "sandbox-k8s-e2e",
         "stepIndex": 14,
-        "step": "Deploy aimock",
+        "step": "Create app namespace",
         "kind": "run",
-        "value": "kubectl apply -f test/k8s-smoke/aimock.k8s.yaml\nkubectl -n dawn-app rollout status deploy/aimock --timeout=120s\n"
+        "value": "kubectl --context \"$B4_TEST_K8S_CONTEXT\" create namespace b4-app"
       },
       {
         "classification": "safe",
         "job": "sandbox-k8s-e2e",
         "stepIndex": 15,
-        "step": "Install dawn-app chart",
+        "step": "Install sandbox-infra chart",
         "kind": "run",
-        "value": "helm install dawn-app charts/dawn-app \\\n  -n dawn-app \\\n  -f test/k8s-smoke/values-dawn-app.yaml --wait\n"
+        "value": "helm --kube-context \"$B4_TEST_K8S_CONTEXT\" install b4-sandbox-infra charts/b4-sandbox-infra \\\n  -n b4-app \\\n  -f test/k8s-smoke/values-sandbox-infra.yaml --wait\n"
       },
       {
         "classification": "safe",
         "job": "sandbox-k8s-e2e",
         "stepIndex": 16,
+        "step": "Deploy aimock",
+        "kind": "run",
+        "value": "kubectl --context \"$B4_TEST_K8S_CONTEXT\" apply -f test/k8s-smoke/aimock.k8s.yaml\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" -n b4-app rollout status deploy/aimock --timeout=120s\n"
+      },
+      {
+        "classification": "safe",
+        "job": "sandbox-k8s-e2e",
+        "stepIndex": 17,
+        "step": "Install b4-app chart",
+        "kind": "run",
+        "value": "helm --kube-context \"$B4_TEST_K8S_CONTEXT\" install b4-app charts/b4-app \\\n  -n b4-app \\\n  -f test/k8s-smoke/values-b4-app.yaml --wait\n"
+      },
+      {
+        "classification": "safe",
+        "job": "sandbox-k8s-e2e",
+        "stepIndex": 18,
         "step": "Run full-arc assertions",
         "kind": "run",
         "value": "sh test/k8s-smoke/assert-k8s.sh"
@@ -1071,10 +1231,10 @@
       {
         "classification": "safe",
         "job": "sandbox-k8s-e2e",
-        "stepIndex": 17,
+        "stepIndex": 19,
         "step": "Diagnostics + cleanup",
         "kind": "run",
-        "value": "echo \"----- app -----\"\nkubectl -n dawn-app get pods,svc -o wide || true\nkubectl -n dawn-app logs deploy/dawn-app --tail=120 || true\necho \"----- aimock -----\"\nkubectl -n dawn-app logs -l app.kubernetes.io/name=aimock --tail=120 --all-containers || true\nkubectl -n dawn-app describe pods -l app.kubernetes.io/name=aimock || true\necho \"----- sandboxes -----\"\nkubectl -n dawn-sandboxes get pods,pvc,networkpolicy -o wide || true\necho \"----- teardown -----\"\nhelm uninstall dawn-app -n dawn-app || true\nhelm uninstall dawn-sandbox-infra -n dawn-sandboxes || true\nkubectl delete namespace dawn-app --ignore-not-found --wait=false || true\nkubectl delete namespace dawn-sandboxes --ignore-not-found --wait=false || true\n"
+        "value": "echo \"----- app -----\"\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" -n b4-app get pods,svc -o wide || true\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" -n b4-app logs deploy/b4-app --tail=120 || true\necho \"----- aimock -----\"\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" -n b4-app logs -l app.kubernetes.io/name=aimock --tail=120 --all-containers || true\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" -n b4-app describe pods -l app.kubernetes.io/name=aimock || true\necho \"----- sandboxes -----\"\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" -n b4-sandboxes get pods,pvc,networkpolicy -o wide || true\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" -n b4-sandboxes describe pods -l app.kubernetes.io/managed-by=b4 || true\necho \"----- teardown -----\"\nhelm --kube-context \"$B4_TEST_K8S_CONTEXT\" uninstall b4-app -n b4-app || true\nhelm --kube-context \"$B4_TEST_K8S_CONTEXT\" uninstall b4-sandbox-infra -n b4-app || true\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" delete namespace b4-app --ignore-not-found --wait=false || true\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" delete namespace b4-sandboxes --ignore-not-found --wait=false || true\n"
       },
       {
         "classification": "safe",
@@ -1120,9 +1280,9 @@
         "classification": "safe",
         "job": "sandbox-docker-e2e",
         "stepIndex": 5,
-        "step": "Preload sandbox workload image",
+        "step": "Pull sandbox workload image",
         "kind": "run",
-        "value": "docker pull node:22-slim"
+        "value": "SANDBOX_IMAGE=\"$(\n  pnpm exec tsx -e 'import { loadCompatibilityPolicy } from \"./scripts/kubernetes-compat/policy.ts\"; loadCompatibilityPolicy().then((policy) => process.stdout.write(policy.images.sandboxWorkload))'\n)\"\ndocker pull \"$SANDBOX_IMAGE\"\n"
       },
       {
         "classification": "safe",
@@ -1130,7 +1290,7 @@
         "stepIndex": 6,
         "step": "Build app + aimock images (Verdaccio)",
         "kind": "run",
-        "value": "set -eu\nURLFILE=\"$(mktemp)\"\npnpm exec tsx test/k8s-smoke/serve-registry.ts \"$URLFILE\" &\nREG_PID=$!\nfor _ in $(seq 1 180); do\n  [ -s \"$URLFILE\" ] && break\n  kill -0 \"$REG_PID\" 2>/dev/null || { echo \"serve-registry exited before publishing\"; exit 1; }\n  sleep 1\ndone\n[ -s \"$URLFILE\" ] || { echo \"registry URL never became ready\"; kill \"$REG_PID\" 2>/dev/null || true; exit 1; }\nREG_URL=\"$(cat \"$URLFILE\")\"\necho \"registry ready at $REG_URL\"\nsh test/k8s-smoke/build-image.sh docker \"$REG_URL\"\ndocker build -t dawn-smoke-aimock:latest -f test/k8s-smoke/aimock/Dockerfile test/k8s-smoke\nkill \"$REG_PID\" 2>/dev/null || true\n"
+        "value": "set -eu\nURLFILE=\"$(mktemp)\"\npnpm exec tsx test/k8s-smoke/serve-registry.ts \"$URLFILE\" &\nREG_PID=$!\nfor _ in $(seq 1 180); do\n  [ -s \"$URLFILE\" ] && break\n  kill -0 \"$REG_PID\" 2>/dev/null || { echo \"serve-registry exited before publishing\"; exit 1; }\n  sleep 1\ndone\n[ -s \"$URLFILE\" ] || { echo \"registry URL never became ready\"; kill \"$REG_PID\" 2>/dev/null || true; exit 1; }\nREG_URL=\"$(cat \"$URLFILE\")\"\necho \"registry ready at $REG_URL\"\nsh test/k8s-smoke/build-image.sh docker \"$REG_URL\"\ndocker build -t b4-smoke-aimock:latest -f test/k8s-smoke/aimock/Dockerfile test/k8s-smoke\nkill \"$REG_PID\" 2>/dev/null || true\n"
       },
       {
         "classification": "safe",
@@ -1146,7 +1306,7 @@
         "stepIndex": 8,
         "step": "Diagnostics + cleanup",
         "kind": "run",
-        "value": "echo \"----- containers -----\"\ndocker ps -a || true\necho \"----- app logs -----\"\ndocker logs dawn-smoke-app --tail=120 || true\necho \"----- teardown -----\"\ndocker rm -f dawn-smoke-app dawn-smoke-aimock || true\nfor c in $(docker ps -aq --filter name=dawn-sbx-); do docker rm -f \"$c\" || true; done\nfor v in $(docker volume ls -q --filter name=dawn-sbx-); do docker volume rm \"$v\" || true; done\ndocker network rm dawn-smoke-net || true\n"
+        "value": "echo \"----- containers -----\"\ndocker ps -a || true\necho \"----- app logs -----\"\ndocker logs b4-smoke-app --tail=120 || true\necho \"----- teardown -----\"\ndocker rm -f b4-smoke-app b4-smoke-aimock || true\nfor c in $(docker ps -aq --filter name=b4-sbx-); do docker rm -f \"$c\" || true; done\nfor v in $(docker volume ls -q --filter name=b4-sbx-); do docker volume rm \"$v\" || true; done\ndocker network rm b4-smoke-net || true\n"
       },
       {
         "classification": "safe",
@@ -1170,7 +1330,7 @@
         "stepIndex": 2,
         "step": "Prime kind tool cache",
         "kind": "run",
-        "value": "scripts/prime-kind-cache.sh v0.31.0 v1.35.0"
+        "value": "scripts/prime-kind-cache.sh v0.32.0 v1.35.6"
       },
       {
         "classification": "safe",
@@ -1184,67 +1344,33 @@
         "classification": "safe",
         "job": "chart-apply-smoke",
         "stepIndex": 4,
-        "step": "Install dawn-app (placeholder image) and verify it serves",
+        "step": "Install b4-app (placeholder image) and verify it serves",
         "kind": "run",
-        "value": "helm install dawn-app charts/dawn-app \\\n  --set image.repository=nginxinc/nginx-unprivileged --set image.tag=stable-alpine \\\n  --set containerPort=8080 --set healthPath=/ \\\n  --set serviceAccount.create=true --set serviceAccount.name=dawn-app-smoke \\\n  --wait --timeout 3m\nkubectl rollout status deploy/dawn-app --timeout=120s\nkubectl run curl --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet -- \\\n  curl -sf http://dawn-app.default.svc.cluster.local/ >/dev/null && echo \"app served OK\"\n"
-      }
-    ],
-    "dependency-security-receipt.yml": [
-      {
-        "classification": "safe",
-        "job": "upload",
-        "stepIndex": 0,
-        "step": "Validate receipt correlation inputs",
-        "kind": "run",
-        "value": "set -euo pipefail\nsha_pattern='^[0-9a-f]{40}$'\nfor value in \"$EXPECTED_MAIN_SHA\" \"$EXPECTED_REVIEWED_BASE_SHA\" \"$EXPECTED_REVIEWED_HEAD_SHA\" \"$EXPECTED_MERGE_SHA\"; do\n  if [[ ! \"$value\" =~ $sha_pattern ]]; then\n    echo \"invalid receipt correlation SHA\" >&2\n    exit 2\n  fi\ndone\nif [[ ! \"$EXPECTED_PR_NUMBER\" =~ ^[1-9][0-9]{0,14}$ ]]; then\n  echo \"invalid pull request number\" >&2\n  exit 2\nfi\nif [[ ! \"$RECEIPT_SHA256\" =~ ^[0-9a-f]{64}$ ]]; then\n  echo \"invalid receipt SHA-256\" >&2\n  exit 2\nfi\n"
+        "value": "set -eu\nPLACEHOLDER_IMAGE=\"$(jq -er '.images.placeholderApp' .github/kubernetes-compatibility.json)\"\nREACHABILITY_IMAGE=\"$(jq -er '.images.reachabilityProbe' .github/kubernetes-compatibility.json)\"\nPLACEHOLDER_WITH_TAG=\"${PLACEHOLDER_IMAGE%@sha256:*}\"\nPLACEHOLDER_REPOSITORY=\"${PLACEHOLDER_WITH_TAG%:*}\"\nPLACEHOLDER_DIGEST=\"sha256:${PLACEHOLDER_IMAGE##*@sha256:}\"\nprintf '%s\\n' \"$PLACEHOLDER_DIGEST\" | grep -Eq '^sha256:[0-9a-f]{64}$'\nprintf '%s\\n' \"$REACHABILITY_IMAGE\" | grep -Eq '@sha256:[0-9a-f]{64}$'\nhelm --kube-context \"$B4_TEST_K8S_CONTEXT\" install b4-app charts/b4-app \\\n  --set-string image.repository=\"$PLACEHOLDER_REPOSITORY\" \\\n  --set-string image.digest=\"$PLACEHOLDER_DIGEST\" \\\n  --set containerPort=8080 --set healthPath=/ \\\n  --wait --timeout 3m\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" rollout status deploy/b4-app --timeout=120s\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" run curl --image=\"$REACHABILITY_IMAGE\" --restart=Never --rm -i --quiet -- \\\n  curl -sf http://b4-app.default.svc.cluster.local/ >/dev/null && echo \"app served OK\"\n"
       },
       {
         "classification": "safe",
-        "job": "upload",
-        "stepIndex": 1,
-        "step": "Checkout exact observation",
+        "job": "recovery-strict-runner",
+        "stepIndex": 0,
+        "step": "Checkout",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },
       {
         "classification": "safe",
-        "job": "upload",
-        "stepIndex": 2,
+        "job": "recovery-strict-runner",
+        "stepIndex": 1,
         "step": "Setup Node.js",
         "kind": "step-uses",
         "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
       },
       {
         "classification": "safe",
-        "job": "upload",
-        "stepIndex": 3,
-        "step": "Require unchanged default branch head",
+        "job": "recovery-strict-runner",
+        "stepIndex": 2,
+        "step": "Verify real recovery process containment",
         "kind": "run",
-        "value": "set -euo pipefail\nif [[ \"$GITHUB_SHA\" != \"$EXPECTED_MAIN_SHA\" ]]; then\n  echo \"workflow dispatch SHA does not match expectedMainSha\" >&2\n  exit 2\nfi\nlive_main_sha=\"$(gh api repos/cacheplane/dawnai/git/ref/heads/main --jq '.object.sha')\"\nif [[ \"$live_main_sha\" != \"$EXPECTED_MAIN_SHA\" ]]; then\n  echo \"default branch moved after the reviewed observation\" >&2\n  exit 2\nfi\n"
-      },
-      {
-        "classification": "safe",
-        "job": "upload",
-        "stepIndex": 4,
-        "step": "Prepare sealed receipt directory",
-        "kind": "run",
-        "value": "install -d -m 0700 -- \"$RECEIPT_OUTPUT_ROOT\""
-      },
-      {
-        "classification": "safe",
-        "job": "upload",
-        "stepIndex": 5,
-        "step": "Seal canonical receipt",
-        "kind": "run",
-        "value": "node scripts/security/dependency-evidence.mjs seal-receipt \\\n  --expected-main-sha \"$EXPECTED_MAIN_SHA\" \\\n  --expected-pr-number \"$EXPECTED_PR_NUMBER\" \\\n  --expected-reviewed-base-sha \"$EXPECTED_REVIEWED_BASE_SHA\" \\\n  --expected-reviewed-head-sha \"$EXPECTED_REVIEWED_HEAD_SHA\" \\\n  --expected-merge-sha \"$EXPECTED_MERGE_SHA\" \\\n  --receipt-gzip-base64 \"$RECEIPT_GZIP_BASE64\" \\\n  --receipt-sha256 \"$RECEIPT_SHA256\" \\\n  --output-root \"$RECEIPT_OUTPUT_ROOT\" \\\n  --output-directory \"$RECEIPT_OUTPUT_DIRECTORY\"\n"
-      },
-      {
-        "classification": "safe",
-        "job": "upload",
-        "stepIndex": 6,
-        "step": "Upload sealed receipt",
-        "kind": "step-uses",
-        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        "value": "node --test scripts/release/test/recovery-strict-runner.integration.mjs"
       }
     ],
     "claude-review.yml": [
@@ -1307,6 +1433,210 @@
         "value": "github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3"
       }
     ],
+    "dependency-security-receipt.yml": [
+      {
+        "classification": "safe",
+        "job": "upload",
+        "stepIndex": 0,
+        "step": "Validate receipt correlation inputs",
+        "kind": "run",
+        "value": "set -euo pipefail\nsha_pattern='^[0-9a-f]{40}$'\nfor value in \"$EXPECTED_MAIN_SHA\" \"$EXPECTED_REVIEWED_BASE_SHA\" \"$EXPECTED_REVIEWED_HEAD_SHA\" \"$EXPECTED_MERGE_SHA\"; do\n  if [[ ! \"$value\" =~ $sha_pattern ]]; then\n    echo \"invalid receipt correlation SHA\" >&2\n    exit 2\n  fi\ndone\nif [[ ! \"$EXPECTED_PR_NUMBER\" =~ ^[1-9][0-9]{0,14}$ ]]; then\n  echo \"invalid pull request number\" >&2\n  exit 2\nfi\nif [[ ! \"$RECEIPT_SHA256\" =~ ^[0-9a-f]{64}$ ]]; then\n  echo \"invalid receipt SHA-256\" >&2\n  exit 2\nfi\n"
+      },
+      {
+        "classification": "safe",
+        "job": "upload",
+        "stepIndex": 1,
+        "step": "Checkout exact observation",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "upload",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "upload",
+        "stepIndex": 3,
+        "step": "Require unchanged default branch head",
+        "kind": "run",
+        "value": "set -euo pipefail\nif [[ \"$GITHUB_SHA\" != \"$EXPECTED_MAIN_SHA\" ]]; then\n  echo \"workflow dispatch SHA does not match expectedMainSha\" >&2\n  exit 2\nfi\nlive_main_sha=\"$(gh api repos/cacheplane/b4run/git/ref/heads/main --jq '.object.sha')\"\nif [[ \"$live_main_sha\" != \"$EXPECTED_MAIN_SHA\" ]]; then\n  echo \"default branch moved after the reviewed observation\" >&2\n  exit 2\nfi\n"
+      },
+      {
+        "classification": "safe",
+        "job": "upload",
+        "stepIndex": 4,
+        "step": "Prepare sealed receipt directory",
+        "kind": "run",
+        "value": "install -d -m 0700 -- \"$RECEIPT_OUTPUT_ROOT\""
+      },
+      {
+        "classification": "safe",
+        "job": "upload",
+        "stepIndex": 5,
+        "step": "Seal canonical receipt",
+        "kind": "run",
+        "value": "node scripts/security/dependency-evidence.mjs seal-receipt \\\n  --expected-main-sha \"$EXPECTED_MAIN_SHA\" \\\n  --expected-pr-number \"$EXPECTED_PR_NUMBER\" \\\n  --expected-reviewed-base-sha \"$EXPECTED_REVIEWED_BASE_SHA\" \\\n  --expected-reviewed-head-sha \"$EXPECTED_REVIEWED_HEAD_SHA\" \\\n  --expected-merge-sha \"$EXPECTED_MERGE_SHA\" \\\n  --receipt-gzip-base64 \"$RECEIPT_GZIP_BASE64\" \\\n  --receipt-sha256 \"$RECEIPT_SHA256\" \\\n  --output-root \"$RECEIPT_OUTPUT_ROOT\" \\\n  --output-directory \"$RECEIPT_OUTPUT_DIRECTORY\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "upload",
+        "stepIndex": 6,
+        "step": "Upload sealed receipt",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      }
+    ],
+    "kubernetes-compat.yml": [
+      {
+        "classification": "safe",
+        "job": "scope",
+        "stepIndex": 0,
+        "step": "Checkout",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "scope",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271"
+      },
+      {
+        "classification": "safe",
+        "job": "scope",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "scope",
+        "stepIndex": 3,
+        "step": "Install",
+        "kind": "run",
+        "value": "pnpm install --frozen-lockfile"
+      },
+      {
+        "classification": "safe",
+        "job": "scope",
+        "stepIndex": 4,
+        "step": "Compute compatibility scope",
+        "kind": "run",
+        "value": "set -eu\ncase \"$EVENT_NAME\" in\n  pull_request)\n    REQUIRED=\"$(pnpm exec tsx scripts/kubernetes-compat/workflow.ts scope --event pull_request --base \"$BASE_SHA\" --head \"$HEAD_SHA\")\"\n    ;;\n  schedule|workflow_dispatch)\n    REQUIRED=\"$(pnpm exec tsx scripts/kubernetes-compat/workflow.ts scope --event \"$EVENT_NAME\")\"\n    ;;\n  *)\n    echo \"Unsupported workflow event: $EVENT_NAME\" >&2\n    exit 1\n    ;;\nesac\ncase \"$REQUIRED\" in\n  true|false) ;;\n  *) echo \"Malformed compatibility scope output\" >&2; exit 1 ;;\nesac\nMATRIX=\"$(pnpm exec tsx scripts/kubernetes-compat/workflow.ts matrix)\"\n[ -n \"$MATRIX\" ] || { echo \"Empty compatibility matrix output\" >&2; exit 1; }\n[ \"$(printf '%s' \"$MATRIX\" | wc -l | tr -d ' ')\" -eq 0 ] \\\n  || { echo \"Compatibility matrix output must be compact\" >&2; exit 1; }\nprintf 'required=%s\\nmatrix=%s\\n' \"$REQUIRED\" \"$MATRIX\" >> \"$GITHUB_OUTPUT\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "compat",
+        "stepIndex": 0,
+        "step": "Checkout",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "compat",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271"
+      },
+      {
+        "classification": "safe",
+        "job": "compat",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "compat",
+        "stepIndex": 3,
+        "step": "Install",
+        "kind": "run",
+        "value": "pnpm install --frozen-lockfile"
+      },
+      {
+        "classification": "safe",
+        "job": "compat",
+        "stepIndex": 4,
+        "step": "Setup Helm",
+        "kind": "step-uses",
+        "value": "azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310"
+      },
+      {
+        "classification": "safe",
+        "job": "compat",
+        "stepIndex": 5,
+        "step": "Verify chart/provider permission parity",
+        "kind": "run",
+        "value": "pnpm exec vitest --run --config test/k8s-compat/vitest.config.ts chart-rbac"
+      },
+      {
+        "classification": "safe",
+        "job": "compat",
+        "stepIndex": 6,
+        "step": "Prime kind tool cache",
+        "kind": "run",
+        "value": "scripts/prime-kind-cache.sh v0.32.0 v1.35.6"
+      },
+      {
+        "classification": "safe",
+        "job": "compat",
+        "stepIndex": 7,
+        "step": "Create kind cluster",
+        "kind": "step-uses",
+        "value": "helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc"
+      },
+      {
+        "classification": "safe",
+        "job": "compat",
+        "stepIndex": 8,
+        "step": "Prepare verified Calico manifest",
+        "kind": "run",
+        "value": "pnpm exec tsx scripts/kubernetes-compat/workflow.ts prepare-calico --output \"$CALICO_MANIFEST\""
+      },
+      {
+        "classification": "safe",
+        "job": "compat",
+        "stepIndex": 9,
+        "step": "Install verified Calico",
+        "kind": "run",
+        "value": "set -eu\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" apply --filename \"$CALICO_MANIFEST\"\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" -n kube-system rollout status daemonset/calico-node --timeout=180s\nkubectl --context \"$B4_TEST_K8S_CONTEXT\" wait --for=condition=Ready nodes --all --timeout=180s\n"
+      },
+      {
+        "classification": "safe",
+        "job": "compat",
+        "stepIndex": 10,
+        "step": "Run Kubernetes compatibility harness",
+        "kind": "run",
+        "value": "pnpm verify:k8s:compat -- --target \"$B4_K8S_TARGET\" --context \"$B4_TEST_K8S_CONTEXT\""
+      },
+      {
+        "classification": "safe",
+        "job": "compat",
+        "stepIndex": 11,
+        "step": "Upload Kubernetes compatibility artifacts",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      },
+      {
+        "classification": "safe",
+        "job": "kubernetes-compat",
+        "stepIndex": 0,
+        "step": "Evaluate Kubernetes compatibility result",
+        "kind": "run",
+        "value": "set -eu\nif [ \"$SCOPE_RESULT\" != \"success\" ]; then\n  echo \"Kubernetes compatibility scope did not succeed: $SCOPE_RESULT\" >&2\n  exit 1\nfi\ncase \"$REQUIRED\" in\n  false)\n    if [ \"$COMPAT_RESULT\" = \"skipped\" ]; then\n      exit 0\n    fi\n    echo \"Unrequired Kubernetes compatibility work was not skipped: $COMPAT_RESULT\" >&2\n    exit 1\n    ;;\n  true)\n    if [ \"$COMPAT_RESULT\" = \"success\" ]; then\n      exit 0\n    fi\n    echo \"Required Kubernetes compatibility work did not succeed: $COMPAT_RESULT\" >&2\n    exit 1\n    ;;\n  *)\n    echo \"Malformed or missing Kubernetes compatibility scope output\" >&2\n    exit 1\n    ;;\nesac\n"
+      }
+    ],
     "publish-chart.yml": [
       {
         "classification": "safe",
@@ -1344,23 +1674,47 @@
     "published-artifact-verify.yml": [
       {
         "classification": "safe",
-        "job": "verify",
+        "job": "coordinate",
         "stepIndex": 0,
-        "step": "Checkout",
+        "step": "Checkout trusted default-branch coordinator",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },
       {
         "classification": "safe",
-        "job": "verify",
+        "job": "coordinate",
         "stepIndex": 1,
-        "step": "Setup pnpm",
+        "step": "Setup Node.js",
         "kind": "step-uses",
-        "value": "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271"
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
       },
       {
         "classification": "safe",
-        "job": "verify",
+        "job": "coordinate",
+        "stepIndex": 2,
+        "step": "Route exact independent audit",
+        "kind": "run",
+        "value": "node scripts/release/independent-audit-coordinator.mjs \\\n  --github-output \"$GITHUB_OUTPUT\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "verify-draft",
+        "stepIndex": 0,
+        "step": "Checkout exact audit executor",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "verify-draft",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+      },
+      {
+        "classification": "safe",
+        "job": "verify-draft",
         "stepIndex": 2,
         "step": "Setup Node.js",
         "kind": "step-uses",
@@ -1368,115 +1722,1101 @@
       },
       {
         "classification": "safe",
-        "job": "verify",
+        "job": "verify-draft",
         "stepIndex": 3,
-        "step": "Install",
+        "step": "Assert exact npm runtime",
         "kind": "run",
-        "value": "pnpm install --frozen-lockfile"
+        "value": "test \"$(npm --version)\" = \"11.17.0\""
       },
       {
         "classification": "safe",
-        "job": "verify",
+        "job": "verify-draft",
         "stepIndex": 4,
-        "step": "Registry and tarball verification",
+        "step": "Install audit runtime dependency",
         "kind": "run",
-        "value": "pnpm published:verify -- --version \"$DAWN_PUBLISHED_VERSION\" --package-set \"$DAWN_PACKAGE_SET\""
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts"
       },
       {
         "classification": "safe",
-        "job": "verify",
+        "job": "verify-draft",
         "stepIndex": 5,
-        "step": "Published install/runtime smoke",
+        "step": "Independently audit the exact draft release",
         "kind": "run",
-        "value": "args=(--version \"$DAWN_PUBLISHED_VERSION\" --package-set \"$DAWN_PACKAGE_SET\")\nif [ \"$DAWN_RUN_PGVECTOR\" = \"true\" ] && [ \"$DAWN_PACKAGE_SET\" != \"typescript-tooling\" ] && [ \"$DAWN_PACKAGE_SET\" != \"docker-sandbox\" ]; then\n  args+=(--pgvector)\nfi\npnpm published:smoke -- \"${args[@]}\"\n"
+        "value": "node scripts/release/independent-audit.mjs \\\n  --version \"${{ inputs.version }}\" \\\n  --commit-sha \"${{ inputs.commitSha }}\" \\\n  --manifest-sha256 \"${{ inputs.manifestSha256 }}\" \\\n  --result \"$RUNNER_TEMP/audit-result.json\"\n"
       },
       {
         "classification": "safe",
-        "job": "verify",
+        "job": "verify-draft",
         "stepIndex": 6,
-        "step": "Published install/runtime smoke with OpenAI",
+        "step": "Upload exact audit result",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      },
+      {
+        "classification": "safe",
+        "job": "verify-published",
+        "stepIndex": 0,
+        "step": "Checkout exact audit executor",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "verify-published",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+      },
+      {
+        "classification": "safe",
+        "job": "verify-published",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "verify-published",
+        "stepIndex": 3,
+        "step": "Assert exact npm runtime",
         "kind": "run",
-        "value": "if [ \"$DAWN_PACKAGE_SET\" = \"typescript-tooling\" ] || [ \"$DAWN_PACKAGE_SET\" = \"docker-sandbox\" ]; then\n  echo \"$DAWN_PACKAGE_SET does not support the OpenAI runtime smoke\" >&2\n  exit 1\nfi\n\nif [ \"$DAWN_RUN_PGVECTOR\" != \"true\" ]; then\n  echo \"runOpenAI=true requires runPgvector=true\" >&2\n  exit 1\nfi\n\nif [ -z \"${OPENAI_API_KEY}\" ]; then\n  echo \"OPENAI_API_KEY secret is required when runOpenAI=true\" >&2\n  exit 1\nfi\n\nargs=(--version \"$DAWN_PUBLISHED_VERSION\" --package-set \"$DAWN_PACKAGE_SET\" --pgvector --openai)\npnpm published:smoke -- \"${args[@]}\"\n"
+        "value": "test \"$(npm --version)\" = \"11.17.0\""
+      },
+      {
+        "classification": "safe",
+        "job": "verify-published",
+        "stepIndex": 4,
+        "step": "Install audit runtime dependency",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts"
+      },
+      {
+        "classification": "safe",
+        "job": "verify-published",
+        "stepIndex": 5,
+        "step": "Audit the published immutable release",
+        "kind": "run",
+        "value": "node scripts/release/post-publication-audit.mjs \\\n  --version \"${{ inputs.version }}\" \\\n  --commit-sha \"${{ inputs.commitSha }}\" \\\n  --manifest-sha256 \"${{ inputs.manifestSha256 }}\" \\\n  --result \"$RUNNER_TEMP/audit-result.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "verify-published",
+        "stepIndex": 6,
+        "step": "Upload exact post-publication audit result",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
       }
     ],
-    "release-shadow.yml": [
+    "release-postpublication-audit.yml": [
       {
-        "classification": "safe",
-        "job": "shadow",
+        "job": "recovery-audit",
         "stepIndex": 0,
-        "step": "Checkout",
+        "step": "Checkout exact reviewed controller",
         "kind": "step-uses",
-        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "classification": "safe"
       },
       {
-        "classification": "safe",
-        "job": "shadow",
+        "job": "recovery-audit",
         "stepIndex": 1,
         "step": "Setup pnpm",
         "kind": "step-uses",
-        "value": "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271"
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "classification": "safe"
       },
       {
-        "classification": "safe",
-        "job": "shadow",
+        "job": "recovery-audit",
         "stepIndex": 2,
         "step": "Setup Node.js",
         "kind": "step-uses",
-        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+        "classification": "safe"
       },
       {
-        "classification": "safe",
-        "job": "shadow",
+        "job": "recovery-audit",
         "stepIndex": 3,
-        "step": "Install root release tooling",
+        "step": "Assert bundled npm",
         "kind": "run",
-        "value": "pnpm install --filter . --frozen-lockfile --ignore-scripts"
+        "value": "test \"$(npm --version)\" = \"11.17.0\"",
+        "classification": "safe"
       },
       {
-        "classification": "safe",
-        "job": "shadow",
+        "job": "recovery-audit",
         "stepIndex": 4,
-        "step": "Validate release inventory",
+        "step": "Install controller dependencies without lifecycles",
         "kind": "run",
-        "value": "pnpm check:release-inventory"
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts",
+        "classification": "safe"
       },
       {
-        "classification": "safe",
-        "job": "shadow",
+        "job": "recovery-audit",
         "stepIndex": 5,
-        "step": "Reconcile release state in shadow mode",
+        "step": "Resolve and bind immutable audit dispatch",
         "kind": "run",
-        "value": "if [[ -n \"$VERSION\" && -z \"$COMMIT_SHA\" ]] || [[ -z \"$VERSION\" && -n \"$COMMIT_SHA\" ]]; then\n  echo \"version and commitSha must be supplied together\" >&2\n  exit 2\nfi\nargs=(--repository cacheplane/dawnai --format markdown)\nif [[ -n \"$VERSION\" ]]; then\n  args+=(--version \"$VERSION\" --commit-sha \"$COMMIT_SHA\")\nfi\npnpm release:shadow \"${args[@]}\" >> \"$GITHUB_STEP_SUMMARY\"\n"
+        "value": "node scripts/release/recovery/workflow-request.mjs --command audit --output \"$RUNNER_TEMP/request.json\"",
+        "classification": "safe"
       },
       {
-        "classification": "safe",
-        "job": "shadow",
+        "job": "recovery-audit",
         "stepIndex": 6,
-        "step": "Collect release preflight evidence",
+        "step": "Run independent read-only audit",
         "kind": "run",
-        "value": "args=(--repository cacheplane/dawnai --workflow .github/workflows/release.yml --format markdown)\nif [[ -n \"$VERSION\" ]]; then\n  args+=(--version \"$VERSION\")\nfi\npnpm release:preflight \"${args[@]}\" >> \"$GITHUB_STEP_SUMMARY\"\n"
+        "value": "node scripts/release/recovery/cli.mjs audit --request \"$RUNNER_TEMP/request.json\" --output \"$RUNNER_TEMP/result.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-audit",
+        "stepIndex": 7,
+        "step": "Retain exact audit result",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-audit",
+        "stepIndex": 8,
+        "step": "Retain audit diagnostic",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      }
+    ],
+    "release-postpublication.yml": [
+      {
+        "job": "recovery-admit",
+        "stepIndex": 0,
+        "step": "Checkout exact reviewed controller",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-admit",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-admit",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-admit",
+        "stepIndex": 3,
+        "step": "Assert bundled npm",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-admit",
+        "stepIndex": 4,
+        "step": "Install controller dependencies without lifecycles",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-admit",
+        "stepIndex": 5,
+        "step": "Prepare exact committed request",
+        "kind": "run",
+        "value": "node scripts/release/recovery/workflow-request.mjs --command admit --output \"$RUNNER_TEMP/request.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-admit",
+        "stepIndex": 6,
+        "step": "Transfer verified original manifest",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-admit",
+        "stepIndex": 7,
+        "step": "Retain command diagnostic",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-adopt",
+        "stepIndex": 0,
+        "step": "Checkout exact reviewed controller",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-adopt",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-adopt",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-adopt",
+        "stepIndex": 3,
+        "step": "Assert bundled npm",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-adopt",
+        "stepIndex": 4,
+        "step": "Install controller dependencies without lifecycles",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-adopt",
+        "stepIndex": 5,
+        "step": "Prepare exact committed request",
+        "kind": "run",
+        "value": "node scripts/release/recovery/workflow-request.mjs --command adopt --output \"$RUNNER_TEMP/request.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-adopt",
+        "stepIndex": 6,
+        "step": "Execute adopt",
+        "kind": "run",
+        "value": "node scripts/release/recovery/cli.mjs adopt --request \"$RUNNER_TEMP/request.json\" --output \"$RUNNER_TEMP/result.json\"",
+        "classification": "recovery-publication"
+      },
+      {
+        "job": "recovery-adopt",
+        "stepIndex": 7,
+        "step": "Retain command diagnostic",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-metadata",
+        "stepIndex": 0,
+        "step": "Checkout exact reviewed controller",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-metadata",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-metadata",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-metadata",
+        "stepIndex": 3,
+        "step": "Assert bundled npm",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-metadata",
+        "stepIndex": 4,
+        "step": "Install controller dependencies without lifecycles",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-metadata",
+        "stepIndex": 5,
+        "step": "Download manifest selected by admission",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-metadata",
+        "stepIndex": 6,
+        "step": "Prepare exact committed request",
+        "kind": "run",
+        "value": "node scripts/release/recovery/workflow-request.mjs --command smoke --output \"$RUNNER_TEMP/request.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-metadata",
+        "stepIndex": 7,
+        "step": "Execute smoke",
+        "kind": "run",
+        "value": "node scripts/release/recovery/cli.mjs smoke --request \"$RUNNER_TEMP/request.json\" --output \"$RUNNER_TEMP/result.json\" --manifest \"$RUNNER_TEMP/bootstrap/manifest.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-metadata",
+        "stepIndex": 8,
+        "step": "Retain exact lane and installation evidence",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-metadata",
+        "stepIndex": 9,
+        "step": "Retain command diagnostic",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-published-harness",
+        "stepIndex": 0,
+        "step": "Checkout exact reviewed controller",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-published-harness",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-published-harness",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-published-harness",
+        "stepIndex": 3,
+        "step": "Assert bundled npm",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-published-harness",
+        "stepIndex": 4,
+        "step": "Install controller dependencies without lifecycles",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-published-harness",
+        "stepIndex": 5,
+        "step": "Download manifest selected by admission",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-published-harness",
+        "stepIndex": 6,
+        "step": "Prepare exact committed request",
+        "kind": "run",
+        "value": "node scripts/release/recovery/workflow-request.mjs --command smoke --output \"$RUNNER_TEMP/request.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-published-harness",
+        "stepIndex": 7,
+        "step": "Execute smoke",
+        "kind": "run",
+        "value": "node scripts/release/recovery/cli.mjs smoke --request \"$RUNNER_TEMP/request.json\" --output \"$RUNNER_TEMP/result.json\" --manifest \"$RUNNER_TEMP/bootstrap/manifest.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-published-harness",
+        "stepIndex": 8,
+        "step": "Retain exact lane and installation evidence",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-published-harness",
+        "stepIndex": 9,
+        "step": "Retain command diagnostic",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-runtime-targets",
+        "stepIndex": 0,
+        "step": "Checkout exact reviewed controller",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-runtime-targets",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-runtime-targets",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-runtime-targets",
+        "stepIndex": 3,
+        "step": "Assert bundled npm",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-runtime-targets",
+        "stepIndex": 4,
+        "step": "Install controller dependencies without lifecycles",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-runtime-targets",
+        "stepIndex": 5,
+        "step": "Download manifest selected by admission",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-runtime-targets",
+        "stepIndex": 6,
+        "step": "Prepare exact committed request",
+        "kind": "run",
+        "value": "node scripts/release/recovery/workflow-request.mjs --command smoke --output \"$RUNNER_TEMP/request.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-runtime-targets",
+        "stepIndex": 7,
+        "step": "Execute smoke",
+        "kind": "run",
+        "value": "node scripts/release/recovery/cli.mjs smoke --request \"$RUNNER_TEMP/request.json\" --output \"$RUNNER_TEMP/result.json\" --manifest \"$RUNNER_TEMP/bootstrap/manifest.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-runtime-targets",
+        "stepIndex": 8,
+        "step": "Retain exact lane and installation evidence",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-runtime-targets",
+        "stepIndex": 9,
+        "step": "Retain command diagnostic",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-scaffold",
+        "stepIndex": 0,
+        "step": "Checkout exact reviewed controller",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-scaffold",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-scaffold",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-scaffold",
+        "stepIndex": 3,
+        "step": "Assert bundled npm",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-scaffold",
+        "stepIndex": 4,
+        "step": "Install controller dependencies without lifecycles",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-scaffold",
+        "stepIndex": 5,
+        "step": "Download manifest selected by admission",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-scaffold",
+        "stepIndex": 6,
+        "step": "Prepare exact committed request",
+        "kind": "run",
+        "value": "node scripts/release/recovery/workflow-request.mjs --command smoke --output \"$RUNNER_TEMP/request.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-scaffold",
+        "stepIndex": 7,
+        "step": "Execute smoke",
+        "kind": "run",
+        "value": "node scripts/release/recovery/cli.mjs smoke --request \"$RUNNER_TEMP/request.json\" --output \"$RUNNER_TEMP/result.json\" --manifest \"$RUNNER_TEMP/bootstrap/manifest.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-scaffold",
+        "stepIndex": 8,
+        "step": "Retain exact lane and installation evidence",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-scaffold",
+        "stepIndex": 9,
+        "step": "Retain command diagnostic",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-storage",
+        "stepIndex": 0,
+        "step": "Checkout exact reviewed controller",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-storage",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-storage",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-storage",
+        "stepIndex": 3,
+        "step": "Assert bundled npm",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-storage",
+        "stepIndex": 4,
+        "step": "Install controller dependencies without lifecycles",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-storage",
+        "stepIndex": 5,
+        "step": "Download manifest selected by admission",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-storage",
+        "stepIndex": 6,
+        "step": "Prepare exact committed request",
+        "kind": "run",
+        "value": "node scripts/release/recovery/workflow-request.mjs --command smoke --output \"$RUNNER_TEMP/request.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-storage",
+        "stepIndex": 7,
+        "step": "Execute smoke",
+        "kind": "run",
+        "value": "node scripts/release/recovery/cli.mjs smoke --request \"$RUNNER_TEMP/request.json\" --output \"$RUNNER_TEMP/result.json\" --manifest \"$RUNNER_TEMP/bootstrap/manifest.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-storage",
+        "stepIndex": 8,
+        "step": "Retain exact lane and installation evidence",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-storage",
+        "stepIndex": 9,
+        "step": "Retain command diagnostic",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-evidence",
+        "stepIndex": 0,
+        "step": "Checkout exact reviewed controller",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-evidence",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-evidence",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-evidence",
+        "stepIndex": 3,
+        "step": "Assert bundled npm",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-evidence",
+        "stepIndex": 4,
+        "step": "Install controller dependencies without lifecycles",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-evidence",
+        "stepIndex": 5,
+        "step": "Prepare exact committed request",
+        "kind": "run",
+        "value": "node scripts/release/recovery/workflow-request.mjs --command reconcile-verification --output \"$RUNNER_TEMP/request.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-evidence",
+        "stepIndex": 6,
+        "step": "Execute reconcile-verification",
+        "kind": "run",
+        "value": "node scripts/release/recovery/cli.mjs reconcile-verification --request \"$RUNNER_TEMP/request.json\" --output \"$RUNNER_TEMP/result.json\"",
+        "classification": "recovery-publication"
+      },
+      {
+        "job": "recovery-evidence",
+        "stepIndex": 7,
+        "step": "Retain command diagnostic",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-dispatch-audit",
+        "stepIndex": 0,
+        "step": "Checkout exact reviewed controller",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-dispatch-audit",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-dispatch-audit",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-dispatch-audit",
+        "stepIndex": 3,
+        "step": "Assert bundled npm",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-dispatch-audit",
+        "stepIndex": 4,
+        "step": "Install controller dependencies without lifecycles",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-dispatch-audit",
+        "stepIndex": 5,
+        "step": "Prepare exact committed request",
+        "kind": "run",
+        "value": "node scripts/release/recovery/workflow-request.mjs --command dispatch-audit --output \"$RUNNER_TEMP/request.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-dispatch-audit",
+        "stepIndex": 6,
+        "step": "Execute dispatch-audit",
+        "kind": "run",
+        "value": "node scripts/release/recovery/cli.mjs dispatch-audit --request \"$RUNNER_TEMP/request.json\" --output \"$RUNNER_TEMP/result.json\"",
+        "classification": "recovery-publication"
+      },
+      {
+        "job": "recovery-dispatch-audit",
+        "stepIndex": 7,
+        "step": "Retain command diagnostic",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-audit-evidence",
+        "stepIndex": 0,
+        "step": "Checkout exact reviewed controller",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-audit-evidence",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-audit-evidence",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-audit-evidence",
+        "stepIndex": 3,
+        "step": "Assert bundled npm",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-audit-evidence",
+        "stepIndex": 4,
+        "step": "Install controller dependencies without lifecycles",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-audit-evidence",
+        "stepIndex": 5,
+        "step": "Prepare exact committed request",
+        "kind": "run",
+        "value": "node scripts/release/recovery/workflow-request.mjs --command reconcile-audit --output \"$RUNNER_TEMP/request.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-audit-evidence",
+        "stepIndex": 6,
+        "step": "Execute reconcile-audit",
+        "kind": "run",
+        "value": "node scripts/release/recovery/cli.mjs reconcile-audit --request \"$RUNNER_TEMP/request.json\" --output \"$RUNNER_TEMP/result.json\"",
+        "classification": "recovery-publication"
+      },
+      {
+        "job": "recovery-audit-evidence",
+        "stepIndex": 7,
+        "step": "Retain command diagnostic",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-finalize",
+        "stepIndex": 0,
+        "step": "Checkout exact reviewed controller",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-finalize",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-finalize",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-finalize",
+        "stepIndex": 3,
+        "step": "Assert bundled npm",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-finalize",
+        "stepIndex": 4,
+        "step": "Install controller dependencies without lifecycles",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-finalize",
+        "stepIndex": 5,
+        "step": "Prepare exact committed request",
+        "kind": "run",
+        "value": "node scripts/release/recovery/workflow-request.mjs --command finalize --output \"$RUNNER_TEMP/request.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-finalize",
+        "stepIndex": 6,
+        "step": "Execute finalize",
+        "kind": "run",
+        "value": "node scripts/release/recovery/cli.mjs finalize --request \"$RUNNER_TEMP/request.json\" --output \"$RUNNER_TEMP/result.json\"",
+        "classification": "recovery-publication"
+      },
+      {
+        "job": "recovery-finalize",
+        "stepIndex": 7,
+        "step": "Retain command diagnostic",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-publish",
+        "stepIndex": 0,
+        "step": "Checkout exact reviewed controller",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-publish",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-publish",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-publish",
+        "stepIndex": 3,
+        "step": "Assert bundled npm",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-publish",
+        "stepIndex": 4,
+        "step": "Install controller dependencies without lifecycles",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-publish",
+        "stepIndex": 5,
+        "step": "Prepare exact committed request",
+        "kind": "run",
+        "value": "node scripts/release/recovery/workflow-request.mjs --command publish --output \"$RUNNER_TEMP/request.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-publish",
+        "stepIndex": 6,
+        "step": "Execute publish",
+        "kind": "run",
+        "value": "node scripts/release/recovery/cli.mjs publish --request \"$RUNNER_TEMP/request.json\" --output \"$RUNNER_TEMP/result.json\"",
+        "classification": "recovery-publication"
+      },
+      {
+        "job": "recovery-publish",
+        "stepIndex": 7,
+        "step": "Retain command diagnostic",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-report",
+        "stepIndex": 0,
+        "step": "Checkout exact reviewed controller",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-report",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-report",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-report",
+        "stepIndex": 3,
+        "step": "Assert bundled npm",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-report",
+        "stepIndex": 4,
+        "step": "Install controller dependencies without lifecycles",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-report",
+        "stepIndex": 5,
+        "step": "Prepare exact committed request",
+        "kind": "run",
+        "value": "node scripts/release/recovery/workflow-request.mjs --command report --output \"$RUNNER_TEMP/request.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-report",
+        "stepIndex": 6,
+        "step": "Execute report",
+        "kind": "run",
+        "value": "node scripts/release/recovery/cli.mjs report --request \"$RUNNER_TEMP/request.json\" --output \"$RUNNER_TEMP/result.json\" --needs \"$RUNNER_TEMP/needs.json\"",
+        "classification": "safe"
+      },
+      {
+        "job": "recovery-report",
+        "stepIndex": 7,
+        "step": "Retain command diagnostic",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "classification": "safe"
       }
     ],
     "release.yml": [
       {
         "classification": "safe",
-        "job": "release",
+        "job": "detect",
         "stepIndex": 0,
-        "step": "Checkout",
+        "step": "Checkout controller",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },
       {
         "classification": "safe",
-        "job": "release",
+        "job": "detect",
         "stepIndex": 1,
         "step": "Setup pnpm",
         "kind": "step-uses",
-        "value": "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271"
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
       },
       {
         "classification": "safe",
-        "job": "release",
+        "job": "detect",
         "stepIndex": 2,
         "step": "Setup Node.js",
         "kind": "step-uses",
@@ -1484,99 +2824,955 @@
       },
       {
         "classification": "safe",
-        "job": "release",
+        "job": "detect",
         "stepIndex": 3,
-        "step": "Install",
+        "step": "Install observer runtime dependency",
         "kind": "run",
-        "value": "pnpm install --frozen-lockfile"
+        "value": "\"$PNPM_HOME/pnpm\" install --filter . --frozen-lockfile --ignore-scripts"
       },
       {
         "classification": "safe",
-        "job": "release",
+        "job": "detect",
         "stepIndex": 4,
-        "step": "Validate Release Candidate",
+        "step": "Seal the production event",
         "kind": "run",
-        "value": "pnpm ci:validate"
+        "value": "if [[ \"$GITHUB_EVENT_NAME\" == \"workflow_dispatch\" ]]; then\n  node -e 'require(\"node:fs\").writeFileSync(process.argv[1], JSON.stringify({inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,npmBootstrap:process.env.NPM_BOOTSTRAP===\"true\"}}))' \"$RUNNER_TEMP/release-event.json\"\nelse\n  cp \"$GITHUB_EVENT_PATH\" \"$RUNNER_TEMP/release-event.json\"\nfi\n"
       },
       {
         "classification": "safe",
-        "job": "release",
+        "job": "detect",
         "stepIndex": 5,
-        "step": "Setup Node.js for publishing",
+        "step": "Observe one production transition",
+        "kind": "run",
+        "value": "node scripts/release/cli.mjs observe \\\n  --event \"$RUNNER_TEMP/release-event.json\" \\\n  --report \"$RUNNER_TEMP/production-observation.json\" \\\n  --github-output \"$GITHUB_OUTPUT\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "detect",
+        "stepIndex": 6,
+        "step": "Preserve production observation",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      },
+      {
+        "classification": "safe",
+        "job": "detect",
+        "stepIndex": 7,
+        "step": "Require a non-ambiguous route",
+        "kind": "run",
+        "value": "test \"$DISPOSITION\" != \"blocked\""
+      },
+      {
+        "classification": "safe",
+        "job": "tag",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "tag",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "tag",
+        "stepIndex": 2,
+        "step": "Write exact candidate identity",
+        "kind": "run",
+        "value": "node -e 'require(\"node:fs\").writeFileSync(process.argv[1], JSON.stringify({version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,ciWorkflow:\"CI\",ciCheck:\"validate\",publisherWorkflow:\".github/workflows/release.yml\"}))' \"$RUNNER_TEMP/candidate.json\"\n"
+      },
+      {
+        "classification": "publication",
+        "job": "tag",
+        "stepIndex": 3,
+        "step": "Create or validate annotated candidate tag",
+        "kind": "run",
+        "value": "node scripts/release/cli.mjs tag --candidate \"$RUNNER_TEMP/candidate.json\""
+      },
+      {
+        "classification": "safe",
+        "job": "tag",
+        "stepIndex": 4,
+        "step": "Continue at the exact tag or relay once",
+        "kind": "run",
+        "value": "if [[ \"$GITHUB_EVENT_NAME\" == \"workflow_dispatch\" &&\n      \"$GITHUB_REF\" == \"refs/tags/v${VERSION}\" &&\n      \"$GITHUB_SHA\" == \"$COMMIT_SHA\" ]]; then\n  printf 'continue=true\\n' >> \"$GITHUB_OUTPUT\"\n  exit 0\nfi\n\nWORKFLOW_PATH=\".github/workflows/release.yml\"\nWORKFLOW_ID=\"$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' \"$WORKFLOW_PATH\")\"\nBODY=\"$(node -e 'process.stdout.write(JSON.stringify({ref:\"v\"+process.env.VERSION,inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,operation:\"reconcile\",npmBootstrap:process.env.NPM_BOOTSTRAP===\"true\"}}))')\"\nSTATUS=\"$(curl --silent --show-error --output \"$RUNNER_TEMP/dispatch.json\" --write-out '%{http_code}' \\\n  --request POST \\\n  --header 'Accept: application/vnd.github+json' \\\n  --header \"Authorization: Bearer $GITHUB_TOKEN\" \\\n  --header 'X-GitHub-Api-Version: 2026-03-10' \\\n  \"https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_ID/dispatches\" \\\n  --data \"$BODY\")\"\ntest \"$STATUS\" = \"200\"\nprintf 'continue=false\\n' >> \"$GITHUB_OUTPUT\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "prepare",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "prepare",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+      },
+      {
+        "classification": "safe",
+        "job": "prepare",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "prepare",
+        "stepIndex": 3,
+        "step": "Install exact workspace",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --frozen-lockfile"
+      },
+      {
+        "classification": "safe",
+        "job": "prepare",
+        "stepIndex": 4,
+        "step": "Download production observation",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "prepare",
+        "stepIndex": 5,
+        "step": "Derive trusted preparation handoff",
+        "kind": "run",
+        "value": "node scripts/release/workflow-handoff.mjs \\\n  --report \"$RUNNER_TEMP/observation/production-observation.json\" \\\n  --root \"$GITHUB_WORKSPACE\" \\\n  --output \"$RUNNER_TEMP/preparation-handoff.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "prepare",
+        "stepIndex": 6,
+        "step": "Prepare and verify immutable package payload",
+        "kind": "run",
+        "value": "node scripts/release/cli.mjs prepare \\\n  --handoff \"$RUNNER_TEMP/preparation-handoff.json\" \\\n  --root \"$GITHUB_WORKSPACE\" \\\n  --output-dir \"$RUNNER_TEMP/release-payload\" \\\n  --candidate-output \"$RUNNER_TEMP/candidate.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "prepare",
+        "stepIndex": 7,
+        "step": "Read sealed payload identity",
+        "kind": "run",
+        "value": "node -e 'const fs=require(\"node:fs\"),c=require(\"node:crypto\"),m=fs.readFileSync(process.argv[1]),j=JSON.parse(m),s=j.commitSha.slice(0,12);fs.appendFileSync(process.env.GITHUB_OUTPUT,\"artifact_name=\"+j.artifact.name+\"\\nhandoff_name=release-record-v\"+j.version+\"-\"+s+\"\\nmanifest_sha256=\"+c.createHash(\"sha256\").update(m).digest(\"hex\")+\"\\n\")' \"$RUNNER_TEMP/release-payload/manifest.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "prepare",
+        "stepIndex": 8,
+        "step": "Upload immutable payload",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      },
+      {
+        "classification": "safe",
+        "job": "prepare",
+        "stepIndex": 9,
+        "step": "Record immutable artifact identity",
+        "kind": "run",
+        "value": "node -e 'require(\"node:fs\").writeFileSync(process.argv[1],JSON.stringify({artifactId:process.argv[2],artifactUrl:process.argv[3],artifactDigest:process.argv[4]}))' \\\n  \"$RUNNER_TEMP/artifact-upload-result.json\" \\\n  \"${{ steps.payload.outputs.artifact-id }}\" \\\n  \"${{ steps.payload.outputs.artifact-url }}\" \\\n  \"${{ steps.payload.outputs.artifact-digest }}\"\nnode scripts/release/cli.mjs record-artifact \\\n  --candidate \"$RUNNER_TEMP/candidate.json\" \\\n  --manifest \"$RUNNER_TEMP/release-payload/manifest.json\" \\\n  --artifact-upload-result \"$RUNNER_TEMP/artifact-upload-result.json\" \\\n  --output \"$GITHUB_WORKSPACE/release-record.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "prepare",
+        "stepIndex": 10,
+        "step": "Upload exact release handoff",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      },
+      {
+        "classification": "safe",
+        "job": "hydrate",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "hydrate",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "hydrate",
+        "stepIndex": 2,
+        "step": "Download newly prepared payload",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "hydrate",
+        "stepIndex": 3,
+        "step": "Download newly prepared release record",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "hydrate",
+        "stepIndex": 4,
+        "step": "Write newly prepared candidate identity",
+        "kind": "run",
+        "value": "node -e 'require(\"node:fs\").writeFileSync(process.argv[1],JSON.stringify({version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,ciWorkflow:\"CI\",ciCheck:\"validate\",publisherWorkflow:\".github/workflows/release.yml\"})+\"\\n\")' \"$RUNNER_TEMP/runtime/candidate.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "hydrate",
+        "stepIndex": 5,
+        "step": "Download durable production observation",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "hydrate",
+        "stepIndex": 6,
+        "step": "Recover exact durable transition inputs",
+        "kind": "run",
+        "value": "node scripts/release/workflow-recovery.mjs \\\n  --report \"$RUNNER_TEMP/observation/production-observation.json\" \\\n  --output-dir \"$RUNNER_TEMP/runtime\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "hydrate",
+        "stepIndex": 7,
+        "step": "Read recovered prepared artifact identity",
+        "kind": "run",
+        "value": "node -e 'const fs=require(\"node:fs\"),r=JSON.parse(fs.readFileSync(process.argv[1]));fs.appendFileSync(process.env.GITHUB_OUTPUT,\"artifact_id=\"+r.actionsArtifact.id+\"\\nprepare_run_id=\"+r.actionsArtifact.prepareRunId+\"\\n\")' \"$RUNNER_TEMP/runtime/release-record.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "hydrate",
+        "stepIndex": 8,
+        "step": "Download recovered un-attested payload by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "hydrate",
+        "stepIndex": 9,
+        "step": "Resolve recovered attested payload",
+        "kind": "run",
+        "value": "node scripts/release/artifact-store.mjs resolve \\\n  --record \"$RUNNER_TEMP/runtime/release-record.json\" \\\n  --output-dir \"$RUNNER_TEMP/runtime/payload\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "hydrate",
+        "stepIndex": 10,
+        "step": "Verify recovered runtime identity",
+        "kind": "run",
+        "value": "node scripts/release/cli.mjs attestation-input \\\n  --record \"$RUNNER_TEMP/runtime/release-record.json\" \\\n  --artifact-dir \"$RUNNER_TEMP/runtime/payload\" \\\n  --output \"$RUNNER_TEMP/runtime-subjects.txt\"\nnode -e 'const fs=require(\"node:fs\"),r=JSON.parse(fs.readFileSync(process.argv[1]));fs.appendFileSync(process.env.GITHUB_OUTPUT,\"manifest_sha256=\"+r.manifestSha256+\"\\n\")' \"$RUNNER_TEMP/runtime/release-record.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "hydrate",
+        "stepIndex": 11,
+        "step": "Upload exact runtime inputs",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      },
+      {
+        "classification": "safe",
+        "job": "attest",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "attest",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "attest",
+        "stepIndex": 2,
+        "step": "Download exact runtime inputs by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "attest",
+        "stepIndex": 3,
+        "step": "Seal provenance subjects",
+        "kind": "run",
+        "value": "node scripts/release/cli.mjs attestation-input \\\n  --record \"$RUNNER_TEMP/runtime/release-record.json\" \\\n  --artifact-dir \"$RUNNER_TEMP/runtime/payload\" \\\n  --output \"$RUNNER_TEMP/attestation-input.txt\"\n"
+      },
+      {
+        "classification": "publication",
+        "job": "attest",
+        "stepIndex": 4,
+        "step": "Attest exact release payload",
+        "kind": "step-uses",
+        "value": "actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8"
+      },
+      {
+        "classification": "safe",
+        "job": "attest",
+        "stepIndex": 5,
+        "step": "Materialize canonical attestation evidence",
+        "kind": "run",
+        "value": "install -d -m 0700 -- \"$RUNNER_TEMP/attestation-evidence\"\ninstall -d -m 0700 -- \"$RUNNER_TEMP/attestation-evidence/bundles\"\nnode scripts/release/cli.mjs attestation-output \\\n  --record \"$RUNNER_TEMP/runtime/release-record.json\" \\\n  --artifact-dir \"$RUNNER_TEMP/runtime/payload\" \\\n  --bundle \"${{ steps.attest.outputs.bundle-path }}\" \\\n  --attestation-set \"$RUNNER_TEMP/attestation-evidence/attestation-set.json\" \\\n  --attestation-bundles-dir \"$RUNNER_TEMP/attestation-evidence/bundles\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "attest",
+        "stepIndex": 6,
+        "step": "Upload canonical attestation evidence",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      },
+      {
+        "classification": "safe",
+        "job": "escrow",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "escrow",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "escrow",
+        "stepIndex": 2,
+        "step": "Download exact runtime inputs by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "escrow",
+        "stepIndex": 3,
+        "step": "Download attestation evidence by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "publication",
+        "job": "escrow",
+        "stepIndex": 4,
+        "step": "Escrow exact base assets in draft Release",
+        "kind": "run",
+        "value": "node scripts/release/cli.mjs escrow \\\n  --candidate \"$RUNNER_TEMP/runtime/candidate.json\" \\\n  --record \"$RUNNER_TEMP/runtime/release-record.json\" \\\n  --artifact-dir \"$RUNNER_TEMP/runtime/payload\" \\\n  --attestation-set \"$RUNNER_TEMP/attestation/attestation-set.json\" \\\n  --attestation-bundles-dir \"$RUNNER_TEMP/attestation/bundles\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "publish-npm",
+        "stepIndex": 0,
+        "step": "Checkout sparse publisher",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "publish-npm",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "publish-npm",
+        "stepIndex": 2,
+        "step": "Assert exact npm runtime",
+        "kind": "run",
+        "value": "ACTUAL_NPM_VERSION=\"$(npm --version)\"\n[[ \"$ACTUAL_NPM_VERSION\" == \"11.17.0\" ]]\n"
+      },
+      {
+        "classification": "safe",
+        "job": "publish-npm",
+        "stepIndex": 3,
+        "step": "Download exact runtime inputs by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "publication",
+        "job": "publish-npm",
+        "stepIndex": 4,
+        "step": "Publish and verify npm serially",
+        "kind": "run",
+        "value": "node scripts/release/publisher.mjs \\\n  --candidate \"$RUNNER_TEMP/runtime/candidate.json\" \\\n  --record \"$RUNNER_TEMP/runtime/release-record.json\" \\\n  --artifact-dir \"$RUNNER_TEMP/runtime/payload\" \\\n  --report \"$RUNNER_TEMP/npm-evidence.json\" \\\n  --github-output \"$GITHUB_OUTPUT\" \\\n  --npm-auth-mode \"$NPM_AUTH_MODE\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "publish-npm",
+        "stepIndex": 5,
+        "step": "Upload exact npm evidence",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      },
+      {
+        "classification": "safe",
+        "job": "reconcile-npm",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "reconcile-npm",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "reconcile-npm",
+        "stepIndex": 2,
+        "step": "Download exact runtime inputs by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "reconcile-npm",
+        "stepIndex": 3,
+        "step": "Download newly published npm evidence by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "reconcile-npm",
+        "stepIndex": 4,
+        "step": "Select newly published npm evidence",
+        "kind": "run",
+        "value": "cp -- \"$RUNNER_TEMP/published-npm/npm-evidence.json\" \"$RUNNER_TEMP/runtime/npm-evidence.json\""
+      },
+      {
+        "classification": "publication",
+        "job": "reconcile-npm",
+        "stepIndex": 5,
+        "step": "Reconcile verified npm evidence",
+        "kind": "run",
+        "value": "node scripts/release/cli.mjs reconcile-npm \\\n  --candidate \"$RUNNER_TEMP/runtime/candidate.json\" \\\n  --record \"$RUNNER_TEMP/runtime/release-record.json\" \\\n  --manifest \"$RUNNER_TEMP/runtime/payload/manifest.json\" \\\n  --npm-evidence \"$RUNNER_TEMP/runtime/npm-evidence.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-metadata",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-metadata",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-metadata",
+        "stepIndex": 2,
+        "step": "Assert exact npm runtime",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\""
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-metadata",
+        "stepIndex": 3,
+        "step": "Download exact runtime inputs by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-metadata",
+        "stepIndex": 4,
+        "step": "Verify exact public metadata",
+        "kind": "run",
+        "value": "node scripts/published-artifact-verify.mjs \\\n  --release-mode \\\n  --version \"${{ needs.detect.outputs.candidate_version }}\" \\\n  --commit-sha \"${{ needs.detect.outputs.candidate_sha }}\" \\\n  --manifest \"$RUNNER_TEMP/runtime/payload/manifest.json\" \\\n  --manifest-sha256 \"${{ needs.hydrate.outputs.manifest_sha256 }}\" \\\n  --result \"$RUNNER_TEMP/metadata.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-metadata",
+        "stepIndex": 5,
+        "step": "Upload raw metadata result",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-published-harness",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-published-harness",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-published-harness",
+        "stepIndex": 2,
+        "step": "Assert exact npm runtime",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\""
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-published-harness",
+        "stepIndex": 3,
+        "step": "Download exact runtime inputs by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-published-harness",
+        "stepIndex": 4,
+        "step": "Smoke the published harness",
+        "kind": "run",
+        "value": "node scripts/release/smoke/published-harness.mjs \\\n  --version \"${{ needs.detect.outputs.candidate_version }}\" \\\n  --commit-sha \"${{ needs.detect.outputs.candidate_sha }}\" \\\n  --manifest-sha256 \"${{ needs.hydrate.outputs.manifest_sha256 }}\" \\\n  --manifest \"$RUNNER_TEMP/runtime/payload/manifest.json\" \\\n  --result \"$RUNNER_TEMP/published-harness.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-published-harness",
+        "stepIndex": 5,
+        "step": "Upload raw published-harness result",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-runtime-targets",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-runtime-targets",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-runtime-targets",
+        "stepIndex": 2,
+        "step": "Assert exact npm runtime",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\""
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-runtime-targets",
+        "stepIndex": 3,
+        "step": "Download exact runtime inputs by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-runtime-targets",
+        "stepIndex": 4,
+        "step": "Smoke published runtime targets",
+        "kind": "run",
+        "value": "node scripts/release/smoke/runtime-targets.mjs \\\n  --version \"${{ needs.detect.outputs.candidate_version }}\" \\\n  --commit-sha \"${{ needs.detect.outputs.candidate_sha }}\" \\\n  --manifest-sha256 \"${{ needs.hydrate.outputs.manifest_sha256 }}\" \\\n  --manifest \"$RUNNER_TEMP/runtime/payload/manifest.json\" \\\n  --result \"$RUNNER_TEMP/runtime-targets.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-runtime-targets",
+        "stepIndex": 5,
+        "step": "Upload raw runtime-targets result",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-scaffold",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-scaffold",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-scaffold",
+        "stepIndex": 2,
+        "step": "Assert exact npm runtime",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\""
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-scaffold",
+        "stepIndex": 3,
+        "step": "Download exact runtime inputs by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-scaffold",
+        "stepIndex": 4,
+        "step": "Smoke exact public scaffold",
+        "kind": "run",
+        "value": "node scripts/release/smoke/scaffold.mjs \\\n  --version \"${{ needs.detect.outputs.candidate_version }}\" \\\n  --commit-sha \"${{ needs.detect.outputs.candidate_sha }}\" \\\n  --manifest-sha256 \"${{ needs.hydrate.outputs.manifest_sha256 }}\" \\\n  --manifest \"$RUNNER_TEMP/runtime/payload/manifest.json\" \\\n  --result \"$RUNNER_TEMP/scaffold.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-scaffold",
+        "stepIndex": 5,
+        "step": "Upload raw scaffold result",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-storage",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-storage",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-storage",
+        "stepIndex": 2,
+        "step": "Assert exact npm runtime",
+        "kind": "run",
+        "value": "test \"$(npm --version)\" = \"11.17.0\""
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-storage",
+        "stepIndex": 3,
+        "step": "Download exact runtime inputs by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-storage",
+        "stepIndex": 4,
+        "step": "Smoke published storage backends",
+        "kind": "run",
+        "value": "node scripts/release/smoke/storage.mjs \\\n  --version \"${{ needs.detect.outputs.candidate_version }}\" \\\n  --commit-sha \"${{ needs.detect.outputs.candidate_sha }}\" \\\n  --manifest-sha256 \"${{ needs.hydrate.outputs.manifest_sha256 }}\" \\\n  --manifest \"$RUNNER_TEMP/runtime/payload/manifest.json\" \\\n  --result \"$RUNNER_TEMP/storage.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "smoke-storage",
+        "stepIndex": 5,
+        "step": "Upload raw storage result",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      },
+      {
+        "classification": "safe",
+        "job": "reconcile-smokes",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "reconcile-smokes",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "reconcile-smokes",
+        "stepIndex": 2,
+        "step": "Download exact runtime inputs by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "reconcile-smokes",
+        "stepIndex": 3,
+        "step": "Download exact smoke results by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "reconcile-smokes",
+        "stepIndex": 4,
+        "step": "Download newly published npm evidence by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "reconcile-smokes",
+        "stepIndex": 5,
+        "step": "Select newly published npm evidence",
+        "kind": "run",
+        "value": "cp -- \"$RUNNER_TEMP/published-npm/npm-evidence.json\" \"$RUNNER_TEMP/runtime/npm-evidence.json\""
+      },
+      {
+        "classification": "safe",
+        "job": "reconcile-smokes",
+        "stepIndex": 6,
+        "step": "Isolate the exact five smoke receipts",
+        "kind": "run",
+        "value": "test -f \"$RUNNER_TEMP/smoke-results/metadata.json\"\ntest -f \"$RUNNER_TEMP/smoke-results/published-harness.json\"\ntest -f \"$RUNNER_TEMP/smoke-results/runtime-targets.json\"\ntest -f \"$RUNNER_TEMP/smoke-results/scaffold.json\"\ntest -f \"$RUNNER_TEMP/smoke-results/storage.json\"\n"
+      },
+      {
+        "classification": "publication",
+        "job": "reconcile-smokes",
+        "stepIndex": 7,
+        "step": "Reconcile exact smoke evidence",
+        "kind": "run",
+        "value": "node scripts/release/cli.mjs reconcile-smokes \\\n  --candidate \"$RUNNER_TEMP/runtime/candidate.json\" \\\n  --record \"$RUNNER_TEMP/runtime/release-record.json\" \\\n  --manifest \"$RUNNER_TEMP/runtime/payload/manifest.json\" \\\n  --npm-evidence \"$RUNNER_TEMP/runtime/npm-evidence.json\" \\\n  --smoke-results \"$RUNNER_TEMP/smoke-results\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "dispatch-audit",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "dispatch-audit",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
         "kind": "step-uses",
         "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
       },
       {
         "classification": "publication",
-        "job": "release",
+        "job": "dispatch-audit",
+        "stepIndex": 2,
+        "step": "Dispatch exact independent audit",
+        "kind": "run",
+        "value": "node scripts/release/cli.mjs dispatch-audit \\\n  --version \"${{ needs.detect.outputs.candidate_version }}\" \\\n  --commit-sha \"${{ needs.detect.outputs.candidate_sha }}\" \\\n  --manifest-sha256 \"${{ needs.hydrate.outputs.manifest_sha256 }}\" \\\n  --output \"$RUNNER_TEMP/audit-dispatch.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "dispatch-audit",
+        "stepIndex": 3,
+        "step": "Upload direct audit dispatch receipt",
+        "kind": "step-uses",
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      },
+      {
+        "classification": "safe",
+        "job": "record-audit-dispatch",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "record-audit-dispatch",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "record-audit-dispatch",
+        "stepIndex": 2,
+        "step": "Download exact runtime inputs by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "record-audit-dispatch",
+        "stepIndex": 3,
+        "step": "Download audit dispatch receipt by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "publication",
+        "job": "record-audit-dispatch",
+        "stepIndex": 4,
+        "step": "Record exact audit dispatch",
+        "kind": "run",
+        "value": "node scripts/release/cli.mjs record-audit-dispatch \\\n  --candidate \"$RUNNER_TEMP/runtime/candidate.json\" \\\n  --dispatch-result \"$RUNNER_TEMP/dispatch/audit-dispatch.json\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "correlate-audit",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "correlate-audit",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "correlate-audit",
+        "stepIndex": 2,
+        "step": "Download exact runtime inputs by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "correlate-audit",
+        "stepIndex": 3,
+        "step": "Download new audit dispatch receipt by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "correlate-audit",
+        "stepIndex": 4,
+        "step": "Select new audit dispatch receipt",
+        "kind": "run",
+        "value": "cp -- \"$RUNNER_TEMP/new-dispatch/audit-dispatch.json\" \"$RUNNER_TEMP/runtime/audit-dispatch.json\""
+      },
+      {
+        "classification": "safe",
+        "job": "correlate-audit",
+        "stepIndex": 5,
+        "step": "Wait for the exact audit run",
+        "kind": "run",
+        "value": "node scripts/release/cli.mjs wait-audit \\\n  --candidate \"$RUNNER_TEMP/runtime/candidate.json\" \\\n  --dispatch-result \"$RUNNER_TEMP/runtime/audit-dispatch.json\" \\\n  --output \"$RUNNER_TEMP/audit-result.json\"\n"
+      },
+      {
+        "classification": "publication",
+        "job": "correlate-audit",
         "stepIndex": 6,
-        "step": "Create Release Pull Request or Publish",
-        "kind": "step-uses",
-        "value": "changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d"
+        "step": "Correlate and attach exact audit result",
+        "kind": "run",
+        "value": "node scripts/release/cli.mjs correlate-audit \\\n  --candidate \"$RUNNER_TEMP/runtime/candidate.json\" \\\n  --dispatch-result \"$RUNNER_TEMP/runtime/audit-dispatch.json\" \\\n  --audit-result \"$RUNNER_TEMP/audit-result.json\"\n"
       },
       {
-        "classification": "publication",
-        "job": "release",
+        "classification": "safe",
+        "job": "correlate-audit",
         "stepIndex": 7,
-        "step": "Attest release tarballs",
+        "step": "Upload exact correlated audit result",
         "kind": "step-uses",
-        "value": "actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373"
+        "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
       },
       {
-        "classification": "publication",
-        "job": "release",
+        "classification": "safe",
+        "job": "correlate-audit",
         "stepIndex": 8,
-        "step": "Upload signed release assets",
+        "step": "Require successful independent audit",
         "kind": "run",
-        "value": "node scripts/upload-release-assets.mjs"
+        "value": "node -e 'const r=require(process.argv[1]);if(r.conclusion!==\"success\")process.exit(1)' \"$RUNNER_TEMP/audit-result.json\""
+      },
+      {
+        "classification": "safe",
+        "job": "publish-release",
+        "stepIndex": 0,
+        "step": "Checkout exact candidate",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "publish-release",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "publish-release",
+        "stepIndex": 2,
+        "step": "Download exact runtime inputs by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "publish-release",
+        "stepIndex": 3,
+        "step": "Download newly correlated audit by ID",
+        "kind": "step-uses",
+        "value": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+      },
+      {
+        "classification": "safe",
+        "job": "publish-release",
+        "stepIndex": 4,
+        "step": "Select newly correlated audit result",
+        "kind": "run",
+        "value": "cp -- \"$RUNNER_TEMP/new-audit/audit-result.json\" \"$RUNNER_TEMP/runtime/audit-result.json\""
       },
       {
         "classification": "publication",
-        "job": "release",
-        "stepIndex": 9,
-        "step": "Backfill tags/releases for bootstrapped packages",
+        "job": "publish-release",
+        "stepIndex": 5,
+        "step": "Publish one immutable consolidated Release",
         "kind": "run",
-        "value": "node scripts/backfill-release-tags.mjs"
-      },
-      {
-        "classification": "safe",
-        "job": "release",
-        "stepIndex": 10,
-        "step": "Read published version",
-        "kind": "run",
-        "value": "DAWN_PUBLISHED_VERSION=\"$(node -p \"require('./packages/core/package.json').version\")\"\nprintf 'DAWN_PUBLISHED_VERSION=%s\\n' \"$DAWN_PUBLISHED_VERSION\" >> \"$GITHUB_ENV\"\n"
-      },
-      {
-        "classification": "safe",
-        "job": "release",
-        "stepIndex": 11,
-        "step": "Verify published TypeScript tooling",
-        "kind": "run",
-        "value": "pnpm published:verify -- --version \"$DAWN_PUBLISHED_VERSION\" --package-set typescript-tooling --wait-attempts 18 --wait-delay-ms 10000"
-      },
-      {
-        "classification": "safe",
-        "job": "release",
-        "stepIndex": 12,
-        "step": "Smoke published TypeScript tooling",
-        "kind": "run",
-        "value": "pnpm published:smoke -- --version \"$DAWN_PUBLISHED_VERSION\" --package-set typescript-tooling"
-      },
-      {
-        "classification": "safe",
-        "job": "release",
-        "stepIndex": 13,
-        "step": "Verify published Docker sandbox",
-        "kind": "run",
-        "value": "pnpm published:verify -- --version \"$DAWN_PUBLISHED_VERSION\" --package-set docker-sandbox --wait-attempts 18 --wait-delay-ms 10000"
-      },
-      {
-        "classification": "safe",
-        "job": "release",
-        "stepIndex": 14,
-        "step": "Smoke published Docker sandbox PID recovery",
-        "kind": "run",
-        "value": "pnpm published:smoke -- --version \"$DAWN_PUBLISHED_VERSION\" --package-set docker-sandbox"
+        "value": "node scripts/release/cli.mjs publish-release \\\n  --candidate \"$RUNNER_TEMP/runtime/candidate.json\" \\\n  --record \"$RUNNER_TEMP/runtime/release-record.json\" \\\n  --audit-result \"$RUNNER_TEMP/runtime/audit-result.json\"\n"
       }
     ],
     "scorecard.yml": [
@@ -1603,6 +3799,48 @@
         "step": "Upload SARIF",
         "kind": "step-uses",
         "value": "github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3"
+      }
+    ],
+    "version-pr.yml": [
+      {
+        "classification": "safe",
+        "job": "version",
+        "stepIndex": 0,
+        "step": "Checkout",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "version",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+      },
+      {
+        "classification": "safe",
+        "job": "version",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "version",
+        "stepIndex": 3,
+        "step": "Install",
+        "kind": "run",
+        "value": "\"$PNPM_HOME/pnpm\" install --frozen-lockfile"
+      },
+      {
+        "classification": "safe",
+        "job": "version",
+        "stepIndex": 4,
+        "step": "Open or update Version Packages pull request",
+        "kind": "step-uses",
+        "value": "changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d"
       }
     ]
   }

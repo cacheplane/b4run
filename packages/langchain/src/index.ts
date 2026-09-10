@@ -1,9 +1,9 @@
-export type { BuiltInModelProviderId, ModelProviderId } from "@dawn-ai/sdk"
+export type { BuiltInModelProviderId, ModelProviderId } from "@b4run/sdk"
 export { Command } from "@langchain/langgraph"
 export type {
   AgentStreamChunk,
   AgentTurnResult,
-  DawnToolDefinition,
+  B4ToolDefinition,
 } from "./agent-adapter.js"
 export {
   __resetMaterializedAgentsForTests,

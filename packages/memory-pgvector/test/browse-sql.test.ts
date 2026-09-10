@@ -1,4 +1,4 @@
-import { type BrowseFilter, resolveBrowseOrder } from "@dawn-ai/memory"
+import { type BrowseFilter, resolveBrowseOrder } from "@b4run/memory"
 import { describe, expect, it } from "vitest"
 import { appendPgBrowseFilter, pgKeysetWhere } from "../src/browse-sql.js"
 

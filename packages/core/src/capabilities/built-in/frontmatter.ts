@@ -1,5 +1,5 @@
 /**
- * Minimal YAML-frontmatter parser. Sufficient for Dawn's skill files,
+ * Minimal YAML-frontmatter parser. Sufficient for B4.run's skill files,
  * which use a flat `key: value` block at the top delimited by `---` lines.
  *
  * Supports: keys, double-quoted values, single-quoted values, `#` comments,

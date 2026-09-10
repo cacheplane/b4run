@@ -1,12 +1,12 @@
 import { describe, expect, test } from "vitest"
 
-import { renderStateTypes } from "../src/typegen/render-state-types"
+import { renderStateTypes } from "../src/typegen/render-state-types.js"
 
 describe("renderStateTypes", () => {
   test("renders empty interface when no routes have state", () => {
     const result = renderStateTypes([])
-    expect(result).toContain("export interface DawnRouteState {}")
-    expect(result).toContain("export type RouteState<P extends DawnRoutePath> = DawnRouteState[P]")
+    expect(result).toContain("export interface B4RouteState {}")
+    expect(result).toContain("export type RouteState<P extends B4RoutePath> = B4RouteState[P]")
   })
 
   test("renders state fields for a route", () => {
@@ -49,6 +49,6 @@ describe("renderStateTypes", () => {
     const result = renderStateTypes([
       { pathname: "/test", fields: [{ name: "v", type: "boolean" }] },
     ])
-    expect(result).toContain("export type RouteState<P extends DawnRoutePath> = DawnRouteState[P]")
+    expect(result).toContain("export type RouteState<P extends B4RoutePath> = B4RouteState[P]")
   })
 })

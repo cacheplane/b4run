@@ -1,0 +1,1855 @@
+{
+  "schemaVersion": 1,
+  "exceptions": [
+    {
+      "path": ".github/workflows/dependency-security-receipt.yml",
+      "reason": "migration-explanation",
+      "sha256": "b3d4c512f96c12552ea301edf2321234ed7ff60274e3db3e6fd0d59e987b8005"
+    },
+    {
+      "path": "apps/web/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "35d29883bd25ec254e0137f665ee086ea90425e0f3e1e6a9029d55b9681feab6"
+    },
+    {
+      "path": "docs/dev/memory-system.md",
+      "reason": "archived-design",
+      "sha256": "738c29b961e691070c172419308afbcd8e6e04934c9cf0ad9e9fb8cbc64f74ce"
+    },
+    {
+      "path": "docs/dev/smarter-recall-dx.md",
+      "reason": "archived-design",
+      "sha256": "1fb056493b8b83062248c372ced74b397888e908d3f1e5ca9d442e5350048443"
+    },
+    {
+      "path": "docs/next-iterations-roadmap.md",
+      "reason": "archived-design",
+      "sha256": "1679e60e56d93d63011f34e52ad813f16da3303bf37933458e88d50109b8ca82"
+    },
+    {
+      "path": "docs/superpowers/audits/2026-07-06-docs-website-main-alignment-audit.md",
+      "reason": "archived-design",
+      "sha256": "35d325d86b656954053213580cf48377d559e8b4621f4aa2189327bd97da2875"
+    },
+    {
+      "path": "docs/superpowers/audits/2026-08-10-dependency-remediation-baseline.json",
+      "reason": "archived-design",
+      "sha256": "0030228ca9db0ec0f54ece185a09c82d7f7405e437546536b1000ea82566883a"
+    },
+    {
+      "path": "docs/superpowers/audits/2026-08-10-dependency-remediation.md",
+      "reason": "archived-design",
+      "sha256": "db1eb70b8bb05adfef188765fb9e97abc1d67beba6efe3b485511666581225de"
+    },
+    {
+      "path": "docs/superpowers/audits/2026-08-20-dependency-remediation-reviewed-base.json",
+      "reason": "archived-design",
+      "sha256": "0030228ca9db0ec0f54ece185a09c82d7f7405e437546536b1000ea82566883a"
+    },
+    {
+      "path": "docs/superpowers/audits/2026-08-25-dawnai-seo-aeo-audit.md",
+      "reason": "archived-design",
+      "sha256": "e1ebc940e31e59e130fb9648e1e50b503e2ddcb29ca20da0daa36e597796ea0d"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-06-recovery-authority/fresh-repository-authority-observations.json",
+      "reason": "archived-design",
+      "sha256": "a32c931839de4543ae2f542bcdf0ec4856aae83a1f44fa951698e65430c55e0c"
+    },
+    {
+      "path": "docs/superpowers/notes/2026-08-10-d1-budget-status.md",
+      "reason": "archived-design",
+      "sha256": "d5ae569ed0cee5a42e06c0c2a5e5fb685e6eac5258db0993154fc9c4d8786539"
+    },
+    {
+      "path": "docs/superpowers/notes/2026-08-10-voiceover-walkthrough.md",
+      "reason": "archived-design",
+      "sha256": "aacdb41931f110ccf5c77bdf9c98d0cd0efe9d694a8a738c1e353c4f9bacbbf3"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-15-canonical-chat-example.md",
+      "reason": "archived-design",
+      "sha256": "789a161e01440b5b89a0f2fb1a6e52e90913f82cdcec650a6e5093f618182cfb"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-15-langchain-1x-zod-4-upgrade.md",
+      "reason": "archived-design",
+      "sha256": "f9a41b8061dcd76f9c5eeb2baa29dd274d7022b680bcbc302fced8768524b87f"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-15-phase3-agents-md-autoload.md",
+      "reason": "archived-design",
+      "sha256": "7afdb130d8ccb5d5d91261a2cb86d4fc34c777869272c0f6b4d89d9d770d68da"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-15-phase3-planning.md",
+      "reason": "archived-design",
+      "sha256": "6d6f2547769cc1d6e648e32c3d37b99c48cb97a4b20f4eafb03075bd9e4640cc"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-16-phase3-skills.md",
+      "reason": "archived-design",
+      "sha256": "4f0cadcdd5fee91a16ca844102dca373c674edb2abb2722110114a269107f789"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-16-phase3-tool-state-mutation.md",
+      "reason": "archived-design",
+      "sha256": "3ca9fbdf6477907f2c98ccf97f1b4e17a171f12412de87a33876082748a0c0c2"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-18-content-accuracy-audit.md",
+      "reason": "archived-design",
+      "sha256": "afb9389bdc9ec4ae47a0785168ae6f143b6f9e8e7eb18782fce9a6017da94321"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-19-langchain-provider-materialization.md",
+      "reason": "archived-design",
+      "sha256": "a2c7e4dd055e64041046a15f9dde8312913466d22242fb73f9b0ffb2020cb949"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-20-phase3-workspace-backends.md",
+      "reason": "archived-design",
+      "sha256": "428dbc6dd4dc89237b9af8a1e4714ed38a0e79d9e20729207489af784add165d"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-21-phase3-permissions.md",
+      "reason": "archived-design",
+      "sha256": "0b99c3bee0f4309e55034bbac49b45cf0bfbe80cfebdd491c63fe2d8e97ecbd8"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-22-phase3-agent-protocol.md",
+      "reason": "archived-design",
+      "sha256": "4496da11884099479f4affe7a5c64e975e282ad05bbfea00db37f0ffd340f987"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-28-phase3-nested-tool-inputs.md",
+      "reason": "archived-design",
+      "sha256": "d46a36c8f9b7c63b121e46a22db7ce5a5779dc48d479a562fd8d1ecca7321e0b"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-29-configurable-env-loading.md",
+      "reason": "archived-design",
+      "sha256": "4af0af339355cf5b32619a3f2ab719d778d7071391684edc5b7d78c36e5d4793"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-29-phase3-tool-output-offloading.md",
+      "reason": "archived-design",
+      "sha256": "da6b34ee4d1591375b1e433d28ba62b82bb2dcdac6dd9e77b52f5c1724982501"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-03-aimock-deterministic-e2e.md",
+      "reason": "archived-design",
+      "sha256": "29244ba9071be8f37e7f9347f3b4d698fe2a0e56e52f1779eee19b9b252c8e30"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-04-phase3-conversation-summarization.md",
+      "reason": "archived-design",
+      "sha256": "b0b98a9cb5dba90dc40f4ced63d7418aafa54bd783fd494bf67e7544be105b2a"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-05-dawn-testing-package.md",
+      "reason": "archived-design",
+      "sha256": "f54989959803b24a5a75d93c18373a5e7e22f4fbc671814460445d5732ac46af"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-06-eval-authoring.md",
+      "reason": "archived-design",
+      "sha256": "df092d7ce2c85252549ed9d06caed2e15d892c33287486dc6e2209409141314f"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-06-testing-capability-coverage.md",
+      "reason": "archived-design",
+      "sha256": "647752a5c255a768606ece1ce12dd2a14a1dd2f7a024acc5b1af08cda9cd0549"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-06-testing-fixture-files-live-mode.md",
+      "reason": "archived-design",
+      "sha256": "afc517a027fd7ad0c5db27203e946e9d44b49cb62c107c595da0c779516de82a"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-07-harness-packaging-consolidation.md",
+      "reason": "archived-design",
+      "sha256": "732cdffaf4c5f73ce55cc456ea32fa9378bb9935f81ef746c63d73c599911a20"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-09-research-starter.md",
+      "reason": "archived-design",
+      "sha256": "8860c5e5b9d456ad786cfc1b8947ac451920b883192ab9e600ab126ca41ce7c5"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-11-readme-gtm-refresh.md",
+      "reason": "archived-design",
+      "sha256": "856b8167144ed4011a8d2aa7c9034576c9c6d7a7ddf50ca91b47a340e81f17cc"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-11-testing-trace-matchers.md",
+      "reason": "archived-design",
+      "sha256": "0a8b510ca418edbe73850baed8c3743745d432d36adb3945ee830cd169e6f648"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-11-tool-authoring-and-workspace-fs.md",
+      "reason": "archived-design",
+      "sha256": "76d34890fe539c5a330d962d06c30aa21842911ae1edb1a6223ca9e6bb287b9a"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-12-docs-realignment.md",
+      "reason": "archived-design",
+      "sha256": "f3a7f0e735edae87252586b74acad2ad83e906011d3aaa77452d72daec6c382a"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-15-import-diagnostics.md",
+      "reason": "archived-design",
+      "sha256": "8ecb2ee84130c4ef4cbb140e787120d3df873fd189b586e1e8f9ce27f16757a8"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-16-eval-record.md",
+      "reason": "archived-design",
+      "sha256": "59396f6ebef1e36ca3f4b1916e2dd68dbf182124dc9b81530e2f45d34cd39d89"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-16-symlink-path-jail.md",
+      "reason": "archived-design",
+      "sha256": "c2e3dda3cce54abe8c4165a4b9ccdad3d70cd66049fcdbb2b7fd85ca9724d7be"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-16-testing-unit-harnesses.md",
+      "reason": "archived-design",
+      "sha256": "9ae18047000f9c6bfe34c60131ca6940da5785dac565b76fa1469f2cd33c661c"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-17-testing-api-dx.md",
+      "reason": "archived-design",
+      "sha256": "5c481f32ba4213fbc177f598fc37ffea7121755e828ba8f19f0883ec80e23dd9"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-18-ossf-scorecard-uplift.md",
+      "reason": "archived-design",
+      "sha256": "0e099565b76b351a19735c778eefd98e590312da899ff2a413bbf8b78d67586d"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-18-pr-review-automation.md",
+      "reason": "archived-design",
+      "sha256": "479ff302e92f938f70ae072a0517da31e453dd2d1ddffcdd432200d6e7806d0e"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-18-verdaccio-publish-harness.md",
+      "reason": "archived-design",
+      "sha256": "b610a51aeaf92b6b1bc3ad269b78bd86b755207cb73c9b0a720452e254b9bd5d"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-19-memory-live-smoke.md",
+      "reason": "archived-design",
+      "sha256": "86a811be18e5f1a9a8991864fc0dc2a5951133c0b0a70760a6464086850c6fb3"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-19-positioning-messaging-refresh.md",
+      "reason": "archived-design",
+      "sha256": "4c64e0922656d163641d0f2147201d8f32ff6a447cee95c92cac01ed5a96140d"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-19-signed-releases.md",
+      "reason": "archived-design",
+      "sha256": "6456856f31df001bdfaaa182680cec3702ca3e31c357d9edb274ad84e33b8e3d"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-20-bundled-docs-skill.md",
+      "reason": "archived-design",
+      "sha256": "b4176dc26bebc6818cda0690339c7c15f68743070f7a740d04b3718c661177cd"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-20-tool-scoping.md",
+      "reason": "archived-design",
+      "sha256": "64d50623f68519eab71aa61a73c8387460d3dc094b81f9f0be687942d5c86684"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-24-blueprints.md",
+      "reason": "archived-design",
+      "sha256": "de4fc61889f3e60e2200424401e4049270998d887aab4e39a90a3caa61e0d993"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-25-execution-sandbox.md",
+      "reason": "archived-design",
+      "sha256": "429c59ec04b7ad9f5f1ea3470f236f6badd00f8c2ed2845f34b782ac85679966"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-05-smarter-recall.md",
+      "reason": "archived-design",
+      "sha256": "d9a3bc7dbf2254648164125e565c652938a2f3ac15cfa1922893b28032081867"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-05-tool-approval-gating.md",
+      "reason": "archived-design",
+      "sha256": "7bce804f3333aba236cb9326529835663ece385aaf875dbdf651432c15bf8bc0"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-06-arg-constraints.md",
+      "reason": "archived-design",
+      "sha256": "35dbe48fd7122a89f56c9397410c31c3679b985edeea92f5b483f15d345933b3"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-06-docs-website-main-alignment.md",
+      "reason": "archived-design",
+      "sha256": "b415f21a26f68d65b86a201a1f98f58ecd4aa1005b86759e19140d89116fab74"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-06-memory-ask-mode.md",
+      "reason": "archived-design",
+      "sha256": "7fc105686082011e2200f4bdc02fce4fa02578a1e89e809d23be59ba71fd4e1f"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-06-research-demo-slice1-server.md",
+      "reason": "archived-design",
+      "sha256": "03653615d7492594e5054ef9a5757c3fdd6030ef6f526f3a66baca6461ffc057"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-06-sandbox-hardening-tier1.md",
+      "reason": "archived-design",
+      "sha256": "42eeda1c9dc57ee6fb4cf5d7e08a5d19a97131aee5a755f1ae9e6495116684db"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-06-vector-recall.md",
+      "reason": "archived-design",
+      "sha256": "fe6b90efe2b721f7271c585d22ae73c81f48a97e4ec3fe7342a2abaccf2f4133"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-07-ag-ui-adapter.md",
+      "reason": "archived-design",
+      "sha256": "d05c81bf0ae45a53971255fe813c3a0d80d8a11692702313fc318e51d0967dcd"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-07-ag-ui-capability.md",
+      "reason": "archived-design",
+      "sha256": "192586c15642e629fceaa0456685b5755ce1034d0565106101d5bfc58fbdfaa3"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-07-chat-copilotkit-web.md",
+      "reason": "archived-design",
+      "sha256": "93d206f75fcc775ab17392b6db1e1a0767468b64104a974fa7a4843f1e9f4485"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-07-dawn-app-deploy-helm-chart.md",
+      "reason": "archived-design",
+      "sha256": "a0567ddf34e859f76ee1cff7302838e273261a207bcbb4f6dfcc9956ba12fc2d"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-07-kubernetes-sandbox-provider.md",
+      "reason": "archived-design",
+      "sha256": "a0d597938fc6783a58fee9ba028569be34e4b3ab716231c7d7c5a2dec23db51b"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-07-pgvector-backend.md",
+      "reason": "archived-design",
+      "sha256": "ead23573e849b15dc3ec07c5559b684e3f075ba1dd2558bb37029358b4a3ea18"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-07-sandbox-infra-helm-chart.md",
+      "reason": "archived-design",
+      "sha256": "bd6b5946a30ef74ea7e41c18543a0e780bff7e9fb89d496ce8375f4bd2a5e17a"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-08-production-build-serve.md",
+      "reason": "archived-design",
+      "sha256": "ff4f625294901b3469afdb6a0eb89a91631f9ee3c60b2c558cc71c2447fc0391"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-08-sandbox-full-arc-smoke.md",
+      "reason": "archived-design",
+      "sha256": "d7bd56dc8007ab847b7684767c7a18639340efbbe79d5a30232f9b833c8a2bd0"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-09-docs-website-content-verification.md",
+      "reason": "archived-design",
+      "sha256": "a88f394a6b639d93eb121a2ed2a9dd26bae8be9520f49d9d42a69795865ac0b0"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-09-published-artifact-verification.md",
+      "reason": "archived-design",
+      "sha256": "28c868c7afbddb4a6660047a1e156eb15820e5963c12ed6bb1209144701353e8"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-11-ag-ui-canonical-adapter.md",
+      "reason": "archived-design",
+      "sha256": "4ac7c1004a7a2184976c5efefd45aaf941ae4d422a99bb5d42c63b6c24850b13"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-12-error-code-registry.md",
+      "reason": "archived-design",
+      "sha256": "053a9b9f2607790113bfbe81f0dac86dbb502ed9b90dd21adbffdafc47cf88e1"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-12-verify-env-preflight.md",
+      "reason": "archived-design",
+      "sha256": "a8e3548f8b1c19d94f73d6d4ad0c415de9ecaaf6cac56f34d1eb7e4ba3a4ca27"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-13-memory-inspector.md",
+      "reason": "archived-design",
+      "sha256": "df588625e1d505e75dfebdf7b4cdb9b5bf3f7ea5a3e2254906a5eb94ddc6790c"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-22-web-standard-request-core.md",
+      "reason": "archived-design",
+      "sha256": "7090757bcdd7c02b00e9d9fd47b2616435b9591c110bee37fef0b277c4d740ee"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-26-static-wiring-pr1-parity-plumbing.md",
+      "reason": "archived-design",
+      "sha256": "2876e082791facd8f6107ece0c483dcadce02535abe2348ecbafd25076c9a696"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-26-static-wiring-pr2-static-modules.md",
+      "reason": "archived-design",
+      "sha256": "e71b44fa4e3ba78c190ab1c6b0a30a0e95bde29d09ca71762bd991bb9e731415"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-05-edge-targets-pr1-runtime-seams.md",
+      "reason": "archived-design",
+      "sha256": "28a94ba2859df78c2630805d1ac5dcfb3bd2a44aec0b3c60294ecf0a31bd1936"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-05-episodic-memory.md",
+      "reason": "archived-design",
+      "sha256": "7f9fbfe675d5532b67b1fd77cd8fc8b4dce6f96e07ca2958b3985a0980ee76fb"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-05-subagent-delegation-policies.md",
+      "reason": "archived-design",
+      "sha256": "2248ee411db21b1a09290a7ce5cb0f8d0d1c3a4040b8569aebf5687e8f7f37d0"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-05-typescript-7-tooling.md",
+      "reason": "archived-design",
+      "sha256": "50ad54ded91d00d550170d015068226d656adf749815e933e0f1b5e2b3cba876"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-06-ap-run-cancellation.md",
+      "reason": "archived-design",
+      "sha256": "191c8a6af86b607c6cc21d3533534ce7b5cb66ae92ca3e0b7cdd91620d0f4768"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-06-edge-targets-pr2a-upstream-purge.md",
+      "reason": "archived-design",
+      "sha256": "6ef7ced028fab6ce5aa7b570de3f5676d3c44d62343926afe0c26628e0c723ae"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-07-docker-pid-exhaustion-recovery.md",
+      "reason": "archived-design",
+      "sha256": "bff218ca590d149243d376170158584bf5837b0e60884b24afba3baf857b02dc"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-07-edge-targets-pr2b-postgres-storage.md",
+      "reason": "archived-design",
+      "sha256": "0f81ca02482020138caf94b406137a0d081d2f7bd0bf8585c44c50ee5a4fb031"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-07-edge-targets-pr3-hono-target.md",
+      "reason": "archived-design",
+      "sha256": "6693ac3bcea2156de65d2129f2b7a005b31d5081d7e07e391e9d9741eaba98c8"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-07-helm-ci-node24.md",
+      "reason": "archived-design",
+      "sha256": "2736a175f46eddb49f4865e3b3d06d5e8ed41e3f6c6d497be065893988b61500"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-07-kubernetes-reaper-compatibility.md",
+      "reason": "archived-design",
+      "sha256": "ce58cdf7282aa703f73ddea079e4556429d9ae2d6a18bd50b3b63e4a5de135fd"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-08-ap-sse-keepalives.md",
+      "reason": "archived-design",
+      "sha256": "de29b0b7563b980be0efea440d56e12a33d79fc640f7d0c7aa7635cae5819bd7"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-08-testing-harness-api-cleanup.md",
+      "reason": "archived-design",
+      "sha256": "61b31b9b4664954b849a14b82284e92b208337c2f21c5cd9879bd99eabc46008"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-09-ap-reattach-pr1-pending-interrupts.md",
+      "reason": "archived-design",
+      "sha256": "723388d04f78163af5d31bfd582a85117ce1f634edcfc4bbfbdce52773bbf6c6"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-09-ap-reattach-pr2-live-turn-attach.md",
+      "reason": "archived-design",
+      "sha256": "81bc9faaf846acf4d3a01caa0a1dc2c9e4766762964753cd6b35834e24e1b8a9"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-09-ap-reattach-pr3-tail-client-docs.md",
+      "reason": "archived-design",
+      "sha256": "f23b80fbb1b3dc88481fd34dd9b136c7cbdb0e7ee5417c4dd2000705dd86a138"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-09-cli-docs-turbo-cache.md",
+      "reason": "archived-design",
+      "sha256": "1552bd7db08c452344f9219fef34a405b9d3d1d8ef099616c8c364519312cd43"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-09-dawn-0-8-and-edge-blog-posts.md",
+      "reason": "archived-design",
+      "sha256": "e5cab3533e0295628d1878eff3dfdf8f44d223efc4832a4ba9d481fb33f05fc7"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-09-docs-website-accuracy-sweep.md",
+      "reason": "archived-design",
+      "sha256": "c9cd5165ea9249c67de6c2f1401e473928e3754dead95c227e872fefb14afb18"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-09-release-integrity-controller-pr1.md",
+      "reason": "archived-design",
+      "sha256": "e781956d86902f14cb7317ba9be0b8b74a4a21d45210ed2b782d3bfefca142d0"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-09-release-integrity-controller-pr2.md",
+      "reason": "archived-design",
+      "sha256": "c053c7af8db66c264639d4d06a84b0e8f497b40caba5e8343c4c6c3960bc58d7"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-09-research-starter-integrity.md",
+      "reason": "archived-design",
+      "sha256": "6cf5535545de2419b46b851d2158d4625e2014ea82c9aa47b06071fba7d0f016"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-09-scenario-tool-mocking.md",
+      "reason": "archived-design",
+      "sha256": "66e6e42ff6edada5b30966387d776951800b0bf5dbb6efdd6627ab8217d4cf20"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-09-security-release-recovery-pr0.md",
+      "reason": "archived-design",
+      "sha256": "8759b87655df0beeadd97b766a90df5335b0131fcb267b5cc4652d5988176774"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-09-subprocess-shutdown-barrier.md",
+      "reason": "archived-design",
+      "sha256": "ddee15df4abaa9b3b1a9e9503b33d76731c433ff902bfd03a84a54ccd7e3863e"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-09-vercel-deployment-target.md",
+      "reason": "archived-design",
+      "sha256": "39ef9a1d4531d1d5a0a521f1b0efe1448ae736ada603c77a7941be92da843561"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-10-ag-ui-plan-subagent-activities.md",
+      "reason": "archived-design",
+      "sha256": "af497917b1eeb6edca6df5dc364689eb6f19342f74e240b58a6859e2bffb9b83"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-10-docs-application-developer-journey.md",
+      "reason": "archived-design",
+      "sha256": "8424cfa9d19d1465649149a24e2bc02b33609c5d0d36d51f6522376942955289"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-10-kubernetes-compatibility-hardening.md",
+      "reason": "archived-design",
+      "sha256": "b4ec3f8b52a9797ecd02fe72aa497431508f41308e9c796920bd921bbc84c7c3"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-10-security-dependency-remediation-pr1.md",
+      "reason": "archived-design",
+      "sha256": "7882bfc6aae8d1af04315f61da4153a7425a92369b8347a8b8e7c2a47eeca9b5"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-10-thread-access-pr-a.md",
+      "reason": "archived-design",
+      "sha256": "fd3ff56ced2e627c0833e62c39c0f8c8f498a50e7aec628c37b34e944b2aa0c2"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-11-dedicated-infrastructure-lanes.md",
+      "reason": "archived-design",
+      "sha256": "e1d8c6484b147450bbdd3126551a420cff71cfe360d623b07d1d15d7b8821c96"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-11-docs-api-reference-coverage-pr2.md",
+      "reason": "archived-design",
+      "sha256": "824914d5f85b1e33222a167c04e3aec38d5b5952104e931285f97afa9dafd6ce"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-11-docs-api-reference-platform-pr1.md",
+      "reason": "archived-design",
+      "sha256": "3d61e49d10f71b2aa06b438aebc34e72a66267fea7f90d8209b7d7d55957e5f3"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-13-thread-access-pr-b.md",
+      "reason": "archived-design",
+      "sha256": "4183888ec600cee974df36de09fec41f6a4cb855ffb2c552f1b9e7223aa2fbff"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-13-thread-access-stamp-implicit-create.md",
+      "reason": "archived-design",
+      "sha256": "78a97d9bd726071221613364d1913535665240f5c92a79c092da8e995db56d7d"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-18-ag-ui-orchestration-correlation.md",
+      "reason": "archived-design",
+      "sha256": "b38f833ba908cdbbf6faca9ed7d7b528decdf1d376dbec434ec91c4316001bbc"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-18-ag-ui-orchestration-suppression.md",
+      "reason": "archived-design",
+      "sha256": "036b5ae1324a7137f32378879d557d9111903dadc2e60dcfbf27aedffd3114c7"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-18-copilotkit-v2-examples.md",
+      "reason": "archived-design",
+      "sha256": "a8b99d27121110aa7a3dae94ed08357c58c398db0451772848b426d45866200e"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-19-ag-ui-react-renderers.md",
+      "reason": "archived-design",
+      "sha256": "2dde1bdfa43e17fab6d410d83b0c083086674b302f5fdd82847ce16691024d7e"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-19-dawn-activity-design-system.md",
+      "reason": "archived-design",
+      "sha256": "b0473051e6d127bc96711c5a2448bd7961a32c077b20740668c073ad0bf7ac0b"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-20-dawn-workbench-foundation.md",
+      "reason": "archived-design",
+      "sha256": "df5f93fc7ff7c055acd127638f13211e998b92422d52832c9a182c868c952545"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-22-dawn-workbench-completion.md",
+      "reason": "archived-design",
+      "sha256": "9d4e7edab1dccab3dda0273a8215411e47ae8304587f89a8a07202bf794911d1"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-24-dawn-workbench-scaffold.md",
+      "reason": "archived-design",
+      "sha256": "cfc873f29278977aa8b4a9476fad0e2ae33437fbe61ac28737b3c6d5209a797d"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-24-security-code-risk-remediation.md",
+      "reason": "archived-design",
+      "sha256": "a52b76092c3f4acd3e7eee3b41b8eb21e658396cac039ca2befe90e26c38add3"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-25-dawnai-seo-aeo-remediation.md",
+      "reason": "archived-design",
+      "sha256": "e399e69588916e6c7cae9ed73c4e1af08d1f284d8845491423cdf0e977a263a2"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-26-harness-two-process.md",
+      "reason": "archived-design",
+      "sha256": "b172620c7a296841ac5f16dd0cb7b6a5b34e72cbc369e5494eb65d6520e0c65a"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-27-dedicated-infrastructure-durable-tool-roots.md",
+      "reason": "archived-design",
+      "sha256": "e9e371daabe59494ac03936ee9e5d527672039d8a0640054a6474edd18600ba2"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-28-release-controller-main-reconciliation.md",
+      "reason": "archived-design",
+      "sha256": "10ec5851b415b36371a88af39d865675a6ca5918759332973dad115ca04568c6"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-31-dawn-readme-video-awareness.md",
+      "reason": "archived-design",
+      "sha256": "92aa2f25ddd5ac7c9ce9380b520d631ca72d1870d673890b291b40797c1943fa"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-31-immutable-draft-release-identity.md",
+      "reason": "archived-design",
+      "sha256": "e4fd29f287a3044bd98a67af48efdd5d6e3069d4964836634ad522769894a17f"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-31-npm-version-absence.md",
+      "reason": "archived-design",
+      "sha256": "7b89a11ff703bea177db4e54606435b7acd230d9c39a4b61135a30c52b235864"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-31-release-repository-id-recovery.md",
+      "reason": "archived-design",
+      "sha256": "df9c0bb9689836aa0e353423205b8db5da0372debff69666fded4aa30b2cc000"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-01-duplicate-draft-consolidation.md",
+      "reason": "archived-design",
+      "sha256": "a1ef9ccde709a380ab08e1873e00b775445c353bbd49b546d8935b4a767d5e6f"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-01-v0.8.22-duplicate-draft-recovery.md",
+      "reason": "archived-design",
+      "sha256": "5d947f4a9eefc2fe215f59bd074bbe770c5fd8e2c23683cdeb8675dfe05ed51f"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-02-consolidation-runtime-environment.md",
+      "reason": "archived-design",
+      "sha256": "5a69c8544bc36719d9f189aacf19aa30498b4b2e1903094375286922c08c0d21"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-02-consolidation-workflow-pagination.md",
+      "reason": "archived-design",
+      "sha256": "7c8ab6b857180afc3d35322c05632536b4c172dc06848999da6e8505ae9f3e27"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-04-postpublication-recovery.md",
+      "reason": "archived-design",
+      "sha256": "63d1bee08a3c4029450e8d57b8558aa5da4a7aad0a19a9ac27202a8447a17770"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-07-b4-release-identity.md",
+      "reason": "migration-explanation",
+      "sha256": "987cf648b5c2bd6c76cdaa7aaf92dddbe926587ece9f8535959efa70d0fa0eb7"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-07-b4-run-rename.md",
+      "reason": "migration-explanation",
+      "sha256": "7d3f655d52968b4d389b4e6200c635927839b59821ba6aae3f8623de31a8c5bc"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-07-b4-run-vendor-audit.md",
+      "reason": "migration-explanation",
+      "sha256": "a532cb614e515b824ad0c8ada3b19c8ef217a760a20feac556687a2fedbdc27b"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-07-b4-source-identity.md",
+      "reason": "migration-explanation",
+      "sha256": "79efcfb24e18bcbfb04c5aa8e5423bcd8dd594266df694cff5f455062045ced2"
+    },
+    {
+      "path": "docs/superpowers/runbooks/2026-06-19-memory-live-smoke-runbook.md",
+      "reason": "archived-design",
+      "sha256": "45fac3bbbfc5f8d1b76172620c83799e103a3cb9ccbc641fc9b6195fb68448fb"
+    },
+    {
+      "path": "docs/superpowers/runbooks/2026-08-09-release-integrity-cutover.md",
+      "reason": "archived-design",
+      "sha256": "fd675b7c32b55172f447d6d2991d7cbe1a7422adf1103f520d6d18a67d47a0c5"
+    },
+    {
+      "path": "docs/superpowers/runbooks/2026-09-04-postpublication-recovery.md",
+      "reason": "archived-design",
+      "sha256": "8713d27a6d26e39980cb8d1272674d90c2cf56eb6e902e21a253669ec3aac77e"
+    },
+    {
+      "path": "docs/superpowers/runbooks/2026-09-05-release-recovery-service-results.md",
+      "reason": "archived-design",
+      "sha256": "e778f3cf4e1a3a052122da32b1b8efac2fecc142e95422459ccc6e42bf55636b"
+    },
+    {
+      "path": "docs/superpowers/runbooks/2026-09-06-v0.8.24-recovery-admission.md",
+      "reason": "archived-design",
+      "sha256": "6874d61c3bd8ff2e203d163b0865f368f116098e586f4f9fa4af2da55c08b7e1"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-15-canonical-chat-example-design.md",
+      "reason": "archived-design",
+      "sha256": "aa0535b39791794356ae5d39bd73232bda3580ff8ba1f408fc8c7434b49e361a"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-15-langchain-1x-zod-4-upgrade-design.md",
+      "reason": "archived-design",
+      "sha256": "160123c29c3877c70e868ef1ffdc77472f35c87425f199c4c99bbb232b975bfa"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-15-phase3-agents-md-autoload-design.md",
+      "reason": "archived-design",
+      "sha256": "c597b5302244774a06acd5e879287237fed056fed24e23f2c8ce49651f5cae9b"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-15-phase3-planning-design.md",
+      "reason": "archived-design",
+      "sha256": "73f34bab3ebaebf2424284a99c3fd8b7700a49e8bcbc63152cd9e67167849620"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-16-phase3-skills-design.md",
+      "reason": "archived-design",
+      "sha256": "03000fad3dee4a7954fd28e47a3797dc085dfaec40deef96338e7b3fac7c420d"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-16-phase3-tool-state-mutation-design.md",
+      "reason": "archived-design",
+      "sha256": "9f8a2959d8b26393612a77d8975aeee6e049d0136e8be33390174b47a9c82993"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-16-planning-state-mutation-followup.md",
+      "reason": "archived-design",
+      "sha256": "4a93bb462b52d807ef7a860b57d5a7db5a619a317c895b4825e6c17a044fa2c5"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-19-langchain-provider-materialization-design.md",
+      "reason": "archived-design",
+      "sha256": "9617c84b864116e3c581aa6f25140f2c2b8fbd4f94ecf74683f873f1850babec"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-20-phase3-workspace-backends-design.md",
+      "reason": "archived-design",
+      "sha256": "c448bc5d09c6ab790e436fcc34d23f6c99109dd56cd0ee964d70210523db39ef"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-21-phase3-permissions-design.md",
+      "reason": "archived-design",
+      "sha256": "daf54975a43efa3e9c9d73de4312c9c5a9599184ccc1dc7b59e7dc9d604a2647"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-22-phase3-agent-protocol-design.md",
+      "reason": "archived-design",
+      "sha256": "fc274f160ce078caa2247a9ca7e344392d72b92983b52b5007159707e15f5784"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-28-phase3-nested-tool-inputs-design.md",
+      "reason": "archived-design",
+      "sha256": "25d242fd409c5b47b5f5de5be7f783e9a4f9af7aab73b2e1a104b169d77bc822"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-29-configurable-env-loading-design.md",
+      "reason": "archived-design",
+      "sha256": "8ede6475bdff0f478c65c3dee51e3e49516f2f758349da446ec7a4b23f3d002c"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-29-phase3-tool-output-offloading-design.md",
+      "reason": "archived-design",
+      "sha256": "6526b59b37874887d371cb233f4ef000169e125c0e03a2c48584ad51a4800a10"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-03-aimock-deterministic-e2e-design.md",
+      "reason": "archived-design",
+      "sha256": "44c1ab60fe58a38f494e37a71efb83c3fa84debe1212e3416cc7066f254c5c7a"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-03-tool-output-offload-exemption-design.md",
+      "reason": "archived-design",
+      "sha256": "a12c3c7b2d6b083585761d34c5102fb15f4671cc231903aaf9601cc62b078e01"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-04-phase3-conversation-summarization-design.md",
+      "reason": "archived-design",
+      "sha256": "ca35d64d1be6f4d84b81db1054d7a354bfe295288bc8ffd2017ce00dccfa978c"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-05-dawn-testing-package-design.md",
+      "reason": "archived-design",
+      "sha256": "a2cfaf13c9582dda287df44f515219d38d68ea1f819f4b2c6f14960751fcc29e"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-06-eval-authoring-design.md",
+      "reason": "archived-design",
+      "sha256": "33eb27d058722fc8b2f2207a12f579f08fef2555e80a45bd88c8d76208559386"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-06-testing-capability-coverage-design.md",
+      "reason": "archived-design",
+      "sha256": "bbbfbb611d15fcce12060271cf53e07991c68371583ccae755dde96217be071a"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-06-testing-fixture-files-live-mode-design.md",
+      "reason": "archived-design",
+      "sha256": "a9592b3ca9e7c560e8c904b1f2dcc0610152afc9ad7d867313dc5d7692091e00"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-07-harness-packaging-consolidation-design.md",
+      "reason": "archived-design",
+      "sha256": "fd269eeba604d77dd40122329690f3a27fab2be9d077d5599edfa412f908557a"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-09-research-starter-design.md",
+      "reason": "archived-design",
+      "sha256": "29815fc3f08b2876e72f46e7a7fc2750da4f0c97cedac9c7bd24c686f73a01cf"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-09-workspace-binary-read-design.md",
+      "reason": "archived-design",
+      "sha256": "48922dcbd3fa6ac68ffa570e4244e13c3ab53d46e8d2cdeb3170899a79608122"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-11-model-id-discoverability-design.md",
+      "reason": "archived-design",
+      "sha256": "331bdc752f3b322f9377f27f2b094c46dcacaf523d2682feecb109bf85c9fadc"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-11-readme-gtm-refresh-design.md",
+      "reason": "archived-design",
+      "sha256": "04aded82ff9ecb000ab890f85caf7933ebfb966358e2346cafce6066eb495d6b"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-11-testing-trace-matchers-design.md",
+      "reason": "archived-design",
+      "sha256": "151389f3bfba1973db1aa224356cc8929f34afed41daa2d38b63bfc5e4cda703"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-11-tool-authoring-and-workspace-fs-design.md",
+      "reason": "archived-design",
+      "sha256": "6194065cc8a04a5b34f4b325211e93d5f377316dbe42d76cad0a53dcd40b6e33"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-15-import-diagnostics-design.md",
+      "reason": "archived-design",
+      "sha256": "a05a596093cc3b7eded04c2bc7f5d9ee84c3182a4a936d1723ec67af9f5717cd"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-16-eval-record-design.md",
+      "reason": "archived-design",
+      "sha256": "07aef9ebda6e1c6679cc3e806a9c1cff48fca89f636d1aca640815bdf68d206d"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-16-symlink-path-jail-design.md",
+      "reason": "archived-design",
+      "sha256": "e09a4765d478c3278e6ea506e289f88aaecf381a1bee0e1524483bfc5f34d372"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-16-testing-unit-harnesses-design.md",
+      "reason": "archived-design",
+      "sha256": "55c7915d64fa99b5e655c50749be5e4a63d32b6192c558f75616d3079cc46235"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-17-testing-api-dx-design.md",
+      "reason": "archived-design",
+      "sha256": "9c165e5cd3c33f4245923be6fd7de442b0e5e32e20b2b01822903919dcdc03c2"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-18-eve-blog-post-design.md",
+      "reason": "archived-design",
+      "sha256": "8b6fea50f0243ce16454fb19a711feb4ff1133a1a676737367a1235dd44563df"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-18-long-term-memory-design.md",
+      "reason": "archived-design",
+      "sha256": "cd315244dba0cc9d499c41428bb694b84f3fbfe964431b078aa572dfcb8b7c49"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-18-ossf-scorecard-uplift-design.md",
+      "reason": "archived-design",
+      "sha256": "66f317fef420c997ec702f388762ed00cd18c13fa2f927940681ca4cd832da1d"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-18-pr-review-automation-design.md",
+      "reason": "archived-design",
+      "sha256": "1db76ecbf66354afd3826addd376ad90a52ea81f31e506a1e2f01adafb89273a"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-18-verdaccio-publish-harness-design.md",
+      "reason": "archived-design",
+      "sha256": "6d0e5723f8716f9e7d8782d44a301fc96037cf764012955dafcf01e0bb78efed"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-19-bundled-docs-skill-design.md",
+      "reason": "archived-design",
+      "sha256": "a2667180be32d8fa31ed8f12ddd5962b146d8f080a796e3de7c21b4ed4ca7174"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-19-docs-memory-and-audit-design.md",
+      "reason": "archived-design",
+      "sha256": "6aa9989ee885a8642549944086397bc2090fb3acd7beeb7d6793158204639891"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-19-memory-live-smoke-design.md",
+      "reason": "archived-design",
+      "sha256": "1f23f1900b7d7c72720cb6fbb58b475e2d3be697cc9be50f0ef67db18e7c7fa8"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-19-positioning-messaging-refresh-design.md",
+      "reason": "archived-design",
+      "sha256": "b83b95eb1b725f7d6c30a803ddadbf8f00302af4bd1f88011f69c4614067ffd4"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-19-signed-releases-design.md",
+      "reason": "archived-design",
+      "sha256": "6634d8a5b4bc92c9c028c6f3d67e42e0b6255e7dd6c3a4095df143db4b50ff65"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-20-tool-scoping-design.md",
+      "reason": "archived-design",
+      "sha256": "3f86b9d818bf7b5b0bb5336c068d021b6dbd844a71fc86ec5813ef14d00d3e3a"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-24-blueprints-design.md",
+      "reason": "archived-design",
+      "sha256": "d32fbc7c524eb1f5329dfc1edac56be4b24daee2e971bc92c7550d5660f837d7"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-25-execution-sandbox-design.md",
+      "reason": "archived-design",
+      "sha256": "75f7965a44cdc4a7e670175df4f412038f3c73eb4fe2ae1f2aaee5b6ac1547a8"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-05-smarter-recall-design.md",
+      "reason": "archived-design",
+      "sha256": "5884ce576a93fe82afb5297edc753baecbc9cbe473627bd1077d2aa6e3c50a53"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-05-tool-approval-gating-design.md",
+      "reason": "archived-design",
+      "sha256": "394c6a3451001918ae06016f3e8bfae62944e3be154b11141487617c7ce612bd"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-06-arg-constraints-design.md",
+      "reason": "archived-design",
+      "sha256": "4cfac0a51442676415a6b14271c12ed697859dc766e29d86f48a7a14d21d9e17"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-06-docs-website-main-alignment-audit-design.md",
+      "reason": "archived-design",
+      "sha256": "1617e2a85bb4f2763516922173b006e35f347609bd5a77df48930c261ab79be9"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-06-memory-ask-mode-design.md",
+      "reason": "archived-design",
+      "sha256": "f09456e1bc1422a45d212b973d126e2cf20ee99c6a038ff9e3ce4d7c65776d15"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-06-research-demo-design.md",
+      "reason": "archived-design",
+      "sha256": "64c5dd26304f868676c41da6d0f6db64eebb64a62e593da8b97c99d97f29c21d"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-06-sandbox-hardening-tier1-design.md",
+      "reason": "archived-design",
+      "sha256": "74a39ea3019973a7d06ed001c6957ebe9b82deb00ab563138a6953f6d7a013c3"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-06-vector-recall-design.md",
+      "reason": "archived-design",
+      "sha256": "b427dbb8b18b69e0580b069bfd7b34540bdc55aba4eb26ff740cb7de50b8d8db"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-07-ag-ui-adapter-design.md",
+      "reason": "archived-design",
+      "sha256": "2cf8d0969d4a1d08a04ed43319d9e419cffa5cd3bb4ad081c9646b3f3467344e"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-07-ag-ui-copilotkit-ui-design.md",
+      "reason": "archived-design",
+      "sha256": "8b2dc937c2227c32f04d59be0da0c50c017c632fc427bc37fe5415d492c5d663"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-07-chat-copilotkit-web-design.md",
+      "reason": "archived-design",
+      "sha256": "ba7d780bd4bf2b83ba1d1cc4cc2aba4aa2e35976264004fce1f30d87b7837eb2"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-07-dawn-app-deploy-helm-chart-design.md",
+      "reason": "archived-design",
+      "sha256": "35d36d12f8381cfc72ad2cfb5f26064744094543f29de6c127e4e4e9ea2965f9"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-07-kubernetes-sandbox-provider-design.md",
+      "reason": "archived-design",
+      "sha256": "a4c3c6e3cbe8c09206ee7454a93cbfec5d2e0b7bcf906714694fc6014028f7e9"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-07-pgvector-backend-design.md",
+      "reason": "archived-design",
+      "sha256": "94328d244aa688127fa0bb55c869bbf5f4b79037fee484b9c523c4e1c962244f"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-07-sandbox-infra-helm-chart-design.md",
+      "reason": "archived-design",
+      "sha256": "9a204c024f82a264788608c3dff698e89f6710318a2eea6b27dc7f446a5bef55"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-08-production-build-serve-design.md",
+      "reason": "archived-design",
+      "sha256": "7c3b1e3d2374a638f5c826d6b56a9dbf065efca83df5c4923d9a8c3b2c5ed60a"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-08-sandbox-full-arc-smoke-design.md",
+      "reason": "archived-design",
+      "sha256": "af9b32049b98283e0b0363bc95eade4f187924c0562afc6462f1d4c1244802a6"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-09-published-artifact-verification-design.md",
+      "reason": "archived-design",
+      "sha256": "07531c5e85222014645e727204681c8507603d21debf34cdc03a339af2fb9e8d"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-09-research-web-ui-design.md",
+      "reason": "archived-design",
+      "sha256": "76788395a95c7b08d7bd8fa966a20c74d810a560f59d5d9f92ea0d7b5fbe8c64"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-10-ag-ui-canonical-adapter-design.md",
+      "reason": "archived-design",
+      "sha256": "35b2f00eea2c8c6c5be04e7136b34c7ede5cca43854dfe1348474d64da7812ea"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-10-public-package-pack-coverage-design.md",
+      "reason": "archived-design",
+      "sha256": "4554440341abd752469997afb0164f0febebdab4a2e94a34fb1c7531319444ee"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-12-agents-md-design.md",
+      "reason": "archived-design",
+      "sha256": "b8313c1f3988662037c4b34aa85af60aacd81646d3f69080e40ef27b1a4b9b6c"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-12-error-code-registry-design.md",
+      "reason": "archived-design",
+      "sha256": "2c1255db62735ad2ac0a9d94e614d3d2690ea3856d90e365fb5f59a425fb9ea5"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-12-verify-env-preflight-design.md",
+      "reason": "archived-design",
+      "sha256": "634fb52ed7898b5611b4601b7b201df3d45e75d16bbd39ec2c5bcfbd1e2216dd"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-13-memory-inspector-design.md",
+      "reason": "archived-design",
+      "sha256": "3b73deb90e22674481ed39650f152fed31b32ca7efa4a265d700daf8d1714f9d"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-22-web-standard-request-core-design.md",
+      "reason": "archived-design",
+      "sha256": "68bada2c310f92aa89cd3347dea2999831b6ccf0356390ccc80618ac26ba8f3a"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-26-static-wiring-design.md",
+      "reason": "archived-design",
+      "sha256": "e37628a64151e9ebbc4a59cbdef32f92b4f9146d4fe03af28347987fa007359f"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-05-edge-targets-design.md",
+      "reason": "archived-design",
+      "sha256": "664929d808348f8a7ec628d3b9b914729ea63bf0f0b16fe66b01e9af78ced337"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-05-episodic-memory-design.md",
+      "reason": "archived-design",
+      "sha256": "8f6c5b327bcf3e14a94061531c13999012e1d70b54104f56320a93dd158dc2de"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-05-subagent-delegation-policies-design.md",
+      "reason": "archived-design",
+      "sha256": "73473db44421383d300ca916ef915b4d6e3dde10f3b32495751326334f435239"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-05-typescript-7-tooling-design.md",
+      "reason": "archived-design",
+      "sha256": "38513234406884c264805c73766bd682737d1cead8c69f38a585ba920a888d18"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-06-ap-run-cancellation.md",
+      "reason": "archived-design",
+      "sha256": "08e2c8a1f9a6fc6f8353435b0f13abe465ee0ec0bde87e9ae378812d9a5eb5b5"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-06-memory-distillation-design.md",
+      "reason": "archived-design",
+      "sha256": "4231100167ef1bb6ebdc604517e2601adee8074d5b69c5358887fd784b341e19"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-07-docker-pid-exhaustion-recovery-design.md",
+      "reason": "archived-design",
+      "sha256": "1c65b628b85a81c3e2543f73ef4df68b7d5198c22063a94b1ea9da0cd8c98835"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-07-helm-ci-node24-design.md",
+      "reason": "archived-design",
+      "sha256": "e2c7ff39c9bad707aa55b76dbd551fa5db907e2121c7edd6f824221c4a05e465"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-07-kubernetes-reaper-compatibility-design.md",
+      "reason": "archived-design",
+      "sha256": "e9c5876ac18f76206de74c680219cfce54d9feb8fa5d9be8b60ec20a92622d99"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-07-testing-harness-api-cleanup-design.md",
+      "reason": "archived-design",
+      "sha256": "38bba33f1918d59f0144e65b8568c083d26f8abc8d2ca405bfe295aa21c76f63"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-08-ap-sse-keepalives-design.md",
+      "reason": "archived-design",
+      "sha256": "63f05c54afed2e4791536f73b2f2bd2f517d2f746f8ce5b5ae1cd8f18b7ddf2e"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-09-ap-stream-reattach-design.md",
+      "reason": "archived-design",
+      "sha256": "54cee6b5c06d549c1cdbd9b14ef7e5c4e1872af8e88ecea188d332945bd8f8fe"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-09-cli-docs-turbo-cache-design.md",
+      "reason": "archived-design",
+      "sha256": "adc9c94095e7d248b228b4c88f2e82d2c071624a3ad7dad31ef17b5316b349ad"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-09-dawn-0-8-and-edge-blog-posts-design.md",
+      "reason": "archived-design",
+      "sha256": "5f03c79681cbb95426be2296235fb3cf710f257a8b568b3cb556a2d2c93c11ad"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-09-docs-website-accuracy-sweep-design.md",
+      "reason": "archived-design",
+      "sha256": "fe93de4242b44b8deeb4581c17e4fdd0d09562ee6bf06074da9676a552bd7494"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-09-release-integrity-controller-design.md",
+      "reason": "archived-design",
+      "sha256": "27219dc6a3b28fbaa8c5d3374a9ba9f2959f30772592ef84bf9404b118f592ec"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-09-research-starter-integrity-design.md",
+      "reason": "archived-design",
+      "sha256": "dc75666f704d4f273c48c763d460814d2d03085e5963bcf77633a8adacbe0f40"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-09-scenario-tool-mocking-design.md",
+      "reason": "archived-design",
+      "sha256": "431cc79b261c77f33f55d853a717ac807a97b92aad03bd0b5bd8f1739ac0e801"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-09-security-backlog-release-recovery-design.md",
+      "reason": "archived-design",
+      "sha256": "d461a0cba432a38c17cd1cf18bc18f53fb5dce94f5228119981c9b34af84dfec"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-09-subprocess-shutdown-barrier-design.md",
+      "reason": "archived-design",
+      "sha256": "2fa11fc7e14d179409ce654cd5809d36b553bf5753d9af8f0dbb1355cf7cffbe"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-09-vercel-deployment-target-design.md",
+      "reason": "archived-design",
+      "sha256": "8d7d80db19482b57e2ba40423ce4d37d35fe44c6a3357dfa454a3ea7941ae545"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-10-ag-ui-plan-subagent-activities-design.md",
+      "reason": "archived-design",
+      "sha256": "f304d29c4906dca96a219c21909dfeaa8a5029031b360d18a1abb73c59603423"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-10-docs-application-developer-journey-design.md",
+      "reason": "archived-design",
+      "sha256": "fe7a676f7ae39f3d27f8ef7f45e7817ed769a6fed45e6ae0ef0dc07239802f3c"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-10-kubernetes-compatibility-hardening-design.md",
+      "reason": "archived-design",
+      "sha256": "4ff127331e659a05f18075e2b3811f63a79fecf3490d43cd4f54a3c261403c95"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-10-thread-access-design.md",
+      "reason": "archived-design",
+      "sha256": "1a8069954754cc29e27beda0cf09289fde5953dba2b7becc81c8817ce37a83d3"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-11-dedicated-infrastructure-lanes-design.md",
+      "reason": "archived-design",
+      "sha256": "d253f462e69d699dbb5ce9fb58711eebca597bce5c9c3c63a5cd9330d1c89076"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-11-docs-api-reference-platform-design.md",
+      "reason": "archived-design",
+      "sha256": "68a1a668dc3465b0778cb01827d03a2de36b1db3e31f622e4eee353324daa1f5"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-18-copilotkit-v2-examples-design.md",
+      "reason": "archived-design",
+      "sha256": "b49854d8517e898b074e9b534c44f32847b671b98c321c17d73fbe9402adf6af"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-19-dawn-activity-design-system-design.md",
+      "reason": "archived-design",
+      "sha256": "a07ecfce352fe365e4ad60965042225612853810b99d11649769f1ce8a4a1b6a"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-19-dawn-workbench-design.md",
+      "reason": "archived-design",
+      "sha256": "4e316090cbf4ed7af1f99971ba04b695b809da7fb4a13261311c042a798c47cd"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-25-dawnai-seo-aeo-remediation-design.md",
+      "reason": "archived-design",
+      "sha256": "7cd4390e50fef193565372ada6d5873d283f07aa09c5c96d7422090b06c70f6c"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-25-release-smoke-evidence-hardening-design.md",
+      "reason": "archived-design",
+      "sha256": "648cb4852ae21e2d4a2a80f72ac999c62601b7e932284b8d88b945128590490c"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-25-temporarily-disable-release-abandonment-design.md",
+      "reason": "archived-design",
+      "sha256": "5d91c37c9a5b5a660c604c679499587f5ca207deecc0edf7dd45b4571f541c9d"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-27-dedicated-infrastructure-durable-tool-roots-design.md",
+      "reason": "archived-design",
+      "sha256": "a9c86cfdb30e655fa574540eda1b286c766a79a970c34043d60f281fab261bcc"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-27-release-controller-main-reconciliation-design.md",
+      "reason": "archived-design",
+      "sha256": "adf7abfe8bac343150447eab26cc85a996d0c0e28c9e20b4effaed019087d759"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-31-dawn-readme-video-awareness-design.md",
+      "reason": "archived-design",
+      "sha256": "71d0c6cdad338066019397869aecfa4177c355e946582f2d608c3551b535f13a"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-31-immutable-draft-release-identity-design.md",
+      "reason": "archived-design",
+      "sha256": "b5244d28dec20e4a2e59b473aaeddc5d62f6b267280ad179f6ebc18728f7f256"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-31-release-repository-id-recovery-design.md",
+      "reason": "archived-design",
+      "sha256": "53def5e72f591c6aba926aaf069e3462091a4ad69739f86c0e8fcc71f98088ab"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-01-duplicate-draft-consolidation-design.md",
+      "reason": "archived-design",
+      "sha256": "e88ee5cb58ae5b270c7378b10170b824b80893fdfd9cf73fd170f48afa52b75a"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-01-v0.8.22-duplicate-draft-recovery-design.md",
+      "reason": "archived-design",
+      "sha256": "f67cd01e40b29bfc2a79e2a3adb80a846d11fb65f33cfcab07bdeab7be7ed10d"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-02-consolidation-workflow-pagination-design.md",
+      "reason": "archived-design",
+      "sha256": "5c6708cd2ce453e99162a8857cf886391367619775cca4e71a5dc2f0cd7d999b"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-03-v0.8.22-terminal-recovery-design.md",
+      "reason": "archived-design",
+      "sha256": "4352e67f16c234e829a5f6993e916ea0c36b0c66546a1b7c0b8f16f992deb5de"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-04-postpublication-recovery-design.md",
+      "reason": "archived-design",
+      "sha256": "c1dbc387c9ae7cb1535d850f9ac97c5ccd0f437fc13c33fb175b0c0f024df732"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-04-release-reliability-architecture.md",
+      "reason": "archived-design",
+      "sha256": "48aca7a20cf8f5039c1e3dec7fcb6f27263ab8259d8e58f4e242841b6e39c1fd"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-05-platform-workflow-fence-assessment.md",
+      "reason": "archived-design",
+      "sha256": "3b3c8b5b7d0253093dc5bb56e0753e6a8f08604c356f452170526a97a5997387"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-05-recovery-conditional-reads.md",
+      "reason": "archived-design",
+      "sha256": "729987af616a775bfecbc6b2764ceda17cc836c650d3bca72395ce740ef25ecf"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-05-recovery-fence-contract.md",
+      "reason": "archived-design",
+      "sha256": "f738ebfb67bfd10cb49c7cebbfbb11a6447029518cabf6740138d1f872025165"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-06-adopted-verifier-repair.md",
+      "reason": "archived-design",
+      "sha256": "0798be5065648ecbc22da365a834c7a25f45a13190cf994a1340c95ccdb4b7f5"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-06-recovery-workflow-authority-review.md",
+      "reason": "archived-design",
+      "sha256": "df6bf6840462c484349be985bf1004b58e5628740faa4411770556037e538c19"
+    },
+    {
+      "path": "docs/thread-handoff.md",
+      "reason": "migration-explanation",
+      "sha256": "331fbc8c0fd54f2eaa4b51f42a618c1c617ab92edd34bdedd79065302d073f43"
+    },
+    {
+      "path": "examples/chat/server/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "1330942cee2c1ef6ff0067d1c6d147c6247e36db585a10d9fd2d52e8acd220a1"
+    },
+    {
+      "path": "examples/chat/web/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "e63f6e519bc63a9fa6cde0f98f9d052b32f70a2901cbaa8b5cf15e8d25a19e44"
+    },
+    {
+      "path": "examples/memory/server/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "be947afc1d9bb0ec8b0b4083e75b5914fa5822cd6fbe9ee520d1765e0585a5d7"
+    },
+    {
+      "path": "examples/research/server/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "2dff84532b93152d248358e541f2b5eca514b5f71cb1940025af255b4ae61940"
+    },
+    {
+      "path": "examples/research/web/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "43f7faee295d000c11865cad1043a9fb98339fca74f686bf3d764f11f0d92d35"
+    },
+    {
+      "path": "packages/ag-ui/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "76aa3cca87b6766c40a490318416e29d1eed00913285241d1281eff252fc9eeb"
+    },
+    {
+      "path": "packages/cli/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "1283a548135952f665c9fd7ad191705fa9c4a978a1dfe961a91cf53c29faa77a"
+    },
+    {
+      "path": "packages/cli/test/b4-state-contract.test.ts",
+      "reason": "negative-regression-fixture",
+      "sha256": "a8ca916762f683908dcb2c55d8c626b4617f211c629d77949484ca7cc1089817"
+    },
+    {
+      "path": "packages/config-biome/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "0801bf622eb840038193ce0f4100d5e6110ce2831a22c46974e71b84278124b7"
+    },
+    {
+      "path": "packages/config-typescript/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "4e24717560e4bf7a903fca96eaeeef67d8d5275c7543d20e43b033c1a21cf7a8"
+    },
+    {
+      "path": "packages/core/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "a4f949157ed1202bb96c1d5e4efb55aaeecef9daa5626967a429737a5c5dc01b"
+    },
+    {
+      "path": "packages/core/test/b4-config-contract.test.ts",
+      "reason": "negative-regression-fixture",
+      "sha256": "ff736f7cec8e74f4d6cca7d915b677bf6bb9ab513d89e551913a84d700a2f90c"
+    },
+    {
+      "path": "packages/create-b4-app/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "e058b513be2180df57ecac290341dd5788cf475d2a66131145d4ff522fcd05f7"
+    },
+    {
+      "path": "packages/devkit/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "b39509337197f22b4283e78c406f748cad9f4b76b18bc9211a516f494f3ec0e7"
+    },
+    {
+      "path": "packages/evals/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "772d89ef503e6541233ca56a2481d51d875b39b4321f1cadbbcaae9e9f462932"
+    },
+    {
+      "path": "packages/inspector/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "6e30f2cd4076f880c5f85edfe48299c3c25b76051d8370d1466ef5f3dc09e1d2"
+    },
+    {
+      "path": "packages/langchain/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "46ac395fee48e403b3be1ea26ed98485ccb0654f54b47b494975ee7747252f88"
+    },
+    {
+      "path": "packages/langgraph/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "4477cbb8f446b244281c8de535de65977e993936098b4ef47189c7d381841ca3"
+    },
+    {
+      "path": "packages/memory-pgvector/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "b15d5dd64cf1fb201c7ed64f84cad85c55bf2cebc4edd43bc43f8b33f5f0bcf5"
+    },
+    {
+      "path": "packages/memory/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "d32b7e70c59b1bc0b084307e919a69e269c6810e624706a11fd41daf64276e11"
+    },
+    {
+      "path": "packages/permissions/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "923306a8f512a7a3e833d22866950ef0a45903d34854be23db55a2ed5c8bcc0d"
+    },
+    {
+      "path": "packages/postgres-storage/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "eb9f387da07623cb4171c12e0c52c7c53c88c70ba7a76058e727714d287444ce"
+    },
+    {
+      "path": "packages/sandbox/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "ef69e6c0092ecbabe367014635173318aa4ca8d3258c13d24ec5c15095e54783"
+    },
+    {
+      "path": "packages/sdk/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "831cc9746ab5a2c86ad462e7bca24a4f6596d582e689ac3e74d5b61284c8037e"
+    },
+    {
+      "path": "packages/sqlite-storage/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "1cc99320c1e8e211cdef54de3836e538fe67fe4a2b932c238ae3475088359b92"
+    },
+    {
+      "path": "packages/testing/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "63298a50aca1068f5b8d6f494af8a0eccac4261dadf9293ec955c6b6f9c83fe3"
+    },
+    {
+      "path": "packages/vite-plugin/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "a33ed919243f964dcba73c01118cf11e0e2d4d3f2ab4e8341c6217f6e6620742"
+    },
+    {
+      "path": "packages/workspace/CHANGELOG.md",
+      "reason": "historical-changelog",
+      "sha256": "6c8e4212b37e0773e1bcd7b81d2cad8de54bd5f37e6a4db6cdd12fb8026d4dcf"
+    },
+    {
+      "path": "scripts/check-docs.mjs",
+      "reason": "retired-domain-detection",
+      "sha256": "36d17a3ee295cfb7914ec1895e273f4f443a0dce475c6b8d86f96a05ae1917c9"
+    },
+    {
+      "path": "scripts/deprecate-legacy-dawn-versions.sh",
+      "reason": "historical-release-tool",
+      "sha256": "26f08b86cdf0030ae44f000c476d7dee51ad71c0a22929b6a7eb19b7715abf80"
+    },
+    {
+      "path": "scripts/release/abandon-v0.8.22-candidate.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "8e63b0ca4658a7d525b02657f76502d28cda0a301f8e36000413ea967e973f22"
+    },
+    {
+      "path": "scripts/release/abandonment-workflow-policy.json",
+      "reason": "historical-release-tool",
+      "sha256": "54efc44b315b58e74e3450e3a2e34a5eed3a84f3b8cc162af806d11b49436ed8"
+    },
+    {
+      "path": "scripts/release/abandonment-workflow-policy.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "59ae34bc2a839c281d9c0974336788635674dfc9ee6dc970c2482c7fb3a48c9e"
+    },
+    {
+      "path": "scripts/release/audit-executor-authorizations/v0.8.26.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "52bc060b557d6a2a297029e64fc1fc23fcb5bc3a293fd39e0eb139ec8c2e0466"
+    },
+    {
+      "path": "scripts/release/duplicate-draft-consolidation-adapters.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "b9ffe8a30c8d881fc9c550d51ec63e6bcf91beccbbcd5bda9d858634b3522b08"
+    },
+    {
+      "path": "scripts/release/duplicate-draft-consolidation-authority-core.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "9026107425716aae4f24dce428c26a3a70126fb0e7203019b2697feda27ac55b"
+    },
+    {
+      "path": "scripts/release/duplicate-draft-consolidation-cli.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "1728fb570fe4b7dbb51de24632f8663ee90f40c2d6d1949ebc3be45d2fef787d"
+    },
+    {
+      "path": "scripts/release/duplicate-draft-consolidation-evidence.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "ef1fa727438951206b940b577dd772c2ad4cf524fc8d9a9550c21d993901432f"
+    },
+    {
+      "path": "scripts/release/duplicate-draft-consolidation-release-classifier.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "c8775d44d4832d5b75f1d5a979e34f224fcdb3b33a452c887b33794fab147a49"
+    },
+    {
+      "path": "scripts/release/duplicate-draft-consolidation.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "6c88908827ee47c2d637b6ebbe8cd5729bb4dd2106a0d4da4785211e2d0f9602"
+    },
+    {
+      "path": "scripts/release/duplicate-draft-recovery-adapters.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "9ddfb7458039a65a80a8e284be384a49ff2fec9d09ef9b1ecf39ae0add8f3c36"
+    },
+    {
+      "path": "scripts/release/duplicate-draft-recovery.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "4a5cdd86d4acf503883c6bafa6884bf33eae5fc8fbd60d0d7691635099f32043"
+    },
+    {
+      "path": "scripts/release/manifest.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "138c77aee1f416d04b0b5497be1d027ea4f3644ed29db6ae8bd96205f40d3846"
+    },
+    {
+      "path": "scripts/release/metadata.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "e47111b84ef2f3c47edee1b52fda310eecf2efc9bfc8538008ecf15e1ee5cf55"
+    },
+    {
+      "path": "scripts/release/recover-v0.8.22-duplicate-drafts.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "9bfa5faf9086fea026b7bdf95f5f66a2840a6ef1efd661732a67ab2227fe2d66"
+    },
+    {
+      "path": "scripts/release/recovery-adoptions/v0.8.24.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "af0a602c1ada85ee784d6d8c85b225ae10826d3235fb7492b0dfd68cf0cc2a4c"
+    },
+    {
+      "path": "scripts/release/recovery-fence-contracts/12e89873543e41ca36e17f49d8848cb6bbf32c6e348fa7cbf0fa74c7240be286.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "fbc48cc2974e7cb7bbe7ab5919402fe729e7688f47924b96aeae87f2520b646c"
+    },
+    {
+      "path": "scripts/release/recovery-fence-contracts/1fdaed97656f4b0a37c347525966e542946461895bc7792b0a8a2ab5226dc0f3.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "f2ec0aabc929cfa756b549e210057edb0f691c2ab4fb2eb311ba21fc73c60440"
+    },
+    {
+      "path": "scripts/release/recovery-fence-contracts/f56d0351b8e6f1b755dec5df7ed9577e3fc9d31b6313b4f3a16b118c46196490.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "8fe8e5f6cc76be52f8bf8563a666f3da263e7a36077218bc897980f1ae537adf"
+    },
+    {
+      "path": "scripts/release/recovery-fence-evidence/1553969d7f8bb73949c083bcc40dd07ae0f2a831745357be29413f4c842a3c12.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "5869382eb5b4f02d76a4a4e0d4b1c63e3fdb37b9d0e2dbfae3507cc1e44b4c94"
+    },
+    {
+      "path": "scripts/release/recovery-fence-evidence/af175736dbe6c0ce1459149db74d6d414a6137bdbe958da0fbcbbb93e229c723.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "818cf00ecf1ee90cef7cc33d21e1bc56ecdd9f8e48947043f1f23ccc1d43dd72"
+    },
+    {
+      "path": "scripts/release/recovery-fence-evidence/b1aa52d4005d71dd6894a597368ec08ce22c1c8a5d5728ef53472704404e177a.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "cbde9ba0854d145b75c0a753ed137139062c01e92e275f4458b9129bfe3d9bd0"
+    },
+    {
+      "path": "scripts/release/recovery-platform-reviews/15780390f1bb6fb0796bc4c5af53d118d4c7822ab5bdf3861726b8fdcdba2382.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "ae5fb42809b2ed3f4cce2062abc928c7cfe23b29407a4bc899ef5a688c1cc275"
+    },
+    {
+      "path": "scripts/release/recovery-platform-reviews/8541d34d737ddd20dd20cf0403640b895ac9d804f859908a4b46399c6d87675a.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "a3d65f845be6f284d5f53518ff0d8756ce298ca8319ec2be60a0a25e3dd33486"
+    },
+    {
+      "path": "scripts/release/recovery-verifier-repairs/v0.8.24.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "4c6d69069138244c698d2d95d95d7944098c8d7ffa3ceb30f0db086e4ced02fd"
+    },
+    {
+      "path": "scripts/release/smoke-adjudications/v0.8.24.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "9d268333843da95ec55489c8ba302f2bffd0c6bba37e4f0f0f51ecce21c47e1c"
+    },
+    {
+      "path": "scripts/release/terminal-records/v0.8.22.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "ef427277c03efd273926c63e277b6d9a5414368ca683d57821ab4fda81aa2400"
+    },
+    {
+      "path": "scripts/release/terminal-recovery-adapters.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "884ba0b5ebde1c8b222d3e0d02c522883c6305557ec43b3be85e5fdc715985e9"
+    },
+    {
+      "path": "scripts/release/test/abandon-v0.8.22-candidate.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "abeebfbbd673625c035815919e35af83f7b4f48289f6538b0cd019f92a1eb225"
+    },
+    {
+      "path": "scripts/release/test/audit-executor.test.mjs",
+      "reason": "migration-explanation",
+      "sha256": "4cf258868d51a3c820c5ab58c8d32bf841470421d72bebb7f77d10ba25756d85"
+    },
+    {
+      "path": "scripts/release/test/b4-identity.test.mjs",
+      "reason": "negative-regression-fixture",
+      "sha256": "75c96e56b9f685ecbcecb963c0f00330c35c1900f175c82cee1317be18e0653a"
+    },
+    {
+      "path": "scripts/release/test/duplicate-draft-consolidation-adapters.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "cbcb592a397d503ca810422f805dc942c5402695e9dba7d829e804678be216f1"
+    },
+    {
+      "path": "scripts/release/test/duplicate-draft-consolidation-authority.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "be288875e783d86958ad47c5b26b580b94d3806e3246e24ca41607917c123b2e"
+    },
+    {
+      "path": "scripts/release/test/duplicate-draft-consolidation-cli.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "68ce0e0de2d9bc5bd1b84f49c97f24ab91912d84c6cadfd893c2815d2e267453"
+    },
+    {
+      "path": "scripts/release/test/duplicate-draft-consolidation-evidence.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "0c8d38096417109d5875cbd504ae059785d455cb4042ae00b5047990173311d0"
+    },
+    {
+      "path": "scripts/release/test/duplicate-draft-consolidation-files.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "48c8e6abe24af97062d9102dd9a227fb5fbf97f10e09d32f0f6969a9e6f5e4c5"
+    },
+    {
+      "path": "scripts/release/test/duplicate-draft-consolidation-journal.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "1cf64670749629c974dbd8b929099c83876fd4ca1aa6c1bfe19ab1d6ee3b4bb4"
+    },
+    {
+      "path": "scripts/release/test/duplicate-draft-consolidation-rehearsal.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "d76b4d510d0a6fd594b4f9a055366cb3eda9d4f420e463f62131a89bb08a404d"
+    },
+    {
+      "path": "scripts/release/test/duplicate-draft-consolidation-schema.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "168e5517fbf4fe0802281eb956bde65591190f1bd9970ec3199f8be9991fc265"
+    },
+    {
+      "path": "scripts/release/test/duplicate-draft-consolidation.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "7883251542acc1db7dbf236566cd34d46f98e56a5634a93d4400ebb1215495e1"
+    },
+    {
+      "path": "scripts/release/test/duplicate-draft-recovery-adapters.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "5cae370fb9baed296ed82f744260538cbb1b242307cb86763a8b3135bfee656a"
+    },
+    {
+      "path": "scripts/release/test/duplicate-draft-recovery-cli.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "b90c3ff8542a3374a664731e9df317e032647eb2b751f17a9f81c64f45419d83"
+    },
+    {
+      "path": "scripts/release/test/duplicate-draft-recovery.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "cd69de050e1733839cd18e8f209a9adfd7ac5cd42f726133821cbf677227544a"
+    },
+    {
+      "path": "scripts/release/test/fixtures/incidents/0.8.20-skipped.json",
+      "reason": "historical-fixture",
+      "sha256": "cd45e4fb03f45b421eacf5a95082f4ba05f6941018944ca380b65e9302f840a8"
+    },
+    {
+      "path": "scripts/release/test/fixtures/incidents/0.8.21-publish-metadata-failure.json",
+      "reason": "historical-fixture",
+      "sha256": "cd45e4fb03f45b421eacf5a95082f4ba05f6941018944ca380b65e9302f840a8"
+    },
+    {
+      "path": "scripts/release/test/fixtures/incidents/main-2026-08-09.json",
+      "reason": "historical-fixture",
+      "sha256": "01af82365aec9a19303fae62c3b64d14a4c0b4146bc07c3e66bab89fdf99d41a"
+    },
+    {
+      "path": "scripts/release/test/fixtures/release-workflow-disabled.yml",
+      "reason": "historical-fixture",
+      "sha256": "260c5fad5b73e08d7012cec20164f25a38ca5e3724c1b79e4eefa02ae0702816"
+    },
+    {
+      "path": "scripts/release/test/fixtures/release-workflow-protected.yml",
+      "reason": "historical-fixture",
+      "sha256": "260c5fad5b73e08d7012cec20164f25a38ca5e3724c1b79e4eefa02ae0702816"
+    },
+    {
+      "path": "scripts/release/test/npm-bootstrap.test.mjs",
+      "reason": "negative-regression-fixture",
+      "sha256": "6cb7f7c15c865ef2a73e2a04751bf97341e80b01221d3cb17d14e4306221e434"
+    },
+    {
+      "path": "scripts/release/test/publisher.test.mjs",
+      "reason": "negative-regression-fixture",
+      "sha256": "313d254c0b7cd70ed5258be810a0ecb5c0d53d0906efb0ae9bf7d57eeac8b3bb"
+    },
+    {
+      "path": "scripts/release/test/recovery-admission-records.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "9c068858a9fd86b473cf8454d9d8dbdc9e972f9d5eedacd4b5860630f9b7d113"
+    },
+    {
+      "path": "scripts/release/test/recovery-github-fence.test.mjs",
+      "reason": "negative-regression-fixture",
+      "sha256": "863d6018967a06f6e8defc5c7d44a53e807b73e81d30fabb759e68394b6fba7b"
+    },
+    {
+      "path": "scripts/release/test/recovery-legacy-fence.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "b623a8626664a053664503f50ce09e9e144866e31295809e57074150abdcb594"
+    },
+    {
+      "path": "scripts/release/test/recovery-policy.test.mjs",
+      "reason": "migration-explanation",
+      "sha256": "4f8b86ae5a32858be23ad52df89a1daf1313b75eb46d9772e07db13916491dd7"
+    },
+    {
+      "path": "scripts/release/test/support/duplicate-draft-consolidation-authorized-delete.mjs",
+      "reason": "historical-fixture",
+      "sha256": "cbfda5a54deb8e370037014998fd492488c887d985c1e5ccf4740534412e2838"
+    },
+    {
+      "path": "scripts/release/test/support/duplicate-draft-consolidation-fixture.mjs",
+      "reason": "historical-fixture",
+      "sha256": "fe33d3b852dde6c89e93583496cf420874684a771080f6fa93e6f62402486da1"
+    },
+    {
+      "path": "scripts/release/test/support/duplicate-draft-consolidation-process-loss-child.mjs",
+      "reason": "historical-fixture",
+      "sha256": "392bf763d6127fadcb96e50d2afa2963c81011563aa52e7cce84c66eed9c7b11"
+    },
+    {
+      "path": "scripts/release/test/support/recovery-github-fence.mjs",
+      "reason": "negative-regression-fixture",
+      "sha256": "1ffcf953503a5bbfbb6e6cae5d006c4cb7a7ae77d9210e796061d51832d1315f"
+    },
+    {
+      "path": "scripts/release/test/terminal-recovery-adapters.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "f6a0f5419afb56305bf183f1bc01cf6f49834e0a6fd7d1757060aad9d5667691"
+    },
+    {
+      "path": "scripts/release/test/workflow-contracts.test.mjs",
+      "reason": "migration-explanation",
+      "sha256": "274bad7c991a9cf8b51ad2b9f3ca4cd0babd785497cf53c1f6d275c9b7e50361"
+    },
+    {
+      "path": "scripts/security/dependabot-evidence-schema.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "60c074ed54f6d721a17c828ec11f5d79a486ceac9478fb913a2aef3bb88aff82"
+    },
+    {
+      "path": "scripts/security/dependabot-reconcile.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "8cfdcb89666478fab874e57c828def67c030fd5b563b1e2d9f0024f4ebb2cff0"
+    },
+    {
+      "path": "scripts/security/dependency-evidence.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "abe1791df117d521fff64ad4d6991c1bfac3924d65cacb5442feb891aa3026c0"
+    },
+    {
+      "path": "scripts/security/github-evidence.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "a547d3abcf49067e0fb8afa6151d601a28700c1559af4c47924ca28f731e0100"
+    },
+    {
+      "path": "scripts/security/publication-containment.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "8d3f19ddadfd8275cb89a63a900eba2b0f1eb6b56b39602fd00c1a56f195a159"
+    },
+    {
+      "path": "scripts/security/reconciliation-receipt.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "dfa04cf8f01ae7037d0e799dcaccb455b6e60f13af469326a4ef34a941088ee5"
+    },
+    {
+      "path": "scripts/security/reconciliation-seal.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "65806b15f758495611ff650e166b8984b68360c4ef4bd1b6100830dfa590f646"
+    },
+    {
+      "path": "test/security-dependencies/brand-migration.test.ts",
+      "reason": "negative-regression-fixture",
+      "sha256": "c2c9711dc44db229ef8ff0333e91c07e031e356f78a547454ba92cbe1666621c"
+    },
+    {
+      "path": "test/security-dependencies/fixtures/dependabot-baseline.json",
+      "reason": "historical-fixture",
+      "sha256": "52bc060b557d6a2a297029e64fc1fc23fcb5bc3a293fd39e0eb139ec8c2e0466"
+    },
+    {
+      "path": "test/security-dependencies/publication-containment.test.ts",
+      "reason": "historical-fixture",
+      "sha256": "90f8d1de550d0dcda80d9e7aed7fc1f8adb4c9feb161dd940179a3bd71ba288b"
+    }
+  ]
+}

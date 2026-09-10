@@ -3,13 +3,13 @@ import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createSubagentsMarker } from "@dawn-ai/core"
+import { createSubagentsMarker } from "@b4run/core"
 import {
   convertSubagentTaskToLangChain,
   type SubagentResolver,
   streamAgent,
-} from "@dawn-ai/langchain"
-import type { ThreadsStore } from "@dawn-ai/sqlite-storage"
+} from "@b4run/langchain"
+import type { ThreadsStore } from "@b4run/sqlite-storage"
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch"
 import { AIMessage } from "@langchain/core/messages"
 import type { RunnableConfig } from "@langchain/core/runnables"
@@ -40,13 +40,13 @@ afterEach(async () => {
 })
 
 async function fixtureApp(overrides: Record<string, string> = {}): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-agui-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-agui-"))
   cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "agui-fixture", "type": "module" }\n',
     "src/app/chat/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
+      'import { agent } from "@b4run/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
     ...overrides,
   }
   for (const [rel, body] of Object.entries(files)) {
@@ -62,7 +62,7 @@ async function fixtureApp(overrides: Record<string, string> = {}): Promise<strin
  * the Agent Protocol suite parks with, so both surfaces are proven against the
  * same kind of park rather than a hand-rolled interrupt chunk. */
 const PARK_ROUTE = [
-  'import { agent } from "@dawn-ai/sdk"',
+  'import { agent } from "@b4run/sdk"',
   "export default agent({",
   '  model: "gpt-5-mini",',
   '  systemPrompt: "You are a test agent. Use the provided tools when asked.",',
@@ -259,7 +259,7 @@ async function parallelSubagentTask(firstInterruptObserved: Promise<void>) {
       if (input === "B") {
         await firstInterruptObserved
         await dispatchCustomEvent(
-          "dawn.capability",
+          "b4.capability",
           { event: "native.progress", data: { input } },
           config,
         )
@@ -937,7 +937,7 @@ async function threadStatus(port: number, threadId: string): Promise<string> {
   return ((await response.json()) as { status: string }).status
 }
 
-/** Interrupt chunk in Dawn's own vocabulary — what `streamResolvedRoute` yields
+/** Interrupt chunk in B4.run's own vocabulary — what `streamResolvedRoute` yields
  * when a turn parks, upstream of the AG-UI translation. */
 function interruptChunk(interruptId: string) {
   return {

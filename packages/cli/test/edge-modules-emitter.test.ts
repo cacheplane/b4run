@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { discoverRoutes } from "@dawn-ai/core/node"
+import { discoverRoutes } from "@b4run/core/node"
 import { transform } from "esbuild"
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -34,7 +34,7 @@ const APP_DIR_NAME = "edge-emitter-fixture-app"
 
 async function fixtureApp(): Promise<string> {
   // realpath: on macOS the tmpdir is behind a /var → /private/var symlink.
-  const tempRoot = await realpath(await mkdtemp(join(tmpdir(), "dawn-edge-modules-emitter-")))
+  const tempRoot = await realpath(await mkdtemp(join(tmpdir(), "b4-edge-modules-emitter-")))
   cleanup.push(() =>
     rm(tempRoot, {
       force: true,
@@ -45,7 +45,7 @@ async function fixtureApp(): Promise<string> {
   )
   const appRoot = join(tempRoot, APP_DIR_NAME)
   const files: Record<string, string> = {
-    ".dawn/routes/chat/tools.json": `${JSON.stringify(
+    ".b4/routes/chat/tools.json": `${JSON.stringify(
       {
         echo: {
           description: "Echoes the input back",
@@ -59,10 +59,10 @@ async function fixtureApp(): Promise<string> {
       null,
       2,
     )}\n`,
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "edge-modules-emitter-fixture", "type": "module" }\n',
     "src/app/chat/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\n' +
+      'import { agent } from "@b4run/sdk"\n' +
       'export default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
     "src/app/chat/memory.ts":
       "export default {\n" +
@@ -81,7 +81,7 @@ async function fixtureApp(): Promise<string> {
       'export const description = "A route-local helper"\n' +
       'export default async (input: { note: string }) => "noted: " + input.note\n',
     "src/app/zeta/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\n' +
+      'import { agent } from "@b4run/sdk"\n' +
       'export default agent({ model: "gpt-5-mini", systemPrompt: "Zeta." })\n',
     "src/middleware.ts": "export default async (_ctx: unknown, next: () => unknown) => next()\n",
     "src/tools/echo.ts":
@@ -108,14 +108,14 @@ async function collectFixtureDiscoveries(appRoot: string): Promise<RouteStaticDi
 // ---------------------------------------------------------------------------
 // Golden: the same manifest the node emitter produces, minus every node-ism —
 // no node: imports, no build-machine paths, and the runtime helpers pulled from
-// the node-free `@dawn-ai/cli/fetch` entry.
+// the node-free `@b4run/cli/fetch` entry.
 // ---------------------------------------------------------------------------
 
 describe("emitEdgeModulesFile — golden", () => {
   it("emits relative imports, inlined literals, and helper calls in deterministic order", async () => {
     const appRoot = await fixtureApp()
     const discoveries = await collectFixtureDiscoveries(appRoot)
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
 
     // Reversed input: the emitter's assistantId sort (not the caller) is what
     // makes the output deterministic.
@@ -135,22 +135,22 @@ describe("emitEdgeModulesFile — golden", () => {
     // filesystem that does not exist there.
     expect(text).not.toContain(appRoot)
     // Rooted at "/": nothing resolves it on disk, but a RELATIVE base makes
-    // Dawn's pure path helpers throw — `pureResolve` has no cwd to fall back on,
+    // B4.run's pure path helpers throw — `pureResolve` has no cwd to fall back on,
     // and built-in capabilities resolve against the handler's appRoot (see
     // core's agents-md.ts). A regression back to a bare basename would only
     // surface at runtime, on an edge deploy.
     expect(text).toContain(`const appRoot = "/${APP_DIR_NAME}"`)
     expect(text).toMatch(/^const appRoot = "\//m)
-    // The node-free entry, not @dawn-ai/cli/runtime (which reaches tsx/sqlite).
-    expect(text).toContain('from "@dawn-ai/cli/fetch"')
-    expect(text).not.toContain("@dawn-ai/cli/runtime")
+    // The node-free entry, not @b4run/cli/runtime (which reaches tsx/sqlite).
+    expect(text).toContain('from "@b4run/cli/fetch"')
+    expect(text).not.toContain("@b4run/cli/runtime")
     // No runtime path math survives either — `resolve`/`fileURLToPath` would be
     // free variables in the emitted module.
     expect(text).not.toContain("fileURLToPath")
     expect(text).not.toContain("resolve(appRoot")
 
     // --- everything else is the node emitter's output, unchanged ------------
-    expect(text).toContain('import { buildStaticRouteModule } from "@dawn-ai/cli/fetch"')
+    expect(text).toContain('import { buildStaticRouteModule } from "@b4run/cli/fetch"')
     expect(text).toContain('import * as route0 from "../../src/app/chat/index.ts"')
     expect(text).toContain('import * as route0_tool0 from "../../src/tools/echo.ts"')
     expect(text).toContain('import * as route0_tool1 from "../../src/app/chat/tools/local.ts"')
@@ -178,12 +178,12 @@ describe("emitEdgeModulesFile — golden", () => {
     await expect(transform(text, { format: "esm", loader: "js" })).resolves.toBeTruthy()
 
     expect(text).toMatchInlineSnapshot(`
-      "// Generated by dawn build (hono target). Regenerated on every build — do not edit.
+      "// Generated by b4 build (hono target). Regenerated on every build — do not edit.
       // Static module manifest for an edge bundle: every route/tool/memory/reducer
       // module below is a static import, so the whole app module graph is known
       // without filesystem discovery. Loaded by app.mjs as a plain ES module.
 
-      import { buildStaticRouteModule } from "@dawn-ai/cli/fetch"
+      import { buildStaticRouteModule } from "@b4run/cli/fetch"
 
       import * as route0 from "../../src/app/chat/index.ts"
       import * as route0_tool0 from "../../src/tools/echo.ts"
@@ -197,7 +197,7 @@ describe("emitEdgeModulesFile — golden", () => {
       // so appRoot is a build-time literal: the app directory's name, used purely as
       // an opaque namespace id (thread keys, cache keys). Never a build-machine path
       // — a deployed bundle must not depend on where it was built. It is rooted at
-      // "/" because nothing resolves it on disk but Dawn's pure path helpers reject a
+      // "/" because nothing resolves it on disk but B4.run's pure path helpers reject a
       // relative base (pureResolve throws rather than rooting at a cwd that an edge
       // runtime does not have).
       const appRoot = "/edge-emitter-fixture-app"
@@ -240,13 +240,13 @@ describe("emitEdgeModulesFile — golden", () => {
     const discoveries = await collectFixtureDiscoveries(appRoot)
     const text = emitEdgeModulesFile({
       appRoot,
-      buildDir: join(appRoot, ".dawn", "build"),
+      buildDir: join(appRoot, ".b4", "build"),
       discoveries,
       middlewareFile: join(appRoot, "src", "middleware.ts"),
     })
 
     expect(text).toContain(
-      'import { buildStaticRouteModule, normalizeMiddlewareModule } from "@dawn-ai/cli/fetch"',
+      'import { buildStaticRouteModule, normalizeMiddlewareModule } from "@b4run/cli/fetch"',
     )
     expect(text).toContain('import * as middlewareModule from "../../src/middleware.ts"')
     expect(text).toContain("  middleware: normalizeMiddlewareModule(middlewareModule),")
@@ -263,17 +263,17 @@ describe("emitEdgeModulesFile — golden", () => {
     const discoveries = await collectFixtureDiscoveries(appRoot)
     const text = emitEdgeModulesFile({
       appRoot,
-      buildDir: join(appRoot, ".dawn", "build"),
+      buildDir: join(appRoot, ".b4", "build"),
       discoveries,
       middlewareFile: join(appRoot, "src", "middleware.ts"),
       threadAccessFile: join(appRoot, "src", "thread-access.ts"),
     })
 
     // One import line, composed from a list — the edge manifest links against
-    // `@dawn-ai/cli/fetch`, so the fetch barrel must export this too or the
+    // `@b4run/cli/fetch`, so the fetch barrel must export this too or the
     // deployed bundle fails at link time rather than at boot.
     expect(text).toContain(
-      'import { buildStaticRouteModule, normalizeMiddlewareModule, normalizeThreadAccessModule } from "@dawn-ai/cli/fetch"',
+      'import { buildStaticRouteModule, normalizeMiddlewareModule, normalizeThreadAccessModule } from "@b4run/cli/fetch"',
     )
     expect(text).toContain('import * as threadAccessModule from "../../src/thread-access.ts"')
     expect(text).toContain("  threadAccess: normalizeThreadAccessModule(threadAccessModule),")
@@ -312,7 +312,7 @@ describe("emitEdgeModulesFile — hostile inputs", () => {
   it("JSON-escapes quotes and backslashes in import specifiers", () => {
     const text = emitEdgeModulesFile({
       appRoot: "/app",
-      buildDir: "/app/.dawn/build",
+      buildDir: "/app/.b4/build",
       discoveries: [
         bareDiscovery({
           entryFile: '/app/src/app/we"ird/index.ts',
@@ -339,7 +339,7 @@ describe("emitEdgeModulesFile — hostile inputs", () => {
     // named with a quote must not be able to terminate the string early.
     const text = emitEdgeModulesFile({
       appRoot: '/tmp/we"ird-app',
-      buildDir: '/tmp/we"ird-app/.dawn/build',
+      buildDir: '/tmp/we"ird-app/.b4/build',
       discoveries: [bareDiscovery({ entryFile: '/tmp/we"ird-app/src/app/plain/index.ts' })],
     })
     expect(text).toContain(String.raw`const appRoot = "/we\"ird-app"`)
@@ -351,7 +351,7 @@ describe("emitEdgeModulesFile — hostile inputs", () => {
     // rooted, non-empty id rather than a bare "/".
     const text = emitEdgeModulesFile({
       appRoot: "/",
-      buildDir: "/.dawn/build",
+      buildDir: "/.b4/build",
       discoveries: [bareDiscovery({ entryFile: "/src/app/plain/index.ts" })],
     })
     expect(text).toContain('const appRoot = "/app"')
@@ -361,7 +361,7 @@ describe("emitEdgeModulesFile — hostile inputs", () => {
     expect(() =>
       emitEdgeModulesFile({
         appRoot: "/app",
-        buildDir: "/app/.dawn/build",
+        buildDir: "/app/.b4/build",
         discoveries: [
           bareDiscovery({
             routeId: "/dated",
@@ -378,7 +378,7 @@ describe("emitEdgeModulesFile — hostile inputs", () => {
     expect(() =>
       emitEdgeModulesFile({
         appRoot: "/app",
-        buildDir: "/app/.dawn/build",
+        buildDir: "/app/.b4/build",
         discoveries: [bareDiscovery({ routeId: "/looped", stateDefaults: [["loop", cycle]] })],
       }),
     ).toThrow(/circular reference/)
@@ -388,7 +388,7 @@ describe("emitEdgeModulesFile — hostile inputs", () => {
     const shared = { tag: "ok" }
     const text = emitEdgeModulesFile({
       appRoot: "/app",
-      buildDir: "/app/.dawn/build",
+      buildDir: "/app/.b4/build",
       discoveries: [
         bareDiscovery({
           routeId: "/shared",

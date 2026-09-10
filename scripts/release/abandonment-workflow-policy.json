@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "canonicalization": "dawn-release-workflow-execution-v1",
+  "variants": [
+    {
+      "id": "disabled-2026-08-28",
+      "mode": "disabled",
+      "canonicalSha256": "5045c1d67927eb984cf0ae63e2546eb122eddec5abd544aa507284b93f04d0d0"
+    },
+    {
+      "id": "protected-2026-08-28",
+      "mode": "protected",
+      "canonicalSha256": "211162b0d506fb84863f07e94408c6295f782efea411d72c984baff29918b096"
+    },
+    {
+      "id": "renamed-b4-disabled-2026-09-07",
+      "mode": "disabled",
+      "canonicalSha256": "c4251c300f01f9bacb85f0ecd7e11db671a96a9959d029b2cd78b8384b00af9c"
+    }
+  ]
+}

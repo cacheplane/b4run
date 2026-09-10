@@ -3,12 +3,12 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, test } from "vitest"
 
-import { extractToolSchemasForRoute } from "../src/typegen/extract-tool-schema"
+import { extractToolSchemasForRoute } from "../src/typegen/extract-tool-schema.js"
 
 let tempDir: string
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), "dawn-extract-schema-"))
+  tempDir = mkdtempSync(join(tmpdir(), "b4-extract-schema-"))
 })
 
 afterEach(() => {
@@ -27,7 +27,13 @@ async function extractSchemasFromSource(source: string) {
   return extractToolSchemasForRoute({ routeDir, sharedToolsDir: undefined })
 }
 
-describe("extractToolSchemasForRoute", () => {
+// These suites drive the TypeScript compiler through
+// `src/compiler/typescript-backend.ts`, so their runtime tracks machine load
+// rather than the work in the test. Idle they finish well inside a second; under
+// a saturated parallel run they have exceeded vitest's 5000ms default and failed
+// as timeouts rather than as anything real. The explicit suite timeout leaves
+// room for that without hiding a genuine hang.
+describe("extractToolSchemasForRoute", { timeout: 30_000 }, () => {
   test("extracts full JSON Schema with JSDoc descriptions", async () => {
     const routeDir = join(tempDir, "route")
     writeToolFile(

@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { applyCapabilities, createCapabilityRegistry, createPlanningMarker } from "@dawn-ai/core"
-import { nodeMarkerFs } from "@dawn-ai/core/node"
+import { applyCapabilities, createCapabilityRegistry, createPlanningMarker } from "@b4run/core"
+import { nodeMarkerFs } from "@b4run/core/node"
 import { type Command, isCommand } from "@langchain/langgraph"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { convertToolToLangChain } from "../src/tool-converter.ts"
@@ -19,7 +19,7 @@ describe("planning capability — end-to-end shape", () => {
   let routeDir: string
 
   beforeEach(() => {
-    routeDir = mkdtempSync(join(tmpdir(), "dawn-planning-e2e-"))
+    routeDir = mkdtempSync(join(tmpdir(), "b4-planning-e2e-"))
   })
 
   afterEach(() => {
@@ -115,7 +115,7 @@ describe("planning capability — end-to-end shape", () => {
 
 describe("planning capability — state mutation end-to-end", () => {
   it("writeTodos tool returns a Command that updates the todos channel", async () => {
-    const routeDir = mkdtempSync(join(tmpdir(), "dawn-planning-state-"))
+    const routeDir = mkdtempSync(join(tmpdir(), "b4-planning-state-"))
     writeFileSync(join(routeDir, "plan.md"), "")
 
     try {
@@ -123,6 +123,7 @@ describe("planning capability — state mutation end-to-end", () => {
       const result = await applyCapabilities(registry, routeDir, {
         routeManifest: { appRoot: routeDir, routes: [] },
         descriptor: undefined,
+        appRoot: routeDir,
         markerFs: nodeMarkerFs,
       })
       const writeTodos = result.contributions[0]?.contribution.tools?.[0]
@@ -155,7 +156,7 @@ describe("planning capability — state mutation end-to-end", () => {
       expect(msg?.content).toBe(JSON.stringify({ todos: newTodos }))
       expect(dispatchCustomEvent).toHaveBeenCalledTimes(1)
       expect(dispatchCustomEvent).toHaveBeenCalledWith(
-        "dawn.capability",
+        "b4.capability",
         { event: "plan_update", data: { todos: newTodos } },
         config,
       )

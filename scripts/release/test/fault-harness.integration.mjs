@@ -201,7 +201,7 @@ test("built-in abort rollback surfaces sanitized aggregate cleanup failures", as
 })
 
 test("Git fixture abort terminates an active validated Git executable", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-git-abort-test-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-git-abort-test-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const executable = join(directory, "git-marker")
   const marker = join(directory, "active-pid")
@@ -210,7 +210,7 @@ test("Git fixture abort terminates an active validated Git executable", async (t
     `#!${process.execPath}\nconst { writeFileSync } = require("node:fs")\nwriteFileSync(${JSON.stringify(marker)}, String(process.pid))\nsetInterval(() => {}, 1000)\n`,
     { mode: 0o755 },
   )
-  const before = await faultTempDirectories("dawn-release-git-")
+  const before = await faultTempDirectories("b4-release-git-")
   const controller = new AbortController()
   let unexpectedResource
   const pending = createGitFixture({
@@ -232,7 +232,7 @@ test("Git fixture abort terminates an active validated Git executable", async (t
     controller.abort()
     await assert.rejects(pending, (error) => error.name === "AbortError")
     await waitForProcessExit(pid)
-    assert.deepEqual(await faultTempDirectories("dawn-release-git-"), before)
+    assert.deepEqual(await faultTempDirectories("b4-release-git-"), before)
   } finally {
     controller.abort()
     await pending.catch(() => {})
@@ -314,7 +314,7 @@ test("the harness derives dependency order, publishes only locally, and preserve
 })
 
 test("workspace discovery follows validated fixture data across nested paths and added packages", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-topology-test-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-topology-test-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   await cp(FIXTURE_DIRECTORY, directory, { recursive: true })
   await mkdir(join(directory, "nested"))
@@ -363,7 +363,7 @@ test("workspace discovery follows validated fixture data across nested paths and
 })
 
 test("package subprocesses reject lifecycle probes and isolate hostile ambient credentials", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-package-env-test-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-package-env-test-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   await cp(FIXTURE_DIRECTORY, directory, { recursive: true })
   const probe = join(directory, "lifecycle-ran")
@@ -419,7 +419,7 @@ test("package subprocesses reject lifecycle probes and isolate hostile ambient c
 })
 
 test("package tools accept validated non-default entry points and exact versions", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-tools-test-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-tools-test-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const pnpmMarker = join(directory, "pnpm-used")
   const npmMarker = join(directory, "npm-used")
@@ -461,7 +461,7 @@ test("package tools accept validated non-default entry points and exact versions
 })
 
 test("package tool probes share the harness startup deadline", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-tool-deadline-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-tool-deadline-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const tools = {
     pnpm: {
@@ -552,7 +552,12 @@ test("the production npm reader distinguishes exact absence and every determinis
     name: PACKAGE_NAMES[0],
     version: VERSION,
   })
-  assert.equal(delayedMissing.status, "ABSENT")
+  assert.deepEqual(pickClassification(delayedMissing), {
+    status: "AMBIGUOUS",
+    operation: "package-version",
+    httpStatus: 404,
+    code: "REGISTRY_VERSION_CONFLICT",
+  })
   assert.equal(
     (
       await reader.observePackageVersion({
@@ -568,7 +573,7 @@ test("the production npm reader distinguishes exact absence and every determinis
   assertPlannerDisposition({
     exact: delayedMissing,
     latest: visibleLatest,
-    blocked: false,
+    blocked: true,
     candidateVersion: VERSION,
   })
 
@@ -636,7 +641,7 @@ test("the production npm reader distinguishes exact absence and every determinis
 
 test("the fault proxy preserves an ordinary relative path and exact query", async (t) => {
   const { upstream, proxy } = await startRecordedFaultProxy(t)
-  const target = "/ordinary/%40dawn/package?tag=a%2Fb&empty=&tag=second"
+  const target = "/ordinary/%40b4/package?tag=a%2Fb&empty=&tag=second"
   const response = await rawHttpRequest(proxy.url, target, {
     Accept: "application/vnd.npm.install-v1+json",
   })
@@ -1227,7 +1232,7 @@ test("late acquisition supervisor waits are bounded and observable", async () =>
 })
 
 test("the temporary Git fixture keeps identity local and production reads the advanced annotated tag", async (t) => {
-  const hostileDirectory = await mkdtemp(join(tmpdir(), "dawn-hostile-git-"))
+  const hostileDirectory = await mkdtemp(join(tmpdir(), "b4-hostile-git-"))
   t.after(() => rm(hostileDirectory, { recursive: true, force: true }))
   const hostileTemplate = join(hostileDirectory, "template")
   const hostileMarker = join(hostileDirectory, "hook-ran")
@@ -1338,7 +1343,7 @@ function assertPlannerDisposition({ exact, latest, blocked, candidateVersion = N
     }
   }
   const plan = planRelease({ candidate, observation, mode: "shadow" })
-  assert.equal(plan.disposition, blocked ? "blocked" : "would-transition")
+  assert.equal(plan.disposition, blocked ? "blocked" : "would-transition", JSON.stringify(plan))
   assert.deepEqual(plan.proposedMutations.length, blocked ? 0 : 1)
 }
 
@@ -1366,6 +1371,8 @@ function plannerObservation(candidate, packages) {
       workflow: candidate.ciWorkflow,
       check: candidate.ciCheck,
       commitSha: candidate.commitSha,
+      workflowRunId: 100,
+      runAttempt: 1,
     },
     otherCandidates: [],
     tag: { status: "absent", commitSha: null },
@@ -1399,7 +1406,9 @@ function plannerObservation(candidate, packages) {
       status: "absent",
       tag: null,
       commitSha: null,
-      metadataReconciled: false,
+      immutable: null,
+      bodySha256: null,
+      marker: null,
       assets: [],
     },
     requiredSmokeLanes: ["install"],
@@ -1423,7 +1432,7 @@ function plannerObservation(candidate, packages) {
       runAttempt: null,
       conclusion: null,
     },
-    abandonment: { requested: false, recorded: false },
+    abandonment: { requested: false, recorded: false, predecessor: null },
   }
 }
 

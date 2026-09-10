@@ -10,6 +10,7 @@ const blogContentDirectory = resolve(appDirectory, "../content/blog")
 const PRODUCTION_AS_OF = "2026-08-26"
 
 interface ExpectedPost {
+  readonly date: string
   readonly slug: string
   readonly tags: readonly string[]
 }
@@ -54,7 +55,7 @@ afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllEnvs()
   vi.doUnmock("./seo/resolve")
-  vi.doUnmock("./seo/lastmod.generated")
+  vi.doUnmock("./seo/lastmod")
   vi.resetModules()
 })
 
@@ -66,12 +67,12 @@ describe("sitemap documentation entries", () => {
     vi.setSystemTime(new Date("2026-09-02T23:59:59.000Z"))
     const scheduledInventory = [
       {
-        canonical: "https://dawnai.org/blog/scheduled-post",
+        canonical: "https://b4.run/blog/scheduled-post",
         lastModified: "2026-09-01T00:00:00.000Z",
         routeKind: "blog-post",
       },
       {
-        canonical: "https://dawnai.org/blog/tags/scheduled",
+        canonical: "https://b4.run/blog/tags/scheduled",
         lastModified: "2026-09-01T00:00:00.000Z",
         routeKind: "blog-tag",
       },
@@ -100,28 +101,28 @@ describe("sitemap documentation entries", () => {
   it("maps the resolver inventory by route kind without rebuilding route sources", async () => {
     const lastModified = "2026-08-26T12:00:00.000Z"
     const inventory = [
-      { path: "/", canonical: "https://dawnai.org/", lastModified, routeKind: "home" },
+      { path: "/", canonical: "https://b4.run/", lastModified, routeKind: "home" },
       {
         path: "/blog",
-        canonical: "https://dawnai.org/blog",
+        canonical: "https://b4.run/blog",
         lastModified,
         routeKind: "blog-index",
       },
       {
         path: "/docs/example",
-        canonical: "https://dawnai.org/docs/example",
+        canonical: "https://b4.run/docs/example",
         lastModified,
         routeKind: "docs",
       },
       {
         path: "/blog/example",
-        canonical: "https://dawnai.org/blog/example",
+        canonical: "https://b4.run/blog/example",
         lastModified,
         routeKind: "blog-post",
       },
       {
         path: "/blog/tags/example",
-        canonical: "https://dawnai.org/blog/tags/example",
+        canonical: "https://b4.run/blog/tags/example",
         lastModified,
         routeKind: "blog-tag",
       },
@@ -149,9 +150,9 @@ describe("sitemap documentation entries", () => {
 
     expect(DOCS_PAGES).toHaveLength(59)
     expect(ALL_DOCS_PAGES).toHaveLength(75)
-    expect(docsUrls).toEqual(ALL_DOCS_PAGES.map((page) => `https://dawnai.org${page.href}`))
-    expect(docsUrls).toContain("https://dawnai.org/docs/thread-access")
-    expect(docsUrls).not.toContain("https://dawnai.org/docs")
+    expect(docsUrls).toEqual(ALL_DOCS_PAGES.map((page) => `https://b4.run${page.href}`))
+    expect(docsUrls).toContain("https://b4.run/docs/thread-access")
+    expect(docsUrls).not.toContain("https://b4.run/docs")
   })
 
   it("contains the complete resolved production static, docs, and tag inventory", async () => {
@@ -171,9 +172,9 @@ describe("sitemap documentation entries", () => {
     expect(new Set(resolvedPaths)).toEqual(new Set(expectedPaths))
     expect(new Set(resolvedPaths).size).toBe(resolvedPaths.length)
     expect(resolvedPaths).not.toContain("/docs")
-    expect(resolvedPaths).not.toContain("/blog/dawn-0-8-framework-around-the-agent")
-    expect(resolvedPaths).not.toContain("/blog/dawn-at-the-edge")
-    expect(resolvedPaths).not.toContain("/blog/dawn-0-4-release")
+    expect(resolvedPaths).not.toContain("/blog/b4-0-8-framework-around-the-agent")
+    expect(resolvedPaths).not.toContain("/blog/b4-at-the-edge")
+    expect(resolvedPaths).not.toContain("/blog/b4-0-4-release")
     expect(entries).toHaveLength(2 + ALL_DOCS_PAGES.length + posts.length + tags.length)
     expect(entries).toHaveLength(83)
   })
@@ -209,7 +210,19 @@ describe("sitemap documentation entries", () => {
       expect(value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/)
       expect(Number.isNaN(Date.parse(value))).toBe(false)
     }
-    expect(new Set(lastModified).size).toBeGreaterThan(10)
+    const manifest = JSON.parse(
+      readFileSync(resolve(appDirectory, "seo/lastmod.generated.json"), "utf8"),
+    )
+    const posts = visibleProductionPosts(PRODUCTION_AS_OF)
+    for (const entry of entries) {
+      const route = new URL(entry.url).pathname
+      const post = posts.find(({ slug }) => route === `/blog/${slug}`)
+      const expected = post
+        ? new Date(`${post.date}T00:00:00Z`).toISOString()
+        : manifest.routes[route]?.lastModified
+      expect(expected, route).toBeDefined()
+      expect(entry.lastModified, route).toBe(expected)
+    }
   })
 
   it("keeps the production sitemap runtime free of Git and mtime discovery", () => {
@@ -223,7 +236,7 @@ describe("sitemap documentation entries", () => {
   it("fails closed when a static route lacks a valid manifest date", async () => {
     vi.resetModules()
     vi.stubEnv("NODE_ENV", "production")
-    vi.doMock("./seo/lastmod.generated", () => ({
+    vi.doMock("./seo/lastmod", () => ({
       STATIC_LASTMOD: { "/": "2026-08-10T18:36:49.000Z" },
     }))
 

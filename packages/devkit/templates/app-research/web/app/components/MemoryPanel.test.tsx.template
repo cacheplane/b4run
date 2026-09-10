@@ -334,7 +334,7 @@ describe("memory panel container", () => {
     answering(listing([CANDIDATE]))
     mount()
     await settle()
-    expect(urls()[0]).toBe("/api/dawn/memory/candidates")
+    expect(urls()[0]).toBe("/api/b4/memory/candidates")
     expect(container.textContent).toContain("Prefers concise, cited reports.")
   })
 
@@ -356,7 +356,7 @@ describe("memory panel container", () => {
       buttonNamed("Approve").click()
     })
     await settle()
-    expect(urls()[1]).toBe("/api/dawn/memory/candidates/cand-1/approve")
+    expect(urls()[1]).toBe("/api/b4/memory/candidates/cand-1/approve")
     // No body at all: the endpoint takes none, and sending one would be a
     // shape the server never agreed to.
     const init = fetchMock().mock.calls[1]?.[1]
@@ -366,7 +366,7 @@ describe("memory panel container", () => {
     // the server never agreed to — but an `AbortSignal` added here later is
     // not a regression and must not red this.
     expect(init?.body).toBeUndefined()
-    expect(urls()[2]).toBe("/api/dawn/memory/candidates")
+    expect(urls()[2]).toBe("/api/b4/memory/candidates")
     expect(container.textContent).toBe("")
   })
 
@@ -415,7 +415,7 @@ describe("memory panel container", () => {
       buttonNamed("Delete").click()
     })
     await settle()
-    expect(urls()[1]).toBe("/api/dawn/memory/candidates/cand-1/reject")
+    expect(urls()[1]).toBe("/api/b4/memory/candidates/cand-1/reject")
     const init = fetchMock().mock.calls[1]?.[1]
     expect(init).toMatchObject({ method: "POST" })
     expect(init?.body).toBeUndefined()
@@ -526,9 +526,9 @@ describe("memory panel container", () => {
  * NOT covered here, and worth stating rather than implying:
  *
  * - the proxy route itself. Which paths are legal is `proxy-allowlist.test.ts`,
- *   and what the Dawn server does with an approve is `@dawn-ai/memory`'s.
+ *   and what the B4.run server does with an approve is `@b4run/memory`'s.
  * - the real `AgentSubscriber` contract. The fake agent's `subscribe` accepts
- *   an `onRunFinishedEvent` because `@ag-ui/client@0.0.57` defines one; that
+ *   an `onRunFinishedEvent` because `@ag-ui/client@0.0.59` defines one; that
  *   the installed client actually calls it is a typecheck-and-live-run fact,
  *   not something these tests observe.
  * - anything visual. Whether three clamped candidates plus the thread list fit

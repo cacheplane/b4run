@@ -2,11 +2,11 @@
  * The `node:`-free half of `tool-discovery.ts`: the `DiscoveredToolDefinition`
  * shape plus the normalization/schema-injection rules, shared by the
  * filesystem-walking discoverer and `buildStaticRouteModule`. Reachable from
- * the `@dawn-ai/cli/fetch` graph (which the discoverer is not).
+ * the `@b4run/cli/fetch` graph (which the discoverer is not).
  */
 
-import type { WorkspaceFs } from "@dawn-ai/sdk"
-import { describeError, errorDocsUrl } from "@dawn-ai/sdk"
+import type { WorkspaceFs } from "@b4run/sdk"
+import { describeError, errorDocsUrl } from "@b4run/sdk"
 
 import { isRecord } from "./pure-utils.js"
 
@@ -23,7 +23,7 @@ export interface DiscoveredToolDefinition {
       readonly signal: AbortSignal
       // Optional here because pre-wrap invokers (langchain tool-converter/loop)
       // omit it; the prepareRouteExecution wrapper guarantees it at runtime,
-      // which is why the author-facing DawnToolContext declares it required.
+      // which is why the author-facing B4ToolContext declares it required.
       readonly fs?: WorkspaceFs
     },
   ) => Promise<unknown> | unknown
@@ -60,10 +60,10 @@ export function injectGeneratedSchemas(
   })
 }
 
-/** `[DAWN_E5002] See <docs>` footer, with the docs URL centralized in the registry. */
+/** `[B4_E5002] See <docs>` footer, with the docs URL centralized in the registry. */
 function toolShapeDocsFooter(): string {
-  const code = describeError("DAWN_E5002").code
-  const url = errorDocsUrl("DAWN_E5002")
+  const code = describeError("B4_E5002").code
+  const url = errorDocsUrl("B4_E5002")
   return url ? `[${code}] See ${url}` : `[${code}]`
 }
 
@@ -115,7 +115,7 @@ export function normalizeToolModule(
   if (looksLikeLangChainTool(definition)) {
     throw new Error(
       `Tool file ${filePath} default-exports a LangChain tool() (StructuredTool "${definition.name}").\n` +
-        `Dawn tools are plain functions — Dawn infers the input/output types from the\n` +
+        `B4.run tools are plain functions — B4.run infers the input/output types from the\n` +
         `function signature, so there's no schema wrapper. Convert it like this:\n\n` +
         `  const search = /* your existing tool or client */\n\n` +
         `  /** Describe what the tool does. */\n` +

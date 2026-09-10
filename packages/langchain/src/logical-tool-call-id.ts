@@ -2,7 +2,7 @@
  * Recover the model/provider tool-call ID (logical identity) from a tool
  * execution's output, per the amended AG-UI orchestration projection design
  * ("Identity model"). Handles the two root output shapes LangGraph's prebuilt
- * ToolNode produces for Dawn tools:
+ * ToolNode produces for B4.run tools:
  *
  *  - a ToolMessage (string-returning tools): `output.tool_call_id`
  *  - a Command ({result, state}-returning tools): the last ToolMessage-shaped

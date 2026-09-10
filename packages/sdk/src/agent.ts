@@ -1,7 +1,7 @@
 import type { KnownModelId } from "./known-model-ids.js"
 import type { ModelProviderId } from "./model-provider.js"
 
-const DAWN_AGENT: unique symbol = Symbol.for("dawn.agent") as unknown as typeof DAWN_AGENT
+const B4_AGENT: unique symbol = Symbol.for("b4.agent") as unknown as typeof B4_AGENT
 
 declare const brand: unique symbol
 
@@ -46,7 +46,7 @@ export interface ToolScope {
   readonly constrain?: Readonly<Record<string, ConstraintPredicate>>
 }
 
-export type SubagentMap = Readonly<Record<string, DawnAgent>>
+export type SubagentMap = Readonly<Record<string, B4Agent>>
 
 export interface DelegationRequest {
   readonly input: string
@@ -99,8 +99,8 @@ export interface ReasoningConfig {
   readonly effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
 }
 
-export interface DawnAgent<Subagents extends SubagentMap = SubagentMap> {
-  readonly [brand]: "DawnAgent"
+export interface B4Agent<Subagents extends SubagentMap = SubagentMap> {
+  readonly [brand]: "B4Agent"
   readonly delegation?: DelegationConfig<Extract<keyof Subagents, string>>
   readonly description?: string
   readonly model: string
@@ -136,9 +136,9 @@ export interface AgentConfig<Subagents extends SubagentMap = {}> {
 // biome-ignore lint/complexity/noBannedTypes: {} preserves the no-registry key set as never.
 export function agent<const Subagents extends SubagentMap = {}>(
   config: AgentConfig<Subagents>,
-): DawnAgent<Subagents> {
+): B4Agent<Subagents> {
   return {
-    [DAWN_AGENT]: true,
+    [B4_AGENT]: true,
     model: config.model,
     ...(config.delegation !== undefined ? { delegation: config.delegation } : {}),
     ...(config.provider !== undefined ? { provider: config.provider } : {}),
@@ -149,14 +149,14 @@ export function agent<const Subagents extends SubagentMap = {}>(
     ...(config.subagents !== undefined ? { subagents: config.subagents } : {}),
     ...(config.tools !== undefined ? { tools: config.tools } : {}),
     systemPrompt: config.systemPrompt,
-  } as unknown as DawnAgent<Subagents>
+  } as unknown as B4Agent<Subagents>
 }
 
-export function isDawnAgent(value: unknown): value is DawnAgent {
+export function isB4Agent(value: unknown): value is B4Agent {
   return (
     typeof value === "object" &&
     value !== null &&
-    DAWN_AGENT in value &&
-    (value as Record<symbol, unknown>)[DAWN_AGENT] === true
+    B4_AGENT in value &&
+    (value as Record<symbol, unknown>)[B4_AGENT] === true
   )
 }

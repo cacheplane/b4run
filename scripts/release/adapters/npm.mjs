@@ -1,10 +1,25 @@
+import { createHash } from "node:crypto"
+
 import { snapshotJson } from "../adapter-normalize.mjs"
+import { RELEASE_PAYLOAD_LIMITS } from "../limits.mjs"
 import { isExactSemver } from "../semver.mjs"
 import { createHttpGet } from "./http.mjs"
 
 // Every observation is a JSON-safe envelope with status, operation, httpStatus, and code.
 // PRESENT package observations additionally include the exact registry identity and evidence.
-const OPERATIONS = new Set(["package-version", "package-metadata", "provenance"])
+const OPERATIONS = new Set([
+  "package-version",
+  "package-metadata",
+  "package-tarball",
+  "first-publication-package",
+])
+// npm's actual public not-found bodies: the packument endpoint answers `{"error":"Not found"}` and
+// the exact-version endpoint of an absent package answers the bare string `"Not Found"`. An existing
+// package's absent version answers `"version not found: <version>"`, which proves the package exists
+// and therefore conflicts with a packument-level absence. The CLI's E404 code never appears in the
+// registry body; it is only the internal absence code.
+const REGISTRY_NOT_FOUND_TEXT = /^not found$/iu
+const FIRST_PUBLICATION_OPERATION = "first-publication-package"
 const PACKAGE_NAME_PATTERN =
   /^(?:@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*|[a-z0-9][a-z0-9._-]*)$/u
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
@@ -13,7 +28,257 @@ const MAX_REGISTRY_URL_BYTES = 2_048
 const MAX_PACKAGE_NAME_BYTES = 256
 const MAX_VERSION_BYTES = 256
 
-export function createNpmReader({
+export function createNpmReader(options = {}) {
+  const context = createRegistryContext(options)
+  return {
+    observePackageMetadata({ name, signal }) {
+      assertPackageName(name)
+      return observePackageMetadata({ ...context, name, signal })
+    },
+    observePackageVersion({ name, version, signal }) {
+      assertPackageName(name)
+      assertExactVersion(version)
+      return observePackageVersion({ ...context, name, version, signal })
+    },
+    downloadRegistryTarball({ tarballUrl, signal }) {
+      return downloadRegistryTarball({ ...context, tarballUrl, signal })
+    },
+  }
+}
+
+// The explicitly selected first-publication reader. It is the only reader that may report a
+// whole-package absence, and only after both trusted public endpoints answer with npm's own
+// not-found bodies. Its standard observations are adapted to the publisher's internal
+// absent/latest representation; nothing here fabricates a 200 response.
+export function createFirstPublicationNpmReader(options = {}) {
+  const context = createRegistryContext(options)
+  const raw = {
+    observeFirstPublicationPackage({ name, version, signal }) {
+      assertPackageName(name)
+      assertExactVersion(version)
+      return observeFirstPublicationPackage({ ...context, name, version, signal })
+    },
+    downloadRegistryTarball({ tarballUrl, signal }) {
+      return downloadRegistryTarball({ ...context, tarballUrl, signal })
+    },
+  }
+  return { ...adaptFirstPublicationNpmReader(raw), ...raw }
+}
+
+// First publication needs absence for the candidate's own package family, but
+// every other observation - above all the repository's already published
+// history - must keep the default fail-closed reading. This composes the two:
+// the default reader answers everything, and only a not-found on a package in
+// the current family is re-read through the dedicated first-publication reader.
+export function createFirstPublicationAwareNpmReader({ eligiblePackages = [], ...options } = {}) {
+  const standard = createNpmReader(options)
+  const first = createFirstPublicationNpmReader(options)
+  // The caller supplies the package family eligible for first publication. With
+  // none supplied this reader is exactly the default reader, so the widened
+  // reading can never be reached by accident.
+  const eligible = new Set(eligiblePackages)
+  const observe = (method) => async (input) => {
+    const observed = await standard[method](input)
+    if (
+      observed?.status !== "AMBIGUOUS" ||
+      observed.httpStatus !== 404 ||
+      !eligible.has(input?.name)
+    ) {
+      return observed
+    }
+    return first[method](input)
+  }
+  return {
+    ...standard,
+    observePackageMetadata: observe("observePackageMetadata"),
+    observePackageVersion: observe("observePackageVersion"),
+  }
+}
+
+export function adaptFirstPublicationNpmReader(reader) {
+  for (const method of ["observeFirstPublicationPackage", "downloadRegistryTarball"]) {
+    if (typeof reader?.[method] !== "function") {
+      throw new TypeError(`first-publication npm reader must expose ${method}`)
+    }
+  }
+  const observe = ({ name, version, signal }, operation) => {
+    assertPackageName(name)
+    assertExactVersion(version)
+    return (async () => {
+      const observed = await reader.observeFirstPublicationPackage({
+        name,
+        version,
+        ...(signal === undefined ? {} : { signal }),
+      })
+      return adaptFirstPublicationObservation(observed, { name, version, operation })
+    })()
+  }
+  return {
+    observePackageMetadata(input) {
+      return observe(input, "package-metadata")
+    },
+    observePackageVersion(input) {
+      return observe(input, "package-version")
+    },
+    downloadRegistryTarball(input) {
+      return reader.downloadRegistryTarball(input)
+    },
+  }
+}
+
+function adaptFirstPublicationObservation(observed, { name, version, operation }) {
+  if (
+    observed === null ||
+    typeof observed !== "object" ||
+    observed.operation !== FIRST_PUBLICATION_OPERATION
+  ) {
+    return failure("ERROR", operation, null, "MALFORMED_ENVELOPE")
+  }
+  if (observed.status === "ABSENT") {
+    return observed.httpStatus === 404 && observed.code === "E404"
+      ? failure("ABSENT", operation, 404, "E404")
+      : failure("ERROR", operation, null, "MALFORMED_ENVELOPE")
+  }
+  if (observed.status !== "PRESENT") {
+    return failure(
+      observed.status === "AMBIGUOUS" ? "AMBIGUOUS" : "ERROR",
+      operation,
+      Number.isInteger(observed.httpStatus) ? observed.httpStatus : null,
+      safeRegistryCode(observed.code) ?? "MALFORMED_ENVELOPE",
+    )
+  }
+  const pkg = observed.package
+  if (
+    !isObject(pkg) ||
+    pkg.name !== name ||
+    !Array.isArray(pkg.versions) ||
+    !(pkg.latest === null || isExactSemver(pkg.latest))
+  ) {
+    return failure("ERROR", operation, observed.httpStatus, "MALFORMED_SCHEMA")
+  }
+  // First publication admits exactly one prior state per name: the candidate version alone.
+  if (pkg.versions.length !== 1 || pkg.versions[0] !== version || !isObject(pkg.candidate)) {
+    return failure("AMBIGUOUS", operation, observed.httpStatus, "FIRST_PUBLICATION_FOREIGN_VERSION")
+  }
+  if (pkg.candidate.name !== name || pkg.candidate.version !== version) {
+    return failure("ERROR", operation, observed.httpStatus, "MALFORMED_SCHEMA")
+  }
+  if (operation === "package-metadata") {
+    return {
+      status: "PRESENT",
+      operation,
+      httpStatus: observed.httpStatus,
+      code: null,
+      metadata: { name, latest: pkg.latest },
+    }
+  }
+  return {
+    status: "PRESENT",
+    operation,
+    httpStatus: observed.httpStatus,
+    code: null,
+    package: pkg.candidate,
+  }
+}
+
+async function observeFirstPublicationPackage({ registry, http, name, version, signal }) {
+  const encodedName = encodeURIComponent(name)
+  const packumentResponse = await http.getJson({
+    url: new URL(encodedName, registry),
+    headers: { Accept: "application/vnd.npm.install-v1+json" },
+    ...(signal === undefined ? {} : { signal }),
+  })
+  const packument = classifyFirstPublicationResponse(packumentResponse)
+  if (packument.status === "not-found") {
+    const versionResponse = await http.getJson({
+      url: new URL(`${encodedName}/${encodeURIComponent(version)}`, registry),
+      headers: { Accept: "application/json" },
+      ...(signal === undefined ? {} : { signal }),
+    })
+    const exact = classifyFirstPublicationResponse(versionResponse)
+    if (exact.status === "not-found") {
+      return failure("ABSENT", FIRST_PUBLICATION_OPERATION, 404, "E404")
+    }
+    if (exact.status === "failure" && exact.envelope.httpStatus !== 404) return exact.envelope
+    // A present version document, or a 404 whose body is not npm's whole-package not-found
+    // (for example "version not found: <version>"), contradicts the packument-level absence.
+    return failure("AMBIGUOUS", FIRST_PUBLICATION_OPERATION, 404, "REGISTRY_ABSENCE_CONFLICT")
+  }
+  if (packument.status === "failure") return packument.envelope
+
+  const document = normalizePackument(packumentResponse.body, name)
+  const versions = normalizePackumentVersions(document?.versions, name)
+  const distTags = document === null ? null : normalizeDistTags(document["dist-tags"])
+  if (versions === null || distTags === null) {
+    return failure(
+      "ERROR",
+      FIRST_PUBLICATION_OPERATION,
+      packumentResponse.httpStatus,
+      "MALFORMED_SCHEMA",
+    )
+  }
+  // Exact candidate evidence is only meaningful for the one admissible prior state: the
+  // candidate version alone. Foreign version sets are reported without extra registry reads.
+  let candidate = null
+  if (versions.size === 1 && versions.has(version)) {
+    const exact = await observePackageVersion({ registry, http, name, version, signal })
+    if (exact.status !== "PRESENT") {
+      return failure(exact.status, FIRST_PUBLICATION_OPERATION, exact.httpStatus, exact.code)
+    }
+    candidate = exact.package
+  }
+  return {
+    status: "PRESENT",
+    operation: FIRST_PUBLICATION_OPERATION,
+    httpStatus: packumentResponse.httpStatus,
+    code: null,
+    package: {
+      name,
+      versions: [...versions].sort(compareStrings),
+      latest: distTags.latest ?? null,
+      candidate,
+    },
+  }
+}
+
+function classifyFirstPublicationResponse(response) {
+  if (response.status !== "OK" && response.status !== "HTTP_ERROR") {
+    return {
+      status: "failure",
+      envelope: failure(
+        transportFailureStatus(response),
+        FIRST_PUBLICATION_OPERATION,
+        response.httpStatus,
+        response.code,
+      ),
+    }
+  }
+  if (response.httpStatus >= 200 && response.httpStatus < 300) return { status: "present" }
+  if (response.httpStatus === 404 && isRegistryNotFoundBody(response.body)) {
+    return { status: "not-found" }
+  }
+  return {
+    status: "failure",
+    envelope: failure(
+      "AMBIGUOUS",
+      FIRST_PUBLICATION_OPERATION,
+      response.httpStatus,
+      safeRegistryCode(response.body?.code) ?? `HTTP_${response.httpStatus}`,
+    ),
+  }
+}
+
+function isRegistryNotFoundBody(body) {
+  if (typeof body === "string") return REGISTRY_NOT_FOUND_TEXT.test(body)
+  return (
+    isObject(body) &&
+    Object.keys(body).length === 1 &&
+    typeof body.error === "string" &&
+    REGISTRY_NOT_FOUND_TEXT.test(body.error)
+  )
+}
+
+function createRegistryContext({
   registryUrl = "https://registry.npmjs.org",
   fetchImpl = fetch,
   timeoutMs,
@@ -29,21 +294,66 @@ export function createNpmReader({
   const http = createHttpGet({
     fetchImpl,
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
-    ...(maxResponseBytes === undefined ? {} : { maxResponseBytes }),
+    maxResponseBytes: maxResponseBytes ?? RELEASE_PAYLOAD_LIMITS.tarballBytes,
   })
+  return { registry, http }
+}
 
+function assertExactVersion(version) {
+  assertInputByteLength(version, MAX_VERSION_BYTES, "exact SemVer")
+  if (!isExactSemver(version)) {
+    throw new TypeError("Invalid exact SemVer")
+  }
+}
+
+async function downloadRegistryTarball({ registry, http, tarballUrl, signal }) {
+  assertInputByteLength(tarballUrl, MAX_REGISTRY_URL_BYTES, "npm registry tarball URL")
+  const url = sameOriginUrl(tarballUrl, registry)
+  if (url === null) {
+    throw npmInputError("npm registry tarball URL must be exact and same-origin", "UNSAFE_URL")
+  }
+  const response = await http.getBinary({
+    url,
+    headers: { Accept: "application/octet-stream" },
+    ...(signal === undefined ? {} : { signal }),
+  })
+  if (response.status !== "OK" && response.status !== "HTTP_ERROR") {
+    return failure(
+      transportFailureStatus(response),
+      "package-tarball",
+      response.httpStatus,
+      response.code,
+    )
+  }
+  const classification = classifyRegistryResponse({
+    operation: "package-tarball",
+    response: { status: response.httpStatus },
+  })
+  if (classification.status !== "PRESENT") return classification
+  if (
+    !Number.isSafeInteger(response.bodyBytes) ||
+    response.bodyBytes < 1 ||
+    response.bodyBytes > RELEASE_PAYLOAD_LIMITS.tarballBytes ||
+    typeof response.contentBase64 !== "string"
+  ) {
+    return failure("ERROR", "package-tarball", response.httpStatus, "MALFORMED_SCHEMA")
+  }
+  const bytes = Buffer.from(response.contentBase64, "base64")
+  if (bytes.length !== response.bodyBytes || bytes.toString("base64") !== response.contentBase64) {
+    return failure("ERROR", "package-tarball", response.httpStatus, "MALFORMED_SCHEMA")
+  }
   return {
-    observePackageMetadata({ name, signal }) {
-      assertPackageName(name)
-      return observePackageMetadata({ registry, http, name, signal })
-    },
-    observePackageVersion({ name, version, signal }) {
-      assertPackageName(name)
-      assertInputByteLength(version, MAX_VERSION_BYTES, "exact SemVer")
-      if (!isExactSemver(version)) {
-        throw new TypeError("Invalid exact SemVer")
-      }
-      return observePackageVersion({ registry, http, name, version, signal })
+    status: "PRESENT",
+    operation: "package-tarball",
+    httpStatus: response.httpStatus,
+    code: null,
+    tarball: {
+      url,
+      size: bytes.length,
+      sha1: createHash("sha1").update(bytes).digest("hex"),
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      sha512: createHash("sha512").update(bytes).digest("hex"),
+      contentBase64: response.contentBase64,
     },
   }
 }
@@ -104,6 +414,9 @@ async function observePackageVersion({ registry, http, name, version, signal }) 
     signal,
   })
   if (versionResult.status !== "PRESENT") {
+    if (versionResult.httpStatus === 404) {
+      return confirmPackageVersionAbsent({ registry, http, name, version, signal })
+    }
     return versionResult
   }
 
@@ -138,37 +451,6 @@ async function observePackageVersion({ registry, http, name, version, signal }) 
     return failure("ERROR", "package-metadata", metadataResult.httpStatus, "MALFORMED_SCHEMA")
   }
 
-  let provenance = {
-    status: "ABSENT",
-    url: null,
-    predicateTypes: [],
-    workflow: null,
-    commitSha: null,
-    repository: null,
-    ref: null,
-  }
-  if (versionDocument.provenanceUrl !== null) {
-    const provenanceResult = await getJson({
-      http,
-      url: versionDocument.provenanceUrl,
-      operation: "provenance",
-      accept: "application/json",
-      signal,
-    })
-    if (provenanceResult.status !== "PRESENT") {
-      return withoutBody(provenanceResult)
-    }
-    const normalized = normalizeProvenance(provenanceResult.body, versionDocument.provenanceUrl, {
-      name,
-      version,
-      integrity: versionDocument.integrity,
-    })
-    if (!normalized.ok) {
-      return failure(normalized.status, "provenance", provenanceResult.httpStatus, normalized.code)
-    }
-    provenance = normalized.value
-  }
-
   return {
     status: "PRESENT",
     operation: "package-version",
@@ -180,12 +462,37 @@ async function observePackageVersion({ registry, http, name, version, signal }) 
       tarballUrl: versionDocument.tarballUrl,
       shasum: versionDocument.shasum,
       integrity: versionDocument.integrity,
-      signatures: versionDocument.signatures,
       distTags,
       latest: distTags.latest ?? null,
-      provenance,
     },
   }
+}
+
+async function confirmPackageVersionAbsent({ registry, http, name, version, signal }) {
+  const metadataResult = await getJson({
+    http,
+    url: new URL(encodeURIComponent(name), registry),
+    operation: "package-metadata",
+    accept: "application/vnd.npm.install-v1+json",
+    signal,
+  })
+  if (metadataResult.status !== "PRESENT") {
+    return failure(
+      metadataResult.status,
+      "package-version",
+      metadataResult.httpStatus,
+      metadataResult.code,
+    )
+  }
+  const packument = normalizePackument(metadataResult.body, name)
+  const versions = normalizePackumentVersions(packument?.versions, name)
+  if (versions === null) {
+    return failure("ERROR", "package-version", metadataResult.httpStatus, "MALFORMED_SCHEMA")
+  }
+  if (versions.has(version)) {
+    return failure("AMBIGUOUS", "package-version", 404, "REGISTRY_VERSION_CONFLICT")
+  }
+  return failure("ABSENT", "package-version", 404, "E404")
 }
 
 async function getJson({ http, url, operation, accept, signal }) {
@@ -230,44 +537,7 @@ function normalizeVersionDocument(value, { registry, name, version }) {
   ) {
     return null
   }
-  const signatures = normalizeSignatures(value.dist.signatures)
-  if (signatures === null) {
-    return null
-  }
-
-  let provenanceUrl = null
-  if (value.dist.attestations !== undefined) {
-    if (!isObject(value.dist.attestations)) {
-      return null
-    }
-    const expectedUrl = exactProvenanceUrl(registry, name, version)
-    provenanceUrl = exactUrl(value.dist.attestations.url, expectedUrl)
-    if (provenanceUrl === null) {
-      return { unsafeUrl: true }
-    }
-  }
-  return { tarballUrl, shasum, integrity, signatures, provenanceUrl }
-}
-
-function normalizeSignatures(value) {
-  if (value === undefined) {
-    return []
-  }
-  if (!Array.isArray(value)) {
-    return null
-  }
-  const signatures = []
-  for (const item of value) {
-    if (!isObject(item) || typeof item.keyid !== "string" || typeof item.sig !== "string") {
-      return null
-    }
-    signatures.push({ keyid: item.keyid, sig: item.sig })
-  }
-  return signatures.sort((left, right) =>
-    left.keyid === right.keyid
-      ? compareStrings(left.sig, right.sig)
-      : compareStrings(left.keyid, right.keyid),
-  )
+  return { tarballUrl, shasum, integrity }
 }
 
 function normalizeDistTags(value) {
@@ -298,166 +568,21 @@ function normalizePackument(value, expectedName) {
     : null
 }
 
-function normalizeProvenance(value, url, { name, version, integrity }) {
-  if (!isObject(value) || !Array.isArray(value.attestations)) {
-    return invalidProvenance("ERROR", "MALFORMED_SCHEMA")
-  }
-  const predicateTypes = new Set()
-  const identities = []
-  const expected = {
-    subjectName: npmSubjectName(name, version),
-    subjectSha512: integritySha512(integrity),
-  }
-  if (expected.subjectSha512 === null) {
-    return invalidProvenance("ERROR", "MALFORMED_PROVENANCE_IDENTITY")
-  }
-  for (const attestation of value.attestations) {
-    if (!isObject(attestation) || typeof attestation.predicateType !== "string") {
-      return invalidProvenance("ERROR", "MALFORMED_SCHEMA")
-    }
-    predicateTypes.add(attestation.predicateType)
-    const payload = attestation.bundle?.dsseEnvelope?.payload
-    if (payload === undefined) {
-      if (attestation.predicateType === "https://slsa.dev/provenance/v1") {
-        return invalidProvenance("ERROR", "MALFORMED_PROVENANCE_IDENTITY")
-      }
-      continue
-    }
-    const statement = decodeStatement(payload)
-    if (statement === null) {
-      return invalidProvenance("ERROR", "MALFORMED_SCHEMA")
-    }
+function normalizePackumentVersions(value, expectedName) {
+  if (!isObject(value)) return null
+  const versions = new Set()
+  for (const [version, document] of Object.entries(value)) {
     if (
-      typeof statement.predicateType !== "string" ||
-      statement.predicateType !== attestation.predicateType
+      !isExactSemver(version) ||
+      !isObject(document) ||
+      document.name !== expectedName ||
+      document.version !== version
     ) {
-      return invalidProvenance("ERROR", "MALFORMED_SCHEMA")
+      return null
     }
-    predicateTypes.add(statement.predicateType)
-    if (statement.predicateType !== "https://slsa.dev/provenance/v1") {
-      continue
-    }
-    const identity = provenanceIdentity(statement, expected)
-    if (identity === null) {
-      return invalidProvenance("ERROR", "MALFORMED_PROVENANCE_IDENTITY")
-    }
-    identities.push(identity)
+    versions.add(version)
   }
-  if (identities.length === 0) {
-    return invalidProvenance("ERROR", "MALFORMED_PROVENANCE_IDENTITY")
-  }
-  const canonicalIdentity = JSON.stringify(identities[0])
-  if (identities.some((identity) => JSON.stringify(identity) !== canonicalIdentity)) {
-    return invalidProvenance("AMBIGUOUS", "PROVENANCE_IDENTITY_CONFLICT")
-  }
-  return {
-    ok: true,
-    value: {
-      status: "PRESENT",
-      url,
-      predicateTypes: [...predicateTypes].sort(),
-      workflow: identities[0].workflow,
-      commitSha: identities[0].commitSha,
-      repository: identities[0].repository,
-      ref: identities[0].ref,
-    },
-  }
-}
-
-function decodeStatement(payload) {
-  if (typeof payload !== "string") {
-    return null
-  }
-  try {
-    const statement = JSON.parse(Buffer.from(payload, "base64").toString("utf8"))
-    return isObject(statement) ? statement : null
-  } catch {
-    return null
-  }
-}
-
-function provenanceIdentity(statement, expected) {
-  const subjects = statement.subject
-  if (
-    !Array.isArray(subjects) ||
-    subjects.length !== 1 ||
-    subjects[0]?.name !== expected.subjectName ||
-    subjects[0]?.digest?.sha512 !== expected.subjectSha512
-  ) {
-    return null
-  }
-  const workflow = statement.predicate?.buildDefinition?.externalParameters?.workflow
-  if (
-    !isObject(workflow) ||
-    typeof workflow.path !== "string" ||
-    workflow.path.length === 0 ||
-    typeof workflow.repository !== "string" ||
-    !isSafeGitHubRepositoryUrl(workflow.repository) ||
-    typeof workflow.ref !== "string" ||
-    !/^refs\/(?:heads|tags)\/[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(workflow.ref)
-  ) {
-    return null
-  }
-  const dependencies = statement.predicate?.buildDefinition?.resolvedDependencies
-  if (!Array.isArray(dependencies)) {
-    return null
-  }
-  const expectedUri = `git+${workflow.repository}@${workflow.ref}`
-  const commits = new Set()
-  for (const dependency of dependencies) {
-    const commitSha = dependency?.digest?.gitCommit
-    if (
-      dependency?.uri === expectedUri &&
-      typeof commitSha === "string" &&
-      SHA_PATTERN.test(commitSha)
-    ) {
-      commits.add(commitSha)
-    }
-  }
-  if (commits.size !== 1) {
-    return null
-  }
-  return {
-    workflow: workflow.path,
-    commitSha: [...commits][0],
-    repository: workflow.repository,
-    ref: workflow.ref,
-    subjectName: expected.subjectName,
-    subjectSha512: expected.subjectSha512,
-  }
-}
-
-function npmSubjectName(name, version) {
-  if (!name.startsWith("@")) {
-    return `pkg:npm/${name}@${version}`
-  }
-  const [scope, packageName] = name.split("/")
-  return `pkg:npm/${encodeURIComponent(scope)}/${packageName}@${version}`
-}
-
-function integritySha512(integrity) {
-  return canonicalIntegritySha512(integrity)?.toString("hex") ?? null
-}
-
-function isSafeGitHubRepositoryUrl(value) {
-  try {
-    const url = new URL(value)
-    return (
-      url.protocol === "https:" &&
-      url.hostname === "github.com" &&
-      url.username === "" &&
-      url.password === "" &&
-      url.search === "" &&
-      url.hash === "" &&
-      /^\/[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(url.pathname)
-    )
-  } catch {
-    return false
-  }
-}
-
-function invalidProvenance(status, code) {
-  return { ok: false, status, code }
+  return versions
 }
 
 function normalizeRegistryUrl(value) {
@@ -492,38 +617,6 @@ function sameOriginUrl(value, registry) {
       url.username === "" &&
       url.password === "" &&
       url.hash === ""
-      ? url.href
-      : null
-  } catch {
-    return null
-  }
-}
-
-function exactProvenanceUrl(registry, name, version) {
-  return new URL(
-    `/-/npm/v1/attestations/${npmAttestationName(name)}@${encodeURIComponent(version)}`,
-    `${registry.origin}/`,
-  ).href
-}
-
-function npmAttestationName(name) {
-  const slash = name.indexOf("/")
-  return slash === -1
-    ? encodeURIComponent(name)
-    : `${name.slice(0, slash)}%2f${name.slice(slash + 1)}`
-}
-
-function exactUrl(value, expected) {
-  if (typeof value !== "string") {
-    return null
-  }
-  try {
-    const url = new URL(value)
-    return url.username === "" &&
-      url.password === "" &&
-      url.search === "" &&
-      url.hash === "" &&
-      url.href === expected
       ? url.href
       : null
   } catch {

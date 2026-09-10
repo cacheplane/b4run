@@ -4,13 +4,13 @@
  * Deliberately NOT route middleware. Middleware answers "may this caller run
  * this route", is keyed on route identity, and receives run input. A thread has
  * no owning route by construction (LangGraph's ThreadsRead/Update/Delete
- * payloads carry no assistant_id, and Dawn's own last-run `route` metadata key
+ * payloads carry no assistant_id, and B4.run's own last-run `route` metadata key
  * is swappable by anyone allowed to start any run on the thread), so gating
  * thread endpoints on route identity would be gating on the wrong axis. Two
  * concepts, two files.
  */
 
-/** LangGraph's `threads.*` split, minus `search` (Dawn serves no thread search). */
+/** LangGraph's `threads.*` split, minus `search` (B4.run serves no thread search). */
 export type ThreadAction = "create" | "read" | "update" | "delete"
 
 /**
@@ -81,7 +81,7 @@ export interface ThreadSubject {
   readonly status: "idle" | "busy" | "interrupted"
   /**
    * Client-supplied metadata, verbatim and UNTRUSTED — anyone who can create a
-   * thread can put anything here. Never contains the reserved key — Dawn lifts
+   * thread can put anything here. Never contains the reserved key — B4.run lifts
    * it into `access` before building this object. Do not authorize against this
    * field.
    */
@@ -178,7 +178,7 @@ export interface ThreadAccessDeny {
   /** Override the per-action default (404 for `read`, 403 otherwise). Nothing else is accepted. */
   readonly status?: 403 | 404
   /**
-   * JSON body. Omitted OR `undefined` gives Dawn's default for that status.
+   * JSON body. Omitted OR `undefined` gives B4.run's default for that status.
    * There is deliberately no present-but-undefined distinction: `undefined`
    * cannot be serialized (`Response.json(undefined)` throws), so the only thing
    * such a distinction could express is a 500.
@@ -195,7 +195,7 @@ export type ThreadAccessResult = ThreadAccessAllow | ThreadAccessDeny
  * equally correct — the runtime awaits it — and every gated endpoint is
  * ordered so that awaiting here is safe.
  */
-export type DawnThreadAccess = (
+export type B4ThreadAccess = (
   req: ThreadAccessRequest,
 ) => Promise<ThreadAccessResult> | ThreadAccessResult
 
@@ -205,12 +205,12 @@ export type DawnThreadAccess = (
  * rather than a silent allow or a silent deny on every request of that action.
  */
 export interface ThreadAccessPolicy {
-  readonly create?: DawnThreadAccess
-  readonly read?: DawnThreadAccess
-  readonly update?: DawnThreadAccess
-  readonly delete?: DawnThreadAccess
+  readonly create?: B4ThreadAccess
+  readonly read?: B4ThreadAccess
+  readonly update?: B4ThreadAccess
+  readonly delete?: B4ThreadAccess
   /** Covers every action with no handler of its own. Required. */
-  readonly fallback: DawnThreadAccess
+  readonly fallback: B4ThreadAccess
 }
 
 /** Identity helper — runtime no-op, exists for inference. Mirrors `defineMiddleware`. */
@@ -237,11 +237,11 @@ export function deny(options?: {
 }
 
 /**
- * The reserved thread-metadata key Dawn owns. A colon makes it un-typable as a
+ * The reserved thread-metadata key B4.run owns. A colon makes it un-typable as a
  * JS identifier and effectively absent from real app metadata, so stripping it
  * unconditionally on every create path breaks nobody. Exported for store
- * migrations, for the `dawn memory` / inspector surfaces, and for the operator
+ * migrations, for the `b4 memory` / inspector surfaces, and for the operator
  * backfill script the docs carry — apps read the stamp through
  * `ThreadSubject.access` and never need this constant.
  */
-export const THREAD_ACCESS_METADATA_KEY = "dawn:access"
+export const THREAD_ACCESS_METADATA_KEY = "b4:access"

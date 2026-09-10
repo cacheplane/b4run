@@ -1,6 +1,6 @@
 import { isAbsolute, relative, resolve } from "node:path"
-import { findDawnApp } from "@dawn-ai/core/node"
-import { loadDawnConfig } from "../node-config.js"
+import { findB4App } from "@b4run/core/node"
+import { loadB4Config } from "../node-config.js"
 
 import { type CommandIo, formatErrorMessage, writeLine } from "../output.js"
 import { allocateFreePort } from "./allocate-port.js"
@@ -87,6 +87,7 @@ class InternalDevSession {
   }
 
   async start(): Promise<void> {
+    this.restartInFlight = true
     this.watcher = watchApp({
       appRoot: this.appRoot,
       onChange: (path) => {
@@ -94,8 +95,23 @@ class InternalDevSession {
       },
     })
 
-    await this.startOrRestart()
-    writeLine(this.io.stdout, `Dawn dev ready at ${this.url}`)
+    try {
+      await this.startOrRestart()
+
+      while (this.pendingRestart && !this.closed) {
+        const reason = this.pendingRestartReason ?? "app change"
+        this.pendingRestart = false
+        this.pendingRestartReason = undefined
+        writeLine(this.io.stdout, `Restarting B4.run dev server (${reason})`)
+        await this.startOrRestart()
+      }
+
+      if (!this.closed) {
+        writeLine(this.io.stdout, `B4.run dev ready at ${this.url}`)
+      }
+    } finally {
+      this.restartInFlight = false
+    }
   }
 
   async close(): Promise<void> {
@@ -136,34 +152,46 @@ class InternalDevSession {
     let currentReason = reason
 
     try {
-      do {
+      while (!this.closed) {
         this.pendingRestart = false
-        writeLine(this.io.stdout, `Restarting Dawn dev server (${currentReason})`)
-        await this.startOrRestart()
-        currentReason = this.pendingRestartReason ?? currentReason
         this.pendingRestartReason = undefined
-      } while (this.pendingRestart && !this.closed)
+        writeLine(this.io.stdout, `Restarting B4.run dev server (${currentReason})`)
 
-      if (!this.closed) {
-        writeLine(this.io.stdout, `Dawn dev ready at ${this.url}`)
-      }
-    } catch (error) {
-      if (isFatalDevSessionError(error)) {
-        await this.failFatal(error)
+        try {
+          await this.startOrRestart()
+        } catch (error) {
+          if (isFatalDevSessionError(error)) {
+            await this.failFatal(error)
+            return
+          }
+
+          if (!this.hasBeenReady) {
+            await this.failFatal(new Error(`Fatal dev session error: ${formatErrorMessage(error)}`))
+            return
+          }
+
+          this.currentChild = null
+          writeLine(
+            this.io.stderr,
+            `Restart failed; watching for changes: ${formatErrorMessage(error)}`,
+          )
+
+          if (!this.pendingRestart) {
+            return
+          }
+
+          currentReason = this.pendingRestartReason ?? currentReason
+          continue
+        }
+
+        if (this.pendingRestart) {
+          currentReason = this.pendingRestartReason ?? currentReason
+          continue
+        }
+
+        writeLine(this.io.stdout, `B4.run dev ready at ${this.url}`)
         return
       }
-
-      if (this.hasBeenReady) {
-        this.currentChild = null
-        writeLine(
-          this.io.stderr,
-          `Restart failed; watching for changes: ${formatErrorMessage(error)}`,
-        )
-        return
-      }
-
-      await this.failFatal(new Error(`Fatal dev session error: ${formatErrorMessage(error)}`))
-      return
     } finally {
       this.restartInFlight = false
     }
@@ -177,7 +205,7 @@ class InternalDevSession {
       : absolutePath
 
     // Node's recursive fs.watch can fire with a null/empty fileName (notably
-    // under high-frequency writes like the checkpointer's .dawn/*.sqlite-wal
+    // under high-frequency writes like the checkpointer's .b4/*.sqlite-wal
     // updates). We cannot attribute such an event to a source file, so treat
     // it as a no-op rather than triggering a restart — a spurious restart can
     // fail to rebind the still-held port and crash the dev session.
@@ -185,8 +213,8 @@ class InternalDevSession {
       return
     }
 
-    // Ignore generated output inside .dawn/
-    if (relative.startsWith(".dawn/") || relative === ".dawn") {
+    // Ignore generated output inside .b4/
+    if (relative.startsWith(".b4/") || relative === ".b4") {
       return
     }
 
@@ -221,7 +249,7 @@ class InternalDevSession {
     const app = await validateWatchedAppRoot(this.appRoot)
 
     // Regenerate types before every spawn (initial boot and every restart) so
-    // the child's dawn.generated.d.ts reflects the route tree it's about to
+    // the child's b4.generated.d.ts reflects the route tree it's about to
     // serve. Tool/state/reducer edits used to get this via a debounced
     // typegen-only reaction with no restart; now that those edits restart
     // the child (see classifyChange), typegen runs unconditionally here
@@ -299,13 +327,13 @@ function isFatalDevSessionError(error: unknown): error is FatalDevSessionError {
 }
 
 /**
- * Discover the Dawn app root from a starting directory, validating that the
- * configured routes directory stays within it. Shared with `dawn start`
+ * Discover the B4.run app root from a starting directory, validating that the
+ * configured routes directory stays within it. Shared with `b4 start`
  * (see ../../commands/start.ts) so both commands resolve the app root the
  * same way.
  */
 export async function discoverInitialApp(cwd: string): Promise<{ readonly appRoot: string }> {
-  const app = await findDawnApp({ cwd })
+  const app = await findB4App({ cwd })
   assertRoutesDirWithinAppRoot(app.appRoot, app.routesDir)
 
   return {
@@ -315,7 +343,7 @@ export async function discoverInitialApp(cwd: string): Promise<{ readonly appRoo
 
 async function validateWatchedAppRoot(appRoot: string): Promise<{ readonly appRoot: string }> {
   await assertConfiguredAppDirWithinAppRoot(appRoot)
-  const app = await findDawnApp({ appRoot })
+  const app = await findB4App({ appRoot })
   assertRoutesDirWithinAppRoot(app.appRoot, app.routesDir)
 
   return {
@@ -324,7 +352,7 @@ async function validateWatchedAppRoot(appRoot: string): Promise<{ readonly appRo
 }
 
 async function assertConfiguredAppDirWithinAppRoot(appRoot: string): Promise<void> {
-  const loadedConfig = await loadDawnConfig({ appRoot })
+  const loadedConfig = await loadB4Config({ appRoot })
   const routesDir = resolve(appRoot, loadedConfig.config.appDir ?? "src/app")
 
   assertRoutesDirWithinAppRoot(appRoot, routesDir)
@@ -343,7 +371,7 @@ function assertRoutesDirWithinAppRoot(appRoot: string, routesDir: string): void 
 }
 
 function readShutdownTimeoutMs(): number {
-  const rawValue = process.env.DAWN_DEV_SHUTDOWN_TIMEOUT_MS
+  const rawValue = process.env.B4_DEV_SHUTDOWN_TIMEOUT_MS
 
   if (!rawValue) {
     return 1_000
@@ -354,7 +382,7 @@ function readShutdownTimeoutMs(): number {
 }
 
 function readReadyTimeoutMs(): number {
-  const rawValue = process.env.DAWN_DEV_READY_TIMEOUT_MS
+  const rawValue = process.env.B4_DEV_READY_TIMEOUT_MS
 
   if (!rawValue) {
     return 5_000

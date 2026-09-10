@@ -4,7 +4,7 @@
  * sandbox types — all of which stay on `.`) never drags `node:child_process`,
  * `node:fs/promises`, `node:path` or `node:util` into its module graph.
  *
- * Import these from a node entry point and inject them; `@dawn-ai/core`'s
+ * Import these from a node entry point and inject them; `@b4run/core`'s
  * capability markers take them through `CapabilityMarkerContext`.
  */
 

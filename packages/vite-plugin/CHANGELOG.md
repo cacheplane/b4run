@@ -1,5 +1,74 @@
 # @dawn-ai/vite-plugin
 
+## 0.8.29
+
+### Patch Changes
+
+- @b4run/core@0.8.29
+
+## 0.8.28
+
+### Patch Changes
+
+- @b4run/core@0.8.28
+
+## 0.8.27
+
+### Patch Changes
+
+- @b4run/core@0.8.27
+
+## 0.8.26
+
+### Patch Changes
+
+- Updated dependencies [c7fd197]
+  - @dawn-ai/core@0.8.26
+
+## 0.8.25
+
+### Patch Changes
+
+- @dawn-ai/core@0.8.25
+
+## 0.8.24
+
+### Patch Changes
+
+- @dawn-ai/core@0.8.24
+
+## 0.8.23
+
+### Patch Changes
+
+- 7e62bb1: Refresh the GitHub and npm documentation surfaces, add package discovery
+  metadata, and introduce reproducible product-loop media. No runtime API changed.
+- Updated dependencies [7e62bb1]
+  - @dawn-ai/core@0.8.23
+
+## 0.8.22
+
+### Patch Changes
+
+- bedad77: Documentation only: every public export of this package now has an API reference
+  page on dawnai.org, and the package README leads with a concise entrypoint. No
+  runtime behavior changed.
+- d42774e: **Breaking:** scenario files must default export `scenarios("<route>")` from
+  `@dawn-ai/sdk/testing`. A plain default-exported array now throws
+  `RunScenarioLoadError` at load; wrap the array in `scenarios("/route")` to
+  migrate.
+
+  Add route-scoped fluent `dawn test` scenarios with generated application-tool
+  types, invocation-local in-process tool mocks, and declarative mock call
+  assertions.
+
+- Updated dependencies [a530e70]
+- Updated dependencies [8398c90]
+- Updated dependencies [3c68800]
+- Updated dependencies [908d690]
+- Updated dependencies [d42774e]
+  - @dawn-ai/core@0.8.22
+
 ## 0.8.21
 
 ### Patch Changes

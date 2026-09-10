@@ -1,15 +1,15 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { RunAgentInputSchema } from "@ag-ui/core"
-import { type DawnAgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@dawn-ai/ag-ui"
-import { encodeAgUiSse } from "@dawn-ai/ag-ui/sse"
-import type { MemoryStoreLike } from "@dawn-ai/core"
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import type { DawnMiddleware, MiddlewareRequest, ThreadAccessPolicy } from "@dawn-ai/sdk"
-import type { ThreadsStore } from "@dawn-ai/sqlite-storage"
+import { type B4AgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
+import { encodeAgUiSse } from "@b4run/ag-ui/sse"
+import type { MemoryStoreLike } from "@b4run/core"
+import type { PermissionsStore } from "@b4run/permissions"
+import type { B4Middleware, MiddlewareRequest, ThreadAccessPolicy } from "@b4run/sdk"
+import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { type BootResolvedInstances, streamResolvedRoute } from "../runtime/execute-route-core.js"
 import type { SandboxManager } from "../runtime/sandbox-manager.js"
-import type { DawnStaticModules } from "../runtime/static-modules-core.js"
+import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import type { StreamChunk } from "../runtime/stream-types.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
 import type { LiveTurnHub, LiveTurnProducer } from "./live-turn-hub.js"
@@ -44,7 +44,7 @@ export interface AgUiFetchRequestOptions {
    */
   readonly getMemoryStore?: () => Promise<MemoryStoreLike>
   readonly liveTurnHub: LiveTurnHub
-  readonly middleware: DawnMiddleware | undefined
+  readonly middleware: B4Middleware | undefined
   /**
    * Boot-resolved permissions store (or a per-request factory in dev),
    * forwarded into route execution so no per-request store construction is
@@ -68,7 +68,7 @@ export interface AgUiFetchRequestOptions {
    * without entry-file imports. Optional so direct callers (tests) keep
    * their existing behavior.
    */
-  readonly staticModules?: DawnStaticModules
+  readonly staticModules?: B4StaticModules
   readonly request: Request
   readonly routeKey: string
   readonly streamRoute?: typeof streamResolvedRoute
@@ -82,9 +82,9 @@ interface AgUiRequestOptions extends Omit<AgUiFetchRequestOptions, "request"> {
 /**
  * Pass-through tap that records whether the turn parked.
  *
- * Separate from `normalizeDawnStream`, and upstream of it, because that one has
+ * Separate from `normalizeB4Stream`, and upstream of it, because that one has
  * already translated chunks into AG-UI's vocabulary by the time anything
- * downstream sees them, while a park has to be recognised by Dawn's own
+ * downstream sees them, while a park has to be recognised by B4.run's own
  * `interrupt` chunk — the same signal `handleApStreamRequest` watches for
  * inline. Being upstream also means the flag is set before the enqueue, so a
  * park observed after the client has gone — the controller closed, every write
@@ -103,7 +103,7 @@ async function* observeInterrupts(
 /**
  * Pass-through tap that publishes each raw `StreamChunk` to the live turn
  * BEFORE AG-UI translation, so an attacher on the AP wire sees AP-vocabulary
- * frames rather than encoded AG-UI events. Upstream of `normalizeDawnStream`
+ * frames rather than encoded AG-UI events. Upstream of `normalizeB4Stream`
  * for the same reason `observeInterrupts` is: once translated, the chunk no
  * longer carries the vocabulary the hub stores. The terminal `done` chunk is
  * captured rather than published — see the `liveTurn?.close` call site for
@@ -121,9 +121,9 @@ async function* tapLiveTurn(
   }
 }
 
-async function* normalizeDawnStream(
+async function* normalizeB4Stream(
   chunks: AsyncIterable<StreamChunk>,
-): AsyncGenerator<DawnAgentStreamChunk> {
+): AsyncGenerator<B4AgentStreamChunk> {
   for await (const chunk of chunks) {
     switch (chunk.type) {
       case "chunk":
@@ -249,19 +249,19 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     }
 
     const requestUrl = new URL(request.url)
-    const dawnInput = fromRunAgentInput(input)
+    const b4Input = fromRunAgentInput(input)
     // The one place this turn decides it is a resume. Computed HERE, above
     // every gate site, because this endpoint gates up to twice per request and
     // a turn that reported `resuming: true` at one gate and `false` at another
     // would be describing two different requests. `fromRunAgentInput` leaves
     // `resume` undefined for an absent OR empty array, so this is exactly the
     // condition the resume claim below takes itself on.
-    const resuming = dawnInput.resume !== undefined
+    const resuming = b4Input.resume !== undefined
     const middlewareRequest: MiddlewareRequest = {
       assistantId: route.assistantId,
       headers: headersToRecord(request.headers),
       method: request.method,
-      params: extractRouteParams(route.routeId, dawnInput.raw),
+      params: extractRouteParams(route.routeId, b4Input.raw),
       routeId: route.routeId,
       url: `${requestUrl.pathname}${requestUrl.search}`,
     }
@@ -316,14 +316,14 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       }
     }
 
-    const newestUserMessage = [...dawnInput.messages]
+    const newestUserMessage = [...b4Input.messages]
       .reverse()
       .find((message) => message.role === "user")
     const pending = (await readPendingInterrupts(checkpointer, input.threadId)) ?? {
       interrupts: [],
       malformed: false,
     }
-    const resumeResolution = resolvePendingResume(dawnInput.resume, pending)
+    const resumeResolution = resolvePendingResume(b4Input.resume, pending)
     if (!resumeResolution.ok) {
       return Response.json(
         createRequestErrorBody(resumeResolution.message, {
@@ -399,15 +399,19 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
         configurable: { checkpoint_ns: "", thread_id: threadId },
       })
       liveTurn = liveTurnHub.open({
+        routeKey,
+        anchorRouteKeys: [readParkedRoute(existingThread), existingThread?.metadata.route].filter(
+          (key): key is string => typeof key === "string",
+        ),
         anchorCheckpointId: anchorTuple?.checkpoint?.id ?? null,
-        input: resumeResolution.mode === "resume" ? resumeResolution.resume : dawnInput,
+        input: resumeResolution.mode === "resume" ? resumeResolution.resume : b4Input,
         resume: resumeResolution.mode === "resume",
         runStartedAt: new Date().toISOString(),
         threadId,
       })
     } catch (error) {
       console.warn(
-        `Dawn: live-turn anchor read failed for ${threadId}; attach degrades to the durable path.`,
+        `B4: live-turn anchor read failed for ${threadId}; attach degrades to the durable path.`,
         error,
       )
     }
@@ -495,7 +499,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             const liveTappedStream = tapLiveTurn(observedRouteStream, liveTurn, (chunk) => {
               terminalChunk = chunk
             })
-            for await (const event of toAguiEvents(normalizeDawnStream(liveTappedStream), {
+            for await (const event of toAguiEvents(normalizeB4Stream(liveTappedStream), {
               threadId,
               runId: input.runId,
             })) {

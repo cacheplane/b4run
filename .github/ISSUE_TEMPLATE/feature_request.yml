@@ -1,5 +1,5 @@
 name: Feature request
-description: Propose a Dawn feature or improvement.
+description: Propose a B4 feature or improvement.
 title: "[Feature]: "
 labels:
   - enhancement
@@ -15,7 +15,7 @@ body:
     id: proposal
     attributes:
       label: Proposal
-      description: What should Dawn do?
+      description: What should B4 do?
     validations:
       required: true
   - type: textarea

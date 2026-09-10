@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { ThreadAccessPolicy, ThreadOperation } from "@dawn-ai/sdk"
+import type { ThreadAccessPolicy, ThreadOperation } from "@b4run/sdk"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { buildRouteTable } from "../src/lib/dev/runtime-fetch-core.js"
@@ -107,10 +107,10 @@ describe("emitted thread operations", () => {
         return { decision: "allow" }
       },
     }
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-thread-access-coverage-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-thread-access-coverage-"))
     cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
     for (const [relativePath, source] of Object.entries({
-      "dawn.config.ts": "export default {}\n",
+      "b4.config.ts": "export default {}\n",
       "package.json": '{ "name": "coverage-fixture", "type": "module" }\n',
       "src/app/hello/index.ts": "export const graph = async () => ({ ok: true })\n",
     })) {

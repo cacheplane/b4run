@@ -1,20 +1,30 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cacheplane/dawnai/main/docs/brand/dawn-logo-horizontal-black-on-white.png" alt="Dawn" width="180" />
+  <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/b4-logo-horizontal-black-on-white.png" alt="B4.run" width="180" />
 </p>
 
-# @dawn-ai/ag-ui
+# @b4run/ag-ui
 
-Supported AG-UI protocol translation for Dawn runtime streams, client inputs, interrupts, activities, and SSE responses.
+Supported AG-UI protocol translation for B4.run runtime streams, client inputs, interrupts, activities, and SSE responses.
+
+**Use this when:** You are translating B4.run runs or activity snapshots for an AG-UI client.
 
 ## Install
 
 ```bash
-pnpm add @dawn-ai/ag-ui
+pnpm add @b4run/ag-ui
 ```
 
+## Example
+
 ```ts
-import { fromRunAgentInput, toAguiEvents } from "@dawn-ai/ag-ui"
-import { encodeAgUiSse } from "@dawn-ai/ag-ui/sse"
+import { fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
+import { encodeAgUiSse } from "@b4run/ag-ui/sse"
+
+const b4Input = fromRunAgentInput(runAgentInput)
+
+for await (const event of toAguiEvents(b4Chunks, { threadId, runId })) {
+  response.write(encodeAgUiSse(event, request.headers.accept))
+}
 ```
 
 Plan and subagent activity snapshots are translated on the root surface; use the focused API reference for their exact identifiers and payload contracts.
@@ -23,41 +33,41 @@ Built-in orchestration is presented once. A `writeTodos` or `task` call whose ac
 
 ## React renderers
 
-`@dawn-ai/ag-ui/react` renders those activity snapshots. The drop-in is one prop:
+`@b4run/ag-ui/react` renders those activity snapshots. The drop-in is one prop:
 
 ```tsx
 import { CopilotKit } from "@copilotkit/react-core/v2"
-import { dawnActivityRenderers } from "@dawn-ai/ag-ui/react"
+import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 
 <CopilotKit
   runtimeUrl="/api/copilotkit"
   useSingleEndpoint={false}
-  renderActivityMessages={dawnActivityRenderers}
+  renderActivityMessages={b4ActivityRenderers}
 >
 ```
 
 The subpath exports three layers, from drop-in to build-your-own:
 
-- `dawnActivityRenderers` — both renderers, ready to pass to CopilotKit's `renderActivityMessages`.
-- `dawnPlanActivityRenderer` and `dawnSubagentActivityRenderer` — the individual renderers, for a client that wants one of them or mixes them with its own.
+- `b4ActivityRenderers` — both renderers, ready to pass to CopilotKit's `renderActivityMessages`.
+- `b4PlanActivityRenderer` and `b4SubagentActivityRenderer` — the individual renderers, for a client that wants one of them or mixes them with its own.
 - `PlanActivityCard`, `SubagentActivityCard`, and `ActivityChecklist` — plain React components taking `content`, plus `planActivityContentSchema` and `subagentActivityContentSchema`, the strict validators behind the renderers, for presenting the same activities another way.
 
 `react` and `@copilotkit/react-core` are optional peer dependencies used only by this subpath. Importing the root or `./sse` entry never loads it, so a server-only consumer installs nothing extra.
 
 ### Customizing the activity cards
 
-The cards ship with Dawn's visual identity via an optional stylesheet, plus a four-rung customization ladder. A card renders structured-but-unstyled markup if the stylesheet is not imported.
+The cards ship with B4.run's visual identity via an optional stylesheet, plus a four-rung customization ladder. A card renders structured-but-unstyled markup if the stylesheet is not imported.
 
 **Rung 1 — tokens.** Import the stylesheet once, then override its CSS custom properties in your own CSS to restyle without touching markup:
 
 ```ts
-import "@dawn-ai/ag-ui/react/styles.css"
+import "@b4run/ag-ui/react/styles.css"
 ```
 
 ```css
 :root {
-  --dawn-activity-radius: 4px;
-  --dawn-activity-padding: 12px 14px;
+  --b4-activity-radius: 4px;
+  --b4-activity-padding: 12px 14px;
 }
 ```
 
@@ -67,21 +77,21 @@ that work in each, or scope them the way the sheet does:
 
 ```css
 :root {
-  --dawn-activity-running: #6d28d9;
+  --b4-activity-running: #6d28d9;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-dawn-theme="light"]) {
-    --dawn-activity-running: #a78bfa;
+  :root:not([data-b4-theme="light"]) {
+    --b4-activity-running: #a78bfa;
   }
 }
 ```
 
-The full set is `--dawn-activity-` plus `surface`, `border`, `text`, `muted`, `running`, `complete`, `failed`, `badge-bg`, `radius`, `gap`, `font-size`, `margin`, `padding`, and `header-weight`. `--dawn-activity-badge-bg` defaults to `var(--dawn-activity-border)`, so the depth badge follows the palette until you point it elsewhere — `transparent`, plus a border through `classNames.badge`, gives an outline chip.
+The full set is `--b4-activity-` plus `surface`, `border`, `text`, `muted`, `running`, `complete`, `failed`, `badge-bg`, `radius`, `gap`, `font-size`, `margin`, `padding`, and `header-weight`. `--b4-activity-badge-bg` defaults to `var(--b4-activity-border)`, so the depth badge follows the palette until you point it elsewhere — `transparent`, plus a border through `classNames.badge`, gives an outline chip.
 
 Put the overrides in plain, unlayered CSS. A Tailwind `@theme` block is not a substitute: token values declared there lose to this sheet in every configuration tested.
 
-Light and dark values ship out of the box, keyed off `prefers-color-scheme`; set `data-dawn-theme="dark"` or `data-dawn-theme="light"` on the root element to force one regardless of the system setting (the selectors match only `:root`, not an arbitrary ancestor). All three of the sheet's token blocks are wrapped in `:where()`, so they carry no specificity at all and your own `:root` block wins in every theme, whichever sheet the browser parses first.
+Light and dark values ship out of the box, keyed off `prefers-color-scheme`; set `data-b4-theme="dark"` or `data-b4-theme="light"` on the root element to force one regardless of the system setting (the selectors match only `:root`, not an arbitrary ancestor). All three of the sheet's token blocks are wrapped in `:where()`, so they carry no specificity at all and your own `:root` block wins in every theme, whichever sheet the browser parses first.
 
 **Rung 2 — `classNames`.** Pass per-part class names; they are appended to the package defaults, never substituted:
 
@@ -95,7 +105,7 @@ A class is applied to every element of that part the card renders, so a part tha
 
 Three keys are easy to confuse. `section` is a card's labelled region and exists only on `SubagentActivityCard`; `checklist` is `ActivityChecklist`'s own wrapper, which both cards render; `marker` is the disclosure triangle, an `aria-hidden` span that is the first child of the header.
 
-> **Upgrading from 0.8.21 or earlier.** `classNames.section` used to land on the checklist wrapper as well as the labelled region — pass `classNames.checklist` for the wrapper now. Three changes fail silently rather than erroring. `.dawn-activity__header::before` is gone, replaced by `.dawn-activity__marker`; `.dawn-activity__section` no longer matches the checklist wrapper, which is `.dawn-activity__checklist`; and the marker is now the FIRST CHILD of `<summary>`, so `:first-child` and `nth-child()` selectors against the header shift by one. A plain `:root` palette override also now wins in dark mode and under `data-dawn-theme`, where the package's dark rules used to outrank it — so a partial override that used to lose now leaks through; set palette tokens as a set. A `<summary>` `textContent` assertion also now sees the `▸` glyph, which a pseudo-element never contributed.
+> **Upgrading from 0.8.21 or earlier.** `classNames.section` used to land on the checklist wrapper as well as the labelled region — pass `classNames.checklist` for the wrapper now. Three changes fail silently rather than erroring. `.b4-activity__header::before` is gone, replaced by `.b4-activity__marker`; `.b4-activity__section` no longer matches the checklist wrapper, which is `.b4-activity__checklist`; and the marker is now the FIRST CHILD of `<summary>`, so `:first-child` and `nth-child()` selectors against the header shift by one. A plain `:root` palette override also now wins in dark mode and under `data-b4-theme`, where the package's dark rules used to outrank it — so a partial override that used to lose now leaks through; set palette tokens as a set. A `<summary>` `textContent` assertion also now sees the `▸` glyph, which a pseudo-element never contributed.
 
 **Rung 3 — `components`.** Replace a leaf's rendering while the card keeps ownership of validation, ordering, and the bounded-content rules:
 
@@ -118,26 +128,34 @@ Three keys are easy to confuse. `section` is a card's labelled region and exists
 
 | File | Rewrite | To |
 |---|---|---|
-| `ActivityChecklist.tsx` | `"../activities.js"` | `"@dawn-ai/ag-ui"` |
-| `ActivityChecklist.tsx` | `"./parts.js"` | `"@dawn-ai/ag-ui/react"` |
-| `PlanActivityCard.tsx` | `"../activities.js"` | `"@dawn-ai/ag-ui"` |
-| `PlanActivityCard.tsx` | `"./parts.js"` | `"@dawn-ai/ag-ui/react"` |
-| `SubagentActivityCard.tsx` | `"./parts.js"` | `"@dawn-ai/ag-ui/react"` |
-| `SubagentActivityCard.tsx` | `"./schemas.js"` | `"@dawn-ai/ag-ui/react"` |
+| `ActivityChecklist.tsx` | `"../activities.js"` | `"@b4run/ag-ui"` |
+| `ActivityChecklist.tsx` | `"./parts.js"` | `"@b4run/ag-ui/react"` |
+| `PlanActivityCard.tsx` | `"../activities.js"` | `"@b4run/ag-ui"` |
+| `PlanActivityCard.tsx` | `"./parts.js"` | `"@b4run/ag-ui/react"` |
+| `SubagentActivityCard.tsx` | `"./parts.js"` | `"@b4run/ag-ui/react"` |
+| `SubagentActivityCard.tsx` | `"./schemas.js"` | `"@b4run/ag-ui/react"` |
 
-`DawnPlanActivityContent` lives on the root entry; `cx`, the `classNames`/`components` types, and `SubagentActivityContentOutput` come from `/react`. The `"./ActivityChecklist.js"` imports need no change — they resolve to the sibling file you copied. After those rewrites the components are yours to change freely.
+`B4PlanActivityContent` lives on the root entry; `cx`, the `classNames`/`components` types, and `SubagentActivityContentOutput` come from `/react`. The `"./ActivityChecklist.js"` imports need no change — they resolve to the sibling file you copied. After those rewrites the components are yours to change freely.
 
 ## Runtime and stability
 
-- `@dawn-ai/ag-ui` is a supported, edge-safe integration surface.
-- `@dawn-ai/ag-ui/sse` is a supported, edge-safe integration surface.
-- `@dawn-ai/ag-ui/react` is a supported React application surface, built for browser bundles. Dawn records its runtime as `node-only`, which means only that it does not pass Dawn's edge-safety guard — not that it requires Node: React's own JSX runtime reads `process.env.NODE_ENV`, which an application bundler substitutes as usual but the stricter edge guard rejects. The other two entries never load it.
-- `@dawn-ai/ag-ui/react/styles.css` is a supported integration surface carrying the cards' default appearance. It is a stylesheet asset, so it has no runtime classification at all: a bundler resolves it and nothing evaluates it as JavaScript. Import it once alongside your global CSS; it is optional, and every rule that styles an element is scoped to the `dawn-activity` prefix (the sheet also declares `--dawn-activity-*` custom properties on `:root`, which is intended and harmless — each of those three blocks is wrapped in `:where()`, so an application's own `:root` override always wins).
+- `@b4run/ag-ui` is a supported, edge-safe integration surface.
+- `@b4run/ag-ui/sse` is a supported, edge-safe integration surface.
+- `@b4run/ag-ui/react` is a supported React application surface, built for browser bundles. B4.run records its runtime as `node-only`, which means only that it does not pass B4.run's edge-safety guard — not that it requires Node: React's own JSX runtime reads `process.env.NODE_ENV`, which an application bundler substitutes as usual but the stricter edge guard rejects. The other two entries never load it.
+- `@b4run/ag-ui/react/styles.css` is a supported integration surface carrying the cards' default appearance. It is a stylesheet asset, so it has no runtime classification at all: a bundler resolves it and nothing evaluates it as JavaScript. Import it once alongside your global CSS; it is optional, and every rule that styles an element is scoped to the `b4-activity` prefix (the sheet also declares `--b4-activity-*` custom properties on `:root`, which is intended and harmless — each of those three blocks is wrapped in `:where()`, so an application's own `:root` override always wins).
 
 They translate protocol data; they do not authenticate callers or make client-provided state authoritative.
 
-Use the [AG-UI API reference](https://dawnai.org/docs/api/ag-ui) for exact contracts. See [AG-UI and Web Clients](https://dawnai.org/docs/ag-ui) for setup and [Agent Protocol](https://dawnai.org/docs/dev-server/agent-protocol) for the underlying runtime endpoints.
+## Related
+
+- [AG-UI API reference](https://b4.run/docs/api/ag-ui) — exact adapter, activity, and renderer contracts.
+- [AG-UI and Web Clients](https://b4.run/docs/ag-ui) — client and transport setup.
+- [Agent Protocol](https://b4.run/docs/dev-server/agent-protocol) — the underlying B4.run runtime endpoints.
+
+## Maturity and support
+
+B4.run is pre-1.0, and its public surface can change. All publishable B4.run packages release together as a fixed group; review the [`@b4run/ag-ui` changelog](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/CHANGELOG.md) and [upgrading guide](https://b4.run/docs/upgrading) before upgrading. For support, use [GitHub Discussions](https://github.com/cacheplane/b4run/discussions); report defects in [GitHub Issues](https://github.com/cacheplane/b4run/issues).
 
 ## License
 
-MIT
+MIT. See the [repository license](https://github.com/cacheplane/b4run/blob/main/LICENSE).

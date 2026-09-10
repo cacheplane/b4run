@@ -1,7 +1,7 @@
-import type { PromptFragment, StreamTransformer } from "@dawn-ai/core"
-import { readRuntimeEnv } from "@dawn-ai/core"
-import type { DawnAgent, RetryConfig } from "@dawn-ai/sdk"
-import { isDawnAgent } from "@dawn-ai/sdk"
+import type { PromptFragment, StreamTransformer } from "@b4run/core"
+import { readRuntimeEnv } from "@b4run/core"
+import type { B4Agent, RetryConfig } from "@b4run/sdk"
+import { isB4Agent } from "@b4run/sdk"
 import { type BaseMessageLike, HumanMessage } from "@langchain/core/messages"
 import { Command } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
@@ -14,7 +14,7 @@ import { convertSubagentTaskToLangChain, type SubagentResolver } from "./subagen
 import { buildSummarizationHook, type ResolvedSummarizationConfig } from "./summarization/index.js"
 import { convertToolToLangChain, type OffloadFn } from "./tool-converter.js"
 
-export interface DawnToolDefinition {
+export interface B4ToolDefinition {
   readonly description?: string
   readonly name: string
   readonly run: (
@@ -67,13 +67,13 @@ function assertAgentLike(entry: unknown): asserts entry is AgentLike {
  * WeakMap is ephemeron-based, so the graph→checkpointer reference held by the
  * VALUE does not keep its own KEY alive.)
  */
-let materializedAgents = new WeakMap<DawnAgent, WeakMap<BaseCheckpointSaver, AgentLike>>()
+let materializedAgents = new WeakMap<B4Agent, WeakMap<BaseCheckpointSaver, AgentLike>>()
 
 /**
  * Test-only escape hatch: reset the materialized-agents cache so the next
  * harness run creates a fresh LLM instance (e.g. pointing at a new aimock
- * port). Exported (and re-exported via `@dawn-ai/cli/runtime`) so the
- * `@dawn-ai/testing` harness can clear the cache on teardown. Not for
+ * port). Exported (and re-exported via `@b4run/cli/runtime`) so the
+ * `@b4run/testing` harness can clear the cache on teardown. Not for
  * production use; the `__`/`ForTests` name marks it internal-by-convention.
  */
 export function __resetMaterializedAgentsForTests(): void {
@@ -98,8 +98,8 @@ export async function composePromptMessages(
 }
 
 async function materializeAgent(
-  descriptor: DawnAgent,
-  tools: readonly DawnToolDefinition[],
+  descriptor: B4Agent,
+  tools: readonly B4ToolDefinition[],
   checkpointer: BaseCheckpointSaver | undefined,
   opts: {
     readonly stateFields?: readonly ResolvedStateField[]
@@ -201,11 +201,11 @@ export async function materializeAgentGraph(options: {
   /** Bypass the compiled-graph cache when tools close over invocation-local state. */
   readonly bypassCache?: boolean
   readonly checkpointer?: BaseCheckpointSaver
-  readonly descriptor: DawnAgent
+  readonly descriptor: B4Agent
   readonly middlewareContext?: Readonly<Record<string, unknown>>
   readonly offload?: OffloadFn
   readonly routeParamNames?: readonly string[]
-  readonly tools?: readonly DawnToolDefinition[]
+  readonly tools?: readonly B4ToolDefinition[]
   readonly stateFields?: readonly ResolvedStateField[]
   readonly streamTransformers?: readonly StreamTransformer[]
   readonly promptFragments?: readonly PromptFragment[]
@@ -322,9 +322,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function parseSubagentContext(
   metadata: Record<string, unknown> | undefined,
 ): SubagentContext | undefined {
-  const dawn = metadata?.dawn
-  if (!isRecord(dawn)) return undefined
-  const stack = dawn.subagent_stack
+  const b4 = metadata?.b4
+  if (!isRecord(b4)) return undefined
+  const stack = b4.subagent_stack
   if (!Array.isArray(stack) || stack.length === 0) return undefined
 
   for (const value of stack) {
@@ -397,7 +397,7 @@ function childData(child: SubagentContext, data: unknown): Record<string, unknow
 }
 
 function parseSubagentPhaseEvent(event: LangChainStreamEvent): SubagentPhaseProjection | undefined {
-  if (event.event !== "on_custom_event" || event.name !== "dawn.subagent") return undefined
+  if (event.event !== "on_custom_event" || event.name !== "b4.subagent") return undefined
   if (!isRecord(event.data)) return undefined
   const phase = event.data.phase
   if (phase !== "start" && phase !== "end") return undefined
@@ -594,7 +594,7 @@ function classifyStreamEvent(
       }
     }
     case "on_custom_event": {
-      if (event.name !== "dawn.capability") break
+      if (event.name !== "b4.capability") break
       const payload = parseCapabilityEvent(event.data)
       if (!payload) break
       return {
@@ -807,7 +807,7 @@ export interface AgentOptions {
   readonly routeParamNames: readonly string[]
   readonly signal: AbortSignal
   readonly stateFields?: readonly ResolvedStateField[]
-  readonly tools: readonly DawnToolDefinition[]
+  readonly tools: readonly B4ToolDefinition[]
   readonly promptFragments?: readonly PromptFragment[]
   readonly streamTransformers?: readonly StreamTransformer[]
   /** Resolves guarded task requests to lazily materialized child graphs. */
@@ -873,7 +873,7 @@ export async function executeAgent(options: AgentOptions): Promise<unknown> {
 export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentStreamChunk> {
   if (!options.checkpointer) {
     throw new Error(
-      "[dawn] agent-adapter requires a checkpointer in AgentOptions. The CLI runtime instantiates sqliteCheckpointer by default; if you're calling agent-adapter directly, pass one explicitly.",
+      "[b4] agent-adapter requires a checkpointer in AgentOptions. The CLI runtime instantiates sqliteCheckpointer by default; if you're calling agent-adapter directly, pass one explicitly.",
     )
   }
 
@@ -886,8 +886,8 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
   const resolver = options.subagentResolver
   const hasTaskTool = options.tools.some((t) => t.name === "task")
 
-  // DawnAgent descriptor path — materialize on first use
-  if (isDawnAgent(options.entry)) {
+  // B4Agent descriptor path — materialize on first use
+  if (isB4Agent(options.entry)) {
     // Resolver and sandbox-backed tools close over route-preparation state, so
     // they must not be reused from another materialized route invocation.
     const materializedAgent = await materializeAgent(
@@ -957,8 +957,8 @@ function prepareAgentCall(options: AgentOptions): {
   }
   // Per-agent super-step ceiling. LangGraph's Pregel reads config.recursionLimit
   // (default 25); deep agents (coordinator + subagents + many tool calls) can
-  // legitimately need more. Sourced from the DawnAgent descriptor, mirroring retry.
-  if (isDawnAgent(options.entry) && typeof options.entry.recursionLimit === "number") {
+  // legitimately need more. Sourced from the B4Agent descriptor, mirroring retry.
+  if (isB4Agent(options.entry) && typeof options.entry.recursionLimit === "number") {
     config.recursionLimit = options.entry.recursionLimit
   }
 
@@ -1059,10 +1059,10 @@ async function* streamFromRunnable(
             if (entry.id && emittedInterruptIds.has(entry.id)) continue
             if (entry.id) emittedInterruptIds.add(entry.id)
             hasYielded = true
-            if (readRuntimeEnv("DAWN_DEBUG_INTERRUPTS") === "1") {
+            if (readRuntimeEnv("B4_DEBUG_INTERRUPTS") === "1") {
               if (!isRecord(entry.value) || typeof entry.value.interruptId !== "string") {
                 console.warn(
-                  "[dawn] interrupt entry.value missing interruptId — capability bug:",
+                  "[b4] interrupt entry.value missing interruptId — capability bug:",
                   JSON.stringify(entry).slice(0, 300),
                 )
               }

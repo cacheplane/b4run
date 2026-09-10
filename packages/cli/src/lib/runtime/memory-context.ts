@@ -1,14 +1,14 @@
 /**
  * The pure half of memory resolution: builds the per-request memory
  * capability context from values the caller already has. Kept out of
- * `resolve-memory.ts` because that module reaches `dawn.config.ts` (node:fs)
+ * `resolve-memory.ts` because that module reaches `b4.config.ts` (node:fs)
  * and lazily imports the sqlite memory store — neither belongs in the
- * `@dawn-ai/cli/fetch` graph.
+ * `@b4run/cli/fetch` graph.
  */
-import type { MemoryContext, MemoryWritesMode } from "@dawn-ai/core"
+import type { MemoryContext, MemoryWritesMode } from "@b4run/core"
 // Namespace helpers come from the pure "./namespace" subpath, never the
 // barrel: the barrel re-exports sqliteMemoryStore and so reaches node:sqlite.
-import { type MemoryScopeTuple, serializeNamespace } from "@dawn-ai/memory/namespace"
+import { type MemoryScopeTuple, serializeNamespace } from "@b4run/memory/namespace"
 import { pureBasename } from "./pure-path.js"
 import type { LoadedRouteMemory } from "./route-memory-shape.js"
 

@@ -1,5 +1,5 @@
 ---
-description: Reminders about how Dawn's workspace tools behave and what the path-jail allows.
+description: Reminders about how B4.run's workspace tools behave and what the path-jail allows.
 ---
 
 # Workspace conventions
@@ -11,7 +11,7 @@ are rejected by the path-jail with a clear error.
 - All paths are relative to the workspace root.
 - `listDir({ path: "." })` lists the workspace root.
 - `readFile({ path: "AGENTS.md" })` reads the memory file you also see in your
-  system prompt (so reading it again is redundant; prefer the version Dawn
+  system prompt (so reading it again is redundant; prefer the version B4.run
   injected for you).
 - `runBash` spawns inside the workspace with a hard timeout. Use it for one-shot
   shell tasks; don't try to start long-lived background processes.

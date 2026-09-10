@@ -1,4 +1,4 @@
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 export default agent({
   model: "gpt-4o-mini",
   systemPrompt:

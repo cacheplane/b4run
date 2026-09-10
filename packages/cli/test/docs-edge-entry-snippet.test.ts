@@ -20,9 +20,9 @@ import {
 // hand-wired lifecycle/composition skeleton, which a reader adapts when the
 // generated `app.mjs` cannot be used as the deployment entry unchanged.
 //
-// It exists because that snippet was wrong. It named `./.dawn/build/modules.mjs`
+// It exists because that snippet was wrong. It named `./.b4/build/modules.mjs`
 // — the NODE target's manifest, which imports `node:path`, `node:url` and
-// `@dawn-ai/cli/runtime` (tsx, esbuild). Bundled as wrangler bundles, it pulled
+// `@b4run/cli/runtime` (tsx, esbuild). Bundled as wrangler bundles, it pulled
 // in fourteen unresolved builtins, bare `fs` and `child_process` among them, so
 // not even `nodejs_compat` would have rescued it. And it sat directly beneath
 // the callout claiming a bundle from this entry links ZERO `node:` specifiers.
@@ -48,11 +48,11 @@ const EDGE_DEPLOYMENT_DOC = join(
 )
 
 /** The heading whose first JavaScript fence is the skeleton under test. */
-const SECTION_HEADING = "## Compose through `@dawn-ai/cli/fetch`"
+const SECTION_HEADING = "## Compose through `@b4run/cli/fetch`"
 const ROUTER_HEADING = "## Compose the Hono router"
 
 /** Where the docs tell the reader the build artifacts live. */
-const BUILD_DIR_PREFIX = "./.dawn/build/"
+const BUILD_DIR_PREFIX = "./.b4/build/"
 
 /**
  * The first ```js fence after {@link SECTION_HEADING}.
@@ -78,7 +78,7 @@ async function readCompositionSkeleton(): Promise<string> {
   return fence[1]
 }
 
-/** The declaration-free JavaScript host example that composes the Dawn router. */
+/** The declaration-free JavaScript host example that composes the B4.run router. */
 async function readHostRouterExample(): Promise<string> {
   const source = await readFile(EDGE_DEPLOYMENT_DOC, "utf8")
   const headingAt = source.indexOf(ROUTER_HEADING)
@@ -156,7 +156,7 @@ function entrySource(lines: readonly string[], manifest?: string): string {
     const specifier = specifierOf(line)
     if (!specifier.startsWith(BUILD_DIR_PREFIX)) return line
     // The snippet is written from the app root; this entry is written INSIDE
-    // `.dawn/build`, so the same file is one directory-free hop away.
+    // `.b4/build`, so the same file is one directory-free hop away.
     const target = manifest ?? `./${specifier.slice(BUILD_DIR_PREFIX.length)}`
     return line.replace(`"${specifier}"`, `"${target}"`)
   })
@@ -184,8 +184,8 @@ afterEach(async () => {
 describe("the canonical Edge guide's composition skeleton, bundled as wrangler bundles", () => {
   test("presents the Hono host boundary as declaration-free JavaScript in host.mjs", async () => {
     const example = await readHostRouterExample()
-    expect(example).toContain('import { dawnApp } from "./dawn-edge.mjs"')
-    expect(example).toContain('app.route("/", dawnApp)')
+    expect(example).toContain('import { b4App } from "./b4-edge.mjs"')
+    expect(example).toContain('app.route("/", b4App)')
     expect(example).not.toMatch(/^\s*(?:interface|type)\s/m)
   })
 
@@ -196,7 +196,7 @@ describe("the canonical Edge guide's composition skeleton, bundled as wrangler b
     // Both targets in one build dir so `modules.mjs` and `modules.edge.mjs` sit
     // side by side: whichever one the docs name, it resolves, and the answer is
     // about the manifest's CONTENTS rather than about a missing file.
-    const appRoot = await createFixtureApp("dawn-docs-edge-snippet-", ["node", "hono"])
+    const appRoot = await createFixtureApp("b4-docs-edge-snippet-", ["node", "hono"])
     created.push(appRoot)
     const buildDir = await buildFixture(appRoot)
     expect(existsSync(join(buildDir, "modules.mjs"))).toBe(true)
@@ -214,7 +214,7 @@ describe("the canonical Edge guide's composition skeleton, bundled as wrangler b
   test("negative control: the node target's modules.mjs drags builtins in, so this can fail", async () => {
     const lines = importLines(await readCompositionSkeleton())
 
-    const appRoot = await createFixtureApp("dawn-docs-edge-snippet-control-", ["node", "hono"])
+    const appRoot = await createFixtureApp("b4-docs-edge-snippet-control-", ["node", "hono"])
     created.push(appRoot)
     const buildDir = await buildFixture(appRoot)
 

@@ -1,4 +1,4 @@
-import type { Thread, ThreadsStore } from "@dawn-ai/sqlite-storage"
+import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { readPendingInterrupts } from "./pending-interrupts.js"
 import { assertNoReservedKey } from "./thread-metadata.js"
@@ -41,7 +41,7 @@ import { assertNoReservedKey } from "./thread-metadata.js"
  * visible set is never a mixture of two routes' interrupts, and claiming all of
  * it on behalf of the turn that parked is not an over-claim.
  *
- * This is LangGraph's checkpoint semantics, not something Dawn enforces — it is
+ * This is LangGraph's checkpoint semantics, not something B4.run enforces — it is
  * stated here rather than defended in code because the alternative (having every
  * parked turn re-read the checkpoint to prove its own interrupts are the whole
  * set) would buy nothing: the comparison can only ever agree, and on the

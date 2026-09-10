@@ -3,11 +3,11 @@ import { HttpAgent, verifyEvents } from "@ag-ui/client"
 import { ActivitySnapshotEventSchema, EventType, type RunAgentInput } from "@ag-ui/core"
 import { lastValueFrom, toArray } from "rxjs"
 import { afterEach, expect, it } from "vitest"
-import { DAWN_PLAN_ACTIVITY_TYPE, DAWN_SUBAGENT_ACTIVITY_TYPE } from "../src/activities.ts"
+import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "../src/activities.ts"
 import { createCounterIdFactory } from "../src/ids.js"
 import { toAguiEvents } from "../src/outbound.js"
 import { encodeAgUiSse } from "../src/sse.js"
-import type { DawnAgentStreamChunk } from "../src/types.js"
+import type { B4AgentStreamChunk } from "../src/types.js"
 
 let server: Server | undefined
 afterEach(async () => {
@@ -32,7 +32,7 @@ const PLAN_TOOL_CALL_ID = "call_writeTodos_0_1"
 // activity correlates back to the root tool call that started it.
 const TASK_TOOL_CALL_ID = childIdentity.call_id
 
-const CANNED: DawnAgentStreamChunk[] = [
+const CANNED: B4AgentStreamChunk[] = [
   { type: "token", data: "Researching" },
   {
     type: "tool_call",
@@ -104,7 +104,7 @@ const CANNED: DawnAgentStreamChunk[] = [
   { type: "done", data: { messages: [] } },
 ]
 
-async function* toAsync(items: readonly DawnAgentStreamChunk[]) {
+async function* toAsync(items: readonly B4AgentStreamChunk[]) {
   yield* items
 }
 
@@ -188,7 +188,7 @@ it("produces an AG-UI stream that @ag-ui/client parses and verifyEvents accepts"
     .map((event) => ActivitySnapshotEventSchema.parse(event))
   expect(activities.length).toBeGreaterThan(0)
   expect(new Set(activities.map((activity) => activity.activityType))).toEqual(
-    new Set([DAWN_PLAN_ACTIVITY_TYPE, DAWN_SUBAGENT_ACTIVITY_TYPE]),
+    new Set([B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE]),
   )
   const serializedActivityContent = JSON.stringify(activities.map((activity) => activity.content))
   for (const privateValue of [

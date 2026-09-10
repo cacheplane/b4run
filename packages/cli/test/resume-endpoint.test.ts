@@ -8,7 +8,7 @@ import { startRuntimeServer } from "../src/lib/dev/runtime-server.js"
 
 const tempDirs: string[] = []
 const servers: Array<{ close: () => Promise<void> }> = []
-const CONCURRENT_RESUME_GATE = "__dawnConcurrentResumeGate"
+const CONCURRENT_RESUME_GATE = "__b4ConcurrentResumeGate"
 
 interface ConcurrentResumeGate {
   executions: number
@@ -115,7 +115,7 @@ describe("POST /threads/:thread_id/resume", () => {
 
   test("rejects an invalid resolved payload before checkpoint lookup", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": `
+      "b4.config.ts": `
         export default {
           checkpointer: {
             getTuple: async () => { throw new Error("checkpoint lookup must not run"); },
@@ -138,7 +138,7 @@ describe("POST /threads/:thread_id/resume", () => {
 
   test("rejects an invalid resolved payload when no checkpoint exists", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/noop/index.ts": "export const graph = async () => ({ ok: true });\n",
     })
@@ -350,7 +350,7 @@ describe("POST /threads/:thread_id/resume", () => {
 
   test("returns 404 when no checkpoint exists for the thread", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/noop/index.ts": "export const graph = async () => ({ ok: true });\n",
     })
@@ -409,7 +409,7 @@ async function postAgUiResume(
 }
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-resume-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-resume-"))
   tempDirs.push(appRoot)
 
   await Promise.all(
@@ -425,7 +425,7 @@ async function createFixtureApp(files: Readonly<Record<string, string>>) {
 
 async function createCheckpointFixtureApp(pendingWrites: readonly unknown[]) {
   return createFixtureApp({
-    "dawn.config.ts": `
+    "b4.config.ts": `
       let reads = 0;
       export default {
         checkpointer: {
@@ -444,7 +444,7 @@ async function createCheckpointFixtureApp(pendingWrites: readonly unknown[]) {
 
 async function createConcurrentResumeFixtureApp(pendingWrites: readonly unknown[]) {
   return createFixtureApp({
-    "dawn.config.ts": `
+    "b4.config.ts": `
       export default {
         checkpointer: {
           getTuple: async () => ({ pendingWrites: ${JSON.stringify(pendingWrites)} }),

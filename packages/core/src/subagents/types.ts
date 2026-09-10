@@ -1,6 +1,6 @@
-import type { DawnAgent, DelegationConstraintPredicate } from "@dawn-ai/sdk"
+import type { B4Agent, DelegationConstraintPredicate } from "@b4run/sdk"
 
-export type DescriptorRouteIndex = ReadonlyMap<DawnAgent, readonly string[]>
+export type DescriptorRouteIndex = ReadonlyMap<B4Agent, readonly string[]>
 
 export type ResolvedDelegationRule =
   | { readonly action: "allow" }

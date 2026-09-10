@@ -1,5 +1,5 @@
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import type { DawnToolContext } from "@dawn-ai/sdk"
+import type { PermissionsStore } from "@b4run/permissions"
+import type { B4ToolContext } from "@b4run/sdk"
 import { createWorkspaceHarness, type WorkspaceHarness } from "./workspace-harness.js"
 
 export interface ToolHarness<I, O> {
@@ -16,7 +16,7 @@ export interface ToolHarnessOptions {
 }
 
 export async function createToolHarness<I, O>(
-  tool: (input: I, ctx: DawnToolContext) => Promise<O> | O,
+  tool: (input: I, ctx: B4ToolContext) => Promise<O> | O,
   opts?: ToolHarnessOptions,
 ): Promise<ToolHarness<I, O>> {
   const ownsWorkspace = opts?.workspace === undefined
@@ -34,7 +34,7 @@ export async function createToolHarness<I, O>(
 
   return {
     async invoke(input) {
-      const ctx: DawnToolContext = {
+      const ctx: B4ToolContext = {
         signal: controller.signal,
         fs: workspace.fs,
         ...(opts?.middleware ? { middleware: opts.middleware } : {}),

@@ -4,7 +4,7 @@ export interface ResolveEnvPathOptions {
   readonly appRoot: string
   /** From the --env-file CLI flag. Highest precedence. */
   readonly flag?: string | undefined
-  /** From dawn.config.ts `env`. */
+  /** From b4.config.ts `env`. */
   readonly configEnv?: string | undefined
 }
 

@@ -4,12 +4,12 @@ import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, test } from "vitest"
 
 import { extractToolArtifactsForRoute } from "../src/compiler/index.ts"
-import { extractToolSchemasForRoute } from "../src/typegen/extract-tool-schema"
+import { extractToolSchemasForRoute } from "../src/typegen/extract-tool-schema.js"
 
 let tempDir: string
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), "dawn-dx-integration-"))
+  tempDir = mkdtempSync(join(tmpdir(), "b4-dx-integration-"))
 })
 
 afterEach(() => {
@@ -48,6 +48,7 @@ export default async (input: {
 
     expect(schemas).toHaveLength(1)
     const [schema] = schemas
+    if (!schema) throw new Error("Expected one extracted tool schema")
 
     expect(schema.name).toBe("search")
     expect(schema.description).toBe("Searches the knowledge base for relevant documents.")

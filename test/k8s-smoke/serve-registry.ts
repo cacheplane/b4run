@@ -3,7 +3,7 @@
 //   node_modules/.bin/tsx test/k8s-smoke/serve-registry.ts <url-file>
 //
 // Starts the SAME local registry the test harness uses (startLocalRegistry) and
-// publishes every public @dawn-ai/* package to it (publishWorkspace) — the exact
+// publishes every public @b4run/* package to it (publishWorkspace) — the exact
 // mechanism vitest's registry globalSetup runs, just hoisted into a long-lived
 // process so a shell step (build-image.sh's on-host + in-image installs) can
 // reach it. The chosen random port is written to <url-file> once publish

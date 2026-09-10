@@ -4,11 +4,11 @@ import { dirname, join } from "node:path"
 
 import { CliError, type CommandIo, formatErrorMessage, writeLine } from "../../output.js"
 
-const DAWN_VERCEL_BUILD_COMMAND = "node node_modules/@dawn-ai/cli/dist/index.js build"
+const B4_VERCEL_BUILD_COMMAND = "node node_modules/@b4run/cli/dist/index.js build"
 
 export const RECOMMENDED_VERCEL_CONFIG = {
   $schema: "https://openapi.vercel.sh/vercel.json",
-  buildCommand: DAWN_VERCEL_BUILD_COMMAND,
+  buildCommand: B4_VERCEL_BUILD_COMMAND,
   fluid: true,
 } as const
 
@@ -178,7 +178,7 @@ async function removeTemporaryConfig(temporaryPath: string): Promise<void> {
 }
 
 function temporaryConfigPath(targetPath: string): string {
-  return join(dirname(targetPath), `.dawn-vercel-config-${randomUUID()}.tmp`)
+  return join(dirname(targetPath), `.b4-vercel-config-${randomUUID()}.tmp`)
 }
 
 function filesystemError(action: string, targetPath: string, cause: unknown): CliError {
@@ -208,7 +208,7 @@ function ownProperty(record: Readonly<Record<string, unknown>> | undefined, key:
 function hasProvenBuildCommand(value: unknown): boolean {
   if (typeof value !== "string") return false
   const command = value.replace(/^[ \t]+|[ \t]+$/g, "")
-  return command.split(/[ \t]+/).join(" ") === DAWN_VERCEL_BUILD_COMMAND
+  return command.split(/[ \t]+/).join(" ") === B4_VERCEL_BUILD_COMMAND
 }
 
 function reconciliationWarning(input: {
@@ -221,7 +221,7 @@ function reconciliationWarning(input: {
     ...(input.buildCommandEstablished
       ? []
       : [
-          'the buildCommand contract (a string command demonstrably invoking "node_modules/@dawn-ai/cli/dist/index.js build")',
+          'the buildCommand contract (a string command demonstrably invoking "node_modules/@b4run/cli/dist/index.js build")',
         ]),
     ...(input.fluidEstablished ? [] : ["the required fluid: true contract"]),
   ]

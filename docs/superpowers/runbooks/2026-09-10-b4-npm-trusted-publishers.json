@@ -1,0 +1,251 @@
+{
+  "observedAt": "2026-09-10T04:45:05.109Z",
+  "repository": "cacheplane/b4run",
+  "workflow": "release.yml",
+  "packages": [
+    {
+      "name": "@b4run/ag-ui",
+      "id": "31ba52cd-63e2-40c3-94bf-0ff208431d90",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/config-biome",
+      "id": "5a2ceeaf-3967-4889-a4c0-3025deee109a",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/config-typescript",
+      "id": "6a62a252-ddb3-423d-a31e-b0dc3ec0fcc6",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/devkit",
+      "id": "c72f263e-aea6-466c-a90d-64d484c65e5f",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/sdk",
+      "id": "afc6f799-34d5-4836-9d60-bee5ee699a80",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/langgraph",
+      "id": "084cda98-a0e0-4168-887e-10129b5ab06d",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/permissions",
+      "id": "39b2e3d9-a1be-4c4a-8a87-881d7b83ca50",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/postgres-storage",
+      "id": "07e909da-a2c6-45e6-acd0-901ea240bac4",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/sqlite-storage",
+      "id": "e8ff0ba8-3e21-469b-85b4-fb9210ed0347",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/memory",
+      "id": "3b2f0006-c085-4fc6-b3ef-b4ab3b32bd08",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/memory-pgvector",
+      "id": "961e892d-be97-4c8f-8ce1-ed4a092426dd",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/workspace",
+      "id": "28460b8e-c85e-4c7a-82a2-5e5ad871973d",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/core",
+      "id": "a32d4e40-70d7-4636-9239-a266d33beb45",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/inspector",
+      "id": "d8a1bd56-7b60-42d5-b612-123a56360ef0",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/langchain",
+      "id": "9d7521c4-4403-4e43-a640-452e445902ec",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/cli",
+      "id": "e20ed713-33de-4a38-a057-827fb36d8426",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/sandbox",
+      "id": "f44688bb-a3e2-482a-9813-65a3de23fc56",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/testing",
+      "id": "a0d098c7-52ce-487a-aab4-8d1b8ec4530a",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/evals",
+      "id": "dceddf10-d156-4088-b0fe-911c91053742",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "@b4run/vite-plugin",
+      "id": "17f93181-882e-436f-ae30-411b27be2ada",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    },
+    {
+      "name": "create-b4-app",
+      "id": "8fe795d7-7c9c-42e5-96c9-e2e1b0a71c5e",
+      "type": "github",
+      "file": "release.yml",
+      "repository": "cacheplane/b4run",
+      "permissions": [
+        "createPackage",
+        "createStagedPackage"
+      ]
+    }
+  ],
+  "verifiedAt": "2026-09-10T04:47:33.416695+00:00",
+  "bootstrapRetirement": {
+    "githubSecretRemoved": true,
+    "githubVariableRemoved": true,
+    "npmTokenRevoked": true,
+    "tokenIdentification": "Owner confirmed npm token b4run, public token ID e7390e",
+    "releaseState": "AUDIT_COMPLETE",
+    "controllerRunId": 34350462235,
+    "activeWorkflowCountBeforeRemoval": 0,
+    "tokenRevokedAt": "2026-09-10T04:51:00.459Z",
+    "unrelatedTokensPreserved": true
+  },
+  "actualOidcPublicationFollowup": "https://github.com/cacheplane/b4run/issues/619"
+}

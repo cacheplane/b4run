@@ -1,5 +1,72 @@
 # @dawn-ai/evals
 
+## 0.8.29
+
+### Patch Changes
+
+- @b4run/testing@0.8.29
+
+## 0.8.28
+
+### Patch Changes
+
+- @b4run/testing@0.8.28
+
+## 0.8.27
+
+### Patch Changes
+
+- @b4run/testing@0.8.27
+
+## 0.8.26
+
+### Patch Changes
+
+- @dawn-ai/testing@0.8.26
+
+## 0.8.25
+
+### Patch Changes
+
+- @dawn-ai/testing@0.8.25
+
+## 0.8.24
+
+### Patch Changes
+
+- @dawn-ai/testing@0.8.24
+
+## 0.8.23
+
+### Patch Changes
+
+- 7e62bb1: Refresh the GitHub and npm documentation surfaces, add package discovery
+  metadata, and introduce reproducible product-loop media. No runtime API changed.
+- Updated dependencies [7e62bb1]
+  - @dawn-ai/testing@0.8.23
+
+## 0.8.22
+
+### Patch Changes
+
+- a530e70: Documentation only: this package gains a canonical API reference on dawnai.org
+  and a concise npm entrypoint. No runtime behavior changed. (`dawn docs` also
+  now discovers every registered detailed API page.)
+- 5c68311: Evaluate regular expression compilation and matching inside a fresh, time-bounded
+  Node context, reject over-limit expression sources and matcher inputs, and make
+  global and sticky expression matching deterministic across repeated calls.
+- Updated dependencies [a530e70]
+- Updated dependencies [5c68311]
+- Updated dependencies [3c68800]
+- Updated dependencies [8398c90]
+- Updated dependencies [f5fae17]
+- Updated dependencies [3c68800]
+- Updated dependencies [3c68800]
+- Updated dependencies [984c3ad]
+- Updated dependencies [496b54c]
+- Updated dependencies [67030fa]
+  - @dawn-ai/testing@0.8.22
+
 ## 0.8.21
 
 ### Patch Changes

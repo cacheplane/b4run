@@ -1,13 +1,13 @@
 # Configuration Reference
 
-`dawn.config.ts` is the typed application contract at the app root. The CLI
-uses it with `package.json` to find a Dawn app, so the file is required even
-though every `DawnConfig` field is optional. Node processes load the module once;
-`dawn dev` picks up an edit by restarting its child runtime. Filesystem-free
+`b4.config.ts` is the typed application contract at the app root. The CLI
+uses it with `package.json` to find a B4.run app, so the file is required even
+though every `B4Config` field is optional. Node processes load the module once;
+`b4 dev` picks up an edit by restarting its child runtime. Filesystem-free
 runtimes receive an already-constructed config object instead of loading this
 file.
 
-Use [`dawn verify`](/docs/cli) to check the config, route tree, Node version,
+Use [`b4 verify`](/docs/cli) to check the config, route tree, Node version,
 provider credentials, and configured sandbox preflight before serving the app.
 
 ## Complete annotated example
@@ -15,8 +15,8 @@ provider credentials, and configured sandbox preflight before serving the app.
 This file is copyable as written. Uncomment the instance-valued fields only
 after importing or constructing the corresponding implementation.
 
-```ts title="dawn.config.ts"
-import { config } from "@dawn-ai/core"
+```ts title="b4.config.ts"
+import { config } from "@b4run/core"
 
 export default config({
   appDir: "src/app",
@@ -34,11 +34,11 @@ export default config({
     // store: sharedPermissionsStore,
   },
 
-  // Defaults are local SQLite/file stores under .dawn/.
+  // Defaults are local SQLite/file stores under .b4/.
   // checkpointer: sharedCheckpointer,
   // threadsStore: sharedThreadsStore,
 
-  // Used by dawn dev/inspect; dawn start receives env from its host.
+  // Used by b4 dev/inspect; b4 start receives env from its host.
   env: "./.env",
 
   toolOutput: {
@@ -60,6 +60,14 @@ export default config({
   },
 
   build: { targets: ["node", "langsmith"] },
+
+  // Cross-origin access. Omit and the runtime sends no `Access-Control-*`
+  // header at all, so a browser on another origin cannot call it — the
+  // default, because opening a server to other origins is a deployment
+  // decision. `localhost` and `127.0.0.1` are different origins to a browser.
+  server: {
+    cors: { origins: ["https://app.example.com"] },
+  },
 
   // sandbox: {
   //   provider: dockerSandbox({ image: "node:24-slim" }),
@@ -130,7 +138,7 @@ appDir?: string
 ```
 
 Default: `"src/app"`. The path is relative to the app root and selects the tree
-where Dawn discovers route `index.ts` files. An authored value replaces the
+where B4.run discovers route `index.ts` files. An authored value replaces the
 default; there is no environment override. Keep it inside the app root. See
 [Routes](/docs/routes) for the discovered layout.
 
@@ -161,8 +169,8 @@ permissions?: {
 ```
 
 Without a custom store, the defaults are `mode: "interactive"`, empty config
-maps, and `.dawn/permissions.json` for persisted interactive decisions.
-`DAWN_PERMISSIONS_MODE` overrides `permissions.mode`; a deny match beats an
+maps, and `.b4/permissions.json` for persisted interactive decisions.
+`B4_PERMISSIONS_MODE` overrides `permissions.mode`; a deny match beats an
 allow match. The reserved `tool` and `subagent` keys use exact matching, while
 resource paths, bash commands, and memory scopes use prefix matching.
 
@@ -175,7 +183,7 @@ interrupt/resume lifecycle.
 
 A supplied `PermissionsStore` replaces the file-backed store and is loaded
 before use. The custom store owns its mode and allow/deny policy: sibling
-`permissions.mode`, `allow`, `deny`, and `DAWN_PERMISSIONS_MODE` are not applied
+`permissions.mode`, `allow`, `deny`, and `B4_PERMISSIONS_MODE` are not applied
 again. In an embedded runtime, a boot-supplied store takes precedence over this
 config field.
 
@@ -185,7 +193,7 @@ config field.
 checkpointer?: BaseCheckpointSaver
 ```
 
-Default: SQLite at `.dawn/checkpoints.sqlite`. A boot-supplied checkpointer
+Default: SQLite at `.b4/checkpoints.sqlite`. A boot-supplied checkpointer
 takes precedence, then this field, then the default. Checkpoints hold graph
 state; they are not thread metadata. See [Persistence and
 Tenancy](/docs/persistence) before sharing or deleting state across replicas.
@@ -196,7 +204,7 @@ Tenancy](/docs/persistence) before sharing or deleting state across replicas.
 threadsStore?: ThreadsStore
 ```
 
-Default: SQLite at `.dawn/threads.sqlite`. A boot-supplied thread store takes
+Default: SQLite at `.b4/threads.sqlite`. A boot-supplied thread store takes
 precedence, then this field, then the default. It stores Agent Protocol thread
 metadata, not graph checkpoints; configure both stores when replicas share
 threads. See [Persistence and Tenancy](/docs/persistence) for the storage
@@ -208,10 +216,10 @@ boundary and deletion order.
 env?: string
 ```
 
-Default: `"./.env"`, relative to the app root. For `dawn dev` and `dawn
+Default: `"./.env"`, relative to the app root. For `b4 dev` and `b4
 inspect`, precedence is `--env-file`, then `config.env`, then the default.
-`dawn verify` checks the resolved file without loading it into the current
-process. `config.env` is loaded by `dawn dev` and `dawn inspect`, not by `dawn
+`b4 verify` checks the resolved file without loading it into the current
+process. `config.env` is loaded by `b4 dev` and `b4 inspect`, not by `b4
 start`; production variables must come from the shell or hosting platform.
 
 The LangSmith artifact independently chooses `.env.example` when present and
@@ -240,7 +248,7 @@ their individual defaults.
 
 Offloaded data lives under `workspace/tool-outputs/`; retention is a context
 budget, not durable storage. A non-empty block is incompatible with the
-filesystem-free Hono target (`DAWN_E1005`). See [Context
+filesystem-free Hono target (`B4_E1005`). See [Context
 Management](/docs/context-management) for retrieval and cleanup behavior.
 
 ### `summarization`
@@ -362,7 +370,7 @@ memory?: {
 
 The route's `memory.ts`, not `memory.enabled`, opts into typed memory;
 `enabled` is an inert compatibility field. Defaults are SQLite at
-`.dawn/memory.sqlite`, `writes: "candidate"`, and `indexMaxEntries: 20`.
+`.b4/memory.sqlite`, `writes: "candidate"`, and `indexMaxEntries: 20`.
 Keyword recall defaults to relevance/recency/confidence weights
 `0.6`/`0.3`/`0.1`, a 14-day half-life, and a `256`-record candidate pool.
 Vector recall is absent by default; when present it requires `embedder` and
@@ -384,6 +392,61 @@ Retrieval](/docs/memory/retrieval) for ranking, [Episodes](/docs/memory/episodes
 for run history, and [Distillation](/docs/memory/distillation) for explicit
 consolidation and reflection.
 
+### `server`
+
+```ts
+server?: {
+  cors?: {
+    origins: readonly string[] | "*"
+    credentials?: boolean
+    methods?: readonly string[]
+    headers?: readonly string[]
+    exposeHeaders?: readonly string[]
+    maxAgeSeconds?: number
+  }
+}
+```
+
+Absent by default, and absence means **no `Access-Control-*` header on any
+response** — a browser on another origin cannot call `/agui/*`, `/threads/*` or
+`/memory/*`, and `OPTIONS` falls through to the router's 404. Opening a server
+to other origins is a deployment decision, so nothing here is inferred.
+
+Set it when a browser client talks to B4.run directly instead of through a
+same-origin proxy:
+
+```ts
+server: { cors: { origins: ["https://app.example.com"] } }
+```
+
+Origins are compared exactly, after normalizing case and a trailing slash, so
+`"HTTP://LocalHost:3010/"` matches an `Origin: http://localhost:3010`. Note that
+`localhost` and `127.0.0.1` are *different* origins — list both if your dev
+client may be opened at either.
+
+The policy is resolved and validated once at boot, so a malformed origin list
+fails on startup rather than on the first cross-origin request. `origins: "*"`
+with `credentials: true` is rejected outright: browsers refuse a wildcard
+allow-origin on a credentialed request, and accepting it would produce a server
+that looks configured and fails only in the console.
+
+Defaults for the rest: `credentials` false; `methods` `GET, POST, DELETE,
+OPTIONS`; `headers` echoes the browser's own
+`Access-Control-Request-Headers` (so an app can add an auth header without
+changing server config); `exposeHeaders` empty; `maxAgeSeconds` 600.
+
+Two behaviors worth knowing. A request from an origin **not** on the list is
+still served normally — it just carries no CORS header, and the browser is what
+refuses to hand it to the page; answering 403 there would break every
+non-browser client that happens to send an `Origin`. And error responses are
+stamped too, including the shutdown 503, because a cross-origin caller that
+cannot read a 404 sees only an opaque CORS failure.
+
+CORS is not authentication. It controls which origins a browser will let read a
+response; it does not decide who may call the server. Pair it with
+[`defineThreadAccess`](/docs/thread-access).
+
+
 ## Postgres backend
 
 Shared Postgres persistence requires three explicit entries: the checkpointer,
@@ -391,16 +454,16 @@ thread store, and permission store. They are separate because checkpoints,
 thread metadata, and runtime grants have different contracts.
 
 ```bash
-pnpm add @dawn-ai/postgres-storage pg
+pnpm add @b4run/postgres-storage pg
 ```
 
-```ts title="dawn.config.ts"
-import { config } from "@dawn-ai/core"
+```ts title="b4.config.ts"
+import { config } from "@b4run/core"
 import {
   createPostgresPermissionsStore,
   createPostgresThreadsStore,
   postgresCheckpointer,
-} from "@dawn-ai/postgres-storage"
+} from "@b4run/postgres-storage"
 import { Pool } from "pg"
 
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL })
@@ -418,7 +481,7 @@ export default config({
 ```
 
 Attach an `error` listener to an injected `pg.Pool`. The application owns the pool
-and must end it after Dawn has stopped accepting and draining requests;
+and must end it after B4.run has stopped accepting and draining requests;
 the stores do not close an injected pool. Postgres shares durable rows, but it
 does not distribute active-run or cancel coordination between processes. Use
 sticky or thread-aware routing, or provide a distributed coordination layer.

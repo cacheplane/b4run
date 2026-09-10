@@ -1,4 +1,4 @@
-import type { AgentRunResult } from "@dawn-ai/testing"
+import type { AgentRunResult } from "@b4run/testing"
 import type { EvalCase, Scorer } from "./types.js"
 
 type FetchImpl = (input: string, init: RequestInit) => Promise<Response>

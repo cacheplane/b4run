@@ -3,7 +3,7 @@
 // args: env "staging" → true (allow), env "prod" → { approve: true } (fires a
 // LangGraph interrupt of kind "tool"), anything else → a deny string returned as
 // the tool RESULT. The escalation path's resume("always") would persist
-// allow.tool into <appRoot>/.dawn/permissions.json, so clean it between
+// allow.tool into <appRoot>/.b4/permissions.json, so clean it between
 // scenarios. Runs in CI (no API key — aimock).
 import { rmSync } from "node:fs"
 import { join } from "node:path"
@@ -15,7 +15,7 @@ import { expectInterrupt, expectNoInterrupt, expectToolCalled } from "../src/mat
 import type { AgentRunResult } from "../src/run-result.js"
 
 const probeRoot = fileURLToPath(new URL("./fixtures/probe-app", import.meta.url))
-const permissionsPath = join(probeRoot, ".dawn", "permissions.json")
+const permissionsPath = join(probeRoot, ".b4", "permissions.json")
 
 function cleanPersistedState(): void {
   // The { approve: true } escalation, if resumed "always", persists allow.tool

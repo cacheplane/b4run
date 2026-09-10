@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { join } from "node:path"
-import type { Embedder } from "@dawn-ai/core"
-import type { MemoryStore, RecallRankingOptions, VectorRankingOptions } from "@dawn-ai/memory"
+import type { Embedder } from "@b4run/core"
+import type { MemoryStore, RecallRankingOptions, VectorRankingOptions } from "@b4run/memory"
 
 import { importCore, importCoreNode, importMemory } from "./runtime-imports"
 
@@ -18,7 +18,7 @@ export function resolveStore(): Promise<ResolvedStore> {
   if (!cached) {
     const attempt = doResolve()
     // Don't cache rejections: a transient failure would otherwise poison the
-    // process. Note a FIXED dawn.config.ts still needs a server restart — the
+    // process. Note a FIXED b4.config.ts still needs a server restart — the
     // ESM module cache holds the previously imported config module.
     attempt.catch(() => {
       if (cached === attempt) cached = undefined
@@ -30,7 +30,7 @@ export function resolveStore(): Promise<ResolvedStore> {
 
 /**
  * resolveStore(), with rejections mapped onto the routes' {error} JSON
- * contract: a missing/typo'd DAWN_APP_ROOT or broken dawn.config.ts must reach
+ * contract: a missing/typo'd B4_APP_ROOT or broken b4.config.ts must reach
  * the UI as JSON {error}, not Next's generic non-JSON 500 page.
  */
 export async function storeOr500(): Promise<ResolvedStore | Response> {
@@ -43,25 +43,25 @@ export async function storeOr500(): Promise<ResolvedStore | Response> {
 }
 
 async function doResolve(): Promise<ResolvedStore> {
-  const appRoot = process.env.DAWN_APP_ROOT
-  if (!appRoot) throw new Error("DAWN_APP_ROOT env var is required to start the Dawn inspector")
+  const appRoot = process.env.B4_APP_ROOT
+  if (!appRoot) throw new Error("B4_APP_ROOT env var is required to start the B4.run inspector")
   if (!existsSync(appRoot)) {
     // A typo'd path must fail loudly — otherwise we'd silently create
-    // <typo>/.dawn/memory.sqlite below and serve an empty store.
-    throw new Error(`DAWN_APP_ROOT points at a nonexistent directory: ${appRoot}`)
+    // <typo>/.b4/memory.sqlite below and serve an empty store.
+    throw new Error(`B4_APP_ROOT points at a nonexistent directory: ${appRoot}`)
   }
   const { sqliteMemoryStore } = await importMemory()
-  const configPath = join(appRoot, "dawn.config.ts")
+  const configPath = join(appRoot, "b4.config.ts")
   if (!existsSync(configPath)) {
-    return { store: sqliteMemoryStore({ path: join(appRoot, ".dawn", "memory.sqlite") }), appRoot }
+    return { store: sqliteMemoryStore({ path: join(appRoot, ".b4", "memory.sqlite") }), appRoot }
   }
   // Present but broken must THROW (actionable), not silently fall back.
-  const { loadDawnConfig } = await importCore()
+  const { loadB4Config } = await importCore()
   // The memo dispatches through a registered loader; the disk one ships from
   // the node subpath, and this server process is the one that has to opt in.
   const { registerNodeConfigLoader } = await importCoreNode()
   registerNodeConfigLoader()
-  const loaded = await loadDawnConfig({ appRoot })
+  const loaded = await loadB4Config({ appRoot })
   const memory = loaded.config.memory
   const embedder = memory?.vector?.embedder
   let store: MemoryStore
@@ -89,7 +89,7 @@ async function doResolve(): Promise<ResolvedStore> {
       }
     }
     store = sqliteMemoryStore({
-      path: join(appRoot, ".dawn", "memory.sqlite"),
+      path: join(appRoot, ".b4", "memory.sqlite"),
       ...(recall ? { recall } : {}),
       ...(vector ? { vector } : {}),
     })

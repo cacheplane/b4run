@@ -27,7 +27,7 @@ const pkgRoot = resolve(dirname(new URL(import.meta.url).pathname), "..")
 /**
  * Externals for the graph under test. Deliberately short: the model/provider
  * layer is the app's concern (and langgraph's `async_hooks` use is a
- * documented `nodejs_compat` allowance), so it is excluded — but every Dawn
+ * documented `nodejs_compat` allowance), so it is excluded — but every B4.run
  * package (and zod) is BUNDLED, which is the whole point of the gate. `node:*`
  * is external only so the bundle resolves; the assertions below are what
  * decide whether a `node:` import is acceptable.
@@ -48,7 +48,7 @@ const LOADER_EXTERNALS = ["tsx", "tsx/*", "typescript", "esbuild"]
  * and its code (what the functional proof executes).
  *
  * IMPORTANT — the gate reads BUILT output for the workspace packages: every
- * `@dawn-ai/*` specifier resolves through the workspace link to that package's
+ * `@b4run/*` specifier resolves through the workspace link to that package's
  * `dist/`, because that is what its `exports` map points at. A new `node:`
  * import added to, say, `packages/core/src` is therefore INVISIBLE to the
  * assertions below until `pnpm build` has run. CI builds before it tests, so
@@ -132,7 +132,7 @@ const NODE_ONLY_GLOBALS = [
 ] as const
 
 function sentinelFor(name: string): string {
-  return `__DAWN_NODE_GLOBAL_${name}__`
+  return `__B4_NODE_GLOBAL_${name}__`
 }
 
 /**
@@ -152,16 +152,16 @@ const GLOBAL_SENTINEL_DEFINES: Record<string, string> = Object.fromEntries(
 )
 
 /**
- * Externalize every non-Dawn package so the bundle holds ONLY code this repo
+ * Externalize every non-B4.run package so the bundle holds ONLY code this repo
  * owns. Third-party code legitimately uses short-circuit guards we cannot
  * refactor, so the zero-tolerance rule can only be applied to our own sources.
  */
-const externalizeNonDawn: Plugin = {
-  name: "externalize-non-dawn",
+const externalizeNonB4: Plugin = {
+  name: "externalize-non-b4",
   setup(pluginBuild) {
     // Bare specifiers only — relative and absolute paths must still resolve.
     pluginBuild.onResolve({ filter: /^[^./]/ }, (args) =>
-      args.path.startsWith("@dawn-ai/") ? null : { external: true, path: args.path },
+      args.path.startsWith("@b4run/") ? null : { external: true, path: args.path },
     )
   },
 }
@@ -171,7 +171,7 @@ const externalizeNonDawn: Plugin = {
  * and hand back the code so the assertions can read it.
  */
 async function bundleWithGlobalSentinels(source: {
-  readonly dawnOnly?: boolean
+  readonly b4Only?: boolean
   readonly entry?: string
   readonly extraExternals?: readonly string[]
   readonly stdin?: string
@@ -188,7 +188,7 @@ async function bundleWithGlobalSentinels(source: {
     mainFields: ["module", "main"],
     outfile: join(pkgRoot, "fetch-entry-purity.sentinel.bundle.mjs"),
     platform: "browser",
-    ...(source.dawnOnly ? { plugins: [externalizeNonDawn] } : {}),
+    ...(source.b4Only ? { plugins: [externalizeNonB4] } : {}),
     ...(source.stdin
       ? { stdin: { contents: source.stdin, loader: "js" as const, resolveDir: pkgRoot } }
       : {}),
@@ -222,7 +222,7 @@ interface GlobalReference {
  * a neighbouring statement, because the boundary scan cuts it off.
  *
  * Where it is imprecise it is deliberately imprecise in the SAFE direction for
- * Dawn's own code, because Dawn's code is held to the stricter rule below that
+ * B4.run's own code, because B4.run's code is held to the stricter rule below that
  * ignores this function entirely.
  */
 function isTypeofGuarded(line: string, at: number, sentinel: string): boolean {
@@ -270,9 +270,9 @@ function describeReferences(refs: readonly GlobalReference[]): string[] {
  */
 const DIRTY_GLOBALS_FIXTURE = [
   // The exact shape of the shipped defect: unguarded, load-bearing config read.
-  'export const unguardedEnv = process.env.DAWN_FIXTURE_BASE_URL ?? ""',
+  'export const unguardedEnv = process.env.B4_FIXTURE_BASE_URL ?? ""',
   "export const unguardedDirname = __dirname",
-  'export const guardedEnv = typeof process === "undefined" ? "" : process.env.DAWN_FIXTURE_FLAG',
+  'export const guardedEnv = typeof process === "undefined" ? "" : process.env.B4_FIXTURE_FLAG',
   'export const guardedBuffer = typeof Buffer === "undefined" ? 0 : Buffer.byteLength("x")',
 ].join("\n")
 
@@ -289,7 +289,7 @@ function nodeImportEdges(metafile: Metafile): string[] {
   return [...edges].sort()
 }
 
-/** The same, restricted to files `@dawn-ai/cli` itself owns. */
+/** The same, restricted to files `@b4run/cli` itself owns. */
 function ownNodeImportEdges(metafile: Metafile): string[] {
   return nodeImportEdges(metafile).filter((edge) => edge.includes("<- src/"))
 }
@@ -314,14 +314,14 @@ function graphInputs(metafile: Metafile): string[] {
 // The gate is CLOSED: the upstream ratchet inventory that used to live here
 // (`KNOWN_UPSTREAM_NODE_EDGES`) and its loader counterpart are gone, replaced
 // by strict equality against zero. Every package the fetch graph reaches now
-// has the same pure/node split `@dawn-ai/cli` has; the last edges — core's
+// has the same pure/node split `@b4run/cli` has; the last edges — core's
 // path jail — moved to the pure helpers behind an adversarial containment
 // suite (`packages/core/test/capabilities/path-jail-adversarial.test.ts`).
 // A new `node:` import anywhere in the graph fails here, and there is no
 // inventory to add it to.
 
-describe("@dawn-ai/cli/fetch graph purity", () => {
-  it("contains no node: import from any @dawn-ai/cli source file", async () => {
+describe("@b4run/cli/fetch graph purity", () => {
+  it("contains no node: import from any @b4run/cli source file", async () => {
     const { metafile } = await bundle("fetch-exports.ts")
     expect(ownNodeImportEdges(metafile)).toEqual([])
   }, 120_000)
@@ -361,16 +361,16 @@ describe("@dawn-ai/cli/fetch graph purity", () => {
     expect(refs.length).toBeGreaterThan(0)
   }, 120_000)
 
-  it("references no Node-only global AT ALL from Dawn-owned code", async () => {
-    // The strict rule, and the one that holds the line. Dawn code has a seam
-    // for this — `readRuntimeEnv` from `@dawn-ai/core`, which reads
+  it("references no Node-only global AT ALL from B4.run-owned code", async () => {
+    // The strict rule, and the one that holds the line. B4.run code has a seam
+    // for this — `readRuntimeEnv` from `@b4run/core`, which reads
     // `globalThis.process?.env` (a property access off a global every runtime
     // defines) and falls back to whatever `seedRuntimeEnv` supplied. Because
     // that seam exists, our own sources need no `typeof` guard anywhere, so
     // this assertion does not have to trust the heuristic above at all.
-    const code = await bundleWithGlobalSentinels({ dawnOnly: true, entry: "fetch-exports.ts" })
+    const code = await bundleWithGlobalSentinels({ b4Only: true, entry: "fetch-exports.ts" })
     expect(describeReferences(findNodeGlobalReferences(code))).toEqual([])
-    // Non-vacuity: prove the Dawn graph really is in this bundle, and that the
+    // Non-vacuity: prove the B4.run graph really is in this bundle, and that the
     // sanctioned accessor is what replaced the bare reads.
     expect(code).toContain("globalThis.process")
   }, 120_000)
@@ -439,7 +439,7 @@ describe("@dawn-ai/cli/fetch graph purity", () => {
  * out of the repo means no build artifact can be left behind by a crashed run.
  */
 async function writeBundle(code: string): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "dawn-fetch-bundle-"))
+  const dir = await mkdtemp(join(tmpdir(), "b4-fetch-bundle-"))
   cleanup.push(() => rm(dir, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   await symlink(join(pkgRoot, "..", "langchain", "node_modules"), join(dir, "node_modules"), "dir")
   const bundlePath = join(dir, "bundle.mjs")
@@ -451,7 +451,7 @@ afterEach(async () => {
   for (const fn of cleanup.splice(0).reverse()) await fn()
 })
 
-describe("@dawn-ai/cli/fetch — bundled runtime serves a turn", () => {
+describe("@b4run/cli/fetch — bundled runtime serves a turn", () => {
   it("boots from the bundle with injected stores and streams AG-UI events", async () => {
     const appRoot = await chatFixtureApp()
     const modules = await buildStaticModulesForFixture(appRoot)

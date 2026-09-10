@@ -1,4 +1,4 @@
-import type { RouteManifest } from "@dawn-ai/core"
+import type { RouteManifest } from "@b4run/core"
 import type { CommandIo } from "../../output.js"
 import { honoTarget } from "./hono.js"
 import { langsmithTarget } from "./langsmith.js"
@@ -12,9 +12,9 @@ import { vercelTarget } from "./vercel.js"
  * through unreshaped.
  */
 export interface BuildEmitContext {
-  /** Absolute path to the Dawn app root. */
+  /** Absolute path to the B4.run app root. */
   readonly appRoot: string
-  /** Absolute path to the build output directory (`<appRoot>/.dawn/build`). */
+  /** Absolute path to the build output directory (`<appRoot>/.b4/build`). */
   readonly buildDir: string
   /** The discovered route manifest (routes + appRoot). */
   readonly manifest: RouteManifest
@@ -23,7 +23,7 @@ export interface BuildEmitContext {
 }
 
 /**
- * A pluggable `dawn build` output target. Each target emits one flavor of
+ * A pluggable `b4 build` output target. Each target emits one flavor of
  * deployment artifact (a Node/Docker bundle, a LangSmith config, …) and
  * returns the absolute paths it wrote.
  */
@@ -46,9 +46,9 @@ export const buildTargets: Readonly<Record<string, BuildTarget>> = {
  * Default targets emitted when `config.build.targets` is not set.
  *
  * `hono` and `vercel` are deliberately absent: edge targets serve an honest
- * SUBSET of Dawn (no sandbox, no workspace tooling) and need durable stores
+ * SUBSET of B4.run (no sandbox, no workspace tooling) and need durable stores
  * configured, so they are opt-in via `build: { targets: [...] }` rather than
- * something every `dawn build` starts emitting.
+ * something every `b4 build` starts emitting.
  */
 export const DEFAULT_BUILD_TARGETS: readonly string[] = ["node", "langsmith"]
 

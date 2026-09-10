@@ -1,11 +1,11 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { NormalizedRouteModule } from "@dawn-ai/core"
+import type { NormalizedRouteModule } from "@b4run/core"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { createRuntimeRegistry } from "../src/lib/dev/runtime-registry.js"
-import type { DawnStaticModules, StaticRouteModule } from "../src/lib/runtime/static-modules.js"
+import type { B4StaticModules, StaticRouteModule } from "../src/lib/runtime/static-modules.js"
 
 const cleanup: Array<() => Promise<void> | void> = []
 
@@ -22,7 +22,7 @@ function fakeNormalizedModule(): NormalizedRouteModule {
   }
 }
 
-function buildStaticModules(): DawnStaticModules {
+function buildStaticModules(): B4StaticModules {
   const route: StaticRouteModule = {
     assistantId: "/probe#workflow",
     kind: "workflow",
@@ -77,7 +77,7 @@ describe("createRuntimeRegistry — static modules short-circuit", () => {
   })
 
   it("keeps multiple static routes independently addressable", async () => {
-    const modules: DawnStaticModules = {
+    const modules: B4StaticModules = {
       routes: [
         {
           assistantId: "/chat#agent",
@@ -114,11 +114,11 @@ describe("createRuntimeRegistry — static modules short-circuit", () => {
 
 describe("createRuntimeRegistry — without modules (existing dynamic behavior)", () => {
   async function fixtureApp(): Promise<string> {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-static-registry-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-static-registry-"))
     cleanup.push(() =>
       rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }),
     )
-    await writeFixtureFile(appRoot, "dawn.config.ts", "export default {}\n")
+    await writeFixtureFile(appRoot, "b4.config.ts", "export default {}\n")
     await writeFixtureFile(
       appRoot,
       "package.json",

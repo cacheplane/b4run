@@ -23,7 +23,7 @@ Seed it with markdown checklist items:
 - [ ] Write the final response
 ```
 
-When the route runs, Dawn adds four things:
+When the route runs, B4.run adds four things:
 
 - a `writeTodos` tool
 - a `todos` state channel
@@ -48,7 +48,7 @@ Other markdown is ignored. Empty checklist items are ignored. Seed items can sta
 
 If `plan.md` exists but is empty, the route still opts into planning and starts with an empty todo list.
 
-Dawn skips seed loading for files larger than 64 KiB. The capability still exists, but the initial todo list is empty.
+B4.run skips seed loading for files larger than 64 KiB. The capability still exists, but the initial todo list is empty.
 
 ## The `writeTodos` tool
 
@@ -88,9 +88,9 @@ The LangChain bridge turns that into a state update so later model turns see the
 
 Planning contributes a `todos` state field with a `replace` reducer.
 
-Do not also declare a `todos` field in `state.ts`. Dawn treats that as a capability conflict and fails route preparation with a message telling you to remove either the state field or the planning marker file.
+Do not also declare a `todos` field in `state.ts`. B4.run treats that as a capability conflict and fails route preparation with a message telling you to remove either the state field or the planning marker file.
 
-Do not create a route-local tool named `writeTodos`. Dawn treats user tools and capability tools with the same name as a conflict.
+Do not create a route-local tool named `writeTodos`. B4.run treats user tools and capability tools with the same name as a conflict.
 
 The planning prompt fragment is re-rendered with the current state. If there are todos, the model sees:
 
@@ -110,7 +110,7 @@ That prompt is what keeps the plan visible between tool calls.
 
 ## Streaming
 
-When `runs/stream` sees a `writeTodos` tool result, Dawn emits:
+When `runs/stream` sees a `writeTodos` tool result, B4.run emits:
 
 ```json
 {
@@ -132,7 +132,7 @@ Use `/threads/:id/runs/wait` when you only need the final output. Use `/threads/
 
 ## Generated types
 
-`dawn typegen` includes `writeTodos` in the generated route tool types when the route directory contains `plan.md`.
+`b4 typegen` includes `writeTodos` in the generated route tool types when the route directory contains `plan.md`.
 
 That makes the tool visible to route-aware TypeScript surfaces, but planning is still only applied automatically to `agent()` routes at runtime. The contributed `todos` state field is runtime state; generated route state types still come from `state.ts`.
 
@@ -140,7 +140,7 @@ That makes the tool visible to route-aware TypeScript surfaces, but planning is 
 
 Planning is implemented by `createPlanningMarker()`.
 
-During agent route preparation, Dawn detects `plan.md`, reads seed todos with the checklist parser, contributes the `writeTodos` tool, contributes the `todos` state field, and contributes a stream transformer that watches tool results.
+During agent route preparation, B4.run detects `plan.md`, reads seed todos with the checklist parser, contributes the `writeTodos` tool, contributes the `todos` state field, and contributes a stream transformer that watches tool results.
 
 The stream transformer accepts both direct `{ todos }` outputs and LangGraph Command-shaped outputs where the update is stored at `update.todos`. That keeps planning events stable across the current LangChain bridge path.
 

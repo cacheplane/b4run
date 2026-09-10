@@ -6,8 +6,8 @@ import {
   type ThreadAccessPolicy,
   type ThreadAccessRequest,
   type ThreadAccessResult,
-} from "@dawn-ai/sdk"
-import type { Thread, ThreadsStore } from "@dawn-ai/sqlite-storage"
+} from "@b4run/sdk"
+import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -24,7 +24,7 @@ const TRIVIAL_ROUTE = "export const graph = async () => ({ ok: true })\n"
 /**
  * A handler over a scratch app. `threadAccess` is injected through
  * `StartRuntimeServerOptions` rather than written to disk: `packages/cli`
- * cannot import `@dawn-ai/testing` (not a dependency, and the reverse edge
+ * cannot import `@b4run/testing` (not a dependency, and the reverse edge
  * would be a build cycle), so the injector's own option is exercised from
  * `packages/testing/test/thread-access-harness.test.ts` instead.
  */
@@ -35,10 +35,10 @@ async function setup(
     readonly threadsStore?: ThreadsStore
   } = {},
 ): Promise<{ readonly handler: Awaited<ReturnType<typeof createRuntimeFetchHandler>> }> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-thread-access-endpoints-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-thread-access-endpoints-"))
   cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "thread-access-endpoints-fixture", "type": "module" }\n',
     "src/app/hello/index.ts": TRIVIAL_ROUTE,
   }
@@ -114,10 +114,10 @@ function capturingThreadsStore(captured: Array<Record<string, unknown> | undefin
 }
 
 describe("POST /threads with no policy installed", () => {
-  it("drops a client-supplied dawn:access and keeps every sibling", async () => {
+  it("drops a client-supplied b4:access and keeps every sibling", async () => {
     const { handler } = await setup()
     const response = await handler.fetch(
-      post("/threads", { metadata: { "dawn:access": { ownerId: "attacker" }, keep: 1 } }),
+      post("/threads", { metadata: { "b4:access": { ownerId: "attacker" }, keep: 1 } }),
     )
     expect(response.status).toBe(200)
     const thread = (await response.json()) as { metadata: Record<string, unknown> }
@@ -148,7 +148,7 @@ describe("POST /threads with no policy installed", () => {
   it("still round-trips the stored metadata through GET /threads/:thread_id", async () => {
     const { handler } = await setup()
     const created = await handler.fetch(
-      post("/threads", { metadata: { "dawn:access": { ownerId: "attacker" }, keep: 1 } }),
+      post("/threads", { metadata: { "b4:access": { ownerId: "attacker" }, keep: 1 } }),
     )
     const { thread_id } = (await created.json()) as { thread_id: string }
     const fetched = await handler.fetch(get(`/threads/${thread_id}`))
@@ -166,7 +166,7 @@ describe("POST /threads with no policy installed", () => {
     const { handler } = await setup({ threadsStore: capturingThreadsStore(captured) })
     const response = await handler.fetch(
       new Request(new URL("/threads", "http://localhost"), {
-        body: '{"metadata":{"dawn:access":{"ownerId":"decoy"},"__proto__":{"dawn:access":{"ownerId":"attacker"}},"keep":1}}',
+        body: '{"metadata":{"b4:access":{"ownerId":"decoy"},"__proto__":{"b4:access":{"ownerId":"attacker"}},"keep":1}}',
         headers: { "content-type": "application/json" },
         method: "POST",
       }),
@@ -275,7 +275,7 @@ describe("GET /threads/:thread_id", () => {
     const { handler } = await setup({ threadAccess: policy })
     const created = await handler.fetch(
       new Request(new URL("/threads", "http://localhost"), {
-        body: '{"metadata":{"__proto__":{"dawn:access":{"ownerId":"attacker"}},"keep":1}}',
+        body: '{"metadata":{"__proto__":{"b4:access":{"ownerId":"attacker"}},"keep":1}}',
         headers: { "content-type": "application/json" },
         method: "POST",
       }),
@@ -730,7 +730,7 @@ describe("POST /threads with a policy installed", () => {
     const { policy, seen } = recording()
     const { handler } = await setup({ threadAccess: policy })
     await handler.fetch(
-      post("/threads", { metadata: { "dawn:access": { ownerId: "attacker" }, tenant: "acme" } }),
+      post("/threads", { metadata: { "b4:access": { ownerId: "attacker" }, tenant: "acme" } }),
     )
     expect(seen[0]).toMatchObject({
       action: "create",
@@ -756,7 +756,7 @@ describe("POST /threads with a policy installed", () => {
     const body = (await created.json()) as { metadata: Record<string, unknown>; thread_id: string }
     // The raw row still carries the key: hiding it would break round-tripping
     // and make the stamp undebuggable.
-    expect(body.metadata).toEqual({ "dawn:access": { ownerId: "u-1" }, tenant: "acme" })
+    expect(body.metadata).toEqual({ "b4:access": { ownerId: "u-1" }, tenant: "acme" })
 
     seen.length = 0
     await handler.fetch(get(`/threads/${body.thread_id}`))

@@ -13,7 +13,7 @@ import type { RouteManifest, RouteToolTypes } from "../src/types.ts"
 let tempDir: string
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), "dawn-route-analysis-"))
+  tempDir = mkdtempSync(join(tmpdir(), "b4-route-analysis-"))
 })
 
 afterEach(() => {
@@ -38,7 +38,7 @@ function compileScenarioDeclaration(options: {
     readonly message: string
   }>
 } {
-  const scenarioTypesFile = join(tempDir, ".dawn", SCENARIO_TYPES_FILE)
+  const scenarioTypesFile = join(tempDir, ".b4", SCENARIO_TYPES_FILE)
   const manifest: RouteManifest = {
     appRoot: tempDir,
     routes: [
@@ -48,20 +48,20 @@ function compileScenarioDeclaration(options: {
         kind: "workflow",
         entryFile: join(options.routeDir, "index.ts"),
         routeDir: options.routeDir,
-        segments: [{ kind: "static", value: options.pathname.slice(1) }],
+        segments: [{ kind: "static", raw: options.pathname.slice(1) }],
       },
     ],
   }
   const routeTools: RouteToolTypes[] = [{ pathname: options.pathname, tools: options.tools }]
   const content = renderScenarioTypes(manifest, routeTools)
 
-  mkdirSync(join(tempDir, ".dawn"), { recursive: true })
+  mkdirSync(join(tempDir, ".b4"), { recursive: true })
   writeFileSync(join(tempDir, "package.json"), '{"type":"module"}\n')
   writeFileSync(scenarioTypesFile, content)
   const sdkTestingStub = join(tempDir, "sdk-testing.d.ts")
   writeFileSync(
     sdkTestingStub,
-    'declare module "@dawn-ai/sdk/testing" { interface RouteScenarioMap {} }\n',
+    'declare module "@b4run/sdk/testing" { interface RouteScenarioMap {} }\n',
   )
 
   const rootNames = [scenarioTypesFile, sdkTestingStub]
@@ -107,7 +107,13 @@ function compileScenarioDeclaration(options: {
   return { diagnostics }
 }
 
-describe("analyzeRouteTools", () => {
+// These suites drive the TypeScript compiler through
+// `src/compiler/typescript-backend.ts`, so their runtime tracks machine load
+// rather than the work in the test. Idle they finish well inside a second; under
+// a saturated parallel run they have exceeded vitest's 5000ms default and failed
+// as timeouts rather than as anything real. The explicit suite timeout leaves
+// room for that without hiding a genuine hang.
+describe("analyzeRouteTools", { timeout: 30_000 }, () => {
   test("analyzes the effective sorted tool set with one compiler program", () => {
     const routeDir = join(tempDir, "route")
     const sharedToolsDir = join(tempDir, "shared")
@@ -281,7 +287,7 @@ export default async function search(input: ImportedInput): Promise<ImportedOutp
 `,
     )
 
-    const scenarioTypesFile = join(tempDir, ".dawn", SCENARIO_TYPES_FILE)
+    const scenarioTypesFile = join(tempDir, ".b4", SCENARIO_TYPES_FILE)
     const tools = analyzeRouteToolsProduction({
       routeDir,
       sharedToolsDir: undefined,
@@ -328,7 +334,7 @@ export default async function local(input: LocalInput): Promise<LocalOutput> {
 `,
     )
 
-    const scenarioTypesFile = join(tempDir, ".dawn", SCENARIO_TYPES_FILE)
+    const scenarioTypesFile = join(tempDir, ".b4", SCENARIO_TYPES_FILE)
     const tools = analyzeRouteToolsProduction({
       routeDir,
       sharedToolsDir: undefined,
@@ -365,14 +371,14 @@ export default async function local(input: LocalInput): Promise<LocalOutput> {
     const tools = analyzeRouteToolsProduction({
       routeDir,
       sharedToolsDir: undefined,
-      typeReferenceFileName: join(tempDir, ".dawn", SCENARIO_TYPES_FILE),
+      typeReferenceFileName: join(tempDir, ".b4", SCENARIO_TYPES_FILE),
     })
     const { diagnostics } = compileScenarioDeclaration({
       routeDir,
       pathname: "/ping",
       tools,
       consumerSource: `
-import type { RouteScenarioMap } from "@dawn-ai/sdk/testing"
+import type { RouteScenarioMap } from "@b4run/sdk/testing"
 declare const ping: RouteScenarioMap["/ping"]["tools"]["ping"]
 const result: Promise<string> = ping()
 void result
@@ -401,14 +407,14 @@ export default lookup
     const tools = analyzeRouteToolsProduction({
       routeDir,
       sharedToolsDir: undefined,
-      typeReferenceFileName: join(tempDir, ".dawn", SCENARIO_TYPES_FILE),
+      typeReferenceFileName: join(tempDir, ".b4", SCENARIO_TYPES_FILE),
     })
     const { diagnostics } = compileScenarioDeclaration({
       routeDir,
       pathname: "/overloaded",
       tools,
       consumerSource: `
-import type { RouteScenarioMap } from "@dawn-ai/sdk/testing"
+import type { RouteScenarioMap } from "@b4run/sdk/testing"
 declare const lookup: RouteScenarioMap["/overloaded"]["tools"]["lookup"]
 const result: Promise<number> = lookup("query")
 void result

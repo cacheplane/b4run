@@ -415,7 +415,12 @@ function topologyFailures(
   return failures
 }
 
-describe("documentation registry invariants", () => {
+// These suites shell out to Node subprocesses (`check-docs.mjs`, bundling
+// probes, the sitemap generator), so their runtime tracks machine load rather
+// than the work in the test. Under a saturated parallel run they have exceeded
+// vitest's 5000ms default and failed as timeouts rather than as anything real.
+// The explicit suite timeout leaves room for that without hiding a genuine hang.
+describe("documentation registry invariants", { timeout: 30_000 }, () => {
   it("uses the exact eight-section foundation", () => {
     expect(DOCS_NAV).toEqual(FOUNDATION_DOCS_NAV)
   })
@@ -693,7 +698,7 @@ describe("documentation registry invariants", () => {
   })
 })
 
-describe("documentation title analysis", () => {
+describe("documentation title analysis", { timeout: 30_000 }, () => {
   const wrapper = `import type { Metadata } from "next"
 export const metadata: Metadata = { title: "Real Title" }
 `
@@ -1289,7 +1294,7 @@ ${pageSource}`,
   })
 })
 
-describe("maintained documentation heading identity analysis", () => {
+describe("maintained documentation heading identity analysis", { timeout: 30_000 }, () => {
   it("accepts analyzer input larger than an argv payload", () => {
     const source = `## Large fixture\n${" ".repeat(1_100_000)}`
 
@@ -1303,7 +1308,7 @@ describe("maintained documentation heading identity analysis", () => {
   })
 
   it.each([
-    ["inline code", "## Use `@dawn-ai/cli/fetch`\n", ["use-dawn-aiclifetch"]],
+    ["inline code", "## Use `@b4run/cli/fetch`\n", ["use-b4runclifetch"]],
     [
       "an ordinary Markdown link",
       "## Read the [deployment guide](/docs/deployment)\n",
@@ -1342,10 +1347,10 @@ describe("maintained documentation heading identity analysis", () => {
   })
 
   it("parses standard HTML comments in README Markdown mode", async () => {
-    const source = "<!-- ## Hidden -->\n# @dawn-ai/ag-ui\n"
+    const source = "<!-- ## Hidden -->\n# @b4run/ag-ui\n"
     const runtimeIds = await renderedHeadingIds(source, "md")
 
-    expect(runtimeIds).toEqual(["dawn-aiag-ui"])
+    expect(runtimeIds).toEqual(["b4runag-ui"])
     expect(analyzeMaintainedHeadingIds(source, "packages/ag-ui/README.md")).toEqual(runtimeIds)
   })
 
@@ -1391,15 +1396,15 @@ describe("maintained documentation heading identity analysis", () => {
   })
 })
 
-describe("compatibility stub analysis", () => {
+describe("compatibility stub analysis", { timeout: 30_000 }, () => {
   const canonicalHref = "/docs/canonical"
 
   it("recognizes retained heading text that contains inline code", () => {
     const analysis = analyzeCompatibilityStub(
-      `### The \`@dawn-ai/cli/fetch\` entry point
+      `### The \`@b4run/cli/fetch\` entry point
 [Canonical](${canonicalHref})
 `,
-      "The `@dawn-ai/cli/fetch` entry point",
+      "The `@b4run/cli/fetch` entry point",
       canonicalHref,
     )
 
@@ -1556,11 +1561,11 @@ ${"x".repeat(650)}
   })
 })
 
-describe("canonical docs link guard analysis", () => {
+describe("canonical docs link guard analysis", { timeout: 30_000 }, () => {
   it("uses standard Markdown grammar for README ownership guards", () => {
     const requiredHref = "/docs/ag-ui"
     const source = `<!-- README ownership note -->
-# @dawn-ai/ag-ui
+# @b4run/ag-ui
 
 [AG-UI guide](${requiredHref})
 `
@@ -1570,7 +1575,7 @@ describe("canonical docs link guard analysis", () => {
         file: "packages/ag-ui/README.md",
         source,
         movedContracts: [],
-        canonicalContracts: [{ heading: "@dawn-ai/ag-ui", required: [requiredHref] }],
+        canonicalContracts: [{ heading: "@b4run/ag-ui", required: [requiredHref] }],
       }),
     ).toEqual({ movedViolations: [], canonicalViolations: [] })
   })

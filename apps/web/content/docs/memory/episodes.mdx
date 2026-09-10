@@ -1,6 +1,6 @@
 # Episodes
 
-Episodes record what a run did so later runs can recall recent operational history. Dawn supports two paths: an opt-in runtime recorder for settled agent runs, and agent-authored `episodic` records written through the generated `remember` tool.
+Episodes record what a run did so later runs can recall recent operational history. B4.run supports two paths: an opt-in runtime recorder for settled agent runs, and agent-authored `episodic` records written through the generated `remember` tool.
 
 ## Episodic memory
 
@@ -10,7 +10,7 @@ Episodic records append. A later event does not reconcile or supersede an earlie
 
 The recorder is disabled by default. Enable it for agent routes that have a resolved memory context:
 
-```ts title="dawn.config.ts"
+```ts title="b4.config.ts"
 export default {
   memory: {
     episodes: {
@@ -20,7 +20,7 @@ export default {
       includeFailedRuns: true,
     },
   },
-} satisfies import("@dawn-ai/core").DawnConfig
+} satisfies import("@b4run/core").B4Config
 ```
 
 The TTL defaults to 30 days, the cap to 500 episodes per namespace, and failed runs are included. The recorder does not embed episodes: `embed` currently resolves to false, and setting it to true warns once while the record still lands without an embedding.
@@ -64,7 +64,7 @@ This distinction matters for human-in-the-loop permissions: seeing an interrupt 
 
 After writing an episode, the recorder calls `prune` for the namespace. Pruning removes rows whose `expiresAt` is at or before the fixed `now`, then removes the oldest episodic rows beyond the cap using `effectiveAt` (falling back to `createdAt`) and `id` as a tie-break.
 
-Retention is lazy: a write or explicit pruning command performs it. It is not a precise background timer. Run `dawn memory prune` on an application-owned schedule if stale rows must be removed without new traffic.
+Retention is lazy: a write or explicit pruning command performs it. It is not a precise background timer. Run `b4 memory prune` on an application-owned schedule if stale rows must be removed without new traffic.
 
 Thread deletion does not remove episodes. Design tenant erasure and retention around the memory namespace, not the thread metadata lifecycle.
 
@@ -92,7 +92,7 @@ Agent-authored episodes follow `memory.writes`: `candidate` waits for review, wh
 Declare `kind: "episodic"` in the route's `memory.ts` when the agent should write domain events itself:
 
 ```ts title="src/app/support/memory.ts"
-import { defineMemory } from "@dawn-ai/sdk"
+import { defineMemory } from "@b4run/sdk"
 import { z } from "zod"
 
 export default defineMemory({

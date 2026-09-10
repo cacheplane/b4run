@@ -29,7 +29,13 @@ function analyzeRootIntersection(source: string) {
   return parameter
 }
 
-describe("analyzeToolSource", () => {
+// These suites drive the TypeScript compiler through
+// `src/compiler/typescript-backend.ts`, so their runtime tracks machine load
+// rather than the work in the test. Idle they finish well inside a second; under
+// a saturated parallel run they have exceeded vitest's 5000ms default and failed
+// as timeouts rather than as anything real. The explicit suite timeout leaves
+// room for that without hiding a genuine hang.
+describe("analyzeToolSource", { timeout: 30_000 }, () => {
   test("analyzes a typed default-exported tool from one callable signature", () => {
     const source = `
 /**
@@ -81,7 +87,7 @@ export default async (input: { id: string }) => input
   })
 
   test("does not report erased values through type-only alias chains or ambient declarations", () => {
-    const directory = mkdtempSync(join(tmpdir(), "dawn-compiler-exports-"))
+    const directory = mkdtempSync(join(tmpdir(), "b4-compiler-exports-"))
     tempDirectories.push(directory)
     const sourceFile = join(directory, "tool.ts")
     const source = `
@@ -499,7 +505,7 @@ export default async (input: WithId<{ name: string }>) => input
   })
 
   test("resolves imported input and output types from the source filename", () => {
-    const directory = mkdtempSync(join(tmpdir(), "dawn-compiler-analysis-"))
+    const directory = mkdtempSync(join(tmpdir(), "b4-compiler-analysis-"))
     tempDirectories.push(directory)
     const sourceFile = join(directory, "imported-tool.ts")
     const source = `

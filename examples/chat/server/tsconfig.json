@@ -1,13 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@dawn-ai/config-typescript/node",
+  "extends": "@b4run/config-typescript/node",
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "."
   },
-  "include": [
-    "dawn.config.ts",
-    "src/**/*.ts",
-    ".dawn/dawn.generated.d.ts"
-  ]
+  "include": ["b4.config.ts", "src/**/*.ts", ".b4/b4.generated.d.ts"]
 }

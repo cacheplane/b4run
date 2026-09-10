@@ -182,7 +182,7 @@ async function runSmokeScenario(fixtureName: SmokeFixtureName): Promise<HarnessL
 
     await recordPhase(phases, "typegen", async () => {
       await runCommand({
-        args: ["exec", "dawn", "typegen"],
+        args: ["exec", "b4", "typegen"],
         command: "pnpm",
         cwd: generatedApp.appRoot,
         transcriptPath,
@@ -274,7 +274,7 @@ async function discoverRoutes(options: {
   readonly transcriptPath: string
 }): Promise<SmokeRouteManifest> {
   const result = await runCommand({
-    args: ["exec", "dawn", "routes", "--json"],
+    args: ["exec", "b4", "routes", "--json"],
     command: "pnpm",
     cwd: options.appRoot,
     transcriptPath: options.transcriptPath,
@@ -309,20 +309,11 @@ async function compileDiscoveredRoute(options: {
   readonly entryFile: string
   readonly transcriptPath: string
 }): Promise<string> {
-  const buildDir = join(options.appRoot, ".dawn-smoke-dist")
+  const buildDir = join(options.appRoot, ".b4-smoke-dist")
 
   await rm(buildDir, { force: true, recursive: true })
   await runCommand({
-    args: [
-      "exec",
-      "tsc",
-      "-p",
-      "tsconfig.json",
-      "--outDir",
-      ".dawn-smoke-dist",
-      "--noEmit",
-      "false",
-    ],
+    args: ["exec", "tsc", "-p", "tsconfig.json", "--outDir", ".b4-smoke-dist", "--noEmit", "false"],
     command: "pnpm",
     cwd: options.appRoot,
     transcriptPath: options.transcriptPath,
@@ -344,7 +335,7 @@ async function executeCanonicalFlow(options: {
   readonly transcriptPath: string
 }): Promise<unknown> {
   const runnerResult = await runCommand({
-    args: ["exec", "dawn", "run", options.pathname],
+    args: ["exec", "b4", "run", options.pathname],
     command: "pnpm",
     cwd: options.appRoot,
     stdin: JSON.stringify(options.input),
@@ -385,9 +376,11 @@ async function readSmokeOutput(result: HarnessLaneResult): Promise<unknown> {
     artifactPath.endsWith("/canonical-output.json"),
   )
 
-  expect(outputArtifactPath).toBeDefined()
+  if (outputArtifactPath === undefined) {
+    throw new Error("Smoke result did not include canonical-output.json")
+  }
 
-  return JSON.parse(await readFile(outputArtifactPath!, "utf8"))
+  return JSON.parse(await readFile(outputArtifactPath, "utf8"))
 }
 
 async function writeJsonArtifact(path: string, value: unknown): Promise<void> {

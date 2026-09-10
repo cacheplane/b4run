@@ -1,7 +1,7 @@
 "use client"
+import { B4_PLAN_ACTIVITY_TYPE } from "@b4run/ag-ui"
+import { planActivityContentSchema } from "@b4run/ag-ui/react"
 import { useAgent, useCopilotKit } from "@copilotkit/react-core/v2"
-import { DAWN_PLAN_ACTIVITY_TYPE } from "@dawn-ai/ag-ui"
-import { planActivityContentSchema } from "@dawn-ai/ag-ui/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { HydratedThread } from "../lib/hydrate"
 import type { ThreadSource, WorkbenchThread } from "../lib/thread-source"
@@ -18,7 +18,7 @@ import { Transcript } from "./Transcript"
  * instead of each re-arguing why they are not the others.
  *
  * 1. `ConnectScreen` — the server is KNOWN to be down. Two ways to learn that:
- *    a probe through the proxy came back 502 (`probeDawnServer`), or a real
+ *    a probe through the proxy came back 502 (`probeB4Server`), or a real
  *    hydrate hit the same dead proxy first (`isProxyUnreachableError` in
  *    `reportHydrateFailure`). It replaces the entire shell, because nothing in
  *    the shell works without a server.
@@ -41,12 +41,12 @@ import { Transcript } from "./Transcript"
  */
 
 /**
- * The default `api/copilotkit/[...path]/route.ts` and `api/dawn/[...path]/route.ts` fall
- * back to when `DAWN_SERVER_URL` is unset. Those two are the SHAREABLE copies
+ * The default `api/copilotkit/[...path]/route.ts` and `api/b4/[...path]/route.ts` fall
+ * back to when `B4_SERVER_URL` is unset. Those two are the SHAREABLE copies
  * — one source, read from the env at request time on the server. This one is
  * not: it ships inside the client bundle, can only ever be a literal, and
  * only coincides with the real value because both default the same env var
- * the same way. A client component cannot read `DAWN_SERVER_URL` itself (it
+ * the same way. A client component cannot read `B4_SERVER_URL` itself (it
  * is server-side only), and this app has deliberately not grown a
  * `NEXT_PUBLIC_` twin for it (a second value that can drift from the real one
  * is worse than an honest default). `ConnectScreen` shows this value labeled
@@ -54,34 +54,34 @@ import { Transcript } from "./Transcript"
  */
 const DEFAULT_SERVER_URL = "http://127.0.0.1:3002"
 
-/** How often the connect screen re-probes Dawn while it is showing. */
+/** How often the connect screen re-probes B4.run while it is showing. */
 const SERVER_PROBE_INTERVAL_MS = 5000
 
-/** The allowlisted read this app probes Dawn's own liveness through (see `probeDawnServer`). */
-const SERVER_PROBE_PATH = "/api/dawn/memory/candidates"
+/** The allowlisted read this app probes B4.run's own liveness through (see `probeB4Server`). */
+const SERVER_PROBE_PATH = "/api/b4/memory/candidates"
 
 /**
- * True if the Dawn server itself answered — not just this Next process.
+ * True if the B4.run server itself answered — not just this Next process.
  *
  * `useCopilotKit().runtimeConnectionStatus` looks like the right predicate
  * and is not, which is what shipped here first and was caught live: the
  * CopilotKit runtime route (`api/copilotkit/[...path]/route.ts`) runs in the SAME Next
  * process as this page, its `/info` handler enumerates the registered
- * `HttpAgent`s without ever contacting Dawn (`HttpAgent` implements no
- * `getCapabilities`), and any failure to reach Dawn along that path is
- * swallowed rather than surfaced. Verified live: with Dawn completely down,
+ * `HttpAgent`s without ever contacting B4.run (`HttpAgent` implements no
+ * `getCapabilities`), and any failure to reach B4.run along that path is
+ * swallowed rather than surfaced. Verified live: with B4.run completely down,
  * `runtimeConnectionStatus` stayed `"connected"`, the empty workbench
  * rendered, and no connect screen ever showed.
  *
- * The only route that actually talks to Dawn is the same-origin proxy
- * (`api/dawn/[...path]/route.ts`), so this probes through IT instead: `GET
- * /api/dawn/memory/candidates` is on the proxy's allowlist
+ * The only route that actually talks to B4.run is the same-origin proxy
+ * (`api/b4/[...path]/route.ts`), so this probes through IT instead: `GET
+ * /api/b4/memory/candidates` is on the proxy's allowlist
  * (`lib/proxy-allowlist.ts`) and is a cheap read. The proxy's one dedicated
- * "I could not reach Dawn" signal is a 502 with an ECONNREFUSED-shaped body
- * (`route.ts`'s catch branch); any other status — even a Dawn-side error —
+ * "I could not reach B4.run" signal is a 502 with an ECONNREFUSED-shaped body
+ * (`route.ts`'s catch branch); any other status — even a B4.run-side error —
  * means the process answered, which is all this needs to know.
  */
-async function probeDawnServer(): Promise<boolean> {
+async function probeB4Server(): Promise<boolean> {
   try {
     const response = await fetch(SERVER_PROBE_PATH)
     return response.status !== 502
@@ -94,13 +94,13 @@ async function probeDawnServer(): Promise<boolean> {
 
 /**
  * True when `error` is the shape `thread-source.ts`'s `hydrate` throws for
- * the proxy's own "cannot reach Dawn" response — a 502 whose message embeds
+ * the proxy's own "cannot reach B4.run" response — a 502 whose message embeds
  * `(HTTP 502)` (see `route.ts`'s catch branch and `hydrate`'s own message
  * template). Matched on that substring rather than a typed/coded error
  * because the proxy has no structured error channel today. Deliberately
- * narrow in the safe direction: a genuine `HTTP 502` from Dawn itself for an
+ * narrow in the safe direction: a genuine `HTTP 502` from B4.run itself for an
  * unrelated reason would also match, which is an acceptable false positive
- * (the connect screen shows for a real but rare Dawn-side 502) against the
+ * (the connect screen shows for a real but rare B4.run-side 502) against the
  * alternative of missing the common case this exists for.
  */
 function isProxyUnreachableError(error: unknown): boolean {
@@ -129,9 +129,9 @@ const RUN_ERROR_TITLES: Readonly<Record<string, string>> = {
   agent_connect_failed: "Lost the connection to the agent",
   agent_thread_locked: "This conversation is already running",
   agent_not_found: "The research agent is not registered",
-  // NOT "Cannot reach the Dawn server" — this code means `/api/copilotkit`'s
+  // NOT "Cannot reach the B4.run server" — this code means `/api/copilotkit`'s
   // own `/info` sync broke inside the Next process, which is a different
-  // failure from Dawn being down (see `probeDawnServer`'s comment for why
+  // failure from B4.run being down (see `probeB4Server`'s comment for why
   // that route cannot tell the two apart at all).
   runtime_info_fetch_failed: "The chat runtime failed to initialize",
 }
@@ -148,7 +148,7 @@ const RUN_ERROR_TITLES: Readonly<Record<string, string>> = {
  * same `planActivityContentSchema` `activity-renderers.tsx` registers, so a
  * malformed plan renders no card at all rather than arbitrary JSON in a
  * plan-shaped box. The id is minted here because the checkpoint has none; the
- * stream path uses `dawn:plan:${runId}`, and `hydrated:plan:${threadId}` is
+ * stream path uses `b4:plan:${runId}`, and `hydrated:plan:${threadId}` is
  * the same idea for a read that has no run: stable across re-renders and
  * re-hydrations, unique per thread.
  */
@@ -158,7 +158,7 @@ function withRestoredPlan(thread: HydratedThread, threadId: string): readonly Tr
   if (!parsed.success) return thread.messages
   return [
     {
-      activityType: DAWN_PLAN_ACTIVITY_TYPE,
+      activityType: B4_PLAN_ACTIVITY_TYPE,
       content: { todos: parsed.data.todos },
       id: `hydrated:plan:${threadId}`,
       role: "activity",
@@ -216,11 +216,11 @@ export function AppShell({
   const { agent } = useAgent()
   const { copilotkit } = useCopilotKit()
 
-  // "checking" first paint, never "down" — see `probeDawnServer` and the
+  // "checking" first paint, never "down" — see `probeB4Server` and the
   // effects below for why nothing but an actual probe through the proxy may
   // set this to "down", and why "checking" (not "up") is the honest starting
   // value: nothing has answered yet, and defaulting to "up" would flash the
-  // normal shell for a beat on every load even when Dawn is genuinely down.
+  // normal shell for a beat on every load even when B4.run is genuinely down.
   const [serverStatus, setServerStatus] = useState<"checking" | "up" | "down">("checking")
   // Guards `setServerStatus` calls whose probe resolves after this component
   // is gone — the interval below already stops new probes on unmount, but a
@@ -232,7 +232,7 @@ export function AppShell({
   // StrictMode by default (this app sets no `reactStrictMode` key), and
   // StrictMode's dev double-invoke is setup -> cleanup -> setup. A flag whose
   // only write is `= false` in the cleanup latches false forever on the second
-  // setup, which pins `serverStatus` at "checking": with Dawn completely down,
+  // setup, which pins `serverStatus` at "checking": with B4.run completely down,
   // the connect screen NEVER appears in dev and the shell sits there looking
   // fine. Verified in jsdom against a non-Strict control.
   const isMountedRef = useRef(true)
@@ -244,7 +244,7 @@ export function AppShell({
   }, [])
 
   const runProbe = useCallback(() => {
-    void probeDawnServer().then((up) => {
+    void probeB4Server().then((up) => {
       if (isMountedRef.current) setServerStatus(up ? "up" : "down")
     })
   }, [])
@@ -376,7 +376,7 @@ export function AppShell({
   // like it would apply and does not. `copilotkit.connectAgent()` asks the
   // runtime to replay a thread's historic events, but the only two callers of
   // it live inside `<CopilotChat>`, which this app does not mount, and
-  // `useAgent`'s own thread effect does exactly one thing in 1.68.3:
+  // `useAgent`'s own thread effect does exactly one thing in 1.70.0:
   // `agent.threadId = resolvedThreadId`. Verified live: switching away from a
   // three-message thread and back leaves it empty and fires no network request
   // at all. The server holds that history and this client has to ask for it
@@ -583,7 +583,7 @@ export function AppShell({
       <aside className="flex w-64 shrink-0 flex-col gap-1 border-r border-wb-border bg-wb-rail py-4">
         <div className="px-4 pb-4">
           <span className="wb-brand-mark text-[15px] font-semibold tracking-tight">
-            Dawn research
+            B4.run research
           </span>
         </div>
         <ThreadRail

@@ -2,11 +2,11 @@
 
 ## LangSmith tracing
 
-Dawn runs on LangGraph, which emits traces to LangSmith automatically when tracing is enabled. A single agent run produces a nested trace that includes every LLM call (with prompts, token counts, and latency), every tool invocation (input and output), and every subagent child run — all linked under one root run. This gives you a full picture of where time and tokens go without any instrumentation code in your routes.
+B4.run runs on LangGraph, which emits traces to LangSmith automatically when tracing is enabled. A single agent run produces a nested trace that includes every LLM call (with prompts, token counts, and latency), every tool invocation (input and output), and every subagent child run — all linked under one root run. This gives you a full picture of where time and tokens go without any instrumentation code in your routes.
 
 ## Enabling tracing
 
-Put your `LANGSMITH_API_KEY` in `.env` (or export it in your shell). When `dawn dev` loads the environment, it checks whether `LANGSMITH_API_KEY` is present and `LANGCHAIN_TRACING_V2` is not already set, then sets `LANGCHAIN_TRACING_V2=true` automatically. You do not need to add `LANGCHAIN_TRACING_V2` to your `.env` yourself.
+Put your `LANGSMITH_API_KEY` in `.env` (or export it in your shell). When `b4 dev` loads the environment, it checks whether `LANGSMITH_API_KEY` is present and `LANGCHAIN_TRACING_V2` is not already set, then sets `LANGCHAIN_TRACING_V2=true` automatically. You do not need to add `LANGCHAIN_TRACING_V2` to your `.env` yourself.
 
 ```bash title=".env"
 LANGSMITH_API_KEY=lsv2_...
@@ -35,6 +35,6 @@ If you do not have a LangSmith account, the dev server's `runs/stream` endpoint 
 ## Related
 
 <RelatedCards items={[
-  { href: "/docs/configuration", title: "Configuration Reference", subtitle: "dawn.config.ts reference — env key for .env file path" },
+  { href: "/docs/configuration", title: "Configuration Reference", subtitle: "b4.config.ts reference — env key for .env file path" },
   { href: "/docs/dev-server/agent-protocol", title: "Agent Protocol", subtitle: "/runs/stream SSE endpoint and event types" },
 ]} />

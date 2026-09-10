@@ -9,7 +9,7 @@ import { dirname, join, sep } from "node:path"
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest"
 
 const loopback = "127.0.0.1"
-const sentinelHostname = "dawn-kube-socks.invalid"
+const sentinelHostname = "b4-kube-socks.invalid"
 const expectedVersion = {
   buildDate: "2026-08-10T00:00:00Z",
   compiler: "gc",
@@ -200,10 +200,10 @@ function resolveSocksDependencyChain(overrides: SocksChainOverrides = {}) {
     overrides.logicalClientManifestPath ??
     realpathSync(join(sandboxAppRoot, "node_modules", "@kubernetes", "client-node", "package.json"))
   if (sandboxManifest.dependencies?.["@kubernetes/client-node"] !== "^1.4.0") {
-    throw new Error("@dawn-ai/sandbox must declare @kubernetes/client-node as ^1.4.0")
+    throw new Error("@b4run/sandbox must declare @kubernetes/client-node as ^1.4.0")
   }
   if (
-    sandboxManifest.name !== "@dawn-ai/sandbox" ||
+    sandboxManifest.name !== "@b4run/sandbox" ||
     sandboxManifestPath !== join(sandboxAppRoot, "package.json")
   ) {
     throw new Error("sandbox manifest is not rooted at the sandbox app root")
@@ -1020,7 +1020,7 @@ describe("Kubernetes SOCKS dependency path", () => {
     }
 
     const chain = resolveSocksDependencyChain()
-    expect(chain.sandbox.manifest.name).toBe("@dawn-ai/sandbox")
+    expect(chain.sandbox.manifest.name).toBe("@b4run/sandbox")
     expect(chain.sandbox.manifest.dependencies?.["@kubernetes/client-node"]).toBe("^1.4.0")
     expect(chain.sandbox.manifestPath).toBe(join(chain.sandbox.appRoot, "package.json"))
     expect(chain.sandbox.logicalClientManifestPath).toBe(chain.clientNode.manifestPath)

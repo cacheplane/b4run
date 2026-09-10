@@ -25,7 +25,7 @@ describe("checkRuntime", () => {
     expect(result.node.ok).toBe(false)
     expect(result.node.floor).toBe("24.0.0")
     expect(result.node.version).toBe("22.14.0")
-    expect(result.node.code).toBe("DAWN_E5101")
+    expect(result.node.code).toBe("B4_E5101")
     expect(result.status).toBe("failed")
   })
 
@@ -52,7 +52,7 @@ describe("checkRuntime", () => {
     expect(result.docker).toEqual({
       ok: false,
       detail: "daemon unreachable",
-      code: "DAWN_E2002",
+      code: "B4_E2002",
     })
     expect(result.status).toBe("failed")
   })

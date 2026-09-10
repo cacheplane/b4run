@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest"
 import { getBlueprint, loadBlueprints, validateBlueprints } from "../../lib/blueprints"
 
 function fixture(files: Record<string, string>): string {
-  const dir = mkdtempSync(join(tmpdir(), "dawn-bp-"))
+  const dir = mkdtempSync(join(tmpdir(), "b4-bp-"))
   for (const [rel, body] of Object.entries(files)) {
     const full = join(dir, rel)
     mkdirSync(join(full, ".."), { recursive: true })
@@ -29,7 +29,7 @@ describe("loadBlueprints()", () => {
     expect(otel?.meta.category).toBe("observability")
     expect(otel?.meta.description).toBe("Add OTel tracing.")
     expect(otel?.meta.version).toBe(1)
-    expect(otel?.meta.url).toBe("https://dawnai.org/blueprints/opentelemetry.md")
+    expect(otel?.meta.url).toBe("https://b4.run/blueprints/opentelemetry.md")
     expect(otel?.body).toContain("# Add OpenTelemetry")
     expect(otel?.body).not.toContain("description:")
   })

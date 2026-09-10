@@ -24,7 +24,7 @@ function activity(messageId: string): AguiOutboundEvent {
   return {
     type: EventType.ACTIVITY_SNAPSHOT,
     messageId,
-    activityType: "dawn.plan",
+    activityType: "b4.plan",
     replace: true,
     content: { todos: [] },
   }
@@ -55,7 +55,7 @@ describe("createOrchestrationLedger", () => {
   test("holds a writeTodos call until its plan activity commits suppression", () => {
     const ledger = createOrchestrationLedger()
     expect(ledger.onToolCall("call_w", "writeTodos", frames("call_w", "writeTodos"))).toEqual([])
-    const planActivity = activity("dawn:plan:run-1")
+    const planActivity = activity("b4:plan:run-1")
     expect(
       ledger.onActivity(planActivity, { toolCallId: "call_w", toolName: "writeTodos" }),
     ).toEqual([planActivity])
@@ -65,7 +65,7 @@ describe("createOrchestrationLedger", () => {
   test("holds a task call until subagent.start commits suppression", () => {
     const ledger = createOrchestrationLedger()
     expect(ledger.onToolCall("call_t", "task", frames("call_t", "task"))).toEqual([])
-    const subagentActivity = activity("dawn:subagent:call_t")
+    const subagentActivity = activity("b4:subagent:call_t")
     expect(ledger.onActivity(subagentActivity, { toolCallId: "call_t", toolName: "task" })).toEqual(
       [subagentActivity],
     )
@@ -87,7 +87,7 @@ describe("createOrchestrationLedger", () => {
     expect(ledger.onPassthrough(deferredText)).toEqual([])
     const searchFrames = frames("call_s", "searchCorpus")
     expect(ledger.onToolCall("call_s", "searchCorpus", searchFrames)).toEqual([])
-    const planActivity = activity("dawn:plan:run-1")
+    const planActivity = activity("b4:plan:run-1")
     const released = ledger.onActivity(planActivity, {
       toolCallId: "call_w",
       toolName: "writeTodos",
@@ -101,7 +101,7 @@ describe("createOrchestrationLedger", () => {
     const ledger = createOrchestrationLedger()
     const callFrames = frames("call_w", "writeTodos")
     expect(ledger.onToolCall("call_w", "writeTodos", callFrames)).toEqual([])
-    const planActivity = activity("dawn:plan:run-1")
+    const planActivity = activity("b4:plan:run-1")
     expect(ledger.onActivity(planActivity, { toolCallId: "nope", toolName: "writeTodos" })).toEqual(
       [],
     )
@@ -117,7 +117,7 @@ describe("createOrchestrationLedger", () => {
     const ledger = createOrchestrationLedger()
     const callFrames = frames("call_w", "writeTodos")
     expect(ledger.onToolCall("call_w", "writeTodos", callFrames)).toEqual([])
-    const wrongActivity = activity("dawn:subagent:call_w")
+    const wrongActivity = activity("b4:subagent:call_w")
     expect(ledger.onActivity(wrongActivity, { toolCallId: "call_w", toolName: "task" })).toEqual([])
     const toolResult = result("call_w")
     expect(ledger.onToolResult("call_w", "writeTodos", toolResult)).toEqual([
@@ -139,7 +139,7 @@ describe("createOrchestrationLedger", () => {
   test("drops the result of a suppressed call exactly once", () => {
     const ledger = createOrchestrationLedger()
     expect(ledger.onToolCall("call_w", "writeTodos", frames("call_w", "writeTodos"))).toEqual([])
-    const planActivity = activity("dawn:plan:run-1")
+    const planActivity = activity("b4:plan:run-1")
     expect(
       ledger.onActivity(planActivity, { toolCallId: "call_w", toolName: "writeTodos" }),
     ).toEqual([planActivity])
@@ -152,11 +152,11 @@ describe("createOrchestrationLedger", () => {
     const ledger = createOrchestrationLedger()
     expect(ledger.onToolCall("call_w1", "writeTodos", frames("call_w1", "writeTodos"))).toEqual([])
     expect(ledger.onToolCall("call_w2", "writeTodos", frames("call_w2", "writeTodos"))).toEqual([])
-    const activity2 = activity("dawn:plan:run-2")
+    const activity2 = activity("b4:plan:run-2")
     expect(ledger.onActivity(activity2, { toolCallId: "call_w2", toolName: "writeTodos" })).toEqual(
       [],
     )
-    const activity1 = activity("dawn:plan:run-1")
+    const activity1 = activity("b4:plan:run-1")
     // Source order: activity2 was produced first, so it emits first.
     expect(ledger.onActivity(activity1, { toolCallId: "call_w1", toolName: "writeTodos" })).toEqual(
       [activity2, activity1],
@@ -188,7 +188,7 @@ describe("createOrchestrationLedger", () => {
   test("settle after suppression emits nothing for the suppressed call", () => {
     const ledger = createOrchestrationLedger()
     expect(ledger.onToolCall("call_w", "writeTodos", frames("call_w", "writeTodos"))).toEqual([])
-    const planActivity = activity("dawn:plan:run-1")
+    const planActivity = activity("b4:plan:run-1")
     expect(
       ledger.onActivity(planActivity, { toolCallId: "call_w", toolName: "writeTodos" }),
     ).toEqual([planActivity])
@@ -208,7 +208,7 @@ describe("createOrchestrationLedger", () => {
   test("a duplicate colliding with a SUPPRESSED id preserves a later result", () => {
     const ledger = createOrchestrationLedger()
     expect(ledger.onToolCall("call_w", "writeTodos", frames("call_w", "writeTodos"))).toEqual([])
-    const planActivity = activity("dawn:plan:run-1")
+    const planActivity = activity("b4:plan:run-1")
     expect(
       ledger.onActivity(planActivity, { toolCallId: "call_w", toolName: "writeTodos" }),
     ).toEqual([planActivity])
@@ -273,7 +273,7 @@ describe("createOrchestrationLedger", () => {
   test("suppression stays disabled after fail-open but suppressed ids still drop results", () => {
     const ledger = createOrchestrationLedger()
     expect(ledger.onToolCall("call_w1", "writeTodos", frames("call_w1", "writeTodos"))).toEqual([])
-    const planActivity = activity("dawn:plan:run-1")
+    const planActivity = activity("b4:plan:run-1")
     expect(
       ledger.onActivity(planActivity, { toolCallId: "call_w1", toolName: "writeTodos" }),
     ).toEqual([planActivity])
@@ -294,7 +294,7 @@ describe("createOrchestrationLedger", () => {
     // leave a skewed counter and make the bound below trip early or late.
     for (const id of ["call_w1", "call_w2"]) {
       expect(ledger.onToolCall(id, "writeTodos", frames(id, "writeTodos"))).toEqual([])
-      const planActivity = activity(`dawn:plan:${id}`)
+      const planActivity = activity(`b4:plan:${id}`)
       expect(ledger.onActivity(planActivity, { toolCallId: id, toolName: "writeTodos" })).toEqual([
         planActivity,
       ])

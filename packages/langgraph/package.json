@@ -1,17 +1,26 @@
 {
-  "name": "@dawn-ai/langgraph",
-  "version": "0.8.21",
+  "name": "@b4run/langgraph",
+  "version": "0.8.29",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "homepage": "https://github.com/cacheplane/dawnai/tree/main/packages/langgraph#readme",
+  "description": "LangGraph.js adapters and route contracts for B4.run agents, workflows, and graphs.",
+  "keywords": [
+    "b4",
+    "typescript",
+    "langgraph",
+    "langgraphjs",
+    "ai-agents",
+    "workflows"
+  ],
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/langgraph#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/dawnai.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/langgraph"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/dawnai/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -41,13 +50,13 @@
     "build": "tsc -b tsconfig.json",
     "lint": "biome check --config-path ../config-biome/biome.json package.json src test tsconfig.json vitest.config.ts",
     "test": "vitest --run --config vitest.config.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@dawn-ai/sdk": "workspace:*"
+    "@b4run/sdk": "workspace:*"
   },
   "devDependencies": {
-    "@dawn-ai/config-typescript": "workspace:*",
+    "@b4run/config-typescript": "workspace:*",
     "@types/node": "26.1.2"
   }
 }

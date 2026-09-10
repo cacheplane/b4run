@@ -1,11 +1,11 @@
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 import { AIMessage } from "@langchain/core/messages"
 import { MemorySaver } from "@langchain/langgraph"
 import { describe, expect, test, vi } from "vitest"
 import { executeAgent } from "../src/agent-adapter.js"
 
 describe("agent() descriptor integration", () => {
-  test("DawnAgent descriptor is recognized and does not throw invoke error", async () => {
+  test("B4Agent descriptor is recognized and does not throw invoke error", async () => {
     let openAIModel: unknown
 
     vi.doMock("@langchain/langgraph/prebuilt", () => ({
@@ -49,7 +49,7 @@ describe("agent() descriptor integration", () => {
     })
   })
 
-  test("DawnAgent with tools passes tools to materialized agent", async () => {
+  test("B4Agent with tools passes tools to materialized agent", async () => {
     let agentTools: readonly unknown[] | undefined
 
     vi.doMock("@langchain/langgraph/prebuilt", () => ({

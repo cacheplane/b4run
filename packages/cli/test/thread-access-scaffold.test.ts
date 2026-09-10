@@ -42,10 +42,10 @@ const templateSource = (name: string): Promise<string> =>
 type Handler = Awaited<ReturnType<typeof createRuntimeFetchHandler>>
 
 async function setup(): Promise<Handler> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-thread-access-scaffold-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-thread-access-scaffold-"))
   cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "thread-access-scaffold-fixture", "type": "module" }\n',
     "src/app/hello/index.ts": TRIVIAL_ROUTE,
     // The rename the scaffold's own header tells the app to do.
@@ -182,7 +182,7 @@ describe("the scaffolded thread-access policy, driven end to end", () => {
     const threadId = "t-client-chosen"
 
     // The flow CopilotKit actually drives: an id picked in the browser, never
-    // minted through POST /threads. The run endpoint creates the row, and Dawn
+    // minted through POST /threads. The run endpoint creates the row, and B4.run
     // asks the scaffold's `create` handler about it — which stamps the caller,
     // so the thread has an owner from its first breath.
     const first = await handler.fetch(aguiTurn(threadId, ALICE))

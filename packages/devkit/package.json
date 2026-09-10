@@ -1,17 +1,25 @@
 {
-  "name": "@dawn-ai/devkit",
-  "version": "0.8.21",
+  "name": "@b4run/devkit",
+  "version": "0.8.29",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "homepage": "https://github.com/cacheplane/dawnai/tree/main/packages/devkit#readme",
+  "description": "Scaffold templates and development utilities shared by B4.run tooling.",
+  "keywords": [
+    "b4",
+    "typescript",
+    "scaffolding",
+    "templates",
+    "developer-tools"
+  ],
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/devkit#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/dawnai.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/devkit"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/dawnai/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -32,12 +40,12 @@
   },
   "scripts": {
     "build": "tsc -b tsconfig.json",
-    "lint": "biome check --config-path ../config-biome/biome.json package.json src test tsconfig.json vitest.config.ts",
+    "lint": "biome check --config-path ../config-biome/biome.json --css-parse-tailwind-directives=true package.json src test templates tsconfig.json vitest.config.ts",
     "test": "vitest --run --config vitest.config.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.test.json"
   },
   "devDependencies": {
-    "@dawn-ai/config-typescript": "workspace:*",
+    "@b4run/config-typescript": "workspace:*",
     "@types/node": "26.1.2"
   }
 }

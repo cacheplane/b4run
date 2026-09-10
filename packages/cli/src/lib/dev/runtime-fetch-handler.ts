@@ -2,10 +2,10 @@
  * The node-flavoured `createRuntimeFetchHandler`: the transport-agnostic core
  * from `runtime-fetch-core.ts` with `nodeBootFallbacks` pre-applied, so every
  * store the caller did not inject resolves from disk exactly as it always
- * has. This is the import site for `dawn dev`, `dawn start`, the testing
+ * has. This is the import site for `b4 dev`, `b4 start`, the testing
  * harness, and anything else running on node.
  *
- * Edge runtimes import the core directly (via `@dawn-ai/cli/fetch`), pass no
+ * Edge runtimes import the core directly (via `@b4run/cli/fetch`), pass no
  * fallbacks, and inject their stores instead.
  */
 
