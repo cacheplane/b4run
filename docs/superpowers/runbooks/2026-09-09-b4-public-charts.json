@@ -1,0 +1,30 @@
+[
+  {
+    "chart": "b4-app",
+    "version": "0.2.7",
+    "helmOutput": "Pulled: ghcr.io/cacheplane/charts/b4-app:0.2.7\nDigest: sha256:a904360dfd1897f4a5b10a2057f3e646e675729fd98c2b84f7722368ceb6e385\n",
+    "chartMetadata": "apiVersion: v2\nappVersion: 0.8.29\ndescription: Runs a built B4.run app image on Kubernetes with an application-owned\n  ServiceAccount, Deployment, Service, and optional scaling and ingress resources.\nhome: https://b4.run\nkeywords:\n- b4\n- langgraph\n- kubernetes\n- deployment\nmaintainers:\n- name: B4.run\nname: b4-app\nsources:\n- https://github.com/cacheplane/b4run\ntype: application\nversion: 0.2.7\n\n",
+    "archiveSha256": "f36b63c6588eaf703df7f27404861c88d81cd1c3021a8950d6bdfc45424b13d5"
+  },
+  {
+    "chart": "b4-sandbox-infra",
+    "version": "0.1.11",
+    "helmOutput": "Pulled: ghcr.io/cacheplane/charts/b4-sandbox-infra:0.1.11\nDigest: sha256:ae1ea44aefdfab503a44bd0f7970f26ed99f822f3417c9b6386c76f04b34c133\n",
+    "chartMetadata": "apiVersion: v2\nappVersion: 0.8.29\ndescription: Cluster-side infrastructure for the B4.run kubernetesSandbox provider\n  \u2014 namespace, least-privilege RBAC, default-deny egress, quotas/limits, Pod Security\n  Standards, and a PVC reaper.\nhome: https://b4.run\nkeywords:\n- b4\n- sandbox\n- kubernetes\n- security\nmaintainers:\n- name: B4.run\nname: b4-sandbox-infra\nsources:\n- https://github.com/cacheplane/b4run\ntype: application\nversion: 0.1.11\n\n",
+    "archiveSha256": "fc148be8706fa8c8ad5e264b0cf05fe653344c1c3bec6cf09d75e3c69a6aa377"
+  },
+  {
+    "chart": "b4-app",
+    "version": "0.2.6",
+    "helmOutput": "Pulled: ghcr.io/cacheplane/charts/b4-app:0.2.6\nDigest: sha256:10be621c139e7188757b0d7037b2f3e1f8d1b8fffb02511f0210ff22cc6ee579\n",
+    "chartMetadata": "apiVersion: v2\nappVersion: 0.8.28\ndescription: Runs a built B4.run app image on Kubernetes with an application-owned\n  ServiceAccount, Deployment, Service, and optional scaling and ingress resources.\nhome: https://b4.run\nkeywords:\n- b4\n- langgraph\n- kubernetes\n- deployment\nmaintainers:\n- name: B4.run\nname: b4-app\nsources:\n- https://github.com/cacheplane/b4run\ntype: application\nversion: 0.2.6\n\n",
+    "archiveSha256": "6de71bb4a5562b2431a4d7657592243ef4cee68addc5502d3e4cbbec3d843ce7"
+  },
+  {
+    "chart": "b4-sandbox-infra",
+    "version": "0.1.10",
+    "helmOutput": "Pulled: ghcr.io/cacheplane/charts/b4-sandbox-infra:0.1.10\nDigest: sha256:37b8e57999dbb6fa4035789c4e809c47bdc0c51998a2c29e2cb1ebf9fe8c6db9\n",
+    "chartMetadata": "apiVersion: v2\nappVersion: 0.8.28\ndescription: Cluster-side infrastructure for the B4.run kubernetesSandbox provider\n  \u2014 namespace, least-privilege RBAC, default-deny egress, quotas/limits, Pod Security\n  Standards, and a PVC reaper.\nhome: https://b4.run\nkeywords:\n- b4\n- sandbox\n- kubernetes\n- security\nmaintainers:\n- name: B4.run\nname: b4-sandbox-infra\nsources:\n- https://github.com/cacheplane/b4run\ntype: application\nversion: 0.1.10\n\n",
+    "archiveSha256": "c0c86b9bcaf3f2699335cc2f0c2369d5eb91403c4770013151a455d1e6398062"
+  }
+]
