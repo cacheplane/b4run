@@ -1,6 +1,6 @@
 # B4.run marketing and external-account inventory
 
-**Observed:** 2026-09-09. **Tracking:** [issue #602](https://github.com/cacheplane/b4run/issues/602).
+**Updated:** 2026-09-10 UTC; initial HTTP inventory observed September 9. **Tracking:** [issue #602](https://github.com/cacheplane/b4run/issues/602).
 **Source baseline:** `811cd0402a478f3d541bd60572b24a34ddd6665b` on
 `blove/b4-rename-followup-plan`.
 
@@ -13,14 +13,14 @@ has no `apps/web/app/brand` page because [commit 5b161844](https://github.com/ca
 intentionally removed it on 2026-05-13 ([PR #137](https://github.com/cacheplane/b4run/pull/137)).
 The repair is to point surviving links at the existing ZIP and set the asset
 manifest homepage to `/`, with the ZIP copy of that manifest synchronized.
-**Repair prepared in the parent task; deployment verification pending.** No new
+**Repair prepared in [PR #618](https://github.com/cacheplane/b4run/pull/618), which remains unmerged and undeployed; production verification pending.** No new
 brand landing page is required.
 
 This inventory combines current HTTP/API reads, repository source, and explicitly
 identified historical account evidence. It does not establish that every external
 account has been found. “Unknown” is not “not used.” This inventory subtask changed no external resources,
 DNS, redirects, mail settings, credentials, CI configuration, or published content.
-The parent task performed separately authorized cleanup recorded below and in the
+The parent task performed separately authorized cleanup and the owner-approved OpenSSF submission recorded below and in the
 cutover runbook. No messages or emails were sent by this subtask.
 
 ## Accounts and resources
@@ -33,9 +33,10 @@ Named technical ownership does not establish who has billing or editorial author
 |---|---|---|---|---|
 | Product repository/profile | [cacheplane/b4run](https://github.com/cacheplane/b4run) | GitHub organization `cacheplane`; maintainer Brian Love named on the public homepage | Current `gh api repos/cacheplane/b4run` returns final repository name, homepage `https://b4.run`, description “Build LangGraph agents like Next.js apps.” and enabled Discussions. Header/footer point here. | **Verified current.** Account billing/support display names were not inspected. |
 | Organization profile | [cacheplane](https://github.com/cacheplane), `cacheplane/.github/profile/README.md` | `cacheplane`; individual editor unknown | Current API content names B4.run, `@b4run/*`, the final repository and docs. [Commit 8040b3c](https://github.com/cacheplane/.github/commit/8040b3c0e35b5efd003999114ca7b6d5852473ff) changes that README. | **Verified current.** Existing profile update is retained; no publication needed for this finding. |
+| OpenSSF Best Practices profile | [project 13317](https://www.bestpractices.dev/en/projects/13317/passing) | Authenticated project owner; submission explicitly approved | September 10 profile reads confirm `B4.run`, `https://b4.run`, and `https://github.com/cacheplane/b4run`. Exactly three identity fields and seven evidence-link prefixes changed, plus two server timestamps. | **Verified current.** All 194 status fields unchanged; passing remains 100%. Owner approved submission after disclosure of the CDLA license notice; see the concise receipt below. |
 | Blog author profile | [blove](https://github.com/blove) | Brian Love, per `apps/web/app/components/blog/post-index.ts` | Source author mapping links Brian Love to this personal GitHub profile and `/brand/brian.jpg`. | **Source verified.** No separate personal-profile rebranding requirement established. |
 | Website hosting | [b4.run](https://b4.run), Vercel project `prj_Syd2iGdPVSDoqtZCqqP2XeWnNlLB` | Historical vendor audit: Cacheplane team `team_RWMT2bzjj1nkSXI3N3arQ6CP`; individual account owner unknown | Current homepage HTTP 200. Earlier audit identifies renamed project `b4-run`; this pass did not re-read authenticated project settings. | **Public site verified; account metadata historical.** The parent task prepared surviving-link repairs to the existing ZIP; verify deployment afterward. The intentionally removed `/brand` route should remain absent. |
-| npm public organization | [b4run](https://www.npmjs.com/org/b4run) | Unknown in this inventory | Website footer points to this organization. Package publication and permissions have their own release inventory. | **Source link verified.** Defer registry/account verification to the release owner; no duplicate npm mutations. |
+| npm public organization | [b4run](https://www.npmjs.com/org/b4run) | npm owner `blove` authenticated for trust management | All 21 package publishers verified for `cacheplane/b4run`, `release.yml`, publish/staged-publish permissions, and no environment restriction. Dedicated bootstrap token revoked; repository bootstrap secret and authorization variable removed. | **Publisher settings and retirement verified.** [#599](https://github.com/cacheplane/b4run/issues/599) closed; actual production OIDC proof remains open in [#619](https://github.com/cacheplane/b4run/issues/619) for the next ordinary release. See the cutover receipt; no throwaway release. |
 | Brand page and asset catalog | [brand page](https://b4.run/brand), [manifest](https://b4.run/brand/assets.json), [ZIP](https://b4.run/brand/b4-run-brand-assets.zip) | Repository maintainers; editorial owner unknown | Manifest identifies B4.run, version `2026-09-07`, eight public asset entries and the ZIP. `/brand` is 404; manifest, ZIP and all eight entries are 200. | **Repair prepared; deployment pending:** point MobileMenu, not-found and issue-template links to the existing ZIP; set manifest homepage to `/` and synchronize the archived manifest. Keep the intentional route removal. |
 | Social previews, favicons and app icons | [OG image](https://b4.run/opengraph-image), `/favicon.ico`, `/site.webmanifest`, PNG variants under the website root | Repository maintainers; design owner unknown | Live root/docs metadata uses `B4.run`, `summary_large_image` and `/opengraph-image`; icons and manifest respond 200. Source layout and structured data use B4.run. | **HTTP and metadata verified.** Local horizontal PNG visually reads B4.run. Full remote-image visual QA and previews inside third-party social platforms remain unverified. |
 | Demo video hosting and transcripts | Vercel Blob `store_9RQ8eZyGheVy0wOp`; host `9rq8ezyghevy0wop.public.blob.vercel-storage.com`; prefix `/b4/demo/`; [transcript](https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md) | Historical audit associates store with Cacheplane; individual media owner unknown | Current `apps/web/app/lib/demo-media.json` selects four clips, two encodings each, four local posters and transcript anchors. All respond 200. Text describes B4.run and the `npm create b4-app@latest my-agent` closing card. | **Current links/text verified.** Playback and every video frame were not re-reviewed. Parent-task cleanup deleted all eight pre-rename `/demo/` objects after the 83-page reference audit; parent reports fresh HEAD checks: all eight retired URLs 404 and all eight current URLs 200. Historical store-label details remain in the cutover inventory. |
@@ -87,6 +88,25 @@ placeholder alias. These were parent-task operations, not mutations by this
 inventory subtask; see the [cutover runbook](2026-09-09-b4-run-cutover.md) for
 authorization, resource scope and cleanup receipts. The brand-link repair is
 prepared separately; it must not be described as deployed until live verification.
+
+## September 10 owner-approved updates
+
+The OpenSSF profile submission updated exactly ten branding fields: `name`,
+`homepage_url`, `repo_url`, and seven existing evidence-link prefixes. Only the
+server-managed `updated_at` and `repo_url_updated_at` timestamps changed in
+addition. Comparison of the before/after API snapshots confirms all 194
+`*_status` fields unchanged, `badge_level: passing`, and `badge_percentage_0: 100`.
+The owner explicitly approved the submission after disclosure of the CDLA
+license notice. The stored `project_entry_license` field was unchanged at
+`CC-BY-3.0+`; the submission notice and stored field are separate observations.
+The [concise receipt](./2026-09-10-b4-openssf-profile.json) retains current public
+identity and change counts, without copying historical account snapshots.
+
+The owner also explicitly approved keeping the existing old-website and GitHub
+rename redirects, superseding the initial no-redirect requirement. Runtime and
+package compatibility aliases remain prohibited. This resolves the earlier
+policy ambiguity without changing the brand-link repair: PR #618 still awaits
+merge, deployment, and production verification.
 
 ## Follow-up and closure
 

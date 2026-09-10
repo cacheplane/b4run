@@ -1,6 +1,6 @@
 # B4.run cutover status and post-release operations
 
-This is the current operational summary as of **2026-09-09**. The September 7 planning documents retain historical decisions and observations; their unfinished checkboxes do not describe the current release state.
+This is the current operational summary as of **2026-09-10 UTC**. The September 7 planning documents retain historical decisions and observations; their unfinished checkboxes do not describe the current release state.
 
 ## Canonical identities and shipped version
 
@@ -15,7 +15,7 @@ This is the current operational summary as of **2026-09-09**. The September 7 pl
 
 The original repository was renamed in place. A separately created replacement repository was abandoned. Do not create another repository, archive the current one, or treat its inherited numeric ID as sufficient release authorization. Historical readers are bounded by repository name, candidate identity, and exact evidence digests. They do not authorize publication of historical package identities.
 
-The recorded handoff decision preserves automatic repository redirects and permanent old-website redirects. Those settings are live; their reconciliation with the initial no-redirect request remains tracked in [#600](https://github.com/cacheplane/b4run/issues/600). Runtime/package compatibility aliases remain prohibited. This runbook does not authorize changing domain policy.
+The owner explicitly approved retaining the existing automatic GitHub rename redirects and permanent old-website redirects, superseding the initial no-redirect requirement. This resolves the redirect-policy question tracked in [#600](https://github.com/cacheplane/b4run/issues/600). Runtime/package compatibility aliases remain prohibited; the redirect decision does not authorize them.
 
 ## Release evidence
 
@@ -47,15 +47,16 @@ A separate clean consumer check on macOS with Node v24.20.0 ran `npm create --ye
 
 The 0.8.28 rows match the shipped npm release; the newer chart versions refer to current main. Existing package Actions access and repository inheritance were retained. No workflow was edited, retried, or dispatched for this operation. Exact chart metadata and archive hashes are retained in [the public chart receipt](./2026-09-09-b4-public-charts.json).
 
-[#599](https://github.com/cacheplane/b4run/issues/599) owns the transition to normal npm trusted publishing:
+[#599](https://github.com/cacheplane/b4run/issues/599) is **closed**: npm trusted-publisher configuration and bootstrap retirement were completed and freshly verified on September 10 UTC.
 
-1. Complete npm’s separate browser/2FA escalation. The renewed CLI login identifies the owner as `blove`, but trusted-publisher inspection requires additional authentication. The initial browser authorization expired while the browser remained at the sign-in form; start a fresh authorization after browser sign-in.
-2. Inspect all 21 packages with `npm trust list <package> --json`. Verify GitHub owner/repository `cacheplane/b4run`, workflow `release.yml`, permission `--allow-publish`, and no environment restriction while the publisher job has no environment.
-3. Configure missing settings with `npm trust github <package> --repo cacheplane/b4run --file release.yml --allow-publish`, using owner authentication and the required 2FA. A bypass-2FA granular bootstrap token is not supported for trust management. See [npm trust documentation](https://docs.npmjs.com/cli/v11/commands/npm-trust/).
-4. Once all publishers are verified and no admitted candidate needs bootstrap, revoke the dedicated npm bootstrap token and remove the repository secret `B4_NPM_BOOTSTRAP_TOKEN` and variable `B4_NPM_BOOTSTRAP_AUTHORIZATION`.
-5. Record the next ordinary release's actual OIDC publication as a separate future verification. Provenance metadata on the bootstrap release does not prove trusted-publisher settings are configured.
+- All 21 B4 npm packages have exactly one GitHub trusted publisher for repository `cacheplane/b4run`, workflow `release.yml`, and permissions `createPackage` and `createStagedPackage`. No publisher has an environment restriction; the `publish-npm` job has no environment.
+- Before retirement, candidate 0.8.28 (`bb036c7d57320a04efdebd247070504e06f140d1`) remained `AUDIT_COMPLETE` in controller observation [34350462235](https://github.com/cacheplane/b4run/actions/runs/34350462235), with no active workflow runs.
+- The owner confirmed the dedicated npm bootstrap token named `b4run`, public ID `e7390e`. That token was revoked, and a fresh npm token list confirmed its absence. Unrelated tokens were preserved.
+- Repository secret `B4_NPM_BOOTSTRAP_TOKEN` and variable `B4_NPM_BOOTSTRAP_AUTHORIZATION` were removed. Fresh repository secret and variable lists confirmed both names absent.
 
-The bootstrap secret and authorization variable are still configured at this runbook's initial writing. Do not delete them merely because an unrelated chart check passes. Conversely, an unresolved Helm visibility issue need not block retirement once npm trust and candidate dependencies are verified.
+The [trusted-publisher and retirement receipt](./2026-09-10-b4-npm-trusted-publishers.json) contains public publisher IDs and settings, plus retirement results; it contains no credential values. Earlier browser/2FA blockers and configured-bootstrap observations are historical and no longer describe the current state.
+
+Actual production OIDC publication remains unproven. [#619](https://github.com/cacheplane/b4run/issues/619) is **open** and tracks proof from the next ordinary release. The bootstrap release's provenance is not that proof. Do not publish a throwaway release or repeat completed release transitions for this check.
 
 ## Retained vendor resources and completed cleanup
 
@@ -80,17 +81,20 @@ Completed the reference audit and retired the native project’s pre-rename doma
 
 The Blob inventory contained exactly sixteen objects: eight current `/b4/demo/` videos and eight obsolete `/demo/` videos. A crawl of all 83 sitemap pages found no old Blob-prefix references, including escaped forms, and active source pointed to the current catalog. Retired exactly `demo/{author,product-loop,run,test}.{mp4,webm}`. Fresh inventory contains only the eight current objects; all eight old URLs return 404, all eight current URLs return 200, and `b4.run` returns 200. The [retirement receipt](./2026-09-09-b4-vendor-retirement.json) records exact paths and sizes.
 
-The website redirect-policy question remains separate and unresolved. Broader account ownership and marketing gaps remain in #602. Keep stable resource IDs and historical release evidence intact.
+The owner-approved website and GitHub redirect policy is recorded above. Broader account ownership and marketing gaps remain in #602. Keep stable resource IDs and historical release evidence intact.
 
 ## Marketing and operational backlog
 
 The Cacheplane organization profile still advertised the old framework after the repository rename. It now uses B4.run, `@b4run/sdk`, `b4 build`, the final repository link, and the new documentation URL. The change is scoped to `profile/README.md` in the organization's profile repository: [commit 8040b3c](https://github.com/cacheplane/.github/commit/8040b3c0e35b5efd003999114ca7b6d5852473ff). No B4 release workflow was triggered by that profile edit.
 
-The [marketing and account inventory](./2026-09-09-b4-marketing-inventory.md) records verified public assets, the stale `/brand` links, known Resend domains belonging to other products, and explicit ownership gaps. The brand page was intentionally removed in [#137](https://github.com/cacheplane/b4run/pull/137); remaining mobile-menu, not-found-page, and issue-template links now point directly to the existing ZIP in this change. The public and archived manifests use the product homepage `/`. Deployment verification remains pending; this change adds no route or redirect.
+The [marketing and account inventory](./2026-09-09-b4-marketing-inventory.md) records verified public assets, the stale `/brand` links, known Resend domains belonging to other products, and explicit ownership gaps. The brand page was intentionally removed in [#137](https://github.com/cacheplane/b4run/pull/137); remaining mobile-menu, not-found-page, and issue-template links now point directly to the existing ZIP in this change. The prepared public and archived manifests use the product homepage `/`. [PR #618](https://github.com/cacheplane/b4run/pull/618) remains unmerged and undeployed; production verification is pending. The repair adds no route or redirect.
 
+The owner-approved OpenSSF profile update is complete: [project 13317](https://www.bestpractices.dev/en/projects/13317/passing) now names B4.run and links to `https://b4.run` and `https://github.com/cacheplane/b4run`. Exactly ten branding fields changed (three identity fields and seven evidence-link prefixes), plus two server timestamps. All 194 status fields stayed unchanged, and passing remains 100%. See the [OpenSSF receipt](./2026-09-10-b4-openssf-profile.json) and marketing inventory for scope and submission-license disclosure.
+
+- [#619](https://github.com/cacheplane/b4run/issues/619): verify actual production OIDC publication during the next ordinary release; trusted-publisher configuration and bootstrap retirement are complete.
 - [#602](https://github.com/cacheplane/b4run/issues/602): finish owner-backed inventory of social profiles, design libraries, email/contact paths, search consoles, and analytics. Unknown accounts remain unknown; do not invent integrations or publish announcements without an explicit request.
 - [#603](https://github.com/cacheplane/b4run/issues/603): finalize historical npm package retention and publication-authority policy. No compatibility wrappers or incidental unpublishing.
 - [#604](https://github.com/cacheplane/b4run/issues/604): design a fresh dependency-security receipt path. Successful release audits do not justify enabling the historical disabled uploader.
 - [#605](https://github.com/cacheplane/b4run/issues/605): triage retained branches independently; preserve the #489 to #506 dependency and reuse [#535](https://github.com/cacheplane/b4run/issues/535) for known infrastructure flakes.
 
-All eight follow-ups belong to the [B4.run launch completion milestone](https://github.com/cacheplane/b4run/milestone/1). Close each only against its actual acceptance criteria. Keep signed release records and incident evidence unchanged.
+The original eight follow-ups belong to the [B4.run launch completion milestone](https://github.com/cacheplane/b4run/milestone/1). Close each only against its actual acceptance criteria. Keep signed release records and incident evidence unchanged.
