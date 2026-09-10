@@ -4,18 +4,18 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { DAWN_CONFIG_FILE, loadDawnConfig } from "../src/config.js"
+import { B4_CONFIG_FILE, loadB4Config } from "../src/config.js"
 import { registerNodeConfigLoader } from "../src/config-node.js"
 
-// These suites load real `dawn.config.ts` files off disk — opt the process
+// These suites load real `b4.config.ts` files off disk — opt the process
 // into the node config loader (the `.` barrel no longer carries it).
 registerNodeConfigLoader()
 
-describe("loadDawnConfig", () => {
+describe("loadB4Config", () => {
   let appRoot: string
 
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-config-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-config-"))
   })
 
   afterEach(() => {
@@ -23,19 +23,19 @@ describe("loadDawnConfig", () => {
   })
 
   async function writeConfig(source: string): Promise<void> {
-    await writeFile(join(appRoot, DAWN_CONFIG_FILE), source, "utf8")
+    await writeFile(join(appRoot, B4_CONFIG_FILE), source, "utf8")
   }
 
   it("loads a config with just appDir", async () => {
     await writeConfig(`export default { appDir: "src/app" }\n`)
-    const loaded = await loadDawnConfig({ appRoot })
+    const loaded = await loadB4Config({ appRoot })
     expect(loaded.config).toMatchObject({ appDir: "src/app" })
-    expect(loaded.configPath).toBe(join(appRoot, DAWN_CONFIG_FILE))
+    expect(loaded.configPath).toBe(join(appRoot, B4_CONFIG_FILE))
   })
 
   it("loads a config with no fields (empty object)", async () => {
     await writeConfig(`export default {}\n`)
-    const loaded = await loadDawnConfig({ appRoot })
+    const loaded = await loadB4Config({ appRoot })
     expect(loaded.config).toEqual({})
   })
 
@@ -44,22 +44,22 @@ describe("loadDawnConfig", () => {
       const APP_DIR = "src/app"
       export default { appDir: APP_DIR }
     `)
-    const loaded = await loadDawnConfig({ appRoot })
+    const loaded = await loadB4Config({ appRoot })
     expect(loaded.config).toMatchObject({ appDir: "src/app" })
   })
 
   it("rejects missing default export", async () => {
     await writeConfig(`export const named = { appDir: "x" }\n`)
-    await expect(loadDawnConfig({ appRoot })).rejects.toThrow(/must export default/i)
+    await expect(loadB4Config({ appRoot })).rejects.toThrow(/must export default/i)
   })
 
   it("rejects non-object default export", async () => {
     await writeConfig(`export default "hello"\n`)
-    await expect(loadDawnConfig({ appRoot })).rejects.toThrow(/must export default an object/i)
+    await expect(loadB4Config({ appRoot })).rejects.toThrow(/must export default an object/i)
   })
 
   it("propagates TS syntax errors from the imported module", async () => {
     await writeConfig(`export default { appDir:\n`)
-    await expect(loadDawnConfig({ appRoot })).rejects.toThrow()
+    await expect(loadB4Config({ appRoot })).rejects.toThrow()
   })
 })

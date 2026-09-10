@@ -1,11 +1,11 @@
-import type { DawnErrorCode } from "@dawn-ai/sdk"
-import type { SandboxProvider } from "@dawn-ai/workspace"
+import type { B4ErrorCode } from "@b4run/sdk"
+import type { SandboxProvider } from "@b4run/workspace"
 
 /**
- * Minimum Node version Dawn requires at runtime: the active LTS line. Node 24
- * bundles npm ≥ 11, whose dependency resolver installs Dawn's scaffold graph
+ * Minimum Node version B4.run requires at runtime: the active LTS line. Node 24
+ * bundles npm ≥ 11, whose dependency resolver installs B4.run's scaffold graph
  * correctly (npm 10's arborist crashes on it), and ships `node:sqlite` (used by
- * @dawn-ai/sqlite-storage / @dawn-ai/memory) without an experimental flag.
+ * @b4run/sqlite-storage / @b4run/memory) without an experimental flag.
  * This check must not itself require Node ≥ floor to run — it is a pure string
  * compare with no `node:sqlite` import.
  */
@@ -17,15 +17,15 @@ export interface RuntimeCheckResult {
     readonly version: string
     readonly ok: boolean
     readonly floor: string
-    /** Present only when `ok` is false — DAWN_E5101 (Node below the supported floor). */
-    readonly code?: DawnErrorCode
+    /** Present only when `ok` is false — B4_E5101 (Node below the supported floor). */
+    readonly code?: B4ErrorCode
   }
   /** Present only when a sandbox provider is configured. */
   readonly docker?: {
     readonly ok: boolean
     readonly detail: string
-    /** Present only when `ok` is false — DAWN_E2002 (sandbox preflight failed). */
-    readonly code?: DawnErrorCode
+    /** Present only when `ok` is false — B4_E2002 (sandbox preflight failed). */
+    readonly code?: B4ErrorCode
   }
   readonly status: "passed" | "warning" | "failed"
 }
@@ -61,18 +61,18 @@ export async function checkRuntime(input: {
     version,
     ok: nodeOk,
     floor: NODE_FLOOR,
-    ...(nodeOk ? {} : { code: "DAWN_E5101" as const }),
+    ...(nodeOk ? {} : { code: "B4_E5101" as const }),
   }
 
   let docker: RuntimeCheckResult["docker"]
   if (input.sandboxProvider?.preflight) {
     // Reuse the provider preflight contract ({ ok, detail?, warnings? }) — the
-    // same one `dawn check` runs via collect-sandbox-errors. Surface detail verbatim.
+    // same one `b4 check` runs via collect-sandbox-errors. Surface detail verbatim.
     const result = await input.sandboxProvider.preflight()
     docker = {
       ok: result.ok,
       detail: result.detail ?? (result.ok ? "reachable" : "unreachable"),
-      ...(result.ok ? {} : { code: "DAWN_E2002" as const }),
+      ...(result.ok ? {} : { code: "B4_E2002" as const }),
     }
   }
 

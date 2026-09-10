@@ -1,4 +1,4 @@
-import type { BrowseQuery } from "@dawn-ai/memory/browse"
+import type { BrowseQuery } from "@b4run/memory/browse"
 import { isBrowseQueryError, parseBrowseQuery } from "../../../../src/store/browse-params"
 import { assertLocalRequest } from "../../../../src/store/guard"
 import { storeOr500 } from "../../../../src/store/resolve"
@@ -9,10 +9,10 @@ export const dynamic = "force-dynamic"
  * Browse the memory store.
  *
  * Every parameter is decoded and validated by the SHARED validator in
- * `@dawn-ai/memory/browse` — the same one the stores run defensively — so the HTTP
+ * `@b4run/memory/browse` — the same one the stores run defensively — so the HTTP
  * contract cannot drift from the store contract. `filters` and `orderBy` are
  * JSON-encoded; `cursor` is opaque. Note the import is the PURE `/browse` subpath:
- * a bare "@dawn-ai/memory" import here would drag node:sqlite into the Next bundle
+ * a bare "@b4run/memory" import here would drag node:sqlite into the Next bundle
  * (see src/store/runtime-imports.ts).
  *
  * A 400 body carries `code` beside `error`. Clients match on the code: the prose is the

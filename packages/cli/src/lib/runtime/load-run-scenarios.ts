@@ -3,7 +3,7 @@ import { access, readdir } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { discoverRoutes, findDawnApp } from "@dawn-ai/core/node"
+import { discoverRoutes, findB4App } from "@b4run/core/node"
 import {
   isScenarioSuite,
   type RuntimeErrorExpectation,
@@ -13,7 +13,7 @@ import {
   type ScenarioSuiteDescriptor,
   type ScenarioToolCallExpectationDescriptor,
   type ScenarioToolMockDescriptor,
-} from "@dawn-ai/sdk/testing"
+} from "@b4run/sdk/testing"
 import { loadRouteKind } from "./load-route-kind.js"
 import { registerTsxLoader } from "./register-tsx-loader.js"
 import type { RuntimeExecutionResult } from "./result.js"
@@ -64,7 +64,7 @@ export class RunScenarioLoadError extends Error {
 export async function loadRunScenarios(
   options: LoadRunScenariosOptions,
 ): Promise<readonly LoadedRunScenario[]> {
-  const app = await findDawnApp(options.cwd ? { cwd: options.cwd } : {})
+  const app = await findB4App(options.cwd ? { cwd: options.cwd } : {})
   const scenarioFiles = await discoverScenarioFiles({
     ...(options.cwd ? { cwd: options.cwd } : {}),
     ...(options.narrowingPath ? { narrowingPath: options.narrowingPath } : {}),
@@ -153,7 +153,7 @@ async function loadScenarioFile(options: {
 
   if (!isScenarioSuite(defaultExport)) {
     throw new RunScenarioLoadError(
-      `Scenario file ${options.scenarioFile} must default export scenarios("<route>").scenario(...) from "@dawn-ai/sdk/testing".\nPlain scenario arrays are not supported.`,
+      `Scenario file ${options.scenarioFile} must default export scenarios("<route>").scenario(...) from "@b4run/sdk/testing".\nPlain scenario arrays are not supported.`,
     )
   }
 

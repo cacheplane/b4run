@@ -20,7 +20,7 @@ const ECHO_ROUTE = ["export const graph = async () => ({ ok: true })", ""].join(
  * turn (agent routes checkpoint; plain graph routes never do) that a blocking
  * tool can hold open long enough to attach mid-run. */
 const CHAT_ROUTE = [
-  'import { agent } from "@dawn-ai/sdk"',
+  'import { agent } from "@b4run/sdk"',
   "export default agent({",
   '  model: "gpt-5-mini",',
   '  systemPrompt: "You are a test agent. Use the provided tools when asked.",',
@@ -31,7 +31,7 @@ const CHAT_ROUTE = [
 /** Agent route whose `deployProd` tool requires human approval, so the first
  * call to it parks the turn on a real checkpointer-backed HITL interrupt. */
 const PARK_ROUTE = [
-  'import { agent } from "@dawn-ai/sdk"',
+  'import { agent } from "@b4run/sdk"',
   "export default agent({",
   '  model: "gpt-5-mini",',
   '  systemPrompt: "You are a test agent. Use the provided tools when asked.",',
@@ -85,10 +85,10 @@ const BLOCKING_DEPLOY_TOOL = [
 ].join("\n")
 
 async function fixtureApp(overrides: Record<string, string> = {}): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-ap-attach-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-ap-attach-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "ap-attach-fixture", "type": "module" }\n',
     "src/app/echo/index.ts": ECHO_ROUTE,
     ...overrides,
@@ -355,9 +355,8 @@ describe("GET /threads/:thread_id/runs/stream — attach endpoint (durable path)
 
     const done = events.find((e) => e.event === "done")
     expect(done?.data).toEqual({ output: null })
-    // The done frame is the last SUBSTANTIVE event; only the bare retry hint
-    // (no event/data lines of its own) follows it.
-    expect(events.indexOf(done as SseEvent)).toBe(events.length - 2)
+    // A client may stop at done, so the retry hint must arrive first.
+    expect(events.indexOf(done as SseEvent)).toBe(events.length - 1)
 
     // retry hint: present, an integer, within [1500, 2500] — never the exact
     // value, since it is jittered with Math.random().

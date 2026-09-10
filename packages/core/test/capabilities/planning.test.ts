@@ -16,7 +16,7 @@ describe("createPlanningMarker", () => {
   let routeDir: string
 
   beforeEach(() => {
-    routeDir = mkdtempSync(join(tmpdir(), "dawn-planning-"))
+    routeDir = mkdtempSync(join(tmpdir(), "b4-planning-"))
   })
 
   afterEach(() => {

@@ -11,7 +11,7 @@ const SDK_PATH = resolve(fileURLToPath(import.meta.url), "../../../sdk")
 let workspaceRoot: string
 
 beforeEach(async () => {
-  workspaceRoot = await mkdtemp(join(tmpdir(), "dawn-discover-"))
+  workspaceRoot = await mkdtemp(join(tmpdir(), "b4-discover-"))
 })
 
 afterEach(async () => {
@@ -22,11 +22,11 @@ async function writeApp(files: Readonly<Record<string, string>>): Promise<string
   const appRoot = workspaceRoot
 
   await writeFile(join(appRoot, "package.json"), `{}\n`, "utf8")
-  await writeFile(join(appRoot, "dawn.config.ts"), `export default { appDir: "src/app" }\n`, "utf8")
+  await writeFile(join(appRoot, "b4.config.ts"), `export default { appDir: "src/app" }\n`, "utf8")
 
-  // Symlink @dawn-ai/sdk so fixture files can import it
-  await mkdir(join(appRoot, "node_modules/@dawn-ai"), { recursive: true })
-  await symlink(SDK_PATH, join(appRoot, "node_modules/@dawn-ai/sdk"))
+  // Symlink @b4run/sdk so fixture files can import it
+  await mkdir(join(appRoot, "node_modules/@b4run"), { recursive: true })
+  await symlink(SDK_PATH, join(appRoot, "node_modules/@b4run/sdk"))
 
   for (const [relative, content] of Object.entries(files)) {
     const absolute = join(appRoot, relative)
@@ -59,7 +59,7 @@ describe("discoverRoutes", () => {
 
     const manifest = await discoverRoutes({ appRoot })
 
-    expect(manifest.routes[0].kind).toBe("graph")
+    expect(manifest.routes[0]?.kind).toBe("graph")
   })
 
   it("throws when index.ts exports both workflow and graph", async () => {
@@ -89,7 +89,7 @@ describe("discoverRoutes", () => {
 
     const manifest = await discoverRoutes({ appRoot })
 
-    expect(manifest.routes[0].pathname).toBe("/hello")
+    expect(manifest.routes[0]?.pathname).toBe("/hello")
   })
 
   it("preserves dynamic segments in pathnames", async () => {
@@ -99,8 +99,8 @@ describe("discoverRoutes", () => {
 
     const manifest = await discoverRoutes({ appRoot })
 
-    expect(manifest.routes[0].pathname).toBe("/hello/[tenant]")
-    expect(manifest.routes[0].segments).toEqual([
+    expect(manifest.routes[0]?.pathname).toBe("/hello/[tenant]")
+    expect(manifest.routes[0]?.segments).toEqual([
       { kind: "static", raw: "hello" },
       { kind: "dynamic", name: "tenant", raw: "[tenant]" },
     ])
@@ -123,12 +123,12 @@ describe("discoverRoutes", () => {
       "src/app/(b)/hello/index.ts": `export async function workflow() { return {} }\n`,
     })
 
-    await expect(discoverRoutes({ appRoot })).rejects.toThrow(/Duplicate Dawn route pathname/)
+    await expect(discoverRoutes({ appRoot })).rejects.toThrow(/Duplicate B4.run route pathname/)
   })
 
   it("discovers an agent route from export default agent()", async () => {
     const appRoot = await writeApp({
-      "src/app/hello/index.ts": `import { agent } from "@dawn-ai/sdk"\nexport default agent({ model: "gpt-4o-mini", systemPrompt: "hi" })\n`,
+      "src/app/hello/index.ts": `import { agent } from "@b4run/sdk"\nexport default agent({ model: "gpt-4o-mini", systemPrompt: "hi" })\n`,
     })
 
     const manifest = await discoverRoutes({ appRoot })

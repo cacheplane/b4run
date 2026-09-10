@@ -72,8 +72,8 @@ import { fileURLToPath } from "node:url"
 import {
   extractToolSchemasForRoute,
   extractToolTypesForRoute,
-} from "@dawn-ai/core/node"
-import { dawnToolSchemaPlugin } from "@dawn-ai/vite-plugin"
+} from "@b4run/core/node"
+import { b4ToolSchemaPlugin } from "@b4run/vite-plugin"
 import typescript from "typescript"
 
 const expectedTypeScriptVersion = ${JSON.stringify(expectedTypeScriptVersion)}
@@ -83,7 +83,7 @@ const sharedToolsDir = join(root, "shared")
 
 assert.equal(typescript.version, expectedTypeScriptVersion)
 
-const coreRequire = createRequire(import.meta.resolve("@dawn-ai/core"))
+const coreRequire = createRequire(import.meta.resolve("@b4run/core"))
 const coreCompilerPackagePath = coreRequire.resolve("typescript/package.json")
 const oldCompilerPackagePath = coreRequire.resolve("@typescript/old/package.json")
 const coreCompilerManifest = coreRequire(coreCompilerPackagePath)
@@ -166,9 +166,9 @@ assert.deepEqual(schemas, [
   },
 ])
 
-const transformInput = \`const __dawnGeneratedDescription = "occupied"
-const __dawnGeneratedSchema = "occupied"
-const __dawnGeneratedZ = "occupied"
+const transformInput = \`const __b4GeneratedDescription = "occupied"
+const __b4GeneratedSchema = "occupied"
+const __b4GeneratedZ = "occupied"
 
 /**
  * Generate collision-safe metadata.
@@ -178,17 +178,17 @@ export default async function generated(input: { label: string; tags?: string[] 
   return { label: input.label, tags: input.tags ?? [] }
 }
 \`
-const transformed = dawnToolSchemaPlugin().transform(
+const transformed = b4ToolSchemaPlugin().transform(
   transformInput,
   join(root, "route", "tools", "generated.ts"),
 )
 assert.ok(transformed)
-assert.match(transformed.code, /import \\{ z as __dawnGeneratedZ2 \\} from "zod"/)
-assert.match(transformed.code, /const __dawnGeneratedDescription2 = "Generate collision-safe metadata\\."/)
-assert.match(transformed.code, /export \\{ __dawnGeneratedDescription2 as description \\}/)
-assert.match(transformed.code, /const __dawnGeneratedSchema2 = __dawnGeneratedZ2\\.object/)
-assert.match(transformed.code, /export \\{ __dawnGeneratedSchema2 as schema \\}/)
-assert.match(transformed.code, /__dawnGeneratedZ2\\.string\\(\\)\\.describe\\("Human-readable label\\."\\)/)
+assert.match(transformed.code, /import \\{ z as __b4GeneratedZ2 \\} from "zod"/)
+assert.match(transformed.code, /const __b4GeneratedDescription2 = "Generate collision-safe metadata\\."/)
+assert.match(transformed.code, /export \\{ __b4GeneratedDescription2 as description \\}/)
+assert.match(transformed.code, /const __b4GeneratedSchema2 = __b4GeneratedZ2\\.object/)
+assert.match(transformed.code, /export \\{ __b4GeneratedSchema2 as schema \\}/)
+assert.match(transformed.code, /__b4GeneratedZ2\\.string\\(\\)\\.describe\\("Human-readable label\\."\\)/)
 await writeFile(join(root, "generated-tool.ts"), transformed.code, "utf8")
 `
 }

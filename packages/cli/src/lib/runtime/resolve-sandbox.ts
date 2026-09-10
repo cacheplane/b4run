@@ -1,15 +1,15 @@
-import type { SandboxConfig, SandboxPolicy } from "@dawn-ai/workspace"
-import { loadDawnConfig } from "../node-config.js"
+import type { SandboxConfig, SandboxPolicy } from "@b4run/workspace"
+import { loadB4Config } from "../node-config.js"
 import { SandboxManager } from "./sandbox-manager.js"
 
 const DEFAULT_IDLE_MS = 600_000
 const DEFAULT_NETWORK: SandboxPolicy["network"] = { mode: "allow", denylist: ["169.254.169.254"] }
 
-/** Build the per-server SandboxManager from dawn.config.ts, or undefined if unconfigured. */
+/** Build the per-server SandboxManager from b4.config.ts, or undefined if unconfigured. */
 export async function resolveSandboxManager(appRoot: string): Promise<SandboxManager | undefined> {
   let sandbox: SandboxConfig | undefined
   try {
-    const loaded = await loadDawnConfig({ appRoot })
+    const loaded = await loadB4Config({ appRoot })
     sandbox = loaded.config.sandbox
   } catch {
     return undefined

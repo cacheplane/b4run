@@ -2,8 +2,8 @@ import { realpathSync } from "node:fs"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { BackendContext, FilesystemBackend, FilesystemMiddleware } from "@dawn-ai/workspace"
-import { localFilesystem } from "@dawn-ai/workspace/node"
+import type { BackendContext, FilesystemBackend, FilesystemMiddleware } from "@b4run/workspace"
+import { localFilesystem } from "@b4run/workspace/node"
 
 export interface MiddlewareHarness {
   readonly backend: FilesystemBackend
@@ -17,7 +17,7 @@ export interface MiddlewareHarness {
 export async function createMiddlewareHarness(
   middleware: FilesystemMiddleware,
 ): Promise<MiddlewareHarness> {
-  const dir = realpathSync(await mkdtemp(join(tmpdir(), "dawn-mw-harness-")))
+  const dir = realpathSync(await mkdtemp(join(tmpdir(), "b4-mw-harness-")))
   const base = localFilesystem()
   const backend = middleware(base)
   const controller = new AbortController()

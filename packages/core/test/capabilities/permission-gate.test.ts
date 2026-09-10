@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createPermissionsStore } from "@dawn-ai/permissions/node"
+import { createPermissionsStore } from "@b4run/permissions/node"
 import { Annotation, Command, END, MemorySaver, START, StateGraph } from "@langchain/langgraph"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
@@ -19,7 +19,7 @@ describe("gatePathOp interrupt suppression", () => {
   let appRoot: string
 
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-gate-test-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-gate-test-"))
   })
 
   afterEach(() => {
@@ -42,7 +42,7 @@ describe("gatePathOp interrupt suppression", () => {
     expect(result.allowed).toBe(false)
     if (!result.allowed) {
       expect(result.reason).toMatch(/allow rule/)
-      expect(result.reason).toMatch(/dawn\.config/)
+      expect(result.reason).toMatch(/b4\.config/)
     }
   })
 
@@ -64,7 +64,7 @@ describe("gatePathOp interrupt suppression", () => {
 describe("gateToolOp", () => {
   let appRoot: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-gate-tool-test-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-gate-tool-test-"))
   })
   afterEach(() => {
     rmSync(appRoot, { recursive: true, force: true })
@@ -128,7 +128,7 @@ describe("gateToolOp", () => {
     expect(result.allowed).toBe(false)
     if (!result.allowed) {
       expect(result.reason).toMatch(/allow rule/)
-      expect(result.reason).toMatch(/dawn\.config/)
+      expect(result.reason).toMatch(/b4\.config/)
     }
   })
 })
@@ -136,7 +136,7 @@ describe("gateToolOp", () => {
 describe("gateSubagentOp", () => {
   let appRoot: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-gate-subagent-test-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-gate-subagent-test-"))
   })
   afterEach(() => {
     rmSync(appRoot, { recursive: true, force: true })
@@ -191,7 +191,7 @@ describe("gateSubagentOp", () => {
     })
     expect(result).toEqual({
       allowed: false,
-      code: "DAWN_E3002",
+      code: "B4_E3002",
       reason: "Permission denied by user: subagent writer",
     })
   })
@@ -203,7 +203,7 @@ describe("gateSubagentOp", () => {
     })
     expect(result.allowed).toBe(false)
     if (!result.allowed) {
-      expect(result.code).toBe("DAWN_E3002")
+      expect(result.code).toBe("B4_E3002")
       expect(result.reason).toMatch(/fail-closed.*writer/i)
     }
   })
@@ -224,7 +224,7 @@ describe("gateSubagentOp", () => {
       )
       expect(result.allowed).toBe(false)
       if (!result.allowed) {
-        expect(result.code).toBe("DAWN_E3002")
+        expect(result.code).toBe("B4_E3002")
         expect(result.reason).toMatch(/thread ID.*interrupt support.*allow rule/i)
       }
     },
@@ -273,7 +273,7 @@ describe("gateSubagentOp", () => {
       "deny",
       {
         allowed: false,
-        code: "DAWN_E3002",
+        code: "B4_E3002",
         reason: "Permission denied by user: subagent writer",
       },
     ],
@@ -342,7 +342,7 @@ describe("gateSubagentOp", () => {
 describe("wrapToolWithApproval", () => {
   let appRoot: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-wrap-tool-test-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-wrap-tool-test-"))
   })
   afterEach(() => {
     rmSync(appRoot, { recursive: true, force: true })
@@ -361,7 +361,7 @@ describe("wrapToolWithApproval", () => {
       name: "deployProd",
       description: "deploys",
       filePath: "/app/src/app/ops/tools/deployProd.ts",
-      run: async (input: unknown) => `deployed:${JSON.stringify(input)}`,
+      run: async (input: unknown, _context: unknown) => `deployed:${JSON.stringify(input)}`,
     }
     const wrapped = wrapToolWithApproval(tool, permissions)
     expect(wrapped.name).toBe("deployProd")
@@ -381,7 +381,7 @@ describe("wrapToolWithApproval", () => {
     const wrapped = wrapToolWithApproval(
       {
         name: "deployProd",
-        run: async () => {
+        run: async (_input: unknown, _context: unknown) => {
           ran = true
           return "deployed"
         },
@@ -400,11 +400,14 @@ describe("wrapToolWithApproval", () => {
       mode: "non-interactive",
     })
     await permissions.load()
-    const wrapped = wrapToolWithApproval({ name: "x", run: async () => "ran" }, permissions)
+    const wrapped = wrapToolWithApproval(
+      { name: "x", run: async (_input: unknown, _context: unknown) => "ran" },
+      permissions,
+    )
     expect(String(await wrapped.run({}, { signal }))).toMatch(/fail-closed/)
   })
 
-  it("prefixes the denial tool result with the [DAWN_E3001] code", async () => {
+  it("prefixes the denial tool result with the [B4_E3001] code", async () => {
     const permissions = createPermissionsStore({
       appRoot,
       config: { version: 1, allow: {}, deny: { tool: ["deployProd"] } },
@@ -412,11 +415,11 @@ describe("wrapToolWithApproval", () => {
     })
     await permissions.load()
     const wrapped = wrapToolWithApproval(
-      { name: "deployProd", run: async () => "ran" },
+      { name: "deployProd", run: async (_input: unknown, _context: unknown) => "ran" },
       permissions,
     )
     const result = String(await wrapped.run({}, { signal }))
-    expect(result.startsWith("[DAWN_E3001] ")).toBe(true)
+    expect(result.startsWith("[B4_E3001] ")).toBe(true)
     // The original reason is preserved after the code prefix.
     expect(result).toMatch(/denied.*deployProd/i)
   })
@@ -425,7 +428,7 @@ describe("wrapToolWithApproval", () => {
 describe("wrapToolWithConstraint", () => {
   let appRoot: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-constrain-test-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-constrain-test-"))
   })
   afterEach(() => {
     rmSync(appRoot, { recursive: true, force: true })
@@ -436,7 +439,7 @@ describe("wrapToolWithConstraint", () => {
   it("allows (runs the real tool) when the predicate returns true", async () => {
     const tool = {
       name: "deployProd",
-      run: async (i: unknown) => `ran:${JSON.stringify(i)}`,
+      run: async (i: unknown, _context: unknown) => `ran:${JSON.stringify(i)}`,
     }
     const wrapped = wrapToolWithConstraint(tool, () => true, undefined, "/ops#agent")
     expect(await wrapped.run({ env: "staging" }, runCtx)).toBe('ran:{"env":"staging"}')
@@ -446,7 +449,7 @@ describe("wrapToolWithConstraint", () => {
     let ran = false
     const tool = {
       name: "deployProd",
-      run: async () => {
+      run: async (_input: unknown, _context: unknown) => {
         ran = true
         return "ran"
       },
@@ -466,10 +469,10 @@ describe("wrapToolWithConstraint", () => {
     let seen: {
       toolName?: string
       routeId?: string
-      threadId?: string
+      threadId?: string | undefined
       params?: unknown
     } = {}
-    const tool = { name: "deployProd", run: async () => "ran" }
+    const tool = { name: "deployProd", run: async (_input: unknown, _context: unknown) => "ran" }
     const wrapped = wrapToolWithConstraint(
       tool,
       (_args, ctx) => {
@@ -497,7 +500,7 @@ describe("wrapToolWithConstraint", () => {
     let ran = false
     const tool = {
       name: "deployProd",
-      run: async () => {
+      run: async (_input: unknown, _context: unknown) => {
         ran = true
         return "ran"
       },
@@ -516,7 +519,7 @@ describe("wrapToolWithConstraint", () => {
   })
 
   it("awaits an async predicate", async () => {
-    const tool = { name: "deployProd", run: async () => "ran" }
+    const tool = { name: "deployProd", run: async (_input: unknown, _context: unknown) => "ran" }
     const wrapped = wrapToolWithConstraint(
       tool,
       async () => await Promise.resolve("async denied"),
@@ -533,7 +536,10 @@ describe("wrapToolWithConstraint", () => {
       mode: "interactive",
     })
     await permissions.load()
-    const tool = { name: "deployProd", run: async () => "deployed" }
+    const tool = {
+      name: "deployProd",
+      run: async (_input: unknown, _context: unknown) => "deployed",
+    }
     const wrapped = wrapToolWithConstraint(
       tool,
       () => ({ approve: true }),
@@ -553,7 +559,7 @@ describe("wrapToolWithConstraint", () => {
     let ran = false
     const tool = {
       name: "deployProd",
-      run: async () => {
+      run: async (_input: unknown, _context: unknown) => {
         ran = true
         return "deployed"
       },
@@ -574,7 +580,7 @@ describe("wrapToolWithConstraint", () => {
       let ran = false
       const tool = {
         name: "deployProd",
-        run: async () => {
+        run: async (_input: unknown, _context: unknown) => {
           ran = true
           return "ran"
         },
@@ -592,7 +598,7 @@ describe("wrapToolWithConstraint", () => {
 describe("gateMemorySupersede", () => {
   let appRoot: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-gate-memory-test-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-gate-memory-test-"))
   })
   afterEach(() => {
     rmSync(appRoot, { recursive: true, force: true })

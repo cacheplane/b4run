@@ -28,7 +28,7 @@ scenarios("/research").scenario("typed", (s) =>
     .mockTool("ping", () => "pong")
     .expectPassed()
     .expectOutput({ any: "shape remains unknown" })
-    .expectTool("searchWeb", (call) => call.calledOnce().withArgs({ query: "Dawn" }))
+    .expectTool("searchWeb", (call) => call.calledOnce().withArgs({ query: "B4.run" }))
     .expectTool("ping", (call) => call.called()),
 )
 
@@ -152,7 +152,7 @@ scenarios("/research").scenario("not called with args", (s) =>
     .expectTool("searchWeb", (call) => {
       const absent = call.notCalled()
       // @ts-expect-error notCalled cannot be combined with argument matching.
-      return absent.withArgs({ query: "Dawn" })
+      return absent.withArgs({ query: "B4.run" })
     }),
 )
 
@@ -162,7 +162,7 @@ scenarios("/research").scenario("args then not called", (s) =>
     .mockTool("searchWeb", async () => ({ results: [] }))
     .expectPassed()
     .expectTool("searchWeb", (call) => {
-      const matched = call.withArgs({ query: "Dawn" })
+      const matched = call.withArgs({ query: "B4.run" })
       // @ts-expect-error argument matching cannot be followed by notCalled.
       return matched.notCalled()
     }),

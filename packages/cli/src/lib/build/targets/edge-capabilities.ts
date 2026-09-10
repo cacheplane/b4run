@@ -2,7 +2,7 @@ import { existsSync, readdirSync, statSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join, relative, resolve, sep } from "node:path"
 
-import type { DawnConfig, RouteManifest } from "@dawn-ai/core"
+import type { B4Config, RouteManifest } from "@b4run/core"
 
 import { CliError } from "../../output.js"
 import {
@@ -13,8 +13,8 @@ import {
 
 // The violation shape and the report text live in `edge-capability-report.ts`
 // — a `node:`-free module — because the REQUEST-time half of this gate
-// (`collectRuntimeCapabilityGaps`, reached from `@dawn-ai/cli/fetch`) must
-// raise the same DAWN_E1005 in the same words, and cannot import a module that
+// (`collectRuntimeCapabilityGaps`, reached from `@b4run/cli/fetch`) must
+// raise the same B4_E1005 in the same words, and cannot import a module that
 // touches `node:fs`. Deliberately NOT re-exported from here: this file reads
 // the filesystem, so re-exporting would let a runtime consumer reach the whole
 // build-side gate through it and quietly pull `node:fs` back into that graph.
@@ -24,7 +24,7 @@ import {
 export interface EdgeCapabilityInput {
   readonly appRoot: string
   readonly config: Pick<
-    DawnConfig,
+    B4Config,
     | "backends"
     | "checkpointer"
     | "memory"
@@ -73,7 +73,7 @@ const EDGE_OVERRIDDEN_STORES: readonly {
     key: "memory.store",
     capability: "a custom memory store",
     outcome:
-      "dropped outright — the emitted stores.mjs supplies no memory store, so the first `recall`/`remember` would fail with DAWN_E5301",
+      "dropped outright — the emitted stores.mjs supplies no memory store, so the first `recall`/`remember` would fail with B4_E5301",
     read: (c) => c.memory?.store,
   },
 ]
@@ -83,7 +83,7 @@ const EDGE_OVERRIDDEN_STORES: readonly {
  * stable order. Empty means the app is edge-deployable.
  *
  * Deliberately returns the whole list rather than throwing on the first find:
- * `dawn check` reports them all at once, and discovering four of these one
+ * `b4 check` reports them all at once, and discovering four of these one
  * build at a time is four round trips.
  *
  * Every probe here reads the same source of truth the RUNTIME reads — the
@@ -101,7 +101,7 @@ export function collectEdgeCapabilityViolations(
   if (config.sandbox) {
     violations.push({
       capability: "sandbox",
-      source: "`sandbox` in dawn.config.ts",
+      source: "`sandbox` in b4.config.ts",
       reason:
         "a sandbox isolates tool execution in a container or pod, and an edge runtime can neither start one nor talk to a container daemon",
       remedy: "Remove the `sandbox` block",
@@ -116,7 +116,7 @@ export function collectEdgeCapabilityViolations(
   if (config.toolOutput && Object.keys(config.toolOutput).length > 0) {
     violations.push({
       capability: "tool-output offloading",
-      source: "`toolOutput` in dawn.config.ts",
+      source: "`toolOutput` in b4.config.ts",
       reason:
         "offloading spills oversized tool output to a file under workspace/ and hands the model a pointer to it, and an edge runtime has no filesystem to spill to — every one of these settings would be inlined into the bundle and then ignored",
       remedy: "Remove `toolOutput`",
@@ -127,7 +127,7 @@ export function collectEdgeCapabilityViolations(
     if (config.backends?.[kind]) {
       violations.push({
         capability: `${kind} backend`,
-        source: `\`backends.${kind}\` in dawn.config.ts`,
+        source: `\`backends.${kind}\` in b4.config.ts`,
         reason:
           "a backend is a live object, and nothing can carry an object across a build boundary into a deployed bundle — the emitted app.mjs inlines only the JSON-serializable half of your config",
         remedy: `Remove \`backends.${kind}\``,
@@ -142,7 +142,7 @@ export function collectEdgeCapabilityViolations(
     if (store.read(config) === undefined) continue
     violations.push({
       capability: store.capability,
-      source: `\`${store.key}\` in dawn.config.ts`,
+      source: `\`${store.key}\` in b4.config.ts`,
       reason:
         `a store handle is a live object, and nothing can carry an object across a build boundary ` +
         `into a deployed bundle — only the JSON-serializable half of your config is inlined, so at ` +
@@ -189,7 +189,7 @@ export function collectEdgeCapabilityViolations(
         capability: "long-term memory",
         source: appRelative(appRoot, memoryFile),
         reason:
-          "the emitted stores.mjs supplies a checkpointer, a threads store and a permissions store, but no memory store — the first `recall`/`remember` call would fail with DAWN_E5301 at request time. `memory.store` cannot fill the gap either: it is a live object, and only the JSON-serializable half of your config crosses the build boundary",
+          "the emitted stores.mjs supplies a checkpointer, a threads store and a permissions store, but no memory store — the first `recall`/`remember` call would fail with B4_E5301 at request time. `memory.store` cannot fill the gap either: it is a live object, and only the JSON-serializable half of your config crosses the build boundary",
         remedy: `Delete ${appRelative(appRoot, memoryFile)}`,
       })
     }
@@ -211,7 +211,7 @@ export function assertEdgeCapabilities(
   const violations = collectEdgeCapabilityViolations(input)
   if (violations.length === 0) return
   throw new CliError(formatEdgeCapabilityViolationsForTarget(violations, targetName), 1, {
-    code: "DAWN_E1005",
+    code: "B4_E1005",
   })
 }
 
@@ -237,14 +237,14 @@ function formatEdgeCapabilityViolationsForTarget(
 /**
  * Bare specifiers the emitted `app.mjs` / `stores.mjs` import at runtime.
  *
- * None of these is a dependency of `@dawn-ai/cli`, and that is deliberate: the
+ * None of these is a dependency of `@b4run/cli`, and that is deliberate: the
  * CLI does not import any of them — the app it GENERATES does. Vendoring them
  * into the CLI would resolve them only under a hoisting layout, and silently
  * not under pnpm's strict one. The app declares what the app imports.
  */
 const EDGE_RUNTIME_DEPENDENCIES: readonly string[] = [
-  "@dawn-ai/cli",
-  "@dawn-ai/postgres-storage",
+  "@b4run/cli",
+  "@b4run/postgres-storage",
   "@neondatabase/serverless",
   "hono",
 ]

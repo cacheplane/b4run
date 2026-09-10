@@ -21,8 +21,8 @@ export interface WorkspaceFs {
   listDir(path?: string): Promise<readonly string[]>
 }
 
-/** The context argument Dawn passes to a route tool's function. */
-export interface DawnToolContext {
+/** The context argument B4.run passes to a route tool's function. */
+export interface B4ToolContext {
   readonly signal: AbortSignal
   readonly middleware?: Readonly<Record<string, unknown>>
   readonly fs: WorkspaceFs

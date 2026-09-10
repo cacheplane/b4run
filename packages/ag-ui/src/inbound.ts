@@ -1,16 +1,16 @@
 import type { Message, RunAgentInput } from "@ag-ui/core"
-import { type DawnResumeRequest, fromAguiResume } from "./interrupts.js"
+import { type B4ResumeRequest, fromAguiResume } from "./interrupts.js"
 
-export interface DawnMessage {
+export interface B4Message {
   readonly role: "user" | "assistant" | "system" | "developer" | "tool"
   readonly content: string
   readonly id?: string
   readonly toolCallId?: string
 }
 
-export interface DawnRunInput {
-  readonly messages: DawnMessage[]
-  readonly resume?: DawnResumeRequest[]
+export interface B4RunInput {
+  readonly messages: B4Message[]
+  readonly resume?: B4ResumeRequest[]
   /** The untouched AG-UI input, so a consumer can reach tools/state/context. */
   readonly raw: RunAgentInput
 }
@@ -28,7 +28,7 @@ function coerceContent(content: unknown): string {
   }
 }
 
-function toDawnToolMessage(message: AguiToolMessage, content: string): DawnMessage {
+function toB4ToolMessage(message: AguiToolMessage, content: string): B4Message {
   return {
     role: "tool",
     content,
@@ -37,11 +37,11 @@ function toDawnToolMessage(message: AguiToolMessage, content: string): DawnMessa
   }
 }
 
-function toDawnMessage(message: Message): DawnMessage {
+function toB4Message(message: Message): B4Message {
   const content = coerceContent(message.content)
   switch (message.role) {
     case "tool":
-      return toDawnToolMessage(message, content)
+      return toB4ToolMessage(message, content)
     case "user":
     case "assistant":
     case "system":
@@ -54,13 +54,13 @@ function toDawnMessage(message: Message): DawnMessage {
 }
 
 /**
- * Map an AG-UI `RunAgentInput` to a Dawn run input. Messages are translated
- * structurally; a `resume` array becomes vocabulary-agnostic Dawn resume
+ * Map an AG-UI `RunAgentInput` to a B4.run run input. Messages are translated
+ * structurally; a `resume` array becomes vocabulary-agnostic B4.run resume
  * requests (see `fromAguiResume`). `tools`/`state`/`context` are not
  * interpreted in v1 - reach them via `raw`.
  */
-export function fromRunAgentInput(input: RunAgentInput): DawnRunInput {
-  const messages = input.messages.map(toDawnMessage)
+export function fromRunAgentInput(input: RunAgentInput): B4RunInput {
+  const messages = input.messages.map(toB4Message)
   const resume = input.resume && input.resume.length > 0 ? fromAguiResume(input.resume) : undefined
   return { messages, ...(resume ? { resume } : {}), raw: input }
 }

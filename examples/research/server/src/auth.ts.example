@@ -4,7 +4,7 @@
  * Rename to `src/auth.ts` — drop the `.example` — to activate it, together with
  * `src/thread-access.ts.example`.
  *
- * Dawn has two authorization files with two different jobs. `src/middleware.ts`
+ * B4.run has two authorization files with two different jobs. `src/middleware.ts`
  * answers "may this caller run this route"; `src/thread-access.ts` answers "may
  * this caller create, read, mutate or destroy this thread". Nothing makes them
  * agree, and two independent header parsers is a confused deputy waiting to
@@ -34,7 +34,7 @@ export interface Principal {
  * `includes`, `startsWith` or `split(",")`. Compare with strict equality.
  *
  * It is `async` because a real implementation calls out to verify a token; a
- * synchronous implementation is equally fine, and Dawn awaits either.
+ * synchronous implementation is equally fine, and B4.run awaits either.
  */
 export async function principalOf(
   headers: Readonly<Record<string, string>>,

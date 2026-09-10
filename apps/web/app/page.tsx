@@ -11,7 +11,7 @@ import { Hero } from "./components/landing/Hero"
 import { KeepTheRuntime } from "./components/landing/KeepTheRuntime"
 import { ProofStrip } from "./components/landing/ProofStrip"
 import { Quickstart } from "./components/landing/Quickstart"
-import { WhyDawn } from "./components/landing/WhyDawn"
+import { WhyB4 } from "./components/landing/WhyB4"
 import { JsonLd } from "./seo/JsonLd"
 import { resolveStaticSeoPage, toMetadata } from "./seo/resolve"
 import { webPageJsonLd } from "./seo/structured-data"
@@ -32,7 +32,7 @@ export default function HomePage() {
       <JsonLd data={webPageJsonLd(seoPage)} />
       <Hero />
       <ProofStrip />
-      <WhyDawn />
+      <WhyB4 />
       <DriveTheModel />
       <FeatureRouting />
       <FeatureTools />

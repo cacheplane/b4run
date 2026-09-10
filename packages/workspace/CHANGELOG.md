@@ -1,5 +1,71 @@
 # @dawn-ai/workspace
 
+## 0.8.29
+
+### Patch Changes
+
+- Updated dependencies [481489e]
+  - @b4run/sdk@0.8.29
+
+## 0.8.28
+
+### Patch Changes
+
+- Updated dependencies [39ceb2e]
+  - @b4run/sdk@0.8.28
+
+## 0.8.27
+
+### Patch Changes
+
+- Updated dependencies [b05b96d]
+  - @b4run/sdk@0.8.27
+
+## 0.8.26
+
+### Patch Changes
+
+- @dawn-ai/sdk@0.8.26
+
+## 0.8.25
+
+### Patch Changes
+
+- @dawn-ai/sdk@0.8.25
+
+## 0.8.24
+
+### Patch Changes
+
+- @dawn-ai/sdk@0.8.24
+
+## 0.8.23
+
+### Patch Changes
+
+- 7e62bb1: Refresh the GitHub and npm documentation surfaces, add package discovery
+  metadata, and introduce reproducible product-loop media. No runtime API changed.
+- Updated dependencies [7e62bb1]
+  - @dawn-ai/sdk@0.8.23
+
+## 0.8.22
+
+### Patch Changes
+
+- bedad77: Documentation only: every public export of this package now has an API reference
+  page on dawnai.org, and the package README leads with a concise entrypoint. No
+  runtime behavior changed.
+- Updated dependencies [a530e70]
+- Updated dependencies [3c68800]
+- Updated dependencies [f317dd7]
+- Updated dependencies [3c68800]
+- Updated dependencies [d42774e]
+- Updated dependencies [984c3ad]
+- Updated dependencies [496b54c]
+- Updated dependencies [67030fa]
+- Updated dependencies [730b136]
+  - @dawn-ai/sdk@0.8.22
+
 ## 0.8.21
 
 ### Patch Changes

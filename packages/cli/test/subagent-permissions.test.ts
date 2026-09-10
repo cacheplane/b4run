@@ -1,14 +1,14 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { PermissionsStore } from "@dawn-ai/permissions"
+import type { PermissionsStore } from "@b4run/permissions"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 const permissionStores = vi.hoisted(() => [] as PermissionsStore[])
 
-vi.mock("@dawn-ai/permissions/node", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@dawn-ai/permissions/node")>()
+vi.mock("@b4run/permissions/node", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@b4run/permissions/node")>()
   return {
     ...actual,
     createPermissionsStore: (
@@ -69,9 +69,8 @@ describe("subagent permission store inheritance", () => {
       childStore?.addAllow("subagent", childPattern),
     ])
 
-    const actual = await vi.importActual<typeof import("@dawn-ai/permissions/node")>(
-      "@dawn-ai/permissions/node",
-    )
+    const actual =
+      await vi.importActual<typeof import("@b4run/permissions/node")>("@b4run/permissions/node")
     const reloaded = actual.createPermissionsStore({
       appRoot,
       config: undefined,
@@ -86,16 +85,16 @@ describe("subagent permission store inheritance", () => {
 })
 
 async function fixtureApp(): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-subagent-permissions-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-subagent-permissions-"))
   tempDirs.push(appRoot)
   const files = {
     "package.json": '{"type":"module"}\n',
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "src/app/parent/index.ts": `import child from "./subagents/child/index.js"
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 export default agent({ model: "gpt-5-mini", systemPrompt: "Parent.", subagents: { child } })
 `,
-    "src/app/parent/subagents/child/index.ts": `import { agent } from "@dawn-ai/sdk"
+    "src/app/parent/subagents/child/index.ts": `import { agent } from "@b4run/sdk"
 export default agent({ model: "gpt-5-mini", systemPrompt: "Child." })
 `,
   }

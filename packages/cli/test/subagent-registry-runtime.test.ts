@@ -86,7 +86,7 @@ describe("canonical subagent registry route preparation", () => {
   it("fails route preparation with E1004 for an invalid policy", async () => {
     const app = await fixtureApp({ invalidRule: true })
 
-    await expect(collect(app, "delegate this")).rejects.toThrow(/\[DAWN_E1004\]/)
+    await expect(collect(app, "delegate this")).rejects.toThrow(/\[B4_E1004\]/)
   })
 })
 
@@ -100,7 +100,7 @@ async function fixtureApp(options: FixtureOptions): Promise<{
   readonly appRoot: string
   readonly routeFile: string
 }> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-subagent-registry-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-subagent-registry-"))
   tempDirs.push(appRoot)
   const routeFile = join(appRoot, "src/app/coordinator/index.ts")
   const childImport = options.alias
@@ -115,8 +115,8 @@ async function fixtureApp(options: FixtureOptions): Promise<{
 
   await writeFiles(appRoot, {
     "package.json": "{}\n",
-    "dawn.config.ts": "export default {}\n",
-    "src/app/coordinator/index.ts": `${childImport}import { agent } from "@dawn-ai/sdk"
+    "b4.config.ts": "export default {}\n",
+    "src/app/coordinator/index.ts": `${childImport}import { agent } from "@b4run/sdk"
 export default agent({
   model: "gpt-5-mini",
   systemPrompt: "Delegate when requested.",
@@ -124,7 +124,7 @@ export default agent({
   ${delegation}
 })
 `,
-    "src/app/coordinator/subagents/researcher/index.ts": `import { agent } from "@dawn-ai/sdk"
+    "src/app/coordinator/subagents/researcher/index.ts": `import { agent } from "@b4run/sdk"
 export default agent({
   model: "gpt-5-mini",
   description: "Researches evidence.",

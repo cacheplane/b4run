@@ -30,7 +30,7 @@ interface SubagentTaskPlaceholder {
   readonly schema?: unknown
 }
 
-interface DawnSubagentStackEntry {
+interface B4SubagentStackEntry {
   readonly callId: string
   readonly name: string
   readonly routeId: string
@@ -43,7 +43,7 @@ export function convertSubagentTaskToLangChain(
   resolver: SubagentResolver,
 ): DynamicStructuredTool {
   if (tool.schema === undefined) {
-    throw new Error("[dawn] subagent task placeholder is missing its input schema")
+    throw new Error("[b4] subagent task placeholder is missing its input schema")
   }
   return new DynamicStructuredTool({
     name: tool.name,
@@ -55,11 +55,11 @@ export function convertSubagentTaskToLangChain(
       const toolRunId =
         typeof manager?.runId === "string" && manager.runId !== "" ? manager.runId : undefined
       const input = rawInput as { input: string; subagent: string }
-      const parentDawn = readDawnMetadata(liveConfig)
-      const nextDepth = readDepth(parentDawn) + 1
+      const parentB4 = readB4Metadata(liveConfig)
+      const nextDepth = readDepth(parentB4) + 1
 
       if (nextDepth > MAX_SUBAGENT_DEPTH) {
-        return `[DAWN_E5003] Cannot dispatch '${input.subagent}' at depth ${nextDepth}; the maximum subagent depth is ${MAX_SUBAGENT_DEPTH}.`
+        return `[B4_E5003] Cannot dispatch '${input.subagent}' at depth ${nextDepth}; the maximum subagent depth is ${MAX_SUBAGENT_DEPTH}.`
       }
 
       const resolved = await resolver({
@@ -70,8 +70,8 @@ export function convertSubagentTaskToLangChain(
       })
       if (!resolved.ok) return resolved.message
 
-      const parentStack = readSubagentStack(parentDawn)
-      const stackEntry: DawnSubagentStackEntry = {
+      const parentStack = readSubagentStack(parentB4)
+      const stackEntry: B4SubagentStackEntry = {
         callId,
         name: input.subagent,
         routeId: resolved.child.routeId,
@@ -80,8 +80,8 @@ export function convertSubagentTaskToLangChain(
         ...liveConfig,
         metadata: {
           ...(liveConfig.metadata ?? {}),
-          dawn: {
-            ...parentDawn,
+          b4: {
+            ...parentB4,
             subagent_depth: nextDepth,
             subagent_stack: [...parentStack, stackEntry],
           },
@@ -95,7 +95,7 @@ export function convertSubagentTaskToLangChain(
         depth: nextDepth,
       }
 
-      await dispatchCustomEvent("dawn.subagent", { phase: "start", ...eventBase }, childConfig)
+      await dispatchCustomEvent("b4.subagent", { phase: "start", ...eventBase }, childConfig)
 
       let output: unknown
       try {
@@ -109,7 +109,7 @@ export function convertSubagentTaskToLangChain(
         }
         const message = error instanceof Error ? error.message : String(error)
         await dispatchCustomEvent(
-          "dawn.subagent",
+          "b4.subagent",
           { phase: "end", ...eventBase, error: message },
           childConfig,
         )
@@ -118,7 +118,7 @@ export function convertSubagentTaskToLangChain(
 
       const finalText = extractFinalAiText(output)
       await dispatchCustomEvent(
-        "dawn.subagent",
+        "b4.subagent",
         { phase: "end", ...eventBase, final_message: finalText },
         childConfig,
       )
@@ -144,25 +144,25 @@ function readCallId(config: RunnableConfig): string | undefined {
   return typeof metadataId === "string" && metadataId !== "" ? metadataId : undefined
 }
 
-function readDawnMetadata(config: RunnableConfig): Record<string, unknown> {
-  const dawn = config.metadata?.dawn
-  return typeof dawn === "object" && dawn !== null && !Array.isArray(dawn)
-    ? (dawn as Record<string, unknown>)
+function readB4Metadata(config: RunnableConfig): Record<string, unknown> {
+  const b4 = config.metadata?.b4
+  return typeof b4 === "object" && b4 !== null && !Array.isArray(b4)
+    ? (b4 as Record<string, unknown>)
     : {}
 }
 
-function readDepth(dawn: Record<string, unknown>): number {
-  const depth = dawn.subagent_depth
+function readDepth(b4: Record<string, unknown>): number {
+  const depth = b4.subagent_depth
   return typeof depth === "number" && Number.isFinite(depth) ? depth : 0
 }
 
-function readSubagentStack(dawn: Record<string, unknown>): readonly DawnSubagentStackEntry[] {
-  const stack = dawn.subagent_stack
+function readSubagentStack(b4: Record<string, unknown>): readonly B4SubagentStackEntry[] {
+  const stack = b4.subagent_stack
   if (!Array.isArray(stack)) return []
   return stack.filter(isSubagentStackEntry)
 }
 
-function isSubagentStackEntry(value: unknown): value is DawnSubagentStackEntry {
+function isSubagentStackEntry(value: unknown): value is B4SubagentStackEntry {
   if (typeof value !== "object" || value === null) return false
   const entry = value as Record<string, unknown>
   return (

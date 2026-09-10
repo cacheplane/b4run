@@ -1,5 +1,109 @@
 # @dawn-example/chat-server
 
+## 0.0.35
+
+### Patch Changes
+
+- Updated dependencies [481489e]
+  - @b4run/sdk@0.8.29
+  - @b4run/cli@0.8.29
+  - @b4run/core@0.8.29
+  - @b4run/langchain@0.8.29
+
+## 0.0.34
+
+### Patch Changes
+
+- Updated dependencies [39ceb2e]
+  - @b4run/sdk@0.8.28
+  - @b4run/cli@0.8.28
+  - @b4run/core@0.8.28
+  - @b4run/langchain@0.8.28
+
+## 0.0.33
+
+### Patch Changes
+
+- Updated dependencies [b05b96d]
+  - @b4run/sdk@0.8.27
+  - @b4run/cli@0.8.27
+  - @b4run/core@0.8.27
+  - @b4run/langchain@0.8.27
+
+## 0.0.32
+
+### Patch Changes
+
+- Updated dependencies [c7fd197]
+  - @dawn-ai/cli@0.8.26
+  - @dawn-ai/core@0.8.26
+  - @dawn-ai/langchain@0.8.26
+  - @dawn-ai/sdk@0.8.26
+
+## 0.0.31
+
+### Patch Changes
+
+- Updated dependencies [95901e7]
+  - @dawn-ai/cli@0.8.25
+  - @dawn-ai/core@0.8.25
+  - @dawn-ai/langchain@0.8.25
+  - @dawn-ai/sdk@0.8.25
+
+## 0.0.30
+
+### Patch Changes
+
+- Updated dependencies [7495d06]
+  - @dawn-ai/cli@0.8.24
+  - @dawn-ai/core@0.8.24
+  - @dawn-ai/langchain@0.8.24
+  - @dawn-ai/sdk@0.8.24
+
+## 0.0.29
+
+### Patch Changes
+
+- Updated dependencies [21654e8]
+- Updated dependencies [7e62bb1]
+- Updated dependencies [47bf96b]
+  - @dawn-ai/cli@0.8.23
+  - @dawn-ai/core@0.8.23
+  - @dawn-ai/langchain@0.8.23
+  - @dawn-ai/sdk@0.8.23
+
+## 0.0.28
+
+### Patch Changes
+
+- Updated dependencies [b9381c4]
+- Updated dependencies [6cce98d]
+- Updated dependencies [3c68800]
+- Updated dependencies [bedad77]
+- Updated dependencies [a530e70]
+- Updated dependencies [3c68800]
+- Updated dependencies [8398c90]
+- Updated dependencies [2be1448]
+- Updated dependencies [3c68800]
+- Updated dependencies [3c68800]
+- Updated dependencies [1ca14d3]
+- Updated dependencies [ffdbcd9]
+- Updated dependencies [f317dd7]
+- Updated dependencies [908d690]
+- Updated dependencies [81ebe73]
+- Updated dependencies [3c68800]
+- Updated dependencies [56d2758]
+- Updated dependencies [d42774e]
+- Updated dependencies [984c3ad]
+- Updated dependencies [496b54c]
+- Updated dependencies [67030fa]
+- Updated dependencies [730b136]
+- Updated dependencies [bcfd42c]
+  - @dawn-ai/cli@0.8.22
+  - @dawn-ai/langchain@0.8.22
+  - @dawn-ai/core@0.8.22
+  - @dawn-ai/sdk@0.8.22
+
 ## 0.0.27
 
 ### Patch Changes

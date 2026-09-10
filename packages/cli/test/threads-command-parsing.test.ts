@@ -4,7 +4,7 @@ import { createProgram } from "../src/index.js"
 import { CliError, type CommandIo } from "../src/lib/output.js"
 
 /**
- * `dawn threads` is registered as `threads [subcommand] [args...]`. Unlike `memory`,
+ * `b4 threads` is registered as `threads [subcommand] [args...]`. Unlike `memory`,
  * its flags (`--url`, `--header`, `--json`) are declared directly on the command
  * rather than hand-parsed out of `args`, specifically so `scripts/check-docs.mjs`
  * (which enumerates `command.options` from the built CLI) can see them. These tests
@@ -36,14 +36,14 @@ async function parse(
   })
 
   try {
-    await program.parseAsync(["node", "dawn", ...argv])
+    await program.parseAsync(["node", "b4", ...argv])
   } catch (error) {
     return { error, stderr, options: captured }
   }
   return { stderr, options: captured }
 }
 
-describe("dawn threads tail flag parsing", () => {
+describe("b4 threads tail flag parsing", () => {
   it("binds --url, repeated --header, and --json to the threads command", async () => {
     const { error, stderr, options } = await parse([
       "threads",
@@ -67,11 +67,11 @@ describe("dawn threads tail flag parsing", () => {
   })
 })
 
-describe("dawn threads dispatch", () => {
+describe("b4 threads dispatch", () => {
   it("rejects a missing subcommand naming the usage", async () => {
     const { io } = collectIo()
     const program = createProgram(io)
-    await expect(program.parseAsync(["node", "dawn", "threads"])).rejects.toThrow()
+    await expect(program.parseAsync(["node", "b4", "threads"])).rejects.toThrow()
   })
 })
 

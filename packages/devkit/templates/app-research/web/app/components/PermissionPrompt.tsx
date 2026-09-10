@@ -3,10 +3,10 @@ import { type ReactNode, useEffect, useRef } from "react"
 import { neutralButton } from "./ui"
 
 /**
- * The Dawn interrupt envelope, as the workbench reads it.
+ * The B4.run interrupt envelope, as the workbench reads it.
  *
  * One type for BOTH sources, and that is the point of this file. A live gate
- * arrives as `Interrupt.metadata`, where `@dawn-ai/ag-ui`'s `toAguiInterrupt`
+ * arrives as `Interrupt.metadata`, where `@b4run/ag-ui`'s `toAguiInterrupt`
  * parks the whole envelope verbatim; a reloaded gate arrives as `value` from
  * `GET /threads/:id/pending_interrupts`, which is that same envelope before
  * anything mapped it. So the card can be written once against the envelope and
@@ -23,7 +23,7 @@ export type PermissionMetadata = {
   message?: string
   detail?: {
     /**
-     * Open, like `DawnInterruptEnvelope` itself. The named fields below are the
+     * Open, like `B4InterruptEnvelope` itself. The named fields below are the
      * ones this card reads; a gate kind it has no branch for still carries its
      * own detail (`kind: "memory"` brings `namespace`/`oldContent`/…), and
      * modelling that away would make a real envelope a type error at every
@@ -48,7 +48,7 @@ export type PermissionMetadata = {
 export type PermissionDecision = "once" | "always" | "deny"
 
 export interface PermissionPromptProps {
-  /** The Dawn interrupt envelope — `Interrupt.metadata` live, or `value` from the endpoint. */
+  /** The B4.run interrupt envelope — `Interrupt.metadata` live, or `value` from the endpoint. */
   readonly metadata: PermissionMetadata
   /** True while this card's decision is in flight. */
   readonly isResolving: boolean
@@ -199,7 +199,7 @@ function subjectOf(metadata: PermissionMetadata): string {
 /**
  * One permission gate, from either source.
  *
- * The two branches match the two shapes Dawn's gate emits that this app can
+ * The two branches match the two shapes B4.run's gate emits that this app can
  * say something useful about: a subagent dispatch (which names a parent route
  * and a child) and everything else (a command, a tool, a path).
  */

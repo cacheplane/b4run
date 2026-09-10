@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
-import { THREAD_ACCESS_METADATA_KEY } from "@dawn-ai/sdk"
+import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
 import { describe, expect, it } from "vitest"
 
 import { assertNoReservedKey, stripReservedThreadMetadata } from "../src/lib/dev/thread-metadata.js"
@@ -38,7 +38,7 @@ describe("stripReservedThreadMetadata", () => {
     // `stripped[THREAD_ACCESS_METADATA_KEY]` while `Object.hasOwn` says it is
     // gone — the forged stamp survives on the prototype chain.
     const metadata = JSON.parse(
-      '{"dawn:access":{"ownerId":"decoy"},"__proto__":{"dawn:access":{"ownerId":"attacker"}},"keep":1}',
+      '{"b4:access":{"ownerId":"decoy"},"__proto__":{"b4:access":{"ownerId":"attacker"}},"keep":1}',
     ) as Record<string, unknown>
     const stripped = stripReservedThreadMetadata(metadata)
     expect(stripped?.[THREAD_ACCESS_METADATA_KEY]).toBeUndefined()
@@ -48,7 +48,7 @@ describe("stripReservedThreadMetadata", () => {
   })
 
   it("leaves a __proto__ entry unreachable when there was no reserved key to strip", () => {
-    const metadata = JSON.parse('{"__proto__":{"dawn:access":{"ownerId":"attacker"}},"keep":1}') as
+    const metadata = JSON.parse('{"__proto__":{"b4:access":{"ownerId":"attacker"}},"keep":1}') as
       | Record<string, unknown>
       | undefined
     const stripped = stripReservedThreadMetadata(metadata)
@@ -64,7 +64,7 @@ describe("assertNoReservedKey", () => {
 
   it("throws on a patch that would clobber the stamp through the shallow merge", () => {
     expect(() => assertNoReservedKey({ [THREAD_ACCESS_METADATA_KEY]: { ownerId: "x" } })).toThrow(
-      /dawn:access/,
+      /b4:access/,
     )
   })
 })

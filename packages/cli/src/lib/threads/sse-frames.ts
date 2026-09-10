@@ -1,8 +1,8 @@
 /**
  * Incremental Server-Sent Events parser for the Agent Protocol attach stream.
  *
- * Deliberately structural: it knows the SSE framing and nothing about Dawn's
- * frame vocabulary, so `dawn threads tail` consumes the documented wire the way
+ * Deliberately structural: it knows the SSE framing and nothing about B4.run's
+ * frame vocabulary, so `b4 threads tail` consumes the documented wire the way
  * any third-party client would rather than importing the server's own types.
  */
 export interface SseFrame {

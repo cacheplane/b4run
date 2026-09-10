@@ -18,10 +18,10 @@ function XIcon() {
 }
 
 const NOT_DOING = [
-  "Dawn does not replace LangGraph.js — agent routes materialize LangGraph graphs.",
-  "Dawn does not proxy provider calls — raw graph and chain routes use the clients you instantiate.",
-  "Dawn does not host your agents — it emits artifacts for your deployment target.",
-  "Dawn does not wrap raw graph and chain exports in a proprietary runtime format.",
+  "B4.run does not replace LangGraph.js — agent routes materialize LangGraph graphs.",
+  "B4.run does not proxy provider calls — raw graph and chain routes use the clients you instantiate.",
+  "B4.run does not host your agents — it emits artifacts for your deployment target.",
+  "B4.run does not wrap raw graph and chain exports in a proprietary runtime format.",
 ]
 
 export function KeepTheRuntime() {
@@ -42,7 +42,7 @@ export function KeepTheRuntime() {
         <div className="mt-8 grid lg:grid-cols-[1.2fr_1fr] gap-10 lg:gap-16">
           <div className="space-y-5 text-lg text-ink-muted leading-[30px] max-w-[58ch]">
             <p>
-              Node and Hono targets are Dawn HTTP runtimes; the LangSmith target emits graph
+              Node and Hono targets are B4.run HTTP runtimes; the LangSmith target emits graph
               entries. Agent routes materialize LangGraph graphs, while workflows keep their
               authored function shape and raw graph and chain exports remain portable. You can still
               drop into raw{" "}
@@ -53,14 +53,14 @@ export function KeepTheRuntime() {
             </p>
             <p>
               Your raw graphs stay valid LangGraph.js, and graph and chain routes keep the provider
-              clients you instantiate. Dawn supplies the route and target boundaries around that
+              clients you instantiate. B4.run supplies the route and target boundaries around that
               code without replacing it.
             </p>
           </div>
 
           <Card className="p-6 md:p-7">
             <p className="text-xs font-semibold uppercase tracking-[0.06em] text-ink-dim">
-              What Dawn does <span className="text-ink">not</span> do
+              What B4.run does <span className="text-ink">not</span> do
             </p>
             <ul className="mt-4 space-y-3">
               {NOT_DOING.map((line) => (

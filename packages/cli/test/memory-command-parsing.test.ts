@@ -8,7 +8,7 @@ import { createProgram } from "../src/index.js"
 import type { CommandIo } from "../src/lib/output.js"
 
 /**
- * `dawn memory` is registered as `memory [subcommand] [args...]`, so every flag the
+ * `b4 memory` is registered as `memory [subcommand] [args...]`, so every flag the
  * subcommands document (`prune --cap`, `consolidate --dry-run`, …) has to survive
  * commander's own option parsing before the handler ever sees it.
  *
@@ -39,14 +39,14 @@ async function parse(argv: string[]): Promise<{ error?: unknown; stderr: string[
   })
 
   try {
-    await program.parseAsync(["node", "dawn", ...argv])
+    await program.parseAsync(["node", "b4", ...argv])
   } catch (error) {
     return { error, stderr }
   }
   return { stderr }
 }
 
-describe("dawn memory flag parsing", () => {
+describe("b4 memory flag parsing", () => {
   it.each([
     ["prune", ["--cap", "100"]],
     ["prune", ["--namespace", "team/a"]],
@@ -69,10 +69,10 @@ describe("dawn memory flag parsing", () => {
   })
 })
 
-describe("dawn memory --help", () => {
+describe("b4 memory --help", () => {
   it("lists the subcommands and their flags", async () => {
     // `USAGE` already enumerates every subcommand, but it was only reachable by
-    // triggering an error (missing/unknown subcommand). `dawn memory --help` showed
+    // triggering an error (missing/unknown subcommand). `b4 memory --help` showed
     // just the description and --cwd, so there was no way to discover `consolidate`,
     // `reflect`, or any subcommand flag from the CLI itself.
     const stdout: string[] = []
@@ -81,7 +81,7 @@ describe("dawn memory --help", () => {
 
     // commander's exitOverride turns `--help` into a thrown CommanderError after it
     // has already written the help text.
-    await expect(program.parseAsync(["node", "dawn", "memory", "--help"])).rejects.toThrow()
+    await expect(program.parseAsync(["node", "b4", "memory", "--help"])).rejects.toThrow()
 
     const help = stdout.join("")
     for (const expected of [
@@ -99,7 +99,7 @@ describe("dawn memory --help", () => {
   })
 })
 
-describe("dawn memory help text covers the real dispatch table", () => {
+describe("b4 memory help text covers the real dispatch table", () => {
   it("lists every subcommand the command actually handles", async () => {
     // `--help` renders a hand-written USAGE string while dispatch happens in a
     // `switch`. Nothing ties them together, so a subcommand added to the switch is

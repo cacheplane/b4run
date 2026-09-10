@@ -26,17 +26,17 @@ function formatStars(count: number): string {
 }
 
 /**
- * GitHub star badge for the Dawn repo. Server component — wrap in
+ * GitHub star badge for the B4.run repo. Server component — wrap in
  * <Suspense fallback={...}> at the call site to avoid blocking page streaming.
  */
 export async function StarBadge({ className = "" }: StarBadgeProps) {
   const stars = await getGitHubStars()
   return (
     <a
-      href="https://github.com/cacheplane/dawnai"
+      href="https://github.com/cacheplane/b4run"
       target="_blank"
       rel="noopener noreferrer"
-      aria-label={`${formatStars(stars)} stars on GitHub — star Dawn`}
+      aria-label={`${formatStars(stars)} stars on GitHub — star B4.run`}
       className={`inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink transition-colors ${className}`}
     >
       <StarIcon />

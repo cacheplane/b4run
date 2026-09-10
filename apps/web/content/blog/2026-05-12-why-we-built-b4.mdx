@@ -1,0 +1,241 @@
+---
+title: Why we built B4.run
+description: B4.run is a TypeScript-first framework for building LangGraph.js agents with file-system routes, route-local tools, generated types, and a local dev loop.
+date: 2026-05-12
+tags: [philosophy]
+type: post
+author: brian
+---
+
+I built B4.run because agent codebases were starting to feel harder to maintain than they needed to be.
+
+Not because LangGraph.js is the wrong runtime.
+
+In fact, I like the runtime. I like the graph model. I like that LangSmith gives teams a real deployment target.
+
+The problem I kept running into was the code around the graph: the project layout, the tool wiring, the generated artifacts, the local feedback loop, and the small conventions every team has to invent before they can build the thing they actually care about.
+
+This is the problem B4.run is trying to solve.
+
+## The short version
+
+B4.run is a TypeScript-first framework for building LangGraph.js agents.
+
+The goal is not to replace LangGraph.js. The goal is to make the application around LangGraph.js easier to build, test, and deploy.
+
+In practice, B4.run gives you:
+
+- file-system routes under `src/app/`
+- route-local tools with input and output types inferred from TypeScript
+- optional route state through `state.ts`
+- a local `b4 dev` runtime with `/runs/wait` and `/runs/stream`
+- `b4 typegen` for `.b4/b4.generated.d.ts`
+- `b4 build` for `.b4/build/langgraph.json` and per-route LangGraph entry files
+- built-in agent behavior for memory, planning, skills, and subagents
+
+That list is intentionally practical. It is the stuff you otherwise end up writing by hand.
+
+## The problem I kept seeing
+
+The first version of B4.run was not a framework.
+
+It was a folder of helpers that kept showing up in LangGraph.js projects.
+
+One project had four graphs, eleven tools, a hand-written `langgraph.json`, and a registry file that existed mostly to explain the rest of the files to each other. Graphs lived in one directory. Tools lived in another. State definitions lived somewhere else. Tests drifted from the route they were meant to protect.
+
+Every new feature touched too many places.
+
+At some point I started writing internal documentation that explained where new code was supposed to go.
+
+That was the signal.
+
+If I need a memo to explain the file layout, the framework is missing a piece.
+
+## What I wanted instead
+
+I wanted the same thing I like about good web application frameworks: a boring answer to "where does this code go?"
+
+A route should be a folder.
+
+A tool should live with the route that uses it.
+
+State should have one file.
+
+The dev server should notice changes.
+
+The build step should produce the artifact the runtime expects.
+
+Types should follow the code instead of asking the developer to copy a shape from one file into another.
+
+None of that is especially magical. That is the point. The best framework conventions usually feel obvious after you use them for a week.
+
+## What a route looks like
+
+A B4.run route is just a folder under `src/app/`.
+
+For example:
+
+```text
+src/
+  app/
+    (public)/
+      hello/
+        [tenant]/
+          index.ts
+          state.ts
+          tools/
+            greet.ts
+```
+
+The route id is `/hello/[tenant]`. The route group `(public)` is ignored, the same way route groups work in modern web frameworks.
+
+The route entry can be an `agent()` descriptor:
+
+```ts
+// src/app/(public)/hello/[tenant]/index.ts
+import { agent } from "@b4run/sdk"
+
+export default agent({
+  model: "gpt-4o-mini",
+  systemPrompt: "You are a helpful assistant for the {tenant} organization.",
+})
+```
+
+And a tool is a plain TypeScript function:
+
+```ts
+// src/app/(public)/hello/[tenant]/tools/greet.ts
+export const description = "Greet a user by name."
+
+export default async ({ name }: { readonly name: string }) => {
+  return `Hello, ${name}!`
+}
+```
+
+There is no `tool()` wrapper here.
+
+There is no hand-written Zod schema for the tool input.
+
+B4.run reads the function signature, generates the tool schema for the model, and writes the typed route registry to `.b4/b4.generated.d.ts`. The same discovered tool is wired into generated agent deployment entries when you run `b4 build`.
+
+That is the core bet: your TypeScript source should be the contract.
+
+## What happens at build time
+
+`b4 build` does three things that I used to do by hand:
+
+1. It discovers the routes in `src/app/`.
+2. It runs type generation for route state and route-local tools.
+3. It writes `.b4/build/langgraph.json` plus per-route entry files.
+
+For an agent route, the generated entry imports your default `agent()` descriptor, materializes it as a LangGraph graph, wires in the route-local tools, and maps the assistant id to the generated graph export.
+
+So a route like `/hello/[tenant]` becomes an assistant id like:
+
+```text
+/hello/[tenant]#agent
+```
+
+This matters because the B4.run project structure stays a TypeScript authoring experience, while the output is still a LangGraph-compatible deployment package.
+
+## What we have built to date
+
+The foundation of B4.run is routing, tools, types, a dev server, and build output.
+
+That proves the basic shape, but real agent applications need more than a single tool-calling loop.
+
+Here is what we have built to date around that route structure.
+
+### Memory
+
+If `workspace/AGENTS.md` exists, B4.run injects it into the agent prompt under a `# Memory` heading on every model turn.
+
+This is intentionally simple. The file is the memory. The model sees the current contents. If your app updates the file, the next turn sees the updated memory.
+
+There is a size limit and there are no hidden databases involved. That is a tradeoff I like for this layer.
+
+### Skills
+
+A route can include skills under:
+
+```text
+src/app/<route>/skills/<name>/SKILL.md
+```
+
+B4.run lists the available skills in the prompt and exposes a `readSkill({ name })` tool so the agent can load the full instructions when it needs them.
+
+This keeps long-form instructions out of the prompt until they are useful.
+
+### Planning
+
+A route with a `plan.md` file opts into the planning capability.
+
+B4.run gives the agent a `writeTodos` tool, a `todos` state channel, and a `plan_update` stream event. The agent can maintain a real plan during multi-step work, and the runtime can stream those updates to a UI.
+
+The important part is not the todo list itself. The important part is that a capability can add tools, prompt fragments, state, and stream behavior as one unit.
+
+### Subagents
+
+Subagents are becoming a first-class composition boundary.
+
+A parent route can expose child agents through the `subagents` field on `agent({...})`, or by placing child routes under a `subagents/` directory. B4.run adds a `task({ subagent, input })` tool and a prompt section that tells the parent what specialists are available.
+
+That makes a subagent feel less like an imported helper function and more like a route with its own prompt, tools, and state.
+
+### Reasoning effort
+
+`agent({...})` also accepts:
+
+```ts
+reasoning: { effort: "high" }
+```
+
+For OpenAI-backed agent routes, B4.run maps that to the model's reasoning effort parameter when the model supports it. Non-reasoning models ignore it.
+
+That is the kind of option I want in the descriptor: close to the route, explicit, and easy to review in code.
+
+## What B4.run is not
+
+It is important to be precise here.
+
+B4.run is not a new model provider abstraction.
+
+B4.run is not trying to hide LangGraph.js.
+
+B4.run is not necessary for every agent project.
+
+If you have one graph, two tools, and no need for a framework, raw LangGraph.js may be the better choice.
+
+But if your project is starting to need route conventions, generated types, a dev server, tests beside the routes, generated deployment artifacts, and reusable agent behavior, then the framework starts to earn its place.
+
+## Try it
+
+The fastest way to get a feel for the framework is still the scaffold:
+
+```bash
+pnpm create b4-app my-agents
+cd my-agents
+pnpm dev
+```
+
+Then run the example route:
+
+```bash
+echo '{"tenant":"acme"}' | pnpm exec b4 run '/hello/[tenant]'
+```
+
+If you want the mental model first, start with [Mental Model](/docs/mental-model). If you want the file conventions, start with [Routes](/docs/routes). If you have an existing LangGraph.js project, the [migration guide](/docs/migrating-from-langgraph) walks through the move construct by construct.
+
+## Conclusion
+
+B4.run exists because I wanted agent code to have a shape that editors, tests, dev servers, and deployment tools could all understand.
+
+The runtime is still LangGraph.js.
+
+The difference is the application structure around it.
+
+Routes are folders. Tools are local. Types are generated. Agent behavior composes around the route. The build output is explicit.
+
+That is the ordinary work of a framework.
+
+And for agent applications, I think that ordinary work matters.

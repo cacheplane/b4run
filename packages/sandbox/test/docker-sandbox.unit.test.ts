@@ -19,7 +19,7 @@ function recordingDocker(): { docker: Docker; runs: string[][] } {
 const signal = () => new AbortController().signal
 
 function filesystemStartedOutput(command: readonly string[], output = ""): string {
-  const marker = /__DAWN_FILESYSTEM_STARTED_[0-9a-f-]+__/u.exec(command.join(" "))?.[0]
+  const marker = /__B4_FILESYSTEM_STARTED_[0-9a-f-]+__/u.exec(command.join(" "))?.[0]
   if (marker === undefined) throw new Error("filesystem command did not include its started marker")
   return `${marker}\n${output}`
 }
@@ -38,10 +38,10 @@ describe("dockerSandbox (unit, no daemon)", () => {
     const runCmd = runs.find((r) => r[0] === "run")
     expect(runCmd).toBeDefined()
     const joined = (runCmd ?? []).join(" ")
-    expect(joined).toContain("dawn-sbx-abc")
-    expect(joined).toContain("dawn-sbx-vol-abc:/workspace")
+    expect(joined).toContain("b4-sbx-abc")
+    expect(joined).toContain("b4-sbx-vol-abc:/workspace")
     expect(joined).toContain("--network none")
-    expect(joined).toContain("--label dawn.sandbox=abc")
+    expect(joined).toContain("--label b4.sandbox=abc")
     expect(joined).toContain("sleep infinity")
   })
 
@@ -95,8 +95,8 @@ describe("dockerSandbox (unit, no daemon)", () => {
           return { stdout: "initialized", stderr: "", exitCode: 0 }
         }
         if (args[0] === "run" && args.includes("-d")) {
-          const identityLabel = args.find((arg) => arg.startsWith("dawn.sandbox.identity="))
-          identity = identityLabel?.slice("dawn.sandbox.identity=".length) ?? ""
+          const identityLabel = args.find((arg) => arg.startsWith("b4.sandbox.identity="))
+          identity = identityLabel?.slice("b4.sandbox.identity=".length) ?? ""
           containerExists = true
           volumeExists = true
           running = true
@@ -125,7 +125,7 @@ describe("dockerSandbox (unit, no daemon)", () => {
 
     identity = "tampered"
     await p.acquire({ threadId: "t", policy: { network: { mode: "deny" } }, signal: signal() })
-    expect(runs.filter((r) => r[0] === "rm")).toEqual([["rm", "-f", "dawn-sbx-t"]])
+    expect(runs.filter((r) => r[0] === "rm")).toEqual([["rm", "-f", "b4-sbx-t"]])
     expect(runs.filter((r) => r[0] === "run" && r.includes("-d"))).toHaveLength(2)
   })
 
@@ -164,8 +164,8 @@ describe("dockerSandbox (unit, no daemon)", () => {
           return { stdout: "initialized", stderr: "", exitCode: 0 }
         }
         if (args[0] === "run" && args.includes("-d")) {
-          const identityLabel = args.find((arg) => arg.startsWith("dawn.sandbox.identity="))
-          identity = identityLabel?.slice("dawn.sandbox.identity=".length) ?? ""
+          const identityLabel = args.find((arg) => arg.startsWith("b4.sandbox.identity="))
+          identity = identityLabel?.slice("b4.sandbox.identity=".length) ?? ""
           containerExists = true
           volumeExists = true
           running = true
@@ -193,7 +193,7 @@ describe("dockerSandbox (unit, no daemon)", () => {
     expect(keeperRuns).toHaveLength(2)
     expect(keeperRuns[0]).toEqual(expect.arrayContaining(["--network", "bridge"]))
     expect(keeperRuns[1]).toEqual(expect.arrayContaining(["--network", "none"]))
-    expect(runs.filter((run) => run[0] === "rm")).toEqual([["rm", "-f", "dawn-sbx-abc"]])
+    expect(runs.filter((run) => run[0] === "rm")).toEqual([["rm", "-f", "b4-sbx-abc"]])
   })
 
   test("release removes container but not volume; destroy removes both", async () => {
@@ -201,11 +201,11 @@ describe("dockerSandbox (unit, no daemon)", () => {
     const p = dockerSandbox({ image: "node:22-slim", docker })
     await p.acquire({ threadId: "abc", policy: { network: { mode: "deny" } }, signal: signal() })
     await p.release("abc")
-    expect(runs.some((r) => r[0] === "rm" && r.includes("dawn-sbx-abc"))).toBe(true)
+    expect(runs.some((r) => r[0] === "rm" && r.includes("b4-sbx-abc"))).toBe(true)
     expect(runs.some((r) => r[0] === "volume" && r[1] === "rm")).toBe(false)
     await p.destroy("abc")
     expect(
-      runs.some((r) => r[0] === "volume" && r[1] === "rm" && r.includes("dawn-sbx-vol-abc")),
+      runs.some((r) => r[0] === "volume" && r[1] === "rm" && r.includes("b4-sbx-vol-abc")),
     ).toBe(true)
   })
 
@@ -225,7 +225,7 @@ describe("dockerSandbox (unit, no daemon)", () => {
     const p = dockerSandbox({ image: "node:22-slim", docker })
     await p.acquire({ threadId: "t/1:x", policy: { network: { mode: "deny" } }, signal: signal() })
     const joined = (runs.find((r) => r[0] === "run") ?? []).join(" ")
-    expect(joined).toContain("dawn-sbx-t_1_x")
+    expect(joined).toContain("b4-sbx-t_1_x")
     expect(joined).not.toContain("t/1:x")
   })
 })
@@ -335,7 +335,7 @@ describe("dockerSandbox chown-init (Architecture B)", () => {
     expect(init).toBeDefined()
     const j = (init ?? []).join(" ")
     expect(j).toContain("--user 0:0")
-    expect(j).toContain("dawn-sbx-vol-abc:/workspace")
+    expect(j).toContain("b4-sbx-vol-abc:/workspace")
     expect(j).toContain("chown 1000:1000 /workspace")
     const idxInit = runs.findIndex((r) => r === init)
     const idxKeeper = runs.findIndex((r) => r[0] === "run" && r.includes("-d"))
@@ -395,8 +395,8 @@ describe("dockerSandbox lifecycle launch configuration", () => {
           return { stdout: "initialized", stderr: "", exitCode: 0 }
         }
         if (args[0] === "run" && args.includes("-d")) {
-          const identityLabel = args.find((arg) => arg.startsWith("dawn.sandbox.identity="))
-          identity = identityLabel?.slice("dawn.sandbox.identity=".length) ?? ""
+          const identityLabel = args.find((arg) => arg.startsWith("b4.sandbox.identity="))
+          identity = identityLabel?.slice("b4.sandbox.identity=".length) ?? ""
           containerExists = true
           volumeExists = true
           return { stdout: "keeper-id", stderr: "", exitCode: 0 }
@@ -479,7 +479,7 @@ describe("dockerSandbox lifecycle launch configuration", () => {
       const runsBeforeReacquire = runs.length
 
       await expect(p.acquire({ threadId: "abc", policy, signal: signal() })).rejects.toMatchObject({
-        code: "DAWN_E2001",
+        code: "B4_E2001",
         message: expect.stringMatching(/different keeper configuration.*release.*first/i),
       })
       expect(runs).toHaveLength(runsBeforeReacquire)
@@ -611,7 +611,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
 
     expect(execCommands).toHaveLength(2)
     expect(execCommands[1]).toEqual(execCommands[0])
-    expect(runs.filter((run) => run[0] === "rm")).toEqual([["rm", "-f", "dawn-sbx-abc"]])
+    expect(runs.filter((run) => run[0] === "rm")).toEqual([["rm", "-f", "b4-sbx-abc"]])
     expect(runs.filter((run) => run[0] === "run" && run.includes("-d"))).toHaveLength(2)
     expect(runs.some((run) => run[0] === "volume" && run[1] === "rm")).toBe(false)
   })
@@ -769,7 +769,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
     expect(result).toEqual({ stdout: "recovered", stderr: "", exitCode: 0 })
     expect(execSignals).toEqual([activeSignal, activeSignal])
     const removal = runs.find((run) => run.args[0] === "rm")
-    expect(removal?.args).toEqual(["rm", "-f", "dawn-sbx-abc"])
+    expect(removal?.args).toEqual(["rm", "-f", "b4-sbx-abc"])
     expect(removal?.signal).toBeDefined()
     expect(removal?.signal).not.toBe(activeSignal)
     expect(removal?.signal).not.toBe(acquireSignal)
@@ -778,7 +778,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
     expect(keeperRuns[1]?.args).toEqual(keeperRuns[0]?.args)
     expect(keeperRuns[1]?.args).toEqual(
       expect.arrayContaining([
-        "dawn-sbx-vol-abc:/workspace",
+        "b4-sbx-vol-abc:/workspace",
         "--network",
         "none",
         "FOO=bar",
@@ -803,9 +803,9 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
     expect(chownRuns).toHaveLength(1)
     expect(volumeInspects).toBe(2)
     const firstExecIndex = events.indexOf("exec:1")
-    const removalIndex = events.indexOf("run:rm -f dawn-sbx-abc")
+    const removalIndex = events.indexOf("run:rm -f b4-sbx-abc")
     const recoveryInspectIndex = events.findIndex(
-      (event, index) => index > removalIndex && event === "run:volume inspect dawn-sbx-vol-abc",
+      (event, index) => index > removalIndex && event === "run:volume inspect b4-sbx-vol-abc",
     )
     const replacementIndex = events.findIndex(
       (event, index) => index > recoveryInspectIndex && event.startsWith("run:run -d "),
@@ -858,8 +858,8 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
           return { stdout: "initialized", stderr: "", exitCode: 0 }
         }
         if (args[0] === "run" && args.includes("-d")) {
-          const identityLabel = args.find((arg) => arg.startsWith("dawn.sandbox.identity="))
-          identity = identityLabel?.slice("dawn.sandbox.identity=".length) ?? ""
+          const identityLabel = args.find((arg) => arg.startsWith("b4.sandbox.identity="))
+          identity = identityLabel?.slice("b4.sandbox.identity=".length) ?? ""
           containerExists = true
           volumeExists = true
           return { stdout: "keeper-id", stderr: "", exitCode: 0 }
@@ -1369,8 +1369,8 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
             await releaseReplacement.promise
             if (opts?.signal?.aborted) throw new Error("recovery used an aborted caller signal")
           }
-          const identityLabel = args.find((arg) => arg.startsWith("dawn.sandbox.identity="))
-          identity = identityLabel?.slice("dawn.sandbox.identity=".length) ?? ""
+          const identityLabel = args.find((arg) => arg.startsWith("b4.sandbox.identity="))
+          identity = identityLabel?.slice("b4.sandbox.identity=".length) ?? ""
           containerExists = true
           volumeExists = true
           return { stdout: "keeper-id", stderr: "", exitCode: 0 }
@@ -1595,8 +1595,8 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
             if (failure === "recreation" && keeperRuns === 2) {
               return { stdout: "", stderr: "replacement denied", exitCode: 1 }
             }
-            const identityLabel = args.find((arg) => arg.startsWith("dawn.sandbox.identity="))
-            containerIdentity = identityLabel?.slice("dawn.sandbox.identity=".length) ?? ""
+            const identityLabel = args.find((arg) => arg.startsWith("b4.sandbox.identity="))
+            containerIdentity = identityLabel?.slice("b4.sandbox.identity=".length) ?? ""
             containerExists = true
             volumeExists = true
             return { stdout: "keeper-id", stderr: "", exitCode: 0 }
@@ -1637,7 +1637,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
       await leaderFailureReturned.promise
       releaseDelayedFailure.resolve()
       await expect(leaderResultPromise).rejects.toMatchObject({
-        code: "DAWN_E2001",
+        code: "B4_E2001",
         message: expect.stringMatching(
           failure === "recreation"
             ? /docker run failed.*replacement denied/i
@@ -1735,7 +1735,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
           { workspaceRoot: h.workspaceRoot, signal: signal() },
         ),
       ).rejects.toMatchObject({
-        code: "DAWN_E2001",
+        code: "B4_E2001",
         cause: spawnError,
         message: expect.stringMatching(new RegExp(`PID recovery ${failure}.*thread "abc"`, "i")),
       })
@@ -1750,7 +1750,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
     },
   )
 
-  test("rejects with DAWN_E2001 when the exhausted keeper cannot be removed", async () => {
+  test("rejects with B4_E2001 when the exhausted keeper cannot be removed", async () => {
     const runs: string[][] = []
     let execCalls = 0
     const docker: Docker = {
@@ -1787,13 +1787,13 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
         { workspaceRoot: h.workspaceRoot, signal: signal() },
       ),
     ).rejects.toMatchObject({
-      code: "DAWN_E2001",
+      code: "B4_E2001",
       message: expect.stringMatching(
         /remove PID-exhausted container.*abc.*container removal denied/i,
       ),
     })
     expect(execCalls).toBe(1)
     expect(runs.filter((run) => run[0] === "run" && run.includes("-d"))).toHaveLength(1)
-    expect(runs.filter((run) => run[0] === "rm")).toEqual([["rm", "-f", "dawn-sbx-abc"]])
+    expect(runs.filter((run) => run[0] === "rm")).toEqual([["rm", "-f", "b4-sbx-abc"]])
   })
 })

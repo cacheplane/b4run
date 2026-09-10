@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process"
+import { randomUUID } from "node:crypto"
 import { readdir, readFile, stat, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -22,7 +23,7 @@ const NATIVE_BUILD_INDICATORS =
 const NATIVE_LIFECYCLE_INDICATORS =
   /\b(?:node-gyp|prebuild|prebuild-install|node-pre-gyp|cmake-js|node-gyp-build|prebuildify)\b|binding\.gyp/i
 const NATIVE_LIFECYCLE_SCRIPTS = ["preinstall", "install", "postinstall"]
-const REQUIRED_PGVECTOR_PACKAGES = new Set(["@dawn-ai/memory-pgvector", "@dawn-ai/langchain"])
+const REQUIRED_PGVECTOR_PACKAGES = new Set(["@b4run/memory-pgvector", "@b4run/langchain"])
 
 export const TYPESCRIPT_VERSION = "7.0.2"
 export const TSX_VERSION = "4.23.0"
@@ -72,8 +73,8 @@ export async function runPublishedArtifactSmoke(options, overrides = {}) {
     ...overrides,
   }
 
-  const tempDir = await dependencies.makeTempDir("dawn-published-smoke-")
-  const containerName = `dawn-published-smoke-${process.pid}-${Date.now()}`
+  const tempDir = await dependencies.makeTempDir("b4-published-smoke-")
+  const containerName = `b4-published-smoke-${process.pid}-${Date.now()}`
   let containerCleanupNeeded = false
 
   try {
@@ -83,14 +84,16 @@ export async function runPublishedArtifactSmoke(options, overrides = {}) {
     })
 
     if (shouldRunAgUiProbe(selectedPackages)) {
-      await dependencies.runAgUiInstalledProbe(tempDir)
+      await dependencies.runAgUiInstalledProbe(tempDir, {
+        runCommand: dependencies.runCommand,
+      })
     }
 
     if (shouldRunTypeScriptToolingProbe(selectedPackages)) {
       await dependencies.installTypeScriptTooling(tempDir, {
         runCommand: dependencies.runCommand,
       })
-      const corePackage = selectedPackages.find(({ name }) => name === "@dawn-ai/core")
+      const corePackage = selectedPackages.find(({ name }) => name === "@b4run/core")
       await dependencies.assertInstalledCoreResolution({
         consumerRoot: tempDir,
         expectedCoreVersion: corePackage.version,
@@ -103,9 +106,11 @@ export async function runPublishedArtifactSmoke(options, overrides = {}) {
       console.log("T-TYPESCRIPT-TOOLING PASS")
     }
 
-    if (selectedPackages.some(({ name }) => name === "@dawn-ai/sandbox")) {
+    if (selectedPackages.some(({ name }) => name === "@b4run/sandbox")) {
       await dependencies.assertDockerAvailable()
-      await dependencies.runDockerSandboxInstalledProbe(tempDir)
+      await dependencies.runDockerSandboxInstalledProbe(tempDir, {
+        runCommand: dependencies.runCommand,
+      })
     }
 
     if (!options.pgvector) {
@@ -121,7 +126,16 @@ export async function runPublishedArtifactSmoke(options, overrides = {}) {
     await dependencies.startPgvector(containerName)
     const databaseUrl = await dependencies.databaseUrlForPgvector(containerName)
     await dependencies.waitForPgvector(containerName)
-    await dependencies.runRuntimeSmoke(tempDir, { databaseUrl, openai: options.openai })
+    await dependencies.runRuntimeSmoke(
+      tempDir,
+      {
+        databaseUrl,
+        openai: options.openai,
+      },
+      {
+        runCommand: dependencies.runCommand,
+      },
+    )
   } finally {
     if (containerCleanupNeeded) {
       await dependencies.removeContainer(containerName)
@@ -195,7 +209,10 @@ async function selectedPackageVersions(options) {
 
   for (const packageName of packageNames) {
     const { versions, tags } = await npmView(packageName)
-    const version = resolveRequestedVersion({ requested: options.version, tags })
+    const version = resolveRequestedVersion({
+      requested: options.version,
+      tags,
+    })
     if (!versions.includes(version)) {
       throw new Error(`${packageName}@${version} is not present in npm versions`)
     }
@@ -212,7 +229,9 @@ export async function runInstallSmoke(tempDir, packages, overrides = {}) {
   await command("npm", ["pkg", "set", "type=module"], { cwd: tempDir })
 
   const specs = packages.map((pkg) => `${pkg.name}@${pkg.version}`)
-  const install = await command("npm", selectedPackageInstallArgs(packages), { cwd: tempDir })
+  const install = await command("npm", selectedPackageInstallArgs(packages), {
+    cwd: tempDir,
+  })
   const installOutput = `${install.stdout}\n${install.stderr}`
   assertNoNativeInstallOutput(installOutput)
 
@@ -261,6 +280,7 @@ export function typescriptToolingInstallArgs() {
 export async function installTypeScriptTooling(tempDir, overrides = {}) {
   const command = overrides.runCommand ?? runCommand
   await command("npm", typescriptToolingInstallArgs(), { cwd: tempDir })
+  await overrides.captureInstallation?.()
   await assertInstalledPackageIdentities(tempDir, {
     tsx: TSX_VERSION,
     typescript: TYPESCRIPT_VERSION,
@@ -280,7 +300,7 @@ async function assertInstalledPackageIdentities(tempDir, expectedVersions) {
   }
 }
 
-async function runAgUiInstalledProbe(tempDir) {
+export async function runAgUiInstalledProbe(tempDir, overrides = {}) {
   await Promise.all([
     writeFile(resolve(tempDir, "smoke-ag-ui.mjs"), agUiEsmProbeSource(), "utf8"),
     writeFile(resolve(tempDir, "smoke-ag-ui.ts"), agUiTypeProbeSource(), "utf8"),
@@ -292,7 +312,8 @@ async function runAgUiInstalledProbe(tempDir) {
   ])
 
   for (const { command, args } of agUiProbeCommands()) {
-    await runCommand(command, args, { cwd: tempDir })
+    await (overrides.runCommand ?? runCommand)(command, args, { cwd: tempDir })
+    if (command === "npm" && args[0] === "install") await overrides.captureInstallation?.()
   }
 
   console.log("T-AG-UI PASS")
@@ -310,31 +331,31 @@ export function agUiProbeCommands() {
 }
 
 export function shouldRunAgUiProbe(packages) {
-  return packages.some(({ name }) => name === "@dawn-ai/ag-ui")
+  return packages.some(({ name }) => name === "@b4run/ag-ui")
 }
 
 export function shouldRunTypeScriptToolingProbe(packages) {
   const names = new Set(packages.map(({ name }) => name))
-  return names.has("@dawn-ai/core") && names.has("@dawn-ai/vite-plugin")
+  return names.has("@b4run/core") && names.has("@b4run/vite-plugin")
 }
 
 export function agUiEsmProbeSource() {
   return `import assert from "node:assert/strict"
 
-import * as root from "@dawn-ai/ag-ui"
-import { encodeAgUiSse } from "@dawn-ai/ag-ui/sse"
+import * as root from "@b4run/ag-ui"
+import { encodeAgUiSse } from "@b4run/ag-ui/sse"
 
 assert.deepEqual(Object.keys(root).sort(), [
-  "DAWN_PLAN_ACTIVITY_TYPE",
-  "DAWN_SUBAGENT_ACTIVITY_TYPE",
+  "B4_PLAN_ACTIVITY_TYPE",
+  "B4_SUBAGENT_ACTIVITY_TYPE",
   "createCounterIdFactory",
   "createDefaultIdFactory",
   "fromRunAgentInput",
   "toAguiEvents",
 ])
 
-assert.equal(root.DAWN_PLAN_ACTIVITY_TYPE, "dawn.plan")
-assert.equal(root.DAWN_SUBAGENT_ACTIVITY_TYPE, "dawn.subagent")
+assert.equal(root.B4_PLAN_ACTIVITY_TYPE, "b4.plan")
+assert.equal(root.B4_SUBAGENT_ACTIVITY_TYPE, "b4.subagent")
 
 for (const exportName of [
   "createCounterIdFactory",
@@ -358,63 +379,63 @@ assert.equal(payload.runId, "published-smoke")
 
 export function agUiTypeProbeSource() {
   return `import {
-  DAWN_PLAN_ACTIVITY_TYPE,
-  DAWN_SUBAGENT_ACTIVITY_TYPE,
+  B4_PLAN_ACTIVITY_TYPE,
+  B4_SUBAGENT_ACTIVITY_TYPE,
   createCounterIdFactory,
   createDefaultIdFactory,
   fromRunAgentInput,
   toAguiEvents,
   type AguiOutboundEvent,
-  type DawnAgentStreamChunk,
-  type DawnInterruptEnvelope,
-  type DawnMessage,
-  type DawnPlanActivityContent,
-  type DawnResumeRequest,
-  type DawnRunInput,
-  type DawnSubagentActivityContent,
+  type B4AgentStreamChunk,
+  type B4InterruptEnvelope,
+  type B4Message,
+  type B4PlanActivityContent,
+  type B4ResumeRequest,
+  type B4RunInput,
+  type B4SubagentActivityContent,
   type IdFactory,
   type RunContext,
   type ToAguiOptions,
-} from "@dawn-ai/ag-ui"
-import { encodeAgUiSse as encodeAgUiSseFromSubpath } from "@dawn-ai/ag-ui/sse"
+} from "@b4run/ag-ui"
+import { encodeAgUiSse as encodeAgUiSseFromSubpath } from "@b4run/ag-ui/sse"
 
 // @ts-expect-error MappedRunInput was removed from the canonical root
-import type { MappedRunInput } from "@dawn-ai/ag-ui"
+import type { MappedRunInput } from "@b4run/ag-ui"
 // @ts-expect-error ResumeDecision was removed from the canonical root
-import type { ResumeDecision } from "@dawn-ai/ag-ui"
+import type { ResumeDecision } from "@b4run/ag-ui"
 // @ts-expect-error AgUiTranslator was removed from the canonical root
-import type { AgUiTranslator } from "@dawn-ai/ag-ui"
+import type { AgUiTranslator } from "@b4run/ag-ui"
 // @ts-expect-error AgUiEvent was removed from the canonical root
-import type { AgUiEvent } from "@dawn-ai/ag-ui"
-// @ts-expect-error DawnStreamChunk was removed from the canonical root
-import type { DawnStreamChunk } from "@dawn-ai/ag-ui"
-// @ts-expect-error DawnToolCallData was removed from the canonical root
-import type { DawnToolCallData } from "@dawn-ai/ag-ui"
-// @ts-expect-error DawnToolResultData was removed from the canonical root
-import type { DawnToolResultData } from "@dawn-ai/ag-ui"
+import type { AgUiEvent } from "@b4run/ag-ui"
+// @ts-expect-error B4StreamChunk was removed from the canonical root
+import type { B4StreamChunk } from "@b4run/ag-ui"
+// @ts-expect-error B4ToolCallData was removed from the canonical root
+import type { B4ToolCallData } from "@b4run/ag-ui"
+// @ts-expect-error B4ToolResultData was removed from the canonical root
+import type { B4ToolResultData } from "@b4run/ag-ui"
 // @ts-expect-error RawChunk was removed from the canonical root
-import type { RawChunk } from "@dawn-ai/ag-ui"
+import type { RawChunk } from "@b4run/ag-ui"
 // @ts-expect-error TranslatorOptions was removed from the canonical root
-import type { TranslatorOptions } from "@dawn-ai/ag-ui"
+import type { TranslatorOptions } from "@b4run/ag-ui"
 
 // @ts-expect-error createAgUiTranslator was removed from the canonical root
-import { createAgUiTranslator } from "@dawn-ai/ag-ui"
+import { createAgUiTranslator } from "@b4run/ag-ui"
 // @ts-expect-error mapRunInput was removed from the canonical root
-import { mapRunInput } from "@dawn-ai/ag-ui"
+import { mapRunInput } from "@b4run/ag-ui"
 // @ts-expect-error encodeAgUiSse was removed from the canonical root
-import { encodeAgUiSse } from "@dawn-ai/ag-ui"
+import { encodeAgUiSse } from "@b4run/ag-ui"
 // @ts-expect-error fromAguiResume was removed from the canonical root
-import { fromAguiResume } from "@dawn-ai/ag-ui"
+import { fromAguiResume } from "@b4run/ag-ui"
 // @ts-expect-error toAguiInterrupt was removed from the canonical root
-import { toAguiInterrupt } from "@dawn-ai/ag-ui"
+import { toAguiInterrupt } from "@b4run/ag-ui"
 // @ts-expect-error asToolCallData was removed from the canonical root
-import { asToolCallData } from "@dawn-ai/ag-ui"
+import { asToolCallData } from "@b4run/ag-ui"
 // @ts-expect-error asToolResultData was removed from the canonical root
-import { asToolResultData } from "@dawn-ai/ag-ui"
+import { asToolResultData } from "@b4run/ag-ui"
 
 type RootValueSurface = readonly [
-  typeof DAWN_PLAN_ACTIVITY_TYPE,
-  typeof DAWN_SUBAGENT_ACTIVITY_TYPE,
+  typeof B4_PLAN_ACTIVITY_TYPE,
+  typeof B4_SUBAGENT_ACTIVITY_TYPE,
   typeof createCounterIdFactory,
   typeof createDefaultIdFactory,
   typeof fromRunAgentInput,
@@ -423,29 +444,29 @@ type RootValueSurface = readonly [
 
 type RootTypeSurface = readonly [
   IdFactory,
-  DawnMessage,
-  DawnRunInput,
-  DawnInterruptEnvelope,
-  DawnResumeRequest,
+  B4Message,
+  B4RunInput,
+  B4InterruptEnvelope,
+  B4ResumeRequest,
   AguiOutboundEvent,
   ToAguiOptions,
-  DawnAgentStreamChunk,
+  B4AgentStreamChunk,
   RunContext,
-  DawnPlanActivityContent,
-  DawnSubagentActivityContent,
+  B4PlanActivityContent,
+  B4SubagentActivityContent,
 ]
 
 declare const rootTypeSurface: RootTypeSurface
 declare const rootValueSurface: RootValueSurface
 const idFactory: IdFactory = createCounterIdFactory()
-const chunk: DawnAgentStreamChunk = { type: "token", data: "hello" }
+const chunk: B4AgentStreamChunk = { type: "token", data: "hello" }
 const context: RunContext = { threadId: "published-smoke", runId: "published-smoke" }
 const options: ToAguiOptions = { idFactory }
 const encoder: typeof encodeAgUiSseFromSubpath = encodeAgUiSseFromSubpath
-const planActivity: DawnPlanActivityContent = {
+const planActivity: B4PlanActivityContent = {
   todos: [{ content: "Search the corpus", status: "in_progress" }],
 }
-const subagentActivity: DawnSubagentActivityContent = {
+const subagentActivity: B4SubagentActivityContent = {
   name: "researcher",
   depth: 1,
   status: "running",
@@ -453,8 +474,8 @@ const subagentActivity: DawnSubagentActivityContent = {
   tools: [{ name: "searchCorpus", status: "completed" }],
   totalToolCount: 1,
 }
-const planActivityType: "dawn.plan" = DAWN_PLAN_ACTIVITY_TYPE
-const subagentActivityType: "dawn.subagent" = DAWN_SUBAGENT_ACTIVITY_TYPE
+const planActivityType: "b4.plan" = B4_PLAN_ACTIVITY_TYPE
+const subagentActivityType: "b4.subagent" = B4_SUBAGENT_ACTIVITY_TYPE
 
 void [
   rootValueSurface,
@@ -690,35 +711,55 @@ async function removeContainer(containerName) {
   }
 }
 
-export async function runDockerSandboxInstalledProbe(tempDir) {
+export async function runDockerSandboxInstalledProbe(tempDir, overrides = {}) {
+  const threadId = overrides.threadId ?? `published-uuid-${randomUUID().replaceAll("-", "")}`
+  if (!/^published-uuid-[0-9a-f]{32}$/u.test(threadId)) {
+    throw new TypeError("Docker sandbox installed probe thread identity is invalid")
+  }
   await writeFile(
     resolve(tempDir, "smoke-docker-sandbox.mjs"),
-    dockerSandboxInstalledProbeSource(),
+    dockerSandboxInstalledProbeSource(threadId, {
+      imageEvidencePath: overrides.imageEvidencePath,
+    }),
     "utf8",
   )
-  const result = await runCommand("node", ["smoke-docker-sandbox.mjs"], { cwd: tempDir })
+  const result = await (overrides.runCommand ?? runCommand)("node", ["smoke-docker-sandbox.mjs"], {
+    cwd: tempDir,
+  })
   process.stdout.write(result.stdout)
   process.stderr.write(result.stderr)
 }
 
-export function dockerSandboxInstalledProbeSource() {
+export function dockerSandboxInstalledProbeSource(
+  threadId = `published-uuid-${randomUUID().replaceAll("-", "")}`,
+  { imageEvidencePath } = {},
+) {
+  if (!/^published-uuid-[0-9a-f]{32}$/u.test(threadId)) {
+    throw new TypeError("Docker sandbox installed probe thread identity is invalid")
+  }
+  if (imageEvidencePath !== undefined && imageEvidencePath !== "docker-image.json") {
+    throw new TypeError("Docker evidence path must be the owned probe filename")
+  }
+  const capture = imageEvidencePath !== undefined
   return `import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
-import { readFile, rm } from "node:fs/promises"
+import { readFile, rm${capture ? ", writeFile" : ""} } from "node:fs/promises"
 import { promisify } from "node:util"
 
-import { dockerSandbox } from "@dawn-ai/sandbox"
+import { dockerSandbox } from "@b4run/sandbox"
 
 const execFileAsync = promisify(execFile)
 const pidsLimit = 32
 const recoveryCommands = 24
-const threadId = "published-pid-" + process.pid + "-" + Date.now()
-const container = "dawn-sbx-" + threadId
+const threadId = ${JSON.stringify(threadId)}
+const container = "b4-sbx-" + threadId
 const readinessPath = "/workspace/.published-pids-ready.json"
 const readinessTemporaryPath = readinessPath + ".tmp"
 const localReadinessPath = ".published-pids-ready-" + process.pid + ".json"
 const sentinelPath = "/workspace/published-pid-sentinel.txt"
 const sentinel = "sentinel-" + Date.now()
+const recoveryWritePath = "/workspace/published-pid-recovery-write.txt"
+const recoveryWrite = sentinel + "-recovery"
 const context = (workspaceRoot) => ({ signal: new AbortController().signal, workspaceRoot })
 
 async function docker(args) {
@@ -783,6 +824,19 @@ const saturator = [
   'launch()',
 ].join("\\n")
 
+${
+  capture
+    ? `async function inspectExecutedImage() {
+  const result = await docker(["inspect", "--format", '{{json .Config.Image}} {{json .Image}}', container])
+  assert.equal(result.exitCode, 0, JSON.stringify(result))
+  const [reference, digest] = JSON.parse("[" + result.stdout.trim().replace('" "', '","') + "]")
+  assert.equal(reference, "node:22-slim")
+  assert.match(digest, /^sha256:[a-f0-9]{64}$/)
+  return { digest, reference }
+}
+`
+    : ""
+}
 const provider = dockerSandbox({ image: "node:22-slim" })
 try {
   const handle = await provider.acquire({
@@ -792,6 +846,7 @@ try {
   })
   await handle.filesystem.writeFile(sentinelPath, sentinel, context(handle.workspaceRoot))
   const originalKeeperId = await inspectKeeperId()
+${capture ? "  const originalImage = await inspectExecutedImage()" : ""}
 
   const detached = await docker(["exec", "-d", container, "node", "-e", saturator])
   assert.equal(detached.exitCode, 0, JSON.stringify(detached))
@@ -803,6 +858,11 @@ try {
   const saturated = await docker(["stats", "--no-stream", "--format", "{{.PIDs}}", container])
   assert.equal(saturated.exitCode, 0, JSON.stringify(saturated))
   assert.equal(saturated.stdout.trim(), String(pidsLimit))
+
+  // Docker may admit an exec into a full cgroup, and echo needs no child process.
+  // This idempotent filesystem write requires an in-container fork and exercises
+  // PID recovery before checking subsequent concurrent command execution.
+  await handle.filesystem.writeFile(recoveryWritePath, recoveryWrite, context(handle.workspaceRoot))
 
   const recovered = await Promise.all(
     Array.from({ length: recoveryCommands }, (_, index) =>
@@ -816,10 +876,23 @@ try {
   }
 
   const replacementKeeperId = await inspectKeeperId()
+${
+  capture
+    ? `  const replacementImage = await inspectExecutedImage()
+  assert.deepEqual(replacementImage, originalImage, "Executed Docker image changed during recovery")
+  await writeFile(${JSON.stringify(imageEvidencePath)}, JSON.stringify(originalImage) + "\\n", { flag: "wx" })`
+    : ""
+}
   assert.notEqual(replacementKeeperId, originalKeeperId, "PID-exhausted keeper was not replaced")
+  assert.equal(
+    await handle.filesystem.readFile(recoveryWritePath, context(handle.workspaceRoot)),
+    recoveryWrite,
+    "PID recovery write was not preserved",
+  )
   assert.equal(
     await handle.filesystem.readFile(sentinelPath, context(handle.workspaceRoot)),
     sentinel,
+    "Original PID sentinel was not preserved",
   )
   console.log("T-DOCKER-SANDBOX PASS")
 } finally {
@@ -829,15 +902,15 @@ try {
 `
 }
 
-async function runRuntimeSmoke(tempDir, options) {
+export async function runRuntimeSmoke(tempDir, options, overrides = {}) {
   await writeFile(resolve(tempDir, "smoke-runtime.mjs"), runtimeSmokeSource(), "utf8")
-  const runtime = await runCommand("node", ["smoke-runtime.mjs"], {
+  const runtime = await (overrides.runCommand ?? runCommand)("node", ["smoke-runtime.mjs"], {
     cwd: tempDir,
     env: runtimeEnv(
       {
         DATABASE_URL: options.databaseUrl,
         RUN_OPENAI: options.openai ? "1" : "0",
-        SMOKE_TABLE_PREFIX: `dawn_published_smoke_${process.pid}_${Date.now()}`,
+        SMOKE_TABLE_PREFIX: `b4_published_smoke_${process.pid}_${Date.now()}`,
       },
       { includeOpenAi: options.openai },
     ),
@@ -856,11 +929,11 @@ function runtimeEnv(extra, options = {}) {
   }
 }
 
-function runtimeSmokeSource() {
+export function runtimeSmokeSource() {
   return `import assert from "node:assert/strict"
 
-import { openaiEmbedder } from "@dawn-ai/langchain"
-import { pgvectorMemoryStore } from "@dawn-ai/memory-pgvector"
+import { openaiEmbedder } from "@b4run/langchain"
+import { pgvectorMemoryStore } from "@b4run/memory-pgvector"
 
 const connectionString = process.env.DATABASE_URL
 if (!connectionString) {
@@ -868,7 +941,7 @@ if (!connectionString) {
 }
 
 const namespace = "workspace=published-smoke|route=/smoke|"
-const tablePrefix = process.env.SMOKE_TABLE_PREFIX ?? "dawn_published_smoke"
+const tablePrefix = process.env.SMOKE_TABLE_PREFIX ?? "b4_published_smoke"
 const shippingContent = "the customer wants faster shipping on their orders"
 
 function record(id, content) {
@@ -976,7 +1049,9 @@ export async function runCommand(command, args, options = {}) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
-      env: childProcessEnv(options.env ?? process.env, { includeOpenAi: options.includeOpenAi }),
+      env: childProcessEnv(options.env ?? process.env, {
+        includeOpenAi: options.includeOpenAi,
+      }),
       shell: process.platform === "win32",
       stdio: ["ignore", "pipe", "pipe"],
     })

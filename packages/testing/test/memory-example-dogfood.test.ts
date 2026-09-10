@@ -4,7 +4,7 @@
 //   ALWAYS (CI-safe): the default SQLite backend, no key, no Docker. Proves the
 //     example's memory route works end to end.
 //
-//   GATED (DAWN_TEST_PGVECTOR=1, needs Docker): a Testcontainers Postgres set as
+//   GATED (B4_TEST_PGVECTOR=1, needs Docker): a Testcontainers Postgres set as
 //     DATABASE_URL, so the example switches to its pgvector store. Drives the
 //     SAME flow and asserts recall works through pgvector. This proves the real
 //     example app boots on the pgvector store, writes to Postgres, and recalls
@@ -12,16 +12,16 @@
 //     pgvector conformance kit + the live smoke.
 //
 // Each block copies the example app into its OWN throwaway dir under
-// `examples/memory/` (so `@dawn-ai/*` still resolves up to the example's
+// `examples/memory/` (so `@b4run/*` still resolves up to the example's
 // node_modules) BEFORE creating the harness. This matters because
-// `dawn.config.ts` reads the backend env at module-eval time and ESM caches
+// `b4.config.ts` reads the backend env at module-eval time and ESM caches
 // modules by URL — a distinct copy URL per block guarantees each config
 // evaluates against the right env (SQLite vs pgvector) instead of a cached one.
 import { cpSync, mkdtempSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
-import { loadDawnConfig } from "@dawn-ai/core"
+import { loadB4Config } from "@b4run/core"
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { script } from "../src/fixture-builder.js"
@@ -31,10 +31,10 @@ import { createAgentHarness } from "../src/harness.js"
 const exampleRoot = fileURLToPath(new URL("../../../examples/memory/server", import.meta.url))
 
 /** Copy the example app (config + src) into a fresh throwaway dir under the
- *  example so `@dawn-ai/*` resolves up to `examples/memory/node_modules`. */
+ *  example so `@b4run/*` resolves up to `examples/memory/node_modules`. */
 function copyExampleApp(): string {
   const dir = mkdtempSync(join(exampleRoot, ".tmp-dogfood-"))
-  for (const entry of ["dawn.config.ts", "src", "tsconfig.json", "package.json"]) {
+  for (const entry of ["b4.config.ts", "src", "tsconfig.json", "package.json"]) {
     cpSync(join(exampleRoot, entry), join(dir, entry), { recursive: true })
   }
   return dir
@@ -94,11 +94,11 @@ describe("examples/memory dogfood — SQLite (default backend)", () => {
     if (appRoot) rmSync(appRoot, { recursive: true, force: true })
   })
 
-  it("remembers a fact to .dawn/memory.sqlite and recalls it", async () => {
+  it("remembers a fact to .b4/memory.sqlite and recalls it", async () => {
     const text = await driveRememberRecall(appRoot)
 
     // Load-bearing persistence proof: the example's own SQLite file holds the row.
-    const db = new DatabaseSync(join(appRoot, ".dawn", "memory.sqlite"))
+    const db = new DatabaseSync(join(appRoot, ".b4", "memory.sqlite"))
     try {
       const rows = db.prepare("SELECT content FROM memories WHERE status = 'active'").all() as {
         content: string
@@ -115,7 +115,7 @@ describe("examples/memory dogfood — SQLite (default backend)", () => {
 })
 
 // ---- GATED: real Postgres + pgvector (Docker) -----------------------------
-const pgvectorEnabled = process.env.DAWN_TEST_PGVECTOR === "1"
+const pgvectorEnabled = process.env.B4_TEST_PGVECTOR === "1"
 
 describe.skipIf(!pgvectorEnabled)("examples/memory dogfood — pgvector backend", () => {
   let container: StartedPostgreSqlContainer
@@ -140,7 +140,7 @@ describe.skipIf(!pgvectorEnabled)("examples/memory dogfood — pgvector backend"
     // returns the exact store instance the harness used.
     if (appRoot) {
       try {
-        const loaded = await loadDawnConfig({ appRoot })
+        const loaded = await loadB4Config({ appRoot })
         const store = loaded.config.memory?.store as { close?: () => Promise<void> } | undefined
         await store?.close?.()
       } catch {

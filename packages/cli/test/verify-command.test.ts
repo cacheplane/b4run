@@ -15,12 +15,12 @@ afterEach(async () => {
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-verify-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-verify-"))
   tempDirs.push(appRoot)
 
   const appFiles = {
     "package.json": "{}\n",
-    "dawn.config.ts": "export default {};\n",
+    "b4.config.ts": "export default {};\n",
     ...files,
   }
 
@@ -59,7 +59,7 @@ function contractFixtureRoot(name: string) {
   return join(repoRoot, "test", "fixtures", "contracts", name)
 }
 
-describe("dawn verify", () => {
+describe("b4 verify", () => {
   test("succeeds for a valid index.ts app and reports a concise integrity summary", async () => {
     const appRoot = await createFixtureApp({
       "src/app/hello/index.ts": "export async function workflow() { return {} }\n",
@@ -70,7 +70,7 @@ describe("dawn verify", () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.stderr).toBe("")
-    expect(result.stdout).toContain("Dawn app integrity OK")
+    expect(result.stdout).toContain("B4.run app integrity OK")
     expect(result.stdout).toContain("5 checks passed")
     expect(result.stdout).toContain("2 routes discovered")
     expect(result.stdout).toMatch(/Runtime: Node .+ OK/)
@@ -88,13 +88,13 @@ describe("dawn verify", () => {
       expect(result.exitCode).toBe(1)
       expect(result.stderr).toMatch(/^Verify failed:/)
       expect(result.stderr).toContain("24.0.0")
-      expect(result.stderr).toContain("[DAWN_E5101]")
+      expect(result.stderr).toContain("[B4_E5101]")
     } finally {
       if (descriptor) Object.defineProperty(process.versions, "node", descriptor)
     }
   })
 
-  test("exposes DAWN_E5101 on the runtime check in json mode when the Node runtime is below the floor", async () => {
+  test("exposes B4_E5101 on the runtime check in json mode when the Node runtime is below the floor", async () => {
     const appRoot = await createFixtureApp({
       "src/app/hello/index.ts": "export async function workflow() { return {} }\n",
     })
@@ -107,14 +107,14 @@ describe("dawn verify", () => {
       const parsed = JSON.parse(result.stdout)
       expect(parsed.status).toBe("failed")
       const runtimeCheck = parsed.checks.find((check: { name: string }) => check.name === "runtime")
-      expect(runtimeCheck.node.code).toBe("DAWN_E5101")
+      expect(runtimeCheck.node.code).toBe("B4_E5101")
       expect(runtimeCheck.status).toBe("failed")
     } finally {
       if (descriptor) Object.defineProperty(process.versions, "node", descriptor)
     }
   })
 
-  test("resolves the Dawn app root from a child directory via --cwd", async () => {
+  test("resolves the B4.run app root from a child directory via --cwd", async () => {
     const appRoot = await createFixtureApp({
       "src/app/hello/index.ts": "export async function workflow() { return {} }\n",
       "src/app/settings/index.ts": "export async function workflow() { return {} }\n",
@@ -125,15 +125,15 @@ describe("dawn verify", () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.stderr).toBe("")
-    expect(result.stdout).toContain("Dawn app integrity OK")
+    expect(result.stdout).toContain("B4.run app integrity OK")
     expect(result.stdout).toContain("2 routes discovered")
   })
 
   test("returns a nonzero exit code with a stable error prefix for invalid apps", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-verify-invalid-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-verify-invalid-"))
     tempDirs.push(appRoot)
     await writeFile(join(appRoot, "package.json"), "{}\n")
-    await writeFile(join(appRoot, "dawn.config.ts"), "export default {};\n")
+    await writeFile(join(appRoot, "b4.config.ts"), "export default {};\n")
 
     const result = await invoke(["verify", "--cwd", appRoot])
 
@@ -143,10 +143,10 @@ describe("dawn verify", () => {
   })
 
   test("prints a normalized failure payload in json mode", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-verify-invalid-json-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-verify-invalid-json-"))
     tempDirs.push(appRoot)
     await writeFile(join(appRoot, "package.json"), "{}\n")
-    await writeFile(join(appRoot, "dawn.config.ts"), "export default {};\n")
+    await writeFile(join(appRoot, "b4.config.ts"), "export default {};\n")
 
     const result = await invoke(["verify", "--cwd", appRoot, "--json"])
 
@@ -157,7 +157,7 @@ describe("dawn verify", () => {
       checks: [
         {
           error: {
-            message: `Invalid Dawn app at ${appRoot}. Missing: ${join(appRoot, "src/app")}`,
+            message: `Invalid B4.run app at ${appRoot}. Missing: ${join(appRoot, "src/app")}`,
           },
           name: "app",
           status: "failed",
@@ -213,8 +213,8 @@ describe("dawn verify", () => {
       checks: [
         {
           appRoot,
-          configPath: join(appRoot, "dawn.config.ts"),
-          dawnDir: join(appRoot, ".dawn"),
+          configPath: join(appRoot, "b4.config.ts"),
+          b4Dir: join(appRoot, ".b4"),
           name: "app",
           routesDir: join(appRoot, "src", "app"),
           status: "passed",
@@ -253,8 +253,8 @@ describe("dawn verify", () => {
       checks: [
         {
           appRoot,
-          configPath: join(appRoot, "dawn.config.ts"),
-          dawnDir: join(appRoot, ".dawn"),
+          configPath: join(appRoot, "b4.config.ts"),
+          b4Dir: join(appRoot, ".b4"),
           name: "app",
           routesDir: join(appRoot, "src/app"),
           status: "passed",

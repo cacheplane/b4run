@@ -1,5 +1,5 @@
 /**
- * `dawn threads tail <thread-id>` — the first first-party Agent Protocol SSE
+ * `b4 threads tail <thread-id>` — the first first-party Agent Protocol SSE
  * client. It parses the wire JSON defensively via `../lib/threads/*` and never
  * imports the server's internal frame types, so this command is a genuine
  * third-party consumer of the documented attach contract
@@ -12,7 +12,7 @@ import { consumeAttachStream } from "../lib/threads/tail-stream.js"
 const DEFAULT_BASE = "http://127.0.0.1:3000"
 
 const USAGE = [
-  "dawn threads <subcommand> [args]",
+  "b4 threads <subcommand> [args]",
   "  subcommands: tail <thread-id> [--url <base>] [--header <name: value>] [--json]",
 ].join("\n")
 
@@ -80,7 +80,7 @@ function own(value: unknown, key: string): unknown {
 }
 
 /**
- * Dawn's error envelope is `{error: {kind, message, details?: {code?}, code?}}`
+ * B4.run's error envelope is `{error: {kind, message, details?: {code?}, code?}}`
  * — see `createRequestErrorBody`/`buildBody` in the runtime. The code a caller
  * branches on rides at `error.details.code` when the handler passed it as
  * DETAILS (which every thread endpoint does) and at `error.code` only when it
@@ -127,7 +127,7 @@ async function runTail(threadId: string, options: ThreadsOptions, io: CommandIo)
     })
   } catch (error) {
     throw new CliError(
-      `Cannot reach the Dawn server at ${request.url.origin}: ${unwrapCause(error)}`,
+      `Cannot reach the B4.run server at ${request.url.origin}: ${unwrapCause(error)}`,
       2,
     )
   }
@@ -149,7 +149,7 @@ async function runTail(threadId: string, options: ThreadsOptions, io: CommandIo)
   }
 
   if (!response.body) {
-    throw new CliError(`The Dawn server returned no stream body for thread "${threadId}".`, 2)
+    throw new CliError(`The B4.run server returned no stream body for thread "${threadId}".`, 2)
   }
 
   const result = await consumeAttachStream({
@@ -172,8 +172,8 @@ async function runTail(threadId: string, options: ThreadsOptions, io: CommandIo)
 export function registerThreadsCommand(program: Command, io: CommandIo): void {
   program
     .command("threads [subcommand] [args...]")
-    .description("Inspect and reattach to Dawn Agent Protocol threads")
-    .option("--url <url>", "Base URL of the running Dawn server", DEFAULT_BASE)
+    .description("Inspect and reattach to B4.run Agent Protocol threads")
+    .option("--url <url>", "Base URL of the running B4.run server", DEFAULT_BASE)
     .option(
       "--header <header>",
       'Extra request header, as "name: value" (repeatable)',
@@ -200,7 +200,7 @@ export async function runThreadsCommand(
   switch (subcommand) {
     case "tail": {
       const threadId = args[0]
-      if (!threadId) throw new CliError(`Usage: dawn threads tail <thread-id>`, 1)
+      if (!threadId) throw new CliError(`Usage: b4 threads tail <thread-id>`, 1)
       await runTail(threadId, options, io)
       break
     }

@@ -1,9 +1,9 @@
-import { runMemoryStoreConformance } from "@dawn-ai/testing"
+import { runMemoryStoreConformance } from "@b4run/testing"
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql"
 import { afterAll, beforeAll, describe } from "vitest"
 import { type PgvectorMemoryStore, pgvectorMemoryStore } from "../src/index.js"
 
-const enabled = process.env.DAWN_TEST_PGVECTOR === "1"
+const enabled = process.env.B4_TEST_PGVECTOR === "1"
 let container: StartedPostgreSqlContainer
 let url: string
 

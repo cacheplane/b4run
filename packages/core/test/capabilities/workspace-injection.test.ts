@@ -1,8 +1,8 @@
-import type { ExecBackend, FilesystemBackend } from "@dawn-ai/workspace"
+import type { ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import { describe, expect, it, vi } from "vitest"
 
 import { createWorkspaceMarker } from "../../src/capabilities/built-in/workspace.js"
-import type { CapabilityMarkerContext, DawnToolDefinition } from "../../src/capabilities/types.js"
+import type { B4ToolDefinition, CapabilityMarkerContext } from "../../src/capabilities/types.js"
 
 /**
  * No `markerFs` and an explicit `workspaceRoot` — the edge/sandbox shape, where
@@ -20,9 +20,9 @@ function ctx(extras: Partial<CapabilityMarkerContext> = {}): CapabilityMarkerCon
 }
 
 function findTool(
-  tools: ReadonlyArray<DawnToolDefinition> | undefined,
+  tools: ReadonlyArray<B4ToolDefinition> | undefined,
   name: string,
-): DawnToolDefinition {
+): B4ToolDefinition {
   const tool = (tools ?? []).find((t) => t.name === name)
   if (!tool) throw new Error(`Tool ${name} not found`)
   return tool

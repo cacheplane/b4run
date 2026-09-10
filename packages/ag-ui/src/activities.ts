@@ -1,20 +1,20 @@
 import { type ActivitySnapshotEvent, EventType } from "@ag-ui/core"
 
-export const DAWN_PLAN_ACTIVITY_TYPE = "dawn.plan"
-export const DAWN_SUBAGENT_ACTIVITY_TYPE = "dawn.subagent"
+export const B4_PLAN_ACTIVITY_TYPE = "b4.plan"
+export const B4_SUBAGENT_ACTIVITY_TYPE = "b4.subagent"
 
-export interface DawnPlanActivityContent {
+export interface B4PlanActivityContent {
   readonly todos: ReadonlyArray<{
     readonly content: string
     readonly status: "pending" | "in_progress" | "completed"
   }>
 }
 
-export interface DawnSubagentActivityContent {
+export interface B4SubagentActivityContent {
   readonly name: string
   readonly depth: number
   readonly status: "running" | "completed" | "failed"
-  readonly todos?: DawnPlanActivityContent["todos"]
+  readonly todos?: B4PlanActivityContent["todos"]
   readonly tools: ReadonlyArray<{
     readonly name: string
     readonly status: "running" | "completed" | "incomplete"
@@ -23,7 +23,7 @@ export interface DawnSubagentActivityContent {
   readonly error?: string
 }
 
-export type DawnActivityChunkType =
+export type B4ActivityChunkType =
   | "plan_update"
   | "subagent.start"
   | "subagent.plan_update"
@@ -47,19 +47,19 @@ export type OrchestrationToolName = "writeTodos" | "task"
  * non-empty `tool_call_id`, and the first `subagent.start` for a given
  * `call_id`.
  */
-export interface DawnActivityCorrelation {
+export interface B4ActivityCorrelation {
   readonly toolCallId: string
   readonly toolName: OrchestrationToolName
 }
 
 /** An activity projection plus optional orchestration correlation. */
-export interface ProjectedDawnActivity {
+export interface ProjectedB4Activity {
   readonly event: ActivitySnapshotEvent | null
-  readonly orchestration?: DawnActivityCorrelation
+  readonly orchestration?: B4ActivityCorrelation
 }
 
-export interface DawnActivityProjector {
-  project(type: DawnActivityChunkType, data: unknown): ProjectedDawnActivity
+export interface B4ActivityProjector {
+  project(type: B4ActivityChunkType, data: unknown): ProjectedB4Activity
 }
 
 interface SubagentIdentity {
@@ -78,7 +78,7 @@ interface InternalToolState {
 interface InternalSubagentState {
   readonly identity: SubagentIdentity
   status: "running" | "completed" | "failed"
-  todos?: DawnPlanActivityContent["todos"]
+  todos?: B4PlanActivityContent["todos"]
   readonly seenToolIds: Set<string>
   tools: InternalToolState[]
   totalToolCount: number
@@ -86,7 +86,7 @@ interface InternalSubagentState {
   terminal: boolean
 }
 
-export function isDawnActivityChunkType(value: string): value is DawnActivityChunkType {
+export function isB4ActivityChunkType(value: string): value is B4ActivityChunkType {
   switch (value) {
     case "plan_update":
     case "subagent.start":
@@ -105,11 +105,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function parseTodos(data: unknown): DawnPlanActivityContent["todos"] | null {
+function parseTodos(data: unknown): B4PlanActivityContent["todos"] | null {
   try {
     if (!isRecord(data) || !Array.isArray(data.todos)) return null
 
-    const parsed: Array<DawnPlanActivityContent["todos"][number]> = []
+    const parsed: Array<B4PlanActivityContent["todos"][number]> = []
     for (const todo of data.todos) {
       if (!isRecord(todo)) return null
       const content = todo.content
@@ -193,8 +193,8 @@ function parseEndError(
 function subagentSnapshot(state: InternalSubagentState): ActivitySnapshotEvent {
   return {
     type: EventType.ACTIVITY_SNAPSHOT,
-    messageId: `dawn:subagent:${state.identity.callId}`,
-    activityType: DAWN_SUBAGENT_ACTIVITY_TYPE,
+    messageId: `b4:subagent:${state.identity.callId}`,
+    activityType: B4_SUBAGENT_ACTIVITY_TYPE,
     replace: true,
     content: {
       name: state.identity.subagent,
@@ -210,11 +210,11 @@ function subagentSnapshot(state: InternalSubagentState): ActivitySnapshotEvent {
   }
 }
 
-function projectEvent(event: ActivitySnapshotEvent | null): ProjectedDawnActivity {
+function projectEvent(event: ActivitySnapshotEvent | null): ProjectedB4Activity {
   return { event }
 }
 
-export function createDawnActivityProjector(runId: string): DawnActivityProjector {
+export function createB4ActivityProjector(runId: string): B4ActivityProjector {
   const subagents = new Map<string, InternalSubagentState>()
 
   return {
@@ -224,8 +224,8 @@ export function createDawnActivityProjector(runId: string): DawnActivityProjecto
         if (parsedTodos === null) return projectEvent(null)
         const event: ActivitySnapshotEvent = {
           type: EventType.ACTIVITY_SNAPSHOT,
-          messageId: `dawn:plan:${runId}`,
-          activityType: DAWN_PLAN_ACTIVITY_TYPE,
+          messageId: `b4:plan:${runId}`,
+          activityType: B4_PLAN_ACTIVITY_TYPE,
           replace: true,
           content: { todos: parsedTodos },
         }

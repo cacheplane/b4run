@@ -31,7 +31,7 @@
 }
 
 :root {
-  --dawn-font-sans: var(--font-inter), "Satoshi", "Helvetica Neue", Arial, sans-serif;
+  --b4-font-sans: var(--font-inter), "Satoshi", "Helvetica Neue", Arial, sans-serif;
   /* Chrome height — Header has px-6/8 + py-4 + ~h-10 brand row + 1px border.
      Used by ReadingLayout sticky offsets and anchor scroll padding. */
   --header-h: 4.5rem;
@@ -88,7 +88,7 @@ pre .mdx-inline-code {
 }
 
 /* Prose link affordance — sharp amber underline on cream */
-.prose-dawn a {
+.prose-b4 a {
   color: var(--color-ink);
   text-decoration: underline;
   text-decoration-color: var(--color-accent-saas);
@@ -96,7 +96,7 @@ pre .mdx-inline-code {
   text-underline-offset: 3px;
   transition: text-decoration-thickness 120ms ease;
 }
-.prose-dawn a:hover {
+.prose-b4 a:hover {
   text-decoration-thickness: 2px;
 }
 

@@ -1,8 +1,8 @@
-# AP Reattach PR3 — `dawn threads tail` + docs Implementation Plan
+# AP Reattach PR3 — `b4 threads tail` + docs Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship `dawn threads tail <thread-id>` — the first first-party Agent Protocol SSE client — so the attach wire contract PR2 shipped has a real consumer that proves the client-side reducer contract, plus the CLI reference docs for it.
+**Goal:** Ship `b4 threads tail <thread-id>` — the first first-party Agent Protocol SSE client — so the attach wire contract PR2 shipped has a real consumer that proves the client-side reducer contract, plus the CLI reference docs for it.
 
 **Architecture:** PR3 adds **no server code**. The client is deliberately *structural*: it parses the wire JSON defensively and never imports PR2's internal frame types, so the CLI is a genuine third-party consumer of the documented contract rather than a compile-time-coupled sibling. Four small pure modules under `packages/cli/src/lib/threads/` (SSE frame parser → defensive state parse + `toSseEvent` inverse → line renderer → stream driver) sit behind a thin commander command that does option validation, `fetch`, and HTTP error mapping. The **same renderer** handles `turn[]` and the live tail, which is what makes "snapshot + tail concatenate cleanly" observable rather than asserted.
 
@@ -30,16 +30,16 @@ Base is `blove/agent-protocol-thread-auth-94c180` at or after the `origin/main` 
 
 - **Node 24 or the suite lies**: `source ~/.nvm/nvm.sh && nvm use 24` before any test/build command.
 - **Capture exit codes; never pipe a gate through `tail`/`grep`**: `<cmd> > /tmp/x.log 2>&1; echo "EXIT=$?"`.
-- **`check-docs.mjs` reads the BUILT `packages/cli/dist/index.js`** — run `pnpm build` (or `pnpm --filter @dawn-ai/cli build`) *before* `node scripts/check-docs.mjs`, or its CLI-surface check cannot see your command.
+- **`check-docs.mjs` reads the BUILT `packages/cli/dist/index.js`** — run `pnpm build` (or `pnpm --filter @b4run/cli build`) *before* `node scripts/check-docs.mjs`, or its CLI-surface check cannot see your command.
 - **Never a bare `biome check --write`**; scope it: from `packages/cli`, `npx biome check --config-path ../config-biome/biome.json --write <paths>`.
 - **Commit the changeset BEFORE running `node scripts/check-changesets.mjs`** — it diffs commits, not the working tree.
-- **Patch changesets only** (the fixed 0.x group turns a minor into 1.0.0). `@dawn-ai/cli` only.
+- **Patch changesets only** (the fixed 0.x group turns a minor into 1.0.0). `@b4run/cli` only.
 - Stage explicit paths; **never `git add -A`** (this repo has concurrent sessions).
 
 ### Two scope decisions already made — do not revisit
 
 1. **No new docs page.** PR2 already documented the attach wire contract in `apps/web/content/docs/dev-server/agent-protocol.mdx` ("Reattaching to a running turn"). A new page would cost five coordinated files including a **hardcoded mirror list inside `scripts/check-docs.mjs`** (`expectedNavDocEntries`, `:4022`), and would duplicate that section. PR3 documents the *command* in `cli.mdx` and cross-links to the existing wire section.
-2. **No new `DAWN_E` error code.** Adding one requires a nav entry, a docs page, a `page.tsx` wrapper and a regenerated `errors.mdx`. This command needs none: it maps failures onto the existing exit-code table in `cli.mdx` (`0` success, `1` validation/stream failure, `2` configuration/runtime error) via plain `CliError`.
+2. **No new `B4_E` error code.** Adding one requires a nav entry, a docs page, a `page.tsx` wrapper and a regenerated `errors.mdx`. This command needs none: it maps failures onto the existing exit-code table in `cli.mdx` (`0` success, `1` validation/stream failure, `2` configuration/runtime error) via plain `CliError`.
 
 ---
 
@@ -59,8 +59,8 @@ Base is `blove/agent-protocol-thread-auth-94c180` at or after the `origin/main` 
 | `packages/cli/test/threads-tail-stream.test.ts` | Create | Stream driving over canned `ReadableStream`s. |
 | `packages/cli/test/threads-command-parsing.test.ts` | Create | Drives the real `createProgram` so every declared flag survives commander. |
 | `packages/cli/test/threads-tail-command.test.ts` | Create | Integration against a real bound `startRuntimeServer` — durable path, live tail, 404, header gating. |
-| `apps/web/content/docs/cli.mdx` | Modify | `## dawn threads` section + its flags (required by the CLI-surface check). |
-| `.changeset/ap-threads-tail.md` | Create | Patch changeset for `@dawn-ai/cli`. |
+| `apps/web/content/docs/cli.mdx` | Modify | `## b4 threads` section + its flags (required by the CLI-surface check). |
+| `.changeset/ap-threads-tail.md` | Create | Patch changeset for `@b4run/cli`. |
 
 ### The client contract these modules implement (spec §1, §5)
 
@@ -70,7 +70,7 @@ Rendering rules, in order, for a snapshot:
 3. Feed `turn[]` through **the same renderer used for live frames**.
 4. If `turn_truncated` is true, warn that the in-flight turn's history was dropped and the live tail continues.
 
-`run_started_at` is the turn-replacement discriminator: a client comparing it across reconnects detects that a *different* turn now owns the thread; `anchor` correlates a resume turn back to the run it continues. `dawn threads tail` prints both in its header line so the docs example shows them.
+`run_started_at` is the turn-replacement discriminator: a client comparing it across reconnects detects that a *different* turn now owns the thread; `anchor` correlates a resume turn back to the run it continues. `b4 threads tail` prints both in its header line so the docs example shows them.
 
 Exit codes: `0` when the stream ends with `done`; `1` when it ends without `done` or via `detached`; `2` for transport/HTTP failures (unreachable server, `thread_not_found`, `thread_route_unknown`, middleware rejection).
 
@@ -132,8 +132,8 @@ Run: `cd packages/cli && npx vitest run test/threads-sse-frames.test.ts` → FAI
 /**
  * Incremental Server-Sent Events parser for the Agent Protocol attach stream.
  *
- * Deliberately structural: it knows the SSE framing and nothing about Dawn's
- * frame vocabulary, so `dawn threads tail` consumes the documented wire the way
+ * Deliberately structural: it knows the SSE framing and nothing about B4.run's
+ * frame vocabulary, so `b4 threads tail` consumes the documented wire the way
  * any third-party client would rather than importing the server's own types.
  */
 export interface SseFrame {
@@ -416,7 +416,7 @@ Follow the `memory` exemplar (`packages/cli/src/commands/memory.ts:25-54`): a si
 
 `CliError` comes from `../lib/output.js`. Register with `registerThreadsCommand(program, io)` in `packages/cli/src/index.ts` after `registerTestCommand` (`:76`).
 
-- [ ] **Step 1: Write the failing parsing test** — drive the real `createProgram` (mirror `packages/cli/test/memory-command-parsing.test.ts`) and assert `dawn threads tail t1 --url http://127.0.0.1:9/ --header 'x-a: 1' --header 'x-b: 2' --json` parses, that repeated `--header` accumulates, that a bad `--header` (no colon) is a `CliError`, and that a missing thread id is a `CliError` naming the usage.
+- [ ] **Step 1: Write the failing parsing test** — drive the real `createProgram` (mirror `packages/cli/test/memory-command-parsing.test.ts`) and assert `b4 threads tail t1 --url http://127.0.0.1:9/ --header 'x-a: 1' --header 'x-b: 2' --json` parses, that repeated `--header` accumulates, that a bad `--header` (no colon) is a `CliError`, and that a missing thread id is a `CliError` naming the usage.
 - [ ] **Step 2: FAIL. Step 3: Implement**, exporting the pure validator for direct unit assertions:
 
 ```ts
@@ -433,7 +433,7 @@ export function resolveTailRequest(threadId: string, options: ThreadsOptions): T
 `resolveTailRequest` builds `new URL(`/threads/${encodeURIComponent(threadId)}/runs/stream`, base)` (base defaults to `http://127.0.0.1:3000`), parses each `--header` on the **first** `:` only (values may contain colons), rejects a header with no colon or an empty name, and throws `CliError(msg, 2)` for an unparseable `--url`.
 
 The action then `fetch`es with `accept: text/event-stream`, and maps failures **before** streaming:
-- transport throw → `CliError("Cannot reach the Dawn server at <base>: <cause>", 2)` (unwrap `error.cause`, since undici's own message is only `fetch failed`),
+- transport throw → `CliError("Cannot reach the B4.run server at <base>: <cause>", 2)` (unwrap `error.cause`, since undici's own message is only `fetch failed`),
 - `404` → `CliError("Thread \"<id>\" not found.", 2)`,
 - `409 thread_route_unknown` → `CliError` explaining the thread has never run, exit `2`,
 - any other non-2xx → `CliError` with the server's message, exit `2`,
@@ -466,30 +466,30 @@ Use `startRuntimeServer({ appRoot })` (`packages/cli/src/lib/dev/runtime-server.
 
 **Files:** Modify `apps/web/content/docs/cli.mdx`; Create `.changeset/ap-threads-tail.md`
 
-The CLI-surface check (`scripts/check-docs.mjs:4743-4790`) imports the **built** `createProgram` and requires `cli.mdx` to contain the literal `dawn threads` plus every declared long flag (`--url`, `--header`, `--json`).
+The CLI-surface check (`scripts/check-docs.mjs:4743-4790`) imports the **built** `createProgram` and requires `cli.mdx` to contain the literal `b4 threads` plus every declared long flag (`--url`, `--header`, `--json`).
 
-- [ ] **Step 1: Add the `## \`dawn threads\`` section** to `cli.mdx`, immediately before `## Exit codes`, mirroring the existing heading + fenced-usage + `Flags:` shape (see `## dawn memory`, `:212-305`). Cover: what tailing is for (rejoining a run after a disconnect), the durable-vs-live distinction, that the command exits when the turn emits `done`, and a link to the wire contract at `/docs/dev-server/agent-protocol`. Document each flag, and state the exit codes (`1` detached/truncated, `2` unreachable/unknown thread) consistently with the existing table.
-- [ ] **Step 2: Write the changeset** (patch, `@dawn-ai/cli` only) describing the new command and that it is the first first-party AP stream client. **Avoid the phrase `byte-identical`** — `check-docs.mjs` bans it (`:4702-4706`).
+- [ ] **Step 1: Add the `## \`b4 threads\`` section** to `cli.mdx`, immediately before `## Exit codes`, mirroring the existing heading + fenced-usage + `Flags:` shape (see `## b4 memory`, `:212-305`). Cover: what tailing is for (rejoining a run after a disconnect), the durable-vs-live distinction, that the command exits when the turn emits `done`, and a link to the wire contract at `/docs/dev-server/agent-protocol`. Document each flag, and state the exit codes (`1` detached/truncated, `2` unreachable/unknown thread) consistently with the existing table.
+- [ ] **Step 2: Write the changeset** (patch, `@b4run/cli` only) describing the new command and that it is the first first-party AP stream client. **Avoid the phrase `byte-identical`** — `check-docs.mjs` bans it (`:4702-4706`).
 - [ ] **Step 3: Commit both, THEN validate** (both gates read committed/built state):
 
 ```bash
 git add apps/web/content/docs/cli.mdx .changeset/ap-threads-tail.md
-git commit -m "docs(cli): document dawn threads tail + changeset"
+git commit -m "docs(cli): document b4 threads tail + changeset"
 source ~/.nvm/nvm.sh && nvm use 24
-pnpm --filter @dawn-ai/cli build > /tmp/b.log 2>&1; echo "BUILD=$?"
+pnpm --filter @b4run/cli build > /tmp/b.log 2>&1; echo "BUILD=$?"
 node scripts/check-docs.mjs > /tmp/cd.log 2>&1; echo "DOCS=$?"
 node scripts/check-changesets.mjs > /tmp/cc.log 2>&1; echo "CHANGESETS=$?"
 ```
 
-- [ ] **Step 4: Final gate** — `pnpm ci:validate > /tmp/v.log 2>&1; echo "EXIT=$?"` (never piped). Expect 0. Two known load-induced flakes may appear under full-suite concurrency (`render-route-types` in `@dawn-ai/core`, `api-reference-inventory` in `web`); both pass in isolation and are unrelated — re-run those two files individually to confirm rather than treating them as regressions.
+- [ ] **Step 4: Final gate** — `pnpm ci:validate > /tmp/v.log 2>&1; echo "EXIT=$?"` (never piped). Expect 0. Two known load-induced flakes may appear under full-suite concurrency (`render-route-types` in `@b4run/core`, `api-reference-inventory` in `web`); both pass in isolation and are unrelated — re-run those two files individually to confirm rather than treating them as regressions.
 
 ---
 
 ## Self-Review (completed during drafting)
 
-**Spec coverage:** §5 (`dawn threads tail`) → Tasks 1–6. The client reducer contract (render `values.messages`, apply `input` only when not resuming, feed `turn[]` through the live-frame path) → Task 3, asserted in two tests. `run_started_at` / `anchor` client rules → Task 3's header line, documented in Task 7. `turn_truncated` → Task 3. `detached` (both reasons) and the `retry:` hint → Task 4. The durable-vs-live distinction → Tasks 4, 6, 7.
+**Spec coverage:** §5 (`b4 threads tail`) → Tasks 1–6. The client reducer contract (render `values.messages`, apply `input` only when not resuming, feed `turn[]` through the live-frame path) → Task 3, asserted in two tests. `run_started_at` / `anchor` client rules → Task 3's header line, documented in Task 7. `turn_truncated` → Task 3. `detached` (both reasons) and the `retry:` hint → Task 4. The durable-vs-live distinction → Tasks 4, 6, 7.
 
-**Previously-flagged gaps now closed:** `event: state` as a Dawn wire extension, the digest/viewer bounds, the empty-`interrupts`-during-resume rule, and the `run_started_at` rule were all documented in PR2's `agent-protocol.mdx` section — PR3 cross-links rather than duplicating. The old plan's `examples/research` digest-cap gate is **dropped**: the bounds are internal defaults with unit coverage in `live-turn-hub.test.ts`, and driving a 2 MiB overflow through a real research app would be a slow, flaky end-to-end assertion of an already-unit-tested rule.
+**Previously-flagged gaps now closed:** `event: state` as a B4.run wire extension, the digest/viewer bounds, the empty-`interrupts`-during-resume rule, and the `run_started_at` rule were all documented in PR2's `agent-protocol.mdx` section — PR3 cross-links rather than duplicating. The old plan's `examples/research` digest-cap gate is **dropped**: the bounds are internal defaults with unit coverage in `live-turn-hub.test.ts`, and driving a 2 MiB overflow through a real research app would be a slow, flaky end-to-end assertion of an already-unit-tested rule.
 
 **Blockers from the provisional plan, each fixed here:** the attach-before-create race (Task 6's explicit sequencing note), the changeset gate ordering (Task 7 Step 3 commits first), and the docs gate reading built `dist` (called out in the gotchas and in Task 7).
 
@@ -497,4 +497,4 @@ node scripts/check-changesets.mjs > /tmp/cc.log 2>&1; echo "CHANGESETS=$?"
 
 **Type consistency:** `SseFrame`/`createSseFrameParser` (Task 1) → `parseStateFrame`/`projectTurnChunk`/`AttachState` (Task 2) → `renderSnapshot`/`renderFrame` (Task 3) → `consumeAttachStream` (Task 4) → `resolveTailRequest`/`registerThreadsCommand` (Task 5) are used under those exact names throughout.
 
-**Open risk for the executor:** commander's `enablePositionalOptions()` is set on the program for `memory`'s sake. Verify in Task 5's parsing test that `dawn threads tail t1 --json` actually binds `--json` to the `threads` command rather than being treated as a positional — if it does not, the fix is to declare the options and adjust argument order in the test, *not* to add `.passThroughOptions()` (which would hide the flags from the docs check).
+**Open risk for the executor:** commander's `enablePositionalOptions()` is set on the program for `memory`'s sake. Verify in Task 5's parsing test that `b4 threads tail t1 --json` actually binds `--json` to the `threads` command rather than being treated as a positional — if it does not, the fix is to declare the options and adjust argument order in the test, *not* to add `.passThroughOptions()` (which would hide the flags from the docs check).

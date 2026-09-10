@@ -1,4 +1,4 @@
-import type { AgentRunResult } from "@dawn-ai/testing"
+import type { AgentRunResult } from "@b4run/testing"
 import { createSafeRegexTester } from "./regex-safety.js"
 import type { EvalCase, Score, Scorer } from "./types.js"
 

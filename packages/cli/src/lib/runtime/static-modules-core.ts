@@ -2,7 +2,7 @@
  * The `node:`-free half of the static-module manifest: its types, the
  * build-time route/middleware normalizers, and the shape guard. Split from
  * `static-modules.ts` (which registers the tsx loader to link a generated
- * `modules.mjs`) so the `@dawn-ai/cli/fetch` graph never reaches tsx.
+ * `modules.mjs`) so the `@b4run/cli/fetch` graph never reaches tsx.
  */
 
 import {
@@ -10,8 +10,8 @@ import {
   type ResolvedStateField,
   type RouteKind,
   resolveStateFields,
-} from "@dawn-ai/core"
-import type { DawnMiddleware, ThreadAccessPolicy } from "@dawn-ai/sdk"
+} from "@b4run/core"
+import type { B4Middleware, ThreadAccessPolicy } from "@b4run/sdk"
 
 import { selectMiddlewareExport } from "../dev/middleware.js"
 import { selectThreadAccessExport, validateThreadAccessPolicy } from "../dev/thread-access.js"
@@ -73,7 +73,7 @@ export interface StaticRouteModule {
    * none.
    *
    * Carried for one consumer only — `collectRuntimeCapabilityGaps`, which uses
-   * it to raise DAWN_E1005 on a runtime with no filesystem. Nothing loads a
+   * it to raise B4_E1005 on a runtime with no filesystem. Nothing loads a
    * skill from this: bodies still come off disk through the skills capability's
    * MarkerFs on node, and on a filesystem-less runtime there is nothing to load,
    * which is precisely what the guard exists to report. Deliberately NOT part
@@ -89,13 +89,13 @@ export interface StaticRouteModule {
  * cache are seeded from it and no filesystem discovery happens at boot or per
  * request.
  */
-export interface DawnStaticModules {
+export interface B4StaticModules {
   /**
    * App-level middleware bound from the manifest's static import, when the
    * app has a middleware file. `undefined` also covers a middleware file with
    * no usable export — the dynamic probe ignores such a file too.
    */
-  readonly middleware?: DawnMiddleware
+  readonly middleware?: B4Middleware
   /**
    * App-level thread access policy bound from the manifest's static import,
    * when the app has a policy file.
@@ -104,7 +104,7 @@ export interface DawnStaticModules {
    * `threadAccess: normalizeThreadAccessModule(...)` into the manifest) and
    * re-validated on the boot path (`static-modules.ts` runs
    * `validateThreadAccessPolicy` because types are erased across the manifest
-   * boundary). A hand-rolled edge embed that constructs `DawnStaticModules`
+   * boundary). A hand-rolled edge embed that constructs `B4StaticModules`
    * itself can also populate it directly.
    */
   readonly threadAccess?: ThreadAccessPolicy
@@ -158,7 +158,7 @@ export interface StaticRouteModuleInput {
     string,
     (current: unknown, incoming: unknown) => unknown,
   ])[]
-  /** Inlined `.dawn/routes/<slug>/tools.json` content, when present. */
+  /** Inlined `.b4/routes/<slug>/tools.json` content, when present. */
   readonly toolSchemas?: Record<string, unknown>
   readonly tools: readonly StaticToolModuleInput[]
 }
@@ -177,7 +177,7 @@ export function buildStaticRouteModule(input: StaticRouteModuleInput): StaticRou
   if (module.kind !== input.kind) {
     throw new Error(
       `Static module manifest is stale for route ${input.routeId}: built as kind "${input.kind}" ` +
-        `but the route module now normalizes to "${module.kind}" — re-run \`dawn build\`.`,
+        `but the route module now normalizes to "${module.kind}" — re-run \`b4 build\`.`,
     )
   }
 
@@ -231,7 +231,7 @@ export function buildStaticRouteModule(input: StaticRouteModuleInput): StaticRou
  * first, then the named `middleware` export. Returns undefined when neither
  * is a function (a middleware file with no usable export — dev ignores it).
  */
-export function normalizeMiddlewareModule(mod: unknown): DawnMiddleware | undefined {
+export function normalizeMiddlewareModule(mod: unknown): B4Middleware | undefined {
   return selectMiddlewareExport(mod)
 }
 
@@ -239,17 +239,17 @@ export function normalizeMiddlewareModule(mod: unknown): DawnMiddleware | undefi
  * A manifest whose thread-access entry bound nothing usable.
  *
  * A local class rather than `CliError`: `../output.js` is node-only and this
- * module is in the `@dawn-ai/cli/fetch` graph — the same reason
- * `runtime-fetch-core.ts` rolls its own. `dawnErrorCodeOf` reads the code back.
+ * module is in the `@b4run/cli/fetch` graph — the same reason
+ * `runtime-fetch-core.ts` rolls its own. `b4ErrorCodeOf` reads the code back.
  */
 class ManifestThreadAccessError extends Error {
   /** Registry code, the same one the dynamic loader raises. */
-  readonly code = "DAWN_E3003"
+  readonly code = "B4_E3003"
   constructor(reason: string) {
     super(
       `The thread access policy in this app's static module manifest is not usable: ${reason}. ` +
-        "The manifest carries a policy only for an app that HAS a policy file, so Dawn will not " +
-        "boot with every thread endpoint ungated — fix the policy file and re-run `dawn build`.",
+        "The manifest carries a policy only for an app that HAS a policy file, so B4.run will not " +
+        "boot with every thread endpoint ungated — fix the policy file and re-run `b4 build`.",
     )
     this.name = "ManifestThreadAccessError"
   }

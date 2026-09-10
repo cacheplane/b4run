@@ -6,7 +6,7 @@ You want an agent route to retry transient model and provider failures automatic
 
 <CodeGroup>
 ```ts title="src/app/(public)/summarize/[doc]/index.ts"
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -39,7 +39,7 @@ export default async (
 ```
 
 ```ts title="src/app/(public)/billing/[invoice]/index.ts"
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 
 // Critical path — fail fast, do not retry.
 export default agent({

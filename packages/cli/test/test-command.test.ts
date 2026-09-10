@@ -32,17 +32,17 @@ const servers: Array<{ close: () => Promise<void> }> = []
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })))
   await Promise.all(servers.splice(0).map((server) => server.close()))
-  delete (globalThis as Record<string, unknown>).__dawnAssertCalls
+  delete (globalThis as Record<string, unknown>).__b4AssertCalls
 })
 
-describe("dawn test", () => {
+describe("b4 test", () => {
   test("executes workflow scenarios inferred from index.ts with shared and route-local tools", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/tools/greet.ts": `export default async (input: { tenant: string }) => ({ scope: "shared", tenant: input.tenant });
 `,
-      "src/app/hello/[tenant]/index.ts": `import type { RuntimeContext } from "@dawn-ai/sdk"
+      "src/app/hello/[tenant]/index.ts": `import type { RuntimeContext } from "@b4run/sdk"
 export const workflow = async (
   input: { tenant: string },
   context: RuntimeContext,
@@ -173,7 +173,7 @@ export const workflow = async (
           .expectPassed()
           .expectTool("lookup", (call) => call.calledTimes(2))
           .assert(() => {
-            globalThis.__dawnAssertCalls = (globalThis.__dawnAssertCalls ?? 0) + 1
+            globalThis.__b4AssertCalls = (globalThis.__b4AssertCalls ?? 0) + 1
             throw new Error("custom assertion should not run")
           })`,
       ),
@@ -186,7 +186,7 @@ export const workflow = async (
       'FAIL lookup count mismatch [assertion] Expected tool "lookup" call count to equal 2 but received 1',
     )
     expect(result.stdout).not.toContain("custom assertion should not run")
-    expect((globalThis as Record<string, unknown>).__dawnAssertCalls ?? 0).toBe(0)
+    expect((globalThis as Record<string, unknown>).__b4AssertCalls ?? 0).toBe(0)
   })
 
   test("matches primitive tool arguments exactly", async () => {
@@ -306,8 +306,8 @@ export const workflow = async (
   test("reports cyclic tool argument mismatches as scenario assertions", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
-      "src/app/cycles/index.ts": `import type { RuntimeContext } from "@dawn-ai/sdk"
+      "b4.config.ts": "export default {};\n",
+      "src/app/cycles/index.ts": `import type { RuntimeContext } from "@b4run/sdk"
 
 export const workflow = async (_input: unknown, context: RuntimeContext) => {
   const args: Record<string, unknown> = {}
@@ -348,8 +348,8 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("reports unexpected tool expectation evaluation failures as assertions", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
-      "src/app/evaluator/index.ts": `import type { RuntimeContext } from "@dawn-ai/sdk"
+      "b4.config.ts": "export default {};\n",
+      "src/app/evaluator/index.ts": `import type { RuntimeContext } from "@b4run/sdk"
 
 export const workflow = async (_input: unknown, context: RuntimeContext) => {
   const args = new Proxy<Record<string, unknown>>({}, {
@@ -430,7 +430,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("discovers all run.test.ts files under the configured routes root", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/alpha/index.ts": "export const graph = async () => ({ route: 'alpha' });\n",
       "src/app/alpha/run.test.ts": scenarioModule("/alpha", [
         {
@@ -471,7 +471,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("narrows to one scenario file", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/alpha/index.ts": "export const graph = async () => ({ route: 'alpha' });\n",
       "src/app/alpha/run.test.ts": scenarioModule("/alpha", [
         {
@@ -503,7 +503,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("narrows to one route directory including descendants", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/docs/index.ts": "export const graph = async () => ({ section: 'docs' });\n",
       "src/app/docs/run.test.ts": scenarioModule("/docs", [
         {
@@ -543,7 +543,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("narrows by route pathname", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/docs/index.ts": "export const graph = async () => ({ section: 'docs' });\n",
       "src/app/docs/run.test.ts": scenarioModule("/docs", [
         {
@@ -563,7 +563,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("loads a branded suite whose declared route matches its directory", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": "export const graph = async () => ({ ok: true });\n",
       "src/app/support/run.test.ts": scenarioModule("/support", [
         {
@@ -584,7 +584,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("rejects plain default-exported scenario arrays with the builder hint", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": "export const graph = async () => ({ ok: true });\n",
       "src/app/support/run.test.ts": scenarioModuleSource(`
         export default [
@@ -602,14 +602,14 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
 
     expect(result.exitCode).toBe(2)
     expect(result.stderr).toContain(
-      `Scenario file ${scenarioFile} must default export scenarios("<route>").scenario(...) from "@dawn-ai/sdk/testing".\nPlain scenario arrays are not supported.`,
+      `Scenario file ${scenarioFile} must default export scenarios("<route>").scenario(...) from "@b4run/sdk/testing".\nPlain scenario arrays are not supported.`,
     )
   })
 
   test("rejects a suite whose declared route does not match its directory", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/billing/index.ts": "export const graph = async () => ({ ok: true });\n",
       "src/app/support/index.ts": "export const graph = async () => ({ ok: true });\n",
       "src/app/support/run.test.ts": scenarioModule("/billing", [
@@ -633,7 +633,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("wraps duplicate scenario names as a scenario-load failure", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": "export const graph = async () => ({ ok: true });\n",
       "src/app/support/run.test.ts": scenarioModuleSource(`
         import { scenarios } from ${JSON.stringify(SDK_TESTING_URL)}
@@ -655,7 +655,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("wraps server scenarios with tool mocks as a scenario-load failure", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": "export const graph = async () => ({ ok: true });\n",
       "src/app/support/run.test.ts": scenarioModuleSource(`
         import { scenarios } from ${JSON.stringify(SDK_TESTING_URL)}
@@ -681,7 +681,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("rejects unknown application tool mocks with sorted available names", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/tools/zeta.ts": "export default async () => 'zeta';\n",
       "src/app/support/index.ts": "export const graph = async () => ({ ok: true });\n",
       "src/app/support/tools/alpha.ts": "export default async () => 'alpha';\n",
@@ -708,7 +708,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("wraps malformed shared tool discovery with scenario file context", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/tools/broken.ts": "export default { invalid: true };\n",
       "src/app/support/index.ts": "export const graph = async () => ({ ok: true });\n",
       "src/app/support/run.test.ts": scenarioModuleSource(`
@@ -745,7 +745,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("rejects scenarios when sibling index.ts is missing", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/run.test.ts": scenarioModule("/support", [
         {
           expect: { status: "passed" },
@@ -767,7 +767,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("rejects scenarios when index.ts exports neither workflow nor graph", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": "export const handler = async () => ({ ok: true });\n",
       "src/app/support/run.test.ts": scenarioModule("/support", [
         {
@@ -790,7 +790,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("passes a scenario that expects a modeled route failure", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": `export const graph = async () => { throw new Error("expected route failure"); };\n`,
       "src/app/support/run.test.ts": scenarioModule("/support", [
         {
@@ -817,7 +817,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("fails when expect.status does not match the actual route result", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": "export const graph = async () => ({ ok: true });\n",
       "src/app/support/run.test.ts": scenarioModule("/support", [
         {
@@ -839,7 +839,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("fails when minimal output assertions do not match", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": "export const graph = async () => ({ greeting: 'hello' });\n",
       "src/app/support/run.test.ts": scenarioModule("/support", [
         {
@@ -865,7 +865,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("passes deep-partial nested output assertions while allowing extra object fields", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts":
         "export const graph = async () => ({ profile: { tenant: 'acme', region: 'us-west' }, tags: ['alpha', 'beta'] });\n",
       "src/app/support/run.test.ts": scenarioModule("/support", [
@@ -893,7 +893,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("fails array output assertions unless the full array matches exactly", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts":
         "export const graph = async () => ({ tags: ['alpha', 'beta'] });\n",
       "src/app/support/run.test.ts": scenarioModule("/support", [
@@ -922,7 +922,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("supports declarative meta assertions for route behavior results", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts":
         "export const workflow = async (input: { tenant: string }) => ({ tenant: input.tenant });\n",
       "src/app/support/[tenant]/run.test.ts": scenarioModule("/support/[tenant]", [
@@ -956,7 +956,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("supports error.message includes matchers", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts":
         "export const graph = async () => { throw new Error('tenant acme exploded while rendering'); };\n",
       "src/app/support/run.test.ts": scenarioModule("/support", [
@@ -984,7 +984,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("forwards run.url scenarios through the server-backed execution path", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts":
         "export const graph = async (input: { tenant: string }) => ({ tenant: input.tenant, source: 'local' });\n",
       "src/app/support/[tenant]/run.test.ts": scenarioModule("/support/[tenant]", [
@@ -1035,7 +1035,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("runs declarative assertions before assert(result) and surfaces assert failures after declarative success", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": "export const graph = async () => ({ ok: true });\n",
       "src/app/support/run.test.ts": scenarioModuleSource(`
         import { scenarios } from ${JSON.stringify(SDK_TESTING_URL)}
@@ -1065,7 +1065,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("skips assert(result) when declarative expectations already failed", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": "export const graph = async () => ({ greeting: 'hello' });\n",
       "src/app/support/run.test.ts": scenarioModuleSource(`
         import { scenarios } from ${JSON.stringify(SDK_TESTING_URL)}
@@ -1078,7 +1078,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
               .expectPassed()
               .expectOutput({ greeting: "goodbye" })
               .assert(() => {
-                globalThis.__dawnAssertCalls = (globalThis.__dawnAssertCalls ?? 0) + 1
+                globalThis.__b4AssertCalls = (globalThis.__b4AssertCalls ?? 0) + 1
                 throw new Error("assert should not run")
               }),
         )
@@ -1090,13 +1090,13 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
     expect(result.exitCode).toBe(1)
     expect(result.stdout).toContain("FAIL assert is skipped after declarative failure [assertion]")
     expect(result.stdout).not.toContain("assert should not run")
-    expect((globalThis as Record<string, unknown>).__dawnAssertCalls ?? 0).toBe(0)
+    expect((globalThis as Record<string, unknown>).__b4AssertCalls ?? 0).toBe(0)
   })
 
   test("fails when optional error.kind does not match", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": `export const graph = async () => { throw new Error("kind mismatch"); };\n`,
       "src/app/support/run.test.ts": scenarioModule("/support", [
         {
@@ -1124,7 +1124,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("fails when optional error.message does not match", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": `export const graph = async () => { throw new Error("actual message"); };\n`,
       "src/app/support/run.test.ts": scenarioModule("/support", [
         {
@@ -1152,7 +1152,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("fails when an unexpected route-execution failure occurs", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": `export const graph = async () => { throw new Error("unexpected execution failure"); };\n`,
       "src/app/support/run.test.ts": scenarioModule("/support", [
         {
@@ -1173,7 +1173,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("returns exit 1 when no scenarios are found", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": "export const graph = async () => ({ ok: true });\n",
     })
 
@@ -1187,7 +1187,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("rejects scenarios that omit an expected status", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": "export const graph = async () => ({ ok: true });\n",
       "src/app/support/run.test.ts": scenarioModuleSource(`
         import { scenarios } from ${JSON.stringify(SDK_TESTING_URL)}
@@ -1215,7 +1215,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("rejects malformed builder expectations even when assert(result) is present", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": "export const graph = async () => ({ ok: true });\n",
       "src/app/support/run.test.ts": scenarioModuleSource(`
         import { scenarios } from ${JSON.stringify(SDK_TESTING_URL)}
@@ -1252,7 +1252,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
   test("rejects scenarios that omit input", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/index.ts": "export const graph = async () => ({ ok: true });\n",
       "src/app/support/run.test.ts": scenarioModuleSource(`
         import { scenarios } from ${JSON.stringify(SDK_TESTING_URL)}
@@ -1303,7 +1303,7 @@ export const workflow = async (_input: unknown, context: RuntimeContext) => {
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-test-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-test-"))
   tempDirs.push(appRoot)
 
   await Promise.all(
@@ -1320,13 +1320,13 @@ async function createFixtureApp(files: Readonly<Record<string, string>>) {
 async function createScenarioToolMockFixture(runTestSource: string): Promise<string> {
   return await createFixtureApp({
     "package.json": "{}\n",
-    "dawn.config.ts": "export default {};\n",
+    "b4.config.ts": "export default {};\n",
     "src/tools/greet.ts": `export default async (input: { tenant: string }) => ({
   source: "real-shared",
   tenant: input.tenant,
 });
 `,
-    "src/app/plans/index.ts": `import type { RuntimeContext } from "@dawn-ai/sdk"
+    "src/app/plans/index.ts": `import type { RuntimeContext } from "@b4run/sdk"
 
 export const workflow = async (
   input: { tenant: string; lookupArgs?: readonly unknown[] },

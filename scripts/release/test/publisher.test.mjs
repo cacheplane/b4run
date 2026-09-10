@@ -1,0 +1,2885 @@
+import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
+import { readFileSync } from "node:fs"
+import * as fsPromises from "node:fs/promises"
+import {
+  access,
+  chmod,
+  copyFile,
+  link,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import test from "node:test"
+import { pathToFileURL } from "node:url"
+
+import { ARTIFACT_STORE_SPARSE_FILES } from "../artifact-store.mjs"
+import {
+  CANONICAL_RELEASE_PACKAGE_ORDER,
+  canonicalManifestBytes,
+  manifestSha256,
+} from "../manifest.mjs"
+import { canonicalReleaseBody } from "../metadata.mjs"
+import { canonicalNpmEvidenceBytes, parseNpmEvidence } from "../npm-evidence.mjs"
+import {
+  PUBLISHER_OVERALL_TIMEOUT_MS,
+  PUBLISHER_SPARSE_FILES,
+  parsePublisherArguments,
+  publishManifestSerially,
+  runPublisherCli,
+  TARBALL_CONVERGENCE_DEADLINE_MS,
+} from "../publisher.mjs"
+import { canonicalReleaseRecordBytes, releaseRecordSha256 } from "../release-record.mjs"
+import { EXACT_NPM_PROVENANCE_CERTIFICATE } from "./fixtures/b4-npm-audit-certificates.mjs"
+import { observationForMarker } from "./support/marker-observation.mjs"
+
+const VERSION = "0.8.22"
+const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567"
+const CANDIDATE = Object.freeze({
+  version: VERSION,
+  commitSha: COMMIT_SHA,
+  ciWorkflow: "CI",
+  ciCheck: "validate",
+  publisherWorkflow: ".github/workflows/release.yml",
+})
+
+test("publishes missing manifest tarballs serially in dependency order with create-b4-app final", async () => {
+  const fixture = publisherFixture()
+
+  const result = await publishManifestSerially(fixture.inputs)
+
+  assert.equal(result.status, "NPM_COMPLETE")
+  assert.equal(result.complete, true)
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  assert.equal(fixture.concurrentPublishes.maximum, 1)
+  assert.equal(fixture.publishCalls.at(-1), "create-b4-app")
+  let previousPublish = -1
+  for (const name of CANONICAL_RELEASE_PACKAGE_ORDER) {
+    const publishIndex = fixture.events.findIndex(
+      (event, index) => index > previousPublish && event[0] === "publish" && event[1] === name,
+    )
+    const latestNames = new Set(
+      fixture.events
+        .slice(previousPublish + 1, publishIndex)
+        .filter(([operation]) => operation === "metadata")
+        .map(([, packageName]) => packageName),
+    )
+    assert.deepEqual([...latestNames].sort(), [...CANONICAL_RELEASE_PACKAGE_ORDER].sort())
+    previousPublish = publishIndex
+  }
+})
+
+test("matching existing packages are a no-op and mismatched registry bytes stop before mutation", async () => {
+  const existing = publisherFixture({ initiallyPresent: "all" })
+  const repeated = await publishManifestSerially(existing.inputs)
+  assert.equal(repeated.status, "NPM_COMPLETE")
+  assert.deepEqual(existing.publishCalls, [])
+
+  const mismatch = publisherFixture({ initiallyPresent: [0], corruptRegistryIndex: 0 })
+  await assert.rejects(
+    publishManifestSerially(mismatch.inputs),
+    /registry tarball|digest|bytes.*match/iu,
+  )
+  assert.deepEqual(mismatch.publishCalls, [])
+})
+
+test("runner loss after first, middle, or last acceptance resumes without republishing", async () => {
+  for (const failureIndex of [0, 10, 20]) {
+    const fixture = publisherFixture({ failAfterAcceptIndex: failureIndex })
+
+    await assert.rejects(publishManifestSerially(fixture.inputs), /simulated runner loss/u)
+    assert.deepEqual(
+      fixture.publishCalls,
+      CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, failureIndex + 1),
+    )
+
+    fixture.disableFailure()
+    const resumed = await publishManifestSerially(fixture.inputs)
+    assert.equal(resumed.status, "NPM_COMPLETE")
+    assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+
+    await publishManifestSerially(fixture.inputs)
+    assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  }
+})
+
+test("polls delayed exact metadata, signature, provenance, and latest before advancing", async () => {
+  const fixture = publisherFixture({ delayedIndex: 0, initiallyPresent: "except-delayed" })
+
+  await publishManifestSerially(fixture.inputs)
+
+  assert.deepEqual(fixture.publishCalls, [CANONICAL_RELEASE_PACKAGE_ORDER[0]])
+  assert.ok(fixture.pollCalls.length >= 4)
+  assert.ok(fixture.pollCalls.every(({ name }) => name === CANONICAL_RELEASE_PACKAGE_ORDER[0]))
+})
+
+for (const reason of ["version-absent", "metadata-pending", "audit-pending"]) {
+  test(`${reason} can converge after more than twenty polls without republishing`, async () => {
+    const fixture = publisherFixture({ initiallyPresent: "all-except-last" })
+    const target = CANONICAL_RELEASE_PACKAGE_ORDER.at(-1)
+    const observe = fixture.inputs.observeRegistry
+    const verify = fixture.inputs.verifyPackage
+    fixture.inputs.observeRegistry = async (request) => {
+      const result = await observe(request)
+      if (
+        request.name !== target ||
+        fixture.publishCalls.length === 0 ||
+        fixture.pollCalls.length >= 25
+      )
+        return result
+      if (reason === "version-absent" && request.version !== undefined) {
+        return { status: "ABSENT", operation: "package-version", httpStatus: 404, code: "E404" }
+      }
+      if (reason === "metadata-pending" && request.version === undefined) {
+        return { ...result, metadata: { ...result.metadata, latest: "0.8.20" } }
+      }
+      return result
+    }
+    fixture.inputs.verifyPackage = async (request) =>
+      reason === "audit-pending" && request.entry.name === target && fixture.pollCalls.length < 25
+        ? { status: "pending" }
+        : verify(request)
+
+    assert.equal((await publishManifestSerially(fixture.inputs)).status, "NPM_COMPLETE")
+    assert.equal(fixture.pollCalls.length, 25)
+    assert.deepEqual(fixture.publishCalls, [target])
+    const pending = fixture.logs.filter((event) => event.reason === reason)
+    assert.equal(pending.length, 25)
+    assert.equal(pending.at(-1).elapsedMs, 160_000)
+    await publishManifestSerially(fixture.inputs)
+    assert.deepEqual(
+      fixture.publishCalls,
+      [target],
+      "resume verifies and skips accepted publications",
+    )
+  })
+}
+
+test("permanent audit pending stops at the shared deadline without republishing", async () => {
+  const fixture = publisherFixture({ initiallyPresent: "all" })
+  fixture.inputs.verifyPackage = async () => ({ status: "pending" })
+  await assert.rejects(publishManifestSerially(fixture.inputs), /registry did not converge/u)
+  assert.equal(fixture.inputs.now(), TARBALL_CONVERGENCE_DEADLINE_MS)
+  assert.equal(fixture.pollCalls.length, 68)
+  assert.deepEqual(fixture.publishCalls, [])
+  assert.equal(fixture.logs.filter((event) => event.reason === "audit-pending").length, 69)
+})
+
+for (const conflict of ["signature", "provenance"]) {
+  test(`a hard ${conflict} error after pending is never retried`, async () => {
+    const fixture = publisherFixture({ initiallyPresent: "all" })
+    const failure = new Error(`invalid ${conflict}`)
+    fixture.inputs.verifyPackage = async () => {
+      if (fixture.pollCalls.length < 25) return { status: "pending" }
+      throw failure
+    }
+    await assert.rejects(publishManifestSerially(fixture.inputs), (error) => error === failure)
+    assert.equal(fixture.pollCalls.length, 25)
+    assert.deepEqual(fixture.publishCalls, [])
+  })
+}
+
+test("switching recognized pending states shares one ten-minute clock and backoff", async () => {
+  const fixture = publisherFixture({ initiallyPresent: "all-except-last" })
+  const target = CANONICAL_RELEASE_PACKAGE_ORDER.at(-1)
+  const observe = fixture.inputs.observeRegistry
+  const download = fixture.inputs.downloadRegistryTarball
+  const verify = fixture.inputs.verifyPackage
+  fixture.inputs.observeRegistry = async (request) => {
+    const result = await observe(request)
+    if (request.name !== target || fixture.publishCalls.length === 0) return result
+    if (fixture.pollCalls.length < 15 && request.version !== undefined) {
+      return { status: "ABSENT", operation: "package-version", httpStatus: 404, code: "E404" }
+    }
+    if (fixture.pollCalls.length < 30 && request.version === undefined) {
+      return { ...result, metadata: { ...result.metadata, latest: "0.8.20" } }
+    }
+    return result
+  }
+  fixture.inputs.downloadRegistryTarball = async (request) => {
+    if (
+      fixture.publishCalls.length > 0 &&
+      request.tarballUrl === registryUrl(fixture.inputs.manifest.packages.at(-1)) &&
+      fixture.pollCalls.length >= 30 &&
+      fixture.pollCalls.length < 45
+    ) {
+      return {
+        status: "AMBIGUOUS",
+        operation: "package-tarball",
+        httpStatus: 404,
+        code: "HTTP_404",
+      }
+    }
+    return download(request)
+  }
+  fixture.inputs.verifyPackage = async (request) =>
+    request.entry.name === target ? { status: "pending" } : verify(request)
+
+  await assert.rejects(publishManifestSerially(fixture.inputs), /registry did not converge/u)
+  assert.equal(fixture.inputs.now(), TARBALL_CONVERGENCE_DEADLINE_MS)
+  assert.equal(fixture.pollCalls.length, 68)
+  assert.deepEqual(fixture.publishCalls, [target])
+  const pending = fixture.logs.filter((event) => event.reason !== undefined)
+  assert.deepEqual(
+    [...new Set(pending.map((event) => event.reason))],
+    ["version-absent", "metadata-pending", "tarball-404", "audit-pending"],
+  )
+  assert.equal(pending.at(-1).attempt, 69)
+})
+
+test("a published tarball that 404s during propagation is polled at 2 s then 10 s until it arrives", async () => {
+  const first = CANONICAL_RELEASE_PACKAGE_ORDER[0]
+  const pendingReads = 12
+  const fixture = publisherFixture({ tarballPending: { index: 0, reads: pendingReads } })
+  const started = Date.now()
+
+  const result = await publishManifestSerially(fixture.inputs)
+
+  assert.equal(result.status, "NPM_COMPLETE")
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  const convergenceDownloads = fixture.downloadCalls.filter((name) => name === first)
+  // pendingReads 404s, one 200 during convergence, and one 200 in the final sweep.
+  assert.equal(convergenceDownloads.length, pendingReads + 2)
+  const pending = fixture.logs.filter(({ event }) => event === "registry-tarball-pending")
+  assert.equal(pending.length, pendingReads)
+  assert.deepEqual(
+    pending.map(({ name, attempt, elapsedMs, delayMs }) => ({ name, attempt, elapsedMs, delayMs })),
+    Array.from({ length: pendingReads }, (_value, index) => ({
+      name: first,
+      attempt: index + 1,
+      elapsedMs: index < 10 ? index * 2_000 : 20_000 + (index - 10) * 10_000,
+      delayMs: index < 10 ? 2_000 : 10_000,
+    })),
+  )
+  assert.ok(pending.every((event) => event.deadlineMs === TARBALL_CONVERGENCE_DEADLINE_MS))
+  assert.deepEqual(
+    fixture.pollCalls.map(({ delayMs }) => delayMs),
+    [...Array(10).fill(2_000), 10_000, 10_000],
+  )
+  assert.ok(
+    fixture.logs.some(({ event, name }) => event === "package-publish-accepted" && name === first),
+  )
+  assert.ok(Date.now() - started < 5_000, "the fake poll must not sleep for real")
+})
+
+test("a tarball that never propagates fails after the ten-minute convergence deadline", async () => {
+  const first = CANONICAL_RELEASE_PACKAGE_ORDER[0]
+  const fixture = publisherFixture({ tarballPending: { index: 0, reads: Infinity } })
+  const started = Date.now()
+
+  await assert.rejects(
+    publishManifestSerially(fixture.inputs),
+    new RegExp(`npm registry tarball could not be verified for ${first}`, "u"),
+  )
+
+  assert.deepEqual(fixture.publishCalls, [first])
+  // 10 × 2 s + 58 × 10 s = 600 s: the 69th observation sees the deadline elapsed.
+  assert.equal(TARBALL_CONVERGENCE_DEADLINE_MS, 10 * 60_000)
+  assert.equal(fixture.downloadCalls.filter((name) => name === first).length, 69)
+  const pending = fixture.logs.filter(({ event }) => event === "registry-tarball-pending")
+  assert.equal(pending.length, 69)
+  assert.equal(pending.at(-1).attempt, 69)
+  assert.equal(pending.at(-1).elapsedMs, TARBALL_CONVERGENCE_DEADLINE_MS)
+  assert.equal(fixture.pollCalls.length, 68)
+  assert.ok(fixture.pollCalls.every(({ name }) => name === first))
+  assert.ok(Date.now() - started < 5_000, "the fake poll must not sleep for real")
+})
+
+test("a fetched tarball with mismatched bytes fails on the first download without polling", async () => {
+  const first = CANONICAL_RELEASE_PACKAGE_ORDER[0]
+  const fixture = publisherFixture({ corruptRegistryIndex: 0 })
+
+  await assert.rejects(
+    publishManifestSerially(fixture.inputs),
+    /registry tarball|digest|bytes.*match/iu,
+  )
+
+  assert.deepEqual(fixture.publishCalls, [first])
+  assert.deepEqual(fixture.downloadCalls, [first])
+  assert.deepEqual(fixture.pollCalls, [])
+  assert.ok(!fixture.logs.some(({ event }) => event === "registry-tarball-pending"))
+})
+
+test("an integrity mismatch fails immediately before any tarball download or poll", async () => {
+  const first = CANONICAL_RELEASE_PACKAGE_ORDER[0]
+  const fixture = publisherFixture({ integrityMismatchIndex: 0 })
+
+  await assert.rejects(
+    publishManifestSerially(fixture.inputs),
+    new RegExp(`identity or integrity conflicts for ${first}`, "u"),
+  )
+
+  assert.deepEqual(fixture.publishCalls, [first])
+  assert.deepEqual(fixture.downloadCalls, [])
+  assert.deepEqual(fixture.pollCalls, [])
+})
+
+test("raw npm signature records never satisfy publication verification", async () => {
+  const fixture = publisherFixture({ initiallyPresent: "all", rawSignatureIndex: 0 })
+  fixture.inputs.verifyPackage = async () => ({ status: "pending" })
+
+  await assert.rejects(
+    publishManifestSerially(fixture.inputs),
+    /registry did not converge|signature/iu,
+  )
+
+  assert.deepEqual(fixture.publishCalls, [])
+})
+
+test("only official npm audit evidence can satisfy signature and provenance readiness", async () => {
+  const fixture = publisherFixture({ initiallyPresent: "all" })
+  let verifications = 0
+  fixture.inputs.verifyPackage = async ({ entry, candidate }) => {
+    verifications += 1
+    assert.deepEqual(candidate, CANDIDATE)
+    return verifiedAuditEvidence(entry)
+  }
+
+  const result = await publishManifestSerially(fixture.inputs)
+
+  assert.ok(verifications >= CANONICAL_RELEASE_PACKAGE_ORDER.length * 2)
+  assert.deepEqual(result.packages[0].signature, {
+    status: "valid",
+    verifier: "npm-audit-signatures@11.17.0",
+  })
+})
+
+test("a newer latest is a pre-mutation superseded no-op but conflicts with partial state", async () => {
+  const superseded = publisherFixture({ newerLatestIndex: 0 })
+  const result = await publishManifestSerially(superseded.inputs)
+  assert.equal(result.status, "SUPERSEDED_NOOP")
+  assert.equal(result.complete, false)
+  assert.deepEqual(superseded.publishCalls, [])
+
+  const partial = publisherFixture({ initiallyPresent: [0], newerLatestIndex: 1 })
+  await assert.rejects(publishManifestSerially(partial.inputs), /newer latest|partial.*conflict/iu)
+  assert.deepEqual(partial.publishCalls, [])
+})
+
+test("rechecks latest immediately before every mutation and stops on ambiguous observations", async () => {
+  const raced = publisherFixture({ newerLatestOnSecondMetadataRead: 0 })
+  const result = await publishManifestSerially(raced.inputs)
+  assert.equal(result.status, "SUPERSEDED_NOOP")
+  assert.deepEqual(raced.publishCalls, [])
+
+  const exactVersionWindow = publisherFixture({ newerLatestAfterVersionRecheckIndex: 0 })
+  const exactVersionWindowResult = await publishManifestSerially(exactVersionWindow.inputs)
+  assert.equal(exactVersionWindowResult.status, "SUPERSEDED_NOOP")
+  assert.deepEqual(exactVersionWindow.publishCalls, [])
+  assert.equal(exactVersionWindow.events.at(-1)?.[0], "metadata")
+
+  const ambiguous = publisherFixture({ ambiguousVersionIndex: 0 })
+  await assert.rejects(publishManifestSerially(ambiguous.inputs), /ambiguous|registry.*verified/iu)
+  assert.deepEqual(ambiguous.publishCalls, [])
+})
+
+test("complete npm evidence is exact, canonical, ordered, and bound to every manifest entry", async () => {
+  const manifest = releaseManifest()
+  const result = await publishManifestSerially(publisherFixture({ initiallyPresent: "all" }).inputs)
+  const context = {
+    candidate: CANDIDATE,
+    manifestSha256: releaseRecord(manifest).manifestSha256,
+    manifest,
+  }
+
+  const parsed = parseNpmEvidence(result, context)
+  assert.deepEqual(parsed, result)
+  assert.deepEqual(
+    parsed.packages.map(({ name }) => name),
+    CANONICAL_RELEASE_PACKAGE_ORDER,
+  )
+  assert.ok(Object.isFrozen(parsed))
+  assert.ok(
+    parsed.packages.every(({ signature }) => signature.verifier === "npm-audit-signatures@11.17.0"),
+  )
+  assert.deepEqual(JSON.parse(canonicalNpmEvidenceBytes(result, context)), parsed)
+
+  for (const mutate of [
+    (value) => value.packages.reverse(),
+    (value) => value.packages.pop(),
+    (value) => value.packages.push({ ...value.packages[0] }),
+    (value) => {
+      value.packages[0].name = "unknown-package"
+    },
+    (value) => {
+      value.packages[0].status = "absent"
+    },
+    (value) => {
+      value.packages[0].signature.verifier = "custom-verifier"
+    },
+    (value) => {
+      value.packages[0].provenance.ref = "refs/heads/main"
+    },
+    (value) => {
+      value.packages[0].tarballSha256 = "f".repeat(64)
+    },
+    (value) => {
+      value.packages[0].unexpected = true
+    },
+  ]) {
+    const malformed = structuredClone(result)
+    mutate(malformed)
+    assert.throws(() => parseNpmEvidence(malformed, context), /npm evidence|package|manifest/iu)
+  }
+
+  const accessor = structuredClone(result)
+  let getterReads = 0
+  Object.defineProperty(accessor.packages[0], "name", {
+    enumerable: true,
+    get() {
+      getterReads += 1
+      return CANONICAL_RELEASE_PACKAGE_ORDER[0]
+    },
+  })
+  assert.throws(() => parseNpmEvidence(accessor, context), /JSON|field|evidence/iu)
+  assert.equal(getterReads, 0)
+
+  const unsafe = structuredClone(result)
+  Object.defineProperty(unsafe.packages[0], "__proto__", {
+    enumerable: true,
+    value: { polluted: true },
+  })
+  assert.throws(() => parseNpmEvidence(unsafe, context), /unknown|field|evidence/iu)
+  assert.equal(Object.prototype.polluted, undefined)
+
+  const oversized = structuredClone(result)
+  oversized.padding = "x".repeat(1024 * 1024)
+  assert.throws(() => parseNpmEvidence(oversized, context), /byte|large|evidence/iu)
+})
+
+test("rejects a reordered or incomplete sealed manifest before registry reads", async () => {
+  for (const mutate of [
+    (manifest) => manifest.packageOrder.reverse(),
+    (manifest) => manifest.packages.pop(),
+  ]) {
+    const fixture = publisherFixture()
+    mutate(fixture.inputs.manifest)
+    await assert.rejects(
+      publishManifestSerially(fixture.inputs),
+      /packageOrder|package set|packages/iu,
+    )
+    assert.equal(fixture.observeCalls.length, 0)
+  }
+})
+
+test("the production CLI accepts only its narrow arguments and publishes exact recorded tgzs", async (t) => {
+  const temporary = await realpath(await mkdtemp(path.join(os.tmpdir(), "b4-publisher-cli-")))
+  t.after(() => rm(temporary, { recursive: true, force: true }))
+  const artifactDir = path.join(temporary, "artifact")
+  const inputDir = path.join(temporary, "input")
+  const outputDir = path.join(temporary, "output")
+  await Promise.all([mkdir(artifactDir), mkdir(inputDir), mkdir(outputDir)])
+  const manifest = releaseManifest()
+  const record = releaseRecord(manifest)
+  const candidatePath = path.join(inputDir, "candidate.json")
+  const recordPath = path.join(inputDir, "release-record.json")
+  const reportPath = path.join(outputDir, "publish.json")
+  const githubOutputPath = path.join(outputDir, "github-output")
+  await writeFile(candidatePath, `${JSON.stringify(CANDIDATE)}\n`)
+  await writeFile(recordPath, canonicalReleaseRecordBytes(record))
+  await writeFile(path.join(artifactDir, "manifest.json"), canonicalManifestBytes(manifest))
+  for (const entry of manifest.packages) {
+    await writeFile(path.join(artifactDir, entry.filename), tarballBytes(entry.name))
+  }
+
+  assert.deepEqual(
+    parsePublisherArguments([
+      "--candidate",
+      candidatePath,
+      "--record",
+      recordPath,
+      "--artifact-dir",
+      artifactDir,
+      "--report",
+      reportPath,
+      "--github-output",
+      githubOutputPath,
+    ]),
+    { candidatePath, recordPath, artifactDir, reportPath, githubOutputPath, npmAuthMode: "oidc" },
+  )
+  for (const args of [
+    [],
+    ["--candidate", candidatePath],
+    [
+      "--candidate",
+      candidatePath,
+      "--record",
+      recordPath,
+      "--artifact-dir",
+      artifactDir,
+      "--report",
+      reportPath,
+      "--github-output",
+      githubOutputPath,
+      "--repack",
+      "true",
+    ],
+  ]) {
+    assert.throws(() => parsePublisherArguments(args), /Usage|argument/iu)
+  }
+
+  const fixture = publisherFixture({ initiallyPresent: "all-except-last" })
+  const npmCalls = []
+  const result = await runPublisherCli(
+    [
+      "--candidate",
+      candidatePath,
+      "--record",
+      recordPath,
+      "--artifact-dir",
+      artifactDir,
+      "--report",
+      reportPath,
+      "--github-output",
+      githubOutputPath,
+    ],
+    {
+      npmReader: fixture.npmReader,
+      async runNpm(command, args, options) {
+        npmCalls.push({ command, args, options })
+        if (args[0] === "--version") {
+          return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+        }
+        if (args[0] === "audit") {
+          const consumer = JSON.parse(
+            await readFile(path.join(options.cwd, "package.json"), "utf8"),
+          )
+          const name = Object.keys(consumer.dependencies)[0]
+          const entry = manifest.packages.find((item) => item.name === name)
+          return { stdout: npmAuditOutput(entry), stderr: "", exitCode: 0 }
+        }
+        if (args[0] === "publish") {
+          fixture.acceptPublish(args[1])
+          return { stdout: "", stderr: "", exitCode: 0 }
+        }
+        throw new Error(`unexpected npm operation ${args[0]}`)
+      },
+      poll: fixture.inputs.poll,
+      log() {},
+      environment: publisherProvenanceEnvironment(),
+    },
+  )
+
+  const last = manifest.packages.at(-1)
+  assert.equal(result.status, "NPM_COMPLETE")
+  assert.equal(npmCalls.filter(({ args }) => args[0] === "--version").length, 1)
+  assert.equal(npmCalls.filter(({ args }) => args[0] === "install").length, 0)
+  assert.equal(npmCalls.filter(({ args }) => args[0] === "audit").length, 42)
+  assert.deepEqual(
+    npmCalls
+      .filter(({ args }) => args[0] === "publish")
+      .map(({ command, args }) => [command, ...args]),
+    [
+      [
+        "npm",
+        "publish",
+        path.join(artifactDir, last.filename),
+        "--tag",
+        "latest",
+        "--access",
+        "public",
+        "--provenance",
+        "--ignore-scripts",
+      ],
+    ],
+  )
+  const report = JSON.parse(await readFile(reportPath, "utf8"))
+  assert.deepEqual(Object.keys(report).sort(), [
+    "commitSha",
+    "complete",
+    "manifestSha256",
+    "packages",
+    "schemaVersion",
+    "status",
+    "version",
+  ])
+  assert.equal(report.complete, true)
+  assert.equal(report.status, "NPM_COMPLETE")
+  assert.equal(report.manifestSha256, record.manifestSha256)
+  assert.deepEqual(
+    report.packages.map(({ name }) => name),
+    CANONICAL_RELEASE_PACKAGE_ORDER,
+  )
+  assert.ok(report.packages.every((entry) => entry.signature.status === "valid"))
+  assert.equal(await readFile(githubOutputPath, "utf8"), "complete=true\nstate=NPM_COMPLETE\n")
+})
+
+const BOOTSTRAP_NOT_BEFORE = "2026-09-08T00:00:00Z"
+const BOOTSTRAP_EXPIRES_AT = "2026-09-08T12:00:00Z"
+const BOOTSTRAP_WINDOW_START_MS = Date.parse(BOOTSTRAP_NOT_BEFORE)
+const BOOTSTRAP_TOKEN = "npm_bootstrapSECRETtoken0123456789"
+// The publish npmrc carries a literal environment reference, never the value.
+const NPMRC_TOKEN_REFERENCE = [
+  "//registry.npmjs.org/:_authToken=$",
+  "{B4_NPM_BOOTSTRAP_TOKEN}\n",
+].join("")
+
+test("the publisher accepts only the oidc or bootstrap auth mode and defaults to oidc", () => {
+  const base = [
+    "--candidate",
+    "candidate.json",
+    "--record",
+    "record.json",
+    "--artifact-dir",
+    "artifact",
+    "--report",
+    "report.json",
+    "--github-output",
+    "output",
+  ]
+  assert.equal(parsePublisherArguments(base).npmAuthMode, "oidc")
+  assert.equal(parsePublisherArguments([...base, "--npm-auth-mode", "oidc"]).npmAuthMode, "oidc")
+  assert.equal(
+    parsePublisherArguments(["--npm-auth-mode", "bootstrap", ...base]).npmAuthMode,
+    "bootstrap",
+  )
+  for (const args of [
+    [...base, "--npm-auth-mode"],
+    [...base, "--npm-auth-mode", ""],
+    [...base, "--npm-auth-mode", "token"],
+    [...base, "--npm-auth-mode", "OIDC"],
+    [...base, "--npm-auth-mode", "Bootstrap"],
+    [...base, "--npm-auth-mode", "bootstrap\n"],
+    [...base, "--npm-auth-mode", "oidc", "--npm-auth-mode", "bootstrap"],
+    [...base, "--npm-auth-mode", "bootstrap", "--repack", "true"],
+  ]) {
+    assert.throws(() => parsePublisherArguments(args), /Usage|argument/iu, JSON.stringify(args))
+  }
+})
+
+test("first-publication serial publication accepts whole-package absence only when explicitly enabled", async () => {
+  const fixture = publisherFixture({ firstPublication: true })
+  await assert.rejects(
+    publishManifestSerially(fixture.inputs),
+    /metadata observation is ambiguous or unverified/u,
+  )
+  assert.deepEqual(fixture.publishCalls, [])
+
+  const result = await publishManifestSerially({ ...fixture.inputs, firstPublication: true })
+  assert.equal(result.status, "NPM_COMPLETE")
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  assert.equal(fixture.concurrentPublishes.maximum, 1)
+
+  const replay = await publishManifestSerially({ ...fixture.inputs, firstPublication: true })
+  assert.equal(replay.status, "NPM_COMPLETE")
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+
+  for (const firstPublication of ["true", 1, null]) {
+    await assert.rejects(
+      publishManifestSerially({ ...fixture.inputs, firstPublication }),
+      TypeError,
+      String(firstPublication),
+    )
+  }
+  const foreign = publisherFixture({ firstPublication: true, foreignVersionIndex: 3 })
+  await assert.rejects(
+    publishManifestSerially({ ...foreign.inputs, firstPublication: true }),
+    /ambiguous or unverified/u,
+  )
+  assert.deepEqual(foreign.publishCalls, [])
+})
+
+test("OIDC mode ignores bootstrap variables, never selects the first-publication reader, and never retries with a token", async (t) => {
+  const inputs = await publisherCliInputs(t)
+  const fixture = publisherFixture({ initiallyPresent: "all-except-last" })
+  const npmCalls = []
+  const factoryCalls = []
+  const environment = {
+    ...publisherProvenanceEnvironment(),
+    B4_NPM_BOOTSTRAP_AUTHORIZATION: "{",
+    B4_NPM_BOOTSTRAP_TOKEN: BOOTSTRAP_TOKEN,
+    NPM_TOKEN: "ambient-must-not-leak",
+    NODE_AUTH_TOKEN: "ambient-must-not-leak",
+  }
+  const result = await runPublisherCli([...inputs.argv, "--npm-auth-mode", "oidc"], {
+    npmReader: {
+      ...fixture.npmReader,
+      observeFirstPublicationPackage() {
+        throw new Error("OIDC mode must not select the first-publication reader")
+      },
+    },
+    async createNpmAuditVerifier(options) {
+      factoryCalls.push(Object.keys(options).sort())
+      return {
+        async dispose() {},
+        publisherEnvironment() {
+          return { PATH: environment.PATH }
+        },
+        verifyPackage: fixture.inputs.verifyPackage,
+      }
+    },
+    async runNpm(command, args, options) {
+      npmCalls.push({ command, args, options })
+      if (args[0] === "publish") {
+        fixture.acceptPublish(args[1])
+        return { stdout: "", stderr: "", exitCode: 0 }
+      }
+      throw new Error(`unexpected npm operation ${args[0]}`)
+    },
+    poll: fixture.inputs.poll,
+    log() {},
+    environment,
+  })
+  assert.equal(result.status, "NPM_COMPLETE")
+  assert.deepEqual(factoryCalls, [["environment", "fileSystem", "runNpm", "signal"]])
+  const publishes = npmCalls.filter(({ args }) => args[0] === "publish")
+  assert.equal(publishes.length, 1)
+  for (const call of npmCalls) {
+    assert.equal(
+      call.args.some((arg) => arg.includes(BOOTSTRAP_TOKEN)),
+      false,
+    )
+    assert.equal(
+      Object.entries(call.options.env).some(
+        ([name, value]) => name.startsWith("B4_NPM") || String(value).includes(BOOTSTRAP_TOKEN),
+      ),
+      false,
+    )
+  }
+  const report = await readFile(inputs.reportPath, "utf8")
+  assert.doesNotMatch(report, /bootstrap|B4_NPM|npm_bootstrap/iu)
+})
+
+test("bootstrap mode fails closed before any npm process without exact candidate-bound authority", async (t) => {
+  const inputs = await publisherCliInputs(t)
+  const valid = bootstrapAuthorization(inputs)
+  const environment = bootstrapPublisherEnvironment(valid)
+  const cases = [
+    ["missing authorization", { B4_NPM_BOOTSTRAP_AUTHORIZATION: undefined }, {}, /authorization/iu],
+    ["retired authorization", { B4_NPM_BOOTSTRAP_AUTHORIZATION: "" }, {}, /authorization/iu],
+    ["malformed authorization", { B4_NPM_BOOTSTRAP_AUTHORIZATION: "{" }, {}, /authorization/iu],
+    [
+      "noncanonical authorization",
+      { B4_NPM_BOOTSTRAP_AUTHORIZATION: JSON.stringify(valid, null, 2) },
+      {},
+      /authorization/iu,
+    ],
+    [
+      "other candidate version",
+      { B4_NPM_BOOTSTRAP_AUTHORIZATION: canonicalAuthorization({ ...valid, version: "0.8.23" }) },
+      {},
+      /bootstrap/iu,
+    ],
+    [
+      "other candidate sha",
+      {
+        B4_NPM_BOOTSTRAP_AUTHORIZATION: canonicalAuthorization({
+          ...valid,
+          commitSha: "f".repeat(40),
+        }),
+      },
+      {},
+      /bootstrap/iu,
+    ],
+    [
+      "manifest digest mismatch",
+      {
+        B4_NPM_BOOTSTRAP_AUTHORIZATION: canonicalAuthorization({
+          ...valid,
+          manifestSha256: "0".repeat(64),
+        }),
+      },
+      {},
+      /bootstrap/iu,
+    ],
+    [
+      "release record digest mismatch",
+      {
+        B4_NPM_BOOTSTRAP_AUTHORIZATION: canonicalAuthorization({
+          ...valid,
+          releaseRecordSha256: "0".repeat(64),
+        }),
+      },
+      {},
+      /bootstrap/iu,
+    ],
+    ["a foreign repository id", { GITHUB_REPOSITORY_ID: "999999999" }, {}, /bootstrap/iu],
+    ["old repository", { GITHUB_REPOSITORY: "cacheplane/dawnai" }, {}, /bootstrap/iu],
+    ["push event", { GITHUB_EVENT_NAME: "push" }, {}, /bootstrap/iu],
+    ["expired window", {}, { now: () => Date.parse(BOOTSTRAP_EXPIRES_AT) }, /expired/iu],
+    ["future window", {}, { now: () => BOOTSTRAP_WINDOW_START_MS - 1 }, /not yet valid/iu],
+    ["missing token", { B4_NPM_BOOTSTRAP_TOKEN: undefined }, {}, /token|credential/iu],
+    ["empty token", { B4_NPM_BOOTSTRAP_TOKEN: "" }, {}, /token|credential/iu],
+    [
+      "control-character token",
+      { B4_NPM_BOOTSTRAP_TOKEN: `${BOOTSTRAP_TOKEN}\n` },
+      {},
+      /token|credential/iu,
+    ],
+    [
+      "reader without first-publication observation",
+      {},
+      { npmReader: publisherFixture().npmReader },
+      /observeFirstPublicationPackage/u,
+    ],
+  ]
+  for (const [name, environmentOverrides, optionOverrides, pattern] of cases) {
+    const fixture = publisherFixture({ firstPublication: true })
+    const npmCalls = []
+    let factoryCalls = 0
+    let caught = null
+    try {
+      await runPublisherCli([...inputs.argv, "--npm-auth-mode", "bootstrap"], {
+        npmReader: fixture.npmReader,
+        async createNpmAuditVerifier() {
+          factoryCalls += 1
+          throw new Error("verifier must not be created before policy validation")
+        },
+        async runNpm(command, args) {
+          npmCalls.push([command, ...args])
+          return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+        },
+        poll: fixture.inputs.poll,
+        log() {},
+        now: () => BOOTSTRAP_WINDOW_START_MS + 1,
+        environment: withEnvironment(environment, environmentOverrides),
+        ...optionOverrides,
+      })
+    } catch (error) {
+      caught = error
+    }
+    assert.ok(caught instanceof Error, name)
+    assert.match(caught.message, pattern, name)
+    assert.doesNotMatch(renderError(caught), /npm_bootstrapSECRET/u, name)
+    assert.deepEqual(npmCalls, [], name)
+    assert.equal(factoryCalls, 0, name)
+    assert.deepEqual(fixture.publishCalls, [], name)
+    assert.deepEqual(fixture.observeCalls, [], name)
+    await assert.rejects(access(inputs.reportPath), undefined, name)
+  }
+})
+
+test("bootstrap mode forwards the token only to npm publish through the private npmrc reference and redacts every output", async (t) => {
+  const inputs = await publisherCliInputs(t)
+  const environment = bootstrapPublisherEnvironment(bootstrapAuthorization(inputs))
+  const fixture = publisherFixture({ firstPublication: true })
+  const npmCalls = []
+  const logs = []
+  const fileSystem = recordingFileSystem()
+  const result = await runPublisherCli([...inputs.argv, "--npm-auth-mode", "bootstrap"], {
+    npmReader: fixture.npmReader,
+    fileSystem: fileSystem.api,
+    async runNpm(command, args, options) {
+      npmCalls.push({
+        command,
+        args,
+        options,
+        userconfig: await readFile(options.env.npm_config_userconfig, "utf8"),
+      })
+      if (args[0] === "--version") return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+      if (args[0] === "audit") {
+        const consumer = JSON.parse(await readFile(path.join(options.cwd, "package.json"), "utf8"))
+        const name = Object.keys(consumer.dependencies)[0]
+        const entry = inputs.manifest.packages.find((item) => item.name === name)
+        return { stdout: npmAuditOutput(entry), stderr: "", exitCode: 0 }
+      }
+      if (args[0] === "publish") {
+        fixture.acceptPublish(args[1])
+        return {
+          stdout: `npm notice auth ${BOOTSTRAP_TOKEN}\n`,
+          stderr: `npm warn ${Buffer.from(BOOTSTRAP_TOKEN).toString("base64")}\n`,
+          exitCode: 0,
+        }
+      }
+      throw new Error(`unexpected npm operation ${args[0]}`)
+    },
+    poll: fixture.inputs.poll,
+    log(event) {
+      logs.push(event)
+    },
+    now: () => BOOTSTRAP_WINDOW_START_MS + 1 + fixture.inputs.now(),
+    environment,
+  })
+
+  assert.equal(result.status, "NPM_COMPLETE")
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  const publishes = npmCalls.filter(({ args }) => args[0] === "publish")
+  assert.equal(publishes.length, 21)
+  for (const call of publishes) {
+    assert.deepEqual(call.args.slice(2), [
+      "--tag",
+      "latest",
+      "--access",
+      "public",
+      "--provenance",
+      "--ignore-scripts",
+    ])
+    assert.equal(call.options.env.B4_NPM_BOOTSTRAP_TOKEN, BOOTSTRAP_TOKEN)
+    assert.equal(call.options.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN, "exact-oidc-token")
+    assert.equal(call.userconfig, NPMRC_TOKEN_REFERENCE)
+    assert.equal(
+      call.args.some((arg) => arg.includes(BOOTSTRAP_TOKEN)),
+      false,
+    )
+  }
+  for (const call of npmCalls.filter(({ args }) => args[0] !== "publish")) {
+    assert.equal(call.userconfig, "")
+    assert.equal(
+      Object.entries(call.options.env).some(
+        ([name, value]) => name.startsWith("B4_NPM") || String(value).includes(BOOTSTRAP_TOKEN),
+      ),
+      false,
+      call.args[0],
+    )
+  }
+  assert.equal(fileSystem.writtenSecrets(BOOTSTRAP_TOKEN), 0)
+  const modeEvents = logs.filter((event) => event.event === "npm-auth-mode")
+  assert.equal(modeEvents.length, 1)
+  assert.equal(modeEvents[0].mode, "bootstrap")
+  assert.match(modeEvents[0].authorizationSha256, /^[0-9a-f]{64}$/u)
+  assert.deepEqual(Object.keys(modeEvents[0]).sort(), [
+    "authorizationSha256",
+    "commitSha",
+    "event",
+    "expiresAt",
+    "mode",
+    "notBefore",
+    "version",
+  ])
+  const rendered = [
+    JSON.stringify(logs),
+    await readFile(inputs.reportPath, "utf8"),
+    await readFile(inputs.githubOutputPath, "utf8"),
+  ].join("\n")
+  assert.doesNotMatch(rendered, /npm_bootstrapSECRET/u)
+  // Exact substring checks, not regexes built from the credential: base64 and
+  // percent-encoded forms can contain regex metacharacters, which would make
+  // the assertion throw or silently match the wrong thing.
+  assert.ok(
+    !rendered.includes(Buffer.from(BOOTSTRAP_TOKEN).toString("base64")),
+    "base64 credential form must not appear",
+  )
+  assert.equal(fileSystem.roots.length, 1)
+  assert.ok(fileSystem.removed.includes(fileSystem.roots[0]))
+  await assert.rejects(access(fileSystem.roots[0]))
+})
+
+test("bootstrap failures, cancellation, and deadline expiry never expose the credential and always clean up", async (t) => {
+  const failing = await publisherCliInputs(t)
+  const environment = bootstrapPublisherEnvironment(bootstrapAuthorization(failing))
+  const encoded = Buffer.from(BOOTSTRAP_TOKEN).toString("base64")
+  const failure = publisherFixture({ firstPublication: true })
+  const failureFileSystem = recordingFileSystem()
+  let caught = null
+  try {
+    await runPublisherCli([...failing.argv, "--npm-auth-mode", "bootstrap"], {
+      npmReader: failure.npmReader,
+      fileSystem: failureFileSystem.api,
+      async runNpm(_command, args, options) {
+        if (args[0] === "--version") return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+        if (args[0] === "publish") {
+          assert.equal(options.env.B4_NPM_BOOTSTRAP_TOKEN, BOOTSTRAP_TOKEN)
+          const inner = new Error(`npm ERR! 401 ${BOOTSTRAP_TOKEN} rejected`)
+          inner.stdout = `token ${BOOTSTRAP_TOKEN}`
+          inner.stderr = `encoded ${encoded} ${encodeURIComponent(BOOTSTRAP_TOKEN)}`
+          throw new AggregateError([inner], `publish failed ${BOOTSTRAP_TOKEN}`, {
+            cause: new Error(`cause ${encoded}`),
+          })
+        }
+        throw new Error(`unexpected npm operation ${args[0]}`)
+      },
+      poll: failure.inputs.poll,
+      log() {},
+      now: () => BOOTSTRAP_WINDOW_START_MS + 1,
+      environment,
+    })
+  } catch (error) {
+    caught = error
+  }
+  assert.ok(caught instanceof Error)
+  assert.match(caught.message, /publish failed \[REDACTED\]/u)
+  assert.doesNotMatch(renderError(caught), /npm_bootstrapSECRET/u)
+  assert.ok(!renderError(caught).includes(encoded), "base64 credential form must not appear")
+  assert.ok(
+    !renderError(caught).includes(encodeURIComponent(BOOTSTRAP_TOKEN)),
+    "percent-encoded credential form must not appear",
+  )
+  assert.equal(failureFileSystem.roots.length, 1)
+  assert.ok(failureFileSystem.removed.includes(failureFileSystem.roots[0]))
+  await assert.rejects(access(failureFileSystem.roots[0]))
+  await assert.rejects(access(failing.reportPath))
+
+  const expiring = await publisherCliInputs(t)
+  const deadline = controlledDeadline()
+  const stalled = publisherFixture({ firstPublication: true })
+  const deadlineFileSystem = recordingFileSystem()
+  let publishSignal
+  let deadlineError = null
+  try {
+    await runPublisherCli([...expiring.argv, "--npm-auth-mode", "bootstrap"], {
+      npmReader: stalled.npmReader,
+      fileSystem: deadlineFileSystem.api,
+      async runNpm(_command, args, options) {
+        if (args[0] === "--version") return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+        if (args[0] === "publish") {
+          publishSignal = options.signal
+          queueMicrotask(deadline.expire)
+          return new Promise((_resolve, reject) => {
+            options.signal.addEventListener("abort", () =>
+              reject(new Error(`aborted with ${BOOTSTRAP_TOKEN}`)),
+            )
+          })
+        }
+        throw new Error(`unexpected npm operation ${args[0]}`)
+      },
+      poll: stalled.inputs.poll,
+      log() {},
+      now: () => BOOTSTRAP_WINDOW_START_MS + 1,
+      environment: bootstrapPublisherEnvironment(bootstrapAuthorization(expiring)),
+      overallTimeoutMs: 20,
+      ...deadline.options,
+    })
+  } catch (error) {
+    deadlineError = error
+  }
+  assert.ok(deadlineError instanceof Error)
+  assert.match(deadlineError.message, /publisher overall deadline/iu)
+  assert.ok(publishSignal instanceof AbortSignal)
+  assert.equal(publishSignal.aborted, true)
+  assert.doesNotMatch(renderError(deadlineError), /npm_bootstrapSECRET/u)
+  assert.equal(deadlineFileSystem.roots.length, 1)
+  assert.ok(deadlineFileSystem.removed.includes(deadlineFileSystem.roots[0]))
+  await assert.rejects(access(deadlineFileSystem.roots[0]))
+})
+
+test("first publication resumes from any verified prefix and never republishes accepted bytes", async () => {
+  const absent = publisherFixture({ firstPublication: true })
+  assert.equal(
+    (await publishManifestSerially({ ...absent.inputs, firstPublication: true })).status,
+    "NPM_COMPLETE",
+  )
+  assert.deepEqual(absent.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+
+  const prefix = publisherFixture({
+    firstPublication: true,
+    initiallyPresent: [0, 1, 2, 3, 4, 5, 6],
+  })
+  assert.equal(
+    (await publishManifestSerially({ ...prefix.inputs, firstPublication: true })).status,
+    "NPM_COMPLETE",
+  )
+  assert.deepEqual(prefix.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER.slice(7))
+  assert.deepEqual(
+    [...new Set(prefix.verifyCalls)].sort(),
+    [...CANONICAL_RELEASE_PACKAGE_ORDER].sort(),
+    "already-published entries are verified, not trusted",
+  )
+
+  for (const failureIndex of [0, 10, 20]) {
+    const timedOut = publisherFixture({
+      firstPublication: true,
+      failAfterAcceptIndex: failureIndex,
+    })
+    await assert.rejects(
+      publishManifestSerially({ ...timedOut.inputs, firstPublication: true }),
+      /simulated runner loss/u,
+    )
+    assert.deepEqual(
+      timedOut.publishCalls,
+      CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, failureIndex + 1),
+    )
+    timedOut.disableFailure()
+    assert.equal(
+      (await publishManifestSerially({ ...timedOut.inputs, firstPublication: true })).status,
+      "NPM_COMPLETE",
+    )
+    assert.deepEqual(timedOut.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  }
+
+  const verified = publisherFixture({ firstPublication: true, initiallyPresent: "all" })
+  const replay = await publishManifestSerially({ ...verified.inputs, firstPublication: true })
+  assert.equal(replay.status, "NPM_COMPLETE")
+  assert.equal(replay.complete, true)
+  assert.deepEqual(verified.publishCalls, [])
+  assert.equal(verified.verifyCalls.length >= CANONICAL_RELEASE_PACKAGE_ORDER.length, true)
+})
+
+test("first publication stops before any further mutation on corrupt, foreign, unproven, ambiguous, or superseded state", async () => {
+  const cases = [
+    [
+      "corrupt existing bytes",
+      { initiallyPresent: [0, 1, 2, 3], corruptRegistryIndex: 3 },
+      /registry tarball|digest|bytes.*match/iu,
+    ],
+    [
+      "unrelated version",
+      { initiallyPresent: [0, 1, 2, 3, 4], foreignVersionIndex: 5 },
+      /ambiguous or unverified/u,
+    ],
+    [
+      "invalid provenance",
+      { initiallyPresent: [0, 1, 2], invalidProvenanceIndex: 2 },
+      /audit evidence is invalid/u,
+    ],
+    ["missing provenance", { initiallyPresent: [0, 1], pendingAuditIndex: 1 }, /did not converge/u],
+    [
+      "registry ambiguity",
+      { initiallyPresent: [0, 1, 2, 3], ambiguousVersionIndex: 4 },
+      /ambiguous or unverified/u,
+    ],
+    [
+      "newer latest after partial state",
+      { initiallyPresent: [0], newerLatestIndex: 1 },
+      /newer latest/u,
+    ],
+  ]
+  for (const [name, overrides, pattern] of cases) {
+    const fixture = publisherFixture({ firstPublication: true, ...overrides })
+    await assert.rejects(
+      publishManifestSerially({ ...fixture.inputs, firstPublication: true }),
+      pattern,
+      name,
+    )
+    assert.deepEqual(fixture.publishCalls, [], name)
+  }
+
+  const superseded = publisherFixture({ firstPublication: true, newerLatestIndex: 0 })
+  const result = await publishManifestSerially({ ...superseded.inputs, firstPublication: true })
+  assert.equal(result.status, "SUPERSEDED_NOOP")
+  assert.deepEqual(superseded.publishCalls, [])
+})
+
+test("bootstrap expiry between packages stops mutation and only a same-candidate replacement window resumes", async (t) => {
+  const inputs = await publisherCliInputs(t)
+  const clock = { ms: BOOTSTRAP_WINDOW_START_MS + 1 }
+  const fixture = publisherFixture({ firstPublication: true })
+  const factoryOptions = []
+  const publishEnvironments = []
+  const run = (authorization, token) =>
+    runPublisherCli([...inputs.argv, "--npm-auth-mode", "bootstrap"], {
+      npmReader: fixture.npmReader,
+      async createNpmAuditVerifier(options) {
+        factoryOptions.push(options.bootstrap)
+        return {
+          async dispose() {},
+          publisherEnvironment() {
+            return { PATH: process.env.PATH ?? "", B4_NPM_BOOTSTRAP_TOKEN: options.bootstrap.token }
+          },
+          verifyPackage: fixture.inputs.verifyPackage,
+        }
+      },
+      async runNpm(_command, args, options) {
+        if (args[0] !== "publish") throw new Error(`unexpected npm operation ${args[0]}`)
+        publishEnvironments.push(options.env.B4_NPM_BOOTSTRAP_TOKEN)
+        fixture.acceptPublish(args[1])
+        // One accepted publication per hour: the 12-hour window admits twelve packages.
+        clock.ms += 60 * 60 * 1000
+        return { stdout: "", stderr: "", exitCode: 0 }
+      },
+      poll: fixture.inputs.poll,
+      log() {},
+      now: () => clock.ms,
+      environment: bootstrapPublisherEnvironment(authorization, token),
+    })
+
+  const initial = bootstrapAuthorization(inputs)
+  await assert.rejects(run(initial, BOOTSTRAP_TOKEN), /expired/u)
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, 12))
+
+  await assert.rejects(run(initial, BOOTSTRAP_TOKEN), /expired/u)
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, 12))
+
+  // Nine packages remain at one hour each; a 12-hour replacement window covers them.
+  const replacementExpiry = new Date(clock.ms + 11 * 60 * 60 * 1000)
+    .toISOString()
+    .replace(/\.\d{3}Z$/u, "Z")
+  const replacementNotBefore = new Date(clock.ms - 60 * 60 * 1000)
+    .toISOString()
+    .replace(/\.\d{3}Z$/u, "Z")
+  const replacement = bootstrapAuthorization(inputs, {
+    notBefore: replacementNotBefore,
+    expiresAt: replacementExpiry,
+  })
+  for (const [name, invalid] of [
+    ["advanced candidate", { ...replacement, commitSha: "f".repeat(40) }],
+    ["other manifest", { ...replacement, manifestSha256: "0".repeat(64) }],
+    ["other record", { ...replacement, releaseRecordSha256: "0".repeat(64) }],
+    ["other version", { ...replacement, version: "0.8.23" }],
+  ]) {
+    await assert.rejects(run(invalid, "npm_replacementSECRET"), /bootstrap/iu, name)
+    assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, 12), name)
+  }
+
+  const resumed = await run(replacement, "npm_replacementSECRET")
+  assert.equal(resumed.status, "NPM_COMPLETE")
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  assert.deepEqual(
+    publishEnvironments,
+    [
+      ...Array.from({ length: 12 }, () => BOOTSTRAP_TOKEN),
+      ...Array.from({ length: 9 }, () => "npm_replacementSECRET"),
+    ],
+    "the replacement credential is used only for the remaining entries",
+  )
+  assert.ok(factoryOptions.every((option) => Object.keys(option).join() === "token"))
+
+  const replay = await run(replacement, "npm_replacementSECRET")
+  assert.equal(replay.status, "NPM_COMPLETE")
+  assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+  assert.equal(publishEnvironments.length, 21, "an all-verified replay needs no token mutation")
+})
+
+test("bootstrap mode cannot use unrelated package versions for initial publication or resume", async (t) => {
+  const inputs = await publisherCliInputs(t)
+  const environment = bootstrapPublisherEnvironment(bootstrapAuthorization(inputs))
+  for (const overrides of [
+    { foreignVersionIndex: 0 },
+    { foreignVersionIndex: 7, initiallyPresent: [0, 1, 2, 3, 4, 5, 6] },
+    { foreignVersionIndex: 20, initiallyPresent: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
+  ]) {
+    const fixture = publisherFixture({ firstPublication: true, ...overrides })
+    const npmCalls = []
+    await assert.rejects(
+      runPublisherCli([...inputs.argv, "--npm-auth-mode", "bootstrap"], {
+        npmReader: fixture.npmReader,
+        createNpmAuditVerifier: stubAuditVerifierFactory({
+          verifyPackage: fixture.inputs.verifyPackage,
+        }),
+        async runNpm(command, args) {
+          npmCalls.push([command, ...args])
+          if (args[0] === "publish") fixture.acceptPublish(args[1])
+          return { stdout: "", stderr: "", exitCode: 0 }
+        },
+        poll: fixture.inputs.poll,
+        log() {},
+        now: () => BOOTSTRAP_WINDOW_START_MS + 1,
+        environment,
+      }),
+      /ambiguous or unverified/u,
+      JSON.stringify(overrides),
+    )
+    assert.deepEqual(fixture.publishCalls, [], JSON.stringify(overrides))
+    assert.deepEqual(npmCalls, [], JSON.stringify(overrides))
+  }
+})
+
+test("the publisher rejects missing, extra, symlinked, and hardlinked artifact payloads", async (t) => {
+  for (const kind of ["missing", "extra", "symlink", "hardlink"]) {
+    await t.test(kind, async (t) => {
+      const fixture = await publisherCliFilesystem(t, `b4-publisher-${kind}-`)
+      const first = fixture.manifest.packages[0]
+      const firstPath = path.join(fixture.artifactDir, first.filename)
+      if (kind === "missing") {
+        await rm(firstPath)
+      } else if (kind === "extra") {
+        await writeFile(path.join(fixture.artifactDir, "unexpected.tgz"), Buffer.from("extra"))
+      } else if (kind === "symlink") {
+        const external = path.join(fixture.temporary, "external.tgz")
+        await writeFile(external, tarballBytes(first.name))
+        await rm(firstPath)
+        await symlink(external, firstPath)
+      } else {
+        await link(firstPath, path.join(fixture.temporary, "outside-hardlink.tgz"))
+      }
+      const registry = publisherFixture({ initiallyPresent: "all" })
+      await assert.rejects(
+        runPublisherCli(fixture.argv, {
+          npmReader: registry.npmReader,
+          async runNpm() {
+            throw new Error("npm must not run")
+          },
+          poll: registry.inputs.poll,
+          log() {},
+        }),
+        /artifact|file set|regular file|ENOENT/iu,
+      )
+      assert.equal(registry.observeCalls.length, 0)
+    })
+  }
+})
+
+test("the publisher detects artifact mutation after initial verification and during npm publish", async (t) => {
+  const beforePublish = await publisherCliFilesystem(t, "b4-publisher-mutated-before-")
+  const beforeRegistry = publisherFixture({ initiallyPresent: "all-except-last" })
+  const beforeTarget = path.join(
+    beforePublish.artifactDir,
+    beforePublish.manifest.packages.at(-1).filename,
+  )
+  const observeMetadata = beforeRegistry.npmReader.observePackageMetadata.bind(
+    beforeRegistry.npmReader,
+  )
+  let mutated = false
+  beforeRegistry.npmReader.observePackageMetadata = async (request) => {
+    if (!mutated) {
+      mutated = true
+      await writeFile(beforeTarget, Buffer.from("mutated after artifact verification"))
+    }
+    return observeMetadata(request)
+  }
+  let npmCalls = 0
+  await assert.rejects(
+    runPublisherCli(beforePublish.argv, {
+      npmReader: beforeRegistry.npmReader,
+      createNpmAuditVerifier: stubAuditVerifierFactory({
+        verifyPackage: beforeRegistry.inputs.verifyPackage,
+      }),
+      async runNpm() {
+        npmCalls += 1
+      },
+      poll: beforeRegistry.inputs.poll,
+      log() {},
+    }),
+    /local tarball|release manifest|match/iu,
+  )
+  assert.equal(npmCalls, 0)
+
+  const duringPublish = await publisherCliFilesystem(t, "b4-publisher-mutated-during-")
+  const duringRegistry = publisherFixture({ initiallyPresent: "all-except-last" })
+  const duringTarget = path.join(
+    duringPublish.artifactDir,
+    duringPublish.manifest.packages.at(-1).filename,
+  )
+  await assert.rejects(
+    runPublisherCli(duringPublish.argv, {
+      npmReader: duringRegistry.npmReader,
+      createNpmAuditVerifier: stubAuditVerifierFactory({
+        verifyPackage: duringRegistry.inputs.verifyPackage,
+      }),
+      async runNpm(_command, args) {
+        await writeFile(duringTarget, Buffer.from("mutated while npm accepted publication"))
+        duringRegistry.acceptPublish(args[1])
+      },
+      poll: duringRegistry.inputs.poll,
+      log() {},
+    }),
+    /local tarball|release manifest|match/iu,
+  )
+  await assert.rejects(access(duringPublish.reportPath))
+})
+
+test("the production publisher deadline cancels registry reads and poll delays", async (t) => {
+  assert.equal(PUBLISHER_OVERALL_TIMEOUT_MS, 25 * 60_000)
+  const metadataFixture = await publisherCliFilesystem(t, "b4-publisher-deadline-metadata-")
+  let metadataSignal
+  const metadataDeadline = controlledDeadline()
+  const metadataReader = {
+    async observePackageMetadata({ signal }) {
+      metadataSignal = signal
+      queueMicrotask(metadataDeadline.expire)
+      return new Promise(() => {})
+    },
+    async observePackageVersion() {
+      throw new Error("version must not be observed")
+    },
+    async downloadRegistryTarball() {
+      throw new Error("tarball must not be downloaded")
+    },
+  }
+  await assert.rejects(
+    runPublisherCli(metadataFixture.argv, {
+      npmReader: metadataReader,
+      createNpmAuditVerifier: stubAuditVerifierFactory({
+        async verifyPackage() {
+          throw new Error("package audit must not run")
+        },
+      }),
+      async runNpm() {
+        throw new Error("npm must not run")
+      },
+      async poll() {},
+      log() {},
+      overallTimeoutMs: 20,
+      ...metadataDeadline.options,
+    }),
+    /publisher overall deadline/iu,
+  )
+  assert.ok(metadataSignal instanceof AbortSignal)
+  assert.equal(metadataSignal.aborted, true)
+
+  const pollFixture = await publisherCliFilesystem(t, "b4-publisher-deadline-poll-")
+  const delayed = publisherFixture({ initiallyPresent: "all" })
+  const pollDeadline = controlledDeadline()
+  let pollSignal
+  await assert.rejects(
+    runPublisherCli(pollFixture.argv, {
+      npmReader: delayed.npmReader,
+      createNpmAuditVerifier: stubAuditVerifierFactory({
+        async verifyPackage() {
+          return { status: "pending" }
+        },
+      }),
+      async runNpm() {
+        throw new Error("npm must not run")
+      },
+      async poll({ signal }) {
+        pollSignal = signal
+        queueMicrotask(pollDeadline.expire)
+        return new Promise(() => {})
+      },
+      log() {},
+      overallTimeoutMs: 20,
+      ...pollDeadline.options,
+    }),
+    /publisher overall deadline/iu,
+  )
+  assert.ok(pollSignal instanceof AbortSignal)
+  assert.equal(pollSignal.aborted, true)
+})
+
+test("publisher descendant PID readiness rejects incomplete files", () => {
+  assert.equal(
+    readPublisherDescendantPid("unused", () => ""),
+    null,
+  )
+  for (const invalid of ["0", "-1", "01", "1\n", "not-a-pid", "9007199254740992"]) {
+    assert.equal(
+      readPublisherDescendantPid("unused", () => invalid),
+      null,
+    )
+  }
+  assert.equal(
+    readPublisherDescendantPid("unused", () => "12345"),
+    12345,
+  )
+
+  const missing = Object.assign(new Error("missing"), { code: "ENOENT" })
+  assert.equal(
+    readPublisherDescendantPid("unused", () => {
+      throw missing
+    }),
+    null,
+  )
+  const denied = Object.assign(new Error("denied"), { code: "EACCES" })
+  assert.throws(
+    () =>
+      readPublisherDescendantPid("unused", () => {
+        throw denied
+      }),
+    (error) => error === denied,
+  )
+})
+
+test("the production publisher deadline preserves OIDC and terminates the npm subprocess tree", {
+  skip: process.platform === "win32",
+  timeout: 10_000,
+}, async (t) => {
+  const cli = await publisherCliFilesystem(t, "b4-publisher-deadline-process-")
+  const registry = publisherFixture()
+  const binDir = path.join(cli.temporary, "bin")
+  const descendantPath = path.join(cli.temporary, "descendant.pid")
+  const oidcPath = path.join(cli.temporary, "oidc.json")
+  await mkdir(binDir)
+  const npmPath = path.join(binDir, "npm")
+  await writeFile(
+    npmPath,
+    `#!/usr/bin/env node
+const { spawn } = require("node:child_process")
+const { writeFileSync } = require("node:fs")
+const args = process.argv.slice(2)
+if (args[0] === "--version") {
+  process.stdout.write("11.17.0\\n")
+  process.exit(0)
+}
+if (args[0] !== "publish") process.exit(97)
+writeFileSync(${JSON.stringify(oidcPath)}, JSON.stringify({
+  token: process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN ?? null,
+  url: process.env.ACTIONS_ID_TOKEN_REQUEST_URL ?? null,
+  githubToken: process.env.GITHUB_TOKEN ?? null,
+  nodeAuthToken: process.env.NODE_AUTH_TOKEN ?? null,
+  unrelated: process.env.RELEASE_RUNNER_SECRET ?? null,
+  ref: process.env.GITHUB_REF ?? null,
+  repository: process.env.GITHUB_REPOSITORY ?? null,
+  sha: process.env.GITHUB_SHA ?? null,
+  workflowRef: process.env.GITHUB_WORKFLOW_REF ?? null,
+  runnerEnvironment: process.env.RUNNER_ENVIRONMENT ?? null,
+}))
+const descendant = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" })
+writeFileSync(${JSON.stringify(descendantPath)}, String(descendant.pid))
+setInterval(() => {}, 1000)
+`,
+  )
+  await chmod(npmPath, 0o755)
+  const environment = {
+    ...publisherProvenanceEnvironment(),
+    PATH: `${binDir}:${path.dirname(process.execPath)}`,
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: "exact-oidc-token",
+    ACTIONS_ID_TOKEN_REQUEST_URL: "https://token.actions.githubusercontent.com/exact",
+    GITHUB_TOKEN: "must-not-leak",
+    NODE_AUTH_TOKEN: "must-not-leak",
+    RELEASE_RUNNER_SECRET: "must-not-leak",
+  }
+  let deadlineTimer
+  let descendantPid
+
+  await assert.rejects(
+    runPublisherCli(cli.argv, {
+      npmReader: registry.npmReader,
+      poll: registry.inputs.poll,
+      log() {},
+      environment,
+      overallTimeoutMs: 5_000,
+      scheduleTimeout(callback) {
+        deadlineTimer = setInterval(() => {
+          const readyPid = readPublisherDescendantPid(descendantPath)
+          if (readyPid === null) return
+          descendantPid = readyPid
+          clearInterval(deadlineTimer)
+          queueMicrotask(callback)
+        }, 5)
+        return deadlineTimer
+      },
+      cancelTimeout(timer) {
+        clearInterval(timer)
+      },
+    }),
+    /publisher overall deadline/iu,
+  )
+  assert.deepEqual(JSON.parse(await readFile(oidcPath, "utf8")), {
+    token: environment.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
+    url: environment.ACTIONS_ID_TOKEN_REQUEST_URL,
+    githubToken: null,
+    nodeAuthToken: null,
+    unrelated: null,
+    ref: environment.GITHUB_REF,
+    repository: environment.GITHUB_REPOSITORY,
+    sha: environment.GITHUB_SHA,
+    workflowRef: environment.GITHUB_WORKFLOW_REF,
+    runnerEnvironment: environment.RUNNER_ENVIRONMENT,
+  })
+  assert.ok(Number.isSafeInteger(descendantPid) && descendantPid > 0)
+  await waitForProcessExit(descendantPid)
+})
+
+test("the exact sparse production sequence resolves Actions and expired escrow into identical publish evidence", {
+  timeout: 60_000,
+}, async (t) => {
+  const fixture = await sparseProductionFixture(t)
+  assert.deepEqual(
+    await listFilesRecursively(fixture.sparseRoot),
+    [
+      "release-input/candidate.json",
+      "release-input/release-record.json",
+      ...fixture.sparseScripts,
+    ].sort(),
+  )
+  for (const forbidden of [
+    "package.json",
+    "pnpm-lock.yaml",
+    "scripts/release/candidate.mjs",
+    "scripts/release/cli.mjs",
+    "scripts/release/controller.mjs",
+    "scripts/release/inventory.mjs",
+    "scripts/release/preflight.mjs",
+  ]) {
+    await assert.rejects(access(path.join(fixture.sparseRoot, forbidden)))
+  }
+
+  const successful = []
+  for (const scenario of ["actions", "escrow"]) {
+    const outcome = await runSparseProductionSequence(fixture, scenario)
+    assert.equal(outcome.resolve.status, 0, outcome.resolve.stderr)
+    assert.equal(outcome.publish.status, 0, outcome.publish.stderr)
+    assert.deepEqual(
+      await readdir(outcome.materializedDir),
+      ["manifest.json", ...fixture.manifest.packages.map(({ filename }) => filename)].sort(),
+    )
+    const payload = []
+    for (const name of await readdir(outcome.materializedDir)) {
+      const target = path.join(outcome.materializedDir, name)
+      const metadata = await lstat(target)
+      assert.equal(metadata.isFile(), true)
+      assert.equal(metadata.isSymbolicLink(), false)
+      assert.equal(metadata.nlink, 1)
+      payload.push([name, (await readFile(target)).toString("base64")])
+    }
+    const commands = [
+      ...(await readJsonLines(outcome.commandLog)),
+      ...(await readJsonLines(outcome.npmCommandLog)),
+    ]
+    const npmCalls = commands.filter(({ command }) => command === "npm")
+    assert.equal(npmCalls.filter(({ args }) => args[0] === "--version").length, 1)
+    assert.equal(npmCalls.filter(({ args }) => args[0] === "install").length, 0)
+    assert.equal(npmCalls.filter(({ args }) => args[0] === "audit").length, 42)
+    assert.equal(
+      npmCalls.some(({ args }) => args[0] === "publish"),
+      false,
+    )
+    assert.ok(
+      npmCalls.every(
+        ({ environment }) =>
+          environment.githubToken === false &&
+          environment.nodeAuthToken === false &&
+          environment.nodeOptions === false &&
+          environment.oidcToken === false,
+      ),
+    )
+    const ghCalls = commands.filter(({ command }) => command === "gh")
+    // Actions mode stays online per file; escrow verifies the anchor bundle once and proves
+    // the remaining 21 subjects locally against that verified statement.
+    assert.equal(ghCalls.length, scenario === "escrow" ? 1 : 22)
+    assert.ok(
+      ghCalls.every(
+        ({ args }) =>
+          args[0] === "attestation" &&
+          args[1] === "verify" &&
+          args.includes("--repo") &&
+          args.includes("--source-digest") &&
+          args.includes("--source-ref") &&
+          args.includes("--predicate-type") &&
+          (scenario === "escrow" ? args.includes("--bundle") : !args.includes("--bundle")),
+      ),
+    )
+    const reportBytes = await readFile(outcome.reportPath)
+    const report = parseNpmEvidence(reportBytes, {
+      candidate: CANDIDATE,
+      manifestSha256: fixture.record.manifestSha256,
+      manifest: fixture.manifest,
+    })
+    assert.equal(report.complete, true)
+    assert.deepEqual(
+      report.packages.map(({ name }) => name),
+      CANONICAL_RELEASE_PACKAGE_ORDER,
+    )
+    successful.push({ payload, reportBytes })
+  }
+  assert.deepEqual(successful[0].payload, successful[1].payload)
+  assert.deepEqual(successful[0].reportBytes, successful[1].reportBytes)
+
+  for (const scenario of ["auth", "timeout", "malformed", "nonretention"]) {
+    const outcome = await runSparseProductionSequence(fixture, scenario)
+    assert.notEqual(outcome.resolve.status, 0, scenario)
+    assert.equal(outcome.publish, null)
+    await assert.rejects(access(outcome.materializedDir))
+    const commands = [
+      ...(await readJsonLines(outcome.commandLog)),
+      ...(await readJsonLines(outcome.npmCommandLog)),
+    ]
+    assert.equal(
+      commands.some(({ command }) => command === "npm"),
+      false,
+    )
+    const fetches = await readJsonLines(outcome.fetchLog)
+    assert.equal(
+      fetches.some(({ url }) => url.includes("/releases")),
+      false,
+    )
+  }
+})
+
+test("the publisher sparse allowlist equals its local import closure and excludes workspace inputs", async () => {
+  const releaseRoot = path.resolve(import.meta.dirname, "..")
+  const repositoryRoot = path.resolve(releaseRoot, "../..")
+  const discovered = new Set()
+  const visit = async (absolutePath) => {
+    const repositoryPath = path.relative(repositoryRoot, absolutePath)
+    if (discovered.has(repositoryPath)) return
+    discovered.add(repositoryPath)
+    const source = await readFile(absolutePath, "utf8")
+    for (const match of source.matchAll(/from\s+["'](\.{1,2}\/[^"']+)["']/gu)) {
+      await visit(path.resolve(path.dirname(absolutePath), match[1]))
+    }
+  }
+  await visit(path.join(releaseRoot, "publisher.mjs"))
+
+  assert.deepEqual([...discovered].sort(), PUBLISHER_SPARSE_FILES)
+  for (const forbidden of [
+    "inventory.mjs",
+    "candidate.mjs",
+    "controller.mjs",
+    "cli.mjs",
+    "preflight.mjs",
+  ]) {
+    assert.ok(!PUBLISHER_SPARSE_FILES.includes(`scripts/release/${forbidden}`))
+  }
+  assert.ok(!PUBLISHER_SPARSE_FILES.some((entry) => entry === "package.json"))
+  await assert.rejects(access(path.join(releaseRoot, "publisher.mjs.not-present")))
+})
+
+async function sparseProductionFixture(t) {
+  const repositoryRoot = path.resolve(import.meta.dirname, "../../..")
+  const temporary = await realpath(
+    await mkdtemp(path.join(os.tmpdir(), "b4-publisher-sparse-production-")),
+  )
+  t.after(() => rm(temporary, { recursive: true, force: true }))
+  const sparseRoot = path.join(temporary, "sparse")
+  const harnessRoot = path.join(temporary, "harness")
+  const binDir = path.join(harnessRoot, "bin")
+  await Promise.all([
+    mkdir(path.join(sparseRoot, "release-input"), { recursive: true }),
+    mkdir(binDir, { recursive: true }),
+  ])
+
+  const sparseScripts = [
+    ...new Set([...ARTIFACT_STORE_SPARSE_FILES, ...PUBLISHER_SPARSE_FILES]),
+  ].sort()
+  for (const repositoryPath of sparseScripts) {
+    const target = path.join(sparseRoot, repositoryPath)
+    await mkdir(path.dirname(target), { recursive: true })
+    await copyFile(path.join(repositoryRoot, repositoryPath), target)
+  }
+
+  const manifest = releaseManifest()
+  const artifactFiles = [
+    { name: "manifest.json", bytes: canonicalManifestBytes(manifest) },
+    ...manifest.packages.map((entry) => ({
+      name: entry.filename,
+      bytes: tarballBytes(entry.name),
+    })),
+  ]
+  const archive = storedZip(artifactFiles)
+  const serviceDigest = `sha256:${createHash("sha256").update(archive).digest("hex")}`
+  const record = releaseRecord(manifest, serviceDigest)
+  await writeFile(
+    path.join(sparseRoot, "release-input/candidate.json"),
+    `${JSON.stringify(CANDIDATE)}\n`,
+  )
+  await writeFile(
+    path.join(sparseRoot, "release-input/release-record.json"),
+    canonicalReleaseRecordBytes(record),
+  )
+
+  const npmPackages = manifest.packages.map((entry) => {
+    const tarballUrl = new URL(`${entry.name}/-/${entry.filename}`, "https://registry.npmjs.org/")
+      .href
+    const metadataUrl = new URL(encodeURIComponent(entry.name), "https://registry.npmjs.org/").href
+    const versionUrl = new URL(
+      `${encodeURIComponent(entry.name)}/${encodeURIComponent(entry.version)}`,
+      "https://registry.npmjs.org/",
+    ).href
+    const integrity = entry.npmIntegrity
+    return {
+      name: entry.name,
+      version: entry.version,
+      metadataUrl,
+      versionUrl,
+      tarballUrl,
+      tarballBase64: tarballBytes(entry.name).toString("base64"),
+      versionDocument: {
+        name: entry.name,
+        version: entry.version,
+        dist: {
+          tarball: tarballUrl,
+          shasum: createHash("sha1").update(tarballBytes(entry.name)).digest("hex"),
+          integrity,
+        },
+      },
+      metadataDocument: { name: entry.name, "dist-tags": { latest: VERSION } },
+    }
+  })
+  const escrowAssets = []
+  let assetId = 1_000
+  for (const file of [
+    { name: "release-record.json", bytes: canonicalReleaseRecordBytes(record) },
+    ...artifactFiles,
+    // The escrow replicates one multi-subject bundle per file; the verifier proves every
+    // file's membership in this statement locally after gh verifies the anchor once.
+    ...artifactFiles.map((file) => ({
+      name: `${file.name}.intoto.jsonl`,
+      bytes: multiSubjectBundleBytes(artifactFiles),
+    })),
+  ]) {
+    escrowAssets.push({
+      id: assetId,
+      name: file.name,
+      size: file.bytes.length,
+      contentBase64: Buffer.from(file.bytes).toString("base64"),
+    })
+    assetId += 1
+  }
+  assert.equal(escrowAssets.length, 45)
+  const releaseBody = canonicalReleaseBody({
+    marker: observationForMarker({ phase: "ESCROWED" }).release.marker,
+    manifest: null,
+  })
+
+  const fixturePath = path.join(harnessRoot, "fixture.json")
+  await writeFile(
+    fixturePath,
+    `${JSON.stringify({
+      record,
+      archiveBase64: archive.toString("base64"),
+      release: { id: 77, body: releaseBody, assets: escrowAssets },
+      npm: {
+        packages: npmPackages,
+      },
+    })}\n`,
+  )
+  const fetchShimPath = path.join(harnessRoot, "fetch-shim.mjs")
+  const npmCommandLog = path.join(harnessRoot, "npm-commands.jsonl")
+  await writeFile(fetchShimPath, sparseFetchShimSource())
+  await writeFile(npmCommandLog, "")
+  for (const command of ["gh", "npm"]) {
+    const target = path.join(binDir, command)
+    await writeFile(target, fakeSparseCommandSource(command, { manifest, npmCommandLog }))
+    await chmod(target, 0o755)
+  }
+  return {
+    sparseRoot,
+    sparseScripts,
+    harnessRoot,
+    binDir,
+    fixturePath,
+    fetchShimPath,
+    npmCommandLog,
+    manifest,
+    record,
+  }
+}
+
+async function runSparseProductionSequence(fixture, scenario) {
+  const runRoot = path.join(fixture.sparseRoot, "runs", scenario)
+  const outputRoot = path.join(runRoot, "release-output")
+  await mkdir(outputRoot, { recursive: true })
+  const materializedDir = path.join(runRoot, "release-materialized")
+  const reportPath = path.join(outputRoot, "publish.json")
+  const githubOutputPath = path.join(outputRoot, "github-output")
+  const commandLog = path.join(fixture.harnessRoot, `${scenario}-commands.jsonl`)
+  const fetchLog = path.join(fixture.harnessRoot, `${scenario}-fetches.jsonl`)
+  await Promise.all([
+    writeFile(commandLog, ""),
+    writeFile(fetchLog, ""),
+    writeFile(fixture.npmCommandLog, ""),
+  ])
+  const environment = {
+    ...process.env,
+    PATH: `${fixture.binDir}:${path.dirname(process.execPath)}:${process.env.PATH ?? ""}`,
+    NODE_OPTIONS: `--import=${pathToFileURL(fixture.fetchShimPath).href}`,
+    B4_SPARSE_FIXTURE: fixture.fixturePath,
+    B4_SPARSE_SCENARIO: scenario,
+    B4_COMMAND_LOG: commandLog,
+    B4_FETCH_LOG: fetchLog,
+    GITHUB_API_URL: "https://api.github.com",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
+    GITHUB_TOKEN: "fixture-token",
+  }
+  const resolve = spawnSync(
+    process.execPath,
+    [
+      "scripts/release/artifact-store.mjs",
+      "resolve",
+      "--record",
+      "release-input/release-record.json",
+      "--output-dir",
+      path.relative(fixture.sparseRoot, materializedDir),
+    ],
+    {
+      cwd: fixture.sparseRoot,
+      env: environment,
+      encoding: "utf8",
+      timeout: 20_000,
+    },
+  )
+  let publish = null
+  if (resolve.status === 0) {
+    publish = spawnSync(
+      process.execPath,
+      [
+        "scripts/release/publisher.mjs",
+        "--candidate",
+        "release-input/candidate.json",
+        "--record",
+        "release-input/release-record.json",
+        "--artifact-dir",
+        path.relative(fixture.sparseRoot, materializedDir),
+        "--report",
+        path.relative(fixture.sparseRoot, reportPath),
+        "--github-output",
+        path.relative(fixture.sparseRoot, githubOutputPath),
+      ],
+      {
+        cwd: fixture.sparseRoot,
+        env: environment,
+        encoding: "utf8",
+        timeout: 20_000,
+      },
+    )
+  }
+  return {
+    resolve,
+    publish,
+    materializedDir,
+    reportPath,
+    githubOutputPath,
+    commandLog,
+    npmCommandLog: fixture.npmCommandLog,
+    fetchLog,
+  }
+}
+
+function sparseFetchShimSource() {
+  return `import { appendFileSync, readFileSync } from "node:fs"
+
+const fixture = JSON.parse(readFileSync(process.env.B4_SPARSE_FIXTURE, "utf8"))
+const scenario = process.env.B4_SPARSE_SCENARIO
+const fetchLog = process.env.B4_FETCH_LOG
+if (scenario === "timeout") {
+  const nativeSetTimeout = globalThis.setTimeout
+  globalThis.setTimeout = (callback, delay, ...args) =>
+    nativeSetTimeout(callback, delay === 15_000 ? 10 : delay, ...args)
+}
+
+const json = (value, status = 200) =>
+  new Response(JSON.stringify(value), {
+    status,
+    headers: { "content-type": "application/json" },
+  })
+const binary = (value, status = 200) =>
+  new Response(value, {
+    status,
+    headers: { "content-type": "application/octet-stream" },
+  })
+const api = "https://api.github.com/repos/cacheplane/b4run"
+const artifactUrl = \`\${api}/actions/artifacts/\${fixture.record.actionsArtifact.id}\`
+const attemptUrl = \`\${api}/actions/runs/\${fixture.record.actionsArtifact.prepareRunId}/attempts/\${fixture.record.actionsArtifact.prepareRunAttempt}\`
+const downloadUrl = \`\${artifactUrl}/zip\`
+const tagObjectSha = "b".repeat(40)
+const tagRefUrl = \`\${api}/git/ref/\${encodeURIComponent(\`tags/\${fixture.record.tag}\`)}\`
+const tagObjectUrl = \`\${api}/git/tags/\${tagObjectSha}\`
+
+globalThis.fetch = async (input, init = {}) => {
+  const url = String(input)
+  appendFileSync(fetchLog, JSON.stringify({ url }) + "\\n")
+  if (url === artifactUrl) {
+    if (scenario === "auth") return json({ code: "EAUTH" }, 401)
+    if (scenario === "malformed") {
+      return new Response("{", { headers: { "content-type": "application/json" } })
+    }
+    if (scenario === "timeout") {
+      return new Promise((_resolve, reject) => {
+        const fail = () => reject(new DOMException("fixture timeout", "AbortError"))
+        if (init.signal?.aborted === true) fail()
+        else init.signal?.addEventListener("abort", fail, { once: true })
+      })
+    }
+    return json({
+      id: Number(fixture.record.actionsArtifact.id),
+      name: fixture.record.actionsArtifact.name,
+      digest: fixture.record.actionsArtifact.serviceDigest,
+      expired: scenario !== "actions",
+      workflow_run: {
+        id: Number(fixture.record.actionsArtifact.prepareRunId),
+        head_sha: fixture.record.commitSha,
+      },
+    })
+  }
+  if (url === attemptUrl) {
+    return json({
+      id: Number(fixture.record.actionsArtifact.prepareRunId),
+      run_attempt: fixture.record.actionsArtifact.prepareRunAttempt,
+      head_sha: fixture.record.commitSha,
+    })
+  }
+  if (url === downloadUrl) {
+    if (scenario === "actions") return binary(Buffer.from(fixture.archiveBase64, "base64"))
+    if (scenario === "escrow") return binary(Buffer.alloc(0), 410)
+    return binary(Buffer.from("non-retention failure"), 500)
+  }
+  if (url === \`\${api}/releases?per_page=100\`) {
+    return json([
+      {
+        id: fixture.release.id,
+        name: \`B4 \${fixture.record.tag}\`,
+        tag_name: "untagged-opaque",
+        target_commitish: "main",
+        draft: true,
+        immutable: false,
+        prerelease: false,
+        body: fixture.release.body,
+      },
+    ])
+  }
+  if (url === tagRefUrl) {
+    return json({
+      ref: \`refs/tags/\${fixture.record.tag}\`,
+      object: { type: "tag", sha: tagObjectSha },
+    })
+  }
+  if (url === tagObjectUrl) {
+    return json({
+      tag: fixture.record.tag,
+      object: { type: "commit", sha: fixture.record.commitSha },
+    })
+  }
+  if (url === \`\${api}/releases/\${fixture.release.id}/assets?per_page=100\`) {
+    return json(fixture.release.assets.map(({ id, name, size }) => ({ id, name, size })))
+  }
+  const asset = fixture.release.assets.find(
+    ({ id }) => url === \`\${api}/releases/assets/\${id}\`,
+  )
+  if (asset !== undefined) return binary(Buffer.from(asset.contentBase64, "base64"))
+
+  for (const pkg of fixture.npm.packages) {
+    if (url === pkg.metadataUrl) return json(pkg.metadataDocument)
+    if (url === pkg.versionUrl) return json(pkg.versionDocument)
+    if (url === pkg.tarballUrl) return binary(Buffer.from(pkg.tarballBase64, "base64"))
+  }
+  throw new Error(\`Unexpected sparse fixture URL: \${url}\`)
+}
+`
+}
+
+function fakeSparseCommandSource(command, { manifest, npmCommandLog }) {
+  if (command === "npm") {
+    const audits = Object.fromEntries(
+      manifest.packages.map((entry) => [entry.name, JSON.parse(npmAuditOutput(entry))]),
+    )
+    return `#!/usr/bin/env node
+const { appendFileSync, readFileSync } = require("node:fs")
+const path = require("node:path")
+const args = process.argv.slice(2)
+appendFileSync(${JSON.stringify(npmCommandLog)}, JSON.stringify({
+  command: "npm",
+  args,
+  cwd: process.cwd(),
+  environment: {
+    githubToken: process.env.GITHUB_TOKEN !== undefined,
+    nodeAuthToken: process.env.NODE_AUTH_TOKEN !== undefined,
+    nodeOptions: process.env.NODE_OPTIONS !== undefined,
+    oidcToken: process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN !== undefined,
+  },
+}) + "\\n")
+if (args[0] === "--version") {
+  process.stdout.write("11.17.0\\n")
+  process.exit(0)
+}
+if (args[0] === "audit") {
+  const consumer = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf8"))
+  const name = Object.keys(consumer.dependencies)[0]
+  const audits = ${JSON.stringify(audits)}
+  if (audits[name] === undefined) process.exit(96)
+  process.stdout.write(JSON.stringify(audits[name]))
+  process.exit(0)
+}
+process.exit(97)
+`
+  }
+  return `#!/usr/bin/env node
+const { appendFileSync } = require("node:fs")
+appendFileSync(process.env.B4_COMMAND_LOG, JSON.stringify({
+  command: ${JSON.stringify(command)},
+  args: process.argv.slice(2),
+}) + "\\n")
+process.exit(${command === "gh" ? 0 : 97})
+`
+}
+
+async function listFilesRecursively(root) {
+  const files = []
+  const visit = async (directory) => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name)
+      if (entry.isDirectory()) await visit(absolute)
+      else files.push(path.relative(root, absolute))
+    }
+  }
+  await visit(root)
+  return files.sort()
+}
+
+async function readJsonLines(target) {
+  const source = await readFile(target, "utf8")
+  return source.length === 0
+    ? []
+    : source
+        .trimEnd()
+        .split("\n")
+        .map((line) => JSON.parse(line))
+}
+
+async function waitForProcessExit(pid) {
+  const deadline = Date.now() + 3_000
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0)
+    } catch (error) {
+      if (error?.code === "ESRCH") return
+      throw error
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  assert.fail(`publisher descendant process ${pid} survived deadline termination`)
+}
+
+function readPublisherDescendantPid(target, read = readFileSync) {
+  try {
+    const source = read(target, "utf8")
+    if (!/^[1-9]\d*$/u.test(source)) return null
+    const pid = Number(source)
+    return Number.isSafeInteger(pid) ? pid : null
+  } catch (error) {
+    if (error?.code === "ENOENT") return null
+    throw error
+  }
+}
+
+function npmAttestationName(name) {
+  const slash = name.indexOf("/")
+  return slash === -1
+    ? encodeURIComponent(name)
+    : `${name.slice(0, slash)}%2f${name.slice(slash + 1)}`
+}
+
+function npmSubjectName(name, version) {
+  if (!name.startsWith("@")) return `pkg:npm/${name}@${version}`
+  const [scope, packageName] = name.split("/")
+  return `pkg:npm/${encodeURIComponent(scope)}/${packageName}@${version}`
+}
+
+function storedZip(files) {
+  const locals = []
+  const centrals = []
+  let offset = 0
+  for (const file of files) {
+    const name = Buffer.from(file.name)
+    const bytes = Buffer.from(file.bytes)
+    const local = Buffer.alloc(30 + name.length + bytes.length)
+    local.writeUInt32LE(0x04034b50, 0)
+    local.writeUInt16LE(20, 4)
+    local.writeUInt16LE(0, 6)
+    local.writeUInt16LE(0, 8)
+    local.writeUInt32LE(bytes.length, 18)
+    local.writeUInt32LE(bytes.length, 22)
+    local.writeUInt16LE(name.length, 26)
+    name.copy(local, 30)
+    bytes.copy(local, 30 + name.length)
+    locals.push(local)
+
+    const central = Buffer.alloc(46 + name.length)
+    central.writeUInt32LE(0x02014b50, 0)
+    central.writeUInt16LE(20, 4)
+    central.writeUInt16LE(20, 6)
+    central.writeUInt16LE(0, 8)
+    central.writeUInt16LE(0, 10)
+    central.writeUInt32LE(bytes.length, 20)
+    central.writeUInt32LE(bytes.length, 24)
+    central.writeUInt16LE(name.length, 28)
+    central.writeUInt32LE(offset, 42)
+    name.copy(central, 46)
+    centrals.push(central)
+    offset += local.length
+  }
+  const centralOffset = offset
+  const centralSize = centrals.reduce((total, entry) => total + entry.length, 0)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0)
+  end.writeUInt16LE(files.length, 8)
+  end.writeUInt16LE(files.length, 10)
+  end.writeUInt32LE(centralSize, 12)
+  end.writeUInt32LE(centralOffset, 16)
+  return Buffer.concat([...locals, ...centrals, end])
+}
+
+async function publisherCliInputs(t) {
+  const temporary = await realpath(await mkdtemp(path.join(os.tmpdir(), "b4-publisher-bootstrap-")))
+  t.after(() => rm(temporary, { recursive: true, force: true }))
+  const artifactDir = path.join(temporary, "artifact")
+  const inputDir = path.join(temporary, "input")
+  const outputDir = path.join(temporary, "output")
+  await Promise.all([mkdir(artifactDir), mkdir(inputDir), mkdir(outputDir)])
+  const manifest = releaseManifest()
+  const record = releaseRecord(manifest)
+  const candidatePath = path.join(inputDir, "candidate.json")
+  const recordPath = path.join(inputDir, "release-record.json")
+  const reportPath = path.join(outputDir, "publish.json")
+  const githubOutputPath = path.join(outputDir, "github-output")
+  await writeFile(candidatePath, `${JSON.stringify(CANDIDATE)}\n`)
+  await writeFile(recordPath, canonicalReleaseRecordBytes(record))
+  await writeFile(path.join(artifactDir, "manifest.json"), canonicalManifestBytes(manifest))
+  for (const entry of manifest.packages) {
+    await writeFile(path.join(artifactDir, entry.filename), tarballBytes(entry.name))
+  }
+  return {
+    manifest,
+    record,
+    artifactDir,
+    reportPath,
+    githubOutputPath,
+    argv: [
+      "--candidate",
+      candidatePath,
+      "--record",
+      recordPath,
+      "--artifact-dir",
+      artifactDir,
+      "--report",
+      reportPath,
+      "--github-output",
+      githubOutputPath,
+    ],
+  }
+}
+
+function bootstrapAuthorization({ manifest, record }, overrides = {}) {
+  return {
+    schemaVersion: 1,
+    status: "enabled",
+    repository: "cacheplane/b4run",
+    repositoryId: "1210070282",
+    publisherWorkflow: ".github/workflows/release.yml",
+    version: VERSION,
+    commitSha: COMMIT_SHA,
+    manifestSha256: manifestSha256(manifest),
+    releaseRecordSha256: releaseRecordSha256(record),
+    notBefore: BOOTSTRAP_NOT_BEFORE,
+    expiresAt: BOOTSTRAP_EXPIRES_AT,
+    ...overrides,
+  }
+}
+
+function canonicalAuthorization(document) {
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.keys(document)
+        .sort()
+        .map((key) => [key, document[key]]),
+    ),
+  )
+}
+
+function bootstrapPublisherEnvironment(authorization, token = BOOTSTRAP_TOKEN) {
+  return {
+    ...publisherProvenanceEnvironment(),
+    GITHUB_REPOSITORY_ID: "1210070282",
+    B4_NPM_BOOTSTRAP_AUTHORIZATION: canonicalAuthorization(authorization),
+    B4_NPM_BOOTSTRAP_TOKEN: token,
+  }
+}
+
+function withEnvironment(environment, overrides) {
+  const result = { ...environment }
+  for (const [name, value] of Object.entries(overrides)) {
+    if (value === undefined) delete result[name]
+    else result[name] = value
+  }
+  return result
+}
+
+function renderError(error, seen = new Set()) {
+  if (error === null || typeof error !== "object" || seen.has(error)) return String(error)
+  seen.add(error)
+  return [
+    error.message,
+    String(error.stack),
+    JSON.stringify(error, Object.getOwnPropertyNames(error)),
+    error.cause === undefined ? "" : renderError(error.cause, seen),
+    ...(Array.isArray(error.errors) ? error.errors.map((inner) => renderError(inner, seen)) : []),
+  ].join("\n")
+}
+
+function recordingFileSystem() {
+  const roots = []
+  const removed = []
+  const writes = []
+  const api = {
+    ...fsPromises,
+    async mkdtemp(prefix, options) {
+      const created = await fsPromises.mkdtemp(prefix, options)
+      if (path.basename(created).startsWith("b4-npm-audit-")) roots.push(await realpath(created))
+      return created
+    },
+    async rm(target, options) {
+      removed.push(target)
+      return fsPromises.rm(target, options)
+    },
+    async writeFile(target, data, options) {
+      writes.push(Buffer.isBuffer(data) ? data.toString("utf8") : String(data))
+      return fsPromises.writeFile(target, data, options)
+    },
+  }
+  return {
+    api,
+    roots,
+    removed,
+    writtenSecrets(secret) {
+      return writes.filter((content) => content.includes(secret)).length
+    },
+  }
+}
+
+async function publisherCliFilesystem(t, prefix) {
+  const temporary = await realpath(await mkdtemp(path.join(os.tmpdir(), prefix)))
+  t.after(() => rm(temporary, { recursive: true, force: true }))
+  const artifactDir = path.join(temporary, "artifact")
+  const inputDir = path.join(temporary, "input")
+  const outputDir = path.join(temporary, "output")
+  await Promise.all([mkdir(artifactDir), mkdir(inputDir), mkdir(outputDir)])
+  const manifest = releaseManifest()
+  const record = releaseRecord(manifest)
+  const candidatePath = path.join(inputDir, "candidate.json")
+  const recordPath = path.join(inputDir, "release-record.json")
+  const reportPath = path.join(outputDir, "publish.json")
+  const githubOutputPath = path.join(outputDir, "github-output")
+  await writeFile(candidatePath, `${JSON.stringify(CANDIDATE)}\n`)
+  await writeFile(recordPath, canonicalReleaseRecordBytes(record))
+  await writeFile(path.join(artifactDir, "manifest.json"), canonicalManifestBytes(manifest))
+  for (const entry of manifest.packages) {
+    await writeFile(path.join(artifactDir, entry.filename), tarballBytes(entry.name))
+  }
+  return {
+    temporary,
+    artifactDir,
+    manifest,
+    record,
+    reportPath,
+    githubOutputPath,
+    argv: [
+      "--candidate",
+      candidatePath,
+      "--record",
+      recordPath,
+      "--artifact-dir",
+      artifactDir,
+      "--report",
+      reportPath,
+      "--github-output",
+      githubOutputPath,
+    ],
+  }
+}
+
+function publisherFixture(overrides = {}) {
+  const manifest = releaseManifest()
+  const present = new Map()
+  const publishCalls = []
+  const observeCalls = []
+  const pollCalls = []
+  const verifyCalls = []
+  const downloadCalls = []
+  const logs = []
+  const events = []
+  const metadataReads = new Map()
+  const versionReads = new Map()
+  const tarballReads = new Map()
+  const clock = { now: 0 }
+  const newerAfterVersionRecheck = new Set()
+  let failureEnabled = true
+  let activePublishes = 0
+  const concurrentPublishes = { maximum: 0 }
+
+  if (overrides.initiallyPresent === "all") {
+    for (const entry of manifest.packages) present.set(entry.name, { ready: 4 })
+  } else if (overrides.initiallyPresent === "all-except-last") {
+    for (const entry of manifest.packages.slice(0, -1)) present.set(entry.name, { ready: 4 })
+  } else if (overrides.initiallyPresent === "except-delayed") {
+    for (const entry of manifest.packages) {
+      if (entry.name !== manifest.packages[overrides.delayedIndex].name) {
+        present.set(entry.name, { ready: 4 })
+      }
+    }
+  } else if (Array.isArray(overrides.initiallyPresent)) {
+    for (const index of overrides.initiallyPresent) {
+      present.set(manifest.packages[index].name, { ready: 4 })
+    }
+  }
+
+  const observeRegistry = async ({ name, version }) => {
+    observeCalls.push({ name, ...(version === undefined ? {} : { version }) })
+    events.push([version === undefined ? "metadata" : "version", name])
+    const index = CANONICAL_RELEASE_PACKAGE_ORDER.indexOf(name)
+    if (overrides.foreignVersionIndex === index) {
+      return {
+        status: "AMBIGUOUS",
+        operation: version === undefined ? "package-metadata" : "package-version",
+        httpStatus: 200,
+        code: "FIRST_PUBLICATION_FOREIGN_VERSION",
+      }
+    }
+    if (version === undefined) {
+      const reads = (metadataReads.get(name) ?? 0) + 1
+      metadataReads.set(name, reads)
+      const newer =
+        overrides.newerLatestIndex === index ||
+        (overrides.newerLatestOnSecondMetadataRead === index && reads >= 2) ||
+        newerAfterVersionRecheck.has(index)
+      const state = present.get(name)
+      if (overrides.firstPublication === true && state === undefined && !newer) {
+        return { status: "ABSENT", operation: "package-metadata", httpStatus: 404, code: "E404" }
+      }
+      return {
+        status: "PRESENT",
+        operation: "package-metadata",
+        httpStatus: 200,
+        code: null,
+        metadata: {
+          name,
+          latest: newer ? "0.9.0" : state?.ready >= 4 ? VERSION : "0.8.20",
+        },
+      }
+    }
+    if (overrides.ambiguousVersionIndex === index) {
+      return {
+        status: "AMBIGUOUS",
+        operation: "package-version",
+        httpStatus: 401,
+        code: "EAUTH",
+      }
+    }
+    const reads = (versionReads.get(name) ?? 0) + 1
+    versionReads.set(name, reads)
+    if (overrides.newerLatestAfterVersionRecheckIndex === index && reads >= 2) {
+      newerAfterVersionRecheck.add(index)
+    }
+    const state = present.get(name)
+    if (state === undefined || state.ready === 0) {
+      return {
+        status: "ABSENT",
+        operation: "package-version",
+        httpStatus: 404,
+        code: "E404",
+      }
+    }
+    return registryObservation(
+      manifest.packages[index],
+      state.ready,
+      overrides.corruptRegistryIndex === index,
+      overrides.rawSignatureIndex === index,
+      overrides.integrityMismatchIndex === index,
+    )
+  }
+  const downloadRegistryTarball = async ({ tarballUrl }) => {
+    const entry = manifest.packages.find((candidate) => registryUrl(candidate) === tarballUrl)
+    if (entry === undefined) throw new Error("unknown fixture tarball URL")
+    const index = manifest.packages.indexOf(entry)
+    downloadCalls.push(entry.name)
+    const reads = (tarballReads.get(entry.name) ?? 0) + 1
+    tarballReads.set(entry.name, reads)
+    if (
+      overrides.tarballPending !== undefined &&
+      overrides.tarballPending.index === index &&
+      reads <= overrides.tarballPending.reads
+    ) {
+      // The production npm adapter classifies a tarball 404 (binary body, no registry
+      // code) as AMBIGUOUS/HTTP_404, never ABSENT (run 33896070181).
+      return {
+        status: "AMBIGUOUS",
+        operation: "package-tarball",
+        httpStatus: 404,
+        code: "HTTP_404",
+      }
+    }
+    const bytes =
+      overrides.corruptRegistryIndex === index ? Buffer.from("corrupt") : tarballBytes(entry.name)
+    return tarballDownload(entry, bytes)
+  }
+  const publishTarball = async ({ entry }) => {
+    activePublishes += 1
+    concurrentPublishes.maximum = Math.max(concurrentPublishes.maximum, activePublishes)
+    try {
+      publishCalls.push(entry.name)
+      events.push(["publish", entry.name])
+      const index = manifest.packages.findIndex(({ name }) => name === entry.name)
+      present.set(entry.name, { ready: overrides.delayedIndex === index ? 0 : 4 })
+      if (failureEnabled && overrides.failAfterAcceptIndex === index) {
+        throw new Error("simulated runner loss")
+      }
+    } finally {
+      activePublishes -= 1
+    }
+  }
+  const poll = async ({ name, attempt, delayMs }) => {
+    pollCalls.push({ name, attempt, delayMs })
+    clock.now += delayMs
+    const state = present.get(name)
+    if (state !== undefined && state.ready < 4) state.ready += 1
+  }
+  const verifyPackage = async ({ entry }) => {
+    verifyCalls.push(entry.name)
+    const index = CANONICAL_RELEASE_PACKAGE_ORDER.indexOf(entry.name)
+    if (overrides.pendingAuditIndex === index) return { status: "pending" }
+    const state = present.get(entry.name)
+    if (!(state?.ready >= 3)) return { status: "pending" }
+    const evidence = verifiedAuditEvidence(entry)
+    return overrides.invalidProvenanceIndex === index
+      ? {
+          ...evidence,
+          provenance: {
+            ...evidence.provenance,
+            repository: "https://github.com/cacheplane/dawnai",
+          },
+        }
+      : evidence
+  }
+  const npmReader = {
+    observePackageMetadata({ name }) {
+      return observeRegistry({ name })
+    },
+    observePackageVersion({ name, version }) {
+      return observeRegistry({ name, version })
+    },
+    downloadRegistryTarball,
+    ...(overrides.firstPublication === true
+      ? {
+          async observeFirstPublicationPackage({ name, version }) {
+            const index = CANONICAL_RELEASE_PACKAGE_ORDER.indexOf(name)
+            if (overrides.foreignVersionIndex === index) {
+              return {
+                status: "PRESENT",
+                operation: "first-publication-package",
+                httpStatus: 200,
+                code: null,
+                package: { name, versions: ["0.8.20", version], latest: "0.8.20", candidate: null },
+              }
+            }
+            const observed = await observeRegistry({ name, version })
+            if (observed.status === "ABSENT") {
+              return {
+                status: "ABSENT",
+                operation: "first-publication-package",
+                httpStatus: 404,
+                code: "E404",
+              }
+            }
+            if (observed.status !== "PRESENT") {
+              return { ...observed, operation: "first-publication-package" }
+            }
+            const metadata = await observeRegistry({ name })
+            return {
+              status: "PRESENT",
+              operation: "first-publication-package",
+              httpStatus: 200,
+              code: null,
+              package: {
+                name,
+                versions: [version],
+                latest: metadata.metadata.latest,
+                candidate: observed.package,
+              },
+            }
+          },
+        }
+      : {}),
+  }
+  return {
+    inputs: {
+      candidate: { ...CANDIDATE },
+      manifest,
+      observeRegistry,
+      downloadRegistryTarball,
+      verifyPackage,
+      publishTarball,
+      poll,
+      now: () => clock.now,
+      log(event) {
+        logs.push(event)
+      },
+    },
+    npmReader,
+    publishCalls,
+    observeCalls,
+    pollCalls,
+    verifyCalls,
+    downloadCalls,
+    logs,
+    events,
+    concurrentPublishes,
+    disableFailure() {
+      failureEnabled = false
+    },
+    acceptPublish(tarballPath) {
+      const entry = manifest.packages.find(({ filename }) => tarballPath.endsWith(filename))
+      if (entry === undefined) throw new Error("unknown fixture publish tarball")
+      publishCalls.push(entry.name)
+      present.set(entry.name, { ready: 4 })
+    },
+  }
+}
+
+function verifiedAuditEvidence() {
+  return {
+    status: "verified",
+    signature: { status: "valid", verifier: "npm-audit-signatures@11.17.0" },
+    provenance: {
+      predicateType: "https://slsa.dev/provenance/v1",
+      workflow: CANDIDATE.publisherWorkflow,
+      commitSha: COMMIT_SHA,
+      repository: "https://github.com/cacheplane/b4run",
+      ref: `refs/tags/v${VERSION}`,
+    },
+  }
+}
+
+function npmAuditOutput(entry) {
+  assert.ok(entry)
+  const ref = `refs/tags/v${VERSION}`
+  const repository = "https://github.com/cacheplane/b4run"
+  const statement = {
+    _type: "https://in-toto.io/Statement/v1",
+    subject: [
+      { name: npmSubjectName(entry.name, entry.version), digest: { sha512: entry.sha512 } },
+    ],
+    predicateType: "https://slsa.dev/provenance/v1",
+    predicate: {
+      buildDefinition: {
+        buildType: "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1",
+        externalParameters: {
+          workflow: { ref, repository, path: CANDIDATE.publisherWorkflow },
+        },
+        internalParameters: { github: { event_name: "push" } },
+        resolvedDependencies: [
+          { uri: `git+${repository}@${ref}`, digest: { gitCommit: COMMIT_SHA } },
+        ],
+      },
+      runDetails: {
+        builder: { id: "https://github.com/actions/runner/github-hosted" },
+        metadata: {
+          invocationId: "https://github.com/cacheplane/b4run/actions/runs/100/attempts/1",
+        },
+      },
+    },
+  }
+  const publishWrapper = {
+    predicateType: "https://github.com/npm/attestation/tree/main/specs/publish/v0.1",
+    bundle: {
+      mediaType: "application/vnd.dev.sigstore.bundle+json;version=0.2",
+      verificationMaterial: {
+        publicKey: { hint: "SHA256:test" },
+        tlogEntries: [{}],
+        timestampVerificationData: { rfc3161Timestamps: [] },
+      },
+      dsseEnvelope: {
+        payload: Buffer.from("{}", "utf8").toString("base64"),
+        payloadType: "application/vnd.in-toto+json",
+        signatures: [{ sig: "verified-by-npm", keyid: "SHA256:test" }],
+      },
+    },
+    signedAccessSignatureUrl: "",
+  }
+  const provenanceWrapper = {
+    predicateType: "https://slsa.dev/provenance/v1",
+    bundle: {
+      mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json",
+      verificationMaterial: {
+        certificate: { rawBytes: EXACT_NPM_PROVENANCE_CERTIFICATE },
+        tlogEntries: [{}],
+        timestampVerificationData: { rfc3161Timestamps: [] },
+      },
+      dsseEnvelope: {
+        payload: Buffer.from(JSON.stringify(statement), "utf8").toString("base64"),
+        payloadType: "application/vnd.in-toto+json",
+        signatures: [{ sig: "verified-by-npm", keyid: "" }],
+      },
+    },
+    signedAccessSignatureUrl: "",
+  }
+  return JSON.stringify({
+    invalid: [],
+    missing: [],
+    verified: [
+      {
+        name: entry.name,
+        version: entry.version,
+        location: `node_modules/${entry.name}`,
+        registry: "https://registry.npmjs.org/",
+        attestations: {
+          url: `https://registry.npmjs.org/-/npm/v1/attestations/${npmAttestationName(entry.name)}@${entry.version}`,
+          provenance: { predicateType: "https://slsa.dev/provenance/v1" },
+        },
+        attestationBundles: [publishWrapper, provenanceWrapper],
+      },
+    ],
+  })
+}
+
+function stubAuditVerifierFactory({ verifyPackage }) {
+  return async () => ({
+    async dispose() {},
+    publisherEnvironment() {
+      return {}
+    },
+    verifyPackage,
+  })
+}
+
+function controlledDeadline() {
+  let expire
+  return {
+    options: {
+      scheduleTimeout(callback) {
+        expire = callback
+        return 1
+      },
+      cancelTimeout() {},
+    },
+    expire() {
+      assert.equal(typeof expire, "function")
+      expire()
+    },
+  }
+}
+
+function releaseManifest() {
+  return {
+    schemaVersion: 1,
+    version: VERSION,
+    commitSha: COMMIT_SHA,
+    ci: { workflow: "CI", runId: 100, runAttempt: 1 },
+    artifact: {
+      name: `release-v${VERSION}-${COMMIT_SHA.slice(0, 12)}`,
+      prepareRunId: 200,
+      prepareRunAttempt: 1,
+    },
+    packageOrder: [...CANONICAL_RELEASE_PACKAGE_ORDER],
+    packages: CANONICAL_RELEASE_PACKAGE_ORDER.map((name) => packageEntry(name)),
+  }
+}
+
+function packageEntry(name) {
+  const bytes = tarballBytes(name)
+  const sha512 = createHash("sha512").update(bytes).digest("hex")
+  return {
+    name,
+    version: VERSION,
+    filename: `${tarballStem(name)}-${VERSION}.tgz`,
+    size: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    sha512,
+    npmIntegrity: `sha512-${Buffer.from(sha512, "hex").toString("base64")}`,
+    access: "public",
+  }
+}
+
+function releaseRecord(manifest, serviceDigest = `sha256:${"a".repeat(64)}`) {
+  return {
+    schemaVersion: 1,
+    version: VERSION,
+    commitSha: COMMIT_SHA,
+    tag: `v${VERSION}`,
+    manifestSha256: createHash("sha256").update(canonicalManifestBytes(manifest)).digest("hex"),
+    actionsArtifact: {
+      id: "123456789",
+      name: manifest.artifact.name,
+      serviceDigest,
+      prepareRunId: "200",
+      prepareRunAttempt: 1,
+    },
+  }
+}
+
+function publisherProvenanceEnvironment() {
+  return {
+    PATH: process.env.PATH ?? "",
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: "exact-oidc-token",
+    ACTIONS_ID_TOKEN_REQUEST_URL: "https://token.actions.githubusercontent.com/exact",
+    GITHUB_ACTIONS: "true",
+    GITHUB_EVENT_NAME: "workflow_dispatch",
+    GITHUB_REF: `refs/tags/v${VERSION}`,
+    GITHUB_REPOSITORY: "cacheplane/b4run",
+    GITHUB_REPOSITORY_ID: "123456789",
+    GITHUB_REPOSITORY_OWNER_ID: "987654321",
+    GITHUB_RUN_ATTEMPT: "1",
+    GITHUB_RUN_ID: "100",
+    GITHUB_SERVER_URL: "https://github.com",
+    GITHUB_SHA: COMMIT_SHA,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+    RUNNER_ENVIRONMENT: "github-hosted",
+  }
+}
+
+function registryObservation(entry, ready, corrupt, rawSignature, integrityMismatch = false) {
+  const bytes = corrupt ? Buffer.from("corrupt") : tarballBytes(entry.name)
+  return {
+    status: "PRESENT",
+    operation: "package-version",
+    httpStatus: 200,
+    code: null,
+    package: {
+      name: entry.name,
+      version: entry.version,
+      tarballUrl: registryUrl(entry),
+      shasum: createHash("sha1").update(bytes).digest("hex"),
+      integrity: integrityMismatch
+        ? `sha512-${Buffer.alloc(64, 1).toString("base64")}`
+        : entry.npmIntegrity,
+      signatures: ready >= 2 ? [{ keyid: "SHA256:key", sig: "signature" }] : [],
+      ...(rawSignature
+        ? {}
+        : {
+            signature:
+              ready >= 2
+                ? { status: "valid", keyid: "SHA256:key" }
+                : { status: "missing", keyid: null },
+          }),
+      distTags: { latest: ready >= 4 ? VERSION : "0.8.20" },
+      latest: ready >= 4 ? VERSION : "0.8.20",
+      provenance:
+        ready >= 3
+          ? {
+              status: "PRESENT",
+              url: `https://registry.npmjs.org/-/npm/v1/attestations/${encodeURIComponent(entry.name)}@${VERSION}`,
+              predicateTypes: ["https://slsa.dev/provenance/v1"],
+              workflow: CANDIDATE.publisherWorkflow,
+              commitSha: COMMIT_SHA,
+              repository: "https://github.com/cacheplane/b4run",
+              ref: `refs/tags/v${VERSION}`,
+            }
+          : {
+              status: "ABSENT",
+              url: null,
+              predicateTypes: [],
+              workflow: null,
+              commitSha: null,
+              repository: null,
+              ref: null,
+            },
+    },
+  }
+}
+
+function tarballDownload(entry, bytes) {
+  return {
+    status: "PRESENT",
+    operation: "package-tarball",
+    httpStatus: 200,
+    code: null,
+    tarball: {
+      url: registryUrl(entry),
+      size: bytes.length,
+      sha1: createHash("sha1").update(bytes).digest("hex"),
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      sha512: createHash("sha512").update(bytes).digest("hex"),
+      contentBase64: bytes.toString("base64"),
+    },
+  }
+}
+
+function registryUrl(entry) {
+  return `https://registry.npmjs.org/${entry.name}/-/${entry.filename}`
+}
+
+function tarballBytes(name) {
+  return Buffer.from(`packed:${name}`)
+}
+
+function tarballStem(name) {
+  return name.startsWith("@") ? name.slice(1).replaceAll("/", "-") : name
+}
+
+function multiSubjectBundleBytes(files) {
+  const statement = {
+    _type: "https://in-toto.io/Statement/v1",
+    subject: files.map((file) => ({
+      name: file.name,
+      digest: { sha256: createHash("sha256").update(file.bytes).digest("hex") },
+    })),
+    predicateType: "https://slsa.dev/provenance/v1",
+    predicate: {
+      runDetails: {
+        metadata: {
+          invocationId: "https://github.com/cacheplane/b4run/actions/runs/1/attempts/1",
+        },
+      },
+    },
+  }
+  return Buffer.from(
+    `${JSON.stringify({
+      mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json",
+      dsseEnvelope: {
+        payloadType: "application/vnd.in-toto+json",
+        payload: Buffer.from(JSON.stringify(statement), "utf8").toString("base64"),
+        signatures: [{ sig: Buffer.from("signature", "utf8").toString("base64") }],
+      },
+      verificationMaterial: {},
+    })}\n`,
+    "utf8",
+  )
+}

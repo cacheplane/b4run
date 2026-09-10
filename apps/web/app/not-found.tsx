@@ -52,7 +52,13 @@ export default function NotFound() {
             <Destination href="/blog" label="Latest from the blog" />
           </li>
           <li>
-            <Destination href="/brand" label="Brand assets" />
+            <a
+              href="/brand/b4-run-brand-assets.zip"
+              download
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-accent-saas hover:opacity-80 transition-opacity"
+            >
+              Download brand kit <span aria-hidden="true">→</span>
+            </a>
           </li>
         </ul>
       </div>

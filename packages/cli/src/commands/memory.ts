@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
-import { approveWithReconcile, type MemoryStore } from "@dawn-ai/memory"
-import type { ModelProviderId } from "@dawn-ai/sdk"
-import { inferProvider } from "@dawn-ai/sdk"
+import { approveWithReconcile, type MemoryStore } from "@b4run/memory"
+import type { ModelProviderId } from "@b4run/sdk"
+import { inferProvider } from "@b4run/sdk"
 import type { Command } from "commander"
 import {
   type DistillResult,
@@ -26,7 +26,7 @@ const DISTILL_FLAGS =
   "[--dry-run] [--namespace <prefix>] [--model <id>] [--provider <id>] [--max-batches <n>]"
 
 const USAGE = [
-  "dawn memory <subcommand> [args]",
+  "b4 memory <subcommand> [args]",
   "  subcommands: list, search <query>, inspect <id>, approve <id>, reject <id>, forget <id>,",
   "               prune [--cap <n>] [--namespace <prefix>],",
   `               consolidate ${DISTILL_FLAGS},`,
@@ -36,14 +36,14 @@ const USAGE = [
 export function registerMemoryCommand(program: Command, io: CommandIo): void {
   program
     .command("memory [subcommand] [args...]")
-    .description("Inspect and manage the Dawn app's long-term memory store")
-    .option("--cwd <path>", "Path to the Dawn app root")
+    .description("Inspect and manage the B4.run app's long-term memory store")
+    .option("--cwd <path>", "Path to the B4.run app root")
     // The subcommands own their flags (`prune --cap`, `consolidate --dry-run`, …) and
     // parse them out of `args`. Without this, commander claims every `--flag` after the
     // subcommand for itself and rejects it as an unknown option before the handler runs,
     // which made EVERY documented subcommand flag unusable from the real CLI.
     .passThroughOptions()
-    // Commander only knows about `--cwd`, so `dawn memory --help` listed no subcommands
+    // Commander only knows about `--cwd`, so `b4 memory --help` listed no subcommands
     // at all — `consolidate`, `reflect` and every subcommand flag were discoverable only
     // by triggering the error paths below. Same text, now reachable the obvious way.
     .addHelpText("after", `\n${USAGE}`)
@@ -74,31 +74,31 @@ export async function runMemoryCommand(
     }
     case "search": {
       const query = argv[1]
-      if (!query) throw new CliError("Usage: dawn memory search <query>", 1)
+      if (!query) throw new CliError("Usage: b4 memory search <query>", 1)
       await runSearch(store, query, io)
       break
     }
     case "inspect": {
       const id = argv[1]
-      if (!id) throw new CliError("Usage: dawn memory inspect <id>", 1)
+      if (!id) throw new CliError("Usage: b4 memory inspect <id>", 1)
       await runInspect(store, id, io)
       break
     }
     case "approve": {
       const id = argv[1]
-      if (!id) throw new CliError("Usage: dawn memory approve <id>", 1)
+      if (!id) throw new CliError("Usage: b4 memory approve <id>", 1)
       await runApprove(store, appRoot, id, io)
       break
     }
     case "reject": {
       const id = argv[1]
-      if (!id) throw new CliError("Usage: dawn memory reject <id>", 1)
+      if (!id) throw new CliError("Usage: b4 memory reject <id>", 1)
       await runReject(store, id, io)
       break
     }
     case "forget": {
       const id = argv[1]
-      if (!id) throw new CliError("Usage: dawn memory forget <id>", 1)
+      if (!id) throw new CliError("Usage: b4 memory forget <id>", 1)
       await runForget(store, id, io)
       break
     }
@@ -188,7 +188,7 @@ async function runPrune(
   args: readonly string[],
   io: CommandIo,
 ): Promise<void> {
-  const usage = "Usage: dawn memory prune [--cap <n>] [--namespace <prefix>]"
+  const usage = "Usage: b4 memory prune [--cap <n>] [--namespace <prefix>]"
   let cap: number | undefined
   let namespacePrefix: string | undefined
   for (let i = 0; i < args.length; i++) {
@@ -221,7 +221,7 @@ async function runPrune(
 }
 
 /**
- * `dawn memory consolidate` / `dawn memory reflect` — the two distillation
+ * `b4 memory consolidate` / `b4 memory reflect` — the two distillation
  * passes. Both are threshold-aware no-ops (safe for cron), share the same flags,
  * and spend model tokens only when there is something to distill.
  */
@@ -232,7 +232,7 @@ async function runDistill(
   args: readonly string[],
   io: CommandIo,
 ): Promise<void> {
-  const usage = `Usage: dawn memory ${command} ${DISTILL_FLAGS}`
+  const usage = `Usage: b4 memory ${command} ${DISTILL_FLAGS}`
   let dryRun = false
   let namespacePrefix: string | undefined
   let model: string | undefined
@@ -353,11 +353,11 @@ function selectProvider(
  * agent provider" error agents get), and `createChatModel` returns the LangChain
  * chat model — whose `.invoke(prompt)` resolves to a message with `.content`,
  * exactly `ModelLike`'s shape (the engine normalizes string vs content-part
- * array content). Imported lazily so `dawn memory list` never pays for the
+ * array content). Imported lazily so `b4 memory list` never pays for the
  * LangChain barrel.
  */
 async function createDistillModel(config: ResolvedDistillConfig): Promise<ModelLike> {
-  const { createChatModel, resolveProvider } = await import("@dawn-ai/langchain")
+  const { createChatModel, resolveProvider } = await import("@b4run/langchain")
   const provider = resolveProvider({ model: config.model, provider: config.provider })
   const model = await createChatModel({ model: config.model, provider })
   return model as ModelLike

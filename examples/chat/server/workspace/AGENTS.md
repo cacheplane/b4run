@@ -1,6 +1,6 @@
 # Workspace memory
 
-Dawn auto-injects this file's contents into the agent's system prompt on every
+B4.run auto-injects this file's contents into the agent's system prompt on every
 turn. The agent updates it via `writeFile({ path: "AGENTS.md", content: ... })`
 when it learns something worth remembering across sessions.
 

@@ -1,15 +1,15 @@
 #!/bin/sh
 # Shared image build for the full-arc sandbox smoke.
 #
-#   sh build-image.sh <k8s|docker> <verdaccio-registry-url>
+#   sh build-image.sh <k8s|docker> <verdaccio-registry-url> [output-image-tag]
 #
-# Builds the smoke Dawn app image the *user-facing* way: `dawn build` (node
-# target) emits `.dawn/build/server.mjs` + a hardened `Dockerfile`, and we
+# Builds the smoke B4.run app image the *user-facing* way: `b4 build` (node
+# target) emits `.b4/build/server.mjs` + a hardened `Dockerfile`, and we
 # `docker build` that emitted Dockerfile. The only smoke-specific twist is that
-# `@dawn-ai/*` is resolved from a local Verdaccio registry (published from this
+# `@b4run/*` is resolved from a local Verdaccio registry (published from this
 # checkout) instead of npmjs — via a temporary `.npmrc` COPY'd into the image.
 #
-# Tags: `dawn-smoke-app:<k8s|docker>`. The `docker` variant additionally installs
+# Tags: `b4-smoke-app:<k8s|docker>`. The `docker` variant additionally installs
 # the `docker` CLI client (dockerSandbox shells out to `docker`).
 #
 # Networking follows Task 1's spike findings: the emitted Dockerfile's
@@ -17,8 +17,8 @@
 # `host.docker.internal` + `--add-host=host.docker.internal:host-gateway`.
 set -eu
 
-VARIANT="${1:?usage: build-image.sh <k8s|docker> <verdaccio-registry-url>}"
-REGISTRY_URL="${2:?usage: build-image.sh <k8s|docker> <verdaccio-registry-url>}"
+VARIANT="${1:?usage: build-image.sh <k8s|docker> <verdaccio-registry-url> [output-image-tag]}"
+REGISTRY_URL="${2:?usage: build-image.sh <k8s|docker> <verdaccio-registry-url> [output-image-tag]}"
 
 case "$VARIANT" in
   k8s|docker) ;;
@@ -26,12 +26,34 @@ case "$VARIANT" in
 esac
 
 # Resolve paths relative to this script so it works from any CWD.
-SMOKE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SMOKE_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH='' cd -- "$SMOKE_DIR/../.." && pwd)
 APP_DIR="$SMOKE_DIR/app"
-TAG="dawn-smoke-app:$VARIANT"
+if [ "$#" -ge 3 ]; then
+  TAG=$3
+else
+  TAG="b4-smoke-app:$VARIANT"
+fi
+case "$TAG" in
+  ""|*[[:space:]]*)
+    echo "build-image.sh: output image tag must be non-empty and contain no whitespace" >&2
+    exit 2
+    ;;
+esac
+POLICY_FILE="$REPO_ROOT/.github/kubernetes-compatibility.json"
+
+PACKAGED_APP_BASE=$(node -e '
+  const { readFileSync } = require("node:fs")
+  const policy = JSON.parse(readFileSync(process.argv[1], "utf8"))
+  const image = policy?.images?.packagedAppBase
+  if (typeof image !== "string" || !/^[^\s@]+@sha256:[0-9a-f]{64}$/.test(image)) {
+    throw new Error("images.packagedAppBase must be a digest-pinned image")
+  }
+  process.stdout.write(image)
+' "$POLICY_FILE")
 
 # --- Registry URL forms -------------------------------------------------------
-# Host form (for the on-host `npm install` that lets `dawn build` resolve the CLI).
+# Host form (for the on-host `npm install` that lets `b4 build` resolve the CLI).
 HOST_REGISTRY="$REGISTRY_URL"
 # Docker-build form: rewrite loopback host → host.docker.internal (Task 1).
 DOCKER_REGISTRY=$(printf '%s' "$REGISTRY_URL" \
@@ -45,13 +67,13 @@ echo "==> build-image.sh: variant=$VARIANT"
 echo "    host registry:   $HOST_REGISTRY"
 echo "    docker registry: $DOCKER_REGISTRY"
 
-# --- Step 1: dawn build (node target) ----------------------------------------
-# Install the app's deps from Verdaccio so the `dawn` CLI + @dawn-ai/* resolve
+# --- Step 1: b4 build (node target) ----------------------------------------
+# Install the app's deps from Verdaccio so the `b4` CLI + @b4run/* resolve
 # on the host, then run the node-target build. node_modules + lockfile are
 # throwaway (removed before the docker build so they don't leak into the image).
-echo "==> installing app deps from Verdaccio (host-side, for dawn build)"
+echo "==> installing app deps from Verdaccio (host-side, for b4 build)"
 # Use pnpm (the same client the Verdaccio harness publishes/installs with).
-# NOT npm here: @dawn-ai/* republish the same version (0.8.x) across Verdaccio
+# NOT npm here: @b4run/* republish the same version (0.8.x) across Verdaccio
 # sessions with non-reproducible tarball bytes, so a developer's shared ~/.npm
 # cache carries a stale integrity for that version and npm fails with EINTEGRITY.
 # pnpm's content-addressed store verifies against the live packument and is
@@ -60,25 +82,31 @@ echo "==> installing app deps from Verdaccio (host-side, for dawn build)"
 # runs in a pristine container with no prior cache.
 ( cd "$APP_DIR" && pnpm install --ignore-workspace --registry "$HOST_REGISTRY" )
 
-echo "==> dawn build (node target)"
-( cd "$APP_DIR" && ./node_modules/.bin/dawn build )
+echo "==> b4 build (node target)"
+# The variant argument is the single authority for both the generated app and
+# the final image. Do not depend on an ambient kube context (or a caller export)
+# when building the Docker smoke app.
+( cd "$APP_DIR" && B4_SMOKE_SANDBOX="$VARIANT" ./node_modules/.bin/b4 build )
 
-SERVER_MJS="$APP_DIR/.dawn/build/server.mjs"
+SERVER_MJS="$APP_DIR/.b4/build/server.mjs"
 EMITTED_DOCKERFILE="$APP_DIR/Dockerfile"
 [ -f "$SERVER_MJS" ] || { echo "FATAL: $SERVER_MJS not emitted" >&2; exit 1; }
 [ -f "$EMITTED_DOCKERFILE" ] || { echo "FATAL: $EMITTED_DOCKERFILE not emitted" >&2; exit 1; }
-grep -q "Generated by dawn build (node target)" "$EMITTED_DOCKERFILE" \
+grep -q "Generated by b4 build (node target)" "$EMITTED_DOCKERFILE" \
   || { echo "FATAL: $EMITTED_DOCKERFILE lacks the node-target marker" >&2; exit 1; }
-echo "    emitted: .dawn/build/server.mjs + marked Dockerfile OK"
+BASE_FROM_COUNT=$(awk '/^FROM node:24-slim$/ { count += 1 } END { print count + 0 }' "$EMITTED_DOCKERFILE")
+[ "$BASE_FROM_COUNT" -eq 1 ] \
+  || { echo "FATAL: $EMITTED_DOCKERFILE must contain exactly one 'FROM node:24-slim'" >&2; exit 1; }
+echo "    emitted: .b4/build/server.mjs + marked Dockerfile OK"
 
-# --- Step 2: make @dawn-ai/* resolve from Verdaccio inside the image ----------
-# Smoke-only augmentation: a temporary .npmrc scoping @dawn-ai/* to Verdaccio,
+# --- Step 2: make @b4run/* resolve from Verdaccio inside the image ----------
+# Smoke-only augmentation: a temporary .npmrc scoping @b4run/* to Verdaccio,
 # plus a single `COPY .npmrc ./` injected immediately BEFORE the `RUN npm ci`
 # line of the emitted Dockerfile (which runs before `COPY . .`). Real users
-# install @dawn-ai/* from npmjs and need none of this.
+# install @b4run/* from npmjs and need none of this.
 NPMRC="$APP_DIR/.npmrc"
 cat > "$NPMRC" <<EOF
-@dawn-ai:registry=$DOCKER_REGISTRY
+@b4run:registry=$DOCKER_REGISTRY
 //$DOCKER_HOSTPORT/:_authToken=smoke
 # Serialize tarball fetches — the ephemeral Verdaccio streams tarballs on the fly
 # and can occasionally serve a corrupt body under npm's default parallelism.
@@ -86,7 +114,7 @@ maxsockets=1
 EOF
 
 # Clean up injected files + host build artifacts on any exit so the tree stays
-# clean (the emitted .dawn/ and Dockerfile are gitignored, but node_modules and
+# clean (the emitted .b4/ and Dockerfile are gitignored, but node_modules and
 # .npmrc must not linger).
 cleanup() {
   rm -f "$NPMRC"
@@ -103,13 +131,17 @@ trap cleanup EXIT INT TERM
 # instruction the node target emits). Stripping it keeps the build resilient in
 # restricted/offline environments; on a normal runner it's a harmless no-op.
 AUG_DOCKERFILE="$EMITTED_DOCKERFILE.smoke"
-awk '
+awk -v packaged_app_base="$PACKAGED_APP_BASE" '
   /^# *syntax=/ { next }
+  /^FROM node:24-slim$/ { print "FROM " packaged_app_base; next }
   /^RUN npm ci/ && !done { print "COPY .npmrc ./"; done=1 }
   { print }
 ' "$EMITTED_DOCKERFILE" > "$AUG_DOCKERFILE"
 grep -q "^COPY .npmrc ./" "$AUG_DOCKERFILE" \
   || { echo "FATAL: failed to inject 'COPY .npmrc ./' into the Dockerfile" >&2; exit 1; }
+PINNED_FROM_COUNT=$(awk -v expected="FROM $PACKAGED_APP_BASE" '$0 == expected { count += 1 } END { print count + 0 }' "$AUG_DOCKERFILE")
+[ "$PINNED_FROM_COUNT" -eq 1 ] \
+  || { echo "FATAL: failed to pin the smoke-only packaged application base" >&2; exit 1; }
 
 # Remove throwaway host node_modules/lockfiles BEFORE docker build so `COPY . .`
 # doesn't drag them into the image (the image does its own `npm install`).
@@ -132,7 +164,7 @@ docker build \
 # container-side external-network dependency at build time that is fragile in
 # restricted/offline environments; the static binary needs no in-container
 # network at all and no `apt`. The client is statically linked, so it drops
-# straight into the (glibc) node:22-slim image and runs as the non-root user.
+# straight into the policy-pinned packaged app image and runs as the non-root user.
 if [ "$VARIANT" = "docker" ]; then
   DOCKER_CLI_VERSION="${DOCKER_CLI_VERSION:-27.5.1}"
   # Map the daemon's arch to download.docker.com's static-binary arch dir so the
@@ -157,10 +189,10 @@ if [ "$VARIANT" = "docker" ]; then
   tar -xzf "$CLI_TGZ" -C "$CLI_CTX" docker/docker \
     || { echo "FATAL: failed to extract docker/docker from the static tarball" >&2; exit 1; }
   [ -x "$CLI_CTX/docker/docker" ] || { echo "FATAL: extracted docker CLI is not present/executable" >&2; exit 1; }
-  cat > "$CLI_CTX/Dockerfile" <<EOF
-FROM $TAG
-COPY docker/docker /usr/local/bin/docker
-EOF
+  {
+    printf 'FROM %s\n' "$TAG"
+    printf 'COPY docker/docker /usr/local/bin/docker\n'
+  } > "$CLI_CTX/Dockerfile"
   docker build -f "$CLI_CTX/Dockerfile" -t "$TAG" "$CLI_CTX"
 fi
 

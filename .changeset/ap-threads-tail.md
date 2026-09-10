@@ -1,8 +1,8 @@
 ---
-"@dawn-ai/cli": patch
+"@b4run/cli": patch
 ---
 
-Add `dawn threads tail <thread-id>` — reattach to a thread from the terminal.
+Add `b4 threads tail <thread-id>` — reattach to a thread from the terminal.
 It consumes `GET /threads/:thread_id/runs/stream`, printing a snapshot (the
 committed transcript, the in-flight turn's output so far, and any parked
 human-in-the-loop prompts) and then following live frames until the turn ends.
@@ -14,6 +14,6 @@ repeatable for middleware that authenticates the thread's route, and `--json`
 prints raw SSE frames for scripting. Attaching takes no run slot and cancels
 nothing.
 
-This is Dawn's first first-party Agent Protocol stream client: it parses the
+This is B4.run's first first-party Agent Protocol stream client: it parses the
 documented wire defensively rather than importing the server's frame types, so
 the published contract now has a consumer that exercises it.

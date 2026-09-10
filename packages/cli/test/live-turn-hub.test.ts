@@ -8,6 +8,8 @@ describe("LiveTurnHub", () => {
   it("hands an attacher the digest snapshot then the live tail, ending after terminal", async () => {
     const hub = createLiveTurnHub()
     const p = hub.open({
+      routeKey: "/chat#agent",
+      anchorRouteKeys: [],
       threadId: "t1",
       anchorCheckpointId: "cp-1",
       runStartedAt: "2020-01-01T00:00:00.000Z",
@@ -43,6 +45,8 @@ describe("LiveTurnHub", () => {
   it("drops the digest whole on overflow and reports truncated", async () => {
     const hub = createLiveTurnHub({ digestMaxBytes: 64 })
     const p = hub.open({
+      routeKey: "/chat#agent",
+      anchorRouteKeys: [],
       threadId: "t",
       anchorCheckpointId: null,
       runStartedAt: "x",
@@ -60,6 +64,8 @@ describe("LiveTurnHub", () => {
   it("drops only the overflowing subscriber", async () => {
     const hub = createLiveTurnHub({ subscriberMaxFrames: 2 })
     const p = hub.open({
+      routeKey: "/chat#agent",
+      anchorRouteKeys: [],
       threadId: "t",
       anchorCheckpointId: null,
       runStartedAt: "x",
@@ -86,6 +92,8 @@ describe("LiveTurnHub", () => {
   it("a producer whose entry was replaced is inert", async () => {
     const hub = createLiveTurnHub()
     const p1 = hub.open({
+      routeKey: "/chat#agent",
+      anchorRouteKeys: [],
       threadId: "t",
       anchorCheckpointId: null,
       runStartedAt: "1",
@@ -93,6 +101,8 @@ describe("LiveTurnHub", () => {
       input: null,
     })
     const p2 = hub.open({
+      routeKey: "/chat#agent",
+      anchorRouteKeys: [],
       threadId: "t",
       anchorCheckpointId: null,
       runStartedAt: "2",
@@ -110,6 +120,8 @@ describe("LiveTurnHub", () => {
   it("an attach that lands after the terminal still terminates", async () => {
     const hub = createLiveTurnHub()
     const p = hub.open({
+      routeKey: "/chat#agent",
+      anchorRouteKeys: [],
       threadId: "t",
       anchorCheckpointId: null,
       runStartedAt: "x",
@@ -125,6 +137,8 @@ describe("LiveTurnHub", () => {
   it("closeAll fans a terminal frame to every entry's subscribers, across all entries", async () => {
     const hub = createLiveTurnHub()
     const p1 = hub.open({
+      routeKey: "/chat#agent",
+      anchorRouteKeys: [],
       threadId: "t1",
       anchorCheckpointId: null,
       runStartedAt: "1",
@@ -132,6 +146,8 @@ describe("LiveTurnHub", () => {
       input: null,
     })
     const p2 = hub.open({
+      routeKey: "/chat#agent",
+      anchorRouteKeys: [],
       threadId: "t2",
       anchorCheckpointId: null,
       runStartedAt: "2",
@@ -164,4 +180,51 @@ describe("LiveTurnHub", () => {
     a1.detach()
     a2.detach()
   })
+})
+
+it("detach wakes a pending next and immediately frees capacity without stopping the producer", async () => {
+  const hub = createLiveTurnHub()
+  const producer = hub.open({
+    routeKey: "/chat#agent",
+    anchorRouteKeys: [],
+    threadId: "cancel",
+    anchorCheckpointId: null,
+    runStartedAt: "x",
+    resume: false,
+    input: null,
+  })
+  const attachment = hub.attach("cancel", { maxViewers: 1 })!
+  const next = attachment.next()
+  attachment.detach()
+  expect(
+    await Promise.race([next, new Promise((resolve) => setImmediate(() => resolve("blocked")))]),
+  ).toBeNull()
+  const replacement = hub.attach("cancel", { maxViewers: 1 })!
+  expect(replacement.overflowed()).toBeUndefined()
+  producer.publish(chunk("alive"))
+  expect(await replacement.next()).toEqual(chunk("alive"))
+  replacement.detach()
+})
+
+it("enforces digest and subscriber budgets in UTF-8 bytes for multibyte frames", () => {
+  const frame = chunk("😀".repeat(10))
+  const limit = new TextEncoder().encode(JSON.stringify(frame)).byteLength - 1
+  const hub = createLiveTurnHub({ digestMaxBytes: limit, subscriberMaxBytes: limit })
+  const producer = hub.open({
+    routeKey: "/chat#agent",
+    anchorRouteKeys: [],
+    threadId: "utf8",
+    anchorCheckpointId: null,
+    runStartedAt: "x",
+    resume: false,
+    input: null,
+  })
+  const subscriber = hub.attach("utf8")!
+  producer.publish(frame)
+  expect(subscriber.overflowed()).toBe("overflow")
+  const snapshot = hub.attach("utf8")!
+  expect(snapshot.turn).toBeNull()
+  expect(snapshot.truncated).toBe(true)
+  subscriber.detach()
+  snapshot.detach()
 })

@@ -1,8 +1,8 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { ThreadAccessPolicy } from "@dawn-ai/sdk"
-import type { CreateThreadInput, Thread, ThreadsStore } from "@dawn-ai/sqlite-storage"
+import type { ThreadAccessPolicy } from "@b4run/sdk"
+import type { CreateThreadInput, Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
@@ -20,10 +20,10 @@ async function setup(options: {
   readonly threadAccess: ThreadAccessPolicy
   readonly threadsStore: ThreadsStore
 }): Promise<{ readonly handler: Awaited<ReturnType<typeof createRuntimeFetchHandler>> }> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-thread-access-agui-slot-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-thread-access-agui-slot-"))
   cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "thread-access-agui-slot-fixture", "type": "module" }\n',
     "src/app/hello/index.ts": TRIVIAL_ROUTE,
   }

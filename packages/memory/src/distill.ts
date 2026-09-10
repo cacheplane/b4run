@@ -85,7 +85,7 @@ export interface ReflectionInput {
 }
 
 /** Records strictly newer than the watermark, newest-capped then re-sorted ascending.
- *  Returns null below the threshold — that null is what makes `dawn memory reflect`
+ *  Returns null below the threshold — that null is what makes `b4 memory reflect`
  *  a cheap no-op for cron. Callers pass records from ONE namespace. */
 export function selectReflectionInput(
   records: readonly MemoryRecord[],
@@ -202,7 +202,7 @@ const FENCE = "```"
  *  unbounded `\s*` with an adjacent lazy `[\s\S]*?`: on an opener followed by a long
  *  whitespace run with NO closing fence, every position `\s*` gives back restarts a
  *  scan to end-of-input, which is quadratic (CodeQL js/polynomial-redos). This parser
- *  reads MODEL OUTPUT inside the unattended `dawn memory consolidate|reflect` passes —
+ *  reads MODEL OUTPUT inside the unattended `b4 memory consolidate|reflect` passes —
  *  and record content reaches that model — so a hostile or merely unlucky response
  *  could wedge the batch. Every step here is an `indexOf` from a strictly advancing
  *  cursor, so the scan is linear in the input by construction.

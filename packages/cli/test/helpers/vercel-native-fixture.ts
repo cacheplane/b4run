@@ -21,16 +21,16 @@ import { RECOMMENDED_VERCEL_CONFIG } from "../../src/lib/build/targets/vercel-co
 import { validateVercelOutput } from "../../src/lib/build/targets/vercel-output.js"
 
 export const REQUIRED_VERCEL_ENV = [
-  "DAWN_VERCEL_TOKEN",
-  "DAWN_VERCEL_ORG_ID",
-  "DAWN_VERCEL_PROJECT_ID",
-  "DAWN_VERCEL_DATABASE_URL",
+  "B4_VERCEL_TOKEN",
+  "B4_VERCEL_ORG_ID",
+  "B4_VERCEL_PROJECT_ID",
+  "B4_VERCEL_DATABASE_URL",
 ] as const
 
-export const NATIVE_DIRECT_DAWN_DEPENDENCIES = [
-  "@dawn-ai/cli",
-  "@dawn-ai/postgres-storage",
-  "@dawn-ai/sdk",
+export const NATIVE_DIRECT_B4_DEPENDENCIES = [
+  "@b4run/cli",
+  "@b4run/postgres-storage",
+  "@b4run/sdk",
 ] as const
 
 export interface NativePackageManifest {
@@ -112,7 +112,7 @@ export function createNativeReleaseAuthorization(): NativeReleaseAuthorization {
   const digestSha256 = createHash("sha256").update(credential, "utf8").digest("hex")
   const redactor = createSecretRedactor([credential])
   return {
-    apply: (headers) => headers.set("x-dawn-vercel-release", credential),
+    apply: (headers) => headers.set("x-b4-vercel-release", credential),
     assertSafe: (label, value) => redactor.assertSafe(label, value),
     digestSha256,
   }
@@ -171,7 +171,7 @@ export function renderNativeRouteFiles(
     "}",
     "",
     'pool.on("error", (error: Error & { readonly code?: unknown }) => {',
-    '  console.error("dawn-vercel-fixture-pool-error", {',
+    '  console.error("b4-vercel-fixture-pool-error", {',
     '    code: safePoolErrorField(error.code, "UNKNOWN"),',
     '    name: safePoolErrorField(error.name, "Error"),',
     "  })",
@@ -210,7 +210,7 @@ export function renderNativeRouteFiles(
   const state = [
     'import { HumanMessage, type BaseMessage } from "@langchain/core/messages"',
     'import { Annotation, END, START, StateGraph } from "@langchain/langgraph"',
-    'import { DawnPostgresSaver } from "@dawn-ai/postgres-storage"',
+    'import { B4PostgresSaver } from "@b4run/postgres-storage"',
     'import { pool } from "../../lib/database.js"',
     "",
     "const State = Annotation.Root({",
@@ -228,7 +228,7 @@ export function renderNativeRouteFiles(
     "  }),",
     "})",
     "",
-    "const checkpointer = new DawnPostgresSaver({ pool })",
+    "const checkpointer = new B4PostgresSaver({ pool })",
     "",
     "function record(state: typeof State.State): { readonly markers: string[]; readonly visits: 1 } {",
     "  const latest = state.messages.at(-1)",
@@ -236,7 +236,7 @@ export function renderNativeRouteFiles(
     '    throw new Error("state route requires one latest HumanMessage with string content")',
     "  }",
     "  const marker = latest.content",
-    '  if (/^log-vcl-[a-f0-9]{32}$/.test(marker)) console.info("dawn-vercel-fixture-log", marker)',
+    '  if (/^log-vcl-[a-f0-9]{32}$/.test(marker)) console.info("b4-vercel-fixture-log", marker)',
     "  return { markers: [marker], visits: 1 }",
     "}",
     "",
@@ -289,7 +289,7 @@ export function renderNativeRouteFiles(
     "    if (remainingMs <= 0) break",
     "    const result = await raceStreamDeadline(",
     "      pool.query<{ readonly released: boolean }>(",
-    '        "SELECT released FROM public.dawn_vercel_test_barriers WHERE barrier_id = $1",',
+    '        "SELECT released FROM public.b4_vercel_test_barriers WHERE barrier_id = $1",',
     "        [barrierId],",
     "      ),",
     "      Math.min(QUERY_DEADLINE_MS, remainingMs),",
@@ -315,21 +315,21 @@ export function renderNativeRouteFiles(
     "    const barrierId = readBarrierId(input)",
     "    yield {",
     '      event: "on_chat_model_stream",',
-    '      name: "dawn-vercel-fixture-stream",',
-    '      run_id: "dawn-vercel-fixture-stream",',
+    '      name: "b4-vercel-fixture-stream",',
+    '      run_id: "b4-vercel-fixture-stream",',
     '      data: { chunk: { content: "before-release" } },',
     "    }",
     "    await waitForRelease(barrierId, config.signal)",
     "    yield {",
     '      event: "on_chat_model_stream",',
-    '      name: "dawn-vercel-fixture-stream",',
-    '      run_id: "dawn-vercel-fixture-stream",',
+    '      name: "b4-vercel-fixture-stream",',
+    '      run_id: "b4-vercel-fixture-stream",',
     '      data: { chunk: { content: "after-release" } },',
     "    }",
     "    yield {",
     '      event: "on_chain_end",',
     '      name: "LangGraph",',
-    '      run_id: "dawn-vercel-fixture-stream",',
+    '      run_id: "b4-vercel-fixture-stream",',
     "      data: { output: { barrierId, released: true as const } },",
     "    }",
     "  },",
@@ -354,7 +354,7 @@ export function renderNativeRouteFiles(
     "  }",
     "  const barrierId = input.barrierId",
     "  const result = await pool.query<{ readonly barrier_id: string }>(",
-    '    "UPDATE public.dawn_vercel_test_barriers SET released = true WHERE barrier_id = $1 AND released = false RETURNING barrier_id",',
+    '    "UPDATE public.b4_vercel_test_barriers SET released = true WHERE barrier_id = $1 AND released = false RETURNING barrier_id",',
     "    [barrierId],",
     "  )",
     "  if (result.rows.length !== 1 || result.rows[0]?.barrier_id !== barrierId) {",
@@ -368,14 +368,14 @@ export function renderNativeRouteFiles(
   const middleware = [
     'import { Buffer } from "node:buffer"',
     'import { createHash, timingSafeEqual } from "node:crypto"',
-    'import { allow, defineMiddleware, reject } from "@dawn-ai/sdk"',
+    'import { allow, defineMiddleware, reject } from "@b4run/sdk"',
     "",
     `const RELEASE_DIGEST = Buffer.from("${releaseDigestSha256}", "hex")`,
     "const RELEASE_HEADER_GRAMMAR = /^[A-Za-z0-9_-]{43}$/",
     "",
     "export default defineMiddleware((request) => {",
     '  if (request.routeId !== "/release") return allow()',
-    '  const credential = request.headers["x-dawn-vercel-release"]',
+    '  const credential = request.headers["x-b4-vercel-release"]',
     "  if (!credential || !RELEASE_HEADER_GRAMMAR.test(credential)) {",
     '    return reject(401, { error: "unauthorized" })',
     "  }",
@@ -594,19 +594,19 @@ export function renderNativeFixtureManifest(
 ): Record<string, unknown> {
   const indexed = artifactsByName(artifacts)
   const localDependencies = Object.fromEntries(
-    NATIVE_DIRECT_DAWN_DEPENDENCIES.map((name) => {
+    NATIVE_DIRECT_B4_DEPENDENCIES.map((name) => {
       const artifact = indexed.get(name)
       if (!artifact) throw new Error(`native fixture manifest is missing packed dependency ${name}`)
       return [name, `file:vendor/${artifact.tarballName}`]
     }),
   )
   return {
-    name: `dawn-vercel-native-${kind}`,
+    name: `b4-vercel-native-${kind}`,
     version: "0.0.0",
     private: true,
     type: "module",
     packageManager: "pnpm@10.33.0",
-    scripts: { build: "dawn build" },
+    scripts: { build: "b4 build" },
     dependencies: {
       ...localDependencies,
       "@langchain/core": "1.2.5",
@@ -693,7 +693,7 @@ async function readNativeWorkspacePackages(
       })
     }
     const manifest = packageManifestFromJson(parsed, `native workspace package ${entry.name}`)
-    if (!manifest.name.startsWith("@dawn-ai/")) continue
+    if (!manifest.name.startsWith("@b4run/")) continue
     if (packages.has(manifest.name)) {
       throw new Error(`duplicate native workspace package ${manifest.name}`)
     }
@@ -739,7 +739,7 @@ async function packNativeWorkspacePackage(
   }
   const tarballName = tarballs[0] as string
   const tarballPath = join(packDir, tarballName)
-  const extractRoot = join(packDir, `.extract-${entry.name.slice("@dawn-ai/".length)}`)
+  const extractRoot = join(packDir, `.extract-${entry.name.slice("@b4run/".length)}`)
   await mkdir(extractRoot)
   await runSuccessfulLocalCommand(runCommand, {
     executable: "tar",
@@ -771,7 +771,7 @@ async function packNativeWorkspacePackage(
 function assertSafeGeneratedFilePath(path: string): void {
   const segments = path.split(/[\\/]/)
   const reserved = new Set([
-    ".dawn",
+    ".b4",
     ".vercel",
     "node_modules",
     "vendor",
@@ -779,7 +779,7 @@ function assertSafeGeneratedFilePath(path: string): void {
     "pnpm-lock.yaml",
     "pnpm-workspace.yaml",
     "vercel.json",
-    "dawn.config.ts",
+    "b4.config.ts",
   ])
   if (
     path.length === 0 ||
@@ -822,7 +822,7 @@ async function writeNativeFixture(
       "utf8",
     ),
     writeFile(
-      join(root, "dawn.config.ts"),
+      join(root, "b4.config.ts"),
       'export default { build: { targets: ["vercel"] } }\n',
       "utf8",
     ),
@@ -861,7 +861,7 @@ export async function assembleNativeFixtures(
   await mkdir(fixtureRoot)
 
   const packages = await readNativeWorkspacePackages(canonicalRepoRoot)
-  const closure = deriveDawnPackageClosure(NATIVE_DIRECT_DAWN_DEPENDENCIES, packages)
+  const closure = deriveB4PackageClosure(NATIVE_DIRECT_B4_DEPENDENCIES, packages)
   await runSuccessfulLocalCommand(options.runCommand, {
     executable: "corepack",
     args: ["pnpm", "build"],
@@ -935,7 +935,7 @@ export async function assembleNativeFixtures(
   return { artifacts, closure, prebuilt, runRoot: canonicalRunRoot, source }
 }
 
-export function deriveDawnPackageClosure(
+export function deriveB4PackageClosure(
   roots: readonly string[],
   packages: ReadonlyMap<string, NativeWorkspacePackage>,
 ): readonly NativeWorkspacePackage[] {
@@ -944,8 +944,8 @@ export function deriveDawnPackageClosure(
   while (pending.length > 0) {
     const name = pending.pop() as string
     if (visited.has(name)) continue
-    if (!name.startsWith("@dawn-ai/")) {
-      throw new Error(`native fixture root ${name} must be a Dawn package`)
+    if (!name.startsWith("@b4run/")) {
+      throw new Error(`native fixture root ${name} must be a B4.run package`)
     }
     const entry = packages.get(name)
     if (!entry) throw new Error(`native fixture package closure is missing ${name}`)
@@ -962,7 +962,7 @@ export function deriveDawnPackageClosure(
       ),
     ])
     for (const dependency of dependencies) {
-      if (dependency.startsWith("@dawn-ai/") && !visited.has(dependency)) pending.push(dependency)
+      if (dependency.startsWith("@b4run/") && !visited.has(dependency)) pending.push(dependency)
     }
   }
 
@@ -1005,8 +1005,8 @@ function collectLockfileStrings(
   }
 }
 
-function dawnNameFromLockfileKey(value: string): string | undefined {
-  const match = /^(@dawn-ai\/[A-Za-z0-9._-]+)(?:@|$)/.exec(value)
+function b4NameFromLockfileKey(value: string): string | undefined {
+  const match = /^(@b4run\/[A-Za-z0-9._-]+)(?:@|$)/.exec(value)
   return match?.[1]
 }
 
@@ -1068,8 +1068,8 @@ export function validateNativeFixtureLockfile(
   >()
   const expectedTarballs = new Set<string>()
   for (const artifact of artifacts) {
-    if (!/^@dawn-ai\/[A-Za-z0-9._-]+$/.test(artifact.packageName)) {
-      throw new Error(`invalid Dawn packed artifact name ${artifact.packageName}`)
+    if (!/^@b4run\/[A-Za-z0-9._-]+$/.test(artifact.packageName)) {
+      throw new Error(`invalid B4.run packed artifact name ${artifact.packageName}`)
     }
     if (
       basename(artifact.tarballName) !== artifact.tarballName ||
@@ -1090,18 +1090,18 @@ export function validateNativeFixtureLockfile(
     })
   }
   if (expected.size === 0)
-    throw new Error("native fixture lockfile expects a nonempty Dawn closure")
+    throw new Error("native fixture lockfile expects a nonempty B4.run closure")
 
   const strings = collectLockfileStrings(lockfile)
   for (const item of strings) {
-    const dawnName = dawnNameFromLockfileKey(item)
-    if (dawnName) {
-      const expectedEntry = expected.get(dawnName)
+    const b4Name = b4NameFromLockfileKey(item)
+    if (b4Name) {
+      const expectedEntry = expected.get(b4Name)
       if (!expectedEntry) {
-        throw new Error(`native fixture lockfile contains unexpected Dawn package ${dawnName}`)
+        throw new Error(`native fixture lockfile contains unexpected B4.run package ${b4Name}`)
       }
-      if (item !== dawnName && !matchesVendoredIdentity(item, dawnName, expectedEntry.ref)) {
-        throw new Error(`native fixture lockfile contains a non-vendored copy of ${dawnName}`)
+      if (item !== b4Name && !matchesVendoredIdentity(item, b4Name, expectedEntry.ref)) {
+        throw new Error(`native fixture lockfile contains a non-vendored copy of ${b4Name}`)
       }
     }
     if (/^(?:workspace:|link:)/.test(item)) {
@@ -1139,10 +1139,10 @@ export function validateNativeFixtureLockfile(
       if (importer[field] === undefined) continue
       const dependencies = lockfileRecord(importer[field], `native fixture importer ${field}`)
       for (const [name, dependencyValue] of Object.entries(dependencies)) {
-        if (!name.startsWith("@dawn-ai/")) continue
+        if (!name.startsWith("@b4run/")) continue
         const expectedEntry = expected.get(name)
         if (!expectedEntry) {
-          throw new Error(`native fixture importer contains unexpected Dawn package ${name}`)
+          throw new Error(`native fixture importer contains unexpected B4.run package ${name}`)
         }
         const dependency = lockfileRecord(dependencyValue, `native fixture importer ${name}`)
         if (
@@ -1264,8 +1264,8 @@ export async function assertNativeFixtureUploadIsolation(options: {
     if (await pathExists(join(options.root, ".vercel", "output"))) {
       throw new Error("source native fixture must not contain .vercel/output")
     }
-    if (await pathExists(join(options.root, ".dawn"))) {
-      throw new Error("source native fixture must not contain .dawn")
+    if (await pathExists(join(options.root, ".b4"))) {
+      throw new Error("source native fixture must not contain .b4")
     }
     await assertNoSymlinks(options.root, "source native fixture upload tree")
     return
@@ -1287,7 +1287,7 @@ export interface NativeLaneEnvironment {
 export function nativeLaneEnabled(value: string | undefined): boolean {
   if (value === undefined) return false
   if (value === "1") return true
-  throw new Error('DAWN_TEST_VERCEL must be exactly "1" when present')
+  throw new Error('B4_TEST_VERCEL must be exactly "1" when present')
 }
 
 export function readNativeLaneEnvironment(
@@ -1297,18 +1297,18 @@ export function readNativeLaneEnvironment(
   const failures: string[] = []
   if (nodeVersion.split(".", 1)[0] !== "24") failures.push(`Node 24 (received ${nodeVersion})`)
 
-  const artifactDir = env.DAWN_VERCEL_ARTIFACT_DIR
-  if (!artifactDir) failures.push("DAWN_VERCEL_ARTIFACT_DIR")
-  else if (!isAbsolute(artifactDir)) failures.push("DAWN_VERCEL_ARTIFACT_DIR (absolute path)")
+  const artifactDir = env.B4_VERCEL_ARTIFACT_DIR
+  if (!artifactDir) failures.push("B4_VERCEL_ARTIFACT_DIR")
+  else if (!isAbsolute(artifactDir)) failures.push("B4_VERCEL_ARTIFACT_DIR (absolute path)")
 
   for (const name of REQUIRED_VERCEL_ENV) {
     if (!env[name]) failures.push(name)
   }
-  if (env.DAWN_VERCEL_ORG_ID && !/^team_[A-Za-z0-9]+$/.test(env.DAWN_VERCEL_ORG_ID)) {
-    failures.push("DAWN_VERCEL_ORG_ID (team_* identifier)")
+  if (env.B4_VERCEL_ORG_ID && !/^team_[A-Za-z0-9]+$/.test(env.B4_VERCEL_ORG_ID)) {
+    failures.push("B4_VERCEL_ORG_ID (team_* identifier)")
   }
-  if (env.DAWN_VERCEL_PROJECT_ID && !/^prj_[A-Za-z0-9]+$/.test(env.DAWN_VERCEL_PROJECT_ID)) {
-    failures.push("DAWN_VERCEL_PROJECT_ID (prj_* identifier)")
+  if (env.B4_VERCEL_PROJECT_ID && !/^prj_[A-Za-z0-9]+$/.test(env.B4_VERCEL_PROJECT_ID)) {
+    failures.push("B4_VERCEL_PROJECT_ID (prj_* identifier)")
   }
   if (failures.length > 0) {
     throw new Error(`native Vercel lane input validation failed: ${failures.join(", ")}`)
@@ -1316,10 +1316,10 @@ export function readNativeLaneEnvironment(
 
   return {
     artifactDir: artifactDir as string,
-    databaseUrl: env.DAWN_VERCEL_DATABASE_URL as string,
-    orgId: env.DAWN_VERCEL_ORG_ID as string,
-    projectId: env.DAWN_VERCEL_PROJECT_ID as string,
-    token: env.DAWN_VERCEL_TOKEN as string,
+    databaseUrl: env.B4_VERCEL_DATABASE_URL as string,
+    orgId: env.B4_VERCEL_ORG_ID as string,
+    projectId: env.B4_VERCEL_PROJECT_ID as string,
+    token: env.B4_VERCEL_TOKEN as string,
   }
 }
 
@@ -1646,7 +1646,7 @@ export function sanitizeChildEnvironment(
   for (const [name, value] of Object.entries(inherited)) {
     if (value === undefined) continue
     if (
-      name.startsWith("DAWN_VERCEL_") ||
+      name.startsWith("B4_VERCEL_") ||
       name.startsWith("VERCEL_") ||
       name.startsWith("NOW_") ||
       name === "DATABASE_URL" ||
@@ -2663,7 +2663,30 @@ export interface NativeDeployCommandEvidence {
   readonly prebuiltFlagCount: 0 | 1
 }
 
-const NATIVE_VERCEL_CHILD_TIMEOUT_MS = 120_000
+/**
+ * Budget for the Vercel CLI invocations whose duration is bounded by their own
+ * work: `--version`, `deploy --no-wait` (upload, then return), and the log reads.
+ */
+export const NATIVE_VERCEL_CHILD_TIMEOUT_MS = 120_000
+/**
+ * How long the readiness wait asks the Vercel CLI to block for. `vercel inspect
+ * --wait` defaults to `--timeout 3m`, and on expiry it does NOT fail: it warns
+ * "stopped waiting after ...", stops polling, and returns `exitCode(readyState)`,
+ * which is 0 for BUILDING and QUEUED. So the CLI's own cap — not the child budget
+ * below — is what actually bounds the wait, and overrunning it surfaces as a
+ * not-ready receipt rather than as an error. Passing this explicitly is the only
+ * way to raise that bound.
+ */
+export const NATIVE_VERCEL_READINESS_CLI_TIMEOUT_MS = 300_000
+/**
+ * Backstop budget for the readiness child. Strictly above the CLI timeout above so
+ * the CLI always reports first, with a payload naming the state it reached; this
+ * deadline fires only if the CLI itself stops making progress. The lane waits twice
+ * (source, then prebuilt) and the lane test pins both inside the gated test's own
+ * timeout, so a blown budget still reports through the lane's diagnostics rather
+ * than as a bare vitest timeout.
+ */
+export const NATIVE_VERCEL_READINESS_TIMEOUT_MS = 360_000
 const NATIVE_VERCEL_API_TIMEOUT_MS = 30_000
 
 function pathIsInsideOrEqual(parent: string, candidate: string): boolean {
@@ -2808,18 +2831,21 @@ export async function createNativePinnedVercelBoundary(
 
   const run = async (
     label: string,
-    request: Omit<NativeVercelChildRequest, "executable" | "timeoutMs">,
+    request: Omit<NativeVercelChildRequest, "executable" | "timeoutMs"> & {
+      readonly timeoutMs?: number
+    },
     validateSuccessStderr?: (stderr: string) => void,
   ): Promise<NativeLocalCommandResult> => {
+    const timeoutMs = request.timeoutMs ?? NATIVE_VERCEL_CHILD_TIMEOUT_MS
     let result: NativeLocalCommandResult
     try {
-      result = await options.runChild({
-        ...request,
-        executable: cliPath,
-        timeoutMs: NATIVE_VERCEL_CHILD_TIMEOUT_MS,
-      })
-    } catch {
-      throw new Error(`${label} child transport failed`)
+      result = await options.runChild({ ...request, executable: cliPath, timeoutMs })
+    } catch (cause) {
+      // The child runner's own message is the only thing separating a blown budget
+      // from a spawn failure or a killed process, and the lane writes its
+      // deploy-failure diagnostic from this chain. Every message the runner can
+      // produce is fixture-authored, so none of them can carry a secret.
+      throw new Error(`${label} child transport failed under its ${timeoutMs}ms budget`, { cause })
     }
     if (result.exitCode !== 0) throw protectedChildError(result, label, redactor)
     if (validateSuccessStderr) validateSuccessStderr(result.stderr)
@@ -2871,7 +2897,7 @@ export async function createNativePinnedVercelBoundary(
         "--target",
         "preview",
         "--meta",
-        `dawnVercelRun=${marker}`,
+        `b4VercelRun=${marker}`,
         "--scope",
         options.orgId,
         "--non-interactive",
@@ -2912,6 +2938,8 @@ export async function createNativePinnedVercelBoundary(
           "--scope",
           options.orgId,
           "--wait",
+          "--timeout",
+          `${NATIVE_VERCEL_READINESS_CLI_TIMEOUT_MS}ms`,
           "--json",
           "--non-interactive",
           "--global-config",
@@ -2919,6 +2947,7 @@ export async function createNativePinnedVercelBoundary(
         ],
         cwd: options.jobRoot,
         env: credentialEnv(false),
+        timeoutMs: NATIVE_VERCEL_READINESS_TIMEOUT_MS,
       })
       return parseNativeVercelInspectReceipt(result.stdout, {
         canonicalOrigin: expectedOrigin,
@@ -3099,7 +3128,7 @@ export function deriveNativeAttemptEvidence(
     throw new Error("native Vercel attempt start must be a bounded safe-integer timestamp")
   }
   const preimage = [
-    "dawn-vercel-marker-v1",
+    "b4-vercel-marker-v1",
     coordinates.githubRepositoryId,
     coordinates.githubRunId,
     coordinates.githubRunAttempt,
@@ -3206,9 +3235,82 @@ export async function runNativeDeployAttempt(options: {
     projectId: options.projectId,
   })
   await options.persistDeploymentBinding(binding)
-  const ready = await options.boundary.inspect(deployment)
+  let ready: Awaited<ReturnType<typeof options.boundary.inspect>>
+  try {
+    ready = await options.boundary.inspect(deployment)
+  } catch (cause) {
+    // The lane's cleanup deletes this deployment the moment the attempt fails;
+    // afterwards the API answers not_found and the failure reason is gone for
+    // good. Read the deployment's terminal state now, best-effort, and carry
+    // it on the thrown error so the uploaded diagnostics say WHY the build
+    // failed, not just that a deployment id existed and was DELETED.
+    throw new Error(
+      `native Vercel deployment ${deployment.deploymentId} failed before readiness; ` +
+        `state captured before cleanup: ${await captureNativeDeploymentState(
+          options.apiClient,
+          options.orgId,
+          deployment.deploymentId,
+        )}`,
+      { cause },
+    )
+  }
   await options.persistStage?.("readiness", ready)
   return { attempt, binding, commandEvidence, config, ...deployment, ...ready }
+}
+
+/**
+ * Best-effort read of a deployment's terminal state for failure diagnostics.
+ * Extracts only the short, non-sensitive status fields from the deployment
+ * read — never the full body — because this string travels on an Error
+ * message, ahead of writeDiagnostic's redaction.
+ */
+async function captureNativeDeploymentState(
+  apiClient: NativeVercelApiClient,
+  orgId: string,
+  deploymentId: string,
+): Promise<string> {
+  try {
+    const response = await apiClient.request(
+      "GET",
+      `/v13/deployments/${encodeURIComponent(deploymentId)}?teamId=${encodeURIComponent(orgId)}`,
+    )
+    const body =
+      typeof response.body === "object" && response.body !== null
+        ? (response.body as Record<string, unknown>)
+        : {}
+    const field = (name: string): string | undefined => {
+      const value = body[name]
+      return typeof value === "string" ? value : undefined
+    }
+    return JSON.stringify({
+      status: response.status,
+      readyState: field("readyState"),
+      errorCode: field("errorCode"),
+      errorMessage: field("errorMessage"),
+      errorStep: field("errorStep"),
+    })
+  } catch {
+    return "unavailable (deployment state read failed)"
+  }
+}
+
+/**
+ * Render an error's cause chain as one readable block for a diagnostic file.
+ * Messages only — stacks stay in the test runner's own output.
+ */
+function flattenNativeFailureChain(failure: unknown): string {
+  const lines: string[] = []
+  let current: unknown = failure
+  for (let depth = 0; depth < 10 && current !== undefined && current !== null; depth += 1) {
+    if (current instanceof Error) {
+      lines.push(current.message)
+      current = current.cause
+      continue
+    }
+    lines.push(String(current))
+    break
+  }
+  return lines.length > 0 ? lines.join("\ncaused by: ") : "unknown failure"
 }
 
 export function parseNativeVercelProjectBinding(
@@ -3328,7 +3430,7 @@ export function parseNativeVercelDeploymentBinding(
     throw new Error("native Vercel deployment response does not match its authoritative binding")
   }
   const meta = recordAt(deployment.meta, "native Vercel deployment meta")
-  if (meta.dawnVercelRun !== expected.marker) {
+  if (meta.b4VercelRun !== expected.marker) {
     throw new Error("native Vercel deployment marker does not match its attempt")
   }
   return {
@@ -3358,10 +3460,19 @@ export function parseNativeVercelInspectReceipt(
   if (
     receipt.id !== expected.deploymentId ||
     typeof receipt.url !== "string" ||
-    canonicalizeVercelOrigin(receipt.url) !== expectedOrigin ||
-    receipt.readyState !== "READY"
+    canonicalizeVercelOrigin(receipt.url) !== expectedOrigin
   ) {
-    throw new Error("native Vercel inspect receipt does not match the ready deployment")
+    throw new Error("native Vercel inspect receipt does not match the deployment under test")
+  }
+  if (receipt.readyState !== "READY") {
+    // `vercel inspect --wait` exits 0 with the deployment still BUILDING or QUEUED
+    // once it gives up waiting, so this branch — not a thrown child error — is the
+    // shape an overrun readiness wait takes. Name the state: it is what separates
+    // "Vercel was still building" from "Vercel failed the build", and the two have
+    // opposite fixes. readyState is a short status enum, never a credential.
+    const state =
+      typeof receipt.readyState === "string" ? receipt.readyState.slice(0, 32) : "unknown"
+    throw new Error(`native Vercel inspect receipt is not ready: readyState=${state}`)
   }
   for (const field of [
     "error",
@@ -3592,7 +3703,7 @@ function parseNativeReconciliationRow(
     throw new Error("native Vercel v6 deployment row URL must be a bare hostname")
   }
   const meta = recordAt(row.meta, "native Vercel v6 deployment row metadata")
-  if (meta.dawnVercelRun !== options.attempt.marker) {
+  if (meta.b4VercelRun !== options.attempt.marker) {
     throw new Error("native Vercel v6 deployment row marker mismatch")
   }
   if (own(row, "state") && typeof row.state !== "string") {
@@ -3649,7 +3760,7 @@ export async function reconcileNativeMarker(options: {
       pageCount += 1
       const path =
         `/v6/deployments?teamId=${options.orgId}&projectId=${options.projectId}` +
-        `&meta-dawnVercelRun=${attempt.marker}&since=${attempt.attemptLowerBoundMs}` +
+        `&meta-b4VercelRun=${attempt.marker}&since=${attempt.attemptLowerBoundMs}` +
         `&until=${pageUntil}&limit=100`
       const response = await options.apiClient.request("GET", path)
       assertBeforeOverallDeadline()
@@ -4637,17 +4748,17 @@ const NATIVE_BLACK_BOX_QUIET_STALL_WAKEUP_LIMIT = 8
 
 const NATIVE_CHECKPOINT_COUNT_SQL = [
   "SELECT COUNT(*)::integer AS checkpoint_count",
-  "FROM public.dawn_checkpoints",
+  "FROM public.b4_checkpoints",
   "WHERE thread_id = $1",
 ].join("\n")
 
 const NATIVE_BARRIER_INSERT_SQL = [
-  "INSERT INTO public.dawn_vercel_test_barriers (barrier_id, released)",
+  "INSERT INTO public.b4_vercel_test_barriers (barrier_id, released)",
   "VALUES ($1, false), ($2, false)",
 ].join("\n")
 
 const NATIVE_BARRIER_CREATE_SQL = [
-  "CREATE TABLE IF NOT EXISTS public.dawn_vercel_test_barriers (",
+  "CREATE TABLE IF NOT EXISTS public.b4_vercel_test_barriers (",
   "  barrier_id text PRIMARY KEY,",
   "  released boolean NOT NULL DEFAULT false",
   ")",
@@ -4655,7 +4766,7 @@ const NATIVE_BARRIER_CREATE_SQL = [
 
 const NATIVE_BARRIER_STATE_SQL = [
   "SELECT barrier_id, released",
-  "FROM public.dawn_vercel_test_barriers",
+  "FROM public.b4_vercel_test_barriers",
   "WHERE barrier_id = ANY($1::text[])",
   "ORDER BY barrier_id",
 ].join("\n")
@@ -5049,7 +5160,7 @@ export async function runNativeVercelBlackBox(options: {
     throw new Error("native Vercel black-box missing-header release mutated a barrier")
   }
   const wrongHeaders = new Headers()
-  wrongHeaders.set("x-dawn-vercel-release", "incorrect-release-credential")
+  wrongHeaders.set("x-b4-vercel-release", "incorrect-release-credential")
   const wrongRelease = await send(
     "wrong-header release",
     "POST",
@@ -5334,10 +5445,10 @@ export async function runNativeVercelBlackBox(options: {
 }
 
 const NATIVE_DATABASE_CLEANUP_TABLES = [
-  "public.dawn_vercel_test_barriers",
-  "public.dawn_writes",
-  "public.dawn_checkpoints",
-  "public.dawn_threads",
+  "public.b4_vercel_test_barriers",
+  "public.b4_writes",
+  "public.b4_checkpoints",
+  "public.b4_threads",
 ] as const
 
 type NativeDatabaseCleanupTable = (typeof NATIVE_DATABASE_CLEANUP_TABLES)[number]
@@ -5455,7 +5566,7 @@ export async function cleanupNativeDatabase(options: {
     return succeeded
   }
 
-  const barrierTable = "public.dawn_vercel_test_barriers" as const
+  const barrierTable = "public.b4_vercel_test_barriers" as const
   for (const barrierId of barrierIds) {
     const state = tableState.get(barrierTable)
     let succeeded = state === "missing"
@@ -5471,11 +5582,7 @@ export async function cleanupNativeDatabase(options: {
     }
   }
 
-  const threadTables = [
-    "public.dawn_writes",
-    "public.dawn_checkpoints",
-    "public.dawn_threads",
-  ] as const
+  const threadTables = ["public.b4_writes", "public.b4_checkpoints", "public.b4_threads"] as const
   for (const threadId of threadIds) {
     let succeeded = true
     for (const table of threadTables) {
@@ -5599,7 +5706,7 @@ export function parseNativeVercelBuildLogTranscript(options: {
 }
 
 const NATIVE_REMOTE_BUILD_SIGNATURE = [
-  "Build complete: .dawn/build",
+  "Build complete: .b4/build",
   "3 route(s) compiled",
   "targets: vercel",
   "wrote .vercel/output/config.json",
@@ -5619,7 +5726,7 @@ export function parseNativeBuildProvenance(options: {
   readonly localOutputValidated: boolean
   readonly protectedValues?: readonly string[]
   readonly sourceTree: {
-    readonly dawnAbsent: boolean
+    readonly b4Absent: boolean
     readonly nodeModulesAbsent: boolean
     readonly prebuiltOutputAbsent: boolean
   }
@@ -5700,7 +5807,7 @@ export function parseNativeBuildProvenance(options: {
     if (
       prebuiltFlagCount !== 0 ||
       options.localOutputValidated !== false ||
-      options.sourceTree.dawnAbsent !== true ||
+      options.sourceTree.b4Absent !== true ||
       options.sourceTree.nodeModulesAbsent !== true ||
       options.sourceTree.prebuiltOutputAbsent !== true ||
       !exactOrderedSignature
@@ -5716,7 +5823,7 @@ export function parseNativeBuildProvenance(options: {
     eventTexts.some(
       (text) =>
         signature.has(text as never) ||
-        /(?:dawn build|Build complete: \.dawn\/build|route\(s\) compiled|targets: vercel|wrote \.vercel\/output)/i.test(
+        /(?:b4 build|Build complete: \.b4\/build|route\(s\) compiled|targets: vercel|wrote \.vercel\/output)/i.test(
           text,
         ),
     )
@@ -5752,7 +5859,7 @@ export async function prepareNativeFixtureDeployment<
   Deployment & {
     readonly localOutputValidated: boolean
     readonly sourceTree: {
-      readonly dawnAbsent: boolean
+      readonly b4Absent: boolean
       readonly nodeModulesAbsent: boolean
       readonly prebuiltOutputAbsent: boolean
     }
@@ -5766,7 +5873,7 @@ export async function prepareNativeFixtureDeployment<
   }
   const redactor = createSecretRedactor(options.protectedValues)
   const sourceTree = {
-    dawnAbsent: false,
+    b4Absent: false,
     nodeModulesAbsent: false,
     prebuiltOutputAbsent: false,
   }
@@ -5781,16 +5888,16 @@ export async function prepareNativeFixtureDeployment<
       projectId: options.projectId,
       root: options.fixtureRoot,
     })
-    sourceTree.dawnAbsent = true
+    sourceTree.b4Absent = true
     sourceTree.nodeModulesAbsent = true
     sourceTree.prebuiltOutputAbsent = true
   } else {
-    const executable = join(options.fixtureRoot, "node_modules", ".bin", "dawn")
+    const executable = join(options.fixtureRoot, "node_modules", ".bin", "b4")
     const executableStats = await lstat(executable).catch(() => {
-      throw new Error("native Vercel prebuilt local Dawn executable is missing")
+      throw new Error("native Vercel prebuilt local B4.run executable is missing")
     })
     if (executableStats.isSymbolicLink() || !executableStats.isFile()) {
-      throw new Error("native Vercel prebuilt local Dawn executable must be a regular file")
+      throw new Error("native Vercel prebuilt local B4.run executable must be a regular file")
     }
     const inherited = sanitizeChildEnvironment(options.parentEnv, {})
     const env = stringEnvironment({ ...inherited, NO_UPDATE_NOTIFIER: "1" })
@@ -5804,7 +5911,7 @@ export async function prepareNativeFixtureDeployment<
         timeoutMs: NATIVE_VERCEL_CHILD_TIMEOUT_MS,
       })
     } catch {
-      throw new Error("native Vercel prebuilt local Dawn build transport failed")
+      throw new Error("native Vercel prebuilt local B4.run build transport failed")
     }
     const redactedStdout = redactor.redact(result.stdout)
     const redactedStderr = redactor.redact(result.stderr)
@@ -5818,7 +5925,7 @@ export async function prepareNativeFixtureDeployment<
       throw new Error("native Vercel prebuilt local build diagnostic persistence failed")
     }
     if (result.exitCode !== 0) {
-      throw new Error("native Vercel prebuilt local Dawn build failed")
+      throw new Error("native Vercel prebuilt local B4.run build failed")
     }
     const outputRoot = join(options.fixtureRoot, ".vercel", "output")
     try {
@@ -5847,8 +5954,21 @@ export async function prepareNativeFixtureDeployment<
   let deployment: Deployment
   try {
     deployment = await options.deploy()
-  } catch {
-    throw new Error(`native Vercel ${options.kind} deploy attempt failed`)
+  } catch (cause) {
+    // Persist the real failure before rethrowing: the lane's cleanup deletes
+    // the deployment as soon as this attempt fails, after which the Vercel API
+    // returns not_found and the reason is unrecoverable. Every message on this
+    // chain is either fixture-authored or already redacted at its source, and
+    // writeDiagnostic redacts again before anything reaches the artifact.
+    try {
+      await options.writeDiagnostic(
+        `${options.kind}-deploy-failure.log`,
+        `${flattenNativeFailureChain(cause)}\n`,
+      )
+    } catch {
+      // Diagnostic persistence must never mask the deploy failure itself.
+    }
+    throw new Error(`native Vercel ${options.kind} deploy attempt failed`, { cause })
   }
   assertDeploymentId(deployment.deploymentId)
   canonicalizeVercelOrigin(deployment.canonicalOrigin)
@@ -6007,10 +6127,12 @@ interface NativeCleanupAttemptRecord {
 
 const NATIVE_DIAGNOSTIC_NAMES = new Set([
   "prebuilt-build.log",
+  "prebuilt-deploy-failure.log",
   "prebuilt-events.json",
   "prebuilt-local-build.log",
   "prebuilt-runtime.jsonl",
   "source-build.log",
+  "source-deploy-failure.log",
   "source-events.json",
   "source-runtime.jsonl",
 ])
@@ -6933,12 +7055,14 @@ const NATIVE_UPLOAD_ARTIFACT_NAMES = [
   "cleanup-history.json",
   "cleanup-manifest.json",
   "prebuilt-build.log",
+  "prebuilt-deploy-failure.log",
   "prebuilt-events.json",
   "prebuilt-local-build.log",
   "prebuilt-runtime.jsonl",
   "receipt.json",
   "receipt.partial.json",
   "source-build.log",
+  "source-deploy-failure.log",
   "source-events.json",
   "source-runtime.jsonl",
   "vitest.json",
@@ -7320,7 +7444,7 @@ export async function runNativeVercelLane(options: {
   const authorization = createNativeReleaseAuthorization()
   const releaseHeaders = new Headers()
   authorization.apply(releaseHeaders)
-  const releaseCredential = releaseHeaders.get("x-dawn-vercel-release")
+  const releaseCredential = releaseHeaders.get("x-b4-vercel-release")
   if (!releaseCredential) throw new Error("native Vercel release credential generation failed")
   const protectedValues = [
     environment.token,

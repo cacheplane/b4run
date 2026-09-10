@@ -8,11 +8,12 @@ import { createDocker, type Docker, type SpawnResult } from "../src/docker/docke
 import { dockerSandbox } from "../src/index.ts"
 import { runProviderConformance } from "../src/testing/index.ts"
 
-// Real-Docker lane. Runs ONLY when DAWN_TEST_DOCKER=1 (the dedicated CI job
-// sets it; the default validate lane never does). Locally: DAWN_TEST_DOCKER=1
+// Real-Docker lane. Runs ONLY when B4_TEST_DOCKER=1 (the dedicated CI job
+// sets it; the default validate lane never does). Locally: B4_TEST_DOCKER=1
 // with a running Docker daemon.
-const enabled = process.env.DAWN_TEST_DOCKER === "1"
-const IMAGE = "node:22-slim"
+const enabled = process.env.B4_TEST_DOCKER === "1"
+const IMAGE =
+  "docker.io/library/node:22-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436"
 const ctx = (workspaceRoot: string) => ({ signal: new AbortController().signal, workspaceRoot })
 const policyDeny = { network: { mode: "deny" } } as const
 const pollIntervalMs = 100
@@ -44,7 +45,7 @@ async function waitForContainerFile(
   containerPath: string,
   deadlineMs: number,
 ): Promise<string> {
-  const temporaryDirectory = await mkdtemp(join(tmpdir(), "dawn-pids-ready-"))
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), "b4-pids-ready-"))
   const destination = join(temporaryDirectory, "ready")
   const deadline = Date.now() + deadlineMs
   let lastCopy: SpawnResult | undefined
@@ -81,7 +82,7 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
     const threadId = `net-${randomUUID()}`
     try {
       const h = await p.acquire({ threadId, policy: policyDeny, signal: ctx("/").signal })
-      // node:22-slim has node; use node's fetch with a short timeout — no curl dependency.
+      // The workload image has Node; use fetch with a short timeout and no curl dependency.
       const r = await h.exec.runCommand(
         {
           command: `node -e "fetch('https://registry.npmjs.org/', {signal: AbortSignal.timeout(5000)}).then(()=>{console.log('REACHED');process.exit(0)}).catch(()=>{console.log('BLOCKED');process.exit(7)})"`,
@@ -231,7 +232,7 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
     const docker = createDocker()
     const p = dockerSandbox({ image: IMAGE, docker })
     const threadId = `pid-recovery-${randomUUID()}`
-    const container = `dawn-sbx-${threadId}`
+    const container = `b4-sbx-${threadId}`
     const readinessPath = "/workspace/.pids-ready.json"
     const readinessTemporaryPath = "/workspace/.pids-ready.json.tmp"
     const sentinelPath = "/workspace/pid-recovery-sentinel.txt"
@@ -371,7 +372,7 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
     try {
       const h = await p.acquire({ threadId, policy: policyDeny, signal: ctx("/").signal })
       const etc = await h.exec.runCommand(
-        { command: "echo x > /etc/dawn-probe" },
+        { command: "echo x > /etc/b4-probe" },
         ctx(h.workspaceRoot),
       )
       expect(etc.exitCode).not.toBe(0)

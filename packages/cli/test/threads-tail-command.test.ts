@@ -1,5 +1,5 @@
 /**
- * Integration coverage for `dawn threads tail` against a REAL bound Dawn
+ * Integration coverage for `b4 threads tail` against a REAL bound B4.run
  * server (`startRuntimeServer`), not the in-process fetch handler the unit
  * suites use. This is the only suite that drives the command's own `fetch`
  * call over an actual socket.
@@ -24,7 +24,7 @@ afterEach(async () => {
  * immediately. Agent routes checkpoint (plain graph routes never do), which
  * is what gives a blocking tool a real turn to hold open. */
 const CHAT_ROUTE = [
-  'import { agent } from "@dawn-ai/sdk"',
+  'import { agent } from "@b4run/sdk"',
   "export default agent({",
   '  model: "gpt-5-mini",',
   '  systemPrompt: "You are a test agent. Use the provided tools when asked.",',
@@ -54,7 +54,7 @@ const SLOW_PING_TOOL = [
 
 /** Blanket middleware: allows only requests carrying `x-allow`. */
 const ECHO_MIDDLEWARE = [
-  'import { allow, defineMiddleware, reject } from "@dawn-ai/sdk"',
+  'import { allow, defineMiddleware, reject } from "@b4run/sdk"',
   "export default defineMiddleware((req) =>",
   '  req.headers["x-allow"] ? allow() : reject(403, { method: req.method, routeId: req.routeId }),',
   ")",
@@ -62,10 +62,10 @@ const ECHO_MIDDLEWARE = [
 ].join("\n")
 
 async function fixtureApp(overrides: Record<string, string> = {}): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-threads-tail-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-threads-tail-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "threads-tail-fixture", "type": "module" }\n',
     "src/app/echo/index.ts": ["export const graph = async () => ({ ok: true })", ""].join("\n"),
     ...overrides,
@@ -163,7 +163,7 @@ async function drain(response: Response): Promise<void> {
   }
 }
 
-describe("dawn threads tail — integration against a real bound server", () => {
+describe("b4 threads tail — integration against a real bound server", () => {
   it("renders the committed transcript for a thread with no live turn (durable path) and resolves", async () => {
     const appRoot = await fixtureApp()
     const server = await createServer(appRoot)

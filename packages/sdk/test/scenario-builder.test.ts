@@ -7,7 +7,7 @@ declare module "../src/testing/index.js" {
     "/research": {
       readonly tools: {
         readonly ping: () => Promise<string>
-        readonly searchWeb: (input: { readonly query: string }) => Promise<{
+        readonly searchWeb: (input: { readonly query: string; readonly limit: number }) => Promise<{
           readonly results: readonly string[]
         }>
       }
@@ -22,8 +22,8 @@ describe("scenarios", () => {
         .input({ messages: [] })
         .mockTool("searchWeb", async ({ query }) => ({ results: [query] }))
         .expectPassed()
-        .expectOutput({ answer: "Dawn" })
-        .expectTool("searchWeb", (call) => call.calledOnce().withArgs({ query: "Dawn" })),
+        .expectOutput({ answer: "B4.run" })
+        .expectTool("searchWeb", (call) => call.calledOnce().withArgs({ query: "B4.run" })),
     )
 
     expect(isScenarioSuite(suite)).toBe(true)
@@ -94,8 +94,24 @@ describe("scenarios", () => {
   })
 
   test("rejects incomplete and conflicting states at runtime", () => {
-    // biome-ignore lint/suspicious/noExplicitAny: this test deliberately bypasses the public type states.
-    type UnsafeBuilder = Record<string, (...args: any[]) => any>
+    // Deliberately bypasses the public staged builder types so each guard can
+    // be violated at runtime; every method is total so the calls typecheck.
+    interface UnsafeCall {
+      called(): UnsafeCall
+      calledOnce(): UnsafeCall
+      notCalled(): UnsafeCall
+      withArgs(args: unknown): UnsafeCall
+    }
+    interface UnsafeBuilder {
+      input(value: unknown): UnsafeBuilder
+      server(url: string): UnsafeBuilder
+      mockTool(name: string, impl: (input: never) => unknown): UnsafeBuilder
+      expectPassed(): UnsafeBuilder
+      expectFailed(): UnsafeBuilder
+      expectError(expectation: unknown): UnsafeBuilder
+      expectOutput(output: unknown): UnsafeBuilder
+      expectTool(name: string, expect: (call: UnsafeCall) => unknown): UnsafeBuilder
+    }
 
     const suite = scenarios("/research") as unknown as {
       scenario(name: string, configure: (builder: UnsafeBuilder) => UnsafeBuilder): unknown
@@ -140,7 +156,7 @@ describe("scenarios", () => {
           .input({})
           .mockTool("searchWeb", async () => ({ results: [] }))
           .expectPassed()
-          .expectTool("searchWeb", (call) => call.notCalled().withArgs({ query: "Dawn" })),
+          .expectTool("searchWeb", (call) => call.notCalled().withArgs({ query: "B4.run" })),
       ),
     ).toThrow(/notCalled.*arguments/i)
     expect(() =>
@@ -149,7 +165,7 @@ describe("scenarios", () => {
           .input({})
           .mockTool("searchWeb", async () => ({ results: [] }))
           .expectPassed()
-          .expectTool("searchWeb", (call) => call.withArgs({ query: "Dawn" }).notCalled()),
+          .expectTool("searchWeb", (call) => call.withArgs({ query: "B4.run" }).notCalled()),
       ),
     ).toThrow(/notCalled.*arguments/i)
   })
@@ -266,7 +282,7 @@ describe("scenarios", () => {
       name: "searchWeb",
     }
     const toolExpectation = {
-      argumentMatchers: [{ query: "Dawn" }],
+      argumentMatchers: [{ query: "B4.run" }],
       count: { kind: "exact", value: 1 },
       name: "searchWeb",
     }
@@ -312,7 +328,7 @@ describe("scenarios", () => {
               toolCallExpectations: [
                 {
                   ...toolExpectation,
-                  argumentMatchers: overrideMap([{ query: "Dawn" }]),
+                  argumentMatchers: overrideMap([{ query: "B4.run" }]),
                 },
               ],
             },
@@ -513,8 +529,8 @@ describe("scenarios", () => {
 
     const toolMock = scenario.toolMocks[0]
     if (!toolMock) throw new Error("Expected a tool mock")
-    await expect(toolMock.implementation({ query: "Dawn" })).resolves.toEqual({
-      results: ["Dawn"],
+    await expect(toolMock.implementation({ query: "B4.run" })).resolves.toEqual({
+      results: ["B4.run"],
     })
     expect(await scenario.assert?.({} as never)).toBe("asserted")
   })
@@ -523,18 +539,18 @@ describe("scenarios", () => {
     const setEntry = { count: 1 }
     const authoredSet = new Set<unknown>([setEntry])
     authoredSet.add(authoredSet)
-    const authoredPattern = /dawn/gi
+    const authoredPattern = /b4/gi
     authoredPattern.lastIndex = 2
     const authoredNumber = Object.assign(new Number(42), { metadata: { stable: true } })
     const authoredError = new TypeError("invalid", { cause: { code: "authored" } })
     const authoredDomException = Object.assign(new DOMException("cancelled", "AbortError"), {
       metadata: { stable: true },
     })
-    const authoredBlob = Object.assign(new Blob(["Dawn"], { type: "text/plain" }), {
+    const authoredBlob = Object.assign(new Blob(["B4.run"], { type: "text/plain" }), {
       metadata: { stable: true },
     })
     const authoredFile = Object.assign(
-      new File(["Dawn"], "dawn.txt", { lastModified: 1, type: "text/plain" }),
+      new File(["B4.run"], "b4.txt", { lastModified: 1, type: "text/plain" }),
       { metadata: { stable: true } },
     )
     const suite = scenarios("/research").scenario("internal slots", (s) =>
@@ -584,10 +600,10 @@ describe("scenarios", () => {
     ).toThrow(/read-only snapshot/i)
 
     expect(snapshot.pattern).toBeInstanceOf(RegExp)
-    expect(snapshot.pattern.source).toBe("dawn")
+    expect(snapshot.pattern.source).toBe("b4")
     expect(snapshot.pattern.flags).toBe("gi")
     expect(snapshot.pattern.lastIndex).toBe(2)
-    expect(snapshot.pattern.test("xxDawn")).toBe(true)
+    expect(snapshot.pattern.test("xxB4")).toBe(true)
     expect(snapshot.pattern.lastIndex).toBe(2)
     expect(() => snapshot.pattern.compile("changed")).toThrow(/read-only snapshot/i)
     expect(() => RegExp.prototype.compile.call(snapshot.pattern, "changed")).toThrow()
@@ -603,14 +619,14 @@ describe("scenarios", () => {
 
     expect(snapshot.blob).toBeInstanceOf(Blob)
     expect(snapshot.blob.type).toBe("text/plain")
-    expect(await snapshot.blob.text()).toBe("Dawn")
+    expect(await snapshot.blob.text()).toBe("B4.run")
     expect(snapshot.blob.metadata).toEqual({ stable: true })
     expect(Object.isFrozen(snapshot.blob)).toBe(true)
 
     expect(snapshot.file).toBeInstanceOf(File)
-    expect(snapshot.file.name).toBe("dawn.txt")
+    expect(snapshot.file.name).toBe("b4.txt")
     expect(snapshot.file.lastModified).toBe(1)
-    expect(await snapshot.file.text()).toBe("Dawn")
+    expect(await snapshot.file.text()).toBe("B4.run")
     expect(snapshot.file.metadata).toEqual({ stable: true })
     expect(Object.isFrozen(snapshot.file)).toBe(true)
 
@@ -780,10 +796,10 @@ describe("scenarios", () => {
     const authoredDate = new Date("2026-08-09T12:00:00.000Z")
     const authoredMap = new Map([["entry", { count: 1 }]])
     const authoredSet = new Set(["entry"])
-    const authoredPattern = /dawn/gi
+    const authoredPattern = /b4/gi
     const authoredTyped = new Uint8Array([1, 2, 3])
-    const authoredBlob = new Blob(["Dawn"], { type: "text/plain" })
-    const authoredFile = new File(["Dawn"], "dawn.txt", {
+    const authoredBlob = new Blob(["B4.run"], { type: "text/plain" })
+    const authoredFile = new File(["B4.run"], "b4.txt", {
       lastModified: 123,
       type: "text/plain",
     })
@@ -812,7 +828,7 @@ describe("scenarios", () => {
     authoredTyped.fill(9)
 
     expect(
-      Reflect.get(globalThis, Symbol.for("dawn.scenario-snapshot-proxy-targets")),
+      Reflect.get(globalThis, Symbol.for("b4.scenario-snapshot-proxy-targets")),
     ).toBeUndefined()
 
     vi.resetModules()
@@ -832,14 +848,14 @@ describe("scenarios", () => {
     }
 
     expect(snapshot.date.toISOString()).toBe("2026-08-09T12:00:00.000Z")
-    await expect(snapshot.blob.slice(0, 2).text()).resolves.toBe("Da")
-    await expect(snapshot.file.slice(2).text()).resolves.toBe("wn")
-    expect(snapshot.file.name).toBe("dawn.txt")
+    await expect(snapshot.blob.slice(0, 2).text()).resolves.toBe("B4")
+    await expect(snapshot.file.slice(2).text()).resolves.toBe(".run")
+    expect(snapshot.file.name).toBe("b4.txt")
     expect(snapshot.file.lastModified).toBe(123)
     expect(snapshot.map.get("entry")).toEqual({ count: 1 })
     expect(snapshot.map.has("later")).toBe(false)
     expect([...snapshot.set]).toEqual(["entry"])
-    expect(snapshot.pattern.source).toBe("dawn")
+    expect(snapshot.pattern.source).toBe("b4")
     expect(Array.from(snapshot.typed)).toEqual([1, 2, 3])
     expect(() => snapshot.date.setTime(0)).toThrow(/read-only snapshot/i)
     expect(() => Date.prototype.setTime.call(snapshot.date, 0)).toThrow()
@@ -850,8 +866,8 @@ describe("scenarios", () => {
 
     const toolMock = scenario.toolMocks[0]
     if (!toolMock) throw new Error("Expected a tool mock")
-    await expect(toolMock.implementation({ query: "Dawn" })).resolves.toEqual({
-      results: ["Dawn"],
+    await expect(toolMock.implementation({ query: "B4.run" })).resolves.toEqual({
+      results: ["B4.run"],
     })
     expect(await scenario.assert?.({} as never)).toBe("asserted")
   })

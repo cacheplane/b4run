@@ -1,5 +1,5 @@
-import type { DawnAgent } from "@dawn-ai/sdk"
-import { agent } from "@dawn-ai/sdk"
+import type { B4Agent } from "@b4run/sdk"
+import { agent } from "@b4run/sdk"
 import { describe, expect, it } from "vitest"
 import { dispatchableSubagents, resolveSubagentRegistry } from "../../src/subagents/registry.ts"
 import type { DescriptorRouteIndex } from "../../src/subagents/types.ts"
@@ -15,7 +15,10 @@ function route(id: string, routeDir: string): RouteDefinition {
     kind: "agent",
     entryFile: `${routeDir}/index.ts`,
     routeDir,
-    segments: id.split("/").filter(Boolean),
+    segments: id
+      .split("/")
+      .filter(Boolean)
+      .map((raw) => ({ kind: "static" as const, raw })),
   }
 }
 
@@ -23,11 +26,11 @@ function manifest(...routes: RouteDefinition[]): RouteManifest {
   return { appRoot: "/app", routes }
 }
 
-function parent(overrides: Record<string, unknown> = {}): DawnAgent {
+function parent(overrides: Record<string, unknown> = {}): B4Agent {
   return {
     ...agent({ model: "gpt-5-mini", systemPrompt: "Parent." }),
     ...overrides,
-  } as DawnAgent
+  } as B4Agent
 }
 
 function descriptions(route: RouteDefinition): Promise<string> {
@@ -308,7 +311,7 @@ describe("resolveSubagentRegistry", () => {
           routeManifest: manifest(route("/research", "/app/src/app/research")),
           loadDescription: descriptions,
         }),
-      ).rejects.toThrow(/\[DAWN_E1004\].*\/parent.*name/i)
+      ).rejects.toThrow(/\[B4_E1004\].*\/parent.*name/i)
     },
   )
 
@@ -324,7 +327,7 @@ describe("resolveSubagentRegistry", () => {
         ),
         loadDescription: descriptions,
       }),
-    ).rejects.toThrow(/\[DAWN_E1004\].*\/parent.*bad\.name/i)
+    ).rejects.toThrow(/\[B4_E1004\].*\/parent.*bad\.name/i)
   })
 
   it("rejects named rules for convention-only names and lists explicit names", async () => {
@@ -345,7 +348,7 @@ describe("resolveSubagentRegistry", () => {
         loadDescription: descriptions,
       }),
     ).rejects.toThrow(
-      /\[DAWN_E1004\].*\/parent.*unknown rule.*writer.*available explicit names: analyst/i,
+      /\[B4_E1004\].*\/parent.*unknown rule.*writer.*available explicit names: analyst/i,
     )
   })
 
@@ -360,7 +363,7 @@ describe("resolveSubagentRegistry", () => {
         routeManifest: manifest(),
         loadDescription: descriptions,
       }),
-    ).rejects.toThrow(/\[DAWN_E1004\].*\/parent.*analyst.*no route/i)
+    ).rejects.toThrow(/\[B4_E1004\].*\/parent.*analyst.*no route/i)
   })
 
   it("rejects an explicit descriptor with ambiguous candidate routes", async () => {
@@ -374,7 +377,7 @@ describe("resolveSubagentRegistry", () => {
         routeManifest: manifest(),
         loadDescription: descriptions,
       }),
-    ).rejects.toThrow(/\[DAWN_E1004\].*\/parent.*analyst.*ambiguous.*\/research-a.*\/research-b/i)
+    ).rejects.toThrow(/\[B4_E1004\].*\/parent.*analyst.*ambiguous.*\/research-a.*\/research-b/i)
   })
 
   it("rejects an index route that is absent from the manifest", async () => {
@@ -388,7 +391,7 @@ describe("resolveSubagentRegistry", () => {
         routeManifest: manifest(),
         loadDescription: descriptions,
       }),
-    ).rejects.toThrow(/\[DAWN_E1004\].*\/parent.*analyst.*\/missing.*manifest/i)
+    ).rejects.toThrow(/\[B4_E1004\].*\/parent.*analyst.*\/missing.*manifest/i)
   })
 
   it("rejects duplicate explicit keys pointing to the same route", async () => {
@@ -403,7 +406,7 @@ describe("resolveSubagentRegistry", () => {
         loadDescription: descriptions,
       }),
     ).rejects.toThrow(
-      /\[DAWN_E1004\].*\/parent.*\/research.*analyst.*investigator|\[DAWN_E1004\].*\/parent.*\/research.*investigator.*analyst/i,
+      /\[B4_E1004\].*\/parent.*\/research.*analyst.*investigator|\[B4_E1004\].*\/parent.*\/research.*investigator.*analyst/i,
     )
   })
 
@@ -421,7 +424,7 @@ describe("resolveSubagentRegistry", () => {
         ),
         loadDescription: descriptions,
       }),
-    ).rejects.toThrow(/\[DAWN_E1004\].*\/parent.*collision.*research/i)
+    ).rejects.toThrow(/\[B4_E1004\].*\/parent.*collision.*research/i)
   })
 
   it.each([
@@ -500,7 +503,7 @@ describe("resolveSubagentRegistry", () => {
         routeManifest: manifest(),
         loadDescription: descriptions,
       }),
-    ).rejects.toThrow(/\[DAWN_E1004\].*\/parent/i)
+    ).rejects.toThrow(/\[B4_E1004\].*\/parent/i)
   })
 
   it("falls back only when loading a valid route description fails", async () => {

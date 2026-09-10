@@ -7,6 +7,8 @@ const DEFAULT_MAX_VIEWERS = 16
 
 export interface LiveTurnOpenInput {
   readonly threadId: string
+  readonly routeKey: string
+  readonly anchorRouteKeys: readonly string[]
   readonly anchorCheckpointId: string | null
   readonly runStartedAt: string
   readonly resume: boolean
@@ -22,6 +24,8 @@ export interface LiveTurnProducer {
 
 /** A point-in-time copy of a live turn, handed to one attacher. */
 export interface LiveTurnAttachment {
+  readonly routeKey: string
+  readonly anchorRouteKeys: readonly string[]
   readonly anchorCheckpointId: string | null
   readonly runStartedAt: string
   readonly resume: boolean
@@ -62,10 +66,13 @@ interface Subscriber {
   wake: (() => void) | null
   dropped: "overflow" | "capacity" | undefined
   terminalDelivered: boolean
+  detached: boolean
 }
 
 interface LiveTurn {
   readonly threadId: string
+  readonly routeKey: string
+  readonly anchorRouteKeys: readonly string[]
   readonly anchorCheckpointId: string | null
   readonly runStartedAt: string
   readonly resume: boolean
@@ -78,7 +85,8 @@ interface LiveTurn {
   readonly subscribers: Set<Subscriber>
 }
 
-const frameBytes = (chunk: StreamChunk): number => JSON.stringify(chunk).length
+const encoder = new TextEncoder()
+const frameBytes = (chunk: StreamChunk): number => encoder.encode(JSON.stringify(chunk)).byteLength
 
 function subagentCallId(chunk: StreamChunk): string | undefined {
   if (chunk.type !== "subagent.message") return undefined
@@ -139,6 +147,7 @@ export function createLiveTurnHub(options?: LiveTurnHubOptions): LiveTurnHub {
         sub.dropped = "overflow"
         sub.queue.length = 0
         sub.queueBytes = 0
+        turn.subscribers.delete(sub)
         sub.wake?.()
         continue
       }
@@ -166,6 +175,8 @@ export function createLiveTurnHub(options?: LiveTurnHubOptions): LiveTurnHub {
       }
       const turn: LiveTurn = {
         threadId: input.threadId,
+        routeKey: input.routeKey,
+        anchorRouteKeys: [...input.anchorRouteKeys],
         anchorCheckpointId: input.anchorCheckpointId,
         runStartedAt: input.runStartedAt,
         resume: input.resume,
@@ -207,6 +218,8 @@ export function createLiveTurnHub(options?: LiveTurnHubOptions): LiveTurnHub {
       const maxViewers = opts?.maxViewers ?? DEFAULT_MAX_VIEWERS
       if (turn.subscribers.size >= maxViewers) {
         return {
+          routeKey: turn.routeKey,
+          anchorRouteKeys: turn.anchorRouteKeys,
           anchorCheckpointId: turn.anchorCheckpointId,
           runStartedAt: turn.runStartedAt,
           resume: turn.resume,
@@ -230,9 +243,12 @@ export function createLiveTurnHub(options?: LiveTurnHubOptions): LiveTurnHub {
         wake: null,
         dropped: undefined,
         terminalDelivered: false,
+        detached: false,
       }
       turn.subscribers.add(sub)
       return {
+        routeKey: turn.routeKey,
+        anchorRouteKeys: turn.anchorRouteKeys,
         anchorCheckpointId: turn.anchorCheckpointId,
         runStartedAt: turn.runStartedAt,
         resume: turn.resume,
@@ -242,7 +258,7 @@ export function createLiveTurnHub(options?: LiveTurnHubOptions): LiveTurnHub {
         terminal: snapshotTerminal,
         async next() {
           for (;;) {
-            if (sub.dropped) return null
+            if (sub.detached || sub.dropped) return null
             const chunk = sub.queue.shift()
             if (chunk) {
               sub.queueBytes -= frameBytes(chunk)
@@ -264,7 +280,11 @@ export function createLiveTurnHub(options?: LiveTurnHubOptions): LiveTurnHub {
           }
         },
         detach() {
+          sub.detached = true
+          sub.queue.length = 0
+          sub.queueBytes = 0
           turn.subscribers.delete(sub)
+          sub.wake?.()
         },
         overflowed: () => sub.dropped,
       }

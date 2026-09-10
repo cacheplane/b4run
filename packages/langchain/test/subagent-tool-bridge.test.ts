@@ -4,6 +4,7 @@ import {
   Annotation,
   Command,
   END,
+  type Interrupt,
   interrupt,
   isGraphInterrupt,
   MemorySaver,
@@ -38,7 +39,7 @@ function allowedChild(
 }
 
 describe("convertSubagentTaskToLangChain", () => {
-  it("passes the exact live config and task call id, then appends Dawn depth and stack metadata", async () => {
+  it("passes the exact live config and task call id, then appends B4.run depth and stack metadata", async () => {
     let childConfig: RunnableConfig | undefined
     const child = {
       invoke: vi.fn(async (_input: unknown, config: RunnableConfig) => {
@@ -49,7 +50,7 @@ describe("convertSubagentTaskToLangChain", () => {
     const resolver = vi.fn<SubagentResolver>(async () => allowedChild(child))
     const tool = convertSubagentTaskToLangChain(taskPlaceholder, resolver)
     const signal = new AbortController().signal
-    const callbacks = []
+    const callbacks: RunnableConfig["callbacks"] = []
     const tags = ["live-parent"]
     const parentStack = [{ callId: "outer", name: "planner", routeId: "/planner" }]
     const config = {
@@ -57,7 +58,7 @@ describe("convertSubagentTaskToLangChain", () => {
       configurable: { checkpoint_ns: "parent:1", thread_id: "thread-1" },
       metadata: {
         tenant: "acme",
-        dawn: { root_sandbox_key: "sandbox-1", subagent_depth: 1, subagent_stack: parentStack },
+        b4: { root_sandbox_key: "sandbox-1", subagent_depth: 1, subagent_stack: parentStack },
       },
       signal,
       tags,
@@ -87,7 +88,7 @@ describe("convertSubagentTaskToLangChain", () => {
     expect(childConfig?.tags).toBe(tags)
     expect(childConfig?.metadata).toEqual({
       tenant: "acme",
-      dawn: {
+      b4: {
         root_sandbox_key: "sandbox-1",
         subagent_depth: 2,
         subagent_stack: [
@@ -106,18 +107,18 @@ describe("convertSubagentTaskToLangChain", () => {
     const resolver = vi.fn<SubagentResolver>()
     const tool = convertSubagentTaskToLangChain(taskPlaceholder, resolver)
     const result = await tool.func({ subagent: "researcher", input: "Go deeper" }, undefined, {
-      metadata: { dawn: { subagent_depth: 3 } },
+      metadata: { b4: { subagent_depth: 3 } },
       toolCall: { id: "task-depth-4" },
     } as RunnableConfig)
 
-    expect(result).toMatch(/^\[DAWN_E5003\]/)
+    expect(result).toMatch(/^\[B4_E5003\]/)
     expect(resolver).not.toHaveBeenCalled()
   })
 
   it("returns a guarded resolver denial unchanged", async () => {
     const resolver = vi.fn<SubagentResolver>(async () => ({
       ok: false,
-      message: "[DAWN_E3002] Dispatch denied.",
+      message: "[B4_E3002] Dispatch denied.",
     }))
     const tool = convertSubagentTaskToLangChain(taskPlaceholder, resolver)
 
@@ -125,7 +126,7 @@ describe("convertSubagentTaskToLangChain", () => {
       tool.func({ subagent: "writer", input: "Draft" }, undefined, {
         toolCall: { id: "task-denied" },
       } as RunnableConfig),
-    ).resolves.toBe("[DAWN_E3002] Dispatch denied.")
+    ).resolves.toBe("[B4_E3002] Dispatch denied.")
   })
 
   it("rethrows the exact GraphInterrupt raised by a real child graph", async () => {
@@ -215,7 +216,7 @@ describe("convertSubagentTaskToLangChain", () => {
       if (event.event === "on_tool_start" && event.name === "task") {
         toolRunId = event.run_id
       }
-      if (event.event === "on_custom_event" && event.name === "dawn.subagent") {
+      if (event.event === "on_custom_event" && event.name === "b4.subagent") {
         events.push({
           event: event.name,
           data: event.data,
@@ -264,7 +265,7 @@ describe("convertSubagentTaskToLangChain", () => {
         result: await tool.func({ subagent: "researcher", input: "Cancel" }, undefined, {
           ...config,
           toolCall: { id: "task-cancel" },
-        }),
+        } as RunnableConfig),
       }))
       .addEdge(START, "dispatch")
       .addEdge("dispatch", END)
@@ -274,7 +275,7 @@ describe("convertSubagentTaskToLangChain", () => {
 
     try {
       for await (const event of root.streamEvents({}, { version: "v2" })) {
-        if (event.event === "on_custom_event" && event.name === "dawn.subagent") {
+        if (event.event === "on_custom_event" && event.name === "b4.subagent") {
           events.push(event.data)
         }
       }
@@ -315,7 +316,9 @@ describe("convertSubagentTaskToLangChain", () => {
       .addEdge("tools", END)
       .compile({ checkpointer: saver })
     const config = { configurable: { thread_id: "root-thread" } }
-    const first = await root.invoke(
+    // `__interrupt__` is real on an interrupted invoke's return value, but the
+    // graph's static state type does not carry it.
+    const first = (await root.invoke(
       {
         messages: [
           new AIMessage({
@@ -332,7 +335,7 @@ describe("convertSubagentTaskToLangChain", () => {
         ],
       },
       config,
-    )
+    )) as { __interrupt__?: Interrupt[] }
     const interruptId = first.__interrupt__?.[0]?.id
     expect(interruptId).toEqual(expect.any(String))
 
@@ -384,7 +387,7 @@ describe("convertSubagentTaskToLangChain", () => {
       .compile({ checkpointer: saver })
     const config = { configurable: { thread_id: "parallel-root" } }
 
-    const first = await root.invoke({}, config)
+    const first = (await root.invoke({}, config)) as { __interrupt__?: Interrupt[] }
     const interruptIds = first.__interrupt__?.map(({ id }) => id) ?? []
     expect(interruptIds).toHaveLength(2)
     expect(new Set(interruptIds).size).toBe(2)

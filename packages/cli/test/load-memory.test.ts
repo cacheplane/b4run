@@ -10,19 +10,19 @@ import { loadRouteMemory } from "../src/lib/runtime/load-memory.js"
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 
 async function makeRouteDir(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "dawn-memory-"))
+  const root = await mkdtemp(join(tmpdir(), "b4-memory-"))
 
-  // Make `@dawn-ai/sdk` resolvable from the temp dir by symlinking the
+  // Make `@b4run/sdk` resolvable from the temp dir by symlinking the
   // workspace package into the temp dir's node_modules (same pattern as
-  // load-evals.test.ts uses for @dawn-ai/evals).
-  await mkdir(join(root, "node_modules", "@dawn-ai"), { recursive: true })
+  // load-evals.test.ts uses for @b4run/evals).
+  await mkdir(join(root, "node_modules", "@b4run"), { recursive: true })
   await symlink(
     join(repoRoot, "packages", "sdk"),
-    join(root, "node_modules", "@dawn-ai", "sdk"),
+    join(root, "node_modules", "@b4run", "sdk"),
     "dir",
   )
 
-  // Symlink zod so the memory.ts file can import from @dawn-ai/sdk's re-exports.
+  // Symlink zod so the memory.ts file can import from @b4run/sdk's re-exports.
   await symlink(
     join(repoRoot, "node_modules", ".pnpm", "zod@4.4.3", "node_modules", "zod"),
     join(root, "node_modules", "zod"),
@@ -34,7 +34,7 @@ async function makeRouteDir(): Promise<string> {
     join(root, "memory.ts"),
     [
       'import { z } from "zod"',
-      'import { defineMemory } from "@dawn-ai/sdk"',
+      'import { defineMemory } from "@b4run/sdk"',
       'export default defineMemory({ kind: "semantic", scope: ["route"], schema: z.object({ subject: z.string() }) })',
     ].join("\n"),
   )

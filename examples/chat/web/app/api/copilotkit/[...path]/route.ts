@@ -4,8 +4,8 @@ import { CopilotRuntime, createCopilotRuntimeHandler } from "@copilotkit/runtime
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const dawnUrl = process.env.DAWN_SERVER_URL ?? "http://127.0.0.1:3001"
-const agUiUrl = `${dawnUrl}/agui/${encodeURIComponent("/chat#agent")}`
+const b4Url = process.env.B4_SERVER_URL ?? "http://127.0.0.1:3001"
+const agUiUrl = `${b4Url}/agui/${encodeURIComponent("/chat#agent")}`
 
 const handler = createCopilotRuntimeHandler({
   runtime: new CopilotRuntime({

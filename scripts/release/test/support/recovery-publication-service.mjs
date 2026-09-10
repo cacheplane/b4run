@@ -1,0 +1,369 @@
+import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
+import { setTimeout as delay } from "node:timers/promises"
+import { FENCE_FIXTURES } from "../../recovery/fence-evidence.mjs"
+
+export async function downloadPublicationAsset(reader, assetId) {
+  const result = await reader.downloadReleaseAsset({ assetId, maximumBytes: 65536 })
+  assert.equal(result.status, "PRESENT", "production asset adapter must retrieve exact bytes")
+  return Buffer.from(result.contentBase64, "base64")
+}
+
+const digest = (value) => createHash("sha256").update(value).digest("hex")
+// Test-only service driver. Callers must separately authorize a disposable repo.
+// Immutable publication is retained as evidence; this driver never deletes it.
+export async function runPublicationServiceProbe({
+  repository,
+  sourceSha,
+  nonce,
+  existingTagObjectSha = null,
+  existingReleaseId = null,
+  topologySha256 = null,
+  api,
+  anonymousGet,
+  download,
+  persist = async () => {},
+  sleep = delay,
+}) {
+  assert.match(repository, /^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/u)
+  assert.notEqual(repository.toLowerCase(), "cacheplane/b4run")
+  assert.match(sourceSha, /^[a-f0-9]{40}$/u)
+  assert.match(nonce, /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u)
+  if (existingTagObjectSha !== null) assert.match(existingTagObjectSha, /^[a-f0-9]{40}$/u)
+  if (existingReleaseId !== null) {
+    assert.ok(existingTagObjectSha !== null, "existing release requires existing tag mode")
+    assert.ok(
+      Number.isSafeInteger(existingReleaseId) && existingReleaseId > 0,
+      "positive existing release ID required",
+    )
+  }
+  const base = `/repos/${repository}`,
+    tag = `v0.0.0-recovery-contract-${nonce}`
+  const owned = {
+    repository,
+    sourceSha,
+    tag,
+    tagObjectSha: existingTagObjectSha,
+    tagProvenance: existingTagObjectSha === null ? "probe-created" : "operator-created",
+    releaseId: existingReleaseId,
+    releaseProvenance: existingReleaseId === null ? "probe-created" : "operator-created",
+    assetId: null,
+    status: "preflight",
+    unknownResponses: [],
+  }
+  const get = async (path) => {
+    const r = await api("GET", path, null)
+    assert.equal(r.status, 200, path)
+    return r.body
+  }
+  const repo = await get(base)
+  assert.ok(
+    Number.isSafeInteger(repo.id) && repo.id > 0 && repo.id !== 1210070282,
+    "disposable repository ID required",
+  )
+  assert.equal(repo.full_name.toLowerCase(), repository.toLowerCase(), "redirect forbidden")
+  assert.equal(
+    repo.private,
+    false,
+    "public disposable repo required for anonymous visibility probe",
+  )
+  assert.match(repo.default_branch, /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/u)
+  const policy = await get(`${base}/immutable-releases`)
+  assert.equal(
+    policy.enabled,
+    true,
+    "immutability must already be enabled; probe does not change policy",
+  )
+  const branchPath = `${base}/git/ref/heads/${repo.default_branch}`
+  const branch = await get(branchPath)
+  assert.equal(branch.object.type, "commit")
+  const currentSha = branch.object.sha
+  assert.match(currentSha, /^[a-f0-9]{40}$/u)
+  assert.notEqual(currentSha, sourceSha, "publication must exercise a non-default source")
+  const workflow = ".github/workflows/recovery-fence-probe.yml"
+  const topologyPath = ".github/workflows/recovery-topology-probe.yml"
+  const inventory = await get(`${base}/actions/workflows?per_page=100&page=1`)
+  assert.ok(
+    Array.isArray(inventory.workflows) &&
+      inventory.workflows.length >= 1 &&
+      inventory.workflows.length <= 2 &&
+      inventory.total_count === inventory.workflows.length,
+    "complete disposable workflow inventory required",
+  )
+  const paths = new Set()
+  const ids = new Set()
+  for (const item of inventory.workflows) {
+    assert.ok(
+      Number.isSafeInteger(item.id) && item.id > 0 && !ids.has(item.id),
+      "unique workflow identity required",
+    )
+    assert.ok(
+      [workflow, topologyPath].includes(item.path) && !paths.has(item.path),
+      "unrelated workflow forbidden",
+    )
+    paths.add(item.path)
+    ids.add(item.id)
+  }
+  assert.ok(paths.has(workflow), "historical workflow fixture required")
+  if (paths.has(topologyPath)) {
+    assert.match(topologySha256 ?? "", /^[a-f0-9]{64}$/u)
+    const topology = await get(`${base}/contents/${topologyPath}?ref=${currentSha}`)
+    assert.equal(topology.encoding, "base64")
+    assert.equal(
+      digest(Buffer.from(topology.content, "base64")),
+      topologySha256,
+      "reviewed topology workflow required",
+    )
+  }
+  const files = []
+  for (const sha of [sourceSha, currentSha]) {
+    const file = await get(`${base}/contents/${workflow}?ref=${sha}`)
+    assert.equal(file.encoding, "base64")
+    assert.equal(typeof file.content, "string")
+    const bytes = Buffer.from(file.content, "base64")
+    assert.ok(bytes.length > 0 && bytes.length < 65536)
+    files.push(digest(bytes))
+  }
+  assert.notEqual(files[0], files[1], "distinct workflow file revisions required")
+  assert.deepEqual(
+    files,
+    [FENCE_FIXTURES.historical.sha256, FENCE_FIXTURES.current.sha256],
+    "exact harmless workflow fixtures required",
+  )
+  const payload = Buffer.from(`Recovery service contract ${nonce}\nsource ${sourceSha}\n`)
+  const payloadSha256 = digest(payload)
+  const assertCurrentWorkflowScope = async () => {
+    assert.equal(
+      (await get(branchPath)).object.sha,
+      currentSha,
+      "default branch moved before mutation",
+    )
+    const fresh = await get(`${base}/actions/workflows?per_page=100&page=1`)
+    const identity = (value) => ({
+      total: value.total_count,
+      workflows: value.workflows.map(({ id, path }) => ({ id, path })).sort((a, b) => a.id - b.id),
+    })
+    assert.deepEqual(
+      identity(fresh),
+      identity(inventory),
+      "workflow inventory changed before mutation",
+    )
+  }
+  await persist(owned)
+  await assertCurrentWorkflowScope()
+  if (existingTagObjectSha === null) {
+    const object = await api("POST", `${base}/git/tags`, {
+      tag,
+      message: `Recovery contract ${nonce}`,
+      object: sourceSha,
+      type: "commit",
+    })
+    assert.equal(object.status, 201)
+    assert.match(object.body.sha, /^[a-f0-9]{40}$/u)
+    owned.tagObjectSha = object.body.sha
+    await persist(owned)
+    assert.equal(
+      (await api("POST", `${base}/git/refs`, { ref: `refs/tags/${tag}`, sha: owned.tagObjectSha }))
+        .status,
+      201,
+    )
+  }
+  const verifyTag = async () => {
+    const ref = await get(`${base}/git/ref/tags/${tag}`)
+    if (existingTagObjectSha !== null) assert.equal(ref.ref, `refs/tags/${tag}`)
+    assert.deepEqual(
+      { type: ref.object.type, sha: ref.object.sha },
+      { type: "tag", sha: owned.tagObjectSha },
+    )
+    const target = await get(`${base}/git/tags/${owned.tagObjectSha}`)
+    if (existingTagObjectSha !== null) {
+      assert.equal(target.sha, existingTagObjectSha)
+      assert.equal(target.tag, tag)
+      assert.equal((await get(`${base}/git/commits/${sourceSha}`)).sha, sourceSha)
+    }
+    assert.deepEqual(
+      { type: target.object.type, sha: target.object.sha },
+      { type: "commit", sha: sourceSha },
+    )
+  }
+  const releaseSpec = {
+    tag_name: tag,
+    target_commitish: sourceSha,
+    name: `Recovery service contract ${nonce}`,
+    body: `Disposable contract ${nonce}; payload sha256:${payloadSha256}`,
+    draft: true,
+    prerelease: true,
+  }
+  const metadataBody = `${releaseSpec.body}\n\nMetadata write verified by recovery service probe.`
+  let metadataDraftTag = tag
+  const verifyExistingDraft = (value, body = releaseSpec.body, tagName = tag) => {
+    const expected = {
+      ...releaseSpec,
+      body,
+      tag_name: tagName,
+      id: existingReleaseId,
+      immutable: false,
+    }
+    assert.deepEqual(
+      Object.fromEntries(Object.keys(expected).map((key) => [key, value[key]])),
+      expected,
+      "exact owned empty draft identity required",
+    )
+  }
+  await verifyTag()
+  if (existingTagObjectSha !== null) {
+    // Authenticated listing includes drafts, which can temporarily have an
+    // untagged name. A full page is inconclusive, never evidence of absence.
+    const releases = await get(`${base}/releases?per_page=100&page=1`)
+    assert.ok(
+      Array.isArray(releases) && releases.length < 100,
+      "complete bounded release inventory required",
+    )
+    let selected = 0
+    for (const release of releases) {
+      assert.ok(
+        Number.isSafeInteger(release.id) &&
+          release.id > 0 &&
+          typeof release.tag_name === "string" &&
+          typeof release.name === "string" &&
+          (release.body === null || typeof release.body === "string"),
+        "valid release inventory required",
+      )
+      if (existingReleaseId !== null && release.id === existingReleaseId) {
+        verifyExistingDraft(release)
+        selected++
+        continue
+      }
+      assert.ok(
+        release.tag_name !== tag &&
+          !release.name.includes(nonce) &&
+          !(release.body ?? "").includes(nonce),
+        "preexisting release or draft for supplied nonce forbidden",
+      )
+    }
+    assert.equal(
+      selected,
+      existingReleaseId === null ? 0 : 1,
+      "exactly one selected existing release required",
+    )
+  }
+  // An unknown create response deliberately stops: no direct ID means no owned
+  // release mutation can follow and no blind retry can create a second draft.
+  if (existingReleaseId === null) {
+    const created = await api("POST", `${base}/releases`, releaseSpec)
+    assert.equal(created.status, 201)
+    assert.ok(Number.isSafeInteger(created.body.id) && created.body.id > 0)
+    owned.releaseId = created.body.id
+  } else {
+    const path = `${base}/releases/${existingReleaseId}`
+    verifyExistingDraft(await get(path))
+    assert.deepEqual(
+      await get(`${path}/assets?per_page=100&page=1`),
+      [],
+      "existing draft must have no assets",
+    )
+    assert.equal((await anonymousGet(path)).status, 404, "existing draft must be hidden")
+    // Exercise a real body mutation on the exact operator-owned draft. An unknown or denied response stops; no blind metadata retry.
+    const metadata = await api("PATCH", path, { body: metadataBody })
+    assert.equal(metadata.status, 200)
+    metadataDraftTag = metadata.body?.tag_name
+    assert.ok(
+      typeof metadataDraftTag === "string" &&
+        (metadataDraftTag === tag || /^untagged-[a-f0-9]{20}$/u.test(metadataDraftTag)),
+      "bounded observed metadata draft tag required",
+    )
+    verifyExistingDraft(metadata.body, metadataBody, metadataDraftTag)
+  }
+  owned.status = "draft"
+  await persist(owned)
+  const releasePath = `${base}/releases/${owned.releaseId}`
+  const draft = await get(releasePath)
+  if (existingReleaseId !== null) verifyExistingDraft(draft, metadataBody, metadataDraftTag)
+  assert.equal(draft.id, owned.releaseId)
+  assert.equal(draft.draft, true)
+  assert.equal(draft.name, `Recovery service contract ${nonce}`)
+  assert.ok(
+    draft.tag_name === tag || /^untagged-[A-Za-z0-9_-]+$/u.test(draft.tag_name),
+    "observed draft tag must be recognized",
+  )
+  owned.observedDraftTag = draft.tag_name
+  assert.equal(
+    (await anonymousGet(releasePath)).status,
+    404,
+    "draft must be hidden from anonymous reader",
+  )
+  try {
+    assert.equal(
+      (await api("POST", `${releasePath}/assets?name=contract.txt`, payload)).status,
+      201,
+    )
+  } catch (error) {
+    if (error.uncertain !== true) throw error
+    owned.unknownResponses.push("asset-upload")
+    await persist(owned)
+  }
+  const assets = await get(`${releasePath}/assets?per_page=100&page=1`)
+  assert.ok(Array.isArray(assets) && assets.length === 1, "exact owned asset inventory required")
+  const asset = assets[0]
+  assert.ok(Number.isSafeInteger(asset.id) && asset.id > 0)
+  assert.equal(asset.name, "contract.txt")
+  assert.equal(asset.size, payload.length)
+  assert.equal(asset.digest, `sha256:${payloadSha256}`)
+  owned.assetId = asset.id
+  assert.equal(digest(await download(asset.id)), payloadSha256)
+  await persist(owned)
+  await assertCurrentWorkflowScope()
+  if (existingReleaseId !== null) await verifyTag()
+  try {
+    assert.equal(
+      (
+        await api("PATCH", releasePath, {
+          tag_name: tag,
+          draft: false,
+        })
+      ).status,
+      200,
+    )
+  } catch (error) {
+    if (error.uncertain !== true) throw error
+    owned.unknownResponses.push("publication")
+    await persist(owned)
+  }
+  const published = await get(releasePath)
+  assert.equal(published.id, owned.releaseId)
+  assert.equal(published.draft, false)
+  assert.equal(published.immutable, true)
+  assert.equal(published.tag_name, tag)
+  if (existingReleaseId !== null) assert.equal(published.body, metadataBody)
+  // Public visibility can lag the authenticated immutable read. Re-observe
+  // only a 404, within a finite budget; never retry the publication mutation.
+  let visible
+  for (let attempt = 0; attempt < 12; attempt++) {
+    visible = await anonymousGet(releasePath)
+    if (visible.status !== 404 || attempt === 11) break
+    await sleep(5000)
+  }
+  assert.equal(visible.status, 200)
+  assert.equal(visible.body.id, owned.releaseId)
+  assert.equal(digest(await download(owned.assetId)), payloadSha256)
+  const finalAssets = await get(`${releasePath}/assets?per_page=100&page=1`)
+  const identity = (values) =>
+    values.map(({ id, name, size, digest }) => ({ id, name, size, digest }))
+  assert.deepEqual(identity(finalAssets), identity(assets))
+  await verifyTag()
+  assert.equal(
+    (await get(branchPath)).object.sha,
+    currentSha,
+    "default branch moved during contract",
+  )
+  owned.status = "published-immutable"
+  await persist(owned)
+  return {
+    ...owned,
+    repositoryId: repo.id,
+    currentSha,
+    workflowDigests: files,
+    payloadSha256,
+    retainedImmutableRelease: true,
+  }
+}

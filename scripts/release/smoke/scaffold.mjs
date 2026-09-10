@@ -1,0 +1,160 @@
+#!/usr/bin/env node
+
+import { mkdir, readFile } from "node:fs/promises"
+import path from "node:path"
+import { pathToFileURL } from "node:url"
+
+import { makeTempDir, publicNpmEnvironment, removeDir } from "../../lib/published-artifacts.mjs"
+import {
+  createStrictSmokeProcessRunner,
+  pickStrictSmokeCommandOptions,
+  strictContainmentReceiptDetail,
+} from "../smoke-process-runner.mjs"
+import { executeSmokeLane, parseSmokeLaneArgs } from "../smoke-result.mjs"
+
+const COMMAND_TIMEOUT_MS = 10 * 60 * 1000
+const COMMAND_OUTPUT_BYTES = 2 * 1024 * 1024
+
+export async function runScaffoldSmoke(options, overrides = {}) {
+  if (overrides.runCommand !== undefined || overrides.probeContainment !== undefined) {
+    throw new TypeError("Scaffold smoke command execution requires a strictRunner")
+  }
+  return executeSmokeLane(
+    { lane: "scaffold", ...options },
+    (context) => executeScaffoldSmoke(options, context, overrides),
+    overrides,
+  )
+}
+
+export async function executeScaffoldSmoke(
+  options,
+  { check, deferCleanup, captureInstallation = async () => {} },
+  overrides = {},
+) {
+  if (overrides.runCommand !== undefined || overrides.probeContainment !== undefined) {
+    throw new TypeError("Scaffold smoke command execution requires a strictRunner")
+  }
+  const strictRunner = overrides.strictRunner ?? createStrictSmokeProcessRunner()
+  const dependencies = {
+    makeTempDir,
+    mkdir: (directory) => mkdir(directory, { recursive: true }),
+    removeDir,
+    verifyExactScaffold,
+    ...overrides,
+    runCommand: (command, args, runOptions) =>
+      strictRunner.runCommand(command, args, productionCommandOptions(runOptions)),
+    probeContainment: strictRunner.probe,
+  }
+
+  await check(
+    "containment",
+    strictContainmentReceiptDetail(dependencies.env),
+    dependencies.probeContainment,
+  )
+  const root = await check("temporary-project", "clean temporary project created", () =>
+    dependencies.makeTempDir("b4-published-scaffold-"),
+  )
+  deferCleanup("cleanup", "clean scaffold project removed", () => dependencies.removeDir(root))
+  const installer = path.join(root, "installer")
+  const scaffold = path.join(root, "app")
+  await dependencies.mkdir(installer)
+
+  await check("scaffolder-install", "exact public scaffolder installed", async () => {
+    await dependencies.runCommand("npm", ["init", "-y"], {
+      cwd: installer,
+    })
+    await dependencies.runCommand(
+      "npm",
+      [
+        "install",
+        "--ignore-scripts",
+        "--save-exact",
+        "--package-lock=false",
+        `create-b4-app@${options.version}`,
+      ],
+      { cwd: installer },
+    )
+    await captureInstallation("scaffolder-install", installer)
+  })
+
+  await check("scaffold-create", "basic scaffold created with exact B4 specifiers", () =>
+    dependencies.runCommand(
+      path.join(installer, "node_modules", ".bin", "create-b4-app"),
+      [scaffold, "--template", "basic", "--dist-tag", options.version],
+      { cwd: installer },
+    ),
+  )
+  await check("dependency-install", "scaffold dependencies installed from public npm", async () => {
+    await dependencies.runCommand("npm", ["install", "--package-lock=false"], {
+      cwd: scaffold,
+    })
+    await captureInstallation("dependency-install", scaffold)
+  })
+  await check("exact-versions", "all scaffold B4 dependencies resolved to the exact version", () =>
+    dependencies.verifyExactScaffold(scaffold, options.version),
+  )
+  await check("typecheck", "scaffold typecheck passed", () =>
+    dependencies.runCommand("npm", ["run", "typecheck"], { cwd: scaffold }),
+  )
+  await check("build", "scaffold build passed", () =>
+    dependencies.runCommand("npm", ["run", "build"], { cwd: scaffold }),
+  )
+  await check("runtime", "representative scaffold runtime test passed", () =>
+    dependencies.runCommand("npm", ["test", "--", "--run"], {
+      cwd: scaffold,
+    }),
+  )
+}
+
+export async function verifyExactScaffold(root, version) {
+  const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"))
+  const declared = {
+    ...manifest.dependencies,
+    ...manifest.devDependencies,
+  }
+  const b4Packages = Object.entries(declared).filter(
+    ([name]) => name.startsWith("@b4run/") || name === "create-b4-app",
+  )
+  if (b4Packages.length === 0) throw new Error("Scaffold declares no B4 packages")
+  for (const [name, specifier] of b4Packages) {
+    if (specifier !== version) {
+      throw new Error(`${name} uses ${specifier}, expected exact ${version}`)
+    }
+    const installed = JSON.parse(
+      await readFile(path.join(root, "node_modules", ...name.split("/"), "package.json"), "utf8"),
+    )
+    if (installed.name !== name || installed.version !== version) {
+      throw new Error(
+        `${name} installed as ${installed.name}@${installed.version}, expected ${version}`,
+      )
+    }
+  }
+}
+
+function productionCommandOptions(options = {}) {
+  return {
+    ...pickStrictSmokeCommandOptions(options),
+    env: publicNpmEnvironment({
+      home: options.cwd ?? process.cwd(),
+      extra: options.env,
+    }),
+    timeoutMs: COMMAND_TIMEOUT_MS,
+    maxOutputBytes: COMMAND_OUTPUT_BYTES,
+  }
+}
+
+async function main() {
+  await runScaffoldSmoke(parseSmokeLaneArgs(process.argv.slice(2)))
+}
+
+const invokedDirectly =
+  process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+
+if (invokedDirectly) {
+  try {
+    await main()
+  } catch (error) {
+    console.error(`SCAFFOLD SMOKE FAIL ${error instanceof Error ? error.message : String(error)}`)
+    process.exitCode = 1
+  }
+}

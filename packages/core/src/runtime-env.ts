@@ -4,7 +4,7 @@
  *
  * ## Why this exists
  *
- * `@dawn-ai/cli/fetch` is bundled for Cloudflare workerd with ZERO `node:`
+ * `@b4run/cli/fetch` is bundled for Cloudflare workerd with ZERO `node:`
  * specifiers, which is precisely why the emitted `wrangler.toml` omits
  * `nodejs_compat`. Without that flag `process` is not defined at all, so a bare
  * `process.env.X` is a `ReferenceError` the moment the line evaluates — not a
@@ -13,7 +13,7 @@
  *
  * ## The two shapes of the problem
  *
- * Debug flags (`DAWN_DEBUG_*`) only need to be OFF where there is no `process`.
+ * Debug flags (`B4_DEBUG_*`) only need to be OFF where there is no `process`.
  * A configuration knob is different: `OPENAI_BASE_URL` points the model layer
  * at a proxy or a local aimock, so merely guarding it would trade a crash for
  * something worse — a runtime where the knob silently cannot be set. This
@@ -33,7 +33,7 @@
  * A bare `process` identifier throws on a runtime that lacks it; a property
  * read off `globalThis` (which every target defines) yields `undefined`
  * instead. It also lets `test/fetch-entry-purity.test.ts` enforce a
- * zero-tolerance rule on Dawn-owned code: NO bare Node-only global may survive
+ * zero-tolerance rule on B4.run-owned code: NO bare Node-only global may survive
  * into the edge bundle, guarded or not. Route env reads through here rather
  * than hand-rolling a `typeof process` guard at the call site, or that gate
  * will fail.
@@ -51,7 +51,7 @@ let seededEnv: RuntimeEnv | undefined
 /**
  * Install the process-wide fallback environment. Last call wins.
  *
- * Seeded, not injected, for the same reason `seedDawnConfig` and
+ * Seeded, not injected, for the same reason `seedB4Config` and
  * `seedModelImporter` are: the readers sit far below route execution and
  * threading a value down to them would touch every layer in between. Called by
  * a build-emitted edge entry point, which is the only place that knows the

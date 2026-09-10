@@ -1,12 +1,26 @@
 import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
 
+import { RELEASE_PAYLOAD_LIMITS } from "../limits.mjs"
+import { canonicalReleaseBody } from "../metadata.mjs"
 import { discoverShadowCandidate, observeCandidate } from "../observe.mjs"
 import { planRelease } from "../planner.mjs"
 import { runShadowReconcile } from "../shadow-reconcile.mjs"
+import {
+  aggregateSmokeResults,
+  canonicalAggregateSmokeResultBytes,
+  canonicalSmokeResultBytes,
+} from "../smoke-result.mjs"
+import {
+  candidate as markerCandidate,
+  observationForMarker,
+  SMOKE_LANES,
+  smokeDescriptor,
+} from "./support/marker-observation.mjs"
 
 const SHA = "341678ea7932832ec860bdd915371669440bef7c"
 const SKIPPED_SHA = "5bb97cf3434e7c4afa95646982d510d79387ba5b"
@@ -83,11 +97,11 @@ test("candidate discovery rejects nonuniform deltas and package-set drift", asyn
     {
       status: "valid",
       packages: [
-        { name: "@dawn-ai/a", version: "0.8.21" },
-        { name: "@dawn-ai/b", version: "0.8.20" },
+        { name: "@b4run/a", version: "0.8.21" },
+        { name: "@b4run/b", version: "0.8.20" },
       ],
     },
-    { status: "valid", packages: [{ name: "@dawn-ai/a", version: "0.8.21" }] },
+    { status: "valid", packages: [{ name: "@b4run/a", version: "0.8.21" }] },
   ]) {
     let reads = 0
     const inventory = {
@@ -118,7 +132,7 @@ test("current-main inventory validation fails closed for every release policy de
     let assertions = 0
     let stderr = ""
     const code = await runShadowReconcile({
-      argv: ["--repository", "cacheplane/dawnai", "--format", "json"],
+      argv: ["--repository", "cacheplane/b4run", "--format", "json"],
       env: {},
       stdout: { write: assert.fail },
       stderr: { write: (value) => (stderr += value) },
@@ -164,7 +178,7 @@ test("current-main fallback is limited to typed ref absence and reports exact se
     const calls = []
     let output = ""
     const code = await runShadowReconcile({
-      argv: ["--repository", "cacheplane/dawnai", "--format", "json"],
+      argv: ["--repository", "cacheplane/b4run", "--format", "json"],
       env: {},
       stdout: { write: (value) => (output += value) },
       stderr: { write: assert.fail },
@@ -203,7 +217,7 @@ test("current-main does not fall back on policy, parse, auth, or unrelated Git f
       },
     })
     const code = await runShadowReconcile({
-      argv: ["--repository", "cacheplane/dawnai", "--format", "json"],
+      argv: ["--repository", "cacheplane/b4run", "--format", "json"],
       env: {},
       stdout: { write: assert.fail },
       stderr: { write: (value) => (stderr += value) },
@@ -249,7 +263,15 @@ test("observation composition calls only named readers in inventory order and pr
   assert.equal(result.observation.ci.status, "ambiguous")
   assert.equal(result.observation.tag.status, "ambiguous")
   assert.equal(result.observation.registry.packages[0].status, "ambiguous")
-  assert.equal(result.observation.release.status, "ambiguous")
+  assert.deepEqual(result.observation.release, {
+    status: "ambiguous",
+    tag: null,
+    commitSha: null,
+    immutable: null,
+    bodySha256: null,
+    marker: null,
+    assets: [],
+  })
   assert.ok(result.diagnostics.every((item) => item.code !== null))
   assert.ok(result.diagnostics.some((item) => item.code === "RATE_LIMITED"))
   assert.deepEqual(
@@ -327,6 +349,8 @@ test("CI success requires independently correlated workflow-run and validate-che
     name: "CI",
     path: ".github/workflows/ci.yml",
     head_sha: SHA,
+    head_branch: "main",
+    event: "push",
     status: "completed",
     conclusion: "success",
     check_suite_id: 501,
@@ -572,10 +596,15 @@ test("npm integrity mismatch cannot manufacture a managed tarball SHA-256", asyn
 })
 
 test("Release observation preserves duplicate, extra, mismatched, and digest-ambiguous assets", async () => {
+  const template = observationForMarker({ phase: "ESCROWED" })
+  const releaseCandidate = markerCandidate()
   const inventory = {
-    ...managedInventory(),
-    releaseRecordSha256: "8".repeat(64),
-    manifestAttestationSha256: "9".repeat(64),
+    status: "valid",
+    manifestSha256: template.artifacts.manifestSha256,
+    releaseRecordSha256: template.artifacts.releaseRecordAsset.sha256,
+    manifestAttestationSha256: template.artifacts.manifestAttestationAsset.sha256,
+    requiredSmokeLanes: [],
+    packages: template.inventory.packages,
   }
   const expected = expectedReleaseAssets(inventory)
   const rawAssets = [
@@ -583,35 +612,39 @@ test("Release observation preserves duplicate, extra, mismatched, and digest-amb
       id: index + 1,
       name: asset.name,
       digest: `sha256:${asset.sha256}`,
+      size: 1,
     })),
     {
       id: 100,
       name: "manifest.json",
       digest: `sha256:${"a".repeat(64)}`,
+      size: 1,
     },
     {
       id: 1,
       name: "unexpected-managed.txt",
       digest: `sha256:${"b".repeat(64)}`,
+      size: 1,
     },
-    { id: 102, name: "missing-digest.txt" },
+    { id: 102, name: "missing-digest.txt", size: 1 },
   ]
   const github = absentGitHub()
   github.getReleaseByTag = async () =>
     presentEnvelope("release", {
       id: 77,
       draft: true,
-      tag_name: "v0.8.21",
-      target_commitish: SHA,
+      immutable: false,
+      tag_name: template.release.marker.tag,
+      body: canonicalReleaseBody({ marker: template.release.marker, manifest: null }),
     })
   github.listReleaseAssets = async () => presentEnvelope("release-assets", rawAssets)
 
   const result = await observeCandidate({
-    candidate: candidate(),
+    candidate: releaseCandidate,
     inventory,
     git: {
       async resolveTag() {
-        return SHA
+        return releaseCandidate.commitSha
       },
     },
     npm: {
@@ -638,7 +671,7 @@ test("Release observation preserves duplicate, extra, mismatched, and digest-amb
   )
   assert.ok(result.diagnostics.some((item) => item.code === "REMOTE_ASSET_ID_DUPLICATE"))
   const plan = planRelease({
-    candidate: candidate(),
+    candidate: releaseCandidate,
     observation: result.observation,
     mode: "shadow",
   })
@@ -649,6 +682,222 @@ test("Release observation preserves duplicate, extra, mismatched, and digest-amb
     "github-asset-ambiguous",
   ]) {
     assert.ok(plan.conflicts.includes(conflict), conflict)
+  }
+})
+
+test("Release observation accepts marker-bound smoke assets and resumable pre-marker subsets", async () => {
+  for (const phase of ["NPM_COMPLETE", "SMOKES_COMPLETE"]) {
+    const template = observationForMarker({ phase })
+    const releaseCandidate = markerCandidate()
+    const marker = template.release.marker
+    const inventory = {
+      status: "valid",
+      manifestSha256: template.artifacts.manifestSha256,
+      releaseRecordSha256: template.artifacts.releaseRecordAsset.sha256,
+      manifestAttestationSha256: template.artifacts.manifestAttestationAsset.sha256,
+      requiredSmokeLanes: template.requiredSmokeLanes,
+      packages: template.inventory.packages,
+    }
+    const baseAssets = expectedReleaseAssets(inventory).map((asset, index) => ({
+      id: index + 1,
+      name: asset.name,
+      digest: `sha256:${asset.sha256}`,
+      size: 1,
+    }))
+    const receipts = SMOKE_LANES.map((lane, index) =>
+      canonicalSmokeResultBytes({
+        schemaVersion: 1,
+        lane,
+        version: releaseCandidate.version,
+        commitSha: releaseCandidate.commitSha,
+        manifestSha256: marker.manifestSha256,
+        workflowRunId: 400,
+        runAttempt: 1,
+        startedAt: `2026-08-24T00:1${index}:00.000Z`,
+        finishedAt: `2026-08-24T00:1${index}:30.000Z`,
+        checks: [{ name: "published-artifacts", conclusion: "success", detail: "verified" }],
+        conclusion: "success",
+      }),
+    )
+    const receipt = receipts[0]
+    if (phase === "SMOKES_COMPLETE") {
+      const aggregate = aggregateSmokeResults(receipts, {
+        version: releaseCandidate.version,
+        commitSha: releaseCandidate.commitSha,
+        manifestSha256: marker.manifestSha256,
+        workflowRunId: 400,
+        runAttempt: 1,
+      })
+      marker.smoke = smokeDescriptor({
+        receiptSha256s: receipts.map((bytes) => sha256(bytes)),
+        aggregateSha256: sha256(canonicalAggregateSmokeResultBytes(aggregate)),
+      })
+    }
+    const smokeAssets =
+      phase === "NPM_COMPLETE"
+        ? [
+            {
+              id: 1_000,
+              name: "smoke-result-metadata-400-1.json",
+              digest: `sha256:${sha256(receipt)}`,
+              size: receipt.byteLength,
+              bytes: receipt,
+            },
+          ]
+        : marker.smoke.receiptAssets.map((asset, index) => ({
+            id: asset.releaseAssetId,
+            name: asset.releaseAssetName,
+            digest: `sha256:${asset.receiptSha256}`,
+            size: receipts[index].byteLength,
+            bytes: receipts[index],
+          }))
+    const github = absentGitHub()
+    github.getReleaseByTag = async () =>
+      presentEnvelope("release", {
+        id: 77,
+        draft: true,
+        immutable: false,
+        tag_name: marker.tag,
+        body: canonicalReleaseBody({ marker, manifest: null }),
+      })
+    github.listReleaseAssets = async () =>
+      presentEnvelope(
+        "release-assets",
+        [...baseAssets, ...smokeAssets].map(({ bytes: _bytes, ...asset }) => asset),
+      )
+    const releaseDownloads = []
+    github.downloadReleaseAsset = async ({ assetId, maximumBytes }) => {
+      releaseDownloads.push({ assetId, maximumBytes })
+      const asset = smokeAssets.find(({ id }) => id === assetId)
+      assert.ok(asset?.bytes)
+      return {
+        status: "PRESENT",
+        operation: "release-asset-download",
+        httpStatus: 200,
+        code: null,
+        contentBase64: asset.bytes.toString("base64"),
+      }
+    }
+
+    const observed = await observeCandidate({
+      candidate: releaseCandidate,
+      inventory,
+      git: {
+        async resolveTag() {
+          return releaseCandidate.commitSha
+        },
+      },
+      npm: {
+        async observePackageVersion() {
+          return ambiguousEnvelope("package-version")
+        },
+      },
+      github,
+    })
+    const observedSmoke = observed.observation.release.assets.filter(({ name }) =>
+      name.startsWith("smoke-result-"),
+    )
+    assert.ok(
+      observedSmoke.every(({ status }) => status === "matching"),
+      phase,
+    )
+    if (phase === "NPM_COMPLETE") {
+      assert.deepEqual(releaseDownloads, [{ assetId: 1_000, maximumBytes: receipt.byteLength }])
+      assert.deepEqual(
+        observed.observation.smokes,
+        SMOKE_LANES.map((name) => ({
+          name,
+          status: "pending",
+          version: releaseCandidate.version,
+          commitSha: releaseCandidate.commitSha,
+          manifestSha256: marker.manifestSha256,
+          workflowRunId: null,
+          runAttempt: null,
+        })),
+      )
+    } else {
+      assert.deepEqual(
+        observed.observation.smokes,
+        SMOKE_LANES.map((name) => ({
+          name,
+          status: "passed",
+          version: releaseCandidate.version,
+          commitSha: releaseCandidate.commitSha,
+          manifestSha256: marker.manifestSha256,
+          workflowRunId: 400,
+          runAttempt: 1,
+        })),
+      )
+      assert.deepEqual(
+        releaseDownloads,
+        smokeAssets.map(({ id, size }) => ({ assetId: id, maximumBytes: size })),
+      )
+    }
+    const plan = planRelease({
+      candidate: releaseCandidate,
+      observation: {
+        ...template,
+        release: observed.observation.release,
+        smokes: observed.observation.smokes,
+      },
+      mode: "shadow",
+    })
+    assert.ok(
+      !plan.conflicts.includes("github-managed-asset-unexpected"),
+      `${phase}: ${plan.conflicts.join(",")}: ${JSON.stringify(observedSmoke)}: ${JSON.stringify(observed.observation.release.marker.smoke)}`,
+    )
+    assert.ok(
+      !plan.conflicts.includes("github-asset-bytes-mismatch"),
+      `${phase}: ${plan.conflicts.join(",")}`,
+    )
+    if (phase === "SMOKES_COMPLETE") {
+      assert.equal(plan.state, "SMOKES_COMPLETE")
+      assert.equal(plan.nextTransition, "dispatch-release-audit")
+      smokeAssets[0].size = RELEASE_PAYLOAD_LIMITS.smokeReceiptBytes + 1
+      const oversized = await observeCandidate({
+        candidate: releaseCandidate,
+        inventory,
+        git: {
+          async resolveTag() {
+            return releaseCandidate.commitSha
+          },
+        },
+        npm: {
+          async observePackageVersion() {
+            return ambiguousEnvelope("package-version")
+          },
+        },
+        github,
+      })
+      assert.equal(oversized.observation.release.status, "ambiguous")
+      smokeAssets[0].size = smokeAssets[0].bytes.byteLength
+      marker.smoke.aggregateSha256 = "0".repeat(64)
+      const aggregateMismatch = await observeCandidate({
+        candidate: releaseCandidate,
+        inventory,
+        git: {
+          async resolveTag() {
+            return releaseCandidate.commitSha
+          },
+        },
+        npm: {
+          async observePackageVersion() {
+            return ambiguousEnvelope("package-version")
+          },
+        },
+        github,
+      })
+      assert.equal(aggregateMismatch.observation.release.status, "ambiguous")
+      assert.ok(aggregateMismatch.observation.smokes.every(({ status }) => status === "pending"))
+      assert.ok(
+        aggregateMismatch.diagnostics.some(
+          ({ code }) => code === "SMOKE_RECEIPT_AGGREGATE_MISMATCH",
+        ),
+      )
+    } else {
+      assert.equal(plan.state, "RELEASE_DRAFT_COMPLETE")
+      assert.equal(plan.nextTransition, "run-release-smokes")
+    }
   }
 })
 
@@ -701,7 +950,7 @@ test("live 0.8.21 reporting preserves the frozen incident run attempt", async ()
   const code = await runShadowReconcile({
     argv: [
       "--repository",
-      "cacheplane/dawnai",
+      "cacheplane/b4run",
       "--version",
       "0.8.21",
       "--commit-sha",
@@ -766,7 +1015,7 @@ test("live 0.8.21 reporting preserves the frozen incident run attempt", async ()
       },
       validateReleaseInventory() {
         return {
-          packages: ["@dawn-ai/sdk"],
+          packages: ["@b4run/sdk"],
           version: "0.8.21",
           structuralErrors: [],
           workspaceDuplicates: [],
@@ -775,7 +1024,7 @@ test("live 0.8.21 reporting preserves the frozen incident run attempt", async ()
           unknownMembers: [],
           versionMismatches: [],
           extra: [],
-          missing: ["@dawn-ai/sandbox"],
+          missing: ["@b4run/sandbox"],
         }
       },
     },
@@ -821,9 +1070,9 @@ test("live skipped history uses independent latest metadata for audit-only super
 })
 
 test("historical package facts reject mismatched or missing exact package identity", async () => {
-  const base = historicalPresentPackage("@dawn-ai/sdk", "0.8.19")
+  const base = historicalPresentPackage("@b4run/sdk", "0.8.19")
   for (const item of [
-    { name: "name mismatch", package: { ...base.package, name: "@dawn-ai/core" } },
+    { name: "name mismatch", package: { ...base.package, name: "@b4run/core" } },
     { name: "version mismatch", package: { ...base.package, version: "0.8.18" } },
     { name: "name missing", package: withoutFields(base.package, ["name"]) },
     { name: "version missing", package: withoutFields(base.package, ["version"]) },
@@ -847,7 +1096,7 @@ test("historical package facts reject mismatched or missing exact package identi
     assert.deepEqual(
       report.historicalFacts.npmPackages[0],
       {
-        name: "@dawn-ai/sdk",
+        name: "@b4run/sdk",
         status: "ERROR",
         code: "PACKAGE_IDENTITY_MISMATCH",
         version: null,
@@ -999,7 +1248,7 @@ function candidate() {
 function releaseInventory(version) {
   return {
     status: "valid",
-    packages: ["@dawn-ai/a", "@dawn-ai/b"].map((name) => ({ name, version })),
+    packages: ["@b4run/a", "@b4run/b"].map((name) => ({ name, version })),
   }
 }
 
@@ -1008,12 +1257,12 @@ function managedInventory() {
     status: "valid",
     manifestSha256: "e".repeat(64),
     requiredSmokeLanes: [],
-    packages: ["@dawn-ai/a", "@dawn-ai/b"].map((name, index) => ({
+    packages: ["@b4run/a", "@b4run/b"].map((name, index) => ({
       name,
       version: "0.8.21",
-      filename: `dawn-ai-${name.endsWith("a") ? "a" : "b"}-0.8.21.tgz`,
+      filename: `b4run-${name.endsWith("a") ? "a" : "b"}-0.8.21.tgz`,
       tarballSha256: String(index + 1).repeat(64),
-      attestationFilename: `dawn-ai-${name.endsWith("a") ? "a" : "b"}-0.8.21.tgz.intoto.jsonl`,
+      attestationFilename: `b4run-${name.endsWith("a") ? "a" : "b"}-0.8.21.tgz.intoto.jsonl`,
       attestationSha256: String(index + 3).repeat(64),
       integrity: `sha512-${name.endsWith("a") ? "a" : "b"}`,
     })),
@@ -1078,6 +1327,8 @@ function absentGitHub() {
           name: "CI",
           path: ".github/workflows/ci.yml",
           head_sha: SHA,
+          head_branch: "main",
+          event: "push",
           status: "completed",
           conclusion: "success",
           check_suite_id: 501,
@@ -1154,7 +1405,7 @@ function currentMainDependencies({ scenario, calls }) {
       return {}
     },
     assertValidReleaseInventory() {
-      return { packages: ["@dawn-ai/sdk"], version: "0.8.21" }
+      return { packages: ["@b4run/sdk"], version: "0.8.21" }
     },
     async discoverShadowCandidate({ ref }) {
       calls.push(["discover", ref])
@@ -1215,7 +1466,7 @@ function historicalLiveDependencies({
     },
     validateReleaseInventory() {
       return {
-        packages: ["@dawn-ai/sdk"],
+        packages: ["@b4run/sdk"],
         version,
         structuralErrors: [],
         workspaceDuplicates: [],
@@ -1249,6 +1500,10 @@ function expectedReleaseAssets(inventory) {
       sha256: pkg.attestationSha256,
     })),
   ]
+}
+
+function sha256(bytes) {
+  return createHash("sha256").update(bytes).digest("hex")
 }
 
 function withoutFields(value, fields) {

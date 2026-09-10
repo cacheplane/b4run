@@ -94,9 +94,9 @@ const runtimeFixtures: Record<GeneratedRuntimeFixtureName, RuntimeFixtureSpec> =
       tenant: "custom-tenant",
     },
     mode: "graph",
-    routeDir: "src/dawn-app/support/[tenant]",
+    routeDir: "src/b4-app/support/[tenant]",
     routeId: "/support/[tenant]",
-    routePath: "src/dawn-app/support/[tenant]/index.ts",
+    routePath: "src/b4-app/support/[tenant]/index.ts",
     scenarioNames: {
       inProcess: "custom appDir in-process scenario",
       server: "custom appDir server scenario",
@@ -237,7 +237,7 @@ export async function expectBasicAuthoringLane(appRoot: string): Promise<void> {
 
 export async function typecheckGeneratedRuntimeApp(prepared: GeneratedRuntimeApp): Promise<void> {
   await runPackagedCommand({
-    args: ["exec", "dawn", "typegen"],
+    args: ["exec", "b4", "typegen"],
     command: "pnpm",
     cwd: prepared.appRoot,
     transcriptPath: prepared.transcriptPath,
@@ -256,7 +256,7 @@ export async function runGeneratedRuntimeScenario(
   const fixture = prepared.fixture
 
   const runJson = selectRuntimeResult(
-    await runDawnRunJson({
+    await runB4RunJson({
       appRoot: prepared.appRoot,
       input: fixture.input,
       routePath: fixture.routePath,
@@ -287,7 +287,7 @@ export async function runGeneratedRuntimeScenario(
       await devServer.waitForNextReady(readyCountBeforeReplace)
 
       const runServerJson = selectRuntimeResult(
-        await runDawnRunJson({
+        await runB4RunJson({
           appRoot: prepared.appRoot,
           input: fixture.input,
           routePath: fixture.routePath,
@@ -297,7 +297,7 @@ export async function runGeneratedRuntimeScenario(
       )
 
       const testResult = await runPackagedCommand({
-        args: ["exec", "dawn", "test"],
+        args: ["exec", "b4", "test"],
         command: "pnpm",
         cwd: prepared.appRoot,
         transcriptPath: prepared.transcriptPath,
@@ -339,7 +339,7 @@ async function captureServerRequest(options: {
   }))
 
   try {
-    await runDawnRunJson({
+    await runB4RunJson({
       appRoot: options.prepared.appRoot,
       input: options.fixture.input,
       routePath: options.fixture.routePath,
@@ -350,7 +350,7 @@ async function captureServerRequest(options: {
     const request = server.requests.at(-1)
 
     if (!request) {
-      throw new Error("Expected fake server to capture a dawn run --url request")
+      throw new Error("Expected fake server to capture a b4 run --url request")
     }
 
     return {
@@ -370,7 +370,7 @@ async function scaffoldApp(options: {
   if (options.mode === "internal") {
     await runPackagedCommand({
       args: [
-        "packages/create-dawn-app/dist/bin.js",
+        "packages/create-b4-app/dist/bin.js",
         options.appRoot,
         "--mode",
         "internal",
@@ -387,7 +387,7 @@ async function scaffoldApp(options: {
     // deterministic even when a long-lived test registry has older templates.
     const { installerDir } = await installPackagedScaffolder(dirname(options.appRoot))
     await runPackagedCommand({
-      args: ["exec", "create-dawn-ai-app", options.appRoot, "--template", "basic"],
+      args: ["exec", "create-b4-app", options.appRoot, "--template", "basic"],
       command: "pnpm",
       cwd: installerDir,
       transcriptPath: options.transcriptPath,
@@ -407,7 +407,7 @@ async function stageFixtureApp(options: {
 
 async function buildLocalContributorPackages(transcriptPath: string): Promise<void> {
   await runPackagedCommand({
-    args: ["--filter", "create-dawn-ai-app", "build"],
+    args: ["--filter", "create-b4-app", "build"],
     command: "pnpm",
     cwd: REPO_ROOT,
     transcriptPath,
@@ -428,14 +428,14 @@ async function removeLangchainFromPackageJson(appRoot: string): Promise<void> {
 
 async function rewriteToCustomAppDirRuntimeLayout(appRoot: string): Promise<void> {
   await rm(join(appRoot, "src"), { force: true, recursive: true })
-  await mkdir(join(appRoot, "src/dawn-app/support/[tenant]"), { recursive: true })
+  await mkdir(join(appRoot, "src/b4-app/support/[tenant]"), { recursive: true })
   await writeFile(
-    join(appRoot, "dawn.config.ts"),
-    'const appDir = "src/dawn-app";\nexport default { appDir };\n',
+    join(appRoot, "b4.config.ts"),
+    'const appDir = "src/b4-app";\nexport default { appDir };\n',
     "utf8",
   )
   await writeFile(
-    join(appRoot, "src/dawn-app/support/[tenant]/index.ts"),
+    join(appRoot, "src/b4-app/support/[tenant]/index.ts"),
     [
       'import type { SupportTenantState } from "./state.js"',
       "",
@@ -448,7 +448,7 @@ async function rewriteToCustomAppDirRuntimeLayout(appRoot: string): Promise<void
     "utf8",
   )
   await writeFile(
-    join(appRoot, "src/dawn-app/support/[tenant]/state.ts"),
+    join(appRoot, "src/b4-app/support/[tenant]/state.ts"),
     [
       "export interface SupportTenantState {",
       "  greeting?: string",
@@ -471,7 +471,7 @@ async function writeRunScenarioFile(options: {
   await writeFile(
     runTestPath,
     [
-      'import { expectMeta, expectOutput, scenarios } from "@dawn-ai/sdk/testing"',
+      'import { expectMeta, expectOutput, scenarios } from "@b4run/sdk/testing"',
       "",
       `export default scenarios(${JSON.stringify(options.fixture.routeId)})`,
       `  .scenario(${JSON.stringify(options.fixture.scenarioNames.inProcess)}, (s) =>`,
@@ -585,14 +585,14 @@ function normalizeValue(
   return value
 }
 
-async function runDawnRunJson(options: {
+async function runB4RunJson(options: {
   readonly appRoot: string
   readonly input: unknown
   readonly routePath: string
   readonly transcriptPath: string
   readonly url?: string
 }): Promise<unknown> {
-  const args = ["exec", "dawn", "run", options.routePath]
+  const args = ["exec", "b4", "run", options.routePath]
 
   if (options.url) {
     args.push("--url", options.url)

@@ -1,6 +1,6 @@
-# Dawn App — Coding Agent Instructions
+# B4.run App — Coding Agent Instructions
 
-This project uses **Dawn**, the TypeScript meta-framework for LangGraph. Agents
+This project uses **B4.run**, the TypeScript meta-framework for LangGraph. Agents
 and workflows are file-system routes under `src/app/`.
 
 ## Key rules
@@ -11,12 +11,12 @@ and workflows are file-system routes under `src/app/`.
 - Tools are co-located in a route's `tools/` directory — one default-exported
   async function per file. Their argument types are inferred at build time.
 - Optional route state goes in `state.ts` next to the route.
-- Never edit `.dawn/dawn.generated.d.ts` — it is generated. Run `dawn typegen`
-  if `dawn:routes` types do not resolve.
+- Never edit `.b4/b4.generated.d.ts` — it is generated. Run `b4 typegen`
+  if `b4:routes` types do not resolve.
 
 ## Full reference (read this before writing routes)
 
-The complete, version-matched Dawn documentation is bundled with the installed
-CLI. Run `dawn docs` to list topics or `dawn docs <topic>` to read one (for
-example, `dawn docs tools`). The same files are at
-`node_modules/@dawn-ai/cli/docs/` — start with `docs/README.md`.
+The complete, version-matched B4.run documentation is bundled with the installed
+CLI. Run `b4 docs` to list topics or `b4 docs <topic>` to read one (for
+example, `b4 docs tools`). The same files are at
+`node_modules/@b4run/cli/docs/` — start with `docs/README.md`.

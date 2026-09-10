@@ -58,7 +58,7 @@ describe("convertToolToLangChain — runtime invoke path (ToolNode-style)", () =
     expect(events).toContainEqual(
       expect.objectContaining({
         event: "on_custom_event",
-        name: "dawn.capability",
+        name: "b4.capability",
         data: { event: "probe.update", data: { ok: true } },
       }),
     )

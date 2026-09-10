@@ -5,8 +5,8 @@ on:
     branches:
       - main
     paths:
-      - "charts/dawn-sandbox-infra/**"
-      - "charts/dawn-app/**"
+      - "charts/b4-sandbox-infra/**"
+      - "charts/b4-app/**"
 
 permissions:
   contents: read
@@ -19,7 +19,7 @@ jobs:
 
     strategy:
       matrix:
-        chart: [dawn-sandbox-infra, dawn-app]
+        chart: [b4-sandbox-infra, b4-app]
 
     steps:
       - name: Checkout

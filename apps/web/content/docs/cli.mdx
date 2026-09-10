@@ -1,39 +1,39 @@
 # CLI Reference
 
-Dawn ships a single `dawn` binary with fourteen commands: `add`, `build`, `check`, `dev`, `docs`, `eval`, `inspect`, `memory`, `routes`, `run`, `start`, `test`, `typegen`, and `verify`. Most commands read `dawn.config.ts` from the current working directory or from `--cwd <path>`; `dawn dev` currently uses the current working directory and exposes only its own server flags.
+B4.run ships a single `b4` binary with fourteen commands: `add`, `build`, `check`, `dev`, `docs`, `eval`, `inspect`, `memory`, `routes`, `run`, `start`, `test`, `typegen`, and `verify`. Most commands read `b4.config.ts` from the current working directory or from `--cwd <path>`; `b4 dev` currently uses the current working directory and exposes only its own server flags.
 
 ## Running the CLI
 
-Always invoke Dawn through the `dawn` **bin** — `pnpm exec dawn <command>` (or `npx dawn …` / a `package.json` script). The bin is what `@dawn-ai/cli` installs into `node_modules/.bin`, and it resolves correctly regardless of where the package physically lives.
+Always invoke B4.run through the `b4` **bin** — `pnpm exec b4 <command>` (or `npx b4 …` / a `package.json` script). The bin is what `@b4run/cli` installs into `node_modules/.bin`, and it resolves correctly regardless of where the package physically lives.
 
 <Callout type="warn" title="Monorepos: use the bin, not a direct path">
-  In an npm/pnpm-hoisted monorepo, `@dawn-ai/cli` typically hoists to the workspace root, so a hardcoded path like `node node_modules/@dawn-ai/cli/dist/index.js` from a sub-package will fail to resolve. Run `pnpm exec dawn …` (which finds the bin via the workspace's `node_modules/.bin`) instead of pointing Node at the package's `dist/` directly.
+  In an npm/pnpm-hoisted monorepo, `@b4run/cli` typically hoists to the workspace root, so a hardcoded path like `node node_modules/@b4run/cli/dist/index.js` from a sub-package will fail to resolve. Run `pnpm exec b4 …` (which finds the bin via the workspace's `node_modules/.bin`) instead of pointing Node at the package's `dist/` directly.
 </Callout>
 
-## `dawn check`
+## `b4 check`
 
 Validates the app structure and configuration.
 
 ```
-dawn check
+b4 check
 ```
 
-Internally, `dawn check` loads `dawn.config.ts`, resolves the app root, runs `discoverRoutes`, and parses each route's tool definitions with `discoverToolDefinitions`. It surfaces:
+Internally, `b4 check` loads `b4.config.ts`, resolves the app root, runs `discoverRoutes`, and parses each route's tool definitions with `discoverToolDefinitions`. It surfaces:
 
-- A `dawn.config.ts` that fails to load.
+- A `b4.config.ts` that fails to load.
 - Any discovered route whose `index.ts` exports more than one of `agent`, `workflow`, `graph`, `chain`.
 - Any tool file that fails to parse.
-- A stale build manifest: when `.dawn/build/modules.mjs` exists (written by `dawn build`'s `node` target), its routes are compared against the routes on disk — a mismatch (for example a route renamed after the last build) fails with the missing/extra route ids and a prompt to re-run `dawn build`. `.dawn/build/modules.edge.mjs` is checked the same way whenever `"hono"` is a configured target: it is a separate artifact with its own copy of every route's static imports, and an app that builds for `hono` **alone** emits no `modules.mjs` at all — so this pass used to have nothing to look at for exactly the deployment shape that cannot re-walk its route tree at runtime. A manifest that is simply absent is a no-op, and the edge manifest is skipped when `hono` is not a configured target, so a leftover file from an experiment is not an error.
-- An unknown `build.targets` entry, and — when `"hono"` is one of them — every feature that target [cannot serve](/docs/deployment/edge#what-the-edge-cannot-serve), reported together as `DAWN_E1005`. The same gate `dawn build` applies, mirrored here so you learn about all of them before building.
+- A stale build manifest: when `.b4/build/modules.mjs` exists (written by `b4 build`'s `node` target), its routes are compared against the routes on disk — a mismatch (for example a route renamed after the last build) fails with the missing/extra route ids and a prompt to re-run `b4 build`. `.b4/build/modules.edge.mjs` is checked the same way whenever `"hono"` is a configured target: it is a separate artifact with its own copy of every route's static imports, and an app that builds for `hono` **alone** emits no `modules.mjs` at all — so this pass used to have nothing to look at for exactly the deployment shape that cannot re-walk its route tree at runtime. A manifest that is simply absent is a no-op, and the edge manifest is skipped when `hono` is not a configured target, so a leftover file from an experiment is not an error.
+- An unknown `build.targets` entry, and — when `"hono"` is one of them — every feature that target [cannot serve](/docs/deployment/edge#what-the-edge-cannot-serve), reported together as `B4_E1005`. The same gate `b4 build` applies, mirrored here so you learn about all of them before building.
 
-Output is a `Dawn app is valid: N routes discovered.` line followed by a per-route `- <pathname> (<kind>)` summary. Exits non-zero on any violation with a detailed message.
+Output is a `B4.run app is valid: N routes discovered.` line followed by a per-route `- <pathname> (<kind>)` summary. Exits non-zero on any violation with a detailed message.
 
 ### Troubleshooting imports
 
-When a route, tool, or config module fails to load with the opaque ESM error `does not provide an export named X`, Dawn now prints the offending package plus a likely cause and fix instead of the raw `SyntaxError`. Two cases account for almost all of these:
+When a route, tool, or config module fails to load with the opaque ESM error `does not provide an export named X`, B4.run now prints the offending package plus a likely cause and fix instead of the raw `SyntaxError`. Two cases account for almost all of these:
 
-- **An older `@langchain/core` got hoisted.** Run `npm ls @langchain/core` to find the duplicate, then upgrade or dedupe so the installed version satisfies Dawn's peer range (`^1.1.47`).
-- **A CommonJS dependency imported with named bindings.** Under Dawn's ESM resolver a CommonJS package only has a default export, so `import { thing } from "x"` fails. Use a default import and destructure instead:
+- **An older `@langchain/core` got hoisted.** Run `npm ls @langchain/core` to find the duplicate, then upgrade or dedupe so the installed version satisfies B4.run's peer range (`^1.1.47`).
+- **A CommonJS dependency imported with named bindings.** Under B4.run's ESM resolver a CommonJS package only has a default export, so `import { thing } from "x"` fails. Use a default import and destructure instead:
 
   ```ts
   import pkg from "x"
@@ -42,174 +42,174 @@ When a route, tool, or config module fails to load with the opaque ESM error `do
 
   Or import the package's ESM build if it ships one.
 
-## `dawn verify`
+## `b4 verify`
 
-Runs five checks in one call (`app`, `routes`, `typegen`, `deps`, `runtime`) — the canonical preflight before `dawn dev`, `dawn start`, or a deploy. A green `dawn verify` means "this app will boot in this environment."
+Runs five checks in one call (`app`, `routes`, `typegen`, `deps`, `runtime`) — the canonical preflight before `b4 dev`, `b4 start`, or a deploy. A green `b4 verify` means "this app will boot in this environment."
 
 ```
-dawn verify
-dawn verify --json
+b4 verify
+b4 verify --json
 ```
 
 Flags:
 - `--cwd <path>` — operate on a different app root.
 - `--json` — emit a structured report (`{ status, appRoot, checks, counts }`) instead of human-readable text.
-- `--env-file <path>` — path to a `.env` file (overrides `dawn.config.ts` `env` and the default `./.env`).
+- `--env-file <path>` — path to a `.env` file (overrides `b4.config.ts` `env` and the default `./.env`).
 
 The `deps` check covers missing packages and missing env vars (advisory). It is **provider-aware**: it derives the API-key env var from the providers your routes actually use — an Anthropic-only app is checked for `ANTHROPIC_API_KEY`, an OpenAI app for `OPENAI_API_KEY`, a multi-provider app for the union, and a local Ollama app for none. A missing key is a warning, not a failure (the key may come from the runtime environment).
 
 The `runtime` check gates **environment readiness**:
-- **Node** — asserts the running Node version is at least `24.0.0` (Dawn's floor: the active LTS line, which bundles npm ≥ 11 and ships `node:sqlite` unflagged). Below the floor **fails** `verify` with a non-zero exit.
-- **Docker** — present only when `dawn.config.ts` configures a sandbox provider; it runs the provider's daemon preflight and **fails** if the daemon is unreachable. Apps with no sandbox skip this sub-check entirely.
+- **Node** — asserts the running Node version is at least `24.0.0` (B4.run's floor: the active LTS line, which bundles npm ≥ 11 and ships `node:sqlite` unflagged). Below the floor **fails** `verify` with a non-zero exit.
+- **Docker** — present only when `b4.config.ts` configures a sandbox provider; it runs the provider's daemon preflight and **fails** if the daemon is unreachable. Apps with no sandbox skip this sub-check entirely.
 
 See [Deployment](/docs/deployment) for the recommended workflow.
 
-## `dawn routes`
+## `b4 routes`
 
-Lists every route Dawn discovered and its computed pathname.
+Lists every route B4.run discovered and its computed pathname.
 
 ```
-dawn routes
-dawn routes --json
+b4 routes
+b4 routes --json
 ```
 
 Output:
 
 ```
-Discovered 2 Dawn routes in /path/to/app
+Discovered 2 B4.run routes in /path/to/app
 /research -> src/app/research/index.ts
 /admin/users -> src/app/(internal)/admin/users/index.ts
 ```
 
 Use this to confirm that route groups and dynamic segments are being parsed the way you expect.
 
-## `dawn typegen`
+## `b4 typegen`
 
-Regenerates `.dawn/dawn.generated.d.ts` plus per-route `.dawn/routes/<routeSlug>/tools.json` and `.dawn/routes/<routeSlug>/state.json` manifests.
+Regenerates `.b4/b4.generated.d.ts` plus per-route `.b4/routes/<routeSlug>/tools.json` and `.b4/routes/<routeSlug>/state.json` manifests.
 
 ```
-dawn typegen
+b4 typegen
 ```
 
-The success log reports route, tool-schema, and stateful-route counts. The `tools.json` artifacts are consumed by `dawn build` to emit LangGraph entries.
+The success log reports route, tool-schema, and stateful-route counts. The `tools.json` artifacts are consumed by `b4 build` to emit LangGraph entries.
 
-<Callout type="info" title="Run automatically by dawn dev">
-  `dawn dev` runs `typegen` before every child (re)start, so saves that touch tool signatures or state schemas are picked up on the automatic restart. You only need to invoke it manually after a fresh clone, before CI, or after a tool signature change while the dev server isn't running.
+<Callout type="info" title="Run automatically by b4 dev">
+  `b4 dev` runs `typegen` before every child (re)start, so saves that touch tool signatures or state schemas are picked up on the automatic restart. You only need to invoke it manually after a fresh clone, before CI, or after a tool signature change while the dev server isn't running.
 </Callout>
 
-## `dawn build`
+## `b4 build`
 
 Writes deployment artifacts for the configured `build.targets` (default: `["node", "langsmith"]`).
 
 ```
-dawn build
-dawn build --clean
+b4 build
+b4 build --clean
 ```
 
 Flags:
 - `--cwd <path>` — operate on a different app root.
-- `--clean` — wipe `.dawn/build/` before writing.
+- `--clean` — wipe `.b4/build/` before writing.
 
 Emits, per target:
-- **`node`** — `.dawn/build/server.mjs` (boots `serveRuntime` — the real Dawn runtime) and a hardened `Dockerfile` (written to the app root unless one already exists there, else to `.dawn/build/Dockerfile`). Run it with `dawn start` or `docker build`/`docker run`.
-- **`langsmith`** — `.dawn/build/langgraph.json` plus per-route entry files under `.dawn/build/<routeSlug>.ts` — the artifacts you hand to LangSmith. Includes `graphs` (keyed by `<routeId>#<kind>`), `dependencies: ["."]`, `env` (`.env.example` if present, else `.env`), and `node_version: "22"`. For `agent` routes, the generated entry imports the default `agent()` descriptor, materializes it as a LangGraph graph, and wires in every discovered route tool.
-- **`hono`** — **opt-in, not a default.** `.dawn/build/app.mjs` (a Hono app around Dawn's web-standard fetch handler, `export default`ed for Cloudflare Workers, Vercel, or Bun), `.dawn/build/modules.edge.mjs` (the node-builtin-free module manifest), `.dawn/build/stores.mjs` (a per-request Postgres store factory), and a `wrangler.toml` scaffold at the app root — written only if you have none, and never overwritten. Deploy with `wrangler deploy`.
+- **`node`** — `.b4/build/server.mjs` (boots `serveRuntime` — the real B4.run runtime) and a hardened `Dockerfile` (written to the app root unless one already exists there, else to `.b4/build/Dockerfile`). Run it with `b4 start` or `docker build`/`docker run`.
+- **`langsmith`** — `.b4/build/langgraph.json` plus per-route entry files under `.b4/build/<routeSlug>.ts` — the artifacts you hand to LangSmith. Includes `graphs` (keyed by `<routeId>#<kind>`), `dependencies: ["."]`, `env` (`.env.example` if present, else `.env`), and `node_version: "22"`. For `agent` routes, the generated entry imports the default `agent()` descriptor, materializes it as a LangGraph graph, and wires in every discovered route tool.
+- **`hono`** — **opt-in, not a default.** `.b4/build/app.mjs` (a Hono app around B4.run's web-standard fetch handler, `export default`ed for Cloudflare Workers, Vercel, or Bun), `.b4/build/modules.edge.mjs` (the node-builtin-free module manifest), `.b4/build/stores.mjs` (a per-request Postgres store factory), and a `wrangler.toml` scaffold at the app root — written only if you have none, and never overwritten. Deploy with `wrangler deploy`.
 
-Restrict which targets are emitted via `build.targets` in `dawn.config.ts` (e.g. `{ build: { targets: ["node"] } }`). The list replaces the defaults rather than adding to them, so an app deploying to the edge names `{ build: { targets: ["node", "hono"] } }`.
+Restrict which targets are emitted via `build.targets` in `b4.config.ts` (e.g. `{ build: { targets: ["node"] } }`). The list replaces the defaults rather than adding to them, so an app deploying to the edge names `{ build: { targets: ["node", "hono"] } }`.
 
-The `hono` target serves a **subset** of Dawn, and the build fails with `DAWN_E1005` — naming every offending config key and file at once — when the app uses the sandbox, `backends.filesystem`/`backends.exec`, a config-supplied store, `toolOutput`, a `workspace/` directory, route skills, or route-level long-term memory. [`dawn check`](#dawn-check) applies the identical gate whenever `hono` is a configured target. See [Edge and Hono](/docs/deployment/edge).
+The `hono` target serves a **subset** of B4.run, and the build fails with `B4_E1005` — naming every offending config key and file at once — when the app uses the sandbox, `backends.filesystem`/`backends.exec`, a config-supplied store, `toolOutput`, a `workspace/` directory, route skills, or route-level long-term memory. [`b4 check`](#b4-check) applies the identical gate whenever `hono` is a configured target. See [Edge and Hono](/docs/deployment/edge).
 
 `toolOutput` is a recent addition to that list, and the one gated key that is plain JSON — so it used to be inlined into the bundle and then ignored, and the build went green while the deployed worker never offloaded. An app that sets both `toolOutput` and `"hono"` therefore sees a build that passed before start failing: remove the key, or drop `"hono"` from `build.targets`. See [Upgrading](/docs/upgrading#tooloutput-is-now-gated-off-the-hono-target).
 
 See [Deployment](/docs/deployment) for the full bridge.
 
-## `dawn start`
+## `b4 start`
 
-Serves the app in production using the real Dawn runtime — Agent Protocol, AG-UI, and `/healthz` — binding `0.0.0.0:8000` by default.
+Serves the app in production using the real B4.run runtime — Agent Protocol, AG-UI, and `/healthz` — binding `0.0.0.0:8000` by default.
 
 ```
-dawn start
-dawn start --host 127.0.0.1 --port 3000
+b4 start
+b4 start --host 127.0.0.1 --port 3000
 ```
 
 Flags:
 - `--host <host>` — host to bind. Default: `0.0.0.0` (or the `HOST` env var).
 - `--port <number>` — port to bind. Default: `8000` (or the `PORT` env var).
 
-This is what the `node` build target's generated `Dockerfile` runs (`CMD ["node", ".dawn/build/server.mjs"]`), and it's the only server that engages the [execution sandbox](/docs/sandbox) in production. See [Node and Docker](/docs/deployment/node).
+This is what the `node` build target's generated `Dockerfile` runs (`CMD ["node", ".b4/build/server.mjs"]`), and it's the only server that engages the [execution sandbox](/docs/sandbox) in production. See [Node and Docker](/docs/deployment/node).
 
-## `dawn run`
+## `b4 run`
 
 Executes a single route invocation with JSON stdin/stdout.
 
 ```
-echo '{"messages":[{"role":"user","content":"Hello"}]}' | dawn run '/research'
+echo '{"messages":[{"role":"user","content":"Hello"}]}' | b4 run '/research'
 ```
 
 Flags:
 - `--cwd <path>` — operate on a different app root.
 - `--url <url>` — run against a live dev server instead of the in-process runtime.
 
-The route argument can be the parameterized id (e.g. `/research`) or the relative route entry file path (e.g. `src/app/research/index.ts`). Dynamic segment values come from the JSON input. When `--url` is set, `dawn run` POSTs to `/threads/<t-cli-uuid>/runs/wait` with `{ route: "<routeId>#<kind>", input }`.
+The route argument can be the parameterized id (e.g. `/research`) or the relative route entry file path (e.g. `src/app/research/index.ts`). Dynamic segment values come from the JSON input. When `--url` is set, `b4 run` POSTs to `/threads/<t-cli-uuid>/runs/wait` with `{ route: "<routeId>#<kind>", input }`.
 
 <Callout type="tip" title="Quote the path">
   Route paths containing `(`, `)`, `[`, or `]` should be quoted in shell so they aren't expanded.
 </Callout>
 
-## `dawn test`
+## `b4 test`
 
 Runs every colocated `run.test.ts` scenario in the app.
 
 ```
-dawn test
-dawn test src/app/(public)/hello
+b4 test
+b4 test src/app/(public)/hello
 ```
 
 Flags:
 - `--cwd <path>` — operate on a different app root.
 
-The optional positional `[path]` argument narrows the discovered scenario set to a subdirectory. To target a live dev server, add `.server(url)` to that scenario's builder chain inside `run.test.ts` (there is no command-level `--url` flag on `dawn test`). Exits non-zero on any failure with a diff per mismatched scenario. See [Testing](/docs/testing) for scenario authoring.
+The optional positional `[path]` argument narrows the discovered scenario set to a subdirectory. To target a live dev server, add `.server(url)` to that scenario's builder chain inside `run.test.ts` (there is no command-level `--url` flag on `b4 test`). Exits non-zero on any failure with a diff per mismatched scenario. See [Testing](/docs/testing) for scenario authoring.
 
-## `dawn eval`
+## `b4 eval`
 
 Runs every colocated `*.eval.ts` over its dataset and reports per-case scores, then gates on the aggregate.
 
 ```
-dawn eval
-dawn eval src/app/chat
-dawn eval --live
-dawn eval --record
-dawn eval --json
+b4 eval
+b4 eval src/app/chat
+b4 eval --live
+b4 eval --record
+b4 eval --json
 ```
 
 Flags:
 - `--cwd <path>` — operate on a different app root.
 - `--live` — run against the real model (requires `OPENAI_API_KEY`); never use in CI.
 - `--record` — record real-model responses into sibling fixture files (requires `OPENAI_API_KEY`); never use in CI. Mutually exclusive with `--live`.
-- `--json [file]` — write a JSON report. Defaults to `.dawn/eval-report.json`.
+- `--json [file]` — write a JSON report. Defaults to `.b4/eval-report.json`.
 
-The optional positional `[path]` narrows discovery to a subdirectory. By default each case replays its aimock fixtures (deterministic, CI-safe); `--live` calls the real provider for local prompt tuning; `--record` captures real-model responses as committed fixture files that plain `dawn eval` replays. A gated eval that fails exits non-zero, so CI fails when quality drops below the bar; informational evals (no `gate`/`threshold`) never affect the exit code. See [Evals](/docs/evals) for authoring.
+The optional positional `[path]` narrows discovery to a subdirectory. By default each case replays its aimock fixtures (deterministic, CI-safe); `--live` calls the real provider for local prompt tuning; `--record` captures real-model responses as committed fixture files that plain `b4 eval` replays. A gated eval that fails exits non-zero, so CI fails when quality drops below the bar; informational evals (no `gate`/`threshold`) never affect the exit code. See [Evals](/docs/evals) for authoring.
 
-## `dawn dev`
+## `b4 dev`
 
 Starts the local runtime — hot reload + [Agent Protocol (AP) HTTP endpoints](/docs/dev-server/agent-protocol). Bind address is fixed at `127.0.0.1`.
 
 ```
-dawn dev
-dawn dev --port 3001
+b4 dev
+b4 dev --port 3001
 ```
 
 Flags:
 - `--port <n>` — HTTP port. Default: dynamically allocated. Pass `--port` for a stable address.
-- `--env-file <path>` — path to a `.env` file (overrides `dawn.config.ts` `env` and the default `./.env`).
+- `--env-file <path>` — path to a `.env` file (overrides `b4.config.ts` `env` and the default `./.env`).
 
-Because the default port is chosen dynamically, copy-paste `curl` examples should pass an explicit `--port` (or read the port `dawn dev` prints on startup) rather than assuming a fixed value.
+Because the default port is chosen dynamically, copy-paste `curl` examples should pass an explicit `--port` (or read the port `b4 dev` prints on startup) rather than assuming a fixed value.
 
-If `LANGSMITH_API_KEY` is present in the loaded environment and `LANGCHAIN_TRACING_V2` is not already set, `dawn dev` automatically enables LangSmith tracing by setting `LANGCHAIN_TRACING_V2=true`. Set `LANGCHAIN_PROJECT` to control which project receives the traces. See [Observability](/docs/observability) for the full tracing guide.
+If `LANGSMITH_API_KEY` is present in the loaded environment and `LANGCHAIN_TRACING_V2` is not already set, `b4 dev` automatically enables LangSmith tracing by setting `LANGCHAIN_TRACING_V2=true`. Set `LANGCHAIN_PROJECT` to control which project receives the traces. See [Observability](/docs/observability) for the full tracing guide.
 
 See [Agent Protocol](/docs/dev-server/agent-protocol) for the full protocol reference and architecture notes.
 
-## `dawn memory`
+## `b4 memory`
 
 Inspects and manages the app's [long-term memory](/docs/memory/browse) store — the
 typed records the agent writes via its generated `remember` tool. Use it to
@@ -217,15 +217,15 @@ review and promote the `candidate` writes that the default `memory: { writes: "c
 config holds back from `recall`.
 
 ```
-dawn memory list
-dawn memory search <query>
-dawn memory inspect <id>
-dawn memory approve <id>
-dawn memory reject <id>
-dawn memory forget <id>
-dawn memory prune [--cap <n>] [--namespace <prefix>]
-dawn memory consolidate [--dry-run] [--namespace <prefix>] [--model <id>] [--provider <id>] [--max-batches <n>]
-dawn memory reflect [--dry-run] [--namespace <prefix>] [--model <id>] [--provider <id>] [--max-batches <n>]
+b4 memory list
+b4 memory search <query>
+b4 memory inspect <id>
+b4 memory approve <id>
+b4 memory reject <id>
+b4 memory forget <id>
+b4 memory prune [--cap <n>] [--namespace <prefix>]
+b4 memory consolidate [--dry-run] [--namespace <prefix>] [--model <id>] [--provider <id>] [--max-batches <n>]
+b4 memory reflect [--dry-run] [--namespace <prefix>] [--model <id>] [--provider <id>] [--max-batches <n>]
 ```
 
 Subcommands:
@@ -250,25 +250,25 @@ Subcommands:
 `consolidate` and `reflect` share the same flags, and both are threshold-aware
 no-ops: below the configured thresholds they print one line, exit `0`, construct
 no model and require no API key — which is what makes the cron recipe
-(`dawn memory consolidate && dawn memory reflect`) safe to run nightly on any
+(`b4 memory consolidate && b4 memory reflect`) safe to run nightly on any
 app. `--dry-run` reports the plan without making a single model call;
 `--namespace <prefix>` scopes the pass; `--model <id>` / `--provider <id>`
 override `memory.distill`; `--max-batches <n>` caps the work (and spend) for one
-invocation. These are the only `dawn memory` subcommands that spend model
+invocation. These are the only `b4 memory` subcommands that spend model
 tokens. See [Distillation](/docs/memory/distillation) for the full configuration
 block.
 
 Flags:
 - `--cwd <path>` — operate on a different app root.
 
-## `dawn inspect`
+## `b4 inspect`
 
-Opens the [Dawn Inspector](/docs/inspector) — a localhost-only browser UI for
+Opens the [B4.run Inspector](/docs/inspector) — a localhost-only browser UI for
 browsing, searching, and approving the app's [long-term memory](/docs/memory/browse)
 records.
 
 ```
-dawn inspect
+b4 inspect
 ```
 
 The inspector binds to `127.0.0.1` on a free port and prints the URL to open.
@@ -276,49 +276,49 @@ The inspector binds to `127.0.0.1` on a free port and prints the URL to open.
 Flags:
 - `--cwd <path>` — operate on a different app root.
 - `--port <number>` — bind the inspector to a stable localhost port.
-- `--env-file <path>` — path to a `.env` file (overrides `dawn.config.ts` `env` and the default `./.env`).
+- `--env-file <path>` — path to a `.env` file (overrides `b4.config.ts` `env` and the default `./.env`).
 
-## `dawn add`
+## `b4 add`
 
 Fetches a blueprint (an agent-facing integration guide) and prints it to stdout so you can hand it to your coding agent.
 
 ```
-dawn add                 # list available blueprints, grouped by category
-dawn add pgvector        # print the pgvector blueprint
-dawn add <url>           # fetch a third-party blueprint from any URL
+b4 add                 # list available blueprints, grouped by category
+b4 add pgvector        # print the pgvector blueprint
+b4 add <url>           # fetch a third-party blueprint from any URL
 ```
 
-`dawn add` only prints the guide — your agent applies the changes, and you review them. Set `DAWN_BLUEPRINTS_URL` to point at a self-hosted catalog instead of `dawnai.org`.
+`b4 add` only prints the guide — your agent applies the changes, and you review them. Set `B4_BLUEPRINTS_URL` to point at a self-hosted catalog instead of `b4.run`.
 
 See [Blueprints](/docs/blueprints) for authoring and catalog details.
 
-## `dawn docs`
+## `b4 docs`
 
-Prints the **bundled, version-matched** Dawn docs that ship inside the installed
+Prints the **bundled, version-matched** B4.run docs that ship inside the installed
 CLI — so a coding agent (or you) can read the docs for the exact version in use
 without a network round-trip. With no topic it lists the available topics and the
 index; with a topic it prints that doc to stdout.
 
 ```
-dawn docs
-dawn docs README
-dawn docs cli
+b4 docs
+b4 docs README
+b4 docs cli
 ```
 
 The optional positional `[topic]` selects a single doc by slug (with or without
 the `.md` suffix); an unknown topic exits non-zero and lists the available
 topics. Running from a source checkout requires the CLI to be built first
-(`pnpm --filter @dawn-ai/cli build`) so the bundled docs exist.
+(`pnpm --filter @b4run/cli build`) so the bundled docs exist.
 
-## `dawn threads`
+## `b4 threads`
 
-Inspects and reattaches to Agent Protocol threads on a running Dawn server.
+Inspects and reattaches to Agent Protocol threads on a running B4.run server.
 
 ```
-dawn threads tail <thread-id>
-dawn threads tail <thread-id> --url http://127.0.0.1:3000
-dawn threads tail <thread-id> --header "authorization: Bearer $TOKEN"
-dawn threads tail <thread-id> --json
+b4 threads tail <thread-id>
+b4 threads tail <thread-id> --url http://127.0.0.1:3000
+b4 threads tail <thread-id> --header "authorization: Bearer $TOKEN"
+b4 threads tail <thread-id> --json
 ```
 
 `tail` rejoins a thread through
@@ -344,7 +344,7 @@ safe to tail a thread someone else is driving. To stop a run, use
 `POST /threads/:thread_id/cancel` instead.
 
 Flags:
-- `--url <url>` — base URL of the running Dawn server (default
+- `--url <url>` — base URL of the running B4.run server (default
   `http://127.0.0.1:3000`).
 - `--header <name: value>` — extra request header, repeatable. Use it when the
   server's middleware authenticates the thread's route.
@@ -362,16 +362,16 @@ and so has no route identity to authorize against.
 | Code | Meaning |
 |---|---|
 | 0 | Success |
-| 1 | Validation failure (e.g. `dawn check`) or scenario failure (e.g. `dawn test`) |
-| 2 | Configuration / runtime error (missing `dawn.config.ts`, bad `appDir`, scenario load failure) |
+| 1 | Validation failure (e.g. `b4 check`) or scenario failure (e.g. `b4 test`) |
+| 2 | Configuration / runtime error (missing `b4.config.ts`, bad `appDir`, scenario load failure) |
 
 Non-zero exit codes from underlying tools (Commander, child processes) may be propagated unchanged.
 
 ## Related
 
 <RelatedCards items={[
-  { href: "/docs/getting-started", title: "Getting Started", subtitle: "create-dawn-ai-app, dawn verify, and dawn run in a first-run walkthrough" },
-  { href: "/docs/dev-server/agent-protocol", title: "Agent Protocol", subtitle: "full HTTP contract for dawn dev" },
-  { href: "/docs/testing", title: "Scenario Testing", subtitle: "scenario authoring for dawn test" },
-  { href: "/docs/deployment", title: "Deployment Options", subtitle: "dawn build and dawn verify in the deploy workflow" },
+  { href: "/docs/getting-started", title: "Getting Started", subtitle: "create-b4-app, b4 verify, and b4 run in a first-run walkthrough" },
+  { href: "/docs/dev-server/agent-protocol", title: "Agent Protocol", subtitle: "full HTTP contract for b4 dev" },
+  { href: "/docs/testing", title: "Scenario Testing", subtitle: "scenario authoring for b4 test" },
+  { href: "/docs/deployment", title: "Deployment Options", subtitle: "b4 build and b4 verify in the deploy workflow" },
 ]} />

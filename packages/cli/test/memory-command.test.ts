@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import type { MemoryRecord } from "@dawn-ai/memory"
-import { sqliteMemoryStore } from "@dawn-ai/memory"
+import type { MemoryRecord } from "@b4run/memory"
+import { sqliteMemoryStore } from "@b4run/memory"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { runMemoryCommand } from "../src/commands/memory.js"
@@ -39,10 +39,10 @@ const baseRecord: MemoryRecord = {
   updatedAt: new Date().toISOString(),
 }
 
-describe("dawn memory", () => {
+describe("b4 memory", () => {
   it("list shows candidate records", async () => {
     const appRoot = await makeApp()
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     await store.put(baseRecord)
 
     const lines: string[] = []
@@ -59,7 +59,7 @@ describe("dawn memory", () => {
 
   it("approve flips status to active", async () => {
     const appRoot = await makeApp()
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     await store.put(baseRecord)
 
     const io = { stdout: () => {}, stderr: () => {} }
@@ -73,7 +73,7 @@ describe("dawn memory", () => {
     // No src/app or route memory.ts → identity resolution falls back to the
     // default [subject, predicate] keys.
     const appRoot = await makeApp()
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     await store.put({
       ...baseRecord,
       id: "old",
@@ -104,9 +104,9 @@ describe("dawn memory", () => {
 
   it("approve respects a route's custom identity", async () => {
     const appRoot = await makeApp()
-    // Full Dawn app shape so discoverRoutes finds the /notes route and its
+    // Full B4.run app shape so discoverRoutes finds the /notes route and its
     // memory.ts (mirrors packages/inspector/test/fixtures/app).
-    await writeFile(join(appRoot, "dawn.config.ts"), "export default {}\n")
+    await writeFile(join(appRoot, "b4.config.ts"), "export default {}\n")
     const routeDir = join(appRoot, "src", "app", "notes")
     await mkdir(routeDir, { recursive: true })
     await writeFile(join(routeDir, "index.ts"), "export const agent = {}\n")
@@ -129,7 +129,7 @@ describe("dawn memory", () => {
       ].join("\n"),
     )
 
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     // Same subject, different predicate+value: contradicts under identity
     // ["subject"] but would be a plain ADD under the default [subject, predicate].
     await store.put({
@@ -165,13 +165,13 @@ describe("dawn memory", () => {
     // A broken memory.ts must NOT silently fall back to default identity keys
     // (wrong keys could miss or mis-target a supersede).
     const appRoot = await makeApp()
-    await writeFile(join(appRoot, "dawn.config.ts"), "export default {}\n")
+    await writeFile(join(appRoot, "b4.config.ts"), "export default {}\n")
     const routeDir = join(appRoot, "src", "app", "notes")
     await mkdir(routeDir, { recursive: true })
     await writeFile(join(routeDir, "index.ts"), "export const agent = {}\n")
     await writeFile(join(routeDir, "memory.ts"), "export default {{{ not valid ts\n")
 
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     await store.put({
       ...baseRecord,
       id: "old",
@@ -198,7 +198,7 @@ describe("dawn memory", () => {
 
   it("approve dedupes an identical-data candidate", async () => {
     const appRoot = await makeApp()
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     await store.put({
       ...baseRecord,
       id: "old",
@@ -226,7 +226,7 @@ describe("dawn memory", () => {
 
   it("forget hard-deletes a record", async () => {
     const appRoot = await makeApp()
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     await store.put(baseRecord)
 
     const io = { stdout: () => {}, stderr: () => {} }
@@ -237,7 +237,7 @@ describe("dawn memory", () => {
 
   it("search filters by query substring in content/namespace", async () => {
     const appRoot = await makeApp()
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     await store.put(baseRecord)
     await store.put({
       ...baseRecord,
@@ -260,7 +260,7 @@ describe("dawn memory", () => {
 
   it("inspect prints full JSON for a record", async () => {
     const appRoot = await makeApp()
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     await store.put(baseRecord)
 
     const lines: string[] = []
@@ -278,7 +278,7 @@ describe("dawn memory", () => {
 
   it("reject deletes a candidate record", async () => {
     const appRoot = await makeApp()
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     await store.put(baseRecord)
 
     const io = { stdout: () => {}, stderr: () => {} }
@@ -289,7 +289,7 @@ describe("dawn memory", () => {
 
   it("prune deletes expired rows and reports counts", async () => {
     const appRoot = await makeApp()
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     await store.put({
       ...baseRecord,
       id: "expired",
@@ -320,7 +320,7 @@ describe("dawn memory", () => {
 
   it("prune --cap enforces the episodic cap", async () => {
     const appRoot = await makeApp()
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     for (let i = 1; i <= 4; i++) {
       await store.put({
         ...baseRecord,
@@ -348,13 +348,13 @@ describe("dawn memory", () => {
 
   it("prune without --cap defaults to the resolved memory.episodes.cap", async () => {
     const appRoot = await makeApp()
-    // Configure a cap of 2; `dawn memory prune` (no --cap) must enforce it —
+    // Configure a cap of 2; `b4 memory prune` (no --cap) must enforce it —
     // the docs promise the default retention pass applies the configured cap.
     await writeFile(
-      join(appRoot, "dawn.config.ts"),
+      join(appRoot, "b4.config.ts"),
       "export default { memory: { episodes: { cap: 2 } } }\n",
     )
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     for (let i = 1; i <= 4; i++) {
       await store.put({
         ...baseRecord,
@@ -410,7 +410,7 @@ describe("dawn memory", () => {
 
   it("consolidate is a no-op with nothing to do", async () => {
     const appRoot = await makeApp()
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     // One episode is below the default minBatchSize (5) → no batch qualifies.
     await store.put(episode("e1", 7))
 
@@ -430,13 +430,13 @@ describe("dawn memory", () => {
     const appRoot = await makeApp()
     // An unsupported provider makes model construction throw a loud, actionable
     // error — so a clean exit here PROVES the no-op path never resolved a
-    // provider or built a chat model. `dawn memory consolidate` must be safe to
+    // provider or built a chat model. `b4 memory consolidate` must be safe to
     // put in cron on a machine with no API key.
     await writeFile(
-      join(appRoot, "dawn.config.ts"),
+      join(appRoot, "b4.config.ts"),
       'export default { memory: { distill: { provider: "definitely-not-a-provider" } } }\n',
     )
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     await store.put(episode("e1", 7))
 
     const lines: string[] = []
@@ -453,10 +453,10 @@ describe("dawn memory", () => {
   it("consolidate DOES construct a model when there is work (bad provider surfaces)", async () => {
     const appRoot = await makeApp()
     await writeFile(
-      join(appRoot, "dawn.config.ts"),
+      join(appRoot, "b4.config.ts"),
       'export default { memory: { distill: { provider: "definitely-not-a-provider" } } }\n',
     )
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     for (const day of [6, 7, 8, 9, 10]) await store.put(episode(`e${day}`, day))
 
     const io = { stdout: () => {}, stderr: () => {} }
@@ -491,8 +491,8 @@ describe("dawn memory", () => {
 
   async function appWithWork(config?: string): Promise<string> {
     const appRoot = await makeApp()
-    if (config !== undefined) await writeFile(join(appRoot, "dawn.config.ts"), config)
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    if (config !== undefined) await writeFile(join(appRoot, "b4.config.ts"), config)
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     for (const day of [6, 7, 8, 9, 10]) await store.put(episode(`e${day}`, day))
     return appRoot
   }
@@ -560,7 +560,7 @@ describe("dawn memory", () => {
 
   it("consolidate --dry-run prints batches without writing", async () => {
     const appRoot = await makeApp()
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     for (const day of [6, 7, 8, 9, 10]) await store.put(episode(`e${day}`, day))
 
     const lines: string[] = []
@@ -582,7 +582,7 @@ describe("dawn memory", () => {
 
   it("reflect is a no-op below the threshold", async () => {
     const appRoot = await makeApp()
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     // One record is far below the default minNewRecords (10).
     await store.put(episode("e1", 7))
 
@@ -621,7 +621,7 @@ describe("dawn memory", () => {
 
   it("consolidate --namespace scopes the pass", async () => {
     const appRoot = await makeApp()
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn/memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4/memory.sqlite") })
     for (const day of [6, 7, 8, 9, 10]) {
       await store.put({ ...episode(`b${day}`, day), namespace: "ws=app|route=/other" })
     }

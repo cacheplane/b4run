@@ -1,5 +1,233 @@
 # @dawn-ai/core
 
+## 0.8.29
+
+### Patch Changes
+
+- Updated dependencies [481489e]
+  - @b4run/sdk@0.8.29
+  - @b4run/permissions@0.8.29
+  - @b4run/workspace@0.8.29
+  - @b4run/sqlite-storage@0.8.29
+
+## 0.8.28
+
+### Patch Changes
+
+- Updated dependencies [39ceb2e]
+  - @b4run/sdk@0.8.28
+  - @b4run/permissions@0.8.28
+  - @b4run/workspace@0.8.28
+  - @b4run/sqlite-storage@0.8.28
+
+## 0.8.27
+
+### Patch Changes
+
+- Updated dependencies [b05b96d]
+  - @b4run/sdk@0.8.27
+  - @b4run/permissions@0.8.27
+  - @b4run/workspace@0.8.27
+  - @b4run/sqlite-storage@0.8.27
+
+## 0.8.26
+
+### Patch Changes
+
+- c7fd197: Add `server.cors`, off by default.
+
+  A Dawn server sends no `Access-Control-*` header unless `dawn.config.ts` sets
+  `server.cors`. With the block absent the runtime answers exactly as it did
+  before — no header on any response, and `OPTIONS` still falling through the
+  route table to its 404. Opening a server to other origins is a deployment
+  decision, so nothing is inferred.
+
+  ```ts
+  server: {
+    cors: {
+      origins: ["https://app.example.com"];
+    }
+  }
+  ```
+
+  Set it when a browser client talks to Dawn directly rather than through a
+  same-origin proxy. Origins are compared exactly after normalizing case and a
+  trailing slash; note that `localhost` and `127.0.0.1` are different origins to
+  a browser, so list both if your dev client may be opened at either.
+
+  Every response carries the headers, including error responses and the shutdown
+  503 — a browser that cannot read a 404 reports an opaque CORS failure instead,
+  which is the most confusing way to debug this. A request from an origin that
+  is not on the list is still served normally and simply carries no CORS header;
+  answering 403 there would break non-browser clients that happen to send an
+  `Origin`. A preflight from a disallowed origin does get a 403.
+
+  The policy is validated once at boot, so a malformed origin list fails on
+  startup rather than on the first cross-origin request. `origins: "*"` combined
+  with `credentials: true` is rejected outright: browsers refuse a wildcard
+  allow-origin on a credentialed request, so accepting it would produce a server
+  that looks configured and fails only in the console.
+
+  Defaults for the rest: `credentials` false; `methods` `GET, POST, DELETE,
+OPTIONS`; `headers` echoes the browser's own `Access-Control-Request-Headers`;
+  `exposeHeaders` empty; `maxAgeSeconds` 600.
+
+  CORS controls which origins a browser will let read a response. It does not
+  decide who may call the server — pair it with `defineThreadAccess`.
+
+  - @dawn-ai/permissions@0.8.26
+  - @dawn-ai/sdk@0.8.26
+  - @dawn-ai/sqlite-storage@0.8.26
+  - @dawn-ai/workspace@0.8.26
+
+## 0.8.25
+
+### Patch Changes
+
+- @dawn-ai/permissions@0.8.25
+- @dawn-ai/sdk@0.8.25
+- @dawn-ai/sqlite-storage@0.8.25
+- @dawn-ai/workspace@0.8.25
+
+## 0.8.24
+
+### Patch Changes
+
+- @dawn-ai/permissions@0.8.24
+- @dawn-ai/sdk@0.8.24
+- @dawn-ai/sqlite-storage@0.8.24
+- @dawn-ai/workspace@0.8.24
+
+## 0.8.23
+
+### Patch Changes
+
+- 7e62bb1: Refresh the GitHub and npm documentation surfaces, add package discovery
+  metadata, and introduce reproducible product-loop media. No runtime API changed.
+- Updated dependencies [7e62bb1]
+  - @dawn-ai/permissions@0.8.23
+  - @dawn-ai/sdk@0.8.23
+  - @dawn-ai/sqlite-storage@0.8.23
+  - @dawn-ai/workspace@0.8.23
+
+## 0.8.22
+
+### Patch Changes
+
+- a530e70: Documentation only: this package gains a canonical API reference on dawnai.org
+  and a concise npm entrypoint. No runtime behavior changed. (`dawn docs` also
+  now discovers every registered detailed API page.)
+- 8398c90: `BrowseQuery` grows a real query language, and `BrowsePage` grows a continuation.
+
+  **Breaking for anyone who implements `MemoryStore` themselves.** `BrowsePage.continuation`
+  is required, and `browse` must now honor `filters`, `namespace`, `orderBy` and `cursor`.
+  Run `runMemoryStoreConformance` from `@dawn-ai/testing`: it is the definition of the new
+  obligations, and it runs against SQLite in-process and against a real Postgres behind
+  `DAWN_TEST_PGVECTOR=1`. Both bundled stores are updated.
+
+  New on `BrowseQuery`:
+
+  - `filters` — AND-combined normalized predicates, at most one per field and eight in
+    total: `status`/`kind` (`in`/`notIn`), `content`
+    (`contains`/`notContains`/`equals`/`notEquals`/`startsWith`/`endsWith`, case-insensitive
+    substring — not LIKE, so `%` and `_` are literal), `namespace` (`equals`/`startsWith`,
+    byte-exact), `confidence` (comparisons plus an inclusive `between`), and `updatedAt`
+    (`onDay`/`beforeDay`/`afterDay`/`betweenDays` over UTC day buckets).
+  - `namespace` — an EXACT namespace, distinct from the prefix. `namespacePrefix` keeps its
+    byte-exact semantics and is now a sargable range instead of a `substr()` scan.
+  - `orderBy` — up to three entries over a closed whitelist
+    (`updatedAt`/`createdAt`/`confidence`/`namespace`/`kind`/`status`), always terminated by
+    an `id` tie-break so every window is deterministic. Absent or empty is still
+    `updated_at DESC`.
+  - `cursor` — an opaque keyset continuation. It carries a fingerprint of the query that
+    issued it, so replaying it against a different filter or sort is rejected rather than
+    silently answering the wrong question.
+
+  `BrowsePage.total` is now read from the same transaction snapshot as `records` (SQLite
+  `BEGIN DEFERRED`, Postgres `REPEATABLE READ`), so a response can no longer report rows and
+  a count from two different versions of the table. It remains the size of the whole
+  matching set, never what is left after a cursor.
+
+  `validateBrowseQuery` is exported (also from the pure `@dawn-ai/memory/browse` subpath,
+  which never pulls `node:sqlite`). Both stores run it defensively and throw; the Inspector's
+  list route runs it at the HTTP boundary and returns 400. An unknown enum value used to
+  match zero rows and look like an empty dataset — now it is an error. `limit` is bounded to
+  1..1000 at the HTTP boundary only; in-process callers such as the CLI's consolidation scan
+  are unaffected.
+
+  `@dawn-ai/core`'s structural mirror is now the named `BrowseQueryLike` / `BrowsePageLike`
+  (plus `BrowseFilterLike` / `BrowseSortEntryLike`), compared directly by the contract-parity
+  tripwire. The previous inline shape drifted silently because method parameters are checked
+  bivariantly.
+
+  Both backends gain an index on the global browse order (`updated_at DESC, id ASC`);
+  Postgres also gains a C-collated namespace index so the prefix range is sargable there.
+
+- 3c68800: **Correction: the edge quickstart named the wrong module manifest, and
+  `providerPackages` is not exported from `@dawn-ai/cli/fetch`.**
+
+  Two errata against the docs and changelog that shipped with the `hono` build
+  target. `dawn docs` carries the fixes.
+
+  - **The `@dawn-ai/cli/fetch` snippet under _Edge runtimes_ imported
+    `./.dawn/build/modules.mjs`.** That is the `node` target's manifest: it reaches
+    `node:path`, `node:url` and `@dawn-ai/cli/runtime`, which pulls in tsx and
+    esbuild. Bundled the way `wrangler` bundles — browser platform, Workers export
+    conditions — it fails on fourteen unresolved builtins, several of them bare
+    (`fs`, `child_process`), so `nodejs_compat` would not have rescued it either.
+    The snippet now names `modules.edge.mjs`, which is what the generated
+    `app.mjs` already imported. A new ungated test reads that snippet out of the
+    docs page and bundles it under those exact conditions, so the two cannot drift
+    again; a negative control bundles the `node` manifest and requires it to fail.
+
+  - **The same section said the fetch entry and the `hono` target could each be
+    used "on its own".** `modules.edge.mjs` is emitted only by the `hono` target,
+    so the fetch entry alone leaves you with no edge-safe manifest. The two are
+    layered, not alternatives: enable `hono`, then compose the pieces it writes
+    however you like. Hand-building the manifest remains possible via the exported
+    `buildStaticRouteModule` and `DawnStaticModules`, and the docs now say so
+    instead of implying the target is optional.
+
+  - **The `0.8.21` changelog entry said `seedModelImporter` and `providerPackages`
+    are re-exported from `@dawn-ai/cli/fetch`.** Only `seedModelImporter` is.
+    `providerPackages` maps a provider id to its package name — a build-time
+    lookup the `hono` target uses to generate the static import switch, and of no
+    use to a runtime that needs real static imports rather than package names. It
+    is staying where it is rather than being added to the edge entry to make the
+    sentence true; it remains public from `@dawn-ai/langchain` for anyone writing
+    an import map by hand. Published changelogs are not being rewritten — this is
+    the correction.
+
+- 908d690: Carry the model's tool-call ID from a tool execution into the capability
+  stream: `StreamTransformerInput` gains an optional `toolCallId`, and the
+  planning capability echoes it as `tool_call_id` on `plan_update`. Child
+  capability events keep their subagent's tool-call ID internal. This is the
+  correlation plumbing behind presenting built-in orchestration work once; the
+  presentation change that consumes it ships in this same release.
+- d42774e: **Breaking:** scenario files must default export `scenarios("<route>")` from
+  `@dawn-ai/sdk/testing`. A plain default-exported array now throws
+  `RunScenarioLoadError` at load; wrap the array in `scenarios("/route")` to
+  migrate.
+
+  Add route-scoped fluent `dawn test` scenarios with generated application-tool
+  types, invocation-local in-process tool mocks, and declarative mock call
+  assertions.
+
+- Updated dependencies [bedad77]
+- Updated dependencies [a530e70]
+- Updated dependencies [3c68800]
+- Updated dependencies [f317dd7]
+- Updated dependencies [3c68800]
+- Updated dependencies [d42774e]
+- Updated dependencies [984c3ad]
+- Updated dependencies [496b54c]
+- Updated dependencies [67030fa]
+- Updated dependencies [730b136]
+  - @dawn-ai/permissions@0.8.22
+  - @dawn-ai/workspace@0.8.22
+  - @dawn-ai/sqlite-storage@0.8.22
+  - @dawn-ai/sdk@0.8.22
+
 ## 0.8.21
 
 ### Patch Changes

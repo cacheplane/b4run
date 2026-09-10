@@ -1,5 +1,5 @@
 "use client"
-import type { MemoryKind, MemoryRecord, MemoryStatus } from "@dawn-ai/memory"
+import type { MemoryKind, MemoryRecord, MemoryStatus } from "@b4run/memory"
 import {
   type ColumnFilter,
   type PretableColumn,

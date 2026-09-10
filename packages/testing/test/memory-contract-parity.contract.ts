@@ -1,5 +1,5 @@
-// Compile-time tripwire: @dawn-ai/core's structural MemoryStoreLike (config-facing)
-// and @dawn-ai/memory's MemoryStore (runtime contract) must stay in lockstep. Core
+// Compile-time tripwire: @b4run/core's structural MemoryStoreLike (config-facing)
+// and @b4run/memory's MemoryStore (runtime contract) must stay in lockstep. Core
 // cannot import memory (node:sqlite barrel), so the duplicated literal unions live in
 // both packages — this file is where drift fails LOCALLY and legibly instead of as an
 // assignability wall in resolve-memory.ts.
@@ -12,7 +12,7 @@ import type {
   MemorySourceTypeLike,
   MemoryStatusLike,
   MemoryStoreLike,
-} from "@dawn-ai/core"
+} from "@b4run/core"
 import type {
   BrowseFilter,
   BrowsePage,
@@ -22,7 +22,7 @@ import type {
   MemorySource,
   MemoryStatus,
   MemoryStore,
-} from "@dawn-ai/memory"
+} from "@b4run/memory"
 
 type Mutual<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never
 

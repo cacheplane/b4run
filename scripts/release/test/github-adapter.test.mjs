@@ -1,43 +1,276 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { Worker } from "node:worker_threads"
 
 import { createGitHubReader } from "../adapters/github.mjs"
 
-const OWNER = "dawn-ai"
-const REPO = "dawn"
+const OWNER = "b4run"
+const REPO = "b4"
 const TOKEN = "github_secret_token"
 const SHA = "0123456789abcdef0123456789abcdef01234567"
-const BASE = "https://api.github.com/repos/dawn-ai/dawn"
+const BASE = "https://api.github.com/repos/b4run/b4"
+const REPOSITORY_ID = "1210070282"
 const ALLOWED_METHODS = [
   "downloadActionsArtifact",
   "downloadReleaseAsset",
+  "getActionsArtifact",
   "getActionsPermissions",
   "getActionsRun",
+  "getActionsRunAttempt",
   "getAttestations",
+  "getAuthenticatedUser",
   "getBranchProtection",
   "getCommitCheckRuns",
+  "getGitTag",
   "getRef",
+  "getRelease",
   "getReleaseByTag",
+  "getRepository",
   "getWorkflow",
+  "getWorkflowById",
   "getWorkflowPermissions",
+  "getWorkflowRunApprovals",
   "listActionsArtifacts",
+  "listActionsRunArtifacts",
+  "listActionsRunJobs",
+  "listActionsRunJobsComplete",
   "listEnvironments",
   "listReleaseAssets",
+  "listReleases",
+  "listRepositoryWorkflowsComplete",
   "listTagRefs",
   "listWorkflowRuns",
+  "listWorkflowRunsAllShasComplete",
 ]
+
+test("GitHub reads the exact protected-environment approval history for one workflow run", async () => {
+  const approvals = [
+    {
+      state: "approved",
+      comment: "Abandon candidate",
+      environments: [{ id: 161_088_068, name: "release-abandonment" }],
+      user: { id: 9_001, login: "release-reviewer" },
+    },
+  ]
+  const { fetchImpl, calls } = recordingFetch([jsonResponse(approvals)])
+  const github = createGitHubReader({ owner: OWNER, repo: REPO, token: TOKEN, fetchImpl })
+
+  assert.deepEqual(await github.getWorkflowRunApprovals({ runId: 55 }), {
+    status: "PRESENT",
+    operation: "workflow-run-approvals",
+    httpStatus: 200,
+    code: null,
+    value: approvals,
+  })
+  assert.deepEqual(
+    calls.map(({ url, init }) => [url, init.method]),
+    [[`${BASE}/actions/runs/55/approvals`, "GET"]],
+  )
+})
+
+test("GitHub exact-run reads expose annotated tags, Releases, artifacts, and every job attempt", async () => {
+  const nextJobs = `${BASE}/actions/runs/55/jobs?filter=all&per_page=100&page=2`
+  const { fetchImpl, calls } = recordingFetch([
+    jsonResponse({ id: 55, run_attempt: 2, head_sha: SHA }),
+    jsonResponse({ object: { type: "commit", sha: SHA }, sha: "a".repeat(40), tag: "v0.8.22" }),
+    jsonResponse({ id: 44, draft: true, tag_name: "v0.8.22" }),
+    jsonResponse({ artifacts: [{ id: 9, name: "result" }] }),
+    jsonResponse(
+      {
+        jobs: [
+          {
+            id: 30,
+            run_attempt: 2,
+            name: "prepare",
+            status: "completed",
+            conclusion: "success",
+            started_at: "2026-08-24T00:02:00Z",
+            completed_at: "2026-08-24T00:03:00Z",
+          },
+        ],
+      },
+      200,
+      linkHeader(nextJobs),
+    ),
+    jsonResponse({
+      jobs: [
+        {
+          id: 20,
+          run_attempt: 1,
+          name: "publish-npm",
+          status: "completed",
+          conclusion: "failure",
+          started_at: "2026-08-24T00:00:00Z",
+          completed_at: "2026-08-24T00:01:00Z",
+        },
+      ],
+    }),
+  ])
+  const github = createGitHubReader({ owner: OWNER, repo: REPO, fetchImpl })
+
+  assert.equal((await github.getActionsRunAttempt({ runId: 55, attempt: 2 })).value.run_attempt, 2)
+  assert.equal((await github.getGitTag({ tagSha: "a".repeat(40) })).value.tag, "v0.8.22")
+  assert.equal((await github.getRelease({ releaseId: 44 })).value.id, 44)
+  assert.deepEqual((await github.listActionsRunArtifacts({ runId: 55 })).value, [
+    { id: 9, name: "result" },
+  ])
+  assert.deepEqual((await github.listActionsRunJobs({ runId: 55 })).value, [
+    {
+      id: 20,
+      runAttempt: 1,
+      name: "publish-npm",
+      status: "completed",
+      conclusion: "failure",
+      startedAt: "2026-08-24T00:00:00Z",
+      completedAt: "2026-08-24T00:01:00Z",
+    },
+    {
+      id: 30,
+      runAttempt: 2,
+      name: "prepare",
+      status: "completed",
+      conclusion: "success",
+      startedAt: "2026-08-24T00:02:00Z",
+      completedAt: "2026-08-24T00:03:00Z",
+    },
+  ])
+  assert.deepEqual(
+    calls.map(({ url }) => url),
+    [
+      `${BASE}/actions/runs/55/attempts/2`,
+      `${BASE}/git/tags/${"a".repeat(40)}`,
+      `${BASE}/releases/44`,
+      `${BASE}/actions/runs/55/artifacts?per_page=100`,
+      `${BASE}/actions/runs/55/jobs?filter=all&per_page=100`,
+      nextJobs,
+    ],
+  )
+})
+
+test("GitHub all-attempt jobs fail closed on gaps, duplicates, or malformed attempt identity", async () => {
+  const cases = [
+    [
+      {
+        id: 1,
+        run_attempt: 1,
+        name: "prepare",
+        status: "completed",
+        conclusion: "success",
+        started_at: null,
+        completed_at: null,
+      },
+      {
+        id: 3,
+        run_attempt: 3,
+        name: "prepare",
+        status: "completed",
+        conclusion: "success",
+        started_at: null,
+        completed_at: null,
+      },
+    ],
+    [
+      {
+        id: 1,
+        run_attempt: 1,
+        name: "prepare",
+        status: "completed",
+        conclusion: "success",
+        started_at: null,
+        completed_at: null,
+      },
+      {
+        id: 1,
+        run_attempt: 1,
+        name: "prepare",
+        status: "completed",
+        conclusion: "success",
+        started_at: null,
+        completed_at: null,
+      },
+    ],
+    [
+      {
+        id: 1,
+        name: "prepare",
+        status: "completed",
+        conclusion: "success",
+        started_at: null,
+        completed_at: null,
+      },
+    ],
+  ]
+  for (const jobs of cases) {
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      fetchImpl: async () => jsonResponse({ jobs }),
+    })
+    const result = await github.listActionsRunJobs({ runId: 55 })
+    assert.equal(result.status, "ERROR")
+    assert.match(result.code, /ATTEMPT|DUPLICATE|MALFORMED/u)
+  }
+})
+
+test("GitHub all-attempt coverage rejects a max-safe sparse attempt in bounded time", async () => {
+  const moduleUrl = new URL("../adapters/github.mjs", import.meta.url).href
+  const source = `
+    const { parentPort } = require("node:worker_threads")
+    ;(async () => {
+      const { createGitHubReader } = await import(${JSON.stringify(moduleUrl)})
+      const github = createGitHubReader({
+        owner: "b4run",
+        repo: "b4",
+        fetchImpl: async () => new Response(JSON.stringify({
+          jobs: [{
+            id: 1,
+            run_attempt: Number.MAX_SAFE_INTEGER,
+            name: "prepare",
+            status: "completed",
+            conclusion: "success",
+            started_at: null,
+            completed_at: null,
+          }],
+        }), { status: 200, headers: { "content-type": "application/json" } }),
+      })
+      parentPort.postMessage(await github.listActionsRunJobs({ runId: 55 }))
+    })().catch((error) => parentPort.postMessage({ workerError: error.message }))
+  `
+  const worker = new Worker(source, { eval: true })
+  let timer
+  try {
+    const result = await Promise.race([
+      new Promise((resolve, reject) => {
+        worker.once("message", resolve)
+        worker.once("error", reject)
+      }),
+      new Promise((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error("attempt coverage exceeded time bound")), 1_000)
+      }),
+    ])
+    assert.equal(result.workerError, undefined)
+    assert.equal(result.status, "ERROR")
+    assert.equal(result.code, "ATTEMPT_COVERAGE_INCOMPLETE")
+  } finally {
+    clearTimeout(timer)
+    await worker.terminate()
+  }
+})
 
 test("createGitHubReader exposes only named read operations and exact GET endpoints", async () => {
   const { fetchImpl, calls } = recordingFetch([
     jsonResponse({ check_runs: [] }),
     jsonResponse({ ref: "refs/tags/v0.8.21", object: { sha: SHA } }),
     jsonResponse({ id: 7, tag_name: "v0.8.21" }),
+    jsonResponse([{ id: 8, tag_name: "v0.8.22", draft: true }]),
+    jsonResponse({ id: 8, name: "release-v0.8.22", expired: false }),
     jsonResponse({ id: 9, head_sha: SHA }),
     jsonResponse({ attestations: [] }),
     jsonResponse({ id: 12, path: ".github/workflows/release.yml" }),
     jsonResponse({ enabled_repositories: "all" }),
     jsonResponse({ default_workflow_permissions: "read", can_approve_pull_request_reviews: false }),
     jsonResponse({ required_status_checks: {} }),
+    jsonResponse({ login: "blove", id: 1 }),
   ])
   const github = createGitHubReader({ owner: OWNER, repo: REPO, token: TOKEN, fetchImpl })
 
@@ -45,12 +278,15 @@ test("createGitHubReader exposes only named read operations and exact GET endpoi
   await github.getCommitCheckRuns({ commitSha: SHA })
   await github.getRef({ ref: "tags/v0.8.21" })
   await github.getReleaseByTag({ tag: "v0.8.21" })
+  await github.listReleases()
+  await github.getActionsArtifact({ artifactId: 8 })
   await github.getActionsRun({ runId: 9 })
   await github.getAttestations({ subjectDigest: `sha256:${"a".repeat(64)}` })
   await github.getWorkflow({ workflow: "release.yml" })
   await github.getActionsPermissions()
   await github.getWorkflowPermissions()
   await github.getBranchProtection({ branch: "release/0.8" })
+  await github.getAuthenticatedUser()
 
   assert.deepEqual(
     calls.map(({ url, init }) => ({
@@ -65,12 +301,15 @@ test("createGitHubReader exposes only named read operations and exact GET endpoi
       `${BASE}/commits/${SHA}/check-runs?per_page=100`,
       `${BASE}/git/ref/tags%2Fv0.8.21`,
       `${BASE}/releases/tags/v0.8.21`,
+      `${BASE}/releases?per_page=100`,
+      `${BASE}/actions/artifacts/8`,
       `${BASE}/actions/runs/9`,
       `${BASE}/attestations/sha256%3A${"a".repeat(64)}?per_page=100`,
       `${BASE}/actions/workflows/release.yml`,
       `${BASE}/actions/permissions`,
       `${BASE}/actions/permissions/workflow`,
       `${BASE}/branches/release%2F0.8/protection`,
+      "https://api.github.com/user",
     ].map((url) => ({
       url,
       method: "GET",
@@ -82,12 +321,28 @@ test("createGitHubReader exposes only named read operations and exact GET endpoi
   )
 })
 
+test("GitHub tokens cannot be sent to a configurable API origin", () => {
+  assert.throws(
+    () =>
+      createGitHubReader({
+        owner: OWNER,
+        repo: REPO,
+        token: TOKEN,
+        apiOrigin: "https://attacker.invalid",
+      }),
+    /API origin|token|trusted/iu,
+  )
+})
+
 test("GitHub list methods follow same-origin pagination and return stable records", async () => {
   const nextTags = `${BASE}/git/matching-refs/tags/?per_page=100&page=2`
+  const nextReleases = `${BASE}/releases?per_page=100&page=2`
   const nextArtifacts = `${BASE}/actions/artifacts?per_page=100&name=release-evidence&page=2`
   const { fetchImpl, calls } = recordingFetch([
     jsonResponse([{ ref: "refs/tags/v2" }], 200, linkHeader(nextTags)),
     jsonResponse([{ ref: "refs/tags/v1" }]),
+    jsonResponse([{ id: 20, tag_name: "v2" }], 200, linkHeader(nextReleases)),
+    jsonResponse([{ id: 10, tag_name: "v1" }]),
     jsonResponse({ artifacts: [{ id: 20, name: "z" }] }, 200, linkHeader(nextArtifacts)),
     jsonResponse({ artifacts: [{ id: 10, name: "a" }] }),
     jsonResponse([
@@ -102,6 +357,10 @@ test("GitHub list methods follow same-origin pagination and return stable record
   assert.deepEqual((await github.listTagRefs()).value, [
     { ref: "refs/tags/v1" },
     { ref: "refs/tags/v2" },
+  ])
+  assert.deepEqual((await github.listReleases()).value, [
+    { id: 10, tag_name: "v1" },
+    { id: 20, tag_name: "v2" },
   ])
   assert.deepEqual((await github.listActionsArtifacts({ name: "release-evidence" })).value, [
     { id: 10, name: "a" },
@@ -124,6 +383,8 @@ test("GitHub list methods follow same-origin pagination and return stable record
     [
       [`${BASE}/git/matching-refs/tags/?per_page=100`, "GET"],
       [nextTags, "GET"],
+      [`${BASE}/releases?per_page=100`, "GET"],
+      [nextReleases, "GET"],
       [`${BASE}/actions/artifacts?per_page=100&name=release-evidence`, "GET"],
       [nextArtifacts, "GET"],
       [`${BASE}/releases/7/assets?per_page=100`, "GET"],
@@ -158,7 +419,7 @@ test("GitHub download methods return JSON-safe base64 without exposing response 
     calls.map(({ url, init }) => [url, init.method, init.headers.Accept]),
     [
       [`${BASE}/releases/assets/7`, "GET", "application/octet-stream"],
-      [`${BASE}/actions/artifacts/8/zip`, "GET", "application/octet-stream"],
+      [`${BASE}/actions/artifacts/8/zip`, "GET", "application/vnd.github+json"],
     ],
   )
 })
@@ -194,7 +455,7 @@ test("GitHub downloads follow one approved signed redirect without forwarding AP
       {
         url: `${BASE}/actions/artifacts/8/zip`,
         headers: {
-          Accept: "application/octet-stream",
+          Accept: "application/vnd.github+json",
           Authorization: `Bearer ${TOKEN}`,
           "X-GitHub-Api-Version": "2022-11-28",
         },
@@ -282,6 +543,17 @@ test("GitHub download redirect hops share one deadline and one byte budget", asy
     ]).fetchImpl,
   })
   assert.equal((await oversized.downloadReleaseAsset({ assetId: 7 })).code, "OPERATION_TOO_LARGE")
+
+  const oversizedActions = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    maxResponseBytes: 4,
+    fetchImpl: recordingFetch([binaryResponse(new Uint8Array([1, 2]))]).fetchImpl,
+  })
+  assert.equal(
+    (await oversizedActions.downloadActionsArtifact({ artifactId: 8, maximumBytes: 1 })).code,
+    "OPERATION_TOO_LARGE",
+  )
 })
 
 test("GitHub canonicalization rejects unsafe remote keys without prototype mutation or secrets", async () => {
@@ -395,7 +667,7 @@ test("GitHub distinguishes exact absence from auth, rate, network, parse, and se
   }
 })
 
-test("GitHub raw 404 stays ambiguous for every named resource family", async () => {
+test("GitHub completed 404 stays ambiguous for every named resource family", async () => {
   const calls = [
     (github) => github.getRef({ ref: "tags/v0.8.21" }),
     (github) => github.getReleaseByTag({ tag: "v0.8.21" }),
@@ -413,7 +685,13 @@ test("GitHub raw 404 stays ambiguous for every named resource family", async () 
       owner: OWNER,
       repo: REPO,
       token: TOKEN,
-      fetchImpl: async () => jsonResponse({ message: "resource hidden by authorization" }, 404),
+      fetchImpl: async (_url, options) =>
+        options.headers.Accept === "application/octet-stream"
+          ? new Response("resource hidden by authorization", {
+              status: 404,
+              headers: { "content-type": "application/octet-stream" },
+            })
+          : jsonResponse({ message: "resource hidden by authorization" }, 404),
     })
     const result = await call(github)
     assert.equal(result.status, "AMBIGUOUS")
@@ -523,6 +801,46 @@ test("GitHub pagination preserves exact endpoint and fixed filters", async () =>
   }
 })
 
+test("GitHub pagination follows only the exact bound numeric-repository route", async () => {
+  const canonicalNext = `https://api.github.com/repositories/${REPOSITORY_ID}/releases?per_page=100&page=2`
+  const recording = recordingFetch([
+    jsonResponse([{ id: 2, name: "second" }], 200, linkHeader(canonicalNext)),
+    jsonResponse([{ id: 1, name: "first" }]),
+  ])
+
+  const result = await createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    repositoryId: REPOSITORY_ID,
+    fetchImpl: recording.fetchImpl,
+  }).listReleases()
+
+  assert.deepEqual(result.value, [
+    { id: 1, name: "first" },
+    { id: 2, name: "second" },
+  ])
+  assert.deepEqual(
+    recording.calls.map(({ url }) => url),
+    [`${BASE}/releases?per_page=100`, `${BASE}/releases?per_page=100&page=2`],
+  )
+
+  for (const repositoryId of [undefined, "999"]) {
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      ...(repositoryId === undefined ? {} : { repositoryId }),
+      fetchImpl: async () =>
+        jsonResponse([{ id: 2, name: "second" }], 200, linkHeader(canonicalNext)),
+    })
+    assert.deepEqual(await github.listReleases(), {
+      status: "ERROR",
+      operation: "releases",
+      httpStatus: 200,
+      code: "UNSAFE_PAGINATION_URL",
+    })
+  }
+})
+
 test("GitHub pagination enforces total page and record limits", async () => {
   const next = `${BASE}/git/matching-refs/tags/?per_page=100&page=2`
   const pageLimited = createGitHubReader({
@@ -549,6 +867,22 @@ test("GitHub pagination enforces total page and record limits", async () => {
     operation: "tag-refs",
     httpStatus: 200,
     code: "RECORD_LIMIT_EXCEEDED",
+  })
+})
+
+test("GitHub pagination rejects a repeated next-page URL as ambiguous", async () => {
+  const next = `${BASE}/git/matching-refs/tags/?per_page=100&page=2`
+  const repeated = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    fetchImpl: async () => jsonResponse([{ ref: "refs/tags/v1" }], 200, linkHeader(next)),
+  })
+
+  assert.deepEqual(await repeated.listTagRefs(), {
+    status: "ERROR",
+    operation: "tag-refs",
+    httpStatus: 200,
+    code: "PAGINATION_LOOP",
   })
 })
 
@@ -713,8 +1047,8 @@ test("GitHub attestation pagination rejects another subject endpoint", async () 
 test("GitHub validates repository identity and every dynamic argument before fetching", () => {
   for (const identity of [
     { owner: "", repo: REPO },
-    { owner: "../dawn-ai", repo: REPO },
-    { owner: OWNER, repo: "dawn/repo" },
+    { owner: "../b4run", repo: REPO },
+    { owner: OWNER, repo: "b4/repo" },
     { owner: OWNER, repo: "--help" },
   ]) {
     assert.throws(
@@ -727,6 +1061,12 @@ test("GitHub validates repository identity and every dynamic argument before fet
       createGitHubReader({ owner: OWNER, repo: REPO, token: "bad\ntoken", fetchImpl: assert.fail }),
     /token/u,
   )
+  for (const repositoryId of [0, "0", "01", "not-an-id"]) {
+    assert.throws(
+      () => createGitHubReader({ owner: OWNER, repo: REPO, repositoryId, fetchImpl: assert.fail }),
+      /ID/u,
+    )
+  }
 
   const github = createGitHubReader({ owner: OWNER, repo: REPO, fetchImpl: assert.fail })
   assert.throws(() => github.getCommitCheckRuns({ commitSha: "main" }), /commit SHA/u)
@@ -765,7 +1105,7 @@ test("GitHub rejects oversized identity and operation inputs before parsing or f
 
 test("GitHub validation errors never echo control characters", () => {
   assert.throws(
-    () => createGitHubReader({ owner: "dawn\nforged", repo: REPO, fetchImpl: assert.fail }),
+    () => createGitHubReader({ owner: "b4\nforged", repo: REPO, fetchImpl: assert.fail }),
     errorWithoutControls,
   )
   const github = createGitHubReader({ owner: OWNER, repo: REPO, fetchImpl: assert.fail })
@@ -978,3 +1318,453 @@ function errorWithoutControls(error) {
     return codePoint <= 31 || codePoint === 127
   })
 }
+
+test("GitHub preserves body transport failure provenance before transient HTTP classification", async () => {
+  for (const status of [403, 429, 503]) {
+    for (const row of [
+      {
+        code: "MALFORMED_JSON",
+        response: () =>
+          new Response("{", {
+            status,
+            headers: { "content-type": "application/json", "x-ratelimit-remaining": "0" },
+          }),
+      },
+      {
+        code: "UNEXPECTED_CONTENT_TYPE",
+        response: () =>
+          new Response("{}", {
+            status,
+            headers: { "content-type": "text/html", "x-ratelimit-remaining": "0" },
+          }),
+      },
+      {
+        code: "RESPONSE_TOO_LARGE",
+        response: () =>
+          new Response("{}", {
+            status,
+            headers: {
+              "content-type": "application/json",
+              "content-length": "99999999",
+              "x-ratelimit-remaining": "0",
+            },
+          }),
+      },
+    ]) {
+      const github = createGitHubReader({
+        owner: OWNER,
+        repo: REPO,
+        fetchImpl: async () => row.response(),
+      })
+      const result = await github.getRef({ ref: "heads/main" })
+      assert.equal(result.status, "ERROR")
+      assert.equal(result.code, row.code)
+      assert.equal(result.httpStatus, status)
+    }
+  }
+})
+
+test("GitHub preserves aborted body reads despite server or throttle HTTP status", async () => {
+  for (const status of [403, 429, 503]) {
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      fetchImpl: async () => ({
+        status,
+        headers: new Headers({ "content-type": "application/json", "x-ratelimit-remaining": "0" }),
+        body: {
+          getReader: () => ({
+            read: async () => {
+              throw Object.assign(new Error("aborted"), { name: "AbortError" })
+            },
+            cancel: async () => {},
+            releaseLock() {},
+          }),
+        },
+      }),
+    })
+    assert.deepEqual(await github.getRef({ ref: "heads/main" }), {
+      status: "AMBIGUOUS",
+      operation: "ref",
+      httpStatus: status,
+      code: "ABORTED",
+    })
+  }
+})
+
+test("complete recovery reads use pinned API and preserve legacy filtered behavior", async () => {
+  const { fetchImpl, calls } = recordingFetch([
+    jsonResponse({ id: 42, full_name: `${OWNER}/${REPO}`, default_branch: "main" }),
+    jsonResponse(
+      { total_count: 2, workflows: [{ id: 1 }] },
+      200,
+      linkHeader(`${BASE}/actions/workflows?per_page=100&page=2`),
+    ),
+    jsonResponse({ total_count: 2, workflows: [{ id: 2 }] }),
+    jsonResponse({ id: 1, path: ".github/workflows/release.yml" }),
+    jsonResponse({ total_count: 1, workflow_runs: [{ id: 100, head_sha: SHA }] }),
+  ])
+  const github = createGitHubReader({ owner: OWNER, repo: REPO, token: TOKEN, fetchImpl })
+  assert.equal(typeof github.getRepository, "function")
+  assert.equal((await github.getRepository()).value.id, 42)
+  assert.equal((await github.listRepositoryWorkflowsComplete()).value.length, 2)
+  assert.equal((await github.getWorkflowById({ workflowId: "1" })).value.id, 1)
+  assert.equal((await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })).value.length, 1)
+  for (const { url, init } of calls) {
+    assert.equal(init.method, "GET")
+    assert.equal(init.headers["X-GitHub-Api-Version"], "2026-03-10")
+    assert.equal(new URL(url).searchParams.has("head_sha"), false)
+  }
+  assert.throws(() => github.listWorkflowRunsAllShasComplete({ workflowId: "1", head_sha: SHA }))
+})
+for (const [label, responses] of Object.entries({
+  truncated: [jsonResponse({ total_count: 2, workflows: [{ id: 1 }] })],
+  duplicate: [jsonResponse({ total_count: 2, workflows: [{ id: 1 }, { id: 1 }] })],
+  missingTotal: [jsonResponse({ workflows: [] })],
+  countDrift: [
+    jsonResponse(
+      { total_count: 2, workflows: [{ id: 1 }] },
+      200,
+      linkHeader(`${BASE}/actions/workflows?per_page=100&page=2`),
+    ),
+    jsonResponse({ total_count: 3, workflows: [{ id: 2 }, { id: 3 }] }),
+  ],
+  skippedPage: [
+    jsonResponse(
+      { total_count: 2, workflows: [{ id: 1 }] },
+      200,
+      linkHeader(`${BASE}/actions/workflows?per_page=100&page=3`),
+    ),
+  ],
+  changedPageSize: [
+    jsonResponse(
+      { total_count: 2, workflows: [{ id: 1 }] },
+      200,
+      linkHeader(`${BASE}/actions/workflows?per_page=1&page=2`),
+    ),
+  ],
+  extraFilter: [
+    jsonResponse(
+      { total_count: 2, workflows: [{ id: 1 }] },
+      200,
+      linkHeader(`${BASE}/actions/workflows?per_page=100&page=2&head_sha=${SHA}`),
+    ),
+  ],
+  hostileHost: [
+    jsonResponse(
+      { total_count: 2, workflows: [{ id: 1 }] },
+      200,
+      linkHeader(`https://evil.example/actions/workflows?per_page=100&page=2`),
+    ),
+  ],
+  forbidden: [jsonResponse({}, 403)],
+  missing: [jsonResponse({}, 404)],
+}))
+  test(`complete recovery inventory rejects ${label}`, async () => {
+    const { fetchImpl } = recordingFetch(responses)
+    const github = createGitHubReader({ owner: OWNER, repo: REPO, token: TOKEN, fetchImpl })
+    assert.notEqual((await github.listRepositoryWorkflowsComplete()).status, "PRESENT")
+  })
+
+test("strict inventories apply cumulative page, byte, record, deadline and cancellation bounds", async () => {
+  const next = `${BASE}/actions/workflows?per_page=100&page=2`
+  for (const options of [{ maxPages: 1 }, { maxRecords: 1 }, { maxResponseBytes: 60 }]) {
+    const { fetchImpl } = recordingFetch([
+      jsonResponse({ total_count: 2, workflows: [{ id: 1 }] }, 200, linkHeader(next)),
+      jsonResponse({ total_count: 2, workflows: [{ id: 2 }] }),
+    ])
+    const reader = createGitHubReader({ owner: OWNER, repo: REPO, fetchImpl, ...options })
+    assert.notEqual((await reader.listRepositoryWorkflowsComplete()).status, "PRESENT")
+  }
+  let clock = 1000
+  const reader = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    timeoutMs: 100,
+    now: () => clock,
+    fetchImpl: async () => {
+      clock = 2000
+      return Response.json({ total_count: 0, workflows: [] })
+    },
+  })
+  assert.notEqual((await reader.listRepositoryWorkflowsComplete()).status, "PRESENT")
+  const abort = new AbortController()
+  abort.abort()
+  let fetched = false
+  const cancelled = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    fetchImpl: async () => {
+      fetched = true
+      return Response.json({})
+    },
+  })
+  assert.notEqual(
+    (await cancelled.listRepositoryWorkflowsComplete({}, { signal: abort.signal })).status,
+    "PRESENT",
+  )
+  assert.equal(fetched, false)
+})
+
+test("strict inventory rejects a last-page link that contradicts a missing next link", async () => {
+  const { fetchImpl } = recordingFetch([
+    jsonResponse({ total_count: 1, workflows: [{ id: 1 }] }, 200, {
+      link: `<${BASE}/actions/workflows?per_page=100&page=2>; rel="last"`,
+    }),
+  ])
+  const reader = createGitHubReader({ owner: OWNER, repo: REPO, fetchImpl })
+  assert.notEqual((await reader.listRepositoryWorkflowsComplete()).status, "PRESENT")
+})
+
+function allShaPage(page, total = 650, damage = () => {}) {
+  const body = {
+    total_count: total,
+    workflow_runs: Array.from({ length: Math.min(100, total - (page - 1) * 100) }, (_, i) => ({
+      id: (page - 1) * 100 + i + 1,
+    })),
+  }
+  damage(body)
+  return jsonResponse(
+    body,
+    200,
+    page * 100 < total
+      ? linkHeader(`${BASE}/actions/workflows/1/runs?per_page=100&page=${page + 1}`)
+      : {},
+  )
+}
+test("all-SHA inventory overlaps bounded page batches after validating page one", async () => {
+  let active = 0,
+    maximum = 0
+  const calls = []
+  const github = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    fetchImpl: async (url) => {
+      const page = Number(new URL(url).searchParams.get("page") ?? 1)
+      calls.push(page)
+      active++
+      maximum = Math.max(maximum, active)
+      await new Promise((resolve) => setImmediate(resolve))
+      active--
+      return allShaPage(page)
+    },
+  })
+  const result = await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })
+  assert.equal(result.status, "PRESENT")
+  assert.equal(result.value.length, 650)
+  assert.deepEqual(calls, [1, 2, 3, 4, 5, 6, 7])
+  assert.ok(maximum > 1 && maximum <= 4, `bounded real overlap: ${maximum}`)
+  assert.equal(active, 0)
+})
+for (const damage of [
+  "malformed",
+  "duplicate",
+  "drifting-total",
+  "unsafe-link",
+  "early-last-page",
+  "failure",
+  "late",
+])
+  test(`all-SHA batch rejects ${damage} and settles siblings before returning`, async () => {
+    let now = 0,
+      active = 0,
+      started = 0,
+      completed = 0
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      now: () => now,
+      timeoutMs: 1000,
+      fetchImpl: async (url) => {
+        const page = Number(new URL(url).searchParams.get("page") ?? 1)
+        active++
+        started++
+        await new Promise((resolve) => setImmediate(resolve))
+        active--
+        completed++
+        if (page === 3) {
+          if (damage === "failure") return jsonResponse({}, 503)
+          if (damage === "late") now = 1000
+          if (damage === "unsafe-link")
+            return jsonResponse(
+              { total_count: 650, workflow_runs: [{ id: 301 }] },
+              200,
+              linkHeader("https://evil.example/page4"),
+            )
+          if (damage === "early-last-page")
+            return jsonResponse({
+              total_count: 650,
+              workflow_runs: Array.from({ length: 450 }, (_, i) => ({ id: i + 201 })),
+            })
+        }
+        return allShaPage(page, 650, (body) => {
+          if (page !== 3) return
+          if (damage === "malformed") body.workflow_runs = null
+          if (damage === "duplicate") body.workflow_runs[0].id = 1
+          if (damage === "drifting-total") body.total_count++
+        })
+      },
+    })
+    const result = await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })
+    assert.notEqual(result.status, "PRESENT")
+    assert.equal(active, 0)
+    assert.equal(started, completed)
+  })
+test("all-SHA batching stays sequential below two 16MiB reservations and preserves cumulative limits", async () => {
+  for (const maximumBytes of [1024, 16 * 1024 * 1024]) {
+    let active = 0,
+      maximum = 0
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      maxResponseBytes: maximumBytes,
+      fetchImpl: async (url) => {
+        active++
+        maximum = Math.max(maximum, active)
+        await new Promise((resolve) => setImmediate(resolve))
+        active--
+        return allShaPage(Number(new URL(url).searchParams.get("page") ?? 1))
+      },
+    })
+    const result = await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })
+    assert.equal(maximum, 1)
+    assert.equal(result.status, maximumBytes === 1024 ? "ERROR" : "PRESENT")
+  }
+})
+
+test("all-SHA failed batch waits for a slow started sibling before returning", async () => {
+  let release,
+    active = 0,
+    reachedSlow = false,
+    finished = false
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const github = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    fetchImpl: async (url) => {
+      const page = Number(new URL(url).searchParams.get("page") ?? 1)
+      active++
+      if (page === 4) {
+        reachedSlow = true
+        await gate
+      }
+      active--
+      return page === 2 ? jsonResponse({}, 503) : allShaPage(page)
+    },
+  })
+  const pending = github.listWorkflowRunsAllShasComplete({ workflowId: "1" }).then((result) => {
+    finished = true
+    return result
+  })
+  try {
+    for (let i = 0; i < 20 && !reachedSlow; i++)
+      await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(reachedSlow, true)
+    assert.equal(finished, false)
+  } finally {
+    release()
+  }
+  assert.notEqual((await pending).status, "PRESENT")
+  assert.equal(active, 0)
+})
+test("all-SHA concurrent requests receive disjoint byte reservations", async () => {
+  const first = allShaPage(1)
+  const firstBytes = Buffer.byteLength(await first.clone().text())
+  const calls = []
+  const github = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    maxResponseBytes: 48 * 1024 * 1024 + firstBytes,
+    fetchImpl: async (url) => {
+      const page = Number(new URL(url).searchParams.get("page") ?? 1)
+      calls.push(page)
+      const response = allShaPage(page)
+      if (page > 1) response.headers.set("content-length", String(16 * 1024 * 1024 + 1))
+      return response
+    },
+  })
+  const result = await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })
+  assert.equal(result.code, "OPERATION_TOO_LARGE")
+  assert.deepEqual(calls, [1, 2, 3, 4])
+})
+for (const damage of [false, true])
+  test(`all-SHA parallel conditional pages preserve raw validation with damaged link ${damage}`, async () => {
+    let round = 0
+    const conditional = []
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      token: TOKEN,
+      conditionalReads: true,
+      fetchImpl: async (url, init) => {
+        const page = Number(new URL(url).searchParams.get("page") ?? 1)
+        if (page === 1) round++
+        if (round === 1) {
+          const response = allShaPage(page)
+          response.headers.set("etag", `"page-${page}"`)
+          return response
+        }
+        conditional.push(new Headers(init.headers).get("if-none-match"))
+        return new Response(null, {
+          status: 304,
+          headers: {
+            etag: `"page-${page}"`,
+            ...(damage && page === 3
+              ? { link: `<${BASE}/actions/workflows/1/runs?per_page=100&page=999>; rel="next"` }
+              : {}),
+          },
+        })
+      },
+    })
+    assert.equal(
+      (await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })).value.length,
+      650,
+    )
+    const result = await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })
+    assert.equal(result.status === "PRESENT", !damage)
+    assert.ok(conditional.every((etag) => typeof etag === "string" && etag.startsWith('"page-')))
+    if (!damage) assert.equal(result.value.length, 650)
+  })
+
+for (const [options, expectedCalls] of [
+  [{ maxPages: 2 }, 2],
+  [{ maxRecords: 100 }, 1],
+])
+  test(`all-SHA prefetch never exceeds existing limits ${JSON.stringify(options)}`, async () => {
+    const calls = []
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      ...options,
+      fetchImpl: async (url) => {
+        const page = Number(new URL(url).searchParams.get("page") ?? 1)
+        calls.push(page)
+        return allShaPage(page)
+      },
+    })
+    assert.notEqual(
+      (await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })).status,
+      "PRESENT",
+    )
+    assert.equal(calls.length, expectedCalls)
+  })
+test("all-SHA invalid first-page records prevent any speculative page read", async () => {
+  let calls = 0
+  const github = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    fetchImpl: async () => {
+      calls++
+      return allShaPage(1, 650, (body) => {
+        body.workflow_runs[1].id = body.workflow_runs[0].id
+      })
+    },
+  })
+  assert.equal(
+    (await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })).code,
+    "DUPLICATE_ID",
+  )
+  assert.equal(calls, 1)
+})

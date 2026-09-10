@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url"
-import { runEval } from "@dawn-ai/evals"
-import { createAgentHarness } from "@dawn-ai/testing"
+import { runEval } from "@b4run/evals"
+import { createAgentHarness } from "@b4run/testing"
 import { describe, expect, it } from "vitest"
 import evalDef from "../src/app/chat/evals/smoke.eval.js"
 

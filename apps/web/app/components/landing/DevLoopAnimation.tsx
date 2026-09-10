@@ -1,7 +1,7 @@
 import { CodeFrame } from "../ui/CodeFrame"
 
 /**
- * Animated terminal that simulates a Dawn dev-server reload cycle.
+ * Animated terminal that simulates a B4.run dev-server reload cycle.
  * Uses CSS keyframes to fade in lines on a loop. Respects prefers-reduced-motion
  * — under reduced motion all lines render at full opacity statically.
  */
@@ -12,7 +12,7 @@ export function DevLoopAnimation() {
         <p>
           <span className="text-ink-dim">$</span> pnpm dev
         </p>
-        <p className="text-ink-dim mt-2">▲ Dawn dev server</p>
+        <p className="text-ink-dim mt-2">▲ B4.run dev server</p>
         <p className="text-ink-dim">- URL: http://localhost:3000</p>
 
         <p className="mt-3">

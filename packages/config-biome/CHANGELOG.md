@@ -1,5 +1,45 @@
 # @dawn-ai/config-biome
 
+## 0.8.29
+
+## 0.8.28
+
+## 0.8.27
+
+## 0.8.26
+
+### Patch Changes
+
+- 4a1e6ac: Preserve canonical release verifier repair records when formatting repository files.
+
+## 0.8.25
+
+## 0.8.24
+
+## 0.8.23
+
+### Patch Changes
+
+- 7e62bb1: Refresh the GitHub and npm documentation surfaces, add package discovery
+  metadata, and introduce reproducible product-loop media. No runtime API changed.
+
+## 0.8.22
+
+### Patch Changes
+
+- bedad77: Documentation only: every public export of this package now has an API reference
+  page on dawnai.org, and the package README leads with a concise entrypoint. No
+  runtime behavior changed.
+- 9385d28: Skip generated `.dawn/` output when linting.
+
+  `dawn build` and `dawn dev` write `.dawn/`, which is gitignored and regenerated
+  on every run, so linting it reports diagnostics nobody can act on. The shared
+  config already set `vcs.useIgnoreFile`, but with `vcs.enabled` false it never
+  took effect — and enabling it is not an option here, because Biome resolves the
+  ignore file relative to each invocation's working directory and a workspace
+  package that has no `.gitignore` of its own then fails outright. Excluding the
+  directory in `files.includes` works from any directory.
+
 ## 0.8.21
 
 ## 0.8.20

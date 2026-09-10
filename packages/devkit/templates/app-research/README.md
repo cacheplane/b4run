@@ -1,12 +1,12 @@
 # {{appName}}
 
-A deep-research assistant built with [Dawn](https://github.com/cacheplane/dawnai),
+A deep-research assistant built with [B4.run](https://github.com/cacheplane/b4run),
 shipped as an npm workspace with two packages:
 
-- **`server/`** — the Dawn app: the research route, tools, a researcher
+- **`server/`** — the B4.run app: the research route, tools, a researcher
   subagent, memory, planning, offloading, HITL permissions, tests, and evals.
   [`server/README.md`](./server/README.md) is the full tour.
-- **`web/`** — the Dawn Workbench: an [AG-UI](https://github.com/ag-ui-protocol/ag-ui)
+- **`web/`** — the B4.run Workbench: an [AG-UI](https://github.com/ag-ui-protocol/ag-ui)
   client built on CopilotKit, with a thread rail, streaming chat, plan and
   subagent activity cards, tool cards, permission prompts, and memory review.
   [`web/README.md`](./web/README.md) covers restyling it and its known limits.
@@ -33,7 +33,7 @@ Then start the two processes, one per terminal:
 | Web client | `npm run dev:web` | <http://localhost:3010> |
 
 Start the server first. The web client proxies to it and shows a "can't reach
-the Dawn server" screen until it answers.
+the B4.run server" screen until it answers.
 
 The rest of the toolchain lives at the root too — `npm run verify`,
 `npm run check`, `npm run typecheck`, `npm test`, `npm run eval`,

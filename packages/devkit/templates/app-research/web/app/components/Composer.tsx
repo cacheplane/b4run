@@ -11,7 +11,7 @@ export interface ComposerProps {
   /**
    * True while the agent is parked on an unresolved interrupt.
    *
-   * A separate flag from `isRunning`, not a refinement of it: when Dawn's
+   * A separate flag from `isRunning`, not a refinement of it: when B4.run's
    * permission gate parks a run, the run has *finished* — `isRunning` is false
    * and `agent.pendingInterrupts` is non-empty. Gating on `isRunning` alone
    * therefore leaves the composer live under an open approve/deny card, and

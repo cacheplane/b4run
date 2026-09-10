@@ -18,7 +18,7 @@ export interface UnwrappedToolResult {
 }
 
 /**
- * Detect whether a tool's return value uses the Dawn wrapper shape
+ * Detect whether a tool's return value uses the B4.run wrapper shape
  * `{result, state?}` and split it into the agent-facing `content` and the
  * optional `stateUpdates` for the route's state channels.
  *

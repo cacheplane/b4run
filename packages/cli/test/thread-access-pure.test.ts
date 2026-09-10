@@ -210,16 +210,16 @@ describe("normalizeThreadAccessResult", () => {
 describe("threadAccessBootLine", () => {
   it("names each resolution source, and says so when there is none", () => {
     expect(threadAccessBootLine({ fromManifest: false, fromOptions: true, resolved: true })).toBe(
-      "Dawn: thread access policy bound from the runtime options",
+      "B4.run: thread access policy bound from the runtime options",
     )
     expect(threadAccessBootLine({ fromManifest: true, fromOptions: false, resolved: true })).toBe(
-      "Dawn: thread access policy bound from the build manifest",
+      "B4.run: thread access policy bound from the build manifest",
     )
     expect(threadAccessBootLine({ fromManifest: false, fromOptions: false, resolved: true })).toBe(
-      "Dawn: thread access policy bound from src/thread-access.ts",
+      "B4.run: thread access policy bound from src/thread-access.ts",
     )
     expect(threadAccessBootLine({ fromManifest: false, fromOptions: false, resolved: false })).toBe(
-      "Dawn: no thread access policy (all thread endpoints are open)",
+      "B4.run: no thread access policy (all thread endpoints are open)",
     )
   })
 })

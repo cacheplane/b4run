@@ -19,19 +19,19 @@ afterEach(async () => {
 
 // ---------------------------------------------------------------------------
 // Fixture app: one agent route with a shared tool. Honest fixture — no
-// hand-mocks — used both to (a) generate a real `DawnStaticModules` by
+// hand-mocks — used both to (a) generate a real `B4StaticModules` by
 // running the actual dynamic loaders once, and (b) serve dynamically as a
 // baseline.
 // ---------------------------------------------------------------------------
 
 async function fixtureApp(): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-static-route-exec-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-static-route-exec-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "static-route-exec-fixture", "type": "module" }\n',
     "src/app/chat/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\n' +
+      'import { agent } from "@b4run/sdk"\n' +
       'export default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
     "src/tools/echo.ts":
       'export const description = "Echoes the input back"\n' +
@@ -68,15 +68,15 @@ describe("createRuntimeFetchHandler — static modules (pruned-fixture proof)", 
     expect(modules.routes[0]?.assistantId).toBe("/chat#agent")
     expect(modules.routes[0]?.tools.map((t) => t.name)).toEqual(["echo"])
 
-    // Prune: copy only dawn.config.ts, package.json, and an empty src/app dir
-    // (findDawnApp/config-loading convention) — NOT the route file, NOT
+    // Prune: copy only b4.config.ts, package.json, and an empty src/app dir
+    // (findB4App/config-loading convention) — NOT the route file, NOT
     // src/tools. The dynamic loaders (`normalizeRouteModule`,
     // `discoverToolDefinitions`) would fail against this root.
-    const prunedRoot = await mkdtemp(join(tmpdir(), "dawn-static-route-exec-pruned-"))
+    const prunedRoot = await mkdtemp(join(tmpdir(), "b4-static-route-exec-pruned-"))
     cleanup.push(() =>
       rm(prunedRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }),
     )
-    await cp(join(intactRoot, "dawn.config.ts"), join(prunedRoot, "dawn.config.ts"))
+    await cp(join(intactRoot, "b4.config.ts"), join(prunedRoot, "b4.config.ts"))
     await cp(join(intactRoot, "package.json"), join(prunedRoot, "package.json"))
     await mkdir(join(prunedRoot, "src/app"), { recursive: true })
     expect(existsSync(join(prunedRoot, "src/app/chat"))).toBe(false)

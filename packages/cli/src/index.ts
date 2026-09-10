@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
-export { config } from "@dawn-ai/core"
+export { config } from "@b4run/core"
 export {
   type ServeRuntimeHandle,
   type ServeRuntimeOptions,
   serveRuntime,
 } from "./lib/dev/serve-runtime.js"
 export {
-  type DawnStaticModules,
+  type B4StaticModules,
   loadStaticModules,
   type StaticRouteModule,
 } from "./lib/runtime/static-modules.js"
@@ -16,7 +16,7 @@ import { realpathSync } from "node:fs"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { errorDocsUrl } from "@dawn-ai/sdk"
+import { errorDocsUrl } from "@b4run/sdk"
 import { Command, CommanderError } from "commander"
 
 import { registerAddCommand } from "./commands/add.js"
@@ -48,8 +48,8 @@ export function createProgram(io: CommandIo): Command {
   const program = new Command()
 
   program
-    .name("dawn")
-    .description("Dawn CLI")
+    .name("b4")
+    .description("B4.run CLI")
     // Required for `memory`'s passThroughOptions: commander only honours a subcommand's
     // pass-through when the parent parses options positionally.
     .enablePositionalOptions()

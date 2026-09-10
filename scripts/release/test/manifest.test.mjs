@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import test from "node:test"
-
+import { RELEASE_PAYLOAD_LIMITS } from "../limits.mjs"
 import {
   canonicalManifestBytes,
   manifestSha256,
@@ -15,7 +15,7 @@ const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567"
 const releasePackages = [
   { name: "base" },
   { name: "middle", dependencies: { base: "workspace:*" } },
-  { name: "create-dawn-ai-app", dependencies: { middle: "workspace:*" } },
+  { name: "create-b4-app", dependencies: { middle: "workspace:*" } },
 ]
 const context = { packages: releasePackages }
 
@@ -47,6 +47,14 @@ test("parseReleaseManifest fatally rejects malformed UTF-8 bytes", () => {
   }
 })
 
+test("manifest parsing rejects oversized bytes before JSON decoding", () => {
+  assert.throws(
+    () =>
+      parseReleaseManifest(Buffer.alloc(RELEASE_PAYLOAD_LIMITS.manifestBytes + 1, 0x20), context),
+    /manifest.*byte limit|manifest.*too large/iu,
+  )
+})
+
 test("validateReleaseManifest validates and returns one snapshot of changing accessors", () => {
   const manifest = validManifest()
   let reads = 0
@@ -72,6 +80,23 @@ test("validateReleaseManifest rejects required fields lost while snapshotting", 
   assert.throws(
     () => validateReleaseManifest(manifest, context),
     /release manifest is missing field schemaVersion/u,
+  )
+})
+
+test("release manifests enforce shared per-tarball and cumulative prepared payload limits", () => {
+  const oversized = validManifest()
+  oversized.packages[0].size = RELEASE_PAYLOAD_LIMITS.tarballBytes + 1
+  assert.throws(
+    () => validateReleaseManifest(oversized, context),
+    /base.*size.*limit|tarball.*limit/iu,
+  )
+
+  const cumulative = validManifest()
+  const each = Math.floor(RELEASE_PAYLOAD_LIMITS.preparedTarballsBytes / 3) + 1
+  for (const entry of cumulative.packages) entry.size = each
+  assert.throws(
+    () => validateReleaseManifest(cumulative, context),
+    /cumulative|prepared.*payload/iu,
   )
 })
 
@@ -263,6 +288,13 @@ test("canonicalManifestBytes rejects sparse arrays", () => {
   assert.throws(() => canonicalManifestBytes({ packages }), /Manifest arrays must not be sparse/u)
 })
 
+test("canonical manifest encoding reserves the shared resolver headroom", () => {
+  assert.throws(
+    () => canonicalManifestBytes({ value: "x".repeat(RELEASE_PAYLOAD_LIMITS.manifestBytes) }),
+    /manifest.*byte limit|manifest.*too large/iu,
+  )
+})
+
 test("manifestSha256 hashes the canonical manifest bytes", () => {
   const manifest = validManifest()
   const expected = createHash("sha256").update(canonicalManifestBytes(manifest)).digest("hex")
@@ -286,11 +318,11 @@ function validManifest() {
       prepareRunId: 123456790,
       prepareRunAttempt: 1,
     },
-    packageOrder: ["base", "middle", "create-dawn-ai-app"],
+    packageOrder: ["base", "middle", "create-b4-app"],
     packages: [
       packageEntry("base", "ab"),
       packageEntry("middle", "cd"),
-      packageEntry("create-dawn-ai-app", "ef"),
+      packageEntry("create-b4-app", "ef"),
     ],
   }
 }

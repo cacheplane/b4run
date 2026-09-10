@@ -249,7 +249,7 @@ async function liveBaseUrl(): Promise<{
   }
 }
 
-it("boots a real dawn dev subprocess and serves the AP", async () => {
+it("boots a real b4 dev subprocess and serves the AP", async () => {
   const mock = await createAimock({ fixtures: [{ match: {}, response: { content: "ok" } }] })
   const app = await createSubprocessApp({
     appRoot,

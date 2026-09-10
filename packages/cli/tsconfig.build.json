@@ -2,18 +2,19 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "allowImportingTsExtensions": false,
     "noEmit": false,
     "outDir": "dist",
     "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo",
     "paths": {
-      "@dawn-ai/ag-ui": ["../ag-ui/src/index.ts"],
-      "@dawn-ai/core": ["../core/src/index.ts"],
-      "@dawn-ai/langchain": ["../langchain/src/index.ts"],
-      "@dawn-ai/langgraph": ["../langgraph/src/index.ts"],
-      "@dawn-ai/langgraph/*": ["../langgraph/src/*.ts"],
-      "@dawn-ai/memory": ["../memory/src/index.ts"],
-      "@dawn-ai/permissions": ["../permissions/src/index.ts"],
-      "@dawn-ai/sqlite-storage": ["../sqlite-storage/src/index.ts"]
+      "@b4run/ag-ui": ["../ag-ui/src/index.ts"],
+      "@b4run/core": ["../core/src/index.ts"],
+      "@b4run/langchain": ["../langchain/src/index.ts"],
+      "@b4run/langgraph": ["../langgraph/src/index.ts"],
+      "@b4run/langgraph/*": ["../langgraph/src/*.ts"],
+      "@b4run/memory": ["../memory/src/index.ts"],
+      "@b4run/permissions": ["../permissions/src/index.ts"],
+      "@b4run/sqlite-storage": ["../sqlite-storage/src/index.ts"]
     },
     "rootDir": "src"
   },

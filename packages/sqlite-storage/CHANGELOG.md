@@ -1,5 +1,32 @@
 # @dawn-ai/sqlite-storage
 
+## 0.8.29
+
+## 0.8.28
+
+## 0.8.27
+
+## 0.8.26
+
+## 0.8.25
+
+## 0.8.24
+
+## 0.8.23
+
+### Patch Changes
+
+- 7e62bb1: Refresh the GitHub and npm documentation surfaces, add package discovery
+  metadata, and introduce reproducible product-loop media. No runtime API changed.
+
+## 0.8.22
+
+### Patch Changes
+
+- bedad77: Documentation only: every public export of this package now has an API reference
+  page on dawnai.org, and the package README leads with a concise entrypoint. No
+  runtime behavior changed.
+
 ## 0.8.21
 
 ## 0.8.20
