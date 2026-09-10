@@ -228,3 +228,28 @@ it("enforces digest and subscriber budgets in UTF-8 bytes for multibyte frames",
   subscriber.detach()
   snapshot.detach()
 })
+
+it("coalesces the emitted subagent call_id/chunk schema without mixing calls", () => {
+  const hub = createLiveTurnHub()
+  const producer = hub.open({
+    threadId: "children",
+    routeKey: "/chat#agent",
+    anchorRouteKeys: [],
+    anchorCheckpointId: null,
+    runStartedAt: "x",
+    resume: false,
+    input: null,
+  })
+  const message = (call_id: string, chunk: string): StreamChunk => ({
+    type: "subagent.message",
+    data: { call_id, subagent: "researcher", route_id: "/child", depth: 1, chunk },
+  })
+  producer.publish(message("first", "hel"))
+  producer.publish(message("second", "other"))
+  producer.publish(message("first", "lo"))
+  const attachment = hub.attach("children")
+  if (!attachment) throw new Error("Expected child turn attachment")
+  expect(attachment.turn).toEqual([message("first", "hello"), message("second", "other")])
+  attachment.detach()
+  hub.closeAll()
+})

@@ -95,16 +95,16 @@ function subagentCallId(chunk: StreamChunk): string | undefined {
   if (chunk.type !== "subagent.message") return undefined
   const data = (chunk as { readonly data?: unknown }).data
   const callId =
-    data && typeof data === "object" ? (data as { callId?: unknown }).callId : undefined
+    data && typeof data === "object" ? (data as { call_id?: unknown }).call_id : undefined
   return typeof callId === "string" ? callId : undefined
 }
 
 function mergeSubagent(existing: StreamChunk, incoming: StreamChunk): StreamChunk {
-  const ex = (existing as { data?: { text?: unknown; callId?: unknown } }).data ?? {}
-  const inc = (incoming as { data?: { text?: unknown } }).data ?? {}
+  const ex = (existing as { data?: { chunk?: unknown } }).data ?? {}
+  const inc = (incoming as { data?: { chunk?: unknown } }).data ?? {}
   return {
     type: "subagent.message",
-    data: { ...ex, text: `${String(ex.text ?? "")}${String(inc.text ?? "")}` },
+    data: { ...ex, chunk: `${String(ex.chunk ?? "")}${String(inc.chunk ?? "")}` },
   } as StreamChunk
 }
 
@@ -120,7 +120,7 @@ function appendCoalesced(digest: StreamChunk[], chunk: StreamChunk): { added: nu
     digest[digest.length - 1] = merged
     return { added: frameBytes(merged) - before }
   }
-  // subagent.message per-callId coalescing.
+  // subagent.message uses the public call_id/chunk wire fields.
   const callId = subagentCallId(chunk)
   if (callId !== undefined) {
     const idx = digest.findIndex((e) => subagentCallId(e) === callId)
