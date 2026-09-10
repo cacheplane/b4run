@@ -74,6 +74,7 @@ import { isGraphInterrupt } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { createB4Context } from "./b4-context.js"
 import { checkToolNameUniqueness } from "./check-tool-name-uniqueness.js"
+import { routeCheckpointer } from "./checkpoint-route-provenance.js"
 import { buildMemoryContext } from "./memory-context.js"
 import { pureDirname, pureJoin } from "./pure-path.js"
 import {
@@ -894,12 +895,17 @@ async function prepareRouteExecutionForInvocation(
 
   // Boot-resolved instances win when provided (no per-request sqlite open);
   // otherwise fall back to config, then to the default sqlite stores.
-  const checkpointer: BaseCheckpointSaver | undefined =
+  const resolvedCheckpointer: BaseCheckpointSaver | undefined =
     options.checkpointer === false
       ? undefined
       : (options.checkpointer ??
         configCheckpointer ??
         requireFallbacks(fallbacks, "checkpointer").defaultCheckpointer(options.appRoot))
+
+  const checkpointer =
+    normalized.kind === "agent" && resolvedCheckpointer
+      ? routeCheckpointer(resolvedCheckpointer, `${options.routeId}#${normalized.kind}`)
+      : resolvedCheckpointer
 
   const threadsStore: ThreadsStore =
     options.threadsStore ??

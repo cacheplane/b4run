@@ -110,9 +110,12 @@ export interface B4StaticModules {
    * App-level thread access policy bound from the manifest's static import,
    * when the app has a policy file.
    *
-   * The channel is declared now so the boot resolution never has to be
-   * rewritten; nothing emits into it yet, so today only a hand-rolled edge
-   * embed that constructs `B4StaticModules` itself can use it.
+   * Emitted by the web build targets (`modules-emitter.ts` writes
+   * `threadAccess: normalizeThreadAccessModule(...)` into the manifest) and
+   * re-validated on the boot path (`static-modules.ts` runs
+   * `validateThreadAccessPolicy` because types are erased across the manifest
+   * boundary). A hand-rolled edge embed that constructs `B4StaticModules`
+   * itself can also populate it directly.
    */
   readonly threadAccess?: ThreadAccessPolicy
   readonly routes: readonly StaticRouteModule[]
