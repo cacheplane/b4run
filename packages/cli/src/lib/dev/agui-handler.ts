@@ -448,12 +448,9 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // "deliberately left alone (tracked separately)" was pointing at; that note
     // is gone because this is the separate tracking, landed.
     let sawInterrupt = false
-    // The terminal `done` chunk this turn ends with — captured (never
-    // published to the live turn's digest) so the outer `finally` can close
-    // the live turn with the SAME terminal, unconditionally. AG-UI's own
-    // completion path never throws into this stream (see the inner `finally`
-    // below), so a raw `StreamChunk` of type "done" is the only terminal this
-    // handler ever produces.
+    // Capture the raw done, or project AG-UI's caught failure/cancellation
+    // back into an AP terminal. The finally delivers it once to attachers,
+    // without adding a terminal frame to the live turn's digest.
     let terminalChunk: StreamChunk | undefined
     // From here on, the stream owns both the request listeners and any resume
     // claim. Its execution-finally path releases the claim only after the
@@ -502,6 +499,15 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
               threadId,
               runId: input.runId,
             })) {
+              // The translator catches upstream errors and aborts as RUN_ERROR,
+              // so the raw stream may never produce a terminal chunk. Preserve
+              // that outcome for AP viewers instead of reporting null success.
+              if (event.type === "RUN_ERROR" && terminalChunk === undefined) {
+                terminalChunk = {
+                  type: "done",
+                  output: run.cancelled ? { cancelled: true } : { error: event.message },
+                }
+              }
               safeEnqueue(controller, encoder.encode(encodeAgUiSse(event, accept)))
             }
           } finally {
