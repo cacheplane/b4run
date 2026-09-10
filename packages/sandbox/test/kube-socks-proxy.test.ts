@@ -676,11 +676,12 @@ function createSocksProxy(
 function createKubernetesTarget(deadline: number) {
   const errors: Error[] = []
   const observations: TargetObservation[] = []
+  const timeoutMs = Math.max(1, deadline - Date.now())
   const server = createHttpServer(
     {
-      headersTimeout: Math.max(1, deadline - Date.now()),
+      headersTimeout: timeoutMs,
       maxHeaderSize: maxHttpBodyBytes,
-      requestTimeout: Math.max(1, deadline - Date.now()),
+      requestTimeout: timeoutMs,
     },
     (request, response) => {
       const chunks: Buffer[] = []
@@ -877,6 +878,24 @@ async function runProxyCase(targetHostname: string, addressType: ProxyObservatio
 }
 
 describe("Kubernetes SOCKS dependency path", () => {
+  test.each([5_000, 27, 0, -1])(
+    "constructs the HTTP target with a %ims budget despite clock advancement",
+    (remainingMs) => {
+      let now = 1_000
+      const deadline = now + remainingMs
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => now++)
+      try {
+        const target = createKubernetesTarget(deadline)
+        expect(target.tracked.server).toHaveProperty("headersTimeout", Math.max(1, remainingMs))
+        expect(target.tracked.server).toHaveProperty("requestTimeout", Math.max(1, remainingMs))
+        expect(target.tracked.server.listening).toBe(false)
+        expect(target.errors).toEqual([])
+      } finally {
+        clock.mockRestore()
+      }
+    },
+  )
+
   test("restores proxy aliases in a case-insensitive environment", () => {
     const original = {
       ALL_PROXY: "socks5h://all-proxy.invalid:1080",
