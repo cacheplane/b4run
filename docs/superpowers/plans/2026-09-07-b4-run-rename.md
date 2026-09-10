@@ -1,5 +1,7 @@
 # B4.run Rename Implementation Plan
 
+> **Historical planning record — current status is in the [B4.run cutover runbook](../runbooks/2026-09-09-b4-run-cutover.md).** B4.run 0.8.28 is published and independently audited. Prior replacement-repository, first-publication, and recovery instructions below describe earlier stages; do not execute them as a current checklist. Preserve historical release evidence.
+
 > **For agentic workers:** Use `superpowers:executing-plans` to implement this plan task by task after the proposed naming and account decisions are resolved. Steps use checkboxes for tracking. This document is a migration program plan; each code workstream needs a focused implementation checklist against the selected cutover commit.
 
 **Goal:** Replace Dawn AI with **B4.run** across the framework, repository, distribution, website, marketing, domains, and operated vendor resources, with no redirects or backward compatibility.

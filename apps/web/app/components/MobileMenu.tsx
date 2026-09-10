@@ -10,12 +10,13 @@ interface SiteLink {
   readonly label: string
   readonly href: string
   readonly external?: boolean
+  readonly download?: boolean
 }
 
 const SITE_LINKS: readonly SiteLink[] = [
   { label: "Docs", href: "/docs/getting-started" },
   { label: "Blog", href: "/blog" },
-  { label: "Brand", href: "/brand" },
+  { label: "Download brand kit", href: "/brand/b4-run-brand-assets.zip", download: true },
   { label: "GitHub", href: "https://github.com/cacheplane/b4run", external: true },
 ]
 
@@ -147,15 +148,16 @@ export function MobileMenu() {
             <ul className="flex flex-col gap-0.5">
               {SITE_LINKS.map((link) => (
                 <li key={link.label}>
-                  {link.external ? (
+                  {link.external || link.download ? (
                     <a
                       href={link.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      target={link.external ? "_blank" : undefined}
+                      rel={link.external ? "noopener noreferrer" : undefined}
+                      download={link.download}
                       onClick={() => setIsOpen(false)}
                       className="block text-base px-3 py-2.5 rounded-md text-ink-muted hover:text-ink hover:bg-surface transition-colors"
                     >
-                      {link.label} <span aria-hidden>↗</span>
+                      {link.label} {link.external && <span aria-hidden>↗</span>}
                     </a>
                   ) : (
                     <Link

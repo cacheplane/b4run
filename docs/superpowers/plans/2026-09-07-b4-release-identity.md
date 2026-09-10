@@ -1,5 +1,7 @@
 # B4.run release identity boundary
 
+> **Historical planning record — current status is in the [B4.run cutover runbook](../runbooks/2026-09-09-b4-run-cutover.md).** B4.run 0.8.28 is published and independently audited. Prior replacement-repository, first-publication, and recovery instructions below describe earlier stages; do not execute them as a current checklist. Preserve historical release evidence.
+
 The approved clean-break rename changes current tooling and CI to `@b4run/*`,
 `create-b4-app`, `b4`, `b4.config.ts`, `.b4`, `B4_*`, and repository
 `cacheplane/b4run` (1210070282). It does not publish or admit a recovery owner.

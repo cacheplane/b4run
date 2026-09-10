@@ -1,5 +1,7 @@
 # B4.run authenticated vendor audit
 
+> **Historical planning record — current status is in the [B4.run cutover runbook](../runbooks/2026-09-09-b4-run-cutover.md).** B4.run 0.8.28 is published and independently audited. Prior replacement-repository, first-publication, and recovery instructions below describe earlier stages; do not execute them as a current checklist. Preserve historical release evidence.
+
 Date: 2026-09-07. Companion to [the rename plan](2026-09-07-b4-run-rename.md).
 
 This pass used CLI/API reads, with credentials loaded directly from the primary checkout's `/Users/blove/repos/dawn/.env`. The planning worktree has no root `.env`. No credentials were copied into this document or the worktree. The initial audit was read-only; the subsequent authorized changes are recorded below. API response fields were restricted to account/resource metadata; environment variable values and trace contents were not output.
