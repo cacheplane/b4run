@@ -1,4 +1,4 @@
-import type { ScenarioToolCallRecord, ScenarioToolMockDescriptor } from "@dawn-ai/sdk/testing"
+import type { ScenarioToolCallRecord, ScenarioToolMockDescriptor } from "@b4run/sdk/testing"
 import type { DiscoveredToolDefinition } from "./tool-shape.js"
 
 export type ScenarioToolOverride = ScenarioToolMockDescriptor

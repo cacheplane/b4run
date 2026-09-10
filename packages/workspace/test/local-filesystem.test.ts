@@ -11,7 +11,7 @@ function ctx(workspaceRoot: string) {
 describe("localFilesystem", () => {
   let root: string
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "dawn-localfs-"))
+    root = mkdtempSync(join(tmpdir(), "b4-localfs-"))
   })
   afterEach(() => {
     rmSync(root, { recursive: true, force: true })
@@ -40,7 +40,7 @@ describe("localFilesystem", () => {
 
   it("realPath resolves an escaping symlink to the outside real path", async () => {
     const fs = localFilesystem()
-    const outside = mkdtempSync(join(tmpdir(), "dawn-outside-"))
+    const outside = mkdtempSync(join(tmpdir(), "b4-outside-"))
     const target = join(outside, "secret.txt")
     writeFileSync(target, "s", "utf8")
     const link = join(root, "escape")

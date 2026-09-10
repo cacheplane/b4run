@@ -1,5 +1,43 @@
 # @dawn-ai/inspector
 
+## 0.8.30
+
+### Patch Changes
+
+- Updated dependencies [18c7b61]
+- Updated dependencies [6039fd2]
+  - @b4run/core@0.8.30
+  - @b4run/memory@0.8.30
+
+## 0.8.29
+
+### Patch Changes
+
+- @b4run/core@0.8.29
+- @b4run/memory@0.8.29
+
+## 0.8.28
+
+### Patch Changes
+
+- @b4run/core@0.8.28
+- @b4run/memory@0.8.28
+
+## 0.8.27
+
+### Patch Changes
+
+- @b4run/core@0.8.27
+- @b4run/memory@0.8.27
+
+## 0.8.26
+
+### Patch Changes
+
+- Updated dependencies [c7fd197]
+  - @dawn-ai/core@0.8.26
+  - @dawn-ai/memory@0.8.26
+
 ## 0.8.25
 
 ### Patch Changes

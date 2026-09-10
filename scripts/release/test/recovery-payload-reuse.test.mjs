@@ -213,6 +213,30 @@ test("complete 19-write evidence collection reuses payloads while refreshing inv
   assert.equal(counts.npm, 42)
   assert.ok(counts.release > releaseReads)
 })
+test("a working set between 64 and 128 MiB needs no downloads on its second pass", async () => {
+  const f = fixture()
+  const large = Buffer.alloc(10 * 1024 * 1024, 7)
+  const contentBase64 = large.toString("base64")
+  const assetIds = ["1", "2", "3"]
+  const retainedBytes = assetIds.length * contentBase64.length * 2
+  assert.ok(retainedBytes > 64 * 1024 * 1024 && retainedBytes < 128 * 1024 * 1024)
+  const args = { ...binding, maximumBytes: large.length, sha256: hash(large) }
+  let calls = 0
+  f.dependencies.observation.github.downloadReleaseAsset = async () => {
+    calls++
+    return { status: "PRESENT", contentBase64 }
+  }
+  await run(f, async (d) => {
+    for (const assetId of assetIds)
+      await d.observation.github.downloadReleaseAsset({ ...args, assetId })
+    assert.equal(calls, 3)
+    for (const assetId of assetIds) {
+      const result = await d.observation.github.downloadReleaseAsset({ ...args, assetId })
+      assert.equal(result.contentBase64, contentBase64)
+    }
+    assert.equal(calls, 3)
+  })
+})
 test("retained byte budget evicts payloads before the entry limit", async () => {
   const f = fixture()
   const large = Buffer.alloc(10 * 1024 * 1024, 7)
@@ -223,9 +247,9 @@ test("retained byte budget evicts payloads before the entry limit", async () => 
     return { status: "PRESENT", contentBase64: large.toString("base64") }
   }
   await run(f, async (d) => {
-    for (const assetId of ["1", "2", "3", "1"])
+    for (const assetId of ["1", "2", "3", "4", "5", "1"])
       await d.observation.github.downloadReleaseAsset({ ...args, assetId })
-    assert.equal(calls, 4)
+    assert.equal(calls, 6)
   })
 })
 test("payload expiry that elapses during download rejects the late bytes", async () => {
@@ -272,4 +296,160 @@ test("invalid initial clock cannot establish a reuse generation", async () => {
     run(f, (d) => d.observation.github.downloadReleaseAsset(binding)),
     /clock/,
   )
+})
+
+const gitBinding = { ref: "a".repeat(40), path: "scripts/release/recovery/writer.mjs" }
+function gitFixture(value = "immutable text") {
+  const f = fixture()
+  const reads = []
+  f.dependencies.observation.git = {
+    showFile: async (...args) => {
+      reads.push(args)
+      return value
+    },
+    resolveRef: async () => reads.push("resolve"),
+    isAncestor: async () => reads.push("ancestry"),
+  }
+  return { ...f, reads }
+}
+test("immutable Git text is reused only inside one invocation; other Git reads stay fresh", async () => {
+  const f = gitFixture()
+  let retained
+  await run(f, async (d) => {
+    retained = d.observation.git
+    assert.equal(await retained.showFile(gitBinding), "immutable text")
+    assert.equal(await retained.showFile({ ...gitBinding }), "immutable text")
+    assert.equal(f.reads.length, 1)
+    for (let i = 0; i < 2; i++) {
+      await retained.resolveRef("main")
+      await retained.isAncestor(gitBinding.ref, gitBinding.ref)
+    }
+    assert.equal(f.reads.length, 5)
+  })
+  await assert.rejects(retained.showFile(gitBinding), /closed/)
+  await run(f, (d) => d.observation.git.showFile(gitBinding))
+  assert.equal(f.reads.length, 6)
+})
+test("Git memo bypasses mutable refs, options and nonplain or nondata request shapes unchanged", async () => {
+  const f = gitFixture()
+  const getter = { ...gitBinding }
+  Object.defineProperty(getter, "ref", { get: () => gitBinding.ref, enumerable: true })
+  const cases = [
+    [{ ...gitBinding, ref: "main" }],
+    [gitBinding, {}],
+    [gitBinding, undefined],
+    [{ ...gitBinding, extra: true }],
+    [Object.assign(Object.create({ inherited: true }), gitBinding)],
+    [new Proxy(gitBinding, {})],
+    [getter],
+    [{ ...gitBinding, [Symbol("extra")]: true }],
+  ]
+  await run(f, async (d) => {
+    for (const args of cases) {
+      await d.observation.git.showFile(...args)
+      await d.observation.git.showFile(...args)
+      assert.deepEqual(f.reads.at(-1), args)
+    }
+    assert.equal(f.reads.length, cases.length * 2)
+  })
+})
+for (const value of [Buffer.from("not text"), "x".repeat(1024 * 1024 + 1)])
+  test(`Git memo bypasses ${typeof value === "string" ? "oversized" : "nonstring"} results`, async () => {
+    const f = gitFixture(value)
+    await run(f, async (d) => {
+      await d.observation.git.showFile(gitBinding)
+      await d.observation.git.showFile(gitBinding)
+      assert.equal(f.reads.length, 2)
+    })
+  })
+for (const [name, value, count] of [
+  ["entry", "text", 512],
+  ["byte", "x".repeat(1024 * 1024), 8],
+])
+  test(`Git memo preserves its ${name} bound independently of payload retention`, async () => {
+    const f = gitFixture(value)
+    await run(f, async (d) => {
+      for (let i = 0; i <= count; i++)
+        await d.observation.git.showFile({ ...gitBinding, path: `file-${i}` })
+      await d.observation.git.showFile({ ...gitBinding, path: "file-0" })
+      assert.equal(f.reads.length, count + 1)
+      await d.observation.git.showFile({ ...gitBinding, path: `file-${count}` })
+      assert.equal(f.reads.length, count + 2)
+      await d.observation.github.downloadReleaseAsset(binding)
+      await d.observation.github.downloadReleaseAsset(binding)
+      assert.equal(f.calls(), 1)
+    })
+  })
+test("Git memo never retains rejected reads", async () => {
+  const f = gitFixture()
+  let calls = 0
+  f.dependencies.observation.git.showFile = async () => {
+    if (++calls === 1) throw new Error("unavailable")
+    return "text"
+  }
+  await run(f, async (d) => {
+    await assert.rejects(d.observation.git.showFile(gitBinding), /unavailable/)
+    assert.equal(await d.observation.git.showFile(gitBinding), "text")
+    assert.equal(await d.observation.git.showFile(gitBinding), "text")
+    assert.equal(calls, 2)
+  })
+})
+test("Git memo checks deadlines both before and after cache hits", async () => {
+  const f = gitFixture()
+  let advance = false,
+    checks = 0
+  f.dependencies.authority.now = () => (advance && ++checks > 1 ? 1201000 : 1000)
+  await run(f, async (d) => {
+    await d.observation.git.showFile(gitBinding)
+    advance = true
+    await assert.rejects(d.observation.git.showFile(gitBinding), /deadline/)
+    await assert.rejects(d.observation.git.showFile(gitBinding), /closed/)
+    assert.equal(f.reads.length, 1)
+  })
+})
+test("Git memo rejects late completion after scope settlement", async () => {
+  const f = gitFixture()
+  let finish, pending
+  f.dependencies.observation.git.showFile = () =>
+    new Promise((resolve) => {
+      finish = resolve
+    })
+  await run(f, (d) => {
+    pending = d.observation.git.showFile(gitBinding)
+  })
+  const rejected = assert.rejects(pending, /closed/)
+  finish("late text")
+  await rejected
+})
+test("Git memo rejects a download finishing after the original deadline", async () => {
+  const f = gitFixture()
+  f.dependencies.observation.git.showFile = async () => {
+    f.setTime(1201000)
+    return "late text"
+  }
+  await assert.rejects(
+    run(f, (d) => d.observation.git.showFile(gitBinding)),
+    /deadline/,
+  )
+})
+test("Git memo does not share pending reads or mix different immutable keys", async () => {
+  const f = gitFixture()
+  let calls = 0
+  const finishes = []
+  f.dependencies.observation.git.showFile = () => {
+    calls++
+    return new Promise((resolve) => finishes.push(resolve))
+  }
+  await run(f, async (d) => {
+    const first = d.observation.git.showFile(gitBinding)
+    const second = d.observation.git.showFile(gitBinding)
+    assert.equal(calls, 2)
+    for (const finish of finishes) finish("text")
+    await Promise.all([first, second])
+    assert.equal(await d.observation.git.showFile(gitBinding), "text")
+    const different = d.observation.git.showFile({ ...gitBinding, ref: "b".repeat(40) })
+    assert.equal(calls, 3)
+    finishes.at(-1)("other text")
+    assert.equal(await different, "other text")
+  })
 })

@@ -1,6 +1,6 @@
 /**
- * @deprecated Import from `@dawn-ai/sdk/testing` instead. This subpath
+ * @deprecated Import from `@b4run/sdk/testing` instead. This subpath
  * re-exports the same helpers for back-compat and will continue to work,
  * but new code should prefer the canonical SDK home.
  */
-export { expectError, expectMeta, expectOutput } from "@dawn-ai/sdk/testing"
+export { expectError, expectMeta, expectOutput } from "@b4run/sdk/testing"

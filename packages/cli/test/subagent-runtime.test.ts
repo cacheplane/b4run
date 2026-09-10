@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { DelegationContext, DelegationRequest } from "@dawn-ai/sdk"
+import type { DelegationContext, DelegationRequest } from "@b4run/sdk"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createAimock, script } from "../../testing/dist/index.js"
@@ -56,7 +56,7 @@ describe("lazy CLI subagent runtime context", () => {
     const signal = new AbortController().signal
     const config = {
       configurable: { checkpoint_ns: "parent:1", tenant: "acme", thread_id: "thread-1" },
-      metadata: { dawn: { root_sandbox_key: "sandbox-root", subagent_depth: 1 } },
+      metadata: { b4: { root_sandbox_key: "sandbox-root", subagent_depth: 1 } },
       signal,
     } as RunnableConfig
 
@@ -92,7 +92,7 @@ describe("lazy CLI subagent runtime context", () => {
       callId: "first",
       config: {
         configurable: { tenant: "acme" },
-        metadata: { dawn: { subagent_depth: 1 } },
+        metadata: { b4: { subagent_depth: 1 } },
         signal: firstSignal,
       },
       input: "one",
@@ -102,7 +102,7 @@ describe("lazy CLI subagent runtime context", () => {
       callId: "second",
       config: {
         configurable: { tenant: "acme" },
-        metadata: { dawn: { subagent_depth: 1 } },
+        metadata: { b4: { subagent_depth: 1 } },
         signal: secondSignal,
       },
       input: "two",
@@ -148,7 +148,7 @@ describe("lazy CLI subagent runtime context", () => {
       callId: "first-call",
       config: {
         configurable: { locale: "en", tenant: "acme", thread_id: "thread-1" },
-        metadata: { dawn: { subagent_depth: 1 } },
+        metadata: { b4: { subagent_depth: 1 } },
         signal: rootSignal,
       },
       input: "one",
@@ -158,7 +158,7 @@ describe("lazy CLI subagent runtime context", () => {
       callId: "second-call",
       config: {
         configurable: { tenant: "acme", locale: "en", thread_id: "thread-1" },
-        metadata: { dawn: { subagent_depth: 1 } },
+        metadata: { b4: { subagent_depth: 1 } },
         signal: rootSignal,
       },
       input: "two",
@@ -260,7 +260,7 @@ describe("lazy CLI subagent runtime context", () => {
         input: "one",
         name: "researcher",
       }),
-    ).resolves.toMatchObject({ ok: false, message: expect.stringContaining("[DAWN_E5003]") })
+    ).resolves.toMatchObject({ ok: false, message: expect.stringContaining("[B4_E5003]") })
     await expect(
       resolver({
         callId: "second",
@@ -322,7 +322,7 @@ describe("lazy CLI subagent runtime context", () => {
 })
 
 async function nestedFixtureApp(): Promise<{ appRoot: string; routeFile: string }> {
-  const appRoot = await fixtureFiles("dawn-subagent-nested-", {
+  const appRoot = await fixtureFiles("b4-subagent-nested-", {
     "src/app/parent/index.ts": agentSource("Parent."),
     "src/app/parent/subagents/researcher/index.ts": agentSource("Researcher."),
     "src/app/parent/subagents/researcher/subagents/specialist/index.ts": agentSource("Specialist."),
@@ -331,8 +331,8 @@ async function nestedFixtureApp(): Promise<{ appRoot: string; routeFile: string 
 }
 
 async function cycleFixtureApp(): Promise<{ appRoot: string; routeFile: string }> {
-  const appRoot = await fixtureFiles("dawn-subagent-cycle-", {
-    "src/descriptors.ts": `import { agent } from "@dawn-ai/sdk"
+  const appRoot = await fixtureFiles("b4-subagent-cycle-", {
+    "src/descriptors.ts": `import { agent } from "@b4run/sdk"
 export const a = agent({ model: "gpt-5-mini", systemPrompt: "Agent A." })
 export const b = agent({ model: "gpt-5-mini", systemPrompt: "Agent B." })
 ;(a as any).subagents = { b }
@@ -345,7 +345,7 @@ export const b = agent({ model: "gpt-5-mini", systemPrompt: "Agent B." })
 }
 
 function agentSource(systemPrompt: string): string {
-  return `import { agent } from "@dawn-ai/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: ${JSON.stringify(systemPrompt)} })\n`
+  return `import { agent } from "@b4run/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: ${JSON.stringify(systemPrompt)} })\n`
 }
 
 async function fixtureFiles(
@@ -356,7 +356,7 @@ async function fixtureFiles(
   tempDirs.push(appRoot)
   const allFiles = {
     "package.json": '{"type":"module"}\n',
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     ...files,
   }
   await Promise.all(

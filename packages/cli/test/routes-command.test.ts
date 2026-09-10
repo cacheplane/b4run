@@ -12,12 +12,12 @@ afterEach(async () => {
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-routes-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-routes-"))
   tempDirs.push(appRoot)
 
   const appFiles = {
     "package.json": "{}\n",
-    "dawn.config.ts": "export default {};\n",
+    "b4.config.ts": "export default {};\n",
     ...files,
   }
 
@@ -52,7 +52,7 @@ async function invoke(argv: readonly string[]) {
   }
 }
 
-describe("dawn routes", () => {
+describe("b4 routes", () => {
   test("prints discovered route metadata as JSON with kind per route", async () => {
     const appRoot = await createFixtureApp({
       "src/app/index.ts": "export async function workflow() { return {} }\n",

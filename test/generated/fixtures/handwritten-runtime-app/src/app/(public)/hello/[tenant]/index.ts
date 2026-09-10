@@ -1,4 +1,4 @@
-import type { RuntimeContext } from "@dawn-ai/sdk"
+import type { RuntimeContext } from "@b4run/sdk"
 
 import type { HelloState } from "./state.js"
 

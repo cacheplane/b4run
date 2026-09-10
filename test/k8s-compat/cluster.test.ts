@@ -69,10 +69,10 @@ describe("cluster preflight", () => {
 
     await expect(
       preflightCluster(
-        { context: "kind-dawn", targetMinor: "1.35", runId: "run-a" },
+        { context: "kind-b4", targetMinor: "1.35", runId: "run-a" },
         { execute, executableExists: async () => true },
       ),
-    ).rejects.toThrow(/current context.*kind-other.*kind-dawn/i)
+    ).rejects.toThrow(/current context.*kind-other.*kind-b4/i)
     expect(execute).toHaveBeenCalledTimes(1)
     expect(execute.mock.calls[0]?.[0]).toEqual({
       file: "kubectl",
@@ -85,7 +85,7 @@ describe("cluster preflight", () => {
 
     await expect(
       preflightCluster(
-        { context: "kind-dawn", targetMinor: "1.35", runId: "run-a" },
+        { context: "kind-b4", targetMinor: "1.35", runId: "run-a" },
         {
           execute,
           executableExists: async (name) => name !== "helm",
@@ -97,22 +97,22 @@ describe("cluster preflight", () => {
 
   test("rejects a server minor that differs from the selected target", async () => {
     const execute = fakeRunner([
-      "kind-dawn\n",
+      "kind-b4\n",
       { serverVersion: { major: "1", minor: "34", gitVersion: "v1.34.9" } },
     ])
 
     await expect(
       preflightCluster(
-        { context: "kind-dawn", targetMinor: "1.35", runId: "run-a" },
+        { context: "kind-b4", targetMinor: "1.35", runId: "run-a" },
         { execute, executableExists: async () => true },
       ),
     ).rejects.toThrow(/server.*1\.34.*target.*1\.35/i)
-    expect(execute.mock.calls[1]?.[0].args.slice(0, 2)).toEqual(["--context", "kind-dawn"])
+    expect(execute.mock.calls[1]?.[0].args.slice(0, 2)).toEqual(["--context", "kind-b4"])
   })
 
   test("returns immutable preflight data after context, server, storage, namespace, and access checks", async () => {
     const execute = fakeRunner([
-      "kind-dawn\n",
+      "kind-b4\n",
       { serverVersion: { major: "1", minor: "35+", gitVersion: "v1.35.6" } },
       {
         items: [
@@ -138,12 +138,12 @@ describe("cluster preflight", () => {
     ])
 
     const preflight = await preflightCluster(
-      { context: "kind-dawn", targetMinor: "1.35", runId: "Run A" },
+      { context: "kind-b4", targetMinor: "1.35", runId: "Run A" },
       { execute, executableExists: async () => true },
     )
 
     expect(preflight).toMatchObject({
-      context: "kind-dawn",
+      context: "kind-b4",
       observedServer: "v1.35.6",
       storageClass: "standard",
       access: { server: "https://127.0.0.1:6443", certificateAuthorityData: "Y2E=" },
@@ -271,9 +271,9 @@ describe("administrative access and token kubeconfig", () => {
 
     const token = await requestServiceAccountToken(
       {
-        context: "kind-dawn",
-        namespace: "dawn-sandbox",
-        serviceAccount: "dawn-orchestrator",
+        context: "kind-b4",
+        namespace: "b4-sandbox",
+        serviceAccount: "b4-orchestrator",
       },
       execute,
     )
@@ -284,10 +284,10 @@ describe("administrative access and token kubeconfig", () => {
         file: "kubectl",
         args: [
           "--context",
-          "kind-dawn",
+          "kind-b4",
           "create",
           "--raw",
-          "/api/v1/namespaces/dawn-sandbox/serviceaccounts/dawn-orchestrator/token",
+          "/api/v1/namespaces/b4-sandbox/serviceaccounts/b4-orchestrator/token",
           "-f",
           "-",
         ],
@@ -305,7 +305,7 @@ describe("administrative access and token kubeconfig", () => {
 
   test("writes a private one-cluster, one-user, one-context token kubeconfig and always removes it", async () => {
     const material = await createSecureTokenKubeconfig({
-      context: "kind-dawn",
+      context: "kind-b4",
       access: {
         server: "https://cluster.example",
         certificateAuthorityData: "Y2VydA==",
@@ -320,7 +320,7 @@ describe("administrative access and token kubeconfig", () => {
     expect(kubeconfig.clusters).toHaveLength(1)
     expect(kubeconfig.users).toHaveLength(1)
     expect(kubeconfig.contexts).toHaveLength(1)
-    expect(kubeconfig["current-context"]).toBe("kind-dawn")
+    expect(kubeconfig["current-context"]).toBe("kind-b4")
 
     await material.destroy()
     await expect(stat(material.directory)).rejects.toMatchObject({ code: "ENOENT" })
@@ -353,7 +353,7 @@ describe("administrative access and token kubeconfig", () => {
       await expect(
         createSecureTokenKubeconfig(
           {
-            context: "kind-dawn",
+            context: "kind-b4",
             access: {
               server: "https://cluster.example",
               certificateAuthorityData: "Y2VydA==",
@@ -377,7 +377,7 @@ describe("administrative access and token kubeconfig", () => {
 
     const error = await createSecureTokenKubeconfig(
       {
-        context: "kind-dawn",
+        context: "kind-b4",
         access: {
           server: "https://cluster.example",
           certificateAuthorityData: "Y2VydA==",
@@ -407,7 +407,7 @@ describe("administrative access and token kubeconfig", () => {
     )
     const material = await createSecureTokenKubeconfig(
       {
-        context: "kind-dawn",
+        context: "kind-b4",
         access: {
           server: "https://cluster.example",
           certificateAuthorityData: "Y2VydA==",
@@ -439,7 +439,7 @@ describe("administrative access and token kubeconfig", () => {
       .mockResolvedValueOnce(undefined)
     const material = await createSecureTokenKubeconfig(
       {
-        context: "kind-dawn",
+        context: "kind-b4",
         access: {
           server: "https://cluster.example",
           certificateAuthorityData: "Y2VydA==",
@@ -476,7 +476,7 @@ describe("namespace ownership and cleanup", () => {
 
   function namespace(ownership: NamespaceOwnership, label = ownership.runId, uid = ownership.uid) {
     return {
-      metadata: { name: ownership.name, uid, labels: { "dawn.sh/compat-run": label } },
+      metadata: { name: ownership.name, uid, labels: { "b4.run/compat-run": label } },
     }
   }
 
@@ -496,7 +496,7 @@ describe("namespace ownership and cleanup", () => {
 
   test("exposes release roles rather than arbitrary release or namespace targets", () => {
     const input: OwnedClusterCleanupInput = {
-      context: "kind-dawn",
+      context: "kind-b4",
       runId,
       ownership: [],
       installedReleases: ["infrastructure", "application"],
@@ -547,7 +547,7 @@ describe("namespace ownership and cleanup", () => {
     await expect(
       cleanupOwnedCluster(
         {
-          context: "kind-dawn",
+          context: "kind-b4",
           runId,
           ownership: testCase.ownership,
           installedReleases: testCase.installedReleases,
@@ -567,7 +567,7 @@ describe("namespace ownership and cleanup", () => {
     await expect(
       cleanupOwnedCluster(
         {
-          context: "kind-dawn",
+          context: "kind-b4",
           runId,
           ownership: [management, sandbox],
           installedReleases: ["database"] as never,
@@ -587,7 +587,7 @@ describe("namespace ownership and cleanup", () => {
     await expect(
       cleanupOwnedCluster(
         {
-          context: "kind-dawn",
+          context: "kind-b4",
           runId,
           ownership: [management],
           installedReleases: ["infrastructure"],
@@ -607,7 +607,7 @@ describe("namespace ownership and cleanup", () => {
     await expect(
       cleanupOwnedCluster(
         {
-          context: "kind-dawn",
+          context: "kind-b4",
           runId,
           ownership: [management, sandbox],
           installedReleases: ["application", "infrastructure"],
@@ -626,7 +626,7 @@ describe("namespace ownership and cleanup", () => {
 
     const outcome = await cleanupOwnedCluster(
       {
-        context: "kind-dawn",
+        context: "kind-b4",
         runId,
         ownership: [management, sandbox],
         installedReleases: ["infrastructure"],
@@ -655,7 +655,7 @@ describe("namespace ownership and cleanup", () => {
 
     await cleanupOwnedCluster(
       {
-        context: "kind-dawn",
+        context: "kind-b4",
         runId,
         ownership: [management, sandbox],
         installedReleases: ["application", "infrastructure"],
@@ -669,7 +669,7 @@ describe("namespace ownership and cleanup", () => {
         file: "helm",
         args: [
           "--kube-context",
-          "kind-dawn",
+          "kind-b4",
           "uninstall",
           names.sandboxRelease,
           "--namespace",
@@ -681,7 +681,7 @@ describe("namespace ownership and cleanup", () => {
         file: "helm",
         args: [
           "--kube-context",
-          "kind-dawn",
+          "kind-b4",
           "uninstall",
           names.appRelease,
           "--namespace",
@@ -693,7 +693,7 @@ describe("namespace ownership and cleanup", () => {
         file: "kubectl",
         args: [
           "--context",
-          "kind-dawn",
+          "kind-b4",
           "get",
           "namespace",
           management.name,
@@ -706,7 +706,7 @@ describe("namespace ownership and cleanup", () => {
         file: "kubectl",
         args: [
           "--context",
-          "kind-dawn",
+          "kind-b4",
           "get",
           "namespace",
           sandbox.name,
@@ -719,7 +719,7 @@ describe("namespace ownership and cleanup", () => {
         file: "kubectl",
         args: [
           "--context",
-          "kind-dawn",
+          "kind-b4",
           "delete",
           namespaceDeletePath(management),
           "--filename",
@@ -728,7 +728,7 @@ describe("namespace ownership and cleanup", () => {
       },
       {
         file: "kubectl",
-        args: ["--context", "kind-dawn", "delete", namespaceDeletePath(sandbox), "--filename", "-"],
+        args: ["--context", "kind-b4", "delete", namespaceDeletePath(sandbox), "--filename", "-"],
       },
     ])
   })
@@ -738,7 +738,7 @@ describe("namespace ownership and cleanup", () => {
 
     await cleanupOwnedCluster(
       {
-        context: "kind-dawn",
+        context: "kind-b4",
         runId,
         ownership: [management],
         installedReleases: [],
@@ -752,7 +752,7 @@ describe("namespace ownership and cleanup", () => {
         file: "kubectl",
         args: [
           "--context",
-          "kind-dawn",
+          "kind-b4",
           "delete",
           `--raw=/api/v1/namespaces/${encodeURIComponent(management.name)}`,
           "--filename",
@@ -781,7 +781,7 @@ describe("namespace ownership and cleanup", () => {
     await expect(
       cleanupOwnedCluster(
         {
-          context: "kind-dawn",
+          context: "kind-b4",
           runId,
           ownership: [management],
           installedReleases: [],
@@ -805,7 +805,7 @@ describe("namespace ownership and cleanup", () => {
 
     await cleanupOwnedCluster(
       {
-        context: "kind-dawn",
+        context: "kind-b4",
         runId,
         ownership: [management, sandbox],
         installedReleases: ["infrastructure"],
@@ -818,17 +818,17 @@ describe("namespace ownership and cleanup", () => {
     expect(execute.mock.calls.map(([command]) => command)).toEqual([
       {
         file: "kubectl",
-        args: ["--context", "kind-dawn", "get", "namespace", management.name, "-o", "json"],
+        args: ["--context", "kind-b4", "get", "namespace", management.name, "-o", "json"],
       },
       {
         file: "kubectl",
-        args: ["--context", "kind-dawn", "get", "namespace", sandbox.name, "-o", "json"],
+        args: ["--context", "kind-b4", "get", "namespace", sandbox.name, "-o", "json"],
       },
       {
         file: "helm",
         args: [
           "--kube-context",
-          "kind-dawn",
+          "kind-b4",
           "uninstall",
           names.sandboxRelease,
           "--namespace",
@@ -840,7 +840,7 @@ describe("namespace ownership and cleanup", () => {
         file: "kubectl",
         args: [
           "--context",
-          "kind-dawn",
+          "kind-b4",
           "get",
           "namespace",
           management.name,
@@ -853,7 +853,7 @@ describe("namespace ownership and cleanup", () => {
         file: "kubectl",
         args: [
           "--context",
-          "kind-dawn",
+          "kind-b4",
           "get",
           "namespace",
           sandbox.name,
@@ -866,7 +866,7 @@ describe("namespace ownership and cleanup", () => {
         file: "kubectl",
         args: [
           "--context",
-          "kind-dawn",
+          "kind-b4",
           "delete",
           namespaceDeletePath(management),
           "--filename",
@@ -889,7 +889,7 @@ describe("namespace ownership and cleanup", () => {
     await expect(
       cleanupOwnedCluster(
         {
-          context: "kind-dawn",
+          context: "kind-b4",
           runId,
           ownership: [management, sandbox],
           installedReleases: ["infrastructure"],
@@ -919,7 +919,7 @@ describe("namespace ownership and cleanup", () => {
     await expect(
       cleanupOwnedCluster(
         {
-          context: "kind-dawn",
+          context: "kind-b4",
           runId,
           ownership: [management, sandbox],
           installedReleases: ["infrastructure"],
@@ -933,7 +933,7 @@ describe("namespace ownership and cleanup", () => {
       file: "helm",
       args: [
         "--kube-context",
-        "kind-dawn",
+        "kind-b4",
         "uninstall",
         names.sandboxRelease,
         "--namespace",
@@ -966,7 +966,7 @@ describe("namespace ownership and cleanup", () => {
     await expect(
       cleanupOwnedCluster(
         {
-          context: "kind-dawn",
+          context: "kind-b4",
           runId,
           ownership: [management, sandbox],
           installedReleases: ["infrastructure", "application"],
@@ -1017,7 +1017,7 @@ describe("namespace ownership and cleanup", () => {
 
     const error = await cleanupOwnedCluster(
       {
-        context: "kind-dawn",
+        context: "kind-b4",
         runId,
         ownership: [management, sandbox],
         installedReleases: ["infrastructure", "application"],
@@ -1044,7 +1044,7 @@ describe("namespace ownership and cleanup", () => {
 
     await cleanupOwnedCluster(
       {
-        context: "kind-dawn",
+        context: "kind-b4",
         runId,
         ownership: [management],
         installedReleases: [],
@@ -1056,13 +1056,13 @@ describe("namespace ownership and cleanup", () => {
     expect(execute.mock.calls.map(([command]) => command)).toEqual([
       {
         file: "kubectl",
-        args: ["--context", "kind-dawn", "get", "namespace", management.name, "-o", "json"],
+        args: ["--context", "kind-b4", "get", "namespace", management.name, "-o", "json"],
       },
       {
         file: "kubectl",
         args: [
           "--context",
-          "kind-dawn",
+          "kind-b4",
           "get",
           "namespace",
           management.name,
@@ -1075,7 +1075,7 @@ describe("namespace ownership and cleanup", () => {
         file: "kubectl",
         args: [
           "--context",
-          "kind-dawn",
+          "kind-b4",
           "delete",
           namespaceDeletePath(management),
           "--filename",
@@ -1092,7 +1092,7 @@ describe("namespace ownership and cleanup", () => {
     await expect(
       cleanupOwnedCluster(
         {
-          context: "kind-dawn",
+          context: "kind-b4",
           runId,
           ownership: [],
           installedReleases: [],

@@ -52,7 +52,7 @@ export async function executeRuntimeTargetsSmoke(
     dependencies.probeContainment,
   )
   const root = await check("temporary-project", "clean runtime-target consumer created", () =>
-    dependencies.makeTempDir("dawn-published-runtime-targets-"),
+    dependencies.makeTempDir("b4-published-runtime-targets-"),
   )
   deferCleanup("cleanup", "runtime-target consumer removed", () => dependencies.removeDir(root))
 
@@ -67,11 +67,11 @@ export async function executeRuntimeTargetsSmoke(
           "install",
           "--save-exact",
           "--package-lock=false",
-          `@dawn-ai/sdk@${options.version}`,
-          `@dawn-ai/core@${options.version}`,
-          `@dawn-ai/langgraph@${options.version}`,
-          `@dawn-ai/ag-ui@${options.version}`,
-          `@dawn-ai/postgres-storage@${options.version}`,
+          `@b4run/sdk@${options.version}`,
+          `@b4run/core@${options.version}`,
+          `@b4run/langgraph@${options.version}`,
+          `@b4run/ag-ui@${options.version}`,
+          `@b4run/postgres-storage@${options.version}`,
           `esbuild@${ESBUILD_VERSION}`,
         ],
         { cwd: root },
@@ -116,10 +116,10 @@ export async function writeProbeFiles(root) {
 
 export function nodeRuntimeProbeSource() {
   return `import assert from "node:assert/strict"
-import { agent } from "@dawn-ai/sdk"
-import { discoverRoutes } from "@dawn-ai/core/node"
-import { graphAdapter } from "@dawn-ai/langgraph"
-import { toAguiEvents } from "@dawn-ai/ag-ui"
+import { agent } from "@b4run/sdk"
+import { discoverRoutes } from "@b4run/core/node"
+import { graphAdapter } from "@b4run/langgraph"
+import { toAguiEvents } from "@b4run/ag-ui"
 
 for (const [name, value] of Object.entries({ agent, discoverRoutes, toAguiEvents })) {
   assert.equal(typeof value, "function", name + " must be a function")
@@ -139,8 +139,8 @@ for (const method of ["execute", "stream"]) {
 }
 
 export function edgeEntryProbeSource() {
-  return `import { agent } from "@dawn-ai/sdk/pure"
-import { createPostgresThreadsStore } from "@dawn-ai/postgres-storage"
+  return `import { agent } from "@b4run/sdk"
+import { createPostgresThreadsStore } from "@b4run/postgres-storage"
 
 export function edgeSurface() {
   return [typeof agent, typeof createPostgresThreadsStore]

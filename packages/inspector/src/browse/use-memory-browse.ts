@@ -1,5 +1,5 @@
 "use client"
-import type { MemoryRecord } from "@dawn-ai/memory/browse"
+import type { MemoryRecord } from "@b4run/memory/browse"
 import type { PretableDataState, PretableResultMeta } from "@pretable/react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {

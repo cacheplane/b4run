@@ -35,7 +35,7 @@ import {
 } from "./support/dev-server.ts"
 
 const RUNTIME_ROOT = resolve(import.meta.dirname)
-const HARNESS_RUNTIME_ARTIFACT_BASE_DIR_ENV = "DAWN_RUNTIME_ARTIFACT_BASE_DIR"
+const HARNESS_RUNTIME_ARTIFACT_BASE_DIR_ENV = "B4_RUNTIME_ARTIFACT_BASE_DIR"
 const tempDirs: TrackedTempDir[] = []
 
 type RuntimeFixtureName =
@@ -232,7 +232,7 @@ describe("runtime contract harness", () => {
     )
   })
 
-  test("records restart-induced cancellation from real dawn dev as a non-execution failure", {
+  test("records restart-induced cancellation from real b4 dev as a non-execution failure", {
     timeout: 180_000,
   }, async () => {
     const result = await runRestartCancellationScenario("graph-basic")
@@ -800,13 +800,7 @@ async function runCliExecution(options: {
   readonly url?: string
 }) {
   const result = await runCommandWithInput({
-    args: [
-      "exec",
-      "dawn",
-      "run",
-      options.routePath,
-      ...(options.url ? ["--url", options.url] : []),
-    ],
+    args: ["exec", "b4", "run", options.routePath, ...(options.url ? ["--url", options.url] : [])],
     command: "pnpm",
     cwd: options.appRoot,
     stdin: JSON.stringify(options.input),
@@ -814,14 +808,14 @@ async function runCliExecution(options: {
   })
 
   if (result.exitCode !== 0 && result.exitCode !== 1) {
-    throw new Error(`dawn run exited with unexpected code ${result.exitCode}`)
+    throw new Error(`b4 run exited with unexpected code ${result.exitCode}`)
   }
 
   if (result.stderr.trim().length > 0) {
-    throw new Error(`dawn run wrote to stderr: ${result.stderr.trim()}`)
+    throw new Error(`b4 run wrote to stderr: ${result.stderr.trim()}`)
   }
 
-  // The same envelope `readExecutionArtifact` reads back off disk — `dawn run`
+  // The same envelope `readExecutionArtifact` reads back off disk — `b4 run`
   // prints exactly one `RuntimeExecutionResult`.
   return JSON.parse(result.stdout) as RuntimeExecutionResult
 }

@@ -1,0 +1,24 @@
+{{- if .Values.networkPolicy.defaultDenyEgress }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: b4-sandbox-default-deny-egress
+  namespace: {{ include "b4-sandbox-infra.namespace" . }}
+  labels:
+    {{- include "b4-sandbox-infra.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: b4
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+{{- end }}

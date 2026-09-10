@@ -1,5 +1,5 @@
 import { ActivityChecklist } from "./ActivityChecklist.js"
-import { cx, type DawnActivityClassNames, type DawnActivityComponents } from "./parts.js"
+import { type B4ActivityClassNames, type B4ActivityComponents, cx } from "./parts.js"
 import type { SubagentActivityContentOutput } from "./schemas.js"
 
 const toolStatusPresentation = {
@@ -14,36 +14,36 @@ export function SubagentActivityCard({
   components,
 }: {
   content: SubagentActivityContentOutput
-  classNames?: DawnActivityClassNames
-  components?: DawnActivityComponents
+  classNames?: B4ActivityClassNames
+  components?: B4ActivityComponents
 }) {
   const ToolRow = components?.ToolRow
 
   return (
-    <details open={content.status === "running"} className={cx("dawn-activity", classNames?.root)}>
-      <summary className={cx("dawn-activity__header", classNames?.header)}>
+    <details open={content.status === "running"} className={cx("b4-activity", classNames?.root)}>
+      <summary className={cx("b4-activity__header", classNames?.header)}>
         {/* `aria-hidden`: `<details>` already announces its own expanded state, and
             the glyph would otherwise land in the summary's accessible name. */}
-        <span aria-hidden="true" className={cx("dawn-activity__marker", classNames?.marker)}>
+        <span aria-hidden="true" className={cx("b4-activity__marker", classNames?.marker)}>
           ▸
         </span>
-        <span className={cx("dawn-activity__title", classNames?.title)}>{content.name}</span>
-        <span className={cx("dawn-activity__meta", classNames?.meta)}> · {content.status}</span>
-        <span className={cx("dawn-activity__meta", classNames?.meta)}>
+        <span className={cx("b4-activity__title", classNames?.title)}>{content.name}</span>
+        <span className={cx("b4-activity__meta", classNames?.meta)}> · {content.status}</span>
+        <span className={cx("b4-activity__meta", classNames?.meta)}>
           {" "}
           · {content.totalToolCount} tools
         </span>
         {content.depth > 1 ? (
-          <span className={cx("dawn-activity__badge", classNames?.badge)}>nested</span>
+          <span className={cx("b4-activity__badge", classNames?.badge)}>nested</span>
         ) : null}
       </summary>
 
       {content.todos !== undefined ? (
         <section
           aria-label="Subagent plan"
-          className={cx("dawn-activity__section", classNames?.section)}
+          className={cx("b4-activity__section", classNames?.section)}
         >
-          <div className={cx("dawn-activity__section-label", classNames?.sectionLabel)}>Plan</div>
+          <div className={cx("b4-activity__section-label", classNames?.sectionLabel)}>Plan</div>
           <ActivityChecklist
             todos={content.todos}
             limit={8}
@@ -56,15 +56,15 @@ export function SubagentActivityCard({
       {content.tools.length > 0 ? (
         <section
           aria-label="Subagent tools"
-          className={cx("dawn-activity__section", classNames?.section)}
+          className={cx("b4-activity__section", classNames?.section)}
         >
-          <div className={cx("dawn-activity__section-label", classNames?.sectionLabel)}>Tools</div>
+          <div className={cx("b4-activity__section-label", classNames?.sectionLabel)}>Tools</div>
           {/* biome-ignore lint/a11y/noRedundantRoles: Markerless lists need explicit list semantics. */}
-          <ul role="list" className={cx("dawn-activity__list", classNames?.list)}>
+          <ul role="list" className={cx("b4-activity__list", classNames?.list)}>
             {content.tools.map((tool, index) => {
               const presentation = toolStatusPresentation[tool.status]
               const itemClass = cx(
-                `dawn-activity__item dawn-activity__item--${tool.status}`,
+                `b4-activity__item b4-activity__item--${tool.status}`,
                 classNames?.item,
               )
               if (ToolRow) {
@@ -91,14 +91,14 @@ export function SubagentActivityCard({
                 >
                   <span
                     aria-hidden="true"
-                    className={cx("dawn-activity__item-glyph", classNames?.itemGlyph)}
+                    className={cx("b4-activity__item-glyph", classNames?.itemGlyph)}
                   >
                     {presentation.glyph}
                   </span>
-                  <span className={cx("dawn-activity__item-label", classNames?.itemLabel)}>
+                  <span className={cx("b4-activity__item-label", classNames?.itemLabel)}>
                     {tool.name}
                   </span>
-                  <span className={cx("dawn-activity__item-status", classNames?.itemStatus)}>
+                  <span className={cx("b4-activity__item-status", classNames?.itemStatus)}>
                     {presentation.label}
                   </span>
                 </li>
@@ -109,7 +109,7 @@ export function SubagentActivityCard({
       ) : null}
 
       {content.status === "failed" ? (
-        <div role="alert" className={cx("dawn-activity__error", classNames?.error)}>
+        <div role="alert" className={cx("b4-activity__error", classNames?.error)}>
           {content.error}
         </div>
       ) : null}

@@ -211,7 +211,7 @@ describe("Dependabot baseline identities", () => {
 
   it.each([
     {},
-    { schemaVersion: 1, repository: "cacheplane/dawnai", defaultSha, open: [] },
+    { schemaVersion: 1, repository: "cacheplane/b4run", defaultSha, open: [] },
     {
       schemaVersion: 1,
       repository: "cacheplane/other",
@@ -220,7 +220,7 @@ describe("Dependabot baseline identities", () => {
     },
     {
       schemaVersion: 1,
-      repository: "cacheplane/dawnai",
+      repository: "cacheplane/b4run",
       defaultSha,
       open: [normalizedAlert(), normalizedAlert()],
     },
@@ -278,7 +278,7 @@ describe("complete open-set reader", () => {
         maxRecords: 100,
         maxRequests: 10,
       }),
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       transport: async () => jsonResponse(fixture.open.map(rawFromNormalized)),
     })
     await expect(
@@ -302,7 +302,7 @@ describe("complete open-set reader", () => {
         maxRecords: 100,
         maxRequests: 10,
       }),
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       transport: async () => {
         requests += 1
         return jsonResponse(fixture.open.map(rawFromNormalized))
@@ -356,7 +356,7 @@ describe("complete open-set reader", () => {
           maxAttempts: 61,
           now: () => clock,
           prNumber: 42,
-          repo: "cacheplane/dawnai",
+          repo: "cacheplane/b4run",
           sleep: async () => {},
           timeoutMs: 100,
         }),
@@ -390,7 +390,7 @@ describe("complete open-set reader", () => {
         maxRecords: 100,
         maxRequests: 10,
       }),
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       transport: async () => jsonResponse(alerts),
     })
     await expect(
@@ -422,7 +422,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 30,
       }),
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -448,7 +448,7 @@ describe("merged-head reconciliation", () => {
       maxAttempts: 61,
       now: () => clock++,
       prNumber: 42,
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       sleep: async () => {},
       timeoutMs: 15 * 60_000,
     })
@@ -501,7 +501,7 @@ describe("merged-head reconciliation", () => {
     expect(publicationReads).toBe(2)
     expect(validateReconciliationReceipt(receipt)).toEqual(receipt)
 
-    const sealRoot = await mkdtemp(resolve(tmpdir(), "dawn-produced-receipt-"))
+    const sealRoot = await mkdtemp(resolve(tmpdir(), "b4-produced-receipt-"))
     try {
       const receiptBytes = canonicalJsonBytes(receipt)
       await expect(
@@ -509,7 +509,7 @@ describe("merged-head reconciliation", () => {
           expectedMainSha: observationSha,
           expectedMergeSha: mergeSha,
           expectedPrNumber: 42,
-          expectedRepository: "cacheplane/dawnai",
+          expectedRepository: "cacheplane/b4run",
           expectedReviewedBaseSha: baseSha,
           expectedReviewedHeadSha: headSha,
           outputDirectory: resolve(sealRoot, "sealed"),
@@ -584,7 +584,7 @@ describe("merged-head reconciliation", () => {
       prNumber: 42,
       publicationAfter: publication,
       publicationBefore: structuredClone(publication),
-      repository: "cacheplane/dawnai",
+      repository: "cacheplane/b4run",
       reviewedBaseSha,
       reviewedHeadSha,
       startedAtMilliseconds: Date.parse("2026-08-10T18:01:00Z"),
@@ -607,7 +607,7 @@ describe("merged-head reconciliation", () => {
       }).length,
     ).toBeLessThanOrEqual(65_535)
 
-    const root = await mkdtemp(resolve(tmpdir(), "dawn-full-receipt-"))
+    const root = await mkdtemp(resolve(tmpdir(), "b4-full-receipt-"))
     try {
       await chmod(root, 0o700)
       await expect(
@@ -615,7 +615,7 @@ describe("merged-head reconciliation", () => {
           expectedMainSha: mergeSha,
           expectedMergeSha: mergeSha,
           expectedPrNumber: 42,
-          expectedRepository: "cacheplane/dawnai",
+          expectedRepository: "cacheplane/b4run",
           expectedReviewedBaseSha: reviewedBaseSha,
           expectedReviewedHeadSha: reviewedHeadSha,
           outputDirectory: resolve(root, "sealed"),
@@ -651,7 +651,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 30,
       }),
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       transport: async (request: any) => {
         const response = await innerTransport(request)
         if (decodeURIComponent(new URL(request.url).pathname).includes("/actions/workflows/")) {
@@ -674,7 +674,7 @@ describe("merged-head reconciliation", () => {
         github,
         now: () => clock,
         prNumber: 42,
-        repo: "cacheplane/dawnai",
+        repo: "cacheplane/b4run",
         timeoutMs: 100,
       }),
     ).rejects.toThrow(/UNPROVABLE: DEPENDABOT_RECONCILIATION_TIMEOUT/u)
@@ -689,7 +689,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 30,
       }),
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -709,7 +709,7 @@ describe("merged-head reconciliation", () => {
         github,
         now: () => Date.parse("2026-08-10T18:01:00Z"),
         prNumber: 42,
-        repo: "cacheplane/dawnai",
+        repo: "cacheplane/b4run",
       }),
     ).rejects.toThrow(/UNPROVABLE: INVALID_RECONCILIATION_RECEIPT/u)
   })
@@ -722,7 +722,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 20,
       }),
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -744,7 +744,7 @@ describe("merged-head reconciliation", () => {
       maxAttempts: 61,
       now: () => Date.parse("2026-08-10T18:01:00Z"),
       prNumber: 42,
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       sleep: async () => {},
       timeoutMs: 15 * 60_000,
     })
@@ -781,7 +781,7 @@ describe("merged-head reconciliation", () => {
           },
         },
         prNumber: 42,
-        repo: "cacheplane/dawnai",
+        repo: "cacheplane/b4run",
       }),
     ).rejects.toThrow(/UNPROVABLE: INVALID_RECONCILIATION_REQUEST/u)
     expect(requests).toBe(0)
@@ -827,7 +827,7 @@ describe("merged-head reconciliation", () => {
           },
         },
         prNumber: 42,
-        repo: "cacheplane/dawnai",
+        repo: "cacheplane/b4run",
       }),
     ).rejects.toThrow(/UNPROVABLE: INVALID_RECONCILIATION_REQUEST/u)
     expect(requests).toBe(0)
@@ -844,7 +844,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 20,
       }),
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -867,7 +867,7 @@ describe("merged-head reconciliation", () => {
         maxAttempts: 61,
         now: () => Date.parse("2026-08-10T18:01:00Z"),
         prNumber: 42,
-        repo: "cacheplane/dawnai",
+        repo: "cacheplane/b4run",
         sleep: async () => {},
         timeoutMs: 15 * 60_000,
       }),
@@ -883,7 +883,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 20,
       }),
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       transport: reconcileTransport({ baseSha, headSha, mergeSha, mergedAt }),
     })
     const receipt = await reconcileDependabot({
@@ -899,7 +899,7 @@ describe("merged-head reconciliation", () => {
       maxAttempts: 61,
       now: () => Date.parse("2026-08-10T18:01:00Z"),
       prNumber: 42,
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       sleep: async () => {},
       timeoutMs: 15 * 60_000,
     })
@@ -928,7 +928,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 20,
       }),
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       transport: reconcileTransport({ baseSha, headSha, mergeSha, mergedAt }),
     })
     await expect(
@@ -945,7 +945,7 @@ describe("merged-head reconciliation", () => {
         maxAttempts: 61,
         now: () => (clockReads++ < 8 ? 0 : 100),
         prNumber: 42,
-        repo: "cacheplane/dawnai",
+        repo: "cacheplane/b4run",
         sleep: async () => {},
         timeoutMs: 100,
       }),
@@ -960,7 +960,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 20,
       }),
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -982,7 +982,7 @@ describe("merged-head reconciliation", () => {
       maxAttempts: 3,
       now: () => clock,
       prNumber: 42,
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       sleep: async (milliseconds) => {
         clock += milliseconds
       },
@@ -999,7 +999,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 40,
       }),
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -1022,7 +1022,7 @@ describe("merged-head reconciliation", () => {
       maxAttempts: 3,
       now: () => Date.parse("2026-08-10T18:01:00Z"),
       prNumber: 42,
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       sleep: async () => {
         sleeps += 1
       },
@@ -1043,7 +1043,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 20,
       }),
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -1066,7 +1066,7 @@ describe("merged-head reconciliation", () => {
         maxAttempts: 61,
         now: () => clock,
         prNumber: 42,
-        repo: "cacheplane/dawnai",
+        repo: "cacheplane/b4run",
         sleep: async (milliseconds) => {
           sleeps += 1
           clock += milliseconds
@@ -1111,7 +1111,7 @@ describe("merged-head reconciliation", () => {
         },
         now,
         prNumber: 42,
-        repo: "cacheplane/dawnai",
+        repo: "cacheplane/b4run",
       }),
     ).rejects.toThrow(/UNPROVABLE: DEPENDABOT_RECONCILIATION_TIMEOUT/u)
     expect(requests).toBe(0)
@@ -1153,7 +1153,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 20,
       }),
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -1176,7 +1176,7 @@ describe("merged-head reconciliation", () => {
         maxAttempts: 61,
         now: () => Date.parse("2026-08-10T18:01:00Z"),
         prNumber: 42,
-        repo: "cacheplane/dawnai",
+        repo: "cacheplane/b4run",
         sleep: async () => {},
         timeoutMs: 15 * 60_000,
       }),
@@ -1197,7 +1197,7 @@ describe("merged-head reconciliation", () => {
       maxAttempts: 61,
       now: () => Date.parse("2026-08-10T18:01:00Z"),
       prNumber: 42,
-      repo: "cacheplane/dawnai",
+      repo: "cacheplane/b4run",
       sleep: async () => {},
       timeoutMs: 15 * 60_000,
     }
@@ -1208,7 +1208,7 @@ describe("merged-head reconciliation", () => {
           maxRecords: 100,
           maxRequests: 20,
         }),
-        repo: "cacheplane/dawnai",
+        repo: "cacheplane/b4run",
         transport: reconcileTransport({ baseSha, headSha, mergeSha, mergedAt }),
       })
     await expect(
@@ -1341,7 +1341,7 @@ describe("offline reconciliation receipt sealing", () => {
   }
 
   it("writes the exact receipt and a separate canonical uploader manifest", async () => {
-    const root = await mkdtemp(resolve(tmpdir(), "dawn-receipt-seal-"))
+    const root = await mkdtemp(resolve(tmpdir(), "b4-receipt-seal-"))
     try {
       const receipt = reconciliationReceipt()
       const receiptBytes = canonicalJsonBytes(receipt)
@@ -1374,7 +1374,7 @@ describe("offline reconciliation receipt sealing", () => {
         kind: "dependency-security-receipt-uploader",
         observationHead: receipt.observationHead,
         receiptSha256,
-        repository: "cacheplane/dawnai",
+        repository: "cacheplane/b4run",
         runAttempt: 2,
         runId: 31360000000,
         schemaVersion: 1,
@@ -1412,7 +1412,7 @@ describe("offline reconciliation receipt sealing", () => {
     ["zero run id", (args: any) => ({ ...args, runId: 0 })],
     ["zero run attempt", (args: any) => ({ ...args, runAttempt: 0 })],
   ])("rejects %s without creating output", async (_name, mutate) => {
-    const root = await mkdtemp(resolve(tmpdir(), "dawn-receipt-reject-"))
+    const root = await mkdtemp(resolve(tmpdir(), "b4-receipt-reject-"))
     try {
       const args = mutate(sealArguments(root))
       await expect(sealReconciliationReceipt(args)).rejects.toThrow(/UNPROVABLE/u)
@@ -1423,7 +1423,7 @@ describe("offline reconciliation receipt sealing", () => {
   })
 
   it("rejects a gzip payload that expands beyond the receipt bound", async () => {
-    const root = await mkdtemp(resolve(tmpdir(), "dawn-receipt-bomb-"))
+    const root = await mkdtemp(resolve(tmpdir(), "b4-receipt-bomb-"))
     try {
       await chmod(root, 0o700)
       const expanded = Buffer.alloc(MAX_RECONCILIATION_RECEIPT_BYTES + 1, 0x61)
@@ -1446,7 +1446,7 @@ describe("offline reconciliation receipt sealing", () => {
   })
 
   it("rejects non-canonical JSON and invalid UTF-8 even with matching digests", async () => {
-    const root = await mkdtemp(resolve(tmpdir(), "dawn-receipt-bytes-"))
+    const root = await mkdtemp(resolve(tmpdir(), "b4-receipt-bytes-"))
     try {
       const receipt = reconciliationReceipt()
       const nonCanonical = Buffer.from(`${JSON.stringify(receipt)}\n`, "utf8")
@@ -1472,8 +1472,8 @@ describe("offline reconciliation receipt sealing", () => {
   })
 
   it("rejects output escape, an existing directory, and a symlink target", async () => {
-    const root = await mkdtemp(resolve(tmpdir(), "dawn-receipt-output-"))
-    const external = await mkdtemp(resolve(tmpdir(), "dawn-receipt-external-"))
+    const root = await mkdtemp(resolve(tmpdir(), "b4-receipt-output-"))
+    const external = await mkdtemp(resolve(tmpdir(), "b4-receipt-external-"))
     try {
       await expect(
         sealReconciliationReceipt({
@@ -1522,7 +1522,7 @@ describe("offline reconciliation receipt sealing", () => {
   it.each(["startedAt", "mergedAt"])(
     "rejects an invalid calendar value in %s without writing output",
     async (field) => {
-      const root = await mkdtemp(resolve(tmpdir(), "dawn-receipt-timestamp-"))
+      const root = await mkdtemp(resolve(tmpdir(), "b4-receipt-timestamp-"))
       try {
         const receipt = reconciliationReceipt()
         if (field === "startedAt") {
@@ -1544,7 +1544,7 @@ describe("offline reconciliation receipt sealing", () => {
   )
 
   it("rejects an extra staged file before publishing the output directory", async () => {
-    const root = await mkdtemp(resolve(tmpdir(), "dawn-receipt-extra-"))
+    const root = await mkdtemp(resolve(tmpdir(), "b4-receipt-extra-"))
     try {
       await expect(
         sealReconciliationReceipt({
@@ -1562,7 +1562,7 @@ describe("offline reconciliation receipt sealing", () => {
   })
 
   it("rejects a target inserted immediately before the atomic directory reservation", async () => {
-    const root = await mkdtemp(resolve(tmpdir(), "dawn-receipt-target-race-"))
+    const root = await mkdtemp(resolve(tmpdir(), "b4-receipt-target-race-"))
     try {
       await expect(
         sealReconciliationReceipt({
@@ -1584,7 +1584,7 @@ describe("offline reconciliation receipt sealing", () => {
   })
 
   it("rejects a deterministic root swap before the atomic directory reservation", async () => {
-    const root = await mkdtemp(resolve(tmpdir(), "dawn-receipt-root-swap-"))
+    const root = await mkdtemp(resolve(tmpdir(), "b4-receipt-root-swap-"))
     const movedRoot = `${root}-moved`
     try {
       await expect(
@@ -1606,7 +1606,7 @@ describe("offline reconciliation receipt sealing", () => {
 
   it("rejects root swaps after directory creation and before closing proof", async () => {
     for (const checkpoint of ["afterMkdir", "beforeClose"]) {
-      const root = await mkdtemp(resolve(tmpdir(), `dawn-receipt-root-${checkpoint}-`))
+      const root = await mkdtemp(resolve(tmpdir(), `b4-receipt-root-${checkpoint}-`))
       const movedRoot = `${root}-moved`
       try {
         await expect(
@@ -1628,8 +1628,8 @@ describe("offline reconciliation receipt sealing", () => {
   })
 
   it("rejects a deterministic output swap before closing proof", async () => {
-    const root = await mkdtemp(resolve(tmpdir(), "dawn-receipt-output-swap-"))
-    const external = await mkdtemp(resolve(tmpdir(), "dawn-receipt-output-external-"))
+    const root = await mkdtemp(resolve(tmpdir(), "b4-receipt-output-swap-"))
+    const external = await mkdtemp(resolve(tmpdir(), "b4-receipt-output-external-"))
     const movedOutput = resolve(root, "moved-output")
     try {
       await expect(
@@ -1652,7 +1652,7 @@ describe("offline reconciliation receipt sealing", () => {
   it.each(["replacement", "symlink", "hardlink"])(
     "rejects a %s attack on a sealed file before closing proof",
     async (attack) => {
-      const root = await mkdtemp(resolve(tmpdir(), `dawn-receipt-file-${attack}-`))
+      const root = await mkdtemp(resolve(tmpdir(), `b4-receipt-file-${attack}-`))
       const displaced = resolve(root, "displaced.json")
       const external = resolve(root, "external.json")
       try {
@@ -1683,7 +1683,7 @@ describe("offline reconciliation receipt sealing", () => {
   )
 
   it("enforces the trusted-root contract and accepts only a protected sticky ancestor", async () => {
-    const parent = await mkdtemp(resolve(tmpdir(), "dawn-receipt-parent-"))
+    const parent = await mkdtemp(resolve(tmpdir(), "b4-receipt-parent-"))
     const root = resolve(parent, "root")
     const rootLink = `${root}-link`
     try {
@@ -1714,7 +1714,7 @@ describe("offline reconciliation receipt sealing", () => {
   })
 
   it("rejects closing proof when a trusted ancestor changes", async () => {
-    const parent = await mkdtemp(resolve(tmpdir(), "dawn-receipt-ancestor-drift-"))
+    const parent = await mkdtemp(resolve(tmpdir(), "b4-receipt-ancestor-drift-"))
     const root = resolve(parent, "root")
     try {
       await chmod(parent, 0o1777)
@@ -1744,7 +1744,7 @@ describe("offline reconciliation receipt sealing", () => {
   )
 
   it("writes exact modes even under a fully restrictive umask", async () => {
-    const root = await mkdtemp(resolve(tmpdir(), "dawn-receipt-umask-"))
+    const root = await mkdtemp(resolve(tmpdir(), "b4-receipt-umask-"))
     const previousUmask = process.umask(0o777)
     try {
       const result = await sealReconciliationReceipt(sealArguments(root))
@@ -1758,7 +1758,7 @@ describe("offline reconciliation receipt sealing", () => {
   })
 
   it("maps a disappearing trusted root to the fixed output error", async () => {
-    const root = await mkdtemp(resolve(tmpdir(), "dawn-receipt-root-missing-"))
+    const root = await mkdtemp(resolve(tmpdir(), "b4-receipt-root-missing-"))
     const movedRoot = `${root}-moved`
     try {
       await expect(
@@ -1846,7 +1846,7 @@ function schemaDependabotExpectation() {
   return {
     defaultSha,
     open: [normalizedAlert(), normalizedAlert({ number: 2, package: "second" })],
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     schemaVersion: 1,
   }
 }
@@ -1929,7 +1929,7 @@ function reconciliationFixture(defaultSha: string) {
   return validateDependabotExpectation({
     defaultSha,
     open: [normalizedAlert(), normalizedAlert({ number: 2, package: "second" })],
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     schemaVersion: 1,
   })
 }
@@ -1942,7 +1942,7 @@ function reconciliationFixtureWithThree(defaultSha: string) {
       normalizedAlert({ number: 2, package: "second" }),
       normalizedAlert({ number: 3, package: "third" }),
     ],
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     schemaVersion: 1,
   })
 }
@@ -2005,7 +2005,7 @@ function reconciliationFileInputs(
     dependabot: { defaultSha: baseSha, open: fixture.open },
     kind: "dependency-security-baseline",
     publication: publicationSnapshot(baseSha, "f".repeat(40)),
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     schemaVersion: 1,
     sourceSha: "f".repeat(40),
   }
@@ -2062,7 +2062,7 @@ function reconcileTransport(options: any) {
       return jsonResponse({ sha })
     }
     const decodedPath = decodeURIComponent(api.pathname)
-    const workflowPrefix = "/repos/cacheplane/dawnai/actions/workflows/"
+    const workflowPrefix = "/repos/cacheplane/b4run/actions/workflows/"
     if (decodedPath.startsWith(workflowPrefix) && decodedPath.endsWith("/runs")) {
       const workflowPath = decodedPath.slice(workflowPrefix.length, -"/runs".length)
       const runId = 31_400_000_000 + verificationReads++
@@ -2221,13 +2221,13 @@ function publicationSnapshot(defaultHead: string, source: string) {
           {
             conclusion: "success",
             digest: "a".repeat(64),
-            name: "publish (dawn-app)",
+            name: "publish (b4-app)",
             noOp: true,
           },
           {
             conclusion: "success",
             digest: "b".repeat(64),
-            name: "publish (dawn-sandbox-infra)",
+            name: "publish (b4-sandbox-infra)",
             noOp: true,
           },
         ],
@@ -2280,7 +2280,7 @@ function publicationSnapshot(defaultHead: string, source: string) {
       })),
       requestCount: 63,
     },
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     schemaVersion: 1,
     sourceSha: source,
     workflows: {
@@ -2375,7 +2375,7 @@ function completeReconciliationReceipt() {
       reviewedHeadSha,
     },
     publication,
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     schemaVersion: 1,
     verificationRuns,
   }

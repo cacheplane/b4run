@@ -630,7 +630,7 @@ describe("schema migrations", () => {
   })
 
   it("v2 → v3: opening an existing v2 db adds the episodic event-time index", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "dawn-mig-"))
+    const dir = mkdtempSync(join(tmpdir(), "b4-mig-"))
     dirs.push(dir)
     const path = join(dir, "m.sqlite")
 
@@ -684,7 +684,7 @@ describe("browse against a concurrently written database file", () => {
   })
 
   it("reads records and total from one snapshot while a second connection deletes", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "dawn-snapshot-"))
+    const dir = mkdtempSync(join(tmpdir(), "b4-snapshot-"))
     dirs.push(dir)
     const path = join(dir, "m.sqlite")
     const s = sqliteMemoryStore({ path })

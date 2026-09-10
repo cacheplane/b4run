@@ -4,24 +4,25 @@
  * this process cannot actually serve.
  *
  * Split out of `build/targets/edge-capabilities.ts` (which reads the filesystem,
- * so it can never enter the `@dawn-ai/cli/fetch` graph) because the gate has two
+ * so it can never enter the `@b4run/cli/fetch` graph) because the gate has two
  * halves that must agree word for word:
  *
  *  • BUILD time — `assertEdgeCapabilities` walks the app's directories and fails
- *    `dawn build` / `dawn check` before the `hono` target writes a byte;
+ *    `b4 build` / `b4 check` before the `hono` target writes a byte;
  *  • REQUEST time — {@link collectRuntimeCapabilityGaps} runs inside
- *    `createRuntimeFetchHandler` and raises the SAME `DAWN_E1005` for anything
+ *    `createRuntimeFetchHandler` and raises the SAME `B4_E1005` for anything
  *    that got past the build gate.
  *
  * The second half is not redundant. The build gate only runs when the `hono`
- * target does, and composing an entry by hand over `@dawn-ai/cli/fetch` is a
+ * target does, and composing an entry by hand over `@b4run/cli/fetch` is a
  * documented, supported way to deploy — such an app never runs the target, so
  * without this probe a `sandbox` block (or `toolOutput`, or a route's skills)
  * would be read and then quietly do nothing. Silent no-ops are exactly what the
  * gate exists to prevent.
  */
 
-import type { DawnConfig } from "@dawn-ai/core"
+import type { B4Config } from "@b4run/core"
+import { pureDirname, pureJoin } from "./pure-path.js"
 
 /** The target these rules describe. Named in the build-time message. */
 export const EDGE_TARGET = "hono"
@@ -37,7 +38,7 @@ export const EDGE_TARGET = "hono"
 export interface EdgeCapabilityViolation {
   /** The feature, in the words the docs use for it (`sandbox`, `skills`, …). */
   readonly capability: string
-  /** The config key or file that introduced it — a `dawn.config.ts` key, or an app-relative path. */
+  /** The config key or file that introduced it — a `b4.config.ts` key, or an app-relative path. */
   readonly source: string
   /** Why it cannot be served. */
   readonly reason: string
@@ -59,7 +60,7 @@ function formatViolationList(violations: readonly EdgeCapabilityViolation[]): st
 }
 
 /**
- * The BUILD-time report. Shared verbatim by `dawn build` and `dawn check`.
+ * The BUILD-time report. Shared verbatim by `b4 build` and `b4 check`.
  *
  * Its wording is deliberately about the TARGET ("the hono build target cannot
  * serve…") because at build time nothing is running yet — the user is choosing
@@ -71,8 +72,8 @@ export function formatEdgeCapabilityViolations(
   return (
     `The "${EDGE_TARGET}" build target cannot serve ${violations.length} feature(s) this app uses:\n\n` +
     `${formatViolationList(violations)}\n\n` +
-    `The edge deliberately serves a SUBSET of Dawn — no filesystem, no processes, no containers. ` +
-    `Fix the features above, or drop "${EDGE_TARGET}" from \`build.targets\` in dawn.config.ts and deploy with the "node" target instead.`
+    `The edge deliberately serves a SUBSET of B4.run — no filesystem, no processes, no containers. ` +
+    `Fix the features above, or drop "${EDGE_TARGET}" from \`build.targets\` in b4.config.ts and deploy with the "node" target instead.`
   )
 }
 
@@ -82,7 +83,7 @@ export function formatEdgeCapabilityViolations(
  * Same violations, different voice: by the time this fires the app is deployed
  * and serving, so "drop hono from build.targets" is not the whole story — the
  * app may never have run the target at all (a hand-composed entry over
- * `@dawn-ai/cli/fetch`). It therefore names the RUNTIME, and the fix is to
+ * `@b4run/cli/fetch`). It therefore names the RUNTIME, and the fix is to
  * remove the dead config or inject the missing instance.
  */
 export function formatRuntimeCapabilityViolations(
@@ -112,7 +113,7 @@ export interface RuntimeCapabilityInput {
    * JSON-serializable half inlined into `app.mjs`; for a hand-composed entry it
    * is whatever the author passed.
    */
-  readonly config: Pick<DawnConfig, "sandbox" | "toolOutput"> | undefined
+  readonly config: Pick<B4Config, "sandbox" | "toolOutput"> | undefined
   /**
    * Whether this runtime supplied `bootFallbacks` — i.e. whether it has a
    * filesystem, processes and a container daemon to fall back on.
@@ -133,8 +134,12 @@ export interface RuntimeCapabilityInput {
   /** The static module manifest's routes, when the handler booted from one. */
   readonly routes: readonly {
     readonly routeId: string
+    /** Exact runtime path used to resolve bundled marker files. */
+    readonly routeFile?: string
     /** Skill directory names this route had at BUILD time (see StaticRouteModule). */
     readonly skills?: readonly string[]
+    /** Bundled marker file bodies (see StaticRouteModule.markerFiles); their presence serves the skills. */
+    readonly markerFiles?: Readonly<Record<string, string>>
   }[]
 }
 
@@ -164,12 +169,12 @@ export function collectRuntimeCapabilityGaps(
   if (input.hasFilesystemFallback) return violations
 
   // sandbox — the build gate rejects `sandbox` for the hono target outright, so
-  // this fires for an entry composed by hand over `@dawn-ai/cli/fetch`. An
+  // this fires for an entry composed by hand over `@b4run/cli/fetch`. An
   // injected sandboxManager means the caller took over: not a gap.
   if (input.config?.sandbox && !input.hasSandboxManager) {
     violations.push({
       capability: "sandbox",
-      source: "`sandbox` in dawn.config.ts",
+      source: "`sandbox` in b4.config.ts",
       reason:
         "a sandbox isolates tool execution in a container or pod, and this runtime can neither " +
         "start one nor talk to a container daemon — no sandbox provider was resolved, so every " +
@@ -187,7 +192,7 @@ export function collectRuntimeCapabilityGaps(
   if (input.config?.toolOutput && Object.keys(input.config.toolOutput).length > 0) {
     violations.push({
       capability: "tool-output offloading",
-      source: "`toolOutput` in dawn.config.ts",
+      source: "`toolOutput` in b4.config.ts",
       reason:
         "offloading spills oversized tool output to a file under workspace/ and hands the model a " +
         "pointer to it, and this runtime has no filesystem to spill to — every one of these " +
@@ -201,18 +206,36 @@ export function collectRuntimeCapabilityGaps(
   // route loads, and without a MarkerFs the skills capability's `detect` simply
   // returns false. Nothing at request time can tell "this route had skills"
   // from "this route had none", which is why the BUILD records the names into
-  // the static manifest and this reads them back.
+  // the static manifest and this reads them back. A build that also BUNDLED a
+  // given skill's body (`markerFiles` containing its `SKILL.md`) serves it
+  // through `staticMarkerFs`, so only skills whose body is missing are gaps.
   for (const route of input.routes) {
     const skills = route.skills
     if (!skills || skills.length === 0) continue
+    // Trust the manifest for bodies exactly as little as for names: a skill is
+    // served only when its own SKILL.md body is bundled. A hand-composed
+    // manifest that records names beside a lone plan.md still reports.
+    const unserved = skills.filter((name) => {
+      if (!route.routeFile) return true
+      const path = pureJoin(pureDirname(route.routeFile), "skills", name, "SKILL.md")
+      return (
+        !Object.hasOwn(route.markerFiles ?? {}, path) ||
+        typeof route.markerFiles?.[path] !== "string"
+      )
+    })
+    if (unserved.length === 0) continue
     violations.push({
-      capability: `skills (${[...skills].sort().join(", ")})`,
+      // Re-sorted even though `discoverSkillDirs` already sorts: `route.skills`
+      // here can come from a hand-composed manifest fed straight to this
+      // function, which carries no guarantee of that order.
+      capability: `skills (${[...unserved].sort().join(", ")})`,
       source: `the skills/ directory of route "${route.routeId}", recorded in the static module manifest at build time`,
       reason:
         "skill bodies are read from disk when the route loads, and this runtime has no filesystem " +
-        "to read them from — the skills would vanish from the prompt with no error at all",
+        "to read them from — the manifest records these skill names but bundles no body for them, so the " +
+        "skills would vanish from the prompt with no error at all",
       remedy:
-        "Inline the instructions into the route's `systemPrompt`, or serve them from a tool that fetches them",
+        "Rebuild with `b4 build` so the manifest bundles the skill bodies, or inline the instructions into the route's `systemPrompt`",
     })
   }
 

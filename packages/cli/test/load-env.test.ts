@@ -9,7 +9,7 @@ let tempDir: string
 const originalEnv: Record<string, string | undefined> = {}
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), "dawn-env-"))
+  tempDir = mkdtempSync(join(tmpdir(), "b4-env-"))
 })
 
 afterEach(() => {
@@ -32,61 +32,61 @@ function saveEnv(...keys: string[]) {
 
 describe("loadEnvFile", () => {
   test("loads variables from .env file", () => {
-    saveEnv("TEST_DAWN_FOO", "TEST_DAWN_BAR")
-    delete process.env.TEST_DAWN_FOO
-    delete process.env.TEST_DAWN_BAR
+    saveEnv("TEST_B4_FOO", "TEST_B4_BAR")
+    delete process.env.TEST_B4_FOO
+    delete process.env.TEST_B4_BAR
 
-    writeFileSync(join(tempDir, ".env"), "TEST_DAWN_FOO=hello\nTEST_DAWN_BAR=world\n")
+    writeFileSync(join(tempDir, ".env"), "TEST_B4_FOO=hello\nTEST_B4_BAR=world\n")
 
     const count = loadEnvFile(tempDir)
 
     expect(count).toBe(2)
-    expect(process.env.TEST_DAWN_FOO).toBe("hello")
-    expect(process.env.TEST_DAWN_BAR).toBe("world")
+    expect(process.env.TEST_B4_FOO).toBe("hello")
+    expect(process.env.TEST_B4_BAR).toBe("world")
   })
 
   test("does not override existing env vars", () => {
-    saveEnv("TEST_DAWN_EXISTING")
-    process.env.TEST_DAWN_EXISTING = "original"
+    saveEnv("TEST_B4_EXISTING")
+    process.env.TEST_B4_EXISTING = "original"
 
-    writeFileSync(join(tempDir, ".env"), "TEST_DAWN_EXISTING=overridden\n")
+    writeFileSync(join(tempDir, ".env"), "TEST_B4_EXISTING=overridden\n")
 
     const count = loadEnvFile(tempDir)
 
     expect(count).toBe(0)
-    expect(process.env.TEST_DAWN_EXISTING).toBe("original")
+    expect(process.env.TEST_B4_EXISTING).toBe("original")
   })
 
   test("skips comments and blank lines", () => {
-    saveEnv("TEST_DAWN_ONLY")
-    delete process.env.TEST_DAWN_ONLY
+    saveEnv("TEST_B4_ONLY")
+    delete process.env.TEST_B4_ONLY
 
     writeFileSync(
       join(tempDir, ".env"),
-      "# This is a comment\n\nTEST_DAWN_ONLY=value\n\n# Another comment\n",
+      "# This is a comment\n\nTEST_B4_ONLY=value\n\n# Another comment\n",
     )
 
     const count = loadEnvFile(tempDir)
 
     expect(count).toBe(1)
-    expect(process.env.TEST_DAWN_ONLY).toBe("value")
+    expect(process.env.TEST_B4_ONLY).toBe("value")
   })
 
   test("strips surrounding quotes", () => {
-    saveEnv("TEST_DAWN_DOUBLE", "TEST_DAWN_SINGLE")
-    delete process.env.TEST_DAWN_DOUBLE
-    delete process.env.TEST_DAWN_SINGLE
+    saveEnv("TEST_B4_DOUBLE", "TEST_B4_SINGLE")
+    delete process.env.TEST_B4_DOUBLE
+    delete process.env.TEST_B4_SINGLE
 
     writeFileSync(
       join(tempDir, ".env"),
-      "TEST_DAWN_DOUBLE=\"quoted value\"\nTEST_DAWN_SINGLE='single quoted'\n",
+      "TEST_B4_DOUBLE=\"quoted value\"\nTEST_B4_SINGLE='single quoted'\n",
     )
 
     const count = loadEnvFile(tempDir)
 
     expect(count).toBe(2)
-    expect(process.env.TEST_DAWN_DOUBLE).toBe("quoted value")
-    expect(process.env.TEST_DAWN_SINGLE).toBe("single quoted")
+    expect(process.env.TEST_B4_DOUBLE).toBe("quoted value")
+    expect(process.env.TEST_B4_SINGLE).toBe("single quoted")
   })
 
   test("returns 0 when no .env file exists", () => {
@@ -129,7 +129,7 @@ describe("loadEnvFiles", () => {
   const saved = { ...process.env }
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "dawn-loadenvfiles-"))
+    dir = mkdtempSync(join(tmpdir(), "b4-loadenvfiles-"))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
@@ -140,29 +140,29 @@ describe("loadEnvFiles", () => {
 
   it("loads from an explicit absolute path", () => {
     const p = join(dir, "custom.env")
-    writeFileSync(p, "DAWN_TEST_A=1\n")
-    delete process.env.DAWN_TEST_A
+    writeFileSync(p, "B4_TEST_A=1\n")
+    delete process.env.B4_TEST_A
     const n = loadEnvFiles([p])
     expect(n).toBeGreaterThanOrEqual(1)
-    expect(process.env.DAWN_TEST_A).toBe("1")
+    expect(process.env.B4_TEST_A).toBe("1")
   })
 
   it("does not override an already-set var (shell wins)", () => {
     const p = join(dir, ".env")
-    writeFileSync(p, "DAWN_TEST_B=fromfile\n")
-    process.env.DAWN_TEST_B = "fromshell"
+    writeFileSync(p, "B4_TEST_B=fromfile\n")
+    process.env.B4_TEST_B = "fromshell"
     loadEnvFiles([p])
-    expect(process.env.DAWN_TEST_B).toBe("fromshell")
+    expect(process.env.B4_TEST_B).toBe("fromshell")
   })
 
   it("loads multiple paths in order; first to set a key wins", () => {
     const a = join(dir, "a.env")
     const b = join(dir, "b.env")
-    writeFileSync(a, "DAWN_TEST_C=fromA\n")
-    writeFileSync(b, "DAWN_TEST_C=fromB\n")
-    delete process.env.DAWN_TEST_C
+    writeFileSync(a, "B4_TEST_C=fromA\n")
+    writeFileSync(b, "B4_TEST_C=fromB\n")
+    delete process.env.B4_TEST_C
     loadEnvFiles([a, b])
-    expect(process.env.DAWN_TEST_C).toBe("fromA")
+    expect(process.env.B4_TEST_C).toBe("fromA")
   })
 
   it("missing file contributes zero", () => {

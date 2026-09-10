@@ -1,5 +1,5 @@
 {
-  "name": "dawn",
+  "name": "b4-run",
   "private": true,
   "license": "MIT",
   "packageManager": "pnpm@10.33.0",
@@ -34,7 +34,6 @@
     "published:smoke": "node scripts/published-artifact-smoke.mjs",
     "published:verify": "node scripts/published-artifact-verify.mjs",
     "release:observe": "node scripts/release/cli.mjs observe",
-    "release:consolidate-drafts": "node scripts/release/duplicate-draft-consolidation-cli.mjs",
     "release:preflight": "node scripts/release/preflight.mjs",
     "release:rehearse": "node scripts/release/test/support/fault-harness.mjs",
     "sync:chart-appversion": "node scripts/sync-chart-appversion.mjs",
@@ -56,7 +55,7 @@
     "verify:harness:self-test": "node scripts/harness-report.mjs --self-test",
     "verify:harness:smoke": "node scripts/harness-report.mjs smoke",
     "typecheck": "turbo run typecheck && tsc -p test/tsconfig.json --noEmit && tsc -p test/security-dependencies/tsconfig.json --noEmit && tsc -p test/k8s-compat/tsconfig.json --noEmit",
-    "verify:k8s:compat": "pnpm --filter @dawn-ai/sandbox... build && pnpm exec tsx scripts/kubernetes-compat.ts",
+    "verify:k8s:compat": "pnpm --filter @b4run/sandbox... build && pnpm exec tsx scripts/kubernetes-compat.ts",
     "verify:typescript-tooling-pack": "pnpm test:typescript-tooling-pack-smoke && node scripts/typescript-tooling-pack-smoke.mjs",
     "release:recover:inspect": "node scripts/release/recovery/cli.mjs inspect"
   },
@@ -64,7 +63,7 @@
     "@biomejs/biome": "2.5.6",
     "@changesets/cli": "2.31.1",
     "@copilotkit/aimock": "^1.37.4",
-    "@dawn-ai/sdk": "workspace:*",
+    "@b4run/sdk": "workspace:*",
     "@playwright/test": "1.62.1",
     "@types/node": "26.1.2",
     "@vercel/blob": "2.4.0",

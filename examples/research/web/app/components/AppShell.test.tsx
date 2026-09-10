@@ -219,7 +219,7 @@ beforeEach(() => {
   // assumes (no hydrated card, no composer block from that source).
   pendingInterrupts = vi.fn(async () => [])
   mocks.runAgent = async () => {}
-  // The default: the probe reports Dawn up, which is what every pre-existing
+  // The default: the probe reports B4.run up, which is what every pre-existing
   // test here assumes (the normal shell, not the connect screen). Tests
   // under "app shell connect screen" below override this per case.
   // A real empty-candidates body, not a bare 200 with no body: the probe only
@@ -299,7 +299,7 @@ describe("app shell hydration", () => {
     const applied = mocks.agent.setMessagesArgs.at(-1) ?? []
     expect(applied).toEqual([
       {
-        activityType: "dawn.plan",
+        activityType: "b4.plan",
         content: { todos: [{ content: "Read the corpus", status: "completed" }] },
         id: "hydrated:plan:thread-a",
         role: "activity",
@@ -529,13 +529,13 @@ describe("app shell composer block for restored gates", () => {
 
 /**
  * The predicate under test here is a real probe through the proxy
- * (`GET /api/dawn/memory/candidates`), not `useCopilotKit().runtimeConnectionStatus`
+ * (`GET /api/b4/memory/candidates`), not `useCopilotKit().runtimeConnectionStatus`
  * — that read looked right and was proven wrong live: `/api/copilotkit`'s
  * `/info` handler runs in the SAME Next process as the page and answers 200
- * without ever contacting Dawn, so it stayed `"connected"` with Dawn
+ * without ever contacting B4.run, so it stayed `"connected"` with B4.run
  * completely down. `global.fetch` is stubbed per test (see `beforeEach`
  * above for the default "up" case) rather than the CopilotKit mock, because
- * the probe calls `fetch` directly — see `probeDawnServer` in `AppShell.tsx`.
+ * the probe calls `fetch` directly — see `probeB4Server` in `AppShell.tsx`.
  *
  * `SERVER_PROBE_INTERVAL_MS_FOR_TESTS` mirrors the module-private constant of
  * the same value in `AppShell.tsx`; it is not exported, so this is the one
@@ -597,7 +597,7 @@ describe("app shell connect screen", () => {
     )
     hydrate = vi.fn(async () => {
       throw new Error(
-        "Could not load this conversation (HTTP 502): Cannot reach the Dawn server at http://127.0.0.1:3002: ECONNREFUSED",
+        "Could not load this conversation (HTTP 502): Cannot reach the B4.run server at http://127.0.0.1:3002: ECONNREFUSED",
       )
     })
     render(undefined)
@@ -632,7 +632,7 @@ describe("app shell connect screen", () => {
       ),
     )
     // The first hydrate genuinely fails the same way the real fetch inside it
-    // would while Dawn is actually down — this is the request that never
+    // would while B4.run is actually down — this is the request that never
     // gets a natural retry (see `reportHydrateFailure`'s
     // `isProxyUnreachableError` branch) and that recovery has to reissue. The
     // second call is what a live server answers once it is back.
@@ -641,7 +641,7 @@ describe("app shell connect screen", () => {
       hydrateCall += 1
       if (hydrateCall === 1) {
         throw new Error(
-          "Could not load this conversation (HTTP 502): Cannot reach the Dawn server at http://127.0.0.1:3002: ECONNREFUSED",
+          "Could not load this conversation (HTTP 502): Cannot reach the B4.run server at http://127.0.0.1:3002: ECONNREFUSED",
         )
       }
       return {
@@ -709,7 +709,7 @@ describe("app shell connect screen", () => {
     // write is `= false` in a cleanup. StrictMode's second setup finds the
     // flag already latched false, every `setServerStatus` from a probe is
     // dropped, `serverStatus` stays "checking" forever, and the shell renders
-    // normally with Dawn completely down — the exact outage this screen
+    // normally with B4.run completely down — the exact outage this screen
     // exists to prevent, visible only in dev.
     vi.stubGlobal(
       "fetch",

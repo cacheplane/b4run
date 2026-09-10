@@ -2,7 +2,7 @@
  * The `node:`-free half of the static-module manifest: its types, the
  * build-time route/middleware normalizers, and the shape guard. Split from
  * `static-modules.ts` (which registers the tsx loader to link a generated
- * `modules.mjs`) so the `@dawn-ai/cli/fetch` graph never reaches tsx.
+ * `modules.mjs`) so the `@b4run/cli/fetch` graph never reaches tsx.
  */
 
 import {
@@ -10,8 +10,8 @@ import {
   type ResolvedStateField,
   type RouteKind,
   resolveStateFields,
-} from "@dawn-ai/core"
-import type { DawnMiddleware, ThreadAccessPolicy } from "@dawn-ai/sdk"
+} from "@b4run/core"
+import type { B4Middleware, ThreadAccessPolicy } from "@b4run/sdk"
 
 import { selectMiddlewareExport } from "../dev/middleware.js"
 import { selectThreadAccessExport, validateThreadAccessPolicy } from "../dev/thread-access.js"
@@ -72,14 +72,24 @@ export interface StaticRouteModule {
    * Skill directory names this route had at BUILD time; absent when it had
    * none.
    *
-   * Carried for one consumer only — `collectRuntimeCapabilityGaps`, which uses
-   * it to raise DAWN_E1005 on a runtime with no filesystem. Nothing loads a
-   * skill from this: bodies still come off disk through the skills capability's
-   * MarkerFs on node, and on a filesystem-less runtime there is nothing to load,
-   * which is precisely what the guard exists to report. Deliberately NOT part
-   * of `PreparedRouteModules` — the per-route execution cache has no use for it.
+   * The names are still used by one consumer — `collectRuntimeCapabilityGaps`,
+   * which uses them to raise B4_E1005 on a runtime with no filesystem. Skill
+   * bodies come off disk through the skills capability's MarkerFs on node; on
+   * an edge/filesystem-less runtime where this route's `markerFiles` is
+   * present, bodies are served from it through `staticMarkerFs` instead (see
+   * `staticModulesMarkerFiles`). Deliberately NOT part of
+   * `PreparedRouteModules` — the per-route execution cache has no use for it.
    */
   readonly skills?: readonly string[]
+  /**
+   * Marker file contents this route had at BUILD time, keyed by the absolute
+   * namespace path the capability markers compute (`pureJoin(routeDir, …)`
+   * with `routeDir = pureDirname(routeFile)`). Emitted only by the edge
+   * manifest flavors, which have no filesystem to read `skills/`, `plan.md`,
+   * or `memory.md` from at request time; the node manifest never carries it.
+   * Absent when the route has no marker files.
+   */
+  readonly markerFiles?: Readonly<Record<string, string>>
 }
 
 /**
@@ -89,20 +99,23 @@ export interface StaticRouteModule {
  * cache are seeded from it and no filesystem discovery happens at boot or per
  * request.
  */
-export interface DawnStaticModules {
+export interface B4StaticModules {
   /**
    * App-level middleware bound from the manifest's static import, when the
    * app has a middleware file. `undefined` also covers a middleware file with
    * no usable export — the dynamic probe ignores such a file too.
    */
-  readonly middleware?: DawnMiddleware
+  readonly middleware?: B4Middleware
   /**
    * App-level thread access policy bound from the manifest's static import,
    * when the app has a policy file.
    *
-   * The channel is declared now so the boot resolution never has to be
-   * rewritten; nothing emits into it yet, so today only a hand-rolled edge
-   * embed that constructs `DawnStaticModules` itself can use it.
+   * Emitted by the web build targets (`modules-emitter.ts` writes
+   * `threadAccess: normalizeThreadAccessModule(...)` into the manifest) and
+   * re-validated on the boot path (`static-modules.ts` runs
+   * `validateThreadAccessPolicy` because types are erased across the manifest
+   * boundary). A hand-rolled edge embed that constructs `B4StaticModules`
+   * itself can also populate it directly.
    */
   readonly threadAccess?: ThreadAccessPolicy
   readonly routes: readonly StaticRouteModule[]
@@ -129,6 +142,8 @@ export interface StaticToolModuleInput {
 export interface StaticRouteModuleInput {
   /** Route kind as discovered at build time (drift-checked at runtime). */
   readonly kind: RouteKind
+  /** Emitted by the edge manifest flavors only; omitted when the route has none. */
+  readonly markerFiles?: Readonly<Record<string, string>>
   /** The route's `memory.ts` namespace object, when the file exists. */
   readonly memoryModule?: unknown
   /** Absolute route entry file path at runtime. */
@@ -155,7 +170,7 @@ export interface StaticRouteModuleInput {
     string,
     (current: unknown, incoming: unknown) => unknown,
   ])[]
-  /** Inlined `.dawn/routes/<slug>/tools.json` content, when present. */
+  /** Inlined `.b4/routes/<slug>/tools.json` content, when present. */
   readonly toolSchemas?: Record<string, unknown>
   readonly tools: readonly StaticToolModuleInput[]
 }
@@ -174,7 +189,7 @@ export function buildStaticRouteModule(input: StaticRouteModuleInput): StaticRou
   if (module.kind !== input.kind) {
     throw new Error(
       `Static module manifest is stale for route ${input.routeId}: built as kind "${input.kind}" ` +
-        `but the route module now normalizes to "${module.kind}" — re-run \`dawn build\`.`,
+        `but the route module now normalizes to "${module.kind}" — re-run \`b4 build\`.`,
     )
   }
 
@@ -216,9 +231,31 @@ export function buildStaticRouteModule(input: StaticRouteModuleInput): StaticRou
     // exactOptionalPropertyTypes an explicit `undefined` is not assignable to
     // an optional field, and an absent key is what "no skills" means here.
     ...(input.skills && input.skills.length > 0 ? { skills: input.skills } : {}),
+    ...(input.markerFiles && Object.keys(input.markerFiles).length > 0
+      ? { markerFiles: input.markerFiles }
+      : {}),
     stateFields,
     tools,
   }
+}
+
+/**
+ * Every route's bundled marker files as one map, or `undefined` when no route
+ * carries any — the input `staticMarkerFs` takes. Routes never share a
+ * directory, so keys cannot collide.
+ */
+export function staticModulesMarkerFiles(
+  modules: Pick<B4StaticModules, "routes">,
+): Readonly<Record<string, string>> | undefined {
+  let union: Record<string, string> | undefined
+  for (const route of modules.routes) {
+    if (!route.markerFiles) continue
+    // Spread, not `Object.assign`: a literal `__proto__` key in a route's map
+    // would reach the prototype setter through `Object.assign`, while a spread
+    // defines it as an own property.
+    union = { ...union, ...route.markerFiles }
+  }
+  return union
 }
 
 /**
@@ -228,7 +265,7 @@ export function buildStaticRouteModule(input: StaticRouteModuleInput): StaticRou
  * first, then the named `middleware` export. Returns undefined when neither
  * is a function (a middleware file with no usable export — dev ignores it).
  */
-export function normalizeMiddlewareModule(mod: unknown): DawnMiddleware | undefined {
+export function normalizeMiddlewareModule(mod: unknown): B4Middleware | undefined {
   return selectMiddlewareExport(mod)
 }
 
@@ -236,17 +273,17 @@ export function normalizeMiddlewareModule(mod: unknown): DawnMiddleware | undefi
  * A manifest whose thread-access entry bound nothing usable.
  *
  * A local class rather than `CliError`: `../output.js` is node-only and this
- * module is in the `@dawn-ai/cli/fetch` graph — the same reason
- * `runtime-fetch-core.ts` rolls its own. `dawnErrorCodeOf` reads the code back.
+ * module is in the `@b4run/cli/fetch` graph — the same reason
+ * `runtime-fetch-core.ts` rolls its own. `b4ErrorCodeOf` reads the code back.
  */
 class ManifestThreadAccessError extends Error {
   /** Registry code, the same one the dynamic loader raises. */
-  readonly code = "DAWN_E3003"
+  readonly code = "B4_E3003"
   constructor(reason: string) {
     super(
       `The thread access policy in this app's static module manifest is not usable: ${reason}. ` +
-        "The manifest carries a policy only for an app that HAS a policy file, so Dawn will not " +
-        "boot with every thread endpoint ungated — fix the policy file and re-run `dawn build`.",
+        "The manifest carries a policy only for an app that HAS a policy file, so B4.run will not " +
+        "boot with every thread endpoint ungated — fix the policy file and re-run `b4 build`.",
     )
     this.name = "ManifestThreadAccessError"
   }

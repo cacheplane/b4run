@@ -3,13 +3,13 @@ import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createSubagentsMarker } from "@dawn-ai/core"
+import { createSubagentsMarker } from "@b4run/core"
 import {
   convertSubagentTaskToLangChain,
   type SubagentResolver,
   streamAgent,
-} from "@dawn-ai/langchain"
-import type { ThreadsStore } from "@dawn-ai/sqlite-storage"
+} from "@b4run/langchain"
+import type { ThreadsStore } from "@b4run/sqlite-storage"
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch"
 import { AIMessage } from "@langchain/core/messages"
 import type { RunnableConfig } from "@langchain/core/runnables"
@@ -27,6 +27,7 @@ import { afterEach, expect, it } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { script } from "../../testing/dist/fixture-builder.js"
 import { handleAgUiRequest } from "../src/lib/dev/agui-handler.js"
+import { createLiveTurnHub } from "../src/lib/dev/live-turn-hub.js"
 import { createPendingResumeClaims } from "../src/lib/dev/pending-interrupts.js"
 import { createRunRegistry } from "../src/lib/dev/run-registry.js"
 import { createRuntimeRequestListener } from "../src/lib/dev/runtime-server.js"
@@ -39,13 +40,13 @@ afterEach(async () => {
 })
 
 async function fixtureApp(overrides: Record<string, string> = {}): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-agui-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-agui-"))
   cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "agui-fixture", "type": "module" }\n',
     "src/app/chat/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
+      'import { agent } from "@b4run/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
     ...overrides,
   }
   for (const [rel, body] of Object.entries(files)) {
@@ -61,7 +62,7 @@ async function fixtureApp(overrides: Record<string, string> = {}): Promise<strin
  * the Agent Protocol suite parks with, so both surfaces are proven against the
  * same kind of park rather than a hand-rolled interrupt chunk. */
 const PARK_ROUTE = [
-  'import { agent } from "@dawn-ai/sdk"',
+  'import { agent } from "@b4run/sdk"',
   "export default agent({",
   '  model: "gpt-5-mini",',
   '  systemPrompt: "You are a test agent. Use the provided tools when asked.",',
@@ -145,6 +146,8 @@ interface ControlledServerOptions {
   readonly checkpointer?: BaseCheckpointSaver
   readonly streamRoute: typeof streamResolvedRoute
   readonly shutdownSignal?: AbortSignal
+  readonly liveTurnHub?: ReturnType<typeof createLiveTurnHub>
+  readonly runRegistry?: ReturnType<typeof createRunRegistry>
 }
 
 async function setupControlledServer(controlled: ControlledServerOptions): Promise<{
@@ -153,7 +156,7 @@ async function setupControlledServer(controlled: ControlledServerOptions): Promi
   const appRoot = await fixtureApp()
   const threads = new Map<string, { metadata: Record<string, unknown>; status: string }>()
   const resumeClaims = createPendingResumeClaims()
-  const runRegistry = createRunRegistry()
+  const runRegistry = controlled.runRegistry ?? createRunRegistry()
   const server: Server = createServer((request, response) => {
     const threadMatch = request.url?.match(/^\/threads\/([^/]+)$/)
     if (request.method === "GET" && threadMatch) {
@@ -168,6 +171,7 @@ async function setupControlledServer(controlled: ControlledServerOptions): Promi
       checkpointer:
         controlled.checkpointer ??
         ({ getTuple: async () => undefined } as unknown as BaseCheckpointSaver),
+      liveTurnHub: controlled.liveTurnHub ?? createLiveTurnHub(),
       middleware: undefined,
       registry: {
         appRoot,
@@ -257,7 +261,7 @@ async function parallelSubagentTask(firstInterruptObserved: Promise<void>) {
       if (input === "B") {
         await firstInterruptObserved
         await dispatchCustomEvent(
-          "dawn.capability",
+          "b4.capability",
           { event: "native.progress", data: { input } },
           config,
         )
@@ -935,7 +939,7 @@ async function threadStatus(port: number, threadId: string): Promise<string> {
   return ((await response.json()) as { status: string }).status
 }
 
-/** Interrupt chunk in Dawn's own vocabulary — what `streamResolvedRoute` yields
+/** Interrupt chunk in B4.run's own vocabulary — what `streamResolvedRoute` yields
  * when a turn parks, upstream of the AG-UI translation. */
 function interruptChunk(interruptId: string) {
   return {
@@ -1029,3 +1033,52 @@ it("keeps a parked thread interrupted when the client disconnects after the park
   // the agent finished.
   await expect.poll(async () => threadStatus(port, "parked-then-disconnected")).toBe("interrupted")
 })
+
+it.each(["failure", "cancellation"])(
+  "preserves AG-UI %s in the terminal frame sent to attach viewers",
+  async (mode) => {
+    const liveTurnHub = createLiveTurnHub()
+    const runRegistry = createRunRegistry()
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const streamRoute: typeof streamResolvedRoute = async function* () {
+      yield { type: "chunk", data: "before failure" }
+      entered()
+      await blocked
+      throw new Error("route failed during live attach")
+    }
+    const { port } = await setupControlledServer({ streamRoute, liveTurnHub, runRegistry })
+    const running = postRun(port, {
+      threadId: "attach-terminal",
+      runId: "attach-terminal-run",
+      messages: [{ id: "1", role: "user", content: "hello" }],
+    })
+    await started
+    const attachment = liveTurnHub.attach("attach-terminal")
+    try {
+      if (!attachment) throw new Error("Expected live turn attachment")
+      if (mode === "cancellation") expect(runRegistry.cancel("attach-terminal")).toBe(true)
+      else release()
+      const { events } = await running
+      expect(events.some((event) => event.type === "RUN_ERROR")).toBe(true)
+      expect(await attachment.next()).toEqual({
+        type: "done",
+        output:
+          mode === "cancellation"
+            ? { cancelled: true }
+            : { error: "route failed during live attach" },
+      })
+      expect(await attachment.next()).toBeNull()
+    } finally {
+      release()
+      attachment?.detach()
+      await running
+    }
+  },
+)

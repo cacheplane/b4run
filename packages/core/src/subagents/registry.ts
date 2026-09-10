@@ -1,5 +1,5 @@
-import type { DawnAgent, DelegationConstraintPredicate } from "@dawn-ai/sdk"
-import { isDawnAgent } from "@dawn-ai/sdk"
+import type { B4Agent, DelegationConstraintPredicate } from "@b4run/sdk"
+import { isB4Agent } from "@b4run/sdk"
 import type { RouteDefinition, RouteManifest } from "../types.js"
 import type { DescriptorRouteIndex, ResolvedDelegationRule, ResolvedSubagent } from "./types.js"
 
@@ -8,7 +8,7 @@ const WINDOWS_DRIVE_ROOT = /^[A-Za-z]:[\\/]/
 const DEFAULT_DESCRIPTION = "No description provided."
 
 export interface ResolveSubagentRegistryArgs {
-  readonly descriptor: DawnAgent | undefined
+  readonly descriptor: B4Agent | undefined
   readonly descriptorRouteIndex: DescriptorRouteIndex
   readonly parentRouteDir: string
   readonly parentRouteId: string
@@ -18,7 +18,7 @@ export interface ResolveSubagentRegistryArgs {
 
 interface ExplicitRegistration {
   readonly name: string
-  readonly descriptor: DawnAgent
+  readonly descriptor: B4Agent
   readonly route: RouteDefinition
 }
 
@@ -30,7 +30,7 @@ interface PendingSubagent {
 }
 
 function invalidDelegationPolicy(message: string): Error {
-  return new Error(`[DAWN_E1004] ${message}`)
+  return new Error(`[B4_E1004] ${message}`)
 }
 
 function routeProblem(parentRouteId: string, message: string): Error {
@@ -109,10 +109,10 @@ function normalizeRule(
 }
 
 function validateDescriptorConfig(
-  descriptor: DawnAgent | undefined,
+  descriptor: B4Agent | undefined,
   parentRouteId: string,
 ): {
-  readonly explicit: readonly { readonly name: string; readonly descriptor: DawnAgent }[]
+  readonly explicit: readonly { readonly name: string; readonly descriptor: B4Agent }[]
   readonly defaultAction: "allow" | "deny" | "approve"
   readonly rules: ReadonlyMap<string, ResolvedDelegationRule>
 } {
@@ -121,17 +121,17 @@ function validateDescriptorConfig(
   }
 
   const untypedDescriptor = descriptor as unknown as Record<string, unknown>
-  const explicit: Array<{ readonly name: string; readonly descriptor: DawnAgent }> = []
+  const explicit: Array<{ readonly name: string; readonly descriptor: B4Agent }> = []
   if (hasOwn(untypedDescriptor, "subagents")) {
     if (!isRecord(untypedDescriptor.subagents)) {
-      throw routeProblem(parentRouteId, "subagents must be a keyed object of Dawn agents.")
+      throw routeProblem(parentRouteId, "subagents must be a keyed object of B4.run agents.")
     }
     for (const [name, child] of Object.entries(untypedDescriptor.subagents)) {
       validateName(name, "explicit", parentRouteId)
-      if (!isDawnAgent(child)) {
+      if (!isB4Agent(child)) {
         throw routeProblem(
           parentRouteId,
-          `Explicit subagent "${name}" must reference a Dawn agent descriptor.`,
+          `Explicit subagent "${name}" must reference a B4.run agent descriptor.`,
         )
       }
       explicit.push({ name, descriptor: child })
@@ -286,7 +286,7 @@ function discoverConventionRoutes(
 }
 
 function resolveExplicitRegistrations(
-  explicit: readonly { readonly name: string; readonly descriptor: DawnAgent }[],
+  explicit: readonly { readonly name: string; readonly descriptor: B4Agent }[],
   descriptorRouteIndex: DescriptorRouteIndex,
   routeManifest: RouteManifest,
   parentRouteId: string,

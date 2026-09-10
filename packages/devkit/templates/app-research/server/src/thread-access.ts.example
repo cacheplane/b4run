@@ -14,10 +14,10 @@
  * thread's `route` metadata, so anyone allowed to run any route on a thread can
  * move that identity onto a route of their choosing. Two concepts, two files.
  *
- * Run `dawn docs thread-access` for the full reference.
+ * Run `b4 docs thread-access` for the full reference.
  */
 
-import { defineThreadAccess, deny, permit, type ThreadAccessRequest } from "@dawn-ai/sdk"
+import { defineThreadAccess, deny, permit, type ThreadAccessRequest } from "@b4run/sdk"
 
 import { principalOf } from "./auth.js"
 
@@ -25,7 +25,7 @@ const owned = async (req: ThreadAccessRequest) => {
   const user = await principalOf(req.headers)
   if (!user) return deny()
 
-  // `thread: undefined` reaches `delete`, `update` and `read` alike — Dawn
+  // `thread: undefined` reaches `delete`, `update` and `read` alike — B4.run
   // invokes the policy on every gated request rather than short-circuiting to
   // the endpoint's natural 404 or 204. Denying it FIRST, ahead of any admin
   // branch, is what keeps "not yours" and "never existed" the same answer. An
@@ -34,7 +34,7 @@ const owned = async (req: ThreadAccessRequest) => {
   //
   // It does NOT refuse a first AG-UI turn, which is the thing people expect it
   // to. `POST /agui/{routeId}`, `/runs/stream` and `/runs/wait` create the row
-  // when the id names none, and Dawn asks about that create under
+  // when the id names none, and B4.run asks about that create under
   // `action: "create"` — the handler below, not this one. CopilotKit picking
   // its `threadId` in the browser is therefore served, and the row it writes
   // carries the stamp that create returned, so every later turn matches
@@ -52,11 +52,11 @@ const owned = async (req: ThreadAccessRequest) => {
   // `req.thread.access`, never `req.thread.metadata`. Metadata is
   // client-supplied and untrusted — anyone who can create a thread can write
   // anything into it. `access` is the stamp this policy's own `create` decision
-  // returned, stored under a reserved key Dawn strips from client input on
+  // returned, stored under a reserved key B4.run strips from client input on
   // every create path, so a client cannot forge one.
   const owner = req.thread.access?.ownerId
 
-  // `undefined` means a thread created before this app had a policy. Dawn does
+  // `undefined` means a thread created before this app had a policy. B4.run does
   // not guess what that should mean. Admin-only is the conservative answer; a
   // one-time backfill is the other one. Do not permit it outright.
   if (owner === undefined) return user.isAdmin ? permit() : deny()
@@ -68,7 +68,7 @@ const owned = async (req: ThreadAccessRequest) => {
 
 export default defineThreadAccess({
   // `POST /threads`, and every run endpoint that finds no row for the thread id
-  // it was given. The stamp this returns is the thread's owner record: Dawn
+  // it was given. The stamp this returns is the thread's owner record: B4.run
   // stores it under a reserved key no client can write, and it is what `owned`
   // above authorizes against for the whole life of the thread.
   create: async (req) => {
@@ -78,7 +78,7 @@ export default defineThreadAccess({
   // `fallback` is required, and it is the deny-by-default floor: an action with
   // no handler of its own lands here rather than falling through to an allow.
   //
-  // It also handles the `update` recheck Dawn runs after every create, on
+  // It also handles the `update` recheck B4.run runs after every create, on
   // `POST /threads` and on a run endpoint's implicit create alike. The row just
   // stamped has `ownerId === user.id`, so `owned` permits it; a row the store
   // handed back on an id collision carries someone else's, so `owned` denies

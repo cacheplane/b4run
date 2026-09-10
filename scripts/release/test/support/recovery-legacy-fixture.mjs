@@ -18,7 +18,7 @@ export const CANDIDATE = Object.freeze({
   ciCheck: "validate",
   publisherWorkflow: ".github/workflows/release.yml",
 })
-const REPOSITORY = "cacheplane/dawnai"
+const REPOSITORY = "cacheplane/b4run"
 const TAG_SHA = "abcdef0123456789abcdef0123456789abcdef01"
 export const API_BASE = `https://api.github.com/repos/${REPOSITORY}`
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
@@ -33,7 +33,7 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../.."
 export const ARCHIVE_SHA256 = "0d248ff546dd1937d25d15ca6ad0849a9b45f7ccc05fa1519998f0c61de2ba66"
 
 export async function loadLegacyFixture() {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-recovery-legacy-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-recovery-legacy-"))
   const archive = join(
     REPO_ROOT,
     "scripts/release/test/fixtures/recovery-legacy/candidate-88c01c4a.tar.gz",
@@ -175,7 +175,7 @@ export function candidateFixture(legacy) {
       predicate: {
         runDetails: {
           metadata: {
-            invocationId: `https://github.com/cacheplane/dawnai/actions/runs/${runId}/attempts/${runAttempt}`,
+            invocationId: `https://github.com/cacheplane/b4run/actions/runs/${runId}/attempts/${runAttempt}`,
           },
         },
       },
@@ -343,7 +343,7 @@ export function candidateFixture(legacy) {
           predicateType: "https://slsa.dev/provenance/v1",
           workflow: ".github/workflows/release.yml",
           commitSha: COMMIT_SHA,
-          repository: "https://github.com/cacheplane/dawnai",
+          repository: "https://github.com/cacheplane/b4run",
           ref: `refs/tags/v${VERSION}`,
         },
       })),
@@ -397,7 +397,7 @@ export function recordingGitHub(
     tag_name: tag,
     target_commitish: "main",
     prerelease: false,
-    name: `Dawn ${TAG}`,
+    name: `B4 ${TAG}`,
     body,
     draft: true,
     immutable: false,
@@ -443,7 +443,7 @@ export function recordingGitHub(
           {
             workflow_run_id: 501,
             run_url: `${API_BASE}/actions/runs/501`,
-            html_url: "https://github.com/cacheplane/dawnai/actions/runs/501",
+            html_url: "https://github.com/cacheplane/b4run/actions/runs/501",
           },
           200,
         )
@@ -460,7 +460,7 @@ export function recordingGitHub(
       if (
         method === "POST" &&
         upload.origin === "https://uploads.github.com" &&
-        upload.pathname === "/repos/cacheplane/dawnai/releases/7/assets"
+        upload.pathname === "/repos/cacheplane/b4run/releases/7/assets"
       ) {
         const asset = {
           id: 1000,
@@ -500,12 +500,12 @@ export function recordingGitHub(
   }
   const reader = legacy.modules.reader.createGitHubReader({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     fetchImpl,
   })
   const writer = legacy.modules.writer.createGitHubWriter({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     reader,
     fetchImpl,
   })
@@ -569,7 +569,7 @@ export function auditFixture(fixture) {
     workflow: ".github/workflows/published-artifact-verify.yml",
     workflowRunId: 501,
     runUrl: `${API_BASE}/actions/runs/501`,
-    htmlUrl: "https://github.com/cacheplane/dawnai/actions/runs/501",
+    htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/501",
   }
   const result = {
     schemaVersion: 1,

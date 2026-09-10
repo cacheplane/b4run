@@ -245,10 +245,6 @@ async function runAbandon(options, runtime) {
   })
 }
 
-// release.yml's detect job checks out the default branch, so HEAD in the controller's own
-// checkout is the reviewed tip of main -- the only place a committed terminal record can live.
-const TERMINAL_RECORD_REF = "HEAD"
-
 async function runObserve(options, runtime) {
   const paths = Object.fromEntries(
     Object.entries(options).map(([key, value]) => [key, resolveCliPath(value, runtime.cwd)]),
@@ -297,15 +293,27 @@ async function runObserve(options, runtime) {
     "waitForRequiredCi",
     "required CI waiter",
   )
-  classifyEvent(event)
+  const invocation = classifyEvent(event)
 
   const [git, github, npm, attestations, marker] = await Promise.all([
     requireProductionGit(runtime),
     requireProductionGitHub(runtime),
-    requireNpm(runtime),
+    requireNpm(runtime, { firstPublication: invocation.npmBootstrap === true }),
     requireAttestations(runtime),
     readControllerMarker(runtime),
   ])
+  // Pin the controller checkout once; candidate resolution and observation must
+  // use the same immutable source even if the checkout moves during this call.
+  requiredMethod(git, "listFirstParentHistory", "checkout HEAD reader")
+  const checkoutHistory = await git.listFirstParentHistory({ ref: "HEAD", maxCount: 1 })
+  if (
+    !Array.isArray(checkoutHistory) ||
+    checkoutHistory.length !== 1 ||
+    typeof checkoutHistory[0] !== "string" ||
+    !/^[a-f0-9]{40}$/u.test(checkoutHistory[0])
+  )
+    throw new TypeError("Release CLI checkout HEAD must resolve to exactly one immutable commit")
+  const terminalRecordRef = checkoutHistory[0]
   const inventory = runtime.inventory ?? createInventoryReader({ root: runtime.cwd, git })
   requiredMethod(inventory, "read", "production inventory reader")
 
@@ -324,7 +332,7 @@ async function runObserve(options, runtime) {
       npmAuditFactory,
       attestations,
       marker,
-      terminalRecordRef: TERMINAL_RECORD_REF,
+      terminalRecordRef,
     })
   } catch (error) {
     resolutionFailure = safeObservationFailure(error, "CANDIDATE_DISCOVERY_AMBIGUOUS")
@@ -397,7 +405,7 @@ async function runObserve(options, runtime) {
           npm,
           npmAuditFactory,
           attestations,
-          terminalRecordRef: TERMINAL_RECORD_REF,
+          terminalRecordRef,
           includeRecovery: true,
           ...(currentPublisherRun === null ? {} : { currentPublisherRun }),
         })
@@ -603,7 +611,7 @@ async function runEscrow(options, runtime) {
     {
       candidate,
       manifest: verified.manifest,
-      repository: "cacheplane/dawnai",
+      repository: "cacheplane/b4run",
     },
   )
   if (!Buffer.from(attestationSetBytes).equals(canonicalJsonBytes(attestationSet))) {
@@ -663,7 +671,13 @@ async function runEscrow(options, runtime) {
   }
   const [github, npm, attestations] = await Promise.all([
     requireGitHub(runtime),
-    requireNpm(runtime),
+    // Escrow proves each package version absent before sealing. A version missing
+    // from an existing package already reads as an exact E404, but a package that
+    // has never been published reads as ambiguous. That is every package of a
+    // first publication, and any package newly joining the fixed group. The
+    // first-publication reader resolves exactly that case, only for code-owned
+    // names and only from the trusted registry's own not-found response.
+    requireNpm(runtime, { firstPublication: true, tolerateInjectedPlainReader: true }),
     requireAttestations(runtime),
   ])
   const escrow = moduleFunction(metadataModule, "escrowCandidate", "candidate escrow")
@@ -1445,6 +1459,7 @@ async function runWaitAudit(options, runtime) {
   )({
     runId,
     candidate,
+    git: await requireProductionGit(runtime),
     github: github.reader,
     attempts: 181,
     delayMs: 10_000,
@@ -1581,7 +1596,7 @@ async function runTag(options, runtime) {
   const created = await createAnnotatedTag({
     tag,
     sha: candidate.commitSha,
-    message: `Dawn release ${tag}`,
+    message: `B4 release ${tag}`,
   })
   const pushed = await pushTag({ tag })
   return Object.freeze({
@@ -1933,8 +1948,8 @@ function auditDispatchRunId(value) {
     !Number.isSafeInteger(value.workflowRunId) ||
     value.workflowRunId < 1 ||
     value.runUrl !==
-      `https://api.github.com/repos/cacheplane/dawnai/actions/runs/${value.workflowRunId}` ||
-    value.htmlUrl !== `https://github.com/cacheplane/dawnai/actions/runs/${value.workflowRunId}`
+      `https://api.github.com/repos/cacheplane/b4run/actions/runs/${value.workflowRunId}` ||
+    value.htmlUrl !== `https://github.com/cacheplane/b4run/actions/runs/${value.workflowRunId}`
   ) {
     throw new TypeError("Release CLI audit dispatch result is invalid")
   }
@@ -1978,7 +1993,7 @@ async function requireGitHub(runtime) {
     "GitHub reader factory",
   )({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     ...(runtime.environment.GITHUB_REPOSITORY_ID === undefined
       ? {}
       : { repositoryId: runtime.environment.GITHUB_REPOSITORY_ID }),
@@ -1990,7 +2005,7 @@ async function requireGitHub(runtime) {
     "GitHub writer factory",
   )({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     token,
     reader,
   })
@@ -2046,7 +2061,7 @@ async function requireProductionGitHub(runtime) {
     "GitHub reader factory",
   )({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     ...(runtime.environment.GITHUB_REPOSITORY_ID === undefined
       ? {}
       : { repositoryId: runtime.environment.GITHUB_REPOSITORY_ID }),
@@ -2094,13 +2109,55 @@ async function requireNpmAuditFactory(runtime) {
   })
 }
 
-async function requireNpm(runtime) {
-  if (runtime.npm !== undefined) {
-    requiredMethod(runtime.npm, "observePackageVersion", "npm reader")
-    return runtime.npm
+async function requireNpm(
+  runtime,
+  { firstPublication = false, tolerateInjectedPlainReader = false } = {},
+) {
+  if (firstPublication !== true) {
+    if (runtime.npm !== undefined) {
+      requiredMethod(runtime.npm, "observePackageVersion", "npm reader")
+      return runtime.npm
+    }
+    const module = await runtime.importModule(new URL("./adapters/npm.mjs", import.meta.url).href)
+    return moduleFunction(module, "createNpmReader", "npm reader factory")()
   }
+  // Read-only first-publication detection: the explicitly selected reader may report a
+  // whole-package absence from npm's own not-found responses. It receives no credential and
+  // confers no publishing authority; the publisher re-validates its own bootstrap policy.
   const module = await runtime.importModule(new URL("./adapters/npm.mjs", import.meta.url).href)
-  return moduleFunction(module, "createNpmReader", "npm reader factory")()
+  if (runtime.npm !== undefined) {
+    // Observation selected by the bootstrap boolean must never fall back to a
+    // reader that cannot prove absence, so it requires the operation. Escrow
+    // opts into tolerating an injected reader that lacks it, because there the
+    // caller supplies the exact observations to use.
+    if (
+      tolerateInjectedPlainReader &&
+      typeof runtime.npm.observeFirstPublicationPackage !== "function"
+    ) {
+      requiredMethod(runtime.npm, "observePackageVersion", "npm reader")
+      return runtime.npm
+    }
+    requiredMethod(runtime.npm, "observeFirstPublicationPackage", "first-publication npm reader")
+    return moduleFunction(
+      module,
+      "adaptFirstPublicationNpmReader",
+      "first-publication npm reader adapter",
+    )(runtime.npm)
+  }
+  const manifestModule = await runtime.importModule(new URL("./manifest.mjs", import.meta.url).href)
+  const eligiblePackages = moduleValue(
+    manifestModule,
+    "CANONICAL_RELEASE_PACKAGE_ORDER",
+    "release package inventory",
+  )
+  if (!Array.isArray(eligiblePackages)) {
+    throw new TypeError("Release CLI first-publication package inventory is invalid")
+  }
+  return moduleFunction(
+    module,
+    "createFirstPublicationAwareNpmReader",
+    "first-publication npm reader factory",
+  )({ eligiblePackages })
 }
 
 async function requireAttestations(runtime) {
@@ -2112,7 +2169,7 @@ async function requireAttestations(runtime) {
   if (typeof token !== "string" || token.length === 0 || /[\r\n]/u.test(token)) {
     throw new TypeError("Release CLI attestation verification requires GITHUB_TOKEN")
   }
-  if (runtime.environment.GITHUB_REPOSITORY !== "cacheplane/dawnai") {
+  if (runtime.environment.GITHUB_REPOSITORY !== "cacheplane/b4run") {
     throw new TypeError("Release CLI attestation verification requires the exact GitHub repository")
   }
   const module = await runtime.importModule(new URL("./artifact-store.mjs", import.meta.url).href)
@@ -2121,7 +2178,7 @@ async function requireAttestations(runtime) {
     "createCliAttestationVerifier",
     "attestation verifier factory",
   )({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     token,
     fileSystem: runtime.fileSystem,
   })
@@ -2157,7 +2214,7 @@ function normalizeArtifactUpload(value, manifest) {
   ) {
     throw new TypeError("Artifact upload output has an invalid exact-key schema")
   }
-  const expectedUrl = `https://github.com/cacheplane/dawnai/actions/runs/${manifest.artifact.prepareRunId}/artifacts/${value.artifactId}`
+  const expectedUrl = `https://github.com/cacheplane/b4run/actions/runs/${manifest.artifact.prepareRunId}/artifacts/${value.artifactId}`
   if (value.artifactUrl !== expectedUrl) {
     throw new TypeError("Artifact upload URL does not match the run and artifact ID")
   }

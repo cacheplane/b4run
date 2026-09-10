@@ -10,7 +10,7 @@ import { canonicalReleaseBody, isManagedReleaseForTag, parseReleaseMarker } from
 import { assertLegacyAuditCompatibleRelease } from "./recovery/observe.mjs"
 import { compareSemver, isExactSemver, parseSemver } from "./semver.mjs"
 
-const REPOSITORY = "cacheplane/dawnai"
+const REPOSITORY = "cacheplane/b4run"
 const WORKFLOW = ".github/workflows/published-artifact-verify.yml"
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u
@@ -55,26 +55,22 @@ export async function coordinateIndependentAudit(input) {
   const managed =
     invocation.eventName === "schedule"
       ? await discoverLatestPublishedRelease(invocation.github.reader, invocation.defaultBranch)
-      : parseManagedRelease(
-          await assertLegacyAuditCompatibleRelease({
-            release: await readReleaseByTag(
-              invocation.github.reader,
-              `v${invocation.inputs.version}`,
-            ),
-            github: invocation.github.reader,
-          }),
-          {
-            defaultBranch: invocation.defaultBranch,
-            expected: invocation.inputs,
-            allowDraft: false,
-          },
-        )
+      : await readAuditableManagedRelease(invocation.github.reader, {
+          defaultBranch: invocation.defaultBranch,
+          expected: invocation.inputs,
+        })
   await verifyAnnotatedTag(invocation.github.reader, managed)
   const identity = managedIdentity(managed)
+  // The verifier separately authorizes its real immutable main source before
+  // auditing. This coordinator performs no marker or release mutation.
+  if (managed.mode === "draft") return Object.freeze({ mode: "draft-controller", ...identity })
+  if (invocation.eventName === "workflow_dispatch") {
+    return Object.freeze({ mode: "published-controller", ...identity })
+  }
   const receipt = snapshotJson(
     await invocation.github.writer.dispatchWorkflowAtRef({
       workflow: WORKFLOW,
-      ref: managed.tag,
+      ref: invocation.defaultBranch,
       inputs: identity,
     }),
   )
@@ -99,7 +95,7 @@ export async function coordinateIndependentAudit(input) {
 async function readAuditableManagedRelease(reader, { defaultBranch, expected }) {
   const releases = await readEnvelopeValue(reader.listReleases(), "releases")
   if (!Array.isArray(releases)) throw new Error("GitHub Release list is malformed")
-  const name = `Dawn v${expected.version}`
+  const name = `B4 v${expected.version}`
   const matches = releases.filter(
     (release) =>
       release !== null &&
@@ -150,10 +146,6 @@ function isPublishedReleaseCandidate(value) {
   )
 }
 
-async function readReleaseByTag(reader, tag) {
-  return readEnvelopeValue(reader.getReleaseByTag({ tag }), "release")
-}
-
 async function readEnvelopeValue(value, operation) {
   const envelope = normalizeAdapterEnvelope(await value, {
     source: "github",
@@ -199,7 +191,7 @@ function parseManagedRelease(value, { defaultBranch, expected, allowDraft }) {
   const tag = `v${version}`
   if (
     !isReleaseVersion(version) ||
-    release.name !== `Dawn v${version}` ||
+    release.name !== `B4 v${version}` ||
     marker.version !== version ||
     marker.tag !== tag ||
     (mode === "draft" ? !isManagedReleaseForTag(release, tag) : release.tag_name !== tag) ||

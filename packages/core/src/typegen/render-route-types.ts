@@ -3,7 +3,7 @@ import { SCENARIO_TYPES_FILE } from "./render-scenario-types.js"
 import { type RouteStateFields, renderStateTypes } from "./render-state-types.js"
 import { renderToolTypes } from "./render-tool-types.js"
 
-export function renderDawnTypes(
+export function renderB4Types(
   manifest: RouteManifest,
   toolTypes: readonly RouteToolTypes[],
   stateTypes?: readonly RouteStateFields[],
@@ -20,16 +20,16 @@ export function renderDawnTypes(
 
   const paramBlock =
     paramLines.length === 0
-      ? "  export interface DawnRouteParams {}"
-      : ["  export interface DawnRouteParams {", ...paramLines, "  }"].join("\n")
+      ? "  export interface B4RouteParams {}"
+      : ["  export interface B4RouteParams {", ...paramLines, "  }"].join("\n")
 
   const toolBlock = renderToolTypes(toolTypes).trimEnd()
 
   const parts: string[] = [
     `/// <reference path="./${SCENARIO_TYPES_FILE}" />`,
     "",
-    'declare module "dawn:routes" {',
-    `  export type DawnRoutePath = ${pathUnion};`,
+    'declare module "b4:routes" {',
+    `  export type B4RoutePath = ${pathUnion};`,
     "",
     paramBlock,
     "",
@@ -59,20 +59,20 @@ export function renderRouteTypes(manifest: RouteManifest): string {
 
   if (paramLines.length === 0) {
     return [
-      'declare module "dawn:routes" {',
-      `  export type DawnRoutePath = ${pathUnion};`,
+      'declare module "b4:routes" {',
+      `  export type B4RoutePath = ${pathUnion};`,
       "",
-      "  export interface DawnRouteParams {}",
+      "  export interface B4RouteParams {}",
       "}",
       "",
     ].join("\n")
   }
 
   return [
-    'declare module "dawn:routes" {',
-    `  export type DawnRoutePath = ${pathUnion};`,
+    'declare module "b4:routes" {',
+    `  export type B4RoutePath = ${pathUnion};`,
     "",
-    "  export interface DawnRouteParams {",
+    "  export interface B4RouteParams {",
     ...paramLines,
     "  }",
     "}",

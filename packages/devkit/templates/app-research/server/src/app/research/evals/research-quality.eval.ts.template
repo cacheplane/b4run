@@ -1,5 +1,5 @@
-import { contains, custom, defineEval, gate, llmJudge, toolCalled } from "@dawn-ai/evals"
-import { script } from "@dawn-ai/testing"
+import { contains, custom, defineEval, gate, llmJudge, toolCalled } from "@b4run/evals"
+import { script } from "@b4run/testing"
 
 const JUDGE_CRITERIA = "The report answers the question and cites at least one source document."
 

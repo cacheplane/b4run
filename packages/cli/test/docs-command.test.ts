@@ -7,8 +7,8 @@ import { loadDocsPages } from "../src/lib/docs-bundle.js"
 import { CliError } from "../src/lib/output.js"
 
 function fixtureDocs(): string {
-  const dir = mkdtempSync(join(tmpdir(), "dawn-docs-"))
-  writeFileSync(join(dir, "README.md"), "# Dawn — Documentation\n")
+  const dir = mkdtempSync(join(tmpdir(), "b4-docs-"))
+  writeFileSync(join(dir, "README.md"), "# B4.run — Documentation\n")
   writeFileSync(join(dir, "tools.md"), "# Tools\n\nCo-located tools.\n")
   mkdirSync(join(dir, "recipes"))
   writeFileSync(join(dir, "recipes", "add-a-tool.md"), "# Add a tool\n")

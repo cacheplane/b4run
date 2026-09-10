@@ -1,4 +1,4 @@
-import type { RouteConfig, RouteKind } from "@dawn-ai/sdk"
+import type { RouteConfig, RouteKind } from "@b4run/sdk"
 
 export type { RouteConfig, RouteKind }
 

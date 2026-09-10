@@ -13,7 +13,7 @@
     "profile": "recovery-linux-v2"
   },
   "fence": {
-    "concurrencyGroup": "dawn-release-controller",
+    "concurrencyGroup": "b4-release-controller",
     "contracts": []
   },
   "lanes": [
@@ -130,6 +130,7 @@
       "scripts/release/manifest.mjs",
       "scripts/release/metadata.mjs",
       "scripts/release/npm-audit.mjs",
+      "scripts/release/npm-bootstrap.mjs",
       "scripts/release/npm-evidence.mjs",
       "scripts/release/process-runner.mjs",
       "scripts/release/recovery/adopt.mjs",
@@ -171,7 +172,7 @@
       "scripts/release/terminal-records.mjs",
       "scripts/release/topology.mjs"
     ],
-    "sha256": "c98de85868eb0b5bb012693623f8e1bf3753cbc29726857cec6371f9ea0601a8"
+    "sha256": null
   },
   "workflows": [
     ".github/workflows/release-postpublication-audit.yml",

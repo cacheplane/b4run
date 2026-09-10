@@ -8,7 +8,10 @@ const observer = await import("../recovery/observe.mjs").catch(() => ({}))
 test("v2 metadata round trips canonical bounded wire without a legacy interpretation", () => {
   assert.equal(typeof metadata.renderRecoveryReleaseBody, "function")
   const marker = markerAt("PUBLICATION_READY")
-  const body = metadata.renderRecoveryReleaseBody({ marker, body: "Original notes" })
+  const body = metadata.renderRecoveryReleaseBody({
+    marker,
+    body: "Original notes",
+  })
   assert.deepEqual(metadata.parseRecoveryReleaseMarker(body), marker)
   for (const corrupt of [
     body.replace('"schemaVersion":2', '"schemaVersion":3'),
@@ -17,7 +20,10 @@ test("v2 metadata round trips canonical bounded wire without a legacy interpreta
   ])
     assert.throws(() => metadata.parseRecoveryReleaseMarker(corrupt))
   assert.throws(() =>
-    metadata.renderRecoveryReleaseBody({ marker, body: "<!-- DAWN_RELEASE_CONTROLLER_MARKER\n" }),
+    metadata.renderRecoveryReleaseBody({
+      marker,
+      body: "<!-- B4_RELEASE_CONTROLLER_MARKER\n",
+    }),
   )
 })
 
@@ -57,7 +63,10 @@ test("reserved legacy NPM_COMPLETE independently checks unchanged original asset
 
 test("adopted draft uses separate recovery facts without a fake v1 smoke or publication proof", async () => {
   const remote = await recoveryRemote()
-  remote.release.body = metadata.renderRecoveryReleaseBody({ marker: remote.marker, body: "Notes" })
+  remote.release.body = metadata.renderRecoveryReleaseBody({
+    marker: remote.marker,
+    body: "Notes",
+  })
   remote.setAssets([...remote.baseAssets, remote.adoption.archive, remote.adoptionRef])
   const result = await observe(remote.args)
   assert.equal(result.phase, "RECOVERY_ADOPTED")
@@ -66,7 +75,7 @@ test("adopted draft uses separate recovery facts without a fake v1 smoke or publ
   assert.equal(result.observation, undefined)
 })
 
-for (const body of ["corrupt <!-- DAWN_RELEASE_CONTROLLER_MARKER\n{", "", "Human edited notes"]) {
+for (const body of ["corrupt <!-- B4_RELEASE_CONTROLLER_MARKER\n{", "", "Human edited notes"]) {
   test(`published immutable finalization remains terminal despite display body ${JSON.stringify(body)}`, async () => {
     const remote = await recoveryRemote({ published: true })
     remote.release.body = body
@@ -83,7 +92,10 @@ for (const [name, mutate] of [
   [
     "absent npm package",
     (r) => {
-      r.args.npm.observePackageVersion = async () => ({ status: "ABSENT", httpStatus: 404 })
+      r.args.npm.observePackageVersion = async () => ({
+        status: "ABSENT",
+        httpStatus: 404,
+      })
     },
   ],
   [
@@ -139,7 +151,10 @@ for (const [name, mutate] of [
     (r) => {
       r.args.npmAuditFactory = {
         create: async () => ({
-          verifyPackage: async () => ({ status: "verified", signature: { status: "valid" } }),
+          verifyPackage: async () => ({
+            status: "verified",
+            signature: { status: "valid" },
+          }),
           dispose: async () => {},
         }),
       }
@@ -157,7 +172,10 @@ for (const [name, mutate] of [
 
 test("terminal chain cannot fabricate reviewed-main-ci from a policy and source digest", async () => {
   const r = await recoveryRemote({ published: true })
-  r.args.github.getCommitCheckRuns = async () => ({ status: "PRESENT", value: [] })
+  r.args.github.getCommitCheckRuns = async () => ({
+    status: "PRESENT",
+    value: [],
+  })
   const result = await observe(r.args)
   assert.equal(result.outcome, "blocked")
   assert.equal(result.terminal, false)
@@ -193,7 +211,10 @@ for (const options of [
     assert.equal(result.terminal, false)
   })
 test("unknown retained receipt cannot become valid by appearing in the final inventory", async () => {
-  const r = await recoveryRemote({ published: true, retainedRaw: '{"schemaVersion":99}\n' })
+  const r = await recoveryRemote({
+    published: true,
+    retainedRaw: '{"schemaVersion":99}\n',
+  })
   const result = await observe(r.args)
   assert.equal(result.outcome, "blocked")
   assert.equal(result.terminal, false)
@@ -212,7 +233,10 @@ for (const [phase, ref] of [
       verificationSet: r.setRef,
       audit: phase === "VERIFICATION_COMPLETE" ? null : r[ref],
     }
-    r.release.body = metadata.renderRecoveryReleaseBody({ marker, body: "notes" })
+    r.release.body = metadata.renderRecoveryReleaseBody({
+      marker,
+      body: "notes",
+    })
     r.setAssets(r.allAssets.filter((a) => a.assetName !== "recovery-v2-finalization.json"))
     const result = await observe(r.args)
     assert.equal(result.outcome, "recovery-required", JSON.stringify(result.errors))
@@ -393,7 +417,7 @@ for (const [name, options] of [
     {
       mutateLane(lane) {
         if (lane.lane === "metadata")
-          lane.checks = lane.checks.filter((c) => c.name !== "package-dawn-ai-sdk")
+          lane.checks = lane.checks.filter((c) => c.name !== "package-b4run-sdk")
       },
     },
   ],
@@ -454,7 +478,7 @@ for (const [name, options] of [
       mutateInstallation(value) {
         value.resolutions.push({
           ...value.resolutions[0],
-          installPath: "node_modules/z/node_modules/@dawn-ai/sdk",
+          installPath: "node_modules/z/node_modules/@b4run/sdk",
           subject: false,
           requested: "^0.7.0",
           resolved: "0.7.0",
@@ -596,7 +620,11 @@ for (const [name, change] of [
   [
     "foreign repository with same release ID",
     (r) => {
-      r.intent.candidate = { ...r.c, repository: "foreign/project", repositoryId: "999" }
+      r.intent.candidate = {
+        ...r.c,
+        repository: "foreign/project",
+        repositoryId: "999",
+      }
     },
   ],
   [
@@ -736,3 +764,188 @@ test("a created verifier missing the required batch method is still disposed", a
   assert.equal(result.outcome, "blocked")
   assert.equal(disposed, 1)
 })
+
+async function repairedRemote() {
+  const { verifierRepairFixture } = await import("./support/recovery-verifier-repair-fixture.mjs")
+  const remote = await recoveryRemote({
+    configureFence: async ({ candidate, executor, policy, source }) => {
+      const repair = await verifierRepairFixture({
+        candidate,
+        baseline: executor.controllerSha,
+        current: "d".repeat(40),
+        source,
+      })
+      Object.assign(policy, repair.request.policy)
+      executor.verifierClosureSha256 = policy.verifierClosure.sha256
+      return repair
+    },
+  })
+  remote.adoptionRef = remote.add(
+    `recovery-v2-adoption-${remote.e.controllerSha}-${remote.e.runId}-${remote.e.runAttempt}-${remote.e.jobId}.json`,
+    remote.adoption,
+  )
+  remote.marker.adoption = remote.adoptionRef
+  remote.fence.record.adoption = remote.adoptionRef
+  remote.fence.refresh()
+  remote.args.controllerRef = remote.fence.current
+  remote.release.body = metadata.renderRecoveryReleaseBody({
+    marker: remote.marker,
+    body: "Notes",
+  })
+  remote.setAssets([...remote.baseAssets, remote.adoption.archive, remote.adoptionRef])
+  return remote
+}
+test("repaired current controller observes the original adopted receipt", async () => {
+  const r = await repairedRemote()
+  const result = await observe(r.args)
+  assert.equal(result.phase, "RECOVERY_ADOPTED", JSON.stringify(result.errors))
+  assert.equal(result.outcome, "recovery-required", JSON.stringify(result.errors))
+})
+test("repaired controller rejects a different original adoption descriptor", async () => {
+  const r = await repairedRemote()
+  r.fence.record.adoption = { ...r.adoptionRef, id: "999999" }
+  r.fence.refresh()
+  const result = await observe(r.args)
+  assert.equal(result.outcome, "blocked", JSON.stringify(result.errors))
+})
+
+async function mixedRepairRemote() {
+  const r = await repairedRemote()
+  const repairedLane = {
+    ...r.lanes.metadata,
+    executor: {
+      ...r.lanes.metadata.executor,
+      controllerSha: r.fence.current,
+      verifierClosureSha256: r.fence.record.replacementClosureSha256,
+    },
+  }
+  const repairedRef = r.add("recovery-v2-lane-repaired-metadata.json", repairedLane)
+  r.set.retainedReceipts.push(repairedRef)
+  r.set.retainedReceipts.sort((a, b) => (a.assetName < b.assetName ? -1 : 1))
+  const setRef = r.add(r.setRef.assetName, r.set)
+  const github = r.args.github
+  const list = github.listWorkflowRuns,
+    attempt = github.getActionsRunAttempt,
+    checks = github.getCommitCheckRuns
+  const repairCi = (ci) => ({
+    ...ci,
+    id: 701,
+    head_sha: r.fence.current,
+    check_suite_id: 901,
+  })
+  github.listWorkflowRuns = async (args) => {
+    const result = await list(args)
+    return args.commitSha === r.fence.current
+      ? { ...result, value: result.value.map(repairCi) }
+      : result
+  }
+  github.getActionsRunAttempt = async (args) => {
+    const result = await attempt(args)
+    return args.runId === "701" ? { ...result, value: repairCi(result.value) } : result
+  }
+  github.getCommitCheckRuns = async (args) => {
+    const result = await checks(args)
+    return args.commitSha === r.fence.current
+      ? {
+          ...result,
+          value: result.value.map((check) => ({
+            ...check,
+            head_sha: r.fence.current,
+            check_suite: { id: 901 },
+          })),
+        }
+      : result
+  }
+  const marker = {
+    ...r.marker,
+    phase: "VERIFICATION_COMPLETE",
+    revision: 2,
+    verificationSet: setRef,
+  }
+  r.release.body = metadata.renderRecoveryReleaseBody({
+    marker,
+    body: "notes",
+  })
+  r.setAssets([
+    ...r.allAssets.filter(
+      (a) =>
+        !a.assetName.includes("audit") &&
+        a.assetName !== "recovery-v2-finalization.json" &&
+        a.assetName !== "recovery-v2-adoption-903-1.json" &&
+        a.assetName !== setRef.assetName,
+    ),
+    r.adoptionRef,
+    setRef,
+    repairedRef,
+  ])
+  return r
+}
+
+test("mixed original adoption and repaired historical lane executor remain verifiable", async () => {
+  const r = await mixedRepairRemote()
+  const result = await observe(r.args)
+  assert.equal(result.outcome, "recovery-required", JSON.stringify(result.errors))
+  assert.ok(result.facts.verification)
+})
+
+async function secondRepairRemote() {
+  const { canonicalPolicyBytes, hashVerifierClosure } = await import("../recovery/policy.mjs")
+  const { digest } = await import("./support/recovery-fixture.mjs")
+  const r = await mixedRepairRemote()
+  const secondSha = "e".repeat(40)
+  const repairPath = "scripts/release/recovery-verifier-repairs/v0.8.24.json"
+  const sourcePath = "scripts/release/smoke/runtime-targets.mjs"
+  for (const [key, raw] of [...r.fence.files])
+    if (key.startsWith(`${r.fence.current}:`))
+      r.fence.files.set(`${secondSha}:${key.slice(41)}`, raw)
+  r.fence.files.set(`${secondSha}:${sourcePath}`, "// second independently reviewed repair\n")
+  const record = structuredClone(r.fence.record)
+  record.inputs.find((input) => input.path === sourcePath).newSha256 = digest(
+    r.fence.files.get(`${secondSha}:${sourcePath}`),
+  )
+  record.replacementClosureSha256 = await hashVerifierClosure(
+    { controllerSha: secondSha, inputs: record.inputs.map((input) => input.path) },
+    ({ ref, path }) => r.fence.files.get(`${ref}:${path}`),
+  )
+  const contract = structuredClone(r.fence.replacementContract)
+  contract.topology[0].sources[0].executionInputs[0].sha256 = record.inputs.find(
+    (input) => input.path === sourcePath,
+  ).newSha256
+  const contractBytes = canonicalPolicyBytes(contract).toString()
+  record.replacementContractSha256 = digest(contractBytes)
+  r.fence.files.set(
+    `${secondSha}:scripts/release/recovery-fence-contracts/${record.replacementContractSha256}.json`,
+    contractBytes,
+  )
+  r.fence.files.set(`${secondSha}:${repairPath}`, canonicalPolicyBytes(record).toString())
+  r.args.controllerRef = secondSha
+  const reads = []
+  const show = r.args.git.showFile
+  r.args.git.showFile = async (args) => {
+    reads.push(args)
+    return show(args)
+  }
+  return { r, secondSha, repairPath, reads }
+}
+
+test("second repair current admission preserves first repair historical lane receipts", async () => {
+  const { r, secondSha, repairPath, reads } = await secondRepairRemote()
+  const result = await observe(r.args)
+  assert.equal(result.outcome, "recovery-required", JSON.stringify(result.errors))
+  assert.ok(result.facts.verification)
+  for (const ref of [r.fence.current, secondSha])
+    assert.ok(
+      reads.some((read) => read.ref === ref && read.path === repairPath),
+      `repair record must be read at its own immutable executor ${ref}`,
+    )
+})
+
+for (const damaged of ["historical", "current"])
+  test(`second repair cannot cover a damaged ${damaged} repair record`, async () => {
+    const { r, secondSha, repairPath } = await secondRepairRemote()
+    const ref = damaged === "historical" ? r.fence.current : secondSha
+    r.fence.files.set(`${ref}:${repairPath}`, "{}\n")
+    const result = await observe(r.args)
+    assert.equal(result.outcome, "blocked", JSON.stringify(result.errors))
+    assert.match(result.errors.join(" "), /exact fields required/)
+  })

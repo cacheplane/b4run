@@ -14,7 +14,7 @@ const digest = "d".repeat(64),
   fenceDigest = "f".repeat(64)
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex")
 const candidate = {
-  repository: "example/dawn",
+  repository: "example/b4",
   repositoryId: "1",
   version: "0.8.24",
   candidateSha,
@@ -78,7 +78,11 @@ async function fixture() {
     path: context.workflow,
     workflow_id: 5,
     status: "in_progress",
-    repository: { id: 1, full_name: candidate.repository, default_branch: null },
+    repository: {
+      id: 1,
+      full_name: candidate.repository,
+      default_branch: null,
+    },
   }
   const ciRun = {
     id: 60,
@@ -135,7 +139,7 @@ async function fixture() {
     },
     observedAt: 1000,
     expiresAt: 31000,
-    concurrencyGroup: "dawn-release-controller",
+    concurrencyGroup: "b4-release-controller",
     cancelInProgress: false,
     writers: [
       {
@@ -251,7 +255,7 @@ test("arbitrary controller SHA and wrong invocation identity fail before git or 
       f.state.context.ref = "refs/tags/v0.8.24"
     },
     (f) => {
-      f.state.context.repository = "other/dawn"
+      f.state.context.repository = "other/b4"
     },
   ]) {
     const f = await fixture()
@@ -486,30 +490,46 @@ test("real GitHub read adapter projects workflow filenames and normalized all-at
     }))
   f.dependencies.github = createGitHubReader({
     owner: "example",
-    repo: "dawn",
+    repo: "b4",
     repositoryId: "1",
     fetchImpl: async (url) => {
       const path = new URL(url).pathname
       urls.push(path)
       let value
       if (path.endsWith("/git/ref/heads%2Fmain"))
-        value = { ref: "refs/heads/main", object: { type: "commit", sha: mainSha } }
+        value = {
+          ref: "refs/heads/main",
+          object: { type: "commit", sha: mainSha },
+        }
       else if (path.endsWith("/actions/runs/50/attempts/1")) value = f.state.run
       else if (path.endsWith("/actions/runs/60/attempts/1")) value = f.state.ciRun
       else if (path.endsWith("/actions/runs/50/jobs"))
-        value = { total_count: f.state.jobs.length, jobs: rawJobs(f.state.jobs) }
+        value = {
+          total_count: f.state.jobs.length,
+          jobs: rawJobs(f.state.jobs),
+        }
       else if (path.endsWith("/actions/runs/60/jobs"))
-        value = { total_count: f.state.ciJobs.length, jobs: rawJobs(f.state.ciJobs) }
+        value = {
+          total_count: f.state.ciJobs.length,
+          jobs: rawJobs(f.state.ciJobs),
+        }
       else if (path.endsWith("/actions/workflows/ci.yml/runs"))
         value = { total_count: 1, workflow_runs: [f.state.ciRun] }
       else if (path.endsWith("/actions/workflows/ci.yml"))
         value = { id: 6, path: ".github/workflows/ci.yml", state: "active" }
       else if (path.endsWith("/actions/workflows/release-postpublication.yml"))
-        value = { id: 5, path: ".github/workflows/release-postpublication.yml", state: "active" }
+        value = {
+          id: 5,
+          path: ".github/workflows/release-postpublication.yml",
+          state: "active",
+        }
       else if (path.endsWith(`/commits/${sha}/check-runs`))
         value = {
           total_count: f.state.checks.length,
-          check_runs: f.state.checks.map((check, index) => ({ id: 100 + index, ...check })),
+          check_runs: f.state.checks.map((check, index) => ({
+            id: 100 + index,
+            ...check,
+          })),
         }
       else throw new Error(`Unexpected API read ${path}`)
       return new Response(JSON.stringify(value), {
@@ -520,7 +540,7 @@ test("real GitHub read adapter projects workflow filenames and normalized all-at
   })
   const result = await authority.captureRecoveryAuthority(f.request, f.dependencies)
   assert.equal(result.executor.jobId, "51")
-  assert.ok(urls.includes("/repos/example/dawn/actions/workflows/ci.yml/runs"))
+  assert.ok(urls.includes("/repos/example/b4/actions/workflows/ci.yml/runs"))
 })
 
 test("invocation and fence observation deadlines cannot hang or grant late authority", async () => {
@@ -594,4 +614,89 @@ test("independent auditors cannot acquire writer authority or mutable eligibilit
     )
     assert.ok(!f.calls.some((call) => call.name === "observeLegacyFence"))
   }
+})
+
+test("authority gives only the composite fence 30 seconds while invocation retains 15 seconds", async () => {
+  const f = await fixture()
+  f.dependencies.readInvocation = async (_args, { timeoutMs }) => {
+    assert.equal(timeoutMs, 15000)
+    return f.state.context
+  }
+  f.dependencies.observeLegacyFence = async (_args, { timeoutMs }) => {
+    assert.equal(timeoutMs, 30000)
+    f.advance(20000)
+    return f.state.fence
+  }
+  const facts = await authority.captureRecoveryAuthority(f.request, f.dependencies)
+  assert.equal(facts.executor.controllerSha, sha)
+})
+test("authority rejects a composite callback that settles at the 30 second deadline", async () => {
+  const f = await fixture()
+  f.dependencies.observeLegacyFence = async () => {
+    f.advance(30000)
+    // Even an incorrectly renewed nested proof cannot escape the outer deadline.
+    return { ...f.state.fence, observedAt: 31000, expiresAt: 61000 }
+  }
+  await assert.rejects(authority.captureRecoveryAuthority(f.request, f.dependencies), /unavailable/)
+})
+
+async function repairedAuthorityFixture() {
+  const { verifierRepairFixture } = await import("./support/recovery-verifier-repair-fixture.mjs")
+  const repair = await verifierRepairFixture()
+  const f = await fixture()
+  f.request.candidate = repair.request.candidate
+  f.dependencies.git = repair.git
+  f.state.policyText = repair.request.rawPolicy
+  f.state.fence.candidate = repair.request.candidate
+  f.state.fence.executor.verifierClosureSha256 = repair.record.replacementClosureSha256
+  f.state.fence.contractSha256 = repair.record.replacementContractSha256
+  return { ...f, repair }
+}
+test("repaired owner eligibility and auditor admission retain actual closure and CI requirements", async () => {
+  const f = await repairedAuthorityFixture()
+  const request = {
+    candidate: f.request.candidate,
+    expectedControllerSha: sha,
+  }
+  const result = await authority.captureRecoveryEligibility(request, f.dependencies)
+  assert.equal(result.executor.verifierClosureSha256, f.repair.record.replacementClosureSha256)
+  f.state.checks[0].conclusion = "failure"
+  await assert.rejects(
+    () => authority.captureRecoveryEligibility(request, f.dependencies),
+    /not successful/,
+  )
+})
+for (const operation of ["adopt", "audit", "finalize", "publish", "verify"])
+  test(`repaired controller cannot grant fresh ${operation} authority`, async () => {
+    const f = await repairedAuthorityFixture()
+    await assert.rejects(
+      () => authority.captureRecoveryAuthority({ ...f.request, operation }, f.dependencies),
+      /cannot grant fresh adoption authority/,
+    )
+  })
+test("repaired eligibility rejects the original fence contract digest", async () => {
+  const f = await repairedAuthorityFixture()
+  f.state.fence.contractSha256 = f.repair.record.originalContractSha256
+  await assert.rejects(
+    () =>
+      authority.captureRecoveryEligibility(
+        { candidate: f.request.candidate, expectedControllerSha: sha },
+        f.dependencies,
+      ),
+    /fence contract not reviewed/,
+  )
+})
+
+test("repaired auditor admission exposes the replacement closure without writer authority", async () => {
+  const f = await repairedAuthorityFixture()
+  f.state.context.workflow = ".github/workflows/release-postpublication-audit.yml"
+  f.state.run.path = f.state.context.workflow
+  f.state.jobs[0].name = "recovery-audit"
+  const result = await authority.captureRecoveryAuditor(
+    { candidate: f.request.candidate, expectedControllerSha: sha },
+    f.dependencies,
+  )
+  assert.equal(result.executor.verifierClosureSha256, f.repair.record.replacementClosureSha256)
+  assert.equal(result.authority, undefined)
+  assert.equal(result.ownership, undefined)
 })

@@ -27,7 +27,7 @@ test("coordinator arguments accept only one GitHub output path", () => {
   )
 })
 
-test("a schedule discovers the highest managed published immutable Release and relays its exact tag", async () => {
+test("a schedule discovers the highest managed published immutable Release and relays exact inputs to main", async () => {
   const older = managedRelease({
     id: 10,
     version: "0.8.21",
@@ -53,13 +53,13 @@ test("a schedule discovers the highest managed published immutable Release and r
   assert.deepEqual(calls, [
     {
       workflow: ".github/workflows/published-artifact-verify.yml",
-      ref: `v${VERSION}`,
+      ref: "main",
       inputs: { version: VERSION, commitSha: COMMIT_SHA, manifestSha256: MANIFEST_SHA256 },
     },
   ])
 })
 
-test("default-branch manual inputs still relay while branch SHA equality never enters audit mode", async () => {
+test("default-branch manual published inputs select controller verification without a relay loop", async () => {
   const release = managedRelease({ id: 11, version: VERSION, commitSha: COMMIT_SHA })
   const calls = []
   const result = await coordinateIndependentAudit({
@@ -71,8 +71,8 @@ test("default-branch manual inputs still relay while branch SHA equality never e
     github: githubBoundary({ releases: [release], calls }),
   })
 
-  assert.equal(result.mode, "relayed")
-  assert.equal(calls.length, 1)
+  assert.equal(result.mode, "published-controller")
+  assert.equal(calls.length, 0)
 })
 
 test("an exact annotated tag routes mutable draft and published immutable audits separately", async () => {
@@ -126,8 +126,8 @@ test("coordinator rejects a relay receipt whose run URLs do not bind the returne
   const github = githubBoundary({ releases: [release], calls: [] })
   github.writer.dispatchWorkflowAtRef = async () => ({
     workflowRunId: 100,
-    runUrl: "https://api.github.com/repos/cacheplane/dawnai/actions/runs/99",
-    htmlUrl: "https://github.com/cacheplane/dawnai/actions/runs/100",
+    runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/99",
+    htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/100",
   })
   await assert.rejects(
     coordinateIndependentAudit({
@@ -156,7 +156,7 @@ function managedRelease({ id, version, commitSha, draft = false }) {
   marker.attestationSet.commitSha = commitSha
   return {
     id,
-    name: `Dawn v${version}`,
+    name: `B4 v${version}`,
     tag_name: draft ? "untagged-opaque" : `v${version}`,
     target_commitish: "main",
     draft,
@@ -209,8 +209,8 @@ function githubBoundary({ releases, calls, refType = "tag", tagTargetSha }) {
         calls.push(input)
         return {
           workflowRunId: 100,
-          runUrl: "https://api.github.com/repos/cacheplane/dawnai/actions/runs/100",
-          htmlUrl: "https://github.com/cacheplane/dawnai/actions/runs/100",
+          runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/100",
+          htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/100",
         }
       },
     },
@@ -243,5 +243,21 @@ test("scheduled legacy audit ignores older recovery history when the newest rele
   })
   assert.equal(result.mode, "relayed")
   assert.equal(calls.length, 1)
-  assert.equal(calls[0].ref, `v${VERSION}`)
+  assert.equal(calls[0].ref, "main")
+})
+
+test("a main draft dispatch selects controller verification without relaying frozen code", async () => {
+  const draft = managedRelease({ id: 11, version: VERSION, commitSha: COMMIT_SHA, draft: true })
+  const calls = []
+  const result = await coordinateIndependentAudit({
+    eventName: "workflow_dispatch",
+    ref: "refs/heads/main",
+    sha: MAIN_SHA,
+    defaultBranch: "main",
+    inputs: { version: VERSION, commitSha: COMMIT_SHA, manifestSha256: MANIFEST_SHA256 },
+    github: githubBoundary({ releases: [draft], calls }),
+  })
+  assert.equal(result.mode, "draft-controller")
+  assert.equal(result.commitSha, COMMIT_SHA)
+  assert.deepEqual(calls, [])
 })

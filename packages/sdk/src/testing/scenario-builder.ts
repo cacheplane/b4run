@@ -9,9 +9,9 @@ import type {
   ScenarioToolMockDescriptor,
 } from "./scenario-types.js"
 
-const SCENARIO_SUITE = Symbol.for("dawn.scenario-suite")
-const SCENARIO_DRAFT = Symbol("dawn.scenario-draft")
-const TOOL_CALL_EXPECTATION_DRAFT = Symbol("dawn.tool-call-expectation-draft")
+const SCENARIO_SUITE = Symbol.for("b4.scenario-suite")
+const SCENARIO_DRAFT = Symbol("b4.scenario-draft")
+const TOOL_CALL_EXPECTATION_DRAFT = Symbol("b4.tool-call-expectation-draft")
 const parsedSuiteCache = new WeakMap<object, ScenarioSuiteDescriptor>()
 
 type ScenarioStatus = ScenarioDescriptor["expectedStatus"]

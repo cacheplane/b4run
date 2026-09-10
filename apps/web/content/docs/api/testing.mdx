@@ -1,30 +1,30 @@
-# @dawn-ai/testing
+# @b4run/testing
 
 ## Use this when
 
-Start here for programmatic tests of Dawn agents, tools, middleware, workspaces, stores, and Agent Protocol behavior. Use [`@dawn-ai/sdk/testing`](/docs/api/sdk#dawn-aisdktesting) instead when authoring route-scoped scenario files for `dawn test`.
+Start here for programmatic tests of B4.run agents, tools, middleware, workspaces, stores, and Agent Protocol behavior. Use [`@b4run/sdk/testing`](/docs/api/sdk#b4runsdktesting) instead when authoring route-scoped scenario files for `b4 test`.
 
 ## Install and import
 
 ```bash
-pnpm add -D @dawn-ai/testing vitest
+pnpm add -D @b4run/testing vitest
 ```
 
 ```ts
-import { createAgentHarness, expectFinalMessage, script } from "@dawn-ai/testing"
+import { createAgentHarness, expectFinalMessage, script } from "@b4run/testing"
 ```
 
 ## Compatibility and audience
 
 | Surface | Runtime | Purity | Audience | Stability |
 |---|---|---|---|---|
-| `@dawn-ai/testing` | node-only | not-claimed | testing | supported |
+| `@b4run/testing` | node-only | not-claimed | testing | supported |
 
 `createAgentHarness()` temporarily changes process-wide `OPENAI_BASE_URL` and `OPENAI_API_KEY`, resets runtime caches, and restores them on awaited close. Do not run concurrent harnesses in one process.
 
 ## Public exports
 
-### `@dawn-ai/testing`
+### `@b4run/testing`
 
 | Export | Responsibility |
 |---|---|
@@ -78,11 +78,11 @@ import { createAgentHarness, expectFinalMessage, script } from "@dawn-ai/testing
 | `deriveToolResults` | Correlate tool results with calls. |
 | `ObservedToolCall` | Describe an observed tool call. |
 | `ObservedToolResult` | Describe an observed tool result. |
-| `createSubprocessApp` | Start a real Dawn dev subprocess. |
-| `SubprocessApp` | Control a Dawn subprocess. |
+| `createSubprocessApp` | Start a real B4.run dev subprocess. |
+| `SubprocessApp` | Control a B4.run subprocess. |
 | `runThreadsStoreConformance` | Register threads-store conformance tests. |
 | `createToolHarness` | Create a tool harness. |
-| `ToolHarness` | Invoke a tool with Dawn context. |
+| `ToolHarness` | Invoke a tool with B4.run context. |
 | `ToolHarnessOptions` | Configure a tool harness. |
 | `createWorkspaceHarness` | Create a temporary workspace harness. |
 | `WorkspaceHarness` | Control a test workspace. |
@@ -92,7 +92,7 @@ import { createAgentHarness, expectFinalMessage, script } from "@dawn-ai/testing
 
 ### `AgentHarnessOptions`
 
-```ts api-contract="@dawn-ai/testing#.:AgentHarnessOptions"
+```ts api-contract="@b4run/testing#.:AgentHarnessOptions"
 export interface AgentHarnessOptions {
   readonly appRoot: string
   readonly route: string
@@ -103,22 +103,22 @@ export interface AgentHarnessOptions {
 }
 ```
 
-**Fields: `@dawn-ai/testing#.:AgentHarnessOptions`**
+**Fields: `@b4run/testing#.:AgentHarnessOptions`**
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `readonly appRoot` | `string` | yes | Select the Dawn application. |
+| `readonly appRoot` | `string` | yes | Select the B4.run application. |
 | `readonly route` | `string` | yes | Select the route key. |
 | `readonly fixtures` | `FixtureSet` | no | Seed mock responses. |
 | `readonly live` | `boolean` | no | Proxy to a live OpenAI endpoint. |
 | `readonly record` | `boolean` | no | Capture upstream traffic for replay. |
 | `readonly recordUpstream` | `string` | no | Override the record-mode upstream. |
 
-```ts api-contract="@dawn-ai/testing#.:AgentHarness"
+```ts api-contract="@b4run/testing#.:AgentHarness"
 export interface AgentHarness {
   readonly baseUrl: string
   run(opts: { input: string; fixtures?: FixtureSet | ScriptBuilder }): Promise<AgentRunResult>
   resume(opts: {
-    resume: readonly DawnResumeEntry[]
+    resume: readonly B4ResumeEntry[]
     fixtures?: FixtureSet | ScriptBuilder
   }): Promise<AgentRunResult>
   reset(): void
@@ -128,11 +128,11 @@ export interface AgentHarness {
 }
 ```
 
-```ts api-contract="@dawn-ai/testing#.:createAgentHarness"
+```ts api-contract="@b4run/testing#.:createAgentHarness"
 export declare function createAgentHarness(options: AgentHarnessOptions): Promise<AgentHarness>
 ```
 
-```ts api-contract="@dawn-ai/testing#.:ScriptBuilder"
+```ts api-contract="@b4run/testing#.:ScriptBuilder"
 export interface ScriptBuilder {
   user(text: string): ScriptBuilder
   callsTool(name: string, args: Record<string, unknown>, opts?: { id?: string }): ScriptBuilder
@@ -141,15 +141,15 @@ export interface ScriptBuilder {
 }
 ```
 
-```ts api-contract="@dawn-ai/testing#.:writeFixtures"
+```ts api-contract="@b4run/testing#.:writeFixtures"
 export declare function writeFixtures(path: string, fixtures: FixtureSet | ScriptBuilder): void
 ```
 
-```ts api-contract="@dawn-ai/testing#.:loadFixtures"
+```ts api-contract="@b4run/testing#.:loadFixtures"
 export declare function loadFixtures(path: string): FixtureSet
 ```
 
-```ts api-contract="@dawn-ai/testing#.:runMemoryStoreConformance"
+```ts api-contract="@b4run/testing#.:runMemoryStoreConformance"
 export declare function runMemoryStoreConformance(opts: {
   readonly name: string
   readonly makeStore: () => Promise<MemoryStore> | MemoryStore
@@ -158,7 +158,7 @@ export declare function runMemoryStoreConformance(opts: {
 }): void
 ```
 
-```ts api-contract="@dawn-ai/testing#.:runCheckpointerConformance"
+```ts api-contract="@b4run/testing#.:runCheckpointerConformance"
 export declare function runCheckpointerConformance(opts: {
   readonly name: string
   readonly makeSaver: () => Promise<BaseCheckpointSaver> | BaseCheckpointSaver
@@ -173,7 +173,7 @@ export declare function runCheckpointerConformance(opts: {
 }): void
 ```
 
-```ts api-contract="@dawn-ai/testing#.:runPermissionsStoreConformance"
+```ts api-contract="@b4run/testing#.:runPermissionsStoreConformance"
 export declare function runPermissionsStoreConformance(opts: {
   readonly name: string
   readonly makeStore: (init: PermissionsStoreInit) => Promise<PermissionsStore> | PermissionsStore
@@ -182,7 +182,7 @@ export declare function runPermissionsStoreConformance(opts: {
 }): void
 ```
 
-```ts api-contract="@dawn-ai/testing#.:runThreadsStoreConformance"
+```ts api-contract="@b4run/testing#.:runThreadsStoreConformance"
 export declare function runThreadsStoreConformance(opts: {
   readonly name: string
   readonly makeStore: () => Promise<ThreadsStore> | ThreadsStore
@@ -197,7 +197,7 @@ With positive dimensions, inputs containing supported tokens are unit-length and
 
 #### Embedder defaults
 
-```ts api-contract="@dawn-ai/testing#.:fakeEmbedder"
+```ts api-contract="@b4run/testing#.:fakeEmbedder"
 export declare function fakeEmbedder(opts?: { readonly dims?: number }): Embedder
 ```
 
@@ -216,7 +216,7 @@ All four `run*Conformance` helpers register Vitest suites. Call them inside a te
 ## Examples and related guides
 
 ```ts
-import { createAgentHarness, expectFinalMessage, script } from "@dawn-ai/testing"
+import { createAgentHarness, expectFinalMessage, script } from "@b4run/testing"
 
 await using harness = await createAgentHarness({
   appRoot: process.cwd(),

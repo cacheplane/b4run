@@ -1,4 +1,4 @@
-import type { PermissionMode, PermissionsFile, PermissionsStore } from "@dawn-ai/permissions"
+import type { PermissionMode, PermissionsFile, PermissionsStore } from "@b4run/permissions"
 import { expect, test } from "vitest"
 
 /** What a backend needs in order to build a store: the config-seeded lists plus the resolved mode. */

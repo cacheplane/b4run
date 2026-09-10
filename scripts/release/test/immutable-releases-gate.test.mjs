@@ -22,13 +22,13 @@ test("reads the exact repository immutable-Releases setting with an administrati
   })
 
   assert.deepEqual(result, {
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     enabled: true,
     enforcedByOwner: false,
   })
   assert.ok(Object.isFrozen(result))
   assert.equal(requests.length, 1)
-  assert.equal(requests[0].url, "https://api.github.com/repos/cacheplane/dawnai/immutable-releases")
+  assert.equal(requests[0].url, "https://api.github.com/repos/cacheplane/b4run/immutable-releases")
   assert.equal(requests[0].init.method, "GET")
   assert.equal(requests[0].init.redirect, "error")
   assert.equal(requests[0].init.headers.Accept, "application/vnd.github+json")
@@ -38,7 +38,7 @@ test("reads the exact repository immutable-Releases setting with an administrati
 
 test("binds the live guard to the exact release workflow invocation before network access", async () => {
   const cases = [
-    ["repository", { GITHUB_REPOSITORY: "fork/dawnai" }],
+    ["repository", { GITHUB_REPOSITORY: "fork/b4-run" }],
     ["API origin", { GITHUB_API_URL: "https://example.test" }],
     ["event", { GITHUB_EVENT_NAME: "pull_request" }],
     ["branch", { GITHUB_REF: "refs/heads/feature" }],
@@ -46,7 +46,7 @@ test("binds the live guard to the exact release workflow invocation before netwo
     [
       "workflow",
       {
-        GITHUB_WORKFLOW_REF: "cacheplane/dawnai/.github/workflows/other.yml@refs/heads/main",
+        GITHUB_WORKFLOW_REF: "cacheplane/b4run/.github/workflows/other.yml@refs/heads/main",
       },
     ],
     ["token", { GITHUB_TOKEN: "" }],
@@ -73,7 +73,7 @@ test("binds the live guard to the exact release workflow invocation before netwo
 test("accepts the exact tagged release workflow identity", () => {
   const environment = productionEnvironment({ ref: "refs/tags/v0.8.22" })
   assert.deepEqual(parseImmutableReleasesGateEnvironment(environment), {
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     apiOrigin: "https://api.github.com",
     ref: "refs/tags/v0.8.22",
     commitSha: SHA,
@@ -135,10 +135,10 @@ test("requires an empty argument vector and descriptor-safe dependencies", async
 
 function productionEnvironment({ ref = "refs/heads/main" } = {}) {
   return {
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_API_URL: "https://api.github.com",
     GITHUB_EVENT_NAME: ref.startsWith("refs/tags/") ? "workflow_dispatch" : "push",
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/release.yml@${ref}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@${ref}`,
     GITHUB_REF: ref,
     GITHUB_SHA: SHA,
     GITHUB_TOKEN: "dedicated-admin-read-token",

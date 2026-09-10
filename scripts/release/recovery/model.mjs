@@ -153,7 +153,7 @@ function legacyAuthority(facts) {
   requireThat(
     facts.ownership?.fence === "verified-exclusive" &&
       facts.ownership.legacyWriters === "drained-and-rejected" &&
-      facts.ownership.concurrencyGroup === "dawn-release-controller",
+      facts.ownership.concurrencyGroup === "b4-release-controller",
     "Exclusive legacy writer fence is unproven",
   )
   same(facts.ownership.candidate, facts.candidate, "Ownership candidate mismatch")

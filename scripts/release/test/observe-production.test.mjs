@@ -7,6 +7,7 @@ import test from "node:test"
 import { Worker } from "node:worker_threads"
 
 import { canonicalAbandonmentBytes, canonicalAbandonmentReleaseBody } from "../abandonment.mjs"
+import { authorizeAuditExecutor } from "../audit-executor.mjs"
 import { runReleaseCli } from "../cli.mjs"
 import { CANONICAL_RELEASE_PACKAGE_ORDER, canonicalManifestBytes } from "../manifest.mjs"
 import { abandonmentReleaseMarker, canonicalReleaseBody } from "../metadata.mjs"
@@ -28,6 +29,7 @@ import {
 } from "../smoke-result.mjs"
 import { canonicalTerminalRecordBytes } from "../terminal-record-store.mjs"
 import { canonicalAuditResultBytes } from "../terminal-records.mjs"
+import { auditExecutorFixture } from "./support/audit-executor-fixture.mjs"
 import { record as terminalRecordFixture } from "./support/terminal-record-fixture.mjs"
 
 const VERSION = "0.8.22"
@@ -47,21 +49,60 @@ test("production event classification distinguishes exact refs from schedules", 
     kind: "exact-ref",
     ref: COMMIT_SHA,
     expectedVersion: null,
+    npmBootstrap: false,
   })
   assert.deepEqual(classifyProductionEvent({ schedule: "17 * * * *" }), {
     kind: "scheduled",
     ref: null,
     expectedVersion: null,
+    npmBootstrap: false,
   })
   assert.deepEqual(
     classifyProductionEvent({
       inputs: { version: VERSION, commitSha: COMMIT_SHA },
     }),
-    { kind: "exact-ref", ref: COMMIT_SHA, expectedVersion: VERSION },
+    { kind: "exact-ref", ref: COMMIT_SHA, expectedVersion: VERSION, npmBootstrap: false },
   )
   assert.throws(
     () => classifyProductionEvent({ schedule: "17 * * * *", after: COMMIT_SHA }),
     /ambiguous/u,
+  )
+})
+
+test("only an explicit boolean dispatch input selects first-publication observation", () => {
+  for (const npmBootstrap of [true, false]) {
+    assert.deepEqual(
+      classifyProductionEvent({
+        inputs: { version: VERSION, commitSha: COMMIT_SHA, npmBootstrap },
+      }),
+      { kind: "exact-ref", ref: COMMIT_SHA, expectedVersion: VERSION, npmBootstrap },
+    )
+  }
+  for (const npmBootstrap of ["true", "false", 1, 0, null, {}, [], "TRUE"]) {
+    assert.throws(
+      () =>
+        classifyProductionEvent({
+          inputs: { version: VERSION, commitSha: COMMIT_SHA, npmBootstrap },
+        }),
+      /dispatch inputs are invalid/u,
+      String(npmBootstrap),
+    )
+  }
+  assert.throws(
+    () =>
+      classifyProductionEvent({
+        inputs: { version: VERSION, commitSha: COMMIT_SHA, npmBootstrap: true, operation: "x" },
+      }),
+    /dispatch inputs are invalid/u,
+  )
+  assert.throws(
+    () => classifyProductionEvent({ schedule: "17 * * * *", npmBootstrap: true }),
+    /ambiguous|invalid/u,
+  )
+  assert.throws(
+    () =>
+      classifyProductionEvent({ ref: "refs/heads/main", after: COMMIT_SHA, npmBootstrap: true }),
+    /ambiguous|invalid|exact main/u,
   )
 })
 
@@ -2004,7 +2045,7 @@ test("production observation accepts npm presence only through exact tarball and
                 predicateType: "https://slsa.dev/provenance/v1",
                 workflow: ".github/workflows/release.yml",
                 commitSha: COMMIT_SHA,
-                repository: "https://github.com/cacheplane/dawnai",
+                repository: "https://github.com/cacheplane/b4run",
                 ref: `refs/tags/v${VERSION}`,
               },
             }
@@ -2311,105 +2352,280 @@ test("production observation rejects a marker-bound smoke namespace with an extr
   }
 })
 
-test("production observation binds terminal audit assets to the exact run, attempt, jobs, and immutable Release", async () => {
-  const audited = auditedReleaseFixture()
-  const npmFixture = publishedNpmFixture(audited.manifest)
-  const github = githubReader({
-    async listReleases() {
-      return present("releases", [audited.release])
-    },
-    async getRelease({ releaseId }) {
-      assert.equal(releaseId, audited.release.id)
-      return present("release", audited.release)
-    },
-    async listReleaseAssets() {
-      return present("release-assets", audited.assets)
-    },
-    async downloadReleaseAsset({ assetId }) {
-      return binary("release-asset-download", audited.bytesById.get(Number(assetId)))
-    },
-    async getActionsRunAttempt({ runId, attempt }) {
-      if (runId === audited.marker.attestationSet.workflowRunId) {
-        return present("actions-run-attempt", {
-          ...prepareRun({ id: runId }),
-          status: "completed",
-          conclusion: "success",
-        })
-      }
-      assert.equal(runId, audited.auditResult.workflowRunId)
-      assert.equal(attempt, audited.auditResult.runAttempt)
-      return present("actions-run-attempt", audited.run)
-    },
-    async listActionsRunJobs({ runId }) {
-      if (runId === audited.marker.attestationSet.workflowRunId) {
-        return present("actions-run-jobs", [
-          {
-            id: 6_001,
-            runAttempt: 1,
-            name: "publish-npm",
+for (const mainExecutor of [false, true]) {
+  test(`production observation binds terminal audit assets to exact run, attempt, jobs, and immutable Release (main=${mainExecutor})`, async () => {
+    const audited = auditedReleaseFixture()
+    const npmFixture = publishedNpmFixture(audited.manifest)
+    let github = githubReader({
+      async listReleases() {
+        return present("releases", [audited.release])
+      },
+      async getRelease({ releaseId }) {
+        assert.equal(releaseId, audited.release.id)
+        return present("release", audited.release)
+      },
+      async listReleaseAssets() {
+        return present("release-assets", audited.assets)
+      },
+      async downloadReleaseAsset({ assetId }) {
+        return binary("release-asset-download", audited.bytesById.get(Number(assetId)))
+      },
+      async getActionsRunAttempt({ runId, attempt }) {
+        if (runId === audited.marker.attestationSet.workflowRunId) {
+          return present("actions-run-attempt", {
+            ...prepareRun({ id: runId }),
             status: "completed",
             conclusion: "success",
-            startedAt: "2026-08-25T09:00:00.000Z",
-            completedAt: "2026-08-25T09:10:00.000Z",
+          })
+        }
+        assert.equal(runId, audited.auditResult.workflowRunId)
+        assert.equal(attempt, audited.auditResult.runAttempt)
+        return present("actions-run-attempt", audited.run)
+      },
+      async listActionsRunJobs({ runId }) {
+        if (runId === audited.marker.attestationSet.workflowRunId) {
+          return present("actions-run-jobs", [
+            {
+              id: 6_001,
+              runAttempt: 1,
+              name: "publish-npm",
+              status: "completed",
+              conclusion: "success",
+              startedAt: "2026-08-25T09:00:00.000Z",
+              completedAt: "2026-08-25T09:10:00.000Z",
+            },
+          ])
+        }
+        assert.equal(runId, audited.auditResult.workflowRunId)
+        return present("actions-run-jobs", [
+          ...audited.jobs,
+          {
+            id: 7_003,
+            runAttempt: 3,
+            name: "verify",
+            status: "in_progress",
+            conclusion: null,
+            startedAt: "2026-08-25T11:00:00.000Z",
+            completedAt: null,
           },
         ])
+      },
+    })
+
+    let git = gitReader()
+    if (mainExecutor) {
+      const fixture = auditExecutorFixture()
+      fixture.authorization.candidate = {
+        version: VERSION,
+        commitSha: COMMIT_SHA,
+        manifestSha256: audited.marker.manifestSha256,
       }
-      assert.equal(runId, audited.auditResult.workflowRunId)
-      return present("actions-run-jobs", [
-        ...audited.jobs,
-        {
-          id: 7_003,
-          runAttempt: 3,
-          name: "verify",
-          status: "in_progress",
-          conclusion: null,
-          startedAt: "2026-08-25T11:00:00.000Z",
-          completedAt: null,
+      fixture.files.set(
+        `scripts/release/audit-executor-authorizations/v${VERSION}.json`,
+        JSON.stringify(fixture.authorization),
+      )
+      audited.run.head_sha = fixture.run.head_sha
+      audited.run.head_branch = "main"
+      audited.run.repository = fixture.run.repository
+      const originalGit = git
+      git = {
+        ...git,
+        isAncestor: fixture.git.isAncestor,
+        showFile: (request) =>
+          request.ref === fixture.run.head_sha
+            ? fixture.git.showFile(request)
+            : originalGit.showFile(request),
+      }
+      const original = github
+      github = {
+        ...github,
+        getRef: (request) =>
+          request.ref === "heads/main" ? fixture.github.getRef(request) : original.getRef(request),
+        listWorkflowRuns: (request) =>
+          request.commitSha === fixture.run.head_sha
+            ? fixture.github.listWorkflowRuns(request)
+            : original.listWorkflowRuns(request),
+        getActionsRunAttempt: (request) =>
+          request.runId === fixture.state.ci.id
+            ? fixture.github.getActionsRunAttempt(request)
+            : original.getActionsRunAttempt(request),
+        listActionsRunJobs: (request) =>
+          request.runId === fixture.state.ci.id
+            ? fixture.github.listActionsRunJobs(request)
+            : original.listActionsRunJobs(request),
+        getCommitCheckRuns: (request) =>
+          request.commitSha === fixture.run.head_sha
+            ? fixture.github.getCommitCheckRuns(request)
+            : original.getCommitCheckRuns(request),
+        getWorkflow: fixture.github.getWorkflow,
+      }
+    }
+
+    const { observation, diagnostics, recovery } = await observeProductionCandidate({
+      terminalRecordRef: "HEAD",
+      candidate: candidate(),
+      inventory: inventory(),
+      marker: MARKER,
+      git,
+      github,
+      npm: npmFixture.npm,
+      npmAuditFactory: npmFixture.npmAuditFactory,
+      attestations: attestationVerifier([]),
+      includeRecovery: true,
+    })
+
+    assert.deepEqual(diagnostics, [])
+    assert.equal(observation.release.status, "published")
+    assert.equal(observation.release.immutable, true)
+    assert.ok(observation.release.assets.every((asset) => asset.status === "matching"))
+    assert.deepEqual(observation.audit, {
+      status: "success",
+      version: VERSION,
+      commitSha: COMMIT_SHA,
+      manifestSha256: audited.marker.manifestSha256,
+      workflowRunId: audited.auditResult.workflowRunId,
+      runAttempt: audited.auditResult.runAttempt,
+      conclusion: "success",
+    })
+    assert.deepEqual(recovery.auditResult, audited.auditResult)
+    assert.deepEqual(recovery.auditDispatch, {
+      workflow: ".github/workflows/published-artifact-verify.yml",
+      workflowRunId: audited.auditResult.workflowRunId,
+      runUrl: `https://api.github.com/repos/cacheplane/b4run/actions/runs/${audited.auditResult.workflowRunId}`,
+      htmlUrl: `https://github.com/cacheplane/b4run/actions/runs/${audited.auditResult.workflowRunId}`,
+    })
+    // Global selection must use this same complete authority proof, rather than
+    // treating an audit-looking asset as terminal or reselecting it forever.
+    await resolveProductionCandidate({
+      terminalRecordRef: "HEAD",
+      event: { schedule: "17 * * * *" },
+      inventory: inventoryReader(),
+      marker: MARKER,
+      git,
+      github,
+      npm: npmFixture.npm,
+      npmAuditFactory: npmFixture.npmAuditFactory,
+      attestations: attestationVerifier([]),
+      discovery: {
+        async discoverManagedCandidate() {
+          assert.fail("scheduled selection must not discover an exact invocation")
         },
-      ])
-    },
+        async discoverScheduledCandidate({ verifyTerminalPublication }) {
+          assert.equal(typeof verifyTerminalPublication, "function")
+          const input = {
+            candidate: candidate(),
+            release: audited.release,
+            releaseRecord: JSON.parse(
+              audited.bytesById
+                .get(audited.assets.find((asset) => asset.name === "release-record.json").id)
+                .toString("utf8"),
+            ),
+          }
+          assert.equal(await verifyTerminalPublication(input), true)
+          const observePackageVersion = npmFixture.npm.observePackageVersion
+          npmFixture.npm.observePackageVersion = async (args) => {
+            const result = await observePackageVersion(args)
+            return {
+              ...result,
+              package: { ...result.package, latest: "0.8.30", distTags: { latest: "0.8.30" } },
+            }
+          }
+          assert.equal(
+            await verifyTerminalPublication(input),
+            true,
+            "newer latest preserves terminal history",
+          )
+          const createAudit = npmFixture.npmAuditFactory.create
+          npmFixture.npmAuditFactory.create = async (...args) => {
+            const verifier = await createAudit(...args)
+            return {
+              ...verifier,
+              async verifyPackage(...inputs) {
+                const result = await verifier.verifyPackage(...inputs)
+                return {
+                  ...result,
+                  provenance: { ...result.provenance, commitSha: "f".repeat(40) },
+                }
+              },
+            }
+          }
+          assert.equal(
+            await verifyTerminalPublication(input),
+            false,
+            "newer latest cannot hide wrong provenance",
+          )
+          npmFixture.npmAuditFactory.create = createAudit
+          audited.release.immutable = false
+          assert.equal(
+            await verifyTerminalPublication(input),
+            false,
+            "mutable publication is not terminal",
+          )
+          audited.release.immutable = true
+          audited.release.draft = true
+          audited.release.immutable = false
+          const draft = await observeProductionCandidate({
+            terminalRecordRef: "HEAD",
+            candidate: candidate(),
+            inventory: inventory(),
+            marker: MARKER,
+            git,
+            github,
+            npm: npmFixture.npm,
+            npmAuditFactory: npmFixture.npmAuditFactory,
+            attestations: attestationVerifier([]),
+          })
+          assert.ok(draft.diagnostics.some(({ code }) => code === "NPM_EVIDENCE_DIGEST_MISMATCH"))
+          audited.release.draft = false
+          audited.release.immutable = true
+          for (const [first, rest, expected] of [
+            [VERSION, "0.8.30", true],
+            ["0.8.21", "0.8.30", false],
+            [null, null, false],
+            ["invalid", "invalid", false],
+          ]) {
+            npmFixture.npm.observePackageVersion = async (args) => {
+              const result = await observePackageVersion(args)
+              const latest = args.name === audited.manifest.packages[0].name ? first : rest
+              return { ...result, package: { ...result.package, latest, distTags: { latest } } }
+            }
+            assert.equal(
+              await verifyTerminalPublication(input),
+              expected,
+              `latest ${first}/${rest}`,
+            )
+          }
+          npmFixture.npm.observePackageVersion = observePackageVersion
+          assert.equal(
+            await verifyTerminalPublication({
+              ...input,
+              releaseRecord: { ...input.releaseRecord, manifestSha256: "f".repeat(64) },
+            }),
+            false,
+          )
+          audited.release.immutable = false
+          assert.equal(await verifyTerminalPublication(input), false)
+          audited.release.immutable = true
+          audited.bytesById.delete(audited.assets[0].id)
+          assert.equal(await verifyTerminalPublication(input), false)
+          return {
+            candidate: null,
+            state: "NO_CANDIDATE",
+            disposition: "noop",
+            tag: null,
+            conflicts: [],
+          }
+        },
+      },
+    })
   })
-
-  const { observation, diagnostics, recovery } = await observeProductionCandidate({
-    terminalRecordRef: "HEAD",
-    candidate: candidate(),
-    inventory: inventory(),
-    marker: MARKER,
-    git: gitReader(),
-    github,
-    npm: npmFixture.npm,
-    npmAuditFactory: npmFixture.npmAuditFactory,
-    attestations: attestationVerifier([]),
-    includeRecovery: true,
-  })
-
-  assert.deepEqual(diagnostics, [])
-  assert.equal(observation.release.status, "published")
-  assert.equal(observation.release.immutable, true)
-  assert.ok(observation.release.assets.every((asset) => asset.status === "matching"))
-  assert.deepEqual(observation.audit, {
-    status: "success",
-    version: VERSION,
-    commitSha: COMMIT_SHA,
-    manifestSha256: audited.marker.manifestSha256,
-    workflowRunId: audited.auditResult.workflowRunId,
-    runAttempt: audited.auditResult.runAttempt,
-    conclusion: "success",
-  })
-  assert.deepEqual(recovery.auditResult, audited.auditResult)
-  assert.deepEqual(recovery.auditDispatch, {
-    workflow: ".github/workflows/published-artifact-verify.yml",
-    workflowRunId: audited.auditResult.workflowRunId,
-    runUrl: `https://api.github.com/repos/cacheplane/dawnai/actions/runs/${audited.auditResult.workflowRunId}`,
-    htmlUrl: `https://github.com/cacheplane/dawnai/actions/runs/${audited.auditResult.workflowRunId}`,
-  })
-})
+}
 
 test("production observation rejects a noncanonical Release body or title outside the marker", async () => {
   const audited = auditedReleaseFixture()
   for (const release of [
     { ...audited.release, body: `${audited.release.body}tampered\n` },
-    { ...audited.release, name: `Dawn release ${VERSION}` },
+    { ...audited.release, name: `B4 release ${VERSION}` },
     { ...audited.release, prerelease: true },
   ]) {
     const github = githubReader({
@@ -2527,6 +2743,60 @@ test("production audit validation rejects an over-limit run attempt in a bounded
     status: "rejected",
     code: "RELEASE_AUDIT_RUN_IDENTITY_MISMATCH",
   })
+})
+
+test("production audit validation accepts an authorized main executor without weakening verify jobs", async () => {
+  const fixture = auditExecutorFixture()
+  const executor = await authorizeAuditExecutor(fixture)
+  const audited = auditedReleaseFixture()
+  const input = {
+    candidate: { ...candidate(), ...fixture.candidate },
+    marker: audited.marker,
+    value: {
+      ...audited.run,
+      head_sha: fixture.run.head_sha,
+      head_branch: "main",
+    },
+    jobs: audited.jobs,
+    executor,
+  }
+  assert.equal(validateProductionAuditRun(input).status, "completed")
+  assert.throws(
+    () =>
+      validateProductionAuditRun({
+        ...input,
+        value: { ...input.value, head_sha: "9".repeat(40) },
+      }),
+    /evidence/iu,
+  )
+  assert.throws(
+    () =>
+      validateProductionAuditRun({
+        ...input,
+        jobs: audited.jobs.map((job) =>
+          job.name === "verify" ? { ...job, conclusion: "skipped" } : job,
+        ),
+      }),
+    /evidence/iu,
+  )
+})
+
+test("production audit validation rejects unbranded executor overrides", () => {
+  const audited = auditedReleaseFixture()
+  assert.throws(
+    () =>
+      validateProductionAuditRun({
+        value: audited.run,
+        jobs: audited.jobs,
+        candidate: candidate(),
+        marker: audited.marker,
+        executor: {
+          headSha: audited.run.head_sha,
+          headBranch: audited.run.head_branch,
+        },
+      }),
+    /executor/iu,
+  )
 })
 
 test("production audit validation requires the canonical verify job to succeed", () => {
@@ -2887,7 +3157,7 @@ test("production observation requires complete verified escrow for attested aban
 })
 
 test("observe CLI resolves the immutable candidate, runs the dry one-transition controller, and writes canonical outputs", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-cli-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-cli-"))
   try {
     const eventPath = path.join(directory, "event.json")
     const reportPath = path.join(directory, "report.json")
@@ -2964,8 +3234,207 @@ test("observe CLI resolves the immutable candidate, runs the dry one-transition 
   }
 })
 
+test("observe CLI selects the first-publication reader only from the explicit boolean and confers no publishing authority", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-bootstrap-"))
+  try {
+    const eventPath = path.join(directory, "event.json")
+    const reportPath = path.join(directory, "report.json")
+    const outputPath = path.join(directory, "github-output")
+    const wholePackageAbsent = {
+      async observePackageVersion() {
+        // The default adapter cannot distinguish a missing package from a broken registry.
+        return envelope("AMBIGUOUS", "package-version", 404, "HTTP_404")
+      },
+      async downloadRegistryTarball() {
+        throw new Error("an absent package must not download a tarball")
+      },
+    }
+    const firstPublicationCalls = []
+    const firstPublicationReader = {
+      ...wholePackageAbsent,
+      async observeFirstPublicationPackage({ name, version }) {
+        firstPublicationCalls.push({ name, version })
+        return envelope("ABSENT", "first-publication-package", 404, "E404")
+      },
+    }
+    const secrets = {
+      B4_NPM_BOOTSTRAP_AUTHORIZATION: '{"status":"enabled"}',
+      B4_NPM_BOOTSTRAP_TOKEN: "npm_must_not_be_read",
+    }
+    const observe = async (event, npm, environment = {}) => {
+      await writeFile(eventPath, `${JSON.stringify(event)}\n`)
+      await rm(reportPath, { force: true })
+      await writeFile(outputPath, "")
+      const result = await runReleaseCli(
+        ["observe", "--event", eventPath, "--report", reportPath, "--github-output", outputPath],
+        { ...cliCandidateDependencies(directory), npm, environment },
+      )
+      return { result, report: await readFile(reportPath, "utf8") }
+    }
+
+    const defaultDispatch = await observe(
+      { inputs: { version: VERSION, commitSha: COMMIT_SHA } },
+      wholePackageAbsent,
+      secrets,
+    )
+    assert.equal(defaultDispatch.result.before.plan.disposition, "blocked")
+    assert.deepEqual(firstPublicationCalls, [])
+
+    const explicitOff = await observe(
+      { inputs: { version: VERSION, commitSha: COMMIT_SHA, npmBootstrap: false } },
+      firstPublicationReader,
+      secrets,
+    )
+    assert.equal(explicitOff.result.before.plan.disposition, "blocked")
+    assert.deepEqual(firstPublicationCalls, [])
+
+    const selected = await observe(
+      { inputs: { version: VERSION, commitSha: COMMIT_SHA, npmBootstrap: true } },
+      firstPublicationReader,
+      secrets,
+    )
+    assert.equal(selected.result.before.plan.state, "CANDIDATE_TAGGED")
+    assert.equal(selected.result.before.plan.disposition, "would-transition")
+    assert.equal(selected.result.before.plan.nextTransition, "prepare-artifacts")
+    assert.deepEqual(selected.result.diagnostics, [])
+    assert.ok(firstPublicationCalls.length >= CANONICAL_RELEASE_PACKAGE_ORDER.length)
+    assert.ok(firstPublicationCalls.every(({ version }) => version === VERSION))
+    assert.deepEqual(
+      [...new Set(firstPublicationCalls.map(({ name }) => name))].sort(),
+      [...CANONICAL_RELEASE_PACKAGE_ORDER].sort(),
+    )
+    assert.doesNotMatch(selected.report, /bootstrap|B4_NPM|npm_must_not_be_read|authorization/iu)
+    assert.doesNotMatch(await readFile(outputPath, "utf8"), /bootstrap|B4_NPM|token/iu)
+
+    await assert.rejects(
+      observe(
+        { inputs: { version: VERSION, commitSha: COMMIT_SHA, npmBootstrap: true } },
+        wholePackageAbsent,
+      ),
+      /observeFirstPublicationPackage/u,
+    )
+    await assert.rejects(
+      observe(
+        { inputs: { version: VERSION, commitSha: COMMIT_SHA, npmBootstrap: "true" } },
+        firstPublicationReader,
+      ),
+      /dispatch inputs are invalid/u,
+    )
+    await assert.rejects(
+      observe({ schedule: "17 7 * * *", npmBootstrap: true }, firstPublicationReader),
+      /ambiguous|invalid/u,
+    )
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("observe CLI resolves checkout HEAD once and pins both candidate calls despite HEAD movement", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-head-"))
+  try {
+    const eventPath = path.join(directory, "event.json")
+    const reportPath = path.join(directory, "report.json")
+    const outputPath = path.join(directory, "github-output")
+    await writeFile(
+      eventPath,
+      JSON.stringify({ inputs: { version: VERSION, commitSha: COMMIT_SHA } }),
+    )
+    await writeFile(outputPath, "")
+    const dependencies = cliCandidateDependencies(directory)
+    const checkoutSha = "e".repeat(40)
+    let head = checkoutSha
+    const lookups = [],
+      refs = []
+    const history = dependencies.git.listFirstParentHistory
+    dependencies.git.listFirstParentHistory = async (args) => {
+      if (args.ref !== "HEAD") return history(args)
+      lookups.push(args)
+      return [head]
+    }
+    dependencies.importModule = async (specifier) => {
+      const module = await import(specifier)
+      if (!specifier.endsWith("/observe.mjs")) return module
+      return {
+        ...module,
+        resolveProductionCandidate: async (args) => {
+          refs.push(args.terminalRecordRef)
+          head = "f".repeat(40)
+          return module.resolveProductionCandidate(args)
+        },
+        observeProductionCandidate: async (args) => {
+          refs.push(args.terminalRecordRef)
+          return module.observeProductionCandidate(args)
+        },
+      }
+    }
+    const result = await runReleaseCli(
+      ["observe", "--event", eventPath, "--report", reportPath, "--github-output", outputPath],
+      dependencies,
+    )
+    assert.ok(result.candidate, JSON.stringify(result))
+    assert.equal(result.candidate.commitSha, COMMIT_SHA)
+    assert.notEqual(checkoutSha, COMMIT_SHA)
+    assert.deepEqual(lookups, [{ ref: "HEAD", maxCount: 1 }])
+    assert.deepEqual(refs, [checkoutSha, checkoutSha])
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+for (const head of [
+  null,
+  [],
+  [COMMIT_SHA, PARENT_SHA],
+  ["HEAD"],
+  ["a".repeat(39)],
+  ["A".repeat(40)],
+  [null],
+])
+  test(`observe CLI rejects non-singleton immutable checkout HEAD ${JSON.stringify(head)}`, async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-invalid-head-"))
+    try {
+      const eventPath = path.join(directory, "event.json")
+      const reportPath = path.join(directory, "report.json")
+      const outputPath = path.join(directory, "github-output")
+      await writeFile(
+        eventPath,
+        JSON.stringify({ inputs: { version: VERSION, commitSha: COMMIT_SHA } }),
+      )
+      await writeFile(outputPath, "")
+      const dependencies = cliCandidateDependencies(directory)
+      dependencies.git.listFirstParentHistory = async () => head
+      let candidateCalls = 0
+      dependencies.importModule = async (specifier) => {
+        const module = await import(specifier)
+        if (!specifier.endsWith("/observe.mjs")) return module
+        return {
+          ...module,
+          resolveProductionCandidate: async (...args) => {
+            candidateCalls++
+            return module.resolveProductionCandidate(...args)
+          },
+          observeProductionCandidate: async (...args) => {
+            candidateCalls++
+            return module.observeProductionCandidate(...args)
+          },
+        }
+      }
+      await assert.rejects(
+        runReleaseCli(
+          ["observe", "--event", eventPath, "--report", reportPath, "--github-output", outputPath],
+          dependencies,
+        ),
+        /checkout HEAD/,
+      )
+      assert.equal(candidateCalls, 0)
+      assert.equal(await readFile(outputPath, "utf8"), "")
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
 test("observe CLI identifies its exact current tag attempt before downstream jobs materialize", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-current-run-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-current-run-"))
   try {
     const eventPath = path.join(directory, "event.json")
     const reportPath = path.join(directory, "report.json")
@@ -3057,7 +3526,7 @@ test("observe CLI identifies its exact current tag attempt before downstream job
 })
 
 test("observe CLI waits within a fixed budget for the exact main CI before authorizing tagging", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-cli-ci-wait-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-cli-ci-wait-"))
   try {
     const eventPath = path.join(directory, "event.json")
     const reportPath = path.join(directory, "report.json")
@@ -3117,7 +3586,7 @@ test("observe CLI waits within a fixed budget for the exact main CI before autho
 })
 
 test("observe CLI reports an authorization failure as blocked ambiguity, never as absence", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-cli-auth-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-cli-auth-"))
   try {
     const eventPath = path.join(directory, "event.json")
     const reportPath = path.join(directory, "report.json")
@@ -3153,7 +3622,7 @@ test("observe CLI reports an authorization failure as blocked ambiguity, never a
 })
 
 test("observe CLI preserves throttling as a transient discovery diagnostic", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-cli-throttle-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-cli-throttle-"))
   try {
     const eventPath = path.join(directory, "event.json")
     const reportPath = path.join(directory, "report.json")
@@ -3188,7 +3657,7 @@ test("observe CLI preserves throttling as a transient discovery diagnostic", asy
 })
 
 test("observe CLI rejects every overlapping event, report, and GitHub output path", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-cli-paths-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-cli-paths-"))
   try {
     const eventPath = path.join(directory, "event.json")
     const reportPath = path.join(directory, "report.json")
@@ -3216,7 +3685,7 @@ test("observe CLI rejects every overlapping event, report, and GitHub output pat
 })
 
 test("observe CLI rejects case-folded and symlink-parent output aliases", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-observe-cli-aliases-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-cli-aliases-"))
   try {
     const eventPath = path.join(directory, "event.json")
     await writeFile(eventPath, `${JSON.stringify({ ref: "refs/heads/main", after: COMMIT_SHA })}\n`)
@@ -3627,7 +4096,7 @@ function publishedNpmFixture(manifest) {
                 predicateType: "https://slsa.dev/provenance/v1",
                 workflow: ".github/workflows/release.yml",
                 commitSha: COMMIT_SHA,
-                repository: "https://github.com/cacheplane/dawnai",
+                repository: "https://github.com/cacheplane/b4run",
                 ref: `refs/tags/v${VERSION}`,
               },
             }
@@ -3666,7 +4135,7 @@ function completeNpmEvidenceFixture(manifest) {
           predicateType: "https://slsa.dev/provenance/v1",
           workflow: ".github/workflows/release.yml",
           commitSha: COMMIT_SHA,
-          repository: "https://github.com/cacheplane/dawnai",
+          repository: "https://github.com/cacheplane/b4run",
           ref: `refs/tags/v${VERSION}`,
         },
       }
@@ -3768,7 +4237,7 @@ function productionAttestationBundle(
   { workflowRunId = prepared.manifest.artifact.prepareRunId, runAttempt = 1 } = {},
 ) {
   const ref = `refs/tags/v${VERSION}`
-  const repository = "https://github.com/cacheplane/dawnai"
+  const repository = "https://github.com/cacheplane/b4run"
   const statement = {
     _type: "https://in-toto.io/Statement/v1",
     subject: [
@@ -3799,7 +4268,7 @@ function productionAttestationBundle(
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: `https://github.com/cacheplane/dawnai/actions/runs/${workflowRunId}/attempts/${runAttempt}`,
+          invocationId: `https://github.com/cacheplane/b4run/actions/runs/${workflowRunId}/attempts/${runAttempt}`,
         },
       },
     },
@@ -3876,7 +4345,7 @@ function attestedReleaseFixture({ ci } = {}) {
     releaseRecordSha256: digest(prepared.recordBytes),
     baseAssetSetSha256: digest(Buffer.from(`${JSON.stringify(baseEntries)}\n`, "utf8")),
     attestationSet: {
-      repository: "cacheplane/dawnai",
+      repository: "cacheplane/b4run",
       workflow: ".github/workflows/release.yml",
       sourceRef: `refs/tags/v${VERSION}`,
       commitSha: COMMIT_SHA,
@@ -3914,7 +4383,7 @@ function attestedReleaseFixture({ ci } = {}) {
     bytesById,
     release: {
       id: 900,
-      name: `Dawn v${VERSION}`,
+      name: `B4 v${VERSION}`,
       tag_name: `v${VERSION}`,
       target_commitish: "main",
       draft: true,
@@ -4054,7 +4523,7 @@ function durableSmokeFixture(manifestSha256) {
       lane: receipt.lane,
       actionsArtifactId: String(4_000 + index),
       actionsArtifactName: `smoke-result-${receipt.lane}-${workflowRunId}-${runAttempt}`,
-      actionsArtifactUrl: `https://github.com/cacheplane/dawnai/actions/runs/${workflowRunId}/artifacts/${4_000 + index}`,
+      actionsArtifactUrl: `https://github.com/cacheplane/b4run/actions/runs/${workflowRunId}/artifacts/${4_000 + index}`,
       actionsArtifactServiceDigest: `sha256:${"8".repeat(64)}`,
       releaseAssetId: receipt.releaseAssetId,
       releaseAssetName: receipt.releaseAssetName,
@@ -4119,8 +4588,8 @@ function auditedReleaseFixture() {
     audit: {
       workflow: ".github/workflows/published-artifact-verify.yml",
       workflowRunId: auditResult.workflowRunId,
-      runUrl: `https://api.github.com/repos/cacheplane/dawnai/actions/runs/${auditResult.workflowRunId}`,
-      htmlUrl: `https://github.com/cacheplane/dawnai/actions/runs/${auditResult.workflowRunId}`,
+      runUrl: `https://api.github.com/repos/cacheplane/b4run/actions/runs/${auditResult.workflowRunId}`,
+      htmlUrl: `https://github.com/cacheplane/b4run/actions/runs/${auditResult.workflowRunId}`,
       runAttempt: auditResult.runAttempt,
       attemptAssetName: `audit-attempt-${auditResult.workflowRunId}-${auditResult.runAttempt}.json`,
       attemptSha256: auditSha256,
@@ -4333,7 +4802,7 @@ function abandonedReleaseFixture() {
     ],
     release: {
       id: 901,
-      name: `Dawn v${VERSION} (abandoned before publication)`,
+      name: `B4 v${VERSION} (abandoned before publication)`,
       tag_name: `v${VERSION}`,
       target_commitish: "main",
       draft: true,
@@ -4385,7 +4854,7 @@ function preparedAbandonedReleaseFixture(prepared) {
     ],
     release: {
       id: 902,
-      name: `Dawn v${VERSION} (abandoned before publication)`,
+      name: `B4 v${VERSION} (abandoned before publication)`,
       tag_name: `v${VERSION}`,
       target_commitish: "main",
       draft: true,
@@ -4443,7 +4912,7 @@ function strongAbandonedReleaseFixture(retainedNames) {
     bytesById: new Map([...escrow.bytesById, [tombstoneAsset.id, tombstoneBytes]]),
     release: {
       id: escrow.release.id,
-      name: `Dawn v${VERSION} (abandoned before publication)`,
+      name: `B4 v${VERSION} (abandoned before publication)`,
       tag_name: `v${VERSION}`,
       target_commitish: "main",
       draft: true,
@@ -4659,7 +5128,7 @@ function stampedTerminalDraft(escrow, value) {
     bytesById: new Map([...escrow.bytesById, [tombstoneAsset.id, bytes]]),
     release: {
       ...escrow.release,
-      name: `Dawn v${VERSION} (abandoned before publication)`,
+      name: `B4 v${VERSION} (abandoned before publication)`,
       body: canonicalAbandonmentReleaseBody({
         marker,
         tombstone: value,
@@ -4718,7 +5187,7 @@ test("a terminal record with a published package blocks with TERMINAL_RECORD_PUB
   const bytes = canonicalTerminalRecordBytes(recordFor())
   const npm = npmReader({
     async observePackageVersion({ name, version }) {
-      if (name !== "@dawn-ai/core") return envelope("ABSENT", "package-version", 404, "E404")
+      if (name !== "@b4run/core") return envelope("ABSENT", "package-version", 404, "E404")
       return {
         status: "PRESENT",
         operation: "package-version",

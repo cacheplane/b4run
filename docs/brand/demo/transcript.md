@@ -1,15 +1,15 @@
-# Dawn product-loop media transcript
+# B4.run product-loop media transcript
 
 The flagship and three derivative clips are silent. Their visible short act
 labels — **Author**, **Prove**, and **Run** — are repeated here so the same proof
 remains available without motion or audio. The footage begins inside an existing
 generated research workspace; it does not show the scaffold command running.
 
-## Product loop (24 seconds)
+## Product loop (25 seconds)
 
 ### Author
 
-The Dawn capture compositor displays real files from the generated research
+The B4.run capture compositor displays real files from the generated research
 workspace. Its tree names all five paths used by the story:
 
 - `server/src/app/research/index.ts`
@@ -31,7 +31,7 @@ the passing result on screen long enough to read.
 
 ### Run
 
-The actual generated Dawn Workbench submits “What are common agent
+The actual generated B4.run Workbench submits “What are common agent
 architectures?” to `/research#agent`. Visible tool activity names the
 `searchCorpus` and `readDoc` calls. The cited response reads: “ReAct and
 plan-and-execute are common. [corpus/agent-architectures.md]”.
@@ -39,14 +39,14 @@ plan-and-execute are common. [corpus/agent-architectures.md]”.
 The completed run remains visible, then the browser reloads. The same thread is
 reopened from the rail, its state request succeeds, and the prompt, both tool
 calls, and cited answer reappear from the server checkpoint. This demonstrates
-browser-reload restoration with the Dawn server still running, not restoration
+browser-reload restoration with the B4.run server still running, not restoration
 after a server restart.
 
 ### Close
 
 The closing card reads “TypeScript meta-framework for LangGraph.js”, “Build
 LangGraph agents like Next.js apps”, and
-`npm create dawn-ai-app@latest my-agent`. The command is an activation next
+`npm create b4-app@latest my-agent`. The command is an activation next
 step; scaffolding is not part of the footage.
 
 ## Author clip (9 seconds)

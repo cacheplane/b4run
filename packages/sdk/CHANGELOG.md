@@ -1,5 +1,63 @@
 # @dawn-ai/sdk
 
+## 0.8.30
+
+### Patch Changes
+
+- 80a98ad: Add `GET /threads/{id}/runs/stream` — reattach to a running turn. A disconnected
+  client rejoins by attaching to this read-only GET mirror of the POST stream: one
+  `event: state` snapshot (channel values, the turn's coalesced frames so far, and
+  parked interrupts) followed by the live tail, or an immediate durable snapshot +
+  `done` when no live turn exists in this process. It requires thread-access `read` plus middleware approval for the selected
+  producer and the recorded parked, last-run, and anchor routes. The selected
+  turn stays fixed across asynchronous authorization. Backed by a bounded in-memory `LiveTurnHub`; the durable
+  path works across restarts, replicas, and serverless. Being a GET with no body,
+  it is the first Agent Protocol stream a stock `EventSource` can consume.
+
+  `@b4run/sdk` gains one additive `ThreadOperation` member, `thread.attach`, for
+  the new endpoint. A thread-access policy that switches exhaustively over
+  `ThreadOperation` should add a `thread.attach` arm; a `fallback` handler already
+  covers it.
+
+  Canceling or aborting an attach releases its viewer slot and heartbeat without
+  stopping the producer. Slow viewers remain bounded and are detached on overflow.
+  The durable retry hint precedes `done`, so clients can stop reading at the terminal frame.
+
+  Bind checkpoint ownership to the exact checkpoint ID at the saver write boundary,
+  retaining verified ancestor routes and overwriting any upstream ownership claim.
+  Attach authorizes that provenance instead of inferring checkpoint ownership from
+  mutable thread metadata. Legacy or unknown checkpoint ancestry fails closed with
+  `thread_route_unknown`; a fresh thread establishes verified provenance.
+
+## 0.8.29
+
+### Patch Changes
+
+- 481489e: Publish the B4.run package family with the first-publication registry
+  convergence fix in effect, so every package is published and verified in a
+  single release rather than stalling on each newly created packument.
+
+## 0.8.28
+
+### Patch Changes
+
+- 39ceb2e: Release controller fixes for the B4.run identity: read release history written
+  under the previous identity, exclude releases made under it from candidate
+  arbitration, allow the one-time package family rename across a candidate's first
+  parent, and prove a never-published package absent during escrow.
+
+## 0.8.27
+
+### Patch Changes
+
+- b05b96d: Rename the framework to B4.run and publish the package family under `@b4run`.
+  Use `b4`, `b4.config.ts`, `.b4`, and `create-b4-app` for the CLI, configuration,
+  local state, and scaffold. Branded public types and environment variables use
+  the B4 prefix. Existing package names, config files, state locations and exported
+  aliases are not supported by this release.
+
+## 0.8.26
+
 ## 0.8.25
 
 ## 0.8.24

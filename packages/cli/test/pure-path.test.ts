@@ -48,7 +48,7 @@ describe("pure-path parity with node:path (posix inputs)", () => {
 
   it("pureJoin matches node:path join", () => {
     const tuples: readonly (readonly string[])[] = [
-      ["/app", ".dawn/threads.sqlite"],
+      ["/app", ".b4/threads.sqlite"],
       ["/a", "b", "..", "c"],
       ["a", "b"],
       ["a", ""],
@@ -57,7 +57,7 @@ describe("pure-path parity with node:path (posix inputs)", () => {
       ["..", "a"],
       ["a", "/b"],
       [".", "x"],
-      ["/appRoot", ".dawn", "memory.sqlite"],
+      ["/appRoot", ".b4", "memory.sqlite"],
       ["/appRoot", "workspace"],
       ["a/", "/b/"],
       ["..", ".."],

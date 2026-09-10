@@ -104,7 +104,7 @@ test("owner workflow graph pins checkouts, authority jobs, all required dependen
 
 function validateRecoveryWorkflow(workflow) {
   assert.deepEqual(workflow.concurrency, {
-    group: "dawn-release-controller",
+    group: "b4-release-controller",
     "cancel-in-progress": false,
     queue: "max",
   })
@@ -145,7 +145,7 @@ test("auditor has exact inputs, independent concurrency, GET-only command and on
     "release_id",
     "request_id",
   ])
-  assert.notEqual(workflow.concurrency.group, "dawn-release-controller")
+  assert.notEqual(workflow.concurrency.group, "b4-release-controller")
   const job = workflow.jobs["recovery-audit"]
   assert.equal(job.permissions.actions, "read")
   assert.equal(job.permissions.attestations, "read")
@@ -157,7 +157,7 @@ test("auditor has exact inputs, independent concurrency, GET-only command and on
   assert.match(job.if, /github.ref == 'refs\/heads\/main'/)
   assert.match(job.if, /inputs.expected_controller_sha == github.sha/)
   for (const step of job.steps) {
-    assert.equal(step.env?.DAWN_RECOVERY_POLICY_TOKEN, undefined)
+    assert.equal(step.env?.B4_RECOVERY_POLICY_TOKEN, undefined)
     if (step.run) {
       assert.doesNotMatch(step.run, /\b(?:build|pack|publish|adopt|finalize)\b/)
       assert.ok(!step.run.includes("${{ inputs."))
@@ -167,4 +167,38 @@ test("auditor has exact inputs, independent concurrency, GET-only command and on
   assert.equal(upload.if, "always()")
   assert.match(upload.with.path, /evidence_directory.*\/\*\.json$/)
   assert.equal(upload.with.overwrite, false)
+})
+
+test("blocked workflow planning retains the observer failure for sanitized admission diagnostics", async () => {
+  const { observeRecoveryCandidate } = await import("../recovery/observe.mjs")
+  const { recoveryRemote } = await import("./support/recovery-observe-fixture.mjs")
+  const { recoveryFailureDetail } = await import("../recovery/diagnostics.mjs")
+  const r = await recoveryRemote()
+  r.args.github.getRelease = async () => ({ status: "ERROR", httpStatus: 403 })
+  const observed = await observeRecoveryCandidate(r.args)
+  assert.equal(observed.outcome, "blocked")
+  assert.equal(observed.facts, null)
+  assert.ok(observed.errors.length > 0)
+  assert.throws(
+    () => graph.planRecoveryWorkflow(observed),
+    (error) => {
+      assert.ok(recoveryFailureDetail(error).includes(observed.errors[0]))
+      return true
+    },
+  )
+  const tainted = {
+    ...observed,
+    errors: ["registry rejected private-value Bearer private-value https://private.invalid/path"],
+  }
+  assert.throws(
+    () => graph.planRecoveryWorkflow(tainted),
+    (error) => {
+      const detail = recoveryFailureDetail(error, { GITHUB_TOKEN: "private-value" })
+      assert.match(detail, /registry rejected/)
+      assert.ok(!detail.includes("private-value"))
+      assert.ok(!detail.includes("private.invalid"))
+      assert.ok(detail.length <= 512)
+      return true
+    },
+  )
 })

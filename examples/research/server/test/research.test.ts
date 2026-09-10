@@ -1,8 +1,8 @@
 import { rmSync } from "node:fs"
 import { basename, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { run as runDawnCli } from "@dawn-ai/cli"
-import type { FixtureSet } from "@dawn-ai/testing"
+import { run as runB4Cli } from "@b4run/cli"
+import type { FixtureSet } from "@b4run/testing"
 import {
   createAgentHarness,
   expectFinalMessage,
@@ -12,11 +12,11 @@ import {
   expectToolCalled,
   script,
   seedMemory,
-} from "@dawn-ai/testing"
+} from "@b4run/testing"
 import { afterAll, beforeAll, expect, it } from "vitest"
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url))
-const memoryDb = join(appRoot, ".dawn", "memory.sqlite")
+const memoryDb = join(appRoot, ".b4", "memory.sqlite")
 const memoryNamespace = `workspace=${basename(appRoot)}|route=/research`
 function cleanMemoryDb() {
   for (const suffix of ["", "-wal", "-shm"]) rmSync(`${memoryDb}${suffix}`, { force: true })
@@ -25,7 +25,7 @@ function cleanMemoryDb() {
 async function runCli(args: readonly string[]) {
   const stdout: string[] = []
   const stderr: string[] = []
-  const code = await runDawnCli(args, {
+  const code = await runB4Cli(args, {
     stderr: (message) => stderr.push(message),
     stdout: (message) => stdout.push(message),
   })

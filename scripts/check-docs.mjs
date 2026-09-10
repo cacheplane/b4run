@@ -911,186 +911,174 @@ function canonicalOwnerGuardViolations(file, source, contracts) {
 }
 
 const EXPECTED_API_REFERENCE_PAGE_TUPLES = [
-  ["@dawn-ai/sdk", "/docs/api/sdk", "@dawn-ai/sdk", ["@dawn-ai/sdk"], "API Reference", "/docs/api"],
-  ["@dawn-ai/cli", "/docs/api/cli", "@dawn-ai/cli", ["@dawn-ai/cli"], "API Reference", "/docs/api"],
+  ["@b4run/sdk", "/docs/api/sdk", "@b4run/sdk", ["@b4run/sdk"], "API Reference", "/docs/api"],
+  ["@b4run/cli", "/docs/api/cli", "@b4run/cli", ["@b4run/cli"], "API Reference", "/docs/api"],
+  ["@b4run/core", "/docs/api/core", "@b4run/core", ["@b4run/core"], "API Reference", "/docs/api"],
   [
-    "@dawn-ai/core",
-    "/docs/api/core",
-    "@dawn-ai/core",
-    ["@dawn-ai/core"],
-    "API Reference",
-    "/docs/api",
-  ],
-  [
-    "@dawn-ai/ag-ui",
+    "@b4run/ag-ui",
     "/docs/api/ag-ui",
-    "@dawn-ai/ag-ui",
-    ["@dawn-ai/ag-ui"],
+    "@b4run/ag-ui",
+    ["@b4run/ag-ui"],
     "API Reference",
     "/docs/api",
   ],
   [
-    "@dawn-ai/memory",
+    "@b4run/memory",
     "/docs/api/memory",
-    "@dawn-ai/memory",
-    ["@dawn-ai/memory"],
+    "@b4run/memory",
+    ["@b4run/memory"],
     "API Reference",
     "/docs/api",
   ],
   [
-    "@dawn-ai/memory-pgvector",
+    "@b4run/memory-pgvector",
     "/docs/api/memory-pgvector",
-    "@dawn-ai/memory-pgvector",
-    ["@dawn-ai/memory-pgvector"],
+    "@b4run/memory-pgvector",
+    ["@b4run/memory-pgvector"],
     "API Reference",
     "/docs/api",
   ],
   [
-    "@dawn-ai/postgres-storage",
+    "@b4run/postgres-storage",
     "/docs/api/postgres-storage",
-    "@dawn-ai/postgres-storage",
-    ["@dawn-ai/postgres-storage"],
+    "@b4run/postgres-storage",
+    ["@b4run/postgres-storage"],
     "API Reference",
     "/docs/api",
   ],
   [
-    "@dawn-ai/testing",
+    "@b4run/testing",
     "/docs/api/testing",
-    "@dawn-ai/testing",
-    ["@dawn-ai/testing"],
+    "@b4run/testing",
+    ["@b4run/testing"],
     "API Reference",
     "/docs/api",
   ],
   [
-    "@dawn-ai/evals",
+    "@b4run/evals",
     "/docs/api/evals",
-    "@dawn-ai/evals",
-    ["@dawn-ai/evals"],
+    "@b4run/evals",
+    ["@b4run/evals"],
     "API Reference",
     "/docs/api",
   ],
   [
-    "dawn:routes",
+    "b4:routes",
     "/docs/api/generated-routes",
-    "dawn:routes",
-    ["@dawn-ai/cli", "@dawn-ai/core"],
+    "b4:routes",
+    ["@b4run/cli", "@b4run/core"],
     "API Reference",
     "/docs/api",
   ],
   [
-    "@dawn-ai/permissions",
+    "@b4run/permissions",
     "/docs/api/permissions",
-    "@dawn-ai/permissions",
-    ["@dawn-ai/permissions"],
+    "@b4run/permissions",
+    ["@b4run/permissions"],
     "API Reference",
     "/docs/api",
   ],
   [
-    "@dawn-ai/workspace",
+    "@b4run/workspace",
     "/docs/api/workspace",
-    "@dawn-ai/workspace",
-    ["@dawn-ai/workspace"],
+    "@b4run/workspace",
+    ["@b4run/workspace"],
     "API Reference",
     "/docs/api",
   ],
   [
-    "@dawn-ai/sandbox",
+    "@b4run/sandbox",
     "/docs/api/sandbox",
-    "@dawn-ai/sandbox",
-    ["@dawn-ai/sandbox"],
+    "@b4run/sandbox",
+    ["@b4run/sandbox"],
     "API Reference",
     "/docs/api",
   ],
   [
-    "@dawn-ai/langgraph",
+    "@b4run/langgraph",
     "/docs/api/langgraph",
-    "@dawn-ai/langgraph",
-    ["@dawn-ai/langgraph"],
+    "@b4run/langgraph",
+    ["@b4run/langgraph"],
     "API Reference",
     "/docs/api",
   ],
   [
-    "@dawn-ai/langchain",
+    "@b4run/langchain",
     "/docs/api/langchain",
-    "@dawn-ai/langchain",
-    ["@dawn-ai/langchain"],
+    "@b4run/langchain",
+    ["@b4run/langchain"],
     "API Reference",
     "/docs/api",
   ],
   [
-    "@dawn-ai/sqlite-storage",
+    "@b4run/sqlite-storage",
     "/docs/api/sqlite-storage",
-    "@dawn-ai/sqlite-storage",
-    ["@dawn-ai/sqlite-storage"],
+    "@b4run/sqlite-storage",
+    ["@b4run/sqlite-storage"],
     "API Reference",
     "/docs/api",
   ],
 ]
 
 const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
-  ["import:@dawn-ai/sdk:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/sdk:./pure", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/sdk:./testing", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/cli:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/cli:./fetch", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/cli:./runtime", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/cli:./testing", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/core:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/core:./node", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/core:./internal/compiler", "internal", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/ag-ui:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/ag-ui:./sse", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/ag-ui:./react", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/ag-ui:./react/styles.css", "catalog-only", "surfaceKind", "style-asset"],
-  ["import:@dawn-ai/memory:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/memory:./browse", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/memory:./namespace", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/memory:./reconcile", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/memory-pgvector:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/postgres-storage:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/postgres-storage:./node", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/testing:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/evals:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/permissions:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/permissions:./node", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/workspace:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/workspace:./node", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/sandbox:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/sandbox:./testing", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/langgraph:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/langgraph:./define-entry", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/langgraph:./route-module", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/langchain:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/langchain:./package.json", "detailed", "surfaceKind", "metadata"],
-  ["import:@dawn-ai/sqlite-storage:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/config-biome:.", "internal", "surfaceKind", "config-artifact"],
-  ["import:@dawn-ai/config-biome:./biome", "internal", "surfaceKind", "config-artifact"],
-  ["import:@dawn-ai/config-typescript:.", "internal", "surfaceKind", "config-artifact"],
-  ["import:@dawn-ai/config-typescript:./base", "internal", "surfaceKind", "config-artifact"],
-  ["import:@dawn-ai/config-typescript:./library", "internal", "surfaceKind", "config-artifact"],
-  ["import:@dawn-ai/config-typescript:./node", "internal", "surfaceKind", "config-artifact"],
-  ["import:@dawn-ai/config-typescript:./nextjs", "internal", "surfaceKind", "config-artifact"],
-  ["import:@dawn-ai/devkit:.", "internal", "surfaceKind", "typescript-runtime"],
-  ["import:@dawn-ai/vite-plugin:.", "internal", "surfaceKind", "typescript-runtime"],
-  ["operated:@dawn-ai/cli:bin.dawn", "detailed", "operatedKind", "executable"],
+  ["import:@b4run/sdk:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/sdk:./pure", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/sdk:./testing", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/cli:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/cli:./fetch", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/cli:./runtime", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/cli:./testing", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/core:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/core:./node", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/core:./internal/compiler", "internal", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/ag-ui:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/ag-ui:./sse", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/ag-ui:./react", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/ag-ui:./react/styles.css", "catalog-only", "surfaceKind", "style-asset"],
+  ["import:@b4run/memory:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/memory:./browse", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/memory:./namespace", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/memory:./reconcile", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/memory-pgvector:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/postgres-storage:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/postgres-storage:./node", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/testing:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/evals:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/permissions:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/permissions:./node", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/workspace:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/workspace:./node", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/sandbox:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/sandbox:./testing", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/langgraph:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/langgraph:./define-entry", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/langgraph:./route-module", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/langchain:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/langchain:./package.json", "detailed", "surfaceKind", "metadata"],
+  ["import:@b4run/sqlite-storage:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/config-biome:.", "internal", "surfaceKind", "config-artifact"],
+  ["import:@b4run/config-biome:./biome", "internal", "surfaceKind", "config-artifact"],
+  ["import:@b4run/config-typescript:.", "internal", "surfaceKind", "config-artifact"],
+  ["import:@b4run/config-typescript:./base", "internal", "surfaceKind", "config-artifact"],
+  ["import:@b4run/config-typescript:./library", "internal", "surfaceKind", "config-artifact"],
+  ["import:@b4run/config-typescript:./node", "internal", "surfaceKind", "config-artifact"],
+  ["import:@b4run/config-typescript:./nextjs", "internal", "surfaceKind", "config-artifact"],
+  ["import:@b4run/devkit:.", "internal", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/vite-plugin:.", "internal", "surfaceKind", "typescript-runtime"],
+  ["operated:@b4run/cli:bin.b4", "detailed", "operatedKind", "executable"],
+  ["operated:create-b4-app:bin.create-b4-app", "catalog-only", "operatedKind", "executable"],
   [
-    "operated:create-dawn-ai-app:bin.create-dawn-ai-app",
-    "catalog-only",
-    "operatedKind",
-    "executable",
-  ],
-  [
-    "operated:@dawn-ai/inspector:dawnInspector.server",
+    "operated:@b4run/inspector:b4Inspector.server",
     "catalog-only",
     "operatedKind",
     "operated-application",
   ],
-  ["generated:dawn:routes", "detailed", "surfaceKind", "generated-types"],
+  ["generated:b4:routes", "detailed", "surfaceKind", "generated-types"],
 ]
 
 const EXPECTED_FINAL_API_ARTIFACT_POLICIES = [
   [
-    "import:@dawn-ai/config-biome:.",
+    "import:@b4run/config-biome:.",
     "internal",
     "config-artifact",
     null,
@@ -1100,7 +1088,7 @@ const EXPECTED_FINAL_API_ARTIFACT_POLICIES = [
     null,
   ],
   [
-    "import:@dawn-ai/config-biome:./biome",
+    "import:@b4run/config-biome:./biome",
     "internal",
     "config-artifact",
     null,
@@ -1110,7 +1098,7 @@ const EXPECTED_FINAL_API_ARTIFACT_POLICIES = [
     null,
   ],
   [
-    "import:@dawn-ai/config-typescript:.",
+    "import:@b4run/config-typescript:.",
     "internal",
     "config-artifact",
     null,
@@ -1120,7 +1108,7 @@ const EXPECTED_FINAL_API_ARTIFACT_POLICIES = [
     null,
   ],
   [
-    "import:@dawn-ai/config-typescript:./base",
+    "import:@b4run/config-typescript:./base",
     "internal",
     "config-artifact",
     null,
@@ -1130,7 +1118,7 @@ const EXPECTED_FINAL_API_ARTIFACT_POLICIES = [
     null,
   ],
   [
-    "import:@dawn-ai/config-typescript:./library",
+    "import:@b4run/config-typescript:./library",
     "internal",
     "config-artifact",
     null,
@@ -1140,7 +1128,7 @@ const EXPECTED_FINAL_API_ARTIFACT_POLICIES = [
     null,
   ],
   [
-    "import:@dawn-ai/config-typescript:./node",
+    "import:@b4run/config-typescript:./node",
     "internal",
     "config-artifact",
     null,
@@ -1150,7 +1138,7 @@ const EXPECTED_FINAL_API_ARTIFACT_POLICIES = [
     null,
   ],
   [
-    "import:@dawn-ai/config-typescript:./nextjs",
+    "import:@b4run/config-typescript:./nextjs",
     "internal",
     "config-artifact",
     null,
@@ -1160,7 +1148,7 @@ const EXPECTED_FINAL_API_ARTIFACT_POLICIES = [
     null,
   ],
   [
-    "import:@dawn-ai/devkit:.",
+    "import:@b4run/devkit:.",
     "internal",
     "typescript-runtime",
     "node-only",
@@ -1170,7 +1158,7 @@ const EXPECTED_FINAL_API_ARTIFACT_POLICIES = [
     null,
   ],
   [
-    "import:@dawn-ai/vite-plugin:.",
+    "import:@b4run/vite-plugin:.",
     "internal",
     "typescript-runtime",
     "node-only",
@@ -1180,7 +1168,7 @@ const EXPECTED_FINAL_API_ARTIFACT_POLICIES = [
     null,
   ],
   [
-    "operated:create-dawn-ai-app:bin.create-dawn-ai-app",
+    "operated:create-b4-app:bin.create-b4-app",
     "catalog-only",
     "executable",
     "node-only",
@@ -1190,7 +1178,7 @@ const EXPECTED_FINAL_API_ARTIFACT_POLICIES = [
     "./dist/bin.js",
   ],
   [
-    "operated:@dawn-ai/inspector:dawnInspector.server",
+    "operated:@b4run/inspector:b4Inspector.server",
     "catalog-only",
     "operated-application",
     "node-only",
@@ -1202,112 +1190,112 @@ const EXPECTED_FINAL_API_ARTIFACT_POLICIES = [
 ]
 
 const EXPECTED_API_REQUIRED_CONTRACT_KEYS = [
-  "@dawn-ai/langchain#.:AgentStreamChunk",
-  "@dawn-ai/langchain#.:OffloadToolOutputCtx",
-  "@dawn-ai/langchain#.:RetryOptions",
-  "@dawn-ai/langchain#.:UnwrappedToolResult",
-  "@dawn-ai/langchain#.:resolveProvider",
-  "@dawn-ai/langchain#.:withRetry",
-  "@dawn-ai/langgraph#./define-entry:defineEntry",
-  "@dawn-ai/langgraph#./route-module:GraphRouteModule",
-  "@dawn-ai/langgraph#./route-module:NormalizedRouteModule",
-  "@dawn-ai/langgraph#./route-module:RouteModule",
-  "@dawn-ai/langgraph#./route-module:WorkflowRouteModule",
-  "@dawn-ai/langgraph#./route-module:assertExactlyOneEntry",
-  "@dawn-ai/langgraph#./route-module:normalizeRouteModule",
-  "@dawn-ai/ag-ui#./sse:encodeAgUiSse",
-  "@dawn-ai/ag-ui#.:DAWN_PLAN_ACTIVITY_TYPE",
-  "@dawn-ai/ag-ui#.:DAWN_SUBAGENT_ACTIVITY_TYPE",
-  "@dawn-ai/ag-ui#.:DawnRunInput",
-  "@dawn-ai/ag-ui#.:DawnPlanActivityContent",
-  "@dawn-ai/ag-ui#.:DawnSubagentActivityContent",
-  "@dawn-ai/ag-ui#.:RunContext",
-  "@dawn-ai/ag-ui#.:ToAguiOptions",
-  "@dawn-ai/ag-ui#.:fromRunAgentInput",
-  "@dawn-ai/ag-ui#.:toAguiEvents",
-  "@dawn-ai/cli#.:ServeRuntimeOptions",
-  "@dawn-ai/cli#.:serveRuntime",
-  "@dawn-ai/core#.:loadDawnConfig",
-  "@dawn-ai/core#.:resolveStateFields",
-  "@dawn-ai/evals#.:EvalCase",
-  "@dawn-ai/evals#.:EvalDefinition",
-  "@dawn-ai/evals#.:EvalReport",
-  "@dawn-ai/evals#.:RunEvalOptions",
-  "@dawn-ai/evals#.:Scorer",
-  "@dawn-ai/evals#.:defineEval",
-  "@dawn-ai/evals#.:runEval",
-  "@dawn-ai/memory#./namespace:MemoryScopeTuple",
-  "@dawn-ai/memory#./namespace:serializeNamespace",
-  "@dawn-ai/memory#./reconcile:approveWithReconcile",
-  "@dawn-ai/memory#.:BrowsePage",
-  "@dawn-ai/memory#.:BrowseQuery",
-  "@dawn-ai/memory#.:MemoryQuery",
-  "@dawn-ai/memory#.:MemoryRecord",
-  "@dawn-ai/memory#.:MemoryStore",
-  "@dawn-ai/memory-pgvector#.:PgvectorMemoryStore",
-  "@dawn-ai/memory-pgvector#.:pgvectorMemoryStore",
-  "@dawn-ai/postgres-storage#./node:NodePostgresPermissionsStoreOptions",
-  "@dawn-ai/postgres-storage#./node:NodePostgresStoreOptions",
-  "@dawn-ai/postgres-storage#./node:createPostgresPermissionsStore",
-  "@dawn-ai/postgres-storage#./node:createPostgresThreadsStore",
-  "@dawn-ai/postgres-storage#./node:postgresCheckpointer",
-  "@dawn-ai/postgres-storage#.:PostgresPermissionsStoreOptions",
-  "@dawn-ai/postgres-storage#.:PostgresStoreOptions",
-  "@dawn-ai/postgres-storage#.:createPostgresPermissionsStore",
-  "@dawn-ai/postgres-storage#.:createPostgresThreadsStore",
-  "@dawn-ai/postgres-storage#.:postgresCheckpointer",
-  "@dawn-ai/sandbox#./testing:runProviderConformance",
-  "@dawn-ai/sandbox#.:KubeAuthorizationReviewError",
-  "@dawn-ai/sandbox#.:KubernetesSandboxOptions",
-  "@dawn-ai/sandbox#.:dockerSandbox",
-  "@dawn-ai/sandbox#.:kubernetesSandbox",
-  "@dawn-ai/permissions#.:PermissionDecision",
-  "@dawn-ai/permissions#.:PermissionMode",
-  "@dawn-ai/permissions#.:PermissionsFile",
-  "@dawn-ai/permissions#.:PermissionsStore",
-  "@dawn-ai/sdk#.:AgentConfig",
-  "@dawn-ai/sdk#.:ReasoningConfig",
-  "@dawn-ai/sdk#.:RetryConfig",
-  "@dawn-ai/sdk#.:RouteConfig",
-  "@dawn-ai/sdk#.:agent",
-  "@dawn-ai/sdk#.:allow",
-  "@dawn-ai/sdk#.:defineMemory",
-  "@dawn-ai/sdk#.:defineMiddleware",
-  "@dawn-ai/sdk#.:isDawnAgent",
-  "@dawn-ai/sdk#.:reject",
-  "@dawn-ai/sdk#.:validateModelId",
-  "@dawn-ai/sqlite-storage#.:CreateThreadInput",
-  "@dawn-ai/sqlite-storage#.:SqliteCheckpointerOptions",
-  "@dawn-ai/sqlite-storage#.:Thread",
-  "@dawn-ai/sqlite-storage#.:ThreadStatus",
-  "@dawn-ai/sqlite-storage#.:ThreadsStore",
-  "@dawn-ai/sqlite-storage#.:ThreadsStoreOptions",
-  "@dawn-ai/sqlite-storage#.:createThreadsStore",
-  "@dawn-ai/sqlite-storage#.:sqliteCheckpointer",
-  "@dawn-ai/testing#.:AgentHarness",
-  "@dawn-ai/testing#.:AgentHarnessOptions",
-  "@dawn-ai/testing#.:ScriptBuilder",
-  "@dawn-ai/testing#.:createAgentHarness",
-  "@dawn-ai/testing#.:fakeEmbedder",
-  "@dawn-ai/testing#.:loadFixtures",
-  "@dawn-ai/testing#.:runCheckpointerConformance",
-  "@dawn-ai/testing#.:runMemoryStoreConformance",
-  "@dawn-ai/testing#.:runPermissionsStoreConformance",
-  "@dawn-ai/testing#.:runThreadsStoreConformance",
-  "@dawn-ai/testing#.:writeFixtures",
-  "@dawn-ai/workspace#./node:LocalExecOptions",
-  "@dawn-ai/workspace#./node:LocalFilesystemOptions",
-  "@dawn-ai/workspace#./node:localExec",
-  "@dawn-ai/workspace#./node:localFilesystem",
-  "@dawn-ai/workspace#.:BackendContext",
-  "@dawn-ai/workspace#.:ExecBackend",
-  "@dawn-ai/workspace#.:FilesystemBackend",
-  "@dawn-ai/workspace#.:SandboxConfig",
-  "@dawn-ai/workspace#.:SandboxHandle",
-  "@dawn-ai/workspace#.:SandboxPolicy",
-  "@dawn-ai/workspace#.:SandboxProvider",
-  "@dawn-ai/workspace#.:SandboxSecurityPolicy",
-  "@dawn-ai/workspace#.:compose",
+  "@b4run/langchain#.:AgentStreamChunk",
+  "@b4run/langchain#.:OffloadToolOutputCtx",
+  "@b4run/langchain#.:RetryOptions",
+  "@b4run/langchain#.:UnwrappedToolResult",
+  "@b4run/langchain#.:resolveProvider",
+  "@b4run/langchain#.:withRetry",
+  "@b4run/langgraph#./define-entry:defineEntry",
+  "@b4run/langgraph#./route-module:GraphRouteModule",
+  "@b4run/langgraph#./route-module:NormalizedRouteModule",
+  "@b4run/langgraph#./route-module:RouteModule",
+  "@b4run/langgraph#./route-module:WorkflowRouteModule",
+  "@b4run/langgraph#./route-module:assertExactlyOneEntry",
+  "@b4run/langgraph#./route-module:normalizeRouteModule",
+  "@b4run/ag-ui#./sse:encodeAgUiSse",
+  "@b4run/ag-ui#.:B4_PLAN_ACTIVITY_TYPE",
+  "@b4run/ag-ui#.:B4_SUBAGENT_ACTIVITY_TYPE",
+  "@b4run/ag-ui#.:B4RunInput",
+  "@b4run/ag-ui#.:B4PlanActivityContent",
+  "@b4run/ag-ui#.:B4SubagentActivityContent",
+  "@b4run/ag-ui#.:RunContext",
+  "@b4run/ag-ui#.:ToAguiOptions",
+  "@b4run/ag-ui#.:fromRunAgentInput",
+  "@b4run/ag-ui#.:toAguiEvents",
+  "@b4run/cli#.:ServeRuntimeOptions",
+  "@b4run/cli#.:serveRuntime",
+  "@b4run/core#.:loadB4Config",
+  "@b4run/core#.:resolveStateFields",
+  "@b4run/evals#.:EvalCase",
+  "@b4run/evals#.:EvalDefinition",
+  "@b4run/evals#.:EvalReport",
+  "@b4run/evals#.:RunEvalOptions",
+  "@b4run/evals#.:Scorer",
+  "@b4run/evals#.:defineEval",
+  "@b4run/evals#.:runEval",
+  "@b4run/memory#./namespace:MemoryScopeTuple",
+  "@b4run/memory#./namespace:serializeNamespace",
+  "@b4run/memory#./reconcile:approveWithReconcile",
+  "@b4run/memory#.:BrowsePage",
+  "@b4run/memory#.:BrowseQuery",
+  "@b4run/memory#.:MemoryQuery",
+  "@b4run/memory#.:MemoryRecord",
+  "@b4run/memory#.:MemoryStore",
+  "@b4run/memory-pgvector#.:PgvectorMemoryStore",
+  "@b4run/memory-pgvector#.:pgvectorMemoryStore",
+  "@b4run/postgres-storage#./node:NodePostgresPermissionsStoreOptions",
+  "@b4run/postgres-storage#./node:NodePostgresStoreOptions",
+  "@b4run/postgres-storage#./node:createPostgresPermissionsStore",
+  "@b4run/postgres-storage#./node:createPostgresThreadsStore",
+  "@b4run/postgres-storage#./node:postgresCheckpointer",
+  "@b4run/postgres-storage#.:PostgresPermissionsStoreOptions",
+  "@b4run/postgres-storage#.:PostgresStoreOptions",
+  "@b4run/postgres-storage#.:createPostgresPermissionsStore",
+  "@b4run/postgres-storage#.:createPostgresThreadsStore",
+  "@b4run/postgres-storage#.:postgresCheckpointer",
+  "@b4run/sandbox#./testing:runProviderConformance",
+  "@b4run/sandbox#.:KubeAuthorizationReviewError",
+  "@b4run/sandbox#.:KubernetesSandboxOptions",
+  "@b4run/sandbox#.:dockerSandbox",
+  "@b4run/sandbox#.:kubernetesSandbox",
+  "@b4run/permissions#.:PermissionDecision",
+  "@b4run/permissions#.:PermissionMode",
+  "@b4run/permissions#.:PermissionsFile",
+  "@b4run/permissions#.:PermissionsStore",
+  "@b4run/sdk#.:AgentConfig",
+  "@b4run/sdk#.:ReasoningConfig",
+  "@b4run/sdk#.:RetryConfig",
+  "@b4run/sdk#.:RouteConfig",
+  "@b4run/sdk#.:agent",
+  "@b4run/sdk#.:allow",
+  "@b4run/sdk#.:defineMemory",
+  "@b4run/sdk#.:defineMiddleware",
+  "@b4run/sdk#.:isB4Agent",
+  "@b4run/sdk#.:reject",
+  "@b4run/sdk#.:validateModelId",
+  "@b4run/sqlite-storage#.:CreateThreadInput",
+  "@b4run/sqlite-storage#.:SqliteCheckpointerOptions",
+  "@b4run/sqlite-storage#.:Thread",
+  "@b4run/sqlite-storage#.:ThreadStatus",
+  "@b4run/sqlite-storage#.:ThreadsStore",
+  "@b4run/sqlite-storage#.:ThreadsStoreOptions",
+  "@b4run/sqlite-storage#.:createThreadsStore",
+  "@b4run/sqlite-storage#.:sqliteCheckpointer",
+  "@b4run/testing#.:AgentHarness",
+  "@b4run/testing#.:AgentHarnessOptions",
+  "@b4run/testing#.:ScriptBuilder",
+  "@b4run/testing#.:createAgentHarness",
+  "@b4run/testing#.:fakeEmbedder",
+  "@b4run/testing#.:loadFixtures",
+  "@b4run/testing#.:runCheckpointerConformance",
+  "@b4run/testing#.:runMemoryStoreConformance",
+  "@b4run/testing#.:runPermissionsStoreConformance",
+  "@b4run/testing#.:runThreadsStoreConformance",
+  "@b4run/testing#.:writeFixtures",
+  "@b4run/workspace#./node:LocalExecOptions",
+  "@b4run/workspace#./node:LocalFilesystemOptions",
+  "@b4run/workspace#./node:localExec",
+  "@b4run/workspace#./node:localFilesystem",
+  "@b4run/workspace#.:BackendContext",
+  "@b4run/workspace#.:ExecBackend",
+  "@b4run/workspace#.:FilesystemBackend",
+  "@b4run/workspace#.:SandboxConfig",
+  "@b4run/workspace#.:SandboxHandle",
+  "@b4run/workspace#.:SandboxPolicy",
+  "@b4run/workspace#.:SandboxProvider",
+  "@b4run/workspace#.:SandboxSecurityPolicy",
+  "@b4run/workspace#.:compose",
 ]
 
 function apiArtifactAddress(artifact) {
@@ -1317,30 +1305,30 @@ function apiArtifactAddress(artifact) {
 }
 
 const DEPENDENCY_FREE_API_ADDRESSES = new Set([
-  "import:@dawn-ai/sdk:./pure",
-  "import:@dawn-ai/memory:./browse",
-  "import:@dawn-ai/workspace:.",
-  "import:@dawn-ai/langgraph:.",
-  "import:@dawn-ai/langgraph:./define-entry",
-  "import:@dawn-ai/langgraph:./route-module",
+  "import:@b4run/sdk:./pure",
+  "import:@b4run/memory:./browse",
+  "import:@b4run/workspace:.",
+  "import:@b4run/langgraph:.",
+  "import:@b4run/langgraph:./define-entry",
+  "import:@b4run/langgraph:./route-module",
 ])
 const EDGE_SAFE_API_ADDRESSES = new Set([
-  "import:@dawn-ai/sdk:.",
-  "import:@dawn-ai/sdk:./pure",
-  "import:@dawn-ai/cli:./fetch",
-  "import:@dawn-ai/core:.",
-  "import:@dawn-ai/ag-ui:.",
-  "import:@dawn-ai/ag-ui:./sse",
-  "import:@dawn-ai/memory:./browse",
-  "import:@dawn-ai/memory:./namespace",
-  "import:@dawn-ai/memory:./reconcile",
-  "import:@dawn-ai/postgres-storage:.",
-  "import:@dawn-ai/permissions:.",
-  "import:@dawn-ai/workspace:.",
-  "import:@dawn-ai/langgraph:.",
-  "import:@dawn-ai/langgraph:./define-entry",
-  "import:@dawn-ai/langgraph:./route-module",
-  "import:@dawn-ai/langchain:.",
+  "import:@b4run/sdk:.",
+  "import:@b4run/sdk:./pure",
+  "import:@b4run/cli:./fetch",
+  "import:@b4run/core:.",
+  "import:@b4run/ag-ui:.",
+  "import:@b4run/ag-ui:./sse",
+  "import:@b4run/memory:./browse",
+  "import:@b4run/memory:./namespace",
+  "import:@b4run/memory:./reconcile",
+  "import:@b4run/postgres-storage:.",
+  "import:@b4run/permissions:.",
+  "import:@b4run/workspace:.",
+  "import:@b4run/langgraph:.",
+  "import:@b4run/langgraph:./define-entry",
+  "import:@b4run/langgraph:./route-module",
+  "import:@b4run/langchain:.",
 ])
 
 function expectedApiGuardIds(address) {
@@ -1611,7 +1599,7 @@ async function analyzeDetailedApiReferences() {
   const registeredOwnerPages = [...detailedRegistry.API_REFERENCE_PAGES]
   const ownerByPackage = new Map(
     registeredOwnerPages.flatMap((page) =>
-      page.surfaceName === "dawn:routes"
+      page.surfaceName === "b4:routes"
         ? []
         : page.ownerPackageNames.map((name) => [name, page.href]),
     ),
@@ -1658,11 +1646,11 @@ async function analyzeDetailedApiReferences() {
       },
     ],
   }
-  const { renderDawnTypes } = await tsImport(
+  const { renderB4Types } = await tsImport(
     pathToFileURL(resolve(repoRoot, "packages/core/src/typegen/render-route-types.ts")).href,
     import.meta.url,
   )
-  const generatedDeclarations = renderDawnTypes(
+  const generatedDeclarations = renderB4Types(
     generatedManifest,
     [
       {
@@ -1681,7 +1669,7 @@ async function analyzeDetailedApiReferences() {
       behaviorContracts: detailedRegistry.API_BEHAVIOR_CONTRACTS,
       requiredContractKeys: detailedRegistry.API_REQUIRED_CONTRACT_KEYS,
       files: sourceInventory.files,
-      generatedAuthorities: [{ moduleName: "dawn:routes", declarations: generatedDeclarations }],
+      generatedAuthorities: [{ moduleName: "b4:routes", declarations: generatedDeclarations }],
     },
   ])
   return {
@@ -1707,7 +1695,7 @@ if (process.argv[2] === "--analyze-detailed-api-references") {
 const checks = [
   {
     file: "apps/web/content/docs/api/sandbox.mdx",
-    patterns: ["pnpm add -D vitest", 'from "@dawn-ai/sandbox/testing"'],
+    patterns: ["pnpm add -D vitest", 'from "@b4run/sandbox/testing"'],
   },
   {
     file: "apps/web/content/docs/api/memory.mdx",
@@ -1752,15 +1740,15 @@ const checks = [
   },
   {
     file: "apps/web/content/docs/getting-started.mdx",
-    patterns: ["dawn.config.ts"],
+    patterns: ["b4.config.ts"],
   },
   {
     file: "apps/web/content/docs/cli.mdx",
-    patterns: ["dawn.config.ts", "appDir"],
+    patterns: ["b4.config.ts", "appDir"],
   },
   {
     file: "apps/web/content/docs/ag-ui.mdx",
-    patterns: ["/agui/{routeId}", "@dawn-ai/ag-ui"],
+    patterns: ["/agui/{routeId}", "@b4run/ag-ui"],
   },
 ]
 
@@ -1945,7 +1933,7 @@ const accuracyContracts = [
       "/docs/memory/episodes",
       "/docs/memory/distillation",
       "/docs/memory/browse",
-      'import { defineMemory } from "@dawn-ai/sdk"',
+      'import { defineMemory } from "@b4run/sdk"',
       'kind: "semantic"',
       'scope: ["workspace", "route"]',
       "schema: z.object({",
@@ -1970,7 +1958,7 @@ const accuracyContracts = [
       "same millisecond",
       "seedMemory",
       'import { basename } from "node:path"',
-      'import { serializeNamespace } from "@dawn-ai/memory/namespace"',
+      'import { serializeNamespace } from "@b4run/memory/namespace"',
       'const store = sqliteMemoryStore({ path: ":memory:" })',
       "workspace: basename(appRoot)",
       'route: "/support"',
@@ -2007,7 +1995,7 @@ const accuracyContracts = [
       "Tags are applied after the result limit",
       "Eligible tagged rows below that boundary are omitted",
       "newest token-matching rows before scoring",
-      'import { openaiEmbedder } from "@dawn-ai/langchain"',
+      'import { openaiEmbedder } from "@b4run/langchain"',
       "const embedder = openaiEmbedder()",
       "dimensions: embedder.dims",
       "vector: { embedder }",
@@ -2054,8 +2042,8 @@ const accuracyContracts = [
     required: [
       "# Distillation",
       "Nothing runs automatically",
-      "dawn memory consolidate",
-      "dawn memory reflect",
+      "b4 memory consolidate",
+      "b4 memory reflect",
       "--dry-run",
       "write",
       "link",
@@ -2098,7 +2086,7 @@ const accuracyContracts = [
       "authenticated",
       "authorized",
       "server-derived",
-      "@dawn-ai/memory/browse",
+      "@b4run/memory/browse",
       "node:sqlite",
       "closed whitelist",
       "opaque",
@@ -2120,7 +2108,7 @@ const accuracyContracts = [
     ],
     forbidden: [
       "byte-identical",
-      "Dawn exposes a public memory browse HTTP endpoint",
+      "B4 exposes a public memory browse HTTP endpoint",
       "Content filters have identical Unicode case-folding across SQLite and Postgres",
       "(await request.json()) as BrowseQuery",
       "invalid browse queries return HTTP 500",
@@ -2161,7 +2149,7 @@ const accuracyContracts = [
       "204 confirms only the sequential cleanup calls",
       "app-dedicated database",
       "default `public` schema",
-      "default `dawn` table prefix",
+      "default `b4` table prefix",
       "no application namespace",
       "unique `schema` or `tablePrefix`",
       "hand-composed store wiring",
@@ -2205,10 +2193,10 @@ const accuracyContracts = [
     file: "apps/web/content/docs/embedding.mdx",
     required: [
       "serveRuntime",
-      "@dawn-ai/cli/fetch",
-      "@dawn-ai/cli/runtime",
+      "@b4run/cli/fetch",
+      "@b4run/cli/runtime",
       "lower-level tooling surface",
-      'app.route("/", dawnApp)',
+      'app.route("/", b4App)',
       '"/my-app"',
       "/healthz",
       "/threads",
@@ -2240,15 +2228,15 @@ const accuracyContracts = [
       "seedModelImporter",
       "seedRuntimeEnv",
       "literal provider imports",
-      "generated `.dawn/build/app.mjs`",
+      "generated `.b4/build/app.mjs`",
     ],
     forbidden: [
-      'from "@dawn-ai/cli/runtime"',
+      'from "@b4run/cli/runtime"',
       "app.mount(",
-      'app.route("/dawn"',
+      'app.route("/b4"',
       "const handler = await createRuntimeFetchHandler",
       'mode: "interactive"',
-      'from "@dawn-ai/permissions"',
+      'from "@b4run/permissions"',
       "copyable complete model host",
     ],
   },
@@ -2257,18 +2245,18 @@ const accuracyContracts = [
     required: [
       "## Package and surface index",
       "## Reference conventions",
-      "## @dawn-ai/cli",
-      "### @dawn-ai/cli/fetch",
-      "## @dawn-ai/memory",
-      "### @dawn-ai/memory/browse",
+      "## @b4run/cli",
+      "### @b4run/cli/fetch",
+      "## @b4run/memory",
+      "### @b4run/memory/browse",
     ],
     forbidden: [
-      "@dawn-ai/cli/runtime is the application embedding",
+      "@b4run/cli/runtime is the application embedding",
       "the handler closes injected boot stores",
       "cursor and offset cannot be combined",
       "browse is capped at 1000 rows",
       "BROWSE_MAX_LIMIT is enforced automatically",
-      "@dawn-ai/memory/browse imports node:sqlite",
+      "@b4run/memory/browse imports node:sqlite",
       "subscribe to shutdownController",
       "Supplying both `queryEmbedding` and `embedderId` selects hybrid",
       "an omitted store fails only when an endpoint first uses that missing dependency",
@@ -2426,11 +2414,11 @@ const accuracyContracts = [
     file: "apps/web/content/docs/deployment/node.mdx",
     required: [
       "Node 24",
-      ".dawn/build/server.mjs",
+      ".b4/build/server.mjs",
       "127.0.0.1:8000:8000",
       "does not currently install signal handlers",
       "COPY . .",
-      "chown -R 1000:1000 /app/.dawn",
+      "chown -R 1000:1000 /app/.b4",
       "USER 1000:1000",
       "/app/workspace",
       "root-owned",
@@ -2439,7 +2427,7 @@ const accuracyContracts = [
       "Create `.dockerignore` before",
       ".env.*",
       "**/node_modules",
-      "Keep `.dawn/build`",
+      "Keep `.b4/build`",
       "image layer",
       "does not undo",
     ],
@@ -2450,21 +2438,21 @@ const accuracyContracts = [
     required: [
       "liveness",
       "not dependency readiness",
-      "dawn-sandboxes",
+      "b4-sandboxes",
       "serviceAccount.create=true",
       'serviceAccount.name=""',
       "shared durable stores",
       "thread-aware",
       "No orchestrator RoleBinding is needed",
-      "helm get values dawn-sandbox-infra --all",
+      "helm get values b4-sandbox-infra --all",
       "complete intended subject list",
-      "dawn-sandbox-infra-rbac-values.yaml",
+      "b4-sandbox-infra-rbac-values.yaml",
     ],
     forbidden: [
       "/healthz proves dependency readiness",
       "HPA makes",
       "orchestrator.subjects[0]",
-      "dawn-orchestrator",
+      "b4-orchestrator",
       "serviceAccount.create=false",
     ],
   },
@@ -2481,8 +2469,8 @@ const accuracyContracts = [
       "best-effort",
       "preflight?():",
       "warnings?: readonly string[]",
-      "pnpm add @dawn-ai/sandbox",
-      'import type { SandboxHandle, SandboxPolicy } from "@dawn-ai/sandbox"',
+      "pnpm add @b4run/sandbox",
+      'import type { SandboxHandle, SandboxPolicy } from "@b4run/sandbox"',
       "Provider retention can shorten this lifecycle",
       "sandbox-docker-e2e",
       "/docs/sandbox/kubernetes",
@@ -2493,9 +2481,9 @@ const accuracyContracts = [
     ],
     forbidden: [
       "provider: kubernetesSandbox({",
-      "helm upgrade --install dawn-sandbox-infra",
-      'from "@dawn-ai/workspace"',
-      'import type { SandboxHandle, SandboxPolicy, SandboxProvider } from "@dawn-ai/sandbox"',
+      "helm upgrade --install b4-sandbox-infra",
+      'from "@b4run/workspace"',
+      'import type { SandboxHandle, SandboxPolicy, SandboxProvider } from "@b4run/sandbox"',
       "workspace can survive idle reap, process restart, or compute replacement",
       "gives each Agent Protocol thread an isolated filesystem",
     ],
@@ -2504,7 +2492,7 @@ const accuracyContracts = [
     file: "apps/web/content/docs/sandbox/kubernetes.mdx",
     required: [
       "# Kubernetes Sandbox",
-      'namespace: "dawn-sandboxes"',
+      'namespace: "b4-sandboxes"',
       "ReadWriteOnce",
       "automountServiceAccountToken: false",
       "policy-enforcing CNI",
@@ -2515,7 +2503,7 @@ const accuracyContracts = [
       "node/runtime",
       "every Kubernetes API operation the provider can perform",
       "unconfirmed policy-capable CNI produces a warning",
-      "every unreferenced Dawn PVC",
+      "every unreferenced B4.run PVC",
       "still-live thread",
       "reaper.ttlHours",
       "scheduled reaper run deletes a currently unreferenced PVC",
@@ -2544,8 +2532,8 @@ const accuracyContracts = [
       "Mutually untrusted tenants must not share",
     ],
     forbidden: [
-      "helm install dawn-app",
-      "helm upgrade --install dawn-app",
+      "helm install b4-app",
+      "helm upgrade --install b4-app",
       "readOnlyRootFilesystem: false violates",
       "remains unreferenced longer than `reaper.ttlHours`",
       "Each conversation thread receives one keeper Pod",
@@ -2570,16 +2558,16 @@ const accuracyContracts = [
       "injected `sandboxManager` takes precedence over `config.sandbox`",
       "injected `memoryStore` takes precedence over `config.memory.store`",
       'dockerSandbox({ image: "node:24-slim" })',
-      "pnpm add @dawn-ai/postgres-storage pg",
+      "pnpm add @b4run/postgres-storage pg",
     ],
     forbidden: [
-      "dawn start loads",
+      "b4 start loads",
       "before every CLI command and at runtime startup",
       "every commonly-used key",
       "#### Two entry points",
       "### What this does and does not run on",
       "### Storage shape and known limits",
-      "dawn-sandbox:latest",
+      "b4-sandbox:latest",
     ],
   },
   {
@@ -2600,17 +2588,17 @@ const accuracyContracts = [
       "modules.edge.mjs",
       '"/my-app"',
       "app.route",
-      "DAWN_E1005",
+      "B4_E1005",
       "local workerd",
       "not a live",
       "transitive dependency",
-      "`DAWN_E1005` checks only Dawn-known capabilities",
+      "`B4_E1005` checks only B4.run-known capabilities",
       "arbitrary Node built-ins",
       "not guaranteed to be free of Node built-ins",
       '```js title="host.mjs"',
       "app-dedicated database",
       "default `public` schema",
-      "default `dawn` table prefix",
+      "default `b4` table prefix",
       "no application namespace",
       "unique `schema` or `tablePrefix`",
       "hand-composed request stores",
@@ -2647,11 +2635,11 @@ const accuracyContracts = [
     forbidden: ["short-circuit unauthorized requests"],
   },
   {
-    file: "charts/dawn-app/templates/NOTES.txt",
+    file: "charts/b4-app/templates/NOTES.txt",
     required: [
-      "helm get values dawn-sandbox-infra --all",
+      "helm get values b4-sandbox-infra --all",
       "complete intended subject list",
-      "dawn-sandbox-infra-rbac-values.yaml",
+      "b4-sandbox-infra-rbac-values.yaml",
       "serviceAccount.create=true (default)",
     ],
     forbidden: [
@@ -2661,23 +2649,23 @@ const accuracyContracts = [
     ],
   },
   {
-    file: "charts/dawn-sandbox-infra/README.md",
+    file: "charts/b4-sandbox-infra/README.md",
     required: [
       "complete planned subject list",
-      "helm get values dawn-sandbox-infra --all --output yaml",
+      "helm get values b4-sandbox-infra --all --output yaml",
       "preserve every existing item",
       "Helm replaces arrays",
       "never write a guessed numeric subject index",
-      "--values dawn-sandbox-infra-values.yaml",
-      "--values dawn-sandbox-infra-rbac-values.yaml",
+      "--values b4-sandbox-infra-values.yaml",
+      "--values b4-sandbox-infra-rbac-values.yaml",
     ],
     forbidden: ["orchestrator.subjects[0]"],
   },
   {
-    file: "charts/dawn-app/README.md",
+    file: "charts/b4-app/README.md",
     required: [
       "Scaling requirements",
-      ".dawn/build/server.mjs",
+      ".b4/build/server.mjs",
       "helm lint --strict",
       "returns zero with that warning",
       "helm template",
@@ -2685,19 +2673,19 @@ const accuracyContracts = [
       "Create or merge a secret-safe `.dockerignore` before",
       ".env.*",
       "**/node_modules",
-      ".dawn/*",
-      "!.dawn/build/**",
+      ".b4/*",
+      "!.b4/build/**",
       "COPY . .",
       "image layer",
-      "dawn-app management namespace",
+      "b4-app management namespace",
       "complete intended subject list",
       "preserve every existing",
       "Helm replaces arrays",
-      "helm upgrade --install dawn-sandbox-infra ./charts/dawn-sandbox-infra",
-      "The application runs under an application-owned ServiceAccount in the `dawn-app` management namespace.",
-      "That ServiceAccount is bound as a cross-namespace subject to the `dawn-sandbox-infra` orchestrator Role in `dawn-sandboxes`.",
+      "helm upgrade --install b4-sandbox-infra ./charts/b4-sandbox-infra",
+      "The application runs under an application-owned ServiceAccount in the `b4-app` management namespace.",
+      "That ServiceAccount is bound as a cross-namespace subject to the `b4-sandbox-infra` orchestrator Role in `b4-sandboxes`.",
       "| `serviceAccount.create` | `true` | Creates an application-owned ServiceAccount in the release namespace. |",
-      '| `serviceAccount.name` | `""` | Defaults to the release-scoped chart fullname (`dawn-app` for the canonical release). |',
+      '| `serviceAccount.name` | `""` | Defaults to the release-scoped chart fullname (`b4-app` for the canonical release). |',
     ],
     forbidden: [
       "backend that does not exist yet",
@@ -2707,22 +2695,22 @@ const accuracyContracts = [
       "image built the alternate way",
       "containerize the `langsmith` target",
       "generated Dockerfile copies only the files needed at runtime",
-      "--namespace dawn-sandboxes",
+      "--namespace b4-sandboxes",
       "same namespace",
       "orchestrator.subjects[0]",
-      "via the ServiceAccount +\nnamespace provisioned by the `dawn-sandbox-infra` chart",
-      "dawn-orchestrator",
+      "via the ServiceAccount +\nnamespace provisioned by the `b4-sandbox-infra` chart",
+      "b4-orchestrator",
       "create: false` (chart default)",
     ],
   },
   {
-    file: "charts/dawn-app/Chart.yaml",
+    file: "charts/b4-app/Chart.yaml",
     required: ["application-owned ServiceAccount"],
     forbidden: ["orchestrator ServiceAccount", "langgraphjs dockerfile"],
   },
   {
-    file: "charts/dawn-app/values.yaml",
-    required: [".dawn/build/server.mjs", "https://dawnai.org/docs/sandbox/kubernetes"],
+    file: "charts/b4-app/values.yaml",
+    required: [".b4/build/server.mjs", "https://b4.run/docs/sandbox/kubernetes"],
     forbidden: [
       "apps/web/content/docs/sandbox.mdx",
       "# /docs/sandbox/kubernetes",
@@ -2738,7 +2726,7 @@ const accuracyContracts = [
       "child owns the HTTP listener",
       "default SQLite",
       "parent owns the app root, watcher, session, selected port, and stable URL across restarts",
-      "replacement child reloads the app and `dawn.config.ts`",
+      "replacement child reloads the app and `b4.config.ts`",
       "Configuration edits take effect on that restart",
       "durable stores preserve data",
       "/docs/dev-server/agent-protocol",
@@ -2801,7 +2789,7 @@ const accuracyContracts = [
     required: [
       "POST /agui/{routeId}",
       "%2Fchat%23agent",
-      "@dawn-ai/ag-ui",
+      "@b4run/ag-ui",
       "RunAgentInput.resume",
       "/docs/middleware",
       "/docs/security-architecture",
@@ -2817,7 +2805,7 @@ const accuracyContracts = [
   {
     file: "apps/web/content/prompts/index.ts",
     required: [
-      "dawn start",
+      "b4 start",
       'targets: ["node"]',
       "scenarios(",
       ".server(",
@@ -2832,7 +2820,7 @@ const accuracyContracts = [
       "return { ...parsed, result: parsed.topic }",
     ],
     forbidden: [
-      "Dawn itself is not a production runtime",
+      "B4 itself is not a production runtime",
       "For a \\`workflow\\` or \\`graph\\` route",
       "ctx.tools.<toolName>",
       "topic: z.string(),",
@@ -2841,11 +2829,11 @@ const accuracyContracts = [
   {
     file: "apps/web/app/llms.txt/route.ts",
     required: [
-      "dawn start",
-      "dawn inspect",
+      "b4 start",
+      "b4 inspect",
       "/threads/:thread_id/cancel",
       "fetch and print an integration blueprint",
-      "`dawn add` — list the blueprint catalog",
+      "`b4 add` — list the blueprint catalog",
       "five phases",
       "runtime readiness",
       "middleware-bypassing management routes",
@@ -2890,33 +2878,30 @@ const accuracyContracts = [
   {
     file: "apps/web/app/components/landing/KeepTheRuntime.tsx",
     required: [
-      "Node and Hono targets are Dawn HTTP runtimes",
+      "Node and Hono targets are B4.run HTTP runtimes",
       "LangSmith target emits graph",
       "Agent routes materialize LangGraph graphs",
       "raw graph and chain exports remain portable",
     ],
     forbidden: [
-      "Dawn is not a runtime",
-      "Dawn compiles to LangGraph constructs",
+      "B4 is not a runtime",
+      "B4 compiles to LangGraph constructs",
       "Routes become nodes",
     ],
   },
   {
-    file: "apps/web/app/components/landing/WhyDawn.tsx",
+    file: "apps/web/app/components/landing/WhyB4.tsx",
     required: [
       "Node and Hono HTTP runtimes",
       "raw graph and chain exports stay portable",
       "durable stores",
     ],
-    forbidden: [
-      "Dawn is not a runtime",
-      "persisted state available across child-runtime restarts.",
-    ],
+    forbidden: ["B4 is not a runtime", "persisted state available across child-runtime restarts."],
   },
   {
     file: "apps/web/app/components/landing/FeatureRouting.tsx",
     required: ["Agent routes materialize as LangGraph graphs", "keep their authored entry form"],
-    forbidden: ["Dawn wires it into the graph", "routes compile to plain LangGraph"],
+    forbidden: ["B4 wires it into the graph", "routes compile to plain LangGraph"],
   },
   {
     file: "apps/web/app/components/landing/FeatureDevLoop.tsx",
@@ -2953,8 +2938,8 @@ const accuracyContracts = [
   },
   {
     file: "apps/web/content/blueprints/deploy/docker.md",
-    required: [".dawn/build/server.mjs", "node:24-slim"],
-    forbidden: ["Dawn has no standalone server", "Dawn's default deploy target"],
+    required: [".b4/build/server.mjs", "node:24-slim"],
+    forbidden: ["B4 has no standalone server", "B4's default deploy target"],
   },
   {
     file: "apps/web/app/llms-full.txt/route.ts",
@@ -3004,7 +2989,7 @@ for (const contract of accuracyContracts) {
   }
 }
 
-// Configuration is the public DawnConfig schema reference. Parse property
+// Configuration is the public B4Config schema reference. Parse property
 // signatures through TypeScript's AST rather than indentation/brace regexes:
 // the source interface contains nested literals, unions, callback signatures,
 // comments, and an imported SandboxConfig. The explicit path inventory makes
@@ -3145,7 +3130,7 @@ if (
   )
 }
 
-const expectedDawnConfigSchemaPaths = [
+const expectedB4ConfigSchemaPaths = [
   "appDir",
   "backends",
   "backends.exec",
@@ -3247,18 +3232,18 @@ const expectedDawnConfigSchemaPaths = [
   "toolOutput.ttlMs",
 ].sort()
 
-const dawnConfigSchemaPaths = collectConfigSchemaPaths({
-  expandInterfaces: ["CorsConfig", "DawnConfig", "SandboxConfig", "SandboxSecurityPolicy"],
-  rootInterface: "DawnConfig",
+const b4ConfigSchemaPaths = collectConfigSchemaPaths({
+  expandInterfaces: ["CorsConfig", "B4Config", "SandboxConfig", "SandboxSecurityPolicy"],
+  rootInterface: "B4Config",
   sources: [
     readFileSync(resolve(repoRoot, "packages/core/src/types.ts"), "utf8"),
     readFileSync(resolve(repoRoot, "packages/workspace/src/sandbox-types.ts"), "utf8"),
   ],
 })
 
-if (JSON.stringify(dawnConfigSchemaPaths) !== JSON.stringify(expectedDawnConfigSchemaPaths)) {
+if (JSON.stringify(b4ConfigSchemaPaths) !== JSON.stringify(expectedB4ConfigSchemaPaths)) {
   failures.push(
-    `DawnConfig nested schema path inventory changed: expected ${expectedDawnConfigSchemaPaths.join(", ")}; received ${dawnConfigSchemaPaths.join(", ")}`,
+    `B4Config nested schema path inventory changed: expected ${expectedB4ConfigSchemaPaths.join(", ")}; received ${b4ConfigSchemaPaths.join(", ")}`,
   )
 }
 
@@ -3285,21 +3270,21 @@ const documentedConfigSchemaPaths = collectConfigSchemaPaths({
   sources: [documentedConfigSchemaSource],
 })
 
-if (JSON.stringify(documentedConfigSchemaPaths) !== JSON.stringify(expectedDawnConfigSchemaPaths)) {
+if (JSON.stringify(documentedConfigSchemaPaths) !== JSON.stringify(expectedB4ConfigSchemaPaths)) {
   failures.push(
-    `apps/web/content/docs/configuration.mdx nested schema paths differ from DawnConfig: expected ${expectedDawnConfigSchemaPaths.join(", ")}; received ${documentedConfigSchemaPaths.join(", ")}`,
+    `apps/web/content/docs/configuration.mdx nested schema paths differ from B4Config: expected ${expectedB4ConfigSchemaPaths.join(", ")}; received ${documentedConfigSchemaPaths.join(", ")}`,
   )
 }
 
-for (const field of expectedDawnConfigSchemaPaths.filter((path) => !path.includes("."))) {
+for (const field of expectedB4ConfigSchemaPaths.filter((path) => !path.includes("."))) {
   if (!configurationMdxSource.includes(`### \`${field}\``)) {
     failures.push(
-      `apps/web/content/docs/configuration.mdx is missing DawnConfig field heading: ${field}`,
+      `apps/web/content/docs/configuration.mdx is missing B4Config field heading: ${field}`,
     )
   }
   if (!new RegExp(`(?:^|\\W)${field}\\s*:`).test(completeConfigurationExample)) {
     failures.push(
-      `apps/web/content/docs/configuration.mdx complete example is missing DawnConfig field: ${field}`,
+      `apps/web/content/docs/configuration.mdx complete example is missing B4Config field: ${field}`,
     )
   }
 }
@@ -3315,23 +3300,23 @@ for (const requiredExampleText of [
   }
 }
 
-const appChartValuesSource = readFileSync(resolve(repoRoot, "charts/dawn-app/values.yaml"), "utf8")
+const appChartValuesSource = readFileSync(resolve(repoRoot, "charts/b4-app/values.yaml"), "utf8")
 const appChartValues = parseYaml(appChartValuesSource)
 if (
   appChartValues?.serviceAccount?.create !== true ||
   appChartValues?.serviceAccount?.name !== ""
 ) {
   failures.push(
-    'charts/dawn-app/values.yaml must default serviceAccount.create=true and serviceAccount.name=""',
+    'charts/b4-app/values.yaml must default serviceAccount.create=true and serviceAccount.name=""',
   )
 }
-if (appChartValuesSource.includes("dawn-orchestrator")) {
+if (appChartValuesSource.includes("b4-orchestrator")) {
   failures.push(
-    "charts/dawn-app/values.yaml must not retain the retired dawn-orchestrator ServiceAccount topology",
+    "charts/b4-app/values.yaml must not retain the retired b4-orchestrator ServiceAccount topology",
   )
 }
 const sandboxInfraChartSource = readFileSync(
-  resolve(repoRoot, "charts/dawn-sandbox-infra/Chart.yaml"),
+  resolve(repoRoot, "charts/b4-sandbox-infra/Chart.yaml"),
   "utf8",
 )
 const sandboxInfraChart = parseYaml(sandboxInfraChartSource)
@@ -3352,29 +3337,29 @@ const sandboxInfraChartAtFloor =
   ) >= 0
 if (!sandboxInfraChartAtFloor) {
   failures.push(
-    `charts/dawn-sandbox-infra/Chart.yaml must publish the documentation patch as version 0.1.4 or later; found ${sandboxInfraChart?.version ?? "missing"}`,
+    `charts/b4-sandbox-infra/Chart.yaml must publish the documentation patch as version 0.1.4 or later; found ${sandboxInfraChart?.version ?? "missing"}`,
   )
 }
-const canonicalKubernetesSandboxUrl = "https://dawnai.org/docs/sandbox/kubernetes"
+const canonicalKubernetesSandboxUrl = "https://b4.run/docs/sandbox/kubernetes"
 const canonicalKubernetesSandboxUrlCount =
   appChartValuesSource.split(canonicalKubernetesSandboxUrl).length - 1
 if (canonicalKubernetesSandboxUrlCount !== 1) {
   failures.push(
-    `charts/dawn-app/values.yaml must contain the canonical Kubernetes Sandbox URL exactly once; found ${canonicalKubernetesSandboxUrlCount}`,
+    `charts/b4-app/values.yaml must contain the canonical Kubernetes Sandbox URL exactly once; found ${canonicalKubernetesSandboxUrlCount}`,
   )
 }
 
-// Every dawn-app installation example must select the image that the guide
+// Every b4-app installation example must select the image that the guide
 // built, rather than silently falling back to the chart's AppVersion. Keep the
 // expected command counts exact so a new unpinned example cannot hide beside
 // an older pinned one.
 const helmInstallExampleContracts = [
   { file: "apps/web/content/docs/deployment/kubernetes.mdx", expectedCount: 2 },
   {
-    file: "charts/dawn-app/README.md",
+    file: "charts/b4-app/README.md",
     expectedCount: 2,
     requiredInEveryCommand: [
-      "--namespace dawn-app",
+      "--namespace b4-app",
       "--set image.repository=ghcr.io/you/your-app",
       "--set image.tag=2026-08-10",
     ],
@@ -3384,28 +3369,28 @@ const helmInstallExampleContracts = [
 for (const { file, expectedCount, requiredInEveryCommand = [] } of helmInstallExampleContracts) {
   const source = readFileSync(resolve(repoRoot, file), "utf8")
   const commands = [
-    ...source.matchAll(/^helm (?:install|upgrade --install) dawn-app\b[\s\S]*?(?=\n\n|```)/gm),
+    ...source.matchAll(/^helm (?:install|upgrade --install) b4-app\b[\s\S]*?(?=\n\n|```)/gm),
   ].map((match) => match[0])
   if (commands.length !== expectedCount) {
     failures.push(
-      `${file} contains ${commands.length} dawn-app install examples; expected exactly ${expectedCount}`,
+      `${file} contains ${commands.length} b4-app install examples; expected exactly ${expectedCount}`,
     )
   }
   for (const [index, command] of commands.entries()) {
     if (!/--set image\.(?:tag|digest)=\S+/.test(command)) {
       failures.push(
-        `${file} dawn-app install example ${index + 1} does not pin image.tag or image.digest`,
+        `${file} b4-app install example ${index + 1} does not pin image.tag or image.digest`,
       )
     }
     for (const required of requiredInEveryCommand) {
       if (!command.includes(required)) {
-        failures.push(`${file} dawn-app install example ${index + 1} is missing: ${required}`)
+        failures.push(`${file} b4-app install example ${index + 1} is missing: ${required}`)
       }
     }
   }
 }
 
-const chartReadmeSource = readFileSync(resolve(repoRoot, "charts/dawn-app/README.md"), "utf8")
+const chartReadmeSource = readFileSync(resolve(repoRoot, "charts/b4-app/README.md"), "utf8")
 for (const required of [
   "Create or merge a secret-safe `.dockerignore` before",
   ".env.*",
@@ -3413,20 +3398,18 @@ for (const required of [
   "**/node_modules",
   "coverage",
   ".next",
-  ".dawn/*",
-  "!.dawn/build/**",
+  ".b4/*",
+  "!.b4/build/**",
   "COPY . .",
   "image layer",
-  "dawn check",
-  "dawn build",
+  "b4 check",
+  "b4 build",
   "docker build -t ghcr.io/you/your-app:2026-08-10 .",
   "docker push ghcr.io/you/your-app:2026-08-10",
-  "helm upgrade --install dawn-sandbox-infra",
+  "helm upgrade --install b4-sandbox-infra",
 ]) {
   if (!chartReadmeSource.includes(required)) {
-    failures.push(
-      `charts/dawn-app/README.md copy-complete install prerequisite missing: ${required}`,
-    )
+    failures.push(`charts/b4-app/README.md copy-complete install prerequisite missing: ${required}`)
   }
 }
 const chartReadmeDockerignore = chartReadmeSource.indexOf(
@@ -3437,11 +3420,11 @@ const chartReadmeDockerBuild = chartReadmeSource.indexOf(
 )
 if (chartReadmeDockerignore === -1 || chartReadmeDockerignore > chartReadmeDockerBuild) {
   failures.push(
-    "charts/dawn-app/README.md must require its secret-safe .dockerignore before docker build",
+    "charts/b4-app/README.md must require its secret-safe .dockerignore before docker build",
   )
 }
 if (chartReadmeSource.includes("--set image.tag=latest")) {
-  failures.push("charts/dawn-app/README.md install examples must not use mutable image.tag=latest")
+  failures.push("charts/b4-app/README.md install examples must not use mutable image.tag=latest")
 }
 
 const kubernetesDeploymentSource = readFileSync(
@@ -3451,19 +3434,19 @@ const kubernetesDeploymentSource = readFileSync(
 const canonicalAppSubjectValues = `orchestrator:
   subjects:
     - kind: ServiceAccount
-      name: dawn-app
-      namespace: dawn-app`
+      name: b4-app
+      namespace: b4-app`
 const infrastructureChartReadmeSource = readFileSync(
-  resolve(repoRoot, "charts/dawn-sandbox-infra/README.md"),
+  resolve(repoRoot, "charts/b4-sandbox-infra/README.md"),
   "utf8",
 )
 const appChartNotesSource = readFileSync(
-  resolve(repoRoot, "charts/dawn-app/templates/NOTES.txt"),
+  resolve(repoRoot, "charts/b4-app/templates/NOTES.txt"),
   "utf8",
 )
 const rbacOnlyUpgradeContracts = [
   {
-    file: "charts/dawn-sandbox-infra/README.md",
+    file: "charts/b4-sandbox-infra/README.md",
     source: infrastructureChartReadmeSource,
   },
   {
@@ -3471,20 +3454,20 @@ const rbacOnlyUpgradeContracts = [
     source: kubernetesDeploymentSource,
   },
   {
-    file: "charts/dawn-app/templates/NOTES.txt",
+    file: "charts/b4-app/templates/NOTES.txt",
     source: appChartNotesSource,
   },
 ]
 const installedInfrastructureChartVersionGuard = `test -n "$INFRA_CHART_VERSION" || { printf '%s\\n' "unable to determine installed infrastructure chart version" >&2; exit 1; }`
 for (const { file, source } of rbacOnlyUpgradeContracts) {
-  const captureIndex = source.indexOf('INFRA_CHART_VERSION="$(helm get metadata dawn-sandbox-infra')
+  const captureIndex = source.indexOf('INFRA_CHART_VERSION="$(helm get metadata b4-sandbox-infra')
   const guardIndex = source.indexOf(installedInfrastructureChartVersionGuard, captureIndex)
   const upgrades = [
-    ...source.matchAll(/^\s*helm upgrade dawn-sandbox-infra\b(?:[^\n]*\\\n)*[^\n]*/gm),
+    ...source.matchAll(/^\s*helm upgrade b4-sandbox-infra\b(?:[^\n]*\\\n)*[^\n]*/gm),
   ]
   const rbacUpgrades = upgrades
     .map((match) => ({ index: match.index, command: match[0].replaceAll(/\\\s*\n\s*/g, " ") }))
-    .filter(({ command }) => command.includes("--values dawn-sandbox-infra-rbac-values.yaml"))
+    .filter(({ command }) => command.includes("--values b4-sandbox-infra-rbac-values.yaml"))
 
   if (captureIndex === -1 || !source.includes(`awk '$1 == "VERSION:" { print $2 }')"`)) {
     failures.push(`${file} must capture the installed infrastructure chart VERSION table row`)
@@ -3513,7 +3496,7 @@ for (const { file, source } of rbacOnlyUpgradeContracts) {
     failures.push(`${file} must guard INFRA_CHART_VERSION before the RBAC-only upgrade`)
   }
 }
-const standaloneValuesMarker = "For a fresh release, prepare `dawn-sandbox-infra-values.yaml`"
+const standaloneValuesMarker = "For a fresh release, prepare `b4-sandbox-infra-values.yaml`"
 const standaloneValuesSource = infrastructureChartReadmeSource.slice(
   infrastructureChartReadmeSource.indexOf(standaloneValuesMarker),
 )
@@ -3522,40 +3505,40 @@ const standaloneSubjectValues = /```yaml[^\n]*\n([\s\S]*?)```/
   .trim()
 if (standaloneSubjectValues !== canonicalAppSubjectValues) {
   failures.push(
-    "charts/dawn-sandbox-infra/README.md fresh-release values must bind ServiceAccount dawn-app from namespace dawn-app",
+    "charts/b4-sandbox-infra/README.md fresh-release values must bind ServiceAccount b4-app from namespace b4-app",
   )
 }
-const initialSubjectValuesFence = `\`\`\`yaml title="dawn-sandbox-infra-values.yaml"
+const initialSubjectValuesFence = `\`\`\`yaml title="b4-sandbox-infra-values.yaml"
 ${canonicalAppSubjectValues}
 \`\`\``
-const existingSubjectValuesFence = `\`\`\`yaml title="dawn-sandbox-infra-rbac-values.yaml"
+const existingSubjectValuesFence = `\`\`\`yaml title="b4-sandbox-infra-rbac-values.yaml"
 ${canonicalAppSubjectValues}
 \`\`\``
 const initialSubjectValues = kubernetesDeploymentSource.indexOf(initialSubjectValuesFence)
 const initialInfrastructureInstall = kubernetesDeploymentSource.indexOf(
-  "helm upgrade --install dawn-sandbox-infra",
+  "helm upgrade --install b4-sandbox-infra",
 )
 const initialSandboxAppInstall = kubernetesDeploymentSource.indexOf(
-  "helm install dawn-app oci://ghcr.io/cacheplane/charts/dawn-app",
+  "helm install b4-app oci://ghcr.io/cacheplane/charts/b4-app",
 )
 const initialInfrastructureCommand = [
   ...kubernetesDeploymentSource.matchAll(
-    /^helm upgrade --install dawn-sandbox-infra\b[\s\S]*?(?=\n\n|```)/gm,
+    /^helm upgrade --install b4-sandbox-infra\b[\s\S]*?(?=\n\n|```)/gm,
   ),
 ][0]?.[0]
 if (initialSubjectValues === -1) {
   failures.push(
-    "apps/web/content/docs/deployment/kubernetes.mdx must define the exact dawn-app ServiceAccount subject before installation",
+    "apps/web/content/docs/deployment/kubernetes.mdx must define the exact b4-app ServiceAccount subject before installation",
   )
 }
 if (!kubernetesDeploymentSource.includes(existingSubjectValuesFence)) {
   failures.push(
-    "apps/web/content/docs/deployment/kubernetes.mdx existing-release values must bind ServiceAccount dawn-app from namespace dawn-app",
+    "apps/web/content/docs/deployment/kubernetes.mdx existing-release values must bind ServiceAccount b4-app from namespace b4-app",
   )
 }
-if (!initialInfrastructureCommand?.includes("--values dawn-sandbox-infra-values.yaml")) {
+if (!initialInfrastructureCommand?.includes("--values b4-sandbox-infra-values.yaml")) {
   failures.push(
-    "apps/web/content/docs/deployment/kubernetes.mdx initial infrastructure install must apply dawn-sandbox-infra-values.yaml",
+    "apps/web/content/docs/deployment/kubernetes.mdx initial infrastructure install must apply b4-sandbox-infra-values.yaml",
   )
 }
 if (initialInfrastructureInstall === -1 || initialSandboxAppInstall === -1) {
@@ -3572,10 +3555,10 @@ if (initialInfrastructureInstall === -1 || initialSandboxAppInstall === -1) {
   )
 }
 const effectiveValuesExport = kubernetesDeploymentSource.indexOf(
-  "helm get values dawn-sandbox-infra --all",
+  "helm get values b4-sandbox-infra --all",
 )
 const crossNamespaceRoleBinding = kubernetesDeploymentSource.indexOf(
-  "helm upgrade dawn-sandbox-infra oci://ghcr.io/cacheplane/charts/dawn-sandbox-infra",
+  "helm upgrade b4-sandbox-infra oci://ghcr.io/cacheplane/charts/b4-sandbox-infra",
   effectiveValuesExport,
 )
 if (effectiveValuesExport === -1 || crossNamespaceRoleBinding === -1) {
@@ -3596,7 +3579,7 @@ for (const required of ["future ServiceAccount", "Ready-but-sandbox-broken"]) {
 }
 const noSandboxInstall = [
   ...kubernetesDeploymentSource.matchAll(
-    /^helm (?:install|upgrade --install) dawn-app\b[\s\S]*?(?=\n\n|```)/gm,
+    /^helm (?:install|upgrade --install) b4-app\b[\s\S]*?(?=\n\n|```)/gm,
   ),
 ]
   .map((match) => match[0])
@@ -3604,12 +3587,12 @@ const noSandboxInstall = [
 
 if (!noSandboxInstall) {
   failures.push(
-    "apps/web/content/docs/deployment/kubernetes.mdx is missing a complete no-sandbox dawn-app install with automountServiceAccountToken=false",
+    "apps/web/content/docs/deployment/kubernetes.mdx is missing a complete no-sandbox b4-app install with automountServiceAccountToken=false",
   )
 } else {
   for (const required of [
     "--namespace my-app",
-    "--set image.repository=ghcr.io/you/my-dawn-app",
+    "--set image.repository=ghcr.io/you/my-b4-app",
     "--set image.tag=2026-08-10",
   ]) {
     if (!noSandboxInstall.includes(required)) {
@@ -3725,7 +3708,7 @@ const compatibilityStubContracts = [
   },
   {
     file: "apps/web/content/docs/deployment.mdx",
-    retainedHeading: "The `@dawn-ai/cli/fetch` entry point",
+    retainedHeading: "The `@b4run/cli/fetch` entry point",
     canonicalHref: "/docs/deployment/edge",
   },
   {
@@ -3815,7 +3798,7 @@ const compatibilityStubContracts = [
   },
   {
     file: "apps/web/content/docs/sandbox.mdx",
-    retainedHeading: "Deploying a Dawn app (Helm)",
+    retainedHeading: "Deploying a B4.run app (Helm)",
     canonicalHref: "/docs/sandbox/kubernetes",
   },
   {
@@ -3931,14 +3914,14 @@ const movedDeepLinkContracts = [
   ]),
   ...movedDeepLinks("/docs/deployment", "/docs/deployment/edge", [
     "edge-runtimes",
-    "the-dawn-aiclifetch-entry-point",
+    "the-b4runclifetch-entry-point",
     "the-hono-build-target",
     "why-the-stores-are-per-request",
     "what-the-edge-cannot-serve",
     "what-is-proven-and-what-is-not",
   ]),
   ...movedDeepLinks("/docs/deployment", "/docs/deployment", [
-    "what-dawn-does-not-do",
+    "what-b4-does-not-do",
     "troubleshooting",
     "related",
   ]),
@@ -3949,7 +3932,7 @@ const movedDeepLinkContracts = [
     "network-policy-on-kubernetes",
     "deploying-the-sandbox-infrastructure-helm",
     "key-caveats",
-    "deploying-a-dawn-app-helm",
+    "deploying-a-b4-app-helm",
     "serviceaccount-and-namespace-wiring",
     "env-secrets-and-replicas",
   ]),
@@ -3994,7 +3977,7 @@ function normalizeMaintainedDocsDestination(destination) {
     const url = new URL(destination)
     if (
       url.protocol === "https:" &&
-      url.hostname === "dawnai.org" &&
+      url.hostname === "b4.run" &&
       (url.pathname === "/docs" || url.pathname.startsWith("/docs/"))
     ) {
       return `${url.pathname}${url.hash}`
@@ -4027,7 +4010,7 @@ const canonicalOwnerContracts = [
   })),
   {
     file: "apps/web/content/docs/cli.mdx",
-    heading: "dawn dev",
+    heading: "b4 dev",
     required: ["/docs/dev-server/agent-protocol"],
   },
   {
@@ -4042,10 +4025,10 @@ const canonicalOwnerContracts = [
   },
   {
     file: "packages/ag-ui/README.md",
-    heading: "@dawn-ai/ag-ui",
+    heading: "@b4run/ag-ui",
     required: ["/docs/ag-ui", "/docs/dev-server/agent-protocol"],
   },
-  ...["dawn memory", "dawn inspect"].map((heading) => ({
+  ...["b4 memory", "b4 inspect"].map((heading) => ({
     file: "apps/web/content/docs/cli.mdx",
     heading,
     required: ["/docs/memory/browse"],
@@ -4067,7 +4050,7 @@ const canonicalOwnerContracts = [
   },
   {
     file: "packages/memory-pgvector/README.md",
-    heading: "@dawn-ai/memory-pgvector",
+    heading: "@b4run/memory-pgvector",
     required: ["/docs/memory/retrieval"],
   },
   {
@@ -4092,7 +4075,7 @@ const canonicalOwnerContracts = [
   },
   {
     file: "packages/evals/README.md",
-    heading: "@dawn-ai/evals",
+    heading: "@b4run/evals",
     required: ["/docs/testing-agents/fixtures"],
   },
   {
@@ -4102,7 +4085,7 @@ const canonicalOwnerContracts = [
   },
   {
     file: "apps/web/content/docs/api.mdx",
-    heading: "@dawn-ai/testing",
+    heading: "@b4run/testing",
     required: ["/docs/testing-agents/fixtures"],
   },
   {
@@ -4169,8 +4152,8 @@ const targetBearingCtaFiles = [
   "apps/web/app/components/landing/Quickstart.tsx",
   "apps/web/app/opengraph-image.tsx",
 ]
-const canonicalScaffoldCommand = "npm create dawn-ai-app@latest my-agent"
-const targetlessScaffoldCommand = /\b(?:npm|pnpm) create dawn-ai-app(?!@latest my-agent)\b/
+const canonicalScaffoldCommand = "npm create b4-app@latest my-agent"
+const targetlessScaffoldCommand = /\b(?:npm|pnpm) create b4-app(?!@latest my-agent)\b/
 
 for (const file of targetBearingCtaFiles) {
   const source = readFileSync(resolve(repoRoot, file), "utf8")
@@ -4523,18 +4506,18 @@ if (apiReferenceRegistry) {
 
   const referenceDestinationByPackage = new Map(
     API_REFERENCE_PAGES.flatMap((page) =>
-      page.surfaceName === "dawn:routes"
+      page.surfaceName === "b4:routes"
         ? []
         : page.ownerPackageNames.map((packageName) => [packageName, page.href]),
     ),
   )
   const catalogDestinations = new Map([
-    ["@dawn-ai/config-biome", "/docs/api#dawn-aiconfig-biome"],
-    ["@dawn-ai/config-typescript", "/docs/api#dawn-aiconfig-typescript"],
-    ["@dawn-ai/devkit", "/docs/api#dawn-aidevkit"],
-    ["@dawn-ai/inspector", "/docs/api#dawn-aiinspector"],
-    ["@dawn-ai/vite-plugin", "/docs/api#dawn-aivite-plugin"],
-    ["create-dawn-ai-app", "/docs/api#create-dawn-ai-app"],
+    ["@b4run/config-biome", "/docs/api#b4runconfig-biome"],
+    ["@b4run/config-typescript", "/docs/api#b4runconfig-typescript"],
+    ["@b4run/devkit", "/docs/api#b4rundevkit"],
+    ["@b4run/inspector", "/docs/api#b4runinspector"],
+    ["@b4run/vite-plugin", "/docs/api#b4runvite-plugin"],
+    ["create-b4-app", "/docs/api#create-b4-app"],
   ])
   for (const entry of PACKAGE_CATALOG) {
     const expectedDestination =
@@ -4588,7 +4571,7 @@ if (apiReferenceRegistry) {
     const boundaries = entry.artifactAddresses
       .map((address) => apiReferenceRegistry.artifactBoundaryFor(artifactByAddress.get(address)))
       .join("<br />")
-    return `| ${explicitAnchor}\`${entry.packageName}\` | ${entry.purpose} | \`${entry.audience}\` | \`${entry.stability}\` | ${artifacts} | ${boundaries} | [README](https://github.com/cacheplane/dawnai/blob/main/${entry.readmePath}) | [Reference](${entry.canonicalReferenceDestination}) | [Guide](${entry.conceptualGuideDestination}) |`
+    return `| ${explicitAnchor}\`${entry.packageName}\` | ${entry.purpose} | \`${entry.audience}\` | \`${entry.stability}\` | ${artifacts} | ${boundaries} | [README](https://github.com/cacheplane/b4run/blob/main/${entry.readmePath}) | [Reference](${entry.canonicalReferenceDestination}) | [Guide](${entry.conceptualGuideDestination}) |`
   })
   const catalogSource = catalogRange ? apiHubSource.slice(catalogRange.start, catalogRange.end) : ""
   const catalogLines = catalogSource.split(/\r?\n/)
@@ -4642,13 +4625,13 @@ if (apiReferenceRegistry) {
       "apps/web/content/docs/api.mdx package catalog must not contain active MDX components, declarations, or expressions beyond registered anchors and table line breaks",
     )
   }
-  const expectedGeneratedBoundary = `Generated surface: \`dawn:routes\` — ${apiReferenceRegistry.artifactBoundaryFor(apiReferenceRegistry.GENERATED_ROUTES_ARTIFACT)}.`
+  const expectedGeneratedBoundary = `Generated surface: \`b4:routes\` — ${apiReferenceRegistry.artifactBoundaryFor(apiReferenceRegistry.GENERATED_ROUTES_ARTIFACT)}.`
   if (
     catalogLines.filter((line) => line === expectedGeneratedBoundary).length !== 1 ||
     maskedCatalogSource.includes("Generated surface:") !== true
   ) {
     failures.push(
-      "apps/web/content/docs/api.mdx must visibly render the exact generated dawn:routes boundary",
+      "apps/web/content/docs/api.mdx must visibly render the exact generated b4:routes boundary",
     )
   }
   const applicationShortcutDestinations = [
@@ -4684,8 +4667,8 @@ if (apiReferenceRegistry) {
     const readme = readFileSync(resolve(repoRoot, entry.readmePath), "utf8")
     const readmeDestinations = linkDestinations(readme)
     for (const required of [
-      `https://dawnai.org${entry.canonicalReferenceDestination}`,
-      `https://dawnai.org${entry.conceptualGuideDestination}`,
+      `https://b4.run${entry.canonicalReferenceDestination}`,
+      `https://b4.run${entry.conceptualGuideDestination}`,
     ]) {
       if (!readmeDestinations.includes(required)) {
         failures.push(
@@ -4744,8 +4727,8 @@ if (apiReferenceRegistry) {
     const readme = readFileSync(resolve(repoRoot, entry.readmePath), "utf8")
     const destinations = linkDestinations(readme)
     for (const required of [
-      `https://dawnai.org${destination}`,
-      `https://dawnai.org${entry.conceptualGuideDestination}`,
+      `https://b4.run${destination}`,
+      `https://b4.run${entry.conceptualGuideDestination}`,
     ]) {
       if (!destinations.includes(required)) {
         failures.push(
@@ -4927,8 +4910,8 @@ const docsBundle = await import(docsBundleUrl).catch((error) => {
   return null
 })
 
-if (sdkEntry?.DAWN_ERRORS && docsBundle?.loadDocsPages) {
-  const registry = sdkEntry.DAWN_ERRORS
+if (sdkEntry?.B4_ERRORS && docsBundle?.loadDocsPages) {
+  const registry = sdkEntry.B4_ERRORS
   const codes = Object.keys(registry)
   const navSlugs = new Set(
     (await docsBundle.loadDocsPages(resolve(repoRoot, "apps/web/app/components/docs/nav.ts"))).map(
@@ -4944,14 +4927,14 @@ if (sdkEntry?.DAWN_ERRORS && docsBundle?.loadDocsPages) {
     const slug = docsPath.replace(/^\/docs\//, "").replace(/#.*$/, "")
     if (!navSlugs.has(slug)) {
       failures.push(
-        `DAWN_ERRORS.${code} docsPath ${docsPath} points at /docs/${slug}, which is not a known docs page`,
+        `B4_ERRORS.${code} docsPath ${docsPath} points at /docs/${slug}, which is not a known docs page`,
       )
     }
   }
 
   const errorsMdxPath = resolve(repoRoot, "apps/web/content/docs/errors.mdx")
   const errorsMdx = readFileSync(errorsMdxPath, "utf8")
-  const listed = new Set([...errorsMdx.matchAll(/DAWN_E\d{4}/g)].map((m) => m[0]))
+  const listed = new Set([...errorsMdx.matchAll(/B4_E\d{4}/g)].map((m) => m[0]))
   const missing = codes.filter((code) => !listed.has(code))
   const extra = [...listed].filter((code) => !codes.includes(code))
   if (missing.length > 0) {
@@ -4966,7 +4949,7 @@ if (sdkEntry?.DAWN_ERRORS && docsBundle?.loadDocsPages) {
   }
 }
 
-// gpt-5-family example check — Dawn's docs convention is that OpenAI examples
+// gpt-5-family example check — B4's docs convention is that OpenAI examples
 // use only the gpt-5 family (canonical default gpt-5-mini); legacy OpenAI ids
 // (gpt-4*, gpt-3*, o1*) must not appear as an example `model:` value. This is
 // intentionally narrow: it only matches an OpenAI legacy id used as a
@@ -5020,10 +5003,8 @@ if (cliEntry?.createProgram) {
       continue
     }
 
-    if (!cliMdx.includes(`dawn ${name}`)) {
-      failures.push(
-        `apps/web/content/docs/cli.mdx is missing reference to command \`dawn ${name}\``,
-      )
+    if (!cliMdx.includes(`b4 ${name}`)) {
+      failures.push(`apps/web/content/docs/cli.mdx is missing reference to command \`b4 ${name}\``)
     }
 
     for (const option of command.options) {
@@ -5033,7 +5014,7 @@ if (cliEntry?.createProgram) {
       }
       if (!cliMdx.includes(flag)) {
         failures.push(
-          `apps/web/content/docs/cli.mdx is missing reference to \`${flag}\` (option of \`dawn ${name}\`)`,
+          `apps/web/content/docs/cli.mdx is missing reference to \`${flag}\` (option of \`b4 ${name}\`)`,
         )
       }
     }
@@ -5048,20 +5029,20 @@ const frozenApiHeadingIds = [
   "api-reference",
   "package-and-surface-index",
   "reference-conventions",
-  "dawn-aisdk",
+  "b4runsdk",
   "agent",
   "agentconfig",
   "agentconfig-1",
   "reasoningconfig",
   "retryconfig",
-  "dawnagent",
+  "b4agent",
   "subagent-delegation-types",
-  "isdawnagentvalue",
+  "isb4agentvalue",
   "middleware",
   "definemiddlewarefn",
   "allowcontext",
   "rejectstatus-body",
-  "dawnmiddleware",
+  "b4middleware",
   "middlewarerequest",
   "middlewareresult",
   "continueresult",
@@ -5080,7 +5061,7 @@ const frozenApiHeadingIds = [
   "runtimecontexttools",
   "runtimetool",
   "toolregistry",
-  "dawntoolcontext",
+  "b4toolcontext",
   "workspacefs",
   "models",
   "knownmodelid",
@@ -5098,61 +5079,61 @@ const frozenApiHeadingIds = [
   "backendadapter",
   "utilities",
   "prettifyt",
-  "dawn-aicli",
+  "b4runcli",
   "serveruntimeoptions",
   "loadstaticmodulesmanifesturl",
-  "dawnstaticmodules-and-staticroutemodule",
-  "dawn-aiclifetch",
-  "dawn-aicliruntime",
-  "dawn-aicore",
+  "b4staticmodules-and-staticroutemodule",
+  "b4runclifetch",
+  "b4runcliruntime",
+  "b4runcore",
   "capability-exports",
   "createcapabilityregistrymarkers-and-applycapabilities",
   "gatetoolop-and-wraptoolwithapproval",
   "createworkspacefsoptions",
-  "loaddawnconfigoptions-and-configvalue",
-  "discoverroutesoptions-finddawnappoptions-and-route-segments",
+  "loadb4configoptions-and-configvalue",
+  "discoverroutesoptions-findb4appoptions-and-route-segments",
   "state-and-typegen-helpers",
   "tool-scope",
   "storage-type-re-export",
-  "dawn-aiag-ui",
+  "b4runag-ui",
   "id-factories",
   "toaguieventschunks-context",
   "fromrunagentinputinput",
   "sse-subpath-encodeaguisseevent-accept",
-  "dawn-aimemory",
+  "b4runmemory",
   "memorystore",
   "memoryrecord",
   "memoryquery",
   "browsequery-browsepage-and-memorystats",
-  "dawn-aimemorybrowse",
-  "dawn-aimemory-pgvector",
+  "b4runmemorybrowse",
+  "b4runmemory-pgvector",
   "pgvectormemorystoreoptions",
   "pgvectormemorystore",
   "vectorcolumndefdimensions",
   "initschemaclient-options",
   "assertidentifiername-value",
-  "dawn-aipostgres-storage",
+  "b4runpostgres-storage",
   "postgresstoreoptions",
-  "dawn-aipostgres-storagenode",
+  "b4runpostgres-storagenode",
   "postgrescheckpointeroptions",
   "createpostgresthreadsstoreoptions",
   "createpostgrespermissionsstoreoptions",
   "assertidentifiername-value-1",
   "default_schema--default_table_prefix",
-  "dawn-aitesting",
+  "b4runtesting",
   "harnesses",
   "aimock-fixtures-and-recording",
   "matchers",
   "run-result-utilities",
   "memory-protocol-and-subprocess-helpers",
   "example",
-  "dawn-aievals",
+  "b4runevals",
   "eval-definition-and-execution",
   "scores-and-gates",
   "built-in-scorers",
   "memory-scorers",
   "example-1",
-  "dawnroutes-generated",
+  "b4routes-generated",
   "routetoolsp",
   "routestatep",
   "where-to-read-more",
@@ -5165,15 +5146,15 @@ if (JSON.stringify(apiHeadingIds) !== JSON.stringify(frozenApiHeadingIds)) {
   )
 }
 const requiredApiPackageHeadings = [
-  "@dawn-ai/sdk",
-  "@dawn-ai/cli",
-  "@dawn-ai/core",
-  "@dawn-ai/ag-ui",
-  "@dawn-ai/memory",
-  "@dawn-ai/memory-pgvector",
-  "@dawn-ai/postgres-storage",
-  "@dawn-ai/testing",
-  "@dawn-ai/evals",
+  "@b4run/sdk",
+  "@b4run/cli",
+  "@b4run/core",
+  "@b4run/ag-ui",
+  "@b4run/memory",
+  "@b4run/memory-pgvector",
+  "@b4run/postgres-storage",
+  "@b4run/testing",
+  "@b4run/evals",
 ]
 for (const packageName of requiredApiPackageHeadings) {
   if (!apiMdx.split(/\r?\n/).includes(`## ${packageName}`)) {
@@ -5192,7 +5173,7 @@ for (const manifestPath of packageManifests()) {
   }
 
   const readme = readFileSync(readmePath, "utf8")
-  if (typeof manifest.name === "string" && manifest.name.startsWith("@dawn-ai/")) {
+  if (typeof manifest.name === "string" && manifest.name.startsWith("@b4run/")) {
     const sourceIndex = join(packageDir, "src", "index.ts")
     if (existsSync(sourceIndex)) {
       const source = readFileSync(sourceIndex, "utf8")
@@ -5223,7 +5204,7 @@ const agUiDocs = readFileSync(resolve(repoRoot, "apps/web/content/docs/ag-ui.mdx
 for (const required of [
   "POST /agui/{routeId}",
   "%2Fchat%23agent",
-  "@dawn-ai/ag-ui",
+  "@b4run/ag-ui",
   "RunAgentInput.resume",
 ]) {
   if (!agUiDocs.includes(required)) {
@@ -5244,15 +5225,15 @@ for (const endpoint of [
   }
 }
 
-// Chart docs drift check — chart appVersion should track the current Dawn
+// Chart docs drift check — chart appVersion should track the current B4
 // package train unless a chart intentionally documents otherwise.
 const cliPackage = JSON.parse(readFileSync(resolve(repoRoot, "packages/cli/package.json"), "utf8"))
-for (const chartYaml of ["charts/dawn-app/Chart.yaml", "charts/dawn-sandbox-infra/Chart.yaml"]) {
+for (const chartYaml of ["charts/b4-app/Chart.yaml", "charts/b4-sandbox-infra/Chart.yaml"]) {
   const source = readFileSync(resolve(repoRoot, chartYaml), "utf8")
   const match = source.match(/^appVersion:\s*["']?([^"'\n]+)["']?$/m)
   if (match?.[1] !== cliPackage.version) {
     failures.push(
-      `${chartYaml} appVersion (${match?.[1] ?? "missing"}) does not match @dawn-ai/cli ${cliPackage.version}`,
+      `${chartYaml} appVersion (${match?.[1] ?? "missing"}) does not match @b4run/cli ${cliPackage.version}`,
     )
   }
 }
@@ -5276,12 +5257,12 @@ const userFacingRoots = [
 
 const forbiddenContent = [
   {
-    pattern: /dawn-ai\.org/,
-    message: "uses the retired dawn-ai.org domain",
+    pattern: /(?:dawn-ai|dawnai)\.org/,
+    message: "uses a retired Dawn domain",
   },
   {
     pattern:
-      /dawn run ['"](?:\/hello\/acme|hello\/\[tenant\]|\/support\/acme|\/support\/\[tenant\]\/research)['"]/,
+      /b4 run ['"](?:\/hello\/acme|hello\/\[tenant\]|\/support\/acme|\/support\/\[tenant\]\/research)['"]/,
     message: "uses a concrete dynamic route instead of the parameterized route id with JSON input",
   },
   {
@@ -5293,25 +5274,25 @@ const forbiddenContent = [
     message: "uses a route_path value that is not the source entry file path",
   },
   {
-    pattern: /(^|[^/.])dawn\.generated\.d\.ts/,
-    message: "references dawn.generated.d.ts without the .dawn/ directory",
+    pattern: /(^|[^/.])b4\.generated\.d\.ts/,
+    message: "references b4.generated.d.ts without the .b4/ directory",
     shouldCheck: (filePath) => /\.(md|mdx|tape)$/.test(filePath),
   },
   {
-    pattern: /dawn test --url/,
-    message: "uses the removed command-level dawn test --url flag",
+    pattern: /b4 test --url/,
+    message: "uses the removed command-level b4 test --url flag",
   },
   {
     pattern: /agent\.bindTools/,
     message: "describes generated agent entries with the old bindTools path",
   },
   {
-    pattern: /\.dawn\/generated/,
+    pattern: /\.b4\/generated/,
     message: "references the old generated types directory",
   },
   {
     pattern: /openai:gpt/,
-    message: "uses provider-prefixed OpenAI model ids in Dawn agent examples",
+    message: "uses provider-prefixed OpenAI model ids in B4 agent examples",
   },
   {
     pattern:
@@ -5324,7 +5305,7 @@ const forbiddenContent = [
   },
   {
     pattern: /pgvector is a planned follow-up backend/,
-    message: "describes pgvector as planned even though @dawn-ai/memory-pgvector ships",
+    message: "describes pgvector as planned even though @b4run/memory-pgvector ships",
     shouldCheck: (filePath) => !/CHANGELOG\.md$/.test(filePath),
   },
 ]
@@ -5339,7 +5320,8 @@ for (const root of userFacingRoots) {
       (file) =>
         /\.(md|mdx|ts|tsx|mjs|js|json|tape)$/.test(file) &&
         !file.includes("/docs/superpowers/") &&
-        !file.includes("/packages/create-dawn-app/dist/"),
+        !file.endsWith("/CHANGELOG.md") &&
+        !file.includes("/packages/create-b4-app/dist/"),
       userFacingFiles,
     )
   } else {

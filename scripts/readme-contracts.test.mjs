@@ -11,17 +11,17 @@ import {
 } from "./lib/readme-contracts.mjs"
 
 const entryManifest = {
-  name: "@dawn-ai/sdk",
+  name: "@b4run/sdk",
   private: false,
-  description: "Author-facing TypeScript SDK for defining Dawn agents.",
-  keywords: ["dawn", "typescript", "langgraph"],
+  description: "Author-facing TypeScript SDK for defining B4.run agents.",
+  keywords: ["b4", "typescript", "langgraph"],
 }
 
-const entryReadme = `# @dawn-ai/sdk
+const entryReadme = `# @b4run/sdk
 
 Author-facing TypeScript SDK.
 
-**Use this when:** You are authoring a Dawn route.
+**Use this when:** You are authoring a B4.run route.
 
 ## Install
 
@@ -35,31 +35,31 @@ Author-facing TypeScript SDK.
 
 ## License
 
-![Dawn product loop](https://raw.githubusercontent.com/cacheplane/dawnai/main/docs/brand/product-loop.gif)`
+![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)`
 
-const rootReadme = `# Dawn
+const rootReadme = `# B4.run
 
 ## Quickstart
 
-\`npm create dawn-ai-app@latest my-agent\`
+\`npm create b4-app@latest my-agent\`
 
-## Why Dawn
+## Why B4.run
 
-## How Dawn fits
+## How B4.run fits
 
 [Migrate from LangGraph](/docs/migrating-from-langgraph)
 
-## What Dawn writes for you
+## What B4.run writes for you
 
 ## What are you building?
 
-## When Dawn fits
+## When B4.run fits
 
 ## Build with a coding agent
 
 ## Run it live
 
-![Dawn product loop](docs/brand/product-loop.gif)
+![B4.run product loop](docs/brand/product-loop.gif)
 
 [Read the demo transcript](docs/brand/demo/transcript.md)
 
@@ -68,21 +68,21 @@ const rootReadme = `# Dawn
 const actualRootReadme = readFileSync(new URL("../README.md", import.meta.url), "utf8")
 const actualEntryPackages = [
   {
-    directory: "create-dawn-app",
-    description: "Scaffold a Dawn TypeScript agent application with supported starter templates.",
-    keywords: ["dawn", "typescript", "langgraph", "ai-agents", "scaffolding", "create-app"],
+    directory: "create-b4-app",
+    description: "Scaffold a B4.run TypeScript agent application with supported starter templates.",
+    keywords: ["b4", "typescript", "langgraph", "ai-agents", "scaffolding", "create-app"],
   },
   {
     directory: "sdk",
     description:
-      "Author-facing TypeScript SDK for defining Dawn agents, tools, middleware, memory, and routes.",
-    keywords: ["dawn", "typescript", "langgraph", "ai-agents", "sdk", "agent-framework"],
+      "Author-facing TypeScript SDK for defining B4.run agents, tools, middleware, memory, and routes.",
+    keywords: ["b4", "typescript", "langgraph", "ai-agents", "sdk", "agent-framework"],
   },
   {
     directory: "cli",
     description:
-      "Command-line development, testing, build, and runtime tools for Dawn applications.",
-    keywords: ["dawn", "typescript", "langgraph", "cli", "ai-agents", "developer-tools"],
+      "Command-line development, testing, build, and runtime tools for B4.run applications.",
+    keywords: ["b4", "typescript", "langgraph", "cli", "ai-agents", "developer-tools"],
   },
 ].map(({ directory, description, keywords }) => {
   const packageRoot = new URL(`../packages/${directory}/`, import.meta.url)
@@ -97,35 +97,38 @@ const actualEntryPackages = [
 const actualCapabilityPackages = [
   {
     directory: "ag-ui",
-    description: "AG-UI protocol adapters for streaming Dawn agent runs to compatible clients.",
-    keywords: ["dawn", "typescript", "langgraph", "ag-ui", "ai-agents", "streaming"],
+    description: "AG-UI protocol adapters for streaming B4.run agent runs to compatible clients.",
+    keywords: ["b4", "typescript", "langgraph", "ag-ui", "ai-agents", "streaming"],
   },
   {
     directory: "evals",
-    description: "Evaluation definitions, scorers, datasets, and runners for Dawn agents.",
-    keywords: ["dawn", "typescript", "ai-agents", "evals", "testing", "llm"],
+    description: "Evaluation definitions, scorers, datasets, and runners for B4.run agents.",
+    keywords: ["b4", "typescript", "ai-agents", "evals", "testing", "llm"],
   },
   {
     directory: "inspector",
-    description: "Browser inspector for reviewing memory and runtime state in a Dawn application.",
-    keywords: ["dawn", "typescript", "ai-agents", "inspector", "memory", "developer-tools"],
+    description:
+      "Browser inspector for reviewing memory and runtime state in a B4.run application.",
+    keywords: ["b4", "typescript", "ai-agents", "inspector", "memory", "developer-tools"],
   },
   {
     directory: "memory",
     description:
-      "Long-term memory storage, ranking, recall, and distillation primitives for Dawn agents.",
-    keywords: ["dawn", "typescript", "ai-agents", "memory", "retrieval", "llm"],
+      "Long-term memory storage, ranking, recall, and distillation primitives for B4.run agents.",
+    keywords: ["b4", "typescript", "ai-agents", "memory", "retrieval", "llm"],
   },
   {
     directory: "memory-pgvector",
-    description: "Postgres and pgvector storage for shared Dawn agent memory and vector retrieval.",
-    keywords: ["dawn", "typescript", "ai-agents", "memory", "postgres", "pgvector"],
+    description:
+      "Postgres and pgvector storage for shared B4.run agent memory and vector retrieval.",
+    keywords: ["b4", "typescript", "ai-agents", "memory", "postgres", "pgvector"],
   },
   {
     directory: "permissions",
-    description: "Permission matching, approval gates, and access-control stores for Dawn agents.",
+    description:
+      "Permission matching, approval gates, and access-control stores for B4.run agents.",
     keywords: [
-      "dawn",
+      "b4",
       "typescript",
       "ai-agents",
       "permissions",
@@ -135,30 +138,31 @@ const actualCapabilityPackages = [
   },
   {
     directory: "postgres-storage",
-    description: "Postgres persistence for Dawn checkpoints, threads, and permission decisions.",
-    keywords: ["dawn", "typescript", "langgraph", "postgres", "persistence", "ai-agents"],
+    description: "Postgres persistence for B4.run checkpoints, threads, and permission decisions.",
+    keywords: ["b4", "typescript", "langgraph", "postgres", "persistence", "ai-agents"],
   },
   {
     directory: "sandbox",
-    description: "Docker and Kubernetes sandbox providers for isolated Dawn workspace execution.",
-    keywords: ["dawn", "typescript", "ai-agents", "sandbox", "docker", "kubernetes"],
+    description: "Docker and Kubernetes sandbox providers for isolated B4.run workspace execution.",
+    keywords: ["b4", "typescript", "ai-agents", "sandbox", "docker", "kubernetes"],
   },
   {
     directory: "sqlite-storage",
     description:
-      "SQLite persistence for Dawn checkpoints, Agent Protocol threads, and local state.",
-    keywords: ["dawn", "typescript", "langgraph", "sqlite", "persistence", "ai-agents"],
+      "SQLite persistence for B4.run checkpoints, Agent Protocol threads, and local state.",
+    keywords: ["b4", "typescript", "langgraph", "sqlite", "persistence", "ai-agents"],
   },
   {
     directory: "testing",
     description:
-      "Deterministic harnesses, fixtures, and matchers for testing Dawn agent applications.",
-    keywords: ["dawn", "typescript", "ai-agents", "testing", "fixtures", "llm"],
+      "Deterministic harnesses, fixtures, and matchers for testing B4.run agent applications.",
+    keywords: ["b4", "typescript", "ai-agents", "testing", "fixtures", "llm"],
   },
   {
     directory: "workspace",
-    description: "Filesystem and shell workspace contracts and tools for Dawn agent applications.",
-    keywords: ["dawn", "typescript", "ai-agents", "filesystem", "shell", "developer-tools"],
+    description:
+      "Filesystem and shell workspace contracts and tools for B4.run agent applications.",
+    keywords: ["b4", "typescript", "ai-agents", "filesystem", "shell", "developer-tools"],
   },
 ].map(({ directory, description, keywords }) => {
   const packageRoot = new URL(`../packages/${directory}/`, import.meta.url)
@@ -174,40 +178,40 @@ const actualToolingPackages = [
   {
     directory: "core",
     description:
-      "Low-level Dawn APIs for route discovery, configuration, state resolution, and type generation.",
-    keywords: ["dawn", "typescript", "langgraph", "ai-agents", "routing", "type-generation"],
+      "Low-level B4.run APIs for route discovery, configuration, state resolution, and type generation.",
+    keywords: ["b4", "typescript", "langgraph", "ai-agents", "routing", "type-generation"],
   },
   {
     directory: "langchain",
     description:
-      "LangChain adapters for Dawn agents, chains, tools, streaming, embeddings, and retry.",
-    keywords: ["dawn", "typescript", "langchain", "langgraph", "ai-agents", "streaming"],
+      "LangChain adapters for B4.run agents, chains, tools, streaming, embeddings, and retry.",
+    keywords: ["b4", "typescript", "langchain", "langgraph", "ai-agents", "streaming"],
   },
   {
     directory: "langgraph",
     description:
-      "LangGraph.js adapters and route contracts for Dawn agents, workflows, and graphs.",
-    keywords: ["dawn", "typescript", "langgraph", "langgraphjs", "ai-agents", "workflows"],
+      "LangGraph.js adapters and route contracts for B4.run agents, workflows, and graphs.",
+    keywords: ["b4", "typescript", "langgraph", "langgraphjs", "ai-agents", "workflows"],
   },
   {
     directory: "vite-plugin",
-    description: "Vite integration for Dawn route discovery and generated TypeScript types.",
-    keywords: ["dawn", "typescript", "vite", "langgraph", "type-generation", "developer-tools"],
+    description: "Vite integration for B4.run route discovery and generated TypeScript types.",
+    keywords: ["b4", "typescript", "vite", "langgraph", "type-generation", "developer-tools"],
   },
   {
     directory: "devkit",
-    description: "Scaffold templates and development utilities shared by Dawn tooling.",
-    keywords: ["dawn", "typescript", "scaffolding", "templates", "developer-tools"],
+    description: "Scaffold templates and development utilities shared by B4.run tooling.",
+    keywords: ["b4", "typescript", "scaffolding", "templates", "developer-tools"],
   },
   {
     directory: "config-biome",
-    description: "Shared Biome configuration for Dawn TypeScript workspace packages.",
-    keywords: ["dawn", "biome", "linting", "formatting", "typescript", "configuration"],
+    description: "Shared Biome configuration for B4.run TypeScript workspace packages.",
+    keywords: ["b4", "biome", "linting", "formatting", "typescript", "configuration"],
   },
   {
     directory: "config-typescript",
-    description: "Shared TypeScript compiler configurations for Dawn packages and applications.",
-    keywords: ["dawn", "typescript", "tsconfig", "configuration", "nodejs", "nextjs"],
+    description: "Shared TypeScript compiler configurations for B4.run packages and applications.",
+    keywords: ["b4", "typescript", "tsconfig", "configuration", "nodejs", "nextjs"],
   },
 ].map(({ directory, description, keywords }) => {
   const packageRoot = new URL(`../packages/${directory}/`, import.meta.url)
@@ -226,46 +230,46 @@ const actualPublicPackageManifests = [
   ...actualToolingPackages,
 ].map(({ manifest }) => manifest)
 const capabilityExampleAnchors = new Map([
-  ["@dawn-ai/ag-ui", ["fromRunAgentInput", "toAguiEvents", "@dawn-ai/ag-ui/sse"]],
-  ["@dawn-ai/evals", ["contains", "defineEval", "gate", "runEval"]],
-  ["@dawn-ai/inspector", ["pnpm exec dawn inspect"]],
+  ["@b4run/ag-ui", ["fromRunAgentInput", "toAguiEvents", "@b4run/ag-ui/sse"]],
+  ["@b4run/evals", ["contains", "defineEval", "gate", "runEval"]],
+  ["@b4run/inspector", ["pnpm exec b4 inspect"]],
   [
-    "@dawn-ai/memory",
+    "@b4run/memory",
     [
       "sqliteMemoryStore",
-      "@dawn-ai/memory/browse",
-      "@dawn-ai/memory/namespace",
-      "@dawn-ai/memory/reconcile",
+      "@b4run/memory/browse",
+      "@b4run/memory/namespace",
+      "@b4run/memory/reconcile",
     ],
   ],
-  ["@dawn-ai/memory-pgvector", ["pgvectorMemoryStore", "await store.close()"]],
-  ["@dawn-ai/permissions", ["matchPermission"]],
-  ["@dawn-ai/postgres-storage", ["createPostgresThreadsStore"]],
-  ["@dawn-ai/sandbox", ["dockerSandbox", "fakeSandbox"]],
-  ["@dawn-ai/sqlite-storage", ["createThreadsStore", "sqliteCheckpointer"]],
-  ["@dawn-ai/testing", ["createAgentHarness", "script", "expectFinalMessage"]],
-  ["@dawn-ai/workspace", ["compose", "FilesystemBackend", "localFilesystem"]],
+  ["@b4run/memory-pgvector", ["pgvectorMemoryStore", "await store.close()"]],
+  ["@b4run/permissions", ["matchPermission"]],
+  ["@b4run/postgres-storage", ["createPostgresThreadsStore"]],
+  ["@b4run/sandbox", ["dockerSandbox", "fakeSandbox"]],
+  ["@b4run/sqlite-storage", ["createThreadsStore", "sqliteCheckpointer"]],
+  ["@b4run/testing", ["createAgentHarness", "script", "expectFinalMessage"]],
+  ["@b4run/workspace", ["compose", "FilesystemBackend", "localFilesystem"]],
 ])
 const toolingReadmeAnchors = new Map([
-  ["@dawn-ai/core", ["config", "renderDawnTypes", "@dawn-ai/sdk"]],
-  ["@dawn-ai/langchain", ["chainAdapter", "openaiEmbedder", "edge-safe"]],
+  ["@b4run/core", ["config", "renderB4Types", "@b4run/sdk"]],
+  ["@b4run/langchain", ["chainAdapter", "openaiEmbedder", "edge-safe"]],
   [
-    "@dawn-ai/langgraph",
+    "@b4run/langgraph",
     [
       "defineEntry",
       "graphAdapter",
-      "@dawn-ai/langgraph/define-entry",
-      "@dawn-ai/langgraph/route-module",
+      "@b4run/langgraph/define-entry",
+      "@b4run/langgraph/route-module",
     ],
   ],
-  ["@dawn-ai/vite-plugin", ["dawnToolSchemaPlugin as dawn", "plugins: [dawn()]", "Node-only"]],
-  ["@dawn-ai/devkit", ["resolveTemplateDir", "Node-only"]],
-  ["@dawn-ai/config-biome", ["extends", "--config-path", "dev dependency"]],
-  ["@dawn-ai/config-typescript", ["extends", "@dawn-ai/config-typescript/node", "dev dependency"]],
+  ["@b4run/vite-plugin", ["b4ToolSchemaPlugin as b4", "plugins: [b4()]", "Node-only"]],
+  ["@b4run/devkit", ["resolveTemplateDir", "Node-only"]],
+  ["@b4run/config-biome", ["extends", "--config-path", "dev dependency"]],
+  ["@b4run/config-typescript", ["extends", "@b4run/config-typescript/node", "dev dependency"]],
 ])
 const capabilityCaveatContracts = new Map([
   [
-    "@dawn-ai/ag-ui",
+    "@b4run/ag-ui",
     [
       [
         "React renderer entry",
@@ -274,8 +278,8 @@ const capabilityCaveatContracts = new Map([
       ],
       [
         "drop-in renderers",
-        /\bdawnActivityRenderers\b/u,
-        (readme) => readme.replaceAll("dawnActivityRenderers", "customRenderers"),
+        /\bb4ActivityRenderers\b/u,
+        (readme) => readme.replaceAll("b4ActivityRenderers", "customRenderers"),
       ],
       [
         "tokens rung",
@@ -300,7 +304,7 @@ const capabilityCaveatContracts = new Map([
     ],
   ],
   [
-    "@dawn-ai/memory",
+    "@b4run/memory",
     [
       [
         "plaintext storage warning",
@@ -323,7 +327,7 @@ const capabilityCaveatContracts = new Map([
     ],
   ],
   [
-    "@dawn-ai/memory-pgvector",
+    "@b4run/memory-pgvector",
     [
       [
         "store-created pool shutdown",
@@ -346,7 +350,7 @@ const capabilityCaveatContracts = new Map([
     ],
   ],
   [
-    "@dawn-ai/postgres-storage",
+    "@b4run/postgres-storage",
     [
       [
         "injected pool ownership",
@@ -369,7 +373,7 @@ const capabilityCaveatContracts = new Map([
     ],
   ],
   [
-    "@dawn-ai/testing",
+    "@b4run/testing",
     [
       [
         "single-process concurrency warning",
@@ -385,43 +389,40 @@ const capabilityCaveatContracts = new Map([
 ])
 const relatedPackageDestinations = new Map([
   [
-    "create-dawn-ai-app",
-    ["https://www.npmjs.com/package/@dawn-ai/cli", "https://www.npmjs.com/package/@dawn-ai/sdk"],
+    "create-b4-app",
+    ["https://www.npmjs.com/package/@b4run/cli", "https://www.npmjs.com/package/@b4run/sdk"],
   ],
   [
-    "@dawn-ai/sdk",
-    [
-      "https://www.npmjs.com/package/@dawn-ai/cli",
-      "https://www.npmjs.com/package/@dawn-ai/testing",
-    ],
+    "@b4run/sdk",
+    ["https://www.npmjs.com/package/@b4run/cli", "https://www.npmjs.com/package/@b4run/testing"],
   ],
   [
-    "@dawn-ai/cli",
-    ["https://www.npmjs.com/package/@dawn-ai/sdk", "https://www.npmjs.com/package/@dawn-ai/core"],
+    "@b4run/cli",
+    ["https://www.npmjs.com/package/@b4run/sdk", "https://www.npmjs.com/package/@b4run/core"],
   ],
 ])
 const entryReadmeAssets = new Map([
   [
     "logo",
-    "https://raw.githubusercontent.com/cacheplane/dawnai/main/docs/brand/dawn-logo-horizontal-black-on-white.png",
+    "https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/b4-logo-horizontal-black-on-white.png",
   ],
   [
     "product loop",
-    "https://raw.githubusercontent.com/cacheplane/dawnai/main/docs/brand/product-loop.gif",
+    "https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif",
   ],
 ])
 const entryReadmeBlocks = new Map([
   [
     "logo",
     `<p align="center">
-  <img src="https://raw.githubusercontent.com/cacheplane/dawnai/main/docs/brand/dawn-logo-horizontal-black-on-white.png" alt="Dawn" width="180">
+  <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/b4-logo-horizontal-black-on-white.png" alt="B4.run" width="180">
 </p>`,
   ],
   [
     "product loop",
     `<p align="center">
-  <a href="https://dawnai.org/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/dawnai/main/docs/brand/product-loop.gif" alt="Dawn product loop: route, deterministic test, and Workbench" width="720">
+  <a href="https://b4.run/#product-loop">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
   </a>
 </p>`,
   ],
@@ -431,7 +432,7 @@ const entryReadmeBlockMutations = new Map([
     "logo",
     [
       ["centered wrapper", (block) => block.replace('<p align="center">', "<p>")],
-      ["alt text", (block) => block.replace('alt="Dawn"', 'alt="Dawn logo"')],
+      ["alt text", (block) => block.replace('alt="B4.run"', 'alt="B4.run logo"')],
       ["width", (block) => block.replace('width="180"', 'width="181"')],
     ],
   ],
@@ -439,16 +440,13 @@ const entryReadmeBlockMutations = new Map([
     "product loop",
     [
       ["centered wrapper", (block) => block.replace('<p align="center">', "<p>")],
-      [
-        "anchor",
-        (block) => block.replace("https://dawnai.org/#product-loop", "https://dawnai.org/docs"),
-      ],
+      ["anchor", (block) => block.replace("https://b4.run/#product-loop", "https://b4.run/docs")],
       [
         "alt text",
         (block) =>
           block.replace(
-            "Dawn product loop: route, deterministic test, and Workbench",
-            "Dawn product loop",
+            "B4.run product loop: route, deterministic test, and Workbench",
+            "B4.run product loop",
           ),
       ],
       ["width", (block) => block.replace('width="720"', 'width="721"')],
@@ -456,11 +454,11 @@ const entryReadmeBlockMutations = new Map([
   ],
 ])
 const canonicalHeroCommandBlock = `\`\`\`bash
-npm create dawn-ai-app@latest my-agent
+npm create b4-app@latest my-agent
 \`\`\``
 const canonicalProductLoopBlock = `<p align="center">
-  <a href="https://dawnai.org/#product-loop">
-    <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the Dawn Workbench" width="900">
+  <a href="https://b4.run/#product-loop">
+    <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench" width="900">
   </a>
 </p>`
 const canonicalQualifiedCredentials = `Credentials are provider-specific: the published research starter's OpenAI live
@@ -469,7 +467,7 @@ key.`
 const canonicalFinalCta = `Ready to start?
 
 \`\`\`bash
-npm create dawn-ai-app@latest my-agent
+npm create b4-app@latest my-agent
 \`\`\``
 
 function assertFailure(failures, expected) {
@@ -591,18 +589,18 @@ function assertConfigTypescriptPrerequisites(readme) {
   const install = readmeSection(readme, "Install")
   assert.match(
     install,
-    /^# \/node\npnpm add -D @dawn-ai\/config-typescript typescript @types\/node$/mu,
-    "@dawn-ai/config-typescript must document the Node profile's consumer type prerequisite",
+    /^# \/node\npnpm add -D @b4run\/config-typescript typescript @types\/node$/mu,
+    "@b4run/config-typescript must document the Node profile's consumer type prerequisite",
   )
   assert.match(
     install,
-    /^# \/nextjs\npnpm add -D @dawn-ai\/config-typescript typescript @types\/node @types\/react @types\/react-dom$/mu,
-    "@dawn-ai/config-typescript must document the Next.js profile's consumer type prerequisites",
+    /^# \/nextjs\npnpm add -D @b4run\/config-typescript typescript @types\/node @types\/react @types\/react-dom$/mu,
+    "@b4run/config-typescript must document the Next.js profile's consumer type prerequisites",
   )
   assert.doesNotMatch(
     readme,
     /\bcarr(?:y|ies)[^\n]*(?:React|Node)[^\n]*types?\b/iu,
-    "@dawn-ai/config-typescript must not imply its published package carries consumer types",
+    "@b4run/config-typescript must not imply its published package carries consumer types",
   )
 }
 
@@ -620,10 +618,10 @@ describe("validatePackageReadme", () => {
 
   it("accepts the planned raw HTML product-loop thumbnail", () => {
     const readme = entryReadme.replace(
-      "![Dawn product loop](https://raw.githubusercontent.com/cacheplane/dawnai/main/docs/brand/product-loop.gif)",
+      "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)",
       `<p align="center">
-  <a href="https://dawnai.org/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/dawnai/main/docs/brand/product-loop.gif" alt="Dawn product loop: route, deterministic test, and Workbench" width="720">
+  <a href="https://b4.run/#product-loop">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
   </a>
 </p>`,
     )
@@ -637,10 +635,10 @@ describe("validatePackageReadme", () => {
         "Author-facing TypeScript SDK. Inline `<script>` is documentation text.",
       )
       .replace(
-        "![Dawn product loop](https://raw.githubusercontent.com/cacheplane/dawnai/main/docs/brand/product-loop.gif)",
+        "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)",
         `<p align="center">
-  <a href="https://dawnai.org/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/dawnai/main/docs/brand/product-loop.gif" alt="Dawn product loop: route, deterministic test, and Workbench" width="720">
+  <a href="https://b4.run/#product-loop">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
   </a>
 </p>`,
       )
@@ -674,10 +672,10 @@ describe("validatePackageReadme", () => {
         "Author-facing TypeScript SDK. Escaped \\<script> is prose.",
       )
       .replace(
-        "![Dawn product loop](https://raw.githubusercontent.com/cacheplane/dawnai/main/docs/brand/product-loop.gif)",
+        "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)",
         `<p align="center">
-  <a href="https://dawnai.org/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/dawnai/main/docs/brand/product-loop.gif" alt="Dawn product loop: route, deterministic test, and Workbench" width="720">
+  <a href="https://b4.run/#product-loop">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
   </a>
 </p>`,
       )
@@ -686,7 +684,7 @@ describe("validatePackageReadme", () => {
 
   it("does not accept Markdown image syntax inside a raw HTML block", () => {
     const readme = entryReadme.replace(
-      /!\[Dawn product loop\].*$/u,
+      /!\[B4.run product loop\].*$/u,
       "<p>\n    ![Loop](docs/brand/product-loop.gif)\n</p>",
     )
     assertFailure(
@@ -706,7 +704,7 @@ describe("validatePackageReadme", () => {
   for (const tag of ["script", "style", "textarea"]) {
     it(`does not accept a Markdown image inside a <${tag}> raw-text block`, () => {
       const readme = entryReadme.replace(
-        /!\[Dawn product loop\].*$/u,
+        /!\[B4.run product loop\].*$/u,
         `<${tag}>\n![Loop](docs/brand/product-loop.gif)\n</${tag}>`,
       )
       assertFailure(
@@ -722,7 +720,7 @@ describe("validatePackageReadme", () => {
 
   it("does not accept a Markdown image inside a generic HTML block", () => {
     const readme = entryReadme.replace(
-      /!\[Dawn product loop\].*$/u,
+      /!\[B4.run product loop\].*$/u,
       "<span>\n![Loop](docs/brand/product-loop.gif)\n</span>",
     )
     assertFailure(
@@ -733,7 +731,7 @@ describe("validatePackageReadme", () => {
 
   it("does not accept an HTML image inside a raw-text block", () => {
     const readme = entryReadme.replace(
-      /!\[Dawn product loop\].*$/u,
+      /!\[B4.run product loop\].*$/u,
       '<script>\n<img src="docs/brand/product-loop.gif" alt="Decoy">\n</script>',
     )
     assertFailure(
@@ -744,8 +742,8 @@ describe("validatePackageReadme", () => {
 
   it("accepts an HTML image inside a rendered generic HTML block", () => {
     const readme = entryReadme.replace(
-      /!\[Dawn product loop\].*$/u,
-      '<span>\n<img src="docs/brand/product-loop.gif" alt="Dawn product loop">\n</span>',
+      /!\[B4.run product loop\].*$/u,
+      '<span>\n<img src="docs/brand/product-loop.gif" alt="B4.run product loop">\n</span>',
     )
     assert.deepEqual(validatePackageReadme({ tier: "entry", manifest: entryManifest, readme }), [])
   })
@@ -764,7 +762,7 @@ describe("validatePackageReadme", () => {
   for (const tag of ["script", "style", "textarea"]) {
     it(`does not accept an HTML image nested in <div><${tag}>`, () => {
       const readme = entryReadme.replace(
-        /!\[Dawn product loop\].*$/u,
+        /!\[B4.run product loop\].*$/u,
         `<div>\n<${tag}>\n<img src="docs/brand/product-loop.gif" alt="Decoy">\n</${tag}>\n</div>`,
       )
       assertFailure(
@@ -796,7 +794,7 @@ describe("validatePackageReadme", () => {
   for (const [name, source, expected] of [
     [
       "Use this when guidance",
-      entryReadme.replace("**Use this when:** You are authoring a Dawn route.\n\n", ""),
+      entryReadme.replace("**Use this when:** You are authoring a B4.run route.\n\n", ""),
       /Use this when/,
     ],
     [
@@ -822,7 +820,7 @@ describe("validatePackageReadme", () => {
       entryReadme.replace("docs/brand/product-loop.gif", "docs/brand/other.gif"),
       /product-loop\.gif/,
     ],
-    ["package-name H1", entryReadme.replace("# @dawn-ai/sdk", "# Dawn SDK"), /H1.*@dawn-ai\/sdk/i],
+    ["package-name H1", entryReadme.replace("# @b4run/sdk", "# B4.run SDK"), /H1.*@b4run\/sdk/i],
     ["purpose statement", entryReadme.replace("Author-facing TypeScript SDK.\n\n", ""), /purpose/i],
   ]) {
     it(`rejects a README missing its ${name}`, () => {
@@ -839,19 +837,19 @@ describe("validatePackageReadme", () => {
 
   it("does not accept a package H1 hidden in a fenced code block", () => {
     const readme = entryReadme.replace(
-      "# @dawn-ai/sdk",
-      "```md\n# @dawn-ai/sdk\n```\n\n# Different package",
+      "# @b4run/sdk",
+      "```md\n# @b4run/sdk\n```\n\n# Different package",
     )
     assertFailure(
       validatePackageReadme({ tier: "entry", manifest: entryManifest, readme }),
-      /H1.*@dawn-ai\/sdk/i,
+      /H1.*@b4run\/sdk/i,
     )
   })
 
   it("does not accept an entry image hidden in a fenced code block", () => {
     const readme = entryReadme.replace(
-      "![Dawn product loop](https://raw.githubusercontent.com/cacheplane/dawnai/main/docs/brand/product-loop.gif)",
-      "```md\n![Dawn product loop](docs/brand/product-loop.gif)\n```",
+      "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)",
+      "```md\n![B4.run product loop](docs/brand/product-loop.gif)\n```",
     )
     assertFailure(
       validatePackageReadme({ tier: "entry", manifest: entryManifest, readme }),
@@ -861,8 +859,8 @@ describe("validatePackageReadme", () => {
 
   it("does not accept an entry image written as inline code", () => {
     const readme = entryReadme.replace(
-      "![Dawn product loop](https://raw.githubusercontent.com/cacheplane/dawnai/main/docs/brand/product-loop.gif)",
-      "`![Dawn product loop](docs/brand/product-loop.gif)`",
+      "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)",
+      "`![B4.run product loop](docs/brand/product-loop.gif)`",
     )
     assertFailure(
       validatePackageReadme({ tier: "entry", manifest: entryManifest, readme }),
@@ -872,49 +870,49 @@ describe("validatePackageReadme", () => {
 
   it("ignores package contract decoys inside a list-nested fence", () => {
     const readme = entryReadme
-      .replace("# @dawn-ai/sdk\n\n", "")
-      .replace(/!\[Dawn product loop\].*$/u, "")
-      .concat("\n- ```md\n  # @dawn-ai/sdk\n  ![Loop](docs/brand/product-loop.gif)\n  ```")
+      .replace("# @b4run/sdk\n\n", "")
+      .replace(/!\[B4.run product loop\].*$/u, "")
+      .concat("\n- ```md\n  # @b4run/sdk\n  ![Loop](docs/brand/product-loop.gif)\n  ```")
     const failures = validatePackageReadme({
       tier: "entry",
       manifest: entryManifest,
       readme,
     })
-    assertFailure(failures, /H1.*@dawn-ai\/sdk/i)
+    assertFailure(failures, /H1.*@b4run\/sdk/i)
     assertFailure(failures, /product-loop\.gif/)
   })
 
   it("ignores package contract decoys inside a three-space-indented fence", () => {
     const readme = entryReadme
-      .replace("# @dawn-ai/sdk\n\n", "")
-      .replace(/!\[Dawn product loop\].*$/u, "")
-      .concat("\n   ```md\n# @dawn-ai/sdk\n![Loop](docs/brand/product-loop.gif)\n   ```")
+      .replace("# @b4run/sdk\n\n", "")
+      .replace(/!\[B4.run product loop\].*$/u, "")
+      .concat("\n   ```md\n# @b4run/sdk\n![Loop](docs/brand/product-loop.gif)\n   ```")
     const failures = validatePackageReadme({
       tier: "entry",
       manifest: entryManifest,
       readme,
     })
-    assertFailure(failures, /H1.*@dawn-ai\/sdk/i)
+    assertFailure(failures, /H1.*@b4run\/sdk/i)
     assertFailure(failures, /product-loop\.gif/)
   })
 
   it("ignores package contract decoys inside indented code", () => {
     const readme = entryReadme
-      .replace("# @dawn-ai/sdk\n\n", "")
-      .replace(/!\[Dawn product loop\].*$/u, "")
-      .concat("\n    # @dawn-ai/sdk\n    ![Loop](docs/brand/product-loop.gif)")
+      .replace("# @b4run/sdk\n\n", "")
+      .replace(/!\[B4.run product loop\].*$/u, "")
+      .concat("\n    # @b4run/sdk\n    ![Loop](docs/brand/product-loop.gif)")
     const failures = validatePackageReadme({
       tier: "entry",
       manifest: entryManifest,
       readme,
     })
-    assertFailure(failures, /H1.*@dawn-ai\/sdk/i)
+    assertFailure(failures, /H1.*@b4run\/sdk/i)
     assertFailure(failures, /product-loop\.gif/)
   })
 
   it("does not accept an HTML product-loop image inside indented code", () => {
     const readme = entryReadme.replace(
-      /!\[Dawn product loop\].*$/u,
+      /!\[B4.run product loop\].*$/u,
       '    <img src="docs/brand/product-loop.gif" alt="Decoy">',
     )
     assertFailure(
@@ -929,8 +927,8 @@ describe("validatePackageReadme", () => {
     "1. First list entry",
     "[ci]: https://example.com/ci.svg",
     "![CI](https://example.com/ci.svg)",
-    "`pnpm add @dawn-ai/sdk`",
-    "`Dawn SDK`",
+    "`pnpm add @b4run/sdk`",
+    "`B4.run SDK`",
     "| Package | Purpose |",
   ]) {
     it(`does not count ${JSON.stringify(structuralLine)} as purpose prose`, () => {
@@ -949,9 +947,9 @@ describe("validatePackageReadme", () => {
   it("requires examples for capability packages", () => {
     const failures = validatePackageReadme({
       tier: "capability",
-      manifest: { ...entryManifest, name: "@dawn-ai/memory" },
+      manifest: { ...entryManifest, name: "@b4run/memory" },
       readme: entryReadme
-        .replaceAll("@dawn-ai/sdk", "@dawn-ai/memory")
+        .replaceAll("@b4run/sdk", "@b4run/memory")
         .replace("## Example", "## Configuration"),
     })
     assertFailure(failures, /Example/)
@@ -961,11 +959,11 @@ describe("validatePackageReadme", () => {
     assert.deepEqual(
       validatePackageReadme({
         tier: "tooling",
-        manifest: { ...entryManifest, name: "@dawn-ai/core" },
+        manifest: { ...entryManifest, name: "@b4run/core" },
         readme: entryReadme
-          .replaceAll("@dawn-ai/sdk", "@dawn-ai/core")
+          .replaceAll("@b4run/sdk", "@b4run/core")
           .replace("## Example", "## Configuration")
-          .replace(/\n!\[Dawn product loop\].*$/u, ""),
+          .replace(/\n!\[B4.run product loop\].*$/u, ""),
       }),
       [],
     )
@@ -1017,7 +1015,7 @@ describe("entry-package README contracts", () => {
       })
     }
 
-    it(`links the actual ${manifest.name} README to every intended Dawn package`, () => {
+    it(`links the actual ${manifest.name} README to every intended B4.run package`, () => {
       assertRelatedPackageDestinations(manifest.name, readme)
     })
 
@@ -1030,16 +1028,16 @@ describe("entry-package README contracts", () => {
     }
   }
 
-  it("keeps the actual create-dawn-ai-app release history valid after later publishes", () => {
+  it("keeps the actual create-b4-app release history valid after later publishes", () => {
     const createReadme = actualEntryPackages.find(
-      ({ manifest }) => manifest.name === "create-dawn-ai-app",
+      ({ manifest }) => manifest.name === "create-b4-app",
     )?.readme
 
     assert.match(
       createReadme ?? "",
       /0\.8\.21[^\n]*single-package[^\n]*0\.8\.22[^\n]*`server`[^\n]*`web`/u,
     )
-    assert.match(createReadme ?? "", /`npm view create-dawn-ai-app@latest version`/u)
+    assert.match(createReadme ?? "", /`npm view create-b4-app@latest version`/u)
     for (const selfInvalidatingPhrase of [
       "published `@latest` version was verified as 0.8.21",
       "current 0.8.22 repository source",
@@ -1049,18 +1047,15 @@ describe("entry-package README contracts", () => {
     }
   })
 
-  it("labels the actual @dawn-ai/cli/testing subpath as deprecated compatibility", () => {
+  it("labels the actual @b4run/cli/testing subpath as deprecated compatibility", () => {
     const cliReadme = actualEntryPackages.find(
-      ({ manifest }) => manifest.name === "@dawn-ai/cli",
+      ({ manifest }) => manifest.name === "@b4run/cli",
     )?.readme
 
-    assert.doesNotMatch(
-      cliReadme ?? "",
-      /`@dawn-ai\/cli\/testing`[ \t]+is[ \t]+a[ \t]+supported\b/iu,
-    )
+    assert.doesNotMatch(cliReadme ?? "", /`@b4run\/cli\/testing`[ \t]+is[ \t]+a[ \t]+supported\b/iu)
     assert.match(
       cliReadme ?? "",
-      /`@dawn-ai\/cli\/testing`[^\n]*\bdeprecated\b[^\n]*`@dawn-ai\/sdk\/testing`/iu,
+      /`@b4run\/cli\/testing`[^\n]*\bdeprecated\b[^\n]*`@b4run\/sdk\/testing`/iu,
     )
   })
 })
@@ -1072,7 +1067,7 @@ describe("capability-package README contracts", () => {
 
   it("rejects omitting a capability package from the example-anchor map", () => {
     const mutated = new Map(capabilityExampleAnchors)
-    mutated.delete("@dawn-ai/workspace")
+    mutated.delete("@b4run/workspace")
     assert.throws(() => assertCapabilityAnchorCoverage(actualCapabilityPackages, mutated))
   })
 
@@ -1098,7 +1093,7 @@ describe("capability-package README contracts", () => {
     })
 
     it(`rejects adding the campaign GIF to the actual ${manifest.name} README`, () => {
-      const mutated = `${readme}\n![Dawn product loop](docs/brand/product-loop.gif)\n`
+      const mutated = `${readme}\n![B4.run product loop](docs/brand/product-loop.gif)\n`
       assert.throws(() => assertNoCapabilityCampaignGif(manifest.name, mutated))
     })
   }
@@ -1119,7 +1114,7 @@ describe("capability-package README contracts", () => {
   }
 
   it("rejects direct negations of the Postgres caller-owned pool shutdown guidance", () => {
-    const readme = actualCapabilityReadme("@dawn-ai/postgres-storage")
+    const readme = actualCapabilityReadme("@b4run/postgres-storage")
     const guidance = "Close stores and caller-owned pools during application shutdown."
 
     for (const contradiction of [
@@ -1128,7 +1123,7 @@ describe("capability-package README contracts", () => {
     ]) {
       const mutated = readme.replace(guidance, contradiction)
       assert.notEqual(mutated, readme, `${contradiction} mutation must apply`)
-      assert.throws(() => assertCapabilityCaveats("@dawn-ai/postgres-storage", mutated))
+      assert.throws(() => assertCapabilityCaveats("@b4run/postgres-storage", mutated))
     }
   })
 })
@@ -1150,16 +1145,16 @@ describe("tooling-package README contracts", () => {
 
   it("documents the vite plugin through its real named export", () => {
     const vitePluginReadme = actualToolingPackages.find(
-      ({ manifest }) => manifest.name === "@dawn-ai/vite-plugin",
+      ({ manifest }) => manifest.name === "@b4run/vite-plugin",
     )?.readme
 
-    assert.match(vitePluginReadme ?? "", /import \{ dawnToolSchemaPlugin as dawn \}/u)
-    assert.doesNotMatch(vitePluginReadme ?? "", /import dawn from/u)
+    assert.match(vitePluginReadme ?? "", /import \{ b4ToolSchemaPlugin as b4 \}/u)
+    assert.doesNotMatch(vitePluginReadme ?? "", /import b4 from/u)
   })
 
   it("documents consumer-owned type prerequisites for config profiles", () => {
     const configTypescriptReadme = actualToolingPackages.find(
-      ({ manifest }) => manifest.name === "@dawn-ai/config-typescript",
+      ({ manifest }) => manifest.name === "@b4run/config-typescript",
     )?.readme
 
     assertConfigTypescriptPrerequisites(configTypescriptReadme ?? "")
@@ -1167,13 +1162,13 @@ describe("tooling-package README contracts", () => {
 
   it("rejects omitting a config profile's consumer type prerequisites", () => {
     const configTypescriptReadme = actualToolingPackages.find(
-      ({ manifest }) => manifest.name === "@dawn-ai/config-typescript",
+      ({ manifest }) => manifest.name === "@b4run/config-typescript",
     )?.readme
     assert.ok(configTypescriptReadme)
 
     for (const command of [
-      "pnpm add -D @dawn-ai/config-typescript typescript @types/node",
-      "pnpm add -D @dawn-ai/config-typescript typescript @types/node @types/react @types/react-dom",
+      "pnpm add -D @b4run/config-typescript typescript @types/node",
+      "pnpm add -D @b4run/config-typescript typescript @types/node @types/react @types/react-dom",
     ]) {
       const mutated = configTypescriptReadme.replace(command, "")
       assert.notEqual(mutated, configTypescriptReadme, `${command} mutation must apply`)
@@ -1183,7 +1178,7 @@ describe("tooling-package README contracts", () => {
 
   it("rejects claiming the config package carries consumer types", () => {
     const configTypescriptReadme = actualToolingPackages.find(
-      ({ manifest }) => manifest.name === "@dawn-ai/config-typescript",
+      ({ manifest }) => manifest.name === "@b4run/config-typescript",
     )?.readme
     assert.ok(configTypescriptReadme)
 
@@ -1250,16 +1245,16 @@ describe("validatePackageDiscoveryMetadata", () => {
     ["short description", { description: "Too short" }, /description.*30.*180/i],
     ["long description", { description: "x".repeat(181) }, /description.*30.*180/i],
     ["empty keywords", { keywords: [] }, /keywords.*3.*8/i],
-    ["too few keywords", { keywords: ["dawn", "typescript"] }, /keywords.*3.*8/i],
+    ["too few keywords", { keywords: ["b4", "typescript"] }, /keywords.*3.*8/i],
     [
       "too many keywords",
       { keywords: Array.from({ length: 9 }, (_, index) => `keyword-${index}`) },
       /keywords.*3.*8/i,
     ],
-    ["duplicate keywords", { keywords: ["dawn", "dawn", "typescript"] }, /unique/i],
-    ["uppercase keywords", { keywords: ["Dawn", "typescript", "langgraph"] }, /lowercase/i],
-    ["invalid keywords", { keywords: ["dawn", "type_script", "langgraph"] }, /lowercase/i],
-    ["empty keyword values", { keywords: ["dawn", "", "langgraph"] }, /lowercase/i],
+    ["duplicate keywords", { keywords: ["b4", "b4", "typescript"] }, /unique/i],
+    ["uppercase keywords", { keywords: ["B4.run", "typescript", "langgraph"] }, /lowercase/i],
+    ["invalid keywords", { keywords: ["b4", "type_script", "langgraph"] }, /lowercase/i],
+    ["empty keyword values", { keywords: ["b4", "", "langgraph"] }, /lowercase/i],
   ]) {
     it(`rejects ${name}`, () => {
       assertFailure(validatePackageDiscoveryMetadata({ ...entryManifest, ...patch }), expected)
@@ -1323,16 +1318,16 @@ describe("validateRootReadme", () => {
 
   it("rejects a sixth hero badge", () => {
     const source = actualRootReadme.replace(
-      '</p>\n\n<p align="center">\n  <a href="https://dawnai.org/docs/getting-started">',
-      '  <a href="https://example.com"><img src="https://example.com/sixth.svg" alt="Sixth badge"></a>\n</p>\n\n<p align="center">\n  <a href="https://dawnai.org/docs/getting-started">',
+      '</p>\n\n<p align="center">\n  <a href="https://b4.run/docs/getting-started">',
+      '  <a href="https://example.com"><img src="https://example.com/sixth.svg" alt="Sixth badge"></a>\n</p>\n\n<p align="center">\n  <a href="https://b4.run/docs/getting-started">',
     )
     assertFailure(validateRootReadme(source, { canonical: true }), /exactly five approved badges/i)
   })
 
   it("rejects a sixth hero badge in an adjacent first-scroll block", () => {
     const source = actualRootReadme.replace(
-      '<p align="center">\n  <a href="https://dawnai.org/docs/getting-started">',
-      '<p align="center">\n  <a href="https://example.com"><img src="https://example.com/sixth.svg" alt="Sixth badge"></a>\n</p>\n\n<p align="center">\n  <a href="https://dawnai.org/docs/getting-started">',
+      '<p align="center">\n  <a href="https://b4.run/docs/getting-started">',
+      '<p align="center">\n  <a href="https://example.com"><img src="https://example.com/sixth.svg" alt="Sixth badge"></a>\n</p>\n\n<p align="center">\n  <a href="https://b4.run/docs/getting-started">',
     )
     assertFailure(validateRootReadme(source, { canonical: true }), /exactly five approved badges/i)
   })
@@ -1369,13 +1364,13 @@ describe("validateRootReadme", () => {
   for (const [name, source] of [
     [
       "missing hero navigation link",
-      actualRootReadme.replace('  <a href="https://dawnai.org/docs">Documentation</a> ·\n', ""),
+      actualRootReadme.replace('  <a href="https://b4.run/docs">Documentation</a> ·\n', ""),
     ],
     [
       "extra hero navigation link",
       actualRootReadme.replace(
-        '  <a href="https://dawnai.org/docs">Documentation</a> ·\n',
-        '  <a href="https://dawnai.org/docs">Documentation</a> ·\n  <a href="https://example.com">Extra</a> ·\n',
+        '  <a href="https://b4.run/docs">Documentation</a> ·\n',
+        '  <a href="https://b4.run/docs">Documentation</a> ·\n  <a href="https://example.com">Extra</a> ·\n',
       ),
     ],
   ]) {
@@ -1453,8 +1448,8 @@ describe("validateRootReadme", () => {
 
   it("does not count body-only GFM bare and angle-bracket autolinks", () => {
     const source = actualRootReadme.replace(
-      "## Why Dawn",
-      "## Why Dawn\n\nhttps://example.com\n\nwww.example.com\n\nextra@example.com\n\n<extra@example.com>",
+      "## Why B4.run",
+      "## Why B4.run\n\nhttps://example.com\n\nwww.example.com\n\nextra@example.com\n\n<extra@example.com>",
     )
     assert.deepEqual(validateRootReadme(source, { canonical: true }), [])
   })
@@ -1485,8 +1480,8 @@ describe("validateRootReadme", () => {
   it("does not count body-only reference-style GFM badges and links", () => {
     const source = actualRootReadme
       .replace(
-        "## Why Dawn",
-        "## Why Dawn\n\n[![Body badge][body-image]][body-link]\n\n[Body link][body-nav]",
+        "## Why B4.run",
+        "## Why B4.run\n\n[![Body badge][body-image]][body-link]\n\n[Body link][body-nav]",
       )
       .replace(
         "## License",
@@ -1510,18 +1505,18 @@ describe("validateRootReadme", () => {
       "unlinked product-loop GIF",
       actualRootReadme.replace(
         canonicalProductLoopBlock,
-        '<p align="center">\n  <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the Dawn Workbench" width="900">\n</p>',
+        '<p align="center">\n  <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench" width="900">\n</p>',
       ),
     ],
     [
       "wrong product-loop anchor",
-      actualRootReadme.replace("https://dawnai.org/#product-loop", "https://dawnai.org/docs"),
+      actualRootReadme.replace("https://b4.run/#product-loop", "https://b4.run/docs"),
     ],
     [
       "wrong product-loop alt text",
       actualRootReadme.replace(
-        "Animation showing an existing generated research workspace, a deterministic test, and the Dawn Workbench",
-        "Dawn product loop",
+        "Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench",
+        "B4.run product loop",
       ),
     ],
   ]) {
@@ -1623,41 +1618,41 @@ describe("validateRootReadme", () => {
     ["a fenced block", "```md\n<!--\n```"],
   ]) {
     it(`accepts an unmatched comment opener inside ${name} before root requirements`, () => {
-      const source = rootReadme.replace("# Dawn\n", `# Dawn\n\n${literal}\n`)
+      const source = rootReadme.replace("# B4.run\n", `# B4.run\n\n${literal}\n`)
       assert.deepEqual(validateRootReadme(source), [])
     })
   }
 
   it("accepts the product-loop GIF as an HTML image", () => {
     const htmlImage = rootReadme.replace(
-      "![Dawn product loop](docs/brand/product-loop.gif)",
-      '<img src="docs/brand/product-loop.gif" alt="Dawn product loop" />',
+      "![B4.run product loop](docs/brand/product-loop.gif)",
+      '<img src="docs/brand/product-loop.gif" alt="B4.run product loop" />',
     )
     assert.deepEqual(validateRootReadme(htmlImage), [])
   })
 
   it("accepts the canonical scaffold command in a fenced shell example", () => {
     const fencedCommand = rootReadme.replace(
-      "`npm create dawn-ai-app@latest my-agent`",
-      "```bash\nnpm create dawn-ai-app@latest my-agent\n```",
+      "`npm create b4-app@latest my-agent`",
+      "```bash\nnpm create b4-app@latest my-agent\n```",
     )
     assert.deepEqual(validateRootReadme(fencedCommand), [])
   })
 
   it("allows unrelated headings between required root sections", () => {
     assert.deepEqual(
-      validateRootReadme(rootReadme.replace("## Why Dawn", "## Note\n\n## Why Dawn")),
+      validateRootReadme(rootReadme.replace("## Why B4.run", "## Note\n\n## Why B4.run")),
       [],
     )
   })
 
   for (const heading of [
     "Quickstart",
-    "Why Dawn",
-    "How Dawn fits",
-    "What Dawn writes for you",
+    "Why B4.run",
+    "How B4.run fits",
+    "What B4.run writes for you",
     "What are you building?",
-    "When Dawn fits",
+    "When B4.run fits",
     "Build with a coding agent",
     "Run it live",
     "Maturity and support",
@@ -1673,26 +1668,26 @@ describe("validateRootReadme", () => {
   it("requires the headings in canonical order", () => {
     const outOfOrder = rootReadme
       .replace("## Quickstart", "## TEMP")
-      .replace("## Why Dawn", "## Quickstart")
-      .replace("## TEMP", "## Why Dawn")
+      .replace("## Why B4.run", "## Quickstart")
+      .replace("## TEMP", "## Why B4.run")
     assertFailure(validateRootReadme(outOfOrder), /order/i)
   })
 
   it("reports order failures among present headings when another heading is missing", () => {
     const missingAndOutOfOrder = rootReadme
-      .replace("## Why Dawn\n\n", "")
+      .replace("## Why B4.run\n\n", "")
       .replace("## Quickstart", "## TEMP")
-      .replace("## How Dawn fits", "## Quickstart")
-      .replace("## TEMP", "## How Dawn fits")
+      .replace("## How B4.run fits", "## Quickstart")
+      .replace("## TEMP", "## How B4.run fits")
     const failures = validateRootReadme(missingAndOutOfOrder)
-    assertFailure(failures, /Why Dawn/)
+    assertFailure(failures, /Why B4.run/)
     assertFailure(failures, /order/i)
   })
 
   it("ignores headings inside fenced code blocks when checking order", () => {
     const misleading = rootReadme
       .replace("## Quickstart\n", "")
-      .replace("# Dawn\n", "# Dawn\n\n```md\n## Quickstart\n```\n")
+      .replace("# B4.run\n", "# B4.run\n\n```md\n## Quickstart\n```\n")
     assertFailure(validateRootReadme(misleading), /Quickstart/)
   })
 
@@ -1719,14 +1714,14 @@ describe("validateRootReadme", () => {
 
   it("rejects duplicate required root headings", () => {
     assertFailure(
-      validateRootReadme(rootReadme.replace("## Why Dawn", "## Quickstart\n\n## Why Dawn")),
+      validateRootReadme(rootReadme.replace("## Why B4.run", "## Quickstart\n\n## Why B4.run")),
       /Quickstart/,
     )
   })
 
   it("does not accept root assets and links hidden in fenced examples", () => {
     const hiddenReferences = rootReadme
-      .replace("![Dawn product loop](docs/brand/product-loop.gif)", "")
+      .replace("![B4.run product loop](docs/brand/product-loop.gif)", "")
       .replace("[Migrate from LangGraph](/docs/migrating-from-langgraph)", "")
       .replace("[Read the demo transcript](docs/brand/demo/transcript.md)", "")
       .concat(
@@ -1740,7 +1735,7 @@ describe("validateRootReadme", () => {
 
   it("does not accept root references hidden in HTML comments", () => {
     const hiddenReferences = rootReadme
-      .replace("![Dawn product loop](docs/brand/product-loop.gif)", "")
+      .replace("![B4.run product loop](docs/brand/product-loop.gif)", "")
       .replace("[Migrate from LangGraph](/docs/migrating-from-langgraph)", "")
       .replace("[Read the demo transcript](docs/brand/demo/transcript.md)", "")
       .concat(
@@ -1789,11 +1784,11 @@ describe("validateRootReadme", () => {
   for (const [name, block] of [
     [
       "processing-instruction",
-      "<?dawn\n[Migration](/docs/migrating-from-langgraph)\n[Transcript](docs/brand/demo/transcript.md)\n?>",
+      "<?b4\n[Migration](/docs/migrating-from-langgraph)\n[Transcript](docs/brand/demo/transcript.md)\n?>",
     ],
     [
       "declaration",
-      "<!DECLARATION dawn\n[Migration](/docs/migrating-from-langgraph)\n[Transcript](docs/brand/demo/transcript.md)\n>",
+      "<!DECLARATION b4\n[Migration](/docs/migrating-from-langgraph)\n[Transcript](docs/brand/demo/transcript.md)\n>",
     ],
     [
       "CDATA",
@@ -1818,8 +1813,8 @@ describe("validateRootReadme", () => {
   it("does not accept root assets and links written as inline code", () => {
     const inlineReferences = rootReadme
       .replace(
-        "![Dawn product loop](docs/brand/product-loop.gif)",
-        "`![Dawn product loop](docs/brand/product-loop.gif)`",
+        "![B4.run product loop](docs/brand/product-loop.gif)",
+        "`![B4.run product loop](docs/brand/product-loop.gif)`",
       )
       .replace(
         "[Migrate from LangGraph](/docs/migrating-from-langgraph)",
@@ -1848,7 +1843,7 @@ describe("validateRootReadme", () => {
     it(`ignores root contract decoys inside ${name}`, () => {
       const source = rootReadme
         .replace("## Quickstart\n", "")
-        .replace("![Dawn product loop](docs/brand/product-loop.gif)", "")
+        .replace("![B4.run product loop](docs/brand/product-loop.gif)", "")
         .replace("[Migrate from LangGraph](/docs/migrating-from-langgraph)", "")
         .replace("[Read the demo transcript](docs/brand/demo/transcript.md)", "")
         .concat(`\n\n${decoy}`)
@@ -1942,10 +1937,10 @@ describe("validateRootReadme", () => {
 
   it("accepts canonical absolute documentation links", () => {
     const absoluteLinks = rootReadme
-      .replace("/docs/migrating-from-langgraph", "https://dawnai.org/docs/migrating-from-langgraph")
+      .replace("/docs/migrating-from-langgraph", "https://b4.run/docs/migrating-from-langgraph")
       .replace(
         "docs/brand/demo/transcript.md",
-        "https://github.com/cacheplane/dawnai/blob/main/docs/brand/demo/transcript.md",
+        "https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md",
       )
     assert.deepEqual(validateRootReadme(absoluteLinks), [])
   })
@@ -2044,22 +2039,19 @@ describe("validateRootReadme", () => {
     assertFailure(
       validateRootReadme(
         rootReadme.replace(
-          "npm create dawn-ai-app@latest my-agent",
-          "npm create dawn-ai-app@latest my-agent-extra",
+          "npm create b4-app@latest my-agent",
+          "npm create b4-app@latest my-agent-extra",
         ),
       ),
-      /npm create dawn-ai-app@latest my-agent/,
+      /npm create b4-app@latest my-agent/,
     )
   })
 
   for (const [name, source, expected] of [
     [
       "canonical scaffold command",
-      rootReadme.replace(
-        "npm create dawn-ai-app@latest my-agent",
-        "pnpm create dawn-ai-app my-app",
-      ),
-      /npm create dawn-ai-app@latest my-agent/,
+      rootReadme.replace("npm create b4-app@latest my-agent", "pnpm create b4-app my-app"),
+      /npm create b4-app@latest my-agent/,
     ],
     [
       "product-loop GIF",
@@ -2085,7 +2077,7 @@ describe("validateRootReadme", () => {
   it("rejects the retired quickstart GIF caption", () => {
     assertFailure(
       validateRootReadme(
-        `${rootReadme}\n\nDawn quickstart — scaffold a route and invoke it in under a minute`,
+        `${rootReadme}\n\nB4.run quickstart — scaffold a route and invoke it in under a minute`,
       ),
       /old GIF caption/i,
     )
@@ -2093,28 +2085,28 @@ describe("validateRootReadme", () => {
 })
 
 describe("resolvePublicPackageTiers", () => {
-  const entry = ["create-dawn-ai-app", "@dawn-ai/sdk", "@dawn-ai/cli"]
+  const entry = ["create-b4-app", "@b4run/sdk", "@b4run/cli"]
   const capability = [
-    "@dawn-ai/ag-ui",
-    "@dawn-ai/evals",
-    "@dawn-ai/inspector",
-    "@dawn-ai/memory",
-    "@dawn-ai/memory-pgvector",
-    "@dawn-ai/permissions",
-    "@dawn-ai/postgres-storage",
-    "@dawn-ai/sandbox",
-    "@dawn-ai/sqlite-storage",
-    "@dawn-ai/testing",
-    "@dawn-ai/workspace",
+    "@b4run/ag-ui",
+    "@b4run/evals",
+    "@b4run/inspector",
+    "@b4run/memory",
+    "@b4run/memory-pgvector",
+    "@b4run/permissions",
+    "@b4run/postgres-storage",
+    "@b4run/sandbox",
+    "@b4run/sqlite-storage",
+    "@b4run/testing",
+    "@b4run/workspace",
   ]
   const tooling = [
-    "@dawn-ai/core",
-    "@dawn-ai/langchain",
-    "@dawn-ai/langgraph",
-    "@dawn-ai/vite-plugin",
-    "@dawn-ai/devkit",
-    "@dawn-ai/config-biome",
-    "@dawn-ai/config-typescript",
+    "@b4run/core",
+    "@b4run/langchain",
+    "@b4run/langgraph",
+    "@b4run/vite-plugin",
+    "@b4run/devkit",
+    "@b4run/config-biome",
+    "@b4run/config-typescript",
   ]
   const publicPackages = [...entry, ...capability, ...tooling]
 
@@ -2153,45 +2145,45 @@ describe("resolvePublicPackageTiers", () => {
 
   it("rejects unknown public packages", () => {
     assert.throws(
-      () => resolvePublicPackageTiers([...publicPackages, "@dawn-ai/unknown"]),
-      /Unknown public package.*@dawn-ai\/unknown/,
+      () => resolvePublicPackageTiers([...publicPackages, "@b4run/unknown"]),
+      /Unknown public package.*@b4run\/unknown/,
     )
   })
 
   it("rejects duplicate public packages", () => {
     assert.throws(
-      () => resolvePublicPackageTiers([...publicPackages, "@dawn-ai/sdk"]),
-      /Duplicate public package.*@dawn-ai\/sdk/,
+      () => resolvePublicPackageTiers([...publicPackages, "@b4run/sdk"]),
+      /Duplicate public package.*@b4run\/sdk/,
     )
   })
 
   it("rejects an incomplete public release inventory", () => {
     assert.throws(
-      () => resolvePublicPackageTiers(publicPackages.filter((name) => name !== "@dawn-ai/sdk")),
-      /Missing known public package.*@dawn-ai\/sdk/,
+      () => resolvePublicPackageTiers(publicPackages.filter((name) => name !== "@b4run/sdk")),
+      /Missing known public package.*@b4run\/sdk/,
     )
   })
 
   it("does not let caller-supplied tiers disguise an unknown package", () => {
     const alteredDefinitions = {
-      entry: [...entry, "@dawn-ai/unknown"],
+      entry: [...entry, "@b4run/unknown"],
       capability,
       tooling,
     }
     assert.throws(
-      () => resolvePublicPackageTiers([...publicPackages, "@dawn-ai/unknown"], alteredDefinitions),
-      /Unknown public package.*@dawn-ai\/unknown/,
+      () => resolvePublicPackageTiers([...publicPackages, "@b4run/unknown"], alteredDefinitions),
+      /Unknown public package.*@b4run\/unknown/,
     )
   })
 
   it("does not let caller-supplied tiers swap known package classifications", () => {
     const swappedDefinitions = {
-      entry: entry.map((name) => (name === "@dawn-ai/sdk" ? "@dawn-ai/core" : name)),
+      entry: entry.map((name) => (name === "@b4run/sdk" ? "@b4run/core" : name)),
       capability,
-      tooling: tooling.map((name) => (name === "@dawn-ai/core" ? "@dawn-ai/sdk" : name)),
+      tooling: tooling.map((name) => (name === "@b4run/core" ? "@b4run/sdk" : name)),
     }
     const tiers = resolvePublicPackageTiers(publicPackages, swappedDefinitions)
-    assert.equal(tiers["@dawn-ai/sdk"], "entry")
-    assert.equal(tiers["@dawn-ai/core"], "tooling")
+    assert.equal(tiers["@b4run/sdk"], "entry")
+    assert.equal(tiers["@b4run/core"], "tooling")
   })
 })

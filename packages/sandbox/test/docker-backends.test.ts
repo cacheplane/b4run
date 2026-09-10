@@ -280,7 +280,7 @@ describe("dockerExec", () => {
         exec: async (_container, command) => {
           execCalls += 1
           const shellCommand = command.at(-1) ?? ""
-          const startedMarker = shellCommand.match(/(__DAWN_EXEC_STARTED_[0-9a-f-]+__)/)?.[1]
+          const startedMarker = shellCommand.match(/(__B4_EXEC_STARTED_[0-9a-f-]+__)/)?.[1]
           expect(startedMarker).toBeDefined()
           return {
             stdout: `${startedMarker}\ncommand side effect completed\n`,

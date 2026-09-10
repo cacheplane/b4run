@@ -1,4 +1,4 @@
-import { DEFAULT_BROWSE_ORDER } from "@dawn-ai/memory/browse"
+import { DEFAULT_BROWSE_ORDER } from "@b4run/memory/browse"
 import { describe, expect, it } from "vitest"
 
 import {

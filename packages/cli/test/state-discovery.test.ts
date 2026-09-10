@@ -8,7 +8,7 @@ import { discoverStateDefinition } from "../src/lib/runtime/state-discovery.js"
 let tempDir: string
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), "dawn-state-disc-"))
+  tempDir = mkdtempSync(join(tmpdir(), "b4-state-disc-"))
 })
 
 afterEach(() => {

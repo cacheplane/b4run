@@ -6,7 +6,7 @@
  * lives in `thread-access-node.ts`.
  */
 
-import type { ThreadAccessResult, ThreadOperation } from "@dawn-ai/sdk"
+import type { ThreadAccessResult, ThreadOperation } from "@b4run/sdk"
 
 /**
  * The ONE selection rule, shared by the dynamic loader and (in a later slice)
@@ -116,7 +116,7 @@ export function normalizeThreadAccessResult(
         // request authorizes against, so dropping it silently turns a policy
         // bug into "this thread was created before the policy existed".
         console.warn(
-          `Dawn thread access: the policy for ${operation} on ${threadId ?? "(no thread id)"} returned ` +
+          `B4.run thread access: the policy for ${operation} on ${threadId ?? "(no thread id)"} returned ` +
             `an allow whose \`stamp\` is not a JSON object, so it was dropped and this thread will carry ` +
             `no access stamp. Received: ${renderValue(stamp)}`,
         )
@@ -135,7 +135,7 @@ export function normalizeThreadAccessResult(
     }
   }
   console.warn(
-    `Dawn thread access: the policy for ${operation} on ${threadId ?? "(no thread id)"} returned ` +
+    `B4.run thread access: the policy for ${operation} on ${threadId ?? "(no thread id)"} returned ` +
       `a value that is neither an allow nor a deny, so the request was denied. Received: ${renderValue(value)}`,
   )
   return { decision: "deny" }
@@ -155,8 +155,8 @@ export function threadAccessBootLine(source: {
   readonly fromManifest: boolean
   readonly resolved: boolean
 }): string {
-  if (!source.resolved) return "Dawn: no thread access policy (all thread endpoints are open)"
-  if (source.fromOptions) return "Dawn: thread access policy bound from the runtime options"
-  if (source.fromManifest) return "Dawn: thread access policy bound from the build manifest"
-  return "Dawn: thread access policy bound from src/thread-access.ts"
+  if (!source.resolved) return "B4.run: no thread access policy (all thread endpoints are open)"
+  if (source.fromOptions) return "B4.run: thread access policy bound from the runtime options"
+  if (source.fromManifest) return "B4.run: thread access policy bound from the build manifest"
+  return "B4.run: thread access policy bound from src/thread-access.ts"
 }

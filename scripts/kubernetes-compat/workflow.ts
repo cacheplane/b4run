@@ -74,7 +74,7 @@ export function createCompatibilityMatrix(rawPolicy: unknown): CompatibilityMatr
           target: target.minor,
           version: target.version,
           nodeImage: target.nodeImage,
-          clusterName: `dawn-k8s-${target.role}`,
+          clusterName: `b4-k8s-${target.role}`,
         })
         break
       case "canonical":

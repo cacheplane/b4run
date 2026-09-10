@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 const repositoryRoot = resolve(import.meta.dirname, "../..")
-const secret = "dawn-windows-static-secret"
+const secret = "b4-windows-static-secret"
 const serverStartupDeadlineMs = 5_000
 const serverShutdownDeadlineMs = 5_000
 
@@ -148,7 +148,7 @@ describe.skipIf(process.platform !== "win32")(
         throw new Error("resolved Hono server modules have an unexpected shape")
       }
 
-      const staticRoot = await mkdtemp(join(tmpdir(), "dawn-hono-windows-"))
+      const staticRoot = await mkdtemp(join(tmpdir(), "b4-hono-windows-"))
       let server: Server | undefined
       let caseFailed = false
       let caseError: unknown
@@ -167,7 +167,7 @@ describe.skipIf(process.platform !== "win32")(
             { header(name: string, value: string): void },
             () => Promise<void>,
           ]
-          context.header("X-Dawn-Authorization-Sentinel", "visited")
+          context.header("X-B4.run-Authorization-Sentinel", "visited")
           await next()
         })
         app.use("/static/*", staticModule.serveStatic({ root: staticRoot }))
@@ -218,7 +218,7 @@ describe.skipIf(process.platform !== "win32")(
         const body = await response.text()
         expect(body.length).toBeLessThanOrEqual(4_096)
         expect(response.status).toBe(404)
-        expect(response.headers.get("x-dawn-authorization-sentinel")).toBeNull()
+        expect(response.headers.get("x-b4-authorization-sentinel")).toBeNull()
         expect(body).not.toContain(secret)
       } catch (error) {
         caseFailed = true

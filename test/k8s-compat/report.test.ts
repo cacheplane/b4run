@@ -110,7 +110,7 @@ async function writeAccountingFixture(
   report: unknown,
   manifest: unknown = expectedTestsManifest(),
 ): Promise<{ readonly reportPath: string; readonly manifestPath: string }> {
-  const directory = await createTemporaryDirectory("dawn-k8s-accounting-")
+  const directory = await createTemporaryDirectory("b4-k8s-accounting-")
   return {
     reportPath: await writeJson(directory, "vitest.json", report),
     manifestPath: await writeJson(directory, "expected-tests.json", manifest),
@@ -378,7 +378,7 @@ describe("exact step accounting", () => {
 
 describe("Vitest provider accounting", () => {
   test("rejects a missing Vitest output file", async () => {
-    const directory = await createTemporaryDirectory("dawn-k8s-accounting-missing-")
+    const directory = await createTemporaryDirectory("b4-k8s-accounting-missing-")
     const manifestPath = await writeJson(directory, "expected-tests.json", expectedTestsManifest())
 
     await expect(
@@ -554,7 +554,7 @@ describe("Vitest provider accounting", () => {
       /Duplicate expected step IDs.*provider test zeta/i,
     ],
   ])("rejects malformed input: %s", async (_case, report, manifest, expectedMessage) => {
-    const directory = await createTemporaryDirectory("dawn-k8s-accounting-malformed-")
+    const directory = await createTemporaryDirectory("b4-k8s-accounting-malformed-")
     const reportPath = join(directory, "vitest.json")
     const manifestPath = join(directory, "expected-tests.json")
     await writeFile(
@@ -925,7 +925,7 @@ describe("Vitest provider accounting session", () => {
   })
 
   test("finish accepts both distinct phases and rejects later records", async () => {
-    const directory = await createTemporaryDirectory("dawn-k8s-accounting-complete-")
+    const directory = await createTemporaryDirectory("b4-k8s-accounting-complete-")
     const manifestPath = await writeJson(directory, "expected-tests.json", expectedTestsManifest())
     const beforePath = await writeJson(directory, "before.json", vitestJsonReport())
     const afterPath = await writeJson(directory, "after.json", vitestJsonReport())
@@ -1028,7 +1028,7 @@ describe("report redaction", () => {
 
 describe("atomic report persistence", () => {
   test("writes a redacted report beneath the repository artifact directory", async () => {
-    const repositoryRoot = await createTemporaryDirectory("dawn-k8s-report-")
+    const repositoryRoot = await createTemporaryDirectory("b4-k8s-report-")
     const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkYXduIn0.signature-value"
     const report: CompatibilityReport = {
       ...sampleReport(),
@@ -1078,7 +1078,7 @@ describe("atomic report persistence", () => {
   })
 
   test("persists bigint diagnostics as decimal strings", async () => {
-    const repositoryRoot = await createTemporaryDirectory("dawn-k8s-report-bigint-")
+    const repositoryRoot = await createTemporaryDirectory("b4-k8s-report-bigint-")
     const report: CompatibilityReport = {
       ...sampleReport(),
       diagnostics: { large: 12_345_678_901_234_567_890n, negative: -42n },
@@ -1094,7 +1094,7 @@ describe("atomic report persistence", () => {
   })
 
   test("persists direct and indirect circular diagnostics with stable markers", async () => {
-    const repositoryRoot = await createTemporaryDirectory("dawn-k8s-report-circular-")
+    const repositoryRoot = await createTemporaryDirectory("b4-k8s-report-circular-")
     const direct: Record<string, unknown> = { label: "direct" }
     direct.self = direct
     const indirect: Record<string, unknown> = { label: "outer" }
@@ -1127,7 +1127,7 @@ describe("atomic report persistence", () => {
     "..",
     ".",
   ])("rejects unsafe report filename %#", async (filename) => {
-    const repositoryRoot = await createTemporaryDirectory("dawn-k8s-report-path-")
+    const repositoryRoot = await createTemporaryDirectory("b4-k8s-report-path-")
 
     await expect(
       persistCompatibilityReport(repositoryRoot, filename, sampleReport()),
@@ -1137,8 +1137,8 @@ describe("atomic report persistence", () => {
   test.skipIf(process.platform === "win32")(
     "rejects an artifact-directory symlink that escapes the repository after resolution",
     async () => {
-      const repositoryRoot = await createTemporaryDirectory("dawn-k8s-report-symlink-")
-      const outside = await createTemporaryDirectory("dawn-k8s-report-outside-")
+      const repositoryRoot = await createTemporaryDirectory("b4-k8s-report-symlink-")
+      const outside = await createTemporaryDirectory("b4-k8s-report-outside-")
       const artifactParent = join(repositoryRoot, "artifacts", "testing")
       await mkdir(artifactParent, { recursive: true })
       await symlink(outside, join(artifactParent, "kubernetes-compat"), "dir")
@@ -1151,7 +1151,7 @@ describe("atomic report persistence", () => {
   )
 
   test("preserves an existing report and removes the sibling temp file after atomic failure", async () => {
-    const repositoryRoot = await createTemporaryDirectory("dawn-k8s-report-failure-")
+    const repositoryRoot = await createTemporaryDirectory("b4-k8s-report-failure-")
     const artifactRoot = resolve(repositoryRoot, ARTIFACT_DIRECTORY)
     const reportPath = join(artifactRoot, "existing.json")
     await mkdir(artifactRoot, { recursive: true })

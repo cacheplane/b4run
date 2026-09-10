@@ -4,7 +4,7 @@ import type {
   RuntimeExecutionMode,
   RuntimeExecutionSuccessResult,
   RuntimeExecutionTiming,
-} from "@dawn-ai/sdk/testing"
+} from "@b4run/sdk/testing"
 
 export type {
   RuntimeExecutionBaseResult,
@@ -15,7 +15,7 @@ export type {
   RuntimeExecutionResult,
   RuntimeExecutionSuccessResult,
   RuntimeExecutionTiming,
-} from "@dawn-ai/sdk/testing"
+} from "@b4run/sdk/testing"
 
 export function createRuntimeSuccessResult(options: {
   readonly appRoot: string

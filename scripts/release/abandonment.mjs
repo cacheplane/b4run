@@ -69,8 +69,8 @@ const SHA256_PATTERN = /^[0-9a-f]{64}$/u
 const BASE_ASSET_NAME_PATTERN =
   /^(?:release-record\.json|manifest\.json|[A-Za-z0-9@._+-]+\.tgz(?:\.intoto\.jsonl)?|manifest\.json\.intoto\.jsonl)$/u
 const TERMINAL_ASSET_NAME = "abandonment.json"
-const ABANDONMENT_RECORD_START = "<!-- DAWN_ABANDONMENT_RECORD_BASE64\n"
-const ABANDONMENT_RECORD_END = "\nEND_DAWN_ABANDONMENT_RECORD_BASE64 -->"
+const ABANDONMENT_RECORD_START = "<!-- B4_ABANDONMENT_RECORD_BASE64\n"
+const ABANDONMENT_RECORD_END = "\nEND_B4_ABANDONMENT_RECORD_BASE64 -->"
 const MAX_RELEASES = 10_000
 const MIN_REGISTRY_OBSERVATION_GAP_MS = 60_000
 const MAX_FRESH_AUTHORIZATION_AGE_MS = 10 * 60_000
@@ -314,7 +314,7 @@ export async function recordAbandonment(input) {
       ? {}
       : { previousMarker: tombstone.predecessor.marker }),
   })
-  const title = `Dawn v${candidate.version} (abandoned before publication)`
+  const title = `B4 v${candidate.version} (abandoned before publication)`
 
   let release = observedRelease
   let created = false

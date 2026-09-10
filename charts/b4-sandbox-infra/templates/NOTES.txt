@@ -1,0 +1,94 @@
+b4-sandbox-infra installed.
+
+Helm release namespace:
+  {{ .Release.Namespace }} (b4-app management namespace; keep separate from the sandbox namespace)
+
+Namespace:
+  {{ include "b4-sandbox-infra.namespace" . }}
+{{- if .Values.namespace.create }} (created by this chart){{- else }} (must already exist — namespace.create=false){{- end }}
+
+By default, sandbox resources live in b4-sandboxes while this Helm release
+and its Secret live in the separate b4-app management namespace.
+
+Point your B4.run app's `b4.config.ts` at this namespace so the
+kubernetesSandbox provider agrees with the chart:
+
+  sandbox: {
+    provider: kubernetesSandbox({ namespace: "{{ include "b4-sandbox-infra.namespace" . }}" })
+  }
+
+Application ServiceAccount / namespace wiring:
+
+Create or use the B4.run app ServiceAccount in a separate management namespace.
+Configure the app Pod to use that management-namespace ServiceAccount.
+Then bind that cross-namespace subject into this sandbox namespace's
+orchestrator RoleBinding through `orchestrator.subjects`:
+
+First export this release's effective values:
+
+  helm get values {{ .Release.Name }} --all --output yaml \
+    --namespace {{ .Release.Namespace }} \
+    > b4-sandbox-infra-rbac-values.yaml
+
+Edit b4-sandbox-infra-rbac-values.yaml so `orchestrator.subjects` contains
+the complete intended subject list: preserve every existing item and append
+the application ServiceAccount as a cross-namespace subject. Helm replaces
+arrays, so never write a guessed numeric subject index.
+
+  helm upgrade {{ .Release.Name }} oci://ghcr.io/cacheplane/charts/b4-sandbox-infra \
+    --version {{ .Chart.Version }} \
+    --namespace {{ .Release.Namespace }} \
+    --values b4-sandbox-infra-rbac-values.yaml
+
+The appended values entry is:
+
+  orchestrator:
+    subjects:
+      - kind: ServiceAccount
+        name: <app-service-account>
+        namespace: <management-namespace>
+
+That subject receives create/get/delete pods and persistentvolumeclaims,
+create/get pods/exec, and create/get/list/update/delete networkpolicies in this
+sandbox namespace. Keep the app Pod and all application credentials in the
+management namespace.
+
+Pod Security Standards on this namespace:
+  enforce={{ .Values.podSecurityStandard.enforce }}  warn={{ .Values.podSecurityStandard.warn }}  audit={{ .Values.podSecurityStandard.audit }}
+
+The chart default is enforce=restricted. Baseline is needed only for workloads
+or settings that actually violate Restricted admission, such as
+security.runAsNonRoot: false. security.readOnlyRootFilesystem: false alone
+remains Restricted-compatible and does not require lowering the namespace to
+Baseline. There is no automatic downgrade.
+
+Operational prerequisites:
+  - Pod Security Admission for the labels above.
+  - Dynamic provisioning for ReadWriteOnce PVCs (a default StorageClass or an
+    explicit kubernetesSandbox storageClass).
+  - A policy-enforcing CNI for NetworkPolicy egress controls.
+
+Keep this namespace free of application credentials. Direct Secret API reads
+are denied, but the orchestrator's Pod-create permission can mount a known
+Secret into a Pod. Store the B4.run app, application credentials, and Helm release
+Secrets in the separate management namespace shown above.
+
+namespace.extraLabels may add operator labels, but Pod Security labels and the
+chart ownership labels are reserved and rejected during rendering.
+
+{{- if .Values.networkPolicy.defaultDenyEgress }}
+
+A default-deny-egress NetworkPolicy selects B4.run-managed sandbox Pods via
+app.kubernetes.io/managed-by=b4 (+ DNS to kube-system). Helm-managed reaper
+and control-plane Pods are excluded so they retain Kubernetes API access.
+The backstop still overrides sandbox `network: "allow"`; disable it with
+`networkPolicy.defaultDenyEgress=false`. Requires a policy-capable CNI (e.g.
+Calico, Cilium) to actually be enforced.
+{{- end }}
+
+{{- if .Values.reaper.enabled }}
+
+A PVC reaper CronJob runs on schedule "{{ .Values.reaper.schedule }}",
+deleting managed PVCs that have been continuously unbound for more than
+{{ .Values.reaper.ttlHours }}h.
+{{- end }}

@@ -94,7 +94,18 @@ export function createGitHubReader({
     ...(conditional ? { dispose: () => conditional.dispose() } : {}),
     getRepository(args = {}, options = {}) {
       exactArguments(args, [])
-      return readObject(recoveryContext(context, options), { url: base, operation: "repository" })
+      return readObject(recoveryContext(context, options), {
+        url: base,
+        operation: "repository",
+        // Authenticated repository responses include temporary clone credentials and
+        // security settings. Recovery consumes only these identity fields.
+        project: (value) =>
+          Object.fromEntries(
+            ["id", "full_name", "default_branch"]
+              .filter((key) => Object.hasOwn(value, key))
+              .map((key) => [key, value[key]]),
+          ),
+      })
     },
     listRepositoryWorkflowsComplete(args = {}, options = {}) {
       exactArguments(args, [])
@@ -121,6 +132,7 @@ export function createGitHubReader({
         extract: objectArray("workflow_runs"),
         compare: compareIdThenName,
         strictTotal: true,
+        pageConcurrency: 4,
       }).then((result) => {
         if (result.status !== "PRESENT") return result
         // Keep all records and fence authority values after full raw validation.
@@ -403,7 +415,10 @@ export function createGitHubReader({
   }
 }
 
-async function readObject(context, { url, operation, validate = isObject, requestBudget = {} }) {
+async function readObject(
+  context,
+  { url, operation, validate = isObject, requestBudget = {}, project = (value) => value },
+) {
   const result = await readJson(context, { url, operation, requestBudget })
   if (result.status !== "PRESENT") {
     return publicResult(result)
@@ -413,7 +428,7 @@ async function readObject(context, { url, operation, validate = isObject, reques
   }
   let value
   try {
-    value = canonicalJson(result.body, context.token)
+    value = canonicalJson(project(result.body), context.token)
   } catch (error) {
     return failure(
       "ERROR",
@@ -430,7 +445,15 @@ async function readObject(context, { url, operation, validate = isObject, reques
 
 async function readPaginated(
   context,
-  { initialUrl, operation, extract, compare, cursorPagination = false, strictTotal = false },
+  {
+    initialUrl,
+    operation,
+    extract,
+    compare,
+    cursorPagination = false,
+    strictTotal = false,
+    pageConcurrency = 1,
+  },
 ) {
   const records = []
   let total = null
@@ -438,18 +461,9 @@ async function readPaginated(
   const budget = createOperationBudget(context)
   let url = initialUrl
   const seenUrls = new Set([new URL(initialUrl).href])
-  for (let page = 0; page < context.maxPages; page += 1) {
-    if (budget.deadline <= budget.now()) {
-      return failure("AMBIGUOUS", operation, null, "TIMEOUT")
-    }
-    if (budget.remainingBytes < 1) {
-      return failure("ERROR", operation, null, "OPERATION_TOO_LARGE")
-    }
-    const requestBudget = remainingRequestBudget(budget)
-    if (requestBudget === null) {
-      return failure("AMBIGUOUS", operation, null, "TIMEOUT")
-    }
-    const result = await readJson(context, {
+  let prefetched = []
+  const loadPage = (page, url, requestBudget) =>
+    readJson(context, {
       url,
       operation,
       requestBudget,
@@ -478,6 +492,20 @@ async function readPaginated(
           }
         : {}),
     })
+  for (let page = 0; page < context.maxPages; page += 1) {
+    if (budget.deadline <= budget.now()) {
+      return failure("AMBIGUOUS", operation, null, "TIMEOUT")
+    }
+    if (budget.remainingBytes < 1) {
+      return failure("ERROR", operation, null, "OPERATION_TOO_LARGE")
+    }
+    const requestBudget = remainingRequestBudget(budget)
+    if (requestBudget === null) {
+      return failure("AMBIGUOUS", operation, null, "TIMEOUT")
+    }
+    const queued = prefetched.shift()
+    if (queued?.status === "rejected") throw queued.reason
+    const result = queued ? queued.value : await loadPage(page, url, requestBudget)
     if (result.code === "RESPONSE_TOO_LARGE") {
       return failure("ERROR", operation, result.httpStatus, "OPERATION_TOO_LARGE")
     }
@@ -541,6 +569,8 @@ async function readPaginated(
     )
       return failure("ERROR", operation, result.httpStatus, "INCOMPLETE_INVENTORY")
     if (result.nextUrl === null) {
+      if (prefetched.length > 0)
+        return failure("ERROR", operation, result.httpStatus, "INCOMPLETE_INVENTORY")
       if (strictTotal && records.length !== total)
         return failure("ERROR", operation, result.httpStatus, "INCOMPLETE_INVENTORY")
       records.sort(compare)
@@ -570,6 +600,33 @@ async function readPaginated(
     }
     seenUrls.add(nextUrl)
     url = nextUrl
+    if (pageConcurrency > 1 && strictTotal && !cursorPagination && prefetched.length === 0) {
+      // Each concurrent request reserves a disjoint share of the remaining
+      // operation bytes, with at least 16MiB per page. Small budgets stay serial.
+      const count = Math.min(
+        pageConcurrency,
+        Math.floor(budget.remainingBytes / (16 * 1024 * 1024)),
+        Math.ceil(total / 100) - page - 1,
+        context.maxPages - page - 1,
+      )
+      if (count > 1) {
+        const batchBudget = remainingRequestBudget(budget)
+        if (batchBudget === null) return failure("AMBIGUOUS", operation, null, "TIMEOUT")
+        const share = Math.floor(budget.remainingBytes / count)
+        // Only derive numeric pages from the already validated next URL. Join
+        // every started request before consuming any result, including failures.
+        prefetched = await Promise.allSettled(
+          Array.from({ length: count }, (_, offset) => {
+            const pageUrl = new URL(nextUrl)
+            pageUrl.searchParams.set("page", String(page + 2 + offset))
+            return loadPage(page + 1 + offset, pageUrl.href, {
+              ...batchBudget,
+              maxResponseBytes: share,
+            })
+          }),
+        )
+      }
+    }
   }
   return failure("ERROR", operation, null, "PAGE_LIMIT_EXCEEDED")
 }

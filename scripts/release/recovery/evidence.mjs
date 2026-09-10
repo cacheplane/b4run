@@ -12,7 +12,7 @@ import {
 import { renderRecoveryReleaseBody } from "./metadata.mjs"
 import { createRecoveryWorkBudget } from "./observe.mjs"
 import { withRecoveryPayloadReuse } from "./payload-reuse.mjs"
-import { RECOVERY_RETRY, recoveryMethods } from "./policy.mjs"
+import { canonicalPolicyBytes, RECOVERY_RETRY, recoveryMethods } from "./policy.mjs"
 import {
   canonicalRecoveryBytes,
   parseRecovery,
@@ -26,7 +26,29 @@ export async function collectRecoveryEvidence(request, config, dependencies) {
     collectRecoveryEvidenceInInvocation(request, config, scoped),
   )
 }
-async function collectRecoveryEvidenceInInvocation(request, config, dependencies) {
+export async function collectRecoveryEvidenceStage(request, config, dependencies, previous = null) {
+  return withRecoveryPayloadReuse(dependencies, (scoped) =>
+    collectRecoveryEvidenceInInvocation(request, config, scoped, { previous }),
+  )
+}
+const EVIDENCE_GROUPS = [
+  ["metadata", "published-harness"],
+  ["runtime-targets", "scaffold"],
+  ["storage"],
+]
+function completedLanes(current, executor) {
+  return RECOVERY_LANES.filter((lane) => {
+    const matches = (current.facts.escrow ?? []).filter(
+      (entry) =>
+        entry.lane.lane === lane &&
+        canonicalPolicyBytes(entry.receipt.executor).equals(canonicalPolicyBytes(executor)),
+    )
+    if (matches.length > 1) throw new Error("Ambiguous accepted lane escrow")
+    return matches.length === 1 && matches[0].lane.conclusion === "success"
+  })
+}
+async function collectRecoveryEvidenceInInvocation(request, config, dependencies, staged = null) {
+  const finish = (result, stage = null) => (staged ? { result, stage } : result)
   request = snapshotRecoveryData(request, 16384)
   if (Object.keys(request).sort().join(" ") !== "candidate expectedControllerSha intentPath")
     throw new TypeError("Exact recovery evidence request required")
@@ -59,7 +81,7 @@ async function collectRecoveryEvidenceInInvocation(request, config, dependencies
   if (current.phase !== "RECOVERY_ADOPTED") {
     if (current.phase === "NPM_COMPLETE")
       throw new Error("Recovery adoption required before evidence collection")
-    return current
+    return finish(current)
   }
   const proof = await budget.work(() =>
     captureRecoveryEligibility(
@@ -67,6 +89,32 @@ async function collectRecoveryEvidenceInInvocation(request, config, dependencies
       authorityDependencies,
     ),
   )
+  const acceptedSelection = Boolean(current.facts.verification)
+  const beforeLanes = staged ? completedLanes(current, proof.executor) : []
+  if (staged?.previous) {
+    if (
+      !canonicalPolicyBytes(staged.previous.executor).equals(canonicalPolicyBytes(proof.executor))
+    )
+      throw new Error("Evidence stage executor changed")
+    if (!staged.previous.completedLanes.every((lane) => beforeLanes.includes(lane)))
+      throw new Error("Evidence stage progress changed")
+  }
+  const missingGroup = EVIDENCE_GROUPS.findIndex((lanes) =>
+    lanes.some((lane) => !beforeLanes.includes(lane)),
+  )
+  const group = staged ? (missingGroup < 0 ? 2 : missingGroup) : null
+  const targetLanes = staged
+    ? EVIDENCE_GROUPS[group].filter((lane) => !beforeLanes.includes(lane))
+    : []
+  const stageProof = (current) => {
+    const afterLanes = completedLanes(current, proof.executor)
+    const expected = RECOVERY_LANES.filter(
+      (lane) => beforeLanes.includes(lane) || targetLanes.includes(lane),
+    )
+    if (!canonicalPolicyBytes(afterLanes).equals(canonicalPolicyBytes(expected)))
+      throw new Error("Evidence stage did not prove exact lane progress")
+    return { executor: proof.executor, completedLanes: afterLanes, group }
+  }
   const common = {
     ...request,
     expectedBodySha256: recoveryEvidenceHash(Buffer.from(current.facts.release.body)),
@@ -112,7 +160,11 @@ async function collectRecoveryEvidenceInInvocation(request, config, dependencies
       collected.push(verified)
     }
     // Every artifact is fully checked before the first write, including all sidecars.
-    for (const verified of collected) {
+    if (staged && errors.length)
+      return finish(snapshotRecoveryData({ ...current, errors }, 16 * 1024 * 1024))
+    for (const verified of collected.filter(
+      (value) => !staged || targetLanes.includes(value.lane.lane),
+    )) {
       const installations = []
       for (const [name, contentBase64] of Object.entries(verified.installations))
         installations.push(await writer.uploadRecoveryAsset({ ...common, name, contentBase64 }))
@@ -139,7 +191,11 @@ async function collectRecoveryEvidenceInInvocation(request, config, dependencies
       })
     }
     current = await observe()
-    if (errors.length) return snapshotRecoveryData({ ...current, errors }, 16 * 1024 * 1024)
+    if (errors.length) return finish(snapshotRecoveryData({ ...current, errors }, 16 * 1024 * 1024))
+    if (staged) {
+      const progress = stageProof(current)
+      if (progress.completedLanes.length < RECOVERY_LANES.length) return finish(current, progress)
+    }
     const set = buildRecoveryVerificationSet(current, proof.executor)
     await writer.uploadRecoveryAsset({
       ...common,
@@ -154,12 +210,13 @@ async function collectRecoveryEvidenceInInvocation(request, config, dependencies
     phase: "VERIFICATION_COMPLETE",
     verificationSet: current.facts.verification.ref,
   })
-  const prefix = current.facts.release.body.split("\n\n<!-- DAWN_RELEASE_CONTROLLER_MARKER\n")[0]
-  return writer.updateRecoveryDraft({
+  const prefix = current.facts.release.body.split("\n\n<!-- B4_RELEASE_CONTROLLER_MARKER\n")[0]
+  const result = await writer.updateRecoveryDraft({
     ...common,
     title: current.facts.release.name,
     body: renderRecoveryReleaseBody({ marker, body: prefix }),
   })
+  return finish(result, staged && !acceptedSelection ? stageProof(result) : null)
 }
 function data(value, name) {
   if (

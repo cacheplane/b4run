@@ -1,5 +1,35 @@
 # @dawn-ai/memory-pgvector
 
+## 0.8.30
+
+### Patch Changes
+
+- @b4run/memory@0.8.30
+
+## 0.8.29
+
+### Patch Changes
+
+- @b4run/memory@0.8.29
+
+## 0.8.28
+
+### Patch Changes
+
+- @b4run/memory@0.8.28
+
+## 0.8.27
+
+### Patch Changes
+
+- @b4run/memory@0.8.27
+
+## 0.8.26
+
+### Patch Changes
+
+- @dawn-ai/memory@0.8.26
+
 ## 0.8.25
 
 ### Patch Changes

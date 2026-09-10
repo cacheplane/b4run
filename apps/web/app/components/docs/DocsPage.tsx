@@ -35,7 +35,7 @@ export function DocsPage({ href, Content, promptSlug }: Props) {
           {...(prompt?.body ? { promptBody: prompt.body } : {})}
         />
       </div>
-      <article className="prose-dawn">
+      <article className="prose-b4">
         <Content />
       </article>
       <DocsPrevNext href={href} />

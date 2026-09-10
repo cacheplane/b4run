@@ -4,11 +4,11 @@ import { Worker } from "node:worker_threads"
 
 import { createGitHubReader } from "../adapters/github.mjs"
 
-const OWNER = "dawn-ai"
-const REPO = "dawn"
+const OWNER = "b4run"
+const REPO = "b4"
 const TOKEN = "github_secret_token"
 const SHA = "0123456789abcdef0123456789abcdef01234567"
-const BASE = "https://api.github.com/repos/dawn-ai/dawn"
+const BASE = "https://api.github.com/repos/b4run/b4"
 const REPOSITORY_ID = "1210070282"
 const ALLOWED_METHODS = [
   "downloadActionsArtifact",
@@ -219,8 +219,8 @@ test("GitHub all-attempt coverage rejects a max-safe sparse attempt in bounded t
     ;(async () => {
       const { createGitHubReader } = await import(${JSON.stringify(moduleUrl)})
       const github = createGitHubReader({
-        owner: "dawn-ai",
-        repo: "dawn",
+        owner: "b4run",
+        repo: "b4",
         fetchImpl: async () => new Response(JSON.stringify({
           jobs: [{
             id: 1,
@@ -1047,8 +1047,8 @@ test("GitHub attestation pagination rejects another subject endpoint", async () 
 test("GitHub validates repository identity and every dynamic argument before fetching", () => {
   for (const identity of [
     { owner: "", repo: REPO },
-    { owner: "../dawn-ai", repo: REPO },
-    { owner: OWNER, repo: "dawn/repo" },
+    { owner: "../b4run", repo: REPO },
+    { owner: OWNER, repo: "b4/repo" },
     { owner: OWNER, repo: "--help" },
   ]) {
     assert.throws(
@@ -1105,7 +1105,7 @@ test("GitHub rejects oversized identity and operation inputs before parsing or f
 
 test("GitHub validation errors never echo control characters", () => {
   assert.throws(
-    () => createGitHubReader({ owner: "dawn\nforged", repo: REPO, fetchImpl: assert.fail }),
+    () => createGitHubReader({ owner: "b4\nforged", repo: REPO, fetchImpl: assert.fail }),
     errorWithoutControls,
   )
   const github = createGitHubReader({ owner: OWNER, repo: REPO, fetchImpl: assert.fail })
@@ -1514,4 +1514,257 @@ test("strict inventory rejects a last-page link that contradicts a missing next 
   ])
   const reader = createGitHubReader({ owner: OWNER, repo: REPO, fetchImpl })
   assert.notEqual((await reader.listRepositoryWorkflowsComplete()).status, "PRESENT")
+})
+
+function allShaPage(page, total = 650, damage = () => {}) {
+  const body = {
+    total_count: total,
+    workflow_runs: Array.from({ length: Math.min(100, total - (page - 1) * 100) }, (_, i) => ({
+      id: (page - 1) * 100 + i + 1,
+    })),
+  }
+  damage(body)
+  return jsonResponse(
+    body,
+    200,
+    page * 100 < total
+      ? linkHeader(`${BASE}/actions/workflows/1/runs?per_page=100&page=${page + 1}`)
+      : {},
+  )
+}
+test("all-SHA inventory overlaps bounded page batches after validating page one", async () => {
+  let active = 0,
+    maximum = 0
+  const calls = []
+  const github = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    fetchImpl: async (url) => {
+      const page = Number(new URL(url).searchParams.get("page") ?? 1)
+      calls.push(page)
+      active++
+      maximum = Math.max(maximum, active)
+      await new Promise((resolve) => setImmediate(resolve))
+      active--
+      return allShaPage(page)
+    },
+  })
+  const result = await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })
+  assert.equal(result.status, "PRESENT")
+  assert.equal(result.value.length, 650)
+  assert.deepEqual(calls, [1, 2, 3, 4, 5, 6, 7])
+  assert.ok(maximum > 1 && maximum <= 4, `bounded real overlap: ${maximum}`)
+  assert.equal(active, 0)
+})
+for (const damage of [
+  "malformed",
+  "duplicate",
+  "drifting-total",
+  "unsafe-link",
+  "early-last-page",
+  "failure",
+  "late",
+])
+  test(`all-SHA batch rejects ${damage} and settles siblings before returning`, async () => {
+    let now = 0,
+      active = 0,
+      started = 0,
+      completed = 0
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      now: () => now,
+      timeoutMs: 1000,
+      fetchImpl: async (url) => {
+        const page = Number(new URL(url).searchParams.get("page") ?? 1)
+        active++
+        started++
+        await new Promise((resolve) => setImmediate(resolve))
+        active--
+        completed++
+        if (page === 3) {
+          if (damage === "failure") return jsonResponse({}, 503)
+          if (damage === "late") now = 1000
+          if (damage === "unsafe-link")
+            return jsonResponse(
+              { total_count: 650, workflow_runs: [{ id: 301 }] },
+              200,
+              linkHeader("https://evil.example/page4"),
+            )
+          if (damage === "early-last-page")
+            return jsonResponse({
+              total_count: 650,
+              workflow_runs: Array.from({ length: 450 }, (_, i) => ({ id: i + 201 })),
+            })
+        }
+        return allShaPage(page, 650, (body) => {
+          if (page !== 3) return
+          if (damage === "malformed") body.workflow_runs = null
+          if (damage === "duplicate") body.workflow_runs[0].id = 1
+          if (damage === "drifting-total") body.total_count++
+        })
+      },
+    })
+    const result = await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })
+    assert.notEqual(result.status, "PRESENT")
+    assert.equal(active, 0)
+    assert.equal(started, completed)
+  })
+test("all-SHA batching stays sequential below two 16MiB reservations and preserves cumulative limits", async () => {
+  for (const maximumBytes of [1024, 16 * 1024 * 1024]) {
+    let active = 0,
+      maximum = 0
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      maxResponseBytes: maximumBytes,
+      fetchImpl: async (url) => {
+        active++
+        maximum = Math.max(maximum, active)
+        await new Promise((resolve) => setImmediate(resolve))
+        active--
+        return allShaPage(Number(new URL(url).searchParams.get("page") ?? 1))
+      },
+    })
+    const result = await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })
+    assert.equal(maximum, 1)
+    assert.equal(result.status, maximumBytes === 1024 ? "ERROR" : "PRESENT")
+  }
+})
+
+test("all-SHA failed batch waits for a slow started sibling before returning", async () => {
+  let release,
+    active = 0,
+    reachedSlow = false,
+    finished = false
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const github = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    fetchImpl: async (url) => {
+      const page = Number(new URL(url).searchParams.get("page") ?? 1)
+      active++
+      if (page === 4) {
+        reachedSlow = true
+        await gate
+      }
+      active--
+      return page === 2 ? jsonResponse({}, 503) : allShaPage(page)
+    },
+  })
+  const pending = github.listWorkflowRunsAllShasComplete({ workflowId: "1" }).then((result) => {
+    finished = true
+    return result
+  })
+  try {
+    for (let i = 0; i < 20 && !reachedSlow; i++)
+      await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(reachedSlow, true)
+    assert.equal(finished, false)
+  } finally {
+    release()
+  }
+  assert.notEqual((await pending).status, "PRESENT")
+  assert.equal(active, 0)
+})
+test("all-SHA concurrent requests receive disjoint byte reservations", async () => {
+  const first = allShaPage(1)
+  const firstBytes = Buffer.byteLength(await first.clone().text())
+  const calls = []
+  const github = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    maxResponseBytes: 48 * 1024 * 1024 + firstBytes,
+    fetchImpl: async (url) => {
+      const page = Number(new URL(url).searchParams.get("page") ?? 1)
+      calls.push(page)
+      const response = allShaPage(page)
+      if (page > 1) response.headers.set("content-length", String(16 * 1024 * 1024 + 1))
+      return response
+    },
+  })
+  const result = await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })
+  assert.equal(result.code, "OPERATION_TOO_LARGE")
+  assert.deepEqual(calls, [1, 2, 3, 4])
+})
+for (const damage of [false, true])
+  test(`all-SHA parallel conditional pages preserve raw validation with damaged link ${damage}`, async () => {
+    let round = 0
+    const conditional = []
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      token: TOKEN,
+      conditionalReads: true,
+      fetchImpl: async (url, init) => {
+        const page = Number(new URL(url).searchParams.get("page") ?? 1)
+        if (page === 1) round++
+        if (round === 1) {
+          const response = allShaPage(page)
+          response.headers.set("etag", `"page-${page}"`)
+          return response
+        }
+        conditional.push(new Headers(init.headers).get("if-none-match"))
+        return new Response(null, {
+          status: 304,
+          headers: {
+            etag: `"page-${page}"`,
+            ...(damage && page === 3
+              ? { link: `<${BASE}/actions/workflows/1/runs?per_page=100&page=999>; rel="next"` }
+              : {}),
+          },
+        })
+      },
+    })
+    assert.equal(
+      (await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })).value.length,
+      650,
+    )
+    const result = await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })
+    assert.equal(result.status === "PRESENT", !damage)
+    assert.ok(conditional.every((etag) => typeof etag === "string" && etag.startsWith('"page-')))
+    if (!damage) assert.equal(result.value.length, 650)
+  })
+
+for (const [options, expectedCalls] of [
+  [{ maxPages: 2 }, 2],
+  [{ maxRecords: 100 }, 1],
+])
+  test(`all-SHA prefetch never exceeds existing limits ${JSON.stringify(options)}`, async () => {
+    const calls = []
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      ...options,
+      fetchImpl: async (url) => {
+        const page = Number(new URL(url).searchParams.get("page") ?? 1)
+        calls.push(page)
+        return allShaPage(page)
+      },
+    })
+    assert.notEqual(
+      (await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })).status,
+      "PRESENT",
+    )
+    assert.equal(calls.length, expectedCalls)
+  })
+test("all-SHA invalid first-page records prevent any speculative page read", async () => {
+  let calls = 0
+  const github = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    fetchImpl: async () => {
+      calls++
+      return allShaPage(1, 650, (body) => {
+        body.workflow_runs[1].id = body.workflow_runs[0].id
+      })
+    },
+  })
+  assert.equal(
+    (await github.listWorkflowRunsAllShasComplete({ workflowId: "1" })).code,
+    "DUPLICATE_ID",
+  )
+  assert.equal(calls, 1)
 })

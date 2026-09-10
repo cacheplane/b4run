@@ -23,7 +23,7 @@ export function createNativeVercelCleanupDependencies(overrides = {}) {
 }
 
 async function artifactDirectory(env, dependencies) {
-  const artifactDir = env.DAWN_VERCEL_ARTIFACT_DIR
+  const artifactDir = env.B4_VERCEL_ARTIFACT_DIR
   if (!artifactDir || !isAbsolute(artifactDir)) {
     throw new Error("native Vercel cleanup requires an absolute artifact directory")
   }
@@ -54,10 +54,10 @@ async function readRegularArtifactFile(path, dependencies) {
 
 function protectedValues(env) {
   const names = [
-    "DAWN_VERCEL_TOKEN",
-    "DAWN_VERCEL_ORG_ID",
-    "DAWN_VERCEL_PROJECT_ID",
-    "DAWN_VERCEL_DATABASE_URL",
+    "B4_VERCEL_TOKEN",
+    "B4_VERCEL_ORG_ID",
+    "B4_VERCEL_PROJECT_ID",
+    "B4_VERCEL_DATABASE_URL",
   ]
   const missing = names.filter((name) => !env[name])
   if (missing.length > 0) {

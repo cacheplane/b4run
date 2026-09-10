@@ -43,22 +43,22 @@ function auditablePostHtml(imageUrl: string): string {
   const description = "A production-visible post description."
   const jsonLd = [
     {
-      "@id": "https://dawnai.org/#organization",
+      "@id": "https://b4.run/#organization",
       "@type": "Organization",
       logo: {
-        "@id": "https://dawnai.org/#logo",
+        "@id": "https://b4.run/#logo",
         "@type": "ImageObject",
-        url: "https://dawnai.org/brand/dawn-logo-horizontal-black.svg",
+        url: "https://b4.run/brand/b4-logo-horizontal-black.svg",
       },
-      name: "Dawn AI",
-      url: "https://dawnai.org/",
+      name: "B4.run",
+      url: "https://b4.run/",
     },
     {
-      "@id": "https://dawnai.org/#website",
+      "@id": "https://b4.run/#website",
       "@type": "WebSite",
-      name: "Dawn AI",
-      publisher: { "@id": "https://dawnai.org/#organization" },
-      url: "https://dawnai.org/",
+      name: "B4.run",
+      publisher: { "@id": "https://b4.run/#organization" },
+      url: "https://b4.run/",
     },
     { "@type": "BlogPosting", description },
     { "@type": "BreadcrumbList" },
@@ -68,7 +68,7 @@ function auditablePostHtml(imageUrl: string): string {
     <meta property="og:description" content="${description}">
     <meta name="twitter:description" content="${description}">
     <meta property="og:image" content="${imageUrl}">
-    <link rel="canonical" href="https://dawnai.org${POST_PATH}">
+    <link rel="canonical" href="https://b4.run${POST_PATH}">
   </head><body><main>Visible post content</main>
     <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
   </body></html>`
@@ -113,8 +113,8 @@ function pageHtml(jsonLd: unknown): string {
       <meta name="description" content="Route description">
       <meta property="og:description" content="Route description">
       <meta name="twitter:description" content="Route description">
-      <meta property="og:image" content="https://dawnai.org/opengraph-image?abc">
-      <link rel="canonical" href="https://dawnai.org/docs/tools">
+      <meta property="og:image" content="https://b4.run/opengraph-image?abc">
+      <link rel="canonical" href="https://b4.run/docs/tools">
     </head><body><main>Visible route content</main>
       <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
     </body></html>`
@@ -125,8 +125,8 @@ function exactRobots(): string {
     "\n\n",
   )}
 
-Host: https://dawnai.org
-Sitemap: https://dawnai.org/sitemap.xml
+Host: https://b4.run
+Sitemap: https://b4.run/sitemap.xml
 `
 }
 
@@ -140,8 +140,8 @@ describe("built SEO audit parsing", () => {
       pageHtml({
         "@context": "https://schema.org",
         "@graph": [
-          { "@type": "Organization", name: "Dawn AI" },
-          { "@type": "WebSite", publisher: { "@id": "https://dawnai.org/#organization" } },
+          { "@type": "Organization", name: "B4.run" },
+          { "@type": "WebSite", publisher: { "@id": "https://b4.run/#organization" } },
         ],
       }),
     )
@@ -149,8 +149,8 @@ describe("built SEO audit parsing", () => {
     expect(parsed.description).toBe("Route description")
     expect(parsed.openGraphDescription).toBe("Route description")
     expect(parsed.twitterDescription).toBe("Route description")
-    expect(parsed.canonical).toBe("https://dawnai.org/docs/tools")
-    expect(parsed.openGraphImages).toEqual(["https://dawnai.org/opengraph-image?abc"])
+    expect(parsed.canonical).toBe("https://b4.run/docs/tools")
+    expect(parsed.openGraphImages).toEqual(["https://b4.run/opengraph-image?abc"])
     expect(parsed.visibleText).toContain("Visible route content")
     expect(parsed.jsonLdEntities.map((entity: Record<string, unknown>) => entity["@type"])).toEqual(
       ["Organization", "WebSite"],
@@ -185,8 +185,8 @@ describe("built SEO audit parsing", () => {
       '<meta name="description" content="First"><meta name="description" content="Second">',
     )
     const duplicateCanonical = pageHtml({ "@type": "TechArticle" }).replace(
-      '<link rel="canonical" href="https://dawnai.org/docs/tools">',
-      '<link rel="canonical" href="https://dawnai.org/docs/tools"><link rel="canonical" href="https://dawnai.org/docs/tools">',
+      '<link rel="canonical" href="https://b4.run/docs/tools">',
+      '<link rel="canonical" href="https://b4.run/docs/tools"><link rel="canonical" href="https://b4.run/docs/tools">',
     )
     const malformedJsonLd = pageHtml({ "@type": "TechArticle" }).replace(
       '{"@type":"TechArticle"}',
@@ -206,8 +206,8 @@ describe("built SEO audit parsing", () => {
     expect(assertExactRobots(exactRobots())).toEqual({
       groups: 11,
       agents: [...APPROVED_AGENTS],
-      host: "https://dawnai.org",
-      sitemap: "https://dawnai.org/sitemap.xml",
+      host: "https://b4.run",
+      sitemap: "https://b4.run/sitemap.xml",
     })
 
     expect(() =>
@@ -219,8 +219,8 @@ describe("built SEO audit parsing", () => {
     expect(() =>
       assertExactRobots(
         exactRobots().replace(
-          "Sitemap: https://dawnai.org/sitemap.xml",
-          "Sitemap: https://dawnai.org/sitemap_index.xml",
+          "Sitemap: https://b4.run/sitemap.xml",
+          "Sitemap: https://b4.run/sitemap_index.xml",
         ),
       ),
     ).toThrow("robots must not reference sitemap_index")
@@ -265,9 +265,11 @@ describe("built SEO audit parsing", () => {
   })
 
   it("uses Next's exact root-canonical serialization and specific text regression markers", () => {
-    expect(canonicalForPath("/")).toBe("https://dawnai.org")
-    expect(canonicalForPath("/docs/tools")).toBe("https://dawnai.org/docs/tools")
-    expect(obviousTextRegression("Dawn docs explain ENOENT and undefined values.")).toBeUndefined()
+    expect(canonicalForPath("/")).toBe("https://b4.run")
+    expect(canonicalForPath("/docs/tools")).toBe("https://b4.run/docs/tools")
+    expect(
+      obviousTextRegression("B4.run docs explain ENOENT and undefined values."),
+    ).toBeUndefined()
     expect(obviousTextRegression("<!doctype html><html><body>Error</body></html>")).toBe(
       "HTML document",
     )
@@ -294,7 +296,7 @@ describe("built SEO audit parsing", () => {
 
   it("keeps a double-slash sitemap path on the configured local origin", async () => {
     const escapedTargets = observeAuditFetches({
-      sitemapUrl: "https://dawnai.org//169.254.169.254/latest/meta-data",
+      sitemapUrl: "https://b4.run//169.254.169.254/latest/meta-data",
     })
 
     await auditBuiltSeo({ asOf: "2026-08-26", baseUrl: LOCAL_ORIGIN })
@@ -304,7 +306,7 @@ describe("built SEO audit parsing", () => {
 
   it("keeps a triple-slash sitemap path on the configured local origin", async () => {
     const escapedTargets = observeAuditFetches({
-      sitemapUrl: "https://dawnai.org///outside.example/escape",
+      sitemapUrl: "https://b4.run///outside.example/escape",
     })
 
     await auditBuiltSeo({ asOf: "2026-08-26", baseUrl: LOCAL_ORIGIN })
@@ -313,10 +315,10 @@ describe("built SEO audit parsing", () => {
   })
 
   it("keeps a rendered OG image path on the configured local origin", async () => {
-    const imageUrl = "https://dawnai.org//169.254.169.254/latest/og-image"
+    const imageUrl = "https://b4.run//169.254.169.254/latest/og-image"
     const escapedTargets = observeAuditFetches({
       pageHtml: auditablePostHtml(imageUrl),
-      sitemapUrl: `https://dawnai.org${POST_PATH}`,
+      sitemapUrl: `https://b4.run${POST_PATH}`,
     })
 
     await auditBuiltSeo({ asOf: "2026-08-26", baseUrl: LOCAL_ORIGIN })

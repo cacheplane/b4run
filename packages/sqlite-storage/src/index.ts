@@ -1,5 +1,5 @@
 export type { SqliteCheckpointerOptions } from "./checkpointer/index.js"
-export { DawnSqliteSaver, sqliteCheckpointer } from "./checkpointer/index.js"
+export { B4SqliteSaver, sqliteCheckpointer } from "./checkpointer/index.js"
 export type {
   CreateThreadInput,
   Thread,

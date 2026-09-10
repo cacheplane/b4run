@@ -18,7 +18,8 @@ import { adoptRecoveryCandidate } from "./adopt.mjs"
 import { dispatchRecoveryAudit, runRecoveryAudit, waitForRecoveryAudit } from "./audit.mjs"
 import { auditArtifactName, auditName } from "./audit-proof.mjs"
 import { captureRecoveryEligibility } from "./authority.mjs"
-import { collectRecoveryEvidence } from "./evidence.mjs"
+import { recoveryFailureDetail } from "./diagnostics.mjs"
+import { collectRecoveryEvidence, collectRecoveryEvidenceStage } from "./evidence.mjs"
 import { createRecoveryFenceReader } from "./fence.mjs"
 import { finalizeRecoveryCandidate, publishRecoveryCandidate } from "./finalize.mjs"
 import {
@@ -69,7 +70,7 @@ export function createRecoveryRuntime(
   const repository = candidate?.repository ?? environment.GITHUB_REPOSITORY
   const repositoryId = candidate?.repositoryId ?? environment.GITHUB_REPOSITORY_ID
   requireThat(
-    repository === "cacheplane/dawnai" && /^[1-9][0-9]{0,31}$/u.test(repositoryId),
+    repository === "cacheplane/b4run" && /^[1-9][0-9]{0,31}$/u.test(repositoryId),
     "Exact recovery repository required",
   )
   const token = environment.GITHUB_TOKEN ?? ""
@@ -81,7 +82,7 @@ export function createRecoveryRuntime(
   const git = (overrides.createGitReader ?? createGitReader)({ root })
   const github = (overrides.createGitHubReader ?? createGitHubReader)({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     repositoryId,
     token,
     fetchImpl,
@@ -130,12 +131,12 @@ export function createRecoveryRuntime(
   let observeImmutableReleasePolicy = async () => {
     throw new Error("Immutable release policy reader unavailable for this phase")
   }
-  if (["finalize", "publish"].includes(command) && environment.DAWN_RECOVERY_POLICY_TOKEN) {
+  if (["finalize", "publish"].includes(command) && environment.B4_RECOVERY_POLICY_TOKEN) {
     const policyReader = createRecoveryImmutablePolicyReader({
       owner: "cacheplane",
-      repo: "dawnai",
+      repo: "b4run",
       repositoryId,
-      token: environment.DAWN_RECOVERY_POLICY_TOKEN,
+      token: environment.B4_RECOVERY_POLICY_TOKEN,
       fetchImpl,
       now,
       sleep,
@@ -176,6 +177,8 @@ export async function executeRecoveryCommand(command, request, runtime, options)
     typeof runtime.config?.token === "string" && runtime.config.token.length > 0,
     "Recovery writer credential unavailable",
   )
+  if (command === "reconcile-verification" && Object.hasOwn(options ?? {}, "evidenceStage"))
+    return collectRecoveryEvidenceStage(request, runtime.config, runtime, options.evidenceStage)
   const execute = {
     adopt: adoptRecoveryCandidate,
     "reconcile-verification": collectRecoveryEvidence,
@@ -218,7 +221,7 @@ export async function resolveRecoveryAuditRequest(inputs, runtime, actualSha) {
   })
   const matches = reservations.filter(
     (r) =>
-      r.intent.candidate.repository === "cacheplane/dawnai" &&
+      r.intent.candidate.repository === "cacheplane/b4run" &&
       r.intent.candidate.releaseId === inputs.release_id,
   )
   requireThat(matches.length === 1, "Unique committed audit reservation required")
@@ -282,7 +285,7 @@ async function executeRecoverySmoke(
   const evidenceDirectory = path.join(path.dirname(output), artifactName)
   await mkdir(evidenceDirectory, { mode: 0o700 })
   if (emitArtifact) await emitArtifact({ artifactName, evidenceDirectory })
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-recovery-bootstrap-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-recovery-bootstrap-"))
   try {
     const manifestPath = path.join(directory, "manifest.json"),
       preparedPath = path.join(directory, "request.json"),
@@ -335,8 +338,14 @@ export function runRecoverySmokeChild(
         fileURLToPath(new URL("./smoke-child.mjs", import.meta.url)),
         boundedRecoveryPath(requestPath),
       ],
-      { env: recoveryChildEnvironment(environment), stdio: ["ignore", "ignore", "ignore"] },
+      { env: recoveryChildEnvironment(environment), stdio: ["ignore", "ignore", "pipe"] },
     )
+    let diagnostic = Buffer.alloc(0)
+    child.stderr?.on("data", (chunk) => {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      if (diagnostic.length < 4096)
+        diagnostic = Buffer.concat([diagnostic, bytes.subarray(0, 4096 - diagnostic.length)])
+    })
     let expired = false,
       hardTimer
     const timer = setTimer(() => {
@@ -360,7 +369,7 @@ export function runRecoverySmokeChild(
             new Error(
               expired
                 ? "Recovery child deadline expired; cleanup is unverified until retained evidence is independently checked"
-                : "Recovery smoke child failed; inspect retained lane evidence",
+                : `Recovery smoke child failed; inspect retained lane evidence${diagnostic.length ? `: ${recoveryFailureDetail(new Error(diagnostic.toString("utf8")), environment)}` : ""}`,
             ),
           )
     })

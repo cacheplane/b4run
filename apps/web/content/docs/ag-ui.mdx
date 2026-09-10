@@ -1,11 +1,11 @@
 # AG-UI and Web Clients
 
-Dawn exposes [AG-UI](https://github.com/ag-ui-protocol/ag-ui) for browser clients
-alongside Agent Protocol. `@dawn-ai/ag-ui` is the pure translation library: it
-maps Dawn stream chunks to AG-UI events and maps `RunAgentInput` back to a
-Dawn-shaped run input. The package owns no server, transport, or agent runtime.
+B4.run exposes [AG-UI](https://github.com/ag-ui-protocol/ag-ui) for browser clients
+alongside Agent Protocol. `@b4run/ag-ui` is the pure translation library: it
+maps B4.run stream chunks to AG-UI events and maps `RunAgentInput` back to a
+B4.run-shaped run input. The package owns no server, transport, or agent runtime.
 
-`dawn dev` and the production runtime started by `dawn start` use that adapter to
+`b4 dev` and the production runtime started by `b4 start` use that adapter to
 serve an SSE endpoint. This page is the canonical request, resume, threading,
 and lifecycle guide. See [Middleware](/docs/middleware) for execution gating
 and [Security Architecture](/docs/security-architecture) for the service routes
@@ -21,47 +21,47 @@ accept: text/event-stream
 
 The URL segment is the URL-encoded `<routeId>#<kind>` assistant id. For example,
 `/chat#agent` becomes `/agui/%2Fchat%23agent`. The request body is an AG-UI
-`RunAgentInput`. Dawn creates an unknown thread, invokes the same route runtime
+`RunAgentInput`. B4.run creates an unknown thread, invokes the same route runtime
 used by Agent Protocol, and streams translated events back as SSE.
 
 ## Consuming it from a web UI
 
 `examples/chat/web` is the canonical reference client. Its CopilotKit runtime
-registers an `HttpAgent` pointed at Dawn's encoded route URL. The browser talks
-to the Next.js runtime route, while only the Dawn server holds model credentials.
+registers an `HttpAgent` pointed at B4.run's encoded route URL. The browser talks
+to the Next.js runtime route, while only the B4.run server holds model credentials.
 
 ```text
 browser
   -> CopilotKit runtime
     -> HttpAgent -> POST /agui/%2Fchat%23agent
-      -> Dawn route runtime
+      -> B4.run route runtime
         -> AG-UI event stream
 ```
 
 CopilotKit's sidebar uses the literal agent id `default` when none is supplied,
-so the example registers the Dawn route under that key. See
+so the example registers the B4.run route under that key. See
 `examples/chat/web/README.md` for the complete setup and smoke checklist.
 
 That client renders plan and researcher cards by passing the adapter's own
 renderer array to CopilotKit:
 
 ```tsx
-import "@dawn-ai/ag-ui/react/styles.css"
+import "@b4run/ag-ui/react/styles.css"
 import { CopilotKit } from "@copilotkit/react-core/v2"
-import { dawnActivityRenderers } from "@dawn-ai/ag-ui/react"
+import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 
 <CopilotKit
   runtimeUrl="/api/copilotkit"
   useSingleEndpoint={false}
-  renderActivityMessages={dawnActivityRenderers}
+  renderActivityMessages={b4ActivityRenderers}
 >
 ```
 
-The stylesheet import gives the cards Dawn's default appearance in light and
+The stylesheet import gives the cards B4.run's default appearance in light and
 dark; without it, the cards still render but with structured, unstyled
-markup. Override its `--dawn-activity-*` CSS custom properties to restyle, or
+markup. Override its `--b4-activity-*` CSS custom properties to restyle, or
 pass `classNames`/`components` to the card components for deeper
-customization — see the [package README](https://github.com/cacheplane/dawnai/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards)
+customization — see the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards)
 for the full ladder.
 
 React and `@copilotkit/react-core` are optional peer dependencies, so a
@@ -71,7 +71,7 @@ the content schemas, for a client presenting the activities its own way. For the
 full application wiring — a thread rail, suggestions, generic tool cards, and
 permissions — see the
 [research web UI recipe](/docs/recipes/research-web-ui) and its
-[`examples/research/web`](https://github.com/cacheplane/dawnai/tree/main/examples/research/web)
+[`examples/research/web`](https://github.com/cacheplane/b4run/tree/main/examples/research/web)
 implementation.
 
 ## Adapter API
@@ -79,11 +79,11 @@ implementation.
 The root package exports the transport-independent mapping surface:
 
 ```ts
-import { fromRunAgentInput, toAguiEvents } from "@dawn-ai/ag-ui"
+import { fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
 
-const dawnInput = fromRunAgentInput(runAgentInput)
+const b4Input = fromRunAgentInput(runAgentInput)
 
-for await (const event of toAguiEvents(dawnChunks, { threadId, runId })) {
+for await (const event of toAguiEvents(b4Chunks, { threadId, runId })) {
   // Send `event` through the transport chosen by the application.
 }
 ```
@@ -92,26 +92,26 @@ Transport helpers are isolated behind subpaths. An SSE server can encode an
 event without expanding the root API:
 
 ```ts
-import { encodeAgUiSse } from "@dawn-ai/ag-ui/sse"
+import { encodeAgUiSse } from "@b4run/ag-ui/sse"
 
 response.write(encodeAgUiSse(event, request.headers.accept))
 ```
 
 ### Outbound events
 
-`toAguiEvents(chunks, context)` is a stateful async generator. It frames Dawn's
+`toAguiEvents(chunks, context)` is a stateful async generator. It frames B4.run's
 implicit assistant text and preserves upstream tool-call ids for result
 correlation.
 
-| Dawn chunk | AG-UI event(s) |
+| B4.run chunk | AG-UI event(s) |
 |---|---|
 | stream start | `RUN_STARTED` |
 | `token` | `TEXT_MESSAGE_START` once, then `TEXT_MESSAGE_CONTENT` per delta |
 | `tool_call` | close open text, then `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END` |
 | `tool_result` | close open text, then `TOOL_CALL_RESULT` |
 | `tool_call` and `tool_result` for a `writeTodos` or `task` call whose activity was emitted | no `TOOL_CALL_*` events; the activity is the whole presentation |
-| root `plan_update` | replacement `ACTIVITY_SNAPSHOT` with activity type `dawn.plan` |
-| `subagent.start` and matching child plan/tool/result/end chunks | replacement `ACTIVITY_SNAPSHOT` with activity type `dawn.subagent` |
+| root `plan_update` | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.plan` |
+| `subagent.start` and matching child plan/tool/result/end chunks | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.subagent` |
 | `interrupt` | terminal `RUN_FINISHED` with `outcome.type: "interrupt"` |
 | `done` | terminal `RUN_FINISHED` with `outcome.type: "success"` |
 | upstream error | terminal `RUN_ERROR` |
@@ -119,13 +119,13 @@ correlation.
 ### Activity snapshots
 
 Activities use standard AG-UI framing and complete replacement snapshots. A
-root plan has stable message id `dawn:plan:${runId}`, activity type `dawn.plan`,
+root plan has stable message id `b4:plan:${runId}`, activity type `b4.plan`,
 and content containing only the complete todo list. Todo status is exactly
-`pending`, `in_progress`, or `completed`. Dawn emits no seeded-plan activity at
+`pending`, `in_progress`, or `completed`. B4.run emits no seeded-plan activity at
 run start; the first snapshot follows a valid root `plan_update`.
 
-Each subagent has stable message id `dawn:subagent:${call_id}`, activity type
-`dawn.subagent`, and complete content with its name, positive integer depth,
+Each subagent has stable message id `b4:subagent:${call_id}`, activity type
+`b4.subagent`, and complete content with its name, positive integer depth,
 `running`/`completed`/`failed` status, an optional current todo list, up to five
 recent child-tool name/status summaries, and the total observed tool count.
 Tool-summary status is exactly `running`, `completed`, or `incomplete`. A failed
@@ -144,22 +144,22 @@ This boundary excludes child reasoning and prose, prompts, tool inputs, tool
 outputs, final child answers, route ids, and raw runtime ids. It is an explicit
 allowlist rather than a generic capability mapping: unknown capability chunks
 retain the existing behavior of closing any open text message and then being
-ignored. Dawn emits neither activity deltas nor a raw advanced child stream.
+ignored. B4.run emits neither activity deltas nor a raw advanced child stream.
 Activities are informational; standard interrupt UI remains the only place to
 resolve or cancel permission requests. No queued, waiting, cancelled, or
 parent-task correlation state is inferred.
 
 ### Canonical orchestration presentation
 
-Dawn's two built-in orchestration actions are presented once. When a
-`writeTodos` call produced the `dawn.plan` activity, or a `task` call produced
-the `dawn.subagent` activity because delegation actually started, the adapter
+B4.run's two built-in orchestration actions are presented once. When a
+`writeTodos` call produced the `b4.plan` activity, or a `task` call produced
+the `b4.subagent` activity because delegation actually started, the adapter
 emits no `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END`, or
 `TOOL_CALL_RESULT` for that call. The chunk behind the activity carries the same
 tool-call id as the model's call (`plan_update.tool_call_id`, and the subagent's
 `call_id`); that correlation is internal and decides the suppression. It is not
 republished in activity content, which still excludes raw runtime ids. Only
-`dawn.subagent` exposes the id at all, inside its stable `messageId`.
+`b4.subagent` exposes the id at all, inside its stable `messageId`.
 
 Every other tool is unchanged. `recall`, `searchCorpus`, `readDoc`, `writeFile`,
 `runBash`, and any application tool still produce ordinary tool events.
@@ -180,19 +180,19 @@ Unrelated held calls still flush before the interrupt.
   A client that registers no activity renderer sees less for `writeTodos` and
   `task` than a generic tool renderer used to show. That is the contract:
   activities are canonical for built-in orchestration, so render them. For a
-  React client, that is one line — pass `dawnActivityRenderers` from
-  `@dawn-ai/ag-ui/react` to CopilotKit's `renderActivityMessages`.
+  React client, that is one line — pass `b4ActivityRenderers` from
+  `@b4run/ag-ui/react` to CopilotKit's `renderActivityMessages`.
 </Callout>
 
 ### Inbound input
 
 `fromRunAgentInput(input)` translates every AG-UI message and preserves the
 original request as `raw`, where consumers can inspect tools, state, and context.
-The CLI endpoint forwards only the newest user message because Dawn owns the
+The CLI endpoint forwards only the newest user message because B4.run owns the
 checkpointed conversation for the thread.
 
 The standard top-level `RunAgentInput.resume` array is preserved as
-vocabulary-neutral Dawn resume requests:
+vocabulary-neutral B4.run resume requests:
 
 ```ts
 resume?: Array<{
@@ -202,13 +202,13 @@ resume?: Array<{
 }>
 ```
 
-For a permission prompt, a resolved payload can carry a Dawn decision such as
+For a permission prompt, a resolved payload can carry a B4.run decision such as
 `"once"` or `"always"`; cancelling the interrupt maps to denial at the runtime
 boundary. Every answer must address one currently pending interrupt.
 
 ## Threading
 
-AG-UI's `threadId` is the Dawn thread id; there is no separate mapping table.
+AG-UI's `threadId` is the B4.run thread id; there is no separate mapping table.
 AG-UI and Agent Protocol requests execute the same route code and use the same
 thread store and checkpointer. A caller can inspect state through Agent Protocol
 while a UI drives later turns through AG-UI.
@@ -228,7 +228,7 @@ do not distribute that coordination across replicas.
 
 ## Middleware and service authentication
 
-Dawn execution middleware gates AG-UI route execution just as it gates Agent
+B4.run execution middleware gates AG-UI route execution just as it gates Agent
 Protocol execution. It can reject the request or pass context into authored
 tools. It is not service-wide authentication: thread management, state,
 cancellation, memory-candidate management, and health routes bypass it. See
@@ -239,8 +239,8 @@ runtime outside a trusted local environment.
 ## Disconnect and reconnect
 
 <Callout type="warn" title="No reconnect or replay support">
-  Each POST owns one SSE response. Dawn does not buffer emitted AG-UI events or
-  support last-event-id replay. If the connection drops, Dawn aborts that
+  Each POST owns one SSE response. B4.run does not buffer emitted AG-UI events or
+  support last-event-id replay. If the connection drops, B4.run aborts that
   ephemeral AG-UI run; the client cannot reattach to its event stream. A later
   request against the same thread starts a new run from the latest completed
   checkpoint.
@@ -261,6 +261,6 @@ also aborts in-flight work.
 <RelatedCards items={[
   { href: "/docs/dev-server", title: "Dev Server", subtitle: "start and restart the local runtime" },
   { href: "/docs/dev-server/agent-protocol", title: "Agent Protocol", subtitle: "the durable thread and run lifecycle" },
-  { href: "/docs/permissions", title: "Permissions", subtitle: "the Dawn decisions carried by resolved interrupt payloads" },
+  { href: "/docs/permissions", title: "Permissions", subtitle: "the B4.run decisions carried by resolved interrupt payloads" },
   { href: "/docs/deployment", title: "Deployment Options", subtitle: "building and starting the production runtime" },
 ]} />

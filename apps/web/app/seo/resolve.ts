@@ -17,7 +17,7 @@ import type {
   TechArticleSeoPage,
 } from "./types"
 
-const SITE_URL = "https://dawnai.org"
+const SITE_URL = "https://b4.run"
 const BLOG_INDEX_DESCRIPTION =
   "Writing on the agent stack, type-safety, and the tools we're building."
 
@@ -44,12 +44,12 @@ export function resolveBlogIndexSeoPage(): CollectionPageSeoPage {
 
 function tagDescription(tag: string, posts: readonly Post[]): string {
   const noun = posts.length === 1 ? "post" : "posts"
-  const withTitles = `Read ${posts.length} Dawn blog ${noun} tagged "${tag}": ${posts
+  const withTitles = `Read ${posts.length} B4.run blog ${noun} tagged "${tag}": ${posts
     .map((post) => post.title)
     .join("; ")}.`
   if (withTitles.length <= 155) return withTitles
 
-  return `Read ${posts.length} published Dawn blog ${noun} tagged "${tag}", selected from the current production-visible article collection.`
+  return `Read ${posts.length} published B4.run blog ${noun} tagged "${tag}", selected from the current production-visible article collection.`
 }
 
 export function resolveBlogTagSeoPage(tag: string, posts: readonly Post[]): CollectionPageSeoPage {

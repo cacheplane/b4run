@@ -29,28 +29,28 @@ const OUTPUT_KEYS = [
 ]
 const PACKAGE_IDENTITIES = [
   {
-    name: "@dawn-ai/core",
+    name: "@b4run/core",
     version: VERSION,
-    filename: `dawn-ai-core-${VERSION}.tgz`,
+    filename: `b4run-core-${VERSION}.tgz`,
     tarballSha256: "1".repeat(64),
-    attestationFilename: `dawn-ai-core-${VERSION}.tgz.intoto.jsonl`,
+    attestationFilename: `b4run-core-${VERSION}.tgz.intoto.jsonl`,
     attestationSha256: MANIFEST_ATTESTATION_SHA256,
     integrity: "sha512-core",
   },
   {
-    name: "@dawn-ai/sdk",
+    name: "@b4run/sdk",
     version: VERSION,
-    filename: `dawn-ai-sdk-${VERSION}.tgz`,
+    filename: `b4run-sdk-${VERSION}.tgz`,
     tarballSha256: "2".repeat(64),
-    attestationFilename: `dawn-ai-sdk-${VERSION}.tgz.intoto.jsonl`,
+    attestationFilename: `b4run-sdk-${VERSION}.tgz.intoto.jsonl`,
     attestationSha256: MANIFEST_ATTESTATION_SHA256,
     integrity: "sha512-sdk",
   },
   ...Array.from({ length: 19 }, (_unused, index) => {
     const ordinal = String(index + 1).padStart(2, "0")
-    const filename = `dawn-ai-test-extra-${ordinal}-${VERSION}.tgz`
+    const filename = `b4run-test-extra-${ordinal}-${VERSION}.tgz`
     return {
-      name: `@dawn-ai/test-extra-${ordinal}`,
+      name: `@b4run/test-extra-${ordinal}`,
       version: VERSION,
       filename,
       tarballSha256: (index + 3).toString(16).padStart(64, "0"),
@@ -960,7 +960,7 @@ test("a prepared nullable attestation digest blocks any later escrow signal with
 for (const [name, mutate] of [
   [
     "extra registry package",
-    (o) => o.registry.packages.push(absentRegistryPackage("@dawn-ai/extra")),
+    (o) => o.registry.packages.push(absentRegistryPackage("@b4run/extra")),
   ],
   ["missing registry package", (o) => o.registry.packages.pop()],
   [
@@ -971,9 +971,9 @@ for (const [name, mutate] of [
     "extra artifact file",
     (o) =>
       o.artifacts.files.push({
-        name: "@dawn-ai/extra",
+        name: "@b4run/extra",
         status: "pending",
-        assetName: `dawn-ai-extra-${VERSION}.tgz`,
+        assetName: `b4run-extra-${VERSION}.tgz`,
         sha256: null,
         integrity: null,
       }),
@@ -984,10 +984,10 @@ for (const [name, mutate] of [
     "extra attestation subject",
     (o) =>
       o.artifacts.attestations.push({
-        name: `dawn-ai-extra-${VERSION}.tgz.intoto.jsonl`,
+        name: `b4run-extra-${VERSION}.tgz.intoto.jsonl`,
         status: "pending",
         sha256: null,
-        subjectName: `dawn-ai-extra-${VERSION}.tgz`,
+        subjectName: `b4run-extra-${VERSION}.tgz`,
         subjectSha256: "f".repeat(64),
       }),
   ],
@@ -1899,8 +1899,8 @@ function releaseMarker(phase) {
     ? {
         workflow: ".github/workflows/published-artifact-verify.yml",
         workflowRunId: 300,
-        runUrl: "https://api.github.com/repos/cacheplane/dawnai/actions/runs/300",
-        htmlUrl: "https://github.com/cacheplane/dawnai/actions/runs/300",
+        runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/300",
+        htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/300",
         runAttempt: phase === "AUDIT_DISPATCHED" ? null : 1,
         attemptAssetName: phase === "AUDIT_DISPATCHED" ? null : "audit-attempt-300-1.json",
         attemptSha256: phase === "AUDIT_DISPATCHED" ? null : auditDigest,
@@ -1933,7 +1933,7 @@ function releaseMarker(phase) {
       phase === "ATTACHING"
         ? null
         : {
-            repository: "cacheplane/dawnai",
+            repository: "cacheplane/b4run",
             workflow: ".github/workflows/release.yml",
             sourceRef: `refs/tags/v${VERSION}`,
             commitSha: COMMIT_SHA,

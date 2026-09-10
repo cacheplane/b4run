@@ -1,13 +1,13 @@
 /**
  * The NODE flavour of the runtime registry: the pure core plus the disk-first
  * default — walk the route tree with `discoverRoutes` when the caller has no
- * prebuilt `DawnStaticModules`. Deliberately absent from the
- * `@dawn-ai/cli/fetch` graph (see `runtime-registry-core.ts`).
+ * prebuilt `B4StaticModules`. Deliberately absent from the
+ * `@b4run/cli/fetch` graph (see `runtime-registry-core.ts`).
  */
 
-import { discoverRoutes } from "@dawn-ai/core/node"
+import { discoverRoutes } from "@b4run/core/node"
 
-import type { DawnStaticModules } from "../runtime/static-modules-core.js"
+import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import {
   createRuntimeRegistryFromManifest,
   createStaticRuntimeRegistry,
@@ -19,7 +19,7 @@ export type { RuntimeRegistry, RuntimeRegistryEntry }
 
 export async function createRuntimeRegistry(
   appRoot: string,
-  modules?: DawnStaticModules,
+  modules?: B4StaticModules,
 ): Promise<RuntimeRegistry> {
   if (modules) {
     return createStaticRuntimeRegistry(appRoot, modules)

@@ -41,10 +41,10 @@ export function manifestArtifactEntries(manifests) {
       }
     }
 
-    if (typeof manifest.dawnInspector?.server === "string") {
+    if (typeof manifest.b4Inspector?.server === "string") {
       entries.push({
-        address: `operated:${manifest.name}:dawnInspector.server`,
-        manifestTarget: manifest.dawnInspector.server,
+        address: `operated:${manifest.name}:b4Inspector.server`,
+        manifestTarget: manifest.b4Inspector.server,
       })
     }
     return entries
@@ -1749,19 +1749,19 @@ function surfaceDiagnostic(surface, symbol, owner, sourcePath, target) {
 }
 
 const STABLE_GENERATED_ROUTE_EXPORTS = [
-  "DawnRouteParams",
-  "DawnRoutePath",
-  "DawnRouteTools",
+  "B4RouteParams",
+  "B4RoutePath",
+  "B4RouteTools",
   "RouteTools",
 ]
-const CONDITIONAL_GENERATED_ROUTE_EXPORTS = ["DawnRouteState", "RouteState"]
+const CONDITIONAL_GENERATED_ROUTE_EXPORTS = ["B4RouteState", "RouteState"]
 
 function diagnosticText(diagnostic) {
   return ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")
 }
 
 function generatedModuleInventory(declarations, moduleName) {
-  const declarationPath = "/fixture/dawn.generated.d.ts"
+  const declarationPath = "/fixture/b4.generated.d.ts"
   const scenarioPath = "/fixture/scenarios.generated.d.ts"
   const libraryPath = "/fixture/generated-lib.d.ts"
   const files = new Map([
@@ -1849,8 +1849,8 @@ function validateGeneratedSurfaces(fixture, failures) {
   if (surfaces.length !== 1) {
     failures.push(
       surfaces.length === 0
-        ? "generated surface dawn:routes registry record is missing"
-        : `generated surface dawn:routes must have exactly one registry record; received ${surfaces.length}`,
+        ? "generated surface b4:routes registry record is missing"
+        : `generated surface b4:routes must have exactly one registry record; received ${surfaces.length}`,
     )
   }
   for (const surface of surfaces) {
@@ -1869,7 +1869,7 @@ function validateGeneratedSurfaces(fixture, failures) {
       JSON.stringify(Object.keys(surface).sort()) !== JSON.stringify(schemaFields)
     ) {
       failures.push(
-        `generated surface ${String(surface?.moduleName ?? "dawn:routes")} fields do not match the generated-types schema (unexpected: ${
+        `generated surface ${String(surface?.moduleName ?? "b4:routes")} fields do not match the generated-types schema (unexpected: ${
           Object.keys(surface ?? {})
             .filter((field) => !schemaFields.includes(field))
             .join(", ") || "none"
@@ -1878,7 +1878,7 @@ function validateGeneratedSurfaces(fixture, failures) {
       continue
     }
     if (
-      surface.moduleName !== "dawn:routes" ||
+      surface.moduleName !== "b4:routes" ||
       surface.surfaceKind !== "generated-types" ||
       surface.coverage !== "detailed" ||
       surface.ownerHref !== "/docs/api/generated-routes" ||
@@ -1886,7 +1886,7 @@ function validateGeneratedSurfaces(fixture, failures) {
       surface.stability !== "supported"
     ) {
       failures.push(
-        `generated surface dawn:routes owner must be /docs/api/generated-routes, audience must be application, and stability must be supported`,
+        `generated surface b4:routes owner must be /docs/api/generated-routes, audience must be application, and stability must be supported`,
       )
     }
   }
@@ -1896,11 +1896,11 @@ function validateGeneratedSurfaces(fixture, failures) {
     ({ moduleName }) => moduleName === surface.moduleName,
   )
   if (matchingAuthorities.length === 0) {
-    failures.push(`generated surface dawn:routes authority is missing`)
+    failures.push(`generated surface b4:routes authority is missing`)
     return
   }
   if (matchingAuthorities.length !== 1) {
-    failures.push(`generated surface dawn:routes must have exactly one generated authority`)
+    failures.push(`generated surface b4:routes must have exactly one generated authority`)
     return
   }
   const inventory = generatedModuleInventory(
@@ -1908,12 +1908,12 @@ function validateGeneratedSurfaces(fixture, failures) {
     surface.moduleName,
   )
   if (inventory.failure) {
-    failures.push(`generated surface dawn:routes ${inventory.failure}`)
+    failures.push(`generated surface b4:routes ${inventory.failure}`)
     return
   }
   if (inventory.valueExports.length > 0) {
     failures.push(
-      `generated surface dawn:routes has value export ${inventory.valueExports.join(", ")}; generated exports must be type-only`,
+      `generated surface b4:routes has value export ${inventory.valueExports.join(", ")}; generated exports must be type-only`,
     )
   }
   const sourceExports = inventory.exports
@@ -1926,7 +1926,7 @@ function validateGeneratedSurfaces(fixture, failures) {
   ].sort()
   if (JSON.stringify(sourceExports) !== JSON.stringify(expectedExports)) {
     failures.push(
-      `generated surface dawn:routes exports ${JSON.stringify(sourceExports)} instead of exact ${JSON.stringify(expectedExports)}`,
+      `generated surface b4:routes exports ${JSON.stringify(sourceExports)} instead of exact ${JSON.stringify(expectedExports)}`,
     )
   }
 
@@ -1934,13 +1934,13 @@ function validateGeneratedSurfaces(fixture, failures) {
   const ownerPaths = new Set(ownedRows.map(({ href, path }) => `${href}\0${path}`))
   if (ownerPaths.size === 0) {
     failures.push(
-      `generated surface dawn:routes owner page ${surface.ownerHref} is missing a Generated export table`,
+      `generated surface b4:routes owner page ${surface.ownerHref} is missing a Generated export table`,
     )
     return
   }
   if (ownerPaths.size !== 1 || ownedRows.some(({ href }) => href !== surface.ownerHref)) {
     failures.push(
-      `generated surface dawn:routes Generated export table must exist once on canonical owner page ${surface.ownerHref}`,
+      `generated surface b4:routes Generated export table must exist once on canonical owner page ${surface.ownerHref}`,
     )
   }
   const ownedExports = ownedRows.map(({ symbol }) => symbol).sort()
@@ -1949,7 +1949,7 @@ function validateGeneratedSurfaces(fixture, failures) {
     JSON.stringify(ownedExports) !== JSON.stringify(sourceExports)
   ) {
     failures.push(
-      `generated surface dawn:routes owner page ${surface.ownerHref} exports ${JSON.stringify(ownedExports)} instead of source ${JSON.stringify(sourceExports)}`,
+      `generated surface b4:routes owner page ${surface.ownerHref} exports ${JSON.stringify(ownedExports)} instead of source ${JSON.stringify(sourceExports)}`,
     )
   }
 

@@ -13,7 +13,7 @@ import type { RouteManifest, RouteToolTypes } from "../src/types.ts"
 let tempDir: string
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), "dawn-route-analysis-"))
+  tempDir = mkdtempSync(join(tmpdir(), "b4-route-analysis-"))
 })
 
 afterEach(() => {
@@ -38,7 +38,7 @@ function compileScenarioDeclaration(options: {
     readonly message: string
   }>
 } {
-  const scenarioTypesFile = join(tempDir, ".dawn", SCENARIO_TYPES_FILE)
+  const scenarioTypesFile = join(tempDir, ".b4", SCENARIO_TYPES_FILE)
   const manifest: RouteManifest = {
     appRoot: tempDir,
     routes: [
@@ -55,13 +55,13 @@ function compileScenarioDeclaration(options: {
   const routeTools: RouteToolTypes[] = [{ pathname: options.pathname, tools: options.tools }]
   const content = renderScenarioTypes(manifest, routeTools)
 
-  mkdirSync(join(tempDir, ".dawn"), { recursive: true })
+  mkdirSync(join(tempDir, ".b4"), { recursive: true })
   writeFileSync(join(tempDir, "package.json"), '{"type":"module"}\n')
   writeFileSync(scenarioTypesFile, content)
   const sdkTestingStub = join(tempDir, "sdk-testing.d.ts")
   writeFileSync(
     sdkTestingStub,
-    'declare module "@dawn-ai/sdk/testing" { interface RouteScenarioMap {} }\n',
+    'declare module "@b4run/sdk/testing" { interface RouteScenarioMap {} }\n',
   )
 
   const rootNames = [scenarioTypesFile, sdkTestingStub]
@@ -287,7 +287,7 @@ export default async function search(input: ImportedInput): Promise<ImportedOutp
 `,
     )
 
-    const scenarioTypesFile = join(tempDir, ".dawn", SCENARIO_TYPES_FILE)
+    const scenarioTypesFile = join(tempDir, ".b4", SCENARIO_TYPES_FILE)
     const tools = analyzeRouteToolsProduction({
       routeDir,
       sharedToolsDir: undefined,
@@ -334,7 +334,7 @@ export default async function local(input: LocalInput): Promise<LocalOutput> {
 `,
     )
 
-    const scenarioTypesFile = join(tempDir, ".dawn", SCENARIO_TYPES_FILE)
+    const scenarioTypesFile = join(tempDir, ".b4", SCENARIO_TYPES_FILE)
     const tools = analyzeRouteToolsProduction({
       routeDir,
       sharedToolsDir: undefined,
@@ -371,14 +371,14 @@ export default async function local(input: LocalInput): Promise<LocalOutput> {
     const tools = analyzeRouteToolsProduction({
       routeDir,
       sharedToolsDir: undefined,
-      typeReferenceFileName: join(tempDir, ".dawn", SCENARIO_TYPES_FILE),
+      typeReferenceFileName: join(tempDir, ".b4", SCENARIO_TYPES_FILE),
     })
     const { diagnostics } = compileScenarioDeclaration({
       routeDir,
       pathname: "/ping",
       tools,
       consumerSource: `
-import type { RouteScenarioMap } from "@dawn-ai/sdk/testing"
+import type { RouteScenarioMap } from "@b4run/sdk/testing"
 declare const ping: RouteScenarioMap["/ping"]["tools"]["ping"]
 const result: Promise<string> = ping()
 void result
@@ -407,14 +407,14 @@ export default lookup
     const tools = analyzeRouteToolsProduction({
       routeDir,
       sharedToolsDir: undefined,
-      typeReferenceFileName: join(tempDir, ".dawn", SCENARIO_TYPES_FILE),
+      typeReferenceFileName: join(tempDir, ".b4", SCENARIO_TYPES_FILE),
     })
     const { diagnostics } = compileScenarioDeclaration({
       routeDir,
       pathname: "/overloaded",
       tools,
       consumerSource: `
-import type { RouteScenarioMap } from "@dawn-ai/sdk/testing"
+import type { RouteScenarioMap } from "@b4run/sdk/testing"
 declare const lookup: RouteScenarioMap["/overloaded"]["tools"]["lookup"]
 const result: Promise<number> = lookup("query")
 void result

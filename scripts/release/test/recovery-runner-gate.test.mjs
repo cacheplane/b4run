@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process"
 import test from "node:test"
 
 test("enabled strict runner check cannot pass by skipping on an ineligible host", () => {
-  const env = { ...process.env, DAWN_TEST_RECOVERY_RUNNER: "1", ImageOS: "ineligible-test-fixture" }
+  const env = { ...process.env, B4_TEST_RECOVERY_RUNNER: "1", ImageOS: "ineligible-test-fixture" }
   // Start an independent CLI test run, not another child of this test runner.
   delete env.NODE_TEST_CONTEXT
   const result = spawnSync(

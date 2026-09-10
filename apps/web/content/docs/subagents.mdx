@@ -2,7 +2,7 @@
 
 Subagents let one agent route delegate a bounded task to another agent route.
 
-When at least one child is dispatchable, the parent gets an internal `task({ subagent, input })` mechanism and a `# Subagents` prompt section. The child remains a real Dawn route with its own prompt, tools, state, memory, planning, skills, and subagents.
+When at least one child is dispatchable, the parent gets an internal `task({ subagent, input })` mechanism and a `# Subagents` prompt section. The child remains a real B4.run route with its own prompt, tools, state, memory, planning, skills, and subagents.
 
 Use subagents when a specialist should own a piece of work instead of becoming another helper function in the parent prompt.
 
@@ -27,7 +27,7 @@ src/app/support/[tenant]/
 The child route should export an `agent()` descriptor. Give it a `description`; the parent uses that description to decide when to delegate.
 
 ```ts title="src/app/support/[tenant]/subagents/research/index.ts"
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -36,7 +36,7 @@ export default agent({
 })
 ```
 
-When the parent route runs, Dawn exposes a `task` tool. The model can call:
+When the parent route runs, B4.run exposes a `task` tool. The model can call:
 
 ```ts
 task({
@@ -55,7 +55,7 @@ A subagent can also declare its own `tools: { approve: [...] }` to require human
 
 ## Convention discovery
 
-Dawn discovers immediate child routes at:
+B4.run discovers immediate child routes at:
 
 ```text
 <parent route>/subagents/<leaf>/index.ts
@@ -65,7 +65,7 @@ The model-facing `subagent` value is the child folder name, such as `"research"`
 
 Only immediate children count for the parent prompt. A child can have its own `subagents/` directory, but those are available to that child, not directly to the original parent.
 
-If a child route has no `description`, Dawn lists it as `No description provided.` The route still works, but selection quality will be worse.
+If a child route has no `description`, B4.run lists it as `No description provided.` The route still works, but selection quality will be worse.
 
 Convention-only children receive the parent's `delegation.default` rule. They cannot have named exceptions because named rules are typed from explicit registration keys. Import and register a convention child when it needs its own rule.
 
@@ -74,7 +74,7 @@ Convention-only children receive the parent's `delegation.default` rule. They ca
 Register descriptors in a keyed object when you need a parent-local name or a named policy rule:
 
 ```ts title="src/app/support/[tenant]/index.ts"
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 import researcher from "./shared-researcher/index.js"
 import writer from "./subagents/writer/index.js"
 
@@ -100,11 +100,11 @@ export default agent({
 
 The object key is the name shown to the parent model and the identity used by delegation policy and permission persistence. It is local to that parent, so different parents can expose the same child descriptor under different names.
 
-Named `delegation.rules` keys are restricted by TypeScript to the keys in `subagents`. Registration names must match `^[A-Za-z0-9][A-Za-z0-9_-]*$`; Dawn uses the exact spelling without trimming or case folding.
+Named `delegation.rules` keys are restricted by TypeScript to the keys in `subagents`. Registration names must match `^[A-Za-z0-9][A-Za-z0-9_-]*$`; B4.run uses the exact spelling without trimming or case folding.
 
 If an explicit descriptor points to a convention-discovered child, its explicit key replaces the folder-name identity for that parent. The convention name does not remain as an alias. This lets an explicit alias carry the named rule without leaving an ungoverned path to the same child.
 
-Array-form registration is removed. Use a keyed registry such as `subagents: { researcher, writer }`; Dawn has no array compatibility path.
+Array-form registration is removed. Use a keyed registry such as `subagents: { researcher, writer }`; B4.run has no array compatibility path.
 
 ## Delegation policy
 
@@ -126,14 +126,14 @@ delegation: {
 | Action | Result |
 |---|---|
 | `allow` | Dispatch immediately |
-| `deny` | Return `[DAWN_E3002]` with the configured or default reason |
+| `deny` | Return `[B4_E3002]` with the configured or default reason |
 | `approve` | Pause for a `kind: "subagent"` permission decision |
 | `constrain` | Evaluate the current input and return allow, deny, or approval |
 
 A constraint receives `{ input }` plus the live parent route, child name and route, thread, route parameters, and cancellation signal:
 
 ```ts
-import { agent, type DelegationConstraintPredicate } from "@dawn-ai/sdk"
+import { agent, type DelegationConstraintPredicate } from "@b4run/sdk"
 import researcher from "./shared-researcher/index.js"
 
 const restrictResearch: DelegationConstraintPredicate = ({ input }, context) => {
@@ -164,7 +164,7 @@ Approval decisions also follow the exact edge. `always` persists the tuple of pa
 
 ## What the model sees
 
-Dawn renders a prompt fragment like:
+B4.run renders a prompt fragment like:
 
 ```text
 # Subagents
@@ -180,7 +180,7 @@ The runtime `task` schema uses an enum of available parent-local names, so the m
 
 ## Runtime behavior
 
-At runtime, Dawn resolves the canonical registry and applies the parent's policy at the final dispatch boundary. The child receives the task as a user message:
+At runtime, B4.run resolves the canonical registry and applies the parent's policy at the final dispatch boundary. The child receives the task as a user message:
 
 ```ts
 { messages: [{ role: "user", content: input }] }
@@ -188,16 +188,16 @@ At runtime, Dawn resolves the canonical registry and applies the parent's policy
 
 Each dispatch runs as a per-invocation LangGraph subgraph that inherits the root thread's checkpointer. Nested and parallel children keep independent checkpoint namespaces while remaining resumable through the root thread.
 
-Dawn's dispatcher preserves depth metadata across nested calls and enforces its maximum depth of 3. Explicit registration cycles resolve lazily and are stopped by this runtime guard.
+B4.run's dispatcher preserves depth metadata across nested calls and enforces its maximum depth of 3. Explicit registration cycles resolve lazily and are stopped by this runtime guard.
 
 ## Dispatch failures
 
 Delegation failures return coded results to the parent model:
 
-- `DAWN_E3002` means policy, a constraint, an approval decision, or non-interactive mode denied the dispatch.
-- `DAWN_E5003` means the requested identity is unavailable, stale, or could not be started.
+- `B4_E3002` means policy, a constraint, an approval decision, or non-interactive mode denied the dispatch.
+- `B4_E5003` means the requested identity is unavailable, stale, or could not be started.
 
-Invalid registration or policy configuration fails route checking or preparation with `DAWN_E1004`; it never falls back to allow. Underlying constraint exceptions are hidden from the model. Set `DAWN_DEBUG_CONSTRAINTS=1` locally to log those details with the parent and child identities.
+Invalid registration or policy configuration fails route checking or preparation with `B4_E1004`; it never falls back to allow. Underlying constraint exceptions are hidden from the model. Set `B4_DEBUG_CONSTRAINTS=1` locally to log those details with the parent and child identities.
 
 ## Streaming
 
@@ -212,22 +212,22 @@ When the parent is run through `runs/stream`, child activity is forwarded with `
 
 Each forwarded event includes a generated `call_id`. `subagent.start` also includes the subagent name, route id, and depth. `subagent.end` includes either `final_message` or `error`.
 
-Dawn suppresses duplicate parent token events while a child run is active, so child tokens should appear as `subagent.message` rather than also leaking into the parent stream as ordinary message chunks.
+B4.run suppresses duplicate parent token events while a child run is active, so child tokens should appear as `subagent.message` rather than also leaking into the parent stream as ordinary message chunks.
 
-If a child reaches a tool, path, command, memory, or delegation approval, Dawn surfaces a top-level `interrupt` on the root parent's stream. Resume the root thread with the complete ID-addressed pending interrupt set; do not start or resume the child separately. See [Resuming an interrupted run](/docs/permissions#resuming-an-interrupted-run).
+If a child reaches a tool, path, command, memory, or delegation approval, B4.run surfaces a top-level `interrupt` on the root parent's stream. Resume the root thread with the complete ID-addressed pending interrupt set; do not start or resume the child separately. See [Resuming an interrupted run](/docs/permissions#resuming-an-interrupted-run).
 
 ## Names and reserved policy fields
 
-Convention and explicit subagents share one parent-local namespace. Route preparation reports `DAWN_E1004` for invalid names, unresolved or ambiguous descriptors, duplicate explicit registrations of one route, and unresolved name collisions.
+Convention and explicit subagents share one parent-local namespace. Route preparation reports `B4_E1004` for invalid names, unresolved or ambiguous descriptors, duplicate explicit registrations of one route, and unresolved name collisions.
 
-`task` is Dawn's internal model-facing dispatch mechanism, not a public tool-policy resource. It is invalid in `tools.allow`, `tools.deny`, `tools.approve`, and `tools.constrain`; the parent's `delegation` policy is the only dispatch authority. A subagent registration key may itself be `task` because registration values use a separate namespace.
+`task` is B4.run's internal model-facing dispatch mechanism, not a public tool-policy resource. It is invalid in `tools.allow`, `tools.deny`, `tools.approve`, and `tools.constrain`; the parent's `delegation` policy is the only dispatch authority. A subagent registration key may itself be `task` because registration values use a separate namespace.
 
 Do not create a route tool named `task`. The scalar interrupt resume body is also removed; use the complete multi-entry resume envelope documented in [Permissions](/docs/permissions#resuming-an-interrupted-run).
 
 ## Related
 
 <RelatedCards items={[
-  { href: "/docs/agents", title: "Agents", subtitle: "child routes are still Dawn agents" },
+  { href: "/docs/agents", title: "Agents", subtitle: "child routes are still B4.run agents" },
   { href: "/docs/routes", title: "Routes", subtitle: "how folder paths become route ids" },
   { href: "/docs/planning", title: "Planning", subtitle: "child plan updates stream as subagent.plan_update" },
   { href: "/docs/dev-server/agent-protocol", title: "Agent Protocol", subtitle: "subagent stream events and root-thread resume" },

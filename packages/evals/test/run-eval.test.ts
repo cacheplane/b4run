@@ -1,4 +1,4 @@
-import type { AgentRunResult } from "@dawn-ai/testing"
+import type { AgentRunResult } from "@b4run/testing"
 import { describe, expect, it } from "vitest"
 import { gate } from "../src/gate.js"
 import { runEval } from "../src/run-eval.js"

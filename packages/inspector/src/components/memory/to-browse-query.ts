@@ -5,7 +5,7 @@ import {
   type BrowseSortField,
   type MemoryKind,
   type MemoryStatus,
-} from "@dawn-ai/memory/browse"
+} from "@b4run/memory/browse"
 import type { ColumnFilter, FilterOperator, PretableSortEntry } from "@pretable/react"
 import { isMemoryKind, isMemoryStatus } from "./memory-domain"
 

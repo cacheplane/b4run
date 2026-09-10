@@ -1,5 +1,9 @@
 # Next Iterations Roadmap
 
+> Historical design snapshot, retained to explain earlier implementation decisions.
+> For current B4.run behavior and commands, use the [documentation](https://b4.run/docs/getting-started)
+> and the repository README. This document is not a current implementation guide.
+
 > Historical note: this roadmap captured the continuation plan after the route-authoring milestone. It is useful project history, not the current product status page.
 
 This roadmap is the recommended continuation path after the route-authoring milestone now merged on `main`.

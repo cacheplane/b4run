@@ -37,7 +37,7 @@ test("durable v2 ownership survives removal of the current git intent", async ()
   assert.equal(result.state, "RECOVERY_REQUIRED")
   assert.equal(result.disposition, "recovery-owned")
 })
-for (const body of ["", "corrupt <!-- DAWN_RELEASE_CONTROLLER_MARKER\n{"])
+for (const body of ["", "corrupt <!-- B4_RELEASE_CONTROLLER_MARKER\n{"])
   test(`published recovery uses immutable tag and fixed final asset with body ${JSON.stringify(body)}`, async () => {
     const r = await recoveryRemote({ published: true })
     r.release.body = body
@@ -273,7 +273,7 @@ import { runReleaseCli } from "../cli.mjs"
 
 test("legacy CLI emits blocked recovery-required outputs with no continuation or v1 hydration evidence", async () => {
   const r = await recoveryRemote()
-  const directory = await mkdtemp(join(tmpdir(), "dawn-recovery-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-recovery-cli-"))
   const active = {
     schemaVersion: 1,
     publishingOwner: "release-controller",
@@ -350,7 +350,7 @@ test("legacy CLI emits blocked recovery-required outputs with no continuation or
     await rm(directory, { recursive: true, force: true })
   }
 })
-for (const body of ["", "corrupt <!-- DAWN_RELEASE_CONTROLLER_MARKER\n{"])
+for (const body of ["", "corrupt <!-- B4_RELEASE_CONTROLLER_MARKER\n{"])
   test(`adopted opaque draft with edited title, removed intent and body ${JSON.stringify(body)} stays recovery-owned`, async () => {
     const r = await recoveryRemote()
     r.release.body = body
@@ -385,7 +385,7 @@ for (const bodyMode of ["valid", "absent", "corrupt", "unknown"]) {
         ? renderRecoveryReleaseBody({ marker: r.marker, body: "notes" })
         : bodyMode === "absent"
           ? ""
-          : "corrupt <!-- DAWN_RELEASE_CONTROLLER_MARKER\n{"
+          : "corrupt <!-- B4_RELEASE_CONTROLLER_MARKER\n{"
     if (bodyMode === "unknown") {
       r.release.body = renderRecoveryReleaseBody({ marker: r.marker, body: "notes" }).replace(
         '"schemaVersion":2',
@@ -472,7 +472,7 @@ for (const [name, mutation] of [
   test(`published finalization owns observation and routing despite edited valid marker ${name}`, async () => {
     const r = await recoveryRemote({ published: true })
     r.release.body = renderRecoveryReleaseBody({ marker: mutation(r), body: "Edited display" })
-    if (name === "title collision") r.release.name = "Dawn v0.8.25"
+    if (name === "title collision") r.release.name = "B4 v0.8.25"
     r.args.git.listTree = async () => ""
     const observed = await routing.observeRecoveryCandidate(r.args)
     assert.equal(observed.outcome, "complete", JSON.stringify(observed.errors))
@@ -675,7 +675,7 @@ test("an injected recovery-looking discovery result still receives independent o
   assert.equal(r.calls.filter((call) => call === "dispose").length, 1)
 })
 
-for (const body of ["", "corrupt <!-- DAWN_RELEASE_CONTROLLER_MARKER\n{"])
+for (const body of ["", "corrupt <!-- B4_RELEASE_CONTROLLER_MARKER\n{"])
   test(`frozen draft remains recovery-owned after display loss ${JSON.stringify(body)}`, async () => {
     const r = await recoveryRemote()
     r.setAssets(r.allAssets)

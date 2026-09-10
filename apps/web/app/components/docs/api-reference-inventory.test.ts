@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
-import { renderDawnTypes } from "../../../../../packages/core/src/typegen/render-route-types"
+import { renderB4Types } from "../../../../../packages/core/src/typegen/render-route-types"
 import { STATIC_SEO_PAGES } from "../../seo/registry"
 import {
   API_BEHAVIOR_CONTRACTS,
@@ -24,39 +24,39 @@ const SEO_TITLES_BY_PATH = Object.fromEntries(
 )
 
 const foundationalPages = [
-  { slug: "sdk", label: "@dawn-ai/sdk", href: "/docs/api/sdk" },
-  { slug: "cli", label: "@dawn-ai/cli", href: "/docs/api/cli" },
-  { slug: "core", label: "@dawn-ai/core", href: "/docs/api/core" },
-  { slug: "generated-routes", label: "dawn:routes", href: "/docs/api/generated-routes" },
+  { slug: "sdk", label: "@b4run/sdk", href: "/docs/api/sdk" },
+  { slug: "cli", label: "@b4run/cli", href: "/docs/api/cli" },
+  { slug: "core", label: "@b4run/core", href: "/docs/api/core" },
+  { slug: "generated-routes", label: "b4:routes", href: "/docs/api/generated-routes" },
 ] as const
 
 const packagePages = [
-  { slug: "ag-ui", label: "@dawn-ai/ag-ui", href: "/docs/api/ag-ui" },
-  { slug: "memory", label: "@dawn-ai/memory", href: "/docs/api/memory" },
+  { slug: "ag-ui", label: "@b4run/ag-ui", href: "/docs/api/ag-ui" },
+  { slug: "memory", label: "@b4run/memory", href: "/docs/api/memory" },
   {
     slug: "memory-pgvector",
-    label: "@dawn-ai/memory-pgvector",
+    label: "@b4run/memory-pgvector",
     href: "/docs/api/memory-pgvector",
   },
   {
     slug: "postgres-storage",
-    label: "@dawn-ai/postgres-storage",
+    label: "@b4run/postgres-storage",
     href: "/docs/api/postgres-storage",
   },
-  { slug: "testing", label: "@dawn-ai/testing", href: "/docs/api/testing" },
-  { slug: "evals", label: "@dawn-ai/evals", href: "/docs/api/evals" },
+  { slug: "testing", label: "@b4run/testing", href: "/docs/api/testing" },
+  { slug: "evals", label: "@b4run/evals", href: "/docs/api/evals" },
   {
     slug: "permissions",
-    label: "@dawn-ai/permissions",
+    label: "@b4run/permissions",
     href: "/docs/api/permissions",
   },
-  { slug: "workspace", label: "@dawn-ai/workspace", href: "/docs/api/workspace" },
-  { slug: "sandbox", label: "@dawn-ai/sandbox", href: "/docs/api/sandbox" },
-  { slug: "langgraph", label: "@dawn-ai/langgraph", href: "/docs/api/langgraph" },
-  { slug: "langchain", label: "@dawn-ai/langchain", href: "/docs/api/langchain" },
+  { slug: "workspace", label: "@b4run/workspace", href: "/docs/api/workspace" },
+  { slug: "sandbox", label: "@b4run/sandbox", href: "/docs/api/sandbox" },
+  { slug: "langgraph", label: "@b4run/langgraph", href: "/docs/api/langgraph" },
+  { slug: "langchain", label: "@b4run/langchain", href: "/docs/api/langchain" },
   {
     slug: "sqlite-storage",
-    label: "@dawn-ai/sqlite-storage",
+    label: "@b4run/sqlite-storage",
     href: "/docs/api/sqlite-storage",
   },
 ] as const
@@ -101,9 +101,9 @@ const foundationalSections = [
 ] as const
 
 const foundationalPackageSlugs = new Map([
-  ["@dawn-ai/sdk", "sdk"],
-  ["@dawn-ai/cli", "cli"],
-  ["@dawn-ai/core", "core"],
+  ["@b4run/sdk", "sdk"],
+  ["@b4run/cli", "cli"],
+  ["@b4run/core", "core"],
 ])
 
 const foundationalCompatibilityRows = [
@@ -133,13 +133,13 @@ const foundationalCompatibilityRows = [
 
     if (
       artifact.kind === "operated" &&
-      artifact.packageName === "@dawn-ai/cli" &&
-      artifact.selector === "bin.dawn"
+      artifact.packageName === "@b4run/cli" &&
+      artifact.selector === "bin.b4"
     ) {
       return [
         {
           slug,
-          cells: ["bin:dawn", artifact.runtime, "n/a", artifact.audience, artifact.stability],
+          cells: ["bin:b4", artifact.runtime, "n/a", artifact.audience, artifact.stability],
         },
       ]
     }
@@ -237,7 +237,7 @@ const ownershipRows = [
 
 function ownershipTable(
   rows: readonly (readonly [string, string])[] = ownershipRows,
-  heading = "@dawn-ai/sdk",
+  heading = "@b4run/sdk",
 ): string {
   return [
     `### ${heading}`,
@@ -250,7 +250,7 @@ function ownershipTable(
 
 function generatedOwnershipTable(symbols: readonly string[]): string {
   return [
-    "### `dawn:routes`",
+    "### `b4:routes`",
     "",
     "| Generated export | Responsibility |",
     "|---|---|",
@@ -259,13 +259,13 @@ function generatedOwnershipTable(symbols: readonly string[]): string {
 }
 
 const noStateGeneratedExports = [
-  "DawnRoutePath",
-  "DawnRouteParams",
-  "DawnRouteTools",
+  "B4RoutePath",
+  "B4RouteParams",
+  "B4RouteTools",
   "RouteTools",
 ] as const
 
-const stateGeneratedExports = [...noStateGeneratedExports, "DawnRouteState", "RouteState"] as const
+const stateGeneratedExports = [...noStateGeneratedExports, "B4RouteState", "RouteState"] as const
 
 const generatedManifest = {
   appRoot: "/fixture/app",
@@ -282,7 +282,7 @@ const generatedManifest = {
       ],
     },
   ],
-} as Parameters<typeof renderDawnTypes>[0]
+} as Parameters<typeof renderB4Types>[0]
 const generatedToolTypes = [
   {
     pathname: "/hello/[tenant]",
@@ -290,15 +290,15 @@ const generatedToolTypes = [
       { name: "greet", description: "Greet the caller", inputType: "void", outputType: "string" },
     ],
   },
-] as Parameters<typeof renderDawnTypes>[1]
+] as Parameters<typeof renderB4Types>[1]
 const generatedStateTypes = [
   {
     pathname: "/hello/[tenant]",
     fields: [{ name: "status", type: '"ready" | "done"' }],
   },
-] as NonNullable<Parameters<typeof renderDawnTypes>[2]>
-const noStateGeneratedDeclarations = renderDawnTypes(generatedManifest, generatedToolTypes)
-const stateGeneratedDeclarations = renderDawnTypes(
+] as NonNullable<Parameters<typeof renderB4Types>[2]>
+const noStateGeneratedDeclarations = renderB4Types(generatedManifest, generatedToolTypes)
+const stateGeneratedDeclarations = renderB4Types(
   generatedManifest,
   generatedToolTypes,
   generatedStateTypes,
@@ -308,17 +308,17 @@ const agentContract = `export declare function agent<TState extends object = Rec
   config: AgentConfig<TState>,
   options?: { strict: boolean },
   ...tools: readonly string[]
-): DawnAgent<TState>
-export declare function agent(config: AgentConfig<never>): DawnAgent<never>`
+): B4Agent<TState>
+export declare function agent(config: AgentConfig<never>): B4Agent<never>`
 
-const agentContractFence = `\`\`\`ts api-contract="@dawn-ai/sdk#.:agent"
+const agentContractFence = `\`\`\`ts api-contract="@b4run/sdk#.:agent"
 ${agentContract}
 \`\`\``
 
 const contractFences = `
 ${agentContractFence}
 
-\`\`\`ts api-contract="@dawn-ai/sdk#.:AgentConfig"
+\`\`\`ts api-contract="@b4run/sdk#.:AgentConfig"
 export interface AgentConfig<TState extends object = Record<string, never>> {
   readonly model?: KnownModelId
   readonly state?: TState
@@ -326,7 +326,7 @@ export interface AgentConfig<TState extends object = Record<string, never>> {
 }
 \`\`\`
 
-\`\`\`ts api-contract="@dawn-ai/sdk#.:PublicShape"
+\`\`\`ts api-contract="@b4run/sdk#.:PublicShape"
 export interface PublicShape {
   readonly result?: ({ ok: true } & { value: string }) | { ok: false }
   transform?(input: string): number
@@ -339,11 +339,11 @@ export interface PublicShape {
 }
 \`\`\`
 
-\`\`\`ts api-contract="@dawn-ai/sdk#.:mode"
+\`\`\`ts api-contract="@b4run/sdk#.:mode"
 export declare const mode: "fast"
 \`\`\`
 
-\`\`\`ts api-contract="@dawn-ai/sdk#.:Worker"
+\`\`\`ts api-contract="@b4run/sdk#.:Worker"
 export declare abstract class Worker extends BaseWorker implements Runnable {
   constructor(name: string, attempts?: number)
   readonly status: "ready"
@@ -353,7 +353,7 @@ export declare abstract class Worker extends BaseWorker implements Runnable {
 }
 \`\`\`
 
-\`\`\`ts api-contract="@dawn-ai/sdk#.:MergedOptions"
+\`\`\`ts api-contract="@b4run/sdk#.:MergedOptions"
 export interface MergedOptions extends BaseOptions {
   first: string
   parse(input: "specific"): "specific"
@@ -366,28 +366,28 @@ export interface MergedOptions extends ExtraOptions {
 }
 \`\`\`
 
-\`\`\`ts api-contract="@dawn-ai/sdk#.:sameParamProbe"
+\`\`\`ts api-contract="@b4run/sdk#.:sameParamProbe"
 export declare const sameParamProbe: "second"
 \`\`\`
 
-\`\`\`ts api-contract="@dawn-ai/sdk#.:specializedProbe"
+\`\`\`ts api-contract="@b4run/sdk#.:specializedProbe"
 export declare const specializedProbe: "specific"
 \`\`\`
 
-\`\`\`ts api-contract="@dawn-ai/sdk#.:makeResult"
+\`\`\`ts api-contract="@b4run/sdk#.:makeResult"
 export declare function makeResult<T>(value: T): { readonly value: T }
 \`\`\`
 
-\`\`\`ts api-contract="@dawn-ai/sdk#.:wildcardExport"
+\`\`\`ts api-contract="@b4run/sdk#.:wildcardExport"
 export declare const wildcardExport: { readonly mode?: "a" | "b" }
 \`\`\`
 
-\`\`\`ts api-contract="@dawn-ai/sdk#.:defaultExport"
+\`\`\`ts api-contract="@b4run/sdk#.:defaultExport"
 export declare function defaultExport(input: string): boolean
 \`\`\`
 `
 
-const agentConfigFieldTable = `**Fields: \`@dawn-ai/sdk#.:AgentConfig\`**
+const agentConfigFieldTable = `**Fields: \`@b4run/sdk#.:AgentConfig\`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | \`readonly model\` | \`KnownModelId\` | no | Model used by the route. |
@@ -407,7 +407,7 @@ function baseline(): InventoryFixture {
       {
         dir: "packages/sdk",
         packageJson: {
-          name: "@dawn-ai/sdk",
+          name: "@b4run/sdk",
           exports: {
             ".": {
               types: "./dist/index.d.ts",
@@ -422,7 +422,7 @@ function baseline(): InventoryFixture {
     artifacts: [
       {
         kind: "import",
-        packageName: "@dawn-ai/sdk",
+        packageName: "@b4run/sdk",
         subpath: ".",
         coverage: "detailed",
         surfaceKind: "typescript-runtime",
@@ -430,7 +430,7 @@ function baseline(): InventoryFixture {
       },
       {
         kind: "import",
-        packageName: "@dawn-ai/sdk",
+        packageName: "@b4run/sdk",
         subpath: "./package.json",
         coverage: "catalog-only",
         surfaceKind: "metadata",
@@ -438,8 +438,8 @@ function baseline(): InventoryFixture {
       },
       {
         kind: "operated",
-        packageName: "@dawn-ai/sdk",
-        selector: "bin.dawn",
+        packageName: "@b4run/sdk",
+        selector: "bin.b4",
         coverage: "catalog-only",
         ownerHref: "/docs/api/sdk",
       },
@@ -448,7 +448,7 @@ function baseline(): InventoryFixture {
       {
         href: "/docs/api/sdk",
         path: "docs/sdk.mdx",
-        source: `# Alpha <em>Beta</em> \`<Tools>\` <https://dawn.example/api> <mailto:docs@dawn.example> <team@dawn.example>
+        source: `# Alpha <em>Beta</em> \`<Tools>\` <https://b4.example/api> <mailto:docs@b4.example> <team@b4.example>
 
 ${ownershipTable()}
 ${contractFences}
@@ -471,7 +471,7 @@ Critical behavior.
 
 The literal \`\`<RelatedCards />\`\` remains behavior prose.
 
-See <https://dawn.example/retry>, <mailto:help@dawn.example>, and <help@dawn.example>.
+See <https://b4.example/retry>, <mailto:help@b4.example>, and <help@b4.example>.
 
 \`\`\`ts
 // fenced prose is not part of the claim
@@ -507,14 +507,14 @@ This prose is outside the behavior block.
 
 <!--
 ${ownershipTable([["commentExport", "A comment decoy."]])}
-\`\`\`ts api-contract="@dawn-ai/sdk#.:commentExport"
+\`\`\`ts api-contract="@b4run/sdk#.:commentExport"
 export declare const commentExport: string
 \`\`\`
 -->
 
 \`\`\`md
 ${ownershipTable([["fencedExport", "A fence decoy."]])}
-**Fields: \`@dawn-ai/sdk#.:Fenced\`**
+**Fields: \`@b4run/sdk#.:Fenced\`**
 \`\`\`
 
 \`${ownershipTable([["inlineExport", "An inline decoy."]]).replaceAll("\n", " ")}\`
@@ -522,24 +522,24 @@ ${ownershipTable([["fencedExport", "A fence decoy."]])}
       },
     ],
     requiredContractKeys: [
-      "@dawn-ai/sdk#.:agent",
-      "@dawn-ai/sdk#.:AgentConfig",
-      "@dawn-ai/sdk#.:PublicShape",
-      "@dawn-ai/sdk#.:mode",
-      "@dawn-ai/sdk#.:Worker",
-      "@dawn-ai/sdk#.:MergedOptions",
-      "@dawn-ai/sdk#.:sameParamProbe",
-      "@dawn-ai/sdk#.:specializedProbe",
-      "@dawn-ai/sdk#.:makeResult",
-      "@dawn-ai/sdk#.:wildcardExport",
-      "@dawn-ai/sdk#.:defaultExport",
+      "@b4run/sdk#.:agent",
+      "@b4run/sdk#.:AgentConfig",
+      "@b4run/sdk#.:PublicShape",
+      "@b4run/sdk#.:mode",
+      "@b4run/sdk#.:Worker",
+      "@b4run/sdk#.:MergedOptions",
+      "@b4run/sdk#.:sameParamProbe",
+      "@b4run/sdk#.:specializedProbe",
+      "@b4run/sdk#.:makeResult",
+      "@b4run/sdk#.:wildcardExport",
+      "@b4run/sdk#.:defaultExport",
     ],
     behaviorContracts: [
       {
         id: "sdk-retries",
         ownerHref: "/docs/api/sdk",
         claim:
-          "Agent routes retry failed model calls. Critical behavior. Nested evidence Retries default to three attempts. The literal <RelatedCards /> remains behavior prose. See https://dawn.example/retry, mailto:help@dawn.example, and help@dawn.example.",
+          "Agent routes retry failed model calls. Critical behavior. Nested evidence Retries default to three attempts. The literal <RelatedCards /> remains behavior prose. See https://b4.example/retry, mailto:help@b4.example, and help@b4.example.",
         authorities: [
           {
             kind: "source-ast",
@@ -634,7 +634,7 @@ void privateOnly
 `,
       "packages/sdk/src/agent.ts": `
 type KnownModelId = "gpt-5-mini" | "gpt-5.4"
-interface DawnAgent<TState> { readonly state: TState }
+interface B4Agent<TState> { readonly state: TState }
 export interface AgentConfig<TState extends object = Record<string, never>> {
   readonly model?: KnownModelId
   readonly state?: TState
@@ -654,9 +654,9 @@ export function agent<TState extends object = Record<string, never>>(
   config: AgentConfig<TState>,
   options?: { strict: boolean },
   ...tools: readonly string[]
-): DawnAgent<TState>
-export function agent(config: AgentConfig<never>): DawnAgent<never>
-export function agent(config: AgentConfig<object>): DawnAgent<object> {
+): B4Agent<TState>
+export function agent(config: AgentConfig<never>): B4Agent<never>
+export function agent(config: AgentConfig<object>): B4Agent<object> {
   return { state: config.state ?? {} }
 }
 `,
@@ -762,7 +762,7 @@ function publicMembersFixture(
         href: "/docs/api/sqlite-storage",
         path: "docs/sqlite-storage.mdx",
         source: `#### Behavior contract \`sqlite-public-members\`
-{/* api-behavior-authorities: [{"kind":"source-ast","file":"packages/sqlite-storage/src/checkpointer/saver.ts","selector":"DawnSqliteSaver.publicMembers"},{"kind":"source-ast","file":"packages/sqlite-storage/src/threads/store.ts","selector":"ThreadsStore.publicMembers"}] */}
+{/* api-behavior-authorities: [{"kind":"source-ast","file":"packages/sqlite-storage/src/checkpointer/saver.ts","selector":"B4SqliteSaver.publicMembers"},{"kind":"source-ast","file":"packages/sqlite-storage/src/threads/store.ts","selector":"ThreadsStore.publicMembers"}] */}
 The public saver and thread store omit close.`,
       },
     ],
@@ -775,7 +775,7 @@ The public saver and thread store omit close.`,
           {
             kind: "source-ast",
             file: "packages/sqlite-storage/src/checkpointer/saver.ts",
-            selector: "DawnSqliteSaver.publicMembers",
+            selector: "B4SqliteSaver.publicMembers",
             expected: "public members: baseMethod, getTuple, put",
           },
           {
@@ -791,7 +791,7 @@ The public saver and thread store omit close.`,
       "packages/sqlite-storage/src/checkpointer/saver.ts": `class BaseCheckpointSaver {
   baseMethod(): void {}${baseClose}
 }
-export class DawnSqliteSaver extends BaseCheckpointSaver {
+export class B4SqliteSaver extends BaseCheckpointSaver {
   constructor(private readonly db: unknown) {}
   async getTuple(): Promise<unknown> { return undefined }
   protected internal(): void {}
@@ -903,15 +903,11 @@ const mutationFixtures: InventoryFixture[] = [
     replaceDoc(
       fixture,
       contractFences,
-      `${contractFences}\n\`\`\`ts api-contract="@dawn-ai/sdk#.:stale"\nexport declare const stale: string\n\`\`\``,
+      `${contractFences}\n\`\`\`ts api-contract="@b4run/sdk#.:stale"\nexport declare const stale: string\n\`\`\``,
     )
   }),
   mutated("contract-table-key-mismatch", (fixture) => {
-    replaceDoc(
-      fixture,
-      'api-contract="@dawn-ai/sdk#.:agent"',
-      'api-contract="@dawn-ai/sdk#.:ghost"',
-    )
+    replaceDoc(fixture, 'api-contract="@b4run/sdk#.:agent"', 'api-contract="@b4run/sdk#.:ghost"')
   }),
   mutated("duplicate-contract", (fixture) => {
     appendToPrimaryDoc(fixture, agentContractFence)
@@ -1055,11 +1051,7 @@ export interface MergedOptions extends ExtraOptions {
     replaceDoc(fixture, "ts api-contract=", "ts  api-contract=")
   }),
   mutated("contract-tag-malformed-key", (fixture) => {
-    replaceDoc(
-      fixture,
-      'api-contract="@dawn-ai/sdk#.:mode"',
-      'api-contract = "@dawn-ai/sdk#.:mode"',
-    )
+    replaceDoc(fixture, 'api-contract="@b4run/sdk#.:mode"', 'api-contract = "@b4run/sdk#.:mode"')
   }),
   mutated("contract-tag-colon", (fixture) => {
     replaceDoc(fixture, "ts api-contract=", "ts api-contract:")
@@ -1071,7 +1063,7 @@ export interface MergedOptions extends ExtraOptions {
     replaceDoc(fixture, "ts api-contract=", "ts api-contract,=")
   }),
   mutated("contract-tag-standalone", (fixture) => {
-    replaceDoc(fixture, 'ts api-contract="@dawn-ai/sdk#.:agent"', "ts api-contract")
+    replaceDoc(fixture, 'ts api-contract="@b4run/sdk#.:agent"', "ts api-contract")
   }),
   mutated("contract-interface-method-optional", (fixture) => {
     replaceFile(fixture, "packages/sdk/src/agent.ts", "transform?(input", "transform(input")
@@ -1121,7 +1113,7 @@ export interface MergedOptions extends ExtraOptions {
       ["parameter-type", "options?: { strict: boolean }", "options?: { strict: string }"],
       ["parameter-optionality", "options?: { strict: boolean }", "options: { strict: boolean }"],
       ["parameter-rest", "...tools: readonly string[]", "tools: readonly string[]"],
-      ["return-type", "): DawnAgent<TState>", "): Promise<DawnAgent<TState>>"],
+      ["return-type", "): B4Agent<TState>", "): Promise<B4Agent<TState>>"],
     ] as const
   ).map(([name, from, to]) =>
     mutated(`contract-${name}`, (fixture) => replaceDoc(fixture, from, to)),
@@ -1129,7 +1121,7 @@ export interface MergedOptions extends ExtraOptions {
   mutated("contract-overload", (fixture) => {
     replaceDoc(
       fixture,
-      "\nexport declare function agent(config: AgentConfig<never>): DawnAgent<never>",
+      "\nexport declare function agent(config: AgentConfig<never>): B4Agent<never>",
       "",
     )
   }),
@@ -1182,10 +1174,10 @@ export interface MergedOptions extends ExtraOptions {
     replaceDoc(fixture, "| `AgentConfig` | Configure an agent route. |", "")
   }),
   mutated("field-caption-removed", (fixture) => {
-    replaceDoc(fixture, "**Fields: `@dawn-ai/sdk#.:AgentConfig`**\n", "")
+    replaceDoc(fixture, "**Fields: `@b4run/sdk#.:AgentConfig`**\n", "")
   }),
   mutated("field-caption-malformed", (fixture) => {
-    replaceDoc(fixture, "**Fields: `@dawn-ai/sdk#.:AgentConfig`**", "**Field: AgentConfig**")
+    replaceDoc(fixture, "**Fields: `@b4run/sdk#.:AgentConfig`**", "**Field: AgentConfig**")
   }),
   mutated("field-header-optional", (fixture) => {
     replaceDoc(
@@ -1219,7 +1211,7 @@ export interface MergedOptions extends ExtraOptions {
       href: "/fixture/foreign",
       path: "docs/foreign.mdx",
       source:
-        '```ts api-contract="@dawn-ai/foreign#.:ghost"\nexport declare const ghost: string\n```',
+        '```ts api-contract="@b4run/foreign#.:ghost"\nexport declare const ghost: string\n```',
     })
   }),
   mutated("malformed-contract-key", (fixture) => {
@@ -1233,7 +1225,7 @@ export interface MergedOptions extends ExtraOptions {
     fixture.documents.push({
       href: "/fixture/foreign-fields",
       path: "docs/foreign-fields.mdx",
-      source: `**Fields: \`@dawn-ai/foreign#.:Ghost\`**
+      source: `**Fields: \`@b4run/foreign#.:Ghost\`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | \`value\` | \`string\` | yes | A foreign field. |`,
@@ -1306,8 +1298,8 @@ export interface MergedOptions extends ExtraOptions {
   }),
   mutated("behavior-autolink-claim", (fixture) => {
     firstBehaviorContract(fixture).claim = firstBehaviorContract(fixture).claim.replace(
-      "https://dawn.example/retry",
-      "https://dawn.example/changed",
+      "https://b4.example/retry",
+      "https://b4.example/changed",
     )
   }),
   mutated("behavior-component-claim", (fixture) => {
@@ -1475,32 +1467,32 @@ ${ownershipTable([["Ghost", "This fenced decoy must be ignored."]], "@x/foreign"
     appendToPrimaryDoc(
       fixture,
       `\`\`\`ts
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 const route = agent({ model: "gpt-5-mini" })
 console.log(route)
 \`\`\``,
     )
   }),
   mutated("contract-tag-removed", (fixture) => {
-    replaceDoc(fixture, '```ts api-contract="@dawn-ai/sdk#.:mode"', "```ts")
+    replaceDoc(fixture, '```ts api-contract="@b4run/sdk#.:mode"', "```ts")
   }),
   mutated("required-contract-key-removed", (fixture) => {
     fixture.requiredContractKeys = [...(fixture.requiredContractKeys ?? []).slice(1)]
   }),
   mutated("required-contract-key-duplicated", (fixture) => {
-    fixture.requiredContractKeys = [...(fixture.requiredContractKeys ?? []), "@dawn-ai/sdk#.:agent"]
+    fixture.requiredContractKeys = [...(fixture.requiredContractKeys ?? []), "@b4run/sdk#.:agent"]
   }),
   mutated("required-contract-key-stale", (fixture) => {
-    fixture.requiredContractKeys = [...(fixture.requiredContractKeys ?? []), "@dawn-ai/sdk#.:Ghost"]
+    fixture.requiredContractKeys = [...(fixture.requiredContractKeys ?? []), "@b4run/sdk#.:Ghost"]
   }),
   mutated("required-contract-key-substituted-with-fence", (fixture) => {
     fixture.requiredContractKeys = (fixture.requiredContractKeys ?? []).map((key) =>
-      key === "@dawn-ai/sdk#.:mode" ? "@dawn-ai/sdk#.:wildcardExport" : key,
+      key === "@b4run/sdk#.:mode" ? "@b4run/sdk#.:wildcardExport" : key,
     )
     replaceDoc(
       fixture,
-      '```ts api-contract="@dawn-ai/sdk#.:mode"',
-      '```ts api-contract="@dawn-ai/sdk#.:wildcardExport"',
+      '```ts api-contract="@b4run/sdk#.:mode"',
+      '```ts api-contract="@b4run/sdk#.:wildcardExport"',
     )
   }),
   mutated("api-contract-substring-metadata", (fixture) => {
@@ -1625,7 +1617,7 @@ export interface MergedOptions extends BaseOptions {
     )
   }),
   mutated("heading-autolink-mutation", (fixture) => {
-    replaceDoc(fixture, "https://dawn.example/api", "https://dawn.example/reference")
+    replaceDoc(fixture, "https://b4.example/api", "https://b4.example/reference")
   }),
   mutated("contract-literal-quote-style", (fixture) => {
     replaceDoc(fixture, 'readonly status: "ready"', "readonly status: 'ready'")
@@ -1638,7 +1630,7 @@ export interface MergedOptions extends BaseOptions {
     )
     appendToPrimaryDoc(
       fixture,
-      '```ts api-contract="@dawn-ai/sdk#.:ContractEnum"\nexport declare enum ContractEnum { Ready = "ready" }\n```',
+      '```ts api-contract="@b4run/sdk#.:ContractEnum"\nexport declare enum ContractEnum { Ready = "ready" }\n```',
     )
     fixture.files["packages/sdk/src/extra.ts"] += '\nexport enum ContractEnum { Ready = "ready" }\n'
   }),
@@ -1650,7 +1642,7 @@ export interface MergedOptions extends BaseOptions {
     )
     appendToPrimaryDoc(
       fixture,
-      '```ts api-contract="@dawn-ai/sdk#.:ContractNamespace"\nexport declare namespace ContractNamespace { export function run(input: string): number }\n```',
+      '```ts api-contract="@b4run/sdk#.:ContractNamespace"\nexport declare namespace ContractNamespace { export function run(input: string): number }\n```',
     )
     fixture.files["packages/sdk/src/extra.ts"] +=
       "\nexport namespace ContractNamespace { export function run(input: string) { return input.length } }\n"
@@ -1659,7 +1651,7 @@ export interface MergedOptions extends BaseOptions {
     fixture.packages.push({
       dir: "packages/core",
       packageJson: {
-        name: "@dawn-ai/core",
+        name: "@b4run/core",
         exports: {
           ".": { types: "./dist/index.d.ts" },
           "./wild": { types: "./dist/wild.d.ts" },
@@ -1668,9 +1660,9 @@ export interface MergedOptions extends BaseOptions {
       },
     })
     fixture.files["packages/sdk/src/index.ts"] = `
-export { agent, type AgentConfig, type PublicShape } from "@dawn-ai/core"
-export * from "@dawn-ai/core/wild"
-export { coreOriginal as aliasExport } from "@dawn-ai/core/alias"
+export { agent, type AgentConfig, type PublicShape } from "@b4run/core"
+export * from "@b4run/core/wild"
+export { coreOriginal as aliasExport } from "@b4run/core/alias"
 export { default as defaultExport } from "./default.js"
 `
     fixture.files["packages/core/src/index.ts"] = fixture.files["packages/sdk/src/agent.ts"] ?? ""
@@ -1703,7 +1695,7 @@ const generatedFixtures: InventoryFixture[] = [
   generatedFixture(
     "generated-export-removed",
     noStateGeneratedDeclarations.replace(
-      / {2}export type RouteTools<P extends DawnRoutePath> = DawnRouteTools\[P\];\n/,
+      / {2}export type RouteTools<P extends B4RoutePath> = B4RouteTools\[P\];\n/,
       "",
     ),
     noStateGeneratedExports,
@@ -1743,18 +1735,18 @@ const generatedReviewFixtures = [
   }),
   generatedMutation("generated-module-missing", (fixture) => {
     const authority = fixture.generatedAuthorities?.[0]
-    if (authority) authority.declarations = authority.declarations.replace("dawn:routes", "other")
+    if (authority) authority.declarations = authority.declarations.replace("b4:routes", "other")
   }),
   generatedMutation("generated-module-duplicated", (fixture) => {
     const authority = fixture.generatedAuthorities?.[0]
-    if (authority) authority.declarations += '\ndeclare module "dawn:routes" {}\n'
+    if (authority) authority.declarations += '\ndeclare module "b4:routes" {}\n'
   }),
   generatedMutation("generated-value-export", (fixture) => {
     const authority = fixture.generatedAuthorities?.[0]
     if (authority) {
       authority.declarations = authority.declarations.replace(
-        "export interface DawnRouteTools",
-        "export class DawnRouteTools",
+        "export interface B4RouteTools",
+        "export class B4RouteTools",
       )
     }
   }),
@@ -1775,7 +1767,7 @@ const generatedReviewFixtures = [
     const authority = fixture.generatedAuthorities?.[0]
     if (authority) {
       authority.declarations = authority.declarations.replace(
-        "DawnRouteTools[P]",
+        "B4RouteTools[P]",
         "MissingRouteTools[P]",
       )
     }
@@ -1857,7 +1849,7 @@ describe("API reference wrapper contracts", { timeout: 30_000 }, () => {
 
     expect(wrongImport?.contentImportTarget).toBe("../../../../content/docs/api/cli.mdx")
     expect(wrongHref?.docsPageHref).toBe("/docs/api/cli")
-    expect(wrongMetadata?.metadataTitle).toBe("@dawn-ai/cli")
+    expect(wrongMetadata?.metadataTitle).toBe("@b4run/cli")
   })
 
   it("rejects JSX bindings that shadow the canonical imports", () => {
@@ -1888,20 +1880,20 @@ describe("foundational API reference pages", { timeout: 30_000 }, () => {
 
   it("keeps SDK root, pure, and testing surfaces distinct", () => {
     const content = foundationalContent("sdk")
-    expect(content).toContain("### `@dawn-ai/sdk`")
-    expect(content).toContain("### `@dawn-ai/sdk/pure`")
-    expect(content).toContain("### `@dawn-ai/sdk/testing`")
-    expect(content).toContain("not the `@dawn-ai/testing` package")
+    expect(content).toContain("### `@b4run/sdk`")
+    expect(content).toContain("### `@b4run/sdk/pure`")
+    expect(content).toContain("### `@b4run/sdk/testing`")
+    expect(content).toContain("not the `@b4run/testing` package")
   })
 
   it("keeps CLI imports and executable distinct", () => {
     const content = foundationalContent("cli")
     for (const surface of [
-      "@dawn-ai/cli",
-      "@dawn-ai/cli/fetch",
-      "@dawn-ai/cli/runtime",
-      "@dawn-ai/cli/testing",
-      "bin:dawn",
+      "@b4run/cli",
+      "@b4run/cli/fetch",
+      "@b4run/cli/runtime",
+      "@b4run/cli/testing",
+      "bin:b4",
     ]) {
       expect(content).toContain(`### \`${surface}\``)
     }
@@ -1909,8 +1901,8 @@ describe("foundational API reference pages", { timeout: 30_000 }, () => {
 
   it("publishes the exact ServeRuntimeOptions contract and all current fields", () => {
     const content = foundationalContent("cli")
-    expect(content).toContain('```ts api-contract="@dawn-ai/cli#.:ServeRuntimeOptions"')
-    expect(content).toContain("**Fields: `@dawn-ai/cli#.:ServeRuntimeOptions`**")
+    expect(content).toContain('```ts api-contract="@b4run/cli#.:ServeRuntimeOptions"')
+    expect(content).toContain("**Fields: `@b4run/cli#.:ServeRuntimeOptions`**")
     for (const field of [
       "appRoot",
       "host",
@@ -1930,14 +1922,14 @@ describe("foundational API reference pages", { timeout: 30_000 }, () => {
   })
 
   it("defers canonical-owner deep links until stable anchors land", () => {
-    expect(foundationalContent("cli")).not.toContain("/docs/api#dawn-ai-langchain")
-    expect(foundationalContent("core")).not.toContain("/docs/api#dawn-ai-sqlite-storage")
+    expect(foundationalContent("cli")).not.toContain("/docs/api#b4-run-langchain")
+    expect(foundationalContent("core")).not.toContain("/docs/api#b4-run-sqlite-storage")
   })
 
   it("marks the Core compiler subpath as internal", () => {
     const content = foundationalContent("core")
-    expect(content).toContain("### `@dawn-ai/core/internal/compiler`")
-    expect(content).toMatch(/@dawn-ai\/core\/internal\/compiler[\s\S]{0,500}\binternal\b/i)
+    expect(content).toContain("### `@b4run/core/internal/compiler`")
+    expect(content).toMatch(/@b4run\/core\/internal\/compiler[\s\S]{0,500}\binternal\b/i)
   })
 
   it.each(foundationalCompatibilityRows)(
@@ -2013,13 +2005,13 @@ describe("foundational API reference pages", { timeout: 30_000 }, () => {
   it("keeps AG-UI activity identifiers, payloads, and privacy behavior source-coupled", () => {
     const content = foundationalContent("ag-ui")
     for (const exportName of [
-      "DAWN_PLAN_ACTIVITY_TYPE",
-      "DAWN_SUBAGENT_ACTIVITY_TYPE",
-      "DawnPlanActivityContent",
-      "DawnSubagentActivityContent",
+      "B4_PLAN_ACTIVITY_TYPE",
+      "B4_SUBAGENT_ACTIVITY_TYPE",
+      "B4PlanActivityContent",
+      "B4SubagentActivityContent",
     ]) {
       expect(content).toContain(`| \`${exportName}\` |`)
-      expect(API_REQUIRED_CONTRACT_KEYS).toContain(`@dawn-ai/ag-ui#.:${exportName}`)
+      expect(API_REQUIRED_CONTRACT_KEYS).toContain(`@b4run/ag-ui#.:${exportName}`)
     }
     expect(content).toContain("complete replacement snapshot")
     expect(content).toContain("never includes child prompts, prose, tool inputs, tool outputs")
@@ -2041,16 +2033,14 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
   })
 
   it("owns every explicit detailed subpath separately", () => {
-    expect(foundationalContent("ag-ui")).toContain("### `@dawn-ai/ag-ui/sse`")
+    expect(foundationalContent("ag-ui")).toContain("### `@b4run/ag-ui/sse`")
     for (const subpath of ["browse", "namespace", "reconcile"]) {
-      expect(foundationalContent("memory")).toContain(`### \`@dawn-ai/memory/${subpath}\``)
+      expect(foundationalContent("memory")).toContain(`### \`@b4run/memory/${subpath}\``)
     }
-    expect(foundationalContent("postgres-storage")).toContain(
-      "### `@dawn-ai/postgres-storage/node`",
-    )
-    expect(foundationalContent("permissions")).toContain("### `@dawn-ai/permissions/node`")
-    expect(foundationalContent("workspace")).toContain("### `@dawn-ai/workspace/node`")
-    expect(foundationalContent("sandbox")).toContain("### `@dawn-ai/sandbox/testing`")
+    expect(foundationalContent("postgres-storage")).toContain("### `@b4run/postgres-storage/node`")
+    expect(foundationalContent("permissions")).toContain("### `@b4run/permissions/node`")
+    expect(foundationalContent("workspace")).toContain("### `@b4run/workspace/node`")
+    expect(foundationalContent("sandbox")).toContain("### `@b4run/sandbox/testing`")
   })
 
   it("keeps LangChain's leaked tool-loop helper shape exact without publishing it", () => {
@@ -2067,7 +2057,7 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
     }
     expect(content).not.toContain("| `ExecuteWithToolLoopOptions` |")
     expect(content).not.toContain("| `ToolExecutor` |")
-    expect(content).not.toContain('api-contract="@dawn-ai/langchain#.:ExecuteWithToolLoopOptions"')
+    expect(content).not.toContain('api-contract="@b4run/langchain#.:ExecuteWithToolLoopOptions"')
   })
 
   it("describes AgentTurnResult using its actual settled-turn fields", () => {
@@ -2107,14 +2097,14 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
       expect(content).not.toContain(`| \`${privateName}\` |`)
     }
     expect(content).toContain("canonical field owner is [Workspace](/docs/api/workspace)")
-    expect(content).not.toContain("**Fields: `@dawn-ai/sandbox#.:SandboxProvider`**")
+    expect(content).not.toContain("**Fields: `@b4run/sandbox#.:SandboxProvider`**")
   })
 
   it("documents the exact SQLite Storage root ownership", () => {
     const content = foundationalContent("sqlite-storage")
     for (const exportName of [
       "SqliteCheckpointerOptions",
-      "DawnSqliteSaver",
+      "B4SqliteSaver",
       "sqliteCheckpointer",
       "CreateThreadInput",
       "Thread",
@@ -2147,7 +2137,7 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
   it("installs Vitest before showing the Sandbox testing subpath import", () => {
     const content = foundationalContent("sandbox")
     const install = content.indexOf("pnpm add -D vitest")
-    const testingImport = content.indexOf('from "@dawn-ai/sandbox/testing"')
+    const testingImport = content.indexOf('from "@b4run/sandbox/testing"')
     expect(install).toBeGreaterThan(-1)
     expect(testingImport).toBeGreaterThan(install)
   })
@@ -2161,7 +2151,7 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
         {
           kind: "source-ast",
           file: "packages/sqlite-storage/src/checkpointer/saver.ts",
-          selector: "DawnSqliteSaver.publicMembers",
+          selector: "B4SqliteSaver.publicMembers",
           expected: "public members: deleteThread, getTuple, list, put, putWrites",
         },
         {
@@ -2196,7 +2186,7 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
     ]) {
       expect(content).toContain(`| \`${exportName}\` |`)
     }
-    expect(content).toContain("### `@dawn-ai/permissions/node`")
+    expect(content).toContain("### `@b4run/permissions/node`")
     expect(content).toContain("| `createPermissionsStore` |")
     expect(content).not.toContain("| `CreateOptions` |")
   })
@@ -2223,7 +2213,7 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
     ]) {
       expect(content).toContain(`| \`${exportName}\` |`)
     }
-    expect(content).toContain("### `@dawn-ai/workspace/node`")
+    expect(content).toContain("### `@b4run/workspace/node`")
     for (const exportName of [
       "LocalExecOptions",
       "LocalFilesystemOptions",
@@ -2254,7 +2244,7 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
       "SandboxProvider",
       "SandboxConfig",
     ]) {
-      expect(workspace).toContain(`**Fields: \`@dawn-ai/workspace#.:${contractName}\`**`)
+      expect(workspace).toContain(`**Fields: \`@b4run/workspace#.:${contractName}\`**`)
     }
   })
 
@@ -2360,7 +2350,7 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
   })
 
   it("type-checks the pgvector example with exact optional properties", () => {
-    const fixtureRoot = mkdtempSync(join(tmpdir(), "dawn-pgvector-doc-example-"))
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "b4-pgvector-doc-example-"))
     const fileName = join(fixtureRoot, "pgvector-example.ts")
     const source = `
 export {}
@@ -2374,7 +2364,7 @@ declare function pgvectorMemoryStore(options: {
   close(): Promise<void>
 }
 ${packageExample("memory-pgvector").replace(
-  'import { pgvectorMemoryStore } from "@dawn-ai/memory-pgvector"',
+  'import { pgvectorMemoryStore } from "@b4run/memory-pgvector"',
   "",
 )}
 `
@@ -2533,23 +2523,23 @@ describe("source-derived API inventory", { timeout: 30_000 }, () => {
   })
 
   it.each([
-    ["generated-owner-missing", /dawn:routes.*missing.*Generated export table/i],
-    ["generated-export-added", /dawn:routes.*exports.*UnexpectedRouteType.*exact/i],
-    ["generated-export-removed", /dawn:routes.*exports.*instead of exact/i],
-    ["generated-registry-removed", /dawn:routes.*registry.*missing/i],
-    ["generated-registry-duplicated", /dawn:routes.*exactly one.*registry/i],
-    ["generated-owner-wrong", /dawn:routes.*owner.*generated-routes/i],
-    ["generated-audience-wrong", /dawn:routes.*audience.*application/i],
-    ["generated-stability-wrong", /dawn:routes.*stability.*supported/i],
-    ["generated-runtime-forbidden", /dawn:routes.*fields.*runtime/i],
-    ["generated-purity-forbidden", /dawn:routes.*fields.*purity/i],
-    ["generated-authority-missing", /dawn:routes.*authority.*missing/i],
-    ["generated-module-missing", /dawn:routes.*ambient module.*missing/i],
-    ["generated-module-duplicated", /dawn:routes.*ambient module.*exactly one/i],
-    ["generated-value-export", /dawn:routes.*value export.*DawnRouteTools/i],
-    ["generated-alias-export", /dawn:routes.*UnexpectedRouteType.*exact/i],
-    ["generated-parse-error", /dawn:routes.*syntactic diagnostic/i],
-    ["generated-semantic-error", /dawn:routes.*semantic diagnostic/i],
+    ["generated-owner-missing", /b4:routes.*missing.*Generated export table/i],
+    ["generated-export-added", /b4:routes.*exports.*UnexpectedRouteType.*exact/i],
+    ["generated-export-removed", /b4:routes.*exports.*instead of exact/i],
+    ["generated-registry-removed", /b4:routes.*registry.*missing/i],
+    ["generated-registry-duplicated", /b4:routes.*exactly one.*registry/i],
+    ["generated-owner-wrong", /b4:routes.*owner.*generated-routes/i],
+    ["generated-audience-wrong", /b4:routes.*audience.*application/i],
+    ["generated-stability-wrong", /b4:routes.*stability.*supported/i],
+    ["generated-runtime-forbidden", /b4:routes.*fields.*runtime/i],
+    ["generated-purity-forbidden", /b4:routes.*fields.*purity/i],
+    ["generated-authority-missing", /b4:routes.*authority.*missing/i],
+    ["generated-module-missing", /b4:routes.*ambient module.*missing/i],
+    ["generated-module-duplicated", /b4:routes.*ambient module.*exactly one/i],
+    ["generated-value-export", /b4:routes.*value export.*B4RouteTools/i],
+    ["generated-alias-export", /b4:routes.*UnexpectedRouteType.*exact/i],
+    ["generated-parse-error", /b4:routes.*syntactic diagnostic/i],
+    ["generated-semantic-error", /b4:routes.*semantic diagnostic/i],
   ])("rejects %s", (name, diagnostic) => {
     expect(byName.get(name)?.failures).toEqual(
       expect.arrayContaining([expect.stringMatching(diagnostic)]),
@@ -2593,27 +2583,27 @@ describe("source-derived API inventory", { timeout: 30_000 }, () => {
   it("matches rendered headings without treating inline code as MDX tags", () => {
     expect(byName.get("baseline")?.headings[0]).toEqual({
       level: 1,
-      text: "Alpha Beta <Tools> https://dawn.example/api mailto:docs@dawn.example team@dawn.example",
+      text: "Alpha Beta <Tools> https://b4.example/api mailto:docs@b4.example team@b4.example",
     })
   })
 
   it("preserves a mutated CommonMark URL autolink in a rendered heading", () => {
     expect(byName.get("heading-autolink-mutation")?.headings[0]?.text).toContain(
-      "https://dawn.example/reference",
+      "https://b4.example/reference",
     )
   })
 
   it.each([
-    ["duplicate-owner", /@dawn-ai\/sdk.*\.?.*agent.*owner.*docs\/sdk/i],
-    ["missing-source-symbol", /@dawn-ai\/sdk.*\.?.*ghost.*docs\/sdk.*source.*index/i],
+    ["duplicate-owner", /@b4run\/sdk.*\.?.*agent.*owner.*docs\/sdk/i],
+    ["missing-source-symbol", /@b4run\/sdk.*\.?.*ghost.*docs\/sdk.*source.*index/i],
     [
       "undocumented-export",
-      /@dawn-ai\/sdk.*\.?.*undocumented.*owner.*docs\/api\/sdk.*source.*index/i,
+      /@b4run\/sdk.*\.?.*undocumented.*owner.*docs\/api\/sdk.*source.*index/i,
     ],
-    ["stale-documented-export", /@dawn-ai\/sdk.*\.?.*stale.*docs\/sdk.*source.*index/i],
-    ["contract-table-key-mismatch", /@dawn-ai\/sdk.*\.?.*ghost.*contract.*owner/i],
-    ["removed-subpath", /@dawn-ai\/sdk.*\.?.*source.*barrel|manifest.*subpath/i],
-    ["wrong-target", /@dawn-ai\/sdk.*\.?.*wrong.*source.*target/i],
+    ["stale-documented-export", /@b4run\/sdk.*\.?.*stale.*docs\/sdk.*source.*index/i],
+    ["contract-table-key-mismatch", /@b4run\/sdk.*\.?.*ghost.*contract.*owner/i],
+    ["removed-subpath", /@b4run\/sdk.*\.?.*source.*barrel|manifest.*subpath/i],
+    ["wrong-target", /@b4run\/sdk.*\.?.*wrong.*source.*target/i],
     ["duplicate-contract", /agent.*duplicate|exactly one API contract/i],
     ["orphan-contract", /agent.*no ownership|owner key mismatch/i],
     ["contract-tag-spacing", /malformed.*api-contract/i],
@@ -2679,7 +2669,7 @@ describe("source-derived API inventory", { timeout: 30_000 }, () => {
     expect(byName.get(name)?.failures).toEqual(
       expect.arrayContaining([
         expect.stringMatching(
-          /@dawn-ai\/sdk.*(?:agent|PublicShape|MergedOptions|mode|Worker|makeResult).*contract.*source/i,
+          /@b4run\/sdk.*(?:agent|PublicShape|MergedOptions|mode|Worker|makeResult).*contract.*source/i,
         ),
       ]),
     )
@@ -2701,7 +2691,7 @@ describe("source-derived API inventory", { timeout: 30_000 }, () => {
   ])("rejects the %s field-table mutation", (name) => {
     expect(byName.get(name)?.failures).toEqual(
       expect.arrayContaining([
-        expect.stringMatching(/@dawn-ai\/sdk.*AgentConfig.*field.*docs\/sdk/i),
+        expect.stringMatching(/@b4run\/sdk.*AgentConfig.*field.*docs\/sdk/i),
       ]),
     )
   })
@@ -2758,14 +2748,11 @@ describe("source-derived API inventory", { timeout: 30_000 }, () => {
     ["behavior-selector-object", /sdk-selector-shapes.*source-ast.*behaviorMap\.retry/i],
     ["behavior-selector-arrow-branch", /sdk-selector-shapes.*source-ast.*decide\.branch/i],
     ["behavior-selector-ambiguous", /sdk-selector-shapes.*source-ast.*retryDefault/i],
-    [
-      "behavior-public-members-saver-close",
-      /sqlite-public-members.*DawnSqliteSaver\.publicMembers/i,
-    ],
+    ["behavior-public-members-saver-close", /sqlite-public-members.*B4SqliteSaver\.publicMembers/i],
     ["behavior-public-members-store-close", /sqlite-public-members.*ThreadsStore\.publicMembers/i],
     [
       "behavior-public-members-inherited-close",
-      /sqlite-public-members.*DawnSqliteSaver\.publicMembers/i,
+      /sqlite-public-members.*B4SqliteSaver\.publicMembers/i,
     ],
     ["behavior-duplicate-test-name", /sdk-retries.*test-assertion.*uses three retries/i],
     ["behavior-await", /sdk-retries.*test-assertion.*uses three retries/i],

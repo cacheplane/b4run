@@ -8,21 +8,21 @@ const rootDir = dirname(fileURLToPath(import.meta.url))
 export default defineConfig({
   resolve: {
     alias: {
-      "@dawn-ai/core/internal/compiler": resolve(rootDir, "../core/src/compiler/index.ts"),
-      "@dawn-ai/core/node": resolve(rootDir, "../core/src/node.ts"),
-      "@dawn-ai/core": resolve(rootDir, "../core/src/index.ts"),
-      "@dawn-ai/langchain": resolve(rootDir, "../langchain/src/index.ts"),
-      "@dawn-ai/langgraph": resolve(rootDir, "../langgraph/src/index.ts"),
+      "@b4run/core/internal/compiler": resolve(rootDir, "../core/src/compiler/index.ts"),
+      "@b4run/core/node": resolve(rootDir, "../core/src/node.ts"),
+      "@b4run/core": resolve(rootDir, "../core/src/index.ts"),
+      "@b4run/langchain": resolve(rootDir, "../langchain/src/index.ts"),
+      "@b4run/langgraph": resolve(rootDir, "../langgraph/src/index.ts"),
       // Subpath aliases MUST precede the bare package alias — vitest matches
       // string aliases by prefix in declaration order, so a leading
-      // "@dawn-ai/memory" entry would swallow "@dawn-ai/memory/namespace".
-      "@dawn-ai/memory/namespace": resolve(rootDir, "../memory/src/namespace.ts"),
-      "@dawn-ai/memory/reconcile": resolve(rootDir, "../memory/src/reconcile.ts"),
-      "@dawn-ai/memory": resolve(rootDir, "../memory/src/index.ts"),
-      "@dawn-ai/sandbox/testing": resolve(rootDir, "../sandbox/src/testing/index.ts"),
-      "@dawn-ai/sdk/pure": resolve(rootDir, "../sdk/src/pure/index.ts"),
-      "@dawn-ai/sdk/testing": resolve(rootDir, "../sdk/src/testing/index.ts"),
-      "@dawn-ai/sdk": resolve(rootDir, "../sdk/src/index.ts"),
+      // "@b4run/memory" entry would swallow "@b4run/memory/namespace".
+      "@b4run/memory/namespace": resolve(rootDir, "../memory/src/namespace.ts"),
+      "@b4run/memory/reconcile": resolve(rootDir, "../memory/src/reconcile.ts"),
+      "@b4run/memory": resolve(rootDir, "../memory/src/index.ts"),
+      "@b4run/sandbox/testing": resolve(rootDir, "../sandbox/src/testing/index.ts"),
+      "@b4run/sdk/pure": resolve(rootDir, "../sdk/src/pure/index.ts"),
+      "@b4run/sdk/testing": resolve(rootDir, "../sdk/src/testing/index.ts"),
+      "@b4run/sdk": resolve(rootDir, "../sdk/src/index.ts"),
     },
   },
   test: {

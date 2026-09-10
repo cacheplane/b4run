@@ -15,13 +15,15 @@ test("extended fence evidence derives all 36 cases from explicit recorded calls"
 })
 for (const [name, damage] of Object.entries({
   "old summary ledger": (f) => {
-    f.evidence = { observations: Array(12).fill({ accepted: false, unchanged: true }) }
+    f.evidence = {
+      observations: Array(12).fill({ accepted: false, unchanged: true }),
+    }
   },
   "missing matrix cell": (f) => {
     f.evidence.cases.pop()
   },
   "production repo": (f) => {
-    f.evidence.repository = "cacheplane/dawnai"
+    f.evidence.repository = "cacheplane/b4run"
   },
   "production ID": (f) => {
     f.evidence.repositoryId = "1210070282"
@@ -61,7 +63,7 @@ for (const [name, damage] of Object.entries({
     f.evidence.restoration.finalInventoryCalls = []
   },
   "production call": (f) => {
-    f.evidence.calls[0].path = "/repos/cacheplane/dawnai"
+    f.evidence.calls[0].path = "/repos/cacheplane/b4run"
   },
   "fixture mismatch": (f) => {
     f.fixtureBytes.current += "# changed\n"
@@ -89,7 +91,11 @@ async function runtimeFixture() {
     sourceSha = "a".repeat(40),
     defaultSha = "e".repeat(40)
   const { candidate: candidateFixture } = await import("./support/recovery-fixture.mjs")
-  const candidate = { ...candidateFixture(), repositoryId: "1210070282", candidateSha: sourceSha }
+  const candidate = {
+    ...candidateFixture(),
+    repositoryId: "1210070282",
+    candidateSha: sourceSha,
+  }
   const executor = {
     controllerSha,
     workflow: ".github/workflows/release-postpublication.yml",
@@ -122,7 +128,11 @@ async function runtimeFixture() {
         workflowSha256: digest(bytes),
         executionInputs: [],
       },
-      { source: { kind: "current-default" }, workflowSha256: digest(bytes), executionInputs: [] },
+      {
+        source: { kind: "current-default" },
+        workflowSha256: digest(bytes),
+        executionInputs: [],
+      },
     ]
   }
   const topology = [
@@ -168,7 +178,11 @@ async function runtimeFixture() {
     evidenceSha256,
     probeClosure,
     fixtures: [
-      { revision: "current", path: currentFixturePath, sha256: digest(f.fixtureBytes.current) },
+      {
+        revision: "current",
+        path: currentFixturePath,
+        sha256: digest(f.fixtureBytes.current),
+      },
       {
         revision: "historical",
         path: historicalFixturePath,
@@ -192,12 +206,27 @@ async function runtimeFixture() {
   const policy = JSON.parse(await readFile("scripts/release/recovery/policy.json", "utf8"))
   policy.status = "ADMITTED"
   policy.fence.contracts = [contractSha256]
+  const { hashVerifierClosure } = await import("../recovery/policy.mjs")
+  for (const path of policy.verifierClosure.inputs)
+    if (!files.has(`${controllerSha}:${path}`)) put(controllerSha, path, "// verifier source\n")
+  policy.verifierClosure.sha256 = await hashVerifierClosure(
+    { controllerSha, inputs: policy.verifierClosure.inputs },
+    async ({ ref, path }) => files.get(`${ref}:${path}`),
+  )
+  executor.verifierClosureSha256 = policy.verifierClosure.sha256
   put(controllerSha, "scripts/release/recovery/policy.json", canonical(policy))
   const policySha256 = digest(canonical(policy)),
     calls = []
   const values = {
-    getRepository: { id: 1210070282, full_name: candidate.repository, default_branch: "main" },
-    getRef: { ref: "refs/heads/main", object: { type: "commit", sha: defaultSha } },
+    getRepository: {
+      id: 1210070282,
+      full_name: candidate.repository,
+      default_branch: "main",
+    },
+    getRef: {
+      ref: "refs/heads/main",
+      object: { type: "commit", sha: defaultSha },
+    },
     listRepositoryWorkflowsComplete: topology.map((t) => ({
       id: Number(t.workflowId),
       path: t.workflow,
@@ -229,6 +258,9 @@ async function runtimeFixture() {
     },
   }
   const git = {
+    async isAncestor() {
+      return true
+    },
     async showFile({ ref, path }) {
       calls.push(["showFile", ref, path])
       const raw = files.get(`${ref}:${path}`)
@@ -311,7 +343,11 @@ for (const [name, damage] of Object.entries({
     damage(f)
     await assert.rejects(() =>
       subject
-        .createRecoveryFenceReader({ github: f.github, git: f.git, now: () => 1000 })
+        .createRecoveryFenceReader({
+          github: f.github,
+          git: f.git,
+          now: () => 1000,
+        })
         .observeLegacyFence({
           candidate: f.candidate,
           executor: f.executor,
@@ -359,7 +395,11 @@ test("fence start time cannot become fresh after a long source read", async () =
   await assert.rejects(
     () =>
       subject
-        .createRecoveryFenceReader({ github: f.github, git: f.git, now: () => clock })
+        .createRecoveryFenceReader({
+          github: f.github,
+          git: f.git,
+          now: () => clock,
+        })
         .observeLegacyFence({
           candidate: f.candidate,
           executor: f.executor,
@@ -384,7 +424,11 @@ test("fence rejects topology and default SHA drift across whole observation", as
     }
     await assert.rejects(() =>
       subject
-        .createRecoveryFenceReader({ github: f.github, git: f.git, now: () => 1000 })
+        .createRecoveryFenceReader({
+          github: f.github,
+          git: f.git,
+          now: () => 1000,
+        })
         .observeLegacyFence({
           candidate: f.candidate,
           executor: f.executor,
@@ -438,7 +482,10 @@ for (const [name, damage] of Object.entries({
   },
   "pin ledger cycle": (c) => {
     c.topology.find((e) => e.disposition === "fenced-legacy").sources[0].executionInputs = [
-      { path: "scripts/release/test/fixtures/release-script-hashes.json", sha256: "a".repeat(64) },
+      {
+        path: "scripts/release/test/fixtures/release-script-hashes.json",
+        sha256: "a".repeat(64),
+      },
     ]
   },
   "duplicate workflow ID": (c) => {
@@ -908,8 +955,14 @@ test("fence setup accepts a branch read followed by the exact historical content
   const branchIndex = f.evidence.calls.findIndex((c) => c.id === f.evidence.setup.initialBranchCall)
   const content = f.evidence.calls[contentIndex],
     branch = f.evidence.calls[branchIndex]
-  const interval = { startedAt: content.startedAt, finishedAt: content.finishedAt }
-  Object.assign(content, { startedAt: branch.startedAt, finishedAt: branch.finishedAt })
+  const interval = {
+    startedAt: content.startedAt,
+    finishedAt: content.finishedAt,
+  }
+  Object.assign(content, {
+    startedAt: branch.startedAt,
+    finishedAt: branch.finishedAt,
+  })
   Object.assign(branch, interval)
   f.evidence.calls[contentIndex] = branch
   f.evidence.calls[branchIndex] = content
@@ -942,4 +995,762 @@ test("fence raw projection rejects oversized ledgers, sparse arrays and symbol p
       /raw ledger byte bound|dense raw call array/,
     )
   }
+})
+
+async function platformFixture(damage = () => {}) {
+  const { digest } = await import("./support/recovery-fence-fixture.mjs")
+  const f = await runtimeFixture()
+  f.tree = [
+    {
+      path: "AGENTS.md",
+      mode: "100644",
+      sha256: digest("reviewed instructions\n"),
+    },
+  ]
+  f.put(f.defaultSha, "AGENTS.md", "reviewed instructions\n")
+  f.reviews = []
+  for (const [workflowId, service, workflow] of [
+    ["6", "copilot-pull-request-reviewer", "dynamic/agents/copilot-pull-request-reviewer"],
+    ["7", "dependabot-updates", "dynamic/dependabot/dependabot-updates"],
+  ]) {
+    const entry = {
+      workflowId,
+      workflow,
+      disposition: "platform-nonwriter",
+      service,
+      reviewSha256: "",
+    }
+    const review = {
+      schemaVersion: 1,
+      kind: "recovery-platform-nonwriter-review",
+      repository: f.candidate.repository,
+      repositoryId: f.candidate.repositoryId,
+      candidateSourceSha: f.sourceSha,
+      workflowId,
+      workflow,
+      service,
+      observedAt: 900,
+      expiresAt: 86400900,
+      rationale: "Fixture semantic review: service cannot mutate candidate release or evidence.",
+      observations: ["Fixture repository settings and permissions inspected."],
+      operationalAssumptions: [
+        "Settings and platform authority remain as observed; unknown authority blocks admission.",
+      ],
+      historicalRerunReasoning:
+        "Fixture review covers historical reruns and their original authority.",
+      headControlledInputReasoning:
+        "Fixture review covers untrusted PR inputs and configuration execution.",
+      configuration: structuredClone(f.tree),
+    }
+    f.contract.topology.push(entry)
+    f.values.listRepositoryWorkflowsComplete.push({
+      id: Number(workflowId),
+      path: workflow,
+      state: "active",
+    })
+    f.reviews.push({ entry, review })
+  }
+  f.git.listTreeEntries = async ({ ref }) => {
+    assert.equal(ref, f.defaultSha)
+    return f.tree.map((e) => `${e.mode} blob ${"b".repeat(40)}\t${e.path}\0`).join("")
+  }
+  await damage(f)
+  for (const { entry, review } of f.reviews) {
+    const raw = canonical(review)
+    entry.reviewSha256 = digest(raw)
+    f.put(
+      f.controllerSha,
+      `scripts/release/recovery-platform-reviews/${entry.reviewSha256}.json`,
+      raw,
+    )
+  }
+  f.contract.topology.sort((a, b) => (a.workflow < b.workflow ? -1 : 1))
+  f.contractSha256 = digest(canonical(f.contract))
+  f.put(
+    f.controllerSha,
+    `scripts/release/recovery-fence-contracts/${f.contractSha256}.json`,
+    canonical(f.contract),
+  )
+  f.policy.fence.contracts = [f.contractSha256]
+  f.policySha256 = digest(canonical(f.policy))
+  f.put(f.controllerSha, "scripts/release/recovery/policy.json", canonical(f.policy))
+  return f
+}
+async function observePlatform(f, now = () => 1000) {
+  const { createRecoveryFenceReader } = await import("../recovery/fence.mjs")
+  return createRecoveryFenceReader({
+    github: f.github,
+    git: f.git,
+    now,
+  }).observeLegacyFence({
+    candidate: f.candidate,
+    executor: f.executor,
+    policySha256: f.policySha256,
+  })
+}
+test("two reviewed platform services preserve complete topology and legacy drain", async () => {
+  const f = await platformFixture()
+  const result = await observePlatform(f)
+  assert.equal(result.writers.length, 4)
+  assert.equal(f.calls.filter((c) => c[0] === "listRepositoryWorkflowsComplete").length, 2)
+  assert.equal(f.calls.filter((c) => c[0] === "listWorkflowRunsAllShasComplete").length, 4)
+  for (const { entry } of f.reviews)
+    assert.ok(
+      f.calls.some(
+        ([name, ref, path]) =>
+          name === "showFile" &&
+          ref === f.controllerSha &&
+          path.endsWith(`${entry.reviewSha256}.json`),
+      ),
+    )
+})
+for (const [name, damage] of Object.entries({
+  "wrong repository": (f) => {
+    f.reviews[0].review.repository = "other/repo"
+  },
+  "wrong repository ID": (f) => {
+    f.reviews[0].review.repositoryId = "9"
+  },
+  "wrong candidate": (f) => {
+    f.reviews[0].review.candidateSourceSha = "9".repeat(40)
+  },
+  "wrong workflow ID": (f) => {
+    f.reviews[0].review.workflowId = "9"
+  },
+  "wrong workflow path": (f) => {
+    f.reviews[0].review.workflow = "dynamic/other"
+  },
+  "wrong service": (f) => {
+    f.reviews[0].review.service = "dependabot-updates"
+  },
+  "unknown service": (f) => {
+    f.reviews[0].entry.service = "other"
+  },
+  "platform sources": (f) => {
+    f.reviews[0].entry.sources = []
+  },
+  "future review": (f) => {
+    f.reviews[0].review.observedAt = 1001
+  },
+  "expired review": (f) => {
+    f.reviews[0].review.expiresAt = 1000
+  },
+  "long review window": (f) => {
+    f.reviews[0].review.expiresAt++
+  },
+  "malformed timestamp": (f) => {
+    f.reviews[0].review.observedAt = "900"
+  },
+  "missing rationale": (f) => {
+    delete f.reviews[0].review.rationale
+  },
+  "missing observations": (f) => {
+    f.reviews[0].review.observations = []
+  },
+  "missing assumptions": (f) => {
+    f.reviews[0].review.operationalAssumptions = []
+  },
+  "missing historical reasoning": (f) => {
+    f.reviews[0].review.historicalRerunReasoning = ""
+  },
+  "missing head reasoning": (f) => {
+    f.reviews[0].review.headControlledInputReasoning = ""
+  },
+  "review-selected scope": (f) => {
+    f.reviews[0].review.selector = ["AGENTS.md"]
+  },
+  "removed configuration": (f) => {
+    f.tree = []
+  },
+  "changed configuration": (f) => {
+    f.put(f.defaultSha, "AGENTS.md", "changed")
+  },
+  "changed mode": (f) => {
+    f.tree[0].mode = "100755"
+  },
+  symlink: (f) => {
+    f.tree[0].mode = "120000"
+    f.reviews.forEach(({ review }) => {
+      review.configuration[0].mode = "120000"
+    })
+  },
+  "missing tree capability": (f) => {
+    delete f.git.listTreeEntries
+  },
+  "unavailable tree": (f) => {
+    f.git.listTreeEntries = async () => {
+      throw new Error("unavailable")
+    }
+  },
+  "incomplete tree": (f) => {
+    f.git.listTreeEntries = async () => `100644 blob ${"b".repeat(40)}\tAGENTS.md`
+  },
+  "replaced identity": (f) => {
+    f.values.listRepositoryWorkflowsComplete.find((w) => w.id === 6).id = 99
+  },
+}))
+  test(`platform review blocks ${name}`, async () => {
+    await assert.rejects(() => platformFixture(damage).then((f) => observePlatform(f)))
+  })
+for (const path of [
+  ".github/dependabot.yml",
+  ".github/workflows/copilot-setup-steps.yml",
+  ".github/copilot-instructions.md",
+  ".github/instructions/review.instructions.md",
+  ".github/skills/review/SKILL.md",
+  ".vscode/mcp.json",
+  ".mcp.json",
+  "src/AGENTS.md",
+  ".agents/skills/review/SKILL.md",
+  ".claude/skills/review/scripts/review.sh",
+])
+  test(`platform review detects newly added ${path}`, async () => {
+    const f = await platformFixture((f) => {
+      f.tree.push({ path, mode: "100644" })
+    })
+    await assert.rejects(() => observePlatform(f), /configuration/)
+  })
+for (const damage of ["missing", "tampered"])
+  test(`platform review rejects ${damage} controller record`, async () => {
+    const f = await platformFixture()
+    const path = `${f.controllerSha}:scripts/release/recovery-platform-reviews/${f.reviews[0].entry.reviewSha256}.json`
+    if (damage === "missing") f.files.delete(path)
+    else f.files.set(path, `${f.files.get(path)} `)
+    await assert.rejects(() => observePlatform(f))
+  })
+test("platform review may bind absence only through a complete empty relevant tree", async () => {
+  const f = await platformFixture((f) => {
+    f.tree = []
+    for (const { review } of f.reviews) review.configuration = []
+  })
+  assert.equal((await observePlatform(f)).inventoryComplete, true)
+})
+
+test("platform proof cannot outlive its semantic review", async () => {
+  const f = await platformFixture((f) => {
+    f.reviews[0].review.expiresAt = 2000
+  })
+  assert.equal((await observePlatform(f)).expiresAt, 2000)
+})
+test("platform review must remain fresh through final inventory", async () => {
+  const f = await platformFixture((f) => {
+    f.reviews[0].review.expiresAt = 2000
+  })
+  const original = f.github.listRepositoryWorkflowsComplete
+  let clock = 1000,
+    calls = 0
+  f.github.listRepositoryWorkflowsComplete = async (...args) => {
+    if (++calls === 2) clock = 2000
+    return original(...args)
+  }
+  await assert.rejects(() => observePlatform(f, () => clock), /observation window/)
+})
+for (const raw of [
+  undefined,
+  "malformed\0",
+  `160000 commit ${"b".repeat(40)}\tsubmodule\0`,
+  `100644 blob ${"b".repeat(40)}\tAGENTS.md\0`.repeat(2),
+])
+  test(`platform review rejects malformed or unsupported complete tree ${String(raw).slice(0, 25)}`, async () => {
+    const f = await platformFixture((f) => {
+      f.git.listTreeEntries = async () => raw
+    })
+    await assert.rejects(() => observePlatform(f), /configuration tree/)
+  })
+
+test("platform review binds bytes of reviewed Claude skill supporting resources", async () => {
+  const { digest } = await import("./support/recovery-fence-fixture.mjs")
+  const path = ".claude/skills/review/scripts/review.sh"
+  const f = await platformFixture((f) => {
+    f.tree.unshift({
+      path,
+      mode: "100755",
+      sha256: digest("reviewed script\n"),
+    })
+    f.put(f.defaultSha, path, "reviewed script\n")
+    for (const { review } of f.reviews) review.configuration = structuredClone(f.tree)
+  })
+  assert.equal((await observePlatform(f)).inventoryComplete, true)
+  f.put(f.defaultSha, path, "modified script\n")
+  await assert.rejects(() => observePlatform(f), /input bytes changed/)
+})
+
+async function historicalAuxiliaryFixture(damage = () => {}) {
+  const { digest } = await import("./support/recovery-fence-fixture.mjs")
+  const f = await runtimeFixture()
+  f.auxiliary = {
+    workflowId: "8",
+    workflow: ".github/workflows/probe-draft-visibility.yml",
+    disposition: "fenced-legacy",
+    sources: [
+      {
+        source: { kind: "commit", sha: "c".repeat(40) },
+        workflowSha256: digest("historical diagnostic\n"),
+        executionInputs: [],
+      },
+    ],
+  }
+  f.put("c".repeat(40), f.auxiliary.workflow, "historical diagnostic\n")
+  f.contract.topology.push(f.auxiliary)
+  f.values.listRepositoryWorkflowsComplete.push({
+    id: 8,
+    path: f.auxiliary.workflow,
+    state: "disabled_manually",
+  })
+  await damage(f)
+  f.contract.topology.sort((a, b) => (a.workflow < b.workflow ? -1 : 1))
+  f.contractSha256 = digest(canonical(f.contract))
+  f.put(
+    f.controllerSha,
+    `scripts/release/recovery-fence-contracts/${f.contractSha256}.json`,
+    canonical(f.contract),
+  )
+  f.policy.fence.contracts = [f.contractSha256]
+  f.policySha256 = digest(canonical(f.policy))
+  f.put(f.controllerSha, "scripts/release/recovery/policy.json", canonical(f.policy))
+  return f
+}
+test("historical-only auxiliary writer is fenced by exact disabled identity and all-SHA drainage", async () => {
+  const f = await historicalAuxiliaryFixture()
+  const result = await observePlatform(f)
+  assert.equal(result.writers.length, 5)
+  assert.ok(
+    result.writers.some(
+      (w) => w.workflow === f.auxiliary.workflow && w.sourceSha === "c".repeat(40),
+    ),
+  )
+  assert.equal(f.calls.filter(([name, id]) => name === "getWorkflowById" && id === "8").length, 2)
+  assert.equal(
+    f.calls.filter(
+      ([name, args]) => name === "listWorkflowRunsAllShasComplete" && args.workflowId === "8",
+    ).length,
+    2,
+  )
+})
+for (const [name, damage] of Object.entries({
+  "active historical-only writer": (f) => {
+    f.values.listRepositoryWorkflowsComplete.find((w) => w.id === 8).state = "active"
+  },
+  "nonterminal run at another SHA": (f) => {
+    const original = f.github.listWorkflowRunsAllShasComplete
+    f.github.listWorkflowRunsAllShasComplete = async (args) =>
+      args.workflowId === "8"
+        ? {
+            status: "PRESENT",
+            value: [
+              {
+                id: 88,
+                run_attempt: 1,
+                head_sha: "f".repeat(40),
+                status: "queued",
+                conclusion: null,
+              },
+            ],
+          }
+        : original(args)
+  },
+  "missing historical binding": (f) => {
+    f.auxiliary.sources = []
+  },
+  "only current-default binding": (f) => {
+    f.auxiliary.sources[0].source = { kind: "current-default" }
+    f.put(f.defaultSha, f.auxiliary.workflow, "historical diagnostic\n")
+  },
+  "unavailable historical bytes": (f) => {
+    f.files.delete(`${"c".repeat(40)}:${f.auxiliary.workflow}`)
+  },
+  "changed historical bytes": (f) => {
+    f.put("c".repeat(40), f.auxiliary.workflow, "changed")
+  },
+  "changed historical input": (f) => {
+    f.auxiliary.sources[0].executionInputs = [
+      { path: "scripts/historical-diagnostic.mjs", sha256: "0".repeat(64) },
+    ]
+    f.put("c".repeat(40), "scripts/historical-diagnostic.mjs", "changed")
+  },
+}))
+  test(`auxiliary writer fence rejects ${name}`, async () => {
+    const f = await historicalAuxiliaryFixture(damage)
+    await assert.rejects(() => observePlatform(f))
+  })
+for (const workflow of [
+  ".github/workflows/release.yml",
+  ".github/workflows/published-artifact-verify.yml",
+])
+  test(`mandatory ${workflow} still requires candidate source binding`, async () => {
+    const f = await historicalAuxiliaryFixture((f) => {
+      f.contract.topology.find((w) => w.workflow === workflow).sources[0].source.sha = "c".repeat(
+        40,
+      )
+      f.put("c".repeat(40), workflow, `name: ${workflow}\n`)
+    })
+    await assert.rejects(() => observePlatform(f), /candidate source binding/)
+  })
+
+test("fence overlaps independent writers while preserving each double-observation sequence", async () => {
+  const { createRecoveryFenceReader } = await import("../recovery/fence.mjs")
+  const f = await runtimeFixture()
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  let first
+  const started = new Promise((resolve) => {
+    first = resolve
+  })
+  const entered = new Set(),
+    sequences = new Map()
+  const state = f.github.getWorkflowById,
+    runs = f.github.listWorkflowRunsAllShasComplete
+  f.github.getWorkflowById = async (args) => {
+    const sequence = sequences.get(args.workflowId) ?? []
+    sequences.set(args.workflowId, sequence)
+    sequence.push("state")
+    if (!entered.has(args.workflowId)) {
+      entered.add(args.workflowId)
+      first()
+      await gate
+    }
+    return state(args)
+  }
+  f.github.listWorkflowRunsAllShasComplete = async (args) => {
+    sequences.get(args.workflowId).push("runs")
+    return runs(args)
+  }
+  const pending = createRecoveryFenceReader({
+    github: f.github,
+    git: f.git,
+  }).observeLegacyFence({
+    candidate: f.candidate,
+    executor: f.executor,
+    policySha256: f.policySha256,
+  })
+  try {
+    await started
+    await new Promise(setImmediate)
+    assert.equal(entered.size, 2, "one blocked writer must not serialize an independent writer")
+  } finally {
+    release()
+    await pending
+  }
+  for (const sequence of sequences.values())
+    assert.deepEqual(sequence, ["state", "runs", "state", "runs"])
+})
+
+test("fence limits concurrent workflow observations to eight", async () => {
+  const { digest } = await import("./support/recovery-fence-fixture.mjs")
+  const f = await historicalAuxiliaryFixture((f) => {
+    for (let id = 10; id < 20; id++) {
+      const workflow = `.github/workflows/auxiliary-${id}.yml`
+      f.contract.topology.push({
+        ...structuredClone(f.auxiliary),
+        workflowId: String(id),
+        workflow,
+      })
+      f.put("c".repeat(40), workflow, "historical diagnostic\n")
+      f.values.listRepositoryWorkflowsComplete.push({
+        id,
+        path: workflow,
+        state: "disabled_manually",
+      })
+    }
+  })
+  assert.equal(digest(canonical(f.contract)), f.contractSha256)
+  let release, first
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const started = new Promise((resolve) => {
+    first = resolve
+  })
+  const entered = new Set()
+  const original = f.github.getWorkflowById
+  let active = 0,
+    maximum = 0
+  f.github.getWorkflowById = async (args) => {
+    if (!entered.has(args.workflowId)) {
+      entered.add(args.workflowId)
+      maximum = Math.max(maximum, ++active)
+      first()
+      try {
+        await gate
+      } finally {
+        active--
+      }
+    }
+    return original(args)
+  }
+  const pending = observePlatform(f)
+  try {
+    await started
+    await new Promise(setImmediate)
+    assert.equal(entered.size, 8)
+  } finally {
+    release()
+    await pending
+  }
+  assert.equal(maximum, 8)
+  assert.equal(entered.size, 13)
+})
+
+test("failed fence joins all seven started sibling observations before rejecting", async () => {
+  const f = await historicalAuxiliaryFixture((f) => {
+    for (let id = 10; id < 15; id++) {
+      const workflow = `.github/workflows/auxiliary-${id}.yml`
+      f.contract.topology.push({
+        ...structuredClone(f.auxiliary),
+        workflowId: String(id),
+        workflow,
+      })
+      f.put("c".repeat(40), workflow, "historical diagnostic\n")
+      f.values.listRepositoryWorkflowsComplete.push({
+        id,
+        path: workflow,
+        state: "disabled_manually",
+      })
+    }
+  })
+  let release, second
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const secondStarted = new Promise((resolve) => {
+    second = resolve
+  })
+  const started = new Set()
+  const original = f.github.getWorkflowById
+  f.github.getWorkflowById = async (args) => {
+    if (args.workflowId === "1") {
+      await secondStarted
+      throw new Error("intentional writer read failure")
+    }
+    started.add(args.workflowId)
+    if (started.size === 7) second()
+    await gate
+    return original(args)
+  }
+  let settled = false
+  const pending = observePlatform(f)
+  const observed = pending.then(
+    () => {
+      settled = true
+    },
+    () => {
+      settled = true
+    },
+  )
+  try {
+    await secondStarted
+    await new Promise(setImmediate)
+    assert.equal(started.size, 7)
+    assert.equal(settled, false, "failing observation must wait for started sibling reads")
+  } finally {
+    release()
+    await observed
+  }
+  await assert.rejects(pending, /getWorkflowById unavailable.*READ_FAILED/)
+})
+
+test("fence admission rejects an executor closure different from reviewed source", async () => {
+  const { createRecoveryFenceReader } = await import("../recovery/fence.mjs")
+  const f = await runtimeFixture()
+  await assert.rejects(() =>
+    createRecoveryFenceReader({
+      github: f.github,
+      git: f.git,
+      now: () => 1000,
+    }).observeLegacyFence({
+      candidate: f.candidate,
+      executor: { ...f.executor, verifierClosureSha256: "0".repeat(64) },
+      policySha256: f.policySha256,
+    }),
+  )
+})
+
+test("fence selects exactly the repaired contract with fresh replacement source bindings", async () => {
+  const { createRecoveryFenceReader } = await import("../recovery/fence.mjs")
+  const { hashVerifierClosure } = await import("../recovery/policy.mjs")
+  const { digest } = await import("./support/recovery-fence-fixture.mjs")
+  const f = await runtimeFixture()
+  const baseline = "b".repeat(40)
+  const changed = "scripts/release/smoke/runtime-targets.mjs"
+  const originalBytes = f.files.get(`${f.controllerSha}:${changed}`)
+  f.contract.topology.find(
+    (entry) => entry.workflow === ".github/workflows/ci.yml",
+  ).sources[0].executionInputs = [{ path: changed, sha256: digest(originalBytes) }]
+  const originalDigest = digest(canonical(f.contract))
+  f.policy.fence.contracts = [originalDigest]
+  f.put(f.controllerSha, "scripts/release/recovery/policy.json", canonical(f.policy))
+  f.put(
+    f.controllerSha,
+    `scripts/release/recovery-fence-contracts/${originalDigest}.json`,
+    canonical(f.contract),
+  )
+  for (const [key, value] of [...f.files])
+    if (key.startsWith(`${f.controllerSha}:`))
+      f.files.set(key.replace(f.controllerSha, baseline), value)
+  f.put(f.controllerSha, changed, "// repaired runtime probe\n")
+  f.put(f.defaultSha, changed, "// repaired runtime probe\n")
+  const replacement = structuredClone(f.contract)
+  replacement.topology.find(
+    (entry) => entry.workflow === ".github/workflows/ci.yml",
+  ).sources[0].executionInputs[0].sha256 = digest(f.files.get(`${f.controllerSha}:${changed}`))
+  const replacementDigest = digest(canonical(replacement))
+  f.put(
+    f.controllerSha,
+    `scripts/release/recovery-fence-contracts/${replacementDigest}.json`,
+    canonical(replacement),
+  )
+  const closure = await hashVerifierClosure(
+    { controllerSha: f.controllerSha, inputs: f.policy.verifierClosure.inputs },
+    f.git.showFile,
+  )
+  f.executor.verifierClosureSha256 = closure
+  f.policySha256 = digest(canonical(f.policy))
+  const record = {
+    schemaVersion: 1,
+    kind: "recovery-verifier-repair",
+    candidate: f.candidate,
+    policySha256: f.policySha256,
+    baselineControllerSha: baseline,
+    originalClosureSha256: f.policy.verifierClosure.sha256,
+    replacementClosureSha256: closure,
+    inputs: f.policy.verifierClosure.inputs.map((path) => ({
+      path,
+      oldSha256: digest(f.files.get(`${baseline}:${path}`)),
+      newSha256: digest(f.files.get(`${f.controllerSha}:${path}`)),
+    })),
+    originalContractSha256: originalDigest,
+    replacementContractSha256: replacementDigest,
+    adoption: {
+      assetName: `recovery-v2-adoption-${baseline}-10-1-11.json`,
+      id: "12",
+      size: 1000,
+      sha256: "3".repeat(64),
+    },
+  }
+  f.put(
+    f.controllerSha,
+    "scripts/release/recovery-verifier-repairs/v0.8.24.json",
+    canonical(record),
+  )
+  const result = await createRecoveryFenceReader({
+    github: f.github,
+    git: f.git,
+    now: () => 1000,
+  }).observeLegacyFence({
+    candidate: f.candidate,
+    executor: f.executor,
+    policySha256: f.policySha256,
+  })
+  assert.equal(result.contractSha256, replacementDigest)
+  assert.ok(result.inventoryComplete)
+})
+
+test("fence memoizes immutable source pairs but each invocation reads afresh", async () => {
+  const { createRecoveryFenceReader } = await import("../recovery/fence.mjs")
+  const f = await runtimeFixture()
+  const reader = createRecoveryFenceReader({ github: f.github, git: f.git, now: () => 1000 })
+  const request = { candidate: f.candidate, executor: f.executor, policySha256: f.policySha256 }
+  const counts = []
+  for (let invocation = 0; invocation < 2; invocation++) {
+    f.calls.length = 0
+    await reader.observeLegacyFence(request)
+    const sources = f.calls
+      .filter((call) => call[0] === "showFile")
+      .map((call) => `${call[1]}:${call[2]}`)
+    assert.equal(sources.length, new Set(sources).size, "immutable source pair read once")
+    counts.push(sources.length)
+    assert.equal(
+      f.calls.filter((call) => call[0] === "getRef").length,
+      2,
+      "default ref reads stay fresh",
+    )
+    assert.equal(f.calls.filter((call) => call[0] === "getRepository").length, 2)
+  }
+  assert.ok(counts[0] > 0)
+  assert.equal(counts[1], counts[0], "cache lifetime is one observation")
+})
+
+for (const [code, expected] of [
+  ["FORBIDDEN", "FORBIDDEN"],
+  ["SECRET-TOKEN-IN-UNTRUSTED-CODE", "UNKNOWN"],
+])
+  test(`fence error identifies the API method with a safe ${expected} code only`, async () => {
+    const f = await runtimeFixture()
+    f.github.getRepository = async () => ({
+      status: "ERROR",
+      code,
+      httpStatus: 403,
+      body: "SECRET-API-BODY",
+    })
+    await assert.rejects(
+      () => observePlatform(f),
+      (error) => {
+        assert.match(error.message, new RegExp(`getRepository.*ERROR.*${expected}`))
+        assert.doesNotMatch(error.message, /SECRET/)
+        return true
+      },
+    )
+  })
+
+test("cached source hits still consume the cumulative logical byte budget", async () => {
+  const { digest } = await import("./support/recovery-fence-fixture.mjs")
+  const blob = "x".repeat(1024 * 1024)
+  const f = await historicalAuxiliaryFixture((f) => {
+    for (let id = 10; id < 28; id++) {
+      const workflow = `.github/workflows/auxiliary-${id}.yml`
+      const entry = { ...structuredClone(f.auxiliary), workflowId: String(id), workflow }
+      entry.sources[0].executionInputs = [
+        { path: "scripts/reviewed-fixture.txt", sha256: digest(blob) },
+      ]
+      f.contract.topology.push(entry)
+      f.put("c".repeat(40), workflow, "historical diagnostic\n")
+      f.values.listRepositoryWorkflowsComplete.push({
+        id,
+        path: workflow,
+        state: "disabled_manually",
+      })
+    }
+    f.put("c".repeat(40), "scripts/reviewed-fixture.txt", blob)
+  })
+  await assert.rejects(() => observePlatform(f), /total git byte bound/)
+})
+
+test("a cached probe hit cannot continue after the fence deadline", async () => {
+  const { createRecoveryFenceReader } = await import("../recovery/fence.mjs")
+  const f = await runtimeFixture()
+  const original = f.git.showFile
+  let afterContract = -1
+  f.git.showFile = async (args) => {
+    const bytes = await original(args)
+    if (args.path === `scripts/release/recovery-fence-contracts/${f.contractSha256}.json`)
+      afterContract = 0
+    return bytes
+  }
+  const now = () => (afterContract < 0 || afterContract++ === 0 ? 1000 : 31000)
+  await assert.rejects(
+    () =>
+      createRecoveryFenceReader({ github: f.github, git: f.git, now }).observeLegacyFence({
+        candidate: f.candidate,
+        executor: f.executor,
+        policySha256: f.policySha256,
+      }),
+    /deadline/,
+  )
+})
+
+test("fence adapter exceptions never disclose API body or token text", async () => {
+  const f = await runtimeFixture()
+  f.github.getRepository = async () => {
+    throw new Error("SECRET-API-BODY TOKEN")
+  }
+  await assert.rejects(
+    () => observePlatform(f),
+    (error) => {
+      assert.match(error.message, /getRepository.*ERROR.*READ_FAILED/)
+      assert.doesNotMatch(error.message, /SECRET|TOKEN/)
+      return true
+    },
+  )
 })

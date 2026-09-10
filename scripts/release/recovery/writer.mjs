@@ -43,6 +43,16 @@ function requireThat(value, message) {
 function same(a, b, message) {
   requireThat(JSON.stringify(stable(a)) === JSON.stringify(stable(b)), message)
 }
+// Download counters are provider telemetry and can advance from our own reads.
+// Preserve every other field, including metadata added by future API versions.
+function assetMutationFacts({ download_count: _downloadCount, ...asset }) {
+  return asset
+}
+function releaseMutationFacts(release) {
+  return Array.isArray(release.assets)
+    ? { ...release, assets: release.assets.map(assetMutationFacts) }
+    : release
+}
 function stable(v) {
   return Array.isArray(v)
     ? v.map(stable)
@@ -294,8 +304,8 @@ export function createRecoveryWriter(config, dependencies) {
       return result.value
     }
     same(
-      await read("getRelease", { releaseId: args.candidate.releaseId }),
-      current.facts.release,
+      releaseMutationFacts(await read("getRelease", { releaseId: args.candidate.releaseId })),
+      releaseMutationFacts(current.facts.release),
       "release changed before mutation",
     )
     same(
@@ -876,7 +886,6 @@ export function createRecoveryWriter(config, dependencies) {
           maxRequestBytes: RECOVERY_LIMITS.selectionBytes,
         })
         const observed = await observe(args)
-        same(observed.facts.release, current.facts.release, "release changed during upload")
         const ref = observed.facts.assets.find((a) => a.assetName === args.name)
         requireThat(
           ref && ref.sha256 === hash(bytes) && ref.size === bytes.length,
@@ -887,6 +896,46 @@ export function createRecoveryWriter(config, dependencies) {
           current.facts.assets,
           "unrelated asset mutation",
         )
+        // GitHub advances updated_at and embeds the newly uploaded asset in the
+        // release response. Account for only those service changes after upload;
+        // the independent inventory and downloaded bytes above remain authoritative.
+        const {
+          assets: beforeAssets,
+          updated_at: beforeTime,
+          ...beforeRelease
+        } = current.facts.release
+        const {
+          assets: afterAssets,
+          updated_at: afterTime,
+          ...afterRelease
+        } = observed.facts.release
+        same(afterRelease, beforeRelease, "release changed during upload")
+        if (beforeTime !== afterTime)
+          requireThat(
+            typeof beforeTime === "string" &&
+              typeof afterTime === "string" &&
+              Number.isFinite(Date.parse(beforeTime)) &&
+              Number.isFinite(Date.parse(afterTime)) &&
+              Date.parse(afterTime) >= Date.parse(beforeTime),
+            "release timestamp changed unexpectedly during upload",
+          )
+        if (beforeAssets !== undefined || afterAssets !== undefined) {
+          same(
+            normalizeRecoveryAssetInventory(beforeAssets),
+            current.facts.assets,
+            "embedded asset inventory differed before upload",
+          )
+          same(
+            normalizeRecoveryAssetInventory(afterAssets),
+            observed.facts.assets,
+            "embedded asset inventory differs after upload",
+          )
+          same(
+            afterAssets.filter((asset) => asset.name !== args.name).map(assetMutationFacts),
+            beforeAssets.map(assetMutationFacts),
+            "unrelated embedded asset mutation",
+          )
+        }
         if (receipt?.kind === "recovery-audit-intent") freshAuditIntents.add(ref.sha256)
         return ref
       })

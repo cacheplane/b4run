@@ -5,8 +5,8 @@ import { dockerSandbox } from "../src/docker/docker-sandbox.js"
 
 const signal = () => new AbortController().signal
 
-describe("sandbox unavailable errors carry the DAWN_E2001 code", () => {
-  test("a failed container creation throws an error tagged DAWN_E2001", async () => {
+describe("sandbox unavailable errors carry the B4_E2001 code", () => {
+  test("a failed container creation throws an error tagged B4_E2001", async () => {
     const docker: Docker = {
       run: async (args: readonly string[]) => {
         // Fail only the detached container creation (`run -d …`).
@@ -20,6 +20,6 @@ describe("sandbox unavailable errors carry the DAWN_E2001 code", () => {
     const p = dockerSandbox({ image: "node:22-slim", docker })
     await expect(
       p.acquire({ threadId: "t1", policy: { network: { mode: "deny" } }, signal: signal() }),
-    ).rejects.toMatchObject({ code: "DAWN_E2001" })
+    ).rejects.toMatchObject({ code: "B4_E2001" })
   })
 })

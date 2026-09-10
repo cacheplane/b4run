@@ -1,9 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import type { RouteToolTypes } from "@dawn-ai/core"
-import { renderDawnTypes, renderScenarioTypes, SCENARIO_TYPES_FILE } from "@dawn-ai/core"
-import { analyzeToolSource } from "@dawn-ai/core/internal/compiler"
-import { discoverRoutes, extractToolTypesForRoute, findDawnApp } from "@dawn-ai/core/node"
+import type { RouteToolTypes } from "@b4run/core"
+import { renderB4Types, renderScenarioTypes, SCENARIO_TYPES_FILE } from "@b4run/core"
+import { analyzeToolSource } from "@b4run/core/internal/compiler"
+import { discoverRoutes, extractToolTypesForRoute, findB4App } from "@b4run/core/node"
 
 import { createGeneratedIdentifierAllocator } from "./generated-identifiers.js"
 import { generateZodSchema } from "./zod-generator.js"
@@ -11,13 +11,13 @@ import { generateZodSchema } from "./zod-generator.js"
 export { generateZodSchema } from "./zod-generator.js"
 
 const TOOLS_DIR_PATTERN = /\/tools\/[^/]+\.ts$/
-const OUTPUT_FILE = "dawn.generated.d.ts"
+const OUTPUT_FILE = "b4.generated.d.ts"
 
-export interface DawnPluginOptions {
+export interface B4PluginOptions {
   readonly appRoot?: string
 }
 
-export function dawnToolSchemaPlugin(options?: DawnPluginOptions): {
+export function b4ToolSchemaPlugin(options?: B4PluginOptions): {
   name: string
   configureServer?(server: {
     readonly watcher: {
@@ -28,7 +28,7 @@ export function dawnToolSchemaPlugin(options?: DawnPluginOptions): {
   transform(code: string, id: string): { code: string } | null
 } {
   return {
-    name: "dawn-tool-schema",
+    name: "b4-tool-schema",
 
     async configureServer(server) {
       // Run typegen once on startup
@@ -84,7 +84,7 @@ export function dawnToolSchemaPlugin(options?: DawnPluginOptions): {
 
 async function runTypegen(appRoot?: string): Promise<void> {
   try {
-    const app = await findDawnApp(appRoot ? { appRoot } : {})
+    const app = await findB4App(appRoot ? { appRoot } : {})
     const manifest = await discoverRoutes(appRoot ? { appRoot } : {})
 
     const sharedToolsDir = join(app.appRoot, "src")
@@ -93,17 +93,17 @@ async function runTypegen(appRoot?: string): Promise<void> {
       const tools = await extractToolTypesForRoute({
         routeDir: route.routeDir,
         sharedToolsDir,
-        typeReferenceFileName: join(app.dawnDir, SCENARIO_TYPES_FILE),
+        typeReferenceFileName: join(app.b4Dir, SCENARIO_TYPES_FILE),
       })
       toolTypesPerRoute.push({ pathname: route.pathname, tools })
     }
 
-    const content = renderDawnTypes(manifest, toolTypesPerRoute)
+    const content = renderB4Types(manifest, toolTypesPerRoute)
     const scenarioContent = renderScenarioTypes(manifest, toolTypesPerRoute)
-    const outputPath = join(app.dawnDir, OUTPUT_FILE)
-    const scenarioOutputPath = join(app.dawnDir, SCENARIO_TYPES_FILE)
+    const outputPath = join(app.b4Dir, OUTPUT_FILE)
+    const scenarioOutputPath = join(app.b4Dir, SCENARIO_TYPES_FILE)
 
-    await mkdir(app.dawnDir, { recursive: true })
+    await mkdir(app.b4Dir, { recursive: true })
     await Promise.all([
       writeFile(outputPath, content, "utf-8"),
       writeFile(scenarioOutputPath, scenarioContent, "utf-8"),
@@ -129,10 +129,10 @@ export function transformToolSource(source: string, fileName: string): string | 
 
   const allocateIdentifier = createGeneratedIdentifierAllocator(source)
   const descriptionIdentifier = needsDescription
-    ? allocateIdentifier("__dawnGeneratedDescription")
+    ? allocateIdentifier("__b4GeneratedDescription")
     : undefined
-  const schemaIdentifier = needsSchema ? allocateIdentifier("__dawnGeneratedSchema") : undefined
-  const zodIdentifier = needsSchema ? allocateIdentifier("__dawnGeneratedZ") : undefined
+  const schemaIdentifier = needsSchema ? allocateIdentifier("__b4GeneratedSchema") : undefined
+  const zodIdentifier = needsSchema ? allocateIdentifier("__b4GeneratedZ") : undefined
   const injections: string[] = []
 
   if (zodIdentifier) {

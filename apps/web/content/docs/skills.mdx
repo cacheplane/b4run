@@ -34,7 +34,7 @@ Use this skill when the customer asks about refunds, exchanges, credits, or exce
 3. Offer the standard path before requesting an exception.
 ```
 
-When this route runs, Dawn adds:
+When this route runs, B4.run adds:
 
 - a `# Skills` prompt section listing `refund-policy` and its description
 - a `readSkill({ name })` tool that returns the body of `SKILL.md`
@@ -66,7 +66,7 @@ Directory names must start with a letter or number and can contain letters, numb
 
 ## What the model sees
 
-Dawn renders a compact prompt fragment:
+B4.run renders a compact prompt fragment:
 
 ```text
 # Skills
@@ -121,11 +121,11 @@ name: billing-disputes
 
 The description should be short and action-oriented. It is not the full skill.
 
-Dawn's frontmatter parser is intentionally small. Use simple `key: value` fields; do not rely on full YAML features.
+B4.run's frontmatter parser is intentionally small. Use simple `key: value` fields; do not rely on full YAML features.
 
 ## Generated types
 
-`dawn typegen` includes `readSkill` in generated route tool types when a route has at least one valid `skills/<name>/SKILL.md` file.
+`b4 typegen` includes `readSkill` in generated route tool types when a route has at least one valid `skills/<name>/SKILL.md` file.
 
 The generated input type is:
 
@@ -143,7 +143,7 @@ string
 
 Skills are implemented by `createSkillsMarker()`.
 
-During agent route preparation, Dawn discovers skill directories, reads frontmatter and body content, contributes the `readSkill` tool, and contributes the prompt fragment.
+During agent route preparation, B4.run discovers skill directories, reads frontmatter and body content, contributes the `readSkill` tool, and contributes the prompt fragment.
 
 Skills do not add state fields or stream transformers. They are prompt plus tool only.
 

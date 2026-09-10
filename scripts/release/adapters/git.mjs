@@ -60,28 +60,32 @@ export function createGitReader({
     windowsHide: true,
   }
   const read = (args) => executeGit(run, args, options, maxOutputBytes)
+  function requestOptions(request) {
+    const overrides = {}
+    if (
+      !request ||
+      typeof request !== "object" ||
+      Array.isArray(request) ||
+      Object.keys(request).some((key) => !["signal", "timeoutMs"].includes(key))
+    )
+      throw new GitInputError("Invalid Git read options")
+    if (request.timeoutMs !== undefined) {
+      assertBoundedInteger(request.timeoutMs, 1, MAX_GIT_TIMEOUT_MS, "Git read timeout")
+      overrides.timeout = Math.min(timeoutMs, request.timeoutMs)
+    }
+    if (request.signal !== undefined) {
+      if (!(request.signal instanceof AbortSignal))
+        throw new GitInputError("Invalid Git read abort signal")
+      if (request.signal.aborted) throw gitFailure("ABORTED")
+      overrides.signal = request.signal
+    }
+    return overrides
+  }
   return {
     showFile({ ref, path }, request = {}) {
       assertValidRef(ref)
       assertValidPath(path)
-      const overrides = {}
-      if (
-        !request ||
-        typeof request !== "object" ||
-        Array.isArray(request) ||
-        Object.keys(request).some((key) => !["signal", "timeoutMs"].includes(key))
-      )
-        throw new GitInputError("Invalid Git read options")
-      if (request.timeoutMs !== undefined) {
-        assertBoundedInteger(request.timeoutMs, 1, MAX_GIT_TIMEOUT_MS, "Git read timeout")
-        overrides.timeout = Math.min(timeoutMs, request.timeoutMs)
-      }
-      if (request.signal !== undefined) {
-        if (!(request.signal instanceof AbortSignal))
-          throw new GitInputError("Invalid Git read abort signal")
-        if (request.signal.aborted) throw gitFailure("ABORTED")
-        overrides.signal = request.signal
-      }
+      const overrides = requestOptions(request)
       return executeGit(
         run,
         ["show", `${ref}:${path}`],
@@ -92,6 +96,16 @@ export function createGitReader({
     listTree({ ref }) {
       assertValidRef(ref)
       return read(["ls-tree", "-r", "--name-only", ref])
+    },
+    // Successful bounded ls-tree output is complete; -z preserves exact path boundaries.
+    listTreeEntries({ ref }, request = {}) {
+      assertValidRef(ref)
+      return executeGit(
+        run,
+        ["ls-tree", "-r", "-z", "--full-tree", ref],
+        { ...options, ...requestOptions(request) },
+        maxOutputBytes,
+      )
     },
     firstParent(ref) {
       assertValidRef(ref)

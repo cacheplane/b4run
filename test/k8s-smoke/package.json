@@ -1,5 +1,5 @@
 {
-  "name": "@dawn-smoke/k8s-smoke",
+  "name": "@b4-smoke/k8s-smoke",
   "version": "0.0.0",
   "private": true,
   "type": "module",

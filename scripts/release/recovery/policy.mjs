@@ -212,7 +212,7 @@ export function parseRecoveryPolicy(raw) {
   )
   exact(p.fence, "concurrencyGroup contracts")
   requireThat(
-    p.fence.concurrencyGroup === "dawn-release-controller" &&
+    p.fence.concurrencyGroup === "b4-release-controller" &&
       Array.isArray(p.fence.contracts) &&
       p.fence.contracts.length <= 32 &&
       p.fence.contracts.every(
@@ -348,10 +348,14 @@ export async function runRecoveryRead(
   options = snapshotRecoveryData(options, 4096)
   requireThat(
     Object.keys(options).every((key) =>
-      ["phaseDeadline", "registryMetadataPresent", "responseBytes"].includes(key),
+      ["phaseDeadline", "registryMetadataPresent", "responseBytes", "readTimeoutMs"].includes(key),
     ) &&
       Number.isSafeInteger(options.phaseDeadline) &&
       options.phaseDeadline >= 0 &&
+      (!Object.hasOwn(options, "readTimeoutMs") ||
+        (Number.isSafeInteger(options.readTimeoutMs) &&
+          options.readTimeoutMs > 0 &&
+          options.readTimeoutMs <= RECOVERY_RETRY.fenceFreshnessMs)) &&
       (!Object.hasOwn(options, "registryMetadataPresent") ||
         typeof options.registryMetadataPresent === "boolean") &&
       (!Object.hasOwn(options, "responseBytes") ||
@@ -378,9 +382,11 @@ export async function runRecoveryRead(
     httpStatus: null,
   })
   for (let attempt = 0; attempt <= RECOVERY_RETRY.transportRetries; attempt++) {
-    const remaining = deadline - now()
+    const attemptStarted = now()
+    const remaining = deadline - attemptStarted
     if (remaining <= 0) return exhausted()
-    const timeoutMs = Math.min(RECOVERY_RETRY.readTimeoutMs, remaining)
+    const timeoutMs = Math.min(options.readTimeoutMs ?? RECOVERY_RETRY.readTimeoutMs, remaining)
+    const attemptDeadline = attemptStarted + timeoutMs
     const abort = new AbortController()
     let timer
     let result
@@ -405,7 +411,7 @@ export async function runRecoveryRead(
     }
     if (unsettledTimeout) return result
     result = snapshotRecoveryData(result, options.responseBytes)
-    if (now() >= deadline) return exhausted()
+    if (now() >= attemptDeadline) return exhausted()
     if (
       !retryable(result, options.registryMetadataPresent === true) ||
       attempt === RECOVERY_RETRY.transportRetries

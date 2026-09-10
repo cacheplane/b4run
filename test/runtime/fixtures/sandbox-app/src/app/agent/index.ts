@@ -1,4 +1,4 @@
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 
 // No host `workspace/` directory exists in this fixture. The workspace
 // capability still activates because prepareRouteExecution injects the sandbox

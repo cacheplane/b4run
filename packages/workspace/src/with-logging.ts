@@ -20,7 +20,7 @@ function emit(opts: LoggingOptions, method: string, args: unknown[]): void {
     opts.destination({ method, args })
     return
   }
-  console.error(`[dawn:workspace] ${method}(${args.map((a) => JSON.stringify(a)).join(", ")})`)
+  console.error(`[b4:workspace] ${method}(${args.map((a) => JSON.stringify(a)).join(", ")})`)
 }
 
 export function withFilesystemLogging(opts: LoggingOptions = {}): FilesystemMiddleware {

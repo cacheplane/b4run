@@ -18,7 +18,9 @@ export const RECOVERY_WORKFLOW_NEEDS = Object.freeze({
 })
 export function planRecoveryWorkflow(observed) {
   if (!observed.facts || observed.outcome === "blocked" || observed.errors?.length)
-    throw new Error("Fresh verified recovery observation required")
+    throw new Error(
+      `Fresh verified recovery observation required${observed.errors?.length ? `: ${observed.errors.join("; ")}` : ""}`,
+    )
   const result = {
     smoke: false,
     evidence: false,

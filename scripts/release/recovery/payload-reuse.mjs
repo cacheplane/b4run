@@ -6,7 +6,7 @@ import { RECOVERY_RETRY, recoveryMethods } from "./policy.mjs"
 
 const MAX_ENTRIES = 128
 // Account for two bytes per base64 character, not only decoded payload length.
-const MAX_RETAINED_BYTES = 64 * 1024 * 1024
+const MAX_RETAINED_BYTES = 128 * 1024 * 1024
 const MAX_PAYLOAD_BYTES = 16 * 1024 * 1024
 const hash = (bytes, algorithm) => createHash(algorithm).update(bytes).digest("hex")
 function copy(source) {
@@ -33,6 +33,8 @@ export async function withRecoveryPayloadReuse(dependencies, operation) {
   const deadline = previous + RECOVERY_RETRY.phaseDeadlineMs
   if (!Number.isSafeInteger(previous) || previous < 0 || !Number.isSafeInteger(deadline))
     throw new TypeError("Bounded recovery payload clock required")
+  const gitText = new Map()
+  let gitTextBytes = 0
   const entries = new Map()
   let retainedBytes = 0,
     closed = false
@@ -41,6 +43,8 @@ export async function withRecoveryPayloadReuse(dependencies, operation) {
     if (closed || !Number.isSafeInteger(at) || at < 0 || at < previous || at >= deadline) {
       closed = true
       entries.clear()
+      gitText.clear()
+      gitTextBytes = 0
       retainedBytes = 0
       throw new Error("Recovery payload invocation closed or deadline expired")
     }
@@ -171,6 +175,48 @@ export async function withRecoveryPayloadReuse(dependencies, operation) {
       wrapped[method] = (args, options) => download(source, method, args, options)
     return wrapped
   }
+  if (observation.git) {
+    const source = observation.git
+    observation.git = copy(source)
+    observation.git.showFile = async (...args) => {
+      active()
+      const input = args[0]
+      const simple =
+        args.length === 1 &&
+        input &&
+        typeof input === "object" &&
+        !types.isProxy(input) &&
+        [Object.prototype, null].includes(Object.getPrototypeOf(input)) &&
+        Reflect.ownKeys(input).length === 2 &&
+        ["ref", "path"].every((key) => {
+          const descriptor = Object.getOwnPropertyDescriptor(input, key)
+          return descriptor && Object.hasOwn(descriptor, "value") && descriptor.enumerable
+        }) &&
+        typeof input.ref === "string" &&
+        /^[0-9a-f]{40}$/u.test(input.ref) &&
+        typeof input.path === "string"
+      const key = simple ? JSON.stringify([input.ref, input.path]) : null
+      if (key !== null && gitText.has(key)) {
+        const value = gitText.get(key)
+        active()
+        return value
+      }
+      const value = await source.showFile(...args)
+      active()
+      if (key !== null && typeof value === "string" && !gitText.has(key)) {
+        const size = Math.max(Buffer.byteLength(value), value.length * 2)
+        if (
+          size <= 2 * 1024 * 1024 &&
+          gitText.size < 512 &&
+          gitTextBytes + size <= 16 * 1024 * 1024
+        ) {
+          gitText.set(key, value)
+          gitTextBytes += size
+        }
+      }
+      return value
+    }
+  }
   observation.github = wrap(observation.github, ["downloadReleaseAsset", "downloadActionsArtifact"])
   observation.npm = wrap(observation.npm, ["downloadRegistryTarball"])
   try {
@@ -180,6 +226,8 @@ export async function withRecoveryPayloadReuse(dependencies, operation) {
   } finally {
     closed = true
     entries.clear()
+    gitText.clear()
+    gitTextBytes = 0
     retainedBytes = 0
   }
 }

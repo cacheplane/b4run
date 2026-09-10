@@ -15,7 +15,7 @@ const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567"
 const releasePackages = [
   { name: "base" },
   { name: "middle", dependencies: { base: "workspace:*" } },
-  { name: "create-dawn-ai-app", dependencies: { middle: "workspace:*" } },
+  { name: "create-b4-app", dependencies: { middle: "workspace:*" } },
 ]
 const context = { packages: releasePackages }
 
@@ -318,11 +318,11 @@ function validManifest() {
       prepareRunId: 123456790,
       prepareRunAttempt: 1,
     },
-    packageOrder: ["base", "middle", "create-dawn-ai-app"],
+    packageOrder: ["base", "middle", "create-b4-app"],
     packages: [
       packageEntry("base", "ab"),
       packageEntry("middle", "cd"),
-      packageEntry("create-dawn-ai-app", "ef"),
+      packageEntry("create-b4-app", "ef"),
     ],
   }
 }

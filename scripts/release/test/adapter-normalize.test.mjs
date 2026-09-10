@@ -11,7 +11,7 @@ test("adapter envelopes are descriptor-safe snapshots read once", () => {
     operation: "package-version",
     httpStatus: 200,
     code: null,
-    package: { name: "@dawn-ai/sdk" },
+    package: { name: "@b4run/sdk" },
   })) {
     Object.defineProperty(envelope, key, {
       enumerable: true,

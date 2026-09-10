@@ -1,6 +1,6 @@
 # Distillation
 
-Distillation is explicit maintenance for long-lived memory collections. Nothing runs automatically: Dawn consolidates or reflects only when you invoke `dawn memory consolidate` or `dawn memory reflect`, by hand or from an application-owned schedule.
+Distillation is explicit maintenance for long-lived memory collections. Nothing runs automatically: B4.run consolidates or reflects only when you invoke `b4 memory consolidate` or `b4 memory reflect`, by hand or from an application-owned schedule.
 
 ## Distillation
 
@@ -8,21 +8,21 @@ Use the two passes for different jobs:
 
 | Command | Input | Output |
 |---|---|---|
-| `dawn memory consolidate` | Old active episodes grouped by namespace and ISO week | One active episodic summary per selected batch |
-| `dawn memory reflect` | New active semantic and episodic records per namespace | Zero or more durable reflection insights |
+| `b4 memory consolidate` | Old active episodes grouped by namespace and ISO week | One active episodic summary per selected batch |
+| `b4 memory reflect` | New active semantic and episodic records per namespace | Zero or more durable reflection insights |
 
 Both commands are threshold-aware no-ops. Their common flags are:
 
 ```bash
-dawn memory consolidate --dry-run --namespace 'workspace=my-app|route=/support' --max-batches 5
-dawn memory reflect --dry-run --namespace 'workspace=my-app|route=/support' --max-batches 5
+b4 memory consolidate --dry-run --namespace 'workspace=my-app|route=/support' --max-batches 5
+b4 memory reflect --dry-run --namespace 'workspace=my-app|route=/support' --max-batches 5
 ```
 
 - `--dry-run` selects and reports work but constructs no model, makes zero model calls, and writes nothing.
 - `--namespace <prefix>` narrows the pass to matching namespaces.
 - `--model <id>` and `--provider <id>` override model selection.
 - `--max-batches <n>` caps batches for consolidation and namespaces for reflection.
-- `--cwd <path>` selects another app root like other Dawn commands.
+- `--cwd <path>` selects another app root like other B4.run commands.
 
 `--namespace` is a raw prefix. A short `route=/support` prefix works only when `route` is the leading namespace dimension. If the route also declares `workspace`, use the full canonical namespace prefix, such as `workspace=my-app|route=/support`; derive it with the namespace helpers rather than guessing from a filesystem path.
 
@@ -55,7 +55,7 @@ Insights are reflection records with `derivedFrom` provenance and default to `ca
 
 Each insight record carries the reflection watermark. Candidate rejection is a hard delete: rejecting every candidate insight deletes every persisted watermark for that pass. With no surviving watermark, a later run can select the same inputs, repeat the model call and its cost. Approve at least one valid insight or deliberately preserve/reconstruct the watermark before rejecting the entire batch.
 
-When the model returns no insights, Dawn writes a superseded no-insight sentinel. It advances the watermark without becoming recallable, so a schedule does not pay repeatedly for the same barren input.
+When the model returns no insights, B4.run writes a superseded no-insight sentinel. It advances the watermark without becoming recallable, so a schedule does not pay repeatedly for the same barren input.
 
 ## Model and data trust
 
@@ -89,7 +89,7 @@ Schedule against a single application-owned store and prevent overlapping jobs f
 
 ## Distillation configuration
 
-```ts title="dawn.config.ts"
+```ts title="b4.config.ts"
 export default {
   memory: {
     distill: {
@@ -108,7 +108,7 @@ export default {
       },
     },
   },
-} satisfies import("@dawn-ai/core").DawnConfig
+} satisfies import("@b4run/core").B4Config
 ```
 
 `consolidate.ttlMs` optionally expires summaries; leaving it unset keeps them. Validate that summary TTL exceeds the source review window if the summary is meant to outlive its evidence.

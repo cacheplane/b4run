@@ -14,13 +14,13 @@ import {
 // Separate opt-in: unlike the harmless fence workflow, this leaves an immutable
 // prerelease and annotated tag in a PUBLIC disposable repository. No npm effects.
 test("real annotated-tag publication, draft visibility and immutable asset readback", {
-  skip: Reflect.get(process.env, "DAWN_TEST_RECOVERY_PUBLICATION_GITHUB") !== "1",
+  skip: Reflect.get(process.env, "B4_TEST_RECOVERY_PUBLICATION_GITHUB") !== "1",
   timeout: 180000,
 }, async (t) => {
   const env = process.env
   const repository = authorizeFenceProbe(env)
-  const token = env.DAWN_RECOVERY_PUBLICATION_TOKEN
-  const policyToken = env.DAWN_RECOVERY_TEST_POLICY_TOKEN
+  const token = env.B4_RECOVERY_PUBLICATION_TOKEN
+  const policyToken = env.B4_RECOVERY_TEST_POLICY_TOKEN
   assert.ok(
     typeof token === "string" && token.length > 0 && token.length < 4096 && !/[\r\n]/u.test(token),
     "explicit intended publication credential required",
@@ -32,24 +32,48 @@ test("real annotated-tag publication, draft visibility and immutable asset readb
       !/[\r\n]/u.test(policyToken),
     "separate policy-read credential required",
   )
-  assert.match(env.DAWN_RECOVERY_TEST_SOURCE_SHA ?? "", /^[a-f0-9]{40}$/u)
+  assert.match(env.B4_RECOVERY_TEST_SOURCE_SHA ?? "", /^[a-f0-9]{40}$/u)
   assert.ok(
-    ["operator", "workflow"].includes(env.DAWN_RECOVERY_TEST_CREDENTIAL_KIND),
+    ["operator", "workflow"].includes(env.B4_RECOVERY_TEST_CREDENTIAL_KIND),
     "explicit credential kind required",
   )
-  if (env.DAWN_RECOVERY_TEST_CREDENTIAL_KIND === "workflow") {
+  if (env.B4_RECOVERY_TEST_CREDENTIAL_KIND === "workflow") {
     assert.equal(env.GITHUB_ACTIONS, "true")
     assert.equal(env.GITHUB_REPOSITORY, repository)
     assert.match(env.GITHUB_RUN_ID ?? "", /^[1-9][0-9]*$/u)
   }
-  const discard = env.DAWN_RECOVERY_TEST_DISCARD_RESPONSE ?? ""
+  const discard = env.B4_RECOVERY_TEST_DISCARD_RESPONSE ?? ""
   assert.ok(["", "upload", "publication"].includes(discard), "bounded response-loss experiment")
+  const existingNonce = env.B4_RECOVERY_TEST_EXISTING_TAG_NONCE ?? ""
+  const existingTagObjectSha = env.B4_RECOVERY_TEST_EXISTING_TAG_OBJECT_SHA ?? ""
+  assert.equal(
+    existingNonce === "",
+    existingTagObjectSha === "",
+    "existing tag nonce and object SHA must be supplied together",
+  )
+  if (existingNonce !== "") {
+    assert.match(existingNonce, /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u)
+    assert.match(existingTagObjectSha, /^[a-f0-9]{40}$/u)
+  }
+  const existingReleaseText = env.B4_RECOVERY_TEST_EXISTING_RELEASE_ID ?? ""
+  const existingReleaseId = existingReleaseText === "" ? null : Number(existingReleaseText)
+  if (existingReleaseId !== null) {
+    assert.ok(existingNonce !== "", "existing release requires existing tag mode")
+    assert.match(existingReleaseText, /^[1-9][0-9]*$/u)
+    assert.ok(Number.isSafeInteger(existingReleaseId) && existingReleaseId > 0)
+  }
   let discarded = false
-  const root = await mkdtemp(join(env.RUNNER_TEMP ?? tmpdir(), "dawn-recovery-publication-"))
+  const root = await mkdtemp(join(env.RUNNER_TEMP ?? tmpdir(), "b4-recovery-publication-"))
   const ledger = {
     repository,
     startedAt: new Date().toISOString(),
-    credentialKind: env.DAWN_RECOVERY_TEST_CREDENTIAL_KIND,
+    credentialKind: env.B4_RECOVERY_TEST_CREDENTIAL_KIND,
+    tagProvenance: existingNonce === "" ? "probe-created" : "operator-created",
+    existingTag:
+      existingNonce === "" ? null : { nonce: existingNonce, objectSha: existingTagObjectSha },
+    existingReleaseId,
+    releaseProvenance: existingReleaseId === null ? "probe-created" : "operator-created",
+    releaseWriteCredentialKind: env.B4_RECOVERY_TEST_CREDENTIAL_KIND,
     runId: env.GITHUB_RUN_ID ?? null,
     calls: [],
     owned: null,
@@ -105,8 +129,18 @@ test("real annotated-tag publication, draft visibility and immutable asset readb
       })
       entry.status = response.status
       entry.headers = Object.fromEntries(
-        ["date", "cache-control", "etag", "x-github-request-id", "x-ratelimit-remaining"].flatMap(
-          (name) => (response.headers.has(name) ? [[name, response.headers.get(name)]] : []),
+        [
+          "date",
+          "cache-control",
+          "etag",
+          "x-github-request-id",
+          "x-ratelimit-limit",
+          "x-ratelimit-used",
+          "x-ratelimit-reset",
+          "x-ratelimit-resource",
+          "x-ratelimit-remaining",
+        ].flatMap((name) =>
+          response.headers.has(name) ? [[name, response.headers.get(name)]] : [],
         ),
       )
       const chunks = []
@@ -139,8 +173,10 @@ test("real annotated-tag publication, draft visibility and immutable asset readb
     const [owner, repo] = repository.split("/")
     const result = await runPublicationServiceProbe({
       repository,
-      sourceSha: env.DAWN_RECOVERY_TEST_SOURCE_SHA,
-      nonce: randomUUID(),
+      sourceSha: env.B4_RECOVERY_TEST_SOURCE_SHA,
+      nonce: existingNonce || randomUUID(),
+      existingTagObjectSha: existingTagObjectSha || null,
+      existingReleaseId,
       topologySha256: hash(
         await readFile(new URL("./fixtures/recovery-topology-workflow.yml", import.meta.url)),
       ),
@@ -149,7 +185,7 @@ test("real annotated-tag publication, draft visibility and immutable asset readb
         const selected =
           discard === "upload"
             ? Buffer.isBuffer(body)
-            : discard === "publication" && method === "PATCH"
+            : discard === "publication" && method === "PATCH" && body?.draft === false
         if (!discarded && selected && response.status >= 200 && response.status < 300) {
           discarded = true
           ledger.injectedClientResponseLoss = discard

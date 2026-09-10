@@ -9,7 +9,7 @@ import { canonicalReleaseRecordBytes } from "../../release-record.mjs"
 import { parseSmokeResult, REQUIRED_RELEASE_SMOKE_LANES } from "../../smoke-result.mjs"
 import { canonicalAuditResultBytes, parseAuditResult } from "../../terminal-records.mjs"
 
-const REPOSITORY = "cacheplane/dawnai"
+const REPOSITORY = "cacheplane/b4run"
 const AUDIT_WORKFLOW = ".github/workflows/published-artifact-verify.yml"
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u

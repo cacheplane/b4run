@@ -80,8 +80,8 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}
     env:
-      DAWN_TEST_K8S_CONTEXT: kind-${{ matrix.clusterName }}
-      DAWN_K8S_TARGET: ${{ matrix.target }}
+      B4_TEST_K8S_CONTEXT: kind-${{ matrix.clusterName }}
+      B4_K8S_TARGET: ${{ matrix.target }}
 
     steps:
       - name: Checkout
@@ -108,7 +108,7 @@ jobs:
 
       - name: Verify chart/provider permission parity
         env:
-          DAWN_REQUIRE_HELM: "1"
+          B4_REQUIRE_HELM: "1"
         run: pnpm exec vitest --run --config test/k8s-compat/vitest.config.ts chart-rbac
 
       - name: Prime kind tool cache
@@ -125,20 +125,20 @@ jobs:
 
       - name: Prepare verified Calico manifest
         env:
-          CALICO_MANIFEST: ${{ runner.temp }}/dawn-calico.yaml
+          CALICO_MANIFEST: ${{ runner.temp }}/b4-calico.yaml
         run: pnpm exec tsx scripts/kubernetes-compat/workflow.ts prepare-calico --output "$CALICO_MANIFEST"
 
       - name: Install verified Calico
         env:
-          CALICO_MANIFEST: ${{ runner.temp }}/dawn-calico.yaml
+          CALICO_MANIFEST: ${{ runner.temp }}/b4-calico.yaml
         run: |
           set -eu
-          kubectl --context "$DAWN_TEST_K8S_CONTEXT" apply --filename "$CALICO_MANIFEST"
-          kubectl --context "$DAWN_TEST_K8S_CONTEXT" -n kube-system rollout status daemonset/calico-node --timeout=180s
-          kubectl --context "$DAWN_TEST_K8S_CONTEXT" wait --for=condition=Ready nodes --all --timeout=180s
+          kubectl --context "$B4_TEST_K8S_CONTEXT" apply --filename "$CALICO_MANIFEST"
+          kubectl --context "$B4_TEST_K8S_CONTEXT" -n kube-system rollout status daemonset/calico-node --timeout=180s
+          kubectl --context "$B4_TEST_K8S_CONTEXT" wait --for=condition=Ready nodes --all --timeout=180s
 
       - name: Run Kubernetes compatibility harness
-        run: pnpm verify:k8s:compat -- --target "$DAWN_K8S_TARGET" --context "$DAWN_TEST_K8S_CONTEXT"
+        run: pnpm verify:k8s:compat -- --target "$B4_K8S_TARGET" --context "$B4_TEST_K8S_CONTEXT"
 
       - name: Upload Kubernetes compatibility artifacts
         if: always()

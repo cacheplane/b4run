@@ -3,7 +3,7 @@ import {
   BrowseQueryError,
   type MemoryRecord,
   type MemoryStore,
-} from "@dawn-ai/memory"
+} from "@b4run/memory"
 import { expect, test } from "vitest"
 
 /** Asserted on `.code`, not on the message: the route branches on the code. */

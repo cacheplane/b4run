@@ -255,7 +255,7 @@ function normalizeDocsDestination(destination: string): string | undefined {
   if (isDocsPath(destination.split("#")[0] ?? "")) return destination
   try {
     const url = new URL(destination)
-    if (url.protocol === "https:" && url.hostname === "dawnai.org" && isDocsPath(url.pathname)) {
+    if (url.protocol === "https:" && url.hostname === "b4.run" && isDocsPath(url.pathname)) {
       return `${url.pathname}${url.hash}`
     }
   } catch {
@@ -394,20 +394,20 @@ const FROZEN_API_HEADING_IDS = [
   "api-reference",
   "package-and-surface-index",
   "reference-conventions",
-  "dawn-aisdk",
+  "b4runsdk",
   "agent",
   "agentconfig",
   "agentconfig-1",
   "reasoningconfig",
   "retryconfig",
-  "dawnagent",
+  "b4agent",
   "subagent-delegation-types",
-  "isdawnagentvalue",
+  "isb4agentvalue",
   "middleware",
   "definemiddlewarefn",
   "allowcontext",
   "rejectstatus-body",
-  "dawnmiddleware",
+  "b4middleware",
   "middlewarerequest",
   "middlewareresult",
   "continueresult",
@@ -426,7 +426,7 @@ const FROZEN_API_HEADING_IDS = [
   "runtimecontexttools",
   "runtimetool",
   "toolregistry",
-  "dawntoolcontext",
+  "b4toolcontext",
   "workspacefs",
   "models",
   "knownmodelid",
@@ -444,61 +444,61 @@ const FROZEN_API_HEADING_IDS = [
   "backendadapter",
   "utilities",
   "prettifyt",
-  "dawn-aicli",
+  "b4runcli",
   "serveruntimeoptions",
   "loadstaticmodulesmanifesturl",
-  "dawnstaticmodules-and-staticroutemodule",
-  "dawn-aiclifetch",
-  "dawn-aicliruntime",
-  "dawn-aicore",
+  "b4staticmodules-and-staticroutemodule",
+  "b4runclifetch",
+  "b4runcliruntime",
+  "b4runcore",
   "capability-exports",
   "createcapabilityregistrymarkers-and-applycapabilities",
   "gatetoolop-and-wraptoolwithapproval",
   "createworkspacefsoptions",
-  "loaddawnconfigoptions-and-configvalue",
-  "discoverroutesoptions-finddawnappoptions-and-route-segments",
+  "loadb4configoptions-and-configvalue",
+  "discoverroutesoptions-findb4appoptions-and-route-segments",
   "state-and-typegen-helpers",
   "tool-scope",
   "storage-type-re-export",
-  "dawn-aiag-ui",
+  "b4runag-ui",
   "id-factories",
   "toaguieventschunks-context",
   "fromrunagentinputinput",
   "sse-subpath-encodeaguisseevent-accept",
-  "dawn-aimemory",
+  "b4runmemory",
   "memorystore",
   "memoryrecord",
   "memoryquery",
   "browsequery-browsepage-and-memorystats",
-  "dawn-aimemorybrowse",
-  "dawn-aimemory-pgvector",
+  "b4runmemorybrowse",
+  "b4runmemory-pgvector",
   "pgvectormemorystoreoptions",
   "pgvectormemorystore",
   "vectorcolumndefdimensions",
   "initschemaclient-options",
   "assertidentifiername-value",
-  "dawn-aipostgres-storage",
+  "b4runpostgres-storage",
   "postgresstoreoptions",
-  "dawn-aipostgres-storagenode",
+  "b4runpostgres-storagenode",
   "postgrescheckpointeroptions",
   "createpostgresthreadsstoreoptions",
   "createpostgrespermissionsstoreoptions",
   "assertidentifiername-value-1",
   "default_schema--default_table_prefix",
-  "dawn-aitesting",
+  "b4runtesting",
   "harnesses",
   "aimock-fixtures-and-recording",
   "matchers",
   "run-result-utilities",
   "memory-protocol-and-subprocess-helpers",
   "example",
-  "dawn-aievals",
+  "b4runevals",
   "eval-definition-and-execution",
   "scores-and-gates",
   "built-in-scorers",
   "memory-scorers",
   "example-1",
-  "dawnroutes-generated",
+  "b4routes-generated",
   "routetoolsp",
   "routestatep",
   "where-to-read-more",
@@ -536,7 +536,7 @@ function catalogRow(entry: (typeof PACKAGE_CATALOG)[number]): string {
   const catalogAnchor = entry.canonicalReferenceDestination.startsWith("/docs/api#")
     ? `<span id="${entry.canonicalReferenceDestination.slice("/docs/api#".length)}"></span>`
     : ""
-  return `| ${catalogAnchor}\`${entry.packageName}\` | ${entry.purpose} | \`${entry.audience}\` | \`${entry.stability}\` | ${artifacts} | ${boundaries} | [README](https://github.com/cacheplane/dawnai/blob/main/${entry.readmePath}) | [Reference](${entry.canonicalReferenceDestination}) | [Guide](${entry.conceptualGuideDestination}) |`
+  return `| ${catalogAnchor}\`${entry.packageName}\` | ${entry.purpose} | \`${entry.audience}\` | \`${entry.stability}\` | ${artifacts} | ${boundaries} | [README](https://github.com/cacheplane/b4run/blob/main/${entry.readmePath}) | [Reference](${entry.canonicalReferenceDestination}) | [Guide](${entry.conceptualGuideDestination}) |`
 }
 
 function visibleTableLines(source: string): string[] {
@@ -681,16 +681,16 @@ function canonicalApiDestination(id: string, ownerHref: string): string {
   const ownerAnchor = "#use-this-when"
   if (
     new Set([
-      "dawn-aisdk",
-      "dawn-aicli",
-      "dawn-aicore",
-      "dawn-aiag-ui",
-      "dawn-aimemory",
-      "dawn-aimemory-pgvector",
-      "dawn-aipostgres-storage",
-      "dawn-aitesting",
-      "dawn-aievals",
-      "dawnroutes-generated",
+      "b4runsdk",
+      "b4runcli",
+      "b4runcore",
+      "b4runag-ui",
+      "b4runmemory",
+      "b4runmemory-pgvector",
+      "b4runpostgres-storage",
+      "b4runtesting",
+      "b4runevals",
+      "b4routes-generated",
     ]).has(id)
   ) {
     return `${ownerHref}${ownerAnchor}`
@@ -703,8 +703,8 @@ function canonicalApiDestination(id: string, ownerHref: string): string {
         "agentconfig-1",
         "reasoningconfig",
         "retryconfig",
-        "dawnagent",
-        "isdawnagentvalue",
+        "b4agent",
+        "isb4agentvalue",
       ]).has(id)
     ) {
       return `${ownerHref}#agent-and-agentconfig`
@@ -729,33 +729,33 @@ function canonicalApiDestination(id: string, ownerHref: string): string {
     ) {
       return `${ownerHref}#validatemodelid`
     }
-    return `${ownerHref}#dawn-aisdk-1`
+    return `${ownerHref}#b4runsdk-1`
   }
   if (ownerHref === "/docs/api/cli") {
     if (id === "serveruntimeoptions") return `${ownerHref}#serveruntime`
-    if (id === "dawn-aiclifetch") return `${ownerHref}#dawn-aiclifetch`
-    if (id === "dawn-aicliruntime") {
-      return `${ownerHref}#dawn-aicliruntime`
+    if (id === "b4runclifetch") return `${ownerHref}#b4runclifetch`
+    if (id === "b4runcliruntime") {
+      return `${ownerHref}#b4runcliruntime`
     }
-    return `${ownerHref}#dawn-aicli-1`
+    return `${ownerHref}#b4runcli-1`
   }
   if (ownerHref === "/docs/api/core") {
-    if (id === "loaddawnconfigoptions-and-configvalue") return `${ownerHref}#loaddawnconfig`
+    if (id === "loadb4configoptions-and-configvalue") return `${ownerHref}#loadb4config`
     if (id === "state-and-typegen-helpers") return `${ownerHref}#resolvestatefields`
-    return `${ownerHref}#dawn-aicore-1`
+    return `${ownerHref}#b4runcore-1`
   }
   if (ownerHref === "/docs/api/ag-ui") {
     if (new Set(["toaguieventschunks-context", "fromrunagentinputinput"]).has(id)) {
       return `${ownerHref}#inbound-and-outbound-calls`
     }
     if (id === "sse-subpath-encodeaguisseevent-accept") {
-      return `${ownerHref}#dawn-aiag-uisse`
+      return `${ownerHref}#b4runag-uisse`
     }
-    return `${ownerHref}#dawn-aiag-ui-1`
+    return `${ownerHref}#b4runag-ui-1`
   }
   if (ownerHref === "/docs/api/memory") {
-    if (id === "dawn-aimemorybrowse" || id === "browsequery-browsepage-and-memorystats") {
-      return `${ownerHref}#dawn-aimemorybrowse`
+    if (id === "b4runmemorybrowse" || id === "browsequery-browsepage-and-memorystats") {
+      return `${ownerHref}#b4runmemorybrowse`
     }
     return `${ownerHref}#store-and-query-shapes`
   }
@@ -773,10 +773,10 @@ function canonicalApiDestination(id: string, ownerHref: string): string {
   }
   if (ownerHref === "/docs/api/postgres-storage") {
     if (id === "postgresstoreoptions") return `${ownerHref}#postgresstoreoptions`
-    if (id === "dawn-aipostgres-storagenode") {
-      return `${ownerHref}#dawn-aipostgres-storagenode`
+    if (id === "b4runpostgres-storagenode") {
+      return `${ownerHref}#b4runpostgres-storagenode`
     }
-    return `${ownerHref}#dawn-aipostgres-storage-1`
+    return `${ownerHref}#b4runpostgres-storage-1`
   }
   if (ownerHref === "/docs/api/testing") {
     if (id === "harnesses") return `${ownerHref}#agentharnessoptions`
@@ -786,13 +786,13 @@ function canonicalApiDestination(id: string, ownerHref: string): string {
       return `${ownerHref}#harness-and-fixture-lifecycle`
     }
     if (id === "example") return `${ownerHref}#examples-and-related-guides`
-    return `${ownerHref}#dawn-aitesting-1`
+    return `${ownerHref}#b4runtesting-1`
   }
   if (ownerHref === "/docs/api/evals") {
     if (id === "eval-definition-and-execution") return `${ownerHref}#evaldefinition`
     if (id === "scores-and-gates") return `${ownerHref}#evaluation-semantics`
     if (id === "example-1") return `${ownerHref}#examples-and-related-guides`
-    return `${ownerHref}#dawn-aievals-1`
+    return `${ownerHref}#b4runevals-1`
   }
   if (ownerHref === "/docs/api/generated-routes") {
     return `${ownerHref}${id === "routetoolsp" ? "#tools" : "#state"}`
@@ -867,14 +867,14 @@ const COMPATIBILITY_ANCHOR_MAP = [
   ]),
   ...compatibilityAnchors("deployment.mdx", "/docs/deployment", "/docs/deployment/edge", [
     "edge-runtimes",
-    "the-dawn-aiclifetch-entry-point",
+    "the-b4runclifetch-entry-point",
     "the-hono-build-target",
     "why-the-stores-are-per-request",
     "what-the-edge-cannot-serve",
     "what-is-proven-and-what-is-not",
   ]),
   ...compatibilityAnchors("deployment.mdx", "/docs/deployment", "/docs/deployment", [
-    "what-dawn-does-not-do",
+    "what-b4run-does-not-do",
     "troubleshooting",
     "related",
   ]),
@@ -887,7 +887,7 @@ const COMPATIBILITY_ANCHOR_MAP = [
     "network-policy-on-kubernetes",
     "deploying-the-sandbox-infrastructure-helm",
     "key-caveats",
-    "deploying-a-dawn-app-helm",
+    "deploying-a-b4run-app-helm",
     "serviceaccount-and-namespace-wiring",
     "env-secrets-and-replicas",
   ]),
@@ -936,7 +936,7 @@ describe("docs links and in-page anchors", () => {
 
     expect(actualRows).toEqual(PACKAGE_CATALOG.map(catalogRow))
     expect(catalog).toContain(
-      `Generated surface: \`dawn:routes\` — ${artifactBoundaryFor(GENERATED_ROUTES_ARTIFACT)}.`,
+      `Generated surface: \`b4:routes\` — ${artifactBoundaryFor(GENERATED_ROUTES_ARTIFACT)}.`,
     )
     expect(catalogMarkupFailures(catalog)).toEqual([])
     expect(applicationShortcutFailures(catalog)).toEqual([])
@@ -966,10 +966,10 @@ describe("docs links and in-page anchors", () => {
   })
 
   it("rejects every malformed or extra active catalog row", () => {
-    const expected = ["| Package | Purpose |", "|---|---|", "| `@dawn-ai/sdk` | SDK |"]
+    const expected = ["| Package | Purpose |", "|---|---|", "| `@b4run/sdk` | SDK |"]
     expect(visibleCatalogRows(expected.join("\n"))).toEqual(expected.slice(2))
     expect(
-      visibleCatalogRows([...expected, "| @dawn-ai/rogue | unregistered |"].join("\n")),
+      visibleCatalogRows([...expected, "| @b4run/rogue | unregistered |"].join("\n")),
     ).not.toEqual(expected.slice(2))
     expect(visibleCatalogRows([...expected, "| missing cells |"].join("\n"))).not.toEqual(
       expected.slice(2),
@@ -978,10 +978,10 @@ describe("docs links and in-page anchors", () => {
   })
 
   it("rejects raw rendered table markup in the catalog section", () => {
-    const markdown = "| Package | Purpose |\n|---|---|\n| `@dawn-ai/sdk` | SDK |"
+    const markdown = "| Package | Purpose |\n|---|---|\n| `@b4run/sdk` | SDK |"
     const raw =
-      "<table><tbody><tr><td><code>@dawn-ai/rogue</code></td><td>rogue</td></tr></tbody></table>"
-    const secondMarkdown = "Name | Purpose\n--- | ---\n@dawn-ai/rogue | rogue"
+      "<table><tbody><tr><td><code>@b4run/rogue</code></td><td>rogue</td></tr></tbody></table>"
+    const secondMarkdown = "Name | Purpose\n--- | ---\n@b4run/rogue | rogue"
 
     expect(catalogMarkupFailures(markdown)).toEqual([])
     expect(catalogMarkupFailures(`${markdown}\n${raw}`)).not.toEqual([])
@@ -994,7 +994,7 @@ describe("docs links and in-page anchors", () => {
   })
 
   it("rejects active MDX components and expressions in the catalog section", () => {
-    const markdown = "| Package | Purpose |\n|---|---|\n| `@dawn-ai/sdk` | SDK |"
+    const markdown = "| Package | Purpose |\n|---|---|\n| `@b4run/sdk` | SDK |"
     const variants = [
       'export const Rogue = () => React.createElement("table", null)\n\n<Rogue />',
       "export const make = React.createElement\nexport const Rogue = () => make('table', null)\n\n<Rogue />",
@@ -1029,16 +1029,16 @@ describe("docs links and in-page anchors", () => {
     const source = readFileSync(join(DOCS_DIR, "api.mdx"), "utf8")
     const headings = markdownHeadings(source)
     const ownerByPackageHeading = new Map([
-      ["@dawn-ai/sdk", "/docs/api/sdk"],
-      ["@dawn-ai/cli", "/docs/api/cli"],
-      ["@dawn-ai/core", "/docs/api/core"],
-      ["@dawn-ai/ag-ui", "/docs/api/ag-ui"],
-      ["@dawn-ai/memory", "/docs/api/memory"],
-      ["@dawn-ai/memory-pgvector", "/docs/api/memory-pgvector"],
-      ["@dawn-ai/postgres-storage", "/docs/api/postgres-storage"],
-      ["@dawn-ai/testing", "/docs/api/testing"],
-      ["@dawn-ai/evals", "/docs/api/evals"],
-      ["dawn:routes (generated)", "/docs/api/generated-routes"],
+      ["@b4run/sdk", "/docs/api/sdk"],
+      ["@b4run/cli", "/docs/api/cli"],
+      ["@b4run/core", "/docs/api/core"],
+      ["@b4run/ag-ui", "/docs/api/ag-ui"],
+      ["@b4run/memory", "/docs/api/memory"],
+      ["@b4run/memory-pgvector", "/docs/api/memory-pgvector"],
+      ["@b4run/postgres-storage", "/docs/api/postgres-storage"],
+      ["@b4run/testing", "/docs/api/testing"],
+      ["@b4run/evals", "/docs/api/evals"],
+      ["b4:routes (generated)", "/docs/api/generated-routes"],
     ])
     const failures: string[] = []
     let ownerHref: string | undefined
@@ -1066,21 +1066,21 @@ describe("docs links and in-page anchors", () => {
 
   it("keeps detailed-owner READMEs compact and registry-linked", () => {
     expect(DETAILED_PACKAGE_READMES.map(({ packageName }) => packageName)).toEqual([
-      "@dawn-ai/ag-ui",
-      "@dawn-ai/cli",
-      "@dawn-ai/core",
-      "@dawn-ai/evals",
-      "@dawn-ai/langchain",
-      "@dawn-ai/langgraph",
-      "@dawn-ai/memory",
-      "@dawn-ai/memory-pgvector",
-      "@dawn-ai/permissions",
-      "@dawn-ai/postgres-storage",
-      "@dawn-ai/sandbox",
-      "@dawn-ai/sdk",
-      "@dawn-ai/sqlite-storage",
-      "@dawn-ai/testing",
-      "@dawn-ai/workspace",
+      "@b4run/ag-ui",
+      "@b4run/cli",
+      "@b4run/core",
+      "@b4run/evals",
+      "@b4run/langchain",
+      "@b4run/langgraph",
+      "@b4run/memory",
+      "@b4run/memory-pgvector",
+      "@b4run/permissions",
+      "@b4run/postgres-storage",
+      "@b4run/sandbox",
+      "@b4run/sdk",
+      "@b4run/sqlite-storage",
+      "@b4run/testing",
+      "@b4run/workspace",
     ])
 
     const failures = DETAILED_PACKAGE_READMES.flatMap((entry) => {
@@ -1088,10 +1088,10 @@ describe("docs links and in-page anchors", () => {
       const destinations = markdownDestinations(source)
       const checks = [
         [
-          destinations.includes(`https://dawnai.org${entry.canonicalReferenceDestination}`),
+          destinations.includes(`https://b4.run${entry.canonicalReferenceDestination}`),
           "reference",
         ],
-        [destinations.includes(`https://dawnai.org${entry.conceptualGuideDestination}`), "guide"],
+        [destinations.includes(`https://b4.run${entry.conceptualGuideDestination}`), "guide"],
         [
           new RegExp(`pnpm add(?: -D)?[^\\n]*${entry.packageName.replace("/", "\\/")}`).test(
             source,
@@ -1135,12 +1135,12 @@ describe("docs links and in-page anchors", () => {
 
   it("keeps catalog and internal READMEs compact and linked to exact hub anchors", () => {
     const expected = new Map([
-      ["@dawn-ai/config-biome", "/docs/api#dawn-aiconfig-biome"],
-      ["@dawn-ai/config-typescript", "/docs/api#dawn-aiconfig-typescript"],
-      ["@dawn-ai/devkit", "/docs/api#dawn-aidevkit"],
-      ["@dawn-ai/inspector", "/docs/api#dawn-aiinspector"],
-      ["@dawn-ai/vite-plugin", "/docs/api#dawn-aivite-plugin"],
-      ["create-dawn-ai-app", "/docs/api#create-dawn-ai-app"],
+      ["@b4run/config-biome", "/docs/api#b4runconfig-biome"],
+      ["@b4run/config-typescript", "/docs/api#b4runconfig-typescript"],
+      ["@b4run/devkit", "/docs/api#b4rundevkit"],
+      ["@b4run/inspector", "/docs/api#b4runinspector"],
+      ["@b4run/vite-plugin", "/docs/api#b4runvite-plugin"],
+      ["create-b4-app", "/docs/api#create-b4-app"],
     ])
     const entries = PACKAGE_CATALOG.filter(({ packageName }) => expected.has(packageName))
     expect(entries).toHaveLength(6)
@@ -1148,10 +1148,10 @@ describe("docs links and in-page anchors", () => {
     const failures = entries.flatMap((entry) => {
       const source = readFileSync(join(REPO_ROOT, entry.readmePath), "utf8")
       const destinations = markdownDestinations(source)
-      const expectedReference = `https://dawnai.org${expected.get(entry.packageName)}`
+      const expectedReference = `https://b4.run${expected.get(entry.packageName)}`
       return [
         ...(destinations.includes(expectedReference) ? [] : [`${entry.packageName}: reference`]),
-        ...(destinations.includes(`https://dawnai.org${entry.conceptualGuideDestination}`)
+        ...(destinations.includes(`https://b4.run${entry.conceptualGuideDestination}`)
           ? []
           : [`${entry.packageName}: guide`]),
         ...(source.split(/\r?\n/).length <= 50 ? [] : [`${entry.packageName}: not concise`]),
@@ -1164,12 +1164,12 @@ describe("docs links and in-page anchors", () => {
   it("ignores README boundary claims in code and comments", () => {
     const source = [
       "```md",
-      "- `@dawn-ai/example` is supported and edge-safe.",
+      "- `@b4run/example` is supported and edge-safe.",
       "```",
-      "<!-- - `@dawn-ai/example` is supported and edge-safe. -->",
+      "<!-- - `@b4run/example` is supported and edge-safe. -->",
     ].join("\n")
 
-    expect(hasVisibleBoundaryLine(source, "@dawn-ai/example", "edge-safe", "supported")).toBe(false)
+    expect(hasVisibleBoundaryLine(source, "@b4run/example", "edge-safe", "supported")).toBe(false)
   })
 
   it("structurally rejects exhaustive README symbol inventories", () => {
@@ -1198,7 +1198,7 @@ describe("docs links and in-page anchors", () => {
     const concise = [
       "| Surface | Runtime | Stability |",
       "|---|---|---|",
-      "| `@dawn-ai/example` | edge-safe | supported |",
+      "| `@b4run/example` | edge-safe | supported |",
       "Use `alpha` with `beta` for the primary workflow.",
       "```ts",
       "const ignored = { alpha, beta, gamma, delta, epsilon, zeta }",
@@ -1216,12 +1216,12 @@ describe("docs links and in-page anchors", () => {
 
   it("moves symbol-specific links from the API hub to canonical leaves", () => {
     const contracts = [
-      ["agents.mdx", "/docs/api/sdk#dawn-aisdk-1", "/docs/api#modelproviderid"],
+      ["agents.mdx", "/docs/api/sdk#b4runsdk-1", "/docs/api#modelproviderid"],
       ["reasoning-effort.mdx", "/docs/api/sdk#agent-and-agentconfig", "/docs/api"],
       ["memory/browse.mdx", "/docs/api/memory#trust-boundaries", "/docs/api"],
       ["recipes/add-a-tool.mdx", "/docs/api/generated-routes#tools", "/docs/api"],
       ["recipes/typed-state.mdx", "/docs/api/generated-routes#state", "/docs/api"],
-      ["recipes/dispatch-from-route.mdx", "/docs/api/sdk#dawn-aisdk-1", "/docs/api"],
+      ["recipes/dispatch-from-route.mdx", "/docs/api/sdk#b4runsdk-1", "/docs/api"],
       ["recipes/retry-flaky-tools.mdx", "/docs/api/sdk#agent-and-agentconfig", "/docs/api"],
     ] as const
     const failures = contracts.flatMap(([file, destination, retiredDestination]) => {
@@ -1336,10 +1336,10 @@ describe("docs links and in-page anchors", () => {
         api?.orderedIds ?? [],
       ),
     ).toBe(false)
-    expect(api?.ids).toContain("dawn-aicli")
-    expect(api?.ids).toContain("dawn-aiclifetch")
-    expect(api?.ids).toContain("dawn-aimemory")
-    expect(api?.ids).toContain("dawn-aimemorybrowse")
+    expect(api?.ids).toContain("b4runcli")
+    expect(api?.ids).toContain("b4runclifetch")
+    expect(api?.ids).toContain("b4runmemory")
+    expect(api?.ids).toContain("b4runmemorybrowse")
     expect(api?.duplicateIds).toEqual([])
     for (const catalogOnly of PACKAGE_CATALOG.filter(({ canonicalReferenceDestination }) =>
       canonicalReferenceDestination.startsWith("/docs/api#"),
@@ -1462,9 +1462,9 @@ describe("docs links and in-page anchors", () => {
   })
 
   it("normalizes absolute docs URLs and rejects path and fragment mutations", () => {
-    expect(
-      normalizeDocsDestination("https://dawnai.org/docs/memory/retrieval#how-recall-ranks"),
-    ).toBe("/docs/memory/retrieval#how-recall-ranks")
+    expect(normalizeDocsDestination("https://b4.run/docs/memory/retrieval#how-recall-ranks")).toBe(
+      "/docs/memory/retrieval#how-recall-ranks",
+    )
     expect(docsDestinationError("/docs/memory/retrievall")).toContain("no such page")
     expect(docsDestinationError("/docs/memory/retrieval#how-recall-rankz")).toContain(
       "no such heading",
@@ -1593,7 +1593,7 @@ describe("docs links and in-page anchors", () => {
       })),
       {
         file: "apps/web/content/docs/cli.mdx",
-        heading: "dawn dev",
+        heading: "b4 dev",
         required: ["/docs/dev-server/agent-protocol"],
       },
       {
@@ -1608,10 +1608,10 @@ describe("docs links and in-page anchors", () => {
       },
       {
         file: "packages/ag-ui/README.md",
-        heading: "@dawn-ai/ag-ui",
+        heading: "@b4run/ag-ui",
         required: ["/docs/ag-ui", "/docs/dev-server/agent-protocol"],
       },
-      ...["dawn memory", "dawn inspect"].map((heading) => ({
+      ...["b4 memory", "b4 inspect"].map((heading) => ({
         file: "apps/web/content/docs/cli.mdx",
         heading,
         required: ["/docs/memory/browse"],
@@ -1633,7 +1633,7 @@ describe("docs links and in-page anchors", () => {
       },
       {
         file: "packages/memory-pgvector/README.md",
-        heading: "@dawn-ai/memory-pgvector",
+        heading: "@b4run/memory-pgvector",
         required: ["/docs/memory/retrieval"],
       },
       {
@@ -1658,7 +1658,7 @@ describe("docs links and in-page anchors", () => {
       },
       {
         file: "packages/evals/README.md",
-        heading: "@dawn-ai/evals",
+        heading: "@b4run/evals",
         required: ["/docs/testing-agents/fixtures"],
       },
       {
@@ -1668,7 +1668,7 @@ describe("docs links and in-page anchors", () => {
       },
       {
         file: "apps/web/content/docs/api.mdx",
-        heading: "@dawn-ai/testing",
+        heading: "@b4run/testing",
         required: ["/docs/testing-agents/fixtures"],
       },
       {

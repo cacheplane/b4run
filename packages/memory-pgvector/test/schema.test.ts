@@ -20,7 +20,7 @@ describe("vectorColumnDef", () => {
 
 describe("assertIdentifier", () => {
   it("accepts valid SQL identifiers", () => {
-    expect(() => assertIdentifier("prefix", "dawn")).not.toThrow()
+    expect(() => assertIdentifier("prefix", "b4")).not.toThrow()
     expect(() => assertIdentifier("schema", "public")).not.toThrow()
     expect(() => assertIdentifier("prefix", "_mem_v2")).not.toThrow()
     expect(() => assertIdentifier("schema", "MySchema")).not.toThrow()

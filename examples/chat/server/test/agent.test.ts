@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url"
-import { createAgentHarness, expectFinalMessage, script } from "@dawn-ai/testing"
+import { createAgentHarness, expectFinalMessage, script } from "@b4run/testing"
 import { afterAll, it } from "vitest"
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url))

@@ -11,8 +11,8 @@ const tempDirs: string[] = []
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })))
-  Reflect.deleteProperty(globalThis, "__dawnTask10PolicyCalls")
-  Reflect.deleteProperty(globalThis, "__dawnTask10Filesystem")
+  Reflect.deleteProperty(globalThis, "__b4Task10PolicyCalls")
+  Reflect.deleteProperty(globalThis, "__b4Task10Filesystem")
   vi.doUnmock("@langchain/langgraph/prebuilt")
   vi.doUnmock("@langchain/openai")
 })
@@ -35,7 +35,7 @@ describe("materializeResolvedRouteGraph", () => {
         routeId: "/parent",
         routePath: "src/app/parent/index.ts",
       }),
-    ).rejects.toThrow(new RegExp(`\\[DAWN_E1004\\].*${field.source}`))
+    ).rejects.toThrow(new RegExp(`\\[B4_E1004\\].*${field.source}`))
   })
 
   it.each([
@@ -79,7 +79,7 @@ describe("materializeResolvedRouteGraph", () => {
       { child: true },
       /Invalid explicit subagent name/,
     ],
-    ["non-agent reference", "subagents: { child: {} }", {}, /must reference a Dawn agent/],
+    ["non-agent reference", "subagents: { child: {} }", {}, /must reference a B4.run agent/],
     ["unresolved reference", "subagents: { orphan }", { orphan: true }, /resolves to no route/],
     [
       "duplicate explicit route",
@@ -105,7 +105,7 @@ describe("materializeResolvedRouteGraph", () => {
       { invalidConvention: true },
       /Invalid convention subagent name/,
     ],
-  ] as const)("matches dawn check E1004 for %s", async (_name, parentBody, shape, message) => {
+  ] as const)("matches b4 check E1004 for %s", async (_name, parentBody, shape, message) => {
     const appRoot = await invalidRegistryFixture(parentBody, shape)
 
     await expect(
@@ -115,7 +115,7 @@ describe("materializeResolvedRouteGraph", () => {
         routeId: "/parent",
         routePath: "/parent",
       }),
-    ).rejects.toThrow(new RegExp(`\\[DAWN_E1004\\].*${message.source}`, "i"))
+    ).rejects.toThrow(new RegExp(`\\[B4_E1004\\].*${message.source}`, "i"))
   })
 
   it("lazily materializes one checkpointer-free child graph while rechecking policy", async () => {
@@ -127,7 +127,7 @@ describe("materializeResolvedRouteGraph", () => {
     vi.doMock("@langchain/openai", () => ({ ChatOpenAI: class {} }))
     const appRoot = await fixtureApp({ child: true, constrainedChild: true })
     const rootSignal = new AbortController().signal
-    Reflect.set(globalThis, "__dawnTask10PolicyCalls", 0)
+    Reflect.set(globalThis, "__b4Task10PolicyCalls", 0)
 
     await materializeResolvedRouteGraph({
       appRoot,
@@ -149,14 +149,14 @@ describe("materializeResolvedRouteGraph", () => {
     await invokeTask(task, "task-second", rootSignal)
 
     expect(createReactAgent).toHaveBeenCalledTimes(2)
-    expect(Reflect.get(globalThis, "__dawnTask10PolicyCalls")).toBe(2)
+    expect(Reflect.get(globalThis, "__b4Task10PolicyCalls")).toBe(2)
   })
 
   it("builds authored-tool workspace fs from the live tool-call signal", async () => {
     const preparationSignal = new AbortController().signal
     const liveSignal = new AbortController().signal
     const seenContexts: Array<{ readonly signal: AbortSignal; readonly workspaceRoot: string }> = []
-    Reflect.set(globalThis, "__dawnTask10Filesystem", {
+    Reflect.set(globalThis, "__b4Task10Filesystem", {
       listDir: async () => [],
       readFile: async (_path: string, context: (typeof seenContexts)[number]) => {
         seenContexts.push(context)
@@ -172,14 +172,14 @@ describe("materializeResolvedRouteGraph", () => {
     vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
     vi.doMock("@langchain/openai", () => ({ ChatOpenAI: class {} }))
     const appRoot = await writeFixtureFiles({
-      "dawn.config.ts": `const filesystem = globalThis.__dawnTask10Filesystem
+      "b4.config.ts": `const filesystem = globalThis.__b4Task10Filesystem
 export default { backends: { filesystem }, permissions: { mode: "bypass" } }
 `,
-      "src/app/parent/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "src/app/parent/index.ts": `import { agent } from "@b4run/sdk"
 export default agent({ model: "gpt-5-mini", systemPrompt: "Parent." })
 `,
-      "src/app/parent/tools/read-live.ts": `import type { DawnToolContext } from "@dawn-ai/sdk"
-export default async (_input: unknown, ctx: DawnToolContext) => ctx.fs.readFile("note.txt")
+      "src/app/parent/tools/read-live.ts": `import type { B4ToolContext } from "@b4run/sdk"
+export default async (_input: unknown, ctx: B4ToolContext) => ctx.fs.readFile("note.txt")
 `,
     })
 
@@ -208,15 +208,15 @@ async function fixtureApp(options: {
   readonly constrainedChild?: boolean
   readonly parentBody?: string
 }): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-execute-route-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-execute-route-"))
   tempDirs.push(appRoot)
   const files: Record<string, string> = {
     "package.json": '{"type":"module"}\n',
-    "dawn.config.ts": "export default {}\n",
-    "src/app/parent/index.ts": `${options.constrainedChild ? 'import child from "./subagents/child/index.js"\n' : ""}import { agent } from "@dawn-ai/sdk"
+    "b4.config.ts": "export default {}\n",
+    "src/app/parent/index.ts": `${options.constrainedChild ? 'import child from "./subagents/child/index.js"\n' : ""}import { agent } from "@b4run/sdk"
 export default agent({ model: "gpt-5-mini", systemPrompt: "Parent.", ${
       options.constrainedChild
-        ? `subagents: { child }, delegation: { rules: { child: { action: "constrain", predicate: async () => { globalThis.__dawnTask10PolicyCalls = (globalThis.__dawnTask10PolicyCalls ?? 0) + 1; return true } } } },`
+        ? `subagents: { child }, delegation: { rules: { child: { action: "constrain", predicate: async () => { globalThis.__b4Task10PolicyCalls = (globalThis.__b4Task10PolicyCalls ?? 0) + 1; return true } } } },`
         : (options.parentBody ?? "")
     } } as any)
 `,
@@ -224,7 +224,7 @@ export default agent({ model: "gpt-5-mini", systemPrompt: "Parent.", ${
   if (options.child) {
     files[
       `src/app/parent/subagents/${options.constrainedChild ? "child" : "researcher"}/index.ts`
-    ] = `import { agent } from "@dawn-ai/sdk"
+    ] = `import { agent } from "@b4run/sdk"
 export default agent({ model: "gpt-5-mini", systemPrompt: "Child." })
 `
   }
@@ -255,7 +255,7 @@ async function invalidRegistryFixture(
     ...(shape.ambiguous ? ['import shared from "../../shared.js"'] : []),
   ].join("\n")
   const files: Record<string, string> = {
-    "src/app/parent/index.ts": `${imports}\nimport { agent } from "@dawn-ai/sdk"
+    "src/app/parent/index.ts": `${imports}\nimport { agent } from "@b4run/sdk"
 export default agent({ model: "gpt-5-mini", systemPrompt: "Parent.", ${parentBody} } as any)
 `,
   }
@@ -277,15 +277,15 @@ export default agent({ model: "gpt-5-mini", systemPrompt: "Parent.", ${parentBod
 }
 
 function childSource(): string {
-  return `import { agent } from "@dawn-ai/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "Child." })\n`
+  return `import { agent } from "@b4run/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "Child." })\n`
 }
 
 async function writeFixtureFiles(files: Readonly<Record<string, string>>): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-execute-route-invalid-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-execute-route-invalid-"))
   tempDirs.push(appRoot)
   const allFiles = {
     "package.json": '{"type":"module"}\n',
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     ...files,
   }
   await Promise.all(

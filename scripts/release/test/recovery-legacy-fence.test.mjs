@@ -1,8 +1,13 @@
+// This dated Dawn incident suite executes the exact pre-rename source.
+// Current incident file preservation is independently checked in b4-identity.test.mjs.
+
 import assert from "node:assert/strict"
 import { readFile } from "node:fs/promises"
 import { join, posix } from "node:path"
 import { after, test } from "node:test"
-import {
+import { importHistoricalReleaseModule } from "./support/frozen-history.mjs"
+
+const {
   API_BASE,
   auditFixture,
   CANDIDATE,
@@ -17,7 +22,7 @@ import {
   sha256,
   smokeFixture,
   TAG,
-} from "./support/recovery-legacy-fixture.mjs"
+} = await importHistoricalReleaseModule("scripts/release/test/support/recovery-legacy-fixture.mjs")
 
 const legacy = await loadLegacyFixture()
 after(() => legacy.cleanup())

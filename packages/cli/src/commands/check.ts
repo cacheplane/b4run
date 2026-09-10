@@ -2,8 +2,8 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import type { DawnConfig, RouteManifest } from "@dawn-ai/core"
-import { discoverRoutes } from "@dawn-ai/core/node"
+import type { B4Config, RouteManifest } from "@b4run/core"
+import { discoverRoutes } from "@b4run/core/node"
 import type { Command } from "commander"
 import {
   assertEdgeCapabilities,
@@ -11,7 +11,8 @@ import {
   type EdgeCapabilityInput,
 } from "../lib/build/targets/edge-capabilities.js"
 import { knownTargetNames } from "../lib/build/targets/index.js"
-import { loadDawnConfig } from "../lib/node-config.js"
+import { assertRouteMarkerFileLimits } from "../lib/build/targets/marker-files.js"
+import { loadB4Config } from "../lib/node-config.js"
 import { CliError, type CommandIo, formatErrorMessage, writeLine } from "../lib/output.js"
 import { collectDelegationErrors } from "../lib/runtime/collect-delegation-errors.js"
 import { collectSandboxErrors } from "../lib/runtime/collect-sandbox-errors.js"
@@ -29,8 +30,8 @@ interface CheckOptions {
 export function registerCheckCommand(program: Command, io: CommandIo): void {
   program
     .command("check")
-    .description("Validate a Dawn app")
-    .option("--cwd <path>", "Path to the Dawn app root or a child directory within it")
+    .description("Validate a B4.run app")
+    .option("--cwd <path>", "Path to the B4.run app root or a child directory within it")
     .action(async (options: CheckOptions) => {
       await runCheckCommand(options, io)
     })
@@ -47,7 +48,7 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
       })
     }
 
-    writeLine(io.stdout, `Dawn app is valid: ${manifest.routes.length} routes discovered.`)
+    writeLine(io.stdout, `B4.run app is valid: ${manifest.routes.length} routes discovered.`)
 
     for (const route of manifest.routes) {
       writeLine(io.stdout, `- ${route.pathname} (${route.kind})`)
@@ -62,7 +63,7 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
     const delegationErrors = await collectDelegationErrors(manifest)
     if (delegationErrors.length > 0) {
       throw new CliError(`Invalid delegation policy:\n${delegationErrors.join("\n")}`, 1, {
-        code: "DAWN_E1004",
+        code: "B4_E1004",
       })
     }
 
@@ -74,21 +75,21 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
     }
     if (scopeIssues.errors.length > 0) {
       throw new CliError(`Invalid tool scope:\n${scopeIssues.errors.join("\n")}`, 1, {
-        code: "DAWN_E1001",
+        code: "B4_E1001",
       })
     }
 
-    // Everything this command reads off dawn.config.ts. The edge half is spelled
+    // Everything this command reads off b4.config.ts. The edge half is spelled
     // as the GATE'S OWN input type rather than re-listed here, so the two cannot
     // drift: a hand-written `Pick` omitted all four store keys the gate reads
     // (`checkpointer`, `threadsStore`, `permissions.store`, `memory.store`), and
-    // nothing objected — every DawnConfig field is optional, so a config typed
+    // nothing objected — every B4Config field is optional, so a config typed
     // without them still satisfies `assertEdgeCapabilities`. The tests below the
     // gate are what actually catch a narrowed argument; this is what stops the
     // TYPE from claiming the command loads less than the gate inspects.
-    let loadedConfig: EdgeCapabilityInput["config"] & Pick<DawnConfig, "build"> = {}
+    let loadedConfig: EdgeCapabilityInput["config"] & Pick<B4Config, "build"> = {}
     try {
-      const loaded = await loadDawnConfig({ appRoot: manifest.appRoot })
+      const loaded = await loadB4Config({ appRoot: manifest.appRoot })
       loadedConfig = loaded.config
     } catch {
       loadedConfig = {}
@@ -102,12 +103,12 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
         throw new CliError(
           `Invalid build config:\nUnknown build target(s): ${unknown.join(", ")}. Known targets: ${known.join(", ")}.`,
           1,
-          { code: "DAWN_E1003" },
+          { code: "B4_E1003" },
         )
       }
 
       // The same gate edge targets apply at emit time, mirrored here so a user
-      // finds out from `dawn check` rather than from a failed build. An app on
+      // finds out from `b4 check` rather than from a failed build. An app on
       // the node target may use all of these features.
       for (const targetName of buildTargets) {
         if (targetName !== "hono" && targetName !== "vercel") continue
@@ -118,6 +119,12 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
           targetName,
         )
       }
+
+      // The same limit the edge emitters apply to every bundled marker file,
+      // surfaced by `b4 check` rather than by a failed build.
+      if (buildTargets.some((name) => name === "hono" || name === "vercel")) {
+        await assertRouteMarkerFileLimits({ appRoot: manifest.appRoot, manifest })
+      }
     }
 
     const { errors: sandboxErrors, warnings: sandboxWarnings } =
@@ -125,7 +132,7 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
     for (const w of sandboxWarnings) console.warn(`⚠ sandbox: ${w}`)
     if (sandboxErrors.length > 0) {
       throw new CliError(`Invalid sandbox config:\n${sandboxErrors.join("\n")}`, 1, {
-        code: "DAWN_E1002",
+        code: "B4_E1002",
       })
     }
 
@@ -142,7 +149,7 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
  * Stale-manifest pass: for each manifest this app's targets can produce, load
  * it through the same `loadStaticModules` path the generated entry uses and
  * compare its routes' assistantId set against the discovered set. A mismatch
- * (route added/renamed/removed since the last `dawn build`) or a manifest that
+ * (route added/renamed/removed since the last `b4 build`) or a manifest that
  * fails to load (corrupt file, stale static imports after a rename) is a check
  * ERROR advising a rebuild. Absent file → no-op for that manifest.
  *
@@ -156,10 +163,10 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
  *
  * The edge manifest is checked only when `hono` is a configured target, for the
  * same reason the capability gate is: an app on the node target may have a
- * leftover `modules.edge.mjs` from an experiment, and failing `dawn check` over
+ * leftover `modules.edge.mjs` from an experiment, and failing `b4 check` over
  * an artifact nothing deploys would be noise.
  *
- * No DAWN_E code: the error-code registry (@dawn-ai/sdk) has no entry for a
+ * No B4_E code: the error-code registry (@b4run/sdk) has no entry for a
  * stale build artifact — the E1xxx config/check family stops at E1005 (edge
  * capability gate) and producers cannot invent codes. Follow-up: add a
  * registry code (e.g. "Stale static module manifest") in an sdk change.
@@ -176,7 +183,7 @@ async function checkStaticModuleManifests(
 
 /** One manifest file, compared against the discovered route set. */
 async function checkStaticModuleManifest(manifest: RouteManifest, fileName: string): Promise<void> {
-  const modulesPath = join(manifest.appRoot, ".dawn", "build", fileName)
+  const modulesPath = join(manifest.appRoot, ".b4", "build", fileName)
   if (!existsSync(modulesPath)) return
 
   let manifestIds: readonly string[]
@@ -186,7 +193,7 @@ async function checkStaticModuleManifest(manifest: RouteManifest, fileName: stri
   } catch (error) {
     throw new CliError(
       `Static module manifest failed to load:\n${modulesPath}\n${formatErrorMessage(error)}\n` +
-        "The manifest is stale or corrupt — re-run `dawn build` to regenerate it.",
+        "The manifest is stale or corrupt — re-run `b4 build` to regenerate it.",
     )
   }
 
@@ -207,6 +214,6 @@ async function checkStaticModuleManifest(manifest: RouteManifest, fileName: stri
   }
   throw new CliError(
     `Stale static module manifest (${modulesPath}):\n${lines.join("\n")}\n` +
-      "Re-run `dawn build` to regenerate it.",
+      "Re-run `b4 build` to regenerate it.",
   )
 }

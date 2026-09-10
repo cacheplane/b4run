@@ -46,7 +46,7 @@ type Runner = (command: Command, options?: CommandExecutionOptions) => Promise<C
 
 const REPOSITORY_ROOT = resolve(__dirname, "../..")
 const RUN_ID = "123e4567-e89b-12d3-a456-426614174000"
-const CONTEXT = "kind-dawn"
+const CONTEXT = "kind-b4"
 const TARGET = "1.35"
 const ORCHESTRATOR_TOKEN = "sensitive-token-material"
 const NAMES = deriveClusterNames(RUN_ID)
@@ -121,7 +121,7 @@ function namespace(name: string, uid: string): unknown {
     metadata: {
       name,
       uid,
-      labels: { "dawn.sh/compat-run": RUN_ID },
+      labels: { "b4.run/compat-run": RUN_ID },
     },
   }
 }
@@ -200,7 +200,7 @@ async function stopHarnessProcess(pid: number | undefined): Promise<void> {
 }
 
 test("PID readiness waits behind empty-marker publication before returning the exact PID", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-harness-pid-readiness-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-harness-pid-readiness-"))
   const path = join(directory, "pid")
   const emptyRead = deferred()
   const expected = process.pid + 1
@@ -238,7 +238,7 @@ test.each([
   "9007199254740992",
   String(process.pid),
 ])("PID readiness rejects invalid publication %s without probing a process", async (value) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-harness-invalid-pid-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-harness-invalid-pid-"))
   const path = join(directory, "pid")
   const kill = vi.spyOn(process, "kill")
   try {
@@ -501,7 +501,7 @@ describe("Kubernetes compatibility CLI parser", () => {
         "--target",
         "1.35",
         "--context",
-        "kind-dawn",
+        "kind-b4",
         "--storage-class",
         "standard-rwo",
         "--keep-on-failure",
@@ -510,7 +510,7 @@ describe("Kubernetes compatibility CLI parser", () => {
       kind: "run",
       options: {
         target: "1.35",
-        context: "kind-dawn",
+        context: "kind-b4",
         storageClass: "standard-rwo",
         keepOnFailure: true,
       },
@@ -521,34 +521,25 @@ describe("Kubernetes compatibility CLI parser", () => {
   test.each([
     ["missing all required flags", []],
     ["missing context", ["--target", "1.35"]],
-    ["missing target", ["--context", "kind-dawn"]],
-    ["unknown flag", ["--target", "1.35", "--context", "kind-dawn", "--namespace", "x"]],
-    ["target duplicate", ["--target", "1.35", "--target", "1.35", "--context", "kind-dawn"]],
+    ["missing target", ["--context", "kind-b4"]],
+    ["unknown flag", ["--target", "1.35", "--context", "kind-b4", "--namespace", "x"]],
+    ["target duplicate", ["--target", "1.35", "--target", "1.35", "--context", "kind-b4"]],
     ["context duplicate", ["--target", "1.35", "--context", "a", "--context", "b"]],
     [
       "storage duplicate",
-      [
-        "--target",
-        "1.35",
-        "--context",
-        "kind-dawn",
-        "--storage-class",
-        "a",
-        "--storage-class",
-        "b",
-      ],
+      ["--target", "1.35", "--context", "kind-b4", "--storage-class", "a", "--storage-class", "b"],
     ],
     [
       "boolean duplicate",
-      ["--target", "1.35", "--context", "kind-dawn", "--keep-on-failure", "--keep-on-failure"],
+      ["--target", "1.35", "--context", "kind-b4", "--keep-on-failure", "--keep-on-failure"],
     ],
-    ["missing target value", ["--target", "--context", "kind-dawn"]],
+    ["missing target value", ["--target", "--context", "kind-b4"]],
     ["missing context value", ["--target", "1.35", "--context"]],
-    ["missing storage value", ["--target", "1.35", "--context", "kind-dawn", "--storage-class"]],
-    ["positional argument", ["--target", "1.35", "--context", "kind-dawn", "extra"]],
-    ["boolean value", ["--target", "1.35", "--context", "kind-dawn", "--keep-on-failure", "true"]],
-    ["unsupported target", ["--target", "1.33", "--context", "kind-dawn"]],
-    ["help with run flags", ["--help", "--target", "1.35", "--context", "kind-dawn"]],
+    ["missing storage value", ["--target", "1.35", "--context", "kind-b4", "--storage-class"]],
+    ["positional argument", ["--target", "1.35", "--context", "kind-b4", "extra"]],
+    ["boolean value", ["--target", "1.35", "--context", "kind-b4", "--keep-on-failure", "true"]],
+    ["unsupported target", ["--target", "1.33", "--context", "kind-b4"]],
+    ["help with run flags", ["--help", "--target", "1.35", "--context", "kind-b4"]],
     ["duplicate help", ["--help", "--help"]],
   ])("rejects %s", (_case, argv) => {
     expect(() => parseKubernetesCompatibilityArgs(argv)).toThrow(KubernetesCompatibilityUsageError)
@@ -560,7 +551,7 @@ describe("Kubernetes compatibility CLI parser", () => {
     let stderr = ""
 
     const exitCode = await runKubernetesCompatibilityMain(
-      ["--target", "1.35", "--context", "kind-dawn", "--unknown"],
+      ["--target", "1.35", "--context", "kind-b4", "--unknown"],
       {
         loadPolicy,
         preflight,
@@ -709,7 +700,7 @@ describe("portable compatibility lifecycle", () => {
       kind: "Namespace",
       metadata: {
         name: NAMES.managementNamespace,
-        labels: { "dawn.sh/compat-run": RUN_ID },
+        labels: { "b4.run/compat-run": RUN_ID },
       },
     })
 
@@ -747,7 +738,7 @@ describe("portable compatibility lifecycle", () => {
         file: "pnpm",
         args: [
           "--filter",
-          "@dawn-ai/sandbox",
+          "@b4run/sandbox",
           "exec",
           "vitest",
           "--run",
@@ -766,11 +757,11 @@ describe("portable compatibility lifecycle", () => {
       expect(call.options?.terminateProcessTree).toBe(true)
       expect(call.options?.sensitiveOutput).toBe(true)
       expect(call.options?.env).toMatchObject({
-        DAWN_TEST_K8S: "1",
-        DAWN_TEST_K8S_NS: NAMES.sandboxNamespace,
-        DAWN_TEST_K8S_IMAGE: POLICY.images.sandboxWorkload,
-        DAWN_TEST_K8S_STORAGE_CLASS: "standard",
-        DAWN_TEST_K8S_EGRESS_CONTROL_URL: `http://network.${NAMES.sandboxNamespace}.svc.cluster.local:8080/`,
+        B4_TEST_K8S: "1",
+        B4_TEST_K8S_NS: NAMES.sandboxNamespace,
+        B4_TEST_K8S_IMAGE: POLICY.images.sandboxWorkload,
+        B4_TEST_K8S_STORAGE_CLASS: "standard",
+        B4_TEST_K8S_EGRESS_CONTROL_URL: `http://network.${NAMES.sandboxNamespace}.svc.cluster.local:8080/`,
         KUBECONFIG: secure?.path,
       })
       expect(JSON.stringify({ command: call.command, env: call.options?.env })).not.toContain(
@@ -805,7 +796,7 @@ describe("portable compatibility lifecycle", () => {
       "utf8",
     )
 
-    expect(source).toContain('requiredLiveEnvironment("DAWN_TEST_K8S_STORAGE_CLASS")')
+    expect(source).toContain('requiredLiveEnvironment("B4_TEST_K8S_STORAGE_CLASS")')
     expect(source).toMatch(/kubernetesSandbox\(\{[^}]*storageClass:\s*STORAGE_CLASS/s)
   })
 
@@ -885,20 +876,20 @@ describe("portable compatibility lifecycle", () => {
             runChartCommand(
               "infrastructure.install",
               "install",
-              "charts/dawn-sandbox-infra",
+              "charts/b4-sandbox-infra",
               execute,
             ),
           upgradeInfrastructure: async ({ execute }) =>
             runChartCommand(
               "probe.upgrade.infrastructure",
               "upgrade",
-              "charts/dawn-sandbox-infra",
+              "charts/b4-sandbox-infra",
               execute,
             ),
           installApplication: async ({ execute }) =>
-            runChartCommand("application.install", "install", "charts/dawn-app", execute),
+            runChartCommand("application.install", "install", "charts/b4-app", execute),
           upgradeApplication: async ({ execute }) =>
-            runChartCommand("probe.upgrade.application", "upgrade", "charts/dawn-app", execute),
+            runChartCommand("probe.upgrade.application", "upgrade", "charts/b4-app", execute),
           sandboxSecretsEmpty: async ({ execute }) => {
             if (execute === undefined) throw new Error("Expected injected lifecycle executor")
             fixture.events.push("probe.namespace.sandbox-secrets-empty")
@@ -1062,7 +1053,7 @@ describe("failure boundaries and cleanup", () => {
             metadata: {
               name: NAMES.sandboxNamespace,
               uid: "sandbox-uid",
-              labels: { "dawn.sh/compat-run": "another-run" },
+              labels: { "b4.run/compat-run": "another-run" },
             },
           })
         }
@@ -1277,7 +1268,7 @@ describe("failure boundaries and cleanup", () => {
     const createTokenKubeconfig = vi.fn(async (): Promise<SecureTokenKubeconfig> => {
       tokenIndex += 1
       fixture.events.push(`token.create.${tokenIndex}`)
-      const directory = await mkdtemp(join(tmpdir(), "dawn-harness-provider-"))
+      const directory = await mkdtemp(join(tmpdir(), "b4-harness-provider-"))
       tokenDirectories.push(directory)
       return {
         directory,
@@ -1366,7 +1357,7 @@ describe("failure boundaries and cleanup", () => {
     const credentialValues = [
       "OPENAI_API_KEY=plain-api-key-value",
       "PASSWORD=hunter2",
-      "postgres://user:pass@db.internal/dawn",
+      "postgres://user:pass@db.internal/b4",
     ]
     const providerStderr = credentialValues.join("\n")
     const baseExecute = fixture.dependencies.execute as Runner
@@ -1649,7 +1640,7 @@ describe("signal cleanup", () => {
     "waits for confirmed detached provider descendants before token and cluster cleanup",
     async () => {
       const fixture = createHarnessFixture()
-      const directory = await mkdtemp(join(tmpdir(), "dawn-harness-provider-tree-"))
+      const directory = await mkdtemp(join(tmpdir(), "b4-harness-provider-tree-"))
       const pidPath = join(directory, "descendant-pid")
       const sentinelPath = join(directory, "descendant-sentinel")
       const emitter = new EventEmitter()
@@ -2430,7 +2421,7 @@ describe("failure reports and diagnostics", () => {
         metadata: {
           name: NAMES.sandboxNamespace,
           uid: "replacement-uid",
-          labels: { "dawn.sh/compat-run": RUN_ID },
+          labels: { "b4.run/compat-run": RUN_ID },
         },
       },
     },
@@ -2442,7 +2433,7 @@ describe("failure reports and diagnostics", () => {
         metadata: {
           name: NAMES.sandboxNamespace,
           uid: "sandbox-uid",
-          labels: { "dawn.sh/compat-run": "another-run" },
+          labels: { "b4.run/compat-run": "another-run" },
         },
       },
     },
@@ -2513,7 +2504,7 @@ describe("failure reports and diagnostics", () => {
       "PASSWORD=hunter2",
       "OPENAI_API_KEY=plain-api-key-value",
       "credential=opaque-value",
-      "postgres://ordinary-user:ordinary-password@db.internal/dawn",
+      "postgres://ordinary-user:ordinary-password@db.internal/b4",
       "Bearer plain-bearer-secret",
       "ordinary-non-jwt-credential",
     ]
@@ -2697,7 +2688,7 @@ describe("failure reports and diagnostics", () => {
       cleanup: { status: "failed" },
       diagnostics,
     }
-    const temporaryRepository = await mkdtemp(join(tmpdir(), "dawn-k8s-diagnostics-"))
+    const temporaryRepository = await mkdtemp(join(tmpdir(), "b4-k8s-diagnostics-"))
     try {
       const reportPath = await persistCompatibilityReport(
         temporaryRepository,

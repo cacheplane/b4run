@@ -99,33 +99,33 @@ const { join } = await import("node:path")
 const integrity = `sha512-${Buffer.alloc(64, 1).toString("base64")}`
 
 async function installedFixture() {
-  const root = await mkdtemp(join(tmpdir(), "dawn-recovery-tree-"))
-  await mkdir(join(root, "node_modules/@dawn-ai/sdk/node_modules/transitive"), {
+  const root = await mkdtemp(join(tmpdir(), "b4-recovery-tree-"))
+  await mkdir(join(root, "node_modules/@b4run/sdk/node_modules/transitive"), {
     recursive: true,
   })
   await writeFile(
     join(root, "package.json"),
-    JSON.stringify({ dependencies: { "@dawn-ai/sdk": "0.8.24" } }),
+    JSON.stringify({ dependencies: { "@b4run/sdk": "0.8.24" } }),
   )
   await writeFile(
-    join(root, "node_modules/@dawn-ai/sdk/package.json"),
+    join(root, "node_modules/@b4run/sdk/package.json"),
     JSON.stringify({
-      name: "@dawn-ai/sdk",
+      name: "@b4run/sdk",
       version: "0.8.24",
       dependencies: { transitive: "^1.0.0" },
     }),
   )
   await writeFile(
-    join(root, "node_modules/@dawn-ai/sdk/node_modules/transitive/package.json"),
+    join(root, "node_modules/@b4run/sdk/node_modules/transitive/package.json"),
     JSON.stringify({ name: "transitive", version: "1.0.1" }),
   )
   const packages = {
-    "node_modules/@dawn-ai/sdk": {
+    "node_modules/@b4run/sdk": {
       version: "0.8.24",
-      resolved: "https://registry.npmjs.org/@dawn-ai/sdk/-/sdk-0.8.24.tgz",
+      resolved: "https://registry.npmjs.org/@b4run/sdk/-/sdk-0.8.24.tgz",
       integrity,
     },
-    "node_modules/@dawn-ai/sdk/node_modules/transitive": {
+    "node_modules/@b4run/sdk/node_modules/transitive": {
       version: "1.0.1",
       resolved: "https://registry.npmjs.org/transitive/-/transitive-1.0.1.tgz",
       integrity,
@@ -146,7 +146,7 @@ test("physical installed inventory includes nested transitive resolution and rej
     assert.equal(tree.length, 2)
     assert.equal(tree[0].subject, true)
     assert.equal(tree[1].requested, "^1.0.0")
-    assert.equal(tree[1].installPath, "node_modules/@dawn-ai/sdk/node_modules/transitive")
+    assert.equal(tree[1].installPath, "node_modules/@b4run/sdk/node_modules/transitive")
     delete packages[tree[1].installPath]
     await writeFile(
       join(root, "node_modules/.package-lock.json"),
@@ -210,7 +210,7 @@ test("candidate A is probed by executor B with real operations and complete inst
     assert.equal(receipt.environment.packageManager, "npm@11.19.0")
     assert.equal(receipt.installations[0].count, 2)
     assert.equal(writes.length, 1)
-    assert.ok(commands.some(([cmd, args]) => cmd === "npm" && args.includes("@dawn-ai/sdk@0.8.24")))
+    assert.ok(commands.some(([cmd, args]) => cmd === "npm" && args.includes("@b4run/sdk@0.8.24")))
     assert.ok(
       receipt.checks.some(
         (check) => check.name === "edge-import" && check.conclusion === "success",
@@ -329,7 +329,7 @@ for (const [alias, name] of [
         join(root, "package.json"),
         JSON.stringify({
           dependencies: {
-            "@dawn-ai/sdk": "0.8.24",
+            "@b4run/sdk": "0.8.24",
             [alias]: `npm:${name}@^1.2.0`,
           },
         }),
@@ -374,18 +374,18 @@ test("complete tree rejects a mandatory dependency absent from both disk and loc
   const { root } = await installedFixture()
   try {
     await writeFile(
-      join(root, "node_modules/@dawn-ai/sdk/package.json"),
+      join(root, "node_modules/@b4run/sdk/package.json"),
       JSON.stringify({
-        name: "@dawn-ai/sdk",
+        name: "@b4run/sdk",
         version: "0.8.24",
         dependencies: { transitive: "^1.0.0", missing: "^1.0.0" },
       }),
     )
     await assert.rejects(recovery.readInstalledResolutions(root, candidate()), /required.*missing/u)
     await writeFile(
-      join(root, "node_modules/@dawn-ai/sdk/package.json"),
+      join(root, "node_modules/@b4run/sdk/package.json"),
       JSON.stringify({
-        name: "@dawn-ai/sdk",
+        name: "@b4run/sdk",
         version: "0.8.24",
         dependencies: { transitive: "^1.0.0" },
         optionalDependencies: { missing: "^1.0.0" },
@@ -401,7 +401,7 @@ test("complete tree rejects a mandatory dependency absent from both disk and loc
 
 test("installation evidence writer supports the separately bounded sidecar size", async () => {
   const { writeCanonicalFileNoClobber } = await import("../smoke-result.mjs")
-  const root = await mkdtemp(join(tmpdir(), "dawn-recovery-sidecar-"))
+  const root = await mkdtemp(join(tmpdir(), "b4-recovery-sidecar-"))
   try {
     const bytes = Buffer.alloc(300 * 1024, 32)
     await writeCanonicalFileNoClobber(join(root, "sidecar.json"), bytes, {}, 1024 * 1024)
@@ -418,9 +418,9 @@ test("multiple physical incoming selectors are retained as sorted unique values"
   const { root } = await installedFixture()
   try {
     await writeFile(
-      join(root, "node_modules/@dawn-ai/sdk/package.json"),
+      join(root, "node_modules/@b4run/sdk/package.json"),
       JSON.stringify({
-        name: "@dawn-ai/sdk",
+        name: "@b4run/sdk",
         version: "0.8.24",
         dependencies: { transitive: "^1.0.0" },
         peerDependencies: { transitive: "~1.0.1" },
@@ -437,9 +437,9 @@ test("installed manifest input is bounded before retaining package metadata", as
   const { root } = await installedFixture()
   try {
     await writeFile(
-      join(root, "node_modules/@dawn-ai/sdk/package.json"),
+      join(root, "node_modules/@b4run/sdk/package.json"),
       JSON.stringify({
-        name: "@dawn-ai/sdk",
+        name: "@b4run/sdk",
         version: "0.8.24",
         dependencies: { transitive: "^1.0.0" },
         padding: "x".repeat(256 * 1024),
@@ -456,7 +456,7 @@ test("installed manifest input is bounded before retaining package metadata", as
 
 test("AG-UI captures its actual install before a subsequent tsc failure", async () => {
   const { runAgUiInstalledProbe } = await import("../../published-artifact-smoke.mjs")
-  const root = await mkdtemp(join(tmpdir(), "dawn-recovery-agui-"))
+  const root = await mkdtemp(join(tmpdir(), "b4-recovery-agui-"))
   const seen = []
   try {
     await assert.rejects(
@@ -480,24 +480,26 @@ test("AG-UI captures its actual install before a subsequent tsc failure", async 
 
 const { createHash } = await import("node:crypto")
 const { CANONICAL_RELEASE_PACKAGE_ORDER, canonicalManifestBytes } = await import("../manifest.mjs")
-const { EXACT_NPM_PROVENANCE_CERTIFICATE } = await import("./fixtures/npm-audit-certificates.mjs")
+const { EXACT_NPM_PROVENANCE_CERTIFICATE } = await import(
+  "./fixtures/b4-npm-audit-certificates.mjs"
+)
 
 for (const lane of ["metadata", "published-harness", "scaffold", "storage"]) {
   test(`${lane} recovery executes mandatory candidate-A checks with executor-B identity`, async () => {
     const { root, packages } = await installedFixture()
     const version = lane === "published-harness" ? "0.8.22" : "0.8.24"
     if (lane === "published-harness") {
-      packages["node_modules/@dawn-ai/sdk"].version = version
-      packages["node_modules/@dawn-ai/sdk"].resolved =
-        `https://registry.npmjs.org/@dawn-ai/sdk/-/sdk-${version}.tgz`
+      packages["node_modules/@b4run/sdk"].version = version
+      packages["node_modules/@b4run/sdk"].resolved =
+        `https://registry.npmjs.org/@b4run/sdk/-/sdk-${version}.tgz`
       await writeFile(
         join(root, "package.json"),
-        JSON.stringify({ dependencies: { "@dawn-ai/sdk": version } }),
+        JSON.stringify({ dependencies: { "@b4run/sdk": version } }),
       )
       await writeFile(
-        join(root, "node_modules/@dawn-ai/sdk/package.json"),
+        join(root, "node_modules/@b4run/sdk/package.json"),
         JSON.stringify({
-          name: "@dawn-ai/sdk",
+          name: "@b4run/sdk",
           version,
           dependencies: { transitive: "^1.0.0" },
         }),
@@ -562,7 +564,10 @@ for (const lane of ["metadata", "published-harness", "scaffold", "storage"]) {
               if (command === "docker" && args.includes("inspect"))
                 throw Object.assign(new Error("missing"), {
                   exitCode: 1,
-                  stderr: `Error: No such ${args[0] === "volume" ? "volume" : "object"}: ${args.at(-1)}`,
+                  stderr:
+                    args[0] === "volume"
+                      ? `Error response from daemon: get ${args.at(-1)}: no such volume`
+                      : `Error: No such object: ${args.at(-1)}`,
                 })
               return { stdout: "", stderr: "" }
             },
@@ -661,7 +666,7 @@ function auditOutput(release, packages = CANONICAL_RELEASE_PACKAGE_ORDER, drift 
     missing: [],
     verified: packages.map((name) => {
       const entry = release.packages.find((item) => item.name === name)
-      const repository = drift.repository ?? "https://github.com/cacheplane/dawnai"
+      const repository = drift.repository ?? "https://github.com/cacheplane/b4run"
       const workflow = drift.workflow ?? ".github/workflows/release.yml"
       const ref = drift.ref ?? `refs/tags/v${release.version}`
       const commitSha = drift.commitSha ?? release.commitSha
@@ -688,7 +693,7 @@ function auditOutput(release, packages = CANONICAL_RELEASE_PACKAGE_ORDER, drift 
           runDetails: {
             builder: { id: "https://github.com/actions/runner/github-hosted" },
             metadata: {
-              invocationId: "https://github.com/cacheplane/dawnai/actions/runs/801/attempts/1",
+              invocationId: "https://github.com/cacheplane/b4run/actions/runs/801/attempts/1",
             },
           },
         },

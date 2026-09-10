@@ -1,6 +1,6 @@
 # Dev Server
 
-`dawn dev` is the local application loop: it starts Dawn's HTTP runtime, watches
+`b4 dev` is the local application loop: it starts B4.run's HTTP runtime, watches
 your app, regenerates types, and replaces the child runtime when source files
 change. Use this page to start and operate the server; use the linked protocol
 guides when you are building a client.
@@ -8,15 +8,15 @@ guides when you are building a client.
 ## Starting the server
 
 ```bash
-dawn dev
+b4 dev
 ```
 
 The server binds an ephemeral localhost port and prints a URL such as
-`Dawn dev ready at http://127.0.0.1:43127`. Select a stable port when another
+`B4.run dev ready at http://127.0.0.1:43127`. Select a stable port when another
 process needs a predictable address:
 
 ```bash
-dawn dev --port 3001
+b4 dev --port 3001
 ```
 
 The bind address is always `127.0.0.1`.
@@ -27,17 +27,17 @@ With the server running, invoke a route from another terminal:
 
 ```bash
 echo '{"messages":[{"role":"user","content":"Hello"}]}' |
-  dawn run '/research' --url http://127.0.0.1:3001
+  b4 run '/research' --url http://127.0.0.1:3001
 ```
 
-`dawn run` resolves the route to its `<routeId>#<kind>` assistant id, creates a
+`b4 run` resolves the route to its `<routeId>#<kind>` assistant id, creates a
 thread id for the call, sends the input through Agent Protocol, and prints the
 final state.
 
 ## Restart cycle
 
-When a meaningful app file changes, Dawn regenerates types before it launches
-the replacement runtime. Ignored paths such as `.dawn/`, `workspace/`, and
+When a meaningful app file changes, B4.run regenerates types before it launches
+the replacement runtime. Ignored paths such as `.b4/`, `workspace/`, and
 lockfiles do not trigger a restart; the restart log names the reason for changes
 that do.
 
@@ -46,7 +46,7 @@ the child owns the HTTP listener and route graph. Each restart stops that child
 and its listener, then starts a fresh child on the same port. This is a
 child-process restart, not in-process HMR and not a parent-owned bound listener.
 
-The replacement child reloads the app and `dawn.config.ts`, including store and
+The replacement child reloads the app and `b4.config.ts`, including store and
 runtime configuration. Configuration edits take effect on that restart; the
 parent does not keep the previously loaded configuration alive.
 
@@ -59,7 +59,7 @@ the old child can be force-killed.
 ## Logging
 
 The ready line identifies the current URL, and each restart line identifies the
-changed file category. Set `DAWN_DEV_SHUTDOWN_TIMEOUT_MS` to change the grace
+changed file category. Set `B4_DEV_SHUTDOWN_TIMEOUT_MS` to change the grace
 window used while stopping a child runtime.
 
 ## Agent Protocol endpoints
@@ -112,5 +112,5 @@ both apply they compose as AND.
   { href: "/docs/ag-ui", title: "AG-UI and Web Clients", subtitle: "the browser-oriented endpoint and adapter" },
   { href: "/docs/testing", title: "Scenario Testing", subtitle: "exercise scenarios against a live server" },
   { href: "/docs/deployment", title: "Deployment Options", subtitle: "choose a production target after local development" },
-  { href: "/docs/cli", title: "CLI Reference", subtitle: "all dawn dev flags and commands" },
+  { href: "/docs/cli", title: "CLI Reference", subtitle: "all b4 dev flags and commands" },
 ]} />

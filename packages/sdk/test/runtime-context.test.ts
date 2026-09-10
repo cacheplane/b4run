@@ -1,4 +1,4 @@
-import type { RuntimeContext, RuntimeTool, WorkspaceFs } from "@dawn-ai/sdk"
+import type { RuntimeContext, RuntimeTool, WorkspaceFs } from "@b4run/sdk"
 import { describe, expect, expectTypeOf, test } from "vitest"
 
 const stubWorkspaceFs: WorkspaceFs = {
@@ -8,7 +8,7 @@ const stubWorkspaceFs: WorkspaceFs = {
   listDir: async () => [],
 }
 
-describe("@dawn-ai/sdk runtime-context type surface", () => {
+describe("@b4run/sdk runtime-context type surface", () => {
   test("runtime-context types are exported from the package root", () => {
     type Tools = {
       readonly lookupCustomer: RuntimeTool<{ readonly id: string }, { readonly id: string }>

@@ -2,10 +2,10 @@ import { realpathSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { createWorkspaceFs } from "@dawn-ai/core"
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import type { WorkspaceFs } from "@dawn-ai/sdk"
-import { localFilesystem } from "@dawn-ai/workspace/node"
+import { createWorkspaceFs } from "@b4run/core"
+import type { PermissionsStore } from "@b4run/permissions"
+import type { WorkspaceFs } from "@b4run/sdk"
+import { localFilesystem } from "@b4run/workspace/node"
 
 export interface WorkspaceHarness {
   readonly fs: WorkspaceFs
@@ -23,7 +23,7 @@ export interface WorkspaceHarnessOptions {
 export async function createWorkspaceHarness(
   opts?: WorkspaceHarnessOptions,
 ): Promise<WorkspaceHarness> {
-  const root = await mkdtemp(join(tmpdir(), "dawn-ws-harness-"))
+  const root = await mkdtemp(join(tmpdir(), "b4-ws-harness-"))
   const workspaceRoot = join(root, "workspace")
   await mkdir(workspaceRoot, { recursive: true })
   // Gate canonicalizes the root; realpath so inside-paths classify correctly.

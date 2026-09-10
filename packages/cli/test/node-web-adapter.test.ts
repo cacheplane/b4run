@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { PassThrough } from "node:stream"
 import { describe, expect, test } from "vitest"
@@ -24,7 +25,11 @@ function fakeReq(init: {
 describe("toWebRequest", () => {
   test("maps method, url, and headers", async () => {
     const request = toWebRequest(
-      fakeReq({ method: "GET", url: "/threads", headers: { accept: "text/event-stream" } }),
+      fakeReq({
+        method: "GET",
+        url: "/threads",
+        headers: { accept: "text/event-stream" },
+      }),
     )
     expect(request.method).toBe("GET")
     expect(new URL(request.url).pathname).toBe("/threads")
@@ -50,7 +55,7 @@ describe("writeNodeResponse", () => {
     const chunks: string[] = []
     let status = 0
     let headers: Record<string, string | string[]> = {}
-    const res = {
+    const res = Object.assign(new EventEmitter(), {
       writeHead: (s: number, h: Record<string, string | string[]>) => {
         status = s
         headers = h
@@ -60,8 +65,7 @@ describe("writeNodeResponse", () => {
         return true
       },
       end: () => {},
-      on: () => {},
-    } as unknown as ServerResponse
+    }) as unknown as ServerResponse
 
     await writeNodeResponse(res, Response.json({ ok: true }, { status: 201 }))
     expect(status).toBe(201)
@@ -75,7 +79,7 @@ describe("writeNodeResponse", () => {
     const firstWrite = new Promise<void>((r) => {
       resolveFirst = r
     })
-    const res = {
+    const res = Object.assign(new EventEmitter(), {
       writeHead: () => {},
       write: (c: string | Uint8Array) => {
         seen.push(typeof c === "string" ? c : new TextDecoder().decode(c))
@@ -83,8 +87,7 @@ describe("writeNodeResponse", () => {
         return true
       },
       end: () => {},
-      on: () => {},
-    } as unknown as ServerResponse
+    }) as unknown as ServerResponse
 
     let push: ((s: string) => void) | undefined
     let done: (() => void) | undefined
@@ -126,7 +129,7 @@ function recordingRes(): RecordedRes {
   let ended = false
   let destroyed = false
   let destroyError: unknown
-  const res = {
+  const res = Object.assign(new EventEmitter(), {
     writeHead: (s: number, h: Record<string, string | string[]>) => {
       status = s
       headers = h
@@ -142,8 +145,7 @@ function recordingRes(): RecordedRes {
       destroyed = true
       destroyError = error
     },
-    on: () => {},
-  } as unknown as ServerResponse
+  }) as unknown as ServerResponse
   return {
     body: () => chunks.join(""),
     destroyError: () => destroyError,
@@ -176,7 +178,7 @@ describe("writeNodeResponse JSON framing", () => {
     const firstWrite = new Promise<void>((resolve) => {
       resolveFirst = resolve
     })
-    const res = {
+    const res = Object.assign(new EventEmitter(), {
       writeHead: () => {},
       write: (c: string | Uint8Array) => {
         seen.push(typeof c === "string" ? c : new TextDecoder().decode(c))
@@ -184,8 +186,7 @@ describe("writeNodeResponse JSON framing", () => {
         return true
       },
       end: () => {},
-      on: () => {},
-    } as unknown as ServerResponse
+    }) as unknown as ServerResponse
 
     let push: ((s: string) => void) | undefined
     let done: (() => void) | undefined
@@ -199,7 +200,9 @@ describe("writeNodeResponse JSON framing", () => {
 
     const writing = writeNodeResponse(
       res,
-      new Response(stream, { headers: { "content-type": "text/event-stream" } }),
+      new Response(stream, {
+        headers: { "content-type": "text/event-stream" },
+      }),
     )
     push?.("data: one\n\n")
     await firstWrite // must arrive BEFORE the stream completes
@@ -223,7 +226,9 @@ describe("writeNodeResponse stream-error teardown", () => {
     const recorded = recordingRes()
     await writeNodeResponse(
       recorded.res,
-      new Response(stream, { headers: { "content-type": "text/event-stream" } }),
+      new Response(stream, {
+        headers: { "content-type": "text/event-stream" },
+      }),
     )
 
     expect(recorded.body()).toBe("data: one\n\n")
@@ -244,7 +249,9 @@ describe("writeNodeResponse stream-error teardown", () => {
     const recorded = recordingRes()
     await writeNodeResponse(
       recorded.res,
-      new Response(stream, { headers: { "content-type": "text/event-stream" } }),
+      new Response(stream, {
+        headers: { "content-type": "text/event-stream" },
+      }),
     )
 
     expect(recorded.ended()).toBe(true)
@@ -271,4 +278,82 @@ describe("toWebRequest host-header robustness", () => {
     )
     expect(new URL(request.url).pathname).toBe("/")
   })
+})
+
+describe("writeNodeResponse socket backpressure", () => {
+  test("waits for drain before reading another body frame", async () => {
+    let pulls = 0
+    let ended = false
+    const seen: number[] = []
+    const res = Object.assign(new EventEmitter(), {
+      writeHead() {},
+      write(chunk: Uint8Array) {
+        seen.push(...chunk)
+        return seen.length > 1
+      },
+      end() {
+        ended = true
+      },
+    })
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulls++
+          if (pulls <= 3) controller.enqueue(Uint8Array.of(pulls))
+          else controller.close()
+        },
+      },
+      { highWaterMark: 0 },
+    )
+    const writing = writeNodeResponse(res as unknown as ServerResponse, new Response(stream))
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(seen).toEqual([1])
+    expect(pulls).toBe(1)
+    expect(ended).toBe(false)
+    res.emit("drain")
+    await writing
+    expect(seen).toEqual([1, 2, 3])
+    expect(ended).toBe(true)
+    expect(res.eventNames()).toEqual([])
+    expect(stream.locked).toBe(false)
+  })
+
+  test.each(["blocked write", "pending read"])(
+    "cancels the body on disconnect during %s",
+    async (phase) => {
+      let cancelled = false
+      let ended = false
+      let pulls = 0
+      const res = Object.assign(new EventEmitter(), {
+        writeHead() {},
+        write() {
+          return false
+        },
+        end() {
+          ended = true
+        },
+      })
+      const stream = new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            pulls++
+            if (phase === "blocked write" && pulls === 1) controller.enqueue(Uint8Array.of(1))
+          },
+          cancel() {
+            cancelled = true
+          },
+        },
+        { highWaterMark: 0 },
+      )
+      const writing = writeNodeResponse(res as unknown as ServerResponse, new Response(stream))
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      res.emit("close")
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(cancelled).toBe(true)
+      await writing
+      expect(ended).toBe(false)
+      expect(res.eventNames()).toEqual([])
+      expect(stream.locked).toBe(false)
+    },
+  )
 })

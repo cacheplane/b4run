@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { ScenarioToolCallRecord } from "@dawn-ai/sdk/testing"
+import type { ScenarioToolCallRecord } from "@b4run/sdk/testing"
 import { afterEach, describe, expect, it } from "vitest"
 import { executeRoute } from "../src/lib/runtime/execute-route.js"
 import { applyScenarioToolOverrides } from "../src/lib/runtime/scenario-tool-overrides.js"
@@ -46,7 +46,7 @@ describe("applyScenarioToolOverrides", () => {
   it("replaces one tool without mutating definitions or changing tool metadata", async () => {
     const tools = Object.freeze([searchTool, saveTool])
     const journal: ScenarioToolCallRecord[] = []
-    const input = { query: "Dawn" }
+    const input = { query: "B4.run" }
 
     const result = applyScenarioToolOverrides({
       journal,
@@ -76,7 +76,7 @@ describe("applyScenarioToolOverrides", () => {
     expect(mockedSearch.name).toBe(searchTool.name)
     expect(mockedSearch.schema).toBe(searchTool.schema)
     expect(mockedSearch.scope).toBe(searchTool.scope)
-    await expect(Promise.resolve(mockedSearch.run(input, context))).resolves.toBe("mock:Dawn")
+    await expect(Promise.resolve(mockedSearch.run(input, context))).resolves.toBe("mock:B4.run")
     expect(journal).toEqual([{ args: input, name: "search", sequence: 0 }])
     expect(tools).toEqual([searchTool, saveTool])
     expect(searchTool.run).toBe(realSearchRun)
@@ -160,12 +160,12 @@ describe("applyScenarioToolOverrides", () => {
     if (!mockedSearch || !mockedSave) throw new Error("Expected both mocked tools")
 
     await mockedSave.run({ path: "first.md" }, context)
-    await mockedSearch.run({ query: "Dawn" }, context)
+    await mockedSearch.run({ query: "B4.run" }, context)
     await mockedSave.run({ path: "second.md" }, context)
 
     expect(journal).toEqual([
       { args: { path: "first.md" }, name: "save", sequence: 0 },
-      { args: { query: "Dawn" }, name: "search", sequence: 1 },
+      { args: { query: "B4.run" }, name: "search", sequence: 1 },
       { args: { path: "second.md" }, name: "save", sequence: 2 },
     ])
   })
@@ -268,7 +268,7 @@ describe("scenario tool override route preparation", () => {
 })
 
 async function createFixtureApp(): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-scenario-tool-overrides-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-scenario-tool-overrides-"))
   fixtureRoots.push(appRoot)
   await mkdir(join(appRoot, "src/app/research/tools"), { recursive: true })
   await writeFile(
@@ -276,7 +276,7 @@ async function createFixtureApp(): Promise<string> {
     '{ "name": "scenario-tool-overrides-fixture", "type": "module" }\n',
     "utf8",
   )
-  await writeFile(join(appRoot, "dawn.config.ts"), "export default {}\n", "utf8")
+  await writeFile(join(appRoot, "b4.config.ts"), "export default {}\n", "utf8")
   await writeFile(
     join(appRoot, "src/app/research/index.ts"),
     [

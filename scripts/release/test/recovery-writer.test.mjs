@@ -279,7 +279,7 @@ test("production GitHub reader redownloads uploaded bytes using numeric IDs and 
   const reads = []
   const production = createGitHubReader({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     repositoryId: r.c.repositoryId,
     token: "test-reader-token",
     fetchImpl: async (url, options) => {
@@ -288,9 +288,9 @@ test("production GitHub reader redownloads uploaded bytes using numeric IDs and 
       reads.push(url)
       const path = decodeURIComponent(new URL(url).pathname)
       let result
-      if (path === "/repos/cacheplane/dawnai/releases/902")
+      if (path === "/repos/cacheplane/b4run/releases/902")
         result = await original.getRelease({ releaseId: "902" })
-      else if (path === "/repos/cacheplane/dawnai/releases/902/assets")
+      else if (path === "/repos/cacheplane/b4run/releases/902/assets")
         result = await original.listReleaseAssets({ releaseId: "902" })
       else if (path.includes("/releases/assets/")) {
         result = await original.downloadReleaseAsset({ assetId: path.split("/").at(-1) })
@@ -322,6 +322,179 @@ test("production GitHub reader redownloads uploaded bytes using numeric IDs and 
   assert.ok(reads.some((url) => url.endsWith(`/releases/assets/${ref.id}`)))
   assert.equal(r.effects.length, 1)
 })
+
+// GitHub GET /releases/:id embeds assets and advances updated_at on upload.
+async function githubUploadRemote(mutate = () => {}) {
+  const r = await recoveryWriteRemote()
+  r.release.updated_at = "2026-09-04T10:00:00Z"
+  r.release.assets = (await r.args.github.listReleaseAssets()).value.map((asset) => ({
+    ...asset,
+    label: null,
+    download_count: 0,
+    state: "uploaded",
+  }))
+  const send = r.dependencies.fetchImpl
+  r.dependencies.fetchImpl = async (...args) => {
+    const response = await send(...args)
+    r.release.updated_at = "2026-09-04T10:01:00Z"
+    const asset = (await r.args.github.listReleaseAssets()).value.find(
+      (asset) => asset.name === r.adoption.archive.assetName,
+    )
+    r.release.assets.push({ ...asset, label: null, download_count: 0, state: "uploaded" })
+    mutate(r)
+    return response
+  }
+  return r
+}
+
+test("upload accepts GitHub updated_at and the exact embedded asset addition", async () => {
+  const r = await githubUploadRemote()
+  const ref = await writer(r).uploadRecoveryAsset(archiveInput(r))
+  assert.equal(ref.sha256, digest(r.legacyBody))
+  assert.equal(ref.size, Buffer.byteLength(r.legacyBody))
+  assert.equal(r.effects.length, 1)
+  assert.deepEqual(await writer(r).uploadRecoveryAsset(archiveInput(r)), ref)
+  assert.equal(r.effects.length, 1)
+})
+
+for (const phase of ["before mutation", "after upload"])
+  test(`upload accepts only embedded asset download counter drift ${phase}`, async () => {
+    const r = await githubUploadRemote((r) => {
+      if (phase === "after upload") r.release.assets[0].download_count++
+    })
+    if (phase === "before mutation") {
+      const download = r.args.github.downloadReleaseAsset
+      r.args.github.downloadReleaseAsset = async (...args) => {
+        const result = await download(...args)
+        r.release.assets[0].download_count++
+        return result
+      }
+    }
+    const ref = await writer(r).uploadRecoveryAsset(archiveInput(r))
+    assert.equal(ref.sha256, digest(r.legacyBody))
+    assert.equal(r.effects.length, 1)
+  })
+
+for (const [field, value] of Object.entries({
+  label: "external label",
+  id: 999999,
+  name: "external-name",
+  size: 999999,
+  digest: `sha256:${"0".repeat(64)}`,
+  state: "external-state",
+  uploader: { login: "external" },
+  updated_at: "2026-09-04T10:02:00Z",
+  future_metadata: { download_count: 99 },
+}))
+  test(`pre-mutation comparison preserves embedded asset ${field}`, async () => {
+    const r = await githubUploadRemote()
+    const download = r.args.github.downloadReleaseAsset
+    r.args.github.downloadReleaseAsset = async (...args) => {
+      const result = await download(...args)
+      r.release.assets[0][field] = value
+      return result
+    }
+    await assert.rejects(
+      writer(r).uploadRecoveryAsset(archiveInput(r)),
+      /release changed before mutation/,
+    )
+    assert.equal(r.effects.length, 0)
+  })
+
+for (const [field, value] of Object.entries({
+  name: "external title",
+  body: "external body",
+  tag_name: "untagged-external",
+  draft: false,
+  immutable: true,
+  id: 999,
+  target_commitish: "other",
+  prerelease: true,
+  author: { login: "external" },
+  future_metadata: { download_count: 99 },
+  published_at: "2026-09-04T10:01:00Z",
+}))
+  test(`upload rejects concurrent release ${field} mutation`, async () => {
+    const r = await githubUploadRemote((r) => {
+      r.release[field] = value
+    })
+    await assert.rejects(writer(r).uploadRecoveryAsset(archiveInput(r)))
+    assert.equal(r.effects.length, 1)
+  })
+
+for (const [name, mutate] of [
+  [
+    "unrelated embedded asset metadata",
+    (r) => {
+      r.release.assets[0].label = "changed"
+    },
+  ],
+  [
+    "unrelated embedded asset unknown field",
+    (r) => {
+      r.release.assets[0].future_metadata = "changed"
+    },
+  ],
+  [
+    "unrelated embedded asset removal",
+    (r) => {
+      r.release.assets.shift()
+    },
+  ],
+  [
+    "embedded uploaded asset hash",
+    (r) => {
+      r.release.assets.at(-1).digest = `sha256:${"0".repeat(64)}`
+    },
+  ],
+  [
+    "embedded uploaded asset size",
+    (r) => {
+      r.release.assets.at(-1).size++
+    },
+  ],
+  [
+    "embedded uploaded asset identity",
+    (r) => {
+      r.release.assets.at(-1).id++
+    },
+  ],
+  [
+    "unrelated listed asset addition",
+    (r) => {
+      r.activate([...r.assets(), r.add("recovery-v2-extra.txt", "extra")])
+    },
+  ],
+  [
+    "uploaded bytes",
+    (r) => {
+      r.raws.set(r.adoption.archive.assetName, Buffer.from("wrong"))
+    },
+  ],
+  [
+    "missing embedded inventory",
+    (r) => {
+      delete r.release.assets
+    },
+  ],
+  [
+    "invalid updated_at",
+    (r) => {
+      r.release.updated_at = "invalid"
+    },
+  ],
+  [
+    "backwards updated_at",
+    (r) => {
+      r.release.updated_at = "2026-09-04T09:59:00Z"
+    },
+  ],
+])
+  test(`upload rejects ${name}`, async () => {
+    const r = await githubUploadRemote(mutate)
+    await assert.rejects(writer(r).uploadRecoveryAsset(archiveInput(r)))
+    assert.equal(r.effects.length, 1)
+  })
 
 test("lost publication response resumes terminal proof without another PATCH", async () => {
   const r = await recoveryWriteRemote()
@@ -402,7 +575,7 @@ for (const result of [
 
 for (const status of [
   { repository: "foreign/repo", enabled: true },
-  { repository: "cacheplane/dawnai", enabled: false },
+  { repository: "cacheplane/b4run", enabled: false },
   {},
   "enabled",
 ])

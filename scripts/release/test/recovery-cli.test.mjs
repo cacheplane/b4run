@@ -102,7 +102,7 @@ test("smoke child environment preserves actual host identity and drops credentia
       ImageVersion: "actual",
       GITHUB_TOKEN: "secret",
       NODE_AUTH_TOKEN: "secret",
-      DAWN_RECOVERY_POLICY_TOKEN: "secret",
+      B4_RECOVERY_POLICY_TOKEN: "secret",
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: "secret",
       NODE_OPTIONS: "--require=evil",
       NPM_CONFIG_USERCONFIG: "evil",
@@ -130,7 +130,7 @@ test("real read-only runtime never constructs invocation or policy readers and h
   const result = runtime.createRecoveryRuntime(
     {
       root: process.cwd(),
-      environment: { GITHUB_TOKEN: "api-token", DAWN_RECOVERY_POLICY_TOKEN: "policy-secret" },
+      environment: { GITHUB_TOKEN: "api-token", B4_RECOVERY_POLICY_TOKEN: "policy-secret" },
       command: "inspect",
       request: { candidate: r.c },
     },
@@ -186,7 +186,7 @@ test("composed recovery attestation child excludes policy npm and OIDC credentia
     ImageVersion: "20260901.1",
     GITHUB_TOKEN: "github-token",
     GH_TOKEN: "ambient-gh-token",
-    DAWN_RECOVERY_POLICY_TOKEN: "policy-token",
+    B4_RECOVERY_POLICY_TOKEN: "policy-token",
     NPM_TOKEN: "npm-token",
     NODE_AUTH_TOKEN: "node-auth-token",
     ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-token",
@@ -235,7 +235,7 @@ test("composed recovery attestation child excludes policy npm and OIDC credentia
           GH_TOKEN: "github-token",
         },
       ])
-      assert.equal(environment.DAWN_RECOVERY_POLICY_TOKEN, "policy-token")
+      assert.equal(environment.B4_RECOVERY_POLICY_TOKEN, "policy-token")
     }
   }
 })
@@ -290,7 +290,7 @@ test("child launch drops credentials on both success and failure", async () => {
         ImageOS: "ubuntu24",
         GITHUB_TOKEN: "secret",
         ACTIONS_RUNTIME_TOKEN: "secret",
-        DAWN_RECOVERY_POLICY_TOKEN: "secret",
+        B4_RECOVERY_POLICY_TOKEN: "secret",
       },
       spawn,
     )
@@ -452,7 +452,7 @@ test("separate policy credential is confined to finalization and publication pol
   const r = await recoveryRemote()
   const environment = {
     GITHUB_TOKEN: "api-token",
-    DAWN_RECOVERY_POLICY_TOKEN: "policy-token",
+    B4_RECOVERY_POLICY_TOKEN: "policy-token",
     GITHUB_REPOSITORY: r.c.repository,
     GITHUB_REPOSITORY_ID: r.c.repositoryId,
     GITHUB_SHA: r.e.controllerSha,
@@ -722,4 +722,51 @@ test("workflow request preparation disposes a runtime after an invalid audit req
     ),
   )
   assert.equal(disposed, 1)
+})
+
+test("smoke failure diagnostics retain bounded nested causes and redact credentials", async () => {
+  const { recoverySmokeFailureDetail } = await import("../recovery/diagnostics.mjs")
+  const error = new AggregateError(
+    [
+      new Error("npm install failed with exit code 1\nregistry temporarily unavailable"),
+      new Error(
+        "cleanup failed Bearer abc https://example.com/private github_pat_abcd secret-value",
+      ),
+    ],
+    "Recovery smoke failed checks: dependency-install, cleanup",
+  )
+  const detail = recoverySmokeFailureDetail(error, { GITHUB_TOKEN: "secret-value" })
+  assert.match(detail, /dependency-install/)
+  assert.match(detail, /registry temporarily unavailable/)
+  assert.doesNotMatch(detail, /abc|example.com|github_pat_abcd|secret-value/)
+  error.errors.push(error)
+  assert.ok(recoverySmokeFailureDetail(error).length <= 4096)
+})
+
+test("smoke child failure retains bounded redacted stderr without granting success", async () => {
+  const { EventEmitter } = await import("node:events")
+  const child = new EventEmitter()
+  child.stderr = new EventEmitter()
+  const run = runtime.runRecoverySmokeChild(
+    "/tmp/prepared.json",
+    { GITHUB_TOKEN: "sensitive" },
+    (_command, _args, options) => {
+      assert.deepEqual(options.stdio, ["ignore", "ignore", "pipe"])
+      queueMicrotask(() => {
+        child.stderr.emit(
+          "data",
+          Buffer.from("dependency-install: npm failed sensitive https://example.com\n"),
+        )
+        child.stderr.emit("data", Buffer.alloc(100000, 120))
+        child.emit("close", 1)
+      })
+      return child
+    },
+  )
+  await assert.rejects(run, (error) => {
+    assert.match(error.message, /dependency-install: npm failed/)
+    assert.doesNotMatch(error.message, /sensitive|example.com/)
+    assert.ok(error.message.length < 5000)
+    return true
+  })
 })

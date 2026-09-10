@@ -11,11 +11,11 @@ test("recovery policy contract exists", () => {
   assert.equal(typeof policyModule.parseRecoveryPolicy, "function")
 })
 
-test("production admission is dormant and its explicit probe closure excludes the policy self-hash", async () => {
+test("production admission is explicit and its probe closure excludes the policy self-hash", async () => {
   const policy = await fixture()
   const parsed = policyModule.parseRecoveryPolicy(policyModule.canonicalPolicyBytes(policy))
   assert.equal(parsed.status, "DORMANT")
-  assert.match(parsed.verifierClosure.sha256, /^[a-f0-9]{64}$/u)
+  assert.equal(parsed.verifierClosure.sha256, null)
   assert.deepEqual(parsed.receiptVersions, [2])
   assert.deepEqual(
     parsed.lanes.map((x) => x.name),
@@ -225,7 +225,7 @@ test("only recognized metadata-present tarball propagation is retried", async ()
 
 test("pinned current probe closure is complete and v2 obligations include explicit aggregate cleanup and registry checks", async () => {
   const policy = await fixture()
-  assert.match(policy.verifierClosure.sha256, /^[a-f0-9]{64}$/u)
+  assert.equal(policy.verifierClosure.sha256, null)
   assert.ok(policy.lanes.every((lane) => lane.requiredChecks.includes("cleanup")))
   assert.ok(policy.lanes[0].requiredChecks.includes("registry-packages"))
   assert.ok(policy.verifierClosure.inputs.includes("scripts/release/recovery/schema.mjs"))
@@ -245,7 +245,7 @@ test("raw policy rejects malformed Unicode, byte proxies and decorated buffers w
   for (const value of [
     decorated,
     new Proxy(raw, {}),
-    raw.toString().replace('"DORMANT"', '"\ud800"'),
+    raw.toString().replace(JSON.stringify(p.status), '"\ud800"'),
     Buffer.from([0xff]),
   ]) {
     assert.throws(() => policyModule.parseRecoveryPolicy(value))
@@ -364,13 +364,17 @@ test("reviewed probe inventory equals independently discovered local executable 
   }
   const policy = await fixture()
   assert.deepEqual(policy.verifierClosure.inputs, [...seen].sort())
-  assert.equal(
-    await policyModule.hashVerifierClosure(
-      { controllerSha: "a".repeat(40), inputs: policy.verifierClosure.inputs },
-      ({ path: file }) => readFile(path.join(root, file), "utf8"),
-    ),
-    policy.verifierClosure.sha256,
+  // Dormancy keeps the full independently discovered closure without admitting
+  // its bytes. The original Dawn admission is checked at its frozen source in
+  // recovery-admission-records.test.mjs; it cannot authorize this closure.
+  assert.equal(policy.status, "DORMANT")
+  assert.deepEqual(policy.fence.contracts, [])
+  assert.equal(policy.verifierClosure.sha256, null)
+  const actual = await policyModule.hashVerifierClosure(
+    { controllerSha: "a".repeat(40), inputs: policy.verifierClosure.inputs },
+    ({ path: file }) => readFile(path.join(root, file), "utf8"),
   )
+  assert.match(actual, /^[a-f0-9]{64}$/u)
 })
 
 test("policy source permits reviewable whitespace while its canonical token identity rejects duplicates", async () => {
@@ -452,7 +456,7 @@ test("real GitHub primary-rate-limit responses retry within policy while ordinar
     let reads = 0
     const reader = createGitHubReader({
       owner: "example",
-      repo: "dawn",
+      repo: "b4",
       fetchImpl: async () => {
         reads++
         return new Response(
@@ -485,7 +489,7 @@ test("real adapter TIMEOUT is terminal when an abort-ignoring fetch has not sett
     maximumActive = 0
   const reader = createGitHubReader({
     owner: "example",
-    repo: "dawn",
+    repo: "b4",
     timeoutMs: 1,
     fetchImpl: () => {
       reads++
@@ -526,7 +530,7 @@ test("stalled transient HTTP bodies cannot become retryable server or throttle r
       maximumActive = 0
     const reader = createGitHubReader({
       owner: "example",
-      repo: "dawn",
+      repo: "b4",
       timeoutMs: 1,
       fetchImpl: async () => ({
         status,
@@ -605,4 +609,90 @@ test("dormant image inventory includes the actual sandbox image and recovery col
     "postgres:16",
   ])
   assert.ok(policy.verifierClosure.inputs.includes("scripts/release/recovery/smoke.mjs"))
+})
+
+test("composite read timeout permits a settled read beyond 15 seconds within the 30 second cap", async () => {
+  const c = clock()
+  const result = await policyModule.runRecoveryRead(
+    { phaseDeadline: 100000, readTimeoutMs: 30000 },
+    async ({ timeoutMs }) => {
+      assert.equal(timeoutMs, 30000)
+      c.advance(20000)
+      return { status: "PRESENT", value: "composite proof" }
+    },
+    c,
+  )
+  assert.equal(result.status, "PRESENT")
+})
+for (const readTimeoutMs of [0, -1, 1.5, 30001, "30000", null])
+  test(`read timeout override rejects invalid value ${JSON.stringify(readTimeoutMs)}`, async () => {
+    let calls = 0
+    await assert.rejects(
+      policyModule.runRecoveryRead(
+        { phaseDeadline: 100000, readTimeoutMs },
+        async () => {
+          calls++
+          return { status: "PRESENT" }
+        },
+        clock(),
+      ),
+      /read options/,
+    )
+    assert.equal(calls, 0)
+  })
+for (const readTimeoutMs of [15000, 30000])
+  test(`settled callback at ${readTimeoutMs} deadline cannot escape a delayed timer`, async () => {
+    const c = clock()
+    let calls = 0
+    const result = await policyModule.runRecoveryRead(
+      { phaseDeadline: 100000, ...(readTimeoutMs === 30000 ? { readTimeoutMs } : {}) },
+      async () => {
+        calls++
+        c.advance(readTimeoutMs)
+        return { status: "PRESENT" }
+      },
+      c,
+    )
+    assert.equal(result.code, "RECOVERY_DEADLINE")
+    assert.equal(calls, 1)
+  })
+test("composite timeout remains capped by phase deadline and rejects unsettled late authority", async () => {
+  const c = clock()
+  let timer,
+    delay,
+    finish,
+    aborted = false,
+    calls = 0
+  const pending = policyModule.runRecoveryRead(
+    { phaseDeadline: 20000, readTimeoutMs: 30000 },
+    ({ signal, timeoutMs }) => {
+      calls++
+      assert.equal(timeoutMs, 20000)
+      signal.addEventListener("abort", () => {
+        aborted = true
+      })
+      return new Promise((resolve) => {
+        finish = resolve
+      })
+    },
+    {
+      ...c,
+      setTimer: (callback, ms) => {
+        timer = callback
+        delay = ms
+        return 1
+      },
+      clearTimer: () => {},
+    },
+  )
+  await Promise.resolve()
+  assert.equal(delay, 20000)
+  c.advance(delay)
+  timer()
+  const result = await pending
+  assert.equal(result.code, "READ_TIMEOUT_UNSETTLED")
+  assert.equal(aborted, true)
+  assert.equal(calls, 1)
+  finish({ status: "PRESENT", value: "late proof" })
+  assert.equal(result.code, "READ_TIMEOUT_UNSETTLED")
 })

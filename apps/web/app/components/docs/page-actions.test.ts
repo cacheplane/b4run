@@ -13,9 +13,9 @@ const FINAL_PR2_API_HREFS = [
 
 describe("page action URLs", () => {
   it("builds canonical public documentation URLs", () => {
-    expect(pageUrl("memory/retrieval")).toBe("https://dawnai.org/docs/memory/retrieval")
-    expect(pageUrl("api/sdk")).toBe("https://dawnai.org/docs/api/sdk")
-    expect(pageUrl("thread-access")).toBe("https://dawnai.org/docs/thread-access")
+    expect(pageUrl("memory/retrieval")).toBe("https://b4.run/docs/memory/retrieval")
+    expect(pageUrl("api/sdk")).toBe("https://b4.run/docs/api/sdk")
+    expect(pageUrl("thread-access")).toBe("https://b4.run/docs/thread-access")
   })
 
   it("maps only section landing pages to their source index", () => {
@@ -30,7 +30,7 @@ describe("page action URLs", () => {
     )
     for (const page of API_REFERENCE_PAGES) {
       const slug = page.href.slice("/docs/".length)
-      expect(pageUrl(slug)).toBe(`https://dawnai.org${page.href}`)
+      expect(pageUrl(slug)).toBe(`https://b4.run${page.href}`)
       expect(sourceSlug(slug)).toBe(slug)
     }
   })

@@ -14,7 +14,7 @@ import {
   reconcileRecoveryAudit,
   runRecoveryAudit,
 } from "../../recovery/audit.mjs"
-import { collectRecoveryEvidence } from "../../recovery/evidence.mjs"
+import { runRecoveryEvidenceStages } from "../../recovery/cli.mjs"
 import { createRecoveryFenceReader } from "../../recovery/fence.mjs"
 import { finalizeRecoveryCandidate, publishRecoveryCandidate } from "../../recovery/finalize.mjs"
 import { routeRecoveryCandidate } from "../../recovery/observe.mjs"
@@ -51,6 +51,7 @@ export async function createRecoveryHttpRehearsal({
   const resumes = []
   const r = await evidenceRemote(realFence ? { configureFence: configureRehearsalFence } : {})
   const fenceObservations = []
+  const evidenceReadScopes = []
   let fenceActive = false
   if (malformedFence) {
     assert.ok(realFence)
@@ -352,7 +353,7 @@ export async function createRecoveryHttpRehearsal({
     const result = {
       github: createGitHubReader({
         owner: "cacheplane",
-        repo: "dawnai",
+        repo: "b4run",
         repositoryId: r.c.repositoryId,
         token: "fixture-token",
         fetchImpl: mappedFetch,
@@ -436,7 +437,26 @@ export async function createRecoveryHttpRehearsal({
         "RECOVERY_ADOPTED",
       )
       startPhase("five-lanes")
-      const verified = await resume(() => collectRecoveryEvidence(request, r.config, dependencies))
+      const verified = await resume(() =>
+        runRecoveryEvidenceStages(request, async () => {
+          resetReads()
+          const github = observation.github
+          const start = requests.length
+          return {
+            ...dependencies,
+            config: r.config,
+            dispose: () => {
+              github.dispose?.()
+              evidenceReadScopes.push(
+                requests
+                  .slice(start)
+                  .filter((q) => q.origin === "https://api.github.com" && q.httpStatus !== 304)
+                  .length,
+              )
+            },
+          }
+        }),
+      )
       assert.equal(verified.phase, "VERIFICATION_COMPLETE")
       startPhase("audit-dispatch")
       let auditRequest
@@ -583,6 +603,7 @@ export async function createRecoveryHttpRehearsal({
         githubPrimaryRequests: requests.filter(
           (q) => q.origin === "https://api.github.com" && q.httpStatus !== 304,
         ).length,
+        evidenceReadScopes,
         githubPrimaryByStage: Object.fromEntries(
           [...new Set(requests.map((q) => q.stage))].map((name) => [
             name,

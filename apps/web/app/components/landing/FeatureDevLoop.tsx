@@ -22,7 +22,7 @@ export function FeatureDevLoop() {
         <MediaSwitcher
           videoLabel="Video"
           codeLabel="Dev loop"
-          ariaLabel="Dawn deterministic test"
+          ariaLabel="B4.run deterministic test"
           video={
             <figure>
               <ClipPlayer clip={demoMedia.test} className="border border-divider shadow-sm" />

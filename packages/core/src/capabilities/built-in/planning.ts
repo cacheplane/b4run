@@ -1,10 +1,10 @@
-import { pureJoin } from "@dawn-ai/sdk/pure"
+import { pureJoin } from "@b4run/sdk/pure"
 import { z } from "zod"
 import type { CapabilityMarker, MarkerFs, PromptFragment, StreamTransformer } from "../types.js"
 import { type PlanTodo, parsePlanMarkdown } from "./plan-md-parser.js"
 
 const PLAN_MD = "plan.md"
-const MAX_PLAN_BYTES = 64 * 1024
+export const MAX_PLAN_BYTES = 64 * 1024
 
 export interface RuntimeTodo {
   readonly content: string

@@ -1,4 +1,4 @@
-import { BROWSE_SORT_FIELDS, validateBrowseQuery } from "@dawn-ai/memory/browse"
+import { BROWSE_SORT_FIELDS, validateBrowseQuery } from "@b4run/memory/browse"
 import type { ColumnFilter, PretableSortEntry } from "@pretable/react"
 import { describe, expect, it } from "vitest"
 import {

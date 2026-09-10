@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 
 import { snapshotJson } from "./adapter-normalize.mjs"
-import { CANONICAL_RELEASE_PACKAGE_ORDER } from "./manifest.mjs"
+import { CANONICAL_RELEASE_PACKAGE_ORDER, HISTORICAL_RELEASE_PACKAGE_NAMES } from "./manifest.mjs"
 import { validateMarker } from "./metadata.mjs"
 import { isExactSemver, parseSemver } from "./semver.mjs"
 
@@ -60,6 +60,16 @@ const MAX_ESCROW_ASSET_NAME_BYTES = 512
 const MAX_RELEASE_RUNS = 128
 const RELEASE_RECORD_ASSET_NAME = "release-record.json"
 const PACKAGE_NAMES = Object.freeze([...CANONICAL_RELEASE_PACKAGE_ORDER].sort())
+const HISTORICAL_PACKAGE_NAMES = Object.freeze([...HISTORICAL_RELEASE_PACKAGE_NAMES].sort())
+
+// Which of the two canonical families this npm evidence describes.
+function matchesFamily(evidence, names) {
+  const observed = evidence?.observations?.[0]?.packages
+  if (!Array.isArray(observed)) return true
+  const seen = observed.map((entry) => entry?.name).sort()
+  return JSON.stringify(seen) === JSON.stringify(names)
+}
+
 const EXPECTED_ESCROW_ASSET_COUNT = PACKAGE_NAMES.length * 2 + 3
 
 export function terminalRecordPath(version) {
@@ -229,6 +239,11 @@ function validateEscrowAssets(escrowAssets, marker) {
 }
 
 function validateNpmEvidence(value, record) {
+  // Evidence written before the rename names the original package family, so
+  // either canonical 21-package family is accepted here.
+  const expectedPackageNames = matchesFamily(value, PACKAGE_NAMES)
+    ? PACKAGE_NAMES
+    : HISTORICAL_PACKAGE_NAMES
   assertExactFields(value, NPM_EVIDENCE_FIELDS, "terminal record npm evidence")
   if (!Array.isArray(value.observations) || value.observations.length !== 2) {
     throw new TypeError("Terminal record npm evidence needs exactly two observations")
@@ -240,7 +255,7 @@ function validateNpmEvidence(value, record) {
     }
     if (
       !Array.isArray(observation.packages) ||
-      observation.packages.length !== PACKAGE_NAMES.length
+      observation.packages.length !== expectedPackageNames.length
     ) {
       throw new TypeError("Terminal record npm observation package set is invalid")
     }
@@ -257,7 +272,7 @@ function validateNpmEvidence(value, record) {
       }
       seen.push(pkg.name)
     }
-    if (JSON.stringify(seen) !== JSON.stringify(PACKAGE_NAMES)) {
+    if (JSON.stringify(seen) !== JSON.stringify(expectedPackageNames)) {
       throw new TypeError("Terminal record npm package inventory is not canonical")
     }
   }

@@ -32,6 +32,7 @@ test("createGitReader exposes only allowlisted read operations with exact argume
     "isAncestor",
     "listFirstParentHistory",
     "listTree",
+    "listTreeEntries",
     "resolveTag",
     "showFile",
   ])
@@ -328,5 +329,25 @@ test("production git byte decoding rejects invalid UTF-8 and preserves a UTF-8 B
   await assert.rejects(
     () => reader.listFirstParentHistory({ ref: "not-found" }),
     (error) => error.code === "REF_NOT_FOUND",
+  )
+})
+
+test("mode-aware tree reader uses complete NUL-delimited output and bounded requests", async () => {
+  const calls = []
+  const git = createGitReader({
+    root: "/repo",
+    run: async (...args) => {
+      calls.push(args)
+      return ""
+    },
+  })
+  assert.equal(await git.listTreeEntries({ ref: "HEAD" }, { timeoutMs: 100 }), "")
+  assert.deepEqual(calls[0][1], ["ls-tree", "-r", "-z", "--full-tree", "HEAD"])
+  assert.equal(calls[0][2].timeout, 100)
+  assert.throws(() => git.listTreeEntries({ ref: "--bad" }), /Invalid Git ref/)
+  assert.throws(() => git.listTreeEntries({ ref: "HEAD" }, { timeoutMs: 0 }), /timeout/)
+  assert.throws(
+    () => git.listTreeEntries({ ref: "HEAD" }, { signal: AbortSignal.abort() }),
+    /ABORTED/,
   )
 })

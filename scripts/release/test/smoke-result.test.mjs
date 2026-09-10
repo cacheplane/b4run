@@ -398,7 +398,7 @@ test("executes recorded checks, always cleans, and writes a failure receipt befo
 })
 
 test("atomically creates canonical results, permits identical replay, and rejects conflicts or symlinks", async () => {
-  const root = await mkdtemp(join(tmpdir(), "dawn-smoke-result-write-"))
+  const root = await mkdtemp(join(tmpdir(), "b4-smoke-result-write-"))
   try {
     const path = join(root, "result.json")
     const value = result("metadata")

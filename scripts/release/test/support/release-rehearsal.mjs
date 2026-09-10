@@ -6,7 +6,7 @@ import { isAbsolute, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { createGitReader } from "../../adapters/git.mjs"
-import { createNpmReader } from "../../adapters/npm.mjs"
+import { createFirstPublicationNpmReader, createNpmReader } from "../../adapters/npm.mjs"
 import { loadVerifiedReleaseArtifact } from "../../artifact-store.mjs"
 import {
   dispatchIndependentAudit,
@@ -487,7 +487,7 @@ export async function runCanonicalFixedGroupRehearsal(options, { root, createFau
     ? FIXED_GROUP_REHEARSAL_FAULTS
     : Object.freeze([rehearsal.inject])
   const gate = createOrderedFaultGate(faultPoints)
-  const runtime = await realpath(await mkdtemp(join(tmpdir(), "dawn-fixed-group-rehearsal-")))
+  const runtime = await realpath(await mkdtemp(join(tmpdir(), "b4-fixed-group-rehearsal-")))
   const artifactDir = join(runtime, "artifact")
   const controllerDir = join(runtime, "controller")
   let registryHarness = null
@@ -1289,8 +1289,8 @@ function rehearsalNpmAuditFactory(candidate) {
 
 function releaseRehearsalEnvironment(candidate) {
   return Object.freeze({
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/${candidate.publisherWorkflow}@refs/tags/v${candidate.version}`,
+    GITHUB_REPOSITORY: "cacheplane/b4run",
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/${candidate.publisherWorkflow}@refs/tags/v${candidate.version}`,
     GITHUB_REF: `refs/tags/v${candidate.version}`,
     GITHUB_SHA: candidate.commitSha,
     GITHUB_RUN_ID: "300",
@@ -1300,9 +1300,9 @@ function releaseRehearsalEnvironment(candidate) {
 
 function independentAuditEnvironment({ candidate, workflowRunId }) {
   return Object.freeze({
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_EVENT_NAME: "workflow_dispatch",
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/published-artifact-verify.yml@refs/tags/v${candidate.version}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/published-artifact-verify.yml@refs/tags/v${candidate.version}`,
     GITHUB_REF: `refs/tags/v${candidate.version}`,
     GITHUB_SHA: candidate.commitSha,
     GITHUB_RUN_ID: String(workflowRunId),
@@ -1605,7 +1605,7 @@ async function loadPreparedArtifact({ artifactDir, candidate }) {
 }
 
 function createRehearsalAttestation({ candidate, prepared }) {
-  const repository = "https://github.com/cacheplane/dawnai"
+  const repository = "https://github.com/cacheplane/b4run"
   const ref = `refs/tags/v${candidate.version}`
   const statement = {
     _type: "https://in-toto.io/Statement/v1",
@@ -1632,7 +1632,7 @@ function createRehearsalAttestation({ candidate, prepared }) {
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: "https://github.com/cacheplane/dawnai/actions/runs/300/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4run/actions/runs/300/attempts/1",
         },
       },
     },
@@ -1659,7 +1659,7 @@ function createRehearsalAttestation({ candidate, prepared }) {
     bytes: bundleBytes,
   }))
   const set = Object.freeze({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${candidate.version}`,
     commitSha: candidate.commitSha,
@@ -1769,6 +1769,102 @@ function createProductionRehearsalNpmReader(harness) {
   })
 }
 
+// The first-publication counterpart of the production rehearsal reader. Verdaccio's own
+// whole-package 404 body is translated into npm's actual public not-found representation
+// (`{"error":"Not found"}` for the packument, `"Not Found"` for the exact version of an absent
+// package) so the real first-publication reader is exercised over real HTTP. Proxy-injected
+// fault bodies are passed through untouched and therefore stay ambiguous.
+export function createFirstPublicationRehearsalNpmReader(harness) {
+  const registry = new URL(harness.registry.url)
+  const local = createFirstPublicationNpmReader({
+    registryUrl: registry.href,
+    trustedRegistryOrigins: [registry.origin],
+    async fetchImpl(url, options) {
+      const target = new URL(url)
+      if (target.origin !== registry.origin) {
+        throw new Error("First-publication rehearsal npm reader left its disposable registry")
+      }
+      const request = () =>
+        fetch(new URL(`${target.pathname}${target.search}`, harness.proxy.url), {
+          ...options,
+          redirect: "manual",
+        })
+      const response = await request()
+      if (response.status !== 404) return response
+      const body = await response.text()
+      if (!isVerdaccioWholePackageAbsence(body)) {
+        return new Response(body, { status: 404, headers: response.headers })
+      }
+      const accept = new Headers(options?.headers).get("accept") ?? ""
+      const exactVersion = /^\/[^/]+\/[^/]+$/u.test(decodeURIComponent(target.pathname))
+      return jsonResponse(
+        404,
+        accept === "application/json" && exactVersion ? "Not Found" : { error: "Not found" },
+      )
+    },
+  })
+  return Object.freeze({
+    observePackageMetadata(input) {
+      return local.observePackageMetadata(input)
+    },
+    async observePackageVersion(input) {
+      const observed = await local.observePackageVersion(input)
+      if (observed.status !== "PRESENT") return observed
+      return {
+        ...observed,
+        package: {
+          ...observed.package,
+          tarballUrl: officialRegistryTarballUrl(input.name, input.version),
+        },
+      }
+    },
+    async observeFirstPublicationPackage(input) {
+      const observed = await local.observeFirstPublicationPackage(input)
+      if (observed.status !== "PRESENT" || observed.package.candidate === null) return observed
+      return {
+        ...observed,
+        package: {
+          ...observed.package,
+          candidate: {
+            ...observed.package.candidate,
+            tarballUrl: officialRegistryTarballUrl(input.name, input.version),
+          },
+        },
+      }
+    },
+    async downloadRegistryTarball({ tarballUrl, signal }) {
+      const official = new URL(tarballUrl)
+      if (official.origin !== "https://registry.npmjs.org") {
+        throw new Error("First-publication rehearsal npm tarball did not use the production origin")
+      }
+      const localUrl = new URL(`${official.pathname}${official.search}`, registry)
+      const downloaded = await local.downloadRegistryTarball({
+        tarballUrl: localUrl.href,
+        ...(signal === undefined ? {} : { signal }),
+      })
+      if (downloaded.status !== "PRESENT") return downloaded
+      return {
+        ...downloaded,
+        tarball: { ...downloaded.tarball, url: official.href },
+      }
+    },
+  })
+}
+
+function isVerdaccioWholePackageAbsence(body) {
+  try {
+    const parsed = JSON.parse(body)
+    return (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      typeof parsed.error === "string" &&
+      /no such package available/iu.test(parsed.error)
+    )
+  } catch {
+    return false
+  }
+}
+
 function officialRegistryTarballUrl(name, version) {
   const packageName = name.startsWith("@") ? name.slice(name.indexOf("/") + 1) : name
   return new URL(`${name}/-/${packageName}-${version}.tgz`, "https://registry.npmjs.org/").href
@@ -1782,7 +1878,7 @@ function verifiedNpmAudit({ candidate }) {
       predicateType: "https://slsa.dev/provenance/v1",
       workflow: candidate.publisherWorkflow,
       commitSha: candidate.commitSha,
-      repository: "https://github.com/cacheplane/dawnai",
+      repository: "https://github.com/cacheplane/b4run",
       ref: `refs/tags/v${candidate.version}`,
     },
   })

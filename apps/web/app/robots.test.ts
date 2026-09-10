@@ -26,8 +26,8 @@ describe("robots policy", () => {
   it("declares the owner-approved allow-all policy for named AI agents", () => {
     const metadata = robots()
 
-    expect(metadata.sitemap).toBe("https://dawnai.org/sitemap.xml")
-    expect(metadata.host).toBe("https://dawnai.org")
+    expect(metadata.sitemap).toBe("https://b4.run/sitemap.xml")
+    expect(metadata.host).toBe("https://b4.run")
 
     expect(Array.isArray(metadata.rules)).toBe(true)
     if (!Array.isArray(metadata.rules)) {

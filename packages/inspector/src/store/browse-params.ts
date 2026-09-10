@@ -6,7 +6,7 @@ import {
   BrowseQueryError,
   type BrowseSortEntry,
   validateBrowseQuery,
-} from "@dawn-ai/memory/browse"
+} from "@b4run/memory/browse"
 
 /**
  * Recognise a rejection from the shared validator WITHOUT `instanceof`.

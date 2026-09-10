@@ -35,7 +35,7 @@ const PATHS = Object.freeze({
 })
 
 test("privileged control and workload clients use fixed timeout and hard-kill profiles", () => {
-  assert.deepEqual(buildControlClientInvocation(PATHS, PATHS.systemctl, ["show", "dawn.service"]), {
+  assert.deepEqual(buildControlClientInvocation(PATHS, PATHS.systemctl, ["show", "b4.service"]), {
     command: "/usr/bin/sudo",
     args: [
       "-n",
@@ -45,7 +45,7 @@ test("privileged control and workload clients use fixed timeout and hard-kill pr
       "30s",
       "/usr/bin/systemctl",
       "show",
-      "dawn.service",
+      "b4.service",
     ],
     outerTimeoutMs: 40_000,
   })
@@ -164,9 +164,15 @@ test("transient units use the exact hardened gated service policy", () => {
     shimPath: "/repo/scripts/release/smoke-command-shim.mjs",
     timeoutStopSec: 10,
     uid: 1_000,
-    unit: "dawn-release-smoke-0123456789abcdef0123456789abcdef.service",
+    unit: "b4-release-smoke-0123456789abcdef0123456789abcdef.service",
   })
-  assert.deepEqual(args.slice(0, 4), ["--wait", "--pipe", "--expand-environment=no", "--unit"])
+  assert.deepEqual(args.slice(0, 5), [
+    "--quiet",
+    "--wait",
+    "--pipe",
+    "--expand-environment=no",
+    "--unit",
+  ])
   assert.equal(args.includes("--collect"), false)
   assert.equal(args.includes("--foreground"), false)
   assert.equal(
@@ -200,7 +206,7 @@ test("live properties and cgroup events are parsed fail closed", () => {
     [
       "ActiveState=active",
       "SubState=running",
-      "ControlGroup=/system.slice/dawn-release-smoke-0123456789abcdef0123456789abcdef.service",
+      "ControlGroup=/system.slice/b4-release-smoke-0123456789abcdef0123456789abcdef.service",
       "Type=exec",
       "KillMode=control-group",
       "NoNewPrivileges=yes",
@@ -211,11 +217,11 @@ test("live properties and cgroup events are parsed fail closed", () => {
       "ProtectControlGroups=yes",
       "UMask=0077",
     ].join("\n"),
-    "dawn-release-smoke-0123456789abcdef0123456789abcdef.service",
+    "b4-release-smoke-0123456789abcdef0123456789abcdef.service",
   )
   assert.equal(
     properties.controlGroup,
-    "/system.slice/dawn-release-smoke-0123456789abcdef0123456789abcdef.service",
+    "/system.slice/b4-release-smoke-0123456789abcdef0123456789abcdef.service",
   )
   assert.deepEqual(parseCgroupEvents("populated 1\nfrozen 0\n"), { populated: 1 })
   assert.throws(() => parseCgroupEvents("populated 2\n"), /populated/iu)
@@ -223,6 +229,33 @@ test("live properties and cgroup events are parsed fail closed", () => {
     () => validateLiveUnitProperties("ActiveState=active\nProtectControlGroups=no\n", "x.service"),
     /property|control group|exact/iu,
   )
+})
+
+test("readiness tolerates an empty marker only while its writer completes", async () => {
+  const harness = systemdHarness({ readyContents: "", completeReadyAfterRead: true })
+  await harness.containment.probe()
+  assert.equal(harness.readyReads, 2)
+})
+
+test("empty readiness stays bounded and nonempty malformed readiness fails closed", async () => {
+  for (const [readyContents, expected] of [
+    ["", /readiness timed out/u],
+    ["read", /marker is malformed/u],
+  ]) {
+    const harness = systemdHarness({ readyContents })
+    await assert.rejects(harness.containment.probe(), expected)
+    assert.equal(harness.gatePublications, 0)
+  }
+})
+
+test("controller publishes a complete gate by rename and refuses an existing gate", async () => {
+  const harness = systemdHarness()
+  await harness.containment.probe()
+  assert.equal(harness.directGateWrites, 0)
+  assert.equal(harness.gatePublications, 1)
+  const conflict = systemdHarness({ existingGate: true })
+  await assert.rejects(conflict.containment.probe(), /gate.*exist/iu)
+  assert.equal(conflict.gatePublications, 0)
 })
 
 test("strict runner refuses workloads until its capability probe succeeds", async () => {
@@ -370,7 +403,7 @@ test("every release smoke lane records capability refusal as its first check wit
 })
 
 test("command shim cannot spawn the requested process until the controller opens its gate", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-shim-test-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-shim-test-"))
   const descriptorPath = path.join(root, "command.json")
   const readyPath = path.join(root, "ready")
   const gatePath = path.join(root, "gate")
@@ -497,6 +530,9 @@ async function waitForFile(filePath) {
 }
 
 function systemdHarness({
+  readyContents = "ready\n",
+  completeReadyAfterRead = false,
+  existingGate = false,
   controlOutputOverflow = false,
   executableStatus = fileStatus({ mode: 0o100755, uid: 0 }),
   garbageCollectProbeUnit = false,
@@ -507,6 +543,9 @@ function systemdHarness({
   let nonce = 0
   const harness = {
     calls: [],
+    readyReads: 0,
+    gatePublications: 0,
+    directGateWrites: 0,
     clientReapCalls: 0,
     controlReapCalls: 0,
     descendantAlive: false,
@@ -531,7 +570,7 @@ function systemdHarness({
     },
     async mkdtemp() {
       nonce += 1
-      return `/tmp/dawn-smoke-control-${nonce}`
+      return `/tmp/b4-smoke-control-${nonce}`
     },
     async readFile(filePath) {
       if (filePath === "/proc/self/mountinfo") {
@@ -544,16 +583,29 @@ function systemdHarness({
         return `populated ${state?.populated ?? 0}\nfrozen 0\n`
       }
       if (!files.has(filePath)) throw fileError("ENOENT")
-      return files.get(filePath)
+      const contents = files.get(filePath)
+      if (filePath.endsWith("/ready")) {
+        harness.readyReads += 1
+        if (completeReadyAfterRead) files.set(filePath, "ready\n")
+      }
+      return contents
     },
     async rm(root) {
       for (const key of [...files.keys()]) {
         if (key.startsWith(`${root}/`)) files.delete(key)
       }
     },
-    async writeFile(filePath, value) {
+    async rename(from, to) {
+      assert.equal(files.get(from), "go\n")
+      assert.equal(files.has(to), false)
+      await fileSystem.writeFile(to, files.get(from), { diagnosticAtomic: true })
+      files.delete(from)
+    },
+    async writeFile(filePath, value, options = {}) {
       files.set(filePath, Buffer.isBuffer(value) ? Buffer.from(value) : String(value))
       if (filePath.endsWith("/gate")) {
+        if (!options.diagnosticAtomic) harness.directGateWrites += 1
+        harness.gatePublications += 1
         const descriptor = JSON.parse(
           String(files.get(path.join(path.dirname(filePath), "command.json"))),
         )
@@ -643,7 +695,8 @@ function systemdHarness({
           resolve,
         }
         units.set(unit, state)
-        files.set(descriptor.readyPath, "ready\n")
+        files.set(descriptor.readyPath, readyContents)
+        if (existingGate) files.set(descriptor.gatePath, "unexpected\n")
         return {
           done,
           outputLimit,
@@ -677,6 +730,8 @@ function systemdHarness({
         if (args[0] === "kill") return completedClient()
         if (args[0] === "stop") {
           state.activeState = "inactive"
+          state.populated = 0
+          state.resolve({ stdout: "", stderr: "", exitCode: 143, signal: "SIGTERM" })
           return completedClient()
         }
         if (args[0] === "reset-failed") {

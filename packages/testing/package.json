@@ -1,26 +1,26 @@
 {
-  "name": "@dawn-ai/testing",
-  "version": "0.8.25",
+  "name": "@b4run/testing",
+  "version": "0.8.30",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "description": "Deterministic harnesses, fixtures, and matchers for testing Dawn agent applications.",
+  "description": "Deterministic harnesses, fixtures, and matchers for testing B4.run agent applications.",
   "keywords": [
-    "dawn",
+    "b4",
     "typescript",
     "ai-agents",
     "testing",
     "fixtures",
     "llm"
   ],
-  "homepage": "https://github.com/cacheplane/dawnai/tree/main/packages/testing#readme",
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/testing#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/dawnai.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/testing"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/dawnai/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -46,23 +46,23 @@
   },
   "dependencies": {
     "@copilotkit/aimock": "^1.37.4",
-    "@dawn-ai/memory": "workspace:*"
+    "@b4run/memory": "workspace:*"
   },
   "peerDependencies": {
-    "@dawn-ai/cli": "workspace:*",
-    "@dawn-ai/core": "workspace:*",
-    "@dawn-ai/sdk": "workspace:*",
-    "@dawn-ai/workspace": "workspace:*"
+    "@b4run/cli": "workspace:*",
+    "@b4run/core": "workspace:*",
+    "@b4run/sdk": "workspace:*",
+    "@b4run/workspace": "workspace:*"
   },
   "devDependencies": {
-    "@dawn-ai/cli": "workspace:*",
-    "@dawn-ai/config-typescript": "workspace:*",
-    "@dawn-ai/core": "workspace:*",
-    "@dawn-ai/langchain": "workspace:*",
-    "@dawn-ai/permissions": "workspace:*",
-    "@dawn-ai/sdk": "workspace:*",
-    "@dawn-ai/sqlite-storage": "workspace:*",
-    "@dawn-ai/workspace": "workspace:*",
+    "@b4run/cli": "workspace:*",
+    "@b4run/config-typescript": "workspace:*",
+    "@b4run/core": "workspace:*",
+    "@b4run/langchain": "workspace:*",
+    "@b4run/permissions": "workspace:*",
+    "@b4run/sdk": "workspace:*",
+    "@b4run/sqlite-storage": "workspace:*",
+    "@b4run/workspace": "workspace:*",
     "@langchain/langgraph-checkpoint": "^1.1.3",
     "@testcontainers/postgresql": "^12.0.4",
     "@types/node": "26.1.2",
