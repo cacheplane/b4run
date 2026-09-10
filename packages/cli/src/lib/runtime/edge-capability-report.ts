@@ -22,6 +22,7 @@
  */
 
 import type { B4Config } from "@b4run/core"
+import { pureDirname, pureJoin } from "./pure-path.js"
 
 /** The target these rules describe. Named in the build-time message. */
 export const EDGE_TARGET = "hono"
@@ -133,8 +134,12 @@ export interface RuntimeCapabilityInput {
   /** The static module manifest's routes, when the handler booted from one. */
   readonly routes: readonly {
     readonly routeId: string
+    /** Exact runtime path used to resolve bundled marker files. */
+    readonly routeFile?: string
     /** Skill directory names this route had at BUILD time (see StaticRouteModule). */
     readonly skills?: readonly string[]
+    /** Bundled marker file bodies (see StaticRouteModule.markerFiles); their presence serves the skills. */
+    readonly markerFiles?: Readonly<Record<string, string>>
   }[]
 }
 
@@ -201,18 +206,36 @@ export function collectRuntimeCapabilityGaps(
   // route loads, and without a MarkerFs the skills capability's `detect` simply
   // returns false. Nothing at request time can tell "this route had skills"
   // from "this route had none", which is why the BUILD records the names into
-  // the static manifest and this reads them back.
+  // the static manifest and this reads them back. A build that also BUNDLED a
+  // given skill's body (`markerFiles` containing its `SKILL.md`) serves it
+  // through `staticMarkerFs`, so only skills whose body is missing are gaps.
   for (const route of input.routes) {
     const skills = route.skills
     if (!skills || skills.length === 0) continue
+    // Trust the manifest for bodies exactly as little as for names: a skill is
+    // served only when its own SKILL.md body is bundled. A hand-composed
+    // manifest that records names beside a lone plan.md still reports.
+    const unserved = skills.filter((name) => {
+      if (!route.routeFile) return true
+      const path = pureJoin(pureDirname(route.routeFile), "skills", name, "SKILL.md")
+      return (
+        !Object.hasOwn(route.markerFiles ?? {}, path) ||
+        typeof route.markerFiles?.[path] !== "string"
+      )
+    })
+    if (unserved.length === 0) continue
     violations.push({
-      capability: `skills (${[...skills].sort().join(", ")})`,
+      // Re-sorted even though `discoverSkillDirs` already sorts: `route.skills`
+      // here can come from a hand-composed manifest fed straight to this
+      // function, which carries no guarantee of that order.
+      capability: `skills (${[...unserved].sort().join(", ")})`,
       source: `the skills/ directory of route "${route.routeId}", recorded in the static module manifest at build time`,
       reason:
         "skill bodies are read from disk when the route loads, and this runtime has no filesystem " +
-        "to read them from — the skills would vanish from the prompt with no error at all",
+        "to read them from — the manifest records these skill names but bundles no body for them, so the " +
+        "skills would vanish from the prompt with no error at all",
       remedy:
-        "Inline the instructions into the route's `systemPrompt`, or serve them from a tool that fetches them",
+        "Rebuild with `b4 build` so the manifest bundles the skill bodies, or inline the instructions into the route's `systemPrompt`",
     })
   }
 

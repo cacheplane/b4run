@@ -8,6 +8,7 @@ import {
   DEFAULT_BUILD_TARGETS,
   knownTargetNames,
 } from "../lib/build/targets/index.js"
+import { assertRouteMarkerFileLimits } from "../lib/build/targets/marker-files.js"
 import { loadB4Config } from "../lib/node-config.js"
 import { CliError, type CommandIo, writeLine } from "../lib/output.js"
 import { runTypegen } from "../lib/typegen/run-typegen.js"
@@ -35,17 +36,6 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
     ...(options.cwd ? { appRoot: options.cwd } : {}),
   })
 
-  // Run typegen as pre-step to produce .b4/routes/<id>/tools.json and .b4/b4.generated.d.ts
-  await runTypegen({ appRoot: manifest.appRoot, manifest })
-
-  const buildDir = resolve(manifest.appRoot, ".b4", "build")
-
-  if (options.clean) {
-    await rm(buildDir, { recursive: true, force: true })
-  }
-
-  await mkdir(buildDir, { recursive: true })
-
   let targetNames: readonly string[] = DEFAULT_BUILD_TARGETS
   try {
     const loaded = await loadB4Config({ appRoot: manifest.appRoot })
@@ -71,6 +61,23 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
     writeLine(io.stderr, "no build targets configured; nothing emitted")
     return
   }
+
+  // Validate all bundled markers before typegen, cleaning prior output, or any
+  // target emission: an earlier node target must not leave a partial build.
+  if (targetNames.some((name) => name === "hono" || name === "vercel")) {
+    await assertRouteMarkerFileLimits({ appRoot: manifest.appRoot, manifest })
+  }
+
+  // Run typegen as pre-step to produce .b4/routes/<id>/tools.json and .b4/b4.generated.d.ts
+  await runTypegen({ appRoot: manifest.appRoot, manifest })
+
+  const buildDir = resolve(manifest.appRoot, ".b4", "build")
+
+  if (options.clean) {
+    await rm(buildDir, { recursive: true, force: true })
+  }
+
+  await mkdir(buildDir, { recursive: true })
 
   const ctx: BuildEmitContext = {
     appRoot: manifest.appRoot,
