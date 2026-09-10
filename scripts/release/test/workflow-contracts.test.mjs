@@ -2014,7 +2014,7 @@ test("testing-windows has the exact safe descriptors and executable classificati
         classification: "safe",
         descriptor: {
           name: "Setup pnpm",
-          uses: "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271",
+          uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
           with: { version: "10.33.0" },
         },
       },
@@ -2103,7 +2103,7 @@ test("dependency-security-browser has one exact isolated read-only descriptor", 
         classification: "safe",
         descriptor: {
           name: "Setup pnpm",
-          uses: "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271",
+          uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
           with: { version: "10.33.0" },
         },
       },
