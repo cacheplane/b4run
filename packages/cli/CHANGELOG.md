@@ -1,5 +1,72 @@
 # @dawn-ai/cli
 
+## 0.8.30
+
+### Patch Changes
+
+- 80a98ad: Authorize a thread's row before claiming its run slot on `POST /agui/:routeId`.
+  The AG-UI handler previously ran `runRegistry.begin` before rechecking the
+  concrete row, so on the create-race path a caller the recheck ultimately denies
+  held the victim thread's run slot for the width of that recheck — a client-chosen
+  thread id let a denied caller brick a concurrent authorized run on the same
+  thread with a transient `run_in_flight` 409. The row authorization (and the
+  implicit create, when the turn makes one) now runs before the slot is claimed,
+  mirroring the Agent Protocol run handlers. Behavior is unchanged for authorized
+  callers and for hook-less apps.
+- 80a98ad: Add `GET /threads/{id}/runs/stream` — reattach to a running turn. A disconnected
+  client rejoins by attaching to this read-only GET mirror of the POST stream: one
+  `event: state` snapshot (channel values, the turn's coalesced frames so far, and
+  parked interrupts) followed by the live tail, or an immediate durable snapshot +
+  `done` when no live turn exists in this process. It requires thread-access `read` plus middleware approval for the selected
+  producer and the recorded parked, last-run, and anchor routes. The selected
+  turn stays fixed across asynchronous authorization. Backed by a bounded in-memory `LiveTurnHub`; the durable
+  path works across restarts, replicas, and serverless. Being a GET with no body,
+  it is the first Agent Protocol stream a stock `EventSource` can consume.
+
+  `@b4run/sdk` gains one additive `ThreadOperation` member, `thread.attach`, for
+  the new endpoint. A thread-access policy that switches exhaustively over
+  `ThreadOperation` should add a `thread.attach` arm; a `fallback` handler already
+  covers it.
+
+  Canceling or aborting an attach releases its viewer slot and heartbeat without
+  stopping the producer. Slow viewers remain bounded and are detached on overflow.
+  The durable retry hint precedes `done`, so clients can stop reading at the terminal frame.
+
+  Bind checkpoint ownership to the exact checkpoint ID at the saver write boundary,
+  retaining verified ancestor routes and overwriting any upstream ownership claim.
+  Attach authorizes that provenance instead of inferring checkpoint ownership from
+  mutable thread metadata. Legacy or unknown checkpoint ancestry fails closed with
+  `thread_route_unknown`; a fresh thread establishes verified provenance.
+
+- 111d45c: Add `b4 threads tail <thread-id>` — reattach to a thread from the terminal.
+  It consumes `GET /threads/:thread_id/runs/stream`, printing a snapshot (the
+  committed transcript, the in-flight turn's output so far, and any parked
+  human-in-the-loop prompts) and then following live frames until the turn ends.
+  When no turn is live in the target process it prints the durable
+  checkpoint-backed snapshot and exits, so it works across restarts and replicas.
+
+  `--url` points at a server other than `http://127.0.0.1:3000`, `--header` is
+  repeatable for middleware that authenticates the thread's route, and `--json`
+  prints raw SSE frames for scripting. Attaching takes no run slot and cancels
+  nothing.
+
+  This is B4.run's first first-party Agent Protocol stream client: it parses the
+  documented wire defensively rather than importing the server's frame types, so
+  the published contract now has a consumer that exercises it.
+
+- 18c7b61: Route skills, `plan.md`, and `memory.md` now work on the `hono` and `vercel` targets: `b4 build` bundles them into the static manifest and the runtime serves them through the new `staticMarkerFs` in `@b4run/core`. The build no longer gates skills off those targets; instead `b4 build` and `b4 check` enforce a per-file size limit (32 KiB for `SKILL.md` and `memory.md`, 64 KiB for `plan.md`) and fail with `B4_E1005` by name. `@b4run/core` also exports `MAX_PLAN_BYTES` and `MAX_MEMORY_BYTES`.
+- Updated dependencies [80a98ad]
+- Updated dependencies [18c7b61]
+- Updated dependencies [6039fd2]
+  - @b4run/sdk@0.8.30
+  - @b4run/core@0.8.30
+  - @b4run/langchain@0.8.30
+  - @b4run/langgraph@0.8.30
+  - @b4run/permissions@0.8.30
+  - @b4run/ag-ui@0.8.30
+  - @b4run/memory@0.8.30
+  - @b4run/sqlite-storage@0.8.30
+
 ## 0.8.29
 
 ### Patch Changes

@@ -1,5 +1,17 @@
 # @dawn-ai/core
 
+## 0.8.30
+
+### Patch Changes
+
+- 18c7b61: Route skills, `plan.md`, and `memory.md` now work on the `hono` and `vercel` targets: `b4 build` bundles them into the static manifest and the runtime serves them through the new `staticMarkerFs` in `@b4run/core`. The build no longer gates skills off those targets; instead `b4 build` and `b4 check` enforce a per-file size limit (32 KiB for `SKILL.md` and `memory.md`, 64 KiB for `plan.md`) and fail with `B4_E1005` by name. `@b4run/core` also exports `MAX_PLAN_BYTES` and `MAX_MEMORY_BYTES`.
+- 6039fd2: Preserve null in generated tool parameter schemas, including required and optional nullable fields, and validate null alternatives without accepting unrelated values at runtime.
+- Updated dependencies [80a98ad]
+  - @b4run/sdk@0.8.30
+  - @b4run/permissions@0.8.30
+  - @b4run/workspace@0.8.30
+  - @b4run/sqlite-storage@0.8.30
+
 ## 0.8.29
 
 ### Patch Changes
