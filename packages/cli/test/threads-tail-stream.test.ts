@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { consumeAttachStream } from "../src/lib/threads/tail-stream.js"
 
 function bodyOf(text: string): ReadableStream<Uint8Array> {
@@ -23,6 +23,34 @@ describe("consumeAttachStream", () => {
     expect(result.retryMs).toBe(2100)
     expect(out.join("\n")).toContain("idle")
   })
+
+  it.each(["done", "detached"])(
+    "stops and cancels the transport after %s without waiting for EOF",
+    async (event) => {
+      let cancelled = false
+      let controller: ReadableStreamDefaultController<Uint8Array> | undefined
+      const body = new ReadableStream<Uint8Array>({
+        start(c) {
+          controller = c
+          c.enqueue(
+            new TextEncoder().encode(`retry: 2100\n\nevent: ${event}\ndata: {"reason":"lag"}\n\n`),
+          )
+        },
+        cancel() {
+          cancelled = true
+        },
+      })
+      const result = consumeAttachStream({ body, write: () => {} })
+      try {
+        await vi.waitFor(() => expect(cancelled).toBe(true))
+        expect(await result).toMatchObject({ outcome: event, retryMs: 2100 })
+        expect(body.locked).toBe(false)
+      } finally {
+        if (!cancelled) controller?.close()
+        await result
+      }
+    },
+  )
 
   it("reports a stream that ends without done as truncated", async () => {
     const result = await consumeAttachStream({

@@ -45,6 +45,9 @@ export async function consumeAttachStream(
 
   const handleFrame = (frame: SseFrame): void => {
     if (frame.retry !== undefined) retryMs = frame.retry
+    // Honor a trailing retry hint already received in this chunk, but never
+    // render more events or replace the outcome after the terminal frame.
+    if (outcome !== undefined) return
 
     if (json) {
       write(JSON.stringify(frame))
@@ -62,11 +65,19 @@ export async function consumeAttachStream(
     }
   }
 
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    const frames = parser.push(decoder.decode(value, { stream: true }))
-    for (const frame of frames) handleFrame(frame)
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const frames = parser.push(decoder.decode(value, { stream: true }))
+      for (const frame of frames) handleFrame(frame)
+      if (outcome !== undefined) {
+        await reader.cancel()
+        break
+      }
+    }
+  } finally {
+    reader.releaseLock()
   }
 
   if (outcome === "detached") {

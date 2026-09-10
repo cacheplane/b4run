@@ -20,11 +20,29 @@ describe("createSseFrameParser", () => {
 
   it("folds multi-line data per the SSE spec", () => {
     const parser = createSseFrameParser()
-    // Two data: lines join with \n before parsing — the server does not emit this
-    // today, but a spec-correct client must not silently drop the first line.
-    expect(parser.push('event: note\ndata: "a\ndata: b"\n\n')).toEqual([
-      { event: "note", data: "a\nb" },
+    expect(parser.push('event: note\ndata: {"a":1,\ndata: "b":2}\n\n')).toEqual([
+      { event: "note", data: { a: 1, b: 2 } },
     ])
+  })
+
+  it.each(["\n", "\r\n", "\r"])("parses %j framing at every chunk boundary", (eol) => {
+    const text = `event: done${eol}data: {"output":null}${eol}${eol}`
+    for (let split = 0; split <= text.length; split += 1) {
+      const parser = createSseFrameParser()
+      expect([...parser.push(text.slice(0, split)), ...parser.push(text.slice(split))]).toEqual([
+        { event: "done", data: { output: null } },
+      ])
+    }
+  })
+
+  it("does not repair malformed JSON by escaping a raw newline", () => {
+    expect(createSseFrameParser().push('data: "a\ndata: b"\n\n')).toEqual([
+      { event: "message", malformed: true, raw: '"a\nb"' },
+    ])
+  })
+
+  it.each(["", "-1", "1.5", "1e3", "Infinity"])("ignores invalid retry value %j", (value) => {
+    expect(createSseFrameParser().push(`retry: ${value}\n\n`)).toEqual([])
   })
 
   it("reports unparseable data rather than throwing", () => {

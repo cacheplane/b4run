@@ -24,9 +24,19 @@ export interface SseFrameParser {
 
 export function createSseFrameParser(): SseFrameParser {
   let buffer = ""
+  let skipLf = false
   return {
     push(text) {
-      buffer += text
+      // Normalize CR, LF and CRLF incrementally, including a CRLF pair split
+      // across chunks. A CR already completes its line; only its LF is skipped.
+      for (const character of text) {
+        if (skipLf && character === "\n") {
+          skipLf = false
+          continue
+        }
+        skipLf = character === "\r"
+        buffer += skipLf ? "\n" : character
+      }
       const frames: SseFrame[] = []
       for (;;) {
         const end = buffer.indexOf("\n\n")
@@ -41,28 +51,29 @@ export function createSseFrameParser(): SseFrameParser {
           // A leading colon is a comment — this is how the server's keepalive
           // (`: ping`) arrives. Never a frame.
           if (line.startsWith(":")) continue
-          if (line.startsWith("event:")) event = line.slice("event:".length).trimStart()
-          else if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trimStart())
-          else if (line.startsWith("retry:")) {
-            const value = Number(line.slice("retry:".length).trim())
-            if (Number.isFinite(value)) retry = value
+          const colon = line.indexOf(":")
+          const field = colon === -1 ? line : line.slice(0, colon)
+          const rawValue = colon === -1 ? "" : line.slice(colon + 1)
+          const value = rawValue.startsWith(" ") ? rawValue.slice(1) : rawValue
+          if (field === "event") event = value
+          else if (field === "data") dataLines.push(value)
+          else if (field === "retry" && /^\d+$/.test(value)) {
+            const delay = Number(value)
+            if (Number.isFinite(delay)) retry = delay
           }
           // `id:` and unknown fields are ignored: this wire carries no ids, and
           // reconnect is a fresh snapshot rather than a cursor resume.
         }
         if (dataLines.length === 0 && retry === undefined) continue
 
-        const name = event ?? "message"
+        const name = event || "message"
         if (dataLines.length === 0) {
           frames.push(retry === undefined ? { event: name } : { event: name, retry })
           continue
         }
-        // Multi-line data folds per the SSE spec: each `data:` line becomes
-        // part of one logical text field. A literal newline joiner would
-        // produce invalid JSON (raw control characters are illegal inside a
-        // JSON string literal), so the fold uses the JSON escape sequence —
-        // JSON.parse then unescapes it back to a real newline in the value.
-        const raw = dataLines.join("\\n")
+        // SSE folds data lines with actual newlines before interpreting JSON.
+        // Invalid JSON stays malformed; framing must not rewrite its contents.
+        const raw = dataLines.join("\n")
         try {
           const parsed: unknown = JSON.parse(raw)
           frames.push(
