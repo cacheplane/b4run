@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest"
-import { resolveTailRequest } from "../src/commands/threads.js"
+import { describe, expect, it, vi } from "vitest"
+import { resolveTailRequest, runThreadsCommand } from "../src/commands/threads.js"
 import { createProgram } from "../src/index.js"
 import { CliError, type CommandIo } from "../src/lib/output.js"
 
@@ -104,6 +104,60 @@ describe("resolveTailRequest", () => {
 
   it("rejects a header with an empty name", () => {
     expect(() => resolveTailRequest("t1", { header: [": value"] })).toThrow(CliError)
+  })
+
+  it.each([
+    "TEST_ONLY_CREDENTIAL",
+    ": TEST_ONLY_CREDENTIAL",
+    "authorization: Bearer TEST_ONLY_CREDENTIAL\ninvalid",
+  ])("rejects malformed headers without exposing their values", (header) => {
+    let error: unknown
+    try {
+      resolveTailRequest("t1", { header: [header] })
+    } catch (caught) {
+      error = caught
+    }
+    expect(error).toBeInstanceOf(CliError)
+    expect(String(error)).not.toContain("TEST_ONLY_CREDENTIAL")
+  })
+
+  it.each(["not a url TEST_ONLY_CREDENTIAL", "https://user:TEST_ONLY_CREDENTIAL@example.test"])(
+    "rejects unsafe base URLs without echoing credentials",
+    (url) => {
+      let error: unknown
+      try {
+        resolveTailRequest("t1", { url })
+      } catch (caught) {
+        error = caught
+      }
+      expect(error).toBeInstanceOf(CliError)
+      expect(String(error)).not.toContain("TEST_ONLY_CREDENTIAL")
+    },
+  )
+
+  it("does not echo credential-bearing transport exceptions", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new TypeError("Invalid authorization value Bearer TEST_ONLY_CREDENTIAL"))
+    const { io } = collectIo()
+    try {
+      let error: unknown
+      try {
+        await runThreadsCommand(
+          "tail",
+          ["t1"],
+          { header: ["authorization: Bearer TEST_ONLY_CREDENTIAL"] },
+          io,
+        )
+      } catch (caught) {
+        error = caught
+      }
+      expect(error).toBeInstanceOf(CliError)
+      expect(String(error)).not.toContain("TEST_ONLY_CREDENTIAL")
+      expect(String(error)).toContain("Cannot reach")
+    } finally {
+      fetchMock.mockRestore()
+    }
   })
 
   it("throws a CliError(2) for an unparseable --url", () => {

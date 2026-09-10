@@ -271,7 +271,9 @@ describe("b4 threads tail — integration against a real bound server", () => {
     expect((caught as CliError).exitCode).toBe(2)
     // The FRIENDLY message, not the generic fallback: this phrase exists only
     // in the client's own 409 branch, so it fails if the code lookup misses.
-    expect((caught as CliError).message).toContain("there is nothing to tail")
+    expect((caught as CliError).message).toContain(
+      "Cannot safely identify the route or checkpoint history",
+    )
     expect((caught as CliError).message).not.toContain('{"error"')
   })
 

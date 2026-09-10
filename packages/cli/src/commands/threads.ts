@@ -6,7 +6,7 @@
  * (`/docs/dev-server/agent-protocol`) rather than a compile-time-coupled sibling.
  */
 import type { Command } from "commander"
-import { CliError, type CommandIo, writeLine } from "../lib/output.js"
+import { CliError, type CommandIo } from "../lib/output.js"
 import { consumeAttachStream } from "../lib/threads/tail-stream.js"
 
 const DEFAULT_BASE = "http://127.0.0.1:3000"
@@ -31,12 +31,17 @@ export interface TailRequest {
 function parseHeader(raw: string): readonly [string, string] {
   const colonIndex = raw.indexOf(":")
   if (colonIndex === -1) {
-    throw new CliError(`Invalid --header "${raw}": expected "name: value".`, 2)
+    throw new CliError('Invalid --header: expected "name: value".', 2)
   }
   const name = raw.slice(0, colonIndex).trim()
   const value = raw.slice(colonIndex + 1).trim()
   if (name === "") {
-    throw new CliError(`Invalid --header "${raw}": header name is empty.`, 2)
+    throw new CliError("Invalid --header: header name is empty.", 2)
+  }
+  try {
+    new Headers([[name, value]])
+  } catch {
+    throw new CliError("Invalid --header: header name or value contains invalid characters.", 2)
   }
   return [name, value]
 }
@@ -47,9 +52,12 @@ export function resolveTailRequest(threadId: string, options: ThreadsOptions): T
   let url: URL
   try {
     url = new URL(`/threads/${encodeURIComponent(threadId)}/runs/stream`, base)
-  } catch (error) {
+  } catch {
+    throw new CliError("Invalid --url: expected an HTTP or HTTPS server URL.", 2)
+  }
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
     throw new CliError(
-      `Invalid --url "${base}": ${error instanceof Error ? error.message : String(error)}`,
+      "Invalid --url: use HTTP or HTTPS without embedded credentials; use --header for authentication.",
       2,
     )
   }
@@ -63,14 +71,22 @@ export function resolveTailRequest(threadId: string, options: ThreadsOptions): T
   return { url, headers, json: options.json ?? false }
 }
 
-function unwrapCause(error: unknown): string {
-  if (error instanceof Error) {
-    const cause = error.cause
-    if (cause instanceof Error) return cause.message
-    if (typeof cause === "string") return cause
-    return error.message
+function transportFailure(error: unknown): string {
+  // Fetch errors may echo authorization values. Only expose known diagnostic
+  // codes, never raw exception messages or causes carrying caller input.
+  const code = own(own(error, "cause"), "code") ?? own(error, "code")
+  switch (code) {
+    case "ECONNREFUSED":
+      return "connection refused"
+    case "ENOTFOUND":
+      return "server hostname not found"
+    case "ECONNRESET":
+      return "connection reset"
+    case "ETIMEDOUT":
+      return "connection timed out"
+    default:
+      return "request failed; check the URL, headers, and server"
   }
-  return String(error)
 }
 
 function own(value: unknown, key: string): unknown {
@@ -127,7 +143,7 @@ async function runTail(threadId: string, options: ThreadsOptions, io: CommandIo)
     })
   } catch (error) {
     throw new CliError(
-      `Cannot reach the B4.run server at ${request.url.origin}: ${unwrapCause(error)}`,
+      `Cannot reach the B4.run server at ${request.url.origin}: ${transportFailure(error)}`,
       2,
     )
   }
@@ -139,7 +155,10 @@ async function runTail(threadId: string, options: ThreadsOptions, io: CommandIo)
     if (response.status === 409) {
       const { code } = await readErrorBody(response)
       if (code === "thread_route_unknown") {
-        throw new CliError(`Thread "${threadId}" has never run; there is nothing to tail.`, 2)
+        throw new CliError(
+          `Cannot safely identify the route or checkpoint history for thread "${threadId}"; there is nothing safe to tail.`,
+          2,
+        )
       }
     }
     throw new CliError(
@@ -154,7 +173,7 @@ async function runTail(threadId: string, options: ThreadsOptions, io: CommandIo)
 
   const result = await consumeAttachStream({
     body: response.body,
-    write: (line) => writeLine(io.stdout, line),
+    write: io.stdout,
     json: request.json,
   })
 

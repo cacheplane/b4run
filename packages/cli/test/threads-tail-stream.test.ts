@@ -67,6 +67,78 @@ describe("consumeAttachStream", () => {
     expect(body.locked).toBe(false)
   })
 
+  it("renders the same text whether token chunks are in the snapshot or live tail", async () => {
+    const render = async (snapshot: string[], live: string[]) => {
+      const turn = snapshot.map((data) => ({ type: "chunk", data }))
+      const state = { live: true, status: "busy", turn, values: null, input: null, interrupts: [] }
+      const wire =
+        `event: state\ndata: ${JSON.stringify(state)}\n\n` +
+        live.map((data) => `event: chunk\ndata: ${JSON.stringify(data)}\n\n`).join("") +
+        'event: done\ndata: {"output":null}\n\n'
+      let output = ""
+      await consumeAttachStream({
+        body: bodyOf(wire),
+        write: (text) => {
+          output += text
+        },
+      })
+      return output
+    }
+    const snapshot = await render(["wor", "king"], [])
+    expect(snapshot).toContain("working\n[done]")
+    expect(await render(["wor"], ["k", "ing"])).toBe(snapshot)
+    expect(await render([], ["wor", "k", "ing"])).toBe(snapshot)
+  })
+
+  it("cancels the transport and releases its reader when output fails", async () => {
+    let cancelled = false
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('event: chunk\ndata: "text"\n\n'))
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    await expect(
+      consumeAttachStream({
+        body,
+        write: () => {
+          throw new Error("output closed")
+        },
+      }),
+    ).rejects.toThrow("output closed")
+    expect(cancelled).toBe(true)
+    expect(body.locked).toBe(false)
+  })
+
+  it("renders malformed chunk data as a diagnostic and continues to done", async () => {
+    let output = ""
+    const result = await consumeAttachStream({
+      body: bodyOf("event: chunk\ndata: {bad}\n\nevent: done\ndata: {}\n\n"),
+      write: (text) => {
+        Buffer.byteLength(text)
+        output += text
+      },
+    })
+    expect(result.outcome).toBe("done")
+    expect(output).toContain("[malformed chunk] {bad}")
+    expect(output).toContain("[done]")
+  })
+
+  it("writes only text for an incomplete snapshot chunk", async () => {
+    const state = { live: true, turn: [{ type: "chunk" }] }
+    let output = ""
+    await consumeAttachStream({
+      body: bodyOf(`event: state\ndata: ${JSON.stringify(state)}\n\nevent: done\ndata: {}\n\n`),
+      write: (text) => {
+        Buffer.byteLength(text)
+        output += text
+      },
+    })
+    expect(output).toContain("[done]")
+  })
+
   it("reports a stream that ends without done as truncated", async () => {
     const result = await consumeAttachStream({
       body: bodyOf('event: state\ndata: {"live":true,"turn":[]}\n\n'),

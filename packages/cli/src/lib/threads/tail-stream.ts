@@ -3,7 +3,7 @@
  * (or, in `json` mode, echoing) each frame and classifying how the stream
  * ended so the caller can map that onto a CLI exit code.
  */
-import { parseStateFrame } from "./attach-state.js"
+import { parseStateFrame, projectTurnChunk } from "./attach-state.js"
 import { createSseFrameParser, type SseFrame } from "./sse-frames.js"
 import { renderFrame, renderSnapshot } from "./tail-render.js"
 
@@ -17,7 +17,8 @@ export interface ConsumeAttachStreamResult {
 
 export interface ConsumeAttachStreamOptions {
   readonly body: ReadableStream<Uint8Array>
-  readonly write: (line: string) => void
+  /** Write raw output text; the consumer supplies line separators. */
+  readonly write: (text: string) => void
   readonly json?: boolean
 }
 
@@ -39,6 +40,20 @@ export async function consumeAttachStream(
   const decoder = new TextDecoder()
   const parser = createSseFrameParser()
 
+  let textOpen = false
+  const endText = () => {
+    if (textOpen) write("\n")
+    textOpen = false
+  }
+  const line = (text: string) => {
+    endText()
+    write(`${text}\n`)
+  }
+  const token = (text: string) => {
+    write(text)
+    textOpen = true
+  }
+
   let retryMs: number | undefined
   let outcome: AttachOutcome | undefined
   let reason: string | undefined
@@ -50,11 +65,29 @@ export async function consumeAttachStream(
     if (outcome !== undefined) return
 
     if (json) {
-      write(JSON.stringify(frame))
+      line(JSON.stringify(frame))
+    } else if (frame.malformed) {
+      line(`[malformed ${frame.event}] ${frame.raw ?? ""}`)
     } else if (frame.event === "state") {
-      for (const line of renderSnapshot(parseStateFrame(frame.data))) write(line)
+      const state = parseStateFrame(frame.data)
+      const lines = renderSnapshot(state)
+      const lastChunk = state.turn?.at(-1)
+      const continues =
+        state.live &&
+        !state.truncated &&
+        state.interrupts.length === 0 &&
+        lastChunk !== undefined &&
+        projectTurnChunk(lastChunk).event === "chunk"
+      for (let index = 0; index < lines.length; index += 1) {
+        const text = lines[index] ?? ""
+        if (continues && index === lines.length - 1) token(text)
+        else line(text)
+      }
     } else if (frame.data !== undefined || frame.raw !== undefined) {
-      for (const line of renderFrame(frame)) write(line)
+      for (const text of renderFrame(frame)) {
+        if (frame.event === "chunk") token(text)
+        else line(text)
+      }
     }
 
     if (frame.event === "detached") {
@@ -71,14 +104,14 @@ export async function consumeAttachStream(
       if (done) break
       const frames = parser.push(decoder.decode(value, { stream: true }))
       for (const frame of frames) handleFrame(frame)
-      if (outcome !== undefined) {
-        // Cleanup cannot replace a terminal outcome already accepted from the server.
-        await reader.cancel().catch(() => {})
-        break
-      }
+      if (outcome !== undefined) break
     }
   } finally {
+    // Also release the transport if the output sink fails. Cleanup cannot
+    // replace a terminal outcome or the original read/write error.
+    await reader.cancel().catch(() => {})
     reader.releaseLock()
+    endText()
   }
 
   if (outcome === "detached") {

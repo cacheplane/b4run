@@ -23,7 +23,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function stringifyContent(content: unknown): string {
   if (typeof content === "string") return content
   try {
-    return JSON.stringify(content)
+    return JSON.stringify(content) ?? String(content)
   } catch {
     return String(content)
   }
