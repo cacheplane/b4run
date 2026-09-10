@@ -1422,7 +1422,7 @@
         "stepIndex": 1,
         "step": "Initialize CodeQL",
         "kind": "step-uses",
-        "value": "github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3"
+        "value": "github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938"
       },
       {
         "classification": "safe",
@@ -1430,7 +1430,7 @@
         "stepIndex": 2,
         "step": "Perform CodeQL Analysis",
         "kind": "step-uses",
-        "value": "github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3"
+        "value": "github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938"
       }
     ],
     "dependency-security-receipt.yml": [
@@ -3798,7 +3798,7 @@
         "stepIndex": 2,
         "step": "Upload SARIF",
         "kind": "step-uses",
-        "value": "github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3"
+        "value": "github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938"
       }
     ],
     "version-pr.yml": [

@@ -1901,7 +1901,7 @@
               "classification": "safe",
               "descriptor": {
                 "name": "Initialize CodeQL",
-                "uses": "github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3",
+                "uses": "github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938",
                 "with": {
                   "build-mode": "none",
                   "languages": "javascript-typescript"
@@ -1912,7 +1912,7 @@
               "classification": "safe",
               "descriptor": {
                 "name": "Perform CodeQL Analysis",
-                "uses": "github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3",
+                "uses": "github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938",
                 "with": {
                   "category": "/language:javascript-typescript"
                 }
@@ -6125,7 +6125,7 @@
               "classification": "safe",
               "descriptor": {
                 "name": "Upload SARIF",
-                "uses": "github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3",
+                "uses": "github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938",
                 "with": {
                   "sarif_file": "scorecard.sarif"
                 }
