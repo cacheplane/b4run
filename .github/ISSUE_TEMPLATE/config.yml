@@ -9,6 +9,6 @@ contact_links:
   - name: Security reports
     url: https://github.com/cacheplane/b4run/security/advisories/new
     about: Report vulnerabilities privately.
-  - name: Brand assets
-    url: https://b4.run/brand
+  - name: Download brand kit
+    url: https://b4.run/brand/b4-run-brand-assets.zip
     about: Download B4 logos and media assets.

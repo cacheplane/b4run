@@ -2494,6 +2494,130 @@ for (const mainExecutor of [false, true]) {
       runUrl: `https://api.github.com/repos/cacheplane/b4run/actions/runs/${audited.auditResult.workflowRunId}`,
       htmlUrl: `https://github.com/cacheplane/b4run/actions/runs/${audited.auditResult.workflowRunId}`,
     })
+    // Global selection must use this same complete authority proof, rather than
+    // treating an audit-looking asset as terminal or reselecting it forever.
+    await resolveProductionCandidate({
+      terminalRecordRef: "HEAD",
+      event: { schedule: "17 * * * *" },
+      inventory: inventoryReader(),
+      marker: MARKER,
+      git,
+      github,
+      npm: npmFixture.npm,
+      npmAuditFactory: npmFixture.npmAuditFactory,
+      attestations: attestationVerifier([]),
+      discovery: {
+        async discoverManagedCandidate() {
+          assert.fail("scheduled selection must not discover an exact invocation")
+        },
+        async discoverScheduledCandidate({ verifyTerminalPublication }) {
+          assert.equal(typeof verifyTerminalPublication, "function")
+          const input = {
+            candidate: candidate(),
+            release: audited.release,
+            releaseRecord: JSON.parse(
+              audited.bytesById
+                .get(audited.assets.find((asset) => asset.name === "release-record.json").id)
+                .toString("utf8"),
+            ),
+          }
+          assert.equal(await verifyTerminalPublication(input), true)
+          const observePackageVersion = npmFixture.npm.observePackageVersion
+          npmFixture.npm.observePackageVersion = async (args) => {
+            const result = await observePackageVersion(args)
+            return {
+              ...result,
+              package: { ...result.package, latest: "0.8.30", distTags: { latest: "0.8.30" } },
+            }
+          }
+          assert.equal(
+            await verifyTerminalPublication(input),
+            true,
+            "newer latest preserves terminal history",
+          )
+          const createAudit = npmFixture.npmAuditFactory.create
+          npmFixture.npmAuditFactory.create = async (...args) => {
+            const verifier = await createAudit(...args)
+            return {
+              ...verifier,
+              async verifyPackage(...inputs) {
+                const result = await verifier.verifyPackage(...inputs)
+                return {
+                  ...result,
+                  provenance: { ...result.provenance, commitSha: "f".repeat(40) },
+                }
+              },
+            }
+          }
+          assert.equal(
+            await verifyTerminalPublication(input),
+            false,
+            "newer latest cannot hide wrong provenance",
+          )
+          npmFixture.npmAuditFactory.create = createAudit
+          audited.release.immutable = false
+          assert.equal(
+            await verifyTerminalPublication(input),
+            false,
+            "mutable publication is not terminal",
+          )
+          audited.release.immutable = true
+          audited.release.draft = true
+          audited.release.immutable = false
+          const draft = await observeProductionCandidate({
+            terminalRecordRef: "HEAD",
+            candidate: candidate(),
+            inventory: inventory(),
+            marker: MARKER,
+            git,
+            github,
+            npm: npmFixture.npm,
+            npmAuditFactory: npmFixture.npmAuditFactory,
+            attestations: attestationVerifier([]),
+          })
+          assert.ok(draft.diagnostics.some(({ code }) => code === "NPM_EVIDENCE_DIGEST_MISMATCH"))
+          audited.release.draft = false
+          audited.release.immutable = true
+          for (const [first, rest, expected] of [
+            [VERSION, "0.8.30", true],
+            ["0.8.21", "0.8.30", false],
+            [null, null, false],
+            ["invalid", "invalid", false],
+          ]) {
+            npmFixture.npm.observePackageVersion = async (args) => {
+              const result = await observePackageVersion(args)
+              const latest = args.name === audited.manifest.packages[0].name ? first : rest
+              return { ...result, package: { ...result.package, latest, distTags: { latest } } }
+            }
+            assert.equal(
+              await verifyTerminalPublication(input),
+              expected,
+              `latest ${first}/${rest}`,
+            )
+          }
+          npmFixture.npm.observePackageVersion = observePackageVersion
+          assert.equal(
+            await verifyTerminalPublication({
+              ...input,
+              releaseRecord: { ...input.releaseRecord, manifestSha256: "f".repeat(64) },
+            }),
+            false,
+          )
+          audited.release.immutable = false
+          assert.equal(await verifyTerminalPublication(input), false)
+          audited.release.immutable = true
+          audited.bytesById.delete(audited.assets[0].id)
+          assert.equal(await verifyTerminalPublication(input), false)
+          return {
+            candidate: null,
+            state: "NO_CANDIDATE",
+            disposition: "noop",
+            tag: null,
+            conflicts: [],
+          }
+        },
+      },
+    })
   })
 }
 

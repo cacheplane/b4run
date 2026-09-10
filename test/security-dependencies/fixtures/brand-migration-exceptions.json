@@ -1562,6 +1562,16 @@
       "sha256": "4a5cdd86d4acf503883c6bafa6884bf33eae5fc8fbd60d0d7691635099f32043"
     },
     {
+      "path": "scripts/release/manifest.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "138c77aee1f416d04b0b5497be1d027ea4f3644ed29db6ae8bd96205f40d3846"
+    },
+    {
+      "path": "scripts/release/metadata.mjs",
+      "reason": "historical-release-tool",
+      "sha256": "e47111b84ef2f3c47edee1b52fda310eecf2efc9bfc8538008ecf15e1ee5cf55"
+    },
+    {
       "path": "scripts/release/recover-v0.8.22-duplicate-drafts.mjs",
       "reason": "historical-release-tool",
       "sha256": "9bfa5faf9086fea026b7bdf95f5f66a2840a6ef1efd661732a67ab2227fe2d66"
@@ -1644,7 +1654,7 @@
     {
       "path": "scripts/release/test/b4-identity.test.mjs",
       "reason": "negative-regression-fixture",
-      "sha256": "03a7551e8a62158e72bfcadaecd2d7bff0f2f6050fe9a6a2cc0e8496ecba954f"
+      "sha256": "75c96e56b9f685ecbcecb963c0f00330c35c1900f175c82cee1317be18e0653a"
     },
     {
       "path": "scripts/release/test/duplicate-draft-consolidation-adapters.test.mjs",
