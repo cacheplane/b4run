@@ -6,6 +6,7 @@ import type { B4Middleware, MiddlewareRequest, ThreadAccessPolicy } from "@b4run
 import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
 import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
+import { checkpointRoutes } from "../runtime/checkpoint-route-provenance.js"
 import {
   collectRuntimeCapabilityGaps,
   formatRuntimeCapabilityViolations,
@@ -1802,9 +1803,7 @@ async function handleApStreamRequest(options: {
     })
     liveTurn = liveTurnHub.open({
       routeKey,
-      anchorRouteKeys: [readParkedRoute(thread), thread?.metadata.route].filter(
-        (key): key is string => typeof key === "string",
-      ),
+      anchorRouteKeys: checkpointRoutes(anchorTuple) ?? [],
       anchorCheckpointId: anchorTuple?.checkpoint?.id ?? null,
       input,
       resume: false,
@@ -2654,7 +2653,7 @@ async function handleApAttachRequest(options: {
 
   // Authorize the thread before exposing whether it or a live turn exists.
   // Then authorize every known route whose content the snapshot can disclose:
-  // the selected producer, its pre-run anchor metadata, and parked/last-run
+  // the selected producer, its verified checkpoint ancestry, and parked/last-run
   // metadata. A denied read uses exactly the missing-thread response.
   const notFound = () =>
     Response.json(createRequestErrorBody("Thread not found", { code: "thread_not_found" }), {
@@ -2712,8 +2711,8 @@ async function handleApAttachRequest(options: {
   if (request.signal.aborted) finish()
 
   try {
-    // A known checkpoint without any pre-run route metadata cannot safely be
-    // assigned to the new producer. Keep the existing metadata contract and
+    // A known checkpoint without verified provenance cannot safely be
+    // assigned to the new producer. Keep the checkpoint owner binding and
     // fail closed instead of inventing an anchor owner.
     if (
       routeKeys.size === 0 ||
@@ -2731,6 +2730,11 @@ async function handleApAttachRequest(options: {
       : await checkpointer.getTuple({
           configurable: { checkpoint_ns: "", thread_id: threadId },
         })
+    if (durableTuple) {
+      const owners = checkpointRoutes(durableTuple)
+      if (!owners) return unknownRoute()
+      for (const owner of owners) routeKeys.add(owner)
+    }
     if (!attachment) {
       const current = await threadsStore.getThread(threadId)
       if (!current || JSON.stringify(recordedRoutes(current)) !== JSON.stringify(knownRoutes)) {
@@ -3067,9 +3071,7 @@ async function handleResumeRequest(options: {
       })
       liveTurn = liveTurnHub.open({
         routeKey,
-        anchorRouteKeys: [readParkedRoute(resumingThread), resumingThread?.metadata.route].filter(
-          (key): key is string => typeof key === "string",
-        ),
+        anchorRouteKeys: checkpointRoutes(anchorTuple) ?? [],
         anchorCheckpointId: anchorTuple?.checkpoint?.id ?? null,
         input: resumeResolution.resume,
         resume: true,

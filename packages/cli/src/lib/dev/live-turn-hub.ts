@@ -8,6 +8,7 @@ const DEFAULT_MAX_VIEWERS = 16
 export interface LiveTurnOpenInput {
   readonly threadId: string
   readonly routeKey: string
+  /** Verified owners from the exact anchor checkpoint; empty when absent or unknown. */
   readonly anchorRouteKeys: readonly string[]
   readonly anchorCheckpointId: string | null
   readonly runStartedAt: string
@@ -25,6 +26,7 @@ export interface LiveTurnProducer {
 /** A point-in-time copy of a live turn, handed to one attacher. */
 export interface LiveTurnAttachment {
   readonly routeKey: string
+  /** Verified owners from the exact anchor checkpoint; empty when absent or unknown. */
   readonly anchorRouteKeys: readonly string[]
   readonly anchorCheckpointId: string | null
   readonly runStartedAt: string
@@ -72,6 +74,7 @@ interface Subscriber {
 interface LiveTurn {
   readonly threadId: string
   readonly routeKey: string
+  /** Verified owners from the exact anchor checkpoint; empty when absent or unknown. */
   readonly anchorRouteKeys: readonly string[]
   readonly anchorCheckpointId: string | null
   readonly runStartedAt: string

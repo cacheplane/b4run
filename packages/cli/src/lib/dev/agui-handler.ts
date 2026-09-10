@@ -7,6 +7,7 @@ import type { PermissionsStore } from "@b4run/permissions"
 import type { B4Middleware, MiddlewareRequest, ThreadAccessPolicy } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
+import { checkpointRoutes } from "../runtime/checkpoint-route-provenance.js"
 import { type BootResolvedInstances, streamResolvedRoute } from "../runtime/execute-route-core.js"
 import type { SandboxManager } from "../runtime/sandbox-manager.js"
 import type { B4StaticModules } from "../runtime/static-modules-core.js"
@@ -400,9 +401,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       })
       liveTurn = liveTurnHub.open({
         routeKey,
-        anchorRouteKeys: [readParkedRoute(existingThread), existingThread?.metadata.route].filter(
-          (key): key is string => typeof key === "string",
-        ),
+        anchorRouteKeys: checkpointRoutes(anchorTuple) ?? [],
         anchorCheckpointId: anchorTuple?.checkpoint?.id ?? null,
         input: resumeResolution.mode === "resume" ? resumeResolution.resume : b4Input,
         resume: resumeResolution.mode === "resume",

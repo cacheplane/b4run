@@ -260,8 +260,15 @@ rejoins without cancelling anything and without a request body, so it is the one
 Agent Protocol stream a stock `EventSource` can consume. It requires
 thread-access `read` and middleware approval for every recorded route whose
 content it discloses: the selected live producer, its anchor, and the
-parked/last-run routes. Selection stays fixed while middleware runs; a known
-anchor without recorded route metadata fails closed with `thread_route_unknown`.
+parked/last-run routes. Selection stays fixed while middleware runs. Checkpoint
+owners come from runtime-written metadata bound to the exact checkpoint ID,
+including verified ancestor routes whose state a later turn may inherit.
+Client-written thread metadata cannot establish checkpoint ownership.
+
+A checkpoint without verified provenance, including a legacy checkpoint, fails
+closed with `409 thread_route_unknown`. Running another turn does not clear
+unknown ancestry. Start a fresh thread to establish verified provenance; no
+checkpoint or conversation history is deleted automatically.
 
 Reattachment is resumable **state**, not a resumable event log: there are no
 cursors, no `Last-Event-ID`, and no retention window. Every reconnect
