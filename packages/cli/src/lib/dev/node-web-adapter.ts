@@ -93,21 +93,41 @@ export async function writeNodeResponse(res: ServerResponse, response: Response)
 
   res.writeHead(response.status, headers)
   const reader = response.body.getReader()
-  while (true) {
-    let next: Awaited<ReturnType<typeof reader.read>>
-    try {
-      next = await reader.read()
-    } catch (error) {
-      // The stream errored mid-flight after headers were sent. Ending the
-      // response here would frame the truncated body as a clean success —
-      // destroy the socket instead so the client sees an aborted body (a
-      // chunked stream without its terminator), the honest transport-error
-      // signal.
-      res.destroy(error instanceof Error ? error : new Error(String(error)))
-      return
-    }
-    if (next.done) break
-    if (next.value) res.write(next.value)
+  let disconnected = false
+  let resume: (() => void) | undefined
+  const onDrain = () => resume?.()
+  const onDisconnect = () => {
+    disconnected = true
+    resume?.()
+    // Cancelling a pending read also releases an attach subscriber. It must
+    // not wait for another producer event or a socket drain that will not come.
+    void reader.cancel().catch(() => {})
   }
-  res.end()
+  res.on("drain", onDrain)
+  res.on("close", onDisconnect)
+  res.on("error", onDisconnect)
+  try {
+    if (res.destroyed) onDisconnect()
+    while (!disconnected) {
+      const next = await reader.read()
+      if (disconnected || next.done) break
+      if (next.value && !res.write(next.value)) {
+        await new Promise<void>((resolve) => {
+          resume = resolve
+          if (disconnected || res.destroyed) resolve()
+        })
+        resume = undefined
+      }
+    }
+    if (!disconnected) res.end()
+  } catch (error) {
+    // A truncated stream is a transport error, never a clean completion.
+    res.destroy(error instanceof Error ? error : new Error(String(error)))
+    void reader.cancel().catch(() => {})
+  } finally {
+    res.off("drain", onDrain)
+    res.off("close", onDisconnect)
+    res.off("error", onDisconnect)
+    reader.releaseLock()
+  }
 }

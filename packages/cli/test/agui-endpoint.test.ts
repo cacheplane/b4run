@@ -27,6 +27,7 @@ import { afterEach, expect, it } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { script } from "../../testing/dist/fixture-builder.js"
 import { handleAgUiRequest } from "../src/lib/dev/agui-handler.js"
+import { createLiveTurnHub } from "../src/lib/dev/live-turn-hub.js"
 import { createPendingResumeClaims } from "../src/lib/dev/pending-interrupts.js"
 import { createRunRegistry } from "../src/lib/dev/run-registry.js"
 import { createRuntimeRequestListener } from "../src/lib/dev/runtime-server.js"
@@ -145,6 +146,8 @@ interface ControlledServerOptions {
   readonly checkpointer?: BaseCheckpointSaver
   readonly streamRoute: typeof streamResolvedRoute
   readonly shutdownSignal?: AbortSignal
+  readonly liveTurnHub?: ReturnType<typeof createLiveTurnHub>
+  readonly runRegistry?: ReturnType<typeof createRunRegistry>
 }
 
 async function setupControlledServer(controlled: ControlledServerOptions): Promise<{
@@ -153,7 +156,7 @@ async function setupControlledServer(controlled: ControlledServerOptions): Promi
   const appRoot = await fixtureApp()
   const threads = new Map<string, { metadata: Record<string, unknown>; status: string }>()
   const resumeClaims = createPendingResumeClaims()
-  const runRegistry = createRunRegistry()
+  const runRegistry = controlled.runRegistry ?? createRunRegistry()
   const server: Server = createServer((request, response) => {
     const threadMatch = request.url?.match(/^\/threads\/([^/]+)$/)
     if (request.method === "GET" && threadMatch) {
@@ -168,6 +171,7 @@ async function setupControlledServer(controlled: ControlledServerOptions): Promi
       checkpointer:
         controlled.checkpointer ??
         ({ getTuple: async () => undefined } as unknown as BaseCheckpointSaver),
+      liveTurnHub: controlled.liveTurnHub ?? createLiveTurnHub(),
       middleware: undefined,
       registry: {
         appRoot,
@@ -1029,3 +1033,52 @@ it("keeps a parked thread interrupted when the client disconnects after the park
   // the agent finished.
   await expect.poll(async () => threadStatus(port, "parked-then-disconnected")).toBe("interrupted")
 })
+
+it.each(["failure", "cancellation"])(
+  "preserves AG-UI %s in the terminal frame sent to attach viewers",
+  async (mode) => {
+    const liveTurnHub = createLiveTurnHub()
+    const runRegistry = createRunRegistry()
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const streamRoute: typeof streamResolvedRoute = async function* () {
+      yield { type: "chunk", data: "before failure" }
+      entered()
+      await blocked
+      throw new Error("route failed during live attach")
+    }
+    const { port } = await setupControlledServer({ streamRoute, liveTurnHub, runRegistry })
+    const running = postRun(port, {
+      threadId: "attach-terminal",
+      runId: "attach-terminal-run",
+      messages: [{ id: "1", role: "user", content: "hello" }],
+    })
+    await started
+    const attachment = liveTurnHub.attach("attach-terminal")
+    try {
+      if (!attachment) throw new Error("Expected live turn attachment")
+      if (mode === "cancellation") expect(runRegistry.cancel("attach-terminal")).toBe(true)
+      else release()
+      const { events } = await running
+      expect(events.some((event) => event.type === "RUN_ERROR")).toBe(true)
+      expect(await attachment.next()).toEqual({
+        type: "done",
+        output:
+          mode === "cancellation"
+            ? { cancelled: true }
+            : { error: "route failed during live attach" },
+      })
+      expect(await attachment.next()).toBeNull()
+    } finally {
+      release()
+      attachment?.detach()
+      await running
+    }
+  },
+)

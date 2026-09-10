@@ -72,14 +72,24 @@ export interface StaticRouteModule {
    * Skill directory names this route had at BUILD time; absent when it had
    * none.
    *
-   * Carried for one consumer only — `collectRuntimeCapabilityGaps`, which uses
-   * it to raise B4_E1005 on a runtime with no filesystem. Nothing loads a
-   * skill from this: bodies still come off disk through the skills capability's
-   * MarkerFs on node, and on a filesystem-less runtime there is nothing to load,
-   * which is precisely what the guard exists to report. Deliberately NOT part
-   * of `PreparedRouteModules` — the per-route execution cache has no use for it.
+   * The names are still used by one consumer — `collectRuntimeCapabilityGaps`,
+   * which uses them to raise B4_E1005 on a runtime with no filesystem. Skill
+   * bodies come off disk through the skills capability's MarkerFs on node; on
+   * an edge/filesystem-less runtime where this route's `markerFiles` is
+   * present, bodies are served from it through `staticMarkerFs` instead (see
+   * `staticModulesMarkerFiles`). Deliberately NOT part of
+   * `PreparedRouteModules` — the per-route execution cache has no use for it.
    */
   readonly skills?: readonly string[]
+  /**
+   * Marker file contents this route had at BUILD time, keyed by the absolute
+   * namespace path the capability markers compute (`pureJoin(routeDir, …)`
+   * with `routeDir = pureDirname(routeFile)`). Emitted only by the edge
+   * manifest flavors, which have no filesystem to read `skills/`, `plan.md`,
+   * or `memory.md` from at request time; the node manifest never carries it.
+   * Absent when the route has no marker files.
+   */
+  readonly markerFiles?: Readonly<Record<string, string>>
 }
 
 /**
@@ -100,9 +110,12 @@ export interface B4StaticModules {
    * App-level thread access policy bound from the manifest's static import,
    * when the app has a policy file.
    *
-   * The channel is declared now so the boot resolution never has to be
-   * rewritten; nothing emits into it yet, so today only a hand-rolled edge
-   * embed that constructs `B4StaticModules` itself can use it.
+   * Emitted by the web build targets (`modules-emitter.ts` writes
+   * `threadAccess: normalizeThreadAccessModule(...)` into the manifest) and
+   * re-validated on the boot path (`static-modules.ts` runs
+   * `validateThreadAccessPolicy` because types are erased across the manifest
+   * boundary). A hand-rolled edge embed that constructs `B4StaticModules`
+   * itself can also populate it directly.
    */
   readonly threadAccess?: ThreadAccessPolicy
   readonly routes: readonly StaticRouteModule[]
@@ -129,6 +142,8 @@ export interface StaticToolModuleInput {
 export interface StaticRouteModuleInput {
   /** Route kind as discovered at build time (drift-checked at runtime). */
   readonly kind: RouteKind
+  /** Emitted by the edge manifest flavors only; omitted when the route has none. */
+  readonly markerFiles?: Readonly<Record<string, string>>
   /** The route's `memory.ts` namespace object, when the file exists. */
   readonly memoryModule?: unknown
   /** Absolute route entry file path at runtime. */
@@ -216,9 +231,31 @@ export function buildStaticRouteModule(input: StaticRouteModuleInput): StaticRou
     // exactOptionalPropertyTypes an explicit `undefined` is not assignable to
     // an optional field, and an absent key is what "no skills" means here.
     ...(input.skills && input.skills.length > 0 ? { skills: input.skills } : {}),
+    ...(input.markerFiles && Object.keys(input.markerFiles).length > 0
+      ? { markerFiles: input.markerFiles }
+      : {}),
     stateFields,
     tools,
   }
+}
+
+/**
+ * Every route's bundled marker files as one map, or `undefined` when no route
+ * carries any — the input `staticMarkerFs` takes. Routes never share a
+ * directory, so keys cannot collide.
+ */
+export function staticModulesMarkerFiles(
+  modules: Pick<B4StaticModules, "routes">,
+): Readonly<Record<string, string>> | undefined {
+  let union: Record<string, string> | undefined
+  for (const route of modules.routes) {
+    if (!route.markerFiles) continue
+    // Spread, not `Object.assign`: a literal `__proto__` key in a route's map
+    // would reach the prototype setter through `Object.assign`, while a spread
+    // defines it as an own property.
+    union = { ...union, ...route.markerFiles }
+  }
+  return union
 }
 
 /**

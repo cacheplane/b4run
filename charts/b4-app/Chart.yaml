@@ -2,8 +2,8 @@ apiVersion: v2
 name: b4-app
 description: Runs a built B4.run app image on Kubernetes with an application-owned ServiceAccount, Deployment, Service, and optional scaling and ingress resources.
 type: application
-version: 0.2.7
-appVersion: "0.8.29"
+version: 0.2.8
+appVersion: "0.8.30"
 keywords: [b4, langgraph, kubernetes, deployment]
 home: https://b4.run
 sources: [https://github.com/cacheplane/b4run]

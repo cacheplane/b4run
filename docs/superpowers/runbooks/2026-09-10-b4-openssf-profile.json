@@ -1,0 +1,38 @@
+{
+  "observedDateUtc": "2026-09-10",
+  "profileUrl": "https://www.bestpractices.dev/en/projects/13317/passing",
+  "projectId": 13317,
+  "identity": {
+    "name": "B4.run",
+    "homepage_url": "https://b4.run",
+    "repo_url": "https://github.com/cacheplane/b4run"
+  },
+  "authorization": {
+    "ownerApprovedSubmission": true,
+    "submissionLicenseNoticeDisclosed": "CDLA"
+  },
+  "brandingFieldsChanged": [
+    "name",
+    "homepage_url",
+    "repo_url",
+    "contribution_justification",
+    "contribution_requirements_justification",
+    "license_location_justification",
+    "report_process_justification",
+    "report_archive_justification",
+    "vulnerability_report_process_justification",
+    "vulnerability_report_private_justification"
+  ],
+  "brandingFieldCount": 10,
+  "identityFieldCount": 3,
+  "evidencePrefixFieldCount": 7,
+  "serverTimestampChanges": {
+    "updated_at": "2026-09-10T04:53:50.856Z",
+    "repo_url_updated_at": "2026-09-10T04:53:50.847Z"
+  },
+  "unchangedStatusFieldCount": 194,
+  "badgeLevel": "passing",
+  "passingPercentage": 100,
+  "storedProjectEntryLicense": "CC-BY-3.0+",
+  "storedProjectEntryLicenseUnchanged": true
+}
