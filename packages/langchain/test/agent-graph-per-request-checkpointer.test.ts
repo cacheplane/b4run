@@ -22,7 +22,7 @@
  * can be satisfied by breaking the other.
  */
 
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 import { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { AIMessage, type BaseMessage } from "@langchain/core/messages"
 import type { ChatResult } from "@langchain/core/outputs"

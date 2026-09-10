@@ -10,7 +10,7 @@ describe("env loading (monorepo integration)", () => {
   const saved = { ...process.env }
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "dawn-env-int-"))
+    root = mkdtempSync(join(tmpdir(), "b4-env-int-"))
     mkdirSync(join(root, "app"), { recursive: true })
   })
   afterEach(() => {
@@ -19,32 +19,32 @@ describe("env loading (monorepo integration)", () => {
   })
 
   it("config.env '../.env' loads the workspace-root .env from a nested app", () => {
-    writeFileSync(join(root, ".env"), "DAWN_ROOT_VAR=root\n")
-    delete process.env.DAWN_ROOT_VAR
+    writeFileSync(join(root, ".env"), "B4_ROOT_VAR=root\n")
+    delete process.env.B4_ROOT_VAR
     const appRoot = join(root, "app")
     const r = resolveEnvPath({ appRoot, configEnv: "../.env" })
     expect(r.source).toBe("config")
     loadEnvFiles([r.absPath])
-    expect(process.env.DAWN_ROOT_VAR).toBe("root")
+    expect(process.env.B4_ROOT_VAR).toBe("root")
   })
 
   it("--env-file overrides config.env", () => {
-    writeFileSync(join(root, ".env"), "DAWN_PICK=root\n")
-    writeFileSync(join(root, "app", "custom.env"), "DAWN_PICK=custom\n")
-    delete process.env.DAWN_PICK
+    writeFileSync(join(root, ".env"), "B4_PICK=root\n")
+    writeFileSync(join(root, "app", "custom.env"), "B4_PICK=custom\n")
+    delete process.env.B4_PICK
     const appRoot = join(root, "app")
     const r = resolveEnvPath({ appRoot, configEnv: "../.env", flag: "custom.env" })
     loadEnvFiles([r.absPath])
-    expect(process.env.DAWN_PICK).toBe("custom")
+    expect(process.env.B4_PICK).toBe("custom")
   })
 
   it("regression: plain app/.env with no config/flag still loads", () => {
-    writeFileSync(join(root, "app", ".env"), "DAWN_LOCAL=local\n")
-    delete process.env.DAWN_LOCAL
+    writeFileSync(join(root, "app", ".env"), "B4_LOCAL=local\n")
+    delete process.env.B4_LOCAL
     const appRoot = join(root, "app")
     const r = resolveEnvPath({ appRoot })
     expect(r.source).toBe("default")
     loadEnvFiles([r.absPath])
-    expect(process.env.DAWN_LOCAL).toBe("local")
+    expect(process.env.B4_LOCAL).toBe("local")
   })
 })

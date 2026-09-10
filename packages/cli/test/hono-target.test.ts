@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, dirname, join } from "node:path"
-import { discoverRoutes } from "@dawn-ai/core/node"
+import { discoverRoutes } from "@b4run/core/node"
 import { afterEach, describe, expect, test } from "vitest"
 
 import { runBuildCommand } from "../src/commands/build.js"
@@ -23,24 +23,24 @@ async function createFixtureApp(files: Readonly<Record<string, string>> = {}) {
   // realpath: macOS puts the tmpdir behind /var → /private/var, and the module
   // loader reports real paths — keep every path on the resolved side so the
   // namespace assertions line up.
-  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "dawn-cli-hono-target-")))
+  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "b4-cli-hono-target-")))
   tempDirs.push(appRoot)
 
   const appFiles: Record<string, string> = {
-    "dawn.config.ts": 'export default { build: { targets: ["hono"] } }\n',
+    "b4.config.ts": 'export default { build: { targets: ["hono"] } }\n',
     // Declares every package the emitted entry imports, so the default fixture
     // builds with a genuinely silent stderr — the dependency notice is exercised
     // by the cases that deliberately drop them.
     "package.json": `${JSON.stringify({
       dependencies: {
-        "@dawn-ai/cli": "workspace:*",
-        "@dawn-ai/postgres-storage": "workspace:*",
+        "@b4run/cli": "workspace:*",
+        "@b4run/postgres-storage": "workspace:*",
         "@neondatabase/serverless": "^1.1.0",
         hono: "^4.12.28",
       },
       name: "hono-fixture",
     })}\n`,
-    "src/app/chat/index.ts": `import { agent } from "@dawn-ai/sdk"
+    "src/app/chat/index.ts": `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -71,7 +71,7 @@ async function runBuild(appRoot: string) {
       stdout: (message) => stdout.push(message),
     },
   )
-  // `dawn build` reports every emitted artifact as "  wrote <path>" — the only
+  // `b4 build` reports every emitted artifact as "  wrote <path>" — the only
   // channel the command exposes its artifact list on.
   const artifactPaths = stdout
     .filter((line) => line.startsWith("  wrote "))
@@ -79,11 +79,11 @@ async function runBuild(appRoot: string) {
   return { artifactPaths, artifacts: artifactPaths.map((path) => basename(path)), stderr, stdout }
 }
 
-const buildFile = (appRoot: string, name: string) => join(appRoot, ".dawn", "build", name)
+const buildFile = (appRoot: string, name: string) => join(appRoot, ".b4", "build", name)
 const readBuildFile = (appRoot: string, name: string) => readFile(buildFile(appRoot, name), "utf8")
 
 /**
- * Decode the DawnConfig `app.mjs` inlines. It is emitted as
+ * Decode the B4Config `app.mjs` inlines. It is emitted as
  * `JSON.parse("<json>")` rather than an object literal, so a quoted
  * `"__proto__"` config key cannot perform a prototype assignment.
  */
@@ -93,7 +93,7 @@ function inlinedConfig(entry: string): unknown {
   return JSON.parse(JSON.parse(match[1]) as string)
 }
 
-describe("dawn build — hono target", () => {
+describe("b4 build — hono target", () => {
   test("emits the four edge artifacts", async () => {
     const appRoot = await createFixtureApp()
 
@@ -106,7 +106,7 @@ describe("dawn build — hono target", () => {
     for (const name of ["modules.edge.mjs", "stores.mjs", "app.mjs"]) {
       expect(existsSync(buildFile(appRoot, name))).toBe(true)
     }
-    expect((await readdir(join(appRoot, ".dawn", "build"))).sort()).toEqual([
+    expect((await readdir(join(appRoot, ".b4", "build"))).sort()).toEqual([
       "app.mjs",
       "modules.edge.mjs",
       "stores.mjs",
@@ -132,13 +132,13 @@ describe("dawn build — hono target", () => {
 `,
     })
     const manifest = await discoverRoutes({ appRoot })
-    const outputDir = join(appRoot, ".vercel", ".dawn-vercel-test", "runtime")
+    const outputDir = join(appRoot, ".vercel", ".b4-vercel-test", "runtime")
 
     await expect(
       emitWebRuntimeArtifacts(
         {
           appRoot,
-          buildDir: join(appRoot, ".dawn", "build"),
+          buildDir: join(appRoot, ".b4", "build"),
           manifest,
         },
         { outputDir, targetName: "vercel" },
@@ -150,12 +150,12 @@ describe("dawn build — hono target", () => {
   test("shared emitter generates Vercel-labelled runtime files relative to its staging directory", async () => {
     const appRoot = await createFixtureApp()
     const manifest = await discoverRoutes({ appRoot })
-    const outputDir = join(appRoot, ".vercel", ".dawn-vercel-test", "runtime")
+    const outputDir = join(appRoot, ".vercel", ".b4-vercel-test", "runtime")
 
     const runtime = await emitWebRuntimeArtifacts(
       {
         appRoot,
-        buildDir: join(appRoot, ".dawn", "build"),
+        buildDir: join(appRoot, ".b4", "build"),
         manifest,
       },
       { outputDir, targetName: "vercel" },
@@ -172,7 +172,7 @@ describe("dawn build — hono target", () => {
     const stores = await readFile(runtime.storesPath, "utf8")
     const entry = await readFile(runtime.appPath, "utf8")
     for (const source of [modules, stores, entry]) {
-      expect(source).toContain("Generated by dawn build (vercel target)")
+      expect(source).toContain("Generated by b4 build (vercel target)")
     }
     expect(modules).toContain('from "../../../src/app/chat/index.ts"')
     expect(modules).not.toContain('from "../../src/app/chat/index.ts"')
@@ -187,19 +187,19 @@ describe("dawn build — hono target", () => {
 
   test("shared emitter names the Vercel deployment bundle in provider config errors", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": `export default {
+      "b4.config.ts": `export default {
   build: { targets: ["vercel"] },
   summarization: { model: "some-proxy-model" },
 }
 `,
     })
     const manifest = await discoverRoutes({ appRoot })
-    const outputDir = join(appRoot, ".vercel", ".dawn-vercel-test", "runtime")
+    const outputDir = join(appRoot, ".vercel", ".b4-vercel-test", "runtime")
 
     const error = await emitWebRuntimeArtifacts(
       {
         appRoot,
-        buildDir: join(appRoot, ".dawn", "build"),
+        buildDir: join(appRoot, ".b4", "build"),
         manifest,
       },
       { outputDir, targetName: "vercel" },
@@ -211,7 +211,7 @@ describe("dawn build — hono target", () => {
     expect(existsSync(outputDir)).toBe(false)
   })
 
-  test("known target name passes dawn check", async () => {
+  test("known target name passes b4 check", async () => {
     const appRoot = await createFixtureApp()
     await expect(
       runCheckCommand({ cwd: appRoot }, { stderr: () => {}, stdout: () => {} }),
@@ -236,7 +236,7 @@ describe("dawn build — hono target", () => {
 
     // The marker is written AND read back. Without the read-back a rebuild
     // treats its own output as a stranger's: a spurious ⚠, a redundant copy in
-    // .dawn/build/, and — quietest — the reported artifact silently moving from
+    // .b4/build/, and — quietest — the reported artifact silently moving from
     // the app root to the build dir, so the file the operator deploys stops
     // being the one the build named.
     expect(second.stderr.join("")).toBe("")
@@ -245,7 +245,7 @@ describe("dawn build — hono target", () => {
     // the build names is still the app-root one, not a build-dir duplicate.
     expect(second.artifactPaths).toEqual(first.artifactPaths)
     expect(
-      second.artifactPaths.some((path) => path.endsWith(join(".dawn", "build", "wrangler.toml"))),
+      second.artifactPaths.some((path) => path.endsWith(join(".b4", "build", "wrangler.toml"))),
     ).toBe(false)
     // Never overwritten, marker or not: a wrangler.toml accretes bindings.
     expect(await readFile(join(appRoot, "wrangler.toml"), "utf8")).toBe(scaffold)
@@ -273,7 +273,7 @@ describe("dawn build — hono target", () => {
     // node-purge work this epic shipped.
     expect(wrangler).not.toContain("nodejs_compat")
     expect(wrangler).toContain('name = "hono-fixture"')
-    expect(wrangler).toContain('main = ".dawn/build/app.mjs"')
+    expect(wrangler).toContain('main = ".b4/build/app.mjs"')
     expect(wrangler).toMatch(/^compatibility_date = "\d{4}-\d{2}-\d{2}"$/m)
   })
 
@@ -358,7 +358,7 @@ describe("dawn build — hono target", () => {
     // silently is what let the emitted Postgres store take its place unasked.
     // Functions are still stripped — they have no such replacement.
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": `export default {
+      "b4.config.ts": `export default {
   build: { targets: ["hono"] },
   memory: { enabled: true, writes: "auto" },
   summarization: { enabled: true, maxTokens: 4096, tokenCounter: (text) => text.length },
@@ -379,7 +379,7 @@ describe("dawn build — hono target", () => {
 
   test("emits a static importer for the providers the routes actually use", async () => {
     const appRoot = await createFixtureApp({
-      "src/app/claude/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "src/app/claude/index.ts": `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "claude-sonnet-4-5",
@@ -404,7 +404,7 @@ export default agent({
     // an openai-only route set with an anthropic summarization model used to
     // build green and fail at runtime on a package that was never bundled.
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": `export default {
+      "b4.config.ts": `export default {
   build: { targets: ["hono"] },
   summarization: { enabled: true, model: "claude-sonnet-4-5" },
 }
@@ -427,14 +427,14 @@ export default agent({
     const message = String(await runBuild(appRoot).catch((e: unknown) => e))
 
     // A skipped route contributes no provider, and the runtime's fallback then
-    // advises "rebuild with `dawn build`" — which reproduces the same gap.
+    // advises "rebuild with `b4 build`" — which reproduces the same gap.
     expect(message).toMatch(/broken/)
     expect(existsSync(buildFile(appRoot, "app.mjs"))).toBe(false)
   })
 
   test("fails the build when an agent's provider cannot be determined", async () => {
     const appRoot = await createFixtureApp({
-      "src/app/proxy/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "src/app/proxy/index.ts": `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "some-proxy-model",
@@ -451,7 +451,7 @@ export default agent({
 })
 
 /**
- * The edge serves an honest SUBSET of Dawn. Everything below asserts the build
+ * The edge serves an honest SUBSET of B4.run. Everything below asserts the build
  * says so BY NAME — the feature and the config key or file that introduced it —
  * instead of emitting artifacts that fail at request time in production.
  */
@@ -464,7 +464,7 @@ describe("hono target — edge capability gating", () => {
 
   test("fails the build when a sandbox is configured", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": `export default {
+      "b4.config.ts": `export default {
   build: { targets: ["hono"] },
   sandbox: { provider: { name: "docker" } },
 }
@@ -492,10 +492,10 @@ describe("hono target — edge capability gating", () => {
       "src/app/chat/skills/research/SKILL.md": "---\ndescription: Research.\n---\n\nDo research.\n",
     })
 
-    // `dawn check` applies the same (now permissive) gate — asserted BEFORE the
+    // `b4 check` applies the same (now permissive) gate — asserted BEFORE the
     // build, because afterwards check's stale-manifest pass tries to IMPORT the
     // emitted modules.edge.mjs and this fixture has no node_modules for its
-    // `@dawn-ai/cli/fetch` import to resolve through. A throw fails the test.
+    // `@b4run/cli/fetch` import to resolve through. A throw fails the test.
     await runCheck(appRoot)
 
     const { artifacts } = await runBuild(appRoot)
@@ -516,20 +516,20 @@ describe("hono target — edge capability gating", () => {
       "src/app/chat/skills/big/SKILL.md": `---\ndescription: Big.\n---\n${"x".repeat(32 * 1024)}`,
     })
 
-    // `dawn check` applies the same limit, asserted BEFORE the build so the
-    // fixture's `.dawn/build` is still empty (check's stale-manifest pass would
+    // `b4 check` applies the same limit, asserted BEFORE the build so the
+    // fixture's `.b4/build` is still empty (check's stale-manifest pass would
     // otherwise import an emitted modules.edge.mjs this fixture cannot resolve).
     const checkError = await runCheck(appRoot).catch((e: unknown) => e)
     expect(String(checkError)).toContain("src/app/chat/skills/big/SKILL.md")
-    expect((checkError as { code?: string }).code).toBe("DAWN_E1005")
+    expect((checkError as { code?: string }).code).toBe("B4_E1005")
 
     const error = await runBuild(appRoot).catch((e: unknown) => e)
 
     expect(String(error)).toContain("src/app/chat/skills/big/SKILL.md")
     expect(String(error)).toContain("32768-byte limit for SKILL.md")
-    expect((error as { code?: string }).code).toBe("DAWN_E1005")
+    expect((error as { code?: string }).code).toBe("B4_E1005")
 
-    // A half-built .dawn/build looks deployable. Nothing may reach disk.
+    // A half-built .b4/build looks deployable. Nothing may reach disk.
     for (const name of ["modules.edge.mjs", "stores.mjs", "app.mjs", "wrangler.toml"]) {
       expect(existsSync(buildFile(appRoot, name))).toBe(false)
     }
@@ -540,7 +540,7 @@ describe("hono target — edge capability gating", () => {
     const oversized = `---\ndescription: Big.\n---\n${"x".repeat(32 * 1024 + 1)}`
     const appRoot = await createFixtureApp({
       "src/app/chat/skills/big/SKILL.md": oversized,
-      "src/app/support/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "src/app/support/index.ts": `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -556,7 +556,7 @@ export default agent({
     // once instead of one route per build.
     expect(String(error)).toContain("src/app/chat/skills/big/SKILL.md")
     expect(String(error)).toContain("src/app/support/skills/big/SKILL.md")
-    expect((error as { code?: string }).code).toBe("DAWN_E1005")
+    expect((error as { code?: string }).code).toBe("B4_E1005")
 
     for (const name of ["modules.edge.mjs", "stores.mjs", "app.mjs", "wrangler.toml"]) {
       expect(existsSync(buildFile(appRoot, name))).toBe(false)
@@ -578,7 +578,7 @@ export default agent({
 
   test("fails the build when a route has long-term memory", async () => {
     const appRoot = await createFixtureApp({
-      "src/app/chat/memory.ts": `import { defineMemory } from "@dawn-ai/sdk"
+      "src/app/chat/memory.ts": `import { defineMemory } from "@b4run/sdk"
 import { z } from "zod"
 
 export default defineMemory({ schema: z.object({ fact: z.string() }) })
@@ -595,7 +595,7 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
 
   test("fails the build when filesystem/exec backends are configured", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": `export default {
+      "b4.config.ts": `export default {
   build: { targets: ["hono"] },
   backends: { exec: { runCommand: async () => ({ stdout: "", stderr: "", exitCode: 0 }) } },
 }
@@ -609,12 +609,12 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
 
   test("reports every unsupported feature at once, not just the first", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": `export default {
+      "b4.config.ts": `export default {
   build: { targets: ["hono"] },
   sandbox: { provider: { name: "docker" } },
 }
 `,
-      "src/app/chat/memory.ts": `import { defineMemory } from "@dawn-ai/sdk"
+      "src/app/chat/memory.ts": `import { defineMemory } from "@b4run/sdk"
 import { z } from "zod"
 
 export default defineMemory({ schema: z.object({ fact: z.string() }) })
@@ -637,7 +637,7 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
 
   test("fails BEFORE emitting anything", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": `export default {
+      "b4.config.ts": `export default {
   build: { targets: ["hono"] },
   sandbox: { provider: { name: "docker" } },
 }
@@ -646,7 +646,7 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
 
     await expect(runBuild(appRoot)).rejects.toThrow()
 
-    // A half-built .dawn/build looks deployable. Nothing may reach disk.
+    // A half-built .b4/build looks deployable. Nothing may reach disk.
     for (const name of ["modules.edge.mjs", "stores.mjs", "app.mjs", "wrangler.toml"]) {
       expect(existsSync(buildFile(appRoot, name))).toBe(false)
     }
@@ -657,12 +657,12 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
     // Every gated feature at once — and none of it is the node target's
     // problem, so this app must keep building exactly as it does today.
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": `export default {
+      "b4.config.ts": `export default {
   build: { targets: ["node"] },
   sandbox: { provider: { name: "docker" } },
 }
 `,
-      "src/app/chat/memory.ts": `import { defineMemory } from "@dawn-ai/sdk"
+      "src/app/chat/memory.ts": `import { defineMemory } from "@b4run/sdk"
 import { z } from "zod"
 
 export default defineMemory({ schema: z.object({ fact: z.string() }) })
@@ -677,14 +677,14 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
     expect(existsSync(buildFile(appRoot, "app.mjs"))).toBe(false)
   })
 
-  test("dawn check mirrors the gating when hono is a configured target", async () => {
+  test("b4 check mirrors the gating when hono is a configured target", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": `export default {
+      "b4.config.ts": `export default {
   build: { targets: ["hono"] },
   sandbox: { provider: { name: "docker" } },
 }
 `,
-      // Present to prove `dawn check` mirrors the build's PERMISSIVE handling of
+      // Present to prove `b4 check` mirrors the build's PERMISSIVE handling of
       // skills too: it must name the two real violations and not this directory.
       "src/app/chat/skills/research/SKILL.md": "---\ndescription: Research.\n---\n\nGo.\n",
       "workspace/notes.md": "# notes\n",
@@ -699,14 +699,14 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
     expect(message).not.toContain(join("src", "app", "chat", "skills"))
   })
 
-  test("dawn check gates `toolOutput`, whose keys survive the build boundary intact", async () => {
+  test("b4 check gates `toolOutput`, whose keys survive the build boundary intact", async () => {
     // The one gated feature whose config is plain JSON, so it inlines into the
     // bundle cleanly and then does nothing — the edge has no filesystem to
     // spill oversized tool output to. Gated at BUILD time as well as at request
     // time deliberately: without this the build went green and the deployed
     // worker was the thing that rejected the app.
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": `export default {
+      "b4.config.ts": `export default {
   build: { targets: ["hono"] },
   toolOutput: { offloadThresholdChars: 20000 },
 }
@@ -720,12 +720,12 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
     expect(String(error)).toContain("tool-output offloading")
   })
 
-  test("dawn check mirrors the store-handle gating, not just the loud features", async () => {
-    // The silent-divergence class — and the one `dawn check` was NOT asserted
+  test("b4 check mirrors the store-handle gating, not just the loud features", async () => {
+    // The silent-divergence class — and the one `b4 check` was NOT asserted
     // for. With only sandbox/workspace/skills covered here, narrowing the config
     // handed to `assertEdgeCapabilities` to `{ backends, sandbox }` left every
     // test in the repo green; tsc could not object either, because every
-    // DawnConfig field is optional, so a `Pick` that omits the store keys still
+    // B4Config field is optional, so a `Pick` that omits the store keys still
     // satisfies the gate's parameter type.
     for (const [key, source] of [
       ["threadsStore", "threadsStore: { listThreads: async () => [] },"],
@@ -734,7 +734,7 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
       ["memory.store", "memory: { store: { recall: async () => [] } },"],
     ] as const) {
       const appRoot = await createFixtureApp({
-        "dawn.config.ts": `export default {
+        "b4.config.ts": `export default {
   build: { targets: ["hono"] },
   ${source}
 }
@@ -748,17 +748,17 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
     }
   })
 
-  test("dawn check mirrors the backend and route-memory gating", async () => {
+  test("b4 check mirrors the backend and route-memory gating", async () => {
     // The other two classes the build path covered alone. `backends.*` and an
     // agent route's `memory.ts` are read from different places — the config and
     // the manifest — so neither stands in for the other.
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": `export default {
+      "b4.config.ts": `export default {
   build: { targets: ["hono"] },
   backends: { exec: { runCommand: async () => ({ stdout: "", stderr: "", exitCode: 0 }) } },
 }
 `,
-      "src/app/chat/memory.ts": `import { defineMemory } from "@dawn-ai/sdk"
+      "src/app/chat/memory.ts": `import { defineMemory } from "@b4run/sdk"
 import { z } from "zod"
 
 export default defineMemory({ schema: z.object({ fact: z.string() }) })
@@ -773,9 +773,9 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
     expect(message).toContain(join("src", "app", "chat", "memory.ts"))
   })
 
-  test("dawn check leaves a node-target app alone", async () => {
+  test("b4 check leaves a node-target app alone", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": 'export default { build: { targets: ["node"] } }\n',
+      "b4.config.ts": 'export default { build: { targets: ["node"] } }\n',
       "src/app/chat/skills/research/SKILL.md": "---\ndescription: Research.\n---\n\nGo.\n",
       "workspace/notes.md": "# notes\n",
     })
@@ -785,7 +785,7 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
 
   test("names the runtime packages the emitted entry imports but the app lacks", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": '{ "name": "hono-fixture", "dependencies": { "@dawn-ai/cli": "*" } }\n',
+      "package.json": '{ "name": "hono-fixture", "dependencies": { "@b4run/cli": "*" } }\n',
     })
 
     // stderr, matching the node target's own runtime-dependency ⚠. stdout is the
@@ -794,7 +794,7 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
     const { stderr, stdout } = await runBuild(appRoot)
 
     const notice = stderr.join("")
-    expect(notice).toContain("@dawn-ai/postgres-storage")
+    expect(notice).toContain("@b4run/postgres-storage")
     expect(notice).toContain("@neondatabase/serverless")
     expect(notice).toContain("hono")
     expect(notice).toContain("dependencies")
@@ -815,9 +815,9 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
     // one as missing would be a false alarm.
     const appRoot = await createFixtureApp({
       "package.json": `${JSON.stringify({
-        dependencies: { "@dawn-ai/cli": "*" },
+        dependencies: { "@b4run/cli": "*" },
         devDependencies: {
-          "@dawn-ai/postgres-storage": "*",
+          "@b4run/postgres-storage": "*",
           "@neondatabase/serverless": "*",
           hono: "*",
         },
@@ -838,7 +838,7 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
       ["memory.store", "memory: { store: { recall: async () => [] } },"],
     ] as const) {
       const appRoot = await createFixtureApp({
-        "dawn.config.ts": `export default {
+        "b4.config.ts": `export default {
   build: { targets: ["hono"] },
   ${source}
 }
@@ -888,7 +888,7 @@ describe("hono target — per-request env binding", () => {
 
     // Drive the REAL emitted app.mjs, replacing only its module boundaries:
     // the manifest (data), the store factory (the thing under observation),
-    // hono, and @dawn-ai/cli/fetch. Node resolves the bare specifiers from the
+    // hono, and @b4run/cli/fetch. Node resolves the bare specifiers from the
     // stub packages below, which is why this runs in a child process rather
     // than through vitest's resolver.
     await writeFile(buildFile(appRoot, "modules.edge.mjs"), "export default { routes: [] }\n")
@@ -902,7 +902,7 @@ export function createRequestStores(env) {
 `,
     )
     await writeStubPackage(appRoot, "hono", HONO_STUB)
-    await writeStubPackage(appRoot, "@dawn-ai/cli", CLI_FETCH_STUB, { "./fetch": "./index.mjs" })
+    await writeStubPackage(appRoot, "@b4run/cli", CLI_FETCH_STUB, { "./fetch": "./index.mjs" })
 
     const observed = await driveEmittedApp(appRoot, [
       "postgres://one/db",
@@ -916,7 +916,7 @@ export function createRequestStores(env) {
     expect(observed).toEqual(["postgres://one/db", "postgres://two/db", "postgres://three/db"])
   })
 
-  test("seeds Dawn's runtime-env fallback once per isolate, from the first env", async () => {
+  test("seeds B4.run's runtime-env fallback once per isolate, from the first env", async () => {
     const appRoot = await createFixtureApp()
     await runBuild(appRoot)
 
@@ -929,14 +929,14 @@ export function createRequestStores(env) {
 `,
     )
     await writeStubPackage(appRoot, "hono", HONO_STUB)
-    await writeStubPackage(appRoot, "@dawn-ai/cli", CLI_FETCH_STUB, { "./fetch": "./index.mjs" })
+    await writeStubPackage(appRoot, "@b4run/cli", CLI_FETCH_STUB, { "./fetch": "./index.mjs" })
 
     const seeded = await driveEmittedApp(
       appRoot,
       ["postgres://one/db", "postgres://two/db", "postgres://three/db"],
       {
         expression: "seededEnvs",
-        imports: 'import { seededEnvs } from "@dawn-ai/cli/fetch"',
+        imports: 'import { seededEnvs } from "@b4run/cli/fetch"',
       },
     )
 
@@ -962,7 +962,7 @@ export function createRequestStores(env) {
 `,
     )
     await writeStubPackage(appRoot, "hono", HONO_STUB)
-    await writeStubPackage(appRoot, "@dawn-ai/cli", CLI_FETCH_STUB, { "./fetch": "./index.mjs" })
+    await writeStubPackage(appRoot, "@b4run/cli", CLI_FETCH_STUB, { "./fetch": "./index.mjs" })
 
     // Only Workers hands the fetch handler a bindings object. `@hono/node-server`
     // — which the round-trip test boots this same entry under — passes
@@ -970,7 +970,7 @@ export function createRequestStores(env) {
     const seeded = await driveEmittedApp(appRoot, ["postgres://one/db"], {
       envExpression: "{ DATABASE_URL: databaseUrl, incoming: new Map(), PORT: '3000' }",
       expression: "seededEnvs",
-      imports: 'import { seededEnvs } from "@dawn-ai/cli/fetch"',
+      imports: 'import { seededEnvs } from "@b4run/cli/fetch"',
     })
 
     expect(seeded).toEqual([{ DATABASE_URL: "postgres://one/db", PORT: "3000" }])
@@ -1063,7 +1063,7 @@ export const poolConnections = () =>
     return {
       connectionString: pool.options.connectionString ?? null,
       useSecureWebSocket: client.neonConfig.useSecureWebSocket,
-      wsProxy: client.neonConfig.wsProxy?.("dawn-pg", 5432) ?? null,
+      wsProxy: client.neonConfig.wsProxy?.("b4-pg", 5432) ?? null,
     }
   })
 export const poolTypeParserReport = () => {
@@ -1091,14 +1091,14 @@ export const poolTypeParserReport = () => {
 }
 `
 
-  /** A `@dawn-ai/cli/fetch` stub whose runtime env knows nothing. */
+  /** A `@b4run/cli/fetch` stub whose runtime env knows nothing. */
   const EMPTY_RUNTIME_ENV_STUB = `export function readRuntimeEnv() {
   return undefined
 }
 `
 
   /**
-   * A `@dawn-ai/cli/fetch` stub that supplies DATABASE_URL but NOT the wsproxy
+   * A `@b4run/cli/fetch` stub that supplies DATABASE_URL but NOT the wsproxy
    * knob — so a request's proxy setting can only have come from its own env.
    */
   const NO_PROXY_RUNTIME_ENV_STUB = `export function readRuntimeEnv(name) {
@@ -1121,11 +1121,11 @@ export const poolTypeParserReport = () => {
   ): Promise<unknown> {
     await writeStubPackage(
       appRoot,
-      "@dawn-ai/postgres-storage",
+      "@b4run/postgres-storage",
       options.storageStub ?? POSTGRES_STORAGE_STUB,
     )
     await writeStubPackage(appRoot, "@neondatabase/serverless", NEON_STUB)
-    await writeStubPackage(appRoot, "@dawn-ai/cli", options.cliStub ?? CLI_FETCH_STUB, {
+    await writeStubPackage(appRoot, "@b4run/cli", options.cliStub ?? CLI_FETCH_STUB, {
       "./fetch": "./index.mjs",
     })
 
@@ -1184,17 +1184,17 @@ console.log(JSON.stringify(${options.report ?? "poolConnections()"}))
       {
         connectionString: "postgres://from-binding/db",
         useSecureWebSocket: false,
-        wsProxy: "proxy:8080/v1?address=dawn-pg:5432",
+        wsProxy: "proxy:8080/v1?address=b4-pg:5432",
       },
       {
         connectionString: "postgres://from-runtime-env/db",
         useSecureWebSocket: false,
-        wsProxy: "proxy:8080/v1?address=dawn-pg:5432",
+        wsProxy: "proxy:8080/v1?address=b4-pg:5432",
       },
       {
         connectionString: "postgres://from-runtime-env/db",
         useSecureWebSocket: false,
-        wsProxy: "proxy:8080/v1?address=dawn-pg:5432",
+        wsProxy: "proxy:8080/v1?address=b4-pg:5432",
       },
     ])
   })
@@ -1257,11 +1257,11 @@ console.log(JSON.stringify(${options.report ?? "poolConnections()"}))
 
     // The wsproxy switches turn TLS OFF. Written to the driver's process-wide
     // `neonConfig` — which is what this used to do, with no `else` — one request
-    // carrying DAWN_PG_WS_PROXY would leave every LATER request in the isolate
+    // carrying B4_PG_WS_PROXY would leave every LATER request in the isolate
     // talking plaintext through the previous request's proxy. That binding ships
     // in every generated stores.mjs, so setting it by accident (or by copying
     // the CI lane's config) would silently drop TLS to a production database.
-    const observed = await driveEmittedStores(appRoot, [{ DAWN_PG_WS_PROXY: "proxy:8080" }, {}], {
+    const observed = await driveEmittedStores(appRoot, [{ B4_PG_WS_PROXY: "proxy:8080" }, {}], {
       cliStub: NO_PROXY_RUNTIME_ENV_STUB,
     })
 
@@ -1269,7 +1269,7 @@ console.log(JSON.stringify(${options.report ?? "poolConnections()"}))
       {
         connectionString: "postgres://from-runtime-env/db",
         useSecureWebSocket: false,
-        wsProxy: "proxy:8080/v1?address=dawn-pg:5432",
+        wsProxy: "proxy:8080/v1?address=b4-pg:5432",
       },
       // The second request asked for no proxy, so it gets the secure defaults —
       // it cannot inherit a decision the first request made.
@@ -1294,7 +1294,7 @@ console.log(JSON.stringify(${options.report ?? "poolConnections()"}))
     // checkpointer), so a retried pass is six and a skipped one is three.
     const observed = await driveEmittedStores(appRoot, [{}, {}], {
       report: "{ readyCalls: readyCalls.length, requestErrors }",
-      reportImports: 'import { readyCalls } from "@dawn-ai/postgres-storage"',
+      reportImports: 'import { readyCalls } from "@b4run/postgres-storage"',
       storageStub: FAILING_READY_STORAGE_STUB,
       tolerateRequestFailures: true,
     })
@@ -1332,7 +1332,7 @@ const HONO_STUB = `export class Hono {
 `
 
 /**
- * A `@dawn-ai/cli/fetch` stub that records what the generated entry passes.
+ * A `@b4run/cli/fetch` stub that records what the generated entry passes.
  * `requestStores` is invoked with the same Request the handler received —
  * the contract pinned by the identity test above.
  */
@@ -1354,12 +1354,12 @@ export function seedRuntimeEnv(env) {
 }
 /**
  * Stands in for the real seam, whose own precedence (process.env first, seeded
- * map second) is @dawn-ai/core's tested contract. What the emitted stores.mjs
+ * map second) is @b4run/core's tested contract. What the emitted stores.mjs
  * has to get right — and what this records — is that it CONSULTS the seam at
  * all when a binding is absent, and uses what comes back.
  */
 export function readRuntimeEnv(name) {
-  return { DATABASE_URL: "postgres://from-runtime-env/db", DAWN_PG_WS_PROXY: "proxy:8080" }[name]
+  return { DATABASE_URL: "postgres://from-runtime-env/db", B4_PG_WS_PROXY: "proxy:8080" }[name]
 }
 `
 
@@ -1389,7 +1389,7 @@ async function writeStubPackage(
  *
  * `report` names what to print instead: the emitted entry has two observables
  * that live in different modules (the store factory's per-request env, and the
- * `@dawn-ai/cli/fetch` stub's seeding journal), and both are read out of the
+ * `@b4run/cli/fetch` stub's seeding journal), and both are read out of the
  * child's own module instances rather than reconstructed from stdout chatter.
  */
 async function driveEmittedApp(

@@ -154,7 +154,7 @@ test("recomputes the production plan and rejects candidate or CI authority tampe
 
 test("accepts preparation identity only from the exact tag-bound release workflow environment", async () => {
   const cases = [
-    ["repository", { GITHUB_REPOSITORY: "fork/dawnai" }],
+    ["repository", { GITHUB_REPOSITORY: "fork/b4-run" }],
     ["ref", { GITHUB_REF: "refs/heads/main" }],
     ["SHA", { GITHUB_SHA: "f".repeat(40) }],
     ["run", { GITHUB_RUN_ID: "0" }],
@@ -163,7 +163,7 @@ test("accepts preparation identity only from the exact tag-bound release workflo
     [
       "workflow ref",
       {
-        GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/other.yml@refs/tags/v${VERSION}`,
+        GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/other.yml@refs/tags/v${VERSION}`,
       },
     ],
   ]
@@ -202,11 +202,11 @@ test("correlates the full immutable inventory to the observed candidate package 
   inventory.workspacePackages.splice(removed, 1)
   inventory.fixedGroups[0] = inventory.fixedGroups[0].slice(1)
   inventory.workspacePackages.push({
-    name: "@dawn-ai/unobserved",
+    name: "@b4run/unobserved",
     version: VERSION,
     path: "packages/unobserved/package.json",
   })
-  inventory.fixedGroups[0].push("@dawn-ai/unobserved")
+  inventory.fixedGroups[0].push("@b4run/unobserved")
 
   await assert.rejects(createWith({ inventory }), /package set/iu)
 })
@@ -362,7 +362,7 @@ test("canonical encoding is stable across object key order and parser snapshots 
 })
 
 test("the executable creates one canonical write-once handoff from exactly three path flags", async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-preparation-handoff-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-preparation-handoff-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const reportPath = path.join(directory, "production-report.json")
   const outputPath = path.join(directory, "preparation-handoff.json")
@@ -402,7 +402,7 @@ test("the executable rejects unknown, duplicate, missing, unsafe, and aliased pa
 })
 
 test("the executable never clobbers conflicting files or follows output symlinks", async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-preparation-handoff-output-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-preparation-handoff-output-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const reportPath = path.join(directory, "production-report.json")
   const outputPath = path.join(directory, "preparation-handoff.json")
@@ -438,7 +438,7 @@ test("the executable never clobbers conflicting files or follows output symlinks
 })
 
 test("the executable rejects unsafe runtime accessors and report or parent symlinks", async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-preparation-handoff-input-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-preparation-handoff-input-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const reportPath = path.join(directory, "production-report.json")
   const reportLink = path.join(directory, "report-link.json")
@@ -503,7 +503,7 @@ test("the executable rejects unsafe runtime accessors and report or parent symli
 })
 
 test("the write-once executable cleans temporary files after write or link failure", async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-preparation-handoff-failure-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-preparation-handoff-failure-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const reportPath = path.join(directory, "production-report.json")
   const outputPath = path.join(directory, "preparation-handoff.json")
@@ -734,7 +734,7 @@ function rawInventory() {
           : {}),
       })),
       {
-        name: "@dawn-example/private",
+        name: "@b4-example/private",
         private: true,
         path: "examples/private/package.json",
         scripts: { test: "node --test" },
@@ -745,12 +745,12 @@ function rawInventory() {
 
 function productionEnvironment() {
   return {
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_REF: `refs/tags/v${VERSION}`,
     GITHUB_SHA: COMMIT_SHA,
     GITHUB_RUN_ID: "7001",
     GITHUB_RUN_ATTEMPT: "3",
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
     PATH: "/not-authority",
   }
 }

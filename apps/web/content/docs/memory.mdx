@@ -1,6 +1,6 @@
 # Memory
 
-Dawn has three memory mechanisms. Choose by who owns the data and how it should be read; route state and checkpoints preserve workflow execution, but they are not a fourth memory mechanism.
+B4.run has three memory mechanisms. Choose by who owns the data and how it should be read; route state and checkpoints preserve workflow execution, but they are not a fourth memory mechanism.
 
 | Mechanism | Scope and shape | Best for | Owner |
 |---|---|---|---|
@@ -11,7 +11,7 @@ Dawn has three memory mechanisms. Choose by who owns the data and how it should 
 Start with prompt files for small, reviewed context. When records need a schema, governance, retention, or retrieval, the smallest useful `memory.ts` is:
 
 ```ts title="src/app/research/memory.ts"
-import { defineMemory } from "@dawn-ai/sdk"
+import { defineMemory } from "@b4run/sdk"
 import { z } from "zod"
 
 export default defineMemory({
@@ -29,7 +29,7 @@ From this typed collection, continue with [Long-term Memory](/docs/memory/long-t
 
 ## Workspace profile (`AGENTS.md`)
 
-If `workspace/AGENTS.md` exists and has content, Dawn injects it under `# Memory` on every model turn. It is shared by every consuming agent route and subagent using the same app root; raw graph, workflow, and chain routes do not consume it.
+If `workspace/AGENTS.md` exists and has content, B4.run injects it under `# Memory` on every model turn. It is shared by every consuming agent route and subagent using the same app root; raw graph, workflow, and chain routes do not consume it.
 
 ```md title="workspace/AGENTS.md"
 # Workspace Memory
@@ -62,7 +62,7 @@ src/app/research/
 - Prefer primary sources; flag anything you could not verify.
 ```
 
-Dawn trims and injects the file under `# Route Memory`, after `workspace/AGENTS.md`, on every model turn. Presence is the opt-in: there is no import or registration call. It is a versioned prompt fragment, not a store, and the agent does not write it automatically. Empty files contribute nothing; files larger than 32 KiB are skipped and produce a prompt note.
+B4.run trims and injects the file under `# Route Memory`, after `workspace/AGENTS.md`, on every model turn. Presence is the opt-in: there is no import or registration call. It is a versioned prompt fragment, not a store, and the agent does not write it automatically. Empty files contribute nothing; files larger than 32 KiB are skipped and produce a prompt note.
 
 ## Long-term collection (`memory.ts`)
 

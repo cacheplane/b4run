@@ -1,11 +1,17 @@
+// This dated Dawn incident suite executes the exact pre-rename source.
+// Current incident file preservation is independently checked in b4-identity.test.mjs.
+
 import assert from "node:assert/strict"
 import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { Writable } from "node:stream"
 import test from "node:test"
+import { importHistoricalReleaseModule } from "./support/frozen-history.mjs"
 
-import { runDuplicateDraftConsolidationCli } from "../duplicate-draft-consolidation-cli.mjs"
+const { runDuplicateDraftConsolidationCli } = await importHistoricalReleaseModule(
+  "scripts/release/duplicate-draft-consolidation-cli.mjs",
+)
 
 const COMMAND = [
   "inspect",

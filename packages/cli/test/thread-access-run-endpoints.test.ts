@@ -1,9 +1,9 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { ThreadAccessPolicy, ThreadAccessRequest, ThreadOperation } from "@dawn-ai/sdk"
-import { THREAD_ACCESS_METADATA_KEY } from "@dawn-ai/sdk"
-import type { CreateThreadInput, Thread, ThreadsStore } from "@dawn-ai/sqlite-storage"
+import type { ThreadAccessPolicy, ThreadAccessRequest, ThreadOperation } from "@b4run/sdk"
+import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
+import type { CreateThreadInput, Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
@@ -21,7 +21,7 @@ const HELLO_ROUTE = "/hello#graph"
  * Same fixture-app shape as `thread-access-endpoints.test.ts`: a scratch app
  * with one trivial graph route, `threadAccess`/`threadsStore` injected through
  * `StartRuntimeServerOptions` (this package cannot import the harness in
- * `@dawn-ai/testing` without a build cycle).
+ * `@b4run/testing` without a build cycle).
  */
 async function setup(
   options: {
@@ -29,10 +29,10 @@ async function setup(
     readonly threadsStore?: ThreadsStore
   } = {},
 ): Promise<{ readonly handler: Awaited<ReturnType<typeof createRuntimeFetchHandler>> }> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-thread-access-run-endpoints-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-thread-access-run-endpoints-"))
   cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "thread-access-run-endpoints-fixture", "type": "module" }\n',
     "src/app/hello/index.ts": TRIVIAL_ROUTE,
   }

@@ -1,5 +1,5 @@
 /**
- * Verifies that Dawn's capability autowiring engine, when run against this
+ * Verifies that B4.run's capability autowiring engine, when run against this
  * chat route's directory, produces the expected contributions:
  *
  * - planning (because src/app/chat/plan.md is present) → writeTodos tool,
@@ -10,7 +10,7 @@
  * These are example-level integration tests that exercise the framework's
  * autowiring against the actual route's filesystem layout, without spinning
  * up a real LLM. The framework-side unit tests for each marker live in
- * @dawn-ai/core; this file just confirms the example wires together.
+ * @b4run/core; this file just confirms the example wires together.
  */
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -21,8 +21,8 @@ import {
   createAgentsMdMarker,
   createCapabilityRegistry,
   createPlanningMarker,
-} from "@dawn-ai/core"
-import { nodeMarkerFs } from "@dawn-ai/core/node"
+} from "@b4run/core"
+import { nodeMarkerFs } from "@b4run/core/node"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 const ROUTE_DIR = dirname(fileURLToPath(import.meta.url))
@@ -126,7 +126,7 @@ describe("chat route — autowired capabilities", () => {
     expect(first).toContain("Iteration 1")
 
     // Simulate the agent calling writeFile to update its memory.
-    writeFileSync(path, "Iteration 2: never modify generated files in .dawn/")
+    writeFileSync(path, "Iteration 2: never modify generated files in .b4/")
     const second = fragment?.render({}) ?? ""
 
     expect(second).toContain("Iteration 2")

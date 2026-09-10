@@ -21,14 +21,14 @@ import {
 const execFileAsync = promisify(execFile)
 
 const restrictedMarkers = [
-  "DAWN_PROC_CAP_EFF=0000000000000000",
-  "DAWN_PROC_NO_NEW_PRIVS=1",
-  "DAWN_PROC_SECCOMP=2",
-  "DAWN_WRITE_ETC=read-only",
-  "DAWN_WRITE_WORKSPACE=writable",
-  "DAWN_WRITE_TMP=writable",
-  "DAWN_WRITE_RUN=writable",
-  "DAWN_SERVICEACCOUNT_TOKEN=absent",
+  "B4_PROC_CAP_EFF=0000000000000000",
+  "B4_PROC_NO_NEW_PRIVS=1",
+  "B4_PROC_SECCOMP=2",
+  "B4_WRITE_ETC=read-only",
+  "B4_WRITE_WORKSPACE=writable",
+  "B4_WRITE_TMP=writable",
+  "B4_WRITE_RUN=writable",
+  "B4_SERVICEACCOUNT_TOKEN=absent",
 ] as const
 
 describe("Kubernetes conformance command construction", () => {
@@ -43,7 +43,7 @@ describe("Kubernetes conformance command construction", () => {
   })
 
   test("POSIX-quotes an apostrophe and shell metacharacters without allowing escape", async () => {
-    const sentinel = join(tmpdir(), `dawn-shell-escape-${randomUUID()}`)
+    const sentinel = join(tmpdir(), `b4-shell-escape-${randomUUID()}`)
     const rawUrl = `https://example.test/a';touch\${IFS}${sentinel};#?query=$(touch\${IFS}${sentinel})`
     const url = parseEgressControlUrl(rawUrl)
     const command = buildNodeEvalCommand(`process.stdout.write(${JSON.stringify(url)})`)
@@ -57,11 +57,11 @@ describe("Kubernetes conformance command construction", () => {
   test("builds node probes from the parsed URL with exact evidence markers", () => {
     const url = parseEgressControlUrl("https://example.test/a'b;$(echo escaped)?query=`id`")
 
-    expect(buildDnsProbeCommand(url)).toContain("DAWN_DNS_RESULT=resolved")
-    expect(buildEgressProbeCommand(url)).toContain("DAWN_EGRESS_RESULT=reached")
-    expect(buildEgressProbeCommand(url)).toContain("DAWN_EGRESS_RESULT=blocked")
-    expect(buildRestrictedSecurityProbeCommand()).toContain("DAWN_PROC_CAP_EFF=")
-    expect(buildRestrictedSecurityProbeCommand()).toContain("DAWN_SERVICEACCOUNT_TOKEN=")
+    expect(buildDnsProbeCommand(url)).toContain("B4_DNS_RESULT=resolved")
+    expect(buildEgressProbeCommand(url)).toContain("B4_EGRESS_RESULT=reached")
+    expect(buildEgressProbeCommand(url)).toContain("B4_EGRESS_RESULT=blocked")
+    expect(buildRestrictedSecurityProbeCommand()).toContain("B4_PROC_CAP_EFF=")
+    expect(buildRestrictedSecurityProbeCommand()).toContain("B4_SERVICEACCOUNT_TOKEN=")
   })
 
   test("executes the generated DNS probe as valid JavaScript", async () => {
@@ -70,7 +70,7 @@ describe("Kubernetes conformance command construction", () => {
     const result = await execFileAsync("/bin/sh", ["-c", command])
 
     expect(result.stderr).toBe("")
-    expect(result.stdout).toBe("DAWN_DNS_RESULT=resolved\n")
+    expect(result.stdout).toBe("B4_DNS_RESULT=resolved\n")
   })
 
   test("executes the generated egress probe with the blocked exit contract", async () => {
@@ -78,7 +78,7 @@ describe("Kubernetes conformance command construction", () => {
 
     await expect(execFileAsync("/bin/sh", ["-c", command])).rejects.toMatchObject({
       code: 7,
-      stdout: "DAWN_EGRESS_RESULT=blocked\n",
+      stdout: "B4_EGRESS_RESULT=blocked\n",
     })
   })
 })
@@ -111,46 +111,44 @@ describe("Kubernetes conformance evidence parsing", () => {
 
   test("rejects contradictory and unexpected restricted markers", () => {
     expect(() =>
-      assertRestrictedSecurityEvidence(
-        [...restrictedMarkers, "DAWN_WRITE_ETC=writable"].join("\n"),
-      ),
+      assertRestrictedSecurityEvidence([...restrictedMarkers, "B4_WRITE_ETC=writable"].join("\n")),
     ).toThrow(/duplicate|contradictory/i)
     expect(() =>
-      assertRestrictedSecurityEvidence([...restrictedMarkers, "DAWN_UNKNOWN=value"].join("\n")),
+      assertRestrictedSecurityEvidence([...restrictedMarkers, "B4_UNKNOWN=value"].join("\n")),
     ).toThrow(/unexpected/i)
   })
 
   test("requires one exact DNS marker", () => {
-    expect(() => assertDnsEvidence("noise\nDAWN_DNS_RESULT=resolved\n")).not.toThrow()
+    expect(() => assertDnsEvidence("noise\nB4_DNS_RESULT=resolved\n")).not.toThrow()
     expect(() => assertDnsEvidence("noise only")).toThrow(/missing/i)
-    expect(() => assertDnsEvidence("DAWN_DNS_RESULT=resolved\nDAWN_DNS_RESULT=resolved")).toThrow(
+    expect(() => assertDnsEvidence("B4_DNS_RESULT=resolved\nB4_DNS_RESULT=resolved")).toThrow(
       /duplicate/i,
     )
-    expect(() => assertDnsEvidence("DAWN_DNS_RESULT=failed")).toThrow(/unknown/i)
+    expect(() => assertDnsEvidence("B4_DNS_RESULT=failed")).toThrow(/unknown/i)
   })
 
   test.each(["blocked", "reached"] as const)(
     "requires one exact egress marker with expected value %s",
     (expected) => {
-      expect(() => assertEgressEvidence(`DAWN_EGRESS_RESULT=${expected}\n`, expected)).not.toThrow()
+      expect(() => assertEgressEvidence(`B4_EGRESS_RESULT=${expected}\n`, expected)).not.toThrow()
       expect(() => assertEgressEvidence("noise only", expected)).toThrow(/missing/i)
       expect(() =>
         assertEgressEvidence(
-          `DAWN_EGRESS_RESULT=${expected}\nDAWN_EGRESS_RESULT=${expected}`,
+          `B4_EGRESS_RESULT=${expected}\nB4_EGRESS_RESULT=${expected}`,
           expected,
         ),
       ).toThrow(/duplicate/i)
-      expect(() => assertEgressEvidence("DAWN_EGRESS_RESULT=unknown", expected)).toThrow(/unknown/i)
+      expect(() => assertEgressEvidence("B4_EGRESS_RESULT=unknown", expected)).toThrow(/unknown/i)
       const contradictory = expected === "blocked" ? "reached" : "blocked"
-      expect(() => assertEgressEvidence(`DAWN_EGRESS_RESULT=${contradictory}`, expected)).toThrow(
+      expect(() => assertEgressEvidence(`B4_EGRESS_RESULT=${contradictory}`, expected)).toThrow(
         /expected/i,
       )
     },
   )
 
   test("does not accept marker substrings that are not exact lines", () => {
-    expect(() => assertDnsEvidence("prefix DAWN_DNS_RESULT=resolved suffix")).toThrow(/missing/i)
-    expect(() => assertEgressEvidence("DAWN_EGRESS_RESULT=blocked extra", "blocked")).toThrow(
+    expect(() => assertDnsEvidence("prefix B4_DNS_RESULT=resolved suffix")).toThrow(/missing/i)
+    expect(() => assertEgressEvidence("B4_EGRESS_RESULT=blocked extra", "blocked")).toThrow(
       /unknown/i,
     )
   })

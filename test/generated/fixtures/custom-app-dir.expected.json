@@ -4,24 +4,24 @@
     "private": true,
     "type": "module",
     "scripts": {
-      "dev": "dawn dev --port 3000",
-      "check": "dawn check",
-      "eval": "dawn eval",
+      "dev": "b4 dev --port 3000",
+      "check": "b4 check",
+      "eval": "b4 eval",
       "build": "tsc -p tsconfig.json",
       "test": "vitest run",
       "typecheck": "tsc --noEmit"
     },
     "dependencies": {
-      "@dawn-ai/cli": "latest",
-      "@dawn-ai/langchain": "latest",
-      "@dawn-ai/sdk": "latest",
+      "@b4run/cli": "latest",
+      "@b4run/langchain": "latest",
+      "@b4run/sdk": "latest",
       "zod": "^4.0.0"
     },
     "devDependencies": {
-      "@dawn-ai/config-typescript": "latest",
-      "@dawn-ai/evals": "latest",
-      "@dawn-ai/inspector": "latest",
-      "@dawn-ai/testing": "latest",
+      "@b4run/config-typescript": "latest",
+      "@b4run/evals": "latest",
+      "@b4run/inspector": "latest",
+      "@b4run/testing": "latest",
       "@types/node": "<version:@types/node>",
       "typescript": "<version:typescript>",
       "vitest": "<version:vitest>"
@@ -35,10 +35,10 @@
     "checks": [
       {
         "appRoot": "<app-root>",
-        "configPath": "<app-root>/dawn.config.ts",
-        "dawnDir": "<app-root>/.dawn",
+        "configPath": "<app-root>/b4.config.ts",
+        "b4Dir": "<app-root>/.b4",
         "name": "app",
-        "routesDir": "<app-root>/src/dawn-app",
+        "routesDir": "<app-root>/src/b4-app",
         "status": "passed"
       },
       {
@@ -48,7 +48,7 @@
       },
       {
         "name": "typegen",
-        "renderedBytes": 332,
+        "renderedBytes": 320,
         "status": "passed"
       },
       {
@@ -81,8 +81,8 @@
         "id": "/support/[tenant]",
         "pathname": "/support/[tenant]",
         "kind": "graph",
-        "entryFile": "<app-root>/src/dawn-app/support/[tenant]/index.ts",
-        "routeDir": "<app-root>/src/dawn-app/support/[tenant]",
+        "entryFile": "<app-root>/src/b4-app/support/[tenant]/index.ts",
+        "routeDir": "<app-root>/src/b4-app/support/[tenant]",
         "segments": [
           {
             "kind": "static",
@@ -97,6 +97,6 @@
       }
     ]
   },
-  "scenarioTypegenOutput": "import \"@dawn-ai/sdk/testing\"\n\ndeclare module \"@dawn-ai/sdk/testing\" {\n  interface RouteScenarioMap {\n    \"/support/[tenant]\": {\n      readonly tools: Record<never, never>\n    }\n  }\n}\n",
-  "typegenOutput": "/// <reference path=\"./scenarios.generated.d.ts\" />\n\ndeclare module \"dawn:routes\" {\n  export type DawnRoutePath = \"/support/[tenant]\";\n\n  export interface DawnRouteParams {\n  \"/support/[tenant]\": { tenant: string };\n  }\n\n  export interface DawnRouteTools {}\n\n  export type RouteTools<P extends DawnRoutePath> = DawnRouteTools[P];\n}\n"
+  "scenarioTypegenOutput": "import \"@b4run/sdk/testing\"\n\ndeclare module \"@b4run/sdk/testing\" {\n  interface RouteScenarioMap {\n    \"/support/[tenant]\": {\n      readonly tools: Record<never, never>\n    }\n  }\n}\n",
+  "typegenOutput": "/// <reference path=\"./scenarios.generated.d.ts\" />\n\ndeclare module \"b4:routes\" {\n  export type B4RoutePath = \"/support/[tenant]\";\n\n  export interface B4RouteParams {\n  \"/support/[tenant]\": { tenant: string };\n  }\n\n  export interface B4RouteTools {}\n\n  export type RouteTools<P extends B4RoutePath> = B4RouteTools[P];\n}\n"
 }

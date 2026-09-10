@@ -14,7 +14,7 @@ import {
   type ReflectionInput,
   selectConsolidationBatches,
   selectReflectionInput,
-} from "@dawn-ai/memory"
+} from "@b4run/memory"
 import { type CommandIo, formatErrorMessage, writeLine } from "../output.js"
 
 /** The engine writes progress to the command's io — same seam every command uses. */
@@ -404,7 +404,7 @@ function reportRemaining(io: DistillIo, remaining: number, command: string, unit
   if (remaining > 0) {
     writeLine(
       io.stdout,
-      `${remaining} more ${unit} not examined (maxBatches) — re-run \`dawn memory ${command}\` to continue`,
+      `${remaining} more ${unit} not examined (maxBatches) — re-run \`b4 memory ${command}\` to continue`,
     )
   }
 }

@@ -1,4 +1,4 @@
-import type { RuntimeContext, RuntimeTool, ToolRegistry, WorkspaceFs } from "@dawn-ai/sdk"
+import type { RuntimeContext, RuntimeTool, ToolRegistry, WorkspaceFs } from "@b4run/sdk"
 
 const _registry: ToolRegistry = {}
 void _registry

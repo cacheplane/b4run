@@ -1,27 +1,27 @@
 {
-  "name": "@dawn-example/chat-server",
+  "name": "@b4-example/chat-server",
   "private": true,
-  "version": "0.0.30",
+  "version": "0.0.35",
   "type": "module",
   "scripts": {
-    "dev": "node node_modules/@dawn-ai/cli/dist/index.js dev --port 3001",
-    "build": "node node_modules/@dawn-ai/cli/dist/index.js build",
-    "lint": "biome check --config-path ../../../packages/config-biome/biome.json package.json dawn.config.ts src test tsconfig.json vitest.config.ts",
+    "dev": "node node_modules/@b4run/cli/dist/index.js dev --port 3001",
+    "build": "node node_modules/@b4run/cli/dist/index.js build",
+    "lint": "biome check --config-path ../../../packages/config-biome/biome.json package.json b4.config.ts src test tsconfig.json vitest.config.ts",
     "typecheck": "tsc -p . --noEmit",
-    "check": "node node_modules/@dawn-ai/cli/dist/index.js check",
+    "check": "node node_modules/@b4run/cli/dist/index.js check",
     "test": "vitest run"
   },
   "dependencies": {
-    "@dawn-ai/cli": "workspace:*",
-    "@dawn-ai/core": "workspace:*",
-    "@dawn-ai/langchain": "workspace:*",
-    "@dawn-ai/sdk": "workspace:*",
+    "@b4run/cli": "workspace:*",
+    "@b4run/core": "workspace:*",
+    "@b4run/langchain": "workspace:*",
+    "@b4run/sdk": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@dawn-ai/config-typescript": "workspace:*",
-    "@dawn-ai/evals": "workspace:*",
-    "@dawn-ai/testing": "workspace:*",
+    "@b4run/config-typescript": "workspace:*",
+    "@b4run/evals": "workspace:*",
+    "@b4run/testing": "workspace:*",
     "@types/node": "26.1.2",
     "typescript": "7.0.2",
     "vitest": "^4.1.10"

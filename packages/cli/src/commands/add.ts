@@ -15,7 +15,7 @@ interface CatalogEntry {
 }
 
 function resolveBaseUrl(explicit?: string): string {
-  return explicit ?? process.env.DAWN_BLUEPRINTS_URL ?? "https://dawnai.org"
+  return explicit ?? process.env.B4_BLUEPRINTS_URL ?? "https://b4.run"
 }
 
 function isUrl(value: string): boolean {
@@ -86,7 +86,7 @@ export async function runAddCommand(args: AddArgs, io: CommandIo): Promise<void>
 
   if (!args.target) {
     const catalog = await loadCatalog(fetchImpl, base)
-    writeLine(io.stdout, "Available Dawn blueprints — run `dawn add <name>`:")
+    writeLine(io.stdout, "Available B4.run blueprints — run `b4 add <name>`:")
     const byCategory = new Map<string, CatalogEntry[]>()
     for (const entry of catalog) {
       byCategory.set(entry.category, [...(byCategory.get(entry.category) ?? []), entry])
@@ -120,7 +120,7 @@ export async function runAddCommand(args: AddArgs, io: CommandIo): Promise<void>
   const url = `${base}/blueprints/${args.target}.md`
   const { status, text } = await fetchText(fetchImpl, url)
   if (status === 200) {
-    writeLine(io.stdout, `# Apply this Dawn blueprint: ${args.target}`)
+    writeLine(io.stdout, `# Apply this B4.run blueprint: ${args.target}`)
     writeLine(io.stdout, "")
     writeLine(io.stdout, "Hand the guide below to your coding agent to apply it to this project.")
     writeLine(io.stdout, "")

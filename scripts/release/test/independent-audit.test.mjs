@@ -45,10 +45,10 @@ function argv(overrides = {}) {
 
 function environment(overrides = {}) {
   return {
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_REPOSITORY_ID: "1210070282",
     GITHUB_EVENT_NAME: "workflow_dispatch",
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/published-artifact-verify.yml@refs/tags/v${VERSION}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/published-artifact-verify.yml@refs/tags/v${VERSION}`,
     GITHUB_REF: `refs/tags/v${VERSION}`,
     GITHUB_SHA: COMMIT_SHA,
     GITHUB_RUN_ID: "500",
@@ -66,7 +66,7 @@ test("accepts only the exact independent-audit arguments and GitHub invocation i
     result: "audit-result.json",
   })
   assert.deepEqual(parseIndependentAuditEnvironment(environment(), options), {
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     workflow: ".github/workflows/published-artifact-verify.yml",
     ref: `refs/tags/v${VERSION}`,
     commitSha: COMMIT_SHA,
@@ -94,7 +94,9 @@ test("rejects malformed, missing, duplicate, unknown, or mismatched invocation i
   for (const invalidEnvironment of [
     environment({ GITHUB_REPOSITORY: "someone/else" }),
     environment({ GITHUB_EVENT_NAME: "push" }),
-    environment({ GITHUB_WORKFLOW_REF: "cacheplane/dawnai/.github/workflows/release.yml@main" }),
+    environment({
+      GITHUB_WORKFLOW_REF: "cacheplane/b4run/.github/workflows/release.yml@main",
+    }),
     environment({ GITHUB_REF: "refs/heads/main" }),
     environment({ GITHUB_SHA: "f".repeat(40) }),
     environment({ GITHUB_RUN_ID: "0" }),
@@ -149,7 +151,7 @@ test("argument, option, and environment validation never invokes accessors", () 
 
 test("constructs only bounded read-only production boundaries and never a writer or recent-run selector", async () => {
   const calls = []
-  const root = "/tmp/dawn-independent-audit-runtime"
+  const root = "/tmp/b4-independent-audit-runtime"
   const token = "test-token-value"
   const git = { resolveTag() {} }
   const github = { getReleaseByTag() {} }
@@ -233,7 +235,7 @@ test("constructs only bounded read-only production boundaries and never a writer
       "createGitHubReader",
       {
         owner: "cacheplane",
-        repo: "dawnai",
+        repo: "b4run",
         repositoryId: "1210070282",
         token,
         maxResponseBytes: RELEASE_PAYLOAD_LIMITS.actionsArchiveBytes,
@@ -270,19 +272,23 @@ test("the executor contains no Release writer or audit run discovery path", asyn
 })
 
 test("waits for its exact dispatch marker and audits through the production observer and planner", async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-independent-audit-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-independent-audit-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const resultPath = path.join(directory, "audit-result.json")
   const productionObservation = fiveLaneAuditObservation()
   const exactMarker = productionObservation.release.marker
-  const previousMarker = { ...exactMarker, phase: "SMOKES_COMPLETE", audit: null }
+  const previousMarker = {
+    ...exactMarker,
+    phase: "SMOKES_COMPLETE",
+    audit: null,
+  }
   const wrongRunMarker = {
     ...exactMarker,
     audit: {
       ...exactMarker.audit,
       workflowRunId: 499,
-      runUrl: "https://api.github.com/repos/cacheplane/dawnai/actions/runs/499",
-      htmlUrl: "https://github.com/cacheplane/dawnai/actions/runs/499",
+      runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/499",
+      htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/499",
     },
   }
   const releases = [previousMarker, wrongRunMarker, exactMarker]
@@ -351,9 +357,10 @@ test("waits for its exact dispatch marker and audits through the production obse
     ],
   )
   assert.deepEqual(delays, [5, 5])
-  assert.deepEqual(calls[0], ["getReleaseByTag", { tag: `v${VERSION}` }])
-  assert.deepEqual(calls[1], ["getReleaseByTag", { tag: `v${VERSION}` }])
-  assert.deepEqual(calls[2], ["getReleaseByTag", { tag: `v${VERSION}` }])
+  assert.deepEqual(
+    calls.slice(0, 6),
+    Array.from({ length: 3 }, () => [["listReleases"], ["getRelease", { releaseId: 91 }]]).flat(),
+  )
   assert.ok(calls.some(([name]) => name === "getActionsRunAttempt"))
   assert.ok(calls.some(([name]) => name === "listActionsRunJobs"))
   assert.deepEqual(
@@ -372,7 +379,7 @@ test("waits for its exact dispatch marker and audits through the production obse
 })
 
 test("accepts bounded durable five-lane Release receipts after Actions retention expires", async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-independent-audit-durable-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-independent-audit-durable-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const resultPath = path.join(directory, "audit-result.json")
   const fixture = durableAuditFixture()
@@ -470,7 +477,7 @@ test("accepts bounded durable five-lane Release receipts after Actions retention
 })
 
 test("a missing or wrong-run dispatch marker times out into one canonical failure receipt", async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-independent-audit-timeout-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-independent-audit-timeout-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const resultPath = path.join(directory, "audit-result.json")
   const observation = fiveLaneAuditObservation()
@@ -479,8 +486,8 @@ test("a missing or wrong-run dispatch marker times out into one canonical failur
     audit: {
       ...observation.release.marker.audit,
       workflowRunId: 499,
-      runUrl: "https://api.github.com/repos/cacheplane/dawnai/actions/runs/499",
-      htmlUrl: "https://github.com/cacheplane/dawnai/actions/runs/499",
+      runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/499",
+      htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/499",
     },
   }
   const calls = []
@@ -516,7 +523,7 @@ test("a missing or wrong-run dispatch marker times out into one canonical failur
     },
   ])
   assert.deepEqual(bytes, canonicalAuditResultBytes(result))
-  assert.equal(calls.filter(([name]) => name === "getReleaseByTag").length, 2)
+  assert.equal(calls.filter(([name]) => name === "listReleases").length, 2)
   assert.equal(
     calls.some(([name]) => name === "getActionsRunAttempt"),
     false,
@@ -524,7 +531,7 @@ test("a missing or wrong-run dispatch marker times out into one canonical failur
 })
 
 test("an observer exception emits a bounded secret-safe failure receipt before failing the job", async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-independent-audit-failure-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-independent-audit-failure-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const resultPath = path.join(directory, "audit-result.json")
   const secret = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
@@ -567,14 +574,17 @@ test("an observer exception emits a bounded secret-safe failure receipt before f
 })
 
 test("manifest, state, and diagnostic mismatches each fail closed with a durable result", async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-independent-audit-mismatch-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-independent-audit-mismatch-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const cases = [
     {
       name: "manifest",
       observation: {
         ...fiveLaneAuditObservation(),
-        audit: { ...fiveLaneAuditObservation().audit, manifestSha256: "b".repeat(64) },
+        audit: {
+          ...fiveLaneAuditObservation().audit,
+          manifestSha256: "b".repeat(64),
+        },
       },
       expectedCheck: "production-observation",
     },
@@ -628,7 +638,7 @@ test("manifest, state, and diagnostic mismatches each fail closed with a durable
 })
 
 test("canonical audit results are write-once, replayable only byte-for-byte, and never follow symlinks", async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-independent-audit-write-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-independent-audit-write-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const resultPath = path.join(directory, "audit-result.json")
   const result = auditResult()
@@ -657,7 +667,7 @@ test("canonical audit results are write-once, replayable only byte-for-byte, and
 })
 
 test("audit result writes reject a symlinked parent and a parent directory replacement", async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-independent-audit-parent-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-independent-audit-parent-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const actual = path.join(directory, "actual")
   const linked = path.join(directory, "linked")
@@ -688,7 +698,7 @@ test("audit result writes reject a symlinked parent and a parent directory repla
 })
 
 test("malformed invocation identity never creates a result and the executable fails without a stack", async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-independent-audit-invalid-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-independent-audit-invalid-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const resultPath = path.join(directory, "audit-result.json")
   let runtimeCalls = 0
@@ -767,7 +777,7 @@ function durableAuditFixture() {
       lane: receipt.lane,
       actionsArtifactId: String(4_000 + index),
       actionsArtifactName: `smoke-result-${receipt.lane}-${workflowRunId}-${runAttempt}`,
-      actionsArtifactUrl: `https://github.com/cacheplane/dawnai/actions/runs/${workflowRunId}/artifacts/${4_000 + index}`,
+      actionsArtifactUrl: `https://github.com/cacheplane/b4run/actions/runs/${workflowRunId}/artifacts/${4_000 + index}`,
       actionsArtifactServiceDigest: `sha256:${"8".repeat(64)}`,
       releaseAssetId: receipt.releaseAssetId,
       releaseAssetName: receipt.releaseAssetName,
@@ -829,10 +839,16 @@ function releaseCandidate() {
 }
 
 function exactAuditGitHub({ calls, getReleaseByTag }) {
+  let selected
   return {
-    async getReleaseByTag(input) {
-      calls.push(["getReleaseByTag", input])
-      return getReleaseByTag(input)
+    async listReleases() {
+      calls.push(["listReleases"])
+      selected = await getReleaseByTag({ tag: `v${VERSION}` })
+      return selected.status === "PRESENT" ? present("releases", [selected.value]) : selected
+    },
+    async getRelease(input) {
+      calls.push(["getRelease", input])
+      return selected
     },
     async getActionsRunAttempt(input) {
       calls.push(["getActionsRunAttempt", input])
@@ -922,7 +938,7 @@ function auditResult() {
 function draftRelease(marker) {
   return {
     id: 91,
-    name: `Dawn v${VERSION}`,
+    name: `B4 v${VERSION}`,
     tag_name: "untagged-opaque",
     target_commitish: "main",
     draft: true,
@@ -949,3 +965,178 @@ function binary(operation, bytes) {
 function digest(value) {
   return createHash("sha256").update(value).digest("hex")
 }
+
+for (const [label, mutate, expectedCode] of [
+  ["discovers an untagged draft without the published tag endpoint", () => {}, null],
+  [
+    "rejects duplicate draft candidates",
+    (releases) => releases.push({ ...releases[0], id: 92 }),
+    "RELEASE_DISPATCH_DISCOVERY_AMBIGUOUS",
+  ],
+  [
+    "rejects a published tag collision",
+    (releases) =>
+      releases.push({
+        ...releases[0],
+        id: 92,
+        name: "other",
+        draft: false,
+        tag_name: `v${VERSION}`,
+      }),
+    "RELEASE_DISPATCH_DISCOVERY_AMBIGUOUS",
+  ],
+  [
+    "rejects malformed candidate IDs",
+    (releases) => {
+      releases[0].id = "91"
+    },
+    "RELEASE_DISPATCH_DISCOVERY_AMBIGUOUS",
+  ],
+  [
+    "rejects malformed matching markers",
+    (releases) => {
+      releases[0].body = "broken"
+    },
+    "RELEASE_DISPATCH_IDENTITY_INVALID",
+  ],
+  ["rejects unavailable release lists", () => {}, "RELEASE_DISPATCH_READ_AMBIGUOUS"],
+  ["rejects a changed fetched release ID", () => {}, "RELEASE_DISPATCH_IDENTITY_INVALID"],
+]) {
+  test(`draft audit discovery ${label}`, async (t) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "b4-audit-discovery-"))
+    t.after(() => rm(directory, { recursive: true, force: true }))
+    const calls = []
+    const observation = fiveLaneAuditObservation()
+    const runtime = auditRuntime({ calls, observation })
+    const releases = [draftRelease(observation.release.marker)]
+    mutate(releases)
+    runtime.github.getReleaseByTag = async () => ({
+      status: "AMBIGUOUS",
+      operation: "release",
+      httpStatus: 404,
+      code: "HTTP_404",
+    })
+    runtime.github.listReleases = async () => {
+      calls.push(["listReleases"])
+      return label.includes("unavailable")
+        ? {
+            status: "ERROR",
+            operation: "releases",
+            httpStatus: 500,
+            code: "HTTP_500",
+          }
+        : present("releases", releases)
+    }
+    runtime.github.getRelease = async (input) => {
+      calls.push(["getRelease", input])
+      return present("release", {
+        ...releases[0],
+        ...(label.includes("changed fetched") ? { id: 92 } : {}),
+      })
+    }
+    const work = runIndependentAudit(argv({ result: path.join(directory, "result.json") }), {
+      environment: environment(),
+      cwd: directory,
+      createRuntime: async () => runtime,
+      now: fixedTimestamps(),
+      clock: () => 0,
+      delay: async () => {},
+      pollAttempts: 1,
+      pollDelayMs: 0,
+      pollTimeoutMs: 1000,
+    })
+    if (expectedCode) await assert.rejects(work, (error) => error.code === expectedCode)
+    else {
+      assert.equal((await work).conclusion, "success")
+      assert.deepEqual(
+        calls.filter(([name]) => name === "getRelease"),
+        [["getRelease", { releaseId: 91 }]],
+      )
+    }
+    assert.equal(calls.filter(([name]) => name === "listReleases").length, 1)
+    if (expectedCode?.includes("AMBIGUOUS"))
+      assert.equal(
+        calls.some(([name]) => name === "getRelease"),
+        false,
+      )
+  })
+}
+
+test("main invocation separates actual executor SHA from immutable payload identity", () => {
+  const executorSha = "5".repeat(40)
+  const invocation = parseIndependentAuditEnvironment(
+    environment({
+      GITHUB_REF: "refs/heads/main",
+      GITHUB_WORKFLOW_REF:
+        "cacheplane/b4run/.github/workflows/published-artifact-verify.yml@refs/heads/main",
+      GITHUB_SHA: executorSha,
+    }),
+    parseIndependentAuditArgs(argv()),
+  )
+  assert.equal(invocation.commitSha, COMMIT_SHA)
+  assert.equal(invocation.executorSha, executorSha)
+  assert.equal(invocation.ref, "refs/heads/main")
+})
+
+test("authorized main executor audits the original payload and rejects unbound source", async () => {
+  const { auditExecutorFixture } = await import("./support/audit-executor-fixture.mjs")
+  for (const authorized of [true, false]) {
+    const f = auditExecutorFixture()
+    f.candidate = releaseCandidate()
+    f.manifestSha256 = MANIFEST_SHA256
+    f.authorization.candidate = {
+      version: VERSION,
+      commitSha: COMMIT_SHA,
+      manifestSha256: MANIFEST_SHA256,
+    }
+    f.files.set(
+      `scripts/release/audit-executor-authorizations/v${VERSION}.json`,
+      JSON.stringify(f.authorization),
+    )
+    if (!authorized) f.files.set("scripts/release/independent-audit.mjs", "unreviewed source")
+    const calls = [],
+      results = []
+    const runtime = auditRuntime({ calls, observation: fiveLaneAuditObservation() })
+    const original = runtime.github
+    runtime.git = f.git
+    runtime.github = {
+      ...original,
+      ...f.github,
+      getActionsRunAttempt: async (args) =>
+        args.runId === 500
+          ? present("actions-run-attempt", {
+              ...f.run,
+              id: 500,
+              status: "in_progress",
+              conclusion: null,
+            })
+          : f.github.getActionsRunAttempt(args),
+      listActionsRunJobs: (args) =>
+        args.runId === 500 ? original.listActionsRunJobs(args) : f.github.listActionsRunJobs(args),
+    }
+    const operation = runIndependentAudit(argv(), {
+      environment: environment({
+        GITHUB_REF: "refs/heads/main",
+        GITHUB_SHA: f.run.head_sha,
+        GITHUB_WORKFLOW_REF:
+          "cacheplane/b4run/.github/workflows/published-artifact-verify.yml@refs/heads/main",
+      }),
+      createRuntime: async () => runtime,
+      now: fixedTimestamps(),
+      writeResult: async (_, result) => results.push(result),
+    })
+    if (authorized) {
+      const result = await operation
+      assert.equal(result.conclusion, "success")
+      assert.equal(result.commitSha, COMMIT_SHA)
+      assert.equal(result.workflowRunId, 500)
+      assert.ok(
+        calls.some(([name, input]) => name === "inventory.read" && input.ref === COMMIT_SHA),
+      )
+    } else {
+      await assert.rejects(operation)
+      assert.equal(results[0].conclusion, "failure")
+      assert.ok(!calls.some(([name]) => name === "observeProductionCandidate"))
+    }
+  }
+})

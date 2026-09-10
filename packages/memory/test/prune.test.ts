@@ -11,7 +11,7 @@ import {
 
 const dirs: string[] = []
 function makeStore() {
-  const dir = mkdtempSync(join(tmpdir(), "dawn-prune-"))
+  const dir = mkdtempSync(join(tmpdir(), "b4-prune-"))
   dirs.push(dir)
   return sqliteMemoryStore({ path: join(dir, "m.sqlite") })
 }

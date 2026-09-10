@@ -11,7 +11,7 @@ import type { BaseCheckpointSaver, CheckpointTuple } from "@langchain/langgraph-
 import { describe, expect, test, vi } from "vitest"
 
 import {
-  type DawnResumeEntry,
+  type B4ResumeEntry,
   type PendingInterrupt,
   type PendingInterruptSnapshot,
   type PermissionDecision,
@@ -111,7 +111,7 @@ describe("resolvePendingResume", () => {
   ] satisfies ReadonlyArray<{
     name: string
     pending: PendingInterrupt[]
-    resume: DawnResumeEntry[]
+    resume: B4ResumeEntry[]
   }>)("rejects an inexact resume set: $name", ({ pending: entries, resume }) => {
     expect(resolvePendingResume(resume, snapshot(entries))).toMatchObject({
       code: "interrupt_set_mismatch",
@@ -124,7 +124,7 @@ describe("resolvePendingResume", () => {
     { interruptId: "perm-1", status: "resolved" },
     { interruptId: "perm-1", payload: "sometimes", status: "resolved" },
     { interruptId: "perm-1", payload: { decision: "once" }, status: "resolved" },
-  ] satisfies DawnResumeEntry[])(
+  ] satisfies B4ResumeEntry[])(
     "rejects a resolved entry with missing or unsupported payload: %j",
     (entry) => {
       expect(
@@ -140,7 +140,7 @@ describe("resolvePendingResume", () => {
   test.each([
     undefined,
     [{ interruptId: "perm-1", payload: "once", status: "resolved" }],
-  ] satisfies ReadonlyArray<readonly DawnResumeEntry[] | undefined>)(
+  ] satisfies ReadonlyArray<readonly B4ResumeEntry[] | undefined>)(
     "rejects malformed checkpoint state before starting or resuming: %j",
     (resume) => {
       expect(

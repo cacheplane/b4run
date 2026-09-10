@@ -2,7 +2,7 @@
 // document lives in the cacheplane/pretable repo, NOT here:
 // docs/superpowers/specs/2026-08-09-server-controlled-exploration-design.md.
 //
-// pnpm --filter @dawn-ai/memory build
+// pnpm --filter @b4run/memory build
 // node packages/memory/bench/browse-plans.mts [rowCount]
 //
 // Seeds rows with a direct bulk insert (the store's put() also tokenizes, which is
@@ -26,7 +26,7 @@ const rowCount = Number(process.argv[2] ?? 100_000)
 if (!Number.isInteger(rowCount) || rowCount < 1) {
   throw new Error(`rowCount must be a positive integer, got ${JSON.stringify(process.argv[2])}`)
 }
-const dir = mkdtempSync(join(tmpdir(), "dawn-bench-"))
+const dir = mkdtempSync(join(tmpdir(), "b4-bench-"))
 const path = join(dir, "bench.sqlite")
 
 function seed(): void {

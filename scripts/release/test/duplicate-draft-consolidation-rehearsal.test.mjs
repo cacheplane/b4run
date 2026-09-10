@@ -1,3 +1,14 @@
+// This dated Dawn incident suite executes the exact pre-rename source.
+// Current incident file preservation is independently checked in b4-identity.test.mjs.
+import {
+  historicalReleaseModuleUrl,
+  importHistoricalReleaseModule,
+} from "./support/frozen-history.mjs"
+
+const HISTORICAL_TEST_URL = await historicalReleaseModuleUrl(
+  "scripts/release/test/duplicate-draft-consolidation-rehearsal.test.mjs",
+)
+
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -6,24 +17,31 @@ import os from "node:os"
 import path from "node:path"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
-import {
-  performDuplicateDraftConsolidation,
-  performOneDuplicateDeletion,
-} from "../duplicate-draft-consolidation.mjs"
-import { createDuplicateDraftConsolidationAdapters } from "../duplicate-draft-consolidation-adapters.mjs"
-import { runDuplicateDraftConsolidationCli } from "../duplicate-draft-consolidation-cli.mjs"
-import { assertEvidenceEqualsProposal } from "../duplicate-draft-consolidation-evidence.mjs"
-import { readPrivateEnvelope, readTrackedReceipt } from "../duplicate-draft-consolidation-files.mjs"
-import {
-  DUPLICATE_DRAFT_CONSOLIDATION_LIMITS,
-  parseConsolidationEnvelope,
-} from "../duplicate-draft-consolidation-schema.mjs"
-import {
+
+const { performDuplicateDraftConsolidation, performOneDuplicateDeletion } =
+  await importHistoricalReleaseModule("scripts/release/duplicate-draft-consolidation.mjs")
+const { createDuplicateDraftConsolidationAdapters } = await importHistoricalReleaseModule(
+  "scripts/release/duplicate-draft-consolidation-adapters.mjs",
+)
+const { runDuplicateDraftConsolidationCli } = await importHistoricalReleaseModule(
+  "scripts/release/duplicate-draft-consolidation-cli.mjs",
+)
+const { assertEvidenceEqualsProposal } = await importHistoricalReleaseModule(
+  "scripts/release/duplicate-draft-consolidation-evidence.mjs",
+)
+const { readPrivateEnvelope, readTrackedReceipt } = await importHistoricalReleaseModule(
+  "scripts/release/duplicate-draft-consolidation-files.mjs",
+)
+const { DUPLICATE_DRAFT_CONSOLIDATION_LIMITS, parseConsolidationEnvelope } =
+  await importHistoricalReleaseModule("scripts/release/duplicate-draft-consolidation-schema.mjs")
+const {
   createDuplicateDraftConsolidationFixture,
   DUPLICATE_DRAFT_CANDIDATE,
   DUPLICATE_DRAFT_IDS,
   DUPLICATE_DRAFT_SURVIVOR_ID,
-} from "./support/duplicate-draft-consolidation-fixture.mjs"
+} = await importHistoricalReleaseModule(
+  "scripts/release/test/support/duplicate-draft-consolidation-fixture.mjs",
+)
 
 const CONTROLLER_SHA = "b".repeat(40)
 const PROPOSAL = ".dawn/release/duplicate-draft-consolidation.proposed.json"
@@ -44,7 +62,7 @@ const INSPECT_COMMAND = Object.freeze([
 ])
 const VERIFY_COMMAND = Object.freeze(["verify", "--receipt", RECEIPT])
 const PROCESS_LOSS_CHILD = fileURLToPath(
-  new URL("./support/duplicate-draft-consolidation-process-loss-child.mjs", import.meta.url),
+  new URL("./support/duplicate-draft-consolidation-process-loss-child.mjs", HISTORICAL_TEST_URL),
 )
 const PROCESS_LOSS_CASES = Object.freeze([
   Object.freeze({ name: "clean completion", fault: null, expectedIntents: 2 }),

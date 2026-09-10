@@ -1,6 +1,6 @@
 # Execution Sandbox
 
-The execution sandbox gives a provider-keyed Agent Protocol thread an isolated filesystem, shell, and network boundary instead of letting workspace tools operate in the app's local `workspace/` directory. That boundary depends on thread IDs remaining distinct after provider resource naming; the built-in providers do not add an application or tenant namespace. Add a `sandbox` key to `dawn.config.ts`, and Dawn routes `readFile`, `writeFile`, `listDir`, and `runBash` through a `SandboxProvider`. Dawn includes a Docker reference implementation; the same portable contract also supports other providers.
+The execution sandbox gives a provider-keyed Agent Protocol thread an isolated filesystem, shell, and network boundary instead of letting workspace tools operate in the app's local `workspace/` directory. That boundary depends on thread IDs remaining distinct after provider resource naming; the built-in providers do not add an application or tenant namespace. Add a `sandbox` key to `b4.config.ts`, and B4.run routes `readFile`, `writeFile`, `listDir`, and `runBash` through a `SandboxProvider`. B4.run includes a Docker reference implementation; the same portable contract also supports other providers.
 
 This is one of three independent controls: [tool scoping](/docs/tools) decides which tools the model can call, [permissions](/docs/permissions) decide whether a call may run, and the sandbox constrains what an allowed call can touch. Use all three where your threat model calls for them.
 
@@ -9,12 +9,12 @@ This is one of three independent controls: [tool scoping](/docs/tools) decides w
 Install Docker, start its daemon, and configure `dockerSandbox`:
 
 ```bash
-pnpm add @dawn-ai/sandbox
+pnpm add @b4run/sandbox
 ```
 
-```ts title="dawn.config.ts"
-import { config } from "@dawn-ai/cli"
-import { dockerSandbox } from "@dawn-ai/sandbox"
+```ts title="b4.config.ts"
+import { config } from "@b4run/cli"
+import { dockerSandbox } from "@b4run/sandbox"
 
 export default config({
   sandbox: {
@@ -27,7 +27,7 @@ export default config({
 })
 ```
 
-No `sandbox` key means no behavior change: workspace tools still use the app's local `workspace/` directory. `dawn check` validates the configuration and calls the provider's optional `preflight()`. For Docker, that check confirms the daemon is reachable so a stopped daemon fails before the first agent turn.
+No `sandbox` key means no behavior change: workspace tools still use the app's local `workspace/` directory. `b4 check` validates the configuration and calls the provider's optional `preflight()`. For Docker, that check confirms the daemon is reachable so a stopped daemon fails before the first agent turn.
 
 ## What's isolated
 
@@ -39,7 +39,7 @@ No `sandbox` key means no behavior change: workspace tools still use the app's l
 
 ## Lifecycle
 
-Dawn passes the conversation thread ID to the provider and reuses the resulting sandbox across turns.
+B4.run passes the conversation thread ID to the provider and reuses the resulting sandbox across turns.
 
 - `acquire()` creates or reattaches the thread's live compute and workspace.
 - Idle reap and `release()` discard warm compute but retain the workspace volume.
@@ -108,13 +108,13 @@ See [Kubernetes Sandbox](/docs/sandbox/kubernetes) for DNS exceptions, CNI requi
 
 ## Deploying the sandbox infrastructure (Helm)
 
-Install and operate `dawn-sandbox-infra` with the canonical [Kubernetes Sandbox guide](/docs/sandbox/kubernetes).
+Install and operate `b4-sandbox-infra` with the canonical [Kubernetes Sandbox guide](/docs/sandbox/kubernetes).
 
 ### Key caveats
 
 Namespace alignment, storage, DNS, CNI enforcement, quotas, and PVC cleanup are covered in [Kubernetes Sandbox](/docs/sandbox/kubernetes).
 
-## Deploying a Dawn app (Helm)
+## Deploying a B4.run app (Helm)
 
 Deploy the app with [Kubernetes](/docs/deployment/kubernetes); operate its provider with [Kubernetes Sandbox](/docs/sandbox/kubernetes).
 
@@ -135,7 +135,7 @@ A subagent runs under its parent's conversation thread. The coordinator and all 
 Implement `SandboxProvider` to integrate a microVM, cloud sandbox, or another isolation backend:
 
 ```ts
-import type { SandboxHandle, SandboxPolicy } from "@dawn-ai/sandbox"
+import type { SandboxHandle, SandboxPolicy } from "@b4run/sandbox"
 
 export interface SandboxProvider {
   readonly name: string
@@ -159,7 +159,7 @@ export interface SandboxProvider {
 Validate the implementation with the shared conformance suite:
 
 ```ts
-import { runProviderConformance } from "@dawn-ai/sandbox/testing"
+import { runProviderConformance } from "@b4run/sandbox/testing"
 import { describe } from "vitest"
 import { myCloudSandbox } from "./my-cloud-sandbox.js"
 
@@ -176,27 +176,27 @@ The suite checks acquire/reattach idempotency, per-thread isolation, release-ver
 
 Use `fakeSandbox()` for deterministic tests that need the provider contract without Docker:
 
-```ts title="dawn.config.ts (test)"
-import { config } from "@dawn-ai/cli"
-import { fakeSandbox } from "@dawn-ai/sandbox/testing"
+```ts title="b4.config.ts (test)"
+import { config } from "@b4run/cli"
+import { fakeSandbox } from "@b4run/sandbox/testing"
 
 export default config({
   sandbox: { provider: fakeSandbox() },
 })
 ```
 
-This exercises Dawn's per-thread acquisition, reuse, and subagent wiring. Provider conformance and gated integration tests cover the actual isolation backend.
+This exercises B4.run's per-thread acquisition, reuse, and subagent wiring. Provider conformance and gated integration tests cover the actual isolation backend.
 
 ## Verifying the full arc (end-to-end)
 
-Two gated CI lanes exercise a built Dawn app, a real provider, command output inside the isolated workload, and cleanup after thread deletion:
+Two gated CI lanes exercise a built B4.run app, a real provider, command output inside the isolated workload, and cleanup after thread deletion:
 
 - `sandbox-docker-e2e` runs the app as a container and drives `dockerSandbox` to create a sibling container.
 - `sandbox-k8s-e2e` deploys the app and drives `kubernetesSandbox` to create a sandbox Pod; operational setup is in [Kubernetes Sandbox](/docs/sandbox/kubernetes).
 
-Both use a mocked model, assert that the in-sandbox process runs as UID `1000`, and confirm compute and storage are removed on thread deletion. They run only when `DAWN_TEST_SMOKE_E2E=1` is enabled.
+Both use a mocked model, assert that the in-sandbox process runs as UID `1000`, and confirm compute and storage are removed on thread deletion. They run only when `B4_TEST_SMOKE_E2E=1` is enabled.
 
-Only a Dawn runtime entry (`dawn dev`, `dawn start`, or the Node build target) constructs the configured sandbox. LangSmith platform artifacts do not run that runtime. Edge targets reject incompatible filesystem and sandbox capabilities rather than silently running workspace tools without isolation; see [Deployment Options](/docs/deployment).
+Only a B4.run runtime entry (`b4 dev`, `b4 start`, or the Node build target) constructs the configured sandbox. LangSmith platform artifacts do not run that runtime. Edge targets reject incompatible filesystem and sandbox capabilities rather than silently running workspace tools without isolation; see [Deployment Options](/docs/deployment).
 
 ## What it is — and isn't
 

@@ -4,13 +4,13 @@
 
 **Goal:** Make skills, `plan.md`, and route `memory.md` work on the `hono` and `vercel` build targets by bundling their contents into the static module manifest and serving them through a pure `MarkerFs`.
 
-**Architecture:** The web-runtime emitter already walks each route at build time; it will now also read the three marker file kinds and emit them as a per-route `markerFiles` map inside `modules.edge.mjs`, keyed by the same namespace paths the runtime derives from `routeFile`. A new `staticMarkerFs` in `@dawn-ai/core` implements the existing `MarkerFs` facade over that map, and the route-execution core threads it into `applyCapabilities` when no node boot fallbacks exist. The skills gate is removed from both the build gate and the request-time guard; the guard keeps failing closed for a manifest that records skill names without marker files.
+**Architecture:** The web-runtime emitter already walks each route at build time; it will now also read the three marker file kinds and emit them as a per-route `markerFiles` map inside `modules.edge.mjs`, keyed by the same namespace paths the runtime derives from `routeFile`. A new `staticMarkerFs` in `@b4run/core` implements the existing `MarkerFs` facade over that map, and the route-execution core threads it into `applyCapabilities` when no node boot fallbacks exist. The skills gate is removed from both the build gate and the request-time guard; the guard keeps failing closed for a manifest that records skill names without marker files.
 
-**Tech Stack:** TypeScript (NodeNext ESM, `exactOptionalPropertyTypes`), pnpm workspace, Vitest, Biome, esbuild (tests only), aimock from `@dawn-ai/testing`.
+**Tech Stack:** TypeScript (NodeNext ESM, `exactOptionalPropertyTypes`), pnpm workspace, Vitest, Biome, esbuild (tests only), aimock from `@b4run/testing`.
 
 **Spec:** `docs/superpowers/specs/2026-09-03-edge-static-marker-files-design.md`
 
-**Working tree:** `/Users/blove/repos/dawn/.worktrees/edge-static-marker-files` on branch `blove/edge-static-marker-files`. Run every command from that directory. The worktree is installed and built; after any change under `packages/core/src` run `pnpm --filter @dawn-ai/core build` before running `packages/cli` tests, because CLI tests import core through `dist/`.
+**Working tree:** `/Users/blove/repos/dawn/.worktrees/edge-static-marker-files` on branch `blove/edge-static-marker-files`. Run every command from that directory. The worktree is installed and built; after any change under `packages/core/src` run `pnpm --filter @b4run/core build` before running `packages/cli` tests, because CLI tests import core through `dist/`.
 
 **Conventions that bite (from `AGENTS.md`):**
 - `src/` imports use `.js` extensions; `test/` imports use `.ts` or `.js` as the neighboring tests do.
@@ -57,7 +57,7 @@ In the spec, find the paragraph in "Design → Build side" item 2 that begins `E
    `plan.md` 64 KiB (`MAX_PLAN_BYTES` in `planning.ts`), `memory.md` 32 KiB
    (`MAX_MEMORY_BYTES` in `memory-md.ts`), and `SKILL.md` 32 KiB, which is a
    new limit because the skills marker reads eagerly with no cap. A file over
-   its limit fails the build with `DAWN_E1005`, naming the file and its size,
+   its limit fails the build with `B4_E1005`, naming the file and its size,
    before any artifact is written. This keeps the property that a green build
    never ships a silently disabled feature.
 ```
@@ -79,7 +79,7 @@ git commit -m "docs: match marker file limits to each marker's runtime limit"
 
 ---
 
-### Task 1: `staticMarkerFs` in `@dawn-ai/core`
+### Task 1: `staticMarkerFs` in `@b4run/core`
 
 **Files:**
 - Create: `packages/core/src/static-marker-fs.ts`
@@ -166,7 +166,7 @@ describe("staticMarkerFs", () => {
 
 - [x] **Step 2: Run the test to verify it fails**
 
-Run: `pnpm --filter @dawn-ai/core exec vitest --run --config vitest.config.ts test/static-marker-fs.test.ts`
+Run: `pnpm --filter @b4run/core exec vitest --run --config vitest.config.ts test/static-marker-fs.test.ts`
 Expected: FAIL with "Cannot find module '../src/static-marker-fs.js'" (or equivalent resolution error).
 
 - [x] **Step 3: Write the implementation**
@@ -257,12 +257,12 @@ export { staticMarkerFs } from "./static-marker-fs.js"
 
 - [x] **Step 5: Run the test to verify it passes**
 
-Run: `pnpm --filter @dawn-ai/core exec vitest --run --config vitest.config.ts test/static-marker-fs.test.ts`
+Run: `pnpm --filter @b4run/core exec vitest --run --config vitest.config.ts test/static-marker-fs.test.ts`
 Expected: PASS, 8 tests.
 
 - [x] **Step 6: Build core and typecheck**
 
-Run: `pnpm --filter @dawn-ai/core build && pnpm --filter @dawn-ai/core typecheck`
+Run: `pnpm --filter @b4run/core build && pnpm --filter @b4run/core typecheck`
 Expected: both exit 0.
 
 - [x] **Step 7: Commit**
@@ -346,7 +346,7 @@ The `status` strings come from `packages/core/src/capabilities/built-in/plan-md-
 
 - [x] **Step 2: Run the test**
 
-Run: `pnpm --filter @dawn-ai/core exec vitest --run --config vitest.config.ts test/capabilities/markers-marker-fs.test.ts`
+Run: `pnpm --filter @b4run/core exec vitest --run --config vitest.config.ts test/capabilities/markers-marker-fs.test.ts`
 Expected: PASS. Any failure means the facade is wrong; fix `static-marker-fs.ts`, not the test.
 
 - [x] **Step 3: Commit**
@@ -385,7 +385,7 @@ afterEach(async () => {
 })
 
 async function routeDir(files: Readonly<Record<string, string>>): Promise<string> {
-  const dir = await realpath(await mkdtemp(join(tmpdir(), "dawn-marker-files-")))
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "b4-marker-files-")))
   cleanup.push(() => rm(dir, { force: true, maxRetries: 5, recursive: true }))
   for (const [rel, body] of Object.entries(files)) {
     const filePath = join(dir, rel)
@@ -425,7 +425,7 @@ describe("collectRouteMarkerFiles", () => {
     const error = await collectRouteMarkerFiles(dir).catch((e: unknown) => e)
     expect(String(error)).toContain("skills/big/SKILL.md")
     expect(String(error)).toContain(String(MARKER_FILE_LIMITS["SKILL.md"] + 1))
-    expect((error as { code?: string }).code).toBe("DAWN_E1005")
+    expect((error as { code?: string }).code).toBe("B4_E1005")
   })
 
   it("allows a file exactly at its limit", async () => {
@@ -446,7 +446,7 @@ describe("collectRouteMarkerFiles", () => {
 
 - [x] **Step 2: Run the test to verify it fails**
 
-Run: `pnpm --filter @dawn-ai/cli exec vitest --run --config vitest.config.ts test/marker-files.test.ts`
+Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/marker-files.test.ts`
 Expected: FAIL, module not found.
 
 - [x] **Step 3: Write the implementation**
@@ -470,7 +470,7 @@ export interface RouteMarkerFile {
 
 /**
  * Byte limits per marker kind. `plan.md` and `memory.md` match the runtime
- * limits in `@dawn-ai/core`'s planning and memory-md markers; `SKILL.md` is a
+ * limits in `@b4run/core`'s planning and memory-md markers; `SKILL.md` is a
  * new limit because the skills marker reads eagerly with no cap.
  */
 export const MARKER_FILE_LIMITS = {
@@ -495,7 +495,7 @@ async function readMarkerFile(
         `Edge targets bundle marker files into the static module manifest, so the limit the ` +
         `runtime applies is enforced at build time. Shorten the file or split the skill.`,
       1,
-      { code: "DAWN_E1005" },
+      { code: "B4_E1005" },
     )
   }
   return { content: await readFile(absolute, "utf8"), relativePath }
@@ -526,7 +526,7 @@ export async function collectRouteMarkerFiles(
 
 - [x] **Step 4: Run the test to verify it passes**
 
-Run: `pnpm --filter @dawn-ai/cli exec vitest --run --config vitest.config.ts test/marker-files.test.ts`
+Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/marker-files.test.ts`
 Expected: PASS, 5 tests.
 
 - [x] **Step 5: Commit**
@@ -549,7 +549,7 @@ git commit -m "feat(cli): read route marker files with per-kind limits at build 
 Create `packages/cli/test/static-modules-marker-files.test.ts`:
 
 ```ts
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -599,7 +599,7 @@ describe("static modules — marker files", () => {
 
 - [x] **Step 2: Run the test to verify it fails**
 
-Run: `pnpm --filter @dawn-ai/cli exec vitest --run --config vitest.config.ts test/static-modules-marker-files.test.ts`
+Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/static-modules-marker-files.test.ts`
 Expected: FAIL, `staticModulesMarkerFiles` is not exported.
 
 - [x] **Step 3: Add the field and the helper**
@@ -643,7 +643,7 @@ After the `buildStaticRouteModule` function, add:
  * directory, so keys cannot collide.
  */
 export function staticModulesMarkerFiles(
-  modules: Pick<DawnStaticModules, "routes">,
+  modules: Pick<B4StaticModules, "routes">,
 ): Readonly<Record<string, string>> | undefined {
   let union: Record<string, string> | undefined
   for (const route of modules.routes) {
@@ -657,12 +657,12 @@ export function staticModulesMarkerFiles(
 
 - [x] **Step 4: Run the test to verify it passes**
 
-Run: `pnpm --filter @dawn-ai/cli exec vitest --run --config vitest.config.ts test/static-modules-marker-files.test.ts`
+Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/static-modules-marker-files.test.ts`
 Expected: PASS, 2 tests.
 
 - [x] **Step 5: Typecheck the CLI**
 
-Run: `pnpm --filter @dawn-ai/cli typecheck`
+Run: `pnpm --filter @b4run/cli typecheck`
 Expected: exit 0.
 
 - [x] **Step 6: Commit**
@@ -717,7 +717,7 @@ describe("emitEdgeModulesFile — marker files", () => {
   it("omits markerFiles entirely when discovery was not asked to collect them", async () => {
     const appRoot = await markerFixtureApp()
     const discoveries = await collectFixtureDiscoveries(appRoot)
-    const text = emitEdgeModulesFile({ appRoot, buildDir: join(appRoot, ".dawn", "build"), discoveries })
+    const text = emitEdgeModulesFile({ appRoot, buildDir: join(appRoot, ".b4", "build"), discoveries })
     expect(text).not.toContain("markerFiles")
     // The names are still recorded, which is what the request-time guard reads.
     expect(text).toContain('skills: ["cite-sources"]')
@@ -726,7 +726,7 @@ describe("emitEdgeModulesFile — marker files", () => {
   it("inlines skills, plan.md and memory.md keyed by namespace path, on the routes that have them", async () => {
     const appRoot = await markerFixtureApp()
     const discoveries = await collectMarkerDiscoveries(appRoot)
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
 
     const text = emitEdgeModulesFile({ appRoot, buildDir, discoveries })
 
@@ -746,12 +746,12 @@ describe("emitEdgeModulesFile — marker files", () => {
   it("survives the round trip through loadStaticModules with the runtime's routeDir keys", async () => {
     const appRoot = await markerFixtureApp()
     const discoveries = await collectMarkerDiscoveries(appRoot)
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
     await mkdir(buildDir, { recursive: true })
-    await mkdir(join(appRoot, "node_modules", "@dawn-ai"), { recursive: true })
+    await mkdir(join(appRoot, "node_modules", "@b4run"), { recursive: true })
     await symlink(
       join(repoRoot, "packages", "cli"),
-      join(appRoot, "node_modules", "@dawn-ai", "cli"),
+      join(appRoot, "node_modules", "@b4run", "cli"),
       "dir",
     )
     const modulesPath = join(buildDir, "modules.edge.mjs")
@@ -796,7 +796,7 @@ In `packages/cli/test/modules-emitter.test.ts`, inside `describe("emitModulesFil
     const appRoot = await skillsFixtureApp()
     const discoveries = await collectFixtureDiscoveries(appRoot)
     expect(discoveries.every((entry) => entry.markerFiles === undefined)).toBe(true)
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
     const text = emitModulesFile({ appRoot, buildDir, discoveries })
     expect(text).not.toContain("markerFiles")
     expect(text).not.toContain("Cite.")
@@ -805,7 +805,7 @@ In `packages/cli/test/modules-emitter.test.ts`, inside `describe("emitModulesFil
 
 - [x] **Step 3: Run both tests to verify they fail**
 
-Run: `pnpm --filter @dawn-ai/cli exec vitest --run --config vitest.config.ts test/edge-modules-emitter.test.ts test/modules-emitter.test.ts`
+Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/edge-modules-emitter.test.ts test/modules-emitter.test.ts`
 Expected: the two new edge cases FAIL (no `markerFiles` in output; `markerFiles` is not an accepted option). The node regression case passes already; keep it.
 
 - [x] **Step 4: Extend discovery and the emitter**
@@ -892,7 +892,7 @@ In `packages/cli/src/lib/build/targets/web-runtime.ts`, change the discovery loo
 
 - [x] **Step 5: Run the tests to verify they pass**
 
-Run: `pnpm --filter @dawn-ai/cli exec vitest --run --config vitest.config.ts test/edge-modules-emitter.test.ts test/modules-emitter.test.ts`
+Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/edge-modules-emitter.test.ts test/modules-emitter.test.ts`
 Expected: PASS, including the untouched golden inline snapshot (its fixture has no marker files, so its output is byte-for-byte unchanged).
 
 - [x] **Step 6: Commit**
@@ -951,7 +951,7 @@ In the `"reports every gap at once"` case in the same file, the `/research` rout
 
 - [x] **Step 2: Run the guard tests to verify the new one fails**
 
-Run: `pnpm --filter @dawn-ai/cli exec vitest --run --config vitest.config.ts test/runtime-capability-guards.test.ts`
+Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/runtime-capability-guards.test.ts`
 Expected: the "does not report skills whose bodies the manifest bundles" case FAILS (one violation reported), and the compiler may reject `markerFiles` on the input type.
 
 - [x] **Step 3: Update the request-time guard**
@@ -978,7 +978,7 @@ Change the skills loop in `collectRuntimeCapabilityGaps`:
         "to read them from — the manifest records the skill names but bundles no bodies, so the " +
         "skills would vanish from the prompt with no error at all",
       remedy:
-        "Rebuild with `dawn build` so the manifest bundles the skill bodies, or inline the instructions into the route's `systemPrompt`",
+        "Rebuild with `b4 build` so the manifest bundles the skill bodies, or inline the instructions into the route's `systemPrompt`",
     })
   }
 ```
@@ -987,7 +987,7 @@ Change the skills loop in `collectRuntimeCapabilityGaps`:
 
 In `packages/cli/src/lib/runtime/execute-route-core.ts`:
 
-Add to the imports from `@dawn-ai/core` (find the existing `import { ... } from "@dawn-ai/core"` and add `staticMarkerFs`), and add `type MarkerFs` if it is not already imported. Add to the import from `./static-modules-core.js` the name `staticModulesMarkerFiles`.
+Add to the imports from `@b4run/core` (find the existing `import { ... } from "@b4run/core"` and add `staticMarkerFs`), and add `type MarkerFs` if it is not already imported. Add to the import from `./static-modules-core.js` the name `staticModulesMarkerFiles`.
 
 Near `getCachedStaticDescriptorMaps` (search for that function), add:
 
@@ -997,9 +997,9 @@ Near `getCachedStaticDescriptorMaps` (search for that function), add:
  * and process-wide, so the cache is a WeakMap keyed on it — never rebuilt per
  * request, never leaked past the manifest's lifetime.
  */
-const staticMarkerFsCache = new WeakMap<DawnStaticModules, MarkerFs | null>()
+const staticMarkerFsCache = new WeakMap<B4StaticModules, MarkerFs | null>()
 
-function getStaticMarkerFs(modules: DawnStaticModules | undefined): MarkerFs | undefined {
+function getStaticMarkerFs(modules: B4StaticModules | undefined): MarkerFs | undefined {
   if (!modules) return undefined
   let cached = staticMarkerFsCache.get(modules)
   if (cached === undefined) {
@@ -1045,7 +1045,7 @@ Also find the line in the same header comment that reads `*   - route \`skills/\
 
 - [x] **Step 5: Run the guard tests and typecheck**
 
-Run: `pnpm --filter @dawn-ai/cli typecheck && pnpm --filter @dawn-ai/cli exec vitest --run --config vitest.config.ts test/runtime-capability-guards.test.ts test/edge-runtime-diagnostics.test.ts`
+Run: `pnpm --filter @b4run/cli typecheck && pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/runtime-capability-guards.test.ts test/edge-runtime-diagnostics.test.ts`
 Expected: typecheck exit 0; both suites PASS unchanged. `edge-runtime-diagnostics.test.ts` injects `skills: ["cite-sources"]` onto built routes with no `markerFiles`, which is exactly the case that must still raise, and it asserts only that the message contains "skills".
 
 - [x] **Step 6: Commit**
@@ -1084,7 +1084,7 @@ In `packages/cli/test/hono-target.test.ts`, inside `describe("hono target — ed
     expect(modules).toContain('"/src/app/chat/skills/research/SKILL.md"')
     expect(modules).toContain("Do research.")
     expect(modules).toContain('skills: ["research"]')
-    // dawn check applies the same (now permissive) gate.
+    // b4 check applies the same (now permissive) gate.
     await expect(runCheck(appRoot)).resolves.toBeDefined()
   })
 
@@ -1097,7 +1097,7 @@ In `packages/cli/test/hono-target.test.ts`, inside `describe("hono target — ed
 
     expect(String(error)).toContain("skills/big/SKILL.md")
     expect(String(error)).toContain("32768")
-    expect((error as { code?: string }).code).toBe("DAWN_E1005")
+    expect((error as { code?: string }).code).toBe("B4_E1005")
     expect(existsSync(buildFile(appRoot, "app.mjs"))).toBe(false)
     expect(existsSync(buildFile(appRoot, "modules.edge.mjs"))).toBe(false)
   })
@@ -1146,8 +1146,8 @@ In `packages/cli/test/hono-target.test.ts`, inside `describe("hono target — ed
 
 - [x] **Step 3: Run to verify the new cases fail**
 
-Run: `pnpm --filter @dawn-ai/cli exec vitest --run --config vitest.config.ts test/hono-target.test.ts test/vercel-target.test.ts`
-Expected: the "builds a route that ships skills" cases FAIL with the DAWN_E1005 skills message; the over-limit case may already pass through `collectRouteMarkerFiles` or fail on the gate message ordering; the workspace case passes.
+Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/hono-target.test.ts test/vercel-target.test.ts`
+Expected: the "builds a route that ships skills" cases FAIL with the B4_E1005 skills message; the over-limit case may already pass through `collectRouteMarkerFiles` or fail on the gate message ordering; the workspace case passes.
 
 - [x] **Step 4: Remove the skills violation**
 
@@ -1171,8 +1171,8 @@ Keep `discoverSkillDirs` exported; `modules-emitter.ts` and `marker-files.ts` us
 
 - [x] **Step 5: Run the target tests to verify they pass**
 
-Run: `pnpm --filter @dawn-ai/cli exec vitest --run --config vitest.config.ts test/hono-target.test.ts test/vercel-target.test.ts test/static-check.test.ts test/edge-bundle-purity.test.ts`
-Expected: PASS. `edge-bundle-purity` proves the emitted bundle is still `node:`-free with the new `staticMarkerFs` import path reachable from `@dawn-ai/cli/fetch`.
+Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/hono-target.test.ts test/vercel-target.test.ts test/static-check.test.ts test/edge-bundle-purity.test.ts`
+Expected: PASS. `edge-bundle-purity` proves the emitted bundle is still `node:`-free with the new `staticMarkerFs` import path reachable from `@b4run/cli/fetch`.
 
 - [x] **Step 6: Commit**
 
@@ -1199,11 +1199,11 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { __clearDawnConfigCacheForTests } from "@dawn-ai/core"
-import { discoverRoutes } from "@dawn-ai/core/node"
-import { __resetMaterializedAgentsForTests } from "@dawn-ai/langchain"
-import { matchPermission, type PermissionsStore } from "@dawn-ai/permissions"
-import { createThreadsStore, sqliteCheckpointer } from "@dawn-ai/sqlite-storage"
+import { __clearB4ConfigCacheForTests } from "@b4run/core"
+import { discoverRoutes } from "@b4run/core/node"
+import { __resetMaterializedAgentsForTests } from "@b4run/langchain"
+import { matchPermission, type PermissionsStore } from "@b4run/permissions"
+import { createThreadsStore, sqliteCheckpointer } from "@b4run/sqlite-storage"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { type AimockFixture, createAimock } from "../../testing/dist/index.js"
@@ -1229,13 +1229,13 @@ const SKILL_BODY = "Always cite the corpus path in square brackets."
 const MEMORY_BODY = "Prefer short answers."
 
 async function fixtureApp(): Promise<string> {
-  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "dawn-static-edge-markers-")))
+  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "b4-static-edge-markers-")))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "static-edge-markers-fixture", "type": "module" }\n',
     "src/app/chat/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\n' +
+      'import { agent } from "@b4run/sdk"\n' +
       'export default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
     "src/app/chat/memory.md": `${MEMORY_BODY}\n`,
     "src/app/chat/plan.md": "- [ ] Restate the question\n- [ ] Answer it\n",
@@ -1246,8 +1246,8 @@ async function fixtureApp(): Promise<string> {
     await mkdir(join(filePath, ".."), { recursive: true })
     await writeFile(filePath, body, "utf8")
   }
-  await mkdir(join(appRoot, "node_modules", "@dawn-ai"), { recursive: true })
-  await symlink(join(repoRoot, "packages", "cli"), join(appRoot, "node_modules", "@dawn-ai", "cli"), "dir")
+  await mkdir(join(appRoot, "node_modules", "@b4run"), { recursive: true })
+  await symlink(join(repoRoot, "packages", "cli"), join(appRoot, "node_modules", "@b4run", "cli"), "dir")
   return appRoot
 }
 
@@ -1303,7 +1303,7 @@ function interactivePermissionsStore(): PermissionsStore {
 }
 
 async function requestStoresFor(): Promise<(request: Request) => RequestStores> {
-  const dbDir = await realpath(await mkdtemp(join(tmpdir(), "dawn-edge-marker-stores-")))
+  const dbDir = await realpath(await mkdtemp(join(tmpdir(), "b4-edge-marker-stores-")))
   cleanup.push(() => rm(dbDir, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   return () => ({
     checkpointer: sqliteCheckpointer({ path: join(dbDir, "checkpoints.sqlite") }),
@@ -1355,7 +1355,7 @@ describe("bundled marker files — node vs edge", () => {
   it("serves the same skills prompt, readSkill body, route memory, and seeded todos", async () => {
     const appRoot = await fixtureApp()
     const manifest = await discoverRoutes({ appRoot })
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
     await mkdir(buildDir, { recursive: true })
 
     const nodeDiscoveries: RouteStaticDiscovery[] = []
@@ -1381,7 +1381,7 @@ describe("bundled marker files — node vs edge", () => {
     }
 
     __resetRouteLoadCachesForTests()
-    __clearDawnConfigCacheForTests()
+    __clearB4ConfigCacheForTests()
     __resetMaterializedAgentsForTests()
 
     const edgeModules = await loadStaticModules(pathToFileURL(edgePath))
@@ -1416,7 +1416,7 @@ describe("bundled marker files — node vs edge", () => {
 
 - [x] **Step 2: Run it**
 
-Run: `pnpm --filter @dawn-ai/cli exec vitest --run --config vitest.config.ts test/static-edge-marker-files.test.ts`
+Run: `pnpm --filter @b4run/cli exec vitest --run --config vitest.config.ts test/static-edge-marker-files.test.ts`
 Expected: PASS. Two likely adjustments if it fails, and what each means:
 - The tool message shape differs (`type`/`role`/`name` fields): inspect `state.messages` once with `console.log(JSON.stringify(state.messages, null, 2))`, fix the `find` predicate, remove the log. That is a test-shape fix.
 - `todos` is `undefined` on both runs: the final state key may not be `todos` at the top level of the `runs/wait` body; read it from `GET /threads/:id/state` `.values.todos` instead, the way `static-edge-equivalence.test.ts` does.
@@ -1431,7 +1431,7 @@ git commit -m "test(cli): node and edge serve bundled skills, plan.md and memory
 
 **As built** — deltas from the code block above:
 - The system-prompt accessor tolerates the `developer` role as well as `system`: `gpt-5*` models carry the system prompt as `developer`.
-- The suite calls `ensureLinkedDistsFresh()` (from `test/helpers/hono-edge-fixture.js`) before building each fixture, so the linked `@dawn-ai/*` dists the fixture route resolves through are current.
+- The suite calls `ensureLinkedDistsFresh()` (from `test/helpers/hono-edge-fixture.js`) before building each fixture, so the linked `@b4run/*` dists the fixture route resolves through are current.
 - The `readSkill` tool result is found by a LangChain-serialized `ToolMessage` predicate (`Array.isArray(m.id) && m.id.includes("ToolMessage") && m.kwargs?.name === "readSkill"`), and its body is read from `kwargs.content`.
 - Todos are observed from BOTH the `/runs/wait` body (`todosFromBody`) and `GET /threads/:id/state` (`todosFromState`), with no `??` fallback, so a divergence between the two shapes fails instead of being masked.
 - A second case was added — "keeps the bundled marker facade across runs on one edge handler" — driving two threads through ONE edge handler, because a facade built once and dropped would serve run 1 and leave run 2 with no skills.
@@ -1464,14 +1464,14 @@ Replace the paragraph that begins `Filesystem marker capabilities such as route 
 
 ## Skills, `plan.md`, and route `memory.md` are bundled
 
-Route [skills](/docs/skills), a route [`plan.md`](/docs/planning), and a route `memory.md` are static files, so `dawn build` reads them for the `hono` and `vercel` targets and inlines their contents into `modules.edge.mjs` beside the route that owns them. At request time they are served from that manifest through the same marker facade the node runtime reads from disk, so `readSkill`, seeded todos, and the route-memory prompt block behave exactly as they do under `dawn dev`.
+Route [skills](/docs/skills), a route [`plan.md`](/docs/planning), and a route `memory.md` are static files, so `b4 build` reads them for the `hono` and `vercel` targets and inlines their contents into `modules.edge.mjs` beside the route that owns them. At request time they are served from that manifest through the same marker facade the node runtime reads from disk, so `readSkill`, seeded todos, and the route-memory prompt block behave exactly as they do under `b4 dev`.
 
-The build enforces the size each marker enforces at runtime — 32 KiB for a `SKILL.md` or `memory.md`, 64 KiB for `plan.md` — and fails with `DAWN_E1005`, naming the file, before it writes any artifact. A manifest that records skill names but carries no bodies (one built before this behavior existed, or composed by hand) still fails at boot with `DAWN_E1005` rather than dropping the skills silently; rebuild with `dawn build`.
+The build enforces the size each marker enforces at runtime — 32 KiB for a `SKILL.md` or `memory.md`, 64 KiB for `plan.md` — and fails with `B4_E1005`, naming the file, before it writes any artifact. A manifest that records skill names but carries no bodies (one built before this behavior existed, or composed by hand) still fails at boot with `B4_E1005` rather than dropping the skills silently; rebuild with `b4 build`.
 ```
 
 - [x] **Step 2: cli.mdx**
 
-On the line that begins ``The `hono` target serves a **subset** of Dawn``, change `a \`workspace/\` directory, route skills, or route-level long-term memory` to `a \`workspace/\` directory, or route-level long-term memory`.
+On the line that begins ``The `hono` target serves a **subset** of B4.run``, change `a \`workspace/\` directory, route skills, or route-level long-term memory` to `a \`workspace/\` directory, or route-level long-term memory`.
 
 - [x] **Step 3: faq.mdx**
 
@@ -1485,12 +1485,12 @@ Directly above the heading `## Gated features now fail loudly at request time, n
 ## Skills, `plan.md`, and route `memory.md` now work on edge targets
 
 The `hono` and `vercel` targets used to fail the build when a route shipped
-skills, and `plan.md` and `memory.md` silently did nothing there. `dawn build`
+skills, and `plan.md` and `memory.md` silently did nothing there. `b4 build`
 now bundles all three into `modules.edge.mjs` and serves them from the
 manifest at request time. An app that removed its skills to pass the gate can
 restore them; nothing else changes. Files over the marker's limit — 32 KiB for
 `SKILL.md` and `memory.md`, 64 KiB for `plan.md` — fail the build with
-`DAWN_E1005` by name. See [Skills, `plan.md`, and route `memory.md` are
+`B4_E1005` by name. See [Skills, `plan.md`, and route `memory.md` are
 bundled](/docs/deployment/edge#skills-planmd-and-route-memorymd-are-bundled).
 ```
 
@@ -1502,8 +1502,8 @@ Create `.changeset/edge-static-marker-files.md`:
 
 ```markdown
 ---
-"@dawn-ai/core": patch
-"@dawn-ai/cli": patch
+"@b4run/core": patch
+"@b4run/cli": patch
 ---
 
 Bundle route skills, `plan.md`, and `memory.md` into the `hono` and `vercel` static manifests and serve them at request time through a new `staticMarkerFs`, so those capabilities work on edge targets. The build no longer gates skills off those targets; it instead enforces each marker's size limit by name before writing artifacts.
@@ -1523,15 +1523,15 @@ git commit -m "docs: skills, plan.md and memory.md are bundled for edge targets"
 
 **As built** — deltas from the steps above:
 - Also edited `apps/web/content/docs/deployment.mdx` (dropped "skills" from the target-matrix gated-surfaces phrase) and `apps/web/content/docs/deployment/edge.mdx`'s fit-check bullet, which still listed skills as a reason an app does not fit the edge.
-- `scripts/check-docs.mjs` required owner rows for the four new `@dawn-ai/core` exports, so `apps/web/content/docs/api/core.mdx` gained rows for `MAX_MEMORY_BYTES`, `MAX_PLAN_BYTES`, `StaticMarkerFiles` and `staticMarkerFs`.
-- Editing docs content invalidates `apps/web/app/seo/lastmod.generated.json`; regenerated with `pnpm --filter @dawn-ai/web seo:lastmod` (its `--check` runs in the web suite).
+- `scripts/check-docs.mjs` required owner rows for the four new `@b4run/core` exports, so `apps/web/content/docs/api/core.mdx` gained rows for `MAX_MEMORY_BYTES`, `MAX_PLAN_BYTES`, `StaticMarkerFiles` and `staticMarkerFs`.
+- Editing docs content invalidates `apps/web/app/seo/lastmod.generated.json`; regenerated with `pnpm --filter @b4run/web seo:lastmod` (its `--check` runs in the web suite).
 - `packages/cli/docs/**` is untracked in this repo, so nothing there is committed; `packages/cli/README.md` is hand-written and needed no change.
 - The FAQ sentence keeps its original "the build fails naming them" clause and gains the bundling note as a following sentence, so "them" still refers to the unavailable surfaces.
 - The heading anchor used from `upgrading.mdx` is `/docs/deployment/edge#skills-planmd-and-route-memorymd-are-bundled` (verified against `github-slugger`).
 - Review follow-ups landed after the docs commit:
   - The changeset leads with the consumer-visible change and keeps a closing sentence about the two newly exported constants (`MAX_PLAN_BYTES`, `MAX_MEMORY_BYTES`).
-  - `dawn check` now enforces the marker-file limits too, via a new `assertRouteMarkerFileLimits` in `packages/cli/src/lib/build/targets/marker-files.ts` called per edge target in `packages/cli/src/commands/check.ts` — the spec's Error Handling section requires `DAWN_E1005` from both `dawn build` and `dawn check`. Findings are aggregated across ALL routes into one error; the build path's discovery-driven enforcement is unchanged.
-  - Three factual corrections in `apps/web/content/docs/deployment/edge.mdx`: a bodyless manifest is detected at boot but fails every *request* (the runtime raises the gap from `fetch`), `workspace/AGENTS.md` is the one marker *file* (not capability) that stays off the edge, and the build *caps* each bundled marker rather than mirroring a runtime limit for all three (`SKILL.md`'s cap is build-only). `upgrading.mdx` notes that `dawn check` applies the same limits.
+  - `b4 check` now enforces the marker-file limits too, via a new `assertRouteMarkerFileLimits` in `packages/cli/src/lib/build/targets/marker-files.ts` called per edge target in `packages/cli/src/commands/check.ts` — the spec's Error Handling section requires `B4_E1005` from both `b4 build` and `b4 check`. Findings are aggregated across ALL routes into one error; the build path's discovery-driven enforcement is unchanged.
+  - Three factual corrections in `apps/web/content/docs/deployment/edge.mdx`: a bodyless manifest is detected at boot but fails every *request* (the runtime raises the gap from `fetch`), `workspace/AGENTS.md` is the one marker *file* (not capability) that stays off the edge, and the build *caps* each bundled marker rather than mirroring a runtime limit for all three (`SKILL.md`'s cap is build-only). `upgrading.mdx` notes that `b4 check` applies the same limits.
 
 ---
 
@@ -1546,7 +1546,7 @@ Expected: exit 0. If it reports fixable formatting in files this branch touched,
 
 - [x] **Step 2: Build, typecheck, and the two package test suites**
 
-Run: `pnpm build && pnpm typecheck && pnpm --filter @dawn-ai/core test && pnpm --filter @dawn-ai/cli test`
+Run: `pnpm build && pnpm typecheck && pnpm --filter @b4run/core test && pnpm --filter @b4run/cli test`
 Expected: all exit 0. Docker-gated suites (`hono-node-roundtrip`, sandbox, pgvector) skip themselves when Docker is absent; that is expected.
 
 - [x] **Step 3: The full CI lane**
@@ -1561,8 +1561,8 @@ git push -u origin blove/edge-static-marker-files
 gh pr create --title "feat: bundle skills, plan.md and memory.md into edge manifests" --body-file - <<'EOF'
 ## Summary
 
-- `@dawn-ai/core`: `staticMarkerFs`, a pure `MarkerFs` over an in-memory map.
-- `@dawn-ai/cli`: the `hono` and `vercel` emitters read each route's `skills/*/SKILL.md`, `plan.md`, and `memory.md` at build time and inline them into `modules.edge.mjs`; the runtime serves them through `staticMarkerFs` when it has no node boot fallbacks.
+- `@b4run/core`: `staticMarkerFs`, a pure `MarkerFs` over an in-memory map.
+- `@b4run/cli`: the `hono` and `vercel` emitters read each route's `skills/*/SKILL.md`, `plan.md`, and `memory.md` at build time and inline them into `modules.edge.mjs`; the runtime serves them through `staticMarkerFs` when it has no node boot fallbacks.
 - The skills build gate is removed. The request-time guard now fires only for a manifest that records skill names without bundled bodies.
 - Per-file limits match each marker's runtime limit (32 KiB `SKILL.md`/`memory.md`, 64 KiB `plan.md`) and fail the build by name before any artifact is written.
 - `workspace/AGENTS.md` stays gated on purpose: its contract is a file the agent rewrites.
@@ -1577,7 +1577,7 @@ Plan: `docs/superpowers/plans/2026-09-03-edge-static-marker-files.md`
 
 ## Motivation
 
-A Dawn app deployed as the Hono artifact inside a Vercel Node function needs skills and planning for a research agent. The gate was keyed on the target name, not on whether the files could be served; they are static and belong in the manifest, the same way the thread-access policy already travels.
+A B4.run app deployed as the Hono artifact inside a Vercel Node function needs skills and planning for a research agent. The gate was keyed on the target name, not on whether the files could be served; they are static and belong in the manifest, the same way the thread-access policy already travels.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
@@ -1588,8 +1588,8 @@ EOF
 Paste the PR URL into the "Status" section of the spec (`Approved for planning.` → `Implemented in <PR URL>.`), commit as `docs: link spec to PR`, and push.
 
 **Final review** — fixes applied to PR #543 before merge:
-1. `dawn build` now names every oversized marker file across ALL routes in one failure. `web-runtime.ts` calls `assertRouteMarkerFileLimits({ appRoot, manifest })` right after `assertEdgeCapabilities` and before the discovery loop (still before any `mkdir`/`writeFile`); `collectRouteMarkerFiles`'s per-route throw aggregates only within one route, so it is now an unreachable backstop. Previously a three-route app needed three builds to see three offenders, contradicting the docs' "naming every oversized file". Covered by a new two-route `hono-target.test.ts` case asserting one DAWN_E1005 naming both `src/app/chat/skills/big/SKILL.md` and `src/app/support/skills/big/SKILL.md` with no artifacts on disk.
-2. `edge.mdx` now says what the parity claim does not cover: on these targets `memory.md`, `plan.md` seeds, and skill bodies are read at build time, so edits take effect on the next `dawn build` rather than live.
+1. `b4 build` now names every oversized marker file across ALL routes in one failure. `web-runtime.ts` calls `assertRouteMarkerFileLimits({ appRoot, manifest })` right after `assertEdgeCapabilities` and before the discovery loop (still before any `mkdir`/`writeFile`); `collectRouteMarkerFiles`'s per-route throw aggregates only within one route, so it is now an unreachable backstop. Previously a three-route app needed three builds to see three offenders, contradicting the docs' "naming every oversized file". Covered by a new two-route `hono-target.test.ts` case asserting one B4_E1005 naming both `src/app/chat/skills/big/SKILL.md` and `src/app/support/skills/big/SKILL.md` with no artifacts on disk.
+2. `edge.mdx` now says what the parity claim does not cover: on these targets `memory.md`, `plan.md` seeds, and skill bodies are read at build time, so edits take effect on the next `b4 build` rather than live.
 3. `upgrading.mdx` no longer calls 32 KiB "the marker's limit" — it is the build's per-marker cap, build-only for `SKILL.md`, with `memory.md` and `plan.md` matching the runtime limits.
 5. Corrected an inverted comment in `modules-emitter.ts` near `markerFilesDir`: `discoverRoutes` sets `entryFile = <routeDir>/index.ts` and the runtime derives `routeDir = pureDirname(routeFile)`, so the two agree by construction; if discovery ever changes, the emitted key must follow `dirname(entryFile)`.
 
@@ -1597,9 +1597,9 @@ Paste the PR URL into the "Status" section of the spec (`Approved for planning.`
 
 ## Consumer dogfood (outside this repository, after Task 10)
 
-Not a gate for the Dawn PR; recorded here so the next session can run it.
+Not a gate for the B4.run PR; recorded here so the next session can run it.
 
-1. In the Dawn worktree, after `pnpm build`, note the built packages: `packages/core/dist`, `packages/cli/dist`, `packages/sdk/dist`, `packages/langgraph/dist`, `packages/langchain/dist`, `packages/postgres-storage/dist`.
-2. In the consumer worktree `/Users/blove/repos/angular-agent-framework/.claude/worktrees/enrichment-pipeline-growth-32b064`, copy each `dist/` over `node_modules/@dawn-ai/<name>/dist/`. Do not touch `package.json` or `package-lock.json`.
-3. Add a throwaway `apps/lifecycle/src/app/dispatch/skills/smoke/SKILL.md` and run `npx nx build lifecycle`. Expect the build to pass and `.dawn/build/modules.edge.mjs` to contain the skill body.
+1. In the B4.run worktree, after `pnpm build`, note the built packages: `packages/core/dist`, `packages/cli/dist`, `packages/sdk/dist`, `packages/langgraph/dist`, `packages/langchain/dist`, `packages/postgres-storage/dist`.
+2. In the consumer worktree `/Users/blove/repos/angular-agent-framework/.claude/worktrees/enrichment-pipeline-growth-32b064`, copy each `dist/` over `node_modules/@b4run/<name>/dist/`. Do not touch `package.json` or `package-lock.json`.
+3. Add a throwaway `apps/lifecycle/src/app/dispatch/skills/smoke/SKILL.md` and run `npx nx build lifecycle`. Expect the build to pass and `.b4/build/modules.edge.mjs` to contain the skill body.
 4. Delete the throwaway skill and run `npm ci` in the consumer worktree to restore the published packages.

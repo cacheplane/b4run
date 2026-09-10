@@ -8,9 +8,9 @@ export function renderScenarioTypes(
 ): string {
   const toolsByPath = new Map(routeTools.map((route) => [route.pathname, route.tools]))
   const lines = [
-    'import "@dawn-ai/sdk/testing"',
+    'import "@b4run/sdk/testing"',
     "",
-    'declare module "@dawn-ai/sdk/testing" {',
+    'declare module "@b4run/sdk/testing" {',
     "  interface RouteScenarioMap {",
   ]
 

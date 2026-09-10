@@ -2,11 +2,11 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { __clearDawnConfigCacheForTests } from "@dawn-ai/core"
-import { discoverRoutes } from "@dawn-ai/core/node"
-import { __resetMaterializedAgentsForTests } from "@dawn-ai/langchain"
-import { matchPermission, type PermissionsStore } from "@dawn-ai/permissions"
-import { createThreadsStore, sqliteCheckpointer } from "@dawn-ai/sqlite-storage"
+import { __clearB4ConfigCacheForTests } from "@b4run/core"
+import { discoverRoutes } from "@b4run/core/node"
+import { __resetMaterializedAgentsForTests } from "@b4run/langchain"
+import { matchPermission, type PermissionsStore } from "@b4run/permissions"
+import { createThreadsStore, sqliteCheckpointer } from "@b4run/sqlite-storage"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { type AimockFixture, createAimock } from "../../testing/dist/index.js"
@@ -49,7 +49,7 @@ afterEach(async () => {
  * caches shared by every case in this file — start each one clean. */
 beforeEach(() => {
   __resetRouteLoadCachesForTests()
-  __clearDawnConfigCacheForTests()
+  __clearB4ConfigCacheForTests()
   __resetMaterializedAgentsForTests()
 })
 
@@ -57,13 +57,13 @@ const SKILL_BODY = "Always cite the corpus path in square brackets."
 const MEMORY_BODY = "Prefer short answers."
 
 async function fixtureApp(): Promise<string> {
-  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "dawn-static-edge-markers-")))
+  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "b4-static-edge-markers-")))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "static-edge-markers-fixture", "type": "module" }\n',
     "src/app/chat/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\n' +
+      'import { agent } from "@b4run/sdk"\n' +
       'export default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
     "src/app/chat/memory.md": `${MEMORY_BODY}\n`,
     "src/app/chat/plan.md": "- [ ] Restate the question\n- [ ] Answer it\n",
@@ -74,12 +74,12 @@ async function fixtureApp(): Promise<string> {
     await mkdir(join(filePath, ".."), { recursive: true })
     await writeFile(filePath, body, "utf8")
   }
-  // The fixture's route imports `@dawn-ai/sdk`, which it resolves through the
+  // The fixture's route imports `@b4run/sdk`, which it resolves through the
   // linked CLI package the same way the edge suites' fixtures do.
-  await mkdir(join(appRoot, "node_modules", "@dawn-ai"), { recursive: true })
+  await mkdir(join(appRoot, "node_modules", "@b4run"), { recursive: true })
   await symlink(
     join(repoRoot, "packages", "cli"),
-    join(appRoot, "node_modules", "@dawn-ai", "cli"),
+    join(appRoot, "node_modules", "@b4run", "cli"),
     "dir",
   )
   return appRoot
@@ -151,7 +151,7 @@ function interactivePermissionsStore(): PermissionsStore {
 /** Fresh sqlite-backed stores per request, over one shared pair of database
  * files — the deployed-worker shape, as `static-edge-equivalence.test.ts` uses. */
 async function requestStoresFor(): Promise<(request: Request) => RequestStores> {
-  const dbDir = await realpath(await mkdtemp(join(tmpdir(), "dawn-edge-marker-stores-")))
+  const dbDir = await realpath(await mkdtemp(join(tmpdir(), "b4-edge-marker-stores-")))
   cleanup.push(() => rm(dbDir, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   return () => ({
     checkpointer: sqliteCheckpointer({ path: join(dbDir, "checkpoints.sqlite") }),
@@ -227,7 +227,7 @@ describe("bundled marker files — node vs edge", () => {
     await ensureLinkedDistsFresh()
     const appRoot = await fixtureApp()
     const manifest = await discoverRoutes({ appRoot })
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
     await mkdir(buildDir, { recursive: true })
 
     // The node manifest reads its markers off disk; the edge manifest cannot,
@@ -267,7 +267,7 @@ describe("bundled marker files — node vs edge", () => {
     // Between the two runs, not for the fixture: run 2 must re-load the route
     // from the edge modules rather than reuse run 1's node-loaded caches.
     __resetRouteLoadCachesForTests()
-    __clearDawnConfigCacheForTests()
+    __clearB4ConfigCacheForTests()
     __resetMaterializedAgentsForTests()
 
     // ---- Run 2: EDGE STATIC (markers served from the bundle) ---------------
@@ -315,7 +315,7 @@ describe("bundled marker files — node vs edge", () => {
     await ensureLinkedDistsFresh()
     const appRoot = await fixtureApp()
     const manifest = await discoverRoutes({ appRoot })
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
     await mkdir(buildDir, { recursive: true })
     const discoveries: RouteStaticDiscovery[] = []
     for (const route of manifest.routes) {

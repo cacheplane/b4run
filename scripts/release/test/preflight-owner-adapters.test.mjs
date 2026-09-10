@@ -3,7 +3,7 @@ import test from "node:test"
 
 import { createOwnerPreflightAdapters } from "../preflight-owner-adapters.mjs"
 
-const REPOSITORY = "cacheplane/dawnai"
+const REPOSITORY = "cacheplane/b4run"
 const WORKFLOW_PATH = ".github/workflows/release.yml"
 const SHA = "0123456789abcdef0123456789abcdef01234567"
 const TAG_SHA = "123456789abcdef0123456789abcdef012345678"
@@ -34,7 +34,7 @@ test("owner adapters execute only exact argv-based read commands", async () => {
 
   assert.equal(await adapters.git.headSha(), SHA)
   assert.equal(await adapters.npm.version(), "11.17.0")
-  assert.deepEqual(await adapters.npm.trustList("@dawn-ai/sdk"), {
+  assert.deepEqual(await adapters.npm.trustList("@b4run/sdk"), {
     status: "present",
     value: {
       id: "trust-1",
@@ -104,20 +104,20 @@ test("owner adapters execute only exact argv-based read commands", async () => {
     [
       ["git", ["rev-parse", "--verify", "HEAD^{commit}"]],
       ["npm", ["--version"]],
-      ["npm", ["trust", "list", "@dawn-ai/sdk", "--json"]],
+      ["npm", ["trust", "list", "@b4run/sdk", "--json"]],
       ["gh", ["--version"]],
-      ["gh", apiArgs("repos/cacheplane/dawnai")],
-      ["gh", apiArgs("repos/cacheplane/dawnai/actions/workflows/release.yml")],
-      ["gh", apiArgs("repos/cacheplane/dawnai/environments/release-abandonment")],
-      ["gh", apiArgs("repos/cacheplane/dawnai/immutable-releases")],
-      ["gh", apiArgs("repos/cacheplane/dawnai/git/ref/heads/main")],
-      ["gh", paginatedApiArgs("repos/cacheplane/dawnai/git/matching-refs/tags/v?per_page=100")],
-      ["gh", apiArgs(`repos/cacheplane/dawnai/git/tags/${TAG_SHA}`)],
-      ["gh", apiArgs(`repos/cacheplane/dawnai/contents/.github/workflows/release.yml?ref=${SHA}`)],
+      ["gh", apiArgs("repos/cacheplane/b4run")],
+      ["gh", apiArgs("repos/cacheplane/b4run/actions/workflows/release.yml")],
+      ["gh", apiArgs("repos/cacheplane/b4run/environments/release-abandonment")],
+      ["gh", apiArgs("repos/cacheplane/b4run/immutable-releases")],
+      ["gh", apiArgs("repos/cacheplane/b4run/git/ref/heads/main")],
+      ["gh", paginatedApiArgs("repos/cacheplane/b4run/git/matching-refs/tags/v?per_page=100")],
+      ["gh", apiArgs(`repos/cacheplane/b4run/git/tags/${TAG_SHA}`)],
+      ["gh", apiArgs(`repos/cacheplane/b4run/contents/.github/workflows/release.yml?ref=${SHA}`)],
       [
         "gh",
         releaseRunsApiArgs(
-          "repos/cacheplane/dawnai/actions/workflows/.github%2Fworkflows%2Frelease.yml/runs?per_page=100&page=1",
+          "repos/cacheplane/b4run/actions/workflows/.github%2Fworkflows%2Frelease.yml/runs?per_page=100&page=1",
         ),
       ],
     ],
@@ -704,7 +704,7 @@ test("owner adapters normalize npm auth and GitHub auth/absence without leaking 
     },
   })
 
-  assert.deepEqual(await adapters.npm.trustList("@dawn-ai/sdk"), {
+  assert.deepEqual(await adapters.npm.trustList("@b4run/sdk"), {
     status: "unavailable",
     code: "E401",
   })
@@ -757,7 +757,7 @@ test("owner adapters reject malformed successful tool output without leaking it"
       return { exitCode: 0, stdout: "malformed-secret-output", stderr: "" }
     },
   })
-  await assert.rejects(adapters.npm.trustList("@dawn-ai/sdk"), /npm trust|JSON/iu)
+  await assert.rejects(adapters.npm.trustList("@b4run/sdk"), /npm trust|JSON/iu)
   await assert.rejects(adapters.github.getRepository(REPOSITORY), /GitHub|HTTP/iu)
   for (const invoke of [
     () => adapters.github.getDefaultBranchRef(REPOSITORY, "main"),

@@ -1,4 +1,4 @@
-import { pureResolve } from "@dawn-ai/sdk/pure"
+import { pureResolve } from "@b4run/sdk/pure"
 import type { CapabilityMarker, MarkerFs } from "../types.js"
 
 const MAX_MEMORY_BYTES = 64 * 1024
@@ -18,7 +18,7 @@ The block below is the live contents of \`workspace/AGENTS.md\`, re-read on ever
  *
  * Uses context.appRoot (not process.cwd()) so in-process test harnesses that
  * pass an explicit app root activate this capability regardless of the test
- * runner's working directory. In production (dawn dev), appRoot === cwd.
+ * runner's working directory. In production (b4 dev), appRoot === cwd.
  */
 export function createAgentsMdMarker(): CapabilityMarker {
   return {

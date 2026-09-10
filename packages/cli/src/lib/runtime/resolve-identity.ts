@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { join } from "node:path"
-import { discoverRoutes } from "@dawn-ai/core/node"
-import { parseNamespace, routeNamespaceKey } from "@dawn-ai/memory/namespace"
+import { discoverRoutes } from "@b4run/core/node"
+import { parseNamespace, routeNamespaceKey } from "@b4run/memory/namespace"
 import { CliError, formatErrorMessage } from "../output.js"
 import { loadRouteMemory } from "./load-memory.js"
 
@@ -9,7 +9,7 @@ import { loadRouteMemory } from "./load-memory.js"
  * Resolve the identity keys governing supersede reconciliation for a record's
  * namespace: find the route whose namespace key matches, load its memory.ts,
  * and use its declared `identity`. Falls back to [subject, predicate] when the
- * route (or its memory.ts) cannot be resolved. Shared by `dawn memory approve`
+ * route (or its memory.ts) cannot be resolved. Shared by `b4 memory approve`
  * and the dev server's POST /memory/candidates/:id/approve endpoint.
  */
 // mirrored in packages/inspector/src/store/identity.ts — keep in sync
@@ -24,7 +24,7 @@ export async function resolveIdentityKeys(
   try {
     manifest = await discoverRoutes({ appRoot })
   } catch {
-    // No dawn.config.ts / unreadable app — fall back to the default.
+    // No b4.config.ts / unreadable app — fall back to the default.
     return { keys: DEFAULT, fallback: true }
   }
   for (const route of manifest.routes) {

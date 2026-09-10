@@ -27,7 +27,7 @@ const WHY_THE_TERMINATOR = [
   "",
   "Verified on node 24.19.0 / npm 11.17.0: without the terminator, `npm run dev -- --port 4123`",
   'reaches the child as ["4123"] — npm swallows the flag NAME and forwards only its value — and',
-  "`dawn dev` then hard-errors with \"too many arguments for 'dev'\". The harness boots generated",
+  "`b4 dev` then hard-errors with \"too many arguments for 'dev'\". The harness boots generated",
   "apps exactly that way, so the failure lands on whoever runs the lane next, far from this file.",
   "",
   "If you came here to tidy the trailing dashes away, change nothing and close the file.",

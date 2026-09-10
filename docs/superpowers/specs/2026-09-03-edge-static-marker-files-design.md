@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented in https://github.com/cacheplane/dawnai/pull/543.
+Implemented in https://github.com/cacheplane/b4run/pull/543.
 
 ## Problem
 
@@ -17,7 +17,7 @@ The node runtime supplies `nodeMarkerFs` through `RuntimeBootFallbacks`. The
 edge entry point emitted for the `hono` and `vercel` targets supplies nothing,
 so on those targets:
 
-- `assertEdgeCapabilities` fails the build with `DAWN_E1005` when any route
+- `assertEdgeCapabilities` fails the build with `B4_E1005` when any route
   has a skills directory, and `collectRuntimeCapabilityGaps` repeats the
   rejection at request time for a hand-composed entry;
 - `plan.md` and `memory.md` degrade silently because the markers' `detect`
@@ -30,7 +30,7 @@ same shape of problem: probe on disk at build time, carry the result in the
 manifest, and run from the manifest at request time. The gate exists only
 because nothing carries the file bodies across the build boundary.
 
-The consumer that motivates this change is a Dawn application deployed as the
+The consumer that motivates this change is a B4.run application deployed as the
 Hono artifact inside a Vercel Node function. That host has a filesystem for the
 bundle, but the target-name gate rejects skills anyway. The fix should not
 depend on the host having a filesystem at all; it should make the edge targets
@@ -39,7 +39,7 @@ serve these files from the bundle.
 ## Goals
 
 - Skills, `plan.md`, and route `memory.md` work on the `hono` and `vercel`
-  targets exactly as they do under `dawn dev` and the node target, with no
+  targets exactly as they do under `b4 dev` and the node target, with no
   change to the capability markers.
 - The file bodies travel inside the static module manifest, so a deployed
   bundle needs no runtime filesystem and no build-machine path.
@@ -47,7 +47,7 @@ serve these files from the bundle.
   fail-closed property is preserved: a manifest that records skills but
   supplies no marker files still fails at boot rather than dropping the
   skills silently.
-- `@dawn-ai/core`'s default barrel stays free of `node:fs`.
+- `@b4run/core`'s default barrel stays free of `node:fs`.
 - Bundle growth is bounded by explicit per-file limits that match the limits
   the markers already apply at runtime.
 
@@ -66,7 +66,7 @@ serve these files from the bundle.
   memory configuration. That is a follow-up design.
 - Changing what the node target emits. Its manifest keeps reading marker files
   from disk through `nodeMarkerFs`.
-- Changing the `langsmith` target, which materializes graphs without Dawn's
+- Changing the `langsmith` target, which materializes graphs without B4.run's
   HTTP layer or capability markers.
 
 ## Approaches Considered
@@ -86,7 +86,7 @@ about sizes, names, and rendering in one place: the markers.
 ### 2. Teach each marker to read from the manifest directly
 
 Give the skills, planning, and memory-md markers a second input path that
-reads from `DawnStaticModules` instead of `MarkerFs`. Rejected: three markers
+reads from `B4StaticModules` instead of `MarkerFs`. Rejected: three markers
 gain a second code path each, the build gate and the request guard still need
 their own view of the same files, and the node path and edge path stop sharing
 behavior. The facade exists precisely so the markers do not know where bytes
@@ -123,7 +123,7 @@ result and the edge manifest emitter, not the shared node emitter:
    `plan.md` 64 KiB (`MAX_PLAN_BYTES` in `planning.ts`), `memory.md` 32 KiB
    (`MAX_MEMORY_BYTES` in `memory-md.ts`), and `SKILL.md` 32 KiB, which is a
    new limit because the skills marker reads eagerly with no cap. A file over
-   its limit fails the build with `DAWN_E1005`, naming the file and its size,
+   its limit fails the build with `B4_E1005`, naming the file and its size,
    before any artifact is written. This keeps the property that a green build
    never ships a silently disabled feature.
 3. `emitEdgeModulesFile` emits a `markerFiles` object on each route entry
@@ -136,7 +136,7 @@ result and the edge manifest emitter, not the shared node emitter:
 
 ### Runtime side
 
-1. `@dawn-ai/core` gains `staticMarkerFs(files)` in a new pure module
+1. `@b4run/core` gains `staticMarkerFs(files)` in a new pure module
    exported from the default barrel. It takes a `Readonly<Record<string,
    string>>` of absolute namespace paths to contents and implements the five
    `MarkerFs` methods:
@@ -152,9 +152,9 @@ result and the edge manifest emitter, not the shared node emitter:
    Every method is total and never throws, matching the facade contract.
    Paths are normalized only by stripping a trailing slash; the build writes
    canonical keys and the markers join with the same pure helpers.
-2. `StaticRouteModule` and `DawnStaticModules` carry the bundled files.
+2. `StaticRouteModule` and `B4StaticModules` carry the bundled files.
    `buildStaticRouteModule` accepts the `markerFiles` map on its input and
-   records it on the route module. `DawnStaticModules` exposes the union of
+   records it on the route module. `B4StaticModules` exposes the union of
    every route's files as `markerFiles`, computed once by `loadStaticModules`
    or the equivalent edge loader, so the fetch handler does not walk routes.
 3. `createRuntimeFetchHandler` constructs `staticMarkerFs(modules.markerFiles)`
@@ -172,11 +172,11 @@ result and the edge manifest emitter, not the shared node emitter:
 2. `collectRuntimeCapabilityGaps` changes its skills clause from "the route
    recorded skills" to "the route recorded skills and the handler has no
    marker filesystem". A hand-composed entry that constructs
-   `DawnStaticModules` with skill names but no `markerFiles` still fails at
-   boot with `DAWN_E1005` and the existing message. That is the fail-closed
+   `B4StaticModules` with skill names but no `markerFiles` still fails at
+   boot with `B4_E1005` and the existing message. That is the fail-closed
    property the request guard exists for, and it survives unchanged for the
    case it was written for.
-3. `dawn check` inherits the build-gate change because it calls
+3. `b4 check` inherits the build-gate change because it calls
    `assertEdgeCapabilities`.
 4. The workspace, tool-output, sandbox, backend, store-handle, and long-term
    memory gates are untouched.
@@ -191,19 +191,19 @@ result and the edge manifest emitter, not the shared node emitter:
   edge to name only `workspace/AGENTS.md`.
 - `skills.mdx` and `planning.mdx` make no target claims today and need no
   change.
-- `errors.mdx` is generated; the `DAWN_E1005` description already says
+- `errors.mdx` is generated; the `B4_E1005` description already says
   "unsupported by the build target or runtime", which still covers the new
   over-limit case.
 - `cli.mdx`, `faq.mdx`, and `upgrading.mdx` mention the skills gate; each
   mention is updated to the new behavior.
-- A patch changeset covering `@dawn-ai/core` and `@dawn-ai/cli`. The fixed
+- A patch changeset covering `@b4run/core` and `@b4run/cli`. The fixed
   group releases every package together, so the changeset names only the
   packages whose source changes.
 
 ## Error Handling
 
-- A marker file over its limit fails the build and `dawn check` with
-  `DAWN_E1005`, naming the route-relative path and the byte size, before any
+- A marker file over its limit fails the build and `b4 check` with
+  `B4_E1005`, naming the route-relative path and the byte size, before any
   artifact is written. The remedy text says to shorten the file or split a
   skill.
 - A marker file that exists but cannot be read fails the build with the
@@ -211,7 +211,7 @@ result and the edge manifest emitter, not the shared node emitter:
   fail this way through `findThreadAccessFile`'s precedent of refusing to
   guess.
 - At request time, a manifest that records skill names without marker files
-  fails boot with the existing `DAWN_E1005` skills message.
+  fails boot with the existing `B4_E1005` skills message.
 - `staticMarkerFs` never throws. A miss reads as absent exactly as it would on
   disk, so the markers' own size and parse rules run unchanged.
 - A `SKILL.md` with malformed frontmatter is handled by the skills marker the
@@ -239,7 +239,7 @@ CLI build (`packages/cli`):
   successfully (today it must fail); a fixture with a `SKILL.md` one byte over
   32 KiB fails
   before any artifact is written, naming the file.
-- `static-check` test: `dawn check` on a hono app with skills passes.
+- `static-check` test: `b4 check` on a hono app with skills passes.
 
 CLI runtime (`packages/cli`):
 
@@ -257,7 +257,7 @@ Definition of Done: `pnpm ci:validate` from the repository root, per
 `AGENTS.md`, plus the changeset check.
 
 Consumer verification outside this repository: the motivating application
-overlays the built `@dawn-ai/*` packages onto its installed copies, runs its
-existing `dawn build` and adapter verifier, and exercises `readSkill` through
+overlays the built `@b4run/*` packages onto its installed copies, runs its
+existing `b4 build` and adapter verifier, and exercises `readSkill` through
 its authenticated Agent Protocol endpoint. That verification is recorded in
 the consumer's own plan and is not a gate for this change.

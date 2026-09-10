@@ -1,5 +1,60 @@
 # @dawn-example/memory
 
+## 0.0.21
+
+### Patch Changes
+
+- Updated dependencies [481489e]
+  - @b4run/sdk@0.8.29
+  - @b4run/cli@0.8.29
+  - @b4run/core@0.8.29
+  - @b4run/langchain@0.8.29
+  - @b4run/memory-pgvector@0.8.29
+
+## 0.0.20
+
+### Patch Changes
+
+- Updated dependencies [39ceb2e]
+  - @b4run/sdk@0.8.28
+  - @b4run/cli@0.8.28
+  - @b4run/core@0.8.28
+  - @b4run/langchain@0.8.28
+  - @b4run/memory-pgvector@0.8.28
+
+## 0.0.19
+
+### Patch Changes
+
+- Updated dependencies [b05b96d]
+  - @b4run/sdk@0.8.27
+  - @b4run/cli@0.8.27
+  - @b4run/core@0.8.27
+  - @b4run/langchain@0.8.27
+  - @b4run/memory-pgvector@0.8.27
+
+## 0.0.18
+
+### Patch Changes
+
+- Updated dependencies [c7fd197]
+  - @dawn-ai/cli@0.8.26
+  - @dawn-ai/core@0.8.26
+  - @dawn-ai/langchain@0.8.26
+  - @dawn-ai/memory-pgvector@0.8.26
+  - @dawn-ai/sdk@0.8.26
+
+## 0.0.17
+
+### Patch Changes
+
+- Updated dependencies [95901e7]
+  - @dawn-ai/cli@0.8.25
+  - @dawn-ai/memory-pgvector@0.8.25
+  - @dawn-ai/core@0.8.25
+  - @dawn-ai/langchain@0.8.25
+  - @dawn-ai/sdk@0.8.25
+
 ## 0.0.16
 
 ### Patch Changes

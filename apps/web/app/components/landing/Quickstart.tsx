@@ -40,7 +40,7 @@ export function Quickstart() {
             letterSpacing: "-0.01em",
           }}
         >
-          Three steps to know if Dawn fits.
+          Three steps to know if B4.run fits.
         </h2>
 
         <div className="mt-12 grid md:grid-cols-3 gap-5">
@@ -55,7 +55,7 @@ export function Quickstart() {
               <p className="mt-3 text-sm text-ink-muted leading-[22px] flex-1">{step.body}</p>
               {step.n === 1 ? (
                 <div className="mt-5">
-                  <CopyCommand command="npm create dawn-ai-app@latest my-agent" />
+                  <CopyCommand command="npm create b4-app@latest my-agent" />
                 </div>
               ) : null}
             </Card>

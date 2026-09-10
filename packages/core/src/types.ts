@@ -1,12 +1,12 @@
-import type { PermissionMode, PermissionsStore } from "@dawn-ai/permissions"
-import type { ModelProviderId, RouteKind } from "@dawn-ai/sdk"
-import type { ThreadsStore } from "@dawn-ai/sqlite-storage"
-import type { ExecBackend, FilesystemBackend, SandboxConfig } from "@dawn-ai/workspace"
+import type { PermissionMode, PermissionsStore } from "@b4run/permissions"
+import type { ModelProviderId, RouteKind } from "@b4run/sdk"
+import type { ThreadsStore } from "@b4run/sqlite-storage"
+import type { ExecBackend, FilesystemBackend, SandboxConfig } from "@b4run/workspace"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 
 export type { RouteKind }
 
-export interface DawnConfig {
+export interface B4Config {
   readonly appDir?: string
   readonly backends?: {
     readonly filesystem?: FilesystemBackend
@@ -18,7 +18,7 @@ export interface DawnConfig {
     readonly deny?: Readonly<Record<string, readonly string[]>>
     /**
      * Custom permissions store. Defaults to the file-backed store at
-     * `<appRoot>/.dawn/permissions.json`. A custom store receives `mode` and
+     * `<appRoot>/.b4/permissions.json`. A custom store receives `mode` and
      * the `allow`/`deny` lists above through its own options — the runtime
      * only calls `load()` on it, then reads it.
      */
@@ -27,7 +27,7 @@ export interface DawnConfig {
   readonly checkpointer?: BaseCheckpointSaver
   readonly threadsStore?: ThreadsStore
   /**
-   * Path to the env file loaded for local `dawn dev` / `dawn verify`,
+   * Path to the env file loaded for local `b4 dev` / `b4 verify`,
    * relative to the app root. Defaults to "./.env". Does NOT affect the
    * deploy artifact (langgraph.json env is detected separately).
    */
@@ -71,24 +71,24 @@ export interface DawnConfig {
     }) => Promise<string>
   }
   /**
-   * Deployment build configuration for `dawn build`.
+   * Deployment build configuration for `b4 build`.
    */
   readonly build?: {
     /**
-     * Which deployment artifacts `dawn build` emits. Known targets:
-     * - `"node"` — a runnable Node server entry (`.dawn/build/server.mjs`,
+     * Which deployment artifacts `b4 build` emits. Known targets:
+     * - `"node"` — a runnable Node server entry (`.b4/build/server.mjs`,
      *   which boots {@link serveRuntime}) plus a hardened `Dockerfile`.
-     * - `"langsmith"` — the LangSmith deploy config (`.dawn/build/langgraph.json`
+     * - `"langsmith"` — the LangSmith deploy config (`.b4/build/langgraph.json`
      *   and the per-route materialized graph entry files).
-     * - `"hono"` — an edge entry point: `.dawn/build/app.mjs` (a Hono app over
+     * - `"hono"` — an edge entry point: `.b4/build/app.mjs` (a Hono app over
      *   the web-standard fetch handler), the node-builtin-free static manifest
      *   `modules.edge.mjs`, a per-request `stores.mjs` factory, and a
      *   `wrangler.toml` scaffold. Opt-in only, and never emitted by default:
-     *   the edge serves a subset of Dawn (no sandbox, no workspace tooling) and
+     *   the edge serves a subset of B4.run (no sandbox, no workspace tooling) and
      *   requires durable stores to be configured.
      * - `"vercel"` — Vercel Build Output API artifacts under `.vercel/output/`.
      *   Opt-in only, and never emitted by default: it serves the same edge
-     *   subset of Dawn as `"hono"` (no sandbox, no workspace tooling) and
+     *   subset of B4.run as `"hono"` (no sandbox, no workspace tooling) and
      *   requires durable stores to be configured.
      *
      * Defaults to `["node", "langsmith"]` when omitted.
@@ -96,9 +96,30 @@ export interface DawnConfig {
     readonly targets?: readonly string[]
   }
   readonly sandbox?: SandboxConfig
+  /**
+   * How the B4.run HTTP runtime itself behaves — as opposed to what the agent
+   * does. Everything here is off unless configured.
+   */
+  readonly server?: {
+    /**
+     * Cross-origin access to the B4.run endpoints (`/agui/*`, `/threads/*`,
+     * `/memory/*`). Omit and the runtime sends no `Access-Control-*` header at
+     * all, which means a browser on another origin cannot call it — the
+     * default, because opening a server to other origins is a deployment
+     * decision.
+     *
+     * Set it when a browser client talks to B4.run directly rather than through
+     * a same-origin proxy:
+     *
+     * ```ts
+     * server: { cors: { origins: ["http://localhost:3010"] } }
+     * ```
+     */
+    readonly cors?: CorsConfig
+  }
   readonly memory?: {
     readonly enabled?: boolean
-    /** Custom memory store. Defaults to an SQLite-backed store at <appRoot>/.dawn/memory.sqlite. */
+    /** Custom memory store. Defaults to an SQLite-backed store at <appRoot>/.b4/memory.sqlite. */
     readonly store?: import("./capabilities/types.js").MemoryStoreLike
     /** Write-governance mode. "off" — never write; "candidate" — write as candidate (default); "auto" — write and auto-promote; "ask" — auto, but supersedes require HITL approval when interactive. */
     readonly writes?: "off" | "candidate" | "auto" | "ask"
@@ -139,7 +160,7 @@ export interface DawnConfig {
       readonly embed?: boolean
     }
     /** Knobs for the explicitly-invoked distillation commands
-     *  (`dawn memory consolidate` / `dawn memory reflect`). Nothing here runs
+     *  (`b4 memory consolidate` / `b4 memory reflect`). Nothing here runs
      *  automatically — distillation only happens when a command is invoked.
      *  Defaults: model "gpt-5-mini"; provider inferred from `model`, falling
      *  back to "openai"; maxBatches 5 per invocation; consolidate.olderThanMs
@@ -194,6 +215,37 @@ export interface DawnConfig {
   }
 }
 
+/**
+ * Cross-origin policy for the B4.run runtime (`server.cors`).
+ *
+ * Presence of this object is what turns CORS on; there is no `enabled` flag.
+ */
+export interface CorsConfig {
+  /**
+   * Origins allowed to read responses — an explicit list (compared exactly,
+   * after normalizing case and a trailing slash) or `"*"` for any origin.
+   *
+   * `"*"` with `credentials: true` is rejected at boot: browsers refuse a
+   * wildcard allow-origin on a credentialed request, so accepting it would
+   * produce a server that looks configured and fails only in the console.
+   */
+  readonly origins: readonly string[] | "*"
+  /** Allow cookies and `Authorization` cross-origin. Default false. */
+  readonly credentials?: boolean
+  /** Methods advertised in a preflight. Default: GET, POST, DELETE, OPTIONS. */
+  readonly methods?: readonly string[]
+  /**
+   * Request headers advertised in a preflight. Default: echo whatever the
+   * browser asked for, so an app can add an auth header without touching
+   * server config.
+   */
+  readonly headers?: readonly string[]
+  /** Response headers a browser script may read. Default none. */
+  readonly exposeHeaders?: readonly string[]
+  /** How long a browser may cache a preflight, in seconds. Default 600. */
+  readonly maxAgeSeconds?: number
+}
+
 export type RouteSegment =
   | {
       readonly kind: "static"
@@ -225,29 +277,29 @@ export interface NormalizedRouteModule {
   readonly config: Record<string, unknown>
 }
 
-export interface LoadDawnConfigOptions {
+export interface LoadB4ConfigOptions {
   readonly appRoot: string
 }
 
-export interface LoadedDawnConfig {
+export interface LoadedB4Config {
   readonly appRoot: string
-  readonly config: DawnConfig
+  readonly config: B4Config
   /**
-   * Absolute path of the loaded `dawn.config.ts` — or the `"<seeded>"`
-   * sentinel when the memo was primed via `seedDawnConfig` (no disk read).
+   * Absolute path of the loaded `b4.config.ts` — or the `"<seeded>"`
+   * sentinel when the memo was primed via `seedB4Config` (no disk read).
    */
   readonly configPath: string
 }
 
-export interface FindDawnAppOptions {
+export interface FindB4AppOptions {
   readonly appRoot?: string
   readonly cwd?: string
 }
 
-export interface DiscoveredDawnApp {
+export interface DiscoveredB4App {
   readonly appRoot: string
   readonly configPath: string
-  readonly dawnDir: string
+  readonly b4Dir: string
   readonly routesDir: string
 }
 

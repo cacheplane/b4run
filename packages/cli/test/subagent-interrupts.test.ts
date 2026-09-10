@@ -2,15 +2,15 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { createSubagentsMarker } from "@dawn-ai/core"
+import { createSubagentsMarker } from "@b4run/core"
 import {
   convertSubagentTaskToLangChain,
   type ResolvedSubagentGraph,
   type SubagentResolver,
   streamAgent,
-} from "@dawn-ai/langchain"
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import { createPermissionsStore } from "@dawn-ai/permissions/node"
+} from "@b4run/langchain"
+import type { PermissionsStore } from "@b4run/permissions"
+import { createPermissionsStore } from "@b4run/permissions/node"
 import { AIMessage } from "@langchain/core/messages"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import {
@@ -113,7 +113,7 @@ describe("subagent interrupt replay", () => {
     await root.invoke(new Command({ resume: resolution }), config)
 
     const pattern = JSON.stringify(["/parent", "researcher"])
-    const persisted = JSON.parse(await readFile(join(appRoot, ".dawn", "permissions.json"), "utf8"))
+    const persisted = JSON.parse(await readFile(join(appRoot, ".b4", "permissions.json"), "utf8"))
     expect(persisted).toEqual({
       version: 1,
       allow: { subagent: [pattern] },
@@ -358,7 +358,7 @@ describe("subagent interrupt replay", () => {
     expect(interruptValues(result)).toEqual([])
     expect(toolContents(result)).toEqual([
       expect.stringContaining(
-        '[DAWN_E3002] Permission denied: subagent "researcher" requires approval',
+        '[B4_E3002] Permission denied: subagent "researcher" requires approval',
       ),
     ])
     expect(prepareChild).not.toHaveBeenCalled()
@@ -613,7 +613,7 @@ async function permissionStore(appRoot?: string): Promise<PermissionsStore> {
 }
 
 async function tempRoot(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "dawn-subagent-interrupts-"))
+  const root = await mkdtemp(join(tmpdir(), "b4-subagent-interrupts-"))
   tempDirs.push(root)
   return root
 }

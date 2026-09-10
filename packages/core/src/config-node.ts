@@ -1,10 +1,10 @@
 /**
- * The NODE half of config loading: reading `dawn.config.ts` off disk through
+ * The NODE half of config loading: reading `b4.config.ts` off disk through
  * the tsx ESM loader. Split out of `config.ts` so the request path keeps the
- * memo (`loadDawnConfig`/`seedDawnConfig`) without `node:fs`, `node:path`,
+ * memo (`loadB4Config`/`seedB4Config`) without `node:fs`, `node:path`,
  * `node:url` or `tsx` entering its module graph.
  *
- * Ships from `@dawn-ai/core/node`.
+ * Ships from `@b4run/core/node`.
  */
 
 import { constants } from "node:fs"
@@ -12,16 +12,16 @@ import { access } from "node:fs/promises"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { DAWN_CONFIG_FILE, registerConfigLoader } from "./config.js"
-import type { DawnConfig, LoadDawnConfigOptions, LoadedDawnConfig } from "./types.js"
+import { B4_CONFIG_FILE, registerConfigLoader } from "./config.js"
+import type { B4Config, LoadB4ConfigOptions, LoadedB4Config } from "./types.js"
 
 let loaderPromise: Promise<void> | undefined
 
 /**
  * Register the tsx ESM loader (idempotent). Exported so callers that import
  * user-authored TS modules directly (e.g. the inspector loading a route's
- * memory.ts) get deterministic TS loading even when no dawn.config.ts exists —
- * loadDawnConfig only registers the loader when a config file is present.
+ * memory.ts) get deterministic TS loading even when no b4.config.ts exists —
+ * loadB4Config only registers the loader when a config file is present.
  */
 export async function registerTsxLoader(): Promise<void> {
   loaderPromise ??= (async () => {
@@ -33,10 +33,8 @@ export async function registerTsxLoader(): Promise<void> {
   await loaderPromise
 }
 
-export async function loadDawnConfigUncached(
-  options: LoadDawnConfigOptions,
-): Promise<LoadedDawnConfig> {
-  const configPath = join(options.appRoot, DAWN_CONFIG_FILE)
+export async function loadB4ConfigUncached(options: LoadB4ConfigOptions): Promise<LoadedB4Config> {
+  const configPath = join(options.appRoot, B4_CONFIG_FILE)
   await access(configPath, constants.F_OK)
   await registerTsxLoader()
 
@@ -45,22 +43,22 @@ export async function loadDawnConfigUncached(
   }
 
   if (!mod.default || typeof mod.default !== "object") {
-    throw new Error(`${DAWN_CONFIG_FILE} must export default an object. Got: ${typeof mod.default}`)
+    throw new Error(`${B4_CONFIG_FILE} must export default an object. Got: ${typeof mod.default}`)
   }
 
   return {
     appRoot: options.appRoot,
-    config: mod.default as DawnConfig,
+    config: mod.default as B4Config,
     configPath,
   }
 }
 
-/** Point `loadDawnConfig` at the disk loader. Idempotent. */
+/** Point `loadB4Config` at the disk loader. Idempotent. */
 export function registerNodeConfigLoader(): void {
-  registerConfigLoader(loadDawnConfigUncached)
+  registerConfigLoader(loadB4ConfigUncached)
 }
 
-// Importing this module IS the node opt-in: `@dawn-ai/core/node` re-exports it,
+// Importing this module IS the node opt-in: `@b4run/core/node` re-exports it,
 // so every node entry that already reaches for the node barrel gets the disk
 // loader with no call site of its own. `registerNodeConfigLoader` stays
 // exported for entries that want the wiring explicit and greppable.

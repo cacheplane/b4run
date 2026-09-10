@@ -30,26 +30,26 @@
 //
 // The engine is driven through `runMemoryCommand` (the CLI's public runtime
 // surface) rather than `runConsolidation`/`runReflection` directly — those are
-// internal to @dawn-ai/cli and not exported from `@dawn-ai/cli/runtime`, and the
+// internal to @b4run/cli and not exported from `@b4run/cli/runtime`, and the
 // command path is the thing users actually invoke.
 import { rmSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { runMemoryCommand } from "@dawn-ai/cli/runtime"
-import { type MemoryRecord, sqliteMemoryStore } from "@dawn-ai/memory"
+import { runMemoryCommand } from "@b4run/cli/runtime"
+import { type MemoryRecord, sqliteMemoryStore } from "@b4run/memory"
 import { afterEach, beforeEach, expect, it } from "vitest"
 import { createAgentHarness } from "../src/harness.js"
 import { expectToolCalled } from "../src/matchers.js"
 
 const live = Boolean(process.env.OPENAI_API_KEY)
 // Reuses the episodic probe app: one route with a memory.ts, the run recorder
-// enabled, and the default SQLite store at <appRoot>/.dawn/memory.sqlite.
+// enabled, and the default SQLite store at <appRoot>/.b4/memory.sqlite.
 const episodicRoot = fileURLToPath(new URL("./fixtures/probe-app-episodic", import.meta.url))
 // scope: ["route"] on the fixture's memory.ts → this exact namespace.
 const NAMESPACE = "route=/memory-chat"
 
 function dbPath(root: string): string {
-  return join(root, ".dawn", "memory.sqlite")
+  return join(root, ".b4", "memory.sqlite")
 }
 function cleanDb(root: string): void {
   for (const s of ["", "-wal", "-shm"]) rmSync(`${dbPath(root)}${s}`, { force: true })
@@ -66,7 +66,7 @@ async function runMemory(argv: readonly string[]): Promise<void> {
     await runMemoryCommand([...argv], { cwd: episodicRoot }, io)
   } catch (error) {
     const detail = errors.length > 0 ? `\n${errors.join("\n")}` : " (no stderr captured)"
-    throw new Error(`dawn memory ${argv.join(" ")} failed: ${String(error)}${detail}`)
+    throw new Error(`b4 memory ${argv.join(" ")} failed: ${String(error)}${detail}`)
   }
 }
 

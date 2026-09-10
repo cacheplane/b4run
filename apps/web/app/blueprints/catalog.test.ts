@@ -21,8 +21,8 @@ describe("shipped blueprint catalog", () => {
 
   it("marks the primary file in every guide", () => {
     for (const { meta, body } of loadBlueprints()) {
-      expect(body, `${meta.name} should contain its dawn-blueprint marker`).toContain(
-        `dawn-blueprint: ${meta.name}@`,
+      expect(body, `${meta.name} should contain its b4-blueprint marker`).toContain(
+        `b4-blueprint: ${meta.name}@`,
       )
     }
   })

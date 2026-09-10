@@ -1,36 +1,36 @@
-# @dawn-ai/memory
+# @b4run/memory
 
 ## Use this when
 
-Use this package when your application needs a standalone long-term-memory store or lower-level browse, namespace, ranking, and reconciliation utilities. Most Dawn routes should declare memory with `defineMemory()` and follow [Long-term Memory](/docs/memory/long-term).
+Use this package when your application needs a standalone long-term-memory store or lower-level browse, namespace, ranking, and reconciliation utilities. Most B4.run routes should declare memory with `defineMemory()` and follow [Long-term Memory](/docs/memory/long-term).
 
 ## Install and import
 
 ```bash
-pnpm add @dawn-ai/memory
+pnpm add @b4run/memory
 ```
 
 ```ts
-import { sqliteMemoryStore } from "@dawn-ai/memory"
-import { validateBrowseQuery } from "@dawn-ai/memory/browse"
-import { serializeNamespace } from "@dawn-ai/memory/namespace"
-import { approveWithReconcile } from "@dawn-ai/memory/reconcile"
+import { sqliteMemoryStore } from "@b4run/memory"
+import { validateBrowseQuery } from "@b4run/memory/browse"
+import { serializeNamespace } from "@b4run/memory/namespace"
+import { approveWithReconcile } from "@b4run/memory/reconcile"
 ```
 
 ## Compatibility and audience
 
 | Surface | Runtime | Purity | Audience | Stability |
 |---|---|---|---|---|
-| `@dawn-ai/memory` | node-only | not-claimed | application | supported |
-| `@dawn-ai/memory/browse` | edge-safe | dependency-free | integration | supported |
-| `@dawn-ai/memory/namespace` | edge-safe | not-claimed | integration | supported |
-| `@dawn-ai/memory/reconcile` | edge-safe | not-claimed | integration | supported |
+| `@b4run/memory` | node-only | not-claimed | application | supported |
+| `@b4run/memory/browse` | edge-safe | dependency-free | integration | supported |
+| `@b4run/memory/namespace` | edge-safe | not-claimed | integration | supported |
+| `@b4run/memory/reconcile` | edge-safe | not-claimed | integration | supported |
 
 The root includes the SQLite store. Import `/browse`, `/namespace`, or `/reconcile` directly when an edge integration needs only that contract.
 
 ## Public exports
 
-### `@dawn-ai/memory`
+### `@b4run/memory`
 
 | Export | Responsibility |
 |---|---|
@@ -108,7 +108,7 @@ The root includes the SQLite store. Import `/browse`, `/namespace`, or `/reconci
 | `fuseRRF` | Fuse ranked lists by reciprocal rank. |
 | `RankedList` | Describe a ranked list. |
 
-### `@dawn-ai/memory/browse`
+### `@b4run/memory/browse`
 
 | Export | Responsibility |
 |---|---|
@@ -141,7 +141,7 @@ The root includes the SQLite store. Import `/browse`, `/namespace`, or `/reconci
 | `MemorySource` | Describe provenance. |
 | `MemoryStatus` | Name record status. |
 
-### `@dawn-ai/memory/namespace`
+### `@b4run/memory/namespace`
 
 | Export | Responsibility |
 |---|---|
@@ -150,7 +150,7 @@ The root includes the SQLite store. Import `/browse`, `/namespace`, or `/reconci
 | `routeNamespaceKey` | Normalize a route path. |
 | `serializeNamespace` | Serialize dimensions. |
 
-### `@dawn-ai/memory/reconcile`
+### `@b4run/memory/reconcile`
 
 | Export | Responsibility |
 |---|---|
@@ -165,7 +165,7 @@ The root includes the SQLite store. Import `/browse`, `/namespace`, or `/reconci
 
 ### `MemoryScopeTuple`
 
-```ts api-contract="@dawn-ai/memory#./namespace:MemoryScopeTuple"
+```ts api-contract="@b4run/memory#./namespace:MemoryScopeTuple"
 export interface MemoryScopeTuple {
   readonly workspace?: string
   readonly route?: string
@@ -175,7 +175,7 @@ export interface MemoryScopeTuple {
 }
 ```
 
-**Fields: `@dawn-ai/memory#./namespace:MemoryScopeTuple`**
+**Fields: `@b4run/memory#./namespace:MemoryScopeTuple`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly workspace` | `string` | no | Scope by application workspace. |
@@ -186,7 +186,7 @@ export interface MemoryScopeTuple {
 
 ### Store and query shapes
 
-```ts api-contract="@dawn-ai/memory#.:MemoryRecord"
+```ts api-contract="@b4run/memory#.:MemoryRecord"
 export interface MemoryRecord {
   readonly id: string
   readonly kind: MemoryKind
@@ -205,7 +205,7 @@ export interface MemoryRecord {
 }
 ```
 
-```ts api-contract="@dawn-ai/memory#.:MemoryQuery"
+```ts api-contract="@b4run/memory#.:MemoryQuery"
 export interface MemoryQuery {
   readonly namespace: string
   readonly query?: string
@@ -222,7 +222,7 @@ export interface MemoryQuery {
 }
 ```
 
-```ts api-contract="@dawn-ai/memory#.:BrowsePage"
+```ts api-contract="@b4run/memory#.:BrowsePage"
 export interface BrowsePage {
   readonly records: readonly MemoryRecord[]
   readonly total: number
@@ -230,7 +230,7 @@ export interface BrowsePage {
 }
 ```
 
-```ts api-contract="@dawn-ai/memory#.:BrowseQuery"
+```ts api-contract="@b4run/memory#.:BrowseQuery"
 export interface BrowseQuery {
   readonly namespacePrefix?: string
   readonly namespace?: string
@@ -248,7 +248,7 @@ export interface BrowseQuery {
 }
 ```
 
-```ts api-contract="@dawn-ai/memory#.:MemoryStore"
+```ts api-contract="@b4run/memory#.:MemoryStore"
 export interface MemoryStore {
   put(
     rec: MemoryRecord,
@@ -270,11 +270,11 @@ export interface MemoryStore {
 }
 ```
 
-```ts api-contract="@dawn-ai/memory#./namespace:serializeNamespace"
+```ts api-contract="@b4run/memory#./namespace:serializeNamespace"
 export declare function serializeNamespace(tuple: MemoryScopeTuple): string
 ```
 
-```ts api-contract="@dawn-ai/memory#./reconcile:approveWithReconcile"
+```ts api-contract="@b4run/memory#./reconcile:approveWithReconcile"
 export declare function approveWithReconcile(
   store: MemoryStore,
   id: string,
@@ -309,9 +309,9 @@ The /browse entry reaches only the pure browse modules and no external package, 
 ## Examples and related guides
 
 ```ts
-import { sqliteMemoryStore } from "@dawn-ai/memory"
+import { sqliteMemoryStore } from "@b4run/memory"
 
-const store = sqliteMemoryStore({ path: ".dawn/memory.sqlite" })
+const store = sqliteMemoryStore({ path: ".b4/memory.sqlite" })
 const records = await store.search({ namespace: "workspace=acme", query: "shipping" })
 ```
 

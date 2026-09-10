@@ -1,31 +1,31 @@
 {
-  "name": "@dawn-ai/inspector",
-  "version": "0.8.24",
+  "name": "@b4run/inspector",
+  "version": "0.8.29",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "description": "Browser inspector for reviewing memory and runtime state in a Dawn application.",
+  "description": "Browser inspector for reviewing memory and runtime state in a B4.run application.",
   "keywords": [
-    "dawn",
+    "b4",
     "typescript",
     "ai-agents",
     "inspector",
     "memory",
     "developer-tools"
   ],
-  "homepage": "https://github.com/cacheplane/dawnai/tree/main/packages/inspector#readme",
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/inspector#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/dawnai.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/inspector"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/dawnai/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"
   },
-  "dawnInspector": {
+  "b4Inspector": {
     "server": ".next/standalone/packages/inspector/server.js"
   },
   "files": [
@@ -44,8 +44,8 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json && tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@dawn-ai/core": "workspace:*",
-    "@dawn-ai/memory": "workspace:*",
+    "@b4run/core": "workspace:*",
+    "@b4run/memory": "workspace:*",
     "@pretable/core": "0.3.0",
     "@pretable/react": "0.3.0",
     "@pretable/ui": "0.3.0",
@@ -56,7 +56,7 @@
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
-    "@dawn-ai/config-typescript": "workspace:*",
+    "@b4run/config-typescript": "workspace:*",
     "@playwright/test": "1.62.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/dom": "^10.4.1",

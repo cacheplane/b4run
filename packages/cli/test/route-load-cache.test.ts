@@ -7,15 +7,15 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 // runtime-registry.ts actually call. The mock delegates to the real
 // implementation so discovery behavior is unchanged — only call counts are
 // observable.
-vi.mock("@dawn-ai/core/node", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@dawn-ai/core/node")>()
+vi.mock("@b4run/core/node", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@b4run/core/node")>()
   return {
     ...actual,
     discoverRoutes: vi.fn(actual.discoverRoutes),
   }
 })
 
-import { discoverRoutes } from "@dawn-ai/core/node"
+import { discoverRoutes } from "@b4run/core/node"
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
 import { prepareRouteExecution } from "../src/lib/runtime/execute-route.js"
 
@@ -26,9 +26,9 @@ afterEach(async () => {
 })
 
 async function fixtureApp(): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-route-load-cache-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-route-load-cache-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
-  await writeFixtureFile(appRoot, "dawn.config.ts", "export default {}\n")
+  await writeFixtureFile(appRoot, "b4.config.ts", "export default {}\n")
   await writeFixtureFile(
     appRoot,
     "package.json",
@@ -172,10 +172,10 @@ describe("route-load cache — modules load once per process", () => {
       "src/app/probe/tools/marker.ts",
       'export default async () => "ok"\n',
     )
-    const schemaPath = join(appRoot, ".dawn", "routes", "probe", "tools.json")
+    const schemaPath = join(appRoot, ".b4", "routes", "probe", "tools.json")
     await writeFixtureFile(
       appRoot,
-      ".dawn/routes/probe/tools.json",
+      ".b4/routes/probe/tools.json",
       `${JSON.stringify({
         marker: {
           description: "from-manifest",

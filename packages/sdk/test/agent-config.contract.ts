@@ -1,12 +1,12 @@
 import {
   agent,
-  type DawnAgent,
+  type B4Agent,
   type DelegationConstraintPredicate,
   type DelegationContext,
   type DelegationRequest,
   type DelegationVerdict,
   type ReasoningConfig,
-} from "@dawn-ai/sdk"
+} from "@b4run/sdk"
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <Value>() => Value extends Right ? 1 : 2
@@ -62,14 +62,14 @@ type _ConstraintVerdict = Expect<
 type _VerdictShape = Expect<
   Equal<DelegationVerdict, true | string | { readonly approve: true; readonly reason?: string }>
 >
-type _Description = Expect<Equal<DawnAgent["description"], string | undefined>>
+type _Description = Expect<Equal<B4Agent["description"], string | undefined>>
 type _ReasoningEffort = Expect<
   Equal<
     ReasoningConfig["effort"],
     "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined
   >
 >
-type _AgentReasoning = Expect<Equal<DawnAgent["reasoning"], ReasoningConfig | undefined>>
+type _AgentReasoning = Expect<Equal<B4Agent["reasoning"], ReasoningConfig | undefined>>
 
 agent({
   model: "gpt-5-mini",

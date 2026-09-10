@@ -1,5 +1,4 @@
 import { createHash, timingSafeEqual } from "node:crypto"
-
 import { normalizeAdapterEnvelope, snapshotJson } from "../adapter-normalize.mjs"
 import { assertPayloadByteLength, RELEASE_PAYLOAD_LIMITS } from "../limits.mjs"
 import {
@@ -10,12 +9,12 @@ import {
   releaseBodySha256,
   validatePublicationAuditAssets,
 } from "../metadata.mjs"
+import { requestGitHubJson as requestJson, writeFailureMessage } from "./github-write-transport.mjs"
 
 const API_ORIGIN = "https://api.github.com"
 const UPLOAD_ORIGIN = "https://uploads.github.com"
 const RELEASE_API_VERSION = "2022-11-28"
 const DISPATCH_API_VERSION = "2026-03-10"
-const JSON_ACCEPT = "application/vnd.github+json"
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u
 const OWNER_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u
@@ -38,7 +37,10 @@ const READER_METHODS = Object.freeze([
 const MAX_TIMEOUT_MS = 300_000
 const DEFAULT_TIMEOUT_MS = 15_000
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024
-const MAX_JSON_REQUEST_BYTES = 4 * 1024 * 1024
+// Failure detail carried on a writer Error: the HTTP status plus a short sanitized snippet of
+// the response body. Two v0.8.24 escrow failures at the draft POST were undiagnosable because
+// the status was discarded. Never the headers, never the token. The redaction set mirrors
+// `safeDetail` in ../cli.mjs (which must not be imported here: cli.mjs imports this adapter).
 
 export function composeGitHubEffects({ reader, writer }) {
   if (
@@ -160,7 +162,7 @@ export function createGitHubWriter({
         },
       })
       if (![201, 422].includes(response.httpStatus)) {
-        throw new Error("GitHub draft creation did not return HTTP 201")
+        throw new Error(writeFailureMessage("GitHub draft creation", response))
       }
       let releaseId
       let status
@@ -169,7 +171,14 @@ export function createGitHubWriter({
         status = "created"
       } else {
         const raced = await findReleaseByTag(context, args)
-        if (raced === null) throw new Error("GitHub draft creation race could not be reconciled")
+        if (raced === null) {
+          throw new Error(
+            writeFailureMessage(
+              "GitHub draft creation race could not be reconciled: no Release matches the tag and the POST",
+              response,
+            ),
+          )
+        }
         releaseId = raced.id
         status = "existing"
       }
@@ -214,8 +223,9 @@ export function createGitHubWriter({
         apiVersion: RELEASE_API_VERSION,
         body: { name: args.title, body: args.body },
       })
-      if (response.httpStatus !== 200)
-        throw new Error("GitHub draft update did not return HTTP 200")
+      if (response.httpStatus !== 200) {
+        throw new Error(writeFailureMessage("GitHub draft update", response))
+      }
       const updated = await readRelease(context, releaseId)
       assertDraftIdentity(updated, args, { title: args.title, body: args.body })
       await verifyAnnotatedTag(context, args.tag, args.targetSha)
@@ -251,7 +261,7 @@ export function createGitHubWriter({
         maxRequestBytes: args.maximumBytes,
       })
       if (![201, 422].includes(response.httpStatus)) {
-        throw new Error("GitHub Release asset upload did not return HTTP 201")
+        throw new Error(writeFailureMessage("GitHub Release asset upload", response))
       }
       assets = await readAssets(context, releaseId)
       existing = findOneAsset(assets, args.name)
@@ -295,8 +305,9 @@ export function createGitHubWriter({
         apiVersion: RELEASE_API_VERSION,
         body: { tag_name: args.tag, draft: false },
       })
-      if (response.httpStatus !== 200)
-        throw new Error("Release publication did not return HTTP 200")
+      if (response.httpStatus !== 200) {
+        throw new Error(writeFailureMessage("Release publication", response))
+      }
       const published = await readRelease(context, releaseId)
       assertPublishedIdentity(published, args)
       if (published.body !== current.body || published.name !== current.name) {
@@ -311,7 +322,12 @@ export function createGitHubWriter({
       const args = snapshotExactInput(input, ["workflow", "ref", "inputs"], "workflow dispatch")
       if (!WORKFLOWS.has(args.workflow))
         throw new TypeError("Workflow dispatch path is not allowed")
-      assertTag(args.ref)
+      if (
+        !(
+          args.workflow === ".github/workflows/published-artifact-verify.yml" && args.ref === "main"
+        )
+      )
+        assertTag(args.ref)
       if (!isRecord(args.inputs)) throw new TypeError("Workflow dispatch inputs must be an object")
       rejectRemovedDispatchField(args.inputs)
       const requestBody = { ref: args.ref, inputs: args.inputs }
@@ -322,7 +338,12 @@ export function createGitHubWriter({
         body: requestBody,
       })
       if (response.httpStatus !== 200) {
-        throw new Error("GitHub workflow dispatch requires the direct HTTP 200 run receipt")
+        throw new Error(
+          writeFailureMessage(
+            "GitHub workflow dispatch requires the direct HTTP 200 run receipt but",
+            response,
+          ),
+        )
       }
       const receipt = snapshotJson(response.body)
       if (
@@ -665,132 +686,6 @@ function normalizeExpectedAssets(value) {
   })
 }
 
-async function requestJson(
-  context,
-  {
-    url,
-    method,
-    apiVersion,
-    body,
-    bodyBytes,
-    contentType = "application/json",
-    maxRequestBytes = MAX_JSON_REQUEST_BYTES,
-  },
-) {
-  const bytes =
-    bodyBytes === undefined
-      ? Buffer.from(JSON.stringify(canonicalize(body)), "utf8")
-      : Buffer.from(bodyBytes)
-  if (bytes.length > maxRequestBytes) throw new TypeError("GitHub write request exceeds byte limit")
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), context.timeoutMs)
-  try {
-    let response
-    try {
-      response = await context.fetchImpl(url, {
-        method,
-        redirect: "manual",
-        headers: {
-          Accept: JSON_ACCEPT,
-          "Content-Type": contentType,
-          "X-GitHub-Api-Version": apiVersion,
-          ...(context.token === null ? {} : { Authorization: `Bearer ${context.token}` }),
-        },
-        body: bytes,
-        signal: controller.signal,
-      })
-    } catch (error) {
-      throw new Error(
-        controller.signal.aborted ? "GitHub write timed out" : "GitHub write failed",
-        {
-          cause: error,
-        },
-      )
-    }
-    const status = response?.status
-    if (!Number.isInteger(status) || status < 100 || status > 599) {
-      cancelResponseBody(response?.body)
-      throw new Error("GitHub write returned a malformed response")
-    }
-    if (status >= 300 && status < 400) {
-      cancelResponseBody(response.body)
-      throw new Error("GitHub write redirects are forbidden")
-    }
-    let responseBytes
-    try {
-      responseBytes = await readBoundedResponse(
-        response.body,
-        context.maxResponseBytes,
-        controller.signal,
-      )
-    } catch (error) {
-      if (controller.signal.aborted) throw new Error("GitHub write timed out", { cause: error })
-      throw error
-    }
-    if (responseBytes.length === 0) return { httpStatus: status, body: null }
-    const responseContentType = response.headers?.get?.("content-type")
-    if (
-      typeof responseContentType !== "string" ||
-      !/^application\/(?:[A-Za-z0-9!#$&^_.+-]+\+)?json(?:\s*;|\s*$)/iu.test(responseContentType)
-    ) {
-      throw new Error("GitHub write response content type is not JSON")
-    }
-    let parsed
-    try {
-      parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(responseBytes))
-    } catch (error) {
-      throw new Error("GitHub write response JSON is malformed", { cause: error })
-    }
-    return { httpStatus: status, body: snapshotJson(parsed) }
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-async function readBoundedResponse(stream, maximum, signal) {
-  if (stream === null) return Buffer.alloc(0)
-  if (stream === undefined || typeof stream.getReader !== "function") {
-    throw new Error("GitHub write response body is malformed")
-  }
-  const reader = stream.getReader()
-  const chunks = []
-  let total = 0
-  try {
-    while (true) {
-      const { done, value } = await readWithAbort(reader, signal)
-      if (done) break
-      if (!(value instanceof Uint8Array)) throw new Error("GitHub write response body is malformed")
-      total += value.byteLength
-      if (total > maximum) throw new Error("GitHub write response exceeds byte limit")
-      chunks.push(Buffer.from(value))
-    }
-  } catch (error) {
-    void reader.cancel().catch(() => {})
-    throw error
-  }
-  return Buffer.concat(chunks, total)
-}
-
-async function readWithAbort(reader, signal) {
-  if (signal.aborted) throw new Error("GitHub write timed out")
-  let rejectAbort
-  const aborted = new Promise((_resolve, reject) => {
-    rejectAbort = () => reject(new Error("GitHub write timed out"))
-    signal.addEventListener("abort", rejectAbort, { once: true })
-  })
-  try {
-    return await Promise.race([reader.read(), aborted])
-  } finally {
-    signal.removeEventListener("abort", rejectAbort)
-  }
-}
-
-function cancelResponseBody(body) {
-  if (body !== null && body !== undefined && typeof body.cancel === "function") {
-    void body.cancel().catch(() => {})
-  }
-}
-
 function snapshotReader(reader) {
   if (reader === null || typeof reader !== "object" || Array.isArray(reader)) {
     throw new TypeError("GitHub writer requires the bounded reader")
@@ -979,16 +874,6 @@ function isRecord(value) {
 
 function isPositiveInteger(value) {
   return Number.isSafeInteger(value) && value > 0
-}
-
-function canonicalize(value) {
-  if (Array.isArray(value)) return value.map(canonicalize)
-  if (!isRecord(value)) return value
-  return Object.fromEntries(
-    Object.keys(value)
-      .sort(compareText)
-      .map((key) => [key, canonicalize(value[key])]),
-  )
 }
 
 function sha256(value) {

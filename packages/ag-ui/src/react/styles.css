@@ -1,15 +1,15 @@
 /*
- * Dawn activity cards — default appearance.
+ * B4.run activity cards — default appearance.
  *
  * Import once in your app:
- *   import "@dawn-ai/ag-ui/react/styles.css"
+ *   import "@b4run/ag-ui/react/styles.css"
  *
  * Rung 1 of the customization ladder: override any token below in your own CSS
  * to restyle without touching markup. Every selector here is scoped to the
- * `dawn-activity` prefix, so this sheet cannot affect the rest of your app.
+ * `b4-activity` prefix, so this sheet cannot affect the rest of your app.
  *
  * All three token blocks are wrapped in `:where()`, which zeroes their
- * specificity to (0,0,0). A consumer's own plain `:root { --dawn-activity-*: ... }`
+ * specificity to (0,0,0). A consumer's own plain `:root { --b4-activity-*: ... }`
  * therefore wins in every theme and regardless of which sheet the browser parses
  * first — without it, the two dark blocks sit at (0,2,0) and rung 1 is only true
  * in light mode.
@@ -22,64 +22,64 @@
  */
 
 :where(:root) {
-  --dawn-activity-surface: #ffffff;
-  --dawn-activity-border: #e4e4e7;
-  --dawn-activity-text: #18181b;
-  --dawn-activity-muted: #71717a;
-  --dawn-activity-running: #2563eb;
-  --dawn-activity-complete: #16a34a;
-  --dawn-activity-failed: #9f1239;
-  --dawn-activity-radius: 10px;
-  --dawn-activity-gap: 8px;
-  --dawn-activity-font-size: 13px;
+  --b4-activity-surface: #ffffff;
+  --b4-activity-border: #e4e4e7;
+  --b4-activity-text: #18181b;
+  --b4-activity-muted: #71717a;
+  --b4-activity-running: #2563eb;
+  --b4-activity-complete: #16a34a;
+  --b4-activity-failed: #9f1239;
+  --b4-activity-radius: 10px;
+  --b4-activity-gap: 8px;
+  --b4-activity-font-size: 13px;
   /*
    * Geometry and weight are palette-independent, so they also live only here:
    * the dark blocks below change colors and nothing else.
    */
-  --dawn-activity-margin: 6px 0;
-  --dawn-activity-padding: 8px 10px;
-  --dawn-activity-header-weight: 600;
+  --b4-activity-margin: 6px 0;
+  --b4-activity-padding: 8px 10px;
+  --b4-activity-header-weight: 600;
 }
 
 @media (prefers-color-scheme: dark) {
-  :where(:root:not([data-dawn-theme="light"])) {
-    --dawn-activity-surface: #141519;
-    --dawn-activity-border: #26272d;
-    --dawn-activity-text: #e4e6eb;
-    --dawn-activity-muted: #8b909c;
-    --dawn-activity-running: #60a5fa;
-    --dawn-activity-complete: #4ade80;
-    --dawn-activity-failed: #fb7185;
+  :where(:root:not([data-b4-theme="light"])) {
+    --b4-activity-surface: #141519;
+    --b4-activity-border: #26272d;
+    --b4-activity-text: #e4e6eb;
+    --b4-activity-muted: #8b909c;
+    --b4-activity-running: #60a5fa;
+    --b4-activity-complete: #4ade80;
+    --b4-activity-failed: #fb7185;
   }
 }
 
-:where(:root[data-dawn-theme="dark"]) {
-  --dawn-activity-surface: #141519;
-  --dawn-activity-border: #26272d;
-  --dawn-activity-text: #e4e6eb;
-  --dawn-activity-muted: #8b909c;
-  --dawn-activity-running: #60a5fa;
-  --dawn-activity-complete: #4ade80;
-  --dawn-activity-failed: #fb7185;
+:where(:root[data-b4-theme="dark"]) {
+  --b4-activity-surface: #141519;
+  --b4-activity-border: #26272d;
+  --b4-activity-text: #e4e6eb;
+  --b4-activity-muted: #8b909c;
+  --b4-activity-running: #60a5fa;
+  --b4-activity-complete: #4ade80;
+  --b4-activity-failed: #fb7185;
 }
 
-.dawn-activity {
-  background: var(--dawn-activity-surface);
-  border: 1px solid var(--dawn-activity-border);
-  border-radius: var(--dawn-activity-radius);
-  color: var(--dawn-activity-text);
-  font-size: var(--dawn-activity-font-size);
-  margin: var(--dawn-activity-margin);
-  padding: var(--dawn-activity-padding);
+.b4-activity {
+  background: var(--b4-activity-surface);
+  border: 1px solid var(--b4-activity-border);
+  border-radius: var(--b4-activity-radius);
+  color: var(--b4-activity-text);
+  font-size: var(--b4-activity-font-size);
+  margin: var(--b4-activity-margin);
+  padding: var(--b4-activity-padding);
 }
 
-.dawn-activity__header {
+.b4-activity__header {
   cursor: pointer;
-  font-weight: var(--dawn-activity-header-weight);
+  font-weight: var(--b4-activity-header-weight);
   list-style: none;
 }
 
-.dawn-activity__header::-webkit-details-marker {
+.b4-activity__header::-webkit-details-marker {
   display: none;
 }
 
@@ -94,39 +94,39 @@
  * emits `content: var(--tw-content)`, whose initial value is empty, so a class
  * written to merely recolor the marker deletes it instead.
  */
-.dawn-activity__marker {
-  color: var(--dawn-activity-muted);
+.b4-activity__marker {
+  color: var(--b4-activity-muted);
   display: inline-block;
-  margin-right: var(--dawn-activity-gap);
+  margin-right: var(--b4-activity-gap);
   transition: transform 0.1s ease-in-out;
 }
 
-.dawn-activity[open] > .dawn-activity__header > .dawn-activity__marker {
+.b4-activity[open] > .b4-activity__header > .b4-activity__marker {
   transform: rotate(90deg);
 }
 
-.dawn-activity__title {
+.b4-activity__title {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.dawn-activity__meta {
-  color: var(--dawn-activity-muted);
+.b4-activity__meta {
+  color: var(--b4-activity-muted);
   font-weight: 400;
 }
 
-.dawn-activity__badge {
+.b4-activity__badge {
   /*
    * The default lives HERE, as a fallback, not as a `:root` declaration.
    * A custom property whose value contains `var()` is substituted at
    * computed-value time on the element that DECLARES it, so
-   * `--dawn-activity-badge-bg: var(--dawn-activity-border)` on `:root` would
+   * `--b4-activity-badge-bg: var(--b4-activity-border)` on `:root` would
    * freeze the badge to the root's border colour. A subtree that re-points
-   * `--dawn-activity-border` would then recolour the card and leave the chip
+   * `--b4-activity-border` would then recolour the card and leave the chip
    * behind. The fallback form resolves on the badge itself, so the chip
    * follows whichever border colour is in force wherever it renders.
    */
-  background: var(--dawn-activity-badge-bg, var(--dawn-activity-border));
+  background: var(--b4-activity-badge-bg, var(--b4-activity-border));
   border-radius: 4px;
   font-size: 11px;
   font-weight: 400;
@@ -138,75 +138,75 @@
  * Two classes, one rule. `__section` is a card's labelled region; `__checklist`
  * is `ActivityChecklist`'s own wrapper. They shared a class until the subagent
  * card started nesting one inside the other, at which point a consumer's plain
- * `.dawn-activity__section` rule matched three elements, two of them nested.
+ * `.b4-activity__section` rule matched three elements, two of them nested.
  */
-.dawn-activity__section,
-.dawn-activity__checklist {
-  margin-top: var(--dawn-activity-gap);
+.b4-activity__section,
+.b4-activity__checklist {
+  margin-top: var(--b4-activity-gap);
 }
 
-.dawn-activity__section-label {
-  color: var(--dawn-activity-muted);
+.b4-activity__section-label {
+  color: var(--b4-activity-muted);
   font-size: 11px;
   font-weight: 600;
 }
 
-.dawn-activity__list {
+.b4-activity__list {
   list-style: none;
   margin: 4px 0 0;
   padding: 0;
 }
 
-.dawn-activity__item {
+.b4-activity__item {
   align-items: baseline;
   display: flex;
-  gap: var(--dawn-activity-gap);
+  gap: var(--b4-activity-gap);
   margin-top: 4px;
 }
 
-.dawn-activity__item-glyph {
-  color: var(--dawn-activity-muted);
+.b4-activity__item-glyph {
+  color: var(--b4-activity-muted);
 }
 
-.dawn-activity__item--running .dawn-activity__item-glyph {
-  color: var(--dawn-activity-running);
+.b4-activity__item--running .b4-activity__item-glyph {
+  color: var(--b4-activity-running);
 }
 
-.dawn-activity__item--completed .dawn-activity__item-glyph {
-  color: var(--dawn-activity-complete);
+.b4-activity__item--completed .b4-activity__item-glyph {
+  color: var(--b4-activity-complete);
 }
 
-.dawn-activity__item--incomplete .dawn-activity__item-glyph {
-  color: var(--dawn-activity-failed);
+.b4-activity__item--incomplete .b4-activity__item-glyph {
+  color: var(--b4-activity-failed);
 }
 
-.dawn-activity__item--in_progress .dawn-activity__item-glyph {
-  color: var(--dawn-activity-running);
+.b4-activity__item--in_progress .b4-activity__item-glyph {
+  color: var(--b4-activity-running);
 }
 
-.dawn-activity__item--pending .dawn-activity__item-glyph {
-  color: var(--dawn-activity-muted);
+.b4-activity__item--pending .b4-activity__item-glyph {
+  color: var(--b4-activity-muted);
 }
 
-.dawn-activity__item-label {
+.b4-activity__item-label {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.dawn-activity__item-status {
-  color: var(--dawn-activity-muted);
+.b4-activity__item-status {
+  color: var(--b4-activity-muted);
   font-size: 11px;
 }
 
-.dawn-activity__overflow {
-  color: var(--dawn-activity-muted);
+.b4-activity__overflow {
+  color: var(--b4-activity-muted);
   font-size: 12px;
   margin-top: 5px;
 }
 
-.dawn-activity__error {
-  color: var(--dawn-activity-failed);
-  margin-top: var(--dawn-activity-gap);
+.b4-activity__error {
+  color: var(--b4-activity-failed);
+  margin-top: var(--b4-activity-gap);
   overflow-wrap: anywhere;
 }

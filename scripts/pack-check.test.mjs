@@ -107,12 +107,12 @@ describe("pack manifest validation", () => {
   })
 
   it("checks the create app executable", () => {
-    const createAppPackage = packages.find(({ dir }) => dir === "packages/create-dawn-app")
+    const createAppPackage = packages.find(({ dir }) => dir === "packages/create-b4-app")
 
-    assert.ok(createAppPackage, "Pack manifest is missing packages/create-dawn-app")
+    assert.ok(createAppPackage, "Pack manifest is missing packages/create-b4-app")
     assert.ok(
       createAppPackage.expectedFiles.includes("dist/bin.js"),
-      "create-dawn-ai-app must expect dist/bin.js",
+      "create-b4-app must expect dist/bin.js",
     )
   })
 
@@ -253,11 +253,11 @@ describe("expectedExportFailures", () => {
 })
 
 describe("missingInspectorServerPaths", () => {
-  it("flags a declared dawnInspector.server path that is missing from the packed tarball", async () => {
+  it("flags a declared b4Inspector.server path that is missing from the packed tarball", async () => {
     const emptyRoot = await createPackedRoot([])
     const populatedRoot = await createPackedRoot([".next/standalone/packages/inspector/server.js"])
     const packageJson = {
-      dawnInspector: { server: ".next/standalone/packages/inspector/server.js" },
+      b4Inspector: { server: ".next/standalone/packages/inspector/server.js" },
     }
 
     assert.deepEqual(missingInspectorServerPaths(emptyRoot, packageJson), [
@@ -266,12 +266,12 @@ describe("missingInspectorServerPaths", () => {
     assert.deepEqual(missingInspectorServerPaths(populatedRoot, packageJson), [])
   })
 
-  it("ignores packages without a dawnInspector.server field", async () => {
+  it("ignores packages without a b4Inspector.server field", async () => {
     const packedRoot = await createPackedRoot([])
 
     assert.deepEqual(missingInspectorServerPaths(packedRoot, {}), [])
-    assert.deepEqual(missingInspectorServerPaths(packedRoot, { dawnInspector: {} }), [])
-    assert.deepEqual(missingInspectorServerPaths(packedRoot, { dawnInspector: { server: "" } }), [])
+    assert.deepEqual(missingInspectorServerPaths(packedRoot, { b4Inspector: {} }), [])
+    assert.deepEqual(missingInspectorServerPaths(packedRoot, { b4Inspector: { server: "" } }), [])
   })
 })
 
@@ -287,7 +287,7 @@ describe("missingExportTargets", () => {
         },
         "./sse": [
           { types: "./dist/sse.d.ts" },
-          { import: "./dist/sse.js", default: "@dawn-ai/fallback" },
+          { import: "./dist/sse.js", default: "@b4run/fallback" },
         ],
       }),
       ["./dist/sse.d.ts", "./dist/sse.js"],
@@ -616,7 +616,7 @@ function packageEntry(name) {
 }
 
 async function createRepo(publicPackages) {
-  const root = await mkdtemp(join(tmpdir(), "dawn-pack-manifest-test-"))
+  const root = await mkdtemp(join(tmpdir(), "b4-pack-manifest-test-"))
   tempRoots.push(root)
 
   await Promise.all(
@@ -631,7 +631,7 @@ async function createRepo(publicPackages) {
 }
 
 async function createPackedRoot(files) {
-  const base = await mkdtemp(join(tmpdir(), "dawn-packed-export-test-"))
+  const base = await mkdtemp(join(tmpdir(), "b4-packed-export-test-"))
   const root = join(base, "package")
   tempRoots.push(base)
   await mkdir(root, { recursive: true })

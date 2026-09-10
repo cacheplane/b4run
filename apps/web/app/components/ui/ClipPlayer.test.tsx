@@ -12,7 +12,7 @@ const clip: DemoClip = {
   webm: "https://media.example.test/demo/product-loop.webm",
   poster: "/demo/product-loop-poster.webp",
   caption: "Author, prove, run, and restore.",
-  ariaLabel: "Dawn product loop",
+  ariaLabel: "B4.run product loop",
   transcript: "https://example.test/transcript#product-loop",
 }
 

@@ -16,7 +16,7 @@ import {
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 validatePackManifest(repoRoot, packages)
 
-const tempRoot = mkdtempSync(join(tmpdir(), "dawn-pack-check-"))
+const tempRoot = mkdtempSync(join(tmpdir(), "b4-pack-check-"))
 const failures = []
 
 try {
@@ -61,7 +61,7 @@ try {
 
     for (const serverPath of missingInspectorServerPaths(packedRoot, packedPackageJson)) {
       failures.push(
-        `${sourcePackageJson.name}: packed package.json dawnInspector.server points at ${serverPath}, which is missing from the tarball`,
+        `${sourcePackageJson.name}: packed package.json b4Inspector.server points at ${serverPath}, which is missing from the tarball`,
       )
     }
 

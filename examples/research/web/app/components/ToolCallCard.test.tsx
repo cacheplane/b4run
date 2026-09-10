@@ -162,10 +162,10 @@ describe("tool call status", () => {
   test("does not claim an outcome the wire never carried", () => {
     // `complete` is a LIFECYCLE state: a tool that threw lands here too, and
     // the card cannot see the ToolMessage's own status. So the finished glyph
-    // stays muted — the package's green `--dawn-activity-complete` would read
+    // stays muted — the package's green `--b4-activity-complete` would read
     // as "succeeded". See `STATUS_GLYPH_CLASS` in the component.
     const markup = render({ name: "runBash", status: "complete", parameters: {} })
-    expect(markup).not.toContain("dawn-activity-complete")
+    expect(markup).not.toContain("b4-activity-complete")
   })
 
   test("carries no inline styles or hard-coded greys any more", () => {

@@ -189,10 +189,10 @@ export function extractSummary(markdown: string): string {
 /** Render the bundled docs `README.md` index. */
 export function buildReadme(topics: readonly DocTopic[]): string {
   const lines = [
-    "# Dawn — Documentation",
+    "# B4.run — Documentation",
     "",
-    "Version-matched Dawn reference for coding agents. These files match the installed `@dawn-ai/cli` version.",
-    "Run `dawn docs <topic>` to read one (e.g. `dawn docs tools`), or open the files in this directory.",
+    "Version-matched B4.run reference for coding agents. These files match the installed `@b4run/cli` version.",
+    "Run `b4 docs <topic>` to read one (e.g. `b4 docs tools`), or open the files in this directory.",
     "",
     "## Topics",
     "",

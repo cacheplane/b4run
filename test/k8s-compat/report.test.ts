@@ -2,11 +2,13 @@ import {
   link,
   mkdir,
   mkdtemp,
+  open,
   readdir,
   readFile,
   rm,
   stat,
   symlink,
+  unlink,
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -19,19 +21,41 @@ import {
   assertProviderAccounting,
   type CompatibilityReport,
   createCompatibilityReport,
-  createVitestProviderAccountingSession,
+  createVitestProviderAccountingSession as createRawAccountingSession,
   getStepAccountingDiagnostics,
   persistCompatibilityReport,
   REPORT_SCHEMA_VERSION,
   redactSensitive,
   StepAccountingError,
+  type VitestProviderAccountingSession,
 } from "../../scripts/kubernetes-compat/report.ts"
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>()
+  return { ...actual, open: vi.fn(actual.open), unlink: vi.fn(actual.unlink) }
+})
+
+const sessions: VitestProviderAccountingSession[] = []
+async function createVitestProviderAccountingSession(
+  options: Parameters<typeof createRawAccountingSession>[0],
+): Promise<VitestProviderAccountingSession> {
+  const session = await createRawAccountingSession(options)
+  sessions.push(session)
+  return session
+}
+
+async function openedReports() {
+  return Promise.all(vi.mocked(open).mock.results.map(({ value }) => value))
+}
 
 const temporaryDirectories: string[] = []
 
 const providerTestNames = ["provider test zeta", "provider test alpha"] as const
 
 afterEach(async () => {
+  await Promise.all(sessions.splice(0).map((session) => session.dispose()))
+  vi.mocked(open).mockClear()
+  vi.mocked(unlink).mockClear()
   await Promise.all(
     temporaryDirectories
       .splice(0)
@@ -86,7 +110,7 @@ async function writeAccountingFixture(
   report: unknown,
   manifest: unknown = expectedTestsManifest(),
 ): Promise<{ readonly reportPath: string; readonly manifestPath: string }> {
-  const directory = await createTemporaryDirectory("dawn-k8s-accounting-")
+  const directory = await createTemporaryDirectory("b4-k8s-accounting-")
   return {
     reportPath: await writeJson(directory, "vitest.json", report),
     manifestPath: await writeJson(directory, "expected-tests.json", manifest),
@@ -354,7 +378,7 @@ describe("exact step accounting", () => {
 
 describe("Vitest provider accounting", () => {
   test("rejects a missing Vitest output file", async () => {
-    const directory = await createTemporaryDirectory("dawn-k8s-accounting-missing-")
+    const directory = await createTemporaryDirectory("b4-k8s-accounting-missing-")
     const manifestPath = await writeJson(directory, "expected-tests.json", expectedTestsManifest())
 
     await expect(
@@ -530,7 +554,7 @@ describe("Vitest provider accounting", () => {
       /Duplicate expected step IDs.*provider test zeta/i,
     ],
   ])("rejects malformed input: %s", async (_case, report, manifest, expectedMessage) => {
-    const directory = await createTemporaryDirectory("dawn-k8s-accounting-malformed-")
+    const directory = await createTemporaryDirectory("b4-k8s-accounting-malformed-")
     const reportPath = join(directory, "vitest.json")
     const manifestPath = join(directory, "expected-tests.json")
     await writeFile(
@@ -596,6 +620,117 @@ describe("Vitest provider accounting", () => {
 })
 
 describe("Vitest provider accounting session", () => {
+  test("retains consumed inodes until disposal while accepting freshly created phase reports", async () => {
+    const fixture = await writeAccountingFixture(vitestJsonReport())
+    const session = await createVitestProviderAccountingSession({
+      manifestPath: fixture.manifestPath,
+    })
+    await session.record({ phase: "provider-before-upgrade", reportPath: fixture.reportPath })
+    const [before] = await openedReports()
+    expect(before.fd).toBeGreaterThanOrEqual(0)
+    expect((await before.stat()).nlink).toBe(0)
+    const afterPath = await writeJson(
+      resolve(fixture.reportPath, ".."),
+      "after.json",
+      vitestJsonReport(),
+    )
+    await session.record({ phase: "provider-after-upgrade", reportPath: afterPath })
+    const handles = await openedReports()
+    expect(handles).toHaveLength(2)
+    expect(
+      new Set(
+        await Promise.all(
+          handles.map(async (handle) => {
+            const status = await handle.stat()
+            return `${status.dev}:${status.ino}`
+          }),
+        ),
+      ).size,
+    ).toBe(2)
+    session.finish()
+    expect(handles.every((handle) => handle.fd >= 0)).toBe(true)
+    await session.dispose()
+    expect(handles.every((handle) => handle.fd === -1)).toBe(true)
+    await session.dispose()
+  })
+
+  test("closes rejected reports immediately and retained reports on incomplete-session disposal", async () => {
+    const fixture = await writeAccountingFixture(vitestJsonReport())
+    const session = await createVitestProviderAccountingSession({
+      manifestPath: fixture.manifestPath,
+    })
+    await session.record({ phase: "provider-before-upgrade", reportPath: fixture.reportPath })
+    const badPath = await writeJson(resolve(fixture.reportPath, ".."), "bad.json", {
+      ...vitestJsonReport(),
+      success: false,
+    })
+    await expect(
+      session.record({ phase: "provider-after-upgrade", reportPath: badPath }),
+    ).rejects.toThrow(/success must be true/i)
+    const [accepted, rejected] = await openedReports()
+    expect(accepted.fd).toBeGreaterThanOrEqual(0)
+    expect(rejected.fd).toBe(-1)
+    await session.dispose()
+    expect(accepted.fd).toBe(-1)
+    await expect(
+      session.record({ phase: "provider-after-upgrade", reportPath: badPath }),
+    ).rejects.toThrow(/finished/i)
+  })
+
+  test("early disposal drains pending records without accepting or deleting them", async () => {
+    const fixture = await writeAccountingFixture(vitestJsonReport())
+    const session = await createVitestProviderAccountingSession({
+      manifestPath: fixture.manifestPath,
+    })
+    const recording = session.record({
+      phase: "provider-before-upgrade",
+      reportPath: fixture.reportPath,
+    })
+    const rejected = expect(recording).rejects.toThrow(/finished/i)
+    await session.dispose()
+    await rejected
+    expect((await openedReports()).every((handle) => handle.fd === -1)).toBe(true)
+    await expect(stat(fixture.reportPath)).resolves.toBeDefined()
+  })
+
+  test("disposal during unlink drains the record without late acceptance or a leaked descriptor", async () => {
+    const fixture = await writeAccountingFixture(vitestJsonReport())
+    const session = await createVitestProviderAccountingSession({
+      manifestPath: fixture.manifestPath,
+    })
+    let enter = () => {}
+    let release = () => {}
+    const entered = new Promise<void>((resolvePromise) => {
+      enter = resolvePromise
+    })
+    const resume = new Promise<void>((resolvePromise) => {
+      release = resolvePromise
+    })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    vi.mocked(unlink).mockImplementationOnce(async (path) => {
+      enter()
+      await resume
+      await actual.unlink(path)
+    })
+    const recording = session.record({
+      phase: "provider-before-upgrade",
+      reportPath: fixture.reportPath,
+    })
+    const rejected = expect(recording).rejects.toThrow(/finished/i)
+    await entered
+    let disposed = false
+    const disposal = session.dispose().then(() => {
+      disposed = true
+    })
+    await Promise.resolve()
+    expect(disposed).toBe(false)
+    release()
+    await disposal
+    await rejected
+    expect((await openedReports()).every((handle) => handle.fd === -1)).toBe(true)
+    await expect(stat(fixture.reportPath)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   test("securely deletes a report only after successful validation", async () => {
     const fixture = await writeAccountingFixture(vitestJsonReport())
     const session = await createVitestProviderAccountingSession({
@@ -657,9 +792,52 @@ describe("Vitest provider accounting session", () => {
       reportPath: fixture.reportPath,
     })
 
+    await writeFile(aliasPath, JSON.stringify(vitestJsonReport()), "utf8")
     await expect(
       session.record({ phase: "provider-after-upgrade", reportPath: aliasPath }),
     ).rejects.toThrow(/report identity.*already|reuse/i)
+  })
+
+  test("a rejected hard-link collision cannot release another in-flight record's identity reservation", async () => {
+    const fixture = await writeAccountingFixture(vitestJsonReport())
+    const alias = resolve(fixture.reportPath, "../alias.json")
+    await link(fixture.reportPath, alias)
+    const session = await createVitestProviderAccountingSession({
+      manifestPath: fixture.manifestPath,
+    })
+    let enter = () => {}
+    let release = () => {}
+    const entered = new Promise<void>((resolvePromise) => {
+      enter = resolvePromise
+    })
+    const resume = new Promise<void>((resolvePromise) => {
+      release = resolvePromise
+    })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    vi.mocked(open).mockImplementationOnce(async (...args) => {
+      const handle = await actual.open(...args)
+      vi.spyOn(handle, "readFile").mockImplementationOnce(async () => {
+        enter()
+        await resume
+        return JSON.stringify(vitestJsonReport())
+      })
+      return handle
+    })
+    const recording = session.record({
+      phase: "provider-before-upgrade",
+      reportPath: fixture.reportPath,
+    })
+    try {
+      await entered
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        await expect(
+          session.record({ phase: "provider-after-upgrade", reportPath: alias }),
+        ).rejects.toThrow(/identity.*reserved/i)
+      }
+    } finally {
+      release()
+      await recording
+    }
   })
 
   test("releases phase and path reservations after failed validation so retry can pass", async () => {
@@ -747,7 +925,7 @@ describe("Vitest provider accounting session", () => {
   })
 
   test("finish accepts both distinct phases and rejects later records", async () => {
-    const directory = await createTemporaryDirectory("dawn-k8s-accounting-complete-")
+    const directory = await createTemporaryDirectory("b4-k8s-accounting-complete-")
     const manifestPath = await writeJson(directory, "expected-tests.json", expectedTestsManifest())
     const beforePath = await writeJson(directory, "before.json", vitestJsonReport())
     const afterPath = await writeJson(directory, "after.json", vitestJsonReport())
@@ -850,7 +1028,7 @@ describe("report redaction", () => {
 
 describe("atomic report persistence", () => {
   test("writes a redacted report beneath the repository artifact directory", async () => {
-    const repositoryRoot = await createTemporaryDirectory("dawn-k8s-report-")
+    const repositoryRoot = await createTemporaryDirectory("b4-k8s-report-")
     const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkYXduIn0.signature-value"
     const report: CompatibilityReport = {
       ...sampleReport(),
@@ -900,7 +1078,7 @@ describe("atomic report persistence", () => {
   })
 
   test("persists bigint diagnostics as decimal strings", async () => {
-    const repositoryRoot = await createTemporaryDirectory("dawn-k8s-report-bigint-")
+    const repositoryRoot = await createTemporaryDirectory("b4-k8s-report-bigint-")
     const report: CompatibilityReport = {
       ...sampleReport(),
       diagnostics: { large: 12_345_678_901_234_567_890n, negative: -42n },
@@ -916,7 +1094,7 @@ describe("atomic report persistence", () => {
   })
 
   test("persists direct and indirect circular diagnostics with stable markers", async () => {
-    const repositoryRoot = await createTemporaryDirectory("dawn-k8s-report-circular-")
+    const repositoryRoot = await createTemporaryDirectory("b4-k8s-report-circular-")
     const direct: Record<string, unknown> = { label: "direct" }
     direct.self = direct
     const indirect: Record<string, unknown> = { label: "outer" }
@@ -949,7 +1127,7 @@ describe("atomic report persistence", () => {
     "..",
     ".",
   ])("rejects unsafe report filename %#", async (filename) => {
-    const repositoryRoot = await createTemporaryDirectory("dawn-k8s-report-path-")
+    const repositoryRoot = await createTemporaryDirectory("b4-k8s-report-path-")
 
     await expect(
       persistCompatibilityReport(repositoryRoot, filename, sampleReport()),
@@ -959,8 +1137,8 @@ describe("atomic report persistence", () => {
   test.skipIf(process.platform === "win32")(
     "rejects an artifact-directory symlink that escapes the repository after resolution",
     async () => {
-      const repositoryRoot = await createTemporaryDirectory("dawn-k8s-report-symlink-")
-      const outside = await createTemporaryDirectory("dawn-k8s-report-outside-")
+      const repositoryRoot = await createTemporaryDirectory("b4-k8s-report-symlink-")
+      const outside = await createTemporaryDirectory("b4-k8s-report-outside-")
       const artifactParent = join(repositoryRoot, "artifacts", "testing")
       await mkdir(artifactParent, { recursive: true })
       await symlink(outside, join(artifactParent, "kubernetes-compat"), "dir")
@@ -973,7 +1151,7 @@ describe("atomic report persistence", () => {
   )
 
   test("preserves an existing report and removes the sibling temp file after atomic failure", async () => {
-    const repositoryRoot = await createTemporaryDirectory("dawn-k8s-report-failure-")
+    const repositoryRoot = await createTemporaryDirectory("b4-k8s-report-failure-")
     const artifactRoot = resolve(repositoryRoot, ARTIFACT_DIRECTORY)
     const reportPath = join(artifactRoot, "existing.json")
     await mkdir(artifactRoot, { recursive: true })

@@ -1,4 +1,4 @@
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 
 // The `researcher` subagent is discovered by convention from
 // ./subagents/researcher (mirrors examples/chat coordinator). This fixture

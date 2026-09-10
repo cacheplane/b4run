@@ -1,16 +1,16 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
-import type { DawnConfig } from "@dawn-ai/core"
+import type { B4Config } from "@b4run/core"
 // Type-only imports below (stores, middleware, checkpointer) erase at
 // runtime - this module's VALUE graph stays node-http-only.
-import type { MemoryStore } from "@dawn-ai/memory"
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import type { DawnMiddleware, ThreadAccessPolicy } from "@dawn-ai/sdk"
-import type { ThreadsStore } from "@dawn-ai/sqlite-storage"
+import type { MemoryStore } from "@b4run/memory"
+import type { PermissionsStore } from "@b4run/permissions"
+import type { B4Middleware, ThreadAccessPolicy } from "@b4run/sdk"
+import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import type { RuntimeBootFallbacks } from "../runtime/execute-route-core.js"
 import type { SandboxManager } from "../runtime/sandbox-manager.js"
-import type { DawnStaticModules } from "../runtime/static-modules-core.js"
+import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import { toWebRequest, writeNodeResponse } from "./node-web-adapter.js"
 import { createRuntimeFetchHandler } from "./runtime-fetch-handler.js"
 
@@ -46,10 +46,10 @@ export interface StartRuntimeServerOptions {
   /**
    * How the runtime resolves the HITL permissions store.
    *
-   * - `"per-request"` (default - `dawn dev` and unset callers): re-load
-   *   `.dawn/permissions.json` on every request, so "Always" grants written
+   * - `"per-request"` (default - `b4 dev` and unset callers): re-load
+   *   `.b4/permissions.json` on every request, so "Always" grants written
    *   mid-process by the HITL resume path apply on the very next request. The
-   *   dev loop does not watch `.dawn/`, so a boot snapshot would go stale.
+   *   dev loop does not watch `.b4/`, so a boot snapshot would go stale.
    * - `"boot"` (production `serveRuntime`): load once at boot and reuse the
    *   instance - no per-request read.
    */
@@ -62,13 +62,13 @@ export interface StartRuntimeServerOptions {
    * dynamic loads (route/tool/state/memory). When absent, boot and per-request
    * behavior are byte-for-byte the existing dynamic path.
    */
-  readonly modules?: DawnStaticModules
+  readonly modules?: B4StaticModules
   /**
-   * An already-constructed DawnConfig. When present, it is seeded into the
+   * An already-constructed B4Config. When present, it is seeded into the
    * config memo BEFORE any store/sandbox/memory resolution, so
-   * `dawn.config.ts` is never read from disk (edge runtimes have none).
+   * `b4.config.ts` is never read from disk (edge runtimes have none).
    */
-  readonly config?: DawnConfig
+  readonly config?: B4Config
   /** Boot-resolved checkpointer. Absent: config, then default sqlite. */
   readonly checkpointer?: BaseCheckpointSaver
   /** Boot-resolved threads store. Absent: config, then default sqlite. */
@@ -78,20 +78,20 @@ export interface StartRuntimeServerOptions {
    * semantics as route execution's boot instances). When provided, it wins
    * REGARDLESS of `permissionsMode` - the caller has taken over permissions
    * resolution entirely. Absent: permissionsMode-driven construction from
-   * `.dawn/permissions.json`.
+   * `.b4/permissions.json`.
    */
   readonly permissionsStore?: PermissionsStore | (() => Promise<PermissionsStore>)
   /** Lazy memory-store thunk. Absent: sqlite-backed resolveMemoryStore. */
   readonly memoryStore?: () => Promise<MemoryStore>
   /** Pre-loaded middleware. Absent: the dynamic src/middleware.ts probe. */
-  readonly middleware?: DawnMiddleware
+  readonly middleware?: B4Middleware
   /**
    * Pre-loaded thread access policy. Absent: the build manifest's entry, then
    * the dynamic src/thread-access.ts probe.
    */
   readonly threadAccess?: ThreadAccessPolicy
   /**
-   * What the BUILD saw: true when `dawn build` found a thread-access policy
+   * What the BUILD saw: true when `b4 build` found a thread-access policy
    * file for this app. Set by the generated entry point, which is a different
    * artifact from the manifest it imports — that separation is the whole point.
    *

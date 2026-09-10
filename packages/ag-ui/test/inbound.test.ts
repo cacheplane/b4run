@@ -14,7 +14,7 @@ function baseInput(overrides: Partial<RunAgentInput> = {}): RunAgentInput {
 }
 
 describe("fromRunAgentInput", () => {
-  test("maps user and assistant messages to Dawn messages", () => {
+  test("maps user and assistant messages to B4.run messages", () => {
     const input = baseInput({
       messages: [
         { id: "m1", role: "user", content: "hi" },
@@ -57,7 +57,7 @@ describe("fromRunAgentInput", () => {
     expect(fromRunAgentInput(input).messages[0]?.content).toBe(String(content))
   })
 
-  test("maps a resume array to Dawn resume requests", () => {
+  test("maps a resume array to B4.run resume requests", () => {
     const input = baseInput({
       resume: [{ interruptId: "perm-1", status: "resolved", payload: "once" }],
     } as Partial<RunAgentInput>)
@@ -84,7 +84,7 @@ describe("fromRunAgentInput", () => {
     expect(result.resume).toBeUndefined()
   })
 
-  test("maps activity and reasoning messages to Dawn assistant messages", () => {
+  test("maps activity and reasoning messages to B4.run assistant messages", () => {
     const input = baseInput({
       messages: [
         { id: "m1", role: "activity", content: { status: "running" }, activityType: "status" },

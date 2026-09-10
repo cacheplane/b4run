@@ -14,7 +14,7 @@ const LANGGRAPH_PACKAGE_ROOT = resolve(import.meta.dirname, "../..")
 const SDK_PACKAGE_ROOT = resolve(import.meta.dirname, "../../../sdk")
 
 export async function createPackedConsumer(): Promise<PackedConsumer> {
-  const tempRoot = await mkdtemp(join(tmpdir(), "dawn-langgraph-pack-"))
+  const tempRoot = await mkdtemp(join(tmpdir(), "b4-langgraph-pack-"))
   const consumerDir = join(tempRoot, "consumer")
 
   await writeFile(
@@ -28,7 +28,7 @@ export async function createPackedConsumer(): Promise<PackedConsumer> {
     ["pack", "--pack-destination", tempRoot],
     SDK_PACKAGE_ROOT,
   )
-  const sdkTarballPath = resolveTarballPath(sdkPackOutput.stdout, tempRoot, "@dawn-ai/sdk")
+  const sdkTarballPath = resolveTarballPath(sdkPackOutput.stdout, tempRoot, "@b4run/sdk")
 
   await runCommand(
     "pnpm",
@@ -40,7 +40,7 @@ export async function createPackedConsumer(): Promise<PackedConsumer> {
     ["pack", "--pack-destination", tempRoot],
     LANGGRAPH_PACKAGE_ROOT,
   )
-  const tarballPath = resolveTarballPath(packOutput.stdout, tempRoot, "@dawn-ai/langgraph")
+  const tarballPath = resolveTarballPath(packOutput.stdout, tempRoot, "@b4run/langgraph")
 
   await mkdir(consumerDir, { recursive: true })
   await writeFile(
@@ -49,7 +49,7 @@ export async function createPackedConsumer(): Promise<PackedConsumer> {
       {
         name: "consumer",
         private: true,
-        pnpm: { overrides: { "@dawn-ai/sdk": `file:${sdkTarballPath}` } },
+        pnpm: { overrides: { "@b4run/sdk": `file:${sdkTarballPath}` } },
       },
       null,
       2,

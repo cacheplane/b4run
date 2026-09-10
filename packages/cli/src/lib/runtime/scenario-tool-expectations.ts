@@ -1,7 +1,7 @@
 import type {
   ScenarioToolCallExpectationDescriptor,
   ScenarioToolCallRecord,
-} from "@dawn-ai/sdk/testing"
+} from "@b4run/sdk/testing"
 
 type ComparisonMode = "exact" | "subset"
 type ComparedPairs = WeakMap<object, WeakSet<object>>

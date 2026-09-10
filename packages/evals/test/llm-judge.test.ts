@@ -1,4 +1,4 @@
-import type { AgentRunResult } from "@dawn-ai/testing"
+import type { AgentRunResult } from "@b4run/testing"
 import { describe, expect, it, vi } from "vitest"
 import { llmJudge } from "../src/llm-judge.js"
 import { normalizeScore } from "../src/score.js"

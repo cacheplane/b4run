@@ -47,7 +47,7 @@ const ATTESTATION_REASON_REDACTIONS = Object.freeze([
   /npm_[A-Za-z0-9]{20,}/gu,
   /Bearer\s+\S+/gu,
   /authorization:\s*\S+(?:\s+\S+)?/giu,
-  /[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/gu,
+  /(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/gu,
 ])
 
 // Declared before the CLI entrypoint below: this module runs `runArtifactStoreCli` during its
@@ -62,6 +62,7 @@ const VERIFIED_MATERIALIZATIONS = new WeakMap()
 
 export const ARTIFACT_STORE_SPARSE_FILES = Object.freeze([
   "scripts/release/adapter-normalize.mjs",
+  "scripts/release/adapters/conditional-json.mjs",
   "scripts/release/adapters/github.mjs",
   "scripts/release/adapters/http.mjs",
   "scripts/release/artifact-store.mjs",
@@ -848,9 +849,11 @@ function isAllowedLaterReceipt(name, size) {
 export function createCliAttestationVerifier({
   repository,
   token,
+  environment = process.env,
   fileSystem = defaultFileSystem,
   runGh = runGhCommand,
 }) {
+  const verifierEnvironment = { ...environment, GH_TOKEN: token }
   return {
     async verify({ source, record, subjects, files, bundles }) {
       if (!Array.isArray(subjects) || !Array.isArray(files) || files.length !== subjects.length) {
@@ -860,7 +863,7 @@ export function createCliAttestationVerifier({
       const bundlesByName = new Map(
         Array.isArray(bundles) ? bundles.map((bundle) => [bundle.name, bundle]) : [],
       )
-      const directory = await fileSystem.mkdtemp(path.join(os.tmpdir(), "dawn-attest-"))
+      const directory = await fileSystem.mkdtemp(path.join(os.tmpdir(), "b4-attest-"))
       try {
         const verifyOnline = async (file, bundle) => {
           const target = path.join(directory, file.name)
@@ -879,7 +882,7 @@ export function createCliAttestationVerifier({
           })
           try {
             await runGh(args, {
-              env: { ...process.env, GH_TOKEN: token },
+              env: { ...verifierEnvironment },
               timeout: ATTESTATION_VERIFY_TIMEOUT_MS,
               killSignal: "SIGKILL",
             })
@@ -1061,8 +1064,8 @@ export function buildAttestationVerificationArguments({
   if (source !== "actions" && source !== "escrow") {
     throw new TypeError("Attestation source must be actions or escrow")
   }
-  if (repository !== "cacheplane/dawnai") {
-    throw new TypeError("Attestation repository must be cacheplane/dawnai")
+  if (repository !== "cacheplane/b4run") {
+    throw new TypeError("Attestation repository must be cacheplane/b4run")
   }
   validateAbsoluteRuntimePath(target, "attestation target")
   if (source === "escrow") validateAbsoluteRuntimePath(bundlePath, "attestation bundle")
@@ -1077,7 +1080,7 @@ export function buildAttestationVerificationArguments({
     "--digest-alg",
     "sha256",
     "--signer-workflow",
-    "cacheplane/dawnai/.github/workflows/release.yml",
+    "cacheplane/b4run/.github/workflows/release.yml",
     "--deny-self-hosted-runners",
     "--source-digest",
     releaseRecord.commitSha,

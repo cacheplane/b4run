@@ -1,3 +1,6 @@
+// This dated Dawn incident suite executes the exact pre-rename source.
+// Current incident file preservation is independently checked in b4-identity.test.mjs.
+
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { unlinkSync } from "node:fs"
@@ -5,39 +8,41 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
-import {
-  createDuplicateDraftConsolidationAdapters,
-  createExactDuplicateDeleteEffect,
-} from "../duplicate-draft-consolidation-adapters.mjs"
-import {
-  assertFreshWriterAuthority,
-  captureConsolidationAuthority,
-  captureNpmInventory,
-} from "../duplicate-draft-consolidation-authority.mjs"
-import { inspectEquivalentDrafts } from "../duplicate-draft-consolidation-evidence.mjs"
-import {
-  readPrivateEnvelope,
-  writePrivateEnvelope,
-} from "../duplicate-draft-consolidation-files.mjs"
-import {
+import { importHistoricalReleaseModule } from "./support/frozen-history.mjs"
+
+const { createDuplicateDraftConsolidationAdapters, createExactDuplicateDeleteEffect } =
+  await importHistoricalReleaseModule("scripts/release/duplicate-draft-consolidation-adapters.mjs")
+const { assertFreshWriterAuthority, captureConsolidationAuthority, captureNpmInventory } =
+  await importHistoricalReleaseModule("scripts/release/duplicate-draft-consolidation-authority.mjs")
+const { inspectEquivalentDrafts } = await importHistoricalReleaseModule(
+  "scripts/release/duplicate-draft-consolidation-evidence.mjs",
+)
+const { readPrivateEnvelope, writePrivateEnvelope } = await importHistoricalReleaseModule(
+  "scripts/release/duplicate-draft-consolidation-files.mjs",
+)
+const {
   appendJournalEvent,
   createConsolidationJournal,
   deriveConsolidationState,
   parseConsolidationJournal,
-} from "../duplicate-draft-consolidation-journal.mjs"
-import {
+} = await importHistoricalReleaseModule("scripts/release/duplicate-draft-consolidation-journal.mjs")
+const {
   canonicalConsolidationEnvelopeBytes,
   canonicalEventEnvelope,
   canonicalRecordSha256,
   createConsolidationEnvelope,
-} from "../duplicate-draft-consolidation-schema.mjs"
-import { CANONICAL_RELEASE_PACKAGE_ORDER } from "../manifest.mjs"
-import {
+} = await importHistoricalReleaseModule("scripts/release/duplicate-draft-consolidation-schema.mjs")
+const { CANONICAL_RELEASE_PACKAGE_ORDER } = await importHistoricalReleaseModule(
+  "scripts/release/manifest.mjs",
+)
+const {
   createDuplicateDraftConsolidationFixture,
   DUPLICATE_DRAFT_CANDIDATE,
   DUPLICATE_DRAFT_IDS,
   DUPLICATE_DRAFT_SURVIVOR_ID,
-} from "./support/duplicate-draft-consolidation-fixture.mjs"
+} = await importHistoricalReleaseModule(
+  "scripts/release/test/support/duplicate-draft-consolidation-fixture.mjs",
+)
 
 const REPOSITORY_ID = "1210070282"
 const ACTOR = Object.freeze({ login: "blove", id: "61436" })

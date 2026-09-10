@@ -1,7 +1,7 @@
 /**
  * The PURE browse contract: types, validation, the sort whitelist, range math and the
  * cursor codec. Deliberately imports nothing from `sqlite-store.ts`, so importing
- * `@dawn-ai/memory/browse` never pulls `node:sqlite` — bundled server routes and
+ * `@b4run/memory/browse` never pulls `node:sqlite` — bundled server routes and
  * browser code can both use it.
  */
 export type { BrowseCursorPayload, BrowseCursorValue } from "./browse-cursor.js"

@@ -1,4 +1,4 @@
-import { pureJoin } from "@dawn-ai/sdk/pure"
+import { pureJoin } from "@b4run/sdk/pure"
 import type { CapabilityMarker, MarkerFs } from "../types.js"
 
 export const MAX_MEMORY_BYTES = 32 * 1024

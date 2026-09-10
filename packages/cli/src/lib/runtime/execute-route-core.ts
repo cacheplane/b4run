@@ -1,12 +1,12 @@
 /**
  * The REQUEST-PATH core of route execution, with no `node:` imports of its
- * own — this is the module the `@dawn-ai/cli/fetch` entry reaches (graph
+ * own — this is the module the `@b4run/cli/fetch` entry reaches (graph
  * purity is enforced by test/fetch-entry-purity.test.ts).
  *
  * Everything here runs off inputs the caller supplies: seeded route modules,
- * injected stores, a DawnConfig object, a boot route manifest. The
+ * injected stores, a B4Config object, a boot route manifest. The
  * filesystem-backed resolutions those inputs replace (sqlite stores,
- * `.dawn/permissions.json`, disk route/tool/state loads, `dawn.config.ts`,
+ * `.b4/permissions.json`, disk route/tool/state loads, `b4.config.ts`,
  * `AGENTS.md`-style markers) live in `execute-route.ts` and reach this module
  * only as an optional `bootFallbacks` bag. Absent a needed input AND absent
  * `bootFallbacks`, a resolution either fails loudly or degrades to a
@@ -21,6 +21,7 @@
 
 import {
   applyCapabilities,
+  type B4Config,
   type CapabilityContribution,
   createAgentsMdMarker,
   createCapabilityRegistry,
@@ -31,7 +32,6 @@ import {
   createSubagentsMarker,
   createWorkspaceFs,
   createWorkspaceMarker,
-  type DawnConfig,
   type DescriptorRouteIndex,
   dispatchableSubagents,
   type MarkerFs,
@@ -48,7 +48,7 @@ import {
   toolOrigin,
   wrapToolWithApproval,
   wrapToolWithConstraint,
-} from "@dawn-ai/core"
+} from "@b4run/core"
 import {
   Command,
   defaultSummarize,
@@ -62,18 +62,18 @@ import {
   type ResolvedSummarizationConfig,
   type SubagentResolver,
   streamAgent,
-} from "@dawn-ai/langchain"
-import { routeNamespaceKey } from "@dawn-ai/memory/namespace"
-import type { PermissionMode, PermissionsStore } from "@dawn-ai/permissions"
-import type { DawnMiddleware, ThreadAccessPolicy } from "@dawn-ai/sdk"
-import { type DawnAgent, isDawnAgent, type WorkspaceFs } from "@dawn-ai/sdk"
-import type { ThreadsStore } from "@dawn-ai/sqlite-storage"
-import type { ExecBackend, FilesystemBackend } from "@dawn-ai/workspace"
+} from "@b4run/langchain"
+import { routeNamespaceKey } from "@b4run/memory/namespace"
+import type { PermissionMode, PermissionsStore } from "@b4run/permissions"
+import type { B4Middleware, ThreadAccessPolicy } from "@b4run/sdk"
+import { type B4Agent, isB4Agent, type WorkspaceFs } from "@b4run/sdk"
+import type { ThreadsStore } from "@b4run/sqlite-storage"
+import type { ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import { isGraphInterrupt } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
+import { createB4Context } from "./b4-context.js"
 import { checkToolNameUniqueness } from "./check-tool-name-uniqueness.js"
-import { createDawnContext } from "./dawn-context.js"
 import { buildMemoryContext } from "./memory-context.js"
 import { pureDirname, pureJoin } from "./pure-path.js"
 import {
@@ -99,7 +99,7 @@ import {
   type ScenarioToolCallJournal,
   type ScenarioToolOverride,
 } from "./scenario-tool-overrides.js"
-import { type DawnStaticModules, staticModulesMarkerFiles } from "./static-modules-core.js"
+import { type B4StaticModules, staticModulesMarkerFiles } from "./static-modules-core.js"
 import type { StreamChunk } from "./stream-types.js"
 import type { DiscoveredToolDefinition } from "./tool-shape.js"
 
@@ -111,10 +111,10 @@ import type { DiscoveredToolDefinition } from "./tool-shape.js"
  * and supplies instances instead.
  */
 export interface RuntimeBootFallbacks {
-  /** `loadDawnConfig` — reads (or returns the memo for) `dawn.config.ts`. */
-  readonly loadConfig: (appRoot: string) => Promise<DawnConfig | undefined>
+  /** `loadB4Config` — reads (or returns the memo for) `b4.config.ts`. */
+  readonly loadConfig: (appRoot: string) => Promise<B4Config | undefined>
   /** The `src/middleware.ts` probe. */
-  readonly loadMiddleware: (appRoot: string) => Promise<DawnMiddleware | undefined>
+  readonly loadMiddleware: (appRoot: string) => Promise<B4Middleware | undefined>
   /**
    * The `src/thread-access.ts` probe.
    *
@@ -138,24 +138,24 @@ export interface RuntimeBootFallbacks {
   readonly descriptorRouteIndex: (manifest: RouteManifest) => Promise<DescriptorRouteIndex>
   /** Loads a child route's model-facing description from its entry module. */
   readonly loadSubagentDescription: (route: RouteDefinition) => Promise<string>
-  /** Default sqlite checkpointer at `<appRoot>/.dawn/checkpoints.sqlite`. */
+  /** Default sqlite checkpointer at `<appRoot>/.b4/checkpoints.sqlite`. */
   readonly defaultCheckpointer: (appRoot: string) => BaseCheckpointSaver
-  /** Default sqlite threads store at `<appRoot>/.dawn/threads.sqlite`. */
+  /** Default sqlite threads store at `<appRoot>/.b4/threads.sqlite`. */
   readonly defaultThreadsStore: (appRoot: string) => ThreadsStore
   /** Config checkpointer, else the default sqlite saver (boot-level resolution). */
   readonly resolveCheckpointer: (appRoot: string) => Promise<BaseCheckpointSaver>
   /** Config threads store, else the default sqlite store (boot-level resolution). */
   readonly resolveThreadsStore: (appRoot: string) => Promise<ThreadsStore>
-  /** Config permissions + `.dawn/permissions.json` (boot-level resolution). */
+  /** Config permissions + `.b4/permissions.json` (boot-level resolution). */
   readonly resolvePermissionsStore: (appRoot: string) => Promise<PermissionsStore>
-  /** Config + env mode + one `.dawn/permissions.json` `load()`. */
+  /** Config + env mode + one `.b4/permissions.json` `load()`. */
   readonly buildPermissionsStore: (
     appRoot: string,
-    permissions: DawnConfig["permissions"] | undefined,
+    permissions: B4Config["permissions"] | undefined,
   ) => Promise<PermissionsStore>
-  /** Config store, else the default sqlite store at `<appRoot>/.dawn/memory.sqlite`. */
+  /** Config store, else the default sqlite store at `<appRoot>/.b4/memory.sqlite`. */
   readonly resolveMemoryStore: (appRoot: string) => Promise<MemoryStoreLike>
-  /** Memory write-governance mode from `dawn.config.ts`. */
+  /** Memory write-governance mode from `b4.config.ts`. */
   readonly resolveMemoryWrites: (appRoot: string) => Promise<MemoryWritesMode>
   /** The per-server SandboxManager built from `config.sandbox`. */
   readonly resolveSandboxManager: (appRoot: string) => Promise<SandboxManager | undefined>
@@ -200,7 +200,7 @@ export interface RuntimeBootFallbacks {
  *
  * DEGRADES to a documented default — each is optional by contract, so failing
  * the boot would be wrong:
- *   - `loadConfig`            → no DawnConfig; every config-derived setting
+ *   - `loadConfig`            → no B4Config; every config-derived setting
  *                               takes its documented default
  *   - `resolveMemoryWrites`   → "candidate" (the same default an app with no
  *                               `memory.writes` gets)
@@ -215,7 +215,7 @@ export interface RuntimeBootFallbacks {
  *                               `defaultFilesystem` unreachable). Degrades only
  *                               when nothing ASKED for it: an app that set
  *                               `toolOutput` on a fallback-less runtime is
- *                               rejected at boot with DAWN_E1005 instead — see
+ *                               rejected at boot with B4_E1005 instead — see
  *                               `collectRuntimeCapabilityGaps`
  *   - `defaultFilesystem`/`defaultExec` AS `backendFactories` → omitted from
  *                               `applyCapabilities`; the workspace capability
@@ -229,12 +229,12 @@ export interface RuntimeBootFallbacks {
  *   - `resolveSandboxManager` → no sandbox provider (fetch-core). Again only
  *                               when nothing asked: a `sandbox` block on a
  *                               fallback-less runtime with no injected
- *                               `sandboxManager` is DAWN_E1005 at boot
+ *                               `sandboxManager` is B4_E1005 at boot
  *   - route `skills/`         → contribute nothing without a `markerFs`. The
  *                               edge manifest supplies one when the build
  *                               bundled the skill bodies, so those skills serve
  *                               normally. A route the BUILD recorded skills for
- *                               but bundled no bodies for is DAWN_E1005 at boot
+ *                               but bundled no bodies for is B4_E1005 at boot
  *                               (the manifest carries the names precisely
  *                               because nothing else at request time can tell
  *                               "had skills" from "had none")
@@ -246,7 +246,7 @@ export interface RuntimeBootFallbacks {
  *   - `loadThreadAccess`      → absent policy file: degrades to "no gate", so an
  *                               app that never had one keeps today's behavior
  *                               exactly. Present policy file that cannot be
- *                               bound: THROWS DAWN_E3003 and fails the boot.
+ *                               bound: THROWS B4_E3003 and fails the boot.
  *                               There is no path on which a policy the author
  *                               wrote resolves to "allow all".
  */
@@ -306,7 +306,7 @@ export function toAgentInput(input: unknown, resume?: RouteResumePayload): unkno
  * `streamResolvedRoute` directly with no stores and must stay unchanged.
  *
  * `permissionsStore` accepts either a loaded store (production: one boot-time
- * read) or an async factory (dev: re-load `.dawn/permissions.json` on every
+ * read) or an async factory (dev: re-load `.b4/permissions.json` on every
  * request so HITL "Always" grants written mid-process still apply — the one
  * deliberate per-request read kept).
  *
@@ -333,11 +333,11 @@ export function toAgentInput(input: unknown, resume?: RouteResumePayload): unkno
  * under `permissionsMode: "boot"` the parent and its subagents share ONE
  * mutable PermissionsStore — a child's `addAllow` ("Always" grant) is
  * immediately visible to the parent and its later turns. That sharing is
- * deliberate: it matches the process-wide `.dawn/permissions.json` semantics
+ * deliberate: it matches the process-wide `.b4/permissions.json` semantics
  * the per-request path has always had, without the per-child re-read.
  *
- * `config` is an already-constructed DawnConfig. When present it IS the
- * config — `dawn.config.ts` is never read (and no memo consulted).
+ * `config` is an already-constructed B4Config. When present it IS the
+ * config — `b4.config.ts` is never read (and no memo consulted).
  *
  * `bootFallbacks` is the node filesystem fallback bag. `execute-route.ts`
  * supplies it on every node call path; an edge runtime supplies none and gets
@@ -350,8 +350,8 @@ export interface BootResolvedInstances {
   readonly permissionsStore?: PermissionsStore | (() => Promise<PermissionsStore>)
   readonly memoryStore?: () => Promise<MemoryStoreLike>
   readonly routeManifest?: RouteManifest
-  readonly staticModules?: DawnStaticModules
-  readonly config?: DawnConfig
+  readonly staticModules?: B4StaticModules
+  readonly config?: B4Config
   readonly bootFallbacks?: RuntimeBootFallbacks
 }
 
@@ -518,7 +518,7 @@ export async function* streamResolvedRoute(
 
   if (normalized.kind !== "agent") {
     // Non-agent routes don't support incremental streaming — execute and emit done
-    const context = createDawnContext({
+    const context = createB4Context({
       ...(options.middlewareContext ? { middleware: options.middlewareContext } : {}),
       fs: workspaceFs,
       tools,
@@ -531,7 +531,7 @@ export async function* streamResolvedRoute(
 
   if (!checkpointer) {
     throw new Error(
-      "[dawn] streamResolvedRoute called for an agent route without a checkpointer. This is an internal bug — please report it.",
+      "[b4] streamResolvedRoute called for an agent route without a checkpointer. This is an internal bug — please report it.",
     )
   }
 
@@ -693,7 +693,7 @@ export interface PreparedRoute {
   /** The memory context built for this route (agent routes with a memory.ts).
    *  Threaded out so the episode recorder can reuse the exact namespace/store/
    *  writes the capability used. */
-  readonly memoryContext?: import("@dawn-ai/core").MemoryContext
+  readonly memoryContext?: import("@b4run/core").MemoryContext
   /** Resolved `memory.episodes` config — present only when a memory context
    *  was built (recorder is a no-op otherwise). */
   readonly episodes?: ResolvedEpisodesConfig
@@ -836,10 +836,10 @@ async function prepareRouteExecutionForInvocation(
 
   // Memory context + episode-recorder config, populated in the agent branch
   // below when the route has a memory.ts; threaded out for the recorder.
-  let memoryContext: import("@dawn-ai/core").MemoryContext | undefined
+  let memoryContext: import("@b4run/core").MemoryContext | undefined
   let episodes: ResolvedEpisodesConfig | undefined
 
-  // Load dawn.config.ts once — used for checkpointer, threadsStore, backends,
+  // Load b4.config.ts once — used for checkpointer, threadsStore, backends,
   // and permissions. Falls back to defaults when the config is absent/unreadable.
   let configBackends:
     | { readonly filesystem?: FilesystemBackend; readonly exec?: ExecBackend }
@@ -854,16 +854,16 @@ async function prepareRouteExecutionForInvocation(
     | undefined
   let configCheckpointer: BaseCheckpointSaver | undefined
   let configThreadsStore: ThreadsStore | undefined
-  let loadedDawnConfig: DawnConfig | undefined
+  let loadedB4Config: B4Config | undefined
   try {
     // A supplied `config` IS the config — no disk read, no memo lookup.
-    loadedDawnConfig = options.config ?? (await fallbacks?.loadConfig(options.appRoot))
-    configBackends = loadedDawnConfig?.backends
-    permissionsConfig = loadedDawnConfig?.permissions
-    configCheckpointer = loadedDawnConfig?.checkpointer
-    configThreadsStore = loadedDawnConfig?.threadsStore
+    loadedB4Config = options.config ?? (await fallbacks?.loadConfig(options.appRoot))
+    configBackends = loadedB4Config?.backends
+    permissionsConfig = loadedB4Config?.permissions
+    configCheckpointer = loadedB4Config?.checkpointer
+    configThreadsStore = loadedB4Config?.threadsStore
   } catch {
-    // No dawn.config.ts (or unreadable). Fall back to defaults for all fields.
+    // No b4.config.ts (or unreadable). Fall back to defaults for all fields.
   }
 
   // When a SandboxManager is configured and we have a stable thread id, resolve
@@ -883,7 +883,7 @@ async function prepareRouteExecutionForInvocation(
   }
 
   const offload = buildOffload(
-    loadedDawnConfig,
+    loadedB4Config,
     sandboxBackends?.filesystem ?? configBackends?.filesystem,
     options.signal ?? new AbortController().signal,
     options.appRoot,
@@ -910,7 +910,7 @@ async function prepareRouteExecutionForInvocation(
   // the loaded store for ctx.fs permission gating, and createWorkspaceFs
   // requires it loaded. The agent branch reuses this store in applyCapabilities.
   // A provided instance (production boot) is used as-is; a provided factory
-  // (dev) re-loads `.dawn/permissions.json` each request so HITL "Always"
+  // (dev) re-loads `.b4/permissions.json` each request so HITL "Always"
   // grants written mid-process still apply; absent both, construct+load fresh
   // (the pre-existing per-request behavior).
   //
@@ -967,9 +967,9 @@ async function prepareRouteExecutionForInvocation(
       options.routeManifest ??
       (await requireFallbacks(fallbacks, "routeManifest").discoverRouteManifest(options.appRoot))
     const descriptor =
-      normalized.kind === "agent" && isDawnAgent(normalized.entry) ? normalized.entry : undefined
+      normalized.kind === "agent" && isB4Agent(normalized.entry) ? normalized.entry : undefined
 
-    summarization = buildSummarization(loadedDawnConfig, descriptor?.model)
+    summarization = buildSummarization(loadedB4Config, descriptor?.model)
 
     // Build the canonical descriptor -> routeIds multimap. Static deployments
     // derive it entirely from their seeded module manifest; the Node fallback
@@ -1018,16 +1018,16 @@ async function prepareRouteExecutionForInvocation(
       // per-request resolution (the testing harness path, unchanged).
       const store = options.memoryStore
         ? await options.memoryStore()
-        : (loadedDawnConfig?.memory?.store ??
+        : (loadedB4Config?.memory?.store ??
           (await requireFallbacks(fallbacks, "memoryStore").resolveMemoryStore(options.appRoot)))
-      // Same config source as the store read above (`loadedDawnConfig`, which
+      // Same config source as the store read above (`loadedB4Config`, which
       // is the supplied config when there is one). The fallback's own
-      // resolution — which re-reads dawn.config.ts — is the node default.
+      // resolution — which re-reads b4.config.ts — is the node default.
       const writes =
-        loadedDawnConfig?.memory?.writes ??
+        loadedB4Config?.memory?.writes ??
         (fallbacks ? await fallbacks.resolveMemoryWrites(options.appRoot) : "candidate")
       const cleanRoutePath = routeNamespaceKey(options.routePath)
-      const extraScope = loadedDawnConfig?.memory?.resolveScope?.({
+      const extraScope = loadedB4Config?.memory?.resolveScope?.({
         routePath: cleanRoutePath,
         appRoot: options.appRoot,
       })
@@ -1038,35 +1038,35 @@ async function prepareRouteExecutionForInvocation(
         appRoot: options.appRoot,
         routePath: cleanRoutePath,
         now: () => new Date().toISOString(),
-        ...(loadedDawnConfig?.memory?.indexMaxEntries !== undefined
-          ? { indexMaxEntries: loadedDawnConfig.memory.indexMaxEntries }
+        ...(loadedB4Config?.memory?.indexMaxEntries !== undefined
+          ? { indexMaxEntries: loadedB4Config.memory.indexMaxEntries }
           : {}),
         ...(extraScope ? { extraScope } : {}),
         // Vector recall: hand the capability the embedder (it embeds writes +
         // queries) plus the hybrid tuning it threads into the store's search.
-        ...(loadedDawnConfig?.memory?.vector?.embedder
-          ? { embedder: loadedDawnConfig.memory.vector.embedder }
+        ...(loadedB4Config?.memory?.vector?.embedder
+          ? { embedder: loadedB4Config.memory.vector.embedder }
           : {}),
-        ...(loadedDawnConfig?.memory?.vector
+        ...(loadedB4Config?.memory?.vector
           ? {
               vector: {
-                ...(loadedDawnConfig.memory.vector.weights
-                  ? { weights: loadedDawnConfig.memory.vector.weights }
+                ...(loadedB4Config.memory.vector.weights
+                  ? { weights: loadedB4Config.memory.vector.weights }
                   : {}),
-                ...(loadedDawnConfig.memory.vector.rrfK !== undefined
-                  ? { rrfK: loadedDawnConfig.memory.vector.rrfK }
+                ...(loadedB4Config.memory.vector.rrfK !== undefined
+                  ? { rrfK: loadedB4Config.memory.vector.rrfK }
                   : {}),
-                ...(loadedDawnConfig.memory.vector.vectorK !== undefined
-                  ? { vectorK: loadedDawnConfig.memory.vector.vectorK }
+                ...(loadedB4Config.memory.vector.vectorK !== undefined
+                  ? { vectorK: loadedB4Config.memory.vector.vectorK }
                   : {}),
-                ...(loadedDawnConfig.memory.vector.recencyWeight !== undefined
+                ...(loadedB4Config.memory.vector.recencyWeight !== undefined
                   ? {
-                      recencyWeight: loadedDawnConfig.memory.vector.recencyWeight,
+                      recencyWeight: loadedB4Config.memory.vector.recencyWeight,
                     }
                   : {}),
-                ...(loadedDawnConfig.memory.vector.confidenceWeight !== undefined
+                ...(loadedB4Config.memory.vector.confidenceWeight !== undefined
                   ? {
-                      confidenceWeight: loadedDawnConfig.memory.vector.confidenceWeight,
+                      confidenceWeight: loadedB4Config.memory.vector.confidenceWeight,
                     }
                   : {}),
               },
@@ -1079,15 +1079,15 @@ async function prepareRouteExecutionForInvocation(
     // context (routes without a memory.ts and disabled apps pay nothing).
     //
     // Derived from the config this function ALREADY holds rather than from a
-    // second `dawn.config.ts` read: `loadedDawnConfig` is the caller-supplied
-    // config when there is one and the node fallback's `loadDawnConfig` memo
+    // second `b4.config.ts` read: `loadedB4Config` is the caller-supplied
+    // config when there is one and the node fallback's `loadB4Config` memo
     // otherwise, so the node path resolves exactly what the disk-reading
     // `resolveEpisodesConfig` would (the server seeds that same memo from a
     // supplied config), and an edge runtime that injects a config gets a
     // working recorder instead of a silent no-op. `resolveEpisodesFromConfig`
     // IS the defaulting rule both entry points share.
     if (memoryContext) {
-      episodes = resolveEpisodesFromConfig(loadedDawnConfig?.memory?.episodes)
+      episodes = resolveEpisodesFromConfig(loadedB4Config?.memory?.episodes)
     }
 
     const capabilityBackends = sandboxBackends ?? configBackends
@@ -1219,7 +1219,7 @@ async function prepareRouteExecutionForInvocation(
     // call consults the permissions store; on "unknown" in interactive mode
     // the wrapper interrupts for a human decision (kind: "tool"). Bash/path
     // gates inside the workspace tools are separate (pattern-aware) and
-    // unaffected; `dawn check` warns on redundant overlap. A tool that ALSO has
+    // unaffected; `b4 check` warns on redundant overlap. A tool that ALSO has
     // a constraint predicate is excluded here — `constrain` is authoritative and
     // can itself escalate via `{ approve }`, so wrapping both would double-gate.
     const constrain = descriptor?.tools?.constrain
@@ -1366,7 +1366,7 @@ async function prepareRouteExecutionForInvocation(
  * the store, the namespace, the knobs — arrives on `PreparedRoute`.
  */
 async function recordRunEpisode(args: {
-  readonly memoryContext: import("@dawn-ai/core").MemoryContext | undefined
+  readonly memoryContext: import("@b4run/core").MemoryContext | undefined
   readonly episodes: ResolvedEpisodesConfig | undefined
   readonly outcome: "ok" | "error"
   readonly output?: unknown
@@ -1440,7 +1440,7 @@ export async function executeRouteAtResolvedPath(
   let mode: RuntimeExecutionMode | null = null
   // Episode-recorder context, captured once prepare succeeds so the catch
   // path can record failed runs too. Absent (recorder no-op) until then.
-  let epMemoryContext: import("@dawn-ai/core").MemoryContext | undefined
+  let epMemoryContext: import("@b4run/core").MemoryContext | undefined
   let epConfig: ResolvedEpisodesConfig | undefined
   let epThreadId: string | undefined
 
@@ -1490,7 +1490,7 @@ export async function executeRouteAtResolvedPath(
     epConfig = prepared.episodes
     epThreadId = threadId
 
-    const context = createDawnContext({
+    const context = createB4Context({
       ...(options.middlewareContext ? { middleware: options.middlewareContext } : {}),
       fs: workspaceFs,
       tools,
@@ -1614,7 +1614,7 @@ async function invokeEntry(
   if (kind === "agent") {
     if (!agentContext?.checkpointer) {
       throw new Error(
-        "[dawn] invokeEntry called for an agent route without a checkpointer. This is an internal bug — please report it.",
+        "[b4] invokeEntry called for an agent route without a checkpointer. This is an internal bug — please report it.",
       )
     }
     const routeParamNames = extractRouteParamNames(agentContext?.routeId ?? "")
@@ -1695,10 +1695,10 @@ function extractRouteParamNames(routeId: string): string[] {
 
 export interface StaticDescriptorMaps {
   readonly descriptorRouteIndex: DescriptorRouteIndex
-  readonly routeDescriptors: ReadonlyMap<string, DawnAgent>
+  readonly routeDescriptors: ReadonlyMap<string, B4Agent>
 }
 
-let staticDescriptorMapsCache = new WeakMap<DawnStaticModules, StaticDescriptorMaps>()
+let staticDescriptorMapsCache = new WeakMap<B4StaticModules, StaticDescriptorMaps>()
 
 /**
  * Test-only: reset the static descriptor-map WeakMap. The dynamic
@@ -1711,19 +1711,19 @@ export function __resetStaticDescriptorMapsForTests(): void {
 
 /**
  * Static-modules fast path: derive both descriptor maps from the manifest.
- * Only agent routes whose normalized `module.entry` passes `isDawnAgent`
+ * Only agent routes whose normalized `module.entry` passes `isB4Agent`
  * appear (workflow/graph/chain routes are excluded; the entry may come from
  * the default export or a named `agent` export). No entry file is ever
  * imported from disk (closes the last B2 dynamic-import hole; edge runtimes
  * have no disk to import from).
  */
 export function buildDescriptorMapsFromStaticModules(
-  modules: DawnStaticModules,
+  modules: B4StaticModules,
 ): StaticDescriptorMaps {
-  const mutableDescriptorRouteIndex = new Map<DawnAgent, string[]>()
-  const routeDescriptors = new Map<string, DawnAgent>()
+  const mutableDescriptorRouteIndex = new Map<B4Agent, string[]>()
+  const routeDescriptors = new Map<string, B4Agent>()
   for (const route of modules.routes) {
-    if (route.kind === "agent" && isDawnAgent(route.module.entry)) {
+    if (route.kind === "agent" && isB4Agent(route.module.entry)) {
       mutableDescriptorRouteIndex.set(route.module.entry, [
         ...(mutableDescriptorRouteIndex.get(route.module.entry) ?? []),
         route.routeId,
@@ -1738,7 +1738,7 @@ export function buildDescriptorMapsFromStaticModules(
 }
 
 /** Memoized per manifest object identity — stable for the process lifetime. */
-export function getCachedStaticDescriptorMaps(modules: DawnStaticModules): StaticDescriptorMaps {
+export function getCachedStaticDescriptorMaps(modules: B4StaticModules): StaticDescriptorMaps {
   let maps = staticDescriptorMapsCache.get(modules)
   if (!maps) {
     maps = buildDescriptorMapsFromStaticModules(modules)
@@ -1756,9 +1756,9 @@ export function getCachedStaticDescriptorMaps(modules: DawnStaticModules): Stati
  * content on every read through this facade — correct for an immutable
  * bundle that nothing on the edge can write to.
  */
-const staticMarkerFsCache = new WeakMap<DawnStaticModules, MarkerFs | null>()
+const staticMarkerFsCache = new WeakMap<B4StaticModules, MarkerFs | null>()
 
-function getStaticMarkerFs(modules: DawnStaticModules | undefined): MarkerFs | undefined {
+function getStaticMarkerFs(modules: B4StaticModules | undefined): MarkerFs | undefined {
   if (!modules) return undefined
   let cached = staticMarkerFsCache.get(modules)
   if (cached === undefined) {
@@ -1807,9 +1807,9 @@ export function buildGuardedSubagentResolver(args: {
       args.routeParamNames ?? Object.keys(args.fallbackParams ?? {}),
       args.fallbackParams ?? {},
     )
-    const dawn = readDawnMetadata(request.config)
-    const parentDepth = readNonNegativeInteger(dawn.subagent_depth) ?? args.fallbackDepth ?? 0
-    const rootSandboxKey = readNonEmptyString(dawn.root_sandbox_key) ?? args.fallbackRootSandboxKey
+    const b4 = readB4Metadata(request.config)
+    const parentDepth = readNonNegativeInteger(b4.subagent_depth) ?? args.fallbackDepth ?? 0
+    const rootSandboxKey = readNonEmptyString(b4.root_sandbox_key) ?? args.fallbackRootSandboxKey
 
     const result = await resolveGuardedSubagent({
       callId: request.callId,
@@ -1878,9 +1878,9 @@ async function materializePreparedAgentGraph(
   prepared: PreparedRoute,
   middlewareContext?: Readonly<Record<string, unknown>>,
 ): Promise<unknown> {
-  if (prepared.normalized.kind !== "agent" || !isDawnAgent(prepared.normalized.entry)) {
+  if (prepared.normalized.kind !== "agent" || !isB4Agent(prepared.normalized.entry)) {
     throw new Error(
-      `[dawn] Route "${prepared.routeId}" must export a Dawn agent descriptor to be materialized.`,
+      `[b4] Route "${prepared.routeId}" must export a B4.run agent descriptor to be materialized.`,
     )
   }
   return materializeAgentGraph({
@@ -1960,7 +1960,7 @@ function isAbortError(error: unknown): boolean {
 }
 
 function findReservedTaskPolicyError(
-  descriptor: DawnAgent | undefined,
+  descriptor: B4Agent | undefined,
   routeId: string,
 ): string | undefined {
   const tools = (descriptor as unknown as { readonly tools?: Record<string, unknown> } | undefined)
@@ -1968,7 +1968,7 @@ function findReservedTaskPolicyError(
   if (!tools || typeof tools !== "object") return undefined
   for (const field of ["allow", "deny", "approve"] as const) {
     if (Array.isArray(tools[field]) && tools[field].includes("task")) {
-      return `[DAWN_E1004] Parent route "${routeId}": tools.${field} references the reserved internal "task" tool. Remove that entry and use delegation to control subagent dispatch.`
+      return `[B4_E1004] Parent route "${routeId}": tools.${field} references the reserved internal "task" tool. Remove that entry and use delegation to control subagent dispatch.`
     }
   }
   if (
@@ -1976,15 +1976,15 @@ function findReservedTaskPolicyError(
     tools.constrain !== null &&
     Object.hasOwn(tools.constrain, "task")
   ) {
-    return `[DAWN_E1004] Parent route "${routeId}": tools.constrain references the reserved internal "task" tool. Remove that entry and use delegation to control subagent dispatch.`
+    return `[B4_E1004] Parent route "${routeId}": tools.constrain references the reserved internal "task" tool. Remove that entry and use delegation to control subagent dispatch.`
   }
   return undefined
 }
 
-function readDawnMetadata(config: RunnableConfig): Record<string, unknown> {
-  const dawn = config.metadata?.dawn
-  return typeof dawn === "object" && dawn !== null && !Array.isArray(dawn)
-    ? (dawn as Record<string, unknown>)
+function readB4Metadata(config: RunnableConfig): Record<string, unknown> {
+  const b4 = config.metadata?.b4
+  return typeof b4 === "object" && b4 !== null && !Array.isArray(b4)
+    ? (b4 as Record<string, unknown>)
     : {}
 }
 
@@ -2014,7 +2014,7 @@ function readRouteParams(
 }
 
 function buildOffload(
-  config: DawnConfig | undefined,
+  config: B4Config | undefined,
   filesystem: FilesystemBackend | undefined,
   signal: AbortSignal,
   appRoot: string,
@@ -2028,7 +2028,7 @@ function buildOffload(
   // Still the right answer here, and deliberately unchanged: an app that never
   // configured `toolOutput` asked for nothing, on node or anywhere else. An app
   // that DID configure it on a filesystem-less runtime is a different case —
-  // that one is a dead config key, and it is raised as DAWN_E1005 at boot by
+  // that one is a dead config key, and it is raised as B4_E1005 at boot by
   // `collectRuntimeCapabilityGaps`, before any request reaches this function.
   if (!fallbacks?.hasWorkspaceDir(root)) return undefined
   // `fallbacks` is non-null from here — the probe above returns otherwise.
@@ -2063,7 +2063,7 @@ function buildOffload(
 }
 
 function buildSummarization(
-  config: DawnConfig | undefined,
+  config: B4Config | undefined,
   routeModel: string | undefined,
 ): ResolvedSummarizationConfig | undefined {
   const s = config?.summarization
@@ -2076,7 +2076,7 @@ function buildSummarization(
     model,
     tokenCounter: s.tokenCounter ?? defaultTokenCounter,
     // The core config types `messages` as `readonly unknown[]` because
-    // @dawn-ai/core cannot depend on @langchain/core. At runtime these are
+    // @b4run/core cannot depend on @langchain/core. At runtime these are
     // BaseMessage instances, so the cast to SummarizeFn is sound.
     summarize:
       (s.summarize as unknown as ResolvedSummarizationConfig["summarize"] | undefined) ??

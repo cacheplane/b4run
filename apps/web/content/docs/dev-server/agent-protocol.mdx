@@ -1,22 +1,22 @@
 # Agent Protocol
 
-Agent Protocol is Dawn's durable HTTP surface for threads, checkpointed runs,
+Agent Protocol is B4.run's durable HTTP surface for threads, checkpointed runs,
 streaming, human-in-the-loop resume, cancellation, and memory-candidate review.
-Both `dawn dev` and a Node runtime started with `dawn start` expose it.
+Both `b4 dev` and a Node runtime started with `b4 start` expose it.
 
 ## Local quickstart
 
 Start a server on a known local port:
 
 ```bash
-dawn dev --port 3001
+b4 dev --port 3001
 ```
 
 Requests identify authored routes with the generated `<routeId>#<kind>` key,
 such as `/research#agent`.
 
 <Callout type="warn" title="Authenticate the entire production service">
-  Dawn execution middleware is not blanket server authentication. It covers
+  B4.run execution middleware is not blanket server authentication. It covers
   Agent Protocol `runs/wait`, `runs/stream`, and `resume`, plus the
   `pending_interrupts` read. AG-UI route execution
   passes through the same middleware. Thread management, state, cancellation,
@@ -49,7 +49,7 @@ such as `/research#agent`.
 
 A run body requires `route`; `input` is optional and defaults to `{}`. A bare
 route id without `#<kind>` is not a registered assistant id and returns `404`.
-The `{ route, input }` envelope is shared by Dawn's dev, Node, and Hono HTTP
+The `{ route, input }` envelope is shared by B4.run's dev, Node, and Hono HTTP
 runtimes. It is not the LangSmith request envelope, which uses `assistant_id`.
 
 ## Thread lifecycle with curl
@@ -90,13 +90,13 @@ event: chunk
 data: "partial text"
 
 event: tool_call
-data: {"id":"call-1","name":"search","input":{"query":"Dawn"}}
+data: {"id":"call-1","name":"search","input":{"query":"B4.run"}}
 
 event: done
 data: {"output":{"messages":[]}}
 ```
 
-While a stream is quiet, Dawn sends the SSE comment below every 15 seconds by
+While a stream is quiet, B4.run sends the SSE comment below every 15 seconds by
 default. SSE clients ignore comment frames; intermediaries see activity.
 
 ```text
@@ -142,7 +142,7 @@ Other attempts to start work while the thread's run slot is occupied return
 `run_in_flight` instead.
 
 Although `route` is required in the request body, it does not normally select a
-new route for a parked thread. Dawn resolves the route from the in-process
+new route for a parked thread. B4.run resolves the route from the in-process
 thread-route map first, then persisted thread metadata. The body route is the
 last fallback. Changing it does not redirect a parked thread while either
 recorded route exists.
@@ -194,7 +194,7 @@ with `thread_not_found`.
 
 ## One run at a time per thread
 
-Dawn admits one active run per thread. An ordinary run-slot collision—such as a
+B4.run admits one active run per thread. An ordinary run-slot collision—such as a
 competing `runs/wait` or `runs/stream`, or a resume colliding with a non-resume
 run—returns `409` with `error.details.code` set to `run_in_flight`. A second
 concurrent resume is stopped by the earlier resume claim and returns
@@ -257,14 +257,14 @@ uses identity-aware reconciliation and reports an `action` of `activated`,
 the record is not a candidate. Rejection deletes the record.
 
 Candidate listing spans namespaces, while approve and reject are destructive
-mutations. All three management routes bypass Dawn execution middleware. Apply
+mutations. All three management routes bypass B4.run execution middleware. Apply
 outer authentication, tenant authorization, and audit controls before exposing
 them beyond a trusted local environment.
 
 ## Production topology
 
-The Node runtime exposes the same Dawn request envelope, but production needs
-more than replacing `dawn dev` with `dawn start`: configure durable stores,
+The Node runtime exposes the same B4.run request envelope, but production needs
+more than replacing `b4 dev` with `b4 start`: configure durable stores,
 outer authentication, network policy, health behavior, and replica coordination.
 See [Production Topology](/docs/production-topology),
 [Persistence and Tenancy](/docs/persistence), and
@@ -273,7 +273,7 @@ See [Production Topology](/docs/production-topology),
 ## AG-UI is a different client surface
 
 AG-UI uses `POST /agui/{routeId}` with an encoded assistant id and an AG-UI
-`RunAgentInput`, then translates Dawn chunks into AG-UI events. It also has the
+`RunAgentInput`, then translates B4.run chunks into AG-UI events. It also has the
 opposite disconnect policy: the ephemeral run aborts when its viewer disconnects
 and there is no event replay. See [AG-UI and Web Clients](/docs/ag-ui) for that
 endpoint and lifecycle.

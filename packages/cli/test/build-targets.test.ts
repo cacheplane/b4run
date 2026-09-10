@@ -16,7 +16,7 @@ afterEach(async () => {
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-build-targets-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-build-targets-"))
   tempDirs.push(appRoot)
 
   const appFiles = {
@@ -24,14 +24,14 @@ async function createFixtureApp(files: Readonly<Record<string, string>>) {
     // runtime-dependency warning.
     "package.json": `${JSON.stringify({
       dependencies: {
-        "@dawn-ai/cli": "workspace:*",
-        "@dawn-ai/postgres-storage": "workspace:*",
+        "@b4run/cli": "workspace:*",
+        "@b4run/postgres-storage": "workspace:*",
         "@neondatabase/serverless": "^1.1.0",
         hono: "^4.12.28",
       },
     })}\n`,
-    "dawn.config.ts": "export default {};\n",
-    "src/app/(public)/hello/[tenant]/index.ts": `import { agent } from "@dawn-ai/sdk"
+    "b4.config.ts": "export default {};\n",
+    "src/app/(public)/hello/[tenant]/index.ts": `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -56,8 +56,8 @@ export default agent({
 
 async function linkVercelFixtureDependencies(appRoot: string): Promise<void> {
   const dependencies = {
-    "@dawn-ai/cli": cliPackageRoot,
-    "@dawn-ai/postgres-storage": join(cliPackageRoot, "..", "postgres-storage"),
+    "@b4run/cli": cliPackageRoot,
+    "@b4run/postgres-storage": join(cliPackageRoot, "..", "postgres-storage"),
     "@neondatabase/serverless": join(cliPackageRoot, "node_modules", "@neondatabase", "serverless"),
     hono: join(cliPackageRoot, "node_modules", "hono"),
   } as const
@@ -83,7 +83,7 @@ function runBuild(appRoot: string) {
   ).then(() => ({ stdout, stderr }))
 }
 
-describe("dawn build — targets", () => {
+describe("b4 build — targets", () => {
   test("default targets emit both the node bundle and the langsmith config", async () => {
     const appRoot = await createFixtureApp({})
 
@@ -91,11 +91,11 @@ describe("dawn build — targets", () => {
     expect(stderr.join("")).toBe("")
 
     // node target: server.mjs
-    const serverPath = join(appRoot, ".dawn/build/server.mjs")
+    const serverPath = join(appRoot, ".b4/build/server.mjs")
     expect(existsSync(serverPath)).toBe(true)
     const server = await readFile(serverPath, "utf8")
     expect(server).toContain("serveRuntime")
-    expect(server).toContain('from "@dawn-ai/cli"')
+    expect(server).toContain('from "@b4run/cli"')
 
     // node target: Dockerfile (no user Dockerfile → emitted at app root)
     const dockerfilePath = join(appRoot, "Dockerfile")
@@ -104,15 +104,15 @@ describe("dawn build — targets", () => {
     expect(dockerfile).toContain("EXPOSE 8000")
     expect(dockerfile).toContain("USER 1000:1000")
     expect(dockerfile).toContain("HEALTHCHECK")
-    expect(dockerfile).toContain('CMD ["node", ".dawn/build/server.mjs"]')
+    expect(dockerfile).toContain('CMD ["node", ".b4/build/server.mjs"]')
 
     // langsmith target: langgraph.json still emitted and parseable
-    const langgraphPath = join(appRoot, ".dawn/build/langgraph.json")
+    const langgraphPath = join(appRoot, ".b4/build/langgraph.json")
     expect(existsSync(langgraphPath)).toBe(true)
     const langgraph = JSON.parse(await readFile(langgraphPath, "utf8")) as {
       readonly graphs: Record<string, string>
     }
-    expect(langgraph.graphs["/hello/[tenant]#agent"]).toBe("./.dawn/build/hello-tenant.ts:graph")
+    expect(langgraph.graphs["/hello/[tenant]#agent"]).toBe("./.b4/build/hello-tenant.ts:graph")
 
     // Vercel output is opt-in, not an implicit third default deployment target.
     expect(existsSync(join(appRoot, ".vercel/output"))).toBe(false)
@@ -120,7 +120,7 @@ describe("dawn build — targets", () => {
 
   test("vercel target is opt-in and leaves the default targets unchanged", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": 'export default { build: { targets: ["vercel"] } };\n',
+      "b4.config.ts": 'export default { build: { targets: ["vercel"] } };\n',
       "src/app/(public)/hello/[tenant]/index.ts":
         "export async function workflow() { return { ok: true } }\n",
     })
@@ -130,13 +130,13 @@ describe("dawn build — targets", () => {
     expect(stderr.join("")).toBe("")
     expect(existsSync(join(appRoot, ".vercel/output/config.json"))).toBe(true)
     expect(existsSync(join(appRoot, ".vercel/output/functions/index.func/index.mjs"))).toBe(true)
-    expect(existsSync(join(appRoot, ".dawn/build/server.mjs"))).toBe(false)
-    expect(existsSync(join(appRoot, ".dawn/build/langgraph.json"))).toBe(false)
+    expect(existsSync(join(appRoot, ".b4/build/server.mjs"))).toBe(false)
+    expect(existsSync(join(appRoot, ".b4/build/langgraph.json"))).toBe(false)
   })
 
   test("vercel target combines with independently emitted node and LangSmith artifacts", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": 'export default { build: { targets: ["node", "langsmith", "vercel"] } };\n',
+      "b4.config.ts": 'export default { build: { targets: ["node", "langsmith", "vercel"] } };\n',
       "src/app/(public)/hello/[tenant]/index.ts":
         "export async function workflow() { return { ok: true } }\n",
     })
@@ -144,25 +144,25 @@ describe("dawn build — targets", () => {
     const { stderr } = await runBuild(appRoot)
 
     expect(stderr.join("")).toBe("")
-    expect(existsSync(join(appRoot, ".dawn/build/server.mjs"))).toBe(true)
-    expect(existsSync(join(appRoot, ".dawn/build/langgraph.json"))).toBe(true)
+    expect(existsSync(join(appRoot, ".b4/build/server.mjs"))).toBe(true)
+    expect(existsSync(join(appRoot, ".b4/build/langgraph.json"))).toBe(true)
     expect(existsSync(join(appRoot, ".vercel/output/config.json"))).toBe(true)
     expect(existsSync(join(appRoot, ".vercel/output/functions/index.func/index.mjs"))).toBe(true)
   })
 
   test("langsmith-only target emits no node artifacts", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": 'export default { build: { targets: ["langsmith"] } };\n',
+      "b4.config.ts": 'export default { build: { targets: ["langsmith"] } };\n',
     })
 
     const { stderr } = await runBuild(appRoot)
     expect(stderr.join("")).toBe("")
 
-    expect(existsSync(join(appRoot, ".dawn/build/server.mjs"))).toBe(false)
+    expect(existsSync(join(appRoot, ".b4/build/server.mjs"))).toBe(false)
     expect(existsSync(join(appRoot, "Dockerfile"))).toBe(false)
-    expect(existsSync(join(appRoot, ".dawn/build/Dockerfile"))).toBe(false)
+    expect(existsSync(join(appRoot, ".b4/build/Dockerfile"))).toBe(false)
 
-    expect(existsSync(join(appRoot, ".dawn/build/langgraph.json"))).toBe(true)
+    expect(existsSync(join(appRoot, ".b4/build/langgraph.json"))).toBe(true)
   })
 
   test("keeps non-agent LangSmith exports direct", async () => {
@@ -173,7 +173,7 @@ describe("dawn build — targets", () => {
     const { stderr } = await runBuild(appRoot)
     expect(stderr.join("")).toBe("")
 
-    const entry = await readFile(join(appRoot, ".dawn/build/workflow.ts"), "utf8")
+    const entry = await readFile(join(appRoot, ".b4/build/workflow.ts"), "utf8")
     expect(entry).toContain('import { workflow } from "../../src/app/workflow/index.js"')
     expect(entry).toContain("export const graph = workflow")
     expect(entry).not.toContain("materializeResolvedRouteGraph")
@@ -185,8 +185,8 @@ describe("dawn build — targets", () => {
     const { stderr } = await runBuild(appRoot)
     expect(stderr.join("")).toBe("")
 
-    const entry = await readFile(join(appRoot, ".dawn/build/hello-tenant.ts"), "utf8")
-    expect(entry).toContain('import { materializeResolvedRouteGraph } from "@dawn-ai/cli/runtime"')
+    const entry = await readFile(join(appRoot, ".b4/build/hello-tenant.ts"), "utf8")
+    expect(entry).toContain('import { materializeResolvedRouteGraph } from "@b4run/cli/runtime"')
     expect(entry).toContain('const appRoot = fileURLToPath(new URL("../..", import.meta.url))')
     expect(entry).toContain("fileURLToPath(new URL(")
     expect(entry).not.toContain(appRoot)
@@ -199,13 +199,13 @@ describe("dawn build — targets", () => {
 
     const { stderr } = await runBuild(appRoot)
 
-    // User's Dockerfile at app root is untouched (still no Dawn marker).
+    // User's Dockerfile at app root is untouched (still no B4.run marker).
     const preserved = await readFile(join(appRoot, "Dockerfile"), "utf8")
     expect(preserved).toBe(userDockerfile)
-    expect(preserved).not.toContain("Generated by dawn build")
+    expect(preserved).not.toContain("Generated by b4 build")
 
     // Ours went to the build dir.
-    const emittedPath = join(appRoot, ".dawn/build/Dockerfile")
+    const emittedPath = join(appRoot, ".b4/build/Dockerfile")
     expect(existsSync(emittedPath)).toBe(true)
     expect(await readFile(emittedPath, "utf8")).toContain("EXPOSE 8000")
 
@@ -213,44 +213,44 @@ describe("dawn build — targets", () => {
     expect(stderr.join("")).toContain("Preserved your existing")
   })
 
-  test("Dawn-authored Dockerfile is overwritten in place across rebuilds, not duplicated", async () => {
+  test("B4.run-authored Dockerfile is overwritten in place across rebuilds, not duplicated", async () => {
     const appRoot = await createFixtureApp({})
 
     // First build writes the Dockerfile to the app root with the marker.
     await runBuild(appRoot)
     const appRootDockerfile = join(appRoot, "Dockerfile")
     expect(existsSync(appRootDockerfile)).toBe(true)
-    expect(await readFile(appRootDockerfile, "utf8")).toContain("Generated by dawn build")
+    expect(await readFile(appRootDockerfile, "utf8")).toContain("Generated by b4 build")
 
     // Second build: existing Dockerfile carries the marker → overwrite in place
     // at the app root, NOT a second copy in the build dir.
     await runBuild(appRoot)
     expect(existsSync(appRootDockerfile)).toBe(true)
-    expect(await readFile(appRootDockerfile, "utf8")).toContain("Generated by dawn build")
-    expect(existsSync(join(appRoot, ".dawn/build/Dockerfile"))).toBe(false)
+    expect(await readFile(appRootDockerfile, "utf8")).toContain("Generated by b4 build")
+    expect(existsSync(join(appRoot, ".b4/build/Dockerfile"))).toBe(false)
   })
 
-  test("warns when @dawn-ai/cli is not a runtime dependency", async () => {
+  test("warns when @b4run/cli is not a runtime dependency", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": '{ "devDependencies": { "@dawn-ai/cli": "workspace:*" } }\n',
+      "package.json": '{ "devDependencies": { "@b4run/cli": "workspace:*" } }\n',
     })
 
     const { stderr } = await runBuild(appRoot)
-    expect(stderr.join("")).toContain("@dawn-ai/cli at runtime")
+    expect(stderr.join("")).toContain("@b4run/cli at runtime")
   })
 
-  test("does not warn when @dawn-ai/cli is a runtime dependency", async () => {
+  test("does not warn when @b4run/cli is a runtime dependency", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": '{ "dependencies": { "@dawn-ai/cli": "workspace:*" } }\n',
+      "package.json": '{ "dependencies": { "@b4run/cli": "workspace:*" } }\n',
     })
 
     const { stderr } = await runBuild(appRoot)
-    expect(stderr.join("")).not.toContain("@dawn-ai/cli at runtime")
+    expect(stderr.join("")).not.toContain("@b4run/cli at runtime")
   })
 
   test("unknown target at build time throws a clear error", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": 'export default { build: { targets: ["bogus"] } };\n',
+      "b4.config.ts": 'export default { build: { targets: ["bogus"] } };\n',
     })
 
     await expect(runBuild(appRoot)).rejects.toThrow(/Unknown build target "bogus"/)
@@ -258,30 +258,30 @@ describe("dawn build — targets", () => {
 
   test("validates the whole target list before emitting any artifacts", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": 'export default { build: { targets: ["node", "bogus"] } };\n',
+      "b4.config.ts": 'export default { build: { targets: ["node", "bogus"] } };\n',
     })
 
     await expect(runBuild(appRoot)).rejects.toThrow(/Unknown build target "bogus"/)
 
     // The valid "node" target must NOT have run before validation failed.
-    expect(existsSync(join(appRoot, ".dawn/build/server.mjs"))).toBe(false)
+    expect(existsSync(join(appRoot, ".b4/build/server.mjs"))).toBe(false)
   })
 
   test("empty targets list warns and emits nothing", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default { build: { targets: [] } };\n",
+      "b4.config.ts": "export default { build: { targets: [] } };\n",
     })
 
     const { stderr } = await runBuild(appRoot)
     expect(stderr.join("")).toContain("no build targets configured; nothing emitted")
-    expect(existsSync(join(appRoot, ".dawn/build/server.mjs"))).toBe(false)
+    expect(existsSync(join(appRoot, ".b4/build/server.mjs"))).toBe(false)
   })
 })
 
-describe("dawn check — build targets", () => {
+describe("b4 check — build targets", () => {
   test("unknown build target surfaces a validation error", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": 'export default { build: { targets: ["bogus"] } };\n',
+      "b4.config.ts": 'export default { build: { targets: ["bogus"] } };\n',
     })
 
     const stdout: string[] = []
@@ -295,7 +295,7 @@ describe("dawn check — build targets", () => {
 
   test("known build targets pass validation", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts":
+      "b4.config.ts":
         'export default { build: { targets: ["node", "langsmith", "hono", "vercel"] } };\n',
     })
 
@@ -310,8 +310,8 @@ describe("dawn check — build targets", () => {
 
   test("vercel dependency notice names the vercel target", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": 'export default { build: { targets: ["vercel"] } };\n',
-      "package.json": '{ "dependencies": { "@dawn-ai/cli": "workspace:*" } }\n',
+      "b4.config.ts": 'export default { build: { targets: ["vercel"] } };\n',
+      "package.json": '{ "dependencies": { "@b4run/cli": "workspace:*" } }\n',
     })
 
     const stdout: string[] = []
@@ -329,7 +329,7 @@ describe("dawn check — build targets", () => {
 
   test("vercel target mirrors edge capability validation", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": `export default {
+      "b4.config.ts": `export default {
   build: { targets: ["vercel"] },
   sandbox: { provider: { name: "docker" } },
 }
@@ -341,7 +341,7 @@ describe("dawn check — build targets", () => {
       { stderr: () => {}, stdout: () => {} },
     ).catch((caught: unknown) => caught)
 
-    expect(error).toMatchObject({ code: "DAWN_E1005" })
+    expect(error).toMatchObject({ code: "B4_E1005" })
     expect(String(error)).toMatch(/"vercel".*sandbox.*`sandbox`/is)
   })
 })

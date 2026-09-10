@@ -1,5 +1,5 @@
-import type { GoogleModelId, KnownModelId, ModelProviderId, OpenAiModelId } from "@dawn-ai/sdk"
-import { agent } from "@dawn-ai/sdk"
+import type { GoogleModelId, KnownModelId, ModelProviderId, OpenAiModelId } from "@b4run/sdk"
+import { agent } from "@b4run/sdk"
 import { describe, expect, expectTypeOf, it, test } from "vitest"
 
 import {

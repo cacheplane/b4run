@@ -1,5 +1,19 @@
 # @dawn-ai/config-biome
 
+## 0.8.29
+
+## 0.8.28
+
+## 0.8.27
+
+## 0.8.26
+
+### Patch Changes
+
+- 4a1e6ac: Preserve canonical release verifier repair records when formatting repository files.
+
+## 0.8.25
+
 ## 0.8.24
 
 ## 0.8.23

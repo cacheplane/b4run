@@ -4,7 +4,11 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { snapshotJson } from "./adapter-normalize.mjs"
-import { createNpmReader } from "./adapters/npm.mjs"
+import {
+  adaptFirstPublicationNpmReader,
+  createFirstPublicationNpmReader,
+  createNpmReader,
+} from "./adapters/npm.mjs"
 import { assertPayloadByteLength, RELEASE_PAYLOAD_LIMITS } from "./limits.mjs"
 import {
   canonicalManifestBytes,
@@ -13,6 +17,17 @@ import {
   validateSealedReleaseManifest,
 } from "./manifest.mjs"
 import { createNpmAuditVerifier } from "./npm-audit.mjs"
+import {
+  assertBootstrapWindow,
+  BOOTSTRAP_AUTHORIZATION_VARIABLE,
+  BOOTSTRAP_TOKEN_VARIABLE,
+  NPM_AUTH_MODES,
+  parseBootstrapAuthorization,
+  redactBootstrapCredential,
+  redactBootstrapError,
+  validateBootstrapAuthorization,
+  validateBootstrapToken,
+} from "./npm-bootstrap.mjs"
 import {
   canonicalNpmEvidenceBytes,
   NPM_EVIDENCE_MAX_BYTES,
@@ -36,14 +51,28 @@ const PUBLISHER_FLAGS = Object.freeze([
   "--record",
   "--report",
 ])
+// Optional. Default oidc: npm trusted publishing with every registry credential stripped.
+// bootstrap: the explicit, expiring, candidate-bound first-publication exception
+// (scripts/release/npm-bootstrap.mjs). There is never an automatic fallback between them.
+const PUBLISHER_AUTH_MODE_FLAG = "--npm-auth-mode"
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u
 const SHA512_PATTERN = /^[0-9a-f]{128}$/u
 const MAX_CANDIDATE_BYTES = 16 * 1024
-const MAX_POLL_ATTEMPTS = 20
 const POLL_DELAY_MS = 2_000
 const PUBLISH_COMMAND_TIMEOUT_MS = 5 * 60_000
-const EXPECTED_REPOSITORY = "https://github.com/cacheplane/dawnai"
+const EXPECTED_REPOSITORY = "https://github.com/cacheplane/b4run"
+
+// One registry propagation budget per package covers exact-version absence,
+// metadata/dist-tag lag, explicit audit-pending evidence, and tarball HTTP 404.
+// Pending state changes never restart the clock or the fast polling cadence.
+// Identity, integrity, signature, provenance, and non-404 download failures remain
+// fatal. The 25-minute overall deadline and 30-minute job still bound the run;
+// this window absorbs temporary propagation lag without republishing accepted bytes.
+// Retain the exported tarball deadline name for existing callers.
+const TARBALL_FAST_POLL_ATTEMPTS = 10
+const TARBALL_SLOW_POLL_DELAY_MS = 10_000
+export const TARBALL_CONVERGENCE_DEADLINE_MS = 10 * 60_000
 
 export const PUBLISHER_OVERALL_TIMEOUT_MS = 25 * 60_000
 
@@ -54,6 +83,7 @@ export const PUBLISHER_SPARSE_FILES = Object.freeze([
   "scripts/release/limits.mjs",
   "scripts/release/manifest.mjs",
   "scripts/release/npm-audit.mjs",
+  "scripts/release/npm-bootstrap.mjs",
   "scripts/release/npm-evidence.mjs",
   "scripts/release/process-runner.mjs",
   "scripts/release/publisher.mjs",
@@ -83,6 +113,8 @@ export async function publishManifestSerially({
   publishTarball,
   poll,
   log,
+  now = Date.now,
+  firstPublication = false,
 }) {
   const identity = validateCandidate(candidate)
   const sealedManifest = validateSealedReleaseManifest(manifest, { candidate: identity })
@@ -92,6 +124,14 @@ export async function publishManifestSerially({
   assertFunction(publishTarball, "publishTarball")
   assertFunction(poll, "poll")
   assertFunction(log, "log")
+  assertFunction(now, "now")
+  if (typeof firstPublication !== "boolean") {
+    throw new TypeError("firstPublication must be a boolean")
+  }
+  // Only the explicitly selected first-publication mode may read a whole-package absence;
+  // the default publisher keeps requiring a present metadata observation for every name.
+  const observeMetadata = (registry, name) =>
+    observePackageMetadata(registry, name, { firstPublication })
 
   const initial = []
   let candidateStarted = false
@@ -105,7 +145,7 @@ export async function publishManifestSerially({
       candidate: identity,
       downloadRegistryTarball,
     })
-    candidateStarted ||= analyzed.status === "present"
+    candidateStarted ||= isPublished(analyzed)
     initial.push(analyzed)
   }
   const initialLatest = newerLatest(initial, identity.version)
@@ -118,15 +158,18 @@ export async function publishManifestSerially({
   for (let index = 0; index < sealedManifest.packages.length; index += 1) {
     const entry = sealedManifest.packages[index]
     let state = initial[index]
-    if (state.status === "present") {
+    if (isPublished(state)) {
       candidateStarted = true
       await waitUntilVerified({
         entry,
         candidate: identity,
         observeRegistry,
+        observeMetadata,
         downloadRegistryTarball,
         verifyPackage,
         poll,
+        log,
+        now,
       })
       log({ event: "package-verified", name: entry.name })
       continue
@@ -140,21 +183,24 @@ export async function publishManifestSerially({
       candidate: identity,
       downloadRegistryTarball,
     })
-    if (state.status === "present") {
+    if (isPublished(state)) {
       candidateStarted = true
       await waitUntilVerified({
         entry,
         candidate: identity,
         observeRegistry,
+        observeMetadata,
         downloadRegistryTarball,
         verifyPackage,
         poll,
+        log,
+        now,
       })
       log({ event: "package-recovered", name: entry.name })
       continue
     }
 
-    const sweep = await sweepLatest({ manifest: sealedManifest, observeRegistry })
+    const sweep = await sweepLatest({ manifest: sealedManifest, observeRegistry, observeMetadata })
     const latest = newerLatest(sweep, identity.version)
     if (latest !== null) {
       return candidateStarted
@@ -167,9 +213,12 @@ export async function publishManifestSerially({
         entry,
         candidate: identity,
         observeRegistry,
+        observeMetadata,
         downloadRegistryTarball,
         verifyPackage,
         poll,
+        log,
+        now,
       })
       log({ event: "package-recovered", name: entry.name })
       continue
@@ -182,9 +231,12 @@ export async function publishManifestSerially({
       entry,
       candidate: identity,
       observeRegistry,
+      observeMetadata,
       downloadRegistryTarball,
       verifyPackage,
       poll,
+      log,
+      now,
     })
   }
 
@@ -224,7 +276,10 @@ export async function publishManifestSerially({
 }
 
 export function parsePublisherArguments(argv) {
-  if (!Array.isArray(argv) || argv.length !== PUBLISHER_FLAGS.length * 2) {
+  if (
+    !Array.isArray(argv) ||
+    (argv.length !== PUBLISHER_FLAGS.length * 2 && argv.length !== PUBLISHER_FLAGS.length * 2 + 2)
+  ) {
     throw new Error(publisherUsage())
   }
   const values = new Map()
@@ -232,7 +287,7 @@ export function parsePublisherArguments(argv) {
     const flag = argv[index]
     const value = argv[index + 1]
     if (
-      !PUBLISHER_FLAGS.includes(flag) ||
+      !(PUBLISHER_FLAGS.includes(flag) || flag === PUBLISHER_AUTH_MODE_FLAG) ||
       typeof value !== "string" ||
       value.length === 0 ||
       /[\0\r\n]/u.test(value)
@@ -242,13 +297,18 @@ export function parsePublisherArguments(argv) {
     if (values.has(flag)) throw new Error(`Duplicate publisher argument ${flag}`)
     values.set(flag, value)
   }
-  if (values.size !== PUBLISHER_FLAGS.length) throw new Error(publisherUsage())
+  if (PUBLISHER_FLAGS.some((flag) => !values.has(flag))) throw new Error(publisherUsage())
+  const npmAuthMode = values.get(PUBLISHER_AUTH_MODE_FLAG) ?? "oidc"
+  if (!NPM_AUTH_MODES.includes(npmAuthMode)) {
+    throw new Error(`Invalid publisher argument\n${publisherUsage()}`)
+  }
   return {
     candidatePath: values.get("--candidate"),
     recordPath: values.get("--record"),
     artifactDir: values.get("--artifact-dir"),
     reportPath: values.get("--report"),
     githubOutputPath: values.get("--github-output"),
+    npmAuthMode,
   }
 }
 
@@ -287,17 +347,21 @@ export async function runPublisherCli(argv, options = {}) {
     return await deadline.race(
       runPublisherCliWithinDeadline(argv, {
         fileSystem: options.fileSystem ?? defaultFileSystem,
-        npmReader: options.npmReader ?? createNpmReader(),
+        npmReader: options.npmReader,
         runNpm,
         auditVerifierFactory,
         poll: options.poll ?? productionPoll,
         log: options.log ?? productionLog,
+        now: options.now ?? Date.now,
         environment,
         deadline,
       }),
     )
   } catch (error) {
     if (deadline.signal.aborted) {
+      // The in-flight run may still be unwinding behind the race; release the isolated npm
+      // homes (and any bootstrap credential reference) now rather than whenever it settles.
+      await deadline.runCleanups()
       throw new Error("npm publisher overall deadline expired", { cause: error })
     }
     throw error
@@ -308,11 +372,11 @@ export async function runPublisherCli(argv, options = {}) {
 
 async function runPublisherCliWithinDeadline(
   argv,
-  { fileSystem, npmReader, runNpm, auditVerifierFactory, poll, log, environment, deadline },
+  { fileSystem, npmReader, runNpm, auditVerifierFactory, poll, log, now, environment, deadline },
 ) {
-  const input = parsePublisherArguments(argv)
+  const { npmAuthMode, ...inputPaths } = parsePublisherArguments(argv)
   const paths = Object.fromEntries(
-    Object.entries(input).map(([key, value]) => [key, path.resolve(value)]),
+    Object.entries(inputPaths).map(([key, value]) => [key, path.resolve(value)]),
   )
   const candidate = parseCandidate(
     await readBoundedRegularFile(fileSystem, paths.candidatePath, MAX_CANDIDATE_BYTES, "Candidate"),
@@ -336,7 +400,26 @@ async function runPublisherCliWithinDeadline(
     record,
     fileSystem,
   })
-  assertNpmReader(npmReader)
+  if (npmAuthMode === "bootstrap") {
+    return runBootstrapPublisher({
+      candidate,
+      record,
+      artifact,
+      paths,
+      fileSystem,
+      npmReader,
+      runNpm,
+      auditVerifierFactory,
+      poll,
+      log,
+      now,
+      environment,
+      deadline,
+    })
+  }
+  const reader = npmReader ?? createNpmReader()
+  assertNpmReader(reader)
+  log({ event: "npm-auth-mode", mode: "oidc" })
   const auditVerifier = await deadline.race(
     auditVerifierFactory({
       runNpm,
@@ -351,11 +434,12 @@ async function runPublisherCliWithinDeadline(
         throw new TypeError(`npm audit verifier must expose ${method}`)
       }
     }
+    deadline.registerCleanup(() => auditVerifier.dispose())
     const observeRegistry = ({ name, version }) =>
       deadline.race(
         version === undefined
-          ? npmReader.observePackageMetadata({ name, signal: deadline.signal })
-          : npmReader.observePackageVersion({ name, version, signal: deadline.signal }),
+          ? reader.observePackageMetadata({ name, signal: deadline.signal })
+          : reader.observePackageVersion({ name, version, signal: deadline.signal }),
       )
     const publishTarball = async ({ entry }) => {
       const tarballPath = artifact.tarballPaths.get(entry.name)
@@ -386,11 +470,12 @@ async function runPublisherCliWithinDeadline(
       manifest: artifact.manifest,
       observeRegistry,
       downloadRegistryTarball: (request) =>
-        deadline.race(npmReader.downloadRegistryTarball({ ...request, signal: deadline.signal })),
+        deadline.race(reader.downloadRegistryTarball({ ...request, signal: deadline.signal })),
       verifyPackage: (request) => deadline.race(auditVerifier.verifyPackage(request)),
       publishTarball,
       poll: (request) => deadline.race(poll({ ...request, signal: deadline.signal })),
       log,
+      now,
     })
     await writeCanonicalReport({
       fileSystem,
@@ -410,16 +495,191 @@ async function runPublisherCliWithinDeadline(
   }
 }
 
+// The first-publication exception. Everything before this point (candidate, canonical record,
+// sealed manifest, local tarballs) has already been verified exactly as in OIDC mode. This path
+// additionally requires the owner-managed, candidate-bound, expiring authorization and the
+// dedicated token before any npm process starts; it then publishes through the same serial
+// publisher with the explicitly selected first-publication reader.
+async function runBootstrapPublisher({
+  candidate,
+  record,
+  artifact,
+  paths,
+  fileSystem,
+  npmReader,
+  runNpm,
+  auditVerifierFactory,
+  poll,
+  log,
+  now,
+  environment,
+  deadline,
+}) {
+  const bound = validateBootstrapAuthorization(
+    parseBootstrapAuthorization(environment[BOOTSTRAP_AUTHORIZATION_VARIABLE]),
+    { candidate, manifest: artifact.manifest, record, environment },
+  )
+  const authorization = bound.authorization
+  assertBootstrapWindow(authorization, now())
+  const token = validateBootstrapToken(environment[BOOTSTRAP_TOKEN_VARIABLE])
+  const reader =
+    npmReader === undefined
+      ? createFirstPublicationNpmReader()
+      : adaptFirstPublicationNpmReader(npmReader)
+  assertNpmReader(reader)
+  log({
+    event: "npm-auth-mode",
+    mode: "bootstrap",
+    authorizationSha256: bound.authorizationSha256,
+    version: authorization.version,
+    commitSha: authorization.commitSha,
+    notBefore: authorization.notBefore,
+    expiresAt: authorization.expiresAt,
+  })
+  const redactedRunNpm = async (command, args, options) => {
+    let result
+    try {
+      result = await runNpm(command, args, options)
+    } catch (error) {
+      throw redactBootstrapError(error, token)
+    }
+    return result === null || typeof result !== "object"
+      ? result
+      : {
+          ...result,
+          ...(typeof result.stdout === "string"
+            ? { stdout: redactBootstrapCredential(result.stdout, token) }
+            : {}),
+          ...(typeof result.stderr === "string"
+            ? { stderr: redactBootstrapCredential(result.stderr, token) }
+            : {}),
+        }
+  }
+  let auditVerifier
+  try {
+    auditVerifier = await deadline.race(
+      auditVerifierFactory({
+        runNpm: redactedRunNpm,
+        fileSystem,
+        environment,
+        signal: deadline.signal,
+        bootstrap: { token },
+      }),
+    )
+    for (const method of ["dispose", "publisherEnvironment", "verifyPackage"]) {
+      if (typeof auditVerifier?.[method] !== "function") {
+        throw new TypeError(`npm audit verifier must expose ${method}`)
+      }
+    }
+    deadline.registerCleanup(() => auditVerifier.dispose())
+    const observeRegistry = ({ name, version }) =>
+      deadline.race(
+        version === undefined
+          ? reader.observePackageMetadata({
+              name,
+              version: candidate.version,
+              signal: deadline.signal,
+            })
+          : reader.observePackageVersion({ name, version, signal: deadline.signal }),
+      )
+    const publishTarball = async ({ entry }) => {
+      const tarballPath = artifact.tarballPaths.get(entry.name)
+      if (tarballPath === undefined) throw new Error("Recorded tarball path is unavailable")
+      // The window is re-checked immediately before every publish spawn. Expiry between
+      // packages stops further mutation; a replacement window for the same candidate resumes.
+      assertBootstrapWindow(authorization, now())
+      await verifyLocalTarball({ entry, tarballPath, fileSystem })
+      await redactedRunNpm(
+        "npm",
+        [
+          "publish",
+          tarballPath,
+          "--tag",
+          "latest",
+          "--access",
+          "public",
+          "--provenance",
+          "--ignore-scripts",
+        ],
+        {
+          cwd: paths.artifactDir,
+          env: auditVerifier.publisherEnvironment({ candidate }),
+          signal: deadline.signal,
+        },
+      )
+      await verifyLocalTarball({ entry, tarballPath, fileSystem })
+    }
+    const result = await publishManifestSerially({
+      candidate,
+      manifest: artifact.manifest,
+      observeRegistry,
+      downloadRegistryTarball: (request) =>
+        deadline.race(reader.downloadRegistryTarball({ ...request, signal: deadline.signal })),
+      verifyPackage: (request) => deadline.race(auditVerifier.verifyPackage(request)),
+      publishTarball,
+      poll: (request) => deadline.race(poll({ ...request, signal: deadline.signal })),
+      log,
+      now,
+      firstPublication: true,
+    })
+    await writeCanonicalReport({
+      fileSystem,
+      reportPath: paths.reportPath,
+      result,
+      candidate,
+      manifest: artifact.manifest,
+    })
+    await fileSystem.appendFile(
+      paths.githubOutputPath,
+      `complete=${String(result.complete)}\nstate=${result.status}\n`,
+      "utf8",
+    )
+    return result
+  } catch (error) {
+    throw redactBootstrapError(error, token)
+  } finally {
+    if (typeof auditVerifier?.dispose === "function") await auditVerifier.dispose()
+  }
+}
+
 async function waitUntilVerified({
   entry,
   candidate,
   observeRegistry,
+  observeMetadata,
   downloadRegistryTarball,
   verifyPackage,
   poll,
+  log,
+  now,
 }) {
-  for (let attempt = 1; attempt <= MAX_POLL_ATTEMPTS; attempt += 1) {
-    const metadata = await observeMetadata(observeRegistry, entry.name)
+  let attempt = 0
+  const startedAt = now()
+  for (;;) {
+    attempt += 1
+    // A package published for the first time is not immediately readable: its
+    // packument can still answer not-found for a short window. That is the same
+    // convergence this loop already waits out for tarballs and versions, so it
+    // is polled rather than treated as a verification failure. Any other
+    // ambiguity still fails, and the deadline below still bounds the wait.
+    let metadata
+    try {
+      metadata = await observeMetadata(observeRegistry, entry.name)
+    } catch (error) {
+      const elapsed = Math.max(0, now() - startedAt)
+      if (elapsed >= TARBALL_CONVERGENCE_DEADLINE_MS) throw error
+      log({
+        event: "registry-pending",
+        name: entry.name,
+        reason: "metadata-pending",
+        attempt,
+        elapsedMs: elapsed,
+        delayMs: POLL_DELAY_MS,
+        deadlineMs: TARBALL_CONVERGENCE_DEADLINE_MS,
+      })
+      await poll({ name: entry.name, attempt, delayMs: POLL_DELAY_MS })
+      continue
+    }
     const latest = metadata.metadata.latest
     if (latest !== null && compareSemver(latest, candidate.version) > 0) {
       failNewerLatest(entry.name)
@@ -432,17 +692,46 @@ async function waitUntilVerified({
       candidate,
       downloadRegistryTarball,
     })
+    let reason =
+      analyzed.status === "tarball-pending"
+        ? "tarball-404"
+        : analyzed.status === "absent"
+          ? "version-absent"
+          : "metadata-pending"
     if (analyzed.status === "present" && registryReady(analyzed, candidate)) {
       const audit = await observeNpmAudit(verifyPackage, entry, candidate)
       if (audit.status === "verified") return { ...analyzed, audit, ready: true }
+      reason = "audit-pending"
     }
-    if (attempt < MAX_POLL_ATTEMPTS)
-      await poll({ name: entry.name, attempt, delayMs: POLL_DELAY_MS })
+    const elapsedMs = Math.max(0, now() - startedAt)
+    const delayMs =
+      attempt <= TARBALL_FAST_POLL_ATTEMPTS ? POLL_DELAY_MS : TARBALL_SLOW_POLL_DELAY_MS
+    log({
+      event: reason === "tarball-404" ? "registry-tarball-pending" : "registry-pending",
+      name: entry.name,
+      reason,
+      attempt,
+      elapsedMs,
+      delayMs,
+      deadlineMs: TARBALL_CONVERGENCE_DEADLINE_MS,
+      ...(reason === "tarball-404" ? { httpStatus: analyzed.download.httpStatus } : {}),
+    })
+    if (elapsedMs >= TARBALL_CONVERGENCE_DEADLINE_MS) {
+      throw new Error(
+        reason === "tarball-404"
+          ? `npm registry tarball could not be verified for ${entry.name}`
+          : `npm registry did not converge for ${entry.name}`,
+      )
+    }
+    await poll({ name: entry.name, attempt, delayMs })
   }
-  throw new Error(`npm registry did not converge for ${entry.name}`)
 }
 
-async function sweepLatest({ manifest, observeRegistry }) {
+function isPublished(analyzed) {
+  return analyzed.status === "present" || analyzed.status === "tarball-pending"
+}
+
+async function sweepLatest({ manifest, observeRegistry, observeMetadata }) {
   const result = []
   for (const entry of manifest.packages) {
     result.push({ entry, metadata: await observeMetadata(observeRegistry, entry.name) })
@@ -450,8 +739,23 @@ async function sweepLatest({ manifest, observeRegistry }) {
   return result
 }
 
-async function observeMetadata(observeRegistry, name) {
+async function observePackageMetadata(observeRegistry, name, { firstPublication }) {
   const result = await observeRegistry({ name })
+  if (
+    firstPublication &&
+    result !== null &&
+    typeof result === "object" &&
+    result.status === "ABSENT" &&
+    result.operation === "package-metadata" &&
+    result.httpStatus === 404 &&
+    result.code === "E404" &&
+    Object.keys(result).length === 4
+  ) {
+    // The first-publication reader proved the whole package absent from both trusted public
+    // not-found endpoints. Carry it in the publisher's internal latest representation; the
+    // status stays ABSENT, never a fabricated present observation.
+    return deepFreeze({ ...result, metadata: { name, latest: null } })
+  }
   if (
     result?.status !== "PRESENT" ||
     result.operation !== "package-metadata" ||
@@ -500,6 +804,9 @@ async function analyzeVersion({ entry, metadata, version, downloadRegistryTarbal
     throw new Error(`npm package identity or integrity conflicts for ${entry.name}`)
   }
   const download = await downloadRegistryTarball({ tarballUrl: packageRecord.tarballUrl })
+  if (isTarballPending(download)) {
+    return { status: "tarball-pending", entry, metadata, package: packageRecord, download }
+  }
   if (
     download?.status !== "PRESENT" ||
     download.operation !== "package-tarball" ||
@@ -518,6 +825,18 @@ async function analyzeVersion({ entry, metadata, version, downloadRegistryTarbal
     package: packageRecord,
     tarball,
   }
+}
+
+// The npm adapter classifies a tarball 404 as AMBIGUOUS/HTTP_404 (a binary body carries
+// no registry error code) rather than ABSENT; both shapes mean "not propagated yet".
+function isTarballPending(download) {
+  return (
+    download !== null &&
+    typeof download === "object" &&
+    download.operation === "package-tarball" &&
+    download.httpStatus === 404 &&
+    (download.status === "ABSENT" || download.status === "AMBIGUOUS")
+  )
 }
 
 function registryReady(analyzed, candidate) {
@@ -808,10 +1127,25 @@ function createPublisherDeadline(timeoutMs, { scheduleTimeout, cancelTimeout }) 
     controller.abort()
     rejectExpiration(new Error("npm publisher overall deadline expired"))
   }, timeoutMs)
+  // Keep the expiration rejection observed even when no race is pending.
+  expiration.catch(() => undefined)
+  const cleanups = []
   return {
     signal: controller.signal,
     race(value) {
       return Promise.race([Promise.resolve(value), expiration])
+    },
+    registerCleanup(cleanup) {
+      cleanups.push(cleanup)
+    },
+    async runCleanups() {
+      for (const cleanup of cleanups.splice(0)) {
+        try {
+          await cleanup()
+        } catch {
+          // Deadline failure is already the reported error; cleanup is best effort here.
+        }
+      }
     },
     dispose() {
       cancelTimeout(timer)
@@ -867,5 +1201,5 @@ function arraysEqual(left, right) {
 }
 
 function publisherUsage() {
-  return "Usage: node scripts/release/publisher.mjs --candidate <candidate.json> --record <release-record.json> --artifact-dir <directory> --report <publish.json> --github-output <path>"
+  return "Usage: node scripts/release/publisher.mjs --candidate <candidate.json> --record <release-record.json> --artifact-dir <directory> --report <publish.json> --github-output <path> [--npm-auth-mode oidc|bootstrap]"
 }

@@ -1,25 +1,25 @@
 {
-  "name": "@dawn-ai/devkit",
-  "version": "0.8.24",
+  "name": "@b4run/devkit",
+  "version": "0.8.29",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "description": "Scaffold templates and development utilities shared by Dawn tooling.",
+  "description": "Scaffold templates and development utilities shared by B4.run tooling.",
   "keywords": [
-    "dawn",
+    "b4",
     "typescript",
     "scaffolding",
     "templates",
     "developer-tools"
   ],
-  "homepage": "https://github.com/cacheplane/dawnai/tree/main/packages/devkit#readme",
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/devkit#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/dawnai.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/devkit"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/dawnai/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -45,7 +45,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.test.json"
   },
   "devDependencies": {
-    "@dawn-ai/config-typescript": "workspace:*",
+    "@b4run/config-typescript": "workspace:*",
     "@types/node": "26.1.2"
   }
 }

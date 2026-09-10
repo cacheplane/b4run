@@ -1,15 +1,15 @@
 /**
- * Entry point for the `@dawn-ai/ag-ui/react` subpath.
+ * Entry point for the `@b4run/ag-ui/react` subpath.
  *
  * React and `@copilotkit/react-core` are OPTIONAL peer dependencies: importing
- * the root (`@dawn-ai/ag-ui`) or `./sse` entry never loads this module, so a
+ * the root (`@b4run/ag-ui`) or `./sse` entry never loads this module, so a
  * server-only consumer installs nothing extra.
  *
  * Three layers, from drop-in to build-your-own:
  *
- * 1. `dawnActivityRenderers` — the whole set, ready to pass to
+ * 1. `b4ActivityRenderers` — the whole set, ready to pass to
  *    CopilotKit's `renderActivityMessages`. This is the one-line default.
- * 2. `dawnPlanActivityRenderer` / `dawnSubagentActivityRenderer` — the
+ * 2. `b4PlanActivityRenderer` / `b4SubagentActivityRenderer` — the
  *    individual renderers, for clients that want only one of them or that mix
  *    them with their own.
  * 3. `PlanActivityCard`, `SubagentActivityCard`, `ActivityChecklist` plus the
@@ -24,26 +24,26 @@
  * them) is what gives those rewrites somewhere to point. The README's rung-4
  * table lists every rewrite per file.
  *
- * The activity type constants and content types (`DAWN_PLAN_ACTIVITY_TYPE`,
- * `DawnPlanActivityContent`, …) live on the root entry and are not re-exported
+ * The activity type constants and content types (`B4_PLAN_ACTIVITY_TYPE`,
+ * `B4PlanActivityContent`, …) live on the root entry and are not re-exported
  * here. The one type this entry does own is `SubagentActivityContentOutput`:
  * the parsed subagent shape, which admits an explicit `undefined` `todos` that
  * the published exact-optional type does not. It is the parameter type of both
- * `SubagentActivityCard` and `dawnSubagentActivityRenderer.render`.
+ * `SubagentActivityCard` and `b4SubagentActivityRenderer.render`.
  */
 export { ActivityChecklist } from "./ActivityChecklist.js"
 export { PlanActivityCard } from "./PlanActivityCard.js"
 export {
+  type B4ActivityClassNames,
+  type B4ActivityComponents,
+  type B4TodoRowProps,
+  type B4ToolRowProps,
   cx,
-  type DawnActivityClassNames,
-  type DawnActivityComponents,
-  type DawnTodoRowProps,
-  type DawnToolRowProps,
 } from "./parts.js"
 export {
-  dawnActivityRenderers,
-  dawnPlanActivityRenderer,
-  dawnSubagentActivityRenderer,
+  b4ActivityRenderers,
+  b4PlanActivityRenderer,
+  b4SubagentActivityRenderer,
 } from "./renderers.js"
 export { SubagentActivityCard } from "./SubagentActivityCard.js"
 export {

@@ -19,8 +19,8 @@ import {
 } from "./smoke-result.mjs"
 import { canonicalAuditResultBytes, parseAuditResult } from "./terminal-records.mjs"
 
-const MARKER_START = "<!-- DAWN_RELEASE_CONTROLLER_MARKER\n"
-const MARKER_END = "\nEND_DAWN_RELEASE_CONTROLLER_MARKER -->"
+const MARKER_START = "<!-- B4_RELEASE_CONTROLLER_MARKER\n"
+const MARKER_END = "\nEND_B4_RELEASE_CONTROLLER_MARKER -->"
 const MARKER_FIELDS = Object.freeze([
   "schemaVersion",
   "epoch",
@@ -155,7 +155,14 @@ const ASSET_NAME_PATTERN = /^(?!\.{1,2}$)[A-Za-z0-9][A-Za-z0-9._@+-]{0,511}$/u
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
 const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u
 const AUDIT_WORKFLOW = ".github/workflows/published-artifact-verify.yml"
-const ATTESTATION_REPOSITORY = "cacheplane/dawnai"
+export const ATTESTATION_REPOSITORY = "cacheplane/b4run"
+// The original repository that produced every release before the B4.run rename.
+// Its frozen records embed this identity and must stay readable; naming it here
+// never authorizes a B4.run release, which requires ATTESTATION_REPOSITORY.
+export const HISTORICAL_ATTESTATION_REPOSITORY = "cacheplane/dawnai"
+// The first version released under the B4.run identity. Any marker below it was
+// produced by the original repository, so its attestation names that repository.
+export const FIRST_B4_RELEASE_VERSION = "0.8.27"
 export const MAX_AUDIT_ATTEMPTS = 128
 export const MAX_SMOKE_ATTEMPTS = 128
 const BASE_ASSET_COUNT = 45
@@ -247,7 +254,7 @@ export function canonicalReleaseBody(input) {
   }
 
   const lines = [
-    `# Dawn v${marker.version}`,
+    `# B4 v${marker.version}`,
     "",
     `Candidate commit: \`${marker.commitSha}\``,
     `Controller phase: \`${marker.phase}\``,
@@ -558,8 +565,16 @@ export async function verifyReleaseAttestationAnchor({
   })
 }
 
-export function parsePublicationState(value, { candidate, inventory }) {
-  const expectations = snapshotJson({ candidate, inventory })
+export function parsePublicationState(value, { candidate, inventory, escrowRun = null }) {
+  const expectations = snapshotJson({ candidate, inventory, escrowRun })
+  if (expectations.escrowRun !== null) {
+    assertExactFields(expectations.escrowRun, ["runId", "runAttempt"], "escrow run")
+    if (
+      !isPositiveInteger(expectations.escrowRun.runId) ||
+      !isPositiveInteger(expectations.escrowRun.runAttempt)
+    )
+      throw new TypeError("Escrow run identity is invalid")
+  }
   const identity = validateCandidate(expectations.candidate)
   const packageNames = inventoryPackageNames(expectations.inventory)
   const state = snapshotJson(value)
@@ -598,7 +613,12 @@ export function parsePublicationState(value, { candidate, inventory }) {
     }
     previousRunId = run.runId
     runIds.add(run.runId)
-    validateAllAttemptJobs(run.jobs, run.runAttempt)
+    validateAttemptJobs(
+      run.jobs,
+      run.runAttempt,
+      expectations.escrowRun?.runId === run.runId &&
+        expectations.escrowRun?.runAttempt === run.runAttempt,
+    )
   }
   for (const [index, pkg] of state.packages.entries()) {
     assertExactFields(pkg, PACKAGE_OBSERVATION_FIELDS, `package observation ${index}`)
@@ -949,18 +969,24 @@ export async function escrowCandidate(input) {
     candidate,
     manifest,
   })
-  const publicationState = parsePublicationState(argumentsSnapshot.publicationState, {
-    candidate,
-    inventory: { packages: manifest.packages.map(({ name }) => ({ name })) },
-  })
   const inputAttestationSet = parseAttestationSet(argumentsSnapshot.attestationSet, {
     candidate,
     manifest,
     repository: ATTESTATION_REPOSITORY,
   })
+  const publicationState = parsePublicationState(argumentsSnapshot.publicationState, {
+    candidate,
+    inventory: { packages: manifest.packages.map(({ name }) => ({ name })) },
+    // Bundle verification above binds this run. Its downstream publisher may not
+    // exist in Actions yet while the required escrow job is still running.
+    escrowRun: {
+      runId: inputAttestationSet.workflowRunId,
+      runAttempt: inputAttestationSet.runAttempt,
+    },
+  })
   assertAttestationRunAuthorized(inputAttestationSet, publicationState)
   const github = argumentsSnapshot.github
-  const title = `Dawn v${candidate.version}`
+  const title = `B4 v${candidate.version}`
   const desiredMarker = {
     schemaVersion: 1,
     epoch: "fixed-group-v1",
@@ -1198,7 +1224,7 @@ export async function reconcileNpmEvidence({ candidate, record, manifest, npmEvi
     tag: marker.tag,
     targetSha: identity.commitSha,
     expectedBodySha256: releaseBodySha256(release.body),
-    title: `Dawn v${identity.version}`,
+    title: `B4 v${identity.version}`,
     body,
   })
   release = await readManagedRelease(effects.reader, release.id)
@@ -1339,7 +1365,7 @@ export async function reconcileSmokeEvidence(input) {
     tag: marker.tag,
     targetSha: identity.commitSha,
     expectedBodySha256: releaseBodySha256(release.body),
-    title: `Dawn v${identity.version}`,
+    title: `B4 v${identity.version}`,
     body,
   })
   release = await readManagedRelease(effects.reader, release.id)
@@ -1958,7 +1984,7 @@ function validateMultiSubjectAttestationBundle(bytes, { manifest, attestationSet
   const invocationId = statement.predicate?.runDetails?.metadata?.invocationId
   const invocation =
     typeof invocationId === "string"
-      ? /^https:\/\/github\.com\/cacheplane\/dawnai\/actions\/runs\/([1-9][0-9]*)\/attempts\/([1-9][0-9]*)$/u.exec(
+      ? /^https:\/\/github\.com\/cacheplane\/b4run\/actions\/runs\/([1-9][0-9]*)\/attempts\/([1-9][0-9]*)$/u.exec(
           invocationId,
         )
       : null
@@ -2292,7 +2318,7 @@ async function readManagedRelease(reader, releaseId) {
 async function requireDraftRelease(reader, candidate) {
   const release = await findManagedRelease(reader, `v${candidate.version}`)
   if (release === null) throw new Error("Managed draft Release is missing")
-  assertMutableCandidateRelease(release, `Dawn v${candidate.version}`)
+  assertMutableCandidateRelease(release, `B4 v${candidate.version}`)
   return release
 }
 
@@ -2563,7 +2589,15 @@ function dataValue(value, key) {
   return descriptor.value
 }
 
-export function validateMarker(value) {
+// Reading a marker accepts either identity this repository has released under.
+// The current identity is what new releases must carry; the previous one is a
+// frozen, known value that appears in evidence written before the rename and
+// must stay readable. Reading is not authorization: publication is bound by the
+// sealed manifest, the code-owned package set and verified provenance.
+export function validateMarker(
+  value,
+  { attestationRepositories = [ATTESTATION_REPOSITORY, HISTORICAL_ATTESTATION_REPOSITORY] } = {},
+) {
   const marker = snapshotJson(value)
   assertExactFields(marker, MARKER_FIELDS, "release marker")
   if (
@@ -2603,7 +2637,8 @@ export function validateMarker(value) {
     throw new TypeError("Release marker artifact fields are invalid for its phase")
   }
   validateMarkerEvidence(marker)
-  if (marker.attestationSet !== null) validateEmbeddedAttestation(marker.attestationSet, marker)
+  if (marker.attestationSet !== null)
+    validateEmbeddedAttestation(marker.attestationSet, marker, attestationRepositories)
   return deepFreeze(marker)
 }
 
@@ -2823,10 +2858,14 @@ function validateAuditMarker(audit, marker) {
   }
 }
 
-function validateEmbeddedAttestation(attestation, marker) {
+function validateEmbeddedAttestation(
+  attestation,
+  marker,
+  expectedRepositories = [ATTESTATION_REPOSITORY],
+) {
   assertExactFields(attestation, ATTESTATION_FIELDS, "attestation set")
   if (
-    attestation.repository !== ATTESTATION_REPOSITORY ||
+    !expectedRepositories.includes(attestation.repository) ||
     attestation.workflow !== ".github/workflows/release.yml" ||
     attestation.sourceRef !== `refs/tags/${marker.tag}` ||
     attestation.commitSha !== marker.commitSha ||
@@ -2876,6 +2915,9 @@ function validateAbandonedArtifactShape([manifestDigest, recordDigest, baseDiges
 }
 
 export function validateAllAttemptJobs(jobs, currentAttempt) {
+  return validateAttemptJobs(jobs, currentAttempt, false)
+}
+function validateAttemptJobs(jobs, currentAttempt, allowPendingPublisher) {
   const attempts = new Set()
   const identities = new Set()
   const publisherJobsByAttempt = new Map()
@@ -2929,6 +2971,18 @@ export function validateAllAttemptJobs(jobs, currentAttempt) {
     throw new TypeError("Candidate job attempt coverage is incomplete")
   for (let attempt = 1; attempt <= currentAttempt; attempt += 1) {
     if (publisherJobsByAttempt.get(attempt) !== 1) {
+      const escrow = jobs.filter((job) => job.runAttempt === attempt && job.name === "escrow")
+      if (
+        allowPendingPublisher &&
+        attempt === currentAttempt &&
+        !publisherJobsByAttempt.has(attempt) &&
+        escrow.length === 1 &&
+        escrow[0].status === "in_progress" &&
+        escrow[0].startedAt !== null &&
+        escrow[0].completedAt === null &&
+        escrow[0].conclusion === null
+      )
+        continue
       throw new TypeError("Candidate attempt must contain exactly one publish-npm job")
     }
   }

@@ -1,4 +1,4 @@
-import type { BackendContext, FilesystemBackend } from "@dawn-ai/workspace"
+import type { BackendContext, FilesystemBackend } from "@b4run/workspace"
 import type { KubeClient } from "./kube-client.js"
 
 function q(s: string): string {

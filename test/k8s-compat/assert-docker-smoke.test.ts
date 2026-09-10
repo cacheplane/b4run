@@ -22,13 +22,13 @@ import { afterEach, describe, expect, test } from "vitest"
 const REPOSITORY_ROOT = resolve(__dirname, "../..")
 const SCRIPT = resolve(REPOSITORY_ROOT, "test/k8s-smoke/assert-docker.sh")
 const RUN_BOUNDED_HELPER = resolve(REPOSITORY_ROOT, "test/k8s-smoke/run-bounded.mjs")
-const APP_NAME = "dawn-smoke-app"
-const AIMOCK_NAME = "dawn-smoke-aimock"
-const NETWORK_NAME = "dawn-smoke-net"
+const APP_NAME = "b4-smoke-app"
+const AIMOCK_NAME = "b4-smoke-aimock"
+const NETWORK_NAME = "b4-smoke-net"
 const THREAD_ID = "thread:123"
 const SANITIZED_THREAD_ID = "thread_123"
-const SANDBOX_NAME = `dawn-sbx-${SANITIZED_THREAD_ID}`
-const SANDBOX_VOLUME = `dawn-sbx-vol-${SANITIZED_THREAD_ID}`
+const SANDBOX_NAME = `b4-sbx-${SANITIZED_THREAD_ID}`
+const SANDBOX_VOLUME = `b4-sbx-vol-${SANITIZED_THREAD_ID}`
 const VALID_IDENTITY = "a".repeat(64)
 const objectId = (character: string): string => character.repeat(64)
 const NETWORK_ID = objectId("1")
@@ -348,9 +348,9 @@ const findContainer = (state, target) =>
 const findNetwork = (state, target) =>
   Object.entries(state.networks).find(([name, value]) => name === target || value.id === target)
 const sandboxName = (state) =>
-  "dawn-sbx-" + state.options.threadId.replace(/[^a-zA-Z0-9_.-]/g, "_")
+  "b4-sbx-" + state.options.threadId.replace(/[^a-zA-Z0-9_.-]/g, "_")
 const sandboxVolume = (state) =>
-  "dawn-sbx-vol-" + state.options.threadId.replace(/[^a-zA-Z0-9_.-]/g, "_")
+  "b4-sbx-vol-" + state.options.threadId.replace(/[^a-zA-Z0-9_.-]/g, "_")
 const makeVolume = (name, generation = 1) => ({
   CreatedAt: "2026-08-11T00:00:0" + generation + "Z",
   Driver: "local",
@@ -375,8 +375,8 @@ const createSandboxResources = (state, ownership = "owned") => {
   const owned = ownership === "owned"
   state.containers[name] = makeContainer(state, name, {
     labels: {
-      "dawn.sandbox": owned ? state.options.sandboxLabel : "foreign-thread",
-      "dawn.sandbox.identity": owned ? state.options.identityLabel : "b".repeat(64),
+      "b4.sandbox": owned ? state.options.sandboxLabel : "foreign-thread",
+      "b4.sandbox.identity": owned ? state.options.identityLabel : "b".repeat(64),
     },
     user: state.options.sandboxUser,
     readonlyRootfs: state.options.sandboxReadonlyRootfs,
@@ -529,7 +529,7 @@ const docker = () => {
     }
     const name = args[nameIndex + 1]
     if (state.containers[name]) fail("container name is occupied")
-    const resource = name === "dawn-smoke-aimock" ? "aimock" : "app"
+    const resource = name === "b4-smoke-aimock" ? "aimock" : "app"
     if (state.options.createForeignCollisionTarget === resource) {
       const foreign = makeContainer(state, name)
       state.containers[name] = foreign
@@ -619,7 +619,7 @@ const docker = () => {
     const target = args.at(-1)
     const formatIndex = args.findIndex((value) => value === "--format" || value === "-f")
     const format = formatIndex === -1 ? "" : args[formatIndex + 1]
-    const key = format.includes("dawn.smoke.run")
+    const key = format.includes("b4.smoke.run")
       ? "network-run-label:" + target
       : "network-id:" + target
     before(state, key)
@@ -635,8 +635,8 @@ const docker = () => {
     }
     const found = findNetwork(current, target)
     if (!found) fail()
-    if (format.includes("dawn.smoke.run")) {
-      process.stdout.write((found[1].labels?.["dawn.smoke.run"] ?? "") + "\n")
+    if (format.includes("b4.smoke.run")) {
+      process.stdout.write((found[1].labels?.["b4.smoke.run"] ?? "") + "\n")
     } else process.stdout.write(found[1].id + "\n")
     after(current, key)
     return
@@ -648,9 +648,9 @@ const docker = () => {
     const target = args.at(-1)
     let key = "container-inspect:" + target
     if (format === "{{.Id}}") key = "container-id:" + target
-    else if (format.includes("dawn.sandbox.identity")) key = "container-identity:" + target
-    else if (format.includes("dawn.sandbox")) key = "container-thread-label:" + target
-    else if (format.includes("dawn.smoke.run")) key = "container-run-label:" + target
+    else if (format.includes("b4.sandbox.identity")) key = "container-identity:" + target
+    else if (format.includes("b4.sandbox")) key = "container-thread-label:" + target
+    else if (format.includes("b4.smoke.run")) key = "container-run-label:" + target
     else if (format === "{{.Config.User}}") key = "container-user"
     else if (format === "{{.HostConfig.ReadonlyRootfs}}") key = "container-rootfs"
     else if (format === "{{.Config.Hostname}}") key = "container-hostname"
@@ -683,12 +683,12 @@ const docker = () => {
     if (!format) {
       process.stdout.write(JSON.stringify([{ Id: value.id, Name: "/" + name, Config: value }]) + "\n")
     } else if (format === "{{.Id}}") process.stdout.write(value.id + "\n")
-    else if (format.includes("dawn.sandbox.identity")) {
-      process.stdout.write((value.labels["dawn.sandbox.identity"] ?? "") + "\n")
-    } else if (format.includes("dawn.sandbox")) {
-      process.stdout.write((value.labels["dawn.sandbox"] ?? "") + "\n")
-    } else if (format.includes("dawn.smoke.run")) {
-      process.stdout.write((value.labels["dawn.smoke.run"] ?? "") + "\n")
+    else if (format.includes("b4.sandbox.identity")) {
+      process.stdout.write((value.labels["b4.sandbox.identity"] ?? "") + "\n")
+    } else if (format.includes("b4.sandbox")) {
+      process.stdout.write((value.labels["b4.sandbox"] ?? "") + "\n")
+    } else if (format.includes("b4.smoke.run")) {
+      process.stdout.write((value.labels["b4.smoke.run"] ?? "") + "\n")
     } else if (format === "{{.Config.User}}") process.stdout.write(value.user + "\n")
     else if (format === "{{.HostConfig.ReadonlyRootfs}}") {
       process.stdout.write(String(value.readonlyRootfs) + "\n")
@@ -748,7 +748,7 @@ const docker = () => {
     if (names.length > 0) process.stdout.write(names.join("\n") + "\n")
     if (
       current.options.replaceVolumeAfterAppRemovalList &&
-      !current.containers["dawn-smoke-app"] &&
+      !current.containers["b4-smoke-app"] &&
       current.volumes[sandboxVolume(current)]
     ) {
       applyAction(current, { type: "replace-volume", name: sandboxVolume(current) })
@@ -762,7 +762,7 @@ const docker = () => {
     const target = args[1]
     const found = findContainer(state, target)
     const name = found?.[0] ?? target
-    if (state.options.hangDiagnostic && name === "dawn-smoke-app") {
+    if (state.options.hangDiagnostic && name === "b4-smoke-app") {
       hang("docker logs " + target, "ignore")
       return
     }
@@ -777,7 +777,7 @@ const docker = () => {
     if (
       (state.options.cleanupMode === "ignore-term" ||
         state.options.cleanupMode === "term-zero") &&
-      name === "dawn-smoke-app"
+      name === "b4-smoke-app"
     ) {
       hang(
         "docker rm " + target,
@@ -786,13 +786,13 @@ const docker = () => {
       return
     }
     if (!found) fail()
-    if (name === "dawn-smoke-app" && state.options.lateSandboxOnAppRemoval !== "none") {
+    if (name === "b4-smoke-app" && state.options.lateSandboxOnAppRemoval !== "none") {
       createSandboxResources(state, state.options.lateSandboxOnAppRemoval)
     }
     delete state.containers[found[0]]
     save(state)
     if (
-      name === "dawn-smoke-app" &&
+      name === "b4-smoke-app" &&
       (state.options.cleanupMode === "remove-then-ignore-term" ||
         state.options.cleanupMode === "remove-then-term-zero")
     ) {
@@ -855,8 +855,8 @@ const curl = () => {
       if (state.options.createSandbox) {
         state.containers[name] = makeContainer(state, name, {
           labels: {
-            "dawn.sandbox": state.options.sandboxLabel,
-            "dawn.sandbox.identity": state.options.identityLabel,
+            "b4.sandbox": state.options.sandboxLabel,
+            "b4.sandbox.identity": state.options.identityLabel,
           },
           user: state.options.sandboxUser,
           readonlyRootfs: state.options.sandboxReadonlyRootfs,
@@ -872,8 +872,8 @@ const curl = () => {
       const unexpected = state.options.unexpectedSandboxName
       state.containers[unexpected] = makeContainer(state, unexpected, {
         labels: {
-          "dawn.sandbox": "concurrent",
-          "dawn.sandbox.identity": "b".repeat(64),
+          "b4.sandbox": "concurrent",
+          "b4.sandbox.identity": "b".repeat(64),
         },
       })
     }
@@ -1106,7 +1106,7 @@ async function runSupervisor(options: {
     readonly signal: "SIGHUP" | "SIGINT" | "SIGTERM"
   }
 }): Promise<SupervisorResult> {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-bounded-supervisor-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-bounded-supervisor-"))
   temporaryDirectories.push(directory)
   const callDirectory = join(directory, "call.1")
   const signalRequestPath = join(callDirectory, "signal-request")
@@ -1286,7 +1286,7 @@ function expectNoPostReapSignal(result: SupervisorResult): void {
 }
 
 async function runSmoke(options: SmokeFixtureOptions = {}): Promise<SmokeResult> {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-docker-smoke-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-docker-smoke-"))
   temporaryDirectories.push(directory)
   const parentPath = process.env.PATH ?? ""
   const realJq = await findExecutableOnPath("jq", parentPath)
@@ -1602,13 +1602,13 @@ describe("Docker smoke ownership", () => {
     {
       name: "sandbox container",
       configure: (state: FakeState) => {
-        state.containers["dawn-sbx-occupied"] = container(objectId("b"), "dawn-sbx-occupied")
+        state.containers["b4-sbx-occupied"] = container(objectId("b"), "b4-sbx-occupied")
       },
     },
     {
       name: "sandbox volume",
       configure: (state: FakeState) => {
-        state.volumes["dawn-sbx-vol-occupied"] = volume("dawn-sbx-vol-occupied")
+        state.volumes["b4-sbx-vol-occupied"] = volume("b4-sbx-vol-occupied")
       },
     },
   ])(
@@ -1652,16 +1652,16 @@ describe("Docker smoke ownership", () => {
     {
       name: "sandbox container prefix",
       resource: "container" as const,
-      expression: "dawn-sbx-",
-      key: "container-list:dawn-sbx-",
+      expression: "b4-sbx-",
+      key: "container-list:b4-sbx-",
       occurrence: 1,
       beforeFixedMutation: true,
     },
     {
       name: "sandbox volume prefix",
       resource: "volume" as const,
-      expression: "dawn-sbx-vol-",
-      key: "volume-list:dawn-sbx-vol-",
+      expression: "b4-sbx-vol-",
+      key: "volume-list:b4-sbx-vol-",
       occurrence: 1,
       beforeFixedMutation: true,
     },
@@ -1848,8 +1848,8 @@ describe("Docker smoke ownership", () => {
     "does not adopt a regex-near sandbox container for a dotted thread ID",
     async () => {
       const threadId = "thread.123"
-      const targetName = `dawn-sbx-${threadId}`
-      const nearName = "dawn-sbx-threadX123"
+      const targetName = `b4-sbx-${threadId}`
+      const nearName = "b4-sbx-threadX123"
       const result = await runSmoke({
         configure: (state) => {
           state.options.threadId = threadId
@@ -1885,8 +1885,8 @@ describe("Docker smoke ownership", () => {
     "does not adopt a regex-near sandbox volume for a dotted thread ID",
     async () => {
       const threadId = "thread.123"
-      const targetName = `dawn-sbx-vol-${threadId}`
-      const nearName = "dawn-sbx-vol-threadX123"
+      const targetName = `b4-sbx-vol-${threadId}`
+      const nearName = "b4-sbx-vol-threadX123"
       const result = await runSmoke({
         configure: (state) => {
           state.options.threadId = threadId
@@ -1919,8 +1919,8 @@ describe("Docker smoke ownership", () => {
   test(
     "does not refuse or delete a regex-near network for a dotted literal name",
     async () => {
-      const targetName = "dawn.smoke.net"
-      const nearName = "dawnXsmokeXnet"
+      const targetName = "b4.smoke.net"
+      const nearName = "b4XsmokeXnet"
       const nearId = objectId("d")
       const result = await runSmoke({
         environment: { NET: targetName },
@@ -1974,7 +1974,7 @@ describe("Docker smoke ownership", () => {
       })
       expect(runLabels).toHaveLength(3)
       expect(new Set(runLabels).size).toBe(1)
-      expect(runLabels[0]).toMatch(/^dawn\.smoke\.run=[0-9a-f]{32}$/)
+      expect(runLabels[0]).toMatch(/^b4\.smoke\.run=[0-9a-f]{32}$/)
       expect(result.transcript).toContainEqual({
         command: "docker",
         args: ["inspect", "--format", "{{.Id}}", SANDBOX_NAME],
@@ -2071,7 +2071,7 @@ describe("Docker smoke ownership", () => {
   test(
     "rechecks the exclusive sandbox set immediately before Agent Protocol DELETE",
     async () => {
-      const concurrentName = "dawn-sbx-pre-delete-concurrent"
+      const concurrentName = "b4-sbx-pre-delete-concurrent"
       const result = await runSmoke({
         configure: (state) => {
           state.options.mutations = [
@@ -2307,7 +2307,7 @@ describe("Docker smoke ownership", () => {
   test(
     "leaves an unexpected concurrent sandbox untouched",
     async () => {
-      const unexpectedName = "dawn-sbx-concurrent"
+      const unexpectedName = "b4-sbx-concurrent"
       const result = await runSmoke({
         configure: (state) => {
           state.options.unexpectedSandboxName = unexpectedName
@@ -2639,7 +2639,7 @@ describe("Docker smoke ownership", () => {
       {
         type: "set-container-label",
         name: SANDBOX_NAME,
-        label: "dawn.sandbox",
+        label: "b4.sandbox",
         value: "replacement",
       },
     ],
@@ -2648,7 +2648,7 @@ describe("Docker smoke ownership", () => {
       {
         type: "set-container-label",
         name: SANDBOX_NAME,
-        label: "dawn.sandbox.identity",
+        label: "b4.sandbox.identity",
         value: "c".repeat(64),
       },
     ],
@@ -2695,7 +2695,7 @@ describe("Docker smoke ownership", () => {
               action: {
                 type: "set-container-label",
                 name: SANDBOX_NAME,
-                label: "dawn.sandbox.identity",
+                label: "b4.sandbox.identity",
                 value: objectId("c"),
               },
             },
@@ -2708,7 +2708,7 @@ describe("Docker smoke ownership", () => {
       const replacementContainer = result.state.containers[SANDBOX_NAME]
       expect(replacementContainer).toBeDefined()
       expect(replacementContainer?.id).not.toBe(SANDBOX_ID)
-      expect(replacementContainer?.labels["dawn.sandbox.identity"]).toBe(objectId("c"))
+      expect(replacementContainer?.labels["b4.sandbox.identity"]).toBe(objectId("c"))
       expect(result.state.volumes[SANDBOX_VOLUME]?.CreatedAt).toBe("2026-08-11T00:00:02Z")
       expect(result.state.volumes[SANDBOX_VOLUME]?.Driver).toBe("local")
       expect(result.state.volumes[SANDBOX_VOLUME]?.Labels).toBeNull()
@@ -2885,7 +2885,7 @@ describe("Docker smoke ownership", () => {
       expect(result.stderr).toMatch(/COMMAND TIMEOUT.*docker logs/is)
       const hangingLog = result.stderr.indexOf("FAKE HANG docker logs")
       const timeout = result.stderr.indexOf("COMMAND TIMEOUT")
-      const nextLog = result.stderr.indexOf("logs for dawn-smoke-aimock")
+      const nextLog = result.stderr.indexOf("logs for b4-smoke-aimock")
       expect(hangingLog).toBeGreaterThan(-1)
       expect(timeout).toBeGreaterThan(hangingLog)
       expect(nextLog).toBeGreaterThan(timeout)
@@ -3074,7 +3074,7 @@ describe("bounded supervisor protocol", () => {
   })
 
   test("serves repeated sequential calls from one process with file-backed argv", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "dawn-bounded-server-"))
+    const directory = await mkdtemp(join(tmpdir(), "b4-bounded-server-"))
     temporaryDirectories.push(directory)
     const requestPath = join(directory, "request.fifo")
     const responsePath = join(directory, "response.fifo")
@@ -3191,7 +3191,7 @@ describe("bounded supervisor protocol", () => {
     ["TERM-to-zero", 'process.on("SIGTERM", () => process.exit(0))'],
     ["TERM-ignore", 'process.on("SIGTERM", () => {})'],
   ])("returns 124 after timing out a %s command", async (_name, signalHandler) => {
-    const directory = await mkdtemp(join(tmpdir(), "dawn-bounded-child-ready-"))
+    const directory = await mkdtemp(join(tmpdir(), "b4-bounded-child-ready-"))
     temporaryDirectories.push(directory)
     const childReadyPath = join(directory, "ready")
     const result = await runSupervisor({

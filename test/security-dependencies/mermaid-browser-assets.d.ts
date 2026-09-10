@@ -1,6 +1,6 @@
 declare module "@copilotkit/react-core/v2/styles.css"
 
-declare module "dawn-resolved-mermaid" {
+declare module "b4-resolved-mermaid" {
   interface MermaidBrowserApi {
     initialize(config: Readonly<Record<string, unknown>>): void
     readonly mermaidAPI: {

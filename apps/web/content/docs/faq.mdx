@@ -1,68 +1,68 @@
 # FAQ
 
-The questions developers ask before adopting Dawn. Short, opinionated answers — verdict first, one piece of context, link to the deep page when there is one. This is not a troubleshooting guide and not a roadmap.
+The questions developers ask before adopting B4.run. Short, opinionated answers — verdict first, one piece of context, link to the deep page when there is one. This is not a troubleshooting guide and not a roadmap.
 
-## Adopting Dawn
+## Adopting B4.run
 
 ### Do I have to use LangGraph?
 
-Yes. Dawn is a meta-framework for LangGraph the way Next.js is a meta-framework for React. LangGraph runs the graph; Dawn writes the conventions around it — file-system routing, type inference, the dev server, the build step. If you do not want LangGraph, Dawn is the wrong tool. See [Mental Model](/docs/mental-model).
+Yes. B4.run is a meta-framework for LangGraph the way Next.js is a meta-framework for React. LangGraph runs the graph; B4.run writes the conventions around it — file-system routing, type inference, the dev server, the build step. If you do not want LangGraph, B4.run is the wrong tool. See [Mental Model](/docs/mental-model).
 
 ### Can I bring my own model provider?
 
-Yes. The built-in `agent()` route materializes to a LangChain chat model. Dawn infers providers for known model families and lazy-loads the matching LangChain integration package. Set `provider` explicitly to one of the supported built-in provider ids for aliases, ambiguous model names, local models, or provider-router model ids. Raw `graph` and `chain` routes can still instantiate any provider directly. See [API Reference](/docs/api).
+Yes. The built-in `agent()` route materializes to a LangChain chat model. B4.run infers providers for known model families and lazy-loads the matching LangChain integration package. Set `provider` explicitly to one of the supported built-in provider ids for aliases, ambiguous model names, local models, or provider-router model ids. Raw `graph` and `chain` routes can still instantiate any provider directly. See [API Reference](/docs/api).
 
-### How does Dawn compare to Mastra / CopilotKit / Vercel AI SDK?
+### How does B4.run compare to Mastra / CopilotKit / Vercel AI SDK?
 
 They solve different problems.
 
-- **Vercel AI SDK** is a client-and-server toolkit for chat UIs and provider-agnostic LLM calls. Dawn does not compete with it — it sits one layer up, organizing whole agent projects, and you can use the AI SDK inside a Dawn route.
-- **CopilotKit** is a frontend-first framework for embedding copilots in existing apps. Dawn is backend-first; the deliverable is a deployable agent runtime, not in-app UI. They compose through Dawn's AG-UI endpoint: both `dawn dev` and `dawn start` serve `POST /agui/{routeId}` with the same route-execution middleware behavior, and the chat example wires a CopilotKit `HttpAgent` to it.
-- **Mastra** is a general-purpose agent framework with its own runtime and abstractions. Dawn is narrower: it does not replace LangGraph, it deletes the boilerplate around it.
+- **Vercel AI SDK** is a client-and-server toolkit for chat UIs and provider-agnostic LLM calls. B4.run does not compete with it — it sits one layer up, organizing whole agent projects, and you can use the AI SDK inside a B4.run route.
+- **CopilotKit** is a frontend-first framework for embedding copilots in existing apps. B4.run is backend-first; the deliverable is a deployable agent runtime, not in-app UI. They compose through B4.run's AG-UI endpoint: both `b4 dev` and `b4 start` serve `POST /agui/{routeId}` with the same route-execution middleware behavior, and the chat example wires a CopilotKit `HttpAgent` to it.
+- **Mastra** is a general-purpose agent framework with its own runtime and abstractions. B4.run is narrower: it does not replace LangGraph, it deletes the boilerplate around it.
 
-If you are already on LangGraph, Dawn fits. If you are not, pick the framework whose runtime you want to live in.
+If you are already on LangGraph, B4.run fits. If you are not, pick the framework whose runtime you want to live in.
 
-### Does Dawn support Python?
+### Does B4.run support Python?
 
-No. Dawn is TypeScript-only and the type inference is the whole point — tool parameter types are read from function signatures at build time and emitted into `.dawn/dawn.generated.d.ts`. A Python port would lose that. Use `langgraph` directly in Python; LangSmith deploys both.
+No. B4.run is TypeScript-only and the type inference is the whole point — tool parameter types are read from function signatures at build time and emitted into `.b4/b4.generated.d.ts`. A Python port would lose that. Use `langgraph` directly in Python; LangSmith deploys both.
 
-### Is Dawn production-ready?
+### Is B4.run production-ready?
 
-Dawn produces deployment artifacts; the framework itself is pre-1.0 and the API surface is still moving. `dawn build` emits a runnable `node` target (`server.mjs` plus a hardened `Dockerfile`) and a `langsmith` target (`langgraph.json`) by default, plus an opt-in `hono` target for Cloudflare Workers and other edge runtimes; `dawn start` serves the `node` target in production on `0.0.0.0`. Lock to a pinned version and read release notes between upgrades. See [Deployment](/docs/deployment).
+B4.run produces deployment artifacts; the framework itself is pre-1.0 and the API surface is still moving. `b4 build` emits a runnable `node` target (`server.mjs` plus a hardened `Dockerfile`) and a `langsmith` target (`langgraph.json`) by default, plus an opt-in `hono` target for Cloudflare Workers and other edge runtimes; `b4 start` serves the `node` target in production on `0.0.0.0`. Lock to a pinned version and read release notes between upgrades. See [Deployment](/docs/deployment).
 
-## Working in Dawn
+## Working in B4.run
 
 ### Can I drop down to raw LangGraph when I need to?
 
-Yes — that is the point. A route's `index.ts` can default-export an `agent()` descriptor or named-export a `workflow`, `graph`, or `chain`; the `graph` shape hands you a raw `StateGraph` with no Dawn abstractions in the way. Mix shapes across routes in one project. See [Routes](/docs/routes).
+Yes — that is the point. A route's `index.ts` can default-export an `agent()` descriptor or named-export a `workflow`, `graph`, or `chain`; the `graph` shape hands you a raw `StateGraph` with no B4.run abstractions in the way. Mix shapes across routes in one project. See [Routes](/docs/routes).
 
-### What does `dawn build` actually do?
+### What does `b4 build` actually do?
 
-It walks your routes, runs typegen, then writes deployment artifacts for each configured `build.targets` (`node` and `langsmith` by default). The `node` target emits `.dawn/build/server.mjs` — which boots the real Dawn runtime (Agent Protocol, AG-UI, and the sandbox if configured) — plus a hardened `Dockerfile`; run it with `dawn start` or `docker build`/`docker run`. The `langsmith` target emits `.dawn/build/langgraph.json` plus a per-route entry file under `.dawn/build/<routeSlug>.ts`; each agent route's entry imports your default `agent()` descriptor, materializes it as a LangGraph graph, and wires in discovered tools. Each `assistant_id` is `<routeId>#<kind>` — for example `/research#agent`. The opt-in `hono` target emits `.dawn/build/app.mjs` plus a `wrangler.toml`, for edge runtimes. See [Deployment](/docs/deployment).
+It walks your routes, runs typegen, then writes deployment artifacts for each configured `build.targets` (`node` and `langsmith` by default). The `node` target emits `.b4/build/server.mjs` — which boots the real B4.run runtime (Agent Protocol, AG-UI, and the sandbox if configured) — plus a hardened `Dockerfile`; run it with `b4 start` or `docker build`/`docker run`. The `langsmith` target emits `.b4/build/langgraph.json` plus a per-route entry file under `.b4/build/<routeSlug>.ts`; each agent route's entry imports your default `agent()` descriptor, materializes it as a LangGraph graph, and wires in discovered tools. Each `assistant_id` is `<routeId>#<kind>` — for example `/research#agent`. The opt-in `hono` target emits `.b4/build/app.mjs` plus a `wrangler.toml`, for edge runtimes. See [Deployment](/docs/deployment).
 
 ### Why a meta-framework instead of a library?
 
-A library is something you call. A meta-framework is something you write inside. The conventions Dawn enforces — folder-as-route, co-located tools, typed state per route — only pay off when the whole project follows them, the same way Next.js routing only pays off because every page lives under `app/`. A library version would surface all the same boilerplate Dawn is built to delete. See [Mental Model](/docs/mental-model).
+A library is something you call. A meta-framework is something you write inside. The conventions B4.run enforces — folder-as-route, co-located tools, typed state per route — only pay off when the whole project follows them, the same way Next.js routing only pays off because every page lives under `app/`. A library version would surface all the same boilerplate B4.run is built to delete. See [Mental Model](/docs/mental-model).
 
-## Operating Dawn
+## Operating B4.run
 
 ### Can I deploy outside LangSmith?
 
-Yes. `dawn build`'s `node` target emits a `server.mjs` that boots the real Dawn runtime plus a hardened `Dockerfile` — build the image and run it wherever you run containers, or serve it directly with `dawn start`. This is the only deployment path that engages the execution sandbox. If you'd rather containerize the `langgraph.json` output instead, `dawn build`'s `langsmith` target still emits it; feed `.dawn/build/` to any container that runs the LangGraph runtime, but note that path does not run the Dawn runtime or the sandbox. See [Deployment](/docs/deployment).
+Yes. `b4 build`'s `node` target emits a `server.mjs` that boots the real B4.run runtime plus a hardened `Dockerfile` — build the image and run it wherever you run containers, or serve it directly with `b4 start`. This is the only deployment path that engages the execution sandbox. If you'd rather containerize the `langgraph.json` output instead, `b4 build`'s `langsmith` target still emits it; feed `.b4/build/` to any container that runs the LangGraph runtime, but note that path does not run the B4.run runtime or the sandbox. See [Deployment](/docs/deployment).
 
-### Can Dawn run on Cloudflare Workers?
+### Can B4.run run on Cloudflare Workers?
 
-Yes, for apps that fit the edge subset. Add `"hono"` to `build.targets` and `dawn build` emits an `app.mjs` plus a `wrangler.toml` you deploy with `wrangler deploy`; durable state goes to Postgres over a `@neondatabase/serverless` WebSocket pool, set through a `DATABASE_URL` binding. No `nodejs_compat` flag is needed. The sandbox, workspace file and shell tools, tool-output offloading, and long-term memory are unavailable there, and the build fails naming them rather than degrading quietly — as does the runtime, per request, for anything that reached a filesystem-less runtime without passing that build gate. Route skills, `plan.md`, and `memory.md` are bundled into the manifest at build time and served from it at request time.
+Yes, for apps that fit the edge subset. Add `"hono"` to `build.targets` and `b4 build` emits an `app.mjs` plus a `wrangler.toml` you deploy with `wrangler deploy`; durable state goes to Postgres over a `@neondatabase/serverless` WebSocket pool, set through a `DATABASE_URL` binding. No `nodejs_compat` flag is needed. The sandbox, workspace file and shell tools, tool-output offloading, and long-term memory are unavailable there, and the build fails naming them rather than degrading quietly — as does the runtime, per request, for anything that reached a filesystem-less runtime without passing that build gate. Route skills, `plan.md`, and `memory.md` are bundled into the manifest at build time and served from it at request time.
 
 Read [Edge and Hono](/docs/deployment/edge) before you commit to this path. The evidence behind that "yes" is a gated CI lane serving real AG-UI turns under **local** workerd — the same binary Cloudflare runs — and not a deploy to Cloudflare itself, which nobody has performed yet. [What is proven, and what is not](/docs/deployment/edge#what-is-proven-and-what-is-not) lists the gaps that leaves, bundle size and production connection limits among them.
 
-### Can Dawn use Postgres for long-term memory?
+### Can B4.run use Postgres for long-term memory?
 
-Yes. SQLite is the default local store, but `@dawn-ai/memory-pgvector` provides a Postgres + pgvector backend for production and multi-instance deployments. Add `pgvectorMemoryStore({ connectionString, dimensions })` to `memory.store`, and add `openaiEmbedder()` when you want hybrid keyword + vector recall. See [Recall and Retrieval](/docs/memory/retrieval#postgres-backend-pgvector).
+Yes. SQLite is the default local store, but `@b4run/memory-pgvector` provides a Postgres + pgvector backend for production and multi-instance deployments. Add `pgvectorMemoryStore({ connectionString, dimensions })` to `memory.store`, and add `openaiEmbedder()` when you want hybrid keyword + vector recall. See [Recall and Retrieval](/docs/memory/retrieval#postgres-backend-pgvector).
 
 ### How do I gradually migrate an existing LangGraph project?
 
-Move one graph at a time. Create a Dawn route, named-export your existing `StateGraph` from its `index.ts` as `graph`, and point the new `assistant_id` at it. Tools, prompts, and model providers come along unchanged — Dawn surrounds your code, it does not rewrite it. Once the route is live, peel state and tools out into the Dawn shapes if the ergonomics are worth it, or leave the graph as-is.
+Move one graph at a time. Create a B4.run route, named-export your existing `StateGraph` from its `index.ts` as `graph`, and point the new `assistant_id` at it. Tools, prompts, and model providers come along unchanged — B4.run surrounds your code, it does not rewrite it. Once the route is live, peel state and tools out into the B4.run shapes if the ergonomics are worth it, or leave the graph as-is.
 
 ## Related
 

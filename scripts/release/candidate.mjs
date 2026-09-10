@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto"
-
 import {
   abandonmentRecordTag,
   canonicalAbandonmentBytes,
@@ -7,13 +6,53 @@ import {
   parseAnyAbandonmentRecord,
 } from "./abandonment.mjs"
 import { assertPayloadByteLength, RELEASE_PAYLOAD_LIMITS } from "./limits.mjs"
-import { canonicalReleaseBody, isManagedReleaseForTag, parseReleaseMarker } from "./metadata.mjs"
+import { CANONICAL_RELEASE_PACKAGE_ORDER, HISTORICAL_RELEASE_PACKAGE_NAMES } from "./manifest.mjs"
+import {
+  ATTESTATION_REPOSITORY,
+  canonicalReleaseBody,
+  isManagedReleaseForTag,
+  parseReleaseMarker,
+} from "./metadata.mjs"
 import { planCandidateArbitration } from "./planner.mjs"
+import {
+  discoverRecoveryReleaseCandidates,
+  readRecoveryReservations,
+  routeRecoveryCandidate,
+} from "./recovery/observe.mjs"
 import { releaseRecordSha256 } from "./release-record.mjs"
 import { compareSemver, isExactSemver, parseSemver } from "./semver.mjs"
 import { ReleaseState } from "./state.mjs"
 import { readTerminalRecord } from "./terminal-record-store.mjs"
 import { canonicalAuditResultBytes, parseAuditResult } from "./terminal-records.mjs"
+
+// A recovery subject reserved under a different repository identity is not
+// adopted. Recovery reserved before this repository was renamed belongs to an
+// identity that no longer exists and whose recovery authority this repository
+// deliberately does not inherit; those releases and their packages are already
+// public. A subject naming this repository, or naming none, is handled normally.
+function isForeignRecoverySubject(candidate) {
+  const repository = candidate?.repository
+  return typeof repository === "string" && repository !== ATTESTATION_REPOSITORY
+}
+
+// The one-time transition from the previous identity's package family to the
+// current one, in that direction only.
+function isRenameTransition(parentNames, currentNames) {
+  const historical = [...HISTORICAL_RELEASE_PACKAGE_NAMES].sort(compareText)
+  const active = [...CANONICAL_RELEASE_PACKAGE_ORDER].sort(compareText)
+  return (
+    arraysEqual([...parentNames].sort(compareText), historical) &&
+    arraysEqual([...currentNames].sort(compareText), active)
+  )
+}
+
+// Whether a tag names a version below the supplied release floor. With no floor
+// nothing is below it, which is the historical behaviour.
+function isBelowReleaseFloor(tag, floor) {
+  if (floor === null || typeof tag !== "string") return false
+  const version = managedVersionFromTag(tag)
+  return version !== null && isExactSemver(version) && compareSemver(version, floor) < 0
+}
 
 const MARKER_PATH = "scripts/release/controller-schema.json"
 const PRODUCTION_MAIN_REF = "refs/remotes/origin/main"
@@ -34,7 +73,7 @@ const ACTIVE_MARKER = Object.freeze({
 })
 const ACTIVE_MARKER_FIELDS = Object.freeze(Object.keys(ACTIVE_MARKER).sort())
 const TERMINAL_ABANDONMENT_ASSET = "abandonment.json"
-const RELEASE_MARKER_TOKEN = "<!-- DAWN_RELEASE_CONTROLLER_MARKER\n"
+const RELEASE_MARKER_TOKEN = "<!-- B4_RELEASE_CONTROLLER_MARKER\n"
 const MAX_ABANDONMENT_ASSETS = 46
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u
 
@@ -79,7 +118,15 @@ async function discoverManagedCandidateDetails({ ref, inventory, git, marker }) 
   const current = normalizeDiscoveryInventory(currentRaw, "current")
   const parent = normalizeDiscoveryInventory(parentRaw, "first-parent")
   if (!arraysEqual(current.names, parent.names)) {
-    throw new TypeError("Release inventory package set changed across the candidate commit")
+    // The rename from the previous identity changed all 21 package names in one
+    // commit. That exact transition is allowed, from the historical family to
+    // the current one, and only in that direction; both sides are code-owned
+    // constants, so no other change of package set can pass here.
+    if (!isRenameTransition(parent.names, current.names)) {
+      throw new TypeError("Release inventory package set changed across the candidate commit")
+    }
+    // A commit that renames the family is not itself a release candidate.
+    return candidateDetails(noCandidate(), current.names)
   }
   if (current.version === parent.version) {
     return candidateDetails(noCandidate(), current.names)
@@ -121,6 +168,16 @@ export async function discoverScheduledCandidate({
   marker,
   terminalRecordRef,
   verifyTerminalAbandonment,
+  npm,
+  npmAuditFactory,
+  attestations,
+  // Versions below this are excluded from arbitration entirely. Production
+  // supplies B4.run's first version, so releases made under the repository
+  // identity that preceded the rename are not adopted: that identity no longer
+  // exists and this repository deliberately does not inherit its recovery
+  // authority, and those releases and their packages are already public.
+  // Unset means no floor, which is the historical behaviour.
+  releaseFloorVersion = null,
 }) {
   normalizeActiveMarker(marker)
   if (typeof terminalRecordRef !== "string" || terminalRecordRef.length === 0) {
@@ -155,7 +212,8 @@ export async function discoverScheduledCandidate({
   ])
   const tagRecords = presentList(tagResult, "managed tag refs")
   const releaseRecords = presentList(releaseResult, "GitHub Releases")
-  const tags = await normalizeManagedTags(tagRecords, git, github)
+  const allTags = await normalizeManagedTags(tagRecords, git, github)
+  const tags = allTags.filter((tag) => !isBelowReleaseFloor(tag.tag, releaseFloorVersion))
   const tagsByName = new Map(tags.map((tag) => [tag.tag, tag]))
   // Committed terminal records are authoritative for their version regardless of
   // what the GitHub token can see; a record is read at the controller's own
@@ -179,6 +237,7 @@ export async function discoverScheduledCandidate({
     recorded.set(tag.tag, terminalRecord)
   }
   const releases = await inspectManagedReleases({
+    releaseFloorVersion,
     records: releaseRecords,
     tagsByName,
     recorded,
@@ -187,6 +246,11 @@ export async function discoverScheduledCandidate({
     github,
     marker,
     verifyTerminalAbandonment,
+    terminalRecordRef,
+    npm,
+    npmAuditFactory,
+    attestations,
+    recoveryGit: terminalRecordReader,
   })
   const releasesByTag = new Map(releases.map((release) => [release.tag, release]))
   const standalone = []
@@ -249,6 +313,7 @@ export async function discoverScheduledCandidate({
   const tagged = [...releases, ...standalone].sort(compareSelections)
   const incomplete = tagged.filter(
     (release) =>
+      release.state !== ReleaseState.RECOVERY_COMPLETE &&
       release.state !== ReleaseState.AUDIT_COMPLETE &&
       release.state !== ReleaseState.ABANDONED_PREPUBLICATION,
   )
@@ -436,6 +501,7 @@ function normalizeGithubRef(value) {
 }
 
 async function inspectManagedReleases({
+  releaseFloorVersion = null,
   records,
   tagsByName,
   recorded,
@@ -444,7 +510,90 @@ async function inspectManagedReleases({
   github,
   marker,
   verifyTerminalAbandonment,
+  terminalRecordRef,
+  npm,
+  npmAuditFactory,
+  attestations,
+  recoveryGit,
 }) {
+  const assetReads = new Map()
+  const originalGithub = github
+  github = {
+    ...github,
+    listReleaseAssets(args) {
+      const key = String(args.releaseId)
+      if (!assetReads.has(key)) {
+        const pending = Promise.resolve()
+          .then(() => originalGithub.listReleaseAssets(args))
+          .then(
+            (result) => {
+              if (result?.status !== "PRESENT") assetReads.delete(key)
+              return result
+            },
+            (error) => {
+              assetReads.delete(key)
+              throw error
+            },
+          )
+        assetReads.set(key, pending)
+      }
+      return assetReads.get(key)
+    },
+  }
+  const routingRecords = records.filter((release) => {
+    let tag = release.tag_name
+    try {
+      tag = parseReleaseMarker(release.body).tag
+    } catch {
+      /* Existing tombstone validation below fails closed. */
+    }
+    return !recorded.has(tag)
+  })
+  const recovered = []
+  const recoveryTags = new Set()
+  const recoverySubjects = new Map(
+    [...tagsByName.values()].map((tag) => [
+      tag.tag,
+      { version: tag.version, commitSha: tag.commitSha, tag: tag.tag },
+    ]),
+  )
+  for (const { intent } of await readRecoveryReservations({
+    git: recoveryGit,
+    terminalRecordRef,
+  })) {
+    const c = intent.candidate
+    if (isForeignRecoverySubject(c)) continue
+    const existing = recoverySubjects.get(c.tag)
+    if (existing && existing.commitSha !== c.candidateSha)
+      throw new Error("Recovery reservation conflicts with annotated tag")
+    recoverySubjects.set(c.tag, { version: c.version, commitSha: c.candidateSha, tag: c.tag })
+  }
+  for (const c of (
+    await discoverRecoveryReleaseCandidates({ github, releaseRecords: routingRecords })
+  ).values()) {
+    if (isForeignRecoverySubject(c)) continue
+    const existing = recoverySubjects.get(c.tag)
+    if (existing && existing.commitSha !== c.candidateSha)
+      throw new Error("Durable recovery identity conflicts with candidate tag")
+    recoverySubjects.set(c.tag, { version: c.version, commitSha: c.candidateSha, tag: c.tag })
+  }
+  for (const tag of recoverySubjects.values()) {
+    if (recorded.has(tag.tag)) continue
+    const routed = await routeRecoveryCandidate({
+      candidate: candidateIdentity(tag.version, tag.commitSha),
+      git: recoveryGit,
+      github,
+      terminalRecordRef,
+      npm,
+      npmAuditFactory,
+      attestations,
+      releaseRecords: routingRecords,
+    })
+    if (routed !== null) {
+      recovered.push(routed)
+      recoveryTags.add(tag.tag)
+    }
+  }
   const managed = []
   for (const release of records) {
     const exactTag = managedVersionFromTag(release?.tag_name) === null ? null : release.tag_name
@@ -453,12 +602,16 @@ async function inspectManagedReleases({
         ? [...tagsByName.keys()].find((tag) => isManagedReleaseForTag(release, tag))
         : null
     const tag = exactTag ?? markerTag
-    if (managedVersionFromTag(tag) !== null && isManagedReleaseForTag(release, tag)) {
+    if (
+      !recoveryTags.has(tag) &&
+      managedVersionFromTag(tag) !== null &&
+      isManagedReleaseForTag(release, tag)
+    ) {
       managed.push({ release, tag })
     }
   }
   const seenTags = new Set()
-  const releases = []
+  const releases = [...recovered]
   for (const managedRelease of managed) {
     const { release, tag } = managedRelease
     if (seenTags.has(tag)) throw new Error(`Managed GitHub Release ${tag} is duplicated`)
@@ -468,6 +621,9 @@ async function inspectManagedReleases({
     }
     const tagIdentity = tagsByName.get(tag)
     if (tagIdentity === undefined) {
+      // A Release whose tag was excluded by the floor is excluded with it, so
+      // the two views stay consistent. Any other missing tag is still a fault.
+      if (isBelowReleaseFloor(tag, releaseFloorVersion)) continue
       throw new Error(`Managed GitHub Release ${tag} has no matching tag ref`)
     }
     // A committed terminal record settles this version, so no Release evidence
@@ -516,7 +672,8 @@ async function inspectManagedReleases({
       release,
       assets,
       tagIdentity,
-      github,
+      // The final terminal boundary must revalidate assets with the service.
+      github: originalGithub,
       verifyTerminalAbandonment,
     })
     if (abandonmentState !== null) {
@@ -611,7 +768,7 @@ function assertExactAuditVerifiedDraft({
   tagIdentity,
 }) {
   if (
-    release.name !== `Dawn v${tagIdentity.version}` ||
+    release.name !== `B4 v${tagIdentity.version}` ||
     release.target_commitish !== "main" ||
     release.draft !== true ||
     release.immutable !== false ||
@@ -703,7 +860,7 @@ async function inspectAbandonmentRelease({
   const bodyTombstoneBytes =
     bodyTombstone === null ? null : canonicalAbandonmentBytes(bodyTombstone)
   if (terminal) {
-    const expectedTitle = `Dawn v${tagIdentity.version} (abandoned before publication)`
+    const expectedTitle = `B4 v${tagIdentity.version} (abandoned before publication)`
     if (
       release.name !== expectedTitle ||
       release.target_commitish !== "main" ||

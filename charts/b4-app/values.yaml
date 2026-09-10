@@ -1,0 +1,147 @@
+# Default values for b4-app.
+# This chart runs a user-built B4.run app image as a Deployment + Service, with
+# optional Ingress, HorizontalPodAutoscaler, and PodDisruptionBudget. It does
+# NOT build the image or bake b4.config.ts — the image is the runtime
+# contract.
+#
+# Recommended image source: `b4 build`'s node target (the default) emits a
+# .b4/build/server.mjs + hardened Dockerfile that boot the B4.run HTTP runtime.
+# Build that image with `docker build .` at the app root (see
+# apps/web/content/docs/deployment/node.mdx). The chart's Service and HTTP
+# probes require this Node-target server contract; LangSmith graph artifacts
+# are platform deployment artifacts, not compatible chart images. See
+# apps/web/content/docs/deployment/kubernetes.mdx for app deployment and
+# https://b4.run/docs/sandbox/kubernetes for Kubernetes Sandbox operations.
+
+image:
+  # repository: REQUIRED at install time. Defaults to "" so `helm lint`
+  # and `helm template` pass without --set; the Deployment template
+  # enforces this with a `required` guard so a real install fails fast
+  # without an image.
+  repository: ""
+  # tag: image tag. Leave "" to fall back to .Chart.AppVersion.
+  tag: ""
+  # digest: if set, pins by digest instead of tag (repository@sha256:...).
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Keep one replica until shared durable stores plus thread-aware routing or
+# distributed serialization and cancel routing are configured. The chart does
+# not enforce those application-level requirements.
+replicaCount: 1
+
+# containerPort: the port your image's HTTP server listens on inside the
+# container. Defaults to 8000, matching b4 build's node-target Dockerfile
+# (EXPOSE 8000). Verify against your built image's Dockerfile EXPOSE/CMD if
+# you're deploying a different image — this is a value specifically so a
+# mismatch is a one-line fix.
+containerPort: 8000
+
+# healthPath: the HTTP path your image serves health checks on. Defaults to
+# /healthz, matching both b4 build's node-target server (serveRuntime) and
+# its Dockerfile HEALTHCHECK. It is the common liveness/readiness/startup probe
+# path, but B4.run's response is process liveness and does not validate model,
+# database, or sandbox dependencies.
+healthPath: /healthz
+
+probes:
+  liveness:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  startup:
+    # Generous startup allowance for slow cold starts (model/tool init).
+    initialDelaySeconds: 0
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 60
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: false
+    secretName: ""
+  annotations: {}
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: ""
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# serviceAccount: the application identity. The chart creates an
+# application-owned ServiceAccount in its release namespace by default. Apps
+# that call the Kubernetes API through kubernetesSandbox must bind this account
+# as a cross-namespace subject of the b4-sandbox-infra orchestrator Role.
+serviceAccount:
+  # create: whether this chart creates the application ServiceAccount in the
+  # release namespace.
+  create: true
+  # name: optional explicit ServiceAccount name. Leave empty to use the
+  # release-scoped chart fullname (b4-app for the canonical release).
+  name: ""
+  annotations: {}
+
+# automountServiceAccountToken: the app needs the token when kubernetesSandbox
+# calls the Kubernetes API (unlike sandbox pods, which do not need it). Apps
+# without kubernetesSandbox should disable this where their setup allows.
+automountServiceAccountToken: true
+
+# sandboxNamespace: informational only — must match the app's
+# `kubernetesSandbox({ namespace })` config and the b4-sandbox-infra
+# chart's `namespace.name`.
+sandboxNamespace: b4-sandboxes
+
+env: []
+envFrom: []
+# secretName: convenience envFrom secretRef (e.g. for OPENAI_API_KEY,
+# DATABASE_URL). The chart does NOT template Secrets — supply them
+# out-of-band.
+secretName: ""
+
+resources: {}
+
+# securityContext: hardened but app-appropriate. The app's own Pod runs the
+# node-target .b4/build/server.mjs; it is not a sandbox pod but should still
+# be least-privilege.
+securityContext:
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+  # readOnlyRootFilesystem: defaults false — the app runtime likely writes
+  # temp state. A writable /tmp emptyDir is always mounted regardless of
+  # this setting. Set true if your image tolerates it.
+  readOnlyRootFilesystem: false
+
+podSecurityContext: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

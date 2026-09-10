@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { MAX_MEMORY_BYTES, MAX_PLAN_BYTES, type RouteDefinition } from "@dawn-ai/core"
+import { MAX_MEMORY_BYTES, MAX_PLAN_BYTES, type RouteDefinition } from "@b4run/core"
 import { afterEach, describe, expect, it } from "vitest"
 
 import {
@@ -17,7 +17,7 @@ afterEach(async () => {
 })
 
 async function routeDir(files: Readonly<Record<string, string>>): Promise<string> {
-  const dir = await realpath(await mkdtemp(join(tmpdir(), "dawn-marker-files-")))
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "b4-marker-files-")))
   cleanup.push(() => rm(dir, { force: true, maxRetries: 5, recursive: true }))
   for (const [rel, body] of Object.entries(files)) {
     const filePath = join(dir, rel)
@@ -31,7 +31,7 @@ async function routeDir(files: Readonly<Record<string, string>>): Promise<string
 async function appRouteDir(
   files: Readonly<Record<string, string>>,
 ): Promise<{ appRoot: string; routeDir: string }> {
-  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "dawn-marker-files-")))
+  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "b4-marker-files-")))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true }))
   const routeDir = join(appRoot, "src/app/chat")
   for (const [rel, body] of Object.entries(files)) {
@@ -72,7 +72,7 @@ describe("collectRouteMarkerFiles", () => {
     const error = await collectRouteMarkerFiles({ appRoot, routeDir: dir }).catch((e: unknown) => e)
     expect(String(error)).toContain("src/app/chat/skills/big/SKILL.md")
     expect(String(error)).toContain(String(MARKER_FILE_LIMITS["SKILL.md"] + 1))
-    expect((error as { code?: string }).code).toBe("DAWN_E1005")
+    expect((error as { code?: string }).code).toBe("B4_E1005")
   })
 
   it("counts bytes, not characters: a multi-byte memory.md one byte over fails", async () => {
@@ -83,7 +83,7 @@ describe("collectRouteMarkerFiles", () => {
     const error = await collectRouteMarkerFiles({ appRoot, routeDir: dir }).catch((e: unknown) => e)
     expect(String(error)).toContain("src/app/chat/memory.md")
     expect(String(error)).toContain("32769")
-    expect((error as { code?: string }).code).toBe("DAWN_E1005")
+    expect((error as { code?: string }).code).toBe("B4_E1005")
   })
 
   it("allows a file exactly at its limit", async () => {
@@ -116,7 +116,7 @@ describe("collectRouteMarkerFiles", () => {
     expect(message.indexOf("src/app/chat/plan.md")).toBeLessThan(
       message.indexOf("src/app/chat/skills/big/SKILL.md"),
     )
-    expect((error as { code?: string }).code).toBe("DAWN_E1005")
+    expect((error as { code?: string }).code).toBe("B4_E1005")
   })
 
   it("counts re-encoded bytes for invalid UTF-8", async () => {
@@ -135,13 +135,13 @@ describe("collectRouteMarkerFiles", () => {
     expect(String(error)).toContain(
       "32772 bytes after UTF-8 re-encoding, over the 32768-byte limit for memory.md",
     )
-    expect((error as { code?: string }).code).toBe("DAWN_E1005")
+    expect((error as { code?: string }).code).toBe("B4_E1005")
   })
 })
 
 describe("assertRouteMarkerFileLimits", () => {
   it("reports oversized files from every route in one error", async () => {
-    const appRoot = await realpath(await mkdtemp(join(tmpdir(), "dawn-marker-files-")))
+    const appRoot = await realpath(await mkdtemp(join(tmpdir(), "b4-marker-files-")))
     cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true }))
     const routes: RouteDefinition[] = []
     for (const name of ["chat", "support"]) {
@@ -171,7 +171,7 @@ describe("assertRouteMarkerFileLimits", () => {
     expect(
       message.match(/Marker file\(s\) too large for the static module manifest/g),
     ).toHaveLength(1)
-    expect((error as { code?: string }).code).toBe("DAWN_E1005")
+    expect((error as { code?: string }).code).toBe("B4_E1005")
   })
 
   it("resolves for an app whose markers are all within their limits", async () => {

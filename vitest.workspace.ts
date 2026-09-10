@@ -7,7 +7,7 @@ export default defineConfig({
       "./packages/ag-ui/vitest.config.ts",
       "./packages/cli/vitest.config.ts",
       "./packages/core/vitest.config.ts",
-      "./packages/create-dawn-app/vitest.config.ts",
+      "./packages/create-b4-app/vitest.config.ts",
       "./packages/devkit/vitest.config.ts",
       "./packages/evals/vitest.config.ts",
       "./packages/inspector/vitest.components.config.ts",

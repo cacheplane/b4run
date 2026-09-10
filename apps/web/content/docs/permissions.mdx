@@ -1,6 +1,6 @@
 # Permissions
 
-Permissions are Dawn's human-in-the-loop gate. The runtime gates two workspace operations by default:
+Permissions are B4.run's human-in-the-loop gate. The runtime gates two workspace operations by default:
 
 - **`runBash` commands** (`kind: "command"`) — shell commands are matched against allow and deny lists before executing.
 - **Filesystem paths outside `workspace/`** (`kind: "path"`) — file reads, writes, and directory listings that would escape the workspace root are permission-gated.
@@ -11,9 +11,9 @@ In an interactive agent run, unknown operations pause and ask the human. Other m
 
 ## Configuration
 
-Set allow and deny lists in `dawn.config.ts`:
+Set allow and deny lists in `b4.config.ts`:
 
-```ts title="dawn.config.ts"
+```ts title="b4.config.ts"
 export default {
   permissions: {
     // mode?: "interactive" | "non-interactive" | "bypass"  (default "interactive")
@@ -25,7 +25,7 @@ export default {
 
 `allow` and `deny` each map a gate key (`bash`, `readFile`, `memory`, and so on) to an array of pattern strings. The research scaffold, for example, allows safe read-only commands and denies destructive ones — but leaves the network-fetch script off the allow list so the first run surfaces a prompt.
 
-Static entries remain in `dawn.config.ts` as configuration; they are evaluated alongside runtime decisions and are not copied or seeded into the runtime permission store. Only an `always` decision adds an allow entry to that store. The default Node store persists runtime entries in `.dawn/permissions.json`, while custom stores and the Postgres store may persist them elsewhere.
+Static entries remain in `b4.config.ts` as configuration; they are evaluated alongside runtime decisions and are not copied or seeded into the runtime permission store. Only an `always` decision adds an allow entry to that store. The default Node store persists runtime entries in `.b4/permissions.json`, while custom stores and the Postgres store may persist them elsewhere.
 
 ## How matching works
 
@@ -55,13 +55,13 @@ Thus `"ls"` covers `ls`, `ls -la`, and `ls workspace/corpus`. Use longer bash, p
 | `non-interactive` | Unknown commands are denied immediately (fail-closed) |
 | `bypass` | All commands are allowed without checking — dev/test only |
 
-Override the mode for a single run without touching the config by setting the `DAWN_PERMISSIONS_MODE` environment variable:
+Override the mode for a single run without touching the config by setting the `B4_PERMISSIONS_MODE` environment variable:
 
 ```sh
-DAWN_PERMISSIONS_MODE=non-interactive dawn dev
+B4_PERMISSIONS_MODE=non-interactive b4 dev
 ```
 
-The env var takes precedence over `permissions.mode` in `dawn.config.ts`.
+The env var takes precedence over `permissions.mode` in `b4.config.ts`.
 
 ## Per-tool approval
 
@@ -109,9 +109,9 @@ Resuming a `kind: "tool"` interrupt uses the same `once` / `always` / `deny` dec
 
 ### Pre-approval in config
 
-Pre-approve a tool so it never prompts, by adding it to `permissions.allow.tool` in `dawn.config.ts`:
+Pre-approve a tool so it never prompts, by adding it to `permissions.allow.tool` in `b4.config.ts`:
 
-```ts title="dawn.config.ts"
+```ts title="b4.config.ts"
 export default {
   permissions: {
     allow: { tool: ["deployProd"] },
@@ -125,7 +125,7 @@ export default {
 
 ### Coexistence with the bash and path gates
 
-`runBash`, `readFile`, `writeFile`, and `listDir` keep their own pattern-aware allow/deny gates — putting them in `approve` is redundant and would double-prompt. `dawn check` warns when a route's `approve` list:
+`runBash`, `readFile`, `writeFile`, and `listDir` keep their own pattern-aware allow/deny gates — putting them in `approve` is redundant and would double-prompt. `b4 check` warns when a route's `approve` list:
 
 - names one of these internally-gated tools (redundant — already gated),
 - overlaps with `deny` (a dead entry, since deny wins), or
@@ -175,7 +175,7 @@ The input preview is bounded, display-only text. Approval persistence uses the e
 
 Pre-approve that exact registration under the reserved `subagent` key:
 
-```ts title="dawn.config.ts"
+```ts title="b4.config.ts"
 export default {
   permissions: {
     allow: { subagent: ['["/support","researcher"]'] },
@@ -185,11 +185,11 @@ export default {
 
 The `subagent` key uses exact matching, like the reserved `tool` key. Explicit deny entries win. In `non-interactive` mode, an unapproved dispatch fails closed; `bypass` skips the approval gate but does not override static or constraint denial.
 
-`task` is internal and is invalid in every tool-policy field: `tools.allow`, `tools.deny`, `tools.approve`, and `tools.constrain`. Configure dispatch only through `delegation`; `dawn check` and route preparation report `DAWN_E1004` for any `tools.*.task` reference.
+`task` is internal and is invalid in every tool-policy field: `tools.allow`, `tools.deny`, `tools.approve`, and `tools.constrain`. Configure dispatch only through `delegation`; `b4 check` and route preparation report `B4_E1004` for any `tools.*.task` reference.
 
 ## Memory write approval (`writes: "ask"`)
 
-Routes with [long-term memory](/docs/memory/long-term) can gate belief *changes*: with `memory: { writes: "ask" }` in `dawn.config.ts`, a `remember` call that would **supersede** an existing active memory interrupts with the old and new values. New facts and idempotent refreshes never prompt.
+Routes with [long-term memory](/docs/memory/long-term) can gate belief *changes*: with `memory: { writes: "ask" }` in `b4.config.ts`, a `remember` call that would **supersede** an existing active memory interrupts with the old and new values. New facts and idempotent refreshes never prompt.
 
 - **Once** — this supersede proceeds.
 - **Always** — persists the route's namespace prefix under the `memory` key; all future overwrites in the route proceed silently.
@@ -234,7 +234,7 @@ data: {
 }
 ```
 
-`detail.suggestedPattern` is the prefix Dawn suggests you add to the allow list so the operation is approved automatically on future runs. The run stays paused until you resume it.
+`detail.suggestedPattern` is the prefix B4.run suggests you add to the allow list so the operation is approved automatically on future runs. The run stays paused until you resume it.
 
 ## Resuming an interrupted run
 
@@ -267,11 +267,11 @@ The ordinary HTTP endpoint accepts one strict envelope:
 
 `resume` may contain one or many entries, but it must address the complete current pending set exactly once. A `resolved` entry requires a `payload` of `once`, `always`, or `deny`. A `cancelled` entry omits `payload` and maps to denial. The top-level object requires exactly `resume` and `route`; entries also reject unknown or mixed fields.
 
-Nested child interrupts use the same endpoint and the root parent's `thread_id`. Dawn maps each public `interruptId` to the correct nested checkpoint; clients do not resume a child route or thread separately.
+Nested child interrupts use the same endpoint and the root parent's `thread_id`. B4.run maps each public `interruptId` to the correct nested checkpoint; clients do not resume a child route or thread separately.
 
 The former scalar resume body is removed and is not parsed as a compatibility form.
 
-Here is the full sequence using curl (start the server with `dawn dev --port 2024`):
+Here is the full sequence using curl (start the server with `b4 dev --port 2024`):
 
 ```sh
 # 1. Create a thread
@@ -294,15 +294,15 @@ curl -X POST http://127.0.0.1:2024/threads/$THREAD/resume \
 # The response streams the continuation as SSE
 ```
 
-Choosing `"always"` is the only decision that persists: it adds the allow entry to the configured permissions store. `once` and `deny` are not persisted. With the default Node store, runtime entries live in `.dawn/permissions.json`; a custom or Postgres store uses its configured backend. On subsequent runs the command is matched by the allow list and proceeds without prompting.
+Choosing `"always"` is the only decision that persists: it adds the allow entry to the configured permissions store. `once` and `deny` are not persisted. With the default Node store, runtime entries live in `.b4/permissions.json`; a custom or Postgres store uses its configured backend. On subsequent runs the command is matched by the allow list and proceeds without prompting.
 
 ## Testing
 
-In `@dawn-ai/testing`, use `expectInterrupt` and `harness.resume` to drive the approval flow in automated tests without a live server. See the [testing docs](/docs/testing-agents) for the full pattern.
+In `@b4run/testing`, use `expectInterrupt` and `harness.resume` to drive the approval flow in automated tests without a live server. See the [testing docs](/docs/testing-agents) for the full pattern.
 
 ## Related
 
 <RelatedCards items={[
   { href: "/docs/workspace", title: "Workspace Filesystem", subtitle: "the runBash tool and the four agent-facing workspace tools" },
-  { href: "/docs/configuration", title: "Configuration Reference", subtitle: "dawn.config.ts reference including the full permissions block" },
+  { href: "/docs/configuration", title: "Configuration Reference", subtitle: "b4.config.ts reference including the full permissions block" },
 ]} />

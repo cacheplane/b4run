@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { join, relative, sep } from "node:path"
 
-import { MAX_MEMORY_BYTES, MAX_PLAN_BYTES, type RouteManifest } from "@dawn-ai/core"
+import { MAX_MEMORY_BYTES, MAX_PLAN_BYTES, type RouteManifest } from "@b4run/core"
 
 import { CliError } from "../../output.js"
 import { discoverSkillDirs } from "./edge-capabilities.js"
@@ -16,12 +16,12 @@ export interface RouteMarkerFile {
 
 /**
  * Byte limits per marker kind. `plan.md` and `memory.md` match the runtime
- * limits in `@dawn-ai/core`'s planning and memory-md markers; `SKILL.md` is a
+ * limits in `@b4run/core`'s planning and memory-md markers; `SKILL.md` is a
  * new limit because the skills marker reads eagerly with no cap.
  */
 export const MARKER_FILE_LIMITS = {
   // Build-only: the skills marker reads eagerly with no runtime cap, so there
-  // is no `@dawn-ai/core` constant to track. Changing the cap for `SKILL.md`
+  // is no `@b4run/core` constant to track. Changing the cap for `SKILL.md`
   // means changing it HERE — nothing else enforces it.
   "SKILL.md": 32 * 1024,
   "memory.md": MAX_MEMORY_BYTES,
@@ -84,7 +84,7 @@ function throwOversized(oversized: readonly OversizedMarkerFile[]): never {
       "Edge builds cap each bundled marker; `memory.md` and `plan.md` use the limits the runtime already applies, and `SKILL.md` gets a build-only cap. Shorten the file; for a skill, split it into smaller skills.",
     ].join("\n"),
     1,
-    { code: "DAWN_E1005" },
+    { code: "B4_E1005" },
   )
 }
 
@@ -146,7 +146,7 @@ export async function collectRouteMarkerFiles(options: {
 
 /**
  * The same per-file limits the edge emitters apply, run over every route of an
- * app without emitting anything — so `dawn check` reports an over-limit marker
+ * app without emitting anything — so `b4 check` reports an over-limit marker
  * instead of leaving it for a failed build. Findings are aggregated across ALL
  * routes into one error, so a user fixing an app sees every offending file at
  * once rather than one route per run.

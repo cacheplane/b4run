@@ -75,7 +75,7 @@ export async function publishVercelOutput(input: {
 }): Promise<void> {
   const fileOps = input.fileOps ?? { rename, rm }
   const outputDir = join(input.vercelDir, "output")
-  const backupPath = join(input.vercelDir, `.dawn-vercel-output-backup-${randomUUID()}`)
+  const backupPath = join(input.vercelDir, `.b4-vercel-output-backup-${randomUUID()}`)
   let backupCreated = false
 
   try {

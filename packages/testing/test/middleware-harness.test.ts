@@ -1,5 +1,5 @@
 import { join } from "node:path"
-import type { FilesystemBackend, FilesystemMiddleware } from "@dawn-ai/workspace"
+import type { FilesystemBackend, FilesystemMiddleware } from "@b4run/workspace"
 import { afterEach, expect, it } from "vitest"
 import { createMiddlewareHarness, type MiddlewareHarness } from "../src/middleware-harness.js"
 

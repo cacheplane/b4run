@@ -9,7 +9,7 @@ import { qualify } from "../src/schema.js"
 
 describe("assertIdentifier", () => {
   it("accepts valid SQL identifiers", () => {
-    expect(() => assertIdentifier("tablePrefix", "dawn")).not.toThrow()
+    expect(() => assertIdentifier("tablePrefix", "b4")).not.toThrow()
     expect(() => assertIdentifier("schema", "public")).not.toThrow()
     expect(() => assertIdentifier("tablePrefix", "_ckpt_v2")).not.toThrow()
     expect(() => assertIdentifier("schema", "MySchema")).not.toThrow()
@@ -31,7 +31,7 @@ describe("assertIdentifier", () => {
 describe("qualify", () => {
   it("joins schema, prefix and logical table name", () => {
     expect(qualify({ schema: DEFAULT_SCHEMA, prefix: DEFAULT_TABLE_PREFIX }, "checkpoints")).toBe(
-      "public.dawn_checkpoints",
+      "public.b4_checkpoints",
     )
     expect(qualify({ schema: "app", prefix: "t_1" }, "writes")).toBe("app.t_1_writes")
   })

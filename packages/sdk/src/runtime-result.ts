@@ -1,7 +1,7 @@
 /**
- * Result envelope produced by `dawn run` and `dawn test` for a single route invocation.
+ * Result envelope produced by `b4 run` and `b4 test` for a single route invocation.
  * Test scenario authors assert against this shape via `expectOutput`, `expectMeta`, and
- * `expectError` from `@dawn-ai/sdk/testing`.
+ * `expectError` from `@b4run/sdk/testing`.
  */
 
 export type RuntimeExecutionMode = "agent" | "chain" | "graph" | "workflow"

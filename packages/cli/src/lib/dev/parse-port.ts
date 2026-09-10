@@ -1,7 +1,7 @@
 import { CliError } from "../output.js"
 
 /**
- * Parse a --port flag value. Shared by dawn dev and dawn inspect.
+ * Parse a --port flag value. Shared by b4 dev and b4 inspect.
  *
  * NOTE: start.ts keeps its own deliberately-different parsePort — it accepts 0
  * as a request for a kernel-assigned ephemeral port. Here 0 is invalid: these

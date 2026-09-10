@@ -8,7 +8,7 @@ import { extractDeploymentConfig } from "../src/lib/build/deployment-config.js"
 let tempDir: string
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), "dawn-deploy-"))
+  tempDir = mkdtempSync(join(tmpdir(), "b4-deploy-"))
 })
 
 afterEach(() => {
@@ -21,7 +21,7 @@ describe("extractDeploymentConfig", () => {
       join(tempDir, "package.json"),
       JSON.stringify({
         dependencies: {
-          "@dawn-ai/cli": "0.1.6",
+          "@b4run/cli": "0.1.6",
           "@langchain/openai": "0.5.0",
         },
       }),

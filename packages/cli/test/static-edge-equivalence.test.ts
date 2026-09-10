@@ -2,11 +2,11 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { __clearDawnConfigCacheForTests } from "@dawn-ai/core"
-import { discoverRoutes } from "@dawn-ai/core/node"
-import { __resetMaterializedAgentsForTests } from "@dawn-ai/langchain"
-import { matchPermission, type PermissionsStore } from "@dawn-ai/permissions"
-import { createThreadsStore, sqliteCheckpointer } from "@dawn-ai/sqlite-storage"
+import { __clearB4ConfigCacheForTests } from "@b4run/core"
+import { discoverRoutes } from "@b4run/core/node"
+import { __resetMaterializedAgentsForTests } from "@b4run/langchain"
+import { matchPermission, type PermissionsStore } from "@b4run/permissions"
+import { createThreadsStore, sqliteCheckpointer } from "@b4run/sqlite-storage"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { type AimockFixture, createAimock } from "../../testing/dist/index.js"
@@ -47,7 +47,7 @@ afterEach(async () => {
 //
 //   run 1 (node static): modules.mjs (emitModulesFile) → loadStaticModules →
 //     the node handler, whose stores resolve from disk at boot exactly as
-//     `dawn start` resolves them;
+//     `b4 start` resolves them;
 //   run 2 (edge static): modules.edge.mjs (emitEdgeModulesFile) →
 //     loadStaticModules → the CORE handler (no node boot fallbacks), the
 //     `/<app-dir>` namespace as appRoot, an inlined config, and stores built
@@ -68,7 +68,7 @@ afterEach(async () => {
 // provided and this runtime has no filesystem fallback" during PREPARATION —
 // a 500 on every agent turn, over a `ctx.fs` handle no turn here ever touched.
 // A worker could not have injected its way out: `app.mjs` inlines only the
-// JSON-serializable half of `dawn.config.ts`, and `assertEdgeCapabilities`
+// JSON-serializable half of `b4.config.ts`, and `assertEdgeCapabilities`
 // rejects `backends.filesystem` outright (a live object cannot cross a build
 // boundary). `resolveWorkspaceFsBackend` (execute-route-core.ts) now defers
 // that resolution to the first `ctx.fs` operation, so this run — no fallbacks,
@@ -100,13 +100,13 @@ afterEach(async () => {
 // Everything else is kept precisely because it is the full static-manifest
 // input surface: an agent route, a shared tool, a route-local tool that
 // updates state through the {result, state} envelope, a custom reducer plus an
-// inferred append reducer, and typegen schemas in .dawn/routes/chat/tools.json.
+// inferred append reducer, and typegen schemas in .b4/routes/chat/tools.json.
 // ---------------------------------------------------------------------------
 
 async function fixtureApp(): Promise<string> {
   // realpath: macOS tmpdir sits behind a /var → /private/var symlink and the
   // loader resolves module URLs to real paths — keep every path resolved.
-  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "dawn-static-edge-equivalence-")))
+  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "b4-static-edge-equivalence-")))
   cleanup.push(() =>
     rm(appRoot, {
       force: true,
@@ -116,7 +116,7 @@ async function fixtureApp(): Promise<string> {
     }),
   )
   const files: Record<string, string> = {
-    ".dawn/routes/chat/tools.json": `${JSON.stringify(
+    ".b4/routes/chat/tools.json": `${JSON.stringify(
       {
         echo: {
           description: "Echoes the input back",
@@ -138,10 +138,10 @@ async function fixtureApp(): Promise<string> {
       null,
       2,
     )}\n`,
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "static-edge-equivalence-fixture", "type": "module" }\n',
     "src/app/chat/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\n' +
+      'import { agent } from "@b4run/sdk"\n' +
       'export default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
     "src/app/chat/reducers/count.ts":
       "export default (current: unknown, incoming: unknown) =>\n" +
@@ -328,7 +328,7 @@ function perRequestStores(dbDir: string): RequestStoreProbe {
       ),
       // No memoryStore, matching the emitted `stores.mjs` exactly: route
       // memory is gated off this target, so nothing may ask for one. If
-      // anything did, the request would 500 with DAWN_E5301 and the
+      // anything did, the request would 500 with B4_E5301 and the
       // comparison below would fail loudly rather than quietly.
     }
   }
@@ -340,7 +340,7 @@ function perRequestStores(dbDir: string): RequestStoreProbe {
  * The permissions store the node run resolves, minus the disk.
  *
  * The node path builds `createPermissionsStore({ appRoot, config: undefined,
- * mode: "interactive" })` per request and loads a `.dawn/permissions.json` the
+ * mode: "interactive" })` per request and loads a `.b4/permissions.json` the
  * fixture does not have — i.e. interactive mode over empty allow/deny lists.
  * Reproducing that (rather than reaching for the always-"allow" fake) keeps
  * permissions from being a fourth difference between the runs: were a tool to
@@ -580,12 +580,12 @@ describe("node-static vs edge-static equivalence", () => {
   it("serves the identical conversation from modules.edge.mjs with per-request stores", async () => {
     const appRoot = await fixtureApp()
 
-    // The emitted manifests import `@dawn-ai/cli/runtime` and
-    // `@dawn-ai/cli/fetch`; the fixture resolves both through this symlink.
-    await mkdir(join(appRoot, "node_modules", "@dawn-ai"), { recursive: true })
+    // The emitted manifests import `@b4run/cli/runtime` and
+    // `@b4run/cli/fetch`; the fixture resolves both through this symlink.
+    await mkdir(join(appRoot, "node_modules", "@b4run"), { recursive: true })
     await symlink(
       join(repoRoot, "packages", "cli"),
-      join(appRoot, "node_modules", "@dawn-ai", "cli"),
+      join(appRoot, "node_modules", "@b4run", "cli"),
       "dir",
     )
 
@@ -606,7 +606,7 @@ describe("node-static vs edge-static equivalence", () => {
     for (const route of manifest.routes) {
       discoveries.push(await collectRouteStaticDiscovery({ appRoot, route }))
     }
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
     await mkdir(buildDir, { recursive: true })
     const nodeModulesPath = join(buildDir, "modules.mjs")
     const edgeModulesPath = join(buildDir, "modules.edge.mjs")
@@ -650,7 +650,7 @@ describe("node-static vs edge-static equivalence", () => {
     // inherit the node run's loaded modules, config, or materialized agents
     // (which also capture the now-closed aimock's base URL). ----
     __resetRouteLoadCachesForTests()
-    __clearDawnConfigCacheForTests()
+    __clearB4ConfigCacheForTests()
     __resetMaterializedAgentsForTests()
 
     // ---- Run 2: EDGE STATIC (modules.edge.mjs + per-request stores) --------
@@ -665,7 +665,7 @@ describe("node-static vs edge-static equivalence", () => {
 
     // A separate database, as a deployed worker has: run 1's sqlite files live
     // under the app root, which the edge runtime cannot see at all.
-    const dbDir = await realpath(await mkdtemp(join(tmpdir(), "dawn-edge-stores-")))
+    const dbDir = await realpath(await mkdtemp(join(tmpdir(), "b4-edge-stores-")))
     cleanup.push(() => rm(dbDir, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
     const probe = perRequestStores(dbDir)
 
@@ -750,12 +750,12 @@ describe("node-static vs edge-static equivalence", () => {
   // with no aimock in the way.
   // -------------------------------------------------------------------------
   it("defers the missing-filesystem failure to first ctx.fs use, and still fails loudly", async () => {
-    const appRoot = await realpath(await mkdtemp(join(tmpdir(), "dawn-edge-fs-deferral-")))
+    const appRoot = await realpath(await mkdtemp(join(tmpdir(), "b4-edge-fs-deferral-")))
     cleanup.push(() =>
       rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }),
     )
     const files: Record<string, string> = {
-      "dawn.config.ts": "export default {}\n",
+      "b4.config.ts": "export default {}\n",
       "package.json": '{ "name": "edge-fs-deferral-fixture", "type": "module" }\n',
       // Reaches for the workspace on the first line — the ONE thing a
       // filesystem-less runtime cannot serve.
@@ -772,10 +772,10 @@ describe("node-static vs edge-static equivalence", () => {
       await mkdir(join(filePath, ".."), { recursive: true })
       await writeFile(filePath, body, "utf8")
     }
-    await mkdir(join(appRoot, "node_modules", "@dawn-ai"), { recursive: true })
+    await mkdir(join(appRoot, "node_modules", "@b4run"), { recursive: true })
     await symlink(
       join(repoRoot, "packages", "cli"),
-      join(appRoot, "node_modules", "@dawn-ai", "cli"),
+      join(appRoot, "node_modules", "@b4run", "cli"),
       "dir",
     )
 
@@ -784,7 +784,7 @@ describe("node-static vs edge-static equivalence", () => {
     for (const route of manifest.routes) {
       discoveries.push(await collectRouteStaticDiscovery({ appRoot, route }))
     }
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
     await mkdir(buildDir, { recursive: true })
     const edgeModulesPath = join(buildDir, "modules.edge.mjs")
     await writeFile(
@@ -794,7 +794,7 @@ describe("node-static vs edge-static equivalence", () => {
     )
 
     __resetRouteLoadCachesForTests()
-    __clearDawnConfigCacheForTests()
+    __clearB4ConfigCacheForTests()
 
     const edgeModules = await loadStaticModules(pathToFileURL(edgeModulesPath))
     expect(edgeModules.routes.map((route) => route.assistantId).sort()).toEqual([
@@ -802,7 +802,7 @@ describe("node-static vs edge-static equivalence", () => {
       "/reads#workflow",
     ])
 
-    const dbDir = await realpath(await mkdtemp(join(tmpdir(), "dawn-edge-fs-deferral-db-")))
+    const dbDir = await realpath(await mkdtemp(join(tmpdir(), "b4-edge-fs-deferral-db-")))
     cleanup.push(() => rm(dbDir, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
 
     // The `app.mjs` shape again: no boot fallbacks, empty config, no backends.

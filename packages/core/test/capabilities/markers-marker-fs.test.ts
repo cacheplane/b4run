@@ -44,7 +44,7 @@ describe("markers read through MarkerFs", () => {
   let routeDir: string
 
   beforeEach(() => {
-    workDir = mkdtempSync(join(tmpdir(), "dawn-marker-fs-"))
+    workDir = mkdtempSync(join(tmpdir(), "b4-marker-fs-"))
     routeDir = join(workDir, "route")
     mkdirSync(routeDir, { recursive: true })
   })

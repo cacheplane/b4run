@@ -1,0 +1,37 @@
+{
+  "observedAt": "2026-09-10T04:10:02Z",
+  "platform": "macOS-26.5-arm64-arm-64bit",
+  "node": "v24.20.0",
+  "scaffoldCommand": "npm create --yes b4-app@latest my-agent -- --template basic",
+  "checks": [
+    "npm install",
+    "npm run typecheck",
+    "npm run build",
+    "npm test -- --run"
+  ],
+  "devCommand": "npm run dev -- --port <unused-port>",
+  "devHealthPath": "/healthz",
+  "devHealthStatus": 200,
+  "devHealthBody": "{\"status\":\"ready\"}",
+  "configFile": "b4.config.ts",
+  "installedB4Versions": {
+    "@b4run/langgraph": "0.8.28",
+    "@b4run/evals": "0.8.28",
+    "@b4run/core": "0.8.28",
+    "@b4run/memory": "0.8.28",
+    "@b4run/langchain": "0.8.28",
+    "@b4run/inspector": "0.8.28",
+    "@b4run/workspace": "0.8.28",
+    "@b4run/ag-ui": "0.8.28",
+    "@b4run/cli": "0.8.28",
+    "@b4run/permissions": "0.8.28",
+    "@b4run/sqlite-storage": "0.8.28",
+    "@b4run/testing": "0.8.28",
+    "@b4run/config-typescript": "0.8.28",
+    "@b4run/sdk": "0.8.28"
+  },
+  "oldIdentityMatches": [],
+  "isolatedRegistryConfig": true,
+  "credentialsExcluded": true,
+  "temporaryAppRemoved": true
+}

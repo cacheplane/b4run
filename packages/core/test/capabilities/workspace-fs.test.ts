@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createPermissionsStore } from "@dawn-ai/permissions/node"
-import { localFilesystem } from "@dawn-ai/workspace/node"
+import { createPermissionsStore } from "@b4run/permissions/node"
+import { localFilesystem } from "@b4run/workspace/node"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { createWorkspaceFs } from "../../src/capabilities/workspace-fs.js"
 
@@ -12,7 +12,7 @@ describe("createWorkspaceFs", () => {
   const signal = new AbortController().signal
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "dawn-wsfs-"))
+    root = mkdtempSync(join(tmpdir(), "b4-wsfs-"))
     workspaceRoot = join(root, "workspace")
     mkdirSync(workspaceRoot, { recursive: true })
   })
@@ -105,7 +105,7 @@ describe("createWorkspaceFs permission gating", () => {
     // Canonicalize the temp root: on macOS tmpdir() is /var -> /private/var, and
     // the gate now compares canonical paths, so allow-rule patterns (and the
     // workspace root) must be expressed in canonical form to match.
-    root = realpathSync(mkdtempSync(join(tmpdir(), "dawn-wsfs-gate-")))
+    root = realpathSync(mkdtempSync(join(tmpdir(), "b4-wsfs-gate-")))
     workspaceRoot = join(root, "workspace")
     mkdirSync(workspaceRoot, { recursive: true })
     outsideDir = join(root, "shared")
@@ -210,7 +210,7 @@ describe("createWorkspaceFs permission gating", () => {
   })
 
   it("gates a symlink that escapes the workspace (caught, not silently allowed)", async () => {
-    const outside = mkdtempSync(join(tmpdir(), "dawn-escape-"))
+    const outside = mkdtempSync(join(tmpdir(), "b4-escape-"))
     writeFileSync(join(outside, "secret.txt"), "top secret", "utf8")
     symlinkSync(join(outside, "secret.txt"), join(workspaceRoot, "escape"))
     const permissions = createPermissionsStore({
@@ -231,8 +231,8 @@ describe("createWorkspaceFs permission gating", () => {
   })
 
   it("still allows a legitimate inside path when the workspace root is reached via a symlink", async () => {
-    const realDir = mkdtempSync(join(tmpdir(), "dawn-realroot-"))
-    const linkParent = mkdtempSync(join(tmpdir(), "dawn-linkroot-"))
+    const realDir = mkdtempSync(join(tmpdir(), "b4-realroot-"))
+    const linkParent = mkdtempSync(join(tmpdir(), "b4-linkroot-"))
     const linkedRoot = join(linkParent, "ws")
     symlinkSync(realDir, linkedRoot)
     writeFileSync(join(realDir, "notes.md"), "hello", "utf8")

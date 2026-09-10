@@ -32,7 +32,7 @@ describe("run() generic-error branch", () => {
       "The requested module '@langchain/core' does not provide an export named 'tool'",
     )
     // The generic branch only fires for errors that escape every command's
-    // CliError wrapper (the loadDawnConfig / unwrapped-import case). Reproduce
+    // CliError wrapper (the loadB4Config / unwrapped-import case). Reproduce
     // that by making the program's parse reject with a raw error.
     vi.spyOn(Command.prototype, "parseAsync").mockRejectedValue(rawError)
 

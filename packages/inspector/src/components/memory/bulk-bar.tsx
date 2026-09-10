@@ -1,5 +1,5 @@
 "use client"
-import type { MemoryRecord } from "@dawn-ai/memory"
+import type { MemoryRecord } from "@b4run/memory"
 import { useState } from "react"
 import { Button } from "../ui/button"
 import { type MemoryVerb, mutateMemories } from "./actions"

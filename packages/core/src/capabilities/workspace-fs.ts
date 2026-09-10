@@ -1,7 +1,7 @@
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import type { WorkspaceFs } from "@dawn-ai/sdk"
-import { POSIX_SEP, pureResolve } from "@dawn-ai/sdk/pure"
-import type { FilesystemBackend } from "@dawn-ai/workspace"
+import type { PermissionsStore } from "@b4run/permissions"
+import type { WorkspaceFs } from "@b4run/sdk"
+import { POSIX_SEP, pureResolve } from "@b4run/sdk/pure"
+import type { FilesystemBackend } from "@b4run/workspace"
 import { gatePathOp, type PathOperation } from "./permission-gate.js"
 
 export interface CreateWorkspaceFsOptions {
@@ -38,7 +38,7 @@ export interface CreateWorkspaceFsOptions {
  * The jail's precondition, enforced where core is ENTERED rather than deep
  * inside `pureResolve`. Every host lane must canonicalize its app root to a
  * POSIX-absolute path before handing it to core (`toPosixAppRoot` in
- * `@dawn-ai/cli` is the node lane's single conversion); nothing mechanically
+ * `@b4run/cli` is the node lane's single conversion); nothing mechanically
  * forces a NEW host entry point to do so, so a miss must fail here — loudly,
  * naming the value — instead of surfacing later as an opaque `pureResolve`
  * throw on the first file operation, or (worse) as a containment comparison
@@ -48,7 +48,7 @@ function assertPosixAbsoluteWorkspaceRoot(workspaceRoot: string): void {
   if (workspaceRoot.startsWith(POSIX_SEP)) return
   throw new Error(
     `createWorkspaceFs requires a POSIX-normalized absolute workspaceRoot; got ${JSON.stringify(workspaceRoot)}. ` +
-      "The host lane must canonicalize before calling core (see toPosixAppRoot in @dawn-ai/cli).",
+      "The host lane must canonicalize before calling core (see toPosixAppRoot in @b4run/cli).",
   )
 }
 
@@ -83,7 +83,7 @@ export function createWorkspaceFs(opts: CreateWorkspaceFsOptions): WorkspaceFs {
     // locations rather than lexical strings (the symlink-escape cases in
     // workspace-fs.test.ts cover that half). `workspaceRoot` must already be a
     // POSIX-normalized absolute path — the node lane converts once at its
-    // boundary (see `toPosixAppRoot` in @dawn-ai/cli); pureResolve throws on a
+    // boundary (see `toPosixAppRoot` in @b4run/cli); pureResolve throws on a
     // relative base rather than silently rooting it somewhere.
     const absPath = pureResolve(opts.workspaceRoot, path)
     const fs = backend()

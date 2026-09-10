@@ -1,13 +1,13 @@
 # Getting Started
 
-Build a typed AI agent in 60 seconds. Dawn is file-system routing for agents — no registry, no hand-written tool schemas, no glue.
+Build a typed AI agent in 60 seconds. B4.run is file-system routing for agents — no registry, no hand-written tool schemas, no glue.
 
 By the end of this guide you'll have a working deep-research assistant at `/research` that plans sub-questions, searches a local corpus, and writes cited reports. Live runs use a real model and API key; the included tests and evals use deterministic fixtures and run offline.
 
 <CopyPromptButton
   variant="docs"
   label="Copy agent prompt"
-  prompt={`Scaffold a new Dawn app and help me build an agent. Dawn is the TypeScript meta-framework for LangGraph — agents and workflows are file-system routes with route-local tools, generated types, and durable threads. Run \`npm create dawn-ai-app@latest my-agent\` to scaffold, then read https://dawnai.org/AGENTS.md and https://dawnai.org/llms-full.txt for the full framework reference before writing any routes.`}
+  prompt={`Scaffold a new B4.run app and help me build an agent. B4.run is the TypeScript meta-framework for LangGraph — agents and workflows are file-system routes with route-local tools, generated types, and durable threads. Run \`npm create b4-app@latest my-agent\` to scaffold, then read https://b4.run/AGENTS.md and https://b4.run/llms-full.txt for the full framework reference before writing any routes.`}
 />
 
 Prefer to build with a coding agent? Copy the prompt above and paste it into Claude Code, Cursor, or your agent of choice.
@@ -15,7 +15,7 @@ Prefer to build with a coding agent? Copy the prompt above and paste it into Cla
 ## 1. Install
 
 ```bash
-npm create dawn-ai-app@latest my-agent
+npm create b4-app@latest my-agent
 cd my-agent
 npm install
 ```
@@ -25,16 +25,16 @@ Requires Node.js 24 or later and npm 11.
 For a minimal greeter scaffold instead, pass `--template basic`:
 
 ```bash
-npm create dawn-ai-app@latest my-app -- --template basic
+npm create b4-app@latest my-app -- --template basic
 ```
 
 ## 2. What you got
 
-The scaffold is a complete deep-research assistant, generated as a two-package npm workspace: `server/` is the Dawn app, and `web/` is the Dawn Workbench — a browser client in front of it. The root `npm install` installs both. These are the important files — no registration step is required.
+The scaffold is a complete deep-research assistant, generated as a two-package npm workspace: `server/` is the B4.run app, and `web/` is the B4.run Workbench — a browser client in front of it. The root `npm install` installs both. These are the important files — no registration step is required.
 
 ```
 package.json                          # workspace root: "workspaces": ["server", "web"]
-server/                               # the Dawn app
+server/                               # the B4.run app
   src/
     app/research/
       index.ts                        # research coordinator agent
@@ -61,22 +61,22 @@ server/                               # the Dawn app
     scripts/
       fetch-source.mjs                # network fetch script called via runBash
   AGENTS.md                           # contributor guidance for coding agents
-  dawn.config.ts                      # app config: permissions, tool-output offloading
+  b4.config.ts                      # app config: permissions, tool-output offloading
   .env.example                        # provider environment template
-web/                                  # the Dawn Workbench (Next.js + CopilotKit)
+web/                                  # the B4.run Workbench (Next.js + CopilotKit)
   app/
     page.tsx                          # the CopilotKit provider tree and thread state
     components/                       # thread rail, transcript, composer, activity cards
-    api/copilotkit/route.ts           # registers an AG-UI agent on the Dawn endpoint
-    api/dawn/[...path]/route.ts       # allowlisted same-origin proxy to the server
+    api/copilotkit/route.ts           # registers an AG-UI agent on the B4.run endpoint
+    api/b4/[...path]/route.ts       # allowlisted same-origin proxy to the server
     theme.css                         # the whole palette, as CSS variables
 ```
 
-The route entry (`index.ts`) is a research coordinator. It recalls durable context, plans sub-questions, dispatches the `researcher` subagent for each one, and synthesizes a cited report. Shared tools under `server/src/tools/` are available to both agents. `dawn typegen` writes their generated types from the function signatures; `dawn check` validates the app without writing files.
+The route entry (`index.ts`) is a research coordinator. It recalls durable context, plans sub-questions, dispatches the `researcher` subagent for each one, and synthesizes a cited report. Shared tools under `server/src/tools/` are available to both agents. `b4 typegen` writes their generated types from the function signatures; `b4 check` validates the app without writing files.
 
 <CodeGroup>
 ```ts title="server/src/app/research/index.ts"
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -98,7 +98,7 @@ Cite every claim with its source path in square brackets, e.g. [corpus/agent-arc
 ```
 
 ```ts title="server/src/app/research/subagents/researcher/index.ts"
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -111,7 +111,7 @@ export default agent({
 })
 ```
 
-```ts title="server/dawn.config.ts"
+```ts title="server/b4.config.ts"
 export default {
   appDir: "src/app",
   permissions: {
@@ -131,7 +131,7 @@ export default {
 ```
 </CodeGroup>
 
-The `plan.md` file opts the route into Dawn's planning capability — its checklist items seed each thread's todos. `workspace/AGENTS.md` and route-local `memory.md` provide persistent prompt guidance; `memory.ts` defines typed cross-session records exposed through `recall` and `remember`. Skills under `skills/` are loaded on demand by name.
+The `plan.md` file opts the route into B4.run's planning capability — its checklist items seed each thread's todos. `workspace/AGENTS.md` and route-local `memory.md` provide persistent prompt guidance; `memory.ts` defines typed cross-session records exposed through `recall` and `remember`. Skills under `skills/` are loaded on demand by name.
 
 ## 3. Verify and test
 
@@ -144,13 +144,13 @@ npm run check
 npm run typecheck
 ```
 
-`typegen` writes `server/.dawn/dawn.generated.d.ts`; `check` then validates route
+`typegen` writes `server/.b4/b4.generated.d.ts`; `check` then validates route
 discovery, tool definitions, and configuration without writing generated files;
 `typecheck` validates the TypeScript sources in both packages.
 The validation output looks like:
 
 ```
-Dawn app is valid: 2 routes discovered.
+B4.run app is valid: 2 routes discovered.
 - /research (agent)
 - /research/subagents/researcher (agent)
 ```
@@ -202,24 +202,24 @@ curl -s -X POST http://127.0.0.1:3002/threads/$THREAD_ID/runs/wait \
   }' | jq .
 ```
 
-The `#agent` suffix is required — it selects the agent entry on the route. The report lands in `server/workspace/reports/` inside the project. Thread state checkpoints to `server/.dawn/checkpoints.sqlite`; threads persist across dev-server restarts.
+The `#agent` suffix is required — it selects the agent entry on the route. The report lands in `server/workspace/reports/` inside the project. Thread state checkpoints to `server/.b4/checkpoints.sqlite`; threads persist across dev-server restarts.
 
 ## 5. See it in a UI
 
-`curl` is not the only surface. The `web/` package is the Dawn Workbench, a chat UI over the same agent. Leave the server running and start it in a second terminal:
+`curl` is not the only surface. The `web/` package is the B4.run Workbench, a chat UI over the same agent. Leave the server running and start it in a second terminal:
 
 ```bash
 npm run dev:web
 ```
 
-Open [http://localhost:3010](http://localhost:3010) and ask a research question. The workbench has a thread rail, a streaming transcript with plan and researcher activity cards, generic tool cards, inline permission prompts, and a memory-candidate review panel. Until the server answers it shows a connect screen instead, and re-probes every few seconds. It talks to Dawn over [AG-UI](/docs/ag-ui) and holds no model credentials of its own — those stay in `server/.env`.
+Open [http://localhost:3010](http://localhost:3010) and ask a research question. The workbench has a thread rail, a streaming transcript with plan and researcher activity cards, generic tool cards, inline permission prompts, and a memory-candidate review panel. Until the server answers it shows a connect screen instead, and re-probes every few seconds. It talks to B4.run over [AG-UI](/docs/ag-ui) and holds no model credentials of its own — those stay in `server/.env`.
 
-The plan and researcher cards are not hand-built. Dawn ships them from [`@dawn-ai/ag-ui/react`](/docs/ag-ui), and the workbench restyles them through that package's `classNames` prop before handing them to CopilotKit's `renderActivityMessages` — validation and layout stay in the package. A client that wants Dawn's default look passes the packaged `dawnActivityRenderers` array instead and is done. The [Research assistant web UI](/docs/recipes/research-web-ui) recipe walks through that wiring if you want to build your own client.
+The plan and researcher cards are not hand-built. B4.run ships them from [`@b4run/ag-ui/react`](/docs/ag-ui), and the workbench restyles them through that package's `classNames` prop before handing them to CopilotKit's `renderActivityMessages` — validation and layout stay in the package. A client that wants B4.run's default look passes the packaged `b4ActivityRenderers` array instead and is done. The [Research assistant web UI](/docs/recipes/research-web-ui) recipe walks through that wiring if you want to build your own client.
 
-The scaffold also installs `@dawn-ai/inspector`, so a third terminal can open the [Inspector](/docs/inspector) — a browser UI over the app's live memory store, where the records the agent writes with `remember` show up for review:
+The scaffold also installs `@b4run/inspector`, so a third terminal can open the [Inspector](/docs/inspector) — a browser UI over the app's live memory store, where the records the agent writes with `remember` show up for review:
 
 ```bash
-npx dawn inspect --cwd server
+npx b4 inspect --cwd server
 ```
 
 When you are ready to ship, compare [Deployment Options](/docs/deployment) and follow [Node and Docker](/docs/deployment/node) for the default self-hosted path.

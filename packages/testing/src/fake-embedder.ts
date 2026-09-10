@@ -1,4 +1,4 @@
-import type { Embedder } from "@dawn-ai/core"
+import type { Embedder } from "@b4run/core"
 
 function hash(s: string): number {
   let h = 2166136261

@@ -19,12 +19,12 @@ import {
 
 const ROOT = "/absolute/release-candidate"
 const ENVIRONMENT = Object.freeze({
-  GITHUB_REPOSITORY: "cacheplane/dawnai",
+  GITHUB_REPOSITORY: "cacheplane/b4run",
   GITHUB_REF: `refs/tags/v${VERSION}`,
   GITHUB_SHA: COMMIT_SHA,
   GITHUB_RUN_ID: "7001",
   GITHUB_RUN_ATTEMPT: "2",
-  GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+  GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
 })
 
 for (const predecessor of ["CANDIDATE_TAGGED", "ARTIFACTS_PREPARED", "CANDIDATE_ESCROWED"]) {
@@ -222,9 +222,9 @@ test("rejects diagnostics, lightweight tags, and mismatched selected identities"
   }
 })
 
-test("requires the exact tag-bound cacheplane/dawnai workflow environment", async () => {
+test("requires the exact tag-bound cacheplane/b4run workflow environment", async () => {
   const cases = [
-    ["repository", { GITHUB_REPOSITORY: "fork/dawnai" }],
+    ["repository", { GITHUB_REPOSITORY: "fork/b4-run" }],
     ["ref", { GITHUB_REF: "refs/heads/main" }],
     ["SHA", { GITHUB_SHA: "f".repeat(40) }],
     ["run", { GITHUB_RUN_ID: "0" }],
@@ -232,7 +232,7 @@ test("requires the exact tag-bound cacheplane/dawnai workflow environment", asyn
     [
       "workflow ref",
       {
-        GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/other.yml@refs/tags/v${VERSION}`,
+        GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/other.yml@refs/tags/v${VERSION}`,
       },
     ],
   ]
@@ -335,7 +335,7 @@ test("rejects a changed Release body, identity, or base asset namespace", async 
           ...raw.release,
           id: raw.release.id + 10,
           tag_name: "v0.8.23",
-          name: "Dawn v0.8.23",
+          name: "B4 v0.8.23",
         }),
     ],
   ]
@@ -519,7 +519,7 @@ function rawReleaseFixture(observation) {
   }
   const release = {
     id: 901,
-    name: `Dawn v${VERSION}`,
+    name: `B4 v${VERSION}`,
     tag_name: observation.release.status === "published" ? `v${VERSION}` : "untagged-opaque",
     target_commitish: "main",
     draft: observation.release.status !== "published",

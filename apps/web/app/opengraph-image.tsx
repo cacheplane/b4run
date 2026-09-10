@@ -3,7 +3,7 @@ import { ImageResponse } from "next/og"
 export const runtime = "edge"
 export const size = { width: 1200, height: 630 }
 export const contentType = "image/png"
-export const alt = "Dawn — TypeScript meta-framework for LangGraph.js"
+export const alt = "B4.run — TypeScript meta-framework for LangGraph.js"
 
 const PAGE = "#ffffff"
 const SURFACE = "#fafaf7"
@@ -13,9 +13,9 @@ const INK_DIM = "#8a857b"
 const DIVIDER = "#e6e3da"
 const ACCENT = "#b45309"
 
-// Dawn icon — inline SVG so the OG image doesn't depend on a network fetch.
-// Sourced from public/brand/dawn-icon-black.svg, paths preserved verbatim.
-const DAWN_ICON = (
+// B4.run icon — inline SVG so the OG image doesn't depend on a network fetch.
+// Sourced from public/brand/b4-icon-black.svg, paths preserved verbatim.
+const B4_ICON = (
   // biome-ignore lint/a11y/noSvgWithoutTitle: rasterized to PNG by satori; OG image alt is set via `alt` export
   <svg width={88} height={88} viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
     <g fill={INK}>
@@ -45,10 +45,10 @@ export default function OG() {
     >
       {/* Top: brand */}
       <div style={{ display: "flex", alignItems: "center", gap: "24px" }}>
-        {DAWN_ICON}
+        {B4_ICON}
         <div style={{ display: "flex", flexDirection: "column" }}>
           <span style={{ fontSize: "44px", fontWeight: 700, color: INK, letterSpacing: "-0.02em" }}>
-            Dawn AI
+            B4.run
           </span>
           <span style={{ fontSize: "20px", color: INK_MUTED, marginTop: "4px" }}>
             TypeScript meta-framework · for LangGraph.js
@@ -120,7 +120,7 @@ export default function OG() {
           }}
         >
           <span style={{ color: ACCENT }}>$</span>
-          <span>npm create dawn-ai-app@latest my-agent</span>
+          <span>npm create b4-app@latest my-agent</span>
         </div>
       </div>
     </div>,

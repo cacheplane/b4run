@@ -292,7 +292,7 @@ test("the repository release inventory is an exact, uniformly versioned set", as
 })
 
 test("check-inventory prints JSON success and categorized ref-specific failures", async () => {
-  const root = await mkdtemp(resolve(tmpdir(), "dawn-release-inventory-"))
+  const root = await mkdtemp(resolve(tmpdir(), "b4-release-inventory-"))
   const script = resolve(dirname(fileURLToPath(import.meta.url)), "../check-inventory.mjs")
   try {
     await mkdir(resolve(root, ".changeset"), { recursive: true })
@@ -352,7 +352,7 @@ test("check-inventory prints JSON success and categorized ref-specific failures"
 })
 
 test("check-inventory formats expected Git and config failures in text and JSON modes", async () => {
-  const root = await mkdtemp(resolve(tmpdir(), "dawn-release-errors-"))
+  const root = await mkdtemp(resolve(tmpdir(), "b4-release-errors-"))
   const script = resolve(dirname(fileURLToPath(import.meta.url)), "../check-inventory.mjs")
   try {
     await mkdir(resolve(root, ".changeset"), { recursive: true })

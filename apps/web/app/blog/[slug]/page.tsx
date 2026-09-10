@@ -50,7 +50,7 @@ export default async function BlogPostPage({ params }: PageProps) {
       <JsonLd data={blogPostingJsonLd(seoPage)} />
       <JsonLd data={breadcrumbJsonLd(seoPage)} />
       <ReadingLayout left={<PostMeta post={post} />} right={<DocsTOC />}>
-        <article className="prose-dawn">
+        <article className="prose-b4">
           <PostHeader post={post} />
           <MdxContent />
           {related.length > 0 && (

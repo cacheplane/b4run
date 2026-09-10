@@ -1,9 +1,10 @@
-import { seedDawnConfig } from "@dawn-ai/core"
-import type { MemoryStore } from "@dawn-ai/memory"
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import type { DawnMiddleware, MiddlewareRequest, ThreadAccessPolicy } from "@dawn-ai/sdk"
-import { THREAD_ACCESS_METADATA_KEY } from "@dawn-ai/sdk"
-import type { Thread, ThreadStatus, ThreadsStore } from "@dawn-ai/sqlite-storage"
+import type { B4Config } from "@b4run/core"
+import { loadB4Config, seedB4Config } from "@b4run/core"
+import type { MemoryStore } from "@b4run/memory"
+import type { PermissionsStore } from "@b4run/permissions"
+import type { B4Middleware, MiddlewareRequest, ThreadAccessPolicy } from "@b4run/sdk"
+import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
+import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import {
   collectRuntimeCapabilityGaps,
@@ -18,10 +19,12 @@ import {
   streamResolvedRoute,
 } from "../runtime/execute-route-core.js"
 import type { SandboxManager } from "../runtime/sandbox-manager.js"
-import type { DawnStaticModules } from "../runtime/static-modules-core.js"
+import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import { type StreamChunk, toSseEvent } from "../runtime/stream-types.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
 import { handleAgUiFetchRequest } from "./agui-handler.js"
+import type { CorsConfig } from "./cors.js"
+import { applyCorsHeaders, corsPreflightResponse, resolveCorsPolicy } from "./cors.js"
 import {
   handleMemoryApproveRequest,
   handleMemoryListRequest,
@@ -30,8 +33,8 @@ import {
 import { headersToRecord, runMiddleware } from "./middleware.js"
 import { readParkedInterruptIds, readParkedRoute, settleParkedRoute } from "./parked-route.js"
 import {
+  type B4ResumeEntry,
   createPendingResumeClaims,
-  type DawnResumeEntry,
   type PendingResumeClaims,
   readPendingInterrupts,
   resolvePendingResume,
@@ -44,11 +47,7 @@ import {
   type RuntimeRegistry,
 } from "./runtime-registry-core.js"
 import type { RequestStores, StartRuntimeServerOptions } from "./runtime-server.js"
-import {
-  createExecutionErrorBody,
-  createRequestErrorBody,
-  dawnErrorCodeOf,
-} from "./server-errors.js"
+import { b4ErrorCodeOf, createExecutionErrorBody, createRequestErrorBody } from "./server-errors.js"
 import { statusResponse } from "./status-response.js"
 import { terminalStatus } from "./terminal-status.js"
 import { threadAccessBootLine, validateThreadAccessPolicy } from "./thread-access.js"
@@ -63,7 +62,7 @@ export type RouteHandler = (request: Request, params: Record<string, string>) =>
 
 /**
  * Boot state threaded verbatim into every route execution: the supplied
- * DawnConfig (so no route re-reads `dawn.config.ts`) and the node filesystem
+ * B4Config (so no route re-reads `b4.config.ts`) and the node filesystem
  * fallback bag (absent on edge runtimes, where every store is injected).
  */
 export type RouteBoot = Pick<BootResolvedInstances, "bootFallbacks" | "config">
@@ -97,8 +96,8 @@ function requireBoot(
  * still be told WHICH one.
  */
 class MissingStoreError extends Error {
-  /** Registry code, read back by `dawnErrorCodeOf`. */
-  readonly code = "DAWN_E5301"
+  /** Registry code, read back by `b4ErrorCodeOf`. */
+  readonly code = "B4_E5301"
   constructor(readonly store: string) {
     super(
       `${store}: no instance provided and this runtime has no filesystem fallback — pass one via options (see the edge deployment docs).`,
@@ -120,15 +119,15 @@ function requireStore<T>(store: T | undefined, what: string): T {
  * never touch it, and both cross a boundary where the type is erased.
  *
  * A local class, not `CliError`: `../output.js` is node-only and this module is
- * in the `@dawn-ai/cli/fetch` graph. `dawnErrorCodeOf` reads the code back, the
+ * in the `@b4run/cli/fetch` graph. `b4ErrorCodeOf` reads the code back, the
  * same way it does for `MissingStoreError`.
  */
 class ThreadAccessPolicyError extends Error {
-  readonly code = "DAWN_E3003"
+  readonly code = "B4_E3003"
   constructor(source: string, reason: string) {
     super(
       `Thread access policy from ${source} is not a valid policy: ${reason}. ` +
-        "Dawn will not boot with a policy it cannot apply, because every thread endpoint would be ungated.",
+        "B4.run will not boot with a policy it cannot apply, because every thread endpoint would be ungated.",
     )
     this.name = "ThreadAccessPolicyError"
   }
@@ -142,18 +141,18 @@ class ThreadAccessPolicyError extends Error {
  * endpoint open while logging that the app has no policy.
  *
  * A local class for the same reason `ThreadAccessPolicyError` is one:
- * `../output.js` is node-only and this module is in the `@dawn-ai/cli/fetch`
+ * `../output.js` is node-only and this module is in the `@b4run/cli/fetch`
  * graph. Same registry code, because from an operator's seat this IS the policy
  * failing to load — it just failed at the build boundary rather than at import.
  */
 class StaleThreadAccessManifestError extends Error {
-  readonly code = "DAWN_E3003"
+  readonly code = "B4_E3003"
   constructor() {
     super(
       "This app was built with a thread access policy, but the static module manifest it " +
         "booted with carries no thread access entry — the manifest is older than the build " +
-        "that stamped the policy. Dawn will not boot with every thread endpoint ungated: " +
-        "re-run `dawn build` and deploy the whole build output together.",
+        "that stamped the policy. B4.run will not boot with every thread endpoint ungated: " +
+        "re-run `b4 build` and deploy the whole build output together.",
     )
     this.name = "StaleThreadAccessManifestError"
   }
@@ -171,7 +170,7 @@ function threadAccessSourceLabel(source: {
 /**
  * A gated feature this app is configured for that this runtime cannot serve —
  * the REQUEST-time half of the `hono` target's build gate, raising the same
- * `DAWN_E1005`.
+ * `B4_E1005`.
  *
  * Detected once at boot (`collectRuntimeCapabilityGaps`) and raised from
  * `fetch` rather than rejecting the handler's construction, for two reasons:
@@ -187,8 +186,8 @@ function threadAccessSourceLabel(source: {
  * failure the spec forbids.
  */
 class RuntimeCapabilityError extends Error {
-  /** Registry code, read back by `dawnErrorCodeOf`. Same code the build gate throws. */
-  readonly code = "DAWN_E1005"
+  /** Registry code, read back by `b4ErrorCodeOf`. Same code the build gate throws. */
+  readonly code = "B4_E1005"
   constructor(message: string) {
     super(message)
     this.name = "RuntimeCapabilityError"
@@ -285,8 +284,8 @@ export async function createRuntimeFetchHandler(
     readonly apSseHeartbeatIntervalMs?: number
   },
 ): Promise<RuntimeFetchHandler> {
-  // The node filesystem fallbacks, when this runtime has any. `dawn dev` /
-  // `dawn start` (and every existing test) come through
+  // The node filesystem fallbacks, when this runtime has any. `b4 dev` /
+  // `b4 start` (and every existing test) come through
   // `runtime-fetch-handler.ts`, which supplies `nodeBootFallbacks`. An edge
   // caller supplies none: each store must then be injected, or the first use
   // throws with a message naming what is missing.
@@ -296,10 +295,10 @@ export async function createRuntimeFetchHandler(
     ...(fallbacks ? { bootFallbacks: fallbacks } : {}),
   }
   // Seed the config memo FIRST — every node fallback below (stores, sandbox,
-  // memory, permissions) goes through loadDawnConfig, and a supplied config
-  // means `dawn.config.ts` must never be read from disk.
+  // memory, permissions) goes through loadB4Config, and a supplied config
+  // means `b4.config.ts` must never be read from disk.
   if (options.config && fallbacks) {
-    seedDawnConfig(options.appRoot, options.config)
+    seedB4Config(options.appRoot, options.config)
   }
   // No `modules` means the route tree must be walked — a node-only capability
   // reached through the boot fallbacks, never imported here (that would put
@@ -350,7 +349,7 @@ export async function createRuntimeFetchHandler(
     throw new StaleThreadAccessManifestError()
   }
   // Authorization, unlike middleware, must never resolve to "allow all" by
-  // accident: `loadThreadAccess` throws DAWN_E3003 rather than degrading when a
+  // accident: `loadThreadAccess` throws B4_E3003 rather than degrading when a
   // policy file exists but cannot be bound. An absent file resolves to
   // undefined — an app that never had a policy keeps today's behavior exactly.
   const threadAccess: ThreadAccessPolicy | undefined =
@@ -373,7 +372,7 @@ export async function createRuntimeFetchHandler(
       throw new ThreadAccessPolicyError(threadAccessSourceLabel(threadAccessSource), reason)
   }
   // One line per boot, and the only signal an operator has that a policy
-  // vanished. Emitted AFTER resolution and validation, so any DAWN_E3003
+  // vanished. Emitted AFTER resolution and validation, so any B4_E3003
   // pre-empts it: a boot that failed never claims to have bound anything.
   console.log(threadAccessBootLine(threadAccessSource))
   // `requestStores` makes the boot resolution below OPTIONAL, but only on a
@@ -431,7 +430,7 @@ export async function createRuntimeFetchHandler(
     // `requireStore` call site of its own, and it is reachable on a deployed
     // worker — the `/memory/candidates*` routes are registered unconditionally.
     // A plain Error here carries no `.code`, so `fetch`'s catch-all flattened
-    // the documented DAWN_E5301 into an anonymous 500; the edge docs and
+    // the documented B4_E5301 into an anonymous 500; the edge docs and
     // `edge-capabilities.ts` both promise the code, so raise the error that
     // actually has it.
     memoryStorePromise ??= options.memoryStore
@@ -447,7 +446,7 @@ export async function createRuntimeFetchHandler(
   // itself be an instance or a per-request factory). Otherwise, per
   // StartRuntimeServerOptions.permissionsMode: "boot" (production) loads once
   // here and reuses the instance; the default "per-request" (dev) hands route
-  // execution a factory that re-loads `.dawn/permissions.json` each request,
+  // execution a factory that re-loads `.b4/permissions.json` each request,
   // so HITL "Always" grants written mid-process apply immediately — the one
   // deliberate per-request read kept.
   const resolvePermissions = (): Promise<PermissionsStore> =>
@@ -677,7 +676,7 @@ export async function createRuntimeFetchHandler(
     ...(options.modules ? { staticModules: options.modules } : {}),
   })
 
-  const fetch = async (request: Request): Promise<Response> => {
+  const serveRoutes = async (request: Request): Promise<Response> => {
     if (!state.acceptingRequests) {
       return Response.json(createRequestErrorBody("Server is shutting down"), {
         status: 503,
@@ -750,7 +749,7 @@ export async function createRuntimeFetchHandler(
         // feature and its config key, so there are no extra details to attach.
         if (!loggedFailures.has(error.message)) {
           loggedFailures.add(error.message)
-          console.error(`Dawn runtime misconfigured — ${error.message}`)
+          console.error(`B4.run runtime misconfigured — ${error.message}`)
         }
         return Response.json(
           createExecutionErrorBody(error.message, undefined, { code: error.code }),
@@ -766,7 +765,7 @@ export async function createRuntimeFetchHandler(
         // host is not flooded with the same line.
         if (!loggedMissingStores.has(error.store)) {
           loggedMissingStores.add(error.store)
-          console.error(`Dawn runtime misconfigured — ${error.message}`)
+          console.error(`B4.run runtime misconfigured — ${error.message}`)
         }
         return Response.json(
           createExecutionErrorBody(error.message, { store: error.store }, { code: error.code }),
@@ -783,12 +782,12 @@ export async function createRuntimeFetchHandler(
       // failure" with nothing anywhere saying why. Deduped by message, for the
       // same reason the MissingStoreError branch above dedupes by store: a
       // misconfiguration fails every request identically.
-      const code = dawnErrorCodeOf(error)
+      const code = b4ErrorCodeOf(error)
       const cause = error instanceof Error ? error.message : String(error)
       if (!loggedFailures.has(cause)) {
         loggedFailures.add(cause)
         console.error(
-          `Dawn runtime failure — ${cause}${code ? ` (${code})` : ""}`,
+          `B4.run runtime failure — ${cause}${code ? ` (${code})` : ""}`,
           error instanceof Error && error.stack ? `\n${error.stack}` : "",
         )
       }
@@ -866,6 +865,26 @@ export async function createRuntimeFetchHandler(
     // Release sandboxes only after in-flight requests have drained, so tools
     // executing against a sandbox are never yanked mid-request.
     if (sandboxManager) await sandboxManager.releaseAll()
+  }
+
+  // CORS wraps the whole handler rather than living inside it. `serveRoutes`
+  // has eight exit paths — the dispatch result, the tracked SSE response, the
+  // shutdown 503 and five error branches — and a cross-origin caller must be
+  // able to read ALL of them, including the failures. Stamping once here is
+  // the only version of that with no path left uncovered.
+  //
+  // Resolved at boot — see `readCorsConfig` for where the config comes from.
+  // Boot is also where a malformed origin list should fail, so an operator
+  // sees it on startup rather than on the first cross-origin request.
+  const corsPolicy = resolveCorsPolicy(await readCorsConfig(options))
+  const fetch = async (request: Request): Promise<Response> => {
+    // A preflight never reaches the route table: it claims no in-flight slot
+    // and needs no stores, and the router has no OPTIONS route that could
+    // answer it. Returns undefined when CORS is off or this is not a
+    // preflight, and the request proceeds normally.
+    const preflight = corsPreflightResponse(corsPolicy, request)
+    if (preflight !== undefined) return preflight
+    return applyCorsHeaders(corsPolicy, request, await serveRoutes(request))
   }
 
   return { close, fetch, shutdownController, state }
@@ -985,7 +1004,7 @@ export function buildRouteTable(ctx: {
    */
   readonly getRunRegistry: (request: Request) => RunRegistry
   readonly getThreadsStore: (request: Request) => ThreadsStore
-  readonly middleware: DawnMiddleware | undefined
+  readonly middleware: B4Middleware | undefined
   readonly registry: RuntimeRegistry
   /**
    * The boot-resolved policy. `buildRouteTable` runs before any request exists,
@@ -1003,7 +1022,7 @@ export function buildRouteTable(ctx: {
    * `request` and forward the result exactly as they forwarded the old one.
    */
   readonly getShutdownSignal: (request: Request) => AbortSignal
-  readonly staticModules?: DawnStaticModules
+  readonly staticModules?: B4StaticModules
 }): RouteMatcher[] {
   const {
     appRoot,
@@ -1060,7 +1079,7 @@ export function buildRouteTable(ctx: {
             metadata = bodyMetadata
           }
         }
-        // Unconditional, hook or no hook: the reserved key is Dawn's, contains
+        // Unconditional, hook or no hook: the reserved key is B4.run's, contains
         // a colon (so it cannot be written as a JS property identifier), and
         // stripping it always means an app that adopts a policy later can never
         // inherit a stamp a client forged before it did.
@@ -1220,7 +1239,7 @@ export function buildRouteTable(ctx: {
     // ------------------------------------------------------------------
     // POST /threads/:thread_id/cancel — stop the in-flight run
     // ------------------------------------------------------------------
-    // Thread-scoped rather than LangGraph's runs/:run_id/cancel: Dawn has no
+    // Thread-scoped rather than LangGraph's runs/:run_id/cancel: B4.run has no
     // run identity, and the one-run-per-thread gate makes the thread id an
     // unambiguous stand-in. Semantics match LangGraph's action=interrupt —
     // stop the run, keep checkpointed state. Rollback is not supported.
@@ -1503,6 +1522,38 @@ export function buildRouteTable(ctx: {
 }
 
 // ---------------------------------------------------------------------------
+// CORS config resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * `server.cors`, or undefined when this runtime has no config to read it from.
+ *
+ * Three callers, three shapes:
+ * - An edge runtime (or any caller that injects its own stores) passes
+ *   `config` and has no `b4.config.ts` — read it straight off the object.
+ * - `b4 dev` / `b4 start` pass none and DO have one on disk; routes read it
+ *   lazily through the same memo, so loading here costs nothing extra.
+ * - Neither: no config file and none supplied. That is a legal B4.run app, and
+ *   `loadB4Config` signals it by throwing (`access` ENOENT). No config means
+ *   no CORS, exactly like an app that omits the block — the same
+ *   try/catch-to-defaults shape `resolveMemoryStore` uses for this case.
+ *
+ * A config that EXISTS but is malformed still throws: the catch here covers
+ * only obtaining the config, and `resolveCorsPolicy` validates afterwards.
+ */
+async function readCorsConfig(options: {
+  readonly appRoot: string
+  readonly config?: B4Config
+}): Promise<CorsConfig | undefined> {
+  if (options.config) return options.config.server?.cors
+  try {
+    return (await loadB4Config({ appRoot: options.appRoot })).config.server?.cors
+  } catch {
+    return undefined
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Dispatcher
 // ---------------------------------------------------------------------------
 
@@ -1541,14 +1592,14 @@ async function handleApStreamRequest(options: {
   readonly boot: RouteBoot
   readonly checkpointer: BaseCheckpointSaver
   readonly getMemoryStore: () => Promise<MemoryStore>
-  readonly middleware: DawnMiddleware | undefined
+  readonly middleware: B4Middleware | undefined
   readonly permissionsStore: PermissionsStore | (() => Promise<PermissionsStore>)
   readonly registry: RuntimeRegistry
   readonly request: Request
   readonly runRegistry: RunRegistry
   readonly sandboxManager?: SandboxManager
   readonly signal: AbortSignal
-  readonly staticModules?: DawnStaticModules
+  readonly staticModules?: B4StaticModules
   readonly threadAccess: ThreadAccessPolicy | undefined
   readonly threadId: string
   readonly threadRouteMap: Map<string, string>
@@ -1655,7 +1706,7 @@ async function handleApStreamRequest(options: {
     thread = await threadsStore.createThread({ thread_id: threadId })
   }
 
-  // Claim the thread's run slot. Dawn has no run_id, so one run per thread is
+  // Claim the thread's run slot. B4.run has no run_id, so one run per thread is
   // what makes "cancel this thread's run" well-defined — and it stops two runs
   // from interleaving checkpoint writes against the same LangGraph thread.
   // Gated on the in-memory registry, never the persisted status column, so a
@@ -1692,7 +1743,7 @@ async function handleApStreamRequest(options: {
     const routePatch = { route: routeKey }
     // The stamp lives in the same flat metadata object and this merge is
     // shallow, so a future patch that carried the reserved key would silently
-    // overwrite it. Assertion, not a gate: reaching it is a Dawn bug.
+    // overwrite it. Assertion, not a gate: reaching it is a B4.run bug.
     assertNoReservedKey(routePatch)
     await threadsStore.updateMetadata(threadId, routePatch)
     await threadsStore.updateStatus(threadId, "busy")
@@ -1706,7 +1757,7 @@ async function handleApStreamRequest(options: {
 
   // A client disconnect deliberately does NOT stop the run.
   //
-  // Agent Protocol is Dawn's durable surface: runs are checkpointed and a
+  // Agent Protocol is B4.run's durable surface: runs are checkpointed and a
   // thread can be resumed, so a dropped socket is a lost viewer, not a lost
   // intent — and a deliberate stop and a network drop are indistinguishable
   // on the wire. LangGraph Platform, the reference AP server, defaults to
@@ -1861,14 +1912,14 @@ async function handleApWaitRequest(options: {
   readonly boot: RouteBoot
   readonly checkpointer: BaseCheckpointSaver
   readonly getMemoryStore: () => Promise<MemoryStore>
-  readonly middleware: DawnMiddleware | undefined
+  readonly middleware: B4Middleware | undefined
   readonly permissionsStore: PermissionsStore | (() => Promise<PermissionsStore>)
   readonly registry: RuntimeRegistry
   readonly request: Request
   readonly runRegistry: RunRegistry
   readonly sandboxManager?: SandboxManager
   readonly signal: AbortSignal
-  readonly staticModules?: DawnStaticModules
+  readonly staticModules?: B4StaticModules
   readonly threadAccess: ThreadAccessPolicy | undefined
   readonly threadId: string
   readonly threadRouteMap: Map<string, string>
@@ -2021,7 +2072,7 @@ async function handleApWaitRequest(options: {
     const routePatch = { route: routeKey }
     // The stamp lives in the same flat metadata object and this merge is
     // shallow, so a future patch that carried the reserved key would silently
-    // overwrite it. Assertion, not a gate: reaching it is a Dawn bug.
+    // overwrite it. Assertion, not a gate: reaching it is a B4.run bug.
     assertNoReservedKey(routePatch)
     await threadsStore.updateMetadata(threadId, routePatch)
     await threadsStore.updateStatus(threadId, "busy")
@@ -2233,7 +2284,7 @@ async function handleApWaitRequest(options: {
 
 async function handleApPendingInterruptsRequest(options: {
   readonly checkpointer: BaseCheckpointSaver
-  readonly middleware: DawnMiddleware | undefined
+  readonly middleware: B4Middleware | undefined
   readonly registry: RuntimeRegistry
   readonly request: Request
   readonly threadAccess: ThreadAccessPolicy | undefined
@@ -2471,7 +2522,7 @@ async function handleResumeRequest(options: {
   readonly boot: RouteBoot
   readonly checkpointer: BaseCheckpointSaver
   readonly getMemoryStore: () => Promise<MemoryStore>
-  readonly middleware: DawnMiddleware | undefined
+  readonly middleware: B4Middleware | undefined
   readonly permissionsStore: PermissionsStore | (() => Promise<PermissionsStore>)
   readonly registry: RuntimeRegistry
   readonly resumeClaims: PendingResumeClaims
@@ -2479,7 +2530,7 @@ async function handleResumeRequest(options: {
   readonly runRegistry: RunRegistry
   readonly sandboxManager?: SandboxManager
   readonly signal: AbortSignal
-  readonly staticModules?: DawnStaticModules
+  readonly staticModules?: B4StaticModules
   readonly threadAccess: ThreadAccessPolicy | undefined
   readonly threadId: string
   readonly threadRouteMap: Map<string, string>
@@ -2514,7 +2565,7 @@ async function handleResumeRequest(options: {
 
   const rawBody = await request.text()
   const parsedBody = parseJson(rawBody)
-  if (!parsedBody.ok || !isDawnResumeBody(parsedBody.value)) {
+  if (!parsedBody.ok || !isB4ResumeBody(parsedBody.value)) {
     return Response.json(createRequestErrorBody("Malformed resume request body"), { status: 400 })
   }
 
@@ -2887,9 +2938,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-function isDawnResumeBody(
+function isB4ResumeBody(
   value: unknown,
-): value is { readonly resume: DawnResumeEntry[]; readonly route: string } {
+): value is { readonly resume: B4ResumeEntry[]; readonly route: string } {
   return (
     isRecord(value) &&
     !Array.isArray(value) &&

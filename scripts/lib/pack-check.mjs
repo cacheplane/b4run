@@ -131,7 +131,7 @@ export const packages = [
     requiredFields: libraryRequiredFields,
   },
   {
-    dir: "packages/create-dawn-app",
+    dir: "packages/create-b4-app",
     expectedFiles: ["dist/bin.js", "dist/index.js", "README.md", "package.json"],
     requiredFields: [...standardRequiredFields, "bin"],
   },
@@ -195,10 +195,10 @@ export const packages = [
   {
     // Next.js standalone app — the published artifact is `.next/standalone`
     // (created by `next build` + a post-build static-asset copy), not dist/.
-    // There is no exports/main/types: nothing imports this package — `dawn
-    // inspect` spawns the server via the `dawnInspector.server` manifest path.
+    // There is no exports/main/types: nothing imports this package — `b4
+    // inspect` spawns the server via the `b4Inspector.server` manifest path.
     // Build ordering: pack-check's own per-package build step runs `next build`
-    // here, which needs @dawn-ai/core + @dawn-ai/memory dist already built —
+    // here, which needs @b4run/core + @b4run/memory dist already built —
     // CI's validate job runs the full `pnpm build` before `pnpm pack:check`,
     // matching every other package's same assumption.
     dir: "packages/inspector",
@@ -209,7 +209,7 @@ export const packages = [
       "README.md",
       "package.json",
     ],
-    requiredFields: [...standardRequiredFields, "dawnInspector.server", "files"],
+    requiredFields: [...standardRequiredFields, "b4Inspector.server", "files"],
   },
   {
     dir: "packages/memory-pgvector",
@@ -297,12 +297,12 @@ export function validatePackManifest(repoRoot, manifest) {
 }
 
 /**
- * The `dawnInspector.server` manifest path (when declared) must exist inside
- * the packed tarball — `dawn inspect` spawns exactly that file at runtime, so
+ * The `b4Inspector.server` manifest path (when declared) must exist inside
+ * the packed tarball — `b4 inspect` spawns exactly that file at runtime, so
  * a field that points at a missing file ships a broken package.
  */
 export function missingInspectorServerPaths(packedRoot, packedPackageJson) {
-  const serverPath = packedPackageJson?.dawnInspector?.server
+  const serverPath = packedPackageJson?.b4Inspector?.server
   if (typeof serverPath !== "string" || serverPath.length === 0) {
     return []
   }
@@ -427,7 +427,7 @@ function exportPatternHasPackedFile(packedRoot, exportKey, patternParts) {
 }
 
 function resolveExportTarget(packedRoot, target, targetPath) {
-  const wildcardSentinel = `__dawn_export_wildcard_${randomUUID()}__`
+  const wildcardSentinel = `__b4_export_wildcard_${randomUUID()}__`
   const sentinelTarget = `${targetPath.replaceAll("*", wildcardSentinel)}${target.slice(targetPath.length)}`
 
   try {

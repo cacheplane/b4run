@@ -7,7 +7,7 @@ import { createThreadsStore } from "../src/threads/index.js"
 describe("createThreadsStore", () => {
   let dir: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "dawn-threads-"))
+    dir = mkdtempSync(join(tmpdir(), "b4-threads-"))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })

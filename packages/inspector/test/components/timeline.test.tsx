@@ -1,4 +1,4 @@
-import type { MemoryRecord, MemoryStats } from "@dawn-ai/memory"
+import type { MemoryRecord, MemoryStats } from "@b4run/memory"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { ListPage } from "../../src/components/memory/list-page"

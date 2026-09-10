@@ -10,16 +10,16 @@ import { loadEvals } from "../src/lib/runtime/load-evals.js"
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 
 async function makeApp(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "dawn-evals-"))
+  const root = await mkdtemp(join(tmpdir(), "b4-evals-"))
   await writeFile(join(root, "package.json"), "{}\n")
-  await writeFile(join(root, "dawn.config.ts"), "export default {}\n")
+  await writeFile(join(root, "b4.config.ts"), "export default {}\n")
 
-  // Make `@dawn-ai/evals` resolvable from the temp app by symlinking the
+  // Make `@b4run/evals` resolvable from the temp app by symlinking the
   // workspace package into the app's node_modules.
-  await mkdir(join(root, "node_modules", "@dawn-ai"), { recursive: true })
+  await mkdir(join(root, "node_modules", "@b4run"), { recursive: true })
   await symlink(
     join(repoRoot, "packages", "evals"),
-    join(root, "node_modules", "@dawn-ai", "evals"),
+    join(root, "node_modules", "@b4run", "evals"),
     "dir",
   )
 
@@ -29,7 +29,7 @@ async function makeApp(): Promise<string> {
   await writeFile(
     join(routeDir, "evals", "smoke.eval.ts"),
     [
-      'import { defineEval, contains } from "@dawn-ai/evals"',
+      'import { defineEval, contains } from "@b4run/evals"',
       'export default defineEval({ name: "smoke", dataset: [{ input: "hi" }], scorers: [contains("hi")] })',
     ].join("\n"),
   )

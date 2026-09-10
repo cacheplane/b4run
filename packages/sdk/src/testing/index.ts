@@ -1,9 +1,9 @@
 /**
- * Route-scoped scenario authoring and assertion helpers for `dawn test`.
+ * Route-scoped scenario authoring and assertion helpers for `b4 test`.
  *
  * @example
  * ```ts
- * import { scenarios } from "@dawn-ai/sdk/testing"
+ * import { scenarios } from "@b4run/sdk/testing"
  *
  * export default scenarios("/hello/[tenant]").scenario("greets", (s) =>
  *   s

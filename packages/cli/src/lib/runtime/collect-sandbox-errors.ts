@@ -1,9 +1,9 @@
-import type { DawnConfig } from "@dawn-ai/core"
-import type { SandboxProvider } from "@dawn-ai/workspace"
+import type { B4Config } from "@b4run/core"
+import type { SandboxProvider } from "@b4run/workspace"
 
-/** Validate the dawn.config.ts sandbox block + run the provider preflight. */
+/** Validate the b4.config.ts sandbox block + run the provider preflight. */
 export async function collectSandboxErrors(
-  config: Pick<DawnConfig, "sandbox">,
+  config: Pick<B4Config, "sandbox">,
 ): Promise<{ readonly errors: readonly string[]; readonly warnings: readonly string[] }> {
   const sandbox = config.sandbox
   if (!sandbox) return { errors: [], warnings: [] }
@@ -17,7 +17,7 @@ export async function collectSandboxErrors(
     typeof p.destroy !== "function"
   ) {
     errors.push(
-      `dawn.config sandbox.provider must implement acquire/release/destroy (got: ${p?.name ?? "undefined"}).`,
+      `b4.config sandbox.provider must implement acquire/release/destroy (got: ${p?.name ?? "undefined"}).`,
     )
     return { errors, warnings }
   }
@@ -41,18 +41,18 @@ export async function collectSandboxErrors(
   if (sec) {
     if (sec.pidsLimit !== undefined && (!Number.isInteger(sec.pidsLimit) || sec.pidsLimit <= 0)) {
       errors.push(
-        `dawn.config sandbox.security.pidsLimit must be a positive integer (got: ${String(sec.pidsLimit)}).`,
+        `b4.config sandbox.security.pidsLimit must be a positive integer (got: ${String(sec.pidsLimit)}).`,
       )
     }
     if (sec.runAsNonRoot === null) {
       errors.push(
-        "dawn.config sandbox.security.runAsNonRoot must be a boolean or a { uid, gid } object, not null.",
+        "b4.config sandbox.security.runAsNonRoot must be a boolean or a { uid, gid } object, not null.",
       )
     } else if (typeof sec.runAsNonRoot === "object") {
       const { uid, gid } = sec.runAsNonRoot
       if (!Number.isInteger(uid) || uid < 0 || !Number.isInteger(gid) || gid < 0) {
         errors.push(
-          "dawn.config sandbox.security.runAsNonRoot uid/gid must be non-negative integers.",
+          "b4.config sandbox.security.runAsNonRoot uid/gid must be non-negative integers.",
         )
       }
     }
