@@ -45,6 +45,12 @@ describe("createSseFrameParser", () => {
     expect(createSseFrameParser().push(`retry: ${value}\n\n`)).toEqual([])
   })
 
+  it("preserves a retry hint even when its block contains malformed JSON", () => {
+    expect(createSseFrameParser().push("retry: 2100\ndata: {not json}\n\n")).toEqual([
+      { event: "message", retry: 2100, raw: "{not json}", malformed: true },
+    ])
+  })
+
   it("reports unparseable data rather than throwing", () => {
     const parser = createSseFrameParser()
     expect(parser.push("event: state\ndata: {not json}\n\n")).toEqual([

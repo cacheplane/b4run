@@ -82,7 +82,12 @@ export function createSseFrameParser(): SseFrameParser {
               : { event: name, data: parsed, retry },
           )
         } catch {
-          frames.push({ event: name, malformed: true, raw })
+          frames.push({
+            event: name,
+            malformed: true,
+            raw,
+            ...(retry !== undefined ? { retry } : {}),
+          })
         }
       }
     },

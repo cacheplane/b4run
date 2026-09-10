@@ -72,7 +72,8 @@ export async function consumeAttachStream(
       const frames = parser.push(decoder.decode(value, { stream: true }))
       for (const frame of frames) handleFrame(frame)
       if (outcome !== undefined) {
-        await reader.cancel()
+        // Cleanup cannot replace a terminal outcome already accepted from the server.
+        await reader.cancel().catch(() => {})
         break
       }
     }

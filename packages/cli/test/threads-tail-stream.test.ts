@@ -52,6 +52,21 @@ describe("consumeAttachStream", () => {
     },
   )
 
+  it.each(["done", "detached"])("preserves %s if transport cleanup rejects", async (event) => {
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode(`event: ${event}\ndata: {}\n\n`))
+      },
+      cancel() {
+        return Promise.reject(new Error("transport already closed"))
+      },
+    })
+    await expect(consumeAttachStream({ body, write: () => {} })).resolves.toMatchObject({
+      outcome: event,
+    })
+    expect(body.locked).toBe(false)
+  })
+
   it("reports a stream that ends without done as truncated", async () => {
     const result = await consumeAttachStream({
       body: bodyOf('event: state\ndata: {"live":true,"turn":[]}\n\n'),
