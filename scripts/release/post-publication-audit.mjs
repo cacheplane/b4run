@@ -48,6 +48,9 @@ export async function runPostPublicationAudit(argv, overrides = {}) {
           npm: runtime.npm,
           npmAuditFactory: runtime.npmAuditFactory,
           attestations: runtime.attestations,
+          // Keep payload terminal-record lookup pinned to the candidate, even when the
+          // verifier runs from a separately authorized main controller.
+          terminalRecordRef: candidate.commitSha,
         }),
       )
       if (

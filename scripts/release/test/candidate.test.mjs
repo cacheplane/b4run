@@ -13,8 +13,15 @@ import {
 import { CANONICAL_RELEASE_PACKAGE_ORDER } from "../manifest.mjs"
 import { abandonmentReleaseMarker, canonicalReleaseBody, parseReleaseMarker } from "../metadata.mjs"
 import { canonicalReleaseRecordBytes } from "../release-record.mjs"
+import { canonicalTerminalRecordBytes } from "../terminal-record-store.mjs"
 import { canonicalAuditResultBytes } from "../terminal-records.mjs"
 import { observationForMarker } from "./support/marker-observation.mjs"
+import {
+  COMMIT_SHA as RECORD_SHA,
+  VERSION as RECORD_VERSION,
+  predecessorMarker as terminalPredecessorMarker,
+  record as terminalRecordFixture,
+} from "./support/terminal-record-fixture.mjs"
 
 const MARKER_PATH = "scripts/release/controller-schema.json"
 const ACTIVE_MARKER = Object.freeze({
@@ -32,6 +39,7 @@ const SHA_23 = "5".repeat(40)
 const SHA_24 = "6".repeat(40)
 const OTHER_SHA = "a".repeat(40)
 const PACKAGE_NAMES = [...CANONICAL_RELEASE_PACKAGE_ORDER].sort(compareText)
+const RECORD_REF = "HEAD"
 
 test("the ownership-switch marker without a fixed-group version delta is NO_CANDIDATE", async () => {
   const repository = repositoryFixture([
@@ -149,6 +157,7 @@ test("scheduled standalone recovery rejects an off-main candidate tag", async ()
 
   await assert.rejects(
     discoverScheduledCandidate({
+      terminalRecordRef: RECORD_REF,
       inventory: repository.inventory,
       git: repository.git,
       github: githubFixture({ tags: [tagRef("0.8.21", SHA_21)] }),
@@ -171,6 +180,7 @@ test("scheduled arbitration rejects a lightweight managed tag before terminal se
 
   await assert.rejects(
     discoverScheduledCandidate({
+      terminalRecordRef: RECORD_REF,
       inventory: repository.inventory,
       git: repository.git,
       github: githubFixture({ tags: [lightweight] }),
@@ -208,6 +218,7 @@ test("scheduled discovery enumerates managed Releases and standalone tags before
   })
 
   const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
     inventory: repository.inventory,
     git: repository.git,
     github,
@@ -226,7 +237,11 @@ test("scheduled discovery enumerates managed Releases and standalone tags before
       .sort((left, right) => left - right),
     [221, 233, 241, 242],
   )
-  assert.ok(github.calls.every(([operation, id]) => operation !== "listReleaseAssets" || id !== 99))
+  // Display labels cannot hide durable recovery ownership on otherwise unmanaged Releases.
+  assert.equal(
+    github.calls.filter(([operation, id]) => operation === "listReleaseAssets" && id === 99).length,
+    1,
+  )
 })
 
 test("a standalone active candidate tag is recovered as CANDIDATE_TAGGED", async () => {
@@ -237,6 +252,7 @@ test("a standalone active candidate tag is recovered as CANDIDATE_TAGGED", async
   const github = githubFixture({ tags: [tagRef("0.8.21", SHA_21)] })
 
   const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
     inventory: repository.inventory,
     git: repository.git,
     github,
@@ -257,6 +273,7 @@ test("a markerless legacy v* Release is audit-only and does not block active dis
   legacy.assets = []
 
   const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
     inventory: repository.inventory,
     git: repository.git,
     github: githubFixture({
@@ -280,6 +297,7 @@ test("a draft Release record identifies a tagged candidate without overstating e
   })
 
   const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
     inventory: repository.inventory,
     git: repository.git,
     github,
@@ -304,6 +322,7 @@ test("a managed v* Release without exactly one release record fails closed", asy
 
     await assert.rejects(
       discoverScheduledCandidate({
+        terminalRecordRef: RECORD_REF,
         inventory: repository.inventory,
         git: repository.git,
         github,
@@ -328,6 +347,7 @@ test("scheduled discovery rejects a release-record identity that conflicts with 
 
   await assert.rejects(
     discoverScheduledCandidate({
+      terminalRecordRef: RECORD_REF,
       inventory: repository.inventory,
       git: repository.git,
       github,
@@ -354,6 +374,7 @@ test("scheduled discovery rejects terminal audit evidence for another manifest",
 
   await assert.rejects(
     discoverScheduledCandidate({
+      terminalRecordRef: RECORD_REF,
       inventory: repository.inventory,
       git: repository.git,
       github,
@@ -376,6 +397,7 @@ test("scheduled discovery never excludes an audit-looking Release without durabl
   })
 
   const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
     inventory: repository.inventory,
     git: repository.git,
     github: githubFixture({
@@ -388,24 +410,150 @@ test("scheduled discovery never excludes an audit-looking Release without durabl
   assert.deepEqual(result, selectedCandidate("0.8.21", SHA_21, "CANDIDATE_TAGGED"))
 })
 
+test("scheduled discovery advances only after independent published terminal verification", async () => {
+  for (const outcome of [true, false, "throw"]) {
+    const repository = repositoryFixture([
+      commit(BASE_SHA, "0.8.27"),
+      commit(SHA_21, "0.8.28", { parent: BASE_SHA, marker: true }),
+      commit(SHA_22, "0.8.30", { parent: SHA_21, marker: true }),
+    ])
+    const older = managedRelease(21, "0.8.28", SHA_21, {
+      auditComplete: true,
+      published: true,
+    })
+    let verified = 0
+    const result = await discoverScheduledCandidate({
+      terminalRecordRef: RECORD_REF,
+      inventory: repository.inventory,
+      git: repository.git,
+      github: githubFixture({ tags: [tagRef("0.8.28", SHA_21)], releases: [older] }),
+      marker: ACTIVE_MARKER,
+      async verifyTerminalPublication({ candidate, release }) {
+        verified += 1
+        assert.equal(candidate.commitSha, SHA_21)
+        assert.equal(release.id, older.id)
+        if (outcome === "throw") throw new Error("authority unavailable")
+        return outcome
+      },
+    })
+    assert.equal(verified, 1)
+    assert.deepEqual(
+      result,
+      outcome === true
+        ? selectedCandidate("0.8.30", SHA_22, "CANDIDATE_VALIDATED")
+        : selectedCandidate("0.8.28", SHA_21, "CANDIDATE_TAGGED"),
+    )
+  }
+})
+
+test("scheduled discovery never promotes an audited draft through terminal verification", async () => {
+  const repository = repositoryFixture([
+    commit(BASE_SHA, "0.8.20"),
+    commit(SHA_21, "0.8.21", { parent: BASE_SHA, marker: true }),
+    commit(SHA_22, "0.8.22", { parent: SHA_21, marker: true }),
+  ])
+  const older = auditVerifiedDraftRelease(21, "0.8.21", SHA_21)
+  const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
+    inventory: repository.inventory,
+    git: repository.git,
+    github: githubFixture({ tags: [tagRef("0.8.21", SHA_21)], releases: [older] }),
+    marker: ACTIVE_MARKER,
+    async verifyTerminalPublication() {
+      assert.fail("drafts must retain publication priority")
+    },
+  })
+  assert.deepEqual(result, selectedCandidate("0.8.21", SHA_21, "CANDIDATE_TAGGED"))
+})
+
 test("scheduled discovery admits an exact AUDIT_VERIFIED draft for production observation", async () => {
   const repository = repositoryFixture([
     commit(BASE_SHA, "0.8.20"),
     commit(SHA_21, "0.8.21", { parent: BASE_SHA, marker: true }),
   ])
   const release = auditVerifiedDraftRelease(21, "0.8.21", SHA_21)
+  release.tag_name = "untagged-opaque"
+  const github = githubFixture({
+    tags: [tagRef("0.8.21", SHA_21)],
+    releases: [release],
+  })
 
   const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
     inventory: repository.inventory,
     git: repository.git,
-    github: githubFixture({
-      tags: [tagRef("0.8.21", SHA_21)],
-      releases: [release],
-    }),
+    github,
     marker: ACTIVE_MARKER,
   })
 
   assert.deepEqual(result, selectedCandidate("0.8.21", SHA_21, "CANDIDATE_TAGGED"))
+  assert.deepEqual(
+    github.calls.filter(([operation]) => operation === "listReleaseAssets"),
+    [["listReleaseAssets", release.id]],
+  )
+})
+
+test("scheduled discovery blocks an unclassifiable controller envelope on an opaque draft", async () => {
+  const repository = repositoryFixture([
+    commit(BASE_SHA, "0.8.20"),
+    commit(SHA_21, "0.8.21", { parent: BASE_SHA, marker: true }),
+  ])
+  const release = auditVerifiedDraftRelease(21, "0.8.21", SHA_21)
+  release.tag_name = "untagged-opaque"
+  const github = githubFixture({
+    tags: [tagRef("0.8.21", SHA_21)],
+    releases: [
+      {
+        id: 99,
+        tag_name: "untagged-unrelated",
+        draft: true,
+        immutable: false,
+        body: `${release.body}${release.body}`,
+        assets: [],
+      },
+      release,
+    ],
+  })
+
+  await assert.rejects(
+    discoverScheduledCandidate({
+      terminalRecordRef: RECORD_REF,
+      inventory: repository.inventory,
+      git: repository.git,
+      github,
+      marker: ACTIVE_MARKER,
+    }),
+    /Unsupported recovery\/legacy marker blocks routing/,
+  )
+  assert.deepEqual(
+    github.calls.filter(([operation]) => operation === "listReleaseAssets"),
+    [["listReleaseAssets", 99]],
+  )
+})
+
+test("scheduled discovery fails closed on duplicate marker-backed candidate drafts", async () => {
+  const repository = repositoryFixture([
+    commit(BASE_SHA, "0.8.20"),
+    commit(SHA_21, "0.8.21", { parent: BASE_SHA, marker: true }),
+  ])
+  const release = auditVerifiedDraftRelease(21, "0.8.21", SHA_21)
+  release.tag_name = "untagged-opaque"
+  const duplicate = auditVerifiedDraftRelease(22, "0.8.21", SHA_21)
+  duplicate.tag_name = "untagged-conflict"
+
+  await assert.rejects(
+    discoverScheduledCandidate({
+      terminalRecordRef: RECORD_REF,
+      inventory: repository.inventory,
+      git: repository.git,
+      github: githubFixture({
+        tags: [tagRef("0.8.21", SHA_21)],
+        releases: [release, duplicate],
+      }),
+      marker: ACTIVE_MARKER,
+    }),
+    /duplicated|duplicate|ambiguous/iu,
+  )
 })
 
 test("scheduled discovery rejects successful audit evidence on any inexact draft", async () => {
@@ -496,6 +644,7 @@ test("scheduled discovery rejects successful audit evidence on any inexact draft
 
     await assert.rejects(
       discoverScheduledCandidate({
+        terminalRecordRef: RECORD_REF,
         inventory: repository.inventory,
         git: repository.git,
         github: githubFixture({
@@ -551,6 +700,7 @@ test("only a published Release with a strict consistent successful audit is term
 
     await assert.rejects(
       discoverScheduledCandidate({
+        terminalRecordRef: RECORD_REF,
         inventory: repository.inventory,
         git: repository.git,
         github: githubFixture({
@@ -606,6 +756,7 @@ test("only a draft Release with a complete protected abandonment tombstone is te
 
     await assert.rejects(
       discoverScheduledCandidate({
+        terminalRecordRef: RECORD_REF,
         inventory: repository.inventory,
         git: repository.git,
         github: githubFixture({
@@ -633,6 +784,7 @@ test("scheduled recovery recognizes tagged-only canonical abandonment before rel
   })
 
   const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
     inventory: repository.inventory,
     git: repository.git,
     github: githubFixture({
@@ -655,6 +807,7 @@ test("scheduled recovery requires strong verification before excluding exact att
   const abandoned = terminalAttestedAbandonmentRelease(21, "0.8.21", SHA_21)
 
   const blocked = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
     inventory: repository.inventory,
     git: repository.git,
     github: githubFixture({
@@ -670,6 +823,7 @@ test("scheduled recovery requires strong verification before excluding exact att
   })
 
   const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
     inventory: repository.inventory,
     git: repository.git,
     github: githubFixture({
@@ -704,6 +858,7 @@ test("scheduled recovery keeps both abandonment runner-loss boundaries nontermin
     [assetBeforeMarker, "abandonment-marker-reconciliation-required"],
   ]) {
     const result = await discoverScheduledCandidate({
+      terminalRecordRef: RECORD_REF,
       inventory: repository.inventory,
       git: repository.git,
       github: githubFixture({
@@ -716,6 +871,60 @@ test("scheduled recovery keeps both abandonment runner-loss boundaries nontermin
       ...selectedCandidate("0.8.21", SHA_21, "CANDIDATE_TAGGED"),
       disposition: "blocked",
       conflicts: [conflict],
+    })
+  }
+})
+
+test("terminal abandonment revalidates assets through the original reader", async (t) => {
+  for (const mode of ["stable", "replaced", "deleted", "unavailable", "rejected"]) {
+    await t.test(mode, async () => {
+      const repository = repositoryFixture([
+        commit(BASE_SHA, "0.8.20"),
+        commit(CUTOVER_SHA, "0.8.20", { parent: BASE_SHA, marker: true }),
+        commit(SHA_21, "0.8.21", { parent: CUTOVER_SHA, marker: true }),
+        commit(SHA_22, "0.8.22", { parent: SHA_21, marker: true }),
+      ])
+      const abandoned = managedRelease(21, "0.8.21", SHA_21, {
+        abandoned: true,
+        releaseRecord: false,
+      })
+      const github = githubFixture({ tags: [tagRef("0.8.21", SHA_21)], releases: [abandoned] })
+      const listAssets = github.listReleaseAssets
+      let targetReads = 0
+      github.listReleaseAssets = async (args) => {
+        const response = await listAssets(args)
+        if (args.releaseId !== abandoned.id) return response
+        targetReads++
+        if (targetReads < 2 || mode === "stable") return response
+        if (mode === "rejected") throw new Error("fresh terminal assets unavailable")
+        if (mode === "unavailable") return { status: "UNKNOWN" }
+        return present(
+          "release-assets",
+          mode === "deleted"
+            ? []
+            : response.value.map((asset) => ({
+                ...asset,
+                id: asset.id + 1,
+              })),
+        )
+      }
+      const discover = () =>
+        discoverScheduledCandidate({
+          terminalRecordRef: RECORD_REF,
+          inventory: repository.inventory,
+          git: repository.git,
+          github,
+          marker: ACTIVE_MARKER,
+        })
+      if (mode === "stable") {
+        assert.deepEqual(
+          await discover(),
+          selectedCandidate("0.8.22", SHA_22, "CANDIDATE_VALIDATED"),
+        )
+      } else {
+        await assert.rejects(discover(), /assets.*(?:changed|unavailable)|final assets/iu)
+      }
+      assert.equal(targetReads, 2, "final terminal verification must reach the original reader")
     })
   }
 })
@@ -750,6 +959,7 @@ test("terminal abandonment requires exact canonical bytes, marker digest, metada
     mutate(release)
     await assert.rejects(
       discoverScheduledCandidate({
+        terminalRecordRef: RECORD_REF,
         inventory: repository.inventory,
         git: repository.git,
         github: githubFixture({
@@ -786,6 +996,7 @@ test("abandonment asset metadata is bounded before the first download", async ()
 
   await assert.rejects(
     discoverScheduledCandidate({
+      terminalRecordRef: RECORD_REF,
       inventory: repository.inventory,
       git: repository.git,
       github,
@@ -816,6 +1027,7 @@ test("scheduled discovery keeps an audit-looking release selected until smoke au
   })
 
   const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
     inventory: repository.inventory,
     git: repository.git,
     github,
@@ -840,6 +1052,7 @@ test("scheduled history stops at pre-marker root history instead of requiring a 
   ])
 
   const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
     inventory: repository.inventory,
     git: repository.git,
     github: githubFixture(),
@@ -866,6 +1079,7 @@ test("an older incomplete tag wins over a newer commit and is redispatched at it
   const github = githubFixture({ tags: [tagRef("0.8.21", SHA_21)] })
 
   const selected = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
     inventory: repository.inventory,
     git: repository.git,
     github,
@@ -1228,7 +1442,8 @@ function repositoryFixture(commits, { ancestry = true, ancestryError = null } = 
   const history = commits.map((entry) => entry.sha).reverse()
   const head = commits.at(-1)?.sha
   const calls = []
-  const resolveRef = (ref) => (ref === "main" || ref === "origin/main" ? head : ref)
+  const resolveRef = (ref) =>
+    ref === "main" || ref === "origin/main" || ref === "HEAD" ? head : ref
   return {
     calls,
     inventory: {
@@ -1259,7 +1474,7 @@ function repositoryFixture(commits, { ancestry = true, ancestryError = null } = 
       },
       async listTree({ ref }) {
         calls.push(["listTree", ref])
-        const entry = bySha.get(ref)
+        const entry = bySha.get(resolveRef(ref))
         return [...(entry.marker ? [MARKER_PATH] : []), ...entry.tree].join("\n")
       },
       async showFile({ ref, path }) {
@@ -1358,7 +1573,7 @@ function managedRelease(
     id,
     version,
     tag_name: `v${version}`,
-    name: `Dawn v${version}`,
+    name: `B4 v${version}`,
     target_commitish: "main",
     draft: !published,
     immutable: published,
@@ -1366,7 +1581,7 @@ function managedRelease(
     ...(abandonmentMarker === null
       ? {}
       : {
-          name: `Dawn v${version} (abandoned before publication)`,
+          name: `B4 v${version} (abandoned before publication)`,
           body: canonicalAbandonmentReleaseBody({
             marker: abandonmentMarker,
             tombstone: abandonment,
@@ -1419,7 +1634,7 @@ function auditVerifiedDraftRelease(id, version, commitSha) {
     },
     ...Array.from({ length: 21 }, (_unused, index) => {
       const ordinal = String(index + 1).padStart(2, "0")
-      const subjectName = `dawn-ai-package-${ordinal}-${version}.tgz`
+      const subjectName = `b4run-package-${ordinal}-${version}.tgz`
       return {
         subjectName,
         subjectSha256: (index + 1).toString(16).padStart(64, "0"),
@@ -1458,8 +1673,8 @@ function auditVerifiedDraftRelease(id, version, commitSha) {
     audit: {
       ...template.audit,
       workflowRunId: release.auditResult.workflowRunId,
-      runUrl: `https://api.github.com/repos/cacheplane/dawnai/actions/runs/${release.auditResult.workflowRunId}`,
-      htmlUrl: `https://github.com/cacheplane/dawnai/actions/runs/${release.auditResult.workflowRunId}`,
+      runUrl: `https://api.github.com/repos/cacheplane/b4run/actions/runs/${release.auditResult.workflowRunId}`,
+      htmlUrl: `https://github.com/cacheplane/b4run/actions/runs/${release.auditResult.workflowRunId}`,
       runAttempt: release.auditResult.runAttempt,
       attemptAssetName: `audit-attempt-${release.auditResult.workflowRunId}-${release.auditResult.runAttempt}.json`,
       attemptSha256: auditSha256,
@@ -1495,7 +1710,7 @@ function interruptedAbandonmentRelease(id, version, commitSha) {
     audit: null,
     abandonmentSha256: null,
   }
-  release.name = `Dawn v${version}`
+  release.name = `B4 v${version}`
   release.body = canonicalReleaseBody({ marker, manifest: null })
   return release
 }
@@ -1526,7 +1741,7 @@ function terminalAttestedAbandonmentRelease(id, version, commitSha) {
     }
   })
   const attestationSet = {
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${version}`,
     commitSha,
@@ -1608,7 +1823,7 @@ function terminalAttestedAbandonmentRelease(id, version, commitSha) {
       .map((asset) => [asset.id, bytesByName.get(asset.name)]),
     [id * 1_000 + 100, release.abandonmentBytes],
   ])
-  release.name = `Dawn v${version} (abandoned before publication)`
+  release.name = `B4 v${version} (abandoned before publication)`
   release.body = canonicalAbandonmentReleaseBody({
     marker,
     tombstone: release.abandonment,
@@ -1677,7 +1892,7 @@ function abandonmentRecord(version, commitSha) {
 }
 
 function unmanagedRelease(id) {
-  return { id, tag_name: "@dawn-ai/core@0.8.21", draft: false, assets: [] }
+  return { id, tag_name: "@b4run/core@0.8.21", draft: false, assets: [] }
 }
 
 function releaseRecordAsset(id) {
@@ -1849,5 +2064,430 @@ function ciFixture(attempts) {
       index += 1
       return present("workflow-runs", [attempt.workflow])
     },
+  }
+}
+
+test("scheduled discovery classifies a recorded version as terminal and lets a newer candidate win", async () => {
+  const repository = recordedRepository(recordedCommits(RECORD_SHA), [boundTerminalRecord()])
+  const github = githubFixture({
+    tags: [tagRef(RECORD_VERSION, RECORD_SHA), tagRef("0.8.23", SHA_23)],
+  })
+
+  const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
+    inventory: repository.inventory,
+    git: repository.git,
+    github,
+    marker: ACTIVE_MARKER,
+  })
+
+  assert.equal(result.candidate.version, "0.8.23")
+  assert.equal(result.disposition, "selected")
+  assert.deepEqual(result.conflicts, [])
+  assert.deepEqual(result, selectedCandidate("0.8.23", SHA_23, "CANDIDATE_TAGGED"))
+})
+
+test("scheduled discovery still blocks a newer candidate behind an unrecorded older tag", async () => {
+  const repository = recordedRepository(recordedCommits(RECORD_SHA), [])
+  const github = githubFixture({
+    tags: [tagRef(RECORD_VERSION, RECORD_SHA), tagRef("0.8.23", SHA_23)],
+  })
+
+  const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
+    inventory: repository.inventory,
+    git: repository.git,
+    github,
+    marker: ACTIVE_MARKER,
+  })
+
+  assert.deepEqual(result, selectedCandidate(RECORD_VERSION, RECORD_SHA, "CANDIDATE_TAGGED"))
+})
+
+test("scheduled discovery rejects a record whose commit differs from the tag peel", async () => {
+  const repository = recordedRepository(recordedCommits(SHA_22), [boundTerminalRecord()])
+  const github = githubFixture({
+    tags: [tagRef(RECORD_VERSION, SHA_22), tagRef("0.8.23", SHA_23)],
+  })
+
+  await assert.rejects(
+    discoverScheduledCandidate({
+      terminalRecordRef: RECORD_REF,
+      inventory: repository.inventory,
+      git: repository.git,
+      github,
+      marker: ACTIVE_MARKER,
+    }),
+    /tag peel/u,
+  )
+})
+
+test("scheduled discovery rejects a record bound to another annotated tag object", async () => {
+  const repository = recordedRepository(recordedCommits(RECORD_SHA), [
+    boundTerminalRecord({ tag: { objectSha: "9".repeat(40) } }),
+  ])
+  const github = githubFixture({
+    tags: [tagRef(RECORD_VERSION, RECORD_SHA), tagRef("0.8.23", SHA_23)],
+  })
+
+  await assert.rejects(
+    discoverScheduledCandidate({
+      terminalRecordRef: RECORD_REF,
+      inventory: repository.inventory,
+      git: repository.git,
+      github,
+      marker: ACTIVE_MARKER,
+    }),
+    /tag peel/u,
+  )
+})
+
+test("the stamped tombstone draft for a recorded version is not inspected", async () => {
+  const value = boundTerminalRecord()
+  const repository = recordedRepository(recordedCommits(RECORD_SHA), [value])
+  const github = githubFixture({
+    tags: [tagRef(RECORD_VERSION, RECORD_SHA), tagRef("0.8.23", SHA_23)],
+    releases: [stampedTombstoneRelease(value)],
+  })
+
+  const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
+    inventory: repository.inventory,
+    git: repository.git,
+    github,
+    marker: ACTIVE_MARKER,
+  })
+
+  assert.deepEqual(result, selectedCandidate("0.8.23", SHA_23, "CANDIDATE_TAGGED"))
+  assert.deepEqual(
+    github.calls.filter(([operation]) => operation === "listReleaseAssets"),
+    [],
+  )
+})
+
+test("a visible Release for a recorded version must be its exact stamped tombstone", async () => {
+  const value = boundTerminalRecord()
+  const stamped = stampedTombstoneRelease(value)
+  const cases = [
+    [
+      "unstamped escrowed draft",
+      {
+        ...stamped,
+        name: `B4 v${RECORD_VERSION}`,
+        body: canonicalReleaseBody({ marker: value.predecessor.marker, manifest: null }),
+      },
+    ],
+    ["published immutable Release", { ...stamped, draft: false, immutable: true }],
+    [
+      "another record's digest",
+      stampedTombstoneRelease(
+        boundTerminalRecord({ reason: "A different reason produces a different record digest." }),
+      ),
+    ],
+  ]
+
+  for (const [name, release] of cases) {
+    const repository = recordedRepository(recordedCommits(RECORD_SHA), [value])
+    const github = githubFixture({
+      tags: [tagRef(RECORD_VERSION, RECORD_SHA), tagRef("0.8.23", SHA_23)],
+      releases: [release],
+    })
+
+    await assert.rejects(
+      discoverScheduledCandidate({
+        terminalRecordRef: RECORD_REF,
+        inventory: repository.inventory,
+        git: repository.git,
+        github,
+        marker: ACTIVE_MARKER,
+      }),
+      /not its stamped tombstone/u,
+      name,
+    )
+    assert.deepEqual(
+      github.calls.filter(([operation]) => operation === "listReleaseAssets"),
+      [],
+      name,
+    )
+  }
+})
+
+test("scheduled discovery lists the terminal record tree exactly once for every tag", async () => {
+  const repository = recordedRepository(recordedCommits(RECORD_SHA), [boundTerminalRecord()])
+  const github = githubFixture({
+    tags: [tagRef(RECORD_VERSION, RECORD_SHA), tagRef("0.8.23", SHA_23)],
+  })
+
+  await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
+    inventory: repository.inventory,
+    git: repository.git,
+    github,
+    marker: ACTIVE_MARKER,
+  })
+
+  assert.deepEqual(
+    repository.calls.filter(([operation, ref]) => operation === "listTree" && ref === RECORD_REF),
+    [["listTree", RECORD_REF]],
+  )
+})
+
+test("a recorded tag whose commit is not an exact candidate fails closed", async () => {
+  const repository = recordedRepository(
+    [
+      commit(BASE_SHA, "0.8.20"),
+      commit(CUTOVER_SHA, "0.8.20", { parent: BASE_SHA, marker: true }),
+      commit(RECORD_SHA, "0.8.20", { parent: CUTOVER_SHA, marker: true }),
+    ],
+    [boundTerminalRecord()],
+  )
+  const foreign = {
+    ...repository,
+    git: {
+      ...repository.git,
+      async resolveTag({ tag }) {
+        return tag === `v${RECORD_VERSION}` ? RECORD_SHA : repository.git.resolveTag({ tag })
+      },
+    },
+  }
+  const github = githubFixture({ tags: [tagRef(RECORD_VERSION, RECORD_SHA)] })
+
+  await assert.rejects(
+    discoverScheduledCandidate({
+      terminalRecordRef: RECORD_REF,
+      inventory: foreign.inventory,
+      git: foreign.git,
+      github,
+      marker: ACTIVE_MARKER,
+    }),
+    /is not an exact release candidate/u,
+  )
+})
+
+test("a recorded tag at a pre-marker commit is skipped like any legacy candidate", async () => {
+  const repository = recordedRepository(
+    [
+      commit(BASE_SHA, "0.8.20"),
+      commit(CUTOVER_SHA, "0.8.20", { parent: BASE_SHA, marker: true }),
+      commit(RECORD_SHA, RECORD_VERSION, { parent: CUTOVER_SHA }),
+      commit(SHA_23, "0.8.23", { parent: RECORD_SHA, marker: true }),
+    ],
+    [boundTerminalRecord()],
+  )
+  const github = githubFixture({
+    tags: [tagRef(RECORD_VERSION, RECORD_SHA), tagRef("0.8.23", SHA_23)],
+  })
+
+  const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
+    inventory: repository.inventory,
+    git: repository.git,
+    github,
+    marker: ACTIVE_MARKER,
+  })
+
+  assert.deepEqual(result, selectedCandidate("0.8.23", SHA_23, "CANDIDATE_TAGGED"))
+})
+
+test("inspectAbandonmentRelease accepts an operator-recovery tombstone on a visible draft", async () => {
+  const repository = recordedRepository(recordedCommits(RECORD_SHA), [])
+  const abandoned = operatorRecoveryAbandonmentRelease(3_100)
+
+  const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
+    inventory: repository.inventory,
+    git: repository.git,
+    github: githubFixture({
+      tags: [tagRef(RECORD_VERSION, RECORD_SHA)],
+      releases: [abandoned],
+    }),
+    marker: ACTIVE_MARKER,
+    async verifyTerminalAbandonment(input) {
+      assert.equal(input.candidate.commitSha, RECORD_SHA)
+      assert.equal(input.release.tag, `v${RECORD_VERSION}`)
+      return true
+    },
+  })
+
+  assert.deepEqual(result, selectedCandidate("0.8.23", SHA_23, "CANDIDATE_VALIDATED"))
+})
+
+function boundTerminalRecord({ tag = {}, ...overrides } = {}) {
+  const value = terminalRecordFixture(overrides)
+  return {
+    ...value,
+    tag: { ...value.tag, objectSha: tagObjectSha(RECORD_VERSION), ...tag },
+  }
+}
+
+function recordedCommits(candidateSha) {
+  return [
+    commit(BASE_SHA, "0.8.20"),
+    commit(CUTOVER_SHA, "0.8.20", { parent: BASE_SHA, marker: true }),
+    commit(candidateSha, RECORD_VERSION, { parent: CUTOVER_SHA, marker: true }),
+    commit(SHA_23, "0.8.23", { parent: candidateSha, marker: true }),
+  ]
+}
+
+function recordedRepository(commits, records, options) {
+  const repository = repositoryFixture(commits, options)
+  const textByPath = new Map(
+    records.map((value) => [
+      `scripts/release/terminal-records/v${value.version}.json`,
+      canonicalTerminalRecordBytes(value).toString("utf8"),
+    ]),
+  )
+  return {
+    ...repository,
+    git: {
+      ...repository.git,
+      async listTree({ ref }) {
+        if (ref !== RECORD_REF) return repository.git.listTree({ ref })
+        repository.calls.push(["listTree", ref])
+        return [...textByPath.keys(), ""].join("\n")
+      },
+      async showFile({ ref, path }) {
+        if (ref !== RECORD_REF) return repository.git.showFile({ ref, path })
+        repository.calls.push(["showFile", ref, path])
+        const text = textByPath.get(path)
+        if (text === undefined) throw new Error(`unknown fixture terminal record ${path}`)
+        return text
+      },
+    },
+  }
+}
+
+function stampedTombstoneRelease(value) {
+  const bytes = canonicalTerminalRecordBytes(value)
+  const marker = abandonmentReleaseMarker({
+    candidate: { version: value.version, commitSha: value.commitSha },
+    artifact: value.predecessor.artifact,
+    abandonmentSha256: sha256(bytes),
+    previousMarker: value.predecessor.marker,
+  })
+  return {
+    id: value.predecessor.releaseId,
+    tag_name: `v${value.version}`,
+    name: `B4 v${value.version} (abandoned before publication)`,
+    target_commitish: "main",
+    draft: true,
+    immutable: false,
+    prerelease: false,
+    body: canonicalAbandonmentReleaseBody({
+      marker,
+      tombstone: value,
+      previousMarker: value.predecessor.marker,
+    }),
+    assets: [],
+  }
+}
+
+function operatorRecoveryAbandonmentRelease(id) {
+  const version = RECORD_VERSION
+  const commitSha = RECORD_SHA
+  const record = releaseRecord(version, commitSha)
+  const recordBytes = Buffer.from(JSON.stringify(record))
+  const bytesByName = new Map([["release-record.json", recordBytes]])
+  const bundleBytes = Buffer.from("fixture bytes for the anchored attestation bundle\n")
+  const subjects = [
+    "manifest.json",
+    ...Array.from({ length: 21 }, (_, index) => `package-${String(index).padStart(2, "0")}.tgz`),
+  ].map((subjectName) => {
+    const subjectBytes = Buffer.from(`fixture bytes for ${subjectName}\n`)
+    const bundleName = `${subjectName}.intoto.jsonl`
+    bytesByName.set(subjectName, subjectBytes)
+    bytesByName.set(bundleName, bundleBytes)
+    return {
+      subjectName,
+      subjectSha256: sha256(subjectBytes),
+      bundleName,
+      bundleSha256: sha256(bundleBytes),
+    }
+  })
+  const attestationSet = {
+    repository: "cacheplane/b4run",
+    workflow: ".github/workflows/release.yml",
+    sourceRef: `refs/tags/v${version}`,
+    commitSha,
+    workflowRunId: 400,
+    runAttempt: 1,
+    subjects,
+  }
+  const baseAssets = [
+    { name: "release-record.json", sha256: sha256(recordBytes) },
+    { name: "manifest.json", sha256: subjects[0].subjectSha256 },
+    ...subjects.slice(1).map((subject) => ({
+      name: subject.subjectName,
+      sha256: subject.subjectSha256,
+    })),
+    ...subjects.map((subject) => ({
+      name: subject.bundleName,
+      sha256: subject.bundleSha256,
+    })),
+  ]
+  const previousMarker = {
+    ...terminalPredecessorMarker(),
+    manifestSha256: subjects[0].subjectSha256,
+    releaseRecordSha256: sha256(recordBytes),
+    baseAssetSetSha256: sha256(Buffer.from(`${JSON.stringify(baseAssets)}\n`)),
+    attestationSet,
+  }
+  const previousBody = canonicalReleaseBody({ marker: previousMarker, manifest: null })
+  const assets = [
+    ...baseAssets.map((asset, index) => ({ id: id + index + 1, name: asset.name })),
+    { id: id + 100, name: "abandonment.json" },
+  ]
+  const base = terminalRecordFixture()
+  const tombstone = terminalRecordFixture({
+    predecessor: {
+      state: "CANDIDATE_ESCROWED",
+      releaseId: id,
+      releaseStatus: "draft",
+      bodySha256: sha256(Buffer.from(previousBody, "utf8")),
+      marker: previousMarker,
+      artifact: {
+        manifestSha256: previousMarker.manifestSha256,
+        releaseRecordSha256: previousMarker.releaseRecordSha256,
+        baseAssetSetSha256: previousMarker.baseAssetSetSha256,
+        attestationSet,
+      },
+    },
+    evidence: {
+      ...base.evidence,
+      escrowAssets: assets
+        .filter((asset) => asset.name !== "abandonment.json")
+        .map((asset) => ({
+          id: asset.id,
+          name: asset.name,
+          sha256: sha256(bytesByName.get(asset.name)),
+        })),
+    },
+  })
+  const abandonmentBytes = canonicalAbandonmentBytes(tombstone)
+  const marker = abandonmentReleaseMarker({
+    candidate: { version, commitSha },
+    artifact: tombstone.predecessor.artifact,
+    abandonmentSha256: sha256(abandonmentBytes),
+    previousMarker,
+  })
+  return {
+    id,
+    version,
+    tag_name: `v${version}`,
+    name: `B4 v${version} (abandoned before publication)`,
+    target_commitish: "main",
+    draft: true,
+    immutable: false,
+    prerelease: false,
+    body: canonicalAbandonmentReleaseBody({ marker, tombstone, previousMarker }),
+    assets,
+    record,
+    abandonment: tombstone,
+    abandonmentBytes,
+    assetBytes: new Map(
+      assets
+        .filter((asset) => asset.name !== "abandonment.json")
+        .map((asset) => [asset.id, bytesByName.get(asset.name)]),
+    ),
   }
 }

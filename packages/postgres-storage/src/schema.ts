@@ -15,7 +15,7 @@ export function assertIdentifier(name: string, value: string): void {
 }
 
 /** Default table/index prefix. Two apps can share one database by varying it. */
-export const DEFAULT_TABLE_PREFIX = "dawn"
+export const DEFAULT_TABLE_PREFIX = "b4"
 
 /** Default Postgres schema the stores create their tables in. */
 export const DEFAULT_SCHEMA = "public"
@@ -33,7 +33,7 @@ export function qualify(naming: TableNaming, table: string): string {
 
 /**
  * One forward-only schema step. Versioned rather than "CREATE IF NOT EXISTS and
- * hope", mirroring `@dawn-ai/sqlite-storage`'s migrate.ts, so later shape
+ * hope", mirroring `@b4run/sqlite-storage`'s migrate.ts, so later shape
  * changes are expressible.
  */
 export interface Migration {
@@ -41,7 +41,7 @@ export interface Migration {
   readonly up: (naming: TableNaming) => string
 }
 
-/** Namespaces Dawn's advisory locks away from any the host application takes. */
+/** Namespaces B4.run's advisory locks away from any the host application takes. */
 const ADVISORY_LOCK_CLASS = 0x4441574e
 
 /** FNV-1a 32-bit, coerced to the signed int4 `pg_advisory_xact_lock` accepts. */
@@ -136,7 +136,7 @@ export const THREADS_MIGRATIONS: readonly Migration[] = [
  * an in-process write queue and still loses grants across processes.
  *
  * `scope` and `kind` are stored explicitly even though only `('runtime',
- * 'allow')` rows are written today: config entries come from `dawn.config.ts`
+ * 'allow')` rows are written today: config entries come from `b4.config.ts`
  * on every construction and are deliberately never persisted, so `load()`
  * filters on `scope = 'runtime'` and config can never leak in from the table.
  * The primary key IS the conflict target — it is what makes a repeat grant a
@@ -159,7 +159,7 @@ export const PERMISSIONS_MIGRATIONS: readonly Migration[] = [
 ]
 
 /**
- * Checkpoint and metadata are BYTEA, not jsonb. Dawn serializes both with
+ * Checkpoint and metadata are BYTEA, not jsonb. B4.run serializes both with
  * LangGraph's `JsonPlusSerializer` and stores the resulting bytes opaquely,
  * exactly as the SQLite saver stores a BLOB. jsonb cannot hold a NUL byte
  * (22P05) or a lone surrogate (22P02), and both reach checkpoints for real via

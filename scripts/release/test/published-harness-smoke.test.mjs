@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import test from "node:test"
-
 import { CANONICAL_RELEASE_PACKAGE_ORDER, canonicalManifestBytes } from "../manifest.mjs"
 import {
   cleanupDockerSandboxResources,
@@ -9,8 +8,9 @@ import {
   runPublishedHarnessSmoke,
   validateNpmAuditSignatures,
 } from "../smoke/published-harness.mjs"
+import { assertStrictSmokeCommandOptions } from "../smoke-process-runner.mjs"
 import { parseSmokeResult } from "../smoke-result.mjs"
-import { EXACT_NPM_PROVENANCE_CERTIFICATE } from "./fixtures/npm-audit-certificates.mjs"
+import { EXACT_NPM_PROVENANCE_CERTIFICATE } from "./fixtures/b4-npm-audit-certificates.mjs"
 
 const VERSION = "0.8.22"
 const COMMIT_SHA = "a".repeat(40)
@@ -28,8 +28,8 @@ test("published Docker probe identities use one validated collision-resistant UU
   const second = publishedDockerProbeIdentity(() => "123e4567-e89b-42d3-b456-426614174001")
   assert.deepEqual(first, {
     threadId: "published-uuid-123e4567e89b42d3a456426614174000",
-    containerName: "dawn-sbx-published-uuid-123e4567e89b42d3a456426614174000",
-    volumeName: "dawn-sbx-vol-published-uuid-123e4567e89b42d3a456426614174000",
+    containerName: "b4-sbx-published-uuid-123e4567e89b42d3a456426614174000",
+    volumeName: "b4-sbx-vol-published-uuid-123e4567e89b42d3a456426614174000",
   })
   assert.notEqual(first.threadId, second.threadId)
   assert.notEqual(first.containerName, second.containerName)
@@ -177,6 +177,7 @@ test("installs the exact public fixed group, verifies npm signatures, and runs c
     CANONICAL_RELEASE_PACKAGE_ORDER.map((name) => `${name}@0.8.22`).sort(),
   )
   assert.equal(install.args.includes("--ignore-scripts"), true)
+  assert.equal(install.args.includes("vitest@4.1.10"), true)
   assert.equal(
     commands.some(
       ({ command, args }) =>
@@ -212,7 +213,7 @@ test("fails closed on malformed, missing, duplicate, or wrong-version npm audit 
     () =>
       validateNpmAuditSignatures("{}", {
         version: options.version,
-        requiredPackages: ["@dawn-ai/sdk"],
+        requiredPackages: ["@b4run/sdk"],
         candidate: candidate(),
         manifest,
       }),
@@ -223,25 +224,25 @@ test("fails closed on malformed, missing, duplicate, or wrong-version npm audit 
       validateNpmAuditSignatures(
         JSON.stringify({
           invalid: [],
-          missing: [{ name: "@dawn-ai/sdk", version: options.version }],
+          missing: [{ name: "@b4run/sdk", version: options.version }],
           verified: [],
         }),
         {
           version: options.version,
-          requiredPackages: ["@dawn-ai/sdk"],
+          requiredPackages: ["@b4run/sdk"],
           candidate: candidate(),
           manifest,
         },
       ),
     /missing.*signature/i,
   )
-  const duplicate = JSON.parse(auditOutput(manifest, ["@dawn-ai/sdk"]))
+  const duplicate = JSON.parse(auditOutput(manifest, ["@b4run/sdk"]))
   duplicate.verified.push(duplicate.verified[0])
   assert.throws(
     () =>
       validateNpmAuditSignatures(JSON.stringify(duplicate), {
         version: options.version,
-        requiredPackages: ["@dawn-ai/sdk"],
+        requiredPackages: ["@b4run/sdk"],
         candidate: candidate(),
         manifest,
       }),
@@ -249,9 +250,9 @@ test("fails closed on malformed, missing, duplicate, or wrong-version npm audit 
   )
   assert.throws(
     () =>
-      validateNpmAuditSignatures(auditOutput(manifest, ["@dawn-ai/sdk"], { version: "0.8.21" }), {
+      validateNpmAuditSignatures(auditOutput(manifest, ["@b4run/sdk"], { version: "0.8.21" }), {
         version: options.version,
-        requiredPackages: ["@dawn-ai/sdk"],
+        requiredPackages: ["@b4run/sdk"],
         candidate: candidate(),
         manifest,
       }),
@@ -260,21 +261,21 @@ test("fails closed on malformed, missing, duplicate, or wrong-version npm audit 
 })
 
 test("accepts the exact npm 11 production shape and rejects verified-entry shape drift", () => {
-  const production = auditOutput(manifest, ["@dawn-ai/sdk"])
+  const production = auditOutput(manifest, ["@b4run/sdk"])
   assert.deepEqual(
     validateNpmAuditSignatures(production, {
       version: options.version,
-      requiredPackages: ["@dawn-ai/sdk"],
+      requiredPackages: ["@b4run/sdk"],
       candidate: candidate(),
       manifest,
     }),
-    ["@dawn-ai/sdk"],
+    ["@b4run/sdk"],
   )
   assert.throws(
     () =>
       validateNpmAuditSignatures(production, {
         version: options.version,
-        requiredPackages: ["@dawn-ai/sdk"],
+        requiredPackages: ["@b4run/sdk"],
       }),
     /candidate|manifest/i,
   )
@@ -283,11 +284,11 @@ test("accepts the exact npm 11 production shape and rejects verified-entry shape
   assert.deepEqual(
     validateNpmAuditSignatures(JSON.stringify(trailingSlash), {
       version: options.version,
-      requiredPackages: ["@dawn-ai/sdk"],
+      requiredPackages: ["@b4run/sdk"],
       candidate: candidate(),
       manifest,
     }),
-    ["@dawn-ai/sdk"],
+    ["@b4run/sdk"],
   )
   const registryPath = structuredClone(trailingSlash)
   registryPath.verified[0].registry = "https://registry.npmjs.org/private"
@@ -295,7 +296,7 @@ test("accepts the exact npm 11 production shape and rejects verified-entry shape
     () =>
       validateNpmAuditSignatures(JSON.stringify(registryPath), {
         version: options.version,
-        requiredPackages: ["@dawn-ai/sdk"],
+        requiredPackages: ["@b4run/sdk"],
         candidate: candidate(),
         manifest,
       }),
@@ -308,7 +309,7 @@ test("accepts the exact npm 11 production shape and rejects verified-entry shape
     () =>
       validateNpmAuditSignatures(JSON.stringify(unexpected), {
         version: options.version,
-        requiredPackages: ["@dawn-ai/sdk"],
+        requiredPackages: ["@b4run/sdk"],
         candidate: candidate(),
         manifest,
       }),
@@ -321,7 +322,7 @@ test("accepts the exact npm 11 production shape and rejects verified-entry shape
     () =>
       validateNpmAuditSignatures(JSON.stringify(missingLocation), {
         version: options.version,
-        requiredPackages: ["@dawn-ai/sdk"],
+        requiredPackages: ["@b4run/sdk"],
         candidate: candidate(),
         manifest,
       }),
@@ -341,19 +342,19 @@ test("binds npm-verified provenance to the exact repository, workflow, ref, comm
       },
       /attestation|provenance/i,
     ],
-    [{ repository: "https://github.com/fork/dawnai" }, /repository/i],
+    [{ repository: "https://github.com/fork/b4-run" }, /repository/i],
     [{ workflow: ".github/workflows/other.yml" }, /workflow/i],
     [{ ref: "refs/heads/main" }, /ref/i],
     [{ commitSha: "c".repeat(40) }, /commit/i],
-    [{ subjectName: "pkg:npm/%40dawn-ai/sdk@0.8.21" }, /subject/i],
+    [{ subjectName: "pkg:npm/%40b4run/sdk@0.8.21" }, /subject/i],
     [{ subjectSha512: "d".repeat(128) }, /subject|integrity/i],
   ]
   for (const [drift, expected] of cases) {
     assert.throws(
       () =>
-        validateNpmAuditSignatures(auditOutput(manifest, ["@dawn-ai/sdk"], drift), {
+        validateNpmAuditSignatures(auditOutput(manifest, ["@b4run/sdk"], drift), {
           version: options.version,
-          requiredPackages: ["@dawn-ai/sdk"],
+          requiredPackages: ["@b4run/sdk"],
           candidate: candidate(),
           manifest,
         }),
@@ -406,14 +407,11 @@ test("writes a receipt and outer-cleans Docker identities when the installed pro
     /Docker installed probe failed/,
   )
 
-  assert.match(
-    events[0],
-    /^probe:dawn-sbx-published-uuid-[0-9a-f]{32}:dawn-sbx-vol-published-uuid-/u,
-  )
-  assert.match(events[1], /^cleanup-command:rm -f dawn-sbx-published-uuid-/u)
-  assert.match(events[2], /^cleanup-command:inspect dawn-sbx-published-uuid-/u)
-  assert.match(events[3], /^cleanup-command:volume rm --force dawn-sbx-vol-published-uuid-/u)
-  assert.match(events[4], /^cleanup-command:volume inspect dawn-sbx-vol-published-uuid-/u)
+  assert.match(events[0], /^probe:b4-sbx-published-uuid-[0-9a-f]{32}:b4-sbx-vol-published-uuid-/u)
+  assert.match(events[1], /^cleanup-command:rm -f b4-sbx-published-uuid-/u)
+  assert.match(events[2], /^cleanup-command:inspect b4-sbx-published-uuid-/u)
+  assert.match(events[3], /^cleanup-command:volume rm --force b4-sbx-vol-published-uuid-/u)
+  assert.match(events[4], /^cleanup-command:volume inspect b4-sbx-vol-published-uuid-/u)
   assert.deepEqual(events.slice(5), ["cleanup", "receipt"])
   assert.equal(receipt.conclusion, "failure")
 })
@@ -425,7 +423,7 @@ function auditOutput(release, packages = CANONICAL_RELEASE_PACKAGE_ORDER, drift 
     missing: [],
     verified: packages.map((name) => {
       const entry = release.packages.find((item) => item.name === name)
-      const repository = drift.repository ?? "https://github.com/cacheplane/dawnai"
+      const repository = drift.repository ?? "https://github.com/cacheplane/b4run"
       const workflow = drift.workflow ?? ".github/workflows/release.yml"
       const ref = drift.ref ?? `refs/tags/v${release.version}`
       const commitSha = drift.commitSha ?? release.commitSha
@@ -450,7 +448,7 @@ function auditOutput(release, packages = CANONICAL_RELEASE_PACKAGE_ORDER, drift 
           runDetails: {
             builder: { id: "https://github.com/actions/runner/github-hosted" },
             metadata: {
-              invocationId: "https://github.com/cacheplane/dawnai/actions/runs/801/attempts/1",
+              invocationId: "https://github.com/cacheplane/b4run/actions/runs/801/attempts/1",
             },
           },
         },
@@ -559,7 +557,10 @@ function fakeStrictRunner(runCommand) {
     async probe() {
       return { adapter: "systemd-cgroup-v2", imageOS: "ubuntu24", imageVersion: "test" }
     },
-    runCommand,
+    async runCommand(command, args, options = {}) {
+      assertStrictSmokeCommandOptions(options)
+      return await runCommand(command, args, options)
+    },
   }
 }
 
@@ -580,7 +581,7 @@ function missingDockerResourceError(kind, name, inspect) {
   if (kind === "volume") {
     return dockerCommandError(
       inspect
-        ? `Error: No such volume: ${name}`
+        ? `Error response from daemon: get ${name}: no such volume`
         : `Error response from daemon: get ${name}: no such volume`,
     )
   }

@@ -28,27 +28,27 @@ describe("runTypeScriptToolingPackSmoke", () => {
     const result = await runTypeScriptToolingPackSmoke(harness.dependencies)
 
     assert.deepEqual(TOOLING_PACKAGES, [
-      { dir: "packages/sdk", name: "@dawn-ai/sdk" },
-      { dir: "packages/permissions", name: "@dawn-ai/permissions" },
-      { dir: "packages/sqlite-storage", name: "@dawn-ai/sqlite-storage" },
-      { dir: "packages/workspace", name: "@dawn-ai/workspace" },
-      { dir: "packages/core", name: "@dawn-ai/core" },
-      { dir: "packages/vite-plugin", name: "@dawn-ai/vite-plugin" },
+      { dir: "packages/sdk", name: "@b4run/sdk" },
+      { dir: "packages/permissions", name: "@b4run/permissions" },
+      { dir: "packages/sqlite-storage", name: "@b4run/sqlite-storage" },
+      { dir: "packages/workspace", name: "@b4run/workspace" },
+      { dir: "packages/core", name: "@b4run/core" },
+      { dir: "packages/vite-plugin", name: "@b4run/vite-plugin" },
     ])
     assert.deepEqual(result.installedVersions, {
-      "@dawn-ai/core": PACKAGE_VERSION,
-      "@dawn-ai/permissions": PACKAGE_VERSION,
-      "@dawn-ai/sdk": PACKAGE_VERSION,
-      "@dawn-ai/sqlite-storage": PACKAGE_VERSION,
-      "@dawn-ai/vite-plugin": PACKAGE_VERSION,
-      "@dawn-ai/workspace": PACKAGE_VERSION,
+      "@b4run/core": PACKAGE_VERSION,
+      "@b4run/permissions": PACKAGE_VERSION,
+      "@b4run/sdk": PACKAGE_VERSION,
+      "@b4run/sqlite-storage": PACKAGE_VERSION,
+      "@b4run/vite-plugin": PACKAGE_VERSION,
+      "@b4run/workspace": PACKAGE_VERSION,
       tsx: TSX_VERSION,
       typescript: TYPESCRIPT_VERSION,
       zod: ZOD_VERSION,
     })
     assert.equal(
       result.coreEntryPath,
-      join(harness.canonicalTempRoot, "consumer", "node_modules", "@dawn-ai", "core", "index.js"),
+      join(harness.canonicalTempRoot, "consumer", "node_modules", "@b4run", "core", "index.js"),
     )
 
     const buildIndex = harness.events.findIndex(
@@ -66,7 +66,7 @@ describe("runTypeScriptToolingPackSmoke", () => {
     assert.deepEqual(harness.events[buildIndex], {
       type: "command",
       command: "pnpm",
-      args: ["--filter", "@dawn-ai/vite-plugin...", "build"],
+      args: ["--filter", "@b4run/vite-plugin...", "build"],
       cwd: harness.repoRoot,
     })
     assert.equal(packIndexes.length, TOOLING_PACKAGES.length)
@@ -83,12 +83,12 @@ describe("runTypeScriptToolingPackSmoke", () => {
       "--ignore-scripts",
       "--save-exact",
       "--package-lock=false",
-      join(harness.tempRoot, "packs", "dawn-ai-sdk-0.8.14.tgz"),
-      join(harness.tempRoot, "packs", "dawn-ai-permissions-0.8.14.tgz"),
-      join(harness.tempRoot, "packs", "dawn-ai-sqlite-storage-0.8.14.tgz"),
-      join(harness.tempRoot, "packs", "dawn-ai-workspace-0.8.14.tgz"),
-      join(harness.tempRoot, "packs", "dawn-ai-core-0.8.14.tgz"),
-      join(harness.tempRoot, "packs", "dawn-ai-vite-plugin-0.8.14.tgz"),
+      join(harness.tempRoot, "packs", "b4run-sdk-0.8.14.tgz"),
+      join(harness.tempRoot, "packs", "b4run-permissions-0.8.14.tgz"),
+      join(harness.tempRoot, "packs", "b4run-sqlite-storage-0.8.14.tgz"),
+      join(harness.tempRoot, "packs", "b4run-workspace-0.8.14.tgz"),
+      join(harness.tempRoot, "packs", "b4run-core-0.8.14.tgz"),
+      join(harness.tempRoot, "packs", "b4run-vite-plugin-0.8.14.tgz"),
       `typescript@${TYPESCRIPT_VERSION}`,
       `tsx@${TSX_VERSION}`,
       `zod@${ZOD_VERSION}`,
@@ -125,7 +125,7 @@ describe("runTypeScriptToolingPackSmoke", () => {
 
     await assert.rejects(
       runTypeScriptToolingPackSmoke(harness.dependencies),
-      /(?=.*@dawn-ai\/core@0\.8\.14)(?=.*unpublished dependency specs)(?=.*workspace:\*)(?=.*file:)/s,
+      /(?=.*@b4run\/core@0\.8\.14)(?=.*unpublished dependency specs)(?=.*workspace:\*)(?=.*file:)/s,
     )
     assert.equal(
       harness.events.some((event) => event.type === "command" && event.command === "npm"),
@@ -142,7 +142,7 @@ describe("runTypeScriptToolingPackSmoke", () => {
       await assert.rejects(
         runTypeScriptToolingPackSmoke(harness.dependencies),
         new RegExp(
-          `@dawn-ai/vite-plugin.*@dawn-ai/core.*${escapeRegExp(coreDependency)}.*expected ${PACKAGE_VERSION}`,
+          `@b4run/vite-plugin.*@b4run/core.*${escapeRegExp(coreDependency)}.*expected ${PACKAGE_VERSION}`,
           "s",
         ),
       )
@@ -162,7 +162,7 @@ describe("runTypeScriptToolingPackSmoke", () => {
       await assert.rejects(
         runTypeScriptToolingPackSmoke(harness.dependencies),
         new RegExp(
-          `@dawn-ai/core.*@dawn-ai/permissions.*${escapeRegExp(permissionsDependency)}.*expected ${PACKAGE_VERSION}`,
+          `@b4run/core.*@b4run/permissions.*${escapeRegExp(permissionsDependency)}.*expected ${PACKAGE_VERSION}`,
           "s",
         ),
       )
@@ -176,8 +176,8 @@ describe("runTypeScriptToolingPackSmoke", () => {
   }
 
   for (const [dependencyName, optionName] of [
-    ["@dawn-ai/sqlite-storage", "packedSqliteStorageDependency"],
-    ["@dawn-ai/workspace", "packedWorkspaceDependency"],
+    ["@b4run/sqlite-storage", "packedSqliteStorageDependency"],
+    ["@b4run/workspace", "packedWorkspaceDependency"],
   ]) {
     it(`rejects a stale packed Core ${dependencyName} dependency before install`, async () => {
       const harness = await createHarness({ [optionName]: "0.8.13" })
@@ -185,7 +185,7 @@ describe("runTypeScriptToolingPackSmoke", () => {
       await assert.rejects(
         runTypeScriptToolingPackSmoke(harness.dependencies),
         new RegExp(
-          `@dawn-ai/core.*${escapeRegExp(dependencyName)}.*0\\.8\\.13.*expected ${PACKAGE_VERSION}`,
+          `@b4run/core.*${escapeRegExp(dependencyName)}.*0\\.8\\.13.*expected ${PACKAGE_VERSION}`,
           "s",
         ),
       )
@@ -200,15 +200,12 @@ describe("runTypeScriptToolingPackSmoke", () => {
 
   it("rejects a stale required internal peer dependency before install", async () => {
     const harness = await createHarness({
-      packedVitePeerDependency: { name: "@dawn-ai/sdk", spec: "0.8.13" },
+      packedVitePeerDependency: { name: "@b4run/sdk", spec: "0.8.13" },
     })
 
     await assert.rejects(
       runTypeScriptToolingPackSmoke(harness.dependencies),
-      new RegExp(
-        `@dawn-ai/vite-plugin.*@dawn-ai/sdk.*0\\.8\\.13.*expected ${PACKAGE_VERSION}`,
-        "s",
-      ),
+      new RegExp(`@b4run/vite-plugin.*@b4run/sdk.*0\\.8\\.13.*expected ${PACKAGE_VERSION}`, "s"),
     )
     assert.equal(
       harness.events.some((event) => event.type === "command" && event.command === "npm"),
@@ -219,12 +216,12 @@ describe("runTypeScriptToolingPackSmoke", () => {
 
   it("rejects a required internal peer without a packed artifact before install", async () => {
     const harness = await createHarness({
-      packedVitePeerDependency: { name: "@dawn-ai/memory", spec: PACKAGE_VERSION },
+      packedVitePeerDependency: { name: "@b4run/memory", spec: PACKAGE_VERSION },
     })
 
     await assert.rejects(
       runTypeScriptToolingPackSmoke(harness.dependencies),
-      /@dawn-ai\/vite-plugin.*@dawn-ai\/memory.*expected a packed @dawn-ai\/memory artifact/s,
+      /@b4run\/vite-plugin.*@b4run\/memory.*expected a packed @b4run\/memory artifact/s,
     )
     assert.equal(
       harness.events.some((event) => event.type === "command" && event.command === "npm"),
@@ -236,7 +233,7 @@ describe("runTypeScriptToolingPackSmoke", () => {
   it("allows an optional internal peer without adding it to the tooling closure", async () => {
     const harness = await createHarness({
       packedVitePeerDependency: {
-        name: "@dawn-ai/memory",
+        name: "@b4run/memory",
         optional: true,
         spec: PACKAGE_VERSION,
       },
@@ -251,7 +248,7 @@ describe("runTypeScriptToolingPackSmoke", () => {
   it("rejects a stale optional internal peer when its artifact is already packed", async () => {
     const harness = await createHarness({
       packedVitePeerDependency: {
-        name: "@dawn-ai/sdk",
+        name: "@b4run/sdk",
         optional: true,
         spec: "0.8.13",
       },
@@ -259,10 +256,7 @@ describe("runTypeScriptToolingPackSmoke", () => {
 
     await assert.rejects(
       runTypeScriptToolingPackSmoke(harness.dependencies),
-      new RegExp(
-        `@dawn-ai/vite-plugin.*@dawn-ai/sdk.*0\\.8\\.13.*expected ${PACKAGE_VERSION}`,
-        "s",
-      ),
+      new RegExp(`@b4run/vite-plugin.*@b4run/sdk.*0\\.8\\.13.*expected ${PACKAGE_VERSION}`, "s"),
     )
     assert.equal(
       harness.events.some((event) => event.type === "command" && event.command === "npm"),
@@ -306,7 +300,7 @@ describe("runTypeScriptToolingPackSmoke", () => {
 
     await assert.rejects(
       runTypeScriptToolingPackSmoke(harness.dependencies),
-      /Vite resolves @dawn-ai\/core to .* expected root artifact/s,
+      /Vite resolves @b4run\/core to .* expected root artifact/s,
     )
     assert.equal(
       harness.events.some((event) => event.type === "probe"),
@@ -352,23 +346,23 @@ describe("assertPackedClosureIsComplete", () => {
     // The regression guard. An unpacked workspace dependency resolves from the public
     // registry at the version pnpm pack stamped in — which exists on every ordinary
     // commit and does NOT exist on the release commit, so the hole is invisible until
-    // it fails the publish. 0.8.17 died here on @dawn-ai/permissions.
+    // it fails the publish. 0.8.17 died here on @b4run/permissions.
     await assertPackedClosureIsComplete()
   })
 
   it("rejects a workspace dependency that is not itself packed", async () => {
-    const testRoot = await mkdtemp(join(tmpdir(), "dawn-closure-"))
+    const testRoot = await mkdtemp(join(tmpdir(), "b4-closure-"))
     try {
-      await writeWorkspaceManifest(testRoot, "packages/core", "@dawn-ai/core", {
-        "@dawn-ai/permissions": "workspace:*",
+      await writeWorkspaceManifest(testRoot, "packages/core", "@b4run/core", {
+        "@b4run/permissions": "workspace:*",
       })
 
       await assert.rejects(
         assertPackedClosureIsComplete({
-          packages: [{ dir: "packages/core", name: "@dawn-ai/core" }],
+          packages: [{ dir: "packages/core", name: "@b4run/core" }],
           repoRoot: testRoot,
         }),
-        /@dawn-ai\/core -> @dawn-ai\/permissions.*Add them to TOOLING_PACKAGES/s,
+        /@b4run\/core -> @b4run\/permissions.*Add them to TOOLING_PACKAGES/s,
       )
     } finally {
       await rm(testRoot, { force: true, recursive: true })
@@ -376,18 +370,18 @@ describe("assertPackedClosureIsComplete", () => {
   })
 
   it("accepts a closed set and ignores registry dependencies", async () => {
-    const testRoot = await mkdtemp(join(tmpdir(), "dawn-closure-"))
+    const testRoot = await mkdtemp(join(tmpdir(), "b4-closure-"))
     try {
-      await writeWorkspaceManifest(testRoot, "packages/core", "@dawn-ai/core", {
-        "@dawn-ai/permissions": "workspace:*",
+      await writeWorkspaceManifest(testRoot, "packages/core", "@b4run/core", {
+        "@b4run/permissions": "workspace:*",
         zod: "^4.4.3",
       })
-      await writeWorkspaceManifest(testRoot, "packages/permissions", "@dawn-ai/permissions", {})
+      await writeWorkspaceManifest(testRoot, "packages/permissions", "@b4run/permissions", {})
 
       await assertPackedClosureIsComplete({
         packages: [
-          { dir: "packages/core", name: "@dawn-ai/core" },
-          { dir: "packages/permissions", name: "@dawn-ai/permissions" },
+          { dir: "packages/core", name: "@b4run/core" },
+          { dir: "packages/permissions", name: "@b4run/permissions" },
         ],
         repoRoot: testRoot,
       })
@@ -406,7 +400,7 @@ describe("verify:typescript-tooling-pack", () => {
       "pnpm test:typescript-tooling-pack-smoke && node scripts/typescript-tooling-pack-smoke.mjs",
     )
 
-    const root = await mkdtemp(join(tmpdir(), "dawn-typescript-tooling-script-test-"))
+    const root = await mkdtemp(join(tmpdir(), "b4-typescript-tooling-script-test-"))
     try {
       const binDir = join(root, "bin")
       const unitMarker = join(root, "unit-marker")
@@ -455,7 +449,7 @@ describe("packWorkspacePackage", () => {
               )
             },
           }),
-          new RegExp(`@dawn-ai/core pack produced ${tarballCount} new tarballs.*expected 1`),
+          new RegExp(`@b4run/core pack produced ${tarballCount} new tarballs.*expected 1`),
         )
       } finally {
         await fixture.cleanup()
@@ -471,7 +465,7 @@ describe("packWorkspacePackage", () => {
           ...fixture.options,
           runCommand: extractedManifestCommand(fixture, null),
         }),
-        /@dawn-ai\/core.*missing extracted package\.json/,
+        /@b4run\/core.*missing extracted package\.json/,
       )
     } finally {
       await fixture.cleanup()
@@ -486,7 +480,7 @@ describe("packWorkspacePackage", () => {
           ...fixture.options,
           runCommand: extractedManifestCommand(fixture, "{"),
         }),
-        /@dawn-ai\/core.*invalid extracted package\.json/,
+        /@b4run\/core.*invalid extracted package\.json/,
       )
     } finally {
       await fixture.cleanup()
@@ -506,7 +500,7 @@ async function createHarness({
   packedWorkspaceDependency = PACKAGE_VERSION,
   packageValidationFailure = false,
 } = {}) {
-  const testRoot = await mkdtemp(join(tmpdir(), "dawn-typescript-tooling-pack-test-"))
+  const testRoot = await mkdtemp(join(tmpdir(), "b4-typescript-tooling-pack-test-"))
   const tempRoot = join(testRoot, "owned-temp-root")
   const canonicalTempRoot = join(await realpath(testRoot), "owned-temp-root")
   const repoRoot = join(testRoot, "repo")
@@ -520,7 +514,7 @@ async function createHarness({
       events.push({ type: "closure-check" })
     },
     async makeTempDir(prefix) {
-      assert.equal(prefix, "dawn-typescript-tooling-pack-")
+      assert.equal(prefix, "b4-typescript-tooling-pack-")
       await mkdir(tempRoot)
       return tempRoot
     },
@@ -538,7 +532,7 @@ async function createHarness({
         packedVitePeerDependency,
         packedWorkspaceDependency,
       })
-      if (packageValidationFailure && packageConfig.name === "@dawn-ai/core") {
+      if (packageValidationFailure && packageConfig.name === "@b4run/core") {
         packageJson.dependencies = {
           local: "file:../local",
           workspace: "workspace:*",
@@ -558,12 +552,12 @@ async function createHarness({
       events.push({ type: "inspect-installed", nodeModulesDir })
       const manifests = []
       for (const name of [
-        "@dawn-ai/core",
-        "@dawn-ai/permissions",
-        "@dawn-ai/sdk",
-        "@dawn-ai/sqlite-storage",
-        "@dawn-ai/vite-plugin",
-        "@dawn-ai/workspace",
+        "@b4run/core",
+        "@b4run/permissions",
+        "@b4run/sdk",
+        "@b4run/sqlite-storage",
+        "@b4run/vite-plugin",
+        "@b4run/workspace",
         "typescript",
         "tsx",
         "zod",
@@ -601,13 +595,13 @@ async function createHarness({
             join(
               options.cwd,
               "node_modules",
-              "@dawn-ai",
+              "@b4run",
               "vite-plugin",
               "node_modules",
-              "@dawn-ai",
+              "@b4run",
               "core",
             ),
-            "@dawn-ai/core",
+            "@b4run/core",
             PACKAGE_VERSION,
           )
         }
@@ -649,19 +643,21 @@ function packedManifest(
   } = {},
 ) {
   return {
-    bugs: { url: "https://github.com/cacheplane/dawnai/issues" },
+    bugs: { url: "https://github.com/cacheplane/b4run/issues" },
+    description: "B4 package fixture for TypeScript tooling pack verification.",
     engines: { node: ">=22.12.0" },
     exports: { ".": { default: "./dist/index.js", types: "./dist/index.d.ts" } },
-    homepage: `https://github.com/cacheplane/dawnai/tree/main/${name}`,
+    homepage: `https://github.com/cacheplane/b4run/tree/main/${name}`,
+    keywords: ["b4", "typescript", "developer-tools"],
     license: "MIT",
     name,
     publishConfig: { access: "public" },
-    repository: { type: "git", url: "git+https://github.com/cacheplane/dawnai.git" },
+    repository: { type: "git", url: "git+https://github.com/cacheplane/b4run.git" },
     types: "./dist/index.d.ts",
     version: PACKAGE_VERSION,
-    ...(name === "@dawn-ai/vite-plugin"
+    ...(name === "@b4run/vite-plugin"
       ? {
-          dependencies: { "@dawn-ai/core": packedCoreDependency },
+          dependencies: { "@b4run/core": packedCoreDependency },
           ...(packedVitePeerDependency
             ? {
                 peerDependencies: {
@@ -677,29 +673,29 @@ function packedManifest(
               }
             : {}),
         }
-      : name === "@dawn-ai/core"
+      : name === "@b4run/core"
         ? {
             dependencies: {
-              "@dawn-ai/permissions": packedPermissionsDependency,
-              "@dawn-ai/sdk": PACKAGE_VERSION,
-              "@dawn-ai/sqlite-storage": packedSqliteStorageDependency,
-              "@dawn-ai/workspace": packedWorkspaceDependency,
+              "@b4run/permissions": packedPermissionsDependency,
+              "@b4run/sdk": PACKAGE_VERSION,
+              "@b4run/sqlite-storage": packedSqliteStorageDependency,
+              "@b4run/workspace": packedWorkspaceDependency,
             },
           }
-        : name === "@dawn-ai/permissions" || name === "@dawn-ai/workspace"
-          ? { dependencies: { "@dawn-ai/sdk": PACKAGE_VERSION } }
+        : name === "@b4run/permissions" || name === "@b4run/workspace"
+          ? { dependencies: { "@b4run/sdk": PACKAGE_VERSION } }
           : {}),
   }
 }
 
 async function installFixturePackages(root) {
   const packages = {
-    "@dawn-ai/core": PACKAGE_VERSION,
-    "@dawn-ai/permissions": PACKAGE_VERSION,
-    "@dawn-ai/sdk": PACKAGE_VERSION,
-    "@dawn-ai/sqlite-storage": PACKAGE_VERSION,
-    "@dawn-ai/vite-plugin": PACKAGE_VERSION,
-    "@dawn-ai/workspace": PACKAGE_VERSION,
+    "@b4run/core": PACKAGE_VERSION,
+    "@b4run/permissions": PACKAGE_VERSION,
+    "@b4run/sdk": PACKAGE_VERSION,
+    "@b4run/sqlite-storage": PACKAGE_VERSION,
+    "@b4run/vite-plugin": PACKAGE_VERSION,
+    "@b4run/workspace": PACKAGE_VERSION,
     tsx: TSX_VERSION,
     typescript: TYPESCRIPT_VERSION,
     zod: ZOD_VERSION,
@@ -741,13 +737,13 @@ function escapeRegExp(value) {
 }
 
 async function createPackFixture() {
-  const root = await mkdtemp(join(tmpdir(), "dawn-typescript-tooling-pack-selector-test-"))
+  const root = await mkdtemp(join(tmpdir(), "b4-typescript-tooling-pack-selector-test-"))
   const packageDir = join(root, "repo", "packages", "core")
   const packDir = join(root, "packs")
   await Promise.all([mkdir(packageDir, { recursive: true }), mkdir(packDir)])
   await writeFile(
     join(packageDir, "package.json"),
-    JSON.stringify({ name: "@dawn-ai/core", version: PACKAGE_VERSION }),
+    JSON.stringify({ name: "@b4run/core", version: PACKAGE_VERSION }),
     "utf8",
   )
 
@@ -756,7 +752,7 @@ async function createPackFixture() {
       await rm(root, { force: true, recursive: true })
     },
     options: {
-      packageConfig: { dir: "packages/core", name: "@dawn-ai/core" },
+      packageConfig: { dir: "packages/core", name: "@b4run/core" },
       packDir,
       repoRoot: join(root, "repo"),
     },

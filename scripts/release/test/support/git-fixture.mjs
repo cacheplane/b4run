@@ -22,7 +22,7 @@ export async function createGitFixture({ sourceDirectory, signal, gitExecutable 
   }
   const executable = await validatedGitExecutable(gitExecutable)
   await readFile(join(sourceDirectory, "package.json"))
-  const directory = await mkdtemp(join(tmpdir(), "dawn-release-git-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-release-git-"))
   const workingDirectory = join(directory, "working")
   const bareRemoteDirectory = join(directory, "remote.git")
   const homeDirectory = join(directory, "home")

@@ -2,16 +2,17 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join, relative, sep } from "node:path"
 
-import type { RouteDefinition, RouteKind } from "@dawn-ai/core"
+import type { RouteDefinition, RouteKind } from "@b4run/core"
 
 import { createRouteAssistantId } from "../../runtime/route-identity.js"
 import { discoverStateDefinition } from "../../runtime/state-discovery.js"
 import { discoverToolDefinitions, type ToolScope } from "../../runtime/tool-discovery.js"
 import { discoverSkillDirs } from "./edge-capabilities.js"
+import { collectRouteMarkerFiles, type RouteMarkerFile } from "./marker-files.js"
 
 /**
  * Build-time discovery results for one route — everything the emitter needs
- * to generate that route's entry in `.dawn/build/modules.mjs`. Collected by
+ * to generate that route's entry in `.b4/build/modules.mjs`. Collected by
  * {@link collectRouteStaticDiscovery} using the SAME discovery functions the
  * dynamic runtime path uses (`discoverToolDefinitions`,
  * `discoverStateDefinition`, the `tools.json` read, the `memory.ts` probe) —
@@ -35,19 +36,31 @@ export interface RouteStaticDiscovery {
    * filesystem the skills capability's `detect` returns false and the skills
    * vanish from the prompt with nothing to report — "this route had skills" and
    * "this route had none" are indistinguishable at request time. Carrying the
-   * names lets `collectRuntimeCapabilityGaps` raise DAWN_E1005 instead.
+   * names lets `collectRuntimeCapabilityGaps` raise B4_E1005 instead.
    *
    * Optional, unlike its siblings: "no skills" is the overwhelmingly common
    * case and every existing constructor of this type predates the field.
    */
   readonly skills?: readonly string[]
   /**
+   * Marker file contents (`plan.md`, `memory.md`, `skills/<name>/SKILL.md`),
+   * route-relative. Collected only when `collectRouteStaticDiscovery` is asked
+   * for them — the edge flavors, which have no filesystem at request time. The
+   * node manifest never carries bodies; it reads them from disk.
+   */
+  readonly markerFiles?: readonly RouteMarkerFile[]
+  /**
+   * `routeDir` relative to the app root, forward-slashed — the directory the
+   * marker files were read from. Present exactly when `markerFiles` is.
+   */
+  readonly markerFilesDir?: string
+  /**
    * `state.ts` defaults as entries; `undefined` when the route has no state
    * definition, `[]` when it has a defined-but-empty one (mirrors the
    * dynamic path's `discoverStateDefinition` null-vs-empty distinction).
    */
   readonly stateDefaults: readonly (readonly [string, unknown])[] | undefined
-  /** Parsed `.dawn/routes/<slug>/tools.json` content, when present. */
+  /** Parsed `.b4/routes/<slug>/tools.json` content, when present. */
   readonly toolSchemas: Record<string, unknown> | undefined
   /** Discovered tools in discovery order (shared first, then route-local). */
   readonly tools: readonly {
@@ -64,6 +77,8 @@ export interface RouteStaticDiscovery {
  */
 export async function collectRouteStaticDiscovery(options: {
   readonly appRoot: string
+  /** Read marker file bodies too (edge flavors only). */
+  readonly markerFiles?: boolean
   readonly route: RouteDefinition
 }): Promise<RouteStaticDiscovery> {
   const { appRoot, route } = options
@@ -78,7 +93,7 @@ export async function collectRouteStaticDiscovery(options: {
   // Same slug math + best-effort read as the runtime's tools.json injection.
   const routeSlug =
     route.id.replace(/^\//, "").replace(/\//g, "-").replace(/\[/g, "").replace(/\]/g, "") || "index"
-  const schemaManifestPath = join(appRoot, ".dawn", "routes", routeSlug, "tools.json")
+  const schemaManifestPath = join(appRoot, ".b4", "routes", routeSlug, "tools.json")
   let toolSchemas: Record<string, unknown> | undefined
   if (existsSync(schemaManifestPath)) {
     try {
@@ -117,6 +132,22 @@ export async function collectRouteStaticDiscovery(options: {
   // is byte-for-byte what it was before this fact existed.
   const skillDirs = discoverSkillDirs(join(route.routeDir, "skills"))
 
+  // Bodies only for the flavors that cannot read them at request time. This is
+  // also where an over-limit marker fails the build — before any artifact is
+  // written.
+  const markerFiles = options.markerFiles
+    ? await collectRouteMarkerFiles({ appRoot, routeDir: route.routeDir })
+    : undefined
+  // Pinned to the SAME directory `collectRouteMarkerFiles` just read from.
+  // Today the two agree by construction: `discoverRoutes` sets
+  // `entryFile = <routeDir>/index.ts`, and the runtime looks these markers up
+  // under `pureDirname(routeFile)`. If route discovery ever stops putting the
+  // entry file directly in `routeDir`, this emitted key must follow
+  // `dirname(entryFile)` — not `routeDir` — to keep matching that runtime
+  // derivation.
+  const markerFilesFields: Pick<RouteStaticDiscovery, "markerFiles" | "markerFilesDir"> =
+    markerFiles ? { markerFiles, markerFilesDir: appRootRelative(appRoot, route.routeDir) } : {}
+
   return {
     entryFile: route.entryFile,
     kind: route.kind,
@@ -124,6 +155,7 @@ export async function collectRouteStaticDiscovery(options: {
     reducers,
     routeId: route.id,
     ...(skillDirs.length > 0 ? { skills: skillDirs } : {}),
+    ...markerFilesFields,
     stateDefaults,
     toolSchemas,
     tools,
@@ -179,19 +211,19 @@ export interface ModulesEmitFlavor {
 /**
  * The node target's flavor: `node:path`/`node:url` path math resolved at
  * RUNTIME from `import.meta.url`, so an image built at one path and run at
- * another still gets correct absolute paths (`.dawn/build` sits two
+ * another still gets correct absolute paths (`.b4/build` sits two
  * directories below the app root, the same math server.mjs uses).
  */
 const NODE_FLAVOR: ModulesEmitFlavor = {
   appRootPathExpression: (relativePath) => `resolve(appRoot, ${JSON.stringify(relativePath)})`,
   appRootSection: () => [
-    `// modules.mjs lives at <appRoot>/.dawn/build/modules.mjs → appRoot is two dirs`,
+    `// modules.mjs lives at <appRoot>/.b4/build/modules.mjs → appRoot is two dirs`,
     `// up. Absolute paths are computed here at RUNTIME so a manifest built at one`,
     `// path stays correct when the app runs at another (e.g. inside a container).`,
     `const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..")`,
   ],
   header: [
-    `// Generated by dawn build (node target). Regenerated on every build — do not edit.`,
+    `// Generated by b4 build (node target). Regenerated on every build — do not edit.`,
     `// Static module manifest: every route/tool/memory/reducer module below is a`,
     `// static import, so the whole app module graph is known without filesystem`,
     `// discovery at boot. Loaded by server.mjs via loadStaticModules().`,
@@ -200,14 +232,14 @@ const NODE_FLAVOR: ModulesEmitFlavor = {
     `import { dirname, resolve } from "node:path"`,
     `import { fileURLToPath } from "node:url"`,
   ],
-  runtimeSpecifier: "@dawn-ai/cli/runtime",
+  runtimeSpecifier: "@b4run/cli/runtime",
 }
 
 /**
- * Generate the text of `.dawn/build/modules.mjs`: static imports of every
+ * Generate the text of `.b4/build/modules.mjs`: static imports of every
  * route/tool/memory/reducer module, inlined build-time literals, and one
  * `buildStaticRouteModule(...)` call per route, default-exporting a
- * `DawnStaticModules`.
+ * `B4StaticModules`.
  *
  * Deliberately NOT the langsmith emitter's shape — no graphs are
  * materialized; the payload is `prepareRouteExecution`'s full input set,
@@ -219,7 +251,7 @@ const NODE_FLAVOR: ModulesEmitFlavor = {
  *
  * Portability: `routeFile`/tool paths are resolved from `import.meta.url` at
  * RUNTIME — images built at one path and run at another still get correct
- * absolute paths (`.dawn/build` sits two directories below the app root, the
+ * absolute paths (`.b4/build` sits two directories below the app root, the
  * same math server.mjs uses).
  */
 export function emitModulesFile(options: ModulesEmitOptions): string {
@@ -316,6 +348,29 @@ export function emitModulesFileWithFlavor(
     if (discovery.skills && discovery.skills.length > 0) {
       lines.push(`      skills: ${JSON.stringify(discovery.skills)},`)
     }
+    // Marker bodies, keyed by the SAME namespace path the runtime computes
+    // (`pureJoin(pureDirname(routeFile), …)`), so a key the markers ask for
+    // and a key the build wrote are the same string. `Object.fromEntries`
+    // over an array, not an object literal: a "__proto__" key can never
+    // perform a prototype assignment this way, and every key/value goes
+    // through JSON.stringify so no content can break out of its literal.
+    if (discovery.markerFiles && discovery.markerFiles.length > 0) {
+      if (discovery.markerFilesDir === undefined) {
+        throw new Error(
+          `Route "${discovery.routeId}" has markerFiles but no markerFilesDir — malformed ` +
+            `RouteStaticDiscovery (collectRouteStaticDiscovery must set both together).`,
+        )
+      }
+      const routeDirRelative = discovery.markerFilesDir
+      const entries = discovery.markerFiles.map((file) => {
+        const key =
+          routeDirRelative === "" ? file.relativePath : `${routeDirRelative}/${file.relativePath}`
+        return `        [${flavor.appRootPathExpression(key)}, ${JSON.stringify(file.content)}],`
+      })
+      lines.push(`      markerFiles: Object.fromEntries([`)
+      lines.push(...entries)
+      lines.push(`      ]),`)
+    }
     if (discovery.stateDefaults) {
       // Defaults come from arbitrary user schema code; the dynamic path hands
       // the live values to resolveStateFields while this path inlines them.
@@ -328,7 +383,7 @@ export function emitModulesFileWithFlavor(
           throw new Error(
             `Route "${discovery.routeId}" state field "${name}" has a default that cannot be ` +
               `inlined as JSON (at ${badPath}). Static builds serialize state defaults into ` +
-              `.dawn/build/modules.mjs — use JSON-compatible defaults (plain objects, arrays, ` +
+              `.b4/build/modules.mjs — use JSON-compatible defaults (plain objects, arrays, ` +
               `strings, finite numbers, booleans, null).`,
           )
         }

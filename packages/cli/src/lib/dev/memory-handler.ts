@@ -1,7 +1,7 @@
-import type { MemoryStore } from "@dawn-ai/memory"
+import type { MemoryStore } from "@b4run/memory"
 // The reconcile helper comes from the pure "./reconcile" subpath, never the
 // barrel: the barrel re-exports sqliteMemoryStore and so reaches node:sqlite.
-import { approveWithReconcile } from "@dawn-ai/memory/reconcile"
+import { approveWithReconcile } from "@b4run/memory/reconcile"
 import { formatErrorMessage } from "../output.js"
 import { createExecutionErrorBody, createRequestErrorBody } from "./server-errors.js"
 

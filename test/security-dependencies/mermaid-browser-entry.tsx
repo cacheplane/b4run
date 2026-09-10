@@ -1,7 +1,7 @@
 import "@copilotkit/react-core/v2/styles.css"
 
 import { CopilotChatAssistantMessage } from "@copilotkit/react-core/v2"
-import mermaid from "dawn-resolved-mermaid"
+import mermaid from "b4-resolved-mermaid"
 import { createRoot } from "react-dom/client"
 
 interface MermaidConfigInspection {
@@ -19,7 +19,7 @@ interface MermaidBrowserHarness {
 
 declare global {
   interface Window {
-    __dawnMermaidHarness?: Readonly<MermaidBrowserHarness>
+    __b4MermaidHarness?: Readonly<MermaidBrowserHarness>
   }
 }
 
@@ -30,7 +30,7 @@ const root = createRoot(host)
 const MarkdownRenderer = CopilotChatAssistantMessage.MarkdownRenderer
 let mounted = true
 
-window.__dawnMermaidHarness = Object.freeze({
+window.__b4MermaidHarness = Object.freeze({
   inspectMermaidConfig(marker: string) {
     if (!mounted) throw new Error("browser harness is unmounted")
     if (!/^mermaid[A-Za-z]+PrototypePollutionMarker$/u.test(marker)) {
@@ -58,7 +58,7 @@ window.__dawnMermaidHarness = Object.freeze({
   async renderMermaid(id: string, source: string) {
     if (!mounted) throw new Error("browser harness is unmounted")
     if (
-      !/^dawn-browser-[a-z-]{1,80}$/u.test(id) ||
+      !/^b4-browser-[a-z-]{1,80}$/u.test(id) ||
       typeof source !== "string" ||
       source.length > 8_192
     ) {

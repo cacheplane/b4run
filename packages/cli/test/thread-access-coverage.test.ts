@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { ThreadAccessPolicy, ThreadOperation } from "@dawn-ai/sdk"
+import type { ThreadAccessPolicy, ThreadOperation } from "@b4run/sdk"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { buildRouteTable } from "../src/lib/dev/runtime-fetch-core.js"
@@ -38,6 +38,7 @@ const GATED: readonly string[] = [
   routeKey("GET", /^\/threads\/(?<thread_id>[^/?#]+)\/state(?:\?.*)?$/),
   routeKey("POST", /^\/threads\/(?<thread_id>[^/?#]+)\/cancel(?:\?.*)?$/),
   routeKey("POST", /^\/threads\/(?<thread_id>[^/?#]+)\/runs\/stream(?:\?.*)?$/),
+  routeKey("GET", /^\/threads\/(?<thread_id>[^/?#]+)\/runs\/stream(?:\?.*)?$/),
   routeKey("POST", /^\/threads\/(?<thread_id>[^/?#]+)\/runs\/wait(?:\?.*)?$/),
   routeKey("POST", /^\/threads\/(?<thread_id>[^/?#]+)\/resume(?:\?.*)?$/),
   routeKey("POST", /^\/agui\/(?<routeId>[^/?#]+)(?:\?.*)?$/),
@@ -71,13 +72,13 @@ const routes = buildRouteTable({} as unknown as Parameters<typeof buildRouteTabl
 const actual = routes.map((route) => `${route.method} ${route.pattern.source}`)
 
 describe("route-table coverage", () => {
-  it("has 14 entries on this branch", () => {
-    // 14 since PR #443 merged and this branch took `main` in, adding
-    // `GET /threads/:thread_id/pending_interrupts`. It is CLASSIFIED (see
-    // GATED) rather than counted, which is the whole point of this pair of
-    // assertions: bumping the number without adding the route to a list would
-    // let a new thread endpoint ship ungated and silent.
-    expect(actual).toHaveLength(14)
+  it("has 15 entries on this branch", () => {
+    // 15: 14 as of PR #443/pending_interrupts, plus this branch's
+    // `GET /threads/:thread_id/runs/stream` attach endpoint. It is CLASSIFIED
+    // (see GATED) rather than counted, which is the whole point of this pair
+    // of assertions: bumping the number without adding the route to a list
+    // would let a new thread endpoint ship ungated and silent.
+    expect(actual).toHaveLength(15)
   })
 
   it("classifies every route as gated, deferred or exempt", () => {
@@ -106,10 +107,10 @@ describe("emitted thread operations", () => {
         return { decision: "allow" }
       },
     }
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-thread-access-coverage-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-thread-access-coverage-"))
     cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
     for (const [relativePath, source] of Object.entries({
-      "dawn.config.ts": "export default {}\n",
+      "b4.config.ts": "export default {}\n",
       "package.json": '{ "name": "coverage-fixture", "type": "module" }\n',
       "src/app/hello/index.ts": "export const graph = async () => ({ ok: true })\n",
     })) {

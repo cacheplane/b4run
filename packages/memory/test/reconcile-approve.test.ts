@@ -6,7 +6,7 @@ import { approveWithReconcile, type MemoryRecord, sqliteMemoryStore } from "../s
 
 const dirs: string[] = []
 function makeStore() {
-  const dir = mkdtempSync(join(tmpdir(), "dawn-rec-"))
+  const dir = mkdtempSync(join(tmpdir(), "b4-rec-"))
   dirs.push(dir)
   return sqliteMemoryStore({ path: join(dir, "m.sqlite") })
 }

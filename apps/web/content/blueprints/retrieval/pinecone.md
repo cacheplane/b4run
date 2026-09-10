@@ -1,14 +1,14 @@
 ---
-description: Add a Pinecone-backed retrieval tool to a Dawn app.
+description: Add a Pinecone-backed retrieval tool to a B4.run app.
 website: https://www.pinecone.io
 version: 1
 tags: [retrieval, vector, embeddings]
 source: official
 ---
 
-# Add Pinecone retrieval to your Dawn app
+# Add Pinecone retrieval to your B4.run app
 
-You are an AI coding agent adding a Pinecone-backed retrieval tool to a Dawn app. It adds a tool the agent can call to query a Pinecone index by semantic similarity. It does NOT create the index, choose an embedding model for you, or ingest documents — it wires the query path against an existing index.
+You are an AI coding agent adding a Pinecone-backed retrieval tool to a B4.run app. It adds a tool the agent can call to query a Pinecone index by semantic similarity. It does NOT create the index, choose an embedding model for you, or ingest documents — it wires the query path against an existing index.
 
 ## Prerequisites
 
@@ -24,9 +24,9 @@ If either prerequisite is missing, stop and tell the user what needs to be set u
 Run these checks before writing any code:
 
 1. **Package manager** — detect from lockfile: `pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, `package-lock.json` → npm.
-2. **App directory** — read `dawn.config.ts` and find the `appDir` field (defaults to `src/app`). Note which routes exist under it; identify the route that needs retrieval.
+2. **App directory** — read `b4.config.ts` and find the `appDir` field (defaults to `src/app`). Note which routes exist under it; identify the route that needs retrieval.
 3. **AGENTS.md** — read it if present for project-specific conventions (naming, style, preferred imports).
-4. **Existing install check** — look for `src/app/<route>/tools/search_documents.ts` (or `src/tools/search_documents.ts` for a shared tool). If the file exists and its first line is `// dawn-blueprint: pinecone@1`, skip to [Updating an existing install](#updating-an-existing-install).
+4. **Existing install check** — look for `src/app/<route>/tools/search_documents.ts` (or `src/tools/search_documents.ts` for a shared tool). If the file exists and its first line is `// b4-blueprint: pinecone@1`, skip to [Updating an existing install](#updating-an-existing-install).
 5. **Env conventions** — check for `.env` and `.env.example` to learn how the project names and documents secrets.
 
 ## Install dependencies
@@ -60,7 +60,7 @@ src/app/<route>/tools/search_documents.ts
 Write the following file. Read the inline comments — you must adapt the index name, metadata field, and embedding model to match your actual setup before saving.
 
 ```ts
-// dawn-blueprint: pinecone@1
+// b4-blueprint: pinecone@1
 import { OpenAIEmbeddings } from "@langchain/openai"
 import { Pinecone } from "@pinecone-database/pinecone"
 
@@ -114,17 +114,17 @@ export default async (input: { readonly query: string; readonly limit?: number }
 
 ## Wire it into a route
 
-No manual registration is needed. Dawn discovers every `.ts` file in a route's `tools/` directory automatically. Placing the file there is sufficient — on the next `dawn typegen` run, `search_documents` appears in the generated route tool types, and an `agent` route's model can call it directly.
+No manual registration is needed. B4.run discovers every `.ts` file in a route's `tools/` directory automatically. Placing the file there is sufficient — on the next `b4 typegen` run, `search_documents` appears in the generated route tool types, and an `agent` route's model can call it directly.
 
 Run typegen to refresh the generated declarations:
 
 ```bash
-dawn typegen
+b4 typegen
 ```
 
-After running typegen, `ctx.tools.search_documents` is available inside a `workflow` with full IntelliSense on its input and return shapes. A callable `graph` function may explicitly accept Dawn `RuntimeContext` and use the same typed tool. A precompiled raw LangGraph object's `.invoke()` instead treats its second argument as LangGraph `RunnableConfig`, not Dawn's typed `RuntimeContext`, so it keeps the tools its implementation already owns or imports rather than expecting workflow-style `ctx.tools`.
+After running typegen, `ctx.tools.search_documents` is available inside a `workflow` with full IntelliSense on its input and return shapes. A callable `graph` function may explicitly accept B4.run `RuntimeContext` and use the same typed tool. A precompiled raw LangGraph object's `.invoke()` instead treats its second argument as LangGraph `RunnableConfig`, not B4.run's typed `RuntimeContext`, so it keeps the tools its implementation already owns or imports rather than expecting workflow-style `ctx.tools`.
 
-If this is a shared tool placed in `src/tools/`, Dawn discovers it for every route under the same name; the invocation boundary above still applies.
+If this is a shared tool placed in `src/tools/`, B4.run discovers it for every route under the same name; the invocation boundary above still applies.
 
 ## Configure environment
 
@@ -151,15 +151,15 @@ If the project uses a different env-loading convention (e.g. a vault, an `env.ts
 
 ## Verify
 
-1. **Types resolve** — run `dawn typegen` and confirm it exits cleanly. Open `.dawn/dawn.generated.d.ts` and check that `search_documents` appears under the route's tool types.
+1. **Types resolve** — run `b4 typegen` and confirm it exits cleanly. Open `.b4/b4.generated.d.ts` and check that `search_documents` appears under the route's tool types.
 
-2. **Dev server starts** — run `dawn dev`. The Pinecone client and index handle are created at module scope; if `PINECONE_API_KEY` or `PINECONE_INDEX` are unset, the first tool call will throw (not startup), so the server should start cleanly even without credentials.
+2. **Dev server starts** — run `b4 dev`. The Pinecone client and index handle are created at module scope; if `PINECONE_API_KEY` or `PINECONE_INDEX` are unset, the first tool call will throw (not startup), so the server should start cleanly even without credentials.
 
 3. **Sample run** — invoke the route with a query that should match vectors in your index:
 
    ```bash
    echo '{"messages":[{"role":"user","content":"find documents about machine learning"}]}' \
-     | dawn run '/your-route'
+     | b4 run '/your-route'
    ```
 
    Confirm that the model calls `search_documents`, matches come back with `text` and `score` fields, and scores are between 0 and 1.
@@ -168,9 +168,9 @@ If the project uses a different env-loading convention (e.g. a vault, an `env.ts
 
 ## Updating an existing install
 
-If `search_documents.ts` already exists with the `// dawn-blueprint: pinecone@1` marker on its first line:
+If `search_documents.ts` already exists with the `// b4-blueprint: pinecone@1` marker on its first line:
 
 1. Compare the existing file against the tool template in [Create the tool](#create-the-tool).
 2. Apply relevant changes from this guide (e.g. the `includeMetadata: true` flag, the `topK` pattern, the object return shape) while **preserving the user's customisations** — index name, metadata field, embedding model, and any additional query filters they have added.
-3. Do not change the marker line; it must remain `// dawn-blueprint: pinecone@1` as the first line of the file.
-4. Run `dawn typegen` after updating to confirm types still resolve cleanly.
+3. Do not change the marker line; it must remain `// b4-blueprint: pinecone@1` as the first line of the file.
+4. Run `b4 typegen` after updating to confirm types still resolve cleanly.

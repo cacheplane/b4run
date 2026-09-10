@@ -342,7 +342,7 @@ describe("extractJson robustness", () => {
     // The old `/```(?:json)?\s*([\s\S]*?)```/g` had an unbounded `\s*` adjacent to a lazy
     // `[\s\S]*?`: with no closing fence, every one of the N whitespace positions `\s*` gives
     // back restarts a scan to end-of-input, so cost grows as N². Model output reaches this
-    // parser unattended in `dawn memory consolidate|reflect`, so a crafted (or unlucky)
+    // parser unattended in `b4 memory consolidate|reflect`, so a crafted (or unlucky)
     // response could wedge the whole batch pass. Measured on the old regex: 945ms at
     // 100k spaces, 3849ms at 200k — the linear scan is sub-millisecond at both.
     const hostile = `\`\`\`json${" ".repeat(200_000)}\n{"summary":"x"}`

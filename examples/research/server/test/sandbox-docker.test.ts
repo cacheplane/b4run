@@ -2,12 +2,12 @@ import { constants } from "node:fs"
 import { access, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { dockerSandbox } from "@dawn-ai/sandbox"
-import { createAgentHarness, expectFinalMessage, expectToolCalled, script } from "@dawn-ai/testing"
+import { dockerSandbox } from "@b4run/sandbox"
+import { createAgentHarness, expectFinalMessage, expectToolCalled, script } from "@b4run/testing"
 import { expect, it } from "vitest"
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url))
-const enabled = process.env.DAWN_DEMO_DOCKER_SANDBOX === "1"
+const enabled = process.env.B4_DEMO_DOCKER_SANDBOX === "1"
 const sandboxOnlyPath = "reports/sandbox-only.md"
 const hostSandboxOnlyPath = join(appRoot, "workspace", sandboxOnlyPath)
 
@@ -16,7 +16,7 @@ it.skipIf(!enabled)(
   async () => {
     // This import is intentionally used by the test file so `npm run
     // test:sandbox:docker` proves the generated app can resolve the sandbox
-    // package before dawn.config.ts creates the provider.
+    // package before b4.config.ts creates the provider.
     void dockerSandbox
     await rm(hostSandboxOnlyPath, { force: true })
 

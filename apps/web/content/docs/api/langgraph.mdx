@@ -1,35 +1,35 @@
-# @dawn-ai/langgraph
+# @b4run/langgraph
 
 ## Use this when
 
-Use this integration package when a Dawn runtime or framework extension must normalize `graph` and `workflow` route modules or execute those entries through Dawn's backend-adapter contract. Application route authors normally use the [SDK route contracts](/docs/api/sdk) and let the CLI choose these adapters.
+Use this integration package when a B4.run runtime or framework extension must normalize `graph` and `workflow` route modules or execute those entries through B4.run's backend-adapter contract. Application route authors normally use the [SDK route contracts](/docs/api/sdk) and let the CLI choose these adapters.
 
 ## Install and import
 
 ```bash
-pnpm add @dawn-ai/langgraph
+pnpm add @b4run/langgraph
 ```
 
 ```ts
-import { defineEntry, graphAdapter, normalizeRouteModule } from "@dawn-ai/langgraph"
-import type { RouteModule } from "@dawn-ai/langgraph/route-module"
+import { defineEntry, graphAdapter, normalizeRouteModule } from "@b4run/langgraph"
+import type { RouteModule } from "@b4run/langgraph/route-module"
 ```
 
-Use `@dawn-ai/langgraph/define-entry` for the smallest entry-validation import and `@dawn-ai/langgraph/route-module` for normalization contracts without the adapters.
+Use `@b4run/langgraph/define-entry` for the smallest entry-validation import and `@b4run/langgraph/route-module` for normalization contracts without the adapters.
 
 ## Compatibility and audience
 
 | Surface | Runtime | Purity | Audience | Stability |
 |---|---|---|---|---|
-| `@dawn-ai/langgraph` | edge-safe | dependency-free | integration | supported |
-| `@dawn-ai/langgraph/define-entry` | edge-safe | dependency-free | integration | supported |
-| `@dawn-ai/langgraph/route-module` | edge-safe | dependency-free | integration | supported |
+| `@b4run/langgraph` | edge-safe | dependency-free | integration | supported |
+| `@b4run/langgraph/define-entry` | edge-safe | dependency-free | integration | supported |
+| `@b4run/langgraph/route-module` | edge-safe | dependency-free | integration | supported |
 
-All three runtime surfaces bundle without third-party runtime dependencies or Node globals. This classification covers importing and executing these Dawn adapters; it does not classify a graph, workflow, or tool supplied by an application.
+All three runtime surfaces bundle without third-party runtime dependencies or Node globals. This classification covers importing and executing these B4.run adapters; it does not classify a graph, workflow, or tool supplied by an application.
 
 ## Public exports
 
-### `@dawn-ai/langgraph`
+### `@b4run/langgraph`
 
 | Export | Responsibility |
 |---|---|
@@ -48,13 +48,13 @@ All three runtime surfaces bundle without third-party runtime dependencies or No
 
 `ToolRegistry` exists in a private implementation module but is not exported from this package surface.
 
-### `@dawn-ai/langgraph/define-entry`
+### `@b4run/langgraph/define-entry`
 
 | Export | Responsibility |
 |---|---|
 | `defineEntry` | Validate and preserve one route-module object. |
 
-### `@dawn-ai/langgraph/route-module`
+### `@b4run/langgraph/route-module`
 
 | Export | Responsibility |
 |---|---|
@@ -71,13 +71,13 @@ The route-module subpath exposes only its published normalization and route-modu
 
 ## Key contracts
 
-```ts api-contract="@dawn-ai/langgraph#./define-entry:defineEntry"
+```ts api-contract="@b4run/langgraph#./define-entry:defineEntry"
 export declare function defineEntry<TEntry, TModule extends RouteModule<TEntry>>(
   module: TModule,
 ): TModule
 ```
 
-```ts api-contract="@dawn-ai/langgraph#./route-module:GraphRouteModule"
+```ts api-contract="@b4run/langgraph#./route-module:GraphRouteModule"
 export interface GraphRouteModule<TEntry = unknown> {
   readonly graph: TEntry
   readonly workflow?: never
@@ -85,14 +85,14 @@ export interface GraphRouteModule<TEntry = unknown> {
 }
 ```
 
-**Fields: `@dawn-ai/langgraph#./route-module:GraphRouteModule`**
+**Fields: `@b4run/langgraph#./route-module:GraphRouteModule`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly graph` | `TEntry` | yes | Supply the graph entry. |
 | `readonly workflow` | `never` | no | Exclude the workflow alternative. |
 | `readonly config` | `RouteConfig` | no | Configure the route; normalization defaults it to `{}`. |
 
-```ts api-contract="@dawn-ai/langgraph#./route-module:WorkflowRouteModule"
+```ts api-contract="@b4run/langgraph#./route-module:WorkflowRouteModule"
 export interface WorkflowRouteModule<TEntry = unknown> {
   readonly workflow: TEntry
   readonly graph?: never
@@ -100,19 +100,19 @@ export interface WorkflowRouteModule<TEntry = unknown> {
 }
 ```
 
-**Fields: `@dawn-ai/langgraph#./route-module:WorkflowRouteModule`**
+**Fields: `@b4run/langgraph#./route-module:WorkflowRouteModule`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly workflow` | `TEntry` | yes | Supply the workflow entry. |
 | `readonly graph` | `never` | no | Exclude the graph alternative. |
 | `readonly config` | `RouteConfig` | no | Configure the route; normalization defaults it to `{}`. |
 
-```ts api-contract="@dawn-ai/langgraph#./route-module:RouteModule"
+```ts api-contract="@b4run/langgraph#./route-module:RouteModule"
 export type RouteModule<TEntry = unknown> = GraphRouteModule<TEntry>
   | WorkflowRouteModule<TEntry>
 ```
 
-```ts api-contract="@dawn-ai/langgraph#./route-module:NormalizedRouteModule"
+```ts api-contract="@b4run/langgraph#./route-module:NormalizedRouteModule"
 export interface NormalizedRouteModule<TEntry = unknown> {
   readonly kind: RouteKind
   readonly entry: TEntry
@@ -120,20 +120,20 @@ export interface NormalizedRouteModule<TEntry = unknown> {
 }
 ```
 
-**Fields: `@dawn-ai/langgraph#./route-module:NormalizedRouteModule`**
+**Fields: `@b4run/langgraph#./route-module:NormalizedRouteModule`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly kind` | `RouteKind` | yes | Identify the selected route entry kind. |
 | `readonly entry` | `TEntry` | yes | Hold the selected graph or workflow. |
 | `readonly config` | `RouteConfig` | yes | Hold the supplied config or `{}`. |
 
-```ts api-contract="@dawn-ai/langgraph#./route-module:normalizeRouteModule"
+```ts api-contract="@b4run/langgraph#./route-module:normalizeRouteModule"
 export declare function normalizeRouteModule<TEntry>(
   module: RouteModule<TEntry> | (GraphRouteModule<TEntry> & WorkflowRouteModule<TEntry>),
 ): NormalizedRouteModule<TEntry>
 ```
 
-```ts api-contract="@dawn-ai/langgraph#./route-module:assertExactlyOneEntry"
+```ts api-contract="@b4run/langgraph#./route-module:assertExactlyOneEntry"
 export declare function assertExactlyOneEntry<TEntry>(
   module: RouteModule<TEntry> | (GraphRouteModule<TEntry> & WorkflowRouteModule<TEntry>),
 ): asserts module is RouteModule<TEntry>
@@ -160,7 +160,7 @@ The manifest assertion establishes the published declaration target; the source-
 ## Examples and related guides
 
 ```ts
-import { defineEntry, normalizeRouteModule } from "@dawn-ai/langgraph"
+import { defineEntry, normalizeRouteModule } from "@b4run/langgraph"
 
 const route = defineEntry({
   workflow: async (input: { name: string }, { signal }: { signal: AbortSignal }) => {

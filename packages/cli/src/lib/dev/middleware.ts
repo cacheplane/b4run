@@ -1,5 +1,5 @@
 import type { IncomingMessage } from "node:http"
-import type { DawnMiddleware, MiddlewareRequest, MiddlewareResult } from "@dawn-ai/sdk"
+import type { B4Middleware, MiddlewareRequest, MiddlewareResult } from "@b4run/sdk"
 
 /**
  * Select the middleware function from a module namespace: the `default`
@@ -9,11 +9,11 @@ import type { DawnMiddleware, MiddlewareRequest, MiddlewareResult } from "@dawn-
  * and the static manifest's `normalizeMiddlewareModule` — built apps can never
  * bind differently than dev.
  */
-export function selectMiddlewareExport(mod: unknown): DawnMiddleware | undefined {
+export function selectMiddlewareExport(mod: unknown): B4Middleware | undefined {
   if (!mod || typeof mod !== "object") return undefined
   const candidate = mod as { readonly default?: unknown; readonly middleware?: unknown }
   const exported = candidate.default ?? candidate.middleware
-  return typeof exported === "function" ? (exported as DawnMiddleware) : undefined
+  return typeof exported === "function" ? (exported as B4Middleware) : undefined
 }
 
 /**
@@ -35,7 +35,7 @@ export function middlewareCandidatePaths(appRoot: string): readonly string[] {
  * Run middleware. Returns continue (with optional context) or reject.
  */
 export async function runMiddleware(
-  middleware: DawnMiddleware | undefined,
+  middleware: B4Middleware | undefined,
   request: MiddlewareRequest,
 ): Promise<MiddlewareResult> {
   if (!middleware) {

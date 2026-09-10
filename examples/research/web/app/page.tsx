@@ -11,7 +11,7 @@ import {
   type WorkbenchThread,
 } from "./lib/thread-source"
 
-// Notes (verified against installed @copilotkit/react-core@1.68.3 types — see
+// Notes (verified against installed @copilotkit/react-core@1.70.0 types — see
 // examples/chat/web/app/page.tsx for the original investigation):
 // - Use the `CopilotKit` wrapper (not bare `CopilotKitProvider`) per CopilotKit's own v2
 //   guidance: it adds the error boundary, toasts, and threads provider around the context.
@@ -24,7 +24,7 @@ import {
 //   it — the workbench renders its own transcript and composer — but the import path is
 //   recorded because the mistake is easy to repeat.
 // - Components/hooks that omit agentId resolve CopilotKit's default id ("default").
-//   The catch-all route (api/copilotkit/[...path]/route.ts) registers the Dawn /research route
+//   The catch-all route (api/copilotkit/[...path]/route.ts) registers the B4.run /research route
 //   under "default", so every hook binds without per-component agentId wiring.
 // - `defaultThrottleMs` coalesces the useAgent re-renders that the transcript and panels
 //   get from OnMessagesChanged/OnStateChanged. It defaults to UNTHROTTLED,

@@ -9,7 +9,7 @@ describe("tool discovery error messages", () => {
   let toolsDir: string
 
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-tooldisc-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-tooldisc-"))
     toolsDir = join(appRoot, "route", "tools")
     mkdirSync(toolsDir, { recursive: true })
   })
@@ -38,13 +38,13 @@ describe("tool discovery error messages", () => {
       /default-exports a LangChain tool\(\) \(StructuredTool "web_search"\)/,
     )
     await expect(discover()).rejects.toThrow(/export default async/)
-    await expect(discover()).rejects.toThrow(/dawnai\.org\/docs\/tools/)
+    await expect(discover()).rejects.toThrow(/b4\.run\/docs\/tools/)
   })
 
   it("describes a plain-object default export by its keys", async () => {
     writeTool("config.ts", `export default { apiKey: "x", region: "us" }`)
     await expect(discover()).rejects.toThrow(/an object with keys \[apiKey, region\]/)
-    await expect(discover()).rejects.toThrow(/dawnai\.org\/docs\/tools/)
+    await expect(discover()).rejects.toThrow(/b4\.run\/docs\/tools/)
   })
 
   it("describes a missing default export", async () => {

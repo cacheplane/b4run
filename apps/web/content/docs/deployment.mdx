@@ -6,14 +6,14 @@ Choose the **Node target** unless a named platform constraint determines otherwi
 
 | Target | Artifact | Runtime and protocol | Middleware | Storage | Filesystem and sandbox | Node requirement | Evidence boundary |
 |---|---|---|---|---|---|---|---|
-| Node | `.dawn/build/server.mjs` and a generated `Dockerfile` | Dawn HTTP runtime: Agent Protocol and AG-UI | Dawn HTTP middleware is included | Local defaults or injected/shared stores | Filesystem features and a configured execution sandbox are available | Node 24+ | Local runtime and container tests; validate your deployed proxy, stores, and model path |
-| LangSmith | `.dawn/build/langgraph.json` and one entry per route | Platform-owned LangGraph entries, not the Dawn HTTP server | Dawn HTTP middleware is absent | Platform/runtime-owned | No Dawn sandbox manager or HTTP filesystem surface | Generated config currently says Node 22 while Dawn requires Node 24+ | Validate authentication and execution on the target platform |
-| Hono | `.dawn/build/modules.edge.mjs`, `stores.mjs`, `app.mjs`, and `wrangler.toml` | Web-standard Dawn HTTP runtime: Agent Protocol and AG-UI | Included when discovered at build time | Generated request-scoped Postgres stores, or hand-composed stores | Filesystem, shell, workspace, skills, long-term memory, and sandbox surfaces are gated | No Node runtime requirement for the emitted worker | Local workerd and Node round trips are not proof of a live provider deployment |
+| Node | `.b4/build/server.mjs` and a generated `Dockerfile` | B4.run HTTP runtime: Agent Protocol and AG-UI | B4.run HTTP middleware is included | Local defaults or injected/shared stores | Filesystem features and a configured execution sandbox are available | Node 24+ | Local runtime and container tests; validate your deployed proxy, stores, and model path |
+| LangSmith | `.b4/build/langgraph.json` and one entry per route | Platform-owned LangGraph entries, not the B4.run HTTP server | B4.run HTTP middleware is absent | Platform/runtime-owned | No B4.run sandbox manager or HTTP filesystem surface | Generated config currently says Node 22 while B4.run requires Node 24+ | Validate authentication and execution on the target platform |
+| Hono | `.b4/build/modules.edge.mjs`, `stores.mjs`, `app.mjs`, and `wrangler.toml` | Web-standard B4.run HTTP runtime: Agent Protocol and AG-UI | Included when discovered at build time | Generated request-scoped Postgres stores, or hand-composed stores | Filesystem, shell, workspace, long-term memory, and sandbox surfaces are gated | No Node runtime requirement for the emitted worker | Local workerd and Node round trips are not proof of a live provider deployment |
 
 Node and LangSmith are the defaults. Hono is opt-in. Specifying build targets replaces the defaults; it does not add to them:
 
-```ts title="dawn.config.ts"
-import { config } from "@dawn-ai/cli"
+```ts title="b4.config.ts"
+import { config } from "@b4run/cli"
 
 export default config({
   build: { targets: ["node", "hono"] },
@@ -25,19 +25,19 @@ export default config({
 Run the checks in this order so contract failures appear before artifact inspection:
 
 ```bash
-dawn check
-dawn build
-dawn verify
+b4 check
+b4 build
+b4 verify
 ```
 
-`dawn check` validates the authored app and selected target constraints. `dawn build` emits the selected artifacts. `dawn verify` repeats the app, route, typegen, dependency/environment, and runtime-readiness phases against the resulting project state. A green command is not a substitute for testing the deployed authentication, routing, storage, and provider boundary.
+`b4 check` validates the authored app and selected target constraints. `b4 build` emits the selected artifacts. `b4 verify` repeats the app, route, typegen, dependency/environment, and runtime-readiness phases against the resulting project state. A green command is not a substitute for testing the deployed authentication, routing, storage, and provider boundary.
 
 ## Target guides
 
 <RelatedCards
   items={[
-    { href: "/docs/deployment/node", title: "Node and Docker", description: "Build and run the full Dawn HTTP runtime." },
-    { href: "/docs/deployment/kubernetes", title: "Kubernetes", description: "Install a built Node image with the dawn-app chart." },
+    { href: "/docs/deployment/node", title: "Node and Docker", description: "Build and run the full B4.run HTTP runtime." },
+    { href: "/docs/deployment/kubernetes", title: "Kubernetes", description: "Install a built Node image with the b4-app chart." },
     { href: "/docs/deployment/langsmith", title: "LangSmith", description: "Deploy generated LangGraph entries with platform-owned authentication." },
     { href: "/docs/deployment/edge", title: "Edge and Hono", description: "Assess the edge capability gate and compose the fetch runtime." },
   ]}
@@ -55,18 +55,18 @@ Deployment packaging does not decide data durability, replica coordination, or t
   ]}
 />
 
-## What Dawn does not do
+## What B4.run does not do
 
-Dawn emits deployment artifacts; it does not provision infrastructure, host applications, or manage secrets. Use the [Deployment Options](/docs/deployment) chooser with the target platform's hosting and security controls.
+B4.run emits deployment artifacts; it does not provision infrastructure, host applications, or manage secrets. Use the [Deployment Options](/docs/deployment) chooser with the target platform's hosting and security controls.
 
 ## Self-hosting
 
-Use [Node and Docker](/docs/deployment/node) when you want to run the full Dawn HTTP runtime on infrastructure you operate.
+Use [Node and Docker](/docs/deployment/node) when you want to run the full B4.run HTTP runtime on infrastructure you operate.
 
 ## Troubleshooting
 
 - If expected files are missing, inspect `build.targets`: an authored list replaces the Node and LangSmith defaults.
-- If `dawn build` succeeds but the deployed host cannot import a package, verify that packages imported by emitted artifacts are declared where the host installs or bundles production dependencies.
+- If `b4 build` succeeds but the deployed host cannot import a package, verify that packages imported by emitted artifacts are declared where the host installs or bundles production dependencies.
 - If local protocol tests pass but the target fails, test the target's real transport envelope, authentication layer, environment injection, and durable stores. Node/Hono HTTP evidence does not establish LangSmith behavior, and local workerd evidence does not establish a live edge provider.
 
 ## Deploying to production (Node/Docker)
@@ -85,7 +85,7 @@ This section moved to [LangSmith](/docs/deployment/langsmith).
 
 This section moved to [Edge and Hono](/docs/deployment/edge).
 
-### The `@dawn-ai/cli/fetch` entry point
+### The `@b4run/cli/fetch` entry point
 
 See [Edge and Hono](/docs/deployment/edge).
 

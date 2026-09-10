@@ -12,12 +12,12 @@ afterEach(async () => {
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-check-models-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-check-models-"))
   tempDirs.push(appRoot)
 
   const appFiles = {
     "package.json": '{"type":"module"}\n',
-    "dawn.config.ts": "export default {};\n",
+    "b4.config.ts": "export default {};\n",
     ...files,
   }
 
@@ -52,10 +52,10 @@ async function invoke(argv: readonly string[]) {
   }
 }
 
-describe("dawn check model id warnings", () => {
+describe("b4 check model id warnings", () => {
   test("warns with suggestions for an unknown model id but still exits 0", async () => {
     const appRoot = await createFixtureApp({
-      "src/app/(public)/draft/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "src/app/(public)/draft/index.ts": `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5",
@@ -71,12 +71,12 @@ export default agent({
     expect(result.stdout).toContain("gpt-5.4")
     expect(result.stdout).toContain("gpt-5.5")
     expect(result.stdout).toContain("/draft")
-    expect(result.stdout).toContain("Dawn app is valid")
+    expect(result.stdout).toContain("B4.run app is valid")
   })
 
   test("stays silent for a curated model id", async () => {
     const appRoot = await createFixtureApp({
-      "src/app/(public)/draft/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "src/app/(public)/draft/index.ts": `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5.5",
@@ -93,7 +93,7 @@ export default agent({
 
   test("stays silent for providers without a curated list", async () => {
     const appRoot = await createFixtureApp({
-      "src/app/(public)/draft/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "src/app/(public)/draft/index.ts": `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "llama3.1",

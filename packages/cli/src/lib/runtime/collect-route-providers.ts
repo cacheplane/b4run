@@ -1,5 +1,5 @@
-import type { RouteDefinition, RouteManifest } from "@dawn-ai/core"
-import { inferProvider, isDawnAgent } from "@dawn-ai/sdk"
+import type { RouteDefinition, RouteManifest } from "@b4run/core"
+import { inferProvider, isB4Agent } from "@b4run/sdk"
 
 import { type NormalizedRouteModule, normalizeRouteModule } from "./load-route-kind.js"
 
@@ -49,7 +49,7 @@ export async function scanRouteProviders(manifest: RouteManifest): Promise<Route
       loadFailures.push({ route, error })
       continue
     }
-    if (!isDawnAgent(normalized.entry)) continue
+    if (!isB4Agent(normalized.entry)) continue
     const provider = normalized.entry.provider ?? inferProvider(normalized.entry.model)
     if (provider) providers.add(provider)
     else unresolved.push(route)

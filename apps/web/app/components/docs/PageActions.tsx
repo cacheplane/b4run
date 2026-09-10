@@ -9,12 +9,12 @@ interface PageActionsProps {
   readonly promptBody?: string
 }
 
-const GITHUB_EDIT_BASE = "https://github.com/cacheplane/dawnai/edit/main/apps/web/content/docs"
+const GITHUB_EDIT_BASE = "https://github.com/cacheplane/b4run/edit/main/apps/web/content/docs"
 
 type Feedback = "idle" | "copying" | "copied" | "error"
 
 function aiPrompt(slug: string): string {
-  return `Read this Dawn AI docs page and help me apply it to my project: ${pageUrl(slug)}`
+  return `Read this B4.run docs page and help me apply it to my project: ${pageUrl(slug)}`
 }
 
 async function copyText(text: string): Promise<boolean> {

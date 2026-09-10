@@ -18,13 +18,14 @@ import {
   canonicalSmokeResultBytes,
 } from "../smoke-result.mjs"
 import { canonicalAuditResultBytes } from "../terminal-records.mjs"
+import { auditExecutorFixture } from "./support/audit-executor-fixture.mjs"
 import { SMOKE_LANES, smokeDescriptor } from "./support/marker-observation.mjs"
 
 const VERSION = "0.8.22"
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567"
 const MANIFEST_SHA256 = sha256(Buffer.from("manifest"))
 const WORKFLOW = ".github/workflows/published-artifact-verify.yml"
-const REPOSITORY = "cacheplane/dawnai"
+const REPOSITORY = "cacheplane/b4run"
 const CANDIDATE = Object.freeze({
   version: VERSION,
   commitSha: COMMIT_SHA,
@@ -72,7 +73,7 @@ test("independent dispatch uses the exact tag workflow and direct run receipt", 
       manifestSha256: MANIFEST_SHA256,
       github: {
         async dispatchWorkflowAtRef() {
-          return { ...directReceipt(501), htmlUrl: "https://github.com/fork/dawn/actions/runs/501" }
+          return { ...directReceipt(501), htmlUrl: "https://github.com/fork/b4/actions/runs/501" }
         },
       },
     }),
@@ -82,6 +83,13 @@ test("independent dispatch uses the exact tag workflow and direct run receipt", 
 
 test("dispatch recording CASes only an exact mutable SMOKES_COMPLETE draft", async () => {
   const remote = auditRemote()
+  remote.listedReleases.push({
+    id: 8,
+    tag_name: "untagged-unrelated",
+    draft: true,
+    immutable: false,
+    body: `${remote.release.body}${remote.release.body}`,
+  })
   const before = remote.baseSnapshot()
   const recorded = await recordAuditDispatch({
     candidate: CANDIDATE,
@@ -116,6 +124,21 @@ test("dispatch recording CASes only an exact mutable SMOKES_COMPLETE draft", asy
     }),
     /dispatch|phase|conflict/iu,
   )
+})
+
+test("dispatch recording rejects duplicate marker-backed drafts before mutation", async () => {
+  const remote = auditRemote()
+  remote.listedReleases.push({ ...remote.release, id: 8 })
+
+  await assert.rejects(
+    recordAuditDispatch({
+      candidate: CANDIDATE,
+      dispatch: dispatch(501),
+      github: remote.releaseGitHub,
+    }),
+    /missing|ambiguous|duplicate/iu,
+  )
+  assert.equal(remote.updateCount, 0)
 })
 
 test("audit observation parses durable smoke receipts and recomputes their selected aggregate", async () => {
@@ -391,6 +414,121 @@ test("same-name different bytes and unexpected terminal evidence are hard confli
   assert.equal(unexpected.updateCount, 0)
 })
 
+for (const wrongDispatch of [false, true]) {
+  test(`waitForAudit resolves repaired authority manifest from exact current draft (wrong dispatch=${wrongDispatch})`, async () => {
+    const fixture = auditExecutorFixture()
+    const release = auditRemote()
+    await recordAuditDispatch({
+      candidate: CANDIDATE,
+      dispatch: dispatch(wrongDispatch ? 502 : 501),
+      github: release.releaseGitHub,
+    })
+    fixture.authorization.candidate = {
+      version: VERSION,
+      commitSha: COMMIT_SHA,
+      manifestSha256: MANIFEST_SHA256,
+    }
+    fixture.files.set(
+      `scripts/release/audit-executor-authorizations/v${VERSION}.json`,
+      JSON.stringify(fixture.authorization),
+    )
+    const result = auditResult({ workflowRunId: 501 })
+    const remote = actionsRemote({ result, statuses: ["completed"] })
+    remote.headSha = fixture.run.head_sha
+    remote.headBranch = "main"
+    remote.artifacts[0].workflow_run.head_sha = fixture.run.head_sha
+    remote.artifacts[0].workflow_run.head_branch = "main"
+    const github = {
+      ...fixture.github,
+      ...remote.github,
+      listReleases: release.releaseGitHub.reader.listReleases,
+      getRelease: release.releaseGitHub.reader.getRelease,
+      async getActionsRun(request) {
+        const response = await remote.github.getActionsRun(request)
+        return {
+          ...response,
+          value: { ...response.value, repository: fixture.run.repository },
+        }
+      },
+    }
+    const promise = waitForAudit({
+      runId: 501,
+      candidate: CANDIDATE,
+      git: fixture.git,
+      github,
+      attempts: 1,
+      delayMs: 0,
+      delay: async () => {},
+    })
+    if (wrongDispatch) await assert.rejects(promise, /exact dispatch/iu)
+    else assert.deepEqual((await promise).result, result)
+  })
+}
+
+for (const damagedArtifact of [false, true]) {
+  test(`waitForAudit binds repaired main executor to both artifact reads (damaged=${damagedArtifact})`, async () => {
+    const fixture = auditExecutorFixture()
+    const candidate = { ...CANDIDATE, ...fixture.candidate }
+    const result = {
+      ...auditResult({ workflowRunId: 501 }),
+      ...fixture.candidate,
+      manifestSha256: fixture.manifestSha256,
+    }
+    const remote = actionsRemote({ result, statuses: ["completed"] })
+    remote.headSha = fixture.run.head_sha
+    remote.headBranch = "main"
+    remote.artifacts[0].workflow_run.head_sha = fixture.run.head_sha
+    remote.artifacts[0].workflow_run.head_branch = "main"
+    const github = {
+      ...fixture.github,
+      ...remote.github,
+      async getActionsRun(request) {
+        const response = await remote.github.getActionsRun(request)
+        return {
+          ...response,
+          value: { ...response.value, repository: fixture.run.repository },
+        }
+      },
+      async getActionsArtifact(request) {
+        const response = await remote.github.getActionsArtifact(request)
+        return damagedArtifact
+          ? {
+              ...response,
+              value: {
+                ...response.value,
+                workflow_run: {
+                  ...response.value.workflow_run,
+                  head_sha: candidate.commitSha,
+                },
+              },
+            }
+          : response
+      },
+    }
+    const promise = waitForAudit({
+      runId: 501,
+      candidate,
+      manifestSha256: fixture.manifestSha256,
+      git: fixture.git,
+      github,
+      attempts: 1,
+      delayMs: 0,
+      delay: async () => {},
+    })
+    if (damagedArtifact) {
+      await assert.rejects(promise, /artifact/iu)
+      assert.equal(
+        remote.calls.some(([method]) => method === "downloadActionsArtifact"),
+        false,
+      )
+    } else {
+      const observed = await promise
+      assert.equal(observed.status, "terminal")
+      assert.deepEqual(observed.result, result)
+    }
+  })
+}
+
 test("waitForAudit polls the exact run and returns only its one canonical result artifact", async () => {
   const result = auditResult({ workflowRunId: 501, runAttempt: 2 })
   const remote = actionsRemote({ result, statuses: ["in_progress", "completed"] })
@@ -652,10 +790,10 @@ function auditRemote() {
   const remote = {
     release: {
       id: 7,
-      tag_name: `v${VERSION}`,
+      tag_name: "untagged-opaque",
       target_commitish: "main",
       prerelease: false,
-      name: `Dawn v${VERSION}`,
+      name: `B4 v${VERSION}`,
       body: canonicalReleaseBody({ marker: fixture.marker, manifest: null }),
       draft: true,
       immutable: false,
@@ -665,6 +803,7 @@ function auditRemote() {
     updateCount: 0,
     uploadCount: 0,
     publishCount: 0,
+    listedReleases: [{ id: 7 }],
     throwAfterUploadName: null,
     throwAfterUpdate: false,
   }
@@ -691,7 +830,12 @@ function auditRemote() {
       })
     },
     async listReleases() {
-      return present("releases", [{ id: 7, tag_name: `v${VERSION}` }])
+      return present(
+        "releases",
+        remote.listedReleases.map((release) =>
+          release.id === remote.release.id ? { ...remote.release, ...release } : release,
+        ),
+      )
     },
     async getRelease() {
       return present("release", { ...remote.release })
@@ -753,7 +897,7 @@ function auditRemote() {
 function baseFixture() {
   const manifest = { name: "manifest.json", bytes: Buffer.from("manifest") }
   const tarballs = Array.from({ length: 21 }, (_unused, index) => ({
-    name: `dawn-ai-package-${String(index + 1).padStart(2, "0")}-${VERSION}.tgz`,
+    name: `b4run-package-${String(index + 1).padStart(2, "0")}-${VERSION}.tgz`,
     bytes: Buffer.from(`tarball-${index + 1}`),
   }))
   const subjects = [manifest, ...tarballs]

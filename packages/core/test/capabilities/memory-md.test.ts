@@ -15,7 +15,7 @@ const ctx = {
 describe("memory-md capability", () => {
   let routeDir: string
   beforeEach(() => {
-    routeDir = mkdtempSync(join(tmpdir(), "dawn-memmd-"))
+    routeDir = mkdtempSync(join(tmpdir(), "b4-memmd-"))
   })
   afterEach(() => rmSync(routeDir, { recursive: true, force: true }))
 

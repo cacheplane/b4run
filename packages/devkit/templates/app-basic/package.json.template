@@ -3,24 +3,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "dawn dev --port 3000",
-    "check": "dawn check",
-    "eval": "dawn eval",
+    "dev": "b4 dev --port 3000",
+    "check": "b4 check",
+    "eval": "b4 eval",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dawn-ai/cli": "{{dawnCliSpecifier}}",
-    "@dawn-ai/langchain": "{{dawnLangchainSpecifier}}",
-    "@dawn-ai/sdk": "{{dawnSdkSpecifier}}",
+    "@b4run/cli": "{{b4CliSpecifier}}",
+    "@b4run/langchain": "{{b4LangchainSpecifier}}",
+    "@b4run/sdk": "{{b4SdkSpecifier}}",
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@dawn-ai/config-typescript": "{{dawnConfigTypescriptSpecifier}}",
-    "@dawn-ai/evals": "{{dawnEvalsSpecifier}}",
-    "@dawn-ai/inspector": "{{dawnInspectorSpecifier}}",
-    "@dawn-ai/testing": "{{dawnTestingSpecifier}}",
+    "@b4run/config-typescript": "{{b4ConfigTypescriptSpecifier}}",
+    "@b4run/evals": "{{b4EvalsSpecifier}}",
+    "@b4run/inspector": "{{b4InspectorSpecifier}}",
+    "@b4run/testing": "{{b4TestingSpecifier}}",
     "@types/node": "25.6.0",
     "typescript": "7.0.2",
     "vitest": "^4.1.10"

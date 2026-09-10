@@ -30,7 +30,7 @@ export function internalDependencies(packageJson, inventoryNames) {
   return [...dependencies].sort(compareNames)
 }
 
-export function orderReleasePackages(packages, { gateOrder = ["create-dawn-ai-app"] } = {}) {
+export function orderReleasePackages(packages, { gateOrder = ["create-b4-app"] } = {}) {
   if (!Array.isArray(packages) || packages.length === 0) {
     throw new TypeError("Release packages must be a non-empty array")
   }

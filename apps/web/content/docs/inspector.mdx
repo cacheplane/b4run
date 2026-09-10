@@ -1,15 +1,15 @@
 # Inspector
 
-The Dawn Inspector is a browser-based UI for inspecting a running Dawn app's
-runtime state. It ships as its own package, `@dawn-ai/inspector`, and opens with
-`dawn inspect`. The first panel is **Memory** — browse, search, and govern the
+The B4.run Inspector is a browser-based UI for inspecting a running B4.run app's
+runtime state. It ships as its own package, `@b4run/inspector`, and opens with
+`b4 inspect`. The first panel is **Memory** — browse, search, and govern the
 app's [long-term memory](/docs/memory/browse) records — and the shell is panel-based,
 so future panels (threads, runs, sandbox) slot in alongside it.
 
 ## Launching
 
 ```bash
-dawn inspect
+b4 inspect
 ```
 
 The CLI starts the inspector's server on `127.0.0.1` at a free port, prints the
@@ -18,22 +18,22 @@ URL, and opens your browser. Flags:
 - `--cwd <path>` — inspect a different app root (defaults to the current directory).
 - `--port <number>` — bind to a stable localhost port instead of a free one.
 - `--env-file <path>` — load a `.env` file before resolving the store (overrides
-  `dawn.config.ts` `env` and the default `./.env`) — the same precedence as `dawn dev`.
+  `b4.config.ts` `env` and the default `./.env`) — the same precedence as `b4 dev`.
 
-Apps scaffolded with `create-dawn-ai-app` ship the inspector as a
+Apps scaffolded with `create-b4-app` ship the inspector as a
 `devDependency`. In an existing app, install it once:
 
 ```bash
-npm i -D @dawn-ai/inspector
+npm i -D @b4run/inspector
 ```
 
-`dawn inspect` resolves the package from the app's own `node_modules`; if it is
+`b4 inspect` resolves the package from the app's own `node_modules`; if it is
 missing, the command prints the install hint and exits.
 
 ## Which store it inspects
 
 The inspector serves the app's **live** memory store — it loads your
-`dawn.config.ts` and uses `config.memory.store` exactly as the dev server does.
+`b4.config.ts` and uses `config.memory.store` exactly as the dev server does.
 The default SQLite store, the [pgvector backend](/docs/memory/retrieval#postgres-backend-pgvector),
 and custom `MemoryStore` implementations all work unchanged.
 
@@ -60,7 +60,7 @@ Two caveats follow from the inspector running as a separate process:
 - **Detail sheet** — the full record (data, tags, confidence, source,
   supersession links) with the governance actions below.
 - **Approve** — promotes a candidate with the same supersede-aware
-  reconciliation as `dawn memory approve`: a contradicting active record with
+  reconciliation as `b4 memory approve`: a contradicting active record with
   the same identity is superseded (history preserved), an identical one dedupes
   the candidate, and otherwise the candidate simply activates. When approving
   would supersede an active memory, the sheet shows a callout and the button
@@ -84,7 +84,7 @@ hatch. For debugging retention, the list API accepts `includeExpired=1` to
 reveal rows that are past their TTL but not yet pruned.
 
 <Callout type="info" title="Headless equivalent">
-  The [`dawn memory`](/docs/cli) CLI covers the same governance flow —
+  The [`b4 memory`](/docs/cli) CLI covers the same governance flow —
   list/search/inspect/approve/reject/forget — without a browser, for CI and
   remote shells.
 </Callout>
@@ -103,6 +103,6 @@ The inspector is a local development tool:
 
 <RelatedCards items={[
   { href: "/docs/memory/browse", title: "Browse and Manage Memory", subtitle: "administrative filtering, ranking, and governance" },
-  { href: "/docs/cli", title: "CLI Reference", subtitle: "dawn inspect flags and the dawn memory workflow" },
-  { href: "/docs/configuration", title: "Configuration Reference", subtitle: "the dawn.config.ts memory block" },
+  { href: "/docs/cli", title: "CLI Reference", subtitle: "b4 inspect flags and the b4 memory workflow" },
+  { href: "/docs/configuration", title: "Configuration Reference", subtitle: "the b4.config.ts memory block" },
 ]} />

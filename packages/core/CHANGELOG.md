@@ -1,5 +1,127 @@
 # @dawn-ai/core
 
+## 0.8.30
+
+### Patch Changes
+
+- 18c7b61: Route skills, `plan.md`, and `memory.md` now work on the `hono` and `vercel` targets: `b4 build` bundles them into the static manifest and the runtime serves them through the new `staticMarkerFs` in `@b4run/core`. The build no longer gates skills off those targets; instead `b4 build` and `b4 check` enforce a per-file size limit (32 KiB for `SKILL.md` and `memory.md`, 64 KiB for `plan.md`) and fail with `B4_E1005` by name. `@b4run/core` also exports `MAX_PLAN_BYTES` and `MAX_MEMORY_BYTES`.
+- 6039fd2: Preserve null in generated tool parameter schemas, including required and optional nullable fields, and validate null alternatives without accepting unrelated values at runtime.
+- Updated dependencies [80a98ad]
+  - @b4run/sdk@0.8.30
+  - @b4run/permissions@0.8.30
+  - @b4run/workspace@0.8.30
+  - @b4run/sqlite-storage@0.8.30
+
+## 0.8.29
+
+### Patch Changes
+
+- Updated dependencies [481489e]
+  - @b4run/sdk@0.8.29
+  - @b4run/permissions@0.8.29
+  - @b4run/workspace@0.8.29
+  - @b4run/sqlite-storage@0.8.29
+
+## 0.8.28
+
+### Patch Changes
+
+- Updated dependencies [39ceb2e]
+  - @b4run/sdk@0.8.28
+  - @b4run/permissions@0.8.28
+  - @b4run/workspace@0.8.28
+  - @b4run/sqlite-storage@0.8.28
+
+## 0.8.27
+
+### Patch Changes
+
+- Updated dependencies [b05b96d]
+  - @b4run/sdk@0.8.27
+  - @b4run/permissions@0.8.27
+  - @b4run/workspace@0.8.27
+  - @b4run/sqlite-storage@0.8.27
+
+## 0.8.26
+
+### Patch Changes
+
+- c7fd197: Add `server.cors`, off by default.
+
+  A Dawn server sends no `Access-Control-*` header unless `dawn.config.ts` sets
+  `server.cors`. With the block absent the runtime answers exactly as it did
+  before — no header on any response, and `OPTIONS` still falling through the
+  route table to its 404. Opening a server to other origins is a deployment
+  decision, so nothing is inferred.
+
+  ```ts
+  server: {
+    cors: {
+      origins: ["https://app.example.com"];
+    }
+  }
+  ```
+
+  Set it when a browser client talks to Dawn directly rather than through a
+  same-origin proxy. Origins are compared exactly after normalizing case and a
+  trailing slash; note that `localhost` and `127.0.0.1` are different origins to
+  a browser, so list both if your dev client may be opened at either.
+
+  Every response carries the headers, including error responses and the shutdown
+  503 — a browser that cannot read a 404 reports an opaque CORS failure instead,
+  which is the most confusing way to debug this. A request from an origin that
+  is not on the list is still served normally and simply carries no CORS header;
+  answering 403 there would break non-browser clients that happen to send an
+  `Origin`. A preflight from a disallowed origin does get a 403.
+
+  The policy is validated once at boot, so a malformed origin list fails on
+  startup rather than on the first cross-origin request. `origins: "*"` combined
+  with `credentials: true` is rejected outright: browsers refuse a wildcard
+  allow-origin on a credentialed request, so accepting it would produce a server
+  that looks configured and fails only in the console.
+
+  Defaults for the rest: `credentials` false; `methods` `GET, POST, DELETE,
+OPTIONS`; `headers` echoes the browser's own `Access-Control-Request-Headers`;
+  `exposeHeaders` empty; `maxAgeSeconds` 600.
+
+  CORS controls which origins a browser will let read a response. It does not
+  decide who may call the server — pair it with `defineThreadAccess`.
+
+  - @dawn-ai/permissions@0.8.26
+  - @dawn-ai/sdk@0.8.26
+  - @dawn-ai/sqlite-storage@0.8.26
+  - @dawn-ai/workspace@0.8.26
+
+## 0.8.25
+
+### Patch Changes
+
+- @dawn-ai/permissions@0.8.25
+- @dawn-ai/sdk@0.8.25
+- @dawn-ai/sqlite-storage@0.8.25
+- @dawn-ai/workspace@0.8.25
+
+## 0.8.24
+
+### Patch Changes
+
+- @dawn-ai/permissions@0.8.24
+- @dawn-ai/sdk@0.8.24
+- @dawn-ai/sqlite-storage@0.8.24
+- @dawn-ai/workspace@0.8.24
+
+## 0.8.23
+
+### Patch Changes
+
+- 7e62bb1: Refresh the GitHub and npm documentation surfaces, add package discovery
+  metadata, and introduce reproducible product-loop media. No runtime API changed.
+- Updated dependencies [7e62bb1]
+  - @dawn-ai/permissions@0.8.23
+  - @dawn-ai/sdk@0.8.23
+  - @dawn-ai/sqlite-storage@0.8.23
+  - @dawn-ai/workspace@0.8.23
+
 ## 0.8.22
 
 ### Patch Changes

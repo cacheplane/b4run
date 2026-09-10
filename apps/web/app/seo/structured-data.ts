@@ -6,7 +6,7 @@ import type {
   WebPageSeoPage,
 } from "./types"
 
-const SITE_URL = "https://dawnai.org/"
+const SITE_URL = "https://b4.run/"
 const ORGANIZATION_ID = `${SITE_URL}#organization`
 const WEBSITE_ID = `${SITE_URL}#website`
 const LOGO_ID = `${SITE_URL}#logo`
@@ -41,18 +41,18 @@ export function siteJsonLd() {
       {
         "@type": "Organization",
         "@id": ORGANIZATION_ID,
-        name: "Dawn AI",
+        name: "B4.run",
         url: SITE_URL,
         logo: {
           "@type": "ImageObject",
           "@id": LOGO_ID,
-          url: `${SITE_URL}brand/dawn-logo-horizontal-black.svg`,
+          url: `${SITE_URL}brand/b4-logo-horizontal-black.svg`,
         },
       },
       {
         "@type": "WebSite",
         "@id": WEBSITE_ID,
-        name: "Dawn AI",
+        name: "B4.run",
         url: SITE_URL,
         publisher: { "@id": ORGANIZATION_ID },
       },

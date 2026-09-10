@@ -13,7 +13,7 @@ const FINAL_PR2_API_HREFS = [
 ] as const
 
 async function getMarkdown(slug: readonly string[]): Promise<Response> {
-  return GET(new Request(`https://dawnai.org/api/markdown/${slug.join("/")}`), {
+  return GET(new Request(`https://b4.run/api/markdown/${slug.join("/")}`), {
     params: Promise.resolve({ slug }),
   })
 }

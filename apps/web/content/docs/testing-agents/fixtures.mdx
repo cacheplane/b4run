@@ -31,7 +31,7 @@ Resolve a fixture beside the test once, then pass that absolute path to the file
 
 ```ts title="test/agent.test.ts"
 import { fileURLToPath } from "node:url"
-import { loadFixtures, script, writeFixtures } from "@dawn-ai/testing"
+import { loadFixtures, script, writeFixtures } from "@b4run/testing"
 
 const fixturesPath = fileURLToPath(
   new URL("fixtures/filter-open.fixture.json", import.meta.url),
@@ -65,7 +65,7 @@ Choose one registration scope. Put a shared file in `createAgentHarness({ fixtur
 ```ts title="test/agent.test.ts"
 import { fileURLToPath } from "node:url"
 import { afterAll, it } from "vitest"
-import { createAgentHarness, expectFinalMessage, loadFixtures } from "@dawn-ai/testing"
+import { createAgentHarness, expectFinalMessage, loadFixtures } from "@b4run/testing"
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url))
 const fixturesPath = fileURLToPath(
@@ -92,11 +92,11 @@ A `turnIndex` mismatch is nonfatal by default: aimock can select a content-match
 
 ### Record from a real model (local only)
 
-Integrated harness recording exercises one Dawn route and converts the most recent run's captured model traffic into replay keys. Use it only for one fresh-thread first run: construct a new harness, run one representative input immediately, inspect the result, then write it. Set `OPENAI_API_KEY` for the default upstream:
+Integrated harness recording exercises one B4.run route and converts the most recent run's captured model traffic into replay keys. Use it only for one fresh-thread first run: construct a new harness, run one representative input immediately, inspect the result, then write it. Set `OPENAI_API_KEY` for the default upstream:
 
 ```ts title="test/record-filter.ts"
 import { fileURLToPath } from "node:url"
-import { createAgentHarness, writeFixtures } from "@dawn-ai/testing"
+import { createAgentHarness, writeFixtures } from "@b4run/testing"
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url))
 const fixturesPath = fileURLToPath(
@@ -119,10 +119,10 @@ try {
 
 `getRecordedFixtures()` returns only traffic captured for the most recent `run()`. Its current conversion uses the first user message in the captured request, any tool-role message in the captured request for `hasToolResult`, and a zero-based index within only that latest run's captured calls for `turnIndex`. That is not a safe way to mint a later-turn fixture for an already-active thread: inspect and correct explicit match fields instead, or record from a new harness's first run.
 
-The standalone `record({ out, provider? })` helper is a distinct API. It launches the aimock recorder in a separate process; it does not create a Dawn harness, drive a route, or return fixtures:
+The standalone `record({ out, provider? })` helper is a distinct API. It launches the aimock recorder in a separate process; it does not create a B4.run harness, drive a route, or return fixtures:
 
 ```ts title="scripts/record-fixture.ts"
-import { record } from "@dawn-ai/testing"
+import { record } from "@b4run/testing"
 
 record({ out: "test/fixtures/filter-open.fixture.json" })
 // Optional upstream override:
@@ -141,7 +141,7 @@ Use `live: true` only for local prompt validation. It proxies model calls to the
 ```ts title="test/agent.live.test.ts"
 import { fileURLToPath } from "node:url"
 import { it } from "vitest"
-import { createAgentHarness, expectFinalMessage, expectToolCalled } from "@dawn-ai/testing"
+import { createAgentHarness, expectFinalMessage, expectToolCalled } from "@b4run/testing"
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url))
 

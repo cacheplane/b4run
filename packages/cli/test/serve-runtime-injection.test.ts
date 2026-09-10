@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { Thread, ThreadsStore } from "@dawn-ai/sqlite-storage"
+import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { serveRuntime } from "../src/lib/dev/serve-runtime.js"
@@ -13,10 +13,10 @@ afterEach(async () => {
 })
 
 async function fixtureApp(): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-serve-injection-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-serve-injection-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "serve-injection-fixture", "type": "module" }\n',
     "src/app/probe/index.ts": "export const workflow = async (_input: unknown) => ({ ok: true })\n",
   }

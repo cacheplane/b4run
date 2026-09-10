@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { applyCapabilities, createAgentsMdMarker, createCapabilityRegistry } from "@dawn-ai/core"
-import { nodeMarkerFs } from "@dawn-ai/core/node"
+import { applyCapabilities, createAgentsMdMarker, createCapabilityRegistry } from "@b4run/core"
+import { nodeMarkerFs } from "@b4run/core/node"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 describe("agents-md capability — end-to-end shape", () => {
@@ -11,7 +11,7 @@ describe("agents-md capability — end-to-end shape", () => {
   let originalCwd: string
 
   beforeEach(() => {
-    workDir = mkdtempSync(join(tmpdir(), "dawn-agents-md-e2e-"))
+    workDir = mkdtempSync(join(tmpdir(), "b4-agents-md-e2e-"))
     routeDir = join(workDir, "route")
     mkdirSync(routeDir, { recursive: true })
     originalCwd = process.cwd()

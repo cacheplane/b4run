@@ -18,10 +18,10 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => server.close()))
 })
 
-describe("dawn dev runtime server", () => {
+describe("b4 dev runtime server", () => {
   test("returns healthz ready", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
@@ -37,7 +37,7 @@ describe("dawn dev runtime server", () => {
 
   test("executes graph routes by mode-qualified assistant_id", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async (input: { tenant: string }) => ({ mode: "graph", tenant: input.tenant });\n`,
     })
@@ -62,7 +62,7 @@ describe("dawn dev runtime server", () => {
 
   test("rejects unknown route as not found", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
@@ -91,7 +91,7 @@ describe("dawn dev runtime server", () => {
 
   test("rejects malformed request bodies and unknown assistant ids", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
@@ -124,7 +124,7 @@ describe("dawn dev runtime server", () => {
 
   test("returns execution_error for actual route exceptions", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => { throw new Error("boom"); };\n`,
     })
@@ -153,7 +153,7 @@ describe("dawn dev runtime server", () => {
 
   test("returns a classified shutdown failure for an in-flight route", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `
         export const graph = async (_input: unknown, context?: { signal?: AbortSignal }) => {
@@ -204,13 +204,13 @@ describe("dawn dev runtime server", () => {
   })
 })
 
-describe("dawn dev lifecycle", () => {
+describe("b4 dev lifecycle", () => {
   test("disposes a newly spawned child when startup readiness fails", {
     timeout: 30_000,
   }, async () => {
-    const pidPath = join(tmpdir(), `dawn-dev-child-pid-${Date.now()}.txt`)
+    const pidPath = join(tmpdir(), `b4-dev-child-pid-${Date.now()}.txt`)
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
@@ -218,9 +218,9 @@ describe("dawn dev lifecycle", () => {
     const dev = await startDevProcess({
       cwd: appRoot,
       env: {
-        DAWN_DEV_CHILD_PID_PATH: pidPath,
-        DAWN_DEV_CHILD_TEST_MODE: "report-ready-without-server",
-        DAWN_DEV_READY_TIMEOUT_MS: "15000",
+        B4_DEV_CHILD_PID_PATH: pidPath,
+        B4_DEV_CHILD_TEST_MODE: "report-ready-without-server",
+        B4_DEV_READY_TIMEOUT_MS: "15000",
       },
     })
     devProcesses.push(dev)
@@ -236,14 +236,14 @@ describe("dawn dev lifecycle", () => {
   })
 
   test("forwards the dev child's stdout to the parent", { timeout: 30_000 }, async () => {
-    // `dawn dev` runs the runtime in a spawned child with a piped stdout. If
+    // `b4 dev` runs the runtime in a spawned child with a piped stdout. If
     // nobody reads that pipe, everything the runtime prints is invisible to the
     // operator — and the thread-access boot line, the only signal that a policy
     // stopped binding, is printed by the child and nowhere else. Asserted
     // through that line because it is the guarantee with a docs promise behind
     // it; any child stdout would do.
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
       "src/thread-access.ts": `export default { fallback: () => ({ decision: "allow" }) };\n`,
@@ -253,15 +253,16 @@ describe("dawn dev lifecycle", () => {
     devProcesses.push(dev)
 
     await dev.waitForLog(/thread access policy bound from src\/thread-access\.ts/)
+    await dev.waitForReady()
     // Strictly the parent's STDOUT — `waitForLog` also matches stderr.
-    expect(dev.stdout).toContain("Dawn: thread access policy bound from src/thread-access.ts")
+    expect(dev.stdout).toContain("B4.run: thread access policy bound from src/thread-access.ts")
   })
 
   test("discovers the app from cwd and prints the listening URL", {
     timeout: 30_000,
   }, async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async (input: { tenant: string }) => ({ tenant: input.tenant, greeting: \`Hello, \${input.tenant}!\` });\n`,
     })
@@ -293,7 +294,7 @@ describe("dawn dev lifecycle", () => {
     timeout: 30_000,
   }, async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ version: "v1" });\n`,
     })
@@ -320,7 +321,7 @@ describe("dawn dev lifecycle", () => {
 
     await writeFile(routePath, `export const graph = async () => ({ version: "v2" });\n`, "utf8")
 
-    await dev.waitForLog(/Restarting Dawn dev server/)
+    await dev.waitForLog(/Restarting B4.run dev server/)
     const restartedUrl = await dev.waitForNextReady(readyCount)
     const updatedResponse = await invokeRunsWait(restartedUrl, {
       assistantId: "/support/[tenant]#graph",
@@ -331,15 +332,70 @@ describe("dawn dev lifecycle", () => {
     })
 
     expect(new URL(restartedUrl).port).toBe(String(port))
-    expect(countOccurrences(dev.stdout, "Restarting Dawn dev server")).toBeGreaterThanOrEqual(1)
+    expect(countOccurrences(dev.stdout, "Restarting B4.run dev server")).toBeGreaterThanOrEqual(1)
     expect(await updatedResponse.json()).toMatchObject({ version: "v2" })
+  })
+
+  test("serializes a watched edit that arrives during initial child startup", {
+    timeout: 30_000,
+  }, async () => {
+    const appRoot = await createFixtureApp({
+      "b4.config.ts": "export default {};\n",
+      "package.json": "{}\n",
+      "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ version: "v1" });\n`,
+    })
+    const routePath = join(appRoot, "src/app/support/[tenant]/index.ts")
+    const bindGatePath = join(tmpdir(), `b4-initial-bind-gate-${process.pid}-${Date.now()}.lock`)
+    const pidPath = join(tmpdir(), `b4-initial-child-pid-${process.pid}-${Date.now()}.txt`)
+
+    await writeFile(bindGatePath, "", "utf8")
+    const dev = await startDevProcess({
+      cwd: appRoot,
+      env: {
+        B4_DEV_CHILD_BIND_GATE_PATH: bindGatePath,
+        B4_DEV_CHILD_PID_PATH: pidPath,
+      },
+    })
+    devProcesses.push(dev)
+
+    try {
+      await waitForPath(pidPath)
+      await writeFile(routePath, `export const graph = async () => ({ version: "v2" });\n`, "utf8")
+
+      // Give the recursive watcher time to enqueue the edit while the initial
+      // child is still blocked before bind. The bind gate keeps startup in the
+      // same state for the full interval, so this does not race server boot.
+      await delay(250)
+      await rm(bindGatePath, { force: true })
+
+      const url = await dev.waitForReady()
+      const response = await invokeRunsWait(url, {
+        assistantId: "/support/[tenant]#graph",
+        input: {},
+        mode: "graph",
+        routeId: "/support/[tenant]",
+        routePath: "src/app/support/[tenant]/index.ts",
+      })
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ version: "v2" })
+      await delay(500)
+      expect(dev.exited).toBe(false)
+      expect(dev.stdout).toContain("Restarting B4.run dev server")
+      expect(countOccurrences(dev.stdout, "B4.run: no thread access policy")).toBe(2)
+      expect(dev.stderr).not.toContain("Port ")
+      expect(dev.stderr).not.toContain("Fatal dev session error")
+    } finally {
+      await rm(bindGatePath, { force: true })
+      await rm(pidPath, { force: true })
+    }
   })
 
   test("coalesces bursty edits during restart into at most one follow-up restart", {
     timeout: 30_000,
   }, async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ version: "v1" });\n`,
     })
@@ -348,7 +404,7 @@ describe("dawn dev lifecycle", () => {
     const dev = await startDevProcess({
       cwd: appRoot,
       env: {
-        DAWN_DEV_CHILD_STARTUP_DELAY_MS: "200",
+        B4_DEV_CHILD_STARTUP_DELAY_MS: "200",
       },
     })
     devProcesses.push(dev)
@@ -357,7 +413,7 @@ describe("dawn dev lifecycle", () => {
     const readyCount = dev.readyCount()
 
     await writeFile(routePath, `export const graph = async () => ({ version: "v2" });\n`, "utf8")
-    await dev.waitForLog(/Restarting Dawn dev server/)
+    await dev.waitForLog(/Restarting B4.run dev server/)
     await writeFile(routePath, `export const graph = async () => ({ version: "v3" });\n`, "utf8")
     await writeFile(routePath, `export const graph = async () => ({ version: "v4" });\n`, "utf8")
 
@@ -374,15 +430,15 @@ describe("dawn dev lifecycle", () => {
     })
 
     expect(await response.json()).toMatchObject({ version: "v4" })
-    expect(countOccurrences(dev.stdout, "Restarting Dawn dev server")).toBeLessThanOrEqual(2)
+    expect(countOccurrences(dev.stdout, "Restarting B4.run dev server")).toBeLessThanOrEqual(2)
   })
 
   test("surfaces restart-induced in-flight cancellation as a non-execution failure", {
     timeout: 30_000,
   }, async () => {
-    const markerPath = join(tmpdir(), `dawn-dev-cancel-${Date.now()}.txt`)
+    const markerPath = join(tmpdir(), `b4-dev-cancel-${Date.now()}.txt`)
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `
         import { writeFile } from "node:fs/promises";
@@ -441,11 +497,11 @@ describe("dawn dev lifecycle", () => {
     timeout: 30_000,
   }, async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ version: "healthy" });\n`,
     })
-    const configPath = join(appRoot, "dawn.config.ts")
+    const configPath = join(appRoot, "b4.config.ts")
 
     const dev = await startDevProcess({ cwd: appRoot })
     devProcesses.push(dev)
@@ -479,11 +535,67 @@ describe("dawn dev lifecycle", () => {
     expect(await response.json()).toMatchObject({ version: "healthy" })
   })
 
+  test("drains a fixing edit queued while a watched restart is failing", {
+    timeout: 30_000,
+  }, async () => {
+    const markerPath = join(tmpdir(), `b4-failing-restart-${process.pid}-${Date.now()}.txt`)
+    const appRoot = await createFixtureApp({
+      "b4.config.ts": "export default {};\n",
+      "package.json": "{}\n",
+      "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ version: "healthy" });\n`,
+      "src/thread-access.ts": `export default { fallback: () => ({ decision: "allow" }) };\n`,
+    })
+    const policyPath = join(appRoot, "src/thread-access.ts")
+    const dev = await startDevProcess({ cwd: appRoot })
+    devProcesses.push(dev)
+
+    try {
+      const url = await dev.waitForReady()
+      const readyCount = dev.readyCount()
+      await writeFile(
+        policyPath,
+        `
+          import { writeFileSync } from "node:fs";
+
+          writeFileSync(${JSON.stringify(markerPath)}, "started", "utf8");
+          const deadline = Date.now() + 1000;
+          while (Date.now() < deadline) {}
+          throw new Error("intentional startup failure");
+
+          export default { fallback: () => ({ decision: "allow" }) };
+        `,
+        "utf8",
+      )
+
+      await waitForPath(markerPath)
+      await writeFile(
+        policyPath,
+        `export default { fallback: () => ({ decision: "allow" }) };\n`,
+        "utf8",
+      )
+
+      await dev.waitForLog(/Restart failed; watching for changes/)
+      await dev.waitForNextReady(readyCount, 10_000)
+      const response = await invokeRunsWait(url, {
+        assistantId: "/support/[tenant]#graph",
+        input: {},
+        mode: "graph",
+        routeId: "/support/[tenant]",
+        routePath: "src/app/support/[tenant]/index.ts",
+      })
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ version: "healthy" })
+    } finally {
+      await rm(markerPath, { force: true })
+    }
+  })
+
   test("terminates the session when configured appDir falls outside the discovered app root", {
     timeout: 30_000,
   }, async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": 'const appDir = "../outside";\nexport default { appDir };\n',
+      "b4.config.ts": 'const appDir = "../outside";\nexport default { appDir };\n',
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ version: "healthy" });\n`,
     })
@@ -506,7 +618,7 @@ describe("dawn dev lifecycle", () => {
     timeout: 30_000,
   }, async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ version: "healthy" });\n`,
     })
@@ -514,12 +626,12 @@ describe("dawn dev lifecycle", () => {
     const port = await allocatePort()
     // The gate file lives outside the watched appRoot so creating/removing it
     // never itself triggers a dev restart.
-    const bindGatePath = join(tmpdir(), `dawn-bind-gate-${process.pid}-${Date.now()}.lock`)
+    const bindGatePath = join(tmpdir(), `b4-bind-gate-${process.pid}-${Date.now()}.lock`)
 
     const dev = await startDevProcess({
       cwd: appRoot,
       env: {
-        DAWN_DEV_CHILD_BIND_GATE_PATH: bindGatePath,
+        B4_DEV_CHILD_BIND_GATE_PATH: bindGatePath,
       },
       port,
     })
@@ -538,7 +650,7 @@ describe("dawn dev lifecycle", () => {
       `export const graph = async () => ({ version: "restart" });\n`,
       "utf8",
     )
-    await dev.waitForLog(/Restarting Dawn dev server/)
+    await dev.waitForLog(/Restarting B4.run dev server/)
     await dev.waitForNotReady()
 
     // Retry absorbs the brief window where the old child is exiting but has not
@@ -560,9 +672,9 @@ describe("dawn dev lifecycle", () => {
   test("force-kills a stuck child after the shutdown timeout and replaces it", {
     timeout: 30_000,
   }, async () => {
-    const markerPath = join(tmpdir(), `dawn-dev-stuck-${Date.now()}.txt`)
+    const markerPath = join(tmpdir(), `b4-dev-stuck-${Date.now()}.txt`)
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `
         import { writeFile } from "node:fs/promises";
@@ -578,7 +690,7 @@ describe("dawn dev lifecycle", () => {
     const dev = await startDevProcess({
       cwd: appRoot,
       env: {
-        DAWN_DEV_SHUTDOWN_TIMEOUT_MS: "150",
+        B4_DEV_SHUTDOWN_TIMEOUT_MS: "150",
       },
     })
     devProcesses.push(dev)
@@ -618,9 +730,9 @@ describe("dawn dev lifecycle", () => {
     timeout: 30_000,
   }, async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
-      "custom.env": "DAWN_CUSTOM_ENV_VAR=from-custom\n",
+      "custom.env": "B4_CUSTOM_ENV_VAR=from-custom\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 
@@ -637,7 +749,7 @@ describe("dawn dev lifecycle", () => {
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-dev-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-dev-"))
   tempDirs.push(appRoot)
 
   await Promise.all(
@@ -956,16 +1068,16 @@ class DevProcessHandle {
   }
 
   readyCount(): number {
-    return countOccurrences(this.stdout, "Dawn dev ready at")
+    return countOccurrences(this.stdout, "B4.run dev ready at")
   }
 
   async waitForNextReady(previousCount: number, backstopMs = 20_000): Promise<string> {
-    // Event-driven: resolve the instant the (previousCount+1)th "Dawn dev ready
+    // Event-driven: resolve the instant the (previousCount+1)th "B4.run dev ready
     // at <url>" marker streams in — the parent prints it only after its own
     // health check passes, so the server is already listening.
     await this.#waitFor(
       () => this.readyCount() > previousCount,
-      `dawn dev readiness (#${previousCount + 1})`,
+      `b4 dev readiness (#${previousCount + 1})`,
       backstopMs,
     )
     const url = await this.waitForPrintedUrl(backstopMs)
@@ -996,7 +1108,7 @@ class DevProcessHandle {
       await delay(25)
     }
     throw new Error(
-      `dawn dev /healthz did not confirm ready (${lastError})\nSTDOUT:\n${this.stdout}\nSTDERR:\n${this.stderr}`,
+      `b4 dev /healthz did not confirm ready (${lastError})\nSTDOUT:\n${this.stdout}\nSTDERR:\n${this.stderr}`,
     )
   }
 
@@ -1023,16 +1135,16 @@ class DevProcessHandle {
     }
 
     throw new Error(
-      `Timed out waiting for dawn dev to become not-ready\nSTDOUT:\n${this.stdout}\nSTDERR:\n${this.stderr}`,
+      `Timed out waiting for b4 dev to become not-ready\nSTDOUT:\n${this.stdout}\nSTDERR:\n${this.stderr}`,
     )
   }
 
   private async waitForPrintedUrl(backstopMs: number): Promise<string> {
     const urlPattern = /http:\/\/127\.0\.0\.1:\d+/
-    await this.#waitFor(() => urlPattern.test(this.stdout), "dawn dev URL", backstopMs)
+    await this.#waitFor(() => urlPattern.test(this.stdout), "b4 dev URL", backstopMs)
     const match = this.stdout.match(urlPattern)
     if (!match) {
-      throw new Error(`dawn dev URL vanished from output\nSTDOUT:\n${this.stdout}`)
+      throw new Error(`b4 dev URL vanished from output\nSTDOUT:\n${this.stdout}`)
     }
     return match[0]
   }

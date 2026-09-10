@@ -2,11 +2,11 @@
 
 `MemoryStore.browse` is the administrative listing contract: it filters, sorts, counts, and paginates records across namespaces and statuses. `MemoryStore.search` is the agent-recall contract: it searches one exact namespace and may rank by keyword or vectors. Browse has no semantic ranking.
 
-Dawn does not expose a public memory browse HTTP endpoint. The Inspector is a local/internal development surface, and the candidate management endpoints cover only review. A production admin UI must be an application-owned, authenticated, authorized route.
+B4.run does not expose a public memory browse HTTP endpoint. The Inspector is a local/internal development surface, and the candidate management endpoints cover only review. A production admin UI must be an application-owned, authenticated, authorized route.
 
 ## Keep the boundary server-owned
 
-Authenticate outside Dawn's model/tool boundary. Derive the tenant namespace prefix from the verified principal, then AND any narrower query with that server-owned prefix. Never accept the prefix, tenant, or user identifier as authority from request JSON.
+Authenticate outside B4.run's model/tool boundary. Derive the tenant namespace prefix from the verified principal, then AND any narrower query with that server-owned prefix. Never accept the prefix, tenant, or user identifier as authority from request JSON.
 
 ```ts title="src/admin/memory.ts"
 import {
@@ -15,8 +15,8 @@ import {
   validateBrowseQuery,
   type BrowsePage,
   type BrowseQuery,
-} from "@dawn-ai/memory/browse"
-import { serializeNamespace } from "@dawn-ai/memory/namespace"
+} from "@b4run/memory/browse"
+import { serializeNamespace } from "@b4run/memory/namespace"
 
 type BrowseStore = {
   browse(query: BrowseQuery): Promise<BrowsePage>
@@ -68,11 +68,11 @@ export function createMemoryAdminHandler(
 }
 ```
 
-The `@dawn-ai/memory/browse` entry is pure contract code—types, validation, ordering, cursor codec, and range helpers—and does not import `node:sqlite`. Keep the store itself on the server and do not send database credentials or unrestricted browse queries to client code.
+The `@b4run/memory/browse` entry is pure contract code—types, validation, ordering, cursor codec, and range helpers—and does not import `node:sqlite`. Keep the store itself on the server and do not send database credentials or unrestricted browse queries to client code.
 
 Outer authentication is only the first check. Authorize the admin role, audit queries and mutations, rate-limit expensive listings, redact content where necessary, and bind every request to the server-derived tenant prefix.
 
-This handler assumes the administered collections declare a tenant-first scope with at least one following dimension (for example, `scope: ["tenant", "user"]`), making `tenant=<encoded>|` a delimiter-bounded prefix. If a route includes `workspace` or `route`, Dawn's canonical dimension order places those first; define and test a different server-owned prefix strategy instead of searching for `tenant=` in the middle of a namespace string.
+This handler assumes the administered collections declare a tenant-first scope with at least one following dimension (for example, `scope: ["tenant", "user"]`), making `tenant=<encoded>|` a delimiter-bounded prefix. If a route includes `workspace` or `route`, B4.run's canonical dimension order places those first; define and test a different server-owned prefix strategy instead of searching for `tenant=` in the middle of a namespace string.
 
 ## Filters
 

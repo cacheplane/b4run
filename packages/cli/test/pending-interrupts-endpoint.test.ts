@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { ThreadAccessPolicy } from "@dawn-ai/sdk"
+import type { ThreadAccessPolicy } from "@b4run/sdk"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import { MemorySaver } from "@langchain/langgraph"
 import {
@@ -12,11 +12,12 @@ import {
 } from "@langchain/langgraph-checkpoint"
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
-import { type DawnPostgresSaver, postgresCheckpointer } from "../../postgres-storage/dist/node.js"
+import { type B4PostgresSaver, postgresCheckpointer } from "../../postgres-storage/dist/node.js"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { script } from "../../testing/dist/fixture-builder.js"
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
 import { terminalStatus } from "../src/lib/dev/terminal-status.js"
+import { atomicWriteLines, waitForFile } from "./helpers/probe-file.js"
 
 const cleanup: Array<() => Promise<void> | void> = []
 
@@ -35,12 +36,14 @@ const ECHO_ROUTE = ["export const graph = async () => ({ ok: true })", ""].join(
  * run slot until a release file appears, so a cancel can land mid-run. It
  * deliberately ignores ctx.signal and self-releases after 15s. */
 const BLOCKING_ROUTE = [
-  'import { readFile, writeFile } from "node:fs/promises"',
+  'import { readFile, rename, writeFile } from "node:fs/promises"',
   "export const graph = async (",
   "  input: { startedFile?: string; releaseFile?: string } | undefined,",
   "  _ctx: { signal: AbortSignal },",
   ") => {",
-  "  if (input?.startedFile) await writeFile(input.startedFile, 'started')",
+  "  if (input?.startedFile) {",
+  ...atomicWriteLines("input.startedFile", "'started'", "    "),
+  "  }",
   "  const deadline = Date.now() + 15000",
   "  while (Date.now() < deadline) {",
   "    if (!input?.releaseFile) break",
@@ -55,7 +58,7 @@ const BLOCKING_ROUTE = [
 /** Agent route whose `deployProd` tool requires human approval, so the first
  * call to it parks the turn on a real checkpointer-backed HITL interrupt. */
 const PARK_ROUTE = [
-  'import { agent } from "@dawn-ai/sdk"',
+  'import { agent } from "@b4run/sdk"',
   "export default agent({",
   '  model: "gpt-5-mini",',
   '  systemPrompt: "You are a test agent. Use the provided tools when asked.",',
@@ -68,7 +71,7 @@ const PARK_ROUTE = [
  * graph executes — no checkpoint written, nothing consumed. Agent-kind, so it
  * gets past the `canPark` short-circuit that a plain graph stops at. */
 const BROKEN_AGENT_ROUTE = [
-  'import { agent } from "@dawn-ai/sdk"',
+  'import { agent } from "@b4run/sdk"',
   "export default agent({",
   '  model: "definitely-not-a-real-model-id",',
   '  systemPrompt: "You are a test agent.",',
@@ -82,13 +85,13 @@ const BROKEN_AGENT_ROUTE = [
  * /runs/wait turn is durably parked but has not returned yet. Routine app code:
  * a slow sibling tool call is what any real agent turn looks like. */
 const SLOW_PING_TOOL = [
-  'import { readFile, writeFile } from "node:fs/promises"',
+  'import { readFile, rename, writeFile } from "node:fs/promises"',
   "/** Ping a host, slowly. */",
   "export default async function slowPing(input: {",
   "  startedFile: string",
   "  releaseFile: string",
   "}): Promise<string> {",
-  "  await writeFile(input.startedFile, 'started')",
+  ...atomicWriteLines("input.startedFile", "'started'"),
   "  const deadline = Date.now() + 15000",
   "  while (Date.now() < deadline) {",
   "    try { await readFile(input.releaseFile, 'utf8'); break } catch {}",
@@ -108,10 +111,10 @@ const DEPLOY_TOOL = [
 ].join("\n")
 
 async function fixtureApp(overrides: Record<string, string> = {}): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-pending-interrupts-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-pending-interrupts-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "pending-interrupts-fixture", "type": "module" }\n',
     "src/app/blocking/index.ts": BLOCKING_ROUTE,
     "src/app/echo/index.ts": ECHO_ROUTE,
@@ -448,7 +451,7 @@ describe("GET /threads/:thread_id/pending_interrupts", () => {
 /** Rejects unless `x-allow` is present, echoing what it observed so a test can
  * pin the middleware inputs a body-less GET produces. */
 const ECHO_MIDDLEWARE = [
-  'import { allow, defineMiddleware, reject } from "@dawn-ai/sdk"',
+  'import { allow, defineMiddleware, reject } from "@b4run/sdk"',
   "export default defineMiddleware((req) =>",
   '  req.headers["x-allow"] ? allow() : reject(403, { method: req.method, routeId: req.routeId }),',
   ")",
@@ -462,7 +465,7 @@ const ECHO_MIDDLEWARE = [
  * ECHO_MIDDLEWARE above cannot express that, which is why one route per thread
  * was enough for every other gating test here. */
 const ADMIN_PARK_MIDDLEWARE = [
-  'import { allow, defineMiddleware, reject } from "@dawn-ai/sdk"',
+  'import { allow, defineMiddleware, reject } from "@b4run/sdk"',
   "export default defineMiddleware((req) =>",
   '  req.routeId !== "/park" || req.headers["x-admin"]',
   "    ? allow()",
@@ -520,7 +523,7 @@ describe("GET /threads/:thread_id/pending_interrupts — gating", () => {
 
     const rejected = await handler.fetch(pendingInterruptsRequest(threadId))
     expect(rejected.status).toBe(403)
-    // Dawn's first AP endpoint where middleware sees a method other than POST.
+    // B4.run's first AP endpoint where middleware sees a method other than POST.
     expect(await rejected.json()).toEqual({ method: "GET", routeId: "/echo" })
 
     const allowed = await handler.fetch(pendingInterruptsRequest(threadId, { "x-allow": "1" }))
@@ -772,7 +775,7 @@ describe("GET /threads/:thread_id/pending_interrupts — gating", () => {
     // running, and the permission interrupt is already DURABLE in the
     // checkpoint. The second is the attacker's oracle — everything the endpoint
     // would hand over already exists at this instant.
-    await waitForFile(startedFile)
+    await waitForFile(startedFile, { what: "started probe" })
     await waitForParkedWrite(saver, threadId)
 
     // Both of these are ungated today, which is what makes the window
@@ -856,7 +859,7 @@ describe("GET /threads/:thread_id/pending_interrupts — gating", () => {
     const streamPromise = handler.fetch(
       parkRunRequest(threadId, "deploy to staging", { "x-admin": "1" }),
     )
-    await waitForFile(startedFile)
+    await waitForFile(startedFile, { what: "started probe" })
 
     // Every settle path ends in updateMetadata, which is a documented NO-OP for
     // a missing row — not an error. So deleting the row here used to let the
@@ -943,18 +946,6 @@ async function threadStatus(handler: Handler, threadId: string): Promise<string>
   return ((await response.json()) as { status: string }).status
 }
 
-async function waitForFile(path: string, timeoutMs = 15_000): Promise<string> {
-  const startedAt = Date.now()
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      return await readFile(path, "utf8")
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 25))
-    }
-  }
-  throw new Error(`probe file never appeared: ${path}`)
-}
-
 // ---------------------------------------------------------------------------
 // "interrupted" is deliberately overloaded: cancelled OR parked. The
 // discriminator is pending_interrupts — non-empty means the agent is waiting
@@ -987,7 +978,7 @@ describe("thread status after a parked or cancelled turn", () => {
     const runResponse = await handler.fetch(
       runStreamRequest(threadId, "/blocking#graph", { releaseFile, startedFile }),
     )
-    await waitForFile(startedFile)
+    await waitForFile(startedFile, { what: "started probe" })
     expect((await handler.fetch(cancelRequest(threadId))).status).toBe(200)
     await drain(runResponse)
 
@@ -1187,7 +1178,7 @@ function allowEverythingPolicy(): ThreadAccessPolicy {
  * composition assertion below unambiguous rather than a coincidence of codes.
  */
 const UNAUTHENTICATED_MIDDLEWARE = [
-  'import { allow, defineMiddleware, reject } from "@dawn-ai/sdk"',
+  'import { allow, defineMiddleware, reject } from "@b4run/sdk"',
   "export default defineMiddleware((req) =>",
   '  req.headers["x-allow"] ? allow() : reject(401, { code: "unauthenticated" }),',
   ")",
@@ -1413,13 +1404,13 @@ describe("terminalStatus", () => {
 // and both 409 arms return before the checkpointer is touched, and the threads
 // store that serves them has its own real-Postgres suite. Everything above runs
 // on sqlite; this runs the same park → list → resume → empty arc against real
-// Postgres. Gated on DAWN_TEST_PGSTORAGE=1 (needs Docker), matching
+// Postgres. Gated on B4_TEST_PGSTORAGE=1 (needs Docker), matching
 // packages/postgres-storage/test/*.
 // ---------------------------------------------------------------------------
 
 /** The one place the gate's env var is spelled, so the self-check below and the
  * suite it watches can never drift onto different names. */
-const PGSTORAGE_LANE_REQUESTED = process.env.DAWN_TEST_PGSTORAGE === "1"
+const PGSTORAGE_LANE_REQUESTED = process.env.B4_TEST_PGSTORAGE === "1"
 
 /** Flipped by the gated test itself. Vitest has no flag that fails a run for
  * SKIPPING tests — `--passWithNoTests` (already false by default in vitest 4)
@@ -1440,7 +1431,7 @@ describe.skipIf(!PGSTORAGE_LANE_REQUESTED)(
     // (packages/postgres-storage/test/assume-migrated.test.ts), because here the
     // ORDERING is what matters: afterEach's handler.close() drains runs that may
     // still be writing checkpoints, so the pool has to outlive the test body.
-    const savers: DawnPostgresSaver[] = []
+    const savers: B4PostgresSaver[] = []
 
     beforeAll(async () => {
       // A loaded CI runner can take minutes to pull postgres:16 and accept the
@@ -1522,7 +1513,7 @@ describe.skipIf(!PGSTORAGE_LANE_REQUESTED)(
 // ---------------------------------------------------------------------------
 
 describe("gated Postgres lane", () => {
-  it("runs its assertions whenever DAWN_TEST_PGSTORAGE asks for them", () => {
+  it("runs its assertions whenever B4_TEST_PGSTORAGE asks for them", () => {
     // Also pins the gate's polarity from the ordinary no-Docker lane: a suite
     // that ran without being asked would be starting containers everywhere.
     expect(postgresLaneRan).toBe(PGSTORAGE_LANE_REQUESTED)

@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next"
 
-const SITE_URL = "https://dawnai.org"
+const SITE_URL = "https://b4.run"
 const AI_AGENTS = [
   "GPTBot",
   "OAI-SearchBot",

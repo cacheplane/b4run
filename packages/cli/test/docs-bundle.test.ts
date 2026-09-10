@@ -40,12 +40,12 @@ const EXPECTED_DOCS = navModule.ALL_DOCS_PAGES.map(({ href, label }) => ({
 }))
 const apiHubIndex = EXPECTED_DOCS.findIndex(({ slug }) => slug === "api")
 const FINAL_PR2_API_DOCS = [
-  ["@dawn-ai/permissions", "api/permissions.md"],
-  ["@dawn-ai/workspace", "api/workspace.md"],
-  ["@dawn-ai/sandbox", "api/sandbox.md"],
-  ["@dawn-ai/langgraph", "api/langgraph.md"],
-  ["@dawn-ai/langchain", "api/langchain.md"],
-  ["@dawn-ai/sqlite-storage", "api/sqlite-storage.md"],
+  ["@b4run/permissions", "api/permissions.md"],
+  ["@b4run/workspace", "api/workspace.md"],
+  ["@b4run/sandbox", "api/sandbox.md"],
+  ["@b4run/langgraph", "api/langgraph.md"],
+  ["@b4run/langchain", "api/langchain.md"],
+  ["@b4run/sqlite-storage", "api/sqlite-storage.md"],
 ] as const
 const scannedTextExtensions = new Set([
   ".cjs",
@@ -74,7 +74,7 @@ function isExcludedDocumentationPath(relativePath: string, pathSeparator = sep):
     parts.some(
       (part) =>
         part === "node_modules" ||
-        part === ".dawn" ||
+        part === ".b4" ||
         part === ".next" ||
         part === ".turbo" ||
         part === "dist",
@@ -104,7 +104,7 @@ function currentDocumentationFiles(path: string): string[] {
 
 describe("current AG-UI documentation", () => {
   it("tolerates an optional documentation root that has not been generated", () => {
-    const fixtureRoot = mkdtempSync(join(tmpdir(), "dawn-docs-bundle-"))
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "b4-docs-bundle-"))
     try {
       expect(currentDocumentationFiles(join(fixtureRoot, "missing"))).toEqual([])
     } finally {
@@ -113,12 +113,12 @@ describe("current AG-UI documentation", () => {
   })
 
   it("excludes generated cache directories", () => {
-    const fixtureRoot = mkdtempSync(join(tmpdir(), "dawn-docs-bundle-"))
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "b4-docs-bundle-"))
     const component = join(fixtureRoot, "component.tsx")
     const notes = join(fixtureRoot, "notes.mdx")
     const readme = join(fixtureRoot, "README.md")
     try {
-      for (const directory of [".dawn", ".next", ".turbo", "dist", "node_modules"]) {
+      for (const directory of [".b4", ".next", ".turbo", "dist", "node_modules"]) {
         mkdirSync(join(fixtureRoot, directory))
         writeFileSync(join(fixtureRoot, directory, "generated.log"), "createAgUiTranslator")
       }
@@ -144,7 +144,7 @@ describe("current AG-UI documentation", () => {
   })
 
   it("does not follow symlinked directories", () => {
-    const fixtureRoot = mkdtempSync(join(tmpdir(), "dawn-docs-bundle-"))
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "b4-docs-bundle-"))
     const scanRoot = join(fixtureRoot, "scan")
     const targetRoot = join(fixtureRoot, "target")
     const readme = join(scanRoot, "README.md")
@@ -166,11 +166,11 @@ describe("current AG-UI documentation", () => {
   })
 
   it("does not reference removed adapter APIs or example UI", () => {
-    // Retired Dawn/adapter vocabulary. `useInterrupt` and `PermissionInterrupt`
+    // Retired B4.run/adapter vocabulary. `useInterrupt` and `PermissionInterrupt`
     // are deliberately NOT listed: the canonicalized adapter still surfaces
     // permission gates as AG-UI standard interrupts, and the example UIs render
     // them with CopilotKit's current `useInterrupt` hook (see each example's
-    // PermissionInterrupt.tsx). Exact `dawn.subagent` is now a valid standard
+    // PermissionInterrupt.tsx). Exact `b4.subagent` is now a valid standard
     // activity type. What must stay gone is the *legacy* vocabulary below — the
     // dotted custom-event family, custom-event interrupt, and `forwardedProps`
     // resume path.
@@ -180,7 +180,7 @@ describe("current AG-UI documentation", () => {
       'CUSTOM{name:"on_interrupt"}',
       "forwardedProps.command.resume",
       "STATE_SNAPSHOT",
-      "dawn.subagent.",
+      "b4.subagent.",
       "TodosPanel",
     ]
     const roots = [
@@ -244,9 +244,9 @@ describe("mdxToMarkdown()", () => {
   })
 
   it("preserves import lines inside fenced code blocks", () => {
-    const raw = '# X\n\n```ts\nimport { agent } from "@dawn-ai/sdk"\n```\n'
+    const raw = '# X\n\n```ts\nimport { agent } from "@b4run/sdk"\n```\n'
     const out = mdxToMarkdown(raw)
-    expect(out).toContain('import { agent } from "@dawn-ai/sdk"')
+    expect(out).toContain('import { agent } from "@b4run/sdk"')
   })
 
   it("strips API behavior authority comments outside fences", () => {
@@ -318,7 +318,7 @@ describe("loadDocsPages()", () => {
   })
 
   it("loads only exported ALL_DOCS_PAGES, ignoring comments, strings, and non-exported lookalikes", async () => {
-    const fixtureRoot = mkdtempSync(join(tmpdir(), "dawn-docs-nav-"))
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "b4-docs-nav-"))
     const navFile = join(fixtureRoot, "nav.ts")
     try {
       writeFileSync(
@@ -341,7 +341,7 @@ void OTHER_PAGES
   })
 
   it("rejects modules without the named exhaustive export", async () => {
-    const fixtureRoot = mkdtempSync(join(tmpdir(), "dawn-docs-pages-"))
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "b4-docs-pages-"))
     const navFile = join(fixtureRoot, "nav.ts")
     try {
       writeFileSync(
@@ -437,16 +437,16 @@ describe("generated documentation bundle", () => {
     expect(topics).toContainEqual({ title: "Thread Access", file: "thread-access.md" })
     expect(topics.slice(apiHubIndex, apiHubIndex + 17).map(({ title }) => title)).toEqual([
       "API Reference",
-      "@dawn-ai/sdk",
-      "@dawn-ai/cli",
-      "@dawn-ai/core",
-      "@dawn-ai/ag-ui",
-      "@dawn-ai/memory",
-      "@dawn-ai/memory-pgvector",
-      "@dawn-ai/postgres-storage",
-      "@dawn-ai/testing",
-      "@dawn-ai/evals",
-      "dawn:routes",
+      "@b4run/sdk",
+      "@b4run/cli",
+      "@b4run/core",
+      "@b4run/ag-ui",
+      "@b4run/memory",
+      "@b4run/memory-pgvector",
+      "@b4run/postgres-storage",
+      "@b4run/testing",
+      "@b4run/evals",
+      "b4:routes",
       ...FINAL_PR2_API_DOCS.map(([title]) => title),
     ])
     for (const [title, file] of FINAL_PR2_API_DOCS) {
@@ -499,8 +499,8 @@ describe("buildReadme()", () => {
       },
       { slug: "state", title: "State", description: "", file: "state.md" },
     ])
-    expect(md).toContain("# Dawn — Documentation")
-    expect(md).toContain("dawn docs <topic>")
+    expect(md).toContain("# B4.run — Documentation")
+    expect(md).toContain("b4 docs <topic>")
     expect(md).toContain("- [Tools](./tools.md) — Co-located tools")
     expect(md).toContain("- [State](./state.md)")
     expect(md).not.toContain("State](./state.md) —")

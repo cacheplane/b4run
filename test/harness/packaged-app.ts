@@ -47,7 +47,7 @@ const PACKAGED_NPM_READY_TIMEOUT_MS = 60_000
 // the right bound anyway.)
 const PACKAGED_NPM_ACTION_SETTLE_MS = 5_000
 export const GENERATED_APP_UNSET_ENV = [
-  "DAWN_DEMO_DOCKER_SANDBOX",
+  "B4_DEMO_DOCKER_SANDBOX",
   "OPENAI_BASE_URL",
   "OPENAI_API_KEY",
 ] as const
@@ -127,7 +127,7 @@ export async function cleanupTrackedTempDirs(registry: TrackedTempDir[]): Promis
     tracked
       .filter((entry) => !entry.preserve)
       // maxRetries handles the ENOTEMPTY race where a just-killed dev server's
-      // child flushes a SQLite WAL file into .dawn/ between readdir and rmdir.
+      // child flushes a SQLite WAL file into .b4/ between readdir and rmdir.
       .map((entry) =>
         rm(entry.path, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }),
       ),
@@ -135,14 +135,14 @@ export async function cleanupTrackedTempDirs(registry: TrackedTempDir[]): Promis
 }
 
 /**
- * Pack the CURRENT create-dawn-ai-app source and install it into a temp installer
- * dir, returning that dir. Lets a standalone test run `pnpm exec create-dawn-ai-app`
+ * Pack the CURRENT create-b4-app source and install it into a temp installer
+ * dir, returning that dir. Lets a standalone test run `pnpm exec create-b4-app`
  * with the local build (not the published npmjs version).
  *
- * The scaffolder declares `@dawn-ai/devkit` as a runtime dep. Pack and override
+ * The scaffolder declares `@b4run/devkit` as a runtime dep. Pack and override
  * the current local devkit too so tests exercise the templates in this checkout
  * instead of whatever candidate package the ephemeral registry last published.
- * Requires the registry globalSetup to have run (DAWN_TEST_REGISTRY_URL set);
+ * Requires the registry globalSetup to have run (B4_TEST_REGISTRY_URL set);
  * getTestRegistryUrl() throws otherwise.
  */
 export async function installPackagedScaffolder(
@@ -154,8 +154,8 @@ export async function installPackagedScaffolder(
   await mkdir(packsDir, { recursive: true })
   await mkdir(installerDir, { recursive: true })
 
-  const devkitTarballPath = await packCurrentPackage("@dawn-ai/devkit", packsDir)
-  const scaffolderTarballPath = await packCurrentPackage("create-dawn-ai-app", packsDir)
+  const devkitTarballPath = await packCurrentPackage("@b4run/devkit", packsDir)
+  const scaffolderTarballPath = await packCurrentPackage("create-b4-app", packsDir)
 
   await writeFile(
     join(installerDir, "package.json"),
@@ -175,7 +175,7 @@ export async function installPackagedScaffolder(
       "  esbuild: true",
       "",
       "overrides:",
-      `  "@dawn-ai/devkit": ${JSON.stringify(`file:${devkitTarballPath}`)}`,
+      `  "@b4run/devkit": ${JSON.stringify(`file:${devkitTarballPath}`)}`,
       "",
     ].join("\n"),
     "utf8",
@@ -205,7 +205,7 @@ export async function installRegistryScaffolderWithNpm(options: {
     "utf8",
   )
   await writeRegistryNpmrc(installerDir, getTestRegistryUrl())
-  const displayArgs = ["install", "--no-save", "create-dawn-ai-app@latest"]
+  const displayArgs = ["install", "--no-save", "create-b4-app@latest"]
   await runPackagedNpmCommand({
     args: [...candidateRegistryNpmArgs(getTestRegistryUrl()), ...displayArgs],
     cwd: installerDir,
@@ -495,7 +495,7 @@ export interface PackagedNpmReadiness {
   ) => Promise<{ readonly detail?: string; readonly ready: boolean }>
 }
 
-export const dawnHealthzReadiness: PackagedNpmReadiness = {
+export const b4HealthzReadiness: PackagedNpmReadiness = {
   describe: `GET /healthz -> {"status":"ready"}`,
   async probe(baseUrl, signal) {
     const response = await fetch(new URL("/healthz", baseUrl), { signal })
@@ -703,11 +703,11 @@ export async function withPackagedNpmServer<T>(
   const port = await allocatePort()
   options.signal?.throwIfAborted()
   const url = `http://127.0.0.1:${port}`
-  const readiness = options.readiness ?? dawnHealthzReadiness
+  const readiness = options.readiness ?? b4HealthzReadiness
   const args = ["run", options.script, ...(options.scriptArgs ?? [])]
   const npmLaunch = resolveNpmLaunch()
   // Which flags go on is decided by the BINARY each script fronts — `dev` fronts
-  // `dawn dev`, `dev:web` fronts `next dev` — even though the branch below can
+  // `b4 dev`, `dev:web` fronts `next dev` — even though the branch below can
   // only read the script name to tell them apart. `next` binds the IPv6 wildcard
   // by default (contradicting its own help text), and `-H 127.0.0.1` is the flag
   // it honours. `HOST`/`HOSTNAME` are ignored UNCONDITIONALLY, not merely when a

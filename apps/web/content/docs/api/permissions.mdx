@@ -1,32 +1,32 @@
-# @dawn-ai/permissions
+# @b4run/permissions
 
 ## Use this when
 
-Use this package to evaluate Dawn permission patterns or inject a `PermissionsStore` into an integration. The root is the portable matching and contract surface. Import `/node` only when the application itself owns the local `.dawn/permissions.json` store.
+Use this package to evaluate B4.run permission patterns or inject a `PermissionsStore` into an integration. The root is the portable matching and contract surface. Import `/node` only when the application itself owns the local `.b4/permissions.json` store.
 
 ## Install and import
 
 ```bash
-pnpm add @dawn-ai/permissions
+pnpm add @b4run/permissions
 ```
 
 ```ts
-import { matchPermission, type PermissionsStore } from "@dawn-ai/permissions"
-import { createPermissionsStore } from "@dawn-ai/permissions/node"
+import { matchPermission, type PermissionsStore } from "@b4run/permissions"
+import { createPermissionsStore } from "@b4run/permissions/node"
 ```
 
 ## Compatibility and audience
 
 | Surface | Runtime | Purity | Audience | Stability |
 |---|---|---|---|---|
-| `@dawn-ai/permissions` | edge-safe | not-claimed | integration | supported |
-| `@dawn-ai/permissions/node` | node-only | not-claimed | integration | supported |
+| `@b4run/permissions` | edge-safe | not-claimed | integration | supported |
+| `@b4run/permissions/node` | node-only | not-claimed | integration | supported |
 
 The root keeps Node filesystem APIs out of its import graph. The `/node` store reads and writes application-local files and therefore requires Node.
 
 ## Public exports
 
-### `@dawn-ai/permissions`
+### `@b4run/permissions`
 
 | Export | Responsibility |
 |---|---|
@@ -46,9 +46,9 @@ The root keeps Node filesystem APIs out of its import graph. The `/node` store r
 | `SubagentDetail` | Describe a subagent dispatch request. |
 | `ToolDetail` | Describe an arbitrary tool request. |
 
-### `@dawn-ai/permissions/node`
+### `@b4run/permissions/node`
 
-The `/node` entry does not re-export the root. Import shared types and matching helpers from `@dawn-ai/permissions` independently.
+The `/node` entry does not re-export the root. Import shared types and matching helpers from `@b4run/permissions` independently.
 
 | Export | Responsibility |
 |---|---|
@@ -56,15 +56,15 @@ The `/node` entry does not re-export the root. Import shared types and matching 
 
 ## Key contracts
 
-```ts api-contract="@dawn-ai/permissions#.:PermissionMode"
+```ts api-contract="@b4run/permissions#.:PermissionMode"
 export type PermissionMode = "interactive" | "non-interactive" | "bypass"
 ```
 
-```ts api-contract="@dawn-ai/permissions#.:PermissionDecision"
+```ts api-contract="@b4run/permissions#.:PermissionDecision"
 export type PermissionDecision = "once" | "always" | "deny"
 ```
 
-```ts api-contract="@dawn-ai/permissions#.:PermissionsFile"
+```ts api-contract="@b4run/permissions#.:PermissionsFile"
 export interface PermissionsFile {
   readonly version: 1
   readonly allow: Readonly<Record<string, readonly string[]>>
@@ -72,7 +72,7 @@ export interface PermissionsFile {
 }
 ```
 
-**Fields: `@dawn-ai/permissions#.:PermissionsFile`**
+**Fields: `@b4run/permissions#.:PermissionsFile`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly version` | `1` | yes | Identify the current file format. |
@@ -90,7 +90,7 @@ export type PermissionRequest = PermissionRequestBase &
   )
 ```
 
-```ts api-contract="@dawn-ai/permissions#.:PermissionsStore"
+```ts api-contract="@b4run/permissions#.:PermissionsStore"
 export interface PermissionsStore {
   load(): Promise<void>
   match(tool: string, candidate: string): "allow" | "deny" | "unknown"
@@ -140,16 +140,16 @@ Non-interactive mode ignores the runtime permissions file.
 
 ### Store lifecycle and trust boundary
 
-Call and await `store.load()` before any store use, especially before `addAllow()` or other persistence. Calling `addAllow()` first can overwrite grants already present in the runtime file. In interactive mode `load()` reads `.dawn/permissions.json`; non-interactive mode uses config maps but intentionally ignores that runtime file; bypass mode returns `unknown` for every match. A malformed interactive runtime file rejects `load()`.
+Call and await `store.load()` before any store use, especially before `addAllow()` or other persistence. Calling `addAllow()` first can overwrite grants already present in the runtime file. In interactive mode `load()` reads `.b4/permissions.json`; non-interactive mode uses config maps but intentionally ignores that runtime file; bypass mode returns `unknown` for every match. A malformed interactive runtime file rejects `load()`.
 
-Only `addAllow()` persists a runtime decision. It serializes concurrent writes, creates `.dawn/permissions.json`, updates the in-memory allow map, and adds `.dawn/` to `.gitignore`. The store has no deny-write or close method. Configuration ownership remains with the caller: pass the resolved `config` and `mode` when constructing it.
+Only `addAllow()` persists a runtime decision. It serializes concurrent writes, creates `.b4/permissions.json`, updates the in-memory allow map, and adds `.b4/` to `.gitignore`. The store has no deny-write or close method. Configuration ownership remains with the caller: pass the resolved `config` and `mode` when constructing it.
 
 Patterns are policy inputs, not authentication or filesystem containment. Prefixes can be broad, and permission-map keys are open strings except for the reserved exact-match behavior described above.
 
 ## Examples and related guides
 
 ```ts
-import { createPermissionsStore } from "@dawn-ai/permissions/node"
+import { createPermissionsStore } from "@b4run/permissions/node"
 
 const store = createPermissionsStore({
   appRoot: process.cwd(),

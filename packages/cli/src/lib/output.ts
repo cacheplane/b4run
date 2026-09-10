@@ -4,16 +4,16 @@ export interface CommandIo {
   readonly stderr: (message: string) => void
 }
 
-import type { DawnErrorCode } from "@dawn-ai/sdk"
+import type { B4ErrorCode } from "@b4run/sdk"
 
 export class CliError extends Error {
   readonly exitCode: number
-  readonly code?: DawnErrorCode
+  readonly code?: B4ErrorCode
 
   constructor(
     message: string,
     exitCode = 1,
-    options?: { readonly cause?: unknown; readonly code?: DawnErrorCode },
+    options?: { readonly cause?: unknown; readonly code?: B4ErrorCode },
   ) {
     super(message, options)
     this.name = "CliError"

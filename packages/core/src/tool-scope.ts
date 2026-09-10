@@ -1,4 +1,4 @@
-import type { ToolScope } from "@dawn-ai/sdk"
+import type { ToolScope } from "@b4run/sdk"
 
 export type ToolOrigin = "authored" | "capability"
 

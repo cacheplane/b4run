@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import type { BackendContext, FilesystemBackend } from "@dawn-ai/workspace"
+import type { BackendContext, FilesystemBackend } from "@b4run/workspace"
 import type { Docker, SpawnResult } from "./docker-cli.js"
 import {
   type DockerPidExhaustionRecovery,
@@ -23,7 +23,7 @@ export function dockerFilesystem(
   opts: DockerFilesystemOptions = {},
 ): FilesystemBackend {
   const run = async (cmd: string, ctx: BackendContext, stdin?: string): Promise<SpawnResult> => {
-    const startedMarker = `__DAWN_FILESYSTEM_STARTED_${randomUUID()}__`
+    const startedMarker = `__B4_FILESYSTEM_STARTED_${randomUUID()}__`
     const startedPrefix = `${startedMarker}\n`
     const attempt = async () => {
       const result = await docker.exec(

@@ -12,7 +12,7 @@ import { expectInterrupt, expectNoInterrupt, expectToolCalled } from "../src/mat
 
 const live = Boolean(process.env.OPENAI_API_KEY)
 const probeRoot = fileURLToPath(new URL("./fixtures/probe-app", import.meta.url))
-const permissionsPath = join(probeRoot, ".dawn", "permissions.json")
+const permissionsPath = join(probeRoot, ".b4", "permissions.json")
 
 beforeEach(() => rmSync(permissionsPath, { force: true }))
 afterEach(() => rmSync(permissionsPath, { force: true }))

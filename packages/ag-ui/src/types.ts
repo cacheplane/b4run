@@ -5,25 +5,25 @@ export interface RunContext {
 }
 
 /**
- * Structural Dawn agent stream shape consumed by the canonical AG-UI mapper.
+ * Structural B4.run agent stream shape consumed by the canonical AG-UI mapper.
  * The final member permits capability-contributed chunks without coupling this
- * package to Dawn core.
+ * package to B4.run core.
  */
-export type DawnAgentStreamChunk =
+export type B4AgentStreamChunk =
   | { readonly type: "token"; readonly data: string }
-  | { readonly type: "tool_call"; readonly data: DawnToolCallData }
-  | { readonly type: "tool_result"; readonly data: DawnToolResultData }
+  | { readonly type: "tool_call"; readonly data: B4ToolCallData }
+  | { readonly type: "tool_result"; readonly data: B4ToolResultData }
   | { readonly type: "interrupt"; readonly data: unknown }
   | { readonly type: "done"; readonly data?: unknown }
   | { readonly type: string; readonly data?: unknown }
 
-export interface DawnToolCallData {
+export interface B4ToolCallData {
   readonly id?: string | undefined
   readonly name: string
   readonly input: unknown
 }
 
-export interface DawnToolResultData {
+export interface B4ToolResultData {
   readonly id?: string | undefined
   readonly name: string
   readonly output: unknown
@@ -34,7 +34,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Validates and narrows a `tool_call` chunk's `data`. Returns null if malformed. */
-export function asToolCallData(data: unknown): DawnToolCallData | null {
+export function asToolCallData(data: unknown): B4ToolCallData | null {
   if (!isRecord(data) || typeof data.name !== "string") return null
   return {
     id: typeof data.id === "string" ? data.id : undefined,
@@ -44,7 +44,7 @@ export function asToolCallData(data: unknown): DawnToolCallData | null {
 }
 
 /** Validates and narrows a `tool_result` chunk's `data`. Returns null if malformed. */
-export function asToolResultData(data: unknown): DawnToolResultData | null {
+export function asToolResultData(data: unknown): B4ToolResultData | null {
   if (!isRecord(data) || typeof data.name !== "string") return null
   return {
     id: typeof data.id === "string" ? data.id : undefined,

@@ -26,7 +26,7 @@ export interface CreateThreadInput {
 
 /**
  * The threads contract, declared structurally here rather than imported from
- * `@dawn-ai/sqlite-storage`. Identical shape, so either store satisfies the
+ * `@b4run/sqlite-storage`. Identical shape, so either store satisfies the
  * other's type — but this package's emitted `.d.ts` must not point published
  * consumers at a Node-only sqlite package to get its types.
  */

@@ -1,10 +1,10 @@
 import { ActivitySnapshotEventSchema, EventType, ToolCallResultEventSchema } from "@ag-ui/core"
 import { describe, expect, test } from "vitest"
-import { DAWN_PLAN_ACTIVITY_TYPE, DAWN_SUBAGENT_ACTIVITY_TYPE } from "../src/activities.ts"
+import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "../src/activities.ts"
 import { createCounterIdFactory } from "../src/ids.js"
 import { toAguiEvents } from "../src/outbound.js"
 import { encodeAgUiSse } from "../src/sse.js"
-import type { DawnAgentStreamChunk } from "../src/types.js"
+import type { B4AgentStreamChunk } from "../src/types.js"
 
 const CTX = { threadId: "th-1", runId: "rn-1" }
 const CHILD = {
@@ -14,7 +14,7 @@ const CHILD = {
   depth: 1,
 } as const
 
-async function collect(chunks: DawnAgentStreamChunk[]) {
+async function collect(chunks: B4AgentStreamChunk[]) {
   const out = []
   for await (const ev of toAguiEvents(toAsync(chunks), CTX, {
     idFactory: createCounterIdFactory(),
@@ -24,7 +24,7 @@ async function collect(chunks: DawnAgentStreamChunk[]) {
   return out
 }
 
-async function* toAsync(items: DawnAgentStreamChunk[]) {
+async function* toAsync(items: B4AgentStreamChunk[]) {
   for (const item of items) yield item
 }
 
@@ -190,8 +190,8 @@ describe("toAguiEvents", () => {
     const activity = events.find((event) => event.type === EventType.ACTIVITY_SNAPSHOT)
     expect(ActivitySnapshotEventSchema.parse(activity)).toEqual({
       type: EventType.ACTIVITY_SNAPSHOT,
-      messageId: "dawn:plan:rn-1",
-      activityType: DAWN_PLAN_ACTIVITY_TYPE,
+      messageId: "b4:plan:rn-1",
+      activityType: B4_PLAN_ACTIVITY_TYPE,
       replace: true,
       content: { todos },
     })
@@ -252,8 +252,8 @@ describe("toAguiEvents", () => {
     expect(activities).toEqual([
       {
         type: EventType.ACTIVITY_SNAPSHOT,
-        messageId: "dawn:subagent:call-1",
-        activityType: DAWN_SUBAGENT_ACTIVITY_TYPE,
+        messageId: "b4:subagent:call-1",
+        activityType: B4_SUBAGENT_ACTIVITY_TYPE,
         replace: true,
         content: {
           name: "researcher",
@@ -265,8 +265,8 @@ describe("toAguiEvents", () => {
       },
       {
         type: EventType.ACTIVITY_SNAPSHOT,
-        messageId: "dawn:subagent:call-1",
-        activityType: DAWN_SUBAGENT_ACTIVITY_TYPE,
+        messageId: "b4:subagent:call-1",
+        activityType: B4_SUBAGENT_ACTIVITY_TYPE,
         replace: true,
         content: {
           name: "researcher",
@@ -279,8 +279,8 @@ describe("toAguiEvents", () => {
       },
       {
         type: EventType.ACTIVITY_SNAPSHOT,
-        messageId: "dawn:subagent:call-1",
-        activityType: DAWN_SUBAGENT_ACTIVITY_TYPE,
+        messageId: "b4:subagent:call-1",
+        activityType: B4_SUBAGENT_ACTIVITY_TYPE,
         replace: true,
         content: {
           name: "researcher",
@@ -293,8 +293,8 @@ describe("toAguiEvents", () => {
       },
       {
         type: EventType.ACTIVITY_SNAPSHOT,
-        messageId: "dawn:subagent:call-1",
-        activityType: DAWN_SUBAGENT_ACTIVITY_TYPE,
+        messageId: "b4:subagent:call-1",
+        activityType: B4_SUBAGENT_ACTIVITY_TYPE,
         replace: true,
         content: {
           name: "researcher",
@@ -307,8 +307,8 @@ describe("toAguiEvents", () => {
       },
       {
         type: EventType.ACTIVITY_SNAPSHOT,
-        messageId: "dawn:subagent:call-1",
-        activityType: DAWN_SUBAGENT_ACTIVITY_TYPE,
+        messageId: "b4:subagent:call-1",
+        activityType: B4_SUBAGENT_ACTIVITY_TYPE,
         replace: true,
         content: {
           name: "researcher",
@@ -439,8 +439,8 @@ describe("toAguiEvents", () => {
     expect(activities).toHaveLength(1)
     expect(ActivitySnapshotEventSchema.parse(activities[0])).toEqual({
       type: EventType.ACTIVITY_SNAPSHOT,
-      messageId: "dawn:subagent:call-1",
-      activityType: DAWN_SUBAGENT_ACTIVITY_TYPE,
+      messageId: "b4:subagent:call-1",
+      activityType: B4_SUBAGENT_ACTIVITY_TYPE,
       replace: true,
       content: {
         name: "researcher",
@@ -499,11 +499,11 @@ describe("toAguiEvents", () => {
     expect(firstActivities).toHaveLength(3)
     expect(secondActivities).toHaveLength(2)
     expect([...firstActivities, ...secondActivities].map((event) => event.messageId)).toEqual([
-      "dawn:subagent:call-1",
-      "dawn:subagent:call-1",
-      "dawn:subagent:call-1",
-      "dawn:subagent:call-1",
-      "dawn:subagent:call-1",
+      "b4:subagent:call-1",
+      "b4:subagent:call-1",
+      "b4:subagent:call-1",
+      "b4:subagent:call-1",
+      "b4:subagent:call-1",
     ])
     expect(secondActivities.map((event) => event.content)).toEqual([
       {
@@ -634,7 +634,7 @@ describe("toAguiEvents", () => {
     expect(events.at(-2)).toEqual({ type: EventType.TEXT_MESSAGE_END, messageId: "msg-1" })
     expect(events.at(-1)).toEqual({
       type: EventType.RUN_ERROR,
-      message: "Malformed Dawn interrupt: missing interruptId",
+      message: "Malformed B4.run interrupt: missing interruptId",
     })
     expect(events.filter((event) => event.type === EventType.RUN_ERROR)).toHaveLength(1)
     expect(events.filter((event) => event.type === EventType.RUN_FINISHED)).toHaveLength(0)
@@ -693,7 +693,7 @@ describe("toAguiEvents", () => {
   })
 
   test("upstream throw is emitted as RUN_ERROR, not thrown to the consumer", async () => {
-    async function* boom(): AsyncGenerator<DawnAgentStreamChunk> {
+    async function* boom(): AsyncGenerator<B4AgentStreamChunk> {
       yield { type: "token", data: "hi" }
       throw new Error("kaboom")
     }
@@ -884,7 +884,7 @@ describe("orchestration suppression", () => {
   })
 
   test("an interrupt drops the frames of the call it belongs to via the envelope's callId", async () => {
-    // Dawn's real interrupt envelopes (permission-gate.ts, agent-adapter.ts's
+    // B4.run's real interrupt envelopes (permission-gate.ts, agent-adapter.ts's
     // projectInterruptValue) carry `callId`, not `toolCallId` — this proves
     // the mapper bridges that vocabulary end to end into the ledger.
     const events = await collect([
@@ -961,7 +961,7 @@ describe("orchestration suppression", () => {
   })
 
   test("an upstream error flushes held frames before RUN_ERROR", async () => {
-    async function* failing(): AsyncGenerator<DawnAgentStreamChunk> {
+    async function* failing(): AsyncGenerator<B4AgentStreamChunk> {
       yield { type: "tool_call", data: { id: "call_task_0_2", name: "task", input: {} } }
       throw new Error("boom")
     }

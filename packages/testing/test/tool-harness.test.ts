@@ -1,4 +1,4 @@
-import type { DawnToolContext } from "@dawn-ai/sdk"
+import type { B4ToolContext } from "@b4run/sdk"
 import { afterEach, expect, it } from "vitest"
 import { createToolHarness } from "../src/tool-harness.js"
 import { createWorkspaceHarness } from "../src/workspace-harness.js"
@@ -8,7 +8,7 @@ afterEach(async () => {
   await Promise.all(open.splice(0).map((h) => h.close()))
 })
 
-const stash = async (input: { name: string }, ctx: DawnToolContext) => {
+const stash = async (input: { name: string }, ctx: B4ToolContext) => {
   await ctx.fs.writeFile(`notes/${input.name}.md`, `# ${input.name}`)
   return { count: (await ctx.fs.listDir("notes")).length }
 }
@@ -30,7 +30,7 @@ it("invoke() is reusable and accumulates workspace state", async () => {
 
 it("passes the middleware bag to ctx.middleware", async () => {
   let seen: unknown
-  const tool = async (_input: unknown, ctx: DawnToolContext) => {
+  const tool = async (_input: unknown, ctx: B4ToolContext) => {
     seen = ctx.middleware
     return "ok"
   }

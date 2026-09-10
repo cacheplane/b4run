@@ -7,7 +7,7 @@ const OVERSIZED_REGEX_SOURCE_MESSAGE = "Regular expression source exceeds 4096 U
 const OVERSIZED_REGEX_INPUT_MESSAGE = "Regular expression input exceeds 65536 UTF-16 code units"
 const REGEX_TIMEOUT_MESSAGE = "Regular expression evaluation exceeded 100ms execution limit"
 const REGEX_TEST_SCRIPT = new Script("new RegExp(source, flags).test(input)", {
-  filename: "dawn-regex-evaluation.vm",
+  filename: "b4-regex-evaluation.vm",
 })
 
 type RegExpGetter = (this: RegExp) => unknown

@@ -8,8 +8,8 @@ export function classifyChange(relativePath: string): ChangeClassification {
     return "ignore"
   }
 
-  // Runtime state lives under .dawn/ and must never trigger a rebuild/restart.
-  if (relativePath === ".dawn" || relativePath.startsWith(".dawn/")) {
+  // Runtime state lives under .b4/ and must never trigger a rebuild/restart.
+  if (relativePath === ".b4" || relativePath.startsWith(".b4/")) {
     return "ignore"
   }
 

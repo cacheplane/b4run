@@ -21,7 +21,7 @@ import {
   isWeakSet,
 } from "node:util/types"
 
-const SNAPSHOT_DATA = Symbol.for("dawn.scenario-readonly-snapshot-data.v1")
+const SNAPSHOT_DATA = Symbol.for("b4.scenario-readonly-snapshot-data.v1")
 const NODE_INSPECT = Symbol.for("nodejs.util.inspect.custom")
 const DATE_MUTATORS = new Set<PropertyKey>([
   "setDate",

@@ -28,6 +28,6 @@ export function assertNoThreadAccessPolicy(appRoot: string, target: string): voi
       "Building it anyway would deploy every thread endpoint ungated. Remove the policy file, " +
       'or build for the "node" target, which probes it at boot.',
     1,
-    { code: "DAWN_E1005" },
+    { code: "B4_E1005" },
   )
 }

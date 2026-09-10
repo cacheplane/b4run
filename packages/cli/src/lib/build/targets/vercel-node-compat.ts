@@ -4,8 +4,8 @@ import { dirname, join, relative } from "node:path"
 
 import type { Plugin } from "esbuild"
 
-const BUILTIN_NAMESPACE = "dawn-vercel-literal-node-builtin"
-const PG_NATIVE_NAMESPACE = "dawn-vercel-optional-pg-native"
+const BUILTIN_NAMESPACE = "b4-vercel-literal-node-builtin"
+const PG_NATIVE_NAMESPACE = "b4-vercel-optional-pg-native"
 const PG_NATIVE_CLIENT_PATH = join("lib", "native", "client.js")
 
 interface PackageManifest {
@@ -58,7 +58,7 @@ async function isOptionalPgNativeImporter(importer: string): Promise<boolean> {
 /** @internal Build-only compatibility for self-contained Node Vercel bundles. */
 export function createVercelNodeCompatibilityPlugin(): Plugin {
   return {
-    name: "dawn-vercel-node-compatibility",
+    name: "b4-vercel-node-compatibility",
     setup(build) {
       build.onResolve({ filter: /^pg-native$/ }, async (args) => {
         if (args.kind !== "require-call" || !(await isOptionalPgNativeImporter(args.importer))) {

@@ -3,17 +3,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "dawn check",
+    "check": "b4 check",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dawn-ai/core": "latest",
-    "@dawn-ai/cli": "latest",
-    "@dawn-ai/langgraph": "latest",
-    "@dawn-ai/sdk": "latest"
+    "@b4run/core": "latest",
+    "@b4run/cli": "latest",
+    "@b4run/langgraph": "latest",
+    "@b4run/sdk": "latest"
   },
   "devDependencies": {
-    "@dawn-ai/config-typescript": "latest",
+    "@b4run/config-typescript": "latest",
     "@types/node": "25.6.0",
     "typescript": "7.0.2"
   }

@@ -1,4 +1,4 @@
-import type { SandboxHandle, SandboxPolicy, SandboxProvider } from "@dawn-ai/workspace"
+import type { SandboxHandle, SandboxPolicy, SandboxProvider } from "@b4run/workspace"
 
 interface Entry {
   handle?: SandboxHandle

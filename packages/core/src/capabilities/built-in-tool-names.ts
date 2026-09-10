@@ -1,5 +1,5 @@
 /**
- * Names of tools any built-in capability may contribute. Used by `dawn check`
+ * Names of tools any built-in capability may contribute. Used by `b4 check`
  * to validate a route's tools scope against the universe of names it could
  * reference (route-local tools + these). Keep in sync with the built-in
  * capability markers under capabilities/built-in/.

@@ -18,7 +18,9 @@ import {
 } from "../artifact-store.mjs"
 import { RELEASE_PAYLOAD_LIMITS } from "../limits.mjs"
 import { CANONICAL_RELEASE_PACKAGE_ORDER, canonicalManifestBytes } from "../manifest.mjs"
+import { canonicalReleaseBody } from "../metadata.mjs"
 import { canonicalReleaseRecordBytes } from "../release-record.mjs"
+import { observationForMarker } from "./support/marker-observation.mjs"
 
 const VERSION = "0.8.22"
 const SHA = "a".repeat(40)
@@ -298,13 +300,19 @@ test("the documented four-argument resolver defaults to its built-in ZIP extract
 
 test("the sparse executable dependency allowlist covers its exact local import closure", () => {
   assert.deepEqual(ARTIFACT_STORE_SPARSE_FILES, [
+    "scripts/release/adapter-normalize.mjs",
+    "scripts/release/adapters/conditional-json.mjs",
     "scripts/release/adapters/github.mjs",
     "scripts/release/adapters/http.mjs",
     "scripts/release/artifact-store.mjs",
     "scripts/release/limits.mjs",
     "scripts/release/manifest.mjs",
+    "scripts/release/metadata.mjs",
+    "scripts/release/npm-evidence.mjs",
     "scripts/release/release-record.mjs",
     "scripts/release/semver.mjs",
+    "scripts/release/smoke-result.mjs",
+    "scripts/release/terminal-records.mjs",
     "scripts/release/topology.mjs",
   ])
 })
@@ -355,6 +363,10 @@ test("production escrow accepts GitHub's main target only after exact annotated-
     size: bytes.length,
   }))
   const byId = new Map(assets.map((asset) => [asset.id, contents.get(asset.name)]))
+  const draftBody = canonicalReleaseBody({
+    marker: observationForMarker({ phase: "ESCROWED" }).release.marker,
+    manifest: null,
+  })
   const calls = []
   const runtime = createArtifactStoreGitHubRuntime({
     metadataReader: {
@@ -364,10 +376,21 @@ test("production escrow accepts GitHub's main target only after exact annotated-
           value: [
             {
               id: 44,
-              tag_name: fixture.record.tag,
+              tag_name: "untagged-opaque",
               target_commitish: "main",
               draft: true,
+              immutable: false,
               prerelease: false,
+              body: draftBody,
+            },
+            {
+              id: 45,
+              tag_name: "untagged-unrelated",
+              target_commitish: "main",
+              draft: true,
+              immutable: false,
+              prerelease: false,
+              body: `${draftBody}${draftBody}`,
             },
           ],
         }
@@ -450,6 +473,7 @@ test("production escrow rejects noncanonical targets, lightweight tags, and wron
                 tag_name: fixture.record.tag,
                 target_commitish: variation.target,
                 draft: true,
+                immutable: false,
                 prerelease: false,
               },
             ],
@@ -498,6 +522,7 @@ test("production escrow downloads share one bounded byte budget", async () => {
               tag_name: fixture.record.tag,
               target_commitish: "main",
               draft: true,
+              immutable: false,
               prerelease: false,
             },
           ],
@@ -547,6 +572,7 @@ test("escrow rejects an oversized asset from metadata before downloading it", as
               tag_name: fixture.record.tag,
               target_commitish: "main",
               draft: true,
+              immutable: false,
               prerelease: false,
             },
           ],
@@ -609,7 +635,7 @@ test("the executable rejects an oversized release record before readFile", async
 })
 
 test("materialization writes only after verification into a fresh destination", async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-artifact-materialize-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-artifact-materialize-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   const fixture = artifactFixture()
   const artifact = await loadVerifiedReleaseArtifact(fixture.inputs)
@@ -668,11 +694,11 @@ test("attestation verification binds the signer, tag, commit, repository, predic
     "verify",
     "/tmp/manifest.json",
     "--repo",
-    "cacheplane/dawnai",
+    "cacheplane/b4run",
     "--digest-alg",
     "sha256",
     "--signer-workflow",
-    "cacheplane/dawnai/.github/workflows/release.yml",
+    "cacheplane/b4run/.github/workflows/release.yml",
     "--deny-self-hosted-runners",
     "--source-digest",
     SHA,
@@ -685,7 +711,7 @@ test("attestation verification binds the signer, tag, commit, repository, predic
     buildAttestationVerificationArguments({
       source: "actions",
       target: "/tmp/manifest.json",
-      repository: "cacheplane/dawnai",
+      repository: "cacheplane/b4run",
       record,
     }),
     common,
@@ -694,7 +720,7 @@ test("attestation verification binds the signer, tag, commit, repository, predic
     buildAttestationVerificationArguments({
       source: "escrow",
       target: "/tmp/manifest.json",
-      repository: "cacheplane/dawnai",
+      repository: "cacheplane/b4run",
       record,
       bundlePath: "/tmp/manifest.json.intoto.jsonl",
     }),
@@ -702,28 +728,280 @@ test("attestation verification binds the signer, tag, commit, repository, predic
   )
 })
 
-test("the CLI attestation verifier bounds every gh child process", async () => {
+test("the CLI attestation verifier keeps the Actions path online per file with the larger budget", async () => {
   const calls = []
   const verifier = createCliAttestationVerifier({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     token: "token",
     async runGh(args, options) {
       calls.push({ args, options })
     },
   })
-  const subject = { name: "manifest.json", sha256: "b".repeat(64) }
+  const subjects = [
+    { name: "manifest.json", sha256: "b".repeat(64) },
+    { name: "b4run-core-0.8.22.tgz", sha256: "c".repeat(64) },
+  ]
   const result = await verifier.verify({
     source: "actions",
     record: artifactFixture().record,
-    subjects: [subject],
-    files: [{ name: subject.name, bytes: Buffer.from("manifest") }],
+    subjects,
+    files: subjects.map((subject) => ({ name: subject.name, bytes: Buffer.from(subject.name) })),
     bundles: [],
   })
 
-  assert.equal(result.status, "VERIFIED")
+  assert.deepEqual(result, { status: "VERIFIED", subjects })
+  assert.equal(calls.length, 2)
+  for (const call of calls) {
+    assert.ok(
+      Object.entries(process.env).every(
+        ([key, value]) => key === "GH_TOKEN" || call.options.env[key] === value,
+      ),
+    )
+    assert.equal(call.options.env.GH_TOKEN, "token")
+    assert.equal(call.options.timeout, 180_000)
+    assert.equal(call.options.killSignal, "SIGKILL")
+    assert.equal(call.args.includes("--bundle"), false)
+  }
+})
+
+test("attestation verifier snapshots explicit environment without ambient inheritance", async () => {
+  const environment = { PATH: "/reviewed/bin", HOME: "/reviewed/home", GH_TOKEN: "wrong" }
+  const calls = []
+  const verifier = createCliAttestationVerifier({
+    repository: "cacheplane/b4run",
+    token: "attestation-token",
+    environment,
+    async runGh(_args, options) {
+      calls.push({ ...options.env })
+      options.env.INJECTED = "must not persist"
+    },
+  })
+  environment.B4_RECOVERY_POLICY_TOKEN = "added after construction"
+  environment.PATH = "/changed/bin"
+  const subjects = [{ name: "manifest.json", sha256: "b".repeat(64) }]
+  for (let i = 0; i < 2; i++) {
+    const result = await verifier.verify({
+      source: "actions",
+      record: artifactFixture().record,
+      subjects,
+      files: [{ name: "manifest.json", bytes: Buffer.from("manifest") }],
+      bundles: [],
+    })
+    assert.equal(result.status, "VERIFIED")
+  }
+  assert.ok(
+    calls.every((env) => Object.keys(env).sort().join(",") === "GH_TOKEN,HOME,PATH"),
+    "child environment contains only explicit keys",
+  )
+  assert.deepEqual(
+    calls,
+    Array(2).fill({
+      PATH: "/reviewed/bin",
+      HOME: "/reviewed/home",
+      GH_TOKEN: "attestation-token",
+    }),
+  )
+})
+
+test("escrow verification runs gh once for the anchor and proves the other 21 subjects locally", async () => {
+  const escrow = escrowVerificationFixture()
+  const calls = []
+  const verifier = createCliAttestationVerifier({
+    repository: "cacheplane/b4run",
+    token: "token",
+    async runGh(args, options) {
+      calls.push({ args, options })
+    },
+  })
+
+  const result = await verifier.verify({ source: "escrow", ...escrow.input })
+
+  assert.deepEqual(result, { status: "VERIFIED", subjects: escrow.input.subjects })
+  assert.equal(escrow.input.files.length, 22)
   assert.equal(calls.length, 1)
-  assert.equal(calls[0].options.timeout, 60_000)
+  assert.equal(calls[0].options.timeout, 180_000)
   assert.equal(calls[0].options.killSignal, "SIGKILL")
+  assert.equal(path.basename(calls[0].args[2]), "manifest.json")
+  assert.equal(path.basename(calls[0].args.at(-1)), "manifest.json.intoto.jsonl")
+  assert.equal(calls[0].options.env.GH_TOKEN, "token")
+})
+
+test("escrow verification rejects a file whose digest is absent from the anchor's subjects", async () => {
+  const escrow = escrowVerificationFixture()
+  const files = escrow.input.files.map((file, index) =>
+    index === 7 ? { name: file.name, bytes: Buffer.from("tampered tarball") } : file,
+  )
+  const subjects = files.map((file) => ({
+    name: file.name,
+    sha256: createHash("sha256").update(file.bytes).digest("hex"),
+  }))
+  const verifier = createCliAttestationVerifier({
+    repository: "cacheplane/b4run",
+    token: "token",
+    async runGh() {},
+  })
+
+  const result = await verifier.verify({ source: "escrow", ...escrow.input, files, subjects })
+
+  assert.equal(result.status, "INVALID")
+  assert.deepEqual(result.subjects, [])
+  assert.match(result.reason, /not attested/u)
+  assert.ok(result.reason.includes(files[7].name))
+
+  const inconsistent = await verifier.verify({ source: "escrow", ...escrow.input, files })
+  assert.equal(inconsistent.status, "INVALID")
+  assert.match(inconsistent.reason, /subject 7 does not describe file/u)
+})
+
+test("escrow verification rejects an anchor whose subject count differs from the input", async () => {
+  const escrow = escrowVerificationFixture({ statementSubjectCount: 23 })
+  const verifier = createCliAttestationVerifier({
+    repository: "cacheplane/b4run",
+    token: "token",
+    async runGh() {},
+  })
+
+  const result = await verifier.verify({ source: "escrow", ...escrow.input })
+
+  assert.equal(result.status, "INVALID")
+  assert.deepEqual(result.subjects, [])
+  assert.match(result.reason, /23 subjects .*22/u)
+})
+
+test("escrow verification rejects an anchor subject whose name does not match the file", async () => {
+  const escrow = escrowVerificationFixture({ renameStatementSubject: 3 })
+  const verifier = createCliAttestationVerifier({
+    repository: "cacheplane/b4run",
+    token: "token",
+    async runGh() {},
+  })
+
+  const result = await verifier.verify({ source: "escrow", ...escrow.input })
+
+  assert.equal(result.status, "INVALID")
+  assert.deepEqual(result.subjects, [])
+  assert.match(result.reason, /not attested/u)
+})
+
+test("escrow verification stays INVALID when gh rejects a tampered anchor bundle", async () => {
+  const escrow = escrowVerificationFixture()
+  const tamperedStatement = JSON.parse(
+    Buffer.from(
+      JSON.parse(escrow.input.bundles[0].bytes.toString("utf8")).dsseEnvelope.payload,
+      "base64",
+    ).toString("utf8"),
+  )
+  tamperedStatement.predicate.runDetails.metadata.invocationId = "https://example.invalid/run"
+  const tamperedBundle = multiSubjectBundleBytes(escrow.input.files, {
+    statement: tamperedStatement,
+  })
+  const bundles = escrow.input.bundles.map(({ name }) => ({
+    name,
+    bytes: Buffer.from(tamperedBundle),
+  }))
+  let invoked = 0
+  const verifier = createCliAttestationVerifier({
+    repository: "cacheplane/b4run",
+    token: "token",
+    async runGh() {
+      invoked += 1
+      throw Object.assign(new Error("Command failed: gh attestation verify"), {
+        code: 1,
+        signal: null,
+        stderr: "✗ Sigstore verification failed: signature does not match payload\n",
+      })
+    },
+  })
+
+  const result = await verifier.verify({ source: "escrow", ...escrow.input, bundles })
+
+  assert.equal(invoked, 1)
+  assert.equal(result.status, "INVALID")
+  assert.deepEqual(result.subjects, [])
+  assert.match(result.reason, /exit code 1/u)
+  assert.match(result.reason, /signature does not match payload/u)
+})
+
+test("escrow verification rejects a bundle that is not byte-identical to the anchor", async () => {
+  const escrow = escrowVerificationFixture()
+  const bundles = escrow.input.bundles.map((bundle, index) =>
+    index === 5 ? { name: bundle.name, bytes: Buffer.from("different bundle") } : bundle,
+  )
+  const verifier = createCliAttestationVerifier({
+    repository: "cacheplane/b4run",
+    token: "token",
+    async runGh() {},
+  })
+
+  const result = await verifier.verify({ source: "escrow", ...escrow.input, bundles })
+
+  assert.equal(result.status, "INVALID")
+  assert.match(result.reason, /anchor/u)
+})
+
+test("attestation verification failures report the exit code, signal, and redacted stderr", async () => {
+  const escrow = escrowVerificationFixture()
+  const leaked = `ghp_${"A".repeat(30)}`
+  const timedOut = createCliAttestationVerifier({
+    repository: "cacheplane/b4run",
+    token: leaked,
+    async runGh() {
+      throw Object.assign(new Error("spawnSync gh SIGKILL"), {
+        killed: true,
+        code: null,
+        signal: "SIGKILL",
+        stdout: "",
+        stderr: `Loading trusted root from Sigstore TUF repository... token ${leaked}\n`,
+      })
+    },
+  })
+  const timeoutResult = await timedOut.verify({ source: "escrow", ...escrow.input })
+  assert.equal(timeoutResult.status, "INVALID")
+  assert.deepEqual(timeoutResult.subjects, [])
+  assert.match(timeoutResult.reason, /signal SIGKILL/u)
+  assert.match(timeoutResult.reason, /timed out after 180000ms/u)
+  assert.match(timeoutResult.reason, /\[redacted\]/u)
+  assert.equal(timeoutResult.reason.includes(leaked), false)
+  assert.equal(timeoutResult.reason.includes("ghp_"), false)
+
+  const jwt =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+  const dotted = createCliAttestationVerifier({
+    repository: "cacheplane/b4run",
+    token: "token",
+    async runGh() {
+      throw Object.assign(new Error("Command failed"), {
+        code: 1,
+        signal: null,
+        stderr: `bundle rejected: v1.${jwt} via registry.npmjs.org`,
+      })
+    },
+  })
+  const dottedResult = await dotted.verify({ source: "escrow", ...escrow.input })
+  assert.equal(dottedResult.status, "INVALID")
+  assert.equal(
+    dottedResult.reason.includes("eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ"),
+    false,
+  )
+  assert.match(dottedResult.reason, /v1\.\[redacted\] via registry\.npmjs\.org/u)
+
+  const failed = createCliAttestationVerifier({
+    repository: "cacheplane/b4run",
+    token: "token",
+    async runGh() {
+      throw Object.assign(new Error("Command failed"), {
+        code: 2,
+        signal: null,
+        stderr: `${"x".repeat(5_000)}\u0007Bearer secret-value`,
+      })
+    },
+  })
+  const failedResult = await failed.verify({ source: "actions", ...escrow.input, bundles: [] })
+  assert.equal(failedResult.status, "INVALID")
+  assert.match(failedResult.reason, /exit code 2/u)
+  assert.ok(failedResult.reason.length <= 2_048 + 128)
+  assert.equal(failedResult.reason.includes("\u0007"), false)
+  assert.equal(failedResult.reason.includes("secret-value"), false)
 })
 
 test("artifact metadata and extracted files reject accessors without invoking them", async () => {
@@ -1016,4 +1294,70 @@ function storedZip(files) {
   end.writeUInt32LE(centralSize, 12)
   end.writeUInt32LE(centralOffset, 16)
   return Buffer.concat([...locals, ...centrals, end])
+}
+
+function escrowVerificationFixture({ statementSubjectCount, renameStatementSubject } = {}) {
+  const names = [
+    "manifest.json",
+    ...CANONICAL_RELEASE_PACKAGE_ORDER.map((name) => filenameFor(name)),
+  ]
+  const files = names.map((name) => ({ name, bytes: Buffer.from(`escrow-bytes:${name}`) }))
+  const subjects = files.map((file) => ({
+    name: file.name,
+    sha256: createHash("sha256").update(file.bytes).digest("hex"),
+  }))
+  let statementSubjects = subjects.map((subject) => ({
+    name: subject.name,
+    digest: { sha256: subject.sha256 },
+  }))
+  if (statementSubjectCount !== undefined) {
+    statementSubjects = Array.from({ length: statementSubjectCount }, (_, index) =>
+      index < statementSubjects.length
+        ? statementSubjects[index]
+        : { name: `extra-${index}.tgz`, digest: { sha256: "d".repeat(64) } },
+    )
+  }
+  if (renameStatementSubject !== undefined) {
+    statementSubjects = statementSubjects.map((subject, index) =>
+      index === renameStatementSubject ? { ...subject, name: "renamed.tgz" } : subject,
+    )
+  }
+  const bundleBytes = multiSubjectBundleBytes(files, { subjects: statementSubjects })
+  const bundles = files.map((file) => ({
+    name: `${file.name}.intoto.jsonl`,
+    bytes: Buffer.from(bundleBytes),
+  }))
+  return { input: { record: artifactFixture().record, subjects, files, bundles } }
+}
+
+function multiSubjectBundleBytes(files, { subjects, statement } = {}) {
+  const resolvedStatement = statement ?? {
+    _type: "https://in-toto.io/Statement/v1",
+    subject:
+      subjects ??
+      files.map((file) => ({
+        name: file.name,
+        digest: { sha256: createHash("sha256").update(file.bytes).digest("hex") },
+      })),
+    predicateType: "https://slsa.dev/provenance/v1",
+    predicate: {
+      runDetails: {
+        metadata: {
+          invocationId: "https://github.com/cacheplane/b4run/actions/runs/1/attempts/1",
+        },
+      },
+    },
+  }
+  return Buffer.from(
+    `${JSON.stringify({
+      mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json",
+      dsseEnvelope: {
+        payloadType: "application/vnd.in-toto+json",
+        payload: Buffer.from(JSON.stringify(resolvedStatement), "utf8").toString("base64"),
+        signatures: [{ sig: Buffer.from("signature", "utf8").toString("base64") }],
+      },
+      verificationMaterial: {},
+    })}\n`,
+    "utf8",
+  )
 }

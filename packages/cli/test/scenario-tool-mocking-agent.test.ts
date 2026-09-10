@@ -11,8 +11,8 @@ import { run } from "../src/index.js"
 const SDK_TESTING_URL = pathToFileURL(
   resolve(import.meta.dirname, "../../sdk/dist/testing/index.js"),
 ).href
-const REAL_SEARCH_CALLS = "__dawnScenarioRealSearchCalls"
-const CHILD_LOOKUP_CALLS = "__dawnScenarioChildLookupCalls"
+const REAL_SEARCH_CALLS = "__b4ScenarioRealSearchCalls"
+const CHILD_LOOKUP_CALLS = "__b4ScenarioChildLookupCalls"
 
 const tempDirs: string[] = []
 const mocks: Array<{ close: () => Promise<void> }> = []
@@ -37,16 +37,16 @@ afterEach(async () => {
 
 describe("scenario tool mocking for agents", () => {
   test("runs an agent with a mocked application tool", async () => {
-    const userInput = "research Dawn"
+    const userInput = "research B4.run"
     const aimock = await startAimock(
       script()
         .user(userInput)
-        .callsTool("searchWeb", { query: "Dawn" })
+        .callsTool("searchWeb", { query: "B4.run" })
         .replies("The mocked search result was received.")
         .build(),
     )
     const appRoot = await createFixtureApp({
-      "src/app/research/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "src/app/research/index.ts": `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -81,24 +81,24 @@ export default scenarios("/research").scenario("mocked search passes", (s) =>
     expect(result.stdout).toContain("PASS mocked search passes")
     expect(result.stdout).toContain("Summary: 1 passed, 0 failed")
     expect((globalThis as Record<string, unknown>)[REAL_SEARCH_CALLS] ?? 0).toBe(0)
-    expect(JSON.stringify(aimock.getRequests())).toContain("mock-result:Dawn")
+    expect(JSON.stringify(aimock.getRequests())).toContain("mock-result:B4.run")
   }, 30_000)
 
   test("does not propagate a parent mock to a same-name subagent tool", async () => {
     const parentInput = "delegate the lookup"
-    const childInput = "look up the Dawn record"
+    const childInput = "look up the B4.run record"
     const aimock = await startAimock(
       script()
         .user(parentInput)
         .callsTool("task", { input: childInput, subagent: "researcher" })
         .replies("The delegated lookup is complete.")
         .user(childInput)
-        .callsTool("lookup", { key: "dawn" })
+        .callsTool("lookup", { key: "b4" })
         .replies("The child lookup is complete.")
         .build(),
     )
     const appRoot = await createFixtureApp({
-      "src/app/coordinator/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "src/app/coordinator/index.ts": `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -119,7 +119,7 @@ export default scenarios("/coordinator").scenario("parent mock stays isolated", 
   source: "parent-real",
 })
 `,
-      "src/app/coordinator/subagents/researcher/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "src/app/coordinator/subagents/researcher/index.ts": `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -143,16 +143,16 @@ export default agent({
     expect(result.stdout).toContain("PASS parent mock stays isolated")
     expect(result.stdout).toContain("Summary: 1 passed, 0 failed")
     expect((globalThis as Record<string, unknown>)[CHILD_LOOKUP_CALLS]).toBe(1)
-    expect(JSON.stringify(aimock.getRequests())).toContain("child-real:dawn")
+    expect(JSON.stringify(aimock.getRequests())).toContain("child-real:b4")
   }, 30_000)
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-scenario-agent-mocking-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-scenario-agent-mocking-"))
   tempDirs.push(appRoot)
   const allFiles = {
     "package.json": '{ "type": "module" }\n',
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     ...files,
   }
 

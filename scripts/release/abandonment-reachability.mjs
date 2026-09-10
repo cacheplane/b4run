@@ -7,6 +7,9 @@ import { snapshotJson } from "./adapter-normalize.mjs"
 
 const ENVIRONMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,254}$/u
 const DISABLED_INPUTS = Object.freeze(["version", "commitSha", "operation"])
+// The reviewed current B4.run disabled workflow additionally carries the default-false
+// first-publication boolean; it still exposes no abandonment job or operation.
+const B4_DISABLED_INPUTS = Object.freeze(["version", "commitSha", "operation", "npmBootstrap"])
 const DISABLED_OPERATION_OPTIONS = Object.freeze(["reconcile"])
 const PROTECTED_INPUTS = Object.freeze(["version", "commitSha", "operation", "reason"])
 const PROTECTED_OPERATION_OPTIONS = Object.freeze(["reconcile", "abandon"])
@@ -96,6 +99,39 @@ const DISABLED_ROUTE_STEP = Object.freeze({
     'WORKFLOW_PATH=".github/workflows/release.yml"',
     'WORKFLOW_ID="$(node -e \'process.stdout.write(encodeURIComponent(process.argv[1]))\' "$WORKFLOW_PATH")"',
     'BODY="$(node -e \'process.stdout.write(JSON.stringify({ref:"v"+process.env.VERSION,inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,operation:"reconcile"}}))\')"',
+    'STATUS="$(curl --silent --show-error --output "$RUNNER_TEMP/dispatch.json" --write-out \'%{http_code}\' \\',
+    "  --request POST \\",
+    "  --header 'Accept: application/vnd.github+json' \\",
+    '  --header "Authorization: Bearer $GITHUB_TOKEN" \\',
+    "  --header 'X-GitHub-Api-Version: 2026-03-10' \\",
+    '  "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_ID/dispatches" \\',
+    '  --data "$BODY")"',
+    'test "$STATUS" = "200"',
+    "printf 'continue=false\\n' >> \"$GITHUB_OUTPUT\"",
+    "",
+  ].join("\n"),
+})
+
+const B4_DISABLED_ROUTE_STEP = Object.freeze({
+  name: "Continue at the exact tag or relay once",
+  id: "route",
+  env: Object.freeze({
+    GITHUB_TOKEN: workflowExpression("github.token"),
+    VERSION: workflowExpression("needs.detect.outputs.candidate_version"),
+    COMMIT_SHA: workflowExpression("needs.detect.outputs.candidate_sha"),
+    NPM_BOOTSTRAP: workflowExpression("inputs.npmBootstrap"),
+  }),
+  run: [
+    'if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" &&',
+    '      "$GITHUB_REF" == "refs/tags/v' + shellVariable("VERSION") + '" &&',
+    '      "$GITHUB_SHA" == "$COMMIT_SHA" ]]; then',
+    "  printf 'continue=true\\n' >> \"$GITHUB_OUTPUT\"",
+    "  exit 0",
+    "fi",
+    "",
+    'WORKFLOW_PATH=".github/workflows/release.yml"',
+    'WORKFLOW_ID="$(node -e \'process.stdout.write(encodeURIComponent(process.argv[1]))\' "$WORKFLOW_PATH")"',
+    'BODY="$(node -e \'process.stdout.write(JSON.stringify({ref:"v"+process.env.VERSION,inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,operation:"reconcile",npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}}))\')"',
     'STATUS="$(curl --silent --show-error --output "$RUNNER_TEMP/dispatch.json" --write-out \'%{http_code}\' \\',
     "  --request POST \\",
     "  --header 'Accept: application/vnd.github+json' \\",
@@ -209,13 +245,13 @@ function classifyTopology(workflow, abandonmentEnvironment) {
   const inputs = requiredRecord(dispatch.inputs)
   const jobs = requiredRecord(workflow.jobs)
   const tag = requiredConcreteJob(jobs.tag)
-  const mode = classifyInputs(inputs)
-  if (mode === "disabled") {
-    assertDisabledTopology(jobs, tag)
-    return mode
+  const shape = classifyInputs(inputs)
+  if (shape.mode === "disabled") {
+    assertDisabledTopology(jobs, tag, shape.routeStep)
+    return shape.mode
   }
   assertProtectedTopology(jobs, tag, abandonmentEnvironment)
-  return mode
+  return shape.mode
 }
 
 function classifyInputs(inputs) {
@@ -224,16 +260,30 @@ function classifyInputs(inputs) {
     assertIdentityInput(inputs.version)
     assertIdentityInput(inputs.commitSha)
     assertOperationInput(inputs.operation, DISABLED_OPERATION_OPTIONS)
-    return "disabled"
+    return { mode: "disabled", routeStep: DISABLED_ROUTE_STEP }
+  }
+  if (sameStringSets(names, B4_DISABLED_INPUTS)) {
+    assertIdentityInput(inputs.version)
+    assertIdentityInput(inputs.commitSha)
+    assertOperationInput(inputs.operation, DISABLED_OPERATION_OPTIONS)
+    assertBootstrapInput(inputs.npmBootstrap)
+    return { mode: "disabled", routeStep: B4_DISABLED_ROUTE_STEP }
   }
   if (sameStringSets(names, PROTECTED_INPUTS)) {
     assertIdentityInput(inputs.version)
     assertIdentityInput(inputs.commitSha)
     assertOperationInput(inputs.operation, PROTECTED_OPERATION_OPTIONS)
     assertReasonInput(inputs.reason)
-    return "protected"
+    return { mode: "protected", routeStep: PROTECTED_ROUTE_STEP }
   }
   throw invalidTopology()
+}
+
+function assertBootstrapInput(value) {
+  assertInputDescriptor(value, ["description", "required", "type", "default"])
+  if (value.required !== false || value.type !== "boolean" || value.default !== false) {
+    throw invalidTopology()
+  }
 }
 
 function assertIdentityInput(value) {
@@ -269,11 +319,11 @@ function assertInputDescriptor(value, fields) {
   }
 }
 
-function assertDisabledTopology(jobs, tag) {
+function assertDisabledTopology(jobs, tag, routeStep) {
   if (
     Object.hasOwn(jobs, "abandon") ||
     tag.steps.length !== 5 ||
-    !sameValue(tag.steps[4], DISABLED_ROUTE_STEP)
+    !sameValue(tag.steps[4], routeStep)
   ) {
     throw invalidTopology()
   }

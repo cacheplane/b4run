@@ -1,23 +1,23 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { MemoryStore } from "@dawn-ai/memory"
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import type { Thread, ThreadsStore } from "@dawn-ai/sqlite-storage"
-import type { FilesystemBackend } from "@dawn-ai/workspace"
+import type { MemoryStore } from "@b4run/memory"
+import type { PermissionsStore } from "@b4run/permissions"
+import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
+import type { FilesystemBackend } from "@b4run/workspace"
 
 import { script } from "../../../testing/dist/index.js"
 import { cleanup } from "./static-modules-fixture.js"
 
 /** A one-route agent app — the smallest thing the bundled runtime can serve. */
 export async function chatFixtureApp(): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-fetch-entry-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-fetch-entry-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "fetch-entry-fixture", "type": "module" }\n',
     "src/app/chat/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\n' +
+      'import { agent } from "@b4run/sdk"\n' +
       "export default agent({\n" +
       '  model: "gpt-5-mini",\n' +
       '  systemPrompt: "You are terse.",\n' +

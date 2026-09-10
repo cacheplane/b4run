@@ -10,10 +10,10 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      // Subpath alias only — the bare "@dawn-ai/memory" specifier must stay resolving
+      // Subpath alias only — the bare "@b4run/memory" specifier must stay resolving
       // to the built package (its barrel pulls node:sqlite and has no business in a
       // jsdom project). Mirrors packages/cli/vitest.config.ts:18-20.
-      "@dawn-ai/memory/browse": resolve(rootDir, "../memory/src/browse.ts"),
+      "@b4run/memory/browse": resolve(rootDir, "../memory/src/browse.ts"),
     },
   },
   test: {

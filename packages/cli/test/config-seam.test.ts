@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { __clearDawnConfigCacheForTests, loadDawnConfig } from "@dawn-ai/core"
+import { __clearB4ConfigCacheForTests, loadB4Config } from "@b4run/core"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
@@ -12,23 +12,23 @@ const cleanup: Array<() => Promise<void> | void> = []
 // worker — always clear what we seed, on both sides, so a leaked entry can
 // never poison (or be poisoned by) another suite.
 beforeEach(() => {
-  __clearDawnConfigCacheForTests()
-  delete (globalThis as { __dawnConfigImported?: boolean }).__dawnConfigImported
+  __clearB4ConfigCacheForTests()
+  delete (globalThis as { __b4ConfigImported?: boolean }).__b4ConfigImported
 })
 
 afterEach(async () => {
   for (const fn of cleanup.splice(0).reverse()) await fn()
-  __clearDawnConfigCacheForTests()
+  __clearB4ConfigCacheForTests()
 })
 
 async function fixtureApp(): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-config-seam-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-config-seam-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
     // The global is a side-effect marker: it flips to true if (and only if)
     // the on-disk config module is ever imported.
-    "dawn.config.ts":
-      ";(globalThis as { __dawnConfigImported?: boolean }).__dawnConfigImported = true\n" +
+    "b4.config.ts":
+      ";(globalThis as { __b4ConfigImported?: boolean }).__b4ConfigImported = true\n" +
       'export default { permissions: { mode: "bypass" } }\n',
     "package.json": '{ "name": "config-seam-fixture", "type": "module" }\n',
     "src/app/probe/index.ts": "export const workflow = async (_input: unknown) => ({ ok: true })\n",
@@ -42,7 +42,7 @@ async function fixtureApp(): Promise<string> {
 }
 
 describe("createRuntimeFetchHandler — config seam", () => {
-  it("a supplied config is seeded before boot and beats the dawn.config.ts on disk", async () => {
+  it("a supplied config is seeded before boot and beats the b4.config.ts on disk", async () => {
     const appRoot = await fixtureApp()
 
     const handler = await createRuntimeFetchHandler({
@@ -54,24 +54,24 @@ describe("createRuntimeFetchHandler — config seam", () => {
     // The memo is process-global — a seeded entry resolving here IS the
     // seam's contract: every resolver that ran during boot saw this object,
     // and the on-disk `permissions.mode: "bypass"` was never read.
-    const loaded = await loadDawnConfig({ appRoot })
+    const loaded = await loadB4Config({ appRoot })
     expect(loaded.configPath).toBe("<seeded>")
     expect(loaded.config.permissions?.mode).toBe("non-interactive")
     // Seed-BEFORE-resolvers ordering: the on-disk config module was never
     // imported during boot, so its side-effect marker never fired.
-    expect((globalThis as { __dawnConfigImported?: boolean }).__dawnConfigImported).toBeUndefined()
+    expect((globalThis as { __b4ConfigImported?: boolean }).__b4ConfigImported).toBeUndefined()
   })
 
-  it("without a config option, boot loads dawn.config.ts from disk (control)", async () => {
+  it("without a config option, boot loads b4.config.ts from disk (control)", async () => {
     const appRoot = await fixtureApp()
 
     const handler = await createRuntimeFetchHandler({ appRoot })
     cleanup.push(() => handler.close())
 
-    const loaded = await loadDawnConfig({ appRoot })
-    expect(loaded.configPath).toBe(join(appRoot, "dawn.config.ts"))
+    const loaded = await loadB4Config({ appRoot })
+    expect(loaded.configPath).toBe(join(appRoot, "b4.config.ts"))
     expect(loaded.config.permissions?.mode).toBe("bypass")
     // Control for the marker: the dynamic path DID import the disk module.
-    expect((globalThis as { __dawnConfigImported?: boolean }).__dawnConfigImported).toBe(true)
+    expect((globalThis as { __b4ConfigImported?: boolean }).__b4ConfigImported).toBe(true)
   })
 })

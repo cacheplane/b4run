@@ -1,6 +1,12 @@
 import assert from "node:assert/strict"
+import { execFile } from "node:child_process"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import test from "node:test"
-import { runRuntimeTargetsSmoke } from "../smoke/runtime-targets.mjs"
+import { promisify } from "node:util"
+import { nodeRuntimeProbeSource, runRuntimeTargetsSmoke } from "../smoke/runtime-targets.mjs"
+import { assertStrictSmokeCommandOptions } from "../smoke-process-runner.mjs"
 import { parseSmokeResult } from "../smoke-result.mjs"
 
 const options = Object.freeze({
@@ -8,6 +14,66 @@ const options = Object.freeze({
   commitSha: "a".repeat(40),
   manifestSha256: "b".repeat(64),
   result: "/results/runtime-targets.json",
+})
+
+const execFileAsync = promisify(execFile)
+
+async function writeStubPackage(root, name, source, exportsMap) {
+  const dir = join(root, "node_modules", ...name.split("/"))
+  await mkdir(dir, { recursive: true })
+  await writeFile(
+    join(dir, "package.json"),
+    JSON.stringify({ name, version: "0.0.0", type: "module", exports: exportsMap }),
+    "utf8",
+  )
+  await writeFile(join(dir, "index.js"), source, "utf8")
+}
+
+async function runNodeRuntimeProbe(graphAdapterSource) {
+  const root = await mkdtemp(join(tmpdir(), "b4-runtime-probe-"))
+  try {
+    await writeFile(join(root, "package.json"), JSON.stringify({ type: "module" }), "utf8")
+    await writeStubPackage(root, "@b4run/sdk", "export const agent = () => {}", "./index.js")
+    await writeStubPackage(root, "@b4run/ag-ui", "export const toAguiEvents = () => {}", {
+      ".": "./index.js",
+    })
+    await writeStubPackage(root, "@b4run/core", "export const discoverRoutes = () => {}", {
+      "./node": "./index.js",
+    })
+    await writeStubPackage(root, "@b4run/langgraph", graphAdapterSource, "./index.js")
+    await writeFile(join(root, "node-runtime.mjs"), nodeRuntimeProbeSource(), "utf8")
+    await execFileAsync(process.execPath, ["node-runtime.mjs"], { cwd: root })
+    return { ok: true, stderr: "" }
+  } catch (error) {
+    return { ok: false, stderr: String(error.stderr ?? error.message) }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+}
+
+test("node runtime probe accepts the shipped backend-adapter shape of graphAdapter", async () => {
+  const shipped = await runNodeRuntimeProbe(
+    'export const graphAdapter = { kind: "graph", execute: async () => {}, stream: async function* () {} }',
+  )
+  assert.equal(shipped.ok, true, shipped.stderr)
+})
+
+test("node runtime probe rejects a graphAdapter that loses its backend-adapter contract", async () => {
+  const asFunction = await runNodeRuntimeProbe("export const graphAdapter = () => {}")
+  assert.equal(asFunction.ok, false)
+  assert.match(asFunction.stderr, /graphAdapter must be a backend adapter object/u)
+
+  const wrongKind = await runNodeRuntimeProbe(
+    'export const graphAdapter = { kind: "workflow", execute: async () => {}, stream: async function* () {} }',
+  )
+  assert.equal(wrongKind.ok, false)
+  assert.match(wrongKind.stderr, /graphAdapter must declare the graph backend kind/u)
+
+  const missingStream = await runNodeRuntimeProbe(
+    'export const graphAdapter = { kind: "graph", execute: async () => {} }',
+  )
+  assert.equal(missingStream.ok, false)
+  assert.match(missingStream.stderr, /graphAdapter\.stream must be a function/u)
 })
 
 test("installs exact public packages and runs Node plus edge-target bundle/import probes", async () => {
@@ -35,8 +101,8 @@ test("installs exact public packages and runs Node plus edge-target bundle/impor
   })
 
   const install = commands.find(({ command, args }) => command === "npm" && args[0] === "install")
-  assert.equal(install.args.includes("@dawn-ai/sdk@0.8.22"), true)
-  assert.equal(install.args.includes("@dawn-ai/postgres-storage@0.8.22"), true)
+  assert.equal(install.args.includes("@b4run/sdk@0.8.22"), true)
+  assert.equal(install.args.includes("@b4run/postgres-storage@0.8.22"), true)
   assert.equal(
     install.args.some((arg) => /workspace:|file:/u.test(arg)),
     false,
@@ -110,7 +176,10 @@ function fakeStrictRunner(runCommand) {
     async probe() {
       return { adapter: "systemd-cgroup-v2", imageOS: "ubuntu24", imageVersion: "test" }
     },
-    runCommand,
+    async runCommand(command, args, options = {}) {
+      assertStrictSmokeCommandOptions(options)
+      return await runCommand(command, args, options)
+    },
   }
 }
 

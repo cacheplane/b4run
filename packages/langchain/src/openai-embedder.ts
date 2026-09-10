@@ -1,5 +1,5 @@
-import type { Embedder } from "@dawn-ai/core"
-import { readRuntimeEnv } from "@dawn-ai/core"
+import type { Embedder } from "@b4run/core"
+import { readRuntimeEnv } from "@b4run/core"
 
 const DIMS: Record<string, number> = {
   "text-embedding-3-small": 1536,
@@ -23,7 +23,7 @@ export function openaiEmbedder(opts?: {
           embedDocuments(t: string[]): Promise<number[][]>
         }
         // Same load-bearing knob as `createChatModel`. This module is not on
-        // the `@dawn-ai/cli/fetch` graph today (vector recall pulls it in only
+        // the `@b4run/cli/fetch` graph today (vector recall pulls it in only
         // when configured), so the gate below would not have caught it — but it
         // is the same latent edge crash, fixed the same way.
         const baseURL = readRuntimeEnv("OPENAI_BASE_URL")

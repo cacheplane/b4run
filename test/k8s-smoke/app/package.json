@@ -1,17 +1,17 @@
 {
-  "name": "dawn-smoke-app",
+  "name": "b4-smoke-app",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "dawn build",
-    "dev": "dawn dev"
+    "build": "b4 build",
+    "dev": "b4 dev"
   },
   "dependencies": {
-    "@dawn-ai/cli": "*",
-    "@dawn-ai/core": "*",
-    "@dawn-ai/langchain": "*",
-    "@dawn-ai/sandbox": "*",
-    "@dawn-ai/sdk": "*",
+    "@b4run/cli": "*",
+    "@b4run/core": "*",
+    "@b4run/langchain": "*",
+    "@b4run/sandbox": "*",
+    "@b4run/sdk": "*",
     "zod": "^4.0.0"
   }
 }

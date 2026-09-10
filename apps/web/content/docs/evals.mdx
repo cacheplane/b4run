@@ -1,18 +1,18 @@
 # Evals
 
-Scenario tests and `@dawn-ai/testing` pin down behaviour: given this input and these fixtures, the agent calls this tool and says this. They answer "is it correct?" for a handful of cases. Evals answer a different question — "how good is it?" — by running your agent over a whole **dataset** and scoring each output, then aggregating the scores into a single verdict you can **gate** on.
+Scenario tests and `@b4run/testing` pin down behaviour: given this input and these fixtures, the agent calls this tool and says this. They answer "is it correct?" for a handful of cases. Evals answer a different question — "how good is it?" — by running your agent over a whole **dataset** and scoring each output, then aggregating the scores into a single verdict you can **gate** on.
 
 Use evals when you want a quality bar that survives prompt edits, model swaps, and refactors: a number that goes up or down across a dataset, with an optional threshold that fails CI when quality regresses.
 
-Evals make the agent run deterministic by default. Like `@dawn-ai/testing`, each case replays pre-written **aimock** fixtures, so the agent's model call is replaced while your tools, prompts, capabilities, and state run normally. Scorers still execute after the replayed run; deterministic scorers are CI-safe, and model-graded scorers such as `llmJudge` are CI-safe when their chat-completions requests are fixture-backed or mocked. A separate `dawn eval --live` mode runs the real model locally when you want to measure against actual model output.
+Evals make the agent run deterministic by default. Like `@b4run/testing`, each case replays pre-written **aimock** fixtures, so the agent's model call is replaced while your tools, prompts, capabilities, and state run normally. Scorers still execute after the replayed run; deterministic scorers are CI-safe, and model-graded scorers such as `llmJudge` are CI-safe when their chat-completions requests are fixture-backed or mocked. A separate `b4 eval --live` mode runs the real model locally when you want to measure against actual model output.
 
 ## Install
 
 ```bash
-pnpm add -D @dawn-ai/evals @dawn-ai/testing
+pnpm add -D @b4run/evals @b4run/testing
 ```
 
-`@dawn-ai/evals` provides `defineEval` and the scorers; `@dawn-ai/testing` provides `script()` and the harness the `dawn eval` command drives.
+`@b4run/evals` provides `defineEval` and the scorers; `@b4run/testing` provides `script()` and the harness the `b4 eval` command drives.
 
 ## The `*.eval.ts` convention
 
@@ -25,13 +25,13 @@ src/app/chat/
     quality.eval.ts
 ```
 
-`dawn eval` discovers `src/app/<route>/evals/*.eval.ts` the same way `dawn test` discovers `run.test.ts`. An eval co-located under a route directory binds to that route automatically; the `route` field is only needed when the file lives elsewhere.
+`b4 eval` discovers `src/app/<route>/evals/*.eval.ts` the same way `b4 test` discovers `run.test.ts`. An eval co-located under a route directory binds to that route automatically; the `route` field is only needed when the file lives elsewhere.
 
 ## `defineEval`
 
 ```ts title="src/app/chat/evals/quality.eval.ts"
-import { contains, defineEval } from "@dawn-ai/evals"
-import { script } from "@dawn-ai/testing"
+import { contains, defineEval } from "@b4run/evals"
+import { script } from "@b4run/testing"
 
 export default defineEval({
   name: "chat quality",
@@ -96,7 +96,7 @@ Each built-in takes an optional `{ threshold }` — its own pass bar, used by `g
 For anything custom, write your own:
 
 ```ts
-import { custom, llmJudge } from "@dawn-ai/evals"
+import { custom, llmJudge } from "@b4run/evals"
 
 // Arbitrary scoring logic
 custom((run, testCase) => (run.finalMessage.length < 200 ? 1 : 0), { name: "concise" })
@@ -109,14 +109,14 @@ llmJudge({
 })
 ```
 
-`custom((run, testCase) => Score | Promise<Score>)` gives you the full run result and case. `llmJudge` asks a model to grade the output against `criteria` (which interpolates `{{input}}`, `{{expected}}`, `{{output}}`) and returns `{ score, reason }`. The scorer sends a chat-completions request whenever it runs. In Dawn CLI replay, that request goes through aimock and can be satisfied by fixtures; in live, record, or unmocked programmatic runs, it needs model credentials unless you inject a mocked `fetchImpl`.
+`custom((run, testCase) => Score | Promise<Score>)` gives you the full run result and case. `llmJudge` asks a model to grade the output against `criteria` (which interpolates `{{input}}`, `{{expected}}`, `{{output}}`) and returns `{ score, reason }`. The scorer sends a chat-completions request whenever it runs. In B4.run CLI replay, that request goes through aimock and can be satisfied by fixtures; in live, record, or unmocked programmatic runs, it needs model credentials unless you inject a mocked `fetchImpl`.
 
 ## Gating
 
 After every case is scored, a **gate** turns the aggregated scores into pass/fail. Gate policies compose via the `gate` helper:
 
 ```ts
-import { gate } from "@dawn-ai/evals"
+import { gate } from "@b4run/evals"
 
 gate: gate.mean(0.8)        // dataset-wide mean ≥ 0.8
 gate: gate.passRate(0.9)    // ≥ 90% of cases pass (every scorer met its bar)
@@ -139,23 +139,23 @@ If you set neither `gate` nor `threshold`, the eval is **informational**: it alw
 
 Evals use the same aimock fixture system as agent tests — see [Fixtures and Recording](/docs/testing-agents/fixtures) for how fixtures, `script()`, and replay-vs-live mode work, and why live runs must never touch CI.
 
-By default `dawn eval` runs in **replay** mode: each case replays its `fixtures` (a `script()` builder inline on the case, or a committed fixture file) through aimock, so the agent's model call is replaced. This is the mode to run in CI. If the eval includes `llmJudge`, the scorer still runs during replay, so include a fixture for its judge request or inject a mocked `fetchImpl`.
+By default `b4 eval` runs in **replay** mode: each case replays its `fixtures` (a `script()` builder inline on the case, or a committed fixture file) through aimock, so the agent's model call is replaced. This is the mode to run in CI. If the eval includes `llmJudge`, the scorer still runs during replay, so include a fixture for its judge request or inject a mocked `fetchImpl`.
 
 ```bash
-dawn eval
+b4 eval
 ```
 
 Pass `--live` to run the real model locally instead:
 
 ```bash
-dawn eval --live
+b4 eval --live
 ```
 
 Live mode ignores per-case fixtures and calls the actual provider. It requires `OPENAI_API_KEY` and is meant for local runs while you tune prompts — never wire it into CI.
 
 ### Recording fixtures with `--record`
 
-`dawn eval --record` runs the suite against the real model (requires `OPENAI_API_KEY`; never run in CI) and writes agent-run request fixtures you can replay later. For each case that has no inline `script()` fixtures, it writes a sibling file `<evalBasename>.<caseSlug>.fixtures.json` next to the `.eval.ts`. A plain `dawn eval` then auto-loads those files, so the agent run stays deterministic in CI without any code changes.
+`b4 eval --record` runs the suite against the real model (requires `OPENAI_API_KEY`; never run in CI) and writes agent-run request fixtures you can replay later. For each case that has no inline `script()` fixtures, it writes a sibling file `<evalBasename>.<caseSlug>.fixtures.json` next to the `.eval.ts`. A plain `b4 eval` then auto-loads those files, so the agent run stays deterministic in CI without any code changes.
 
 Recording snapshots only the agent run; it does not add scorer model calls to that sibling file. If the eval uses `llmJudge`, separately add and commit a fixture that matches the judge request, or inject a mocked `fetchImpl` into the scorer before replaying in CI.
 
@@ -165,22 +165,22 @@ Cases that already have inline `script()` fixtures are left alone — `--record`
 
 ```bash
 # Record real-model responses into sibling fixture files
-dawn eval --record
+b4 eval --record
 
 # Replay the committed agent fixtures; supply scorer fixtures separately
-dawn eval
+b4 eval
 ```
 
 ### Command reference
 
 ```
-dawn eval [path] [--live] [--record] [--json [file]] [--cwd <path>]
+b4 eval [path] [--live] [--record] [--json [file]] [--cwd <path>]
 ```
 
 - **`[path]`** — narrow discovery to a subdirectory.
 - **`--live`** — run the real model (requires `OPENAI_API_KEY`); never use in CI.
 - **`--record`** — record real-model responses into sibling fixture files (requires `OPENAI_API_KEY`); never use in CI. Mutually exclusive with `--live`.
-- **`--json [file]`** — also write a JSON report. Defaults to `.dawn/eval-report.json`.
+- **`--json [file]`** — also write a JSON report. Defaults to `.b4/eval-report.json`.
 - **`--cwd <path>`** — operate on a different app root.
 
 A gated eval that fails causes a non-zero exit, so CI fails when quality drops below the bar. Informational evals never affect the exit code. See the [CLI reference](/docs/cli) for the full command surface.
@@ -188,8 +188,8 @@ A gated eval that fails causes a non-zero exit, so CI fails when quality drops b
 ## A full example
 
 ```ts title="src/app/chat/evals/quality.eval.ts"
-import { contains, defineEval, gate, toolCalled } from "@dawn-ai/evals"
-import { script } from "@dawn-ai/testing"
+import { contains, defineEval, gate, toolCalled } from "@b4run/evals"
+import { script } from "@b4run/testing"
 
 export default defineEval({
   name: "chat quality",
@@ -214,7 +214,7 @@ export default defineEval({
 Run it:
 
 ```bash
-dawn eval
+b4 eval
 ```
 
 The single case calls `applyFilter` and its reply contains "help", so both scorers
@@ -226,17 +226,17 @@ PASS chat quality › filters open items mean=1.00 [contains(help)=1.00 toolCall
 PASS chat quality mean=1.00
 ```
 
-Commit the eval and any fixture files alongside your route. In CI, run `dawn eval` in replay mode with fixtures for every model call, including any `llmJudge` scorer calls. Locally, run `dawn eval --live` when you want to measure the agent against the real model before updating fixtures.
+Commit the eval and any fixture files alongside your route. In CI, run `b4 eval` in replay mode with fixtures for every model call, including any `llmJudge` scorer calls. Locally, run `b4 eval --live` when you want to measure the agent against the real model before updating fixtures.
 
 ## Your scaffolded app already has an eval
 
-`create-dawn-ai-app` generates `server/src/app/research/evals/research-quality.eval.ts` next to the default research route, adds `@dawn-ai/evals` as a dev dependency of the `server` package, and wires an `eval` npm script at the workspace root. Run it right after scaffolding:
+`create-b4-app` generates `server/src/app/research/evals/research-quality.eval.ts` next to the default research route, adds `@b4run/evals` as a dev dependency of the `server` package, and wires an `eval` npm script at the workspace root. Run it right after scaffolding:
 
 ```bash
 npm run eval
 ```
 
-This wraps `dawn eval` and runs the agent cases in **replay mode** by default. The generated eval (`server/src/app/research/evals/research-quality.eval.ts`) has two dataset cases and four scorers:
+This wraps `b4 eval` and runs the agent cases in **replay mode** by default. The generated eval (`server/src/app/research/evals/research-quality.eval.ts`) has two dataset cases and four scorers:
 
 - `toolCalled("searchCorpus", { threshold: 1 })` — asserts the agent called `searchCorpus`.
 - `contains("[corpus/", { threshold: 1 })` — asserts the reply cites a corpus source.
@@ -255,12 +255,12 @@ Grow it by adding cases to the dataset and more scorers.
 
 ## Programmatic API
 
-`runEval` from `@dawn-ai/evals` lets you drive an eval definition from your own script — useful for custom CI tooling, reporting pipelines, or running evals as part of a larger orchestration.
+`runEval` from `@b4run/evals` lets you drive an eval definition from your own script — useful for custom CI tooling, reporting pipelines, or running evals as part of a larger orchestration.
 
 ```ts title="scripts/run-chat-eval.ts"
 import { fileURLToPath } from "node:url"
-import { contains, defineEval, runEval } from "@dawn-ai/evals"
-import { createAgentHarness, script } from "@dawn-ai/testing"
+import { contains, defineEval, runEval } from "@b4run/evals"
+import { createAgentHarness, script } from "@b4run/testing"
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url))
 const evalDir = fileURLToPath(new URL("../src/app/chat/evals", import.meta.url))
@@ -301,7 +301,7 @@ The reset starts every dataset case on a fresh thread with a clean fixture set. 
 <RelatedCards items={[
   { href: "/docs/testing", title: "Scenario Testing", subtitle: "declarative run.test.ts scenarios for route-output unit tests" },
   { href: "/docs/testing-agents/fixtures", title: "Fixtures and Recording", subtitle: "author, record, commit, and replay model fixtures" },
-  { href: "/docs/cli", title: "CLI Reference", subtitle: "the dawn eval command and its flags" },
+  { href: "/docs/cli", title: "CLI Reference", subtitle: "the b4 eval command and its flags" },
   { href: "/docs/agents", title: "Agents", subtitle: "the agent route kind evals exercise" },
   { href: "/docs/tools", title: "Tools", subtitle: "tools that run normally during eval replay" },
 ]} />

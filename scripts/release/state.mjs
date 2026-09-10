@@ -3,6 +3,8 @@ import { correlateReleaseEvidence } from "./evidence.mjs"
 import { snapshotReleaseInput } from "./observation-schema.mjs"
 
 export const ReleaseState = Object.freeze({
+  RECOVERY_REQUIRED: "RECOVERY_REQUIRED",
+  RECOVERY_COMPLETE: "RECOVERY_COMPLETE",
   NO_CANDIDATE: "NO_CANDIDATE",
   SUPERSEDED_NOOP: "SUPERSEDED_NOOP",
   CANDIDATE_VALIDATED: "CANDIDATE_VALIDATED",
@@ -22,6 +24,8 @@ export const ReleaseState = Object.freeze({
 })
 
 export const RELEASE_PROGRESS_RANK = Object.freeze({
+  [ReleaseState.RECOVERY_REQUIRED]: 8,
+  [ReleaseState.RECOVERY_COMPLETE]: 16,
   [ReleaseState.NO_CANDIDATE]: 0,
   [ReleaseState.SUPERSEDED_NOOP]: 1,
   [ReleaseState.CANDIDATE_VALIDATED]: 2,
@@ -41,6 +45,7 @@ export const RELEASE_PROGRESS_RANK = Object.freeze({
 })
 
 export const TERMINAL_RELEASE_STATES = Object.freeze([
+  ReleaseState.RECOVERY_COMPLETE,
   ReleaseState.NO_CANDIDATE,
   ReleaseState.SUPERSEDED_NOOP,
   ReleaseState.AUDIT_COMPLETE,
@@ -48,6 +53,7 @@ export const TERMINAL_RELEASE_STATES = Object.freeze([
 ])
 
 export const INCOMPLETE_TAGGED_RELEASE_STATES = Object.freeze([
+  ReleaseState.RECOVERY_REQUIRED,
   ReleaseState.CANDIDATE_TAGGED,
   ReleaseState.ARTIFACTS_PREPARED,
   ReleaseState.ARTIFACTS_ATTESTED,
@@ -112,6 +118,12 @@ function classifySnapshot(observation, evidence) {
   if (evidence.assets.auditRetryable) return ReleaseState.AUDIT_RETRYABLE
   if (evidence.assets.auditDispatched) return ReleaseState.AUDIT_DISPATCHED
   if (evidence.assets.smokesReconciled && evidence.smokes.complete) {
+    return ReleaseState.SMOKES_COMPLETE
+  }
+  // A candidate whose own frozen smoke lanes cannot pass is adjudicated by an
+  // operator record bound to that exact candidate. The audit gate below stays
+  // live: only the smoke gate is adjudicated, and only for the named candidate.
+  if (evidence.smokes.adjudicated && evidence.npm.complete) {
     return ReleaseState.SMOKES_COMPLETE
   }
   if (evidence.assets.npmReconciled && evidence.npm.complete) {

@@ -45,7 +45,7 @@ export async function createAimock(opts: {
   // instead of ./fixtures/recorded in the caller's CWD.
   const recordTmpDir =
     opts.proxy && opts.record === true
-      ? fs.mkdtempSync(path.join(os.tmpdir(), "dawn-aimock-record-"))
+      ? fs.mkdtempSync(path.join(os.tmpdir(), "b4-runmock-record-"))
       : null
 
   const mock = new LLMock(

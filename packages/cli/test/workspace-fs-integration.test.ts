@@ -11,15 +11,15 @@ const tempDirs: string[] = []
 let savedPermissionsMode: string | undefined
 
 beforeEach(() => {
-  savedPermissionsMode = process.env.DAWN_PERMISSIONS_MODE
-  process.env.DAWN_PERMISSIONS_MODE = "non-interactive"
+  savedPermissionsMode = process.env.B4_PERMISSIONS_MODE
+  process.env.B4_PERMISSIONS_MODE = "non-interactive"
 })
 
 afterEach(async () => {
   if (savedPermissionsMode === undefined) {
-    delete process.env.DAWN_PERMISSIONS_MODE
+    delete process.env.B4_PERMISSIONS_MODE
   } else {
-    process.env.DAWN_PERMISSIONS_MODE = savedPermissionsMode
+    process.env.B4_PERMISSIONS_MODE = savedPermissionsMode
   }
 
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })))
@@ -29,8 +29,8 @@ describe("ctx.fs end-to-end", () => {
   test("workflow entry and route tool share the sandboxed workspace handle", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
-      "src/app/(public)/notes/index.ts": `import type { RuntimeContext } from "@dawn-ai/sdk"
+      "b4.config.ts": "export default {};\n",
+      "src/app/(public)/notes/index.ts": `import type { RuntimeContext } from "@b4run/sdk"
 export const workflow = async (
   state: { readonly name: string },
   ctx: RuntimeContext,
@@ -40,8 +40,8 @@ export const workflow = async (
   return { ...state, files }
 }
 `,
-      "src/app/(public)/notes/tools/stash.ts": `import type { DawnToolContext } from "@dawn-ai/sdk"
-export default async (input: { readonly name: string }, ctx: DawnToolContext) => {
+      "src/app/(public)/notes/tools/stash.ts": `import type { B4ToolContext } from "@b4run/sdk"
+export default async (input: { readonly name: string }, ctx: B4ToolContext) => {
   await ctx.fs.writeFile(\`stash/\${input.name}.txt\`, \`stashed \${input.name}\`)
   return { ok: true }
 }
@@ -76,8 +76,8 @@ export default async (input: { readonly name: string }, ctx: DawnToolContext) =>
   test("tool ctx.fs reads escaping the workspace fail closed in non-interactive mode", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
-      "src/app/(public)/leaky/index.ts": `import type { RuntimeContext } from "@dawn-ai/sdk"
+      "b4.config.ts": "export default {};\n",
+      "src/app/(public)/leaky/index.ts": `import type { RuntimeContext } from "@b4run/sdk"
 export const workflow = async (
   _state: unknown,
   ctx: RuntimeContext,
@@ -85,8 +85,8 @@ export const workflow = async (
   return await ctx.tools.escape({})
 }
 `,
-      "src/app/(public)/leaky/tools/escape.ts": `import type { DawnToolContext } from "@dawn-ai/sdk"
-export default async (_input: unknown, ctx: DawnToolContext) => {
+      "src/app/(public)/leaky/tools/escape.ts": `import type { B4ToolContext } from "@b4run/sdk"
+export default async (_input: unknown, ctx: B4ToolContext) => {
   return await ctx.fs.readFile("../outside.txt")
 }
 `,
@@ -116,7 +116,7 @@ export default async (_input: unknown, ctx: DawnToolContext) => {
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-workspace-fs-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-workspace-fs-"))
   tempDirs.push(appRoot)
 
   await Promise.all(

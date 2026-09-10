@@ -82,10 +82,10 @@ describe("buildTranscriptItems", () => {
 
   test("carries an activity message through with its type and content intact", () => {
     const items = buildTranscriptItems([
-      { id: "m1", role: "activity", activityType: "dawn.plan", content: { todos: [] } },
+      { id: "m1", role: "activity", activityType: "b4.plan", content: { todos: [] } },
     ])
     expect(items).toEqual([
-      { kind: "activity", id: "m1", activityType: "dawn.plan", content: { todos: [] } },
+      { kind: "activity", id: "m1", activityType: "b4.plan", content: { todos: [] } },
     ])
   })
 

@@ -29,13 +29,13 @@
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { type BrowseQuery, type MemoryRecord, sqliteMemoryStore } from "@dawn-ai/memory"
+import { type BrowseQuery, type MemoryRecord, sqliteMemoryStore } from "@b4run/memory"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { runConsolidation, runReflection } from "../src/lib/memory/distill.js"
 
 const dirs: string[] = []
 function makeStore() {
-  const dir = mkdtempSync(join(tmpdir(), "dawn-distill-clamp-"))
+  const dir = mkdtempSync(join(tmpdir(), "b4-distill-clamp-"))
   dirs.push(dir)
   return sqliteMemoryStore({ path: join(dir, "m.sqlite") })
 }

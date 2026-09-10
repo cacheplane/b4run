@@ -6,7 +6,7 @@ import { type MemoryRecord, sqliteMemoryStore } from "../src/index.js"
 
 const dirs: string[] = []
 function makeStore() {
-  const dir = mkdtempSync(join(tmpdir(), "dawn-mem-"))
+  const dir = mkdtempSync(join(tmpdir(), "b4-mem-"))
   dirs.push(dir)
   return sqliteMemoryStore({ path: join(dir, "m.sqlite") })
 }

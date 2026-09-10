@@ -54,7 +54,7 @@ function reExportedNames(source: string): Map<string, string[]> {
   return byModule
 }
 
-describe("the @dawn-ai/memory/browse contract", () => {
+describe("the @b4run/memory/browse contract", () => {
   it("reaches nothing outside the pure browse sources", () => {
     // The subpath exists only so that importing it never pulls node:sqlite. One edge from
     // this graph into sqlite-store.js puts it back, and no other gate in the repo notices.

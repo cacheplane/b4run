@@ -73,7 +73,7 @@ test("preparation builds, packs all and only 21 packages once in stable dependen
   )
   assert.equal(result.manifest.packages.length, 21)
   assert.equal(new Set(result.manifest.packages.map((entry) => entry.name)).size, 21)
-  assert.equal(result.manifest.packages.at(-1).name, "create-dawn-ai-app")
+  assert.equal(result.manifest.packages.at(-1).name, "create-b4-app")
   assert.ok(result.manifest.packages.every((entry) => entry.version === VERSION))
   assert.ok(result.manifest.packages.every((entry) => entry.access === "public"))
   assert.ok(result.manifest.packages.every((entry) => entry.size > 0))
@@ -173,9 +173,9 @@ test("production inspection rejects tar symlinks and hardlinks before extraction
     const commands = []
     await assert.rejects(
       inspectPreparedTarball({
-        packageJson: { name: "@dawn-ai/evals", path: "packages/evals/package.json" },
+        packageJson: { name: "@b4run/evals", path: "packages/evals/package.json" },
         tarballPath: "/tmp/evals.tgz",
-        entry: { name: "@dawn-ai/evals", version: VERSION, access: "public" },
+        entry: { name: "@b4run/evals", version: VERSION, access: "public" },
         root: "/tmp/repository",
         async scanTarball() {},
         async run(command, args) {
@@ -191,7 +191,7 @@ test("production inspection rejects tar symlinks and hardlinks before extraction
         },
         fileSystem: {
           async mkdtemp() {
-            return "/tmp/dawn-inspect"
+            return "/tmp/b4-inspect"
           },
           async realpath(target) {
             return target
@@ -222,7 +222,7 @@ test("local registry publication reuses exact tgzs without lifecycle scripts", (
 
 test("packed publication metadata cannot redirect npm or escape the registry", () => {
   const base = {
-    name: "@dawn-ai/example",
+    name: "@b4run/example",
     version: VERSION,
     publishConfig: { access: "public" },
     dependencies: {
@@ -271,7 +271,7 @@ test("packed publication metadata cannot redirect npm or escape the registry", (
 })
 
 test("tarball preflight rejects root shrinkwrap and bundled node_modules payloads", async (t) => {
-  const temporary = await mkdtemp(path.join(os.tmpdir(), "dawn-tar-bundling-"))
+  const temporary = await mkdtemp(path.join(os.tmpdir(), "b4-tar-bundling-"))
   t.after(() => rm(temporary, { recursive: true, force: true }))
 
   for (const name of [
@@ -317,7 +317,7 @@ test("tarball preflight rejects root shrinkwrap and bundled node_modules payload
 })
 
 test("tarball preflight bounds entry count and expanded bytes before extraction", async (t) => {
-  const temporary = await mkdtemp(path.join(os.tmpdir(), "dawn-tar-preflight-"))
+  const temporary = await mkdtemp(path.join(os.tmpdir(), "b4-tar-preflight-"))
   t.after(() => rm(temporary, { recursive: true, force: true }))
   const tarball = path.join(temporary, "fixture.tgz")
   await writeFile(
@@ -341,7 +341,7 @@ test("tarball preflight bounds entry count and expanded bytes before extraction"
 })
 
 test("tarball preflight validates npm PAX path headers without weakening path checks", async (t) => {
-  const temporary = await mkdtemp(path.join(os.tmpdir(), "dawn-tar-pax-"))
+  const temporary = await mkdtemp(path.join(os.tmpdir(), "b4-tar-pax-"))
   t.after(() => rm(temporary, { recursive: true, force: true }))
   for (const [name, expected] of [
     ["package/a-very-long-safe-path/index.js", "verified"],
@@ -410,18 +410,18 @@ test("production smoke orchestrates exact tgz publication, install, TypeScript, 
       events.push("scaffolder-install")
       return { stdout: "", stderr: "" }
     }
-    if (command.endsWith("create-dawn-ai-app")) {
+    if (command.endsWith("create-b4-app")) {
       events.push("scaffold-create")
       await mkdir(args[0])
       await writeFile(
         path.join(args[0], "package.json"),
-        `${JSON.stringify({ dependencies: { "@dawn-ai/sdk": "latest" } })}\n`,
+        `${JSON.stringify({ dependencies: { "@b4run/sdk": "latest" } })}\n`,
       )
       return { stdout: "", stderr: "" }
     }
     if (command === "npm" && args[0] === "install" && cwd.endsWith("scaffold")) {
       events.push("scaffold-install")
-      await writeInstalledManifests(cwd, [{ name: "@dawn-ai/sdk", version: VERSION }])
+      await writeInstalledManifests(cwd, [{ name: "@b4run/sdk", version: VERSION }])
       return { stdout: "", stderr: "" }
     }
     if (command === "npm" && args.join(" ") === "run typecheck") {
@@ -491,7 +491,7 @@ test("production smoke attempts temp cleanup even when registry shutdown fails",
   await assert.rejects(
     smokePreparedTarballs({
       candidate: CANDIDATE,
-      manifest: { packages: [{ name: "@dawn-ai/sdk", version: VERSION }] },
+      manifest: { packages: [{ name: "@b4run/sdk", version: VERSION }] },
       tarballs: ["/sealed/sdk.tgz"],
       async run() {
         throw new Error("primary smoke failure")
@@ -677,7 +677,7 @@ test("preparation uses deep-frozen snapshots despite caller mutation during awai
 })
 
 async function preparationFixture(t, overrides = {}) {
-  const temporary = await realpath(await mkdtemp(path.join(os.tmpdir(), "dawn-prepare-fixture-")))
+  const temporary = await realpath(await mkdtemp(path.join(os.tmpdir(), "b4-prepare-fixture-")))
   const root = path.join(temporary, "repository")
   await mkdir(root)
   const outputDir = path.join(temporary, "release-output")

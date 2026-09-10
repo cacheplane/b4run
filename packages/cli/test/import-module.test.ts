@@ -9,7 +9,7 @@ import { importModule } from "../src/lib/runtime/import-module.js"
 describe("importModule", () => {
   let appRoot: string
   beforeEach(() => {
-    appRoot = mkdtempSync(join(tmpdir(), "dawn-importmod-"))
+    appRoot = mkdtempSync(join(tmpdir(), "b4-importmod-"))
   })
   afterEach(() => {
     rmSync(appRoot, { recursive: true, force: true })

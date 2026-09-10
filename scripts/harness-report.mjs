@@ -457,7 +457,7 @@ function dedupe(values) {
 }
 
 function runSelfTest() {
-  const tempRoot = mkdtempSync(join(tmpdir(), "dawn-harness-report-"))
+  const tempRoot = mkdtempSync(join(tmpdir(), "b4-harness-report-"))
 
   try {
     const passArtifactRoot = join(tempRoot, "pass")

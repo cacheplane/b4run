@@ -1,12 +1,12 @@
 // Minimal aimock server for the full-arc sandbox smoke.
 //
-// Mirrors how the Dawn test harness starts aimock (see
+// Mirrors how the B4.run test harness starts aimock (see
 // packages/testing/src/aimock-runner.ts): construct an @copilotkit/aimock
 // `LLMock`, load the committed fixture via `addFixturesFromJSON`, and `start()`.
 // The container serves an OpenAI-compatible `/v1/chat/completions` endpoint
 // backed entirely by the baked fixture — no real model, fully deterministic.
 //
-// The Dawn app talks to this server via `OPENAI_BASE_URL=http://<host>:4010/v1`.
+// The B4.run app talks to this server via `OPENAI_BASE_URL=http://<host>:4010/v1`.
 import { readFileSync } from "node:fs"
 import { LLMock } from "@copilotkit/aimock"
 

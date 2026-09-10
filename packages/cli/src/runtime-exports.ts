@@ -1,16 +1,16 @@
 /**
- * Programmatic runtime surface for tooling (e.g. @dawn-ai/testing).
- * Kept separate from the `dawn` CLI bin entry (src/index.ts) so importing
+ * Programmatic runtime surface for tooling (e.g. @b4run/testing).
+ * Kept separate from the `b4` CLI bin entry (src/index.ts) so importing
  * the runtime never triggers the commander program. Exposed as the
- * `@dawn-ai/cli/runtime` subpath.
+ * `@b4run/cli/runtime` subpath.
  */
 
-export { __resetMaterializedAgentsForTests } from "@dawn-ai/langchain"
-// Exported only to support @dawn-ai/testing's live-smoke memory tests; not a
+export { __resetMaterializedAgentsForTests } from "@b4run/langchain"
+// Exported only to support @b4run/testing's live-smoke memory tests; not a
 // stable public surface — safe to gate (NODE_ENV) or relocate if it grows.
 export { runMemoryCommand } from "./commands/memory.js"
 export {
-  type DawnResumeEntry,
+  type B4ResumeEntry,
   type PendingInterrupt,
   type PendingInterruptSnapshot,
   type PermissionDecision,
@@ -54,8 +54,8 @@ export {
 export { resolveSandboxManager } from "./lib/runtime/resolve-sandbox.js"
 export type { SandboxManager } from "./lib/runtime/sandbox-manager.js"
 export {
+  type B4StaticModules,
   buildStaticRouteModule,
-  type DawnStaticModules,
   loadStaticModules,
   normalizeMiddlewareModule,
   normalizeThreadAccessModule,

@@ -13,7 +13,7 @@ afterEach(async () => {
 })
 
 async function fixtureApp(files: Readonly<Record<string, string>>): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-thread-access-loader-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-thread-access-loader-"))
   tempDirs.push(appRoot)
   for (const [relativePath, source] of Object.entries(files)) {
     const filePath = join(appRoot, relativePath)
@@ -75,34 +75,34 @@ export default { fallback: () => ({ decision: "allow" }), tag: "default" }
     expect((policy as unknown as { tag: string }).tag).toBe("default")
   })
 
-  it("rejects with DAWN_E3003 when the file cannot be imported", async () => {
+  it("rejects with B4_E3003 when the file cannot be imported", async () => {
     // The case `loadMiddleware` gets wrong: its bare `catch {}` cannot tell
     // "no file" from "file that threw", so a broken policy would boot ungated.
     const appRoot = await fixtureApp({
       "src/thread-access.ts": "export default { fallback: () => ({ decision: 'allow' })\n",
     })
-    await expect(loadThreadAccess(appRoot)).rejects.toMatchObject({ code: "DAWN_E3003" })
+    await expect(loadThreadAccess(appRoot)).rejects.toMatchObject({ code: "B4_E3003" })
   })
 
-  it("rejects with DAWN_E3003 when the module binds nothing", async () => {
+  it("rejects with B4_E3003 when the module binds nothing", async () => {
     const appRoot = await fixtureApp({ "src/thread-access.ts": "export const helper = 1\n" })
-    await expect(loadThreadAccess(appRoot)).rejects.toMatchObject({ code: "DAWN_E3003" })
+    await expect(loadThreadAccess(appRoot)).rejects.toMatchObject({ code: "B4_E3003" })
     await expect(loadThreadAccess(appRoot)).rejects.toThrow(/default.*threadAccess/s)
   })
 
-  it("rejects with DAWN_E3003 when the export is not an object", async () => {
+  it("rejects with B4_E3003 when the export is not an object", async () => {
     const appRoot = await fixtureApp({ "src/thread-access.ts": 'export default "nope"\n' })
     await expect(loadThreadAccess(appRoot)).rejects.toThrow(/not an object/)
   })
 
-  it("rejects with DAWN_E3003, naming fallback, when fallback is missing", async () => {
+  it("rejects with B4_E3003, naming fallback, when fallback is missing", async () => {
     const appRoot = await fixtureApp({
       "src/thread-access.ts": "export default { read: () => ({ decision: 'allow' }) }\n",
     })
     await expect(loadThreadAccess(appRoot)).rejects.toThrow(/`fallback`/)
   })
 
-  it("rejects with DAWN_E3003 when a per-action key is not a function", async () => {
+  it("rejects with B4_E3003 when a per-action key is not a function", async () => {
     const appRoot = await fixtureApp({
       "src/thread-access.ts": `export default {
   fallback: () => ({ decision: "allow" }),
@@ -179,7 +179,7 @@ describe("loadThreadAccess fails closed", () => {
       "src/thread-access.ts": 'throw new Error("THREAD_ACCESS_SECRET is not set")\n',
     })
     const failure = await loadFailure(appRoot)
-    expect(failure.code).toBe("DAWN_E3003")
+    expect(failure.code).toBe("B4_E3003")
     expect(failure.message).toContain("src/thread-access.ts")
     expect(failure.message).toContain("THREAD_ACCESS_SECRET is not set")
     expect(failure.message).toContain("ungated")
@@ -193,7 +193,7 @@ describe("loadThreadAccess fails closed", () => {
     // the case runs identically on every platform (Windows has no chmod).
     const appRoot = await fixtureApp({ "src/thread-access.ts": VALID_POLICY })
     const failure = await loadFailure(appRoot, { statPath: denyWith("EACCES") })
-    expect(failure.code).toBe("DAWN_E3003")
+    expect(failure.code).toBe("B4_E3003")
     expect(failure.message).toContain("src/thread-access.ts")
     expect(failure.message).toContain("EACCES")
     expect(failure.message).toContain("ungated")
@@ -259,8 +259,8 @@ describe("loadThreadAccess fails closed", () => {
       ),
     )
 
-    // Every one is DAWN_E3003 — the code is the class, not the cause.
-    expect(failures.map((failure) => failure.code)).toEqual(cases.map(() => "DAWN_E3003"))
+    // Every one is B4_E3003 — the code is the class, not the cause.
+    expect(failures.map((failure) => failure.code)).toEqual(cases.map(() => "B4_E3003"))
 
     // Each message matches its OWN pattern and no other case's, so a loader
     // that collapsed these into one message would fail here even though every
@@ -291,11 +291,11 @@ describe.runIf(canRevokePermissions)("loadThreadAccess against a real unreadable
 
   it("fails the boot when the policy file itself cannot be read", async () => {
     // `lstat` succeeds on a mode-000 file (stat needs no read permission), so
-    // this lands on the IMPORT failure — still a hard DAWN_E3003, never silence.
+    // this lands on the IMPORT failure — still a hard B4_E3003, never silence.
     const appRoot = await fixtureApp({ "src/thread-access.ts": VALID_POLICY })
     await withMode(join(appRoot, "src", "thread-access.ts"), 0o000, async () => {
       const failure = await loadFailure(appRoot)
-      expect(failure.code).toBe("DAWN_E3003")
+      expect(failure.code).toBe("B4_E3003")
       expect(failure.message).toContain("thread-access.ts")
     })
   })
@@ -306,7 +306,7 @@ describe.runIf(canRevokePermissions)("loadThreadAccess against a real unreadable
     const appRoot = await fixtureApp({ "src/thread-access.ts": VALID_POLICY })
     await withMode(join(appRoot, "src"), 0o000, async () => {
       const failure = await loadFailure(appRoot)
-      expect(failure.code).toBe("DAWN_E3003")
+      expect(failure.code).toBe("B4_E3003")
       expect(failure.message).toContain("EACCES")
     })
   })

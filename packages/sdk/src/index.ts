@@ -1,9 +1,9 @@
 export type {
   AgentConfig,
+  B4Agent,
   ConstraintContext,
   ConstraintPredicate,
   ConstraintVerdict,
-  DawnAgent,
   DelegationConfig,
   DelegationConstraintPredicate,
   DelegationContext,
@@ -16,10 +16,10 @@ export type {
   SubagentMap,
   ToolScope,
 } from "./agent.js"
-export { agent, isDawnAgent } from "./agent.js"
+export { agent, isB4Agent } from "./agent.js"
 export type { BackendAdapter } from "./backend-adapter.js"
-export type { DawnErrorCode, DawnErrorDescriptor } from "./errors.js"
-export { DAWN_ERRORS, describeError, errorDocsUrl } from "./errors.js"
+export type { B4ErrorCode, B4ErrorDescriptor } from "./errors.js"
+export { B4_ERRORS, describeError, errorDocsUrl } from "./errors.js"
 export type {
   AnthropicModelId,
   GoogleModelId,
@@ -37,8 +37,8 @@ export {
 export type { DefinedMemory, MemoryScopeDimension } from "./memory.js"
 export { defineMemory } from "./memory.js"
 export type {
+  B4Middleware,
   ContinueResult,
-  DawnMiddleware,
   MiddlewareRequest,
   MiddlewareResult,
   RejectResult,
@@ -57,7 +57,7 @@ export type {
   ToolRegistry,
 } from "./runtime-context.js"
 export type {
-  DawnThreadAccess,
+  B4ThreadAccess,
   ThreadAccessAllow,
   ThreadAccessDeny,
   ThreadAccessPolicy,
@@ -71,4 +71,4 @@ export { defineThreadAccess, deny, permit, THREAD_ACCESS_METADATA_KEY } from "./
 export type { Prettify } from "./types.js"
 export type { ModelIdValidation } from "./validate-model-id.js"
 export { validateModelId } from "./validate-model-id.js"
-export type { DawnToolContext, WorkspaceFs } from "./workspace-fs.js"
+export type { B4ToolContext, WorkspaceFs } from "./workspace-fs.js"

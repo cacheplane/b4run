@@ -6,7 +6,7 @@ import {
   parseAbandonmentReleaseBody,
 } from "./abandonment.mjs"
 import { snapshotJson } from "./adapter-normalize.mjs"
-import { parseReleaseMarker, releaseBodySha256 } from "./metadata.mjs"
+import { isManagedReleaseForTag, parseReleaseMarker, releaseBodySha256 } from "./metadata.mjs"
 import {
   classifyProductionEvent as defaultClassifyProductionEvent,
   createProductionInventoryReader as defaultCreateProductionInventoryReader,
@@ -122,6 +122,11 @@ export async function createAbandonmentArtifactContext(input, dependencies) {
       ...(npmAuditFactory === undefined ? {} : { npmAuditFactory }),
       attestations,
       marker,
+      // Known limitation: the dormant protected-abandonment handoff reads the terminal record at
+      // the candidate commit, which by construction predates any record, so a git-resident record
+      // cannot stop it. This path is disabled by the 2026-08-25 design and any reactivation must
+      // supply an explicit operator-provided ref (as the recovery CLI does with reviewedCommit).
+      terminalRecordRef: candidate.commitSha,
     }),
     candidate,
   )
@@ -135,6 +140,11 @@ export async function createAbandonmentArtifactContext(input, dependencies) {
       npm,
       ...(npmAuditFactory === undefined ? {} : { npmAuditFactory }),
       attestations,
+      // Known limitation: the dormant protected-abandonment handoff reads the terminal record at
+      // the candidate commit, which by construction predates any record, so a git-resident record
+      // cannot stop it. This path is disabled by the 2026-08-25 design and any reactivation must
+      // supply an explicit operator-provided ref (as the recovery CLI does with reviewedCommit).
+      terminalRecordRef: candidate.commitSha,
     }),
   )
   assertExactFields(observed, ["observation", "diagnostics"], "production observation result")
@@ -259,7 +269,7 @@ async function captureDurableAbandonmentContext({ candidate, github }) {
       throw new Error("Abandonment recovery GitHub Release identity is malformed or duplicate")
     }
     ids.add(String(release.id))
-    if (release.tag_name === `v${candidate.version}`) matches.push(release)
+    if (isManagedReleaseForTag(release, `v${candidate.version}`)) matches.push(release)
     if (
       release.tag_name.startsWith("v") &&
       isReleaseVersion(release.tag_name.slice(1)) &&
@@ -321,8 +331,8 @@ async function captureDurableAbandonmentContext({ candidate, github }) {
 
   const expectedTitle =
     marker.phase === "ABANDONED_PREPUBLICATION"
-      ? `Dawn v${candidate.version} (abandoned before publication)`
-      : `Dawn v${candidate.version}`
+      ? `B4 v${candidate.version} (abandoned before publication)`
+      : `B4 v${candidate.version}`
   if (exact.name !== expectedTitle) {
     throw new Error("Abandonment recovery Release title conflicts with its phase")
   }
@@ -475,7 +485,7 @@ async function captureExactReleaseContext({
       throw new Error("Abandonment context GitHub Release identity is malformed or duplicate")
     }
     ids.add(String(release.id))
-    if (release.tag_name === `v${candidate.version}`) matches.push(release)
+    if (isManagedReleaseForTag(release, `v${candidate.version}`)) matches.push(release)
     if (release.tag_name.startsWith("v") && isReleaseVersion(release.tag_name.slice(1))) {
       if (compareSemver(release.tag_name.slice(1), candidate.version) > 0) {
         throw new Error("A newer GitHub Release interleaved before abandonment context capture")
@@ -547,8 +557,7 @@ function normalizeDraftRelease(value, candidate, { bodyRequired }) {
   if (
     !isRecord(release) ||
     !isPositiveInteger(release.id) ||
-    release.name !== `Dawn v${candidate.version}` ||
-    release.tag_name !== `v${candidate.version}` ||
+    release.name !== `B4 v${candidate.version}` ||
     release.target_commitish !== "main" ||
     release.draft !== true ||
     release.immutable !== false ||
@@ -563,7 +572,7 @@ function normalizeDraftRelease(value, candidate, { bodyRequired }) {
   return {
     id: release.id,
     name: release.name,
-    tag: release.tag_name,
+    tag: `v${candidate.version}`,
     targetCommitish: release.target_commitish,
     draft: release.draft,
     immutable: release.immutable,
@@ -577,10 +586,9 @@ function normalizeRecoveryDraftRelease(value, candidate, { bodyRequired }) {
     !isRecord(release) ||
     !isPositiveInteger(release.id) ||
     ![
-      `Dawn v${candidate.version}`,
-      `Dawn v${candidate.version} (abandoned before publication)`,
+      `B4 v${candidate.version}`,
+      `B4 v${candidate.version} (abandoned before publication)`,
     ].includes(release.name) ||
-    release.tag_name !== `v${candidate.version}` ||
     release.target_commitish !== "main" ||
     release.draft !== true ||
     release.immutable !== false ||
@@ -694,10 +702,10 @@ function validateEnvironment(value, candidate) {
   const environment = snapshotJson(value)
   assertExactFields(environment, ENVIRONMENT_FIELDS, "abandonment context environment")
   const expected = {
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
+    GITHUB_REPOSITORY: "cacheplane/b4run",
     GITHUB_REF: `refs/tags/v${candidate.version}`,
     GITHUB_SHA: candidate.commitSha,
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/release.yml@refs/tags/v${candidate.version}`,
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${candidate.version}`,
   }
   for (const [name, expectedValue] of Object.entries(expected)) {
     if (environment[name] !== expectedValue) {

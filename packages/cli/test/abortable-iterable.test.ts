@@ -1,5 +1,5 @@
 import { EventType } from "@ag-ui/core"
-import { type DawnAgentStreamChunk, toAguiEvents } from "@dawn-ai/ag-ui"
+import { type B4AgentStreamChunk, toAguiEvents } from "@b4run/ag-ui"
 import { expect, test } from "vitest"
 
 import { abortableAsyncIterable } from "../src/lib/dev/abortable-iterable.js"
@@ -59,7 +59,7 @@ test("aborting a native async generator with a blocked next rejects promptly", a
 
 test("a rejecting source cleanup cannot append RUN_ERROR after RUN_FINISHED", async () => {
   let emittedDone = false
-  const source: AsyncIterable<DawnAgentStreamChunk> = {
+  const source: AsyncIterable<B4AgentStreamChunk> = {
     [Symbol.asyncIterator]() {
       return {
         next: async () => {

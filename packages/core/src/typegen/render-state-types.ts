@@ -4,10 +4,10 @@ export interface RouteStateFields {
 }
 
 export function renderStateTypes(routeStates: readonly RouteStateFields[]): string {
-  const routeStateType = "  export type RouteState<P extends DawnRoutePath> = DawnRouteState[P];"
+  const routeStateType = "  export type RouteState<P extends B4RoutePath> = B4RouteState[P];"
 
   if (routeStates.length === 0) {
-    return ["  export interface DawnRouteState {}", "", routeStateType, ""].join("\n")
+    return ["  export interface B4RouteState {}", "", routeStateType, ""].join("\n")
   }
 
   const routeLines: string[] = []
@@ -19,7 +19,7 @@ export function renderStateTypes(routeStates: readonly RouteStateFields[]): stri
     routeLines.push("    };")
   }
 
-  return ["  export interface DawnRouteState {", ...routeLines, "  }", "", routeStateType, ""].join(
+  return ["  export interface B4RouteState {", ...routeLines, "  }", "", routeStateType, ""].join(
     "\n",
   )
 }

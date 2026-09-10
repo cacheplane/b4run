@@ -10,10 +10,10 @@ export default async (input: { readonly tenant: string }) => {
 }
 ```
 
-That's it. Dawn extracts the input and output types at build time using the TypeScript compiler API and writes them into `.dawn/dawn.generated.d.ts`. The tool becomes available as `ctx.tools.greet` inside a `workflow` or a callable `graph` function that explicitly receives Dawn's `RuntimeContext`, and is wired into generated `agent` deployment entries by `dawn build`. A precompiled raw LangGraph object has a different invocation boundary: its `.invoke()` treats the second argument as LangGraph `RunnableConfig`, not Dawn's typed `RuntimeContext`, so it keeps the tools its implementation already owns or imports instead of expecting Dawn's typed `ctx.tools`.
+That's it. B4.run extracts the input and output types at build time using the TypeScript compiler API and writes them into `.b4/b4.generated.d.ts`. The tool becomes available as `ctx.tools.greet` inside a `workflow` or a callable `graph` function that explicitly receives B4.run's `RuntimeContext`, and is wired into generated `agent` deployment entries by `b4 build`. A precompiled raw LangGraph object has a different invocation boundary: its `.invoke()` treats the second argument as LangGraph `RunnableConfig`, not B4.run's typed `RuntimeContext`, so it keeps the tools its implementation already owns or imports instead of expecting B4.run's typed `ctx.tools`.
 
 <Callout type="info" title="No registration needed">
-  Every `.ts` file in a route's `tools/` directory is automatically discovered. Drop a file in, save, and the type appears in `ctx.tools` on the next `dawn typegen` or `dawn dev` reload.
+  Every `.ts` file in a route's `tools/` directory is automatically discovered. Drop a file in, save, and the type appears in `ctx.tools` on the next `b4 typegen` or `b4 dev` reload.
 </Callout>
 
 ## Shared tools
@@ -57,7 +57,7 @@ By default a top route's agent sees every public tool available to it — its ow
 export default agent({ model: "gpt-5", systemPrompt: "…", tools: { deny: ["runBash"] } })
 ```
 
-Scope is enforced at composition time: a withheld tool is never wired into the generated entry, so the model cannot call it. `dawn check` validates the names you reference — an unknown tool name (absent from the route's available set) is a build-time error, so typos fail loud.
+Scope is enforced at composition time: a withheld tool is never wired into the generated entry, so the model cannot call it. `b4 check` validates the names you reference — an unknown tool name (absent from the route's available set) is a build-time error, so typos fail loud.
 
 ### Subagents and capability tools
 
@@ -76,9 +76,9 @@ export default agent({
 
 ### The internal task mechanism
 
-`task` is the model-facing mechanism Dawn contributes when a route has at least one dispatchable child. It is internal and is not part of public tool scoping. A nested subagent with its own dispatchable child receives `task` independently, without adding it to `tools.allow`.
+`task` is the model-facing mechanism B4.run contributes when a route has at least one dispatchable child. It is internal and is not part of public tool scoping. A nested subagent with its own dispatchable child receives `task` independently, without adding it to `tools.allow`.
 
-Do not reference `task` in `tools.allow`, `tools.deny`, `tools.approve`, or `tools.constrain`. Every form is invalid and reports `DAWN_E1004` during `dawn check` and route preparation. Parent-owned [`delegation`](/docs/subagents#delegation-policy) is the sole policy boundary for dispatch.
+Do not reference `task` in `tools.allow`, `tools.deny`, `tools.approve`, or `tools.constrain`. Every form is invalid and reports `B4_E1004` during `b4 check` and route preparation. Parent-owned [`delegation`](/docs/subagents#delegation-policy) is the sole policy boundary for dispatch.
 
 <Callout type="warn" title="This scopes the surface, not execution">
   Tool scoping controls which tools the model can *call* — it does not constrain what an allowed tool may *do* once invoked. A granted `writeFile` can still write anywhere its implementation permits. This is a capability boundary on the tool surface, not a sandbox.
@@ -99,13 +99,13 @@ export default agent({
 The prompt shows the call's arguments (a display-only JSON preview), but the decision itself is name-level:
 
 - **Once** — this call runs; the next call to the same tool prompts again.
-- **Always** — adds the exact tool name to the configured permissions store, so future calls proceed without prompting. The default Node store is `.dawn/permissions.json`; custom stores, including Postgres, may persist it elsewhere.
+- **Always** — adds the exact tool name to the configured permissions store, so future calls proceed without prompting. The default Node store is `.b4/permissions.json`; custom stores, including Postgres, may persist it elsewhere.
 - **Deny** — the call is blocked; the model receives the denial reason as the tool result.
 
 See [Permissions](/docs/permissions#per-tool-approval) for the full interrupt payload and resume flow.
 
 <Callout type="info" title="Don't list workspace tools in approve">
-  `runBash`, `readFile`, `writeFile`, and `listDir` already have their own pattern-aware allow/deny gates (see [Permissions](/docs/permissions)). Adding them to `approve` is redundant and would double-prompt — `dawn check` warns if you do.
+  `runBash`, `readFile`, `writeFile`, and `listDir` already have their own pattern-aware allow/deny gates (see [Permissions](/docs/permissions)). Adding them to `approve` is redundant and would double-prompt — `b4 check` warns if you do.
 </Callout>
 
 ### Constraining arguments
@@ -129,18 +129,18 @@ export default agent({
 })
 ```
 
-The predicate receives the parsed `args` and a read-only `ctx` (`{ toolName, routeId, threadId?, signal, params? }`); it may be async. A predicate that throws — or returns anything other than the three shapes above — **fails closed** (the call is denied). Predicate bodies are not statically validated; `dawn check` validates only the tool names. Don't list a tool in both `approve` and `constrain`: `constrain` wins (it can escalate via `{ approve }`) and `dawn check` warns.
+The predicate receives the parsed `args` and a read-only `ctx` (`{ toolName, routeId, threadId?, signal, params? }`); it may be async. A predicate that throws — or returns anything other than the three shapes above — **fails closed** (the call is denied). Predicate bodies are not statically validated; `b4 check` validates only the tool names. Don't list a tool in both `approve` and `constrain`: `constrain` wins (it can escalate via `{ approve }`) and `b4 check` warns.
 
 ## The runtime signature
 
-The full runtime signature accepted by tool discovery is `(input, ctx) => ...`, where `ctx` is `DawnToolContext` from `@dawn-ai/sdk` — carrying `signal`, `middleware?`, and `fs`:
+The full runtime signature accepted by tool discovery is `(input, ctx) => ...`, where `ctx` is `B4ToolContext` from `@b4run/sdk` — carrying `signal`, `middleware?`, and `fs`:
 
 ```ts title="src/app/(public)/hello/[tenant]/tools/greet.ts"
-import type { DawnToolContext } from "@dawn-ai/sdk"
+import type { B4ToolContext } from "@b4run/sdk"
 
 export default async (
   input: { readonly tenant: string },
-  ctx: DawnToolContext,
+  ctx: B4ToolContext,
 ) => {
   // Cooperate with cancellation — the AbortSignal is always present.
   const res = await fetch(`https://example.com/hello?tenant=${input.tenant}`, {
@@ -166,7 +166,7 @@ export default async (input: { readonly tenant: string }) => {
 }
 ```
 
-`dawn typegen` extracts the comment into the route's `tools.json` manifest. To set it programmatically instead, export a string constant alongside the default export — an explicit `export const description` takes priority over the JSDoc comment:
+`b4 typegen` extracts the comment into the route's `tools.json` manifest. To set it programmatically instead, export a string constant alongside the default export — an explicit `export const description` takes priority over the JSDoc comment:
 
 ```ts title="src/app/(public)/hello/[tenant]/tools/greet.ts"
 export const description = "Greet the tenant organization by name."
@@ -184,8 +184,8 @@ Inside a `workflow`, tools are invoked through `ctx.tools.<name>(...)`:
 
 ```ts title="src/app/(public)/hello/[tenant]/index.ts"
 // workflow form
-import type { RuntimeContext } from "@dawn-ai/sdk"
-import type { RouteTools } from "dawn:routes"
+import type { RuntimeContext } from "@b4run/sdk"
+import type { RouteTools } from "b4:routes"
 import state from "./state.js"
 
 export async function workflow(
@@ -200,15 +200,15 @@ export async function workflow(
 
 `ctx.tools.greet` has full IntelliSense — input shape, return shape, everything.
 
-A callable `graph` function may explicitly accept the same Dawn `RuntimeContext` and use `ctx.tools`. A precompiled raw LangGraph object is different: its `.invoke()` treats the second argument as LangGraph `RunnableConfig`, not Dawn's typed `RuntimeContext`. That graph keeps the tools its implementation already owns or imports.
+A callable `graph` function may explicitly accept the same B4.run `RuntimeContext` and use `ctx.tools`. A precompiled raw LangGraph object is different: its `.invoke()` treats the second argument as LangGraph `RunnableConfig`, not B4.run's typed `RuntimeContext`. That graph keeps the tools its implementation already owns or imports.
 
-Inside an `agent` route, you do not call tools yourself. `dawn build` wires the route's tools into the generated LangGraph entry and the LLM invokes them as needed. See [Routes](/docs/routes) for both forms side by side.
+Inside an `agent` route, you do not call tools yourself. `b4 build` wires the route's tools into the generated LangGraph entry and the LLM invokes them as needed. See [Routes](/docs/routes) for both forms side by side.
 
 ## Input and output rules
 
 <Steps>
   <Step title="Use a typed, object-shaped input">
-    Dawn's compiler pass extracts serializable input shapes written inline, declared as local aliases or interfaces, or imported from another module. Keep the root input object-shaped so Dawn can emit the model-facing tool schema.
+    B4.run's compiler pass extracts serializable input shapes written inline, declared as local aliases or interfaces, or imported from another module. Keep the root input object-shaped so B4.run can emit the model-facing tool schema.
 
     ```ts
     export default async (input: { readonly tenant: string; readonly limit?: number }) => { ... }
@@ -218,7 +218,7 @@ Inside an `agent` route, you do not call tools yourself. `dawn build` wires the 
     `readonly` is preserved through type generation. Use it on every field — tool inputs are pure data, never mutated.
   </Step>
   <Step title="Keep inputs and outputs JSON-serializable">
-    Dawn serializes through the runtime boundary. Classes, Dates, Maps, functions — none of them survive. Use primitives, plain objects, and arrays.
+    B4.run serializes through the runtime boundary. Classes, Dates, Maps, functions — none of them survive. Use primitives, plain objects, and arrays.
   </Step>
   <Step title="Return serializable data">
     Output types may be inferred or annotated inline, declared as local aliases or interfaces, or imported from another module. Serializable primitives, arrays, and plain objects are supported; avoid the non-serializable values listed above.
@@ -227,21 +227,21 @@ Inside an `agent` route, you do not call tools yourself. `dawn build` wires the 
 
 ## The generated declarations
 
-`dawn typegen` writes two artifacts:
+`b4 typegen` writes two artifacts:
 
-- **`.dawn/dawn.generated.d.ts`** — the ambient type module that backs `import type { RouteTools } from "dawn:routes"`. The emitted shape pivots over a `RouteTools<P>` lookup keyed by each discovered route pathname; `dawn typegen` populates the entries with concrete tool signatures inferred from source.
-- **`.dawn/routes/<routeSlug>/tools.json`** — per-route tool-schema manifests consumed by `dawn build` when emitting LangGraph entries.
+- **`.b4/b4.generated.d.ts`** — the ambient type module that backs `import type { RouteTools } from "b4:routes"`. The emitted shape pivots over a `RouteTools<P>` lookup keyed by each discovered route pathname; `b4 typegen` populates the entries with concrete tool signatures inferred from source.
+- **`.b4/routes/<routeSlug>/tools.json`** — per-route tool-schema manifests consumed by `b4 build` when emitting LangGraph entries.
 
-To inspect the exact shape Dawn emits in your app, run `dawn typegen` and open `.dawn/dawn.generated.d.ts`.
+To inspect the exact shape B4.run emits in your app, run `b4 typegen` and open `.b4/b4.generated.d.ts`.
 
 <Callout type="warn" title="Don't edit these files">
-  `.dawn/dawn.generated.d.ts` and the per-route `tools.json` files under `.dawn/routes/` are regenerated on every `dawn typegen` and by the dev server on save. Your edits will be wiped.
+  `.b4/b4.generated.d.ts` and the per-route `tools.json` files under `.b4/routes/` are regenerated on every `b4 typegen` and by the dev server on save. Your edits will be wiped.
 </Callout>
 
 Regenerate manually if needed:
 
 ```
-dawn typegen
+b4 typegen
 ```
 
 ## Common patterns
@@ -249,8 +249,8 @@ dawn typegen
 - **External API wrappers** — one tool per endpoint. Input shape mirrors the endpoint's parameters; output is the parsed response.
 - **Database reads** — input includes the filters; output is the record(s). Keep queries cheap — tools are meant to be fast.
 - **LLM calls** — input is the prompt variables; output is the parsed model response. Defer orchestration to the route entry.
-- **Pure transformations** — no side effects, just shape-to-shape mapping. Dawn's testing makes these trivial to verify.
-- **Wrapping an existing LangChain tool** — instantiate the community tool at module scope, then expose it through a plain function with a typed input. Dawn tools are plain functions (not `tool()` wrappers) so the input/output types can be inferred from the signature:
+- **Pure transformations** — no side effects, just shape-to-shape mapping. B4.run's testing makes these trivial to verify.
+- **Wrapping an existing LangChain tool** — instantiate the community tool at module scope, then expose it through a plain function with a typed input. B4.run tools are plain functions (not `tool()` wrappers) so the input/output types can be inferred from the signature:
 
 ```ts title="src/app/(public)/research/tools/search.ts"
 import { TavilySearch } from "@langchain/tavily"

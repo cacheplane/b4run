@@ -1,17 +1,26 @@
 {
-  "name": "@dawn-ai/cli",
-  "version": "0.8.22",
+  "name": "@b4run/cli",
+  "version": "0.8.30",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "homepage": "https://github.com/cacheplane/dawnai/tree/main/packages/cli#readme",
+  "description": "Command-line development, testing, build, and runtime tools for B4.run applications.",
+  "keywords": [
+    "b4",
+    "typescript",
+    "langgraph",
+    "cli",
+    "ai-agents",
+    "developer-tools"
+  ],
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/cli#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/dawnai.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/cli"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/dawnai/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -23,7 +32,7 @@
   ],
   "types": "./dist/index.d.ts",
   "bin": {
-    "dawn": "./dist/index.js"
+    "b4": "./dist/index.js"
   },
   "exports": {
     ".": {
@@ -53,23 +62,23 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@ag-ui/core": "0.0.57",
-    "@dawn-ai/ag-ui": "workspace:*",
-    "@dawn-ai/core": "workspace:*",
-    "@dawn-ai/langchain": "workspace:*",
-    "@dawn-ai/langgraph": "workspace:*",
-    "@dawn-ai/memory": "workspace:*",
-    "@dawn-ai/permissions": "workspace:*",
-    "@dawn-ai/sdk": "workspace:*",
-    "@dawn-ai/sqlite-storage": "workspace:*",
+    "@ag-ui/core": "0.0.59",
+    "@b4run/ag-ui": "workspace:*",
+    "@b4run/core": "workspace:*",
+    "@b4run/langchain": "workspace:*",
+    "@b4run/langgraph": "workspace:*",
+    "@b4run/memory": "workspace:*",
+    "@b4run/permissions": "workspace:*",
+    "@b4run/sdk": "workspace:*",
+    "@b4run/sqlite-storage": "workspace:*",
     "commander": "15.0.0",
     "esbuild": "^0.28.1",
     "tsx": "^4.23.5"
   },
   "devDependencies": {
-    "@dawn-ai/config-typescript": "workspace:*",
-    "@dawn-ai/sandbox": "workspace:*",
-    "@dawn-ai/workspace": "workspace:*",
+    "@b4run/config-typescript": "workspace:*",
+    "@b4run/sandbox": "workspace:*",
+    "@b4run/workspace": "workspace:*",
     "@hono/node-server": "^2.1.0",
     "@langchain/core": "1.2.5",
     "@langchain/langgraph": "1.4.9",

@@ -12,7 +12,7 @@
  * passed in stays the caller's.
  */
 import { Pool } from "pg"
-import { postgresCheckpointer as baseCheckpointer, type DawnPostgresSaver } from "./checkpointer.js"
+import { type B4PostgresSaver, postgresCheckpointer as baseCheckpointer } from "./checkpointer.js"
 import type { PostgresStoreOptions } from "./options.js"
 import {
   createPostgresPermissionsStore as baseCreatePermissionsStore,
@@ -73,13 +73,13 @@ function poolFor(options: NodePostgresStoreOptions): {
     options.connectionString ? { connectionString: options.connectionString } : {},
   )
   pool.on("error", (error) => {
-    console.warn(`[dawn:storage] postgres pool client error (connection dropped): ${String(error)}`)
+    console.warn(`[b4:storage] postgres pool client error (connection dropped): ${String(error)}`)
   })
   return { pool, ownsPool: true }
 }
 
 /** Build a Postgres-backed LangGraph checkpointer, optionally from a connection string. */
-export function postgresCheckpointer(options: NodePostgresStoreOptions = {}): DawnPostgresSaver {
+export function postgresCheckpointer(options: NodePostgresStoreOptions = {}): B4PostgresSaver {
   return baseCheckpointer({ ...options, ...poolFor(options) })
 }
 

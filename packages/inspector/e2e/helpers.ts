@@ -1,8 +1,8 @@
-import type { MemoryRecord } from "@dawn-ai/memory"
+import type { MemoryRecord } from "@b4run/memory"
 import type { Locator, Page } from "@playwright/test"
 import { expect } from "@playwright/test"
 import { TEST_IDS } from "../src/components/memory/test-ids"
-// Types only from `@dawn-ai/memory`, so nothing here pulls `node:sqlite` into the
+// Types only from `@b4run/memory`, so nothing here pulls `node:sqlite` into the
 // Playwright process — `seed.ts` is pure data and computation, and `seed-store.ts` is
 // the half that writes it.
 import { BROWSE_PAGE_SIZE, browseSeedRecords, seedIdsInDefaultOrder } from "../test/seed"

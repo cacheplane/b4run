@@ -1,4 +1,4 @@
-import type { ThreadStatus } from "@dawn-ai/sqlite-storage"
+import type { ThreadStatus } from "@b4run/sqlite-storage"
 
 /**
  * The status a turn's thread is left in once it stops producing chunks.

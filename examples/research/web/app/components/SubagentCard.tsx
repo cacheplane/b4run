@@ -1,8 +1,8 @@
 import {
-  type DawnActivityClassNames,
+  type B4ActivityClassNames,
   SubagentActivityCard,
   type SubagentActivityContentOutput,
-} from "@dawn-ai/ag-ui/react"
+} from "@b4run/ag-ui/react"
 
 /**
  * The workbench's subagent card — the plan card's treatment plus the parts only
@@ -18,7 +18,7 @@ import {
  * The wrapper has its own key now (`checklist`), so `section` matches one
  * element per region and the hairline below finally draws once.
  */
-const subagentClassNames: DawnActivityClassNames = {
+const subagentClassNames: B4ActivityClassNames = {
   // letter-spacing — inherited by every part, same as the plan card.
   root: "tracking-tight",
   // font-weight — the subagent's name, at 500 rather than the header's 600.
@@ -50,7 +50,7 @@ const subagentClassNames: DawnActivityClassNames = {
   // font-variant-numeric — "+N more".
   overflow: "tabular-nums",
   // border-left-width + padding-left — a failure gets a rule down its edge. No
-  // border-color class: the package sets `color: var(--dawn-activity-failed)` on
+  // border-color class: the package sets `color: var(--b4-activity-failed)` on
   // this element and an unspecified border-color resolves to `currentColor`, so
   // the rule already tracks the failure color (and any theme override of it) for
   // free. Naming the token here would only duplicate that.

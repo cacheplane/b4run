@@ -19,7 +19,7 @@ export default z.object({
 
 ```ts title="src/app/(public)/hello/[tenant]/index.ts"
 // workflow form
-import type { RuntimeContext } from "@dawn-ai/sdk"
+import type { RuntimeContext } from "@b4run/sdk"
 import type { z } from "zod"
 import state from "./state.js"
 
@@ -41,7 +41,7 @@ Agent-state discovery extracts defaults by validating `{}`. A schema that reject
 
 ## Dynamic segments are route params
 
-If your route's directory contains a dynamic segment like `[tenant]`, Dawn records that segment in generated route metadata. Today, route execution is input-driven: pass the value in the JSON input you send to `dawn run`, `runs/wait`, or `runs/stream`.
+If your route's directory contains a dynamic segment like `[tenant]`, B4.run records that segment in generated route metadata. Today, route execution is input-driven: pass the value in the JSON input you send to `b4 run`, `runs/wait`, or `runs/stream`.
 
 ```
 src/app/(public)/hello/[tenant]/  →  route id /hello/[tenant]
@@ -50,7 +50,7 @@ src/app/(public)/hello/[tenant]/  →  route id /hello/[tenant]
 For example:
 
 ```bash
-echo '{"tenant":"acme"}' | dawn run '/hello/[tenant]'
+echo '{"tenant":"acme"}' | b4 run '/hello/[tenant]'
 ```
 
 The schema covers state your entry reads or the caller supplies. Do not rely on a concrete pathname with an inline tenant value to populate `tenant`; the current resolver matches the parameterized route id (`/hello/[tenant]`) or the route entry file path.
@@ -61,7 +61,7 @@ The schema covers state your entry reads or the caller supplies. Do not rely on 
 
 ## Custom reducers
 
-Each route may include a `reducers/` directory with one file per state field. The default export is a `(current, incoming) => merged` function that overrides Dawn's default merge for that field.
+Each route may include a `reducers/` directory with one file per state field. The default export is a `(current, incoming) => merged` function that overrides B4.run's default merge for that field.
 
 ```ts title="src/app/(public)/hello/[tenant]/reducers/context.ts"
 export default (current: string, incoming: string) =>
@@ -74,13 +74,13 @@ The file basename must equal the state-field name (`context.ts` → reduces `sta
 
 <Steps>
   <Step title="State must be JSON-serializable">
-    Dawn serializes state across runtime boundaries (`dawn run`, `dawn dev`, the Node runtime, Hono builds, and scenario tests), and LangSmith serializes state at its own boundary. Use primitives, plain objects, arrays. No classes, no Dates, no Maps.
+    B4.run serializes state across runtime boundaries (`b4 run`, `b4 dev`, the Node runtime, Hono builds, and scenario tests), and LangSmith serializes state at its own boundary. Use primitives, plain objects, arrays. No classes, no Dates, no Maps.
   </Step>
   <Step title="Prefer readonly">
     Mark fields `readonly` (or use Zod's `.readonly()`) when they should not be mutated. The entry function returns a new state object rather than mutating the input. This keeps scenario tests deterministic and LangGraph checkpoint-safe.
   </Step>
   <Step title="Outputs accumulate">
-    A workflow can return `{ ...state, newField }` when you want to preserve incoming state. Dawn returns the route output; it does not automatically merge workflow output with the input for you.
+    A workflow can return `{ ...state, newField }` when you want to preserve incoming state. B4.run returns the route output; it does not automatically merge workflow output with the input for you.
   </Step>
 </Steps>
 
@@ -88,9 +88,9 @@ The file basename must equal the state-field name (`context.ts` → reduces `sta
 
 State crosses the runtime boundary at every entry point:
 
-- `dawn run` — JSON via stdin, JSON via stdout.
-- `runs/wait` and `runs/stream` under `dawn dev`, the Node runtime (`dawn start` or `.dawn/build/server.mjs`), and Hono builds — Dawn's HTTP envelope uses `{ route, input }`, where `route` is `<routeId>#<kind>`.
-- LangSmith deployments are a separate product boundary. They use LangSmith's own request envelope, keyed by `assistant_id`; do not send Dawn's `{ route, input }` body unchanged.
+- `b4 run` — JSON via stdin, JSON via stdout.
+- `runs/wait` and `runs/stream` under `b4 dev`, the Node runtime (`b4 start` or `.b4/build/server.mjs`), and Hono builds — B4.run's HTTP envelope uses `{ route, input }`, where `route` is `<routeId>#<kind>`.
+- LangSmith deployments are a separate product boundary. They use LangSmith's own request envelope, keyed by `assistant_id`; do not send B4.run's `{ route, input }` body unchanged.
 
 Tool results, intermediate values, and other in-route data live inside the entry for the duration of a single run; only the route result crosses the boundary.
 

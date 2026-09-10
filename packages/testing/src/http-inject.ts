@@ -1,6 +1,6 @@
-import { createRuntimeFetchHandler } from "@dawn-ai/cli/runtime"
-import { __clearDawnConfigCacheForTests } from "@dawn-ai/core"
-import type { ThreadAccessPolicy } from "@dawn-ai/sdk"
+import { createRuntimeFetchHandler } from "@b4run/cli/runtime"
+import { __clearB4ConfigCacheForTests } from "@b4run/core"
+import type { ThreadAccessPolicy } from "@b4run/sdk"
 
 export interface InjectResult {
   readonly statusCode: number
@@ -66,11 +66,11 @@ export async function createAgentProtocolInjector(options: {
     },
     async close() {
       await core.close()
-      // See harness.ts's close() for why: loadDawnConfig is memoized per
-      // appRoot for the process lifetime, so a fixture app's dawn.config.ts
+      // See harness.ts's close() for why: loadB4Config is memoized per
+      // appRoot for the process lifetime, so a fixture app's b4.config.ts
       // mutated and re-served through a fresh injector in the same process
       // needs the memo cleared to pick up the change.
-      __clearDawnConfigCacheForTests()
+      __clearB4ConfigCacheForTests()
     },
     [Symbol.asyncDispose](): Promise<void> {
       return this.close()

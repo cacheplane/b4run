@@ -6,10 +6,16 @@ import { CANONICAL_RELEASE_PACKAGE_ORDER } from "./manifest.mjs"
 import {
   abandonmentReleaseMarker,
   canonicalReleaseBody,
+  isManagedReleaseForTag,
   parseReleaseMarker,
   releaseBodySha256,
 } from "./metadata.mjs"
 import { compareSemver, isExactSemver, parseSemver } from "./semver.mjs"
+import {
+  canonicalTerminalRecordBytes,
+  OPERATOR_RECOVERY_MODE,
+  parseOperatorRecoveryRecord,
+} from "./terminal-record-store.mjs"
 import { parseAbandonmentRecord } from "./terminal-records.mjs"
 
 const EXPECTED_ENVIRONMENT = "release-abandonment"
@@ -63,8 +69,8 @@ const SHA256_PATTERN = /^[0-9a-f]{64}$/u
 const BASE_ASSET_NAME_PATTERN =
   /^(?:release-record\.json|manifest\.json|[A-Za-z0-9@._+-]+\.tgz(?:\.intoto\.jsonl)?|manifest\.json\.intoto\.jsonl)$/u
 const TERMINAL_ASSET_NAME = "abandonment.json"
-const ABANDONMENT_RECORD_START = "<!-- DAWN_ABANDONMENT_RECORD_BASE64\n"
-const ABANDONMENT_RECORD_END = "\nEND_DAWN_ABANDONMENT_RECORD_BASE64 -->"
+const ABANDONMENT_RECORD_START = "<!-- B4_ABANDONMENT_RECORD_BASE64\n"
+const ABANDONMENT_RECORD_END = "\nEND_B4_ABANDONMENT_RECORD_BASE64 -->"
 const MAX_RELEASES = 10_000
 const MIN_REGISTRY_OBSERVATION_GAP_MS = 60_000
 const MAX_FRESH_AUTHORIZATION_AGE_MS = 10 * 60_000
@@ -98,6 +104,20 @@ export async function evaluateAbandonment(input) {
 
 export function canonicalAbandonmentBytes(value) {
   const source = snapshotJson(value)
+  if (!isRecord(source)) {
+    throw new TypeError("Canonical abandonment input is invalid")
+  }
+  if (isRecord(source.authority) && source.authority.mode === OPERATOR_RECOVERY_MODE) {
+    // MAX_TERMINAL_RECORD_BYTES (512 KiB, terminal-record-store.mjs) must stay
+    // below RELEASE_PAYLOAD_LIMITS.auditReceiptBytes (1 MiB, limits.mjs): this
+    // producer accepts anything up to the smaller terminal-record cap, and
+    // parseAbandonmentReleaseBody enforces the larger audit-receipt cap on the
+    // embedded bytes it reads back. If that ordering ever inverted, a body this
+    // function happily produced could be rejected on read.
+    const bytes = canonicalTerminalRecordBytes(source)
+    parseOperatorRecoveryRecord(bytes)
+    return bytes
+  }
   const record = parseAbandonmentRecord(source, {
     candidate: { version: source.version, commitSha: source.commitSha },
     environment: EXPECTED_ENVIRONMENT,
@@ -129,6 +149,14 @@ export function canonicalAbandonmentArtifactContextBytes(value, options) {
   return encodeArtifactContext(parseAbandonmentArtifactContext(value, options))
 }
 
+/** The tag NAME of either tombstone variant (legacy: string; operator-recovery: `{ name, objectSha, commitSha }`). */
+export function abandonmentRecordTag(record) {
+  const tag = record?.tag
+  if (typeof tag === "string") return tag
+  if (isRecord(tag) && typeof tag.name === "string") return tag.name
+  throw new TypeError("Abandonment record tag is invalid")
+}
+
 export function canonicalAbandonmentReleaseBody(input) {
   const source = snapshotJson(input)
   const keys = isRecord(source) ? Object.keys(source) : []
@@ -155,7 +183,7 @@ export function canonicalAbandonmentReleaseBody(input) {
     releaseMarker.phase !== "ABANDONED_PREPUBLICATION" ||
     record.version !== releaseMarker.version ||
     record.commitSha !== releaseMarker.commitSha ||
-    record.tag !== releaseMarker.tag ||
+    abandonmentRecordTag(record) !== releaseMarker.tag ||
     sha256(tombstoneBytes) !== releaseMarker.abandonmentSha256
   ) {
     throw new TypeError("Abandonment Release body evidence does not match its marker")
@@ -286,7 +314,7 @@ export async function recordAbandonment(input) {
       ? {}
       : { previousMarker: tombstone.predecessor.marker }),
   })
-  const title = `Dawn v${candidate.version} (abandoned before publication)`
+  const title = `B4 v${candidate.version} (abandoned before publication)`
 
   let release = observedRelease
   let created = false
@@ -672,7 +700,7 @@ async function reconcileReleaseList({ releases, context, candidate, reader }) {
     }
     if (ids.has(release.id)) throw new Error("GitHub Release identities are duplicate")
     ids.add(release.id)
-    if (release.tag_name === `v${candidate.version}`) matches.push(release)
+    if (isManagedReleaseForTag(release, `v${candidate.version}`)) matches.push(release)
     if (release.tag_name.startsWith("v") && isReleaseVersion(release.tag_name.slice(1))) {
       if (compareSemver(release.tag_name.slice(1), candidate.version) > 0) {
         throw new Error("A newer GitHub Release interleaved before abandonment")
@@ -707,7 +735,9 @@ async function reobserveReleaseBoundary(reader, candidate, expectedRelease) {
       throw new Error("GitHub Release identity is malformed or duplicate")
     }
     ids.add(release.id)
-    if (release.tag_name === `v${candidate.version}`) candidateMatches.push(release)
+    if (isManagedReleaseForTag(release, `v${candidate.version}`)) {
+      candidateMatches.push(release)
+    }
     if (release.tag_name.startsWith("v") && isReleaseVersion(release.tag_name.slice(1))) {
       if (compareSemver(release.tag_name.slice(1), candidate.version) > 0) {
         throw new Error("A newer GitHub Release interleaved before abandonment")
@@ -1025,8 +1055,32 @@ function parseCanonicalAbandonmentBytes(bytes) {
   if (!canonical.equals(bytes)) {
     throw new TypeError("Abandonment record bytes are not canonical")
   }
-  return parseAbandonmentRecord(value, {
-    candidate: { version: value.version, commitSha: value.commitSha },
+  return parseAnyAbandonmentRecord(value)
+}
+
+/**
+ * Parse either tombstone variant. An operator-recovery record (see
+ * terminal-record-store.mjs) is authorized by a reviewed commit and carries
+ * `authority.mode`; every other record must satisfy the environment-approval
+ * schema in terminal-records.mjs. The two schemas share `predecessor`.
+ */
+export function parseAnyAbandonmentRecord(value) {
+  const source = snapshotJson(value)
+  if (
+    isRecord(source) &&
+    isRecord(source.authority) &&
+    source.authority.mode === OPERATOR_RECOVERY_MODE
+  ) {
+    // canonicalAbandonmentBytes(source) above already ran parseOperatorRecoveryRecord
+    // once (to canonicalize `source` into bytes); re-parsing those bytes here is
+    // deliberate defence in depth at the trust boundary that turns bytes back into
+    // a record callers rely on, not redundant validation worth trimming.
+    const parsed = parseOperatorRecoveryRecord(canonicalAbandonmentBytes(source))
+    const { sha256: _digest, ...record } = parsed
+    return deepFreeze(record)
+  }
+  return parseAbandonmentRecord(source, {
+    candidate: { version: source?.version, commitSha: source?.commitSha },
     environment: EXPECTED_ENVIRONMENT,
     packageNames: CANONICAL_PACKAGE_NAMES,
   })
@@ -1131,7 +1185,7 @@ async function readManagedRelease(reader, releaseId) {
 
 function assertDraftRelease(release, candidate) {
   if (
-    release.tag_name !== `v${candidate.version}` ||
+    !isManagedReleaseForTag(release, `v${candidate.version}`) ||
     release.target_commitish !== "main" ||
     release.prerelease !== false ||
     typeof release.name !== "string" ||

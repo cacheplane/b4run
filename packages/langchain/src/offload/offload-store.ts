@@ -1,7 +1,7 @@
-import { pureJoin, sha256Hex } from "@dawn-ai/sdk/pure"
-import type { FilesystemBackend } from "@dawn-ai/workspace"
+import { pureJoin, sha256Hex } from "@b4run/sdk/pure"
+import type { FilesystemBackend } from "@b4run/workspace"
 
-// NOTE: must match the tool-outputs/ predicate in @dawn-ai/core workspace capability readFile.
+// NOTE: must match the tool-outputs/ predicate in @b4run/core workspace capability readFile.
 const SUBDIR = "tool-outputs"
 
 function sanitizeSegment(value: string): string {

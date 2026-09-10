@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import type { MemoryRecord } from "@dawn-ai/memory"
-import { sqliteMemoryStore } from "@dawn-ai/memory"
+import type { MemoryRecord } from "@b4run/memory"
+import { sqliteMemoryStore } from "@b4run/memory"
 import { afterEach, describe, expect, test } from "vitest"
 
 import { startRuntimeServer } from "../src/lib/dev/runtime-server.js"
@@ -101,7 +101,7 @@ describe("memory-candidate HTTP endpoints", () => {
     expect(body.superseded.map((rec) => rec.id)).toEqual(["memory_active_old"])
 
     // The old record is demoted in the store — no two-actives state.
-    const store = sqliteMemoryStore({ path: join(appRoot, ".dawn", "memory.sqlite") })
+    const store = sqliteMemoryStore({ path: join(appRoot, ".b4", "memory.sqlite") })
     const oldRecord = await store.get("memory_active_old")
     expect(oldRecord?.status).toBe("superseded")
     const approved = await store.get("memory_cand_contradiction")
@@ -174,7 +174,7 @@ async function seedRecord(
   appRoot: string,
   overrides: Pick<MemoryRecord, "id" | "content" | "status"> & Partial<Pick<MemoryRecord, "data">>,
 ): Promise<void> {
-  const store = sqliteMemoryStore({ path: join(appRoot, ".dawn", "memory.sqlite") })
+  const store = sqliteMemoryStore({ path: join(appRoot, ".b4", "memory.sqlite") })
   const record: MemoryRecord = {
     kind: "semantic",
     namespace: "workspace=fixture|route=/noop",
@@ -190,10 +190,10 @@ async function seedRecord(
 }
 
 async function createFixtureApp(): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-memory-endpoints-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-memory-endpoints-"))
   tempDirs.push(appRoot)
   const files: Readonly<Record<string, string>> = {
-    "dawn.config.ts": "export default {};\n",
+    "b4.config.ts": "export default {};\n",
     "package.json": "{}\n",
     "src/app/noop/index.ts": "export const graph = async () => ({ ok: true });\n",
   }

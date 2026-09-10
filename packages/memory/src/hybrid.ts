@@ -1,5 +1,5 @@
 // Pure, backend-agnostic hybrid ranking core. Both sqliteMemoryStore and
-// @dawn-ai/memory-pgvector call these after doing their own retrieval, so recall
+// @b4run/memory-pgvector call these after doing their own retrieval, so recall
 // ranking is identical across backends. No I/O, no clock, no randomness.
 import {
   type RecallRankingOptions,

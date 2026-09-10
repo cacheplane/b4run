@@ -1,23 +1,23 @@
-# Chat — canonical Dawn harness example
+# Chat — canonical B4.run harness example
 
 > **Status:** foundational harness primitives (filesystem + bash) plus the **planning**,
 > **skills**, **subagents**, **workspace**, and **HITL permissions** capabilities.
 > Pluggable backend implementations (in-memory, remote sandbox) are available — see
-> `dawn.config.ts`. Tool-output offloading is supported for workspace-backed routes,
+> `b4.config.ts`. Tool-output offloading is supported for workspace-backed routes,
 > and conversation summarization is available as an opt-in config.
 
 ## What this shows
 
-- Dawn route discovery and the `tools/` convention
-- **Workspace capability** — when a route's working directory contains `workspace/`, Dawn
+- B4.run route discovery and the `tools/` convention
+- **Workspace capability** — when a route's working directory contains `workspace/`, B4.run
   auto-contributes `readFile`/`writeFile`/`listDir`/`runBash` tools wired through pluggable
   backends. The filesystem and exec backends default to local node:fs / child_process; swap
-  them in `dawn.config.ts` for in-memory storage, remote sandboxes, etc.
-- `AGENTS.md` memory autoload — Dawn auto-injects `workspace/AGENTS.md` into the system prompt on every turn; the agent updates it via `writeFile`
+  them in `b4.config.ts` for in-memory storage, remote sandboxes, etc.
+- `AGENTS.md` memory autoload — B4.run auto-injects `workspace/AGENTS.md` into the system prompt on every turn; the agent updates it via `writeFile`
 - **Planning** — `plan.md` in the route directory opts the agent into the built-in
   `writeTodos` tool, a `todos` state channel, and a `plan_update` Agent Protocol stream
   event. The AG-UI adapter maps valid root updates to standard replacement
-  `dawn.plan` activity snapshots.
+  `b4.plan` activity snapshots.
 - **Skills** — `src/app/chat/skills/<name>/SKILL.md` files are auto-listed in
   the agent's system prompt (name + description). The agent calls
   `readSkill({ name })` to load a skill's full body on demand. Two example
@@ -25,18 +25,18 @@
 - **Subagents** — `/coordinator` dispatches to specialist subagents (`research`,
   `summarizer`) via an auto-generated `task({ subagent, input })` tool. Subagent runs
   bubble `subagent.*` Agent Protocol stream events with `call_id` correlation, and the
-  AG-UI adapter maps matching lifecycles to bounded replacement `dawn.subagent`
-  snapshots. The basic web client registers `dawnActivityRenderers` from
-  `@dawn-ai/ag-ui/react`, but drives only `/chat` and does not expose
+  AG-UI adapter maps matching lifecycles to bounded replacement `b4.subagent`
+  snapshots. The basic web client registers `b4ActivityRenderers` from
+  `@b4run/ag-ui/react`, but drives only `/chat` and does not expose
   `/coordinator`, so drive coordinator runs through Agent Protocol instead.
-- **HITL permissions** — `dawn.config.ts` seeds allow/deny lists for `runBash`. Unknown
+- **HITL permissions** — `b4.config.ts` seeds allow/deny lists for `runBash`. Unknown
   commands in interactive mode emit an interrupt; resume the thread with `once`, `always`,
   or `deny` to continue. See [Permissions](../../apps/web/content/docs/permissions.mdx)
   for the interrupt/resume flow.
 - End-to-end streaming to a [CopilotKit](https://docs.copilotkit.ai) V2 web client over
-  Dawn's AG-UI endpoint (`POST /agui/{routeId}`, see `@dawn-ai/ag-ui`) for basic `/chat`
+  B4.run's AG-UI endpoint (`POST /agui/{routeId}`, see `@b4run/ag-ui`) for basic `/chat`
   messages. The browser uses CopilotKit's same-origin multi-route runtime under
-  `/api/copilotkit/*`; the runtime's `HttpAgent` owns the server-to-server Dawn call. The
+  `/api/copilotkit/*`; the runtime's `HttpAgent` owns the server-to-server B4.run call. The
   client presents plan/subagent activities and the standard permission decision control.
 
 ## Model choice
@@ -62,8 +62,8 @@ pnpm dev
 
 ```
 examples/chat/
-├── server/                 # @dawn-example/chat-server (Dawn routes)
-│   ├── dawn.config.ts      # appDir + optional backends config
+├── server/                 # @b4-example/chat-server (B4.run routes)
+│   ├── b4.config.ts      # appDir + optional backends config
 │   ├── workspace/          # shared workspace (AGENTS.md lives here)
 │   └── src/app/
 │       ├── chat/                              # /chat route
@@ -77,11 +77,11 @@ examples/chat/
 │           └── subagents/
 │               ├── research/index.ts
 │               └── summarizer/index.ts
-└── web/                    # @dawn-example/chat-web (CopilotKit v2 web client)
+└── web/                    # @b4-example/chat-web (CopilotKit v2 web client)
     └── app/
         ├── layout.tsx                 # imports @copilotkit/react-core/v2/styles.css
         ├── page.tsx                   # CopilotKit + CopilotSidebar
-        └── api/copilotkit/[...path]/route.ts # V2 runtime + HttpAgent → Dawn /agui/%2Fchat%23agent
+        └── api/copilotkit/[...path]/route.ts # V2 runtime + HttpAgent → B4.run /agui/%2Fchat%23agent
 ```
 
 ## Security caveats
@@ -106,7 +106,7 @@ shell expansion — all possible. Do not point untrusted users at this example.
   [Context Management](../../apps/web/content/docs/context-management.mdx#tool-output-offloading)
   and the [configuration reference](../../apps/web/content/docs/configuration.mdx#tooloutput).
 - **Conversation summarization** is supported but opt-in. This example leaves it disabled
-  by default; enable `summarization.enabled` in `dawn.config.ts` when you want older
+  by default; enable `summarization.enabled` in `b4.config.ts` when you want older
   message history compacted after a token threshold. See
   [Context Management](../../apps/web/content/docs/context-management.mdx#conversation-summarization)
   and the [configuration reference](../../apps/web/content/docs/configuration.mdx#summarization).

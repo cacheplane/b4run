@@ -1,6 +1,6 @@
 import { lstatSync } from "node:fs"
 import { pathToFileURL } from "node:url"
-import type { ThreadAccessPolicy } from "@dawn-ai/sdk"
+import type { ThreadAccessPolicy } from "@b4run/sdk"
 
 import { diagnose } from "../diagnostics.js"
 import { CliError } from "../output.js"
@@ -62,11 +62,11 @@ function candidateExists(path: string, statPath: StatPath): boolean {
     const errno = errnoOf(error)
     if (errno === "ENOENT" || errno === "ENOTDIR") return false
     throw new CliError(
-      `Thread access policy at ${path} could not be probed (${errno ?? "unknown error"}), so Dawn ` +
+      `Thread access policy at ${path} could not be probed (${errno ?? "unknown error"}), so B4.run ` +
         "cannot tell whether this app has a policy and will not boot ungated. " +
         `Fix the path's permissions, or delete it if this app has no policy.\n\n${String(error)}`,
       1,
-      { cause: error, code: "DAWN_E3003" },
+      { cause: error, code: "B4_E3003" },
     )
   }
 }
@@ -79,7 +79,7 @@ function candidateExists(path: string, statPath: StatPath): boolean {
  * the same file, by the same rule, that the dynamic probe would. It is this
  * function rather than an `existsSync` scan for the reason `candidateExists`
  * exists at all: `existsSync` answers false for EVERY error, so an app whose
- * policy file is present but unprobeable would fail `dawn dev` and still build
+ * policy file is present but unprobeable would fail `b4 dev` and still build
  * an artifact with no policy in it — the fail-open moved rather than fixed.
  */
 export function findThreadAccessFile(
@@ -105,9 +105,9 @@ export function findThreadAccessFile(
  * failure can only ever mean "the policy is broken":
  *
  *   • every candidate definitively absent      -> undefined (no gate; today's behavior)
- *   • a candidate cannot be probed at all      -> THROW (DAWN_E3003)
- *   • first existing candidate fails to import -> THROW (DAWN_E3003)
- *   • it imports but binds no valid policy     -> THROW (DAWN_E3003)
+ *   • a candidate cannot be probed at all      -> THROW (B4_E3003)
+ *   • first existing candidate fails to import -> THROW (B4_E3003)
+ *   • it imports but binds no valid policy     -> THROW (B4_E3003)
  *
  * The "binds nothing" case also diverges from middleware, which ignores such a
  * file. A `thread-access.ts` on disk is an unambiguous statement of intent;
@@ -138,7 +138,7 @@ export async function loadThreadAccess(
       `Thread access policy at ${path} failed to import, so every thread endpoint would be ungated. ` +
         `Fix the file or delete it.\n\n${detail}`,
       1,
-      { cause: error, code: "DAWN_E3003" },
+      { cause: error, code: "B4_E3003" },
     )
   }
 
@@ -148,14 +148,14 @@ export async function loadThreadAccess(
       `Thread access policy at ${path} has no \`default\` or \`threadAccess\` export. ` +
         "Export the policy with `export default defineThreadAccess({ … })`.",
       1,
-      { code: "DAWN_E3003" },
+      { code: "B4_E3003" },
     )
   }
 
   const reason = validateThreadAccessPolicy(selected)
   if (reason) {
     throw new CliError(`Thread access policy at ${path} is not a valid policy: ${reason}.`, 1, {
-      code: "DAWN_E3003",
+      code: "B4_E3003",
     })
   }
 

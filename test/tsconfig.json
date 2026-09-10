@@ -9,16 +9,16 @@
     "moduleResolution": "Bundler",
     "noEmit": true,
     "paths": {
-      "@dawn-ai/cli/runtime": ["../packages/cli/src/runtime-exports.ts"],
-      "@dawn-ai/core": ["../packages/core/src/index.ts"],
-      "@dawn-ai/core/internal/compiler": ["../packages/core/src/compiler/index.ts"],
-      "@dawn-ai/core/node": ["../packages/core/src/node.ts"],
-      "@dawn-ai/langchain": ["../packages/langchain/src/index.ts"],
-      "@dawn-ai/langgraph": ["../packages/langgraph/src/index.ts"],
-      "@dawn-ai/sdk": ["../packages/sdk/src/index.ts"],
-      "@dawn-ai/sdk/pure": ["../packages/sdk/src/pure/index.ts"],
-      "@dawn-ai/sdk/testing": ["../packages/sdk/src/testing/index.ts"],
-      "@dawn-ai/testing": ["../packages/testing/src/index.ts"]
+      "@b4run/cli/runtime": ["../packages/cli/src/runtime-exports.ts"],
+      "@b4run/core": ["../packages/core/src/index.ts"],
+      "@b4run/core/internal/compiler": ["../packages/core/src/compiler/index.ts"],
+      "@b4run/core/node": ["../packages/core/src/node.ts"],
+      "@b4run/langchain": ["../packages/langchain/src/index.ts"],
+      "@b4run/langgraph": ["../packages/langgraph/src/index.ts"],
+      "@b4run/sdk": ["../packages/sdk/src/index.ts"],
+      "@b4run/sdk/pure": ["../packages/sdk/src/pure/index.ts"],
+      "@b4run/sdk/testing": ["../packages/sdk/src/testing/index.ts"],
+      "@b4run/testing": ["../packages/testing/src/index.ts"]
     },
     "types": ["node", "vitest/globals"]
   },

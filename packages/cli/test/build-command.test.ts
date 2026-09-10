@@ -12,13 +12,13 @@ afterEach(async () => {
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-build-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-build-"))
   tempDirs.push(appRoot)
 
   const appFiles = {
-    // @dawn-ai/cli in dependencies → node target emits no runtime-dep warning.
-    "package.json": '{ "dependencies": { "@dawn-ai/cli": "workspace:*" } }\n',
-    "dawn.config.ts": "export default {};\n",
+    // @b4run/cli in dependencies → node target emits no runtime-dep warning.
+    "package.json": '{ "dependencies": { "@b4run/cli": "workspace:*" } }\n',
+    "b4.config.ts": "export default {};\n",
     ...files,
   }
 
@@ -33,10 +33,10 @@ async function createFixtureApp(files: Readonly<Record<string, string>>) {
   return appRoot
 }
 
-describe("dawn build", () => {
+describe("b4 build", () => {
   test("generates a materialized LangGraph entry for default agent descriptors with tools", async () => {
     const appRoot = await createFixtureApp({
-      "src/app/(public)/hello/[tenant]/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "src/app/(public)/hello/[tenant]/index.ts": `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -70,9 +70,9 @@ export default async function tenantGreet(input: { tenant: string }) {
 
     expect(stderr.join("")).toBe("")
 
-    const entry = await readFile(join(appRoot, ".dawn/build/hello-tenant.ts"), "utf8")
+    const entry = await readFile(join(appRoot, ".b4/build/hello-tenant.ts"), "utf8")
     expect(entry).toContain('import { fileURLToPath } from "node:url"')
-    expect(entry).toContain('import { materializeResolvedRouteGraph } from "@dawn-ai/cli/runtime"')
+    expect(entry).toContain('import { materializeResolvedRouteGraph } from "@b4run/cli/runtime"')
     expect(entry).toContain('const appRoot = fileURLToPath(new URL("../..", import.meta.url))')
     expect(entry).toContain("export const graph = await materializeResolvedRouteGraph({")
     expect(entry).toContain(
@@ -86,16 +86,16 @@ export default async function tenantGreet(input: { tenant: string }) {
     expect(entry).not.toContain("import { agent }")
 
     const langgraph = JSON.parse(
-      await readFile(join(appRoot, ".dawn/build/langgraph.json"), "utf8"),
+      await readFile(join(appRoot, ".b4/build/langgraph.json"), "utf8"),
     ) as {
       readonly graphs: Record<string, string>
     }
-    expect(langgraph.graphs["/hello/[tenant]#agent"]).toBe("./.dawn/build/hello-tenant.ts:graph")
+    expect(langgraph.graphs["/hello/[tenant]#agent"]).toBe("./.b4/build/hello-tenant.ts:graph")
   })
 
   test("generates a provider-agnostic materialized entry for non-OpenAI agent descriptors", async () => {
     const appRoot = await createFixtureApp({
-      "src/app/(public)/support/[tenant]/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "src/app/(public)/support/[tenant]/index.ts": `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "claude-sonnet-4-5",
@@ -129,9 +129,9 @@ export default async function tenantGreet(input: { tenant: string }) {
 
     expect(stderr.join("")).toBe("")
 
-    const entry = await readFile(join(appRoot, ".dawn/build/support-tenant.ts"), "utf8")
+    const entry = await readFile(join(appRoot, ".b4/build/support-tenant.ts"), "utf8")
     expect(entry).toContain('import { fileURLToPath } from "node:url"')
-    expect(entry).toContain('import { materializeResolvedRouteGraph } from "@dawn-ai/cli/runtime"')
+    expect(entry).toContain('import { materializeResolvedRouteGraph } from "@b4run/cli/runtime"')
     expect(entry).toContain("export const graph = await materializeResolvedRouteGraph({")
     expect(entry).toContain(
       'routeFile: fileURLToPath(new URL("../../src/app/(public)/support/[tenant]/index.js", import.meta.url))',
@@ -147,12 +147,10 @@ export default async function tenantGreet(input: { tenant: string }) {
     expect(entry).not.toContain("import { agent }")
 
     const langgraph = JSON.parse(
-      await readFile(join(appRoot, ".dawn/build/langgraph.json"), "utf8"),
+      await readFile(join(appRoot, ".b4/build/langgraph.json"), "utf8"),
     ) as {
       readonly graphs: Record<string, string>
     }
-    expect(langgraph.graphs["/support/[tenant]#agent"]).toBe(
-      "./.dawn/build/support-tenant.ts:graph",
-    )
+    expect(langgraph.graphs["/support/[tenant]#agent"]).toBe("./.b4/build/support-tenant.ts:graph")
   })
 })

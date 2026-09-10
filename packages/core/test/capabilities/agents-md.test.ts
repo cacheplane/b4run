@@ -12,7 +12,7 @@ describe("createAgentsMdMarker", () => {
   let originalCwd: string
 
   beforeEach(() => {
-    workDir = mkdtempSync(join(tmpdir(), "dawn-agents-md-"))
+    workDir = mkdtempSync(join(tmpdir(), "b4-agents-md-"))
     routeDir = join(workDir, "route")
     mkdirSync(routeDir, { recursive: true })
     originalCwd = process.cwd()

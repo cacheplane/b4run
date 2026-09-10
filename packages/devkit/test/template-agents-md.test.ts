@@ -17,8 +17,8 @@ describe("scaffold AGENTS.md", () => {
         new URL(`../templates/${appRoot(name)}/AGENTS.md`, import.meta.url),
       )
       const text = readFileSync(path, "utf8")
-      expect(text).toContain("dawn docs")
-      expect(text).toContain("node_modules/@dawn-ai/cli/docs")
+      expect(text).toContain("b4 docs")
+      expect(text).toContain("node_modules/@b4run/cli/docs")
     })
   }
 })

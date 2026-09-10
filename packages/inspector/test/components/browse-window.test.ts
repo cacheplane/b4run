@@ -1,4 +1,4 @@
-import type { MemoryRecord } from "@dawn-ai/memory/browse"
+import type { MemoryRecord } from "@b4run/memory/browse"
 import { describe, expect, it } from "vitest"
 import {
   BROWSE_RESIDENT_CAP,

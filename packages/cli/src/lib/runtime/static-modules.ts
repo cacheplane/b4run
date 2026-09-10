@@ -1,12 +1,12 @@
 /**
  * The node half of the static-module manifest: booting from a generated
- * `.dawn/build/modules.mjs`, which must be linked through the tsx loader.
+ * `.b4/build/modules.mjs`, which must be linked through the tsx loader.
  * Re-exports the pure half so this stays the one import site callers know.
  */
 
 import { validateThreadAccessPolicy } from "../dev/thread-access.js"
 import { registerTsxLoader } from "./register-tsx-loader.js"
-import type { DawnStaticModules, StaticRouteModule } from "./static-modules-core.js"
+import type { B4StaticModules, StaticRouteModule } from "./static-modules-core.js"
 
 export * from "./static-modules-core.js"
 
@@ -17,7 +17,7 @@ export * from "./static-modules-core.js"
  * a bare static `import` in server.mjs would fail to resolve them under plain
  * Node. Registers the loader, imports the manifest, and validates its shape.
  */
-export async function loadStaticModules(manifestUrl: URL | string): Promise<DawnStaticModules> {
+export async function loadStaticModules(manifestUrl: URL | string): Promise<B4StaticModules> {
   await registerTsxLoader()
   const href = typeof manifestUrl === "string" ? manifestUrl : manifestUrl.href
   const mod = (await import(href)) as { readonly default?: unknown }
@@ -28,7 +28,7 @@ export async function loadStaticModules(manifestUrl: URL | string): Promise<Dawn
     !Array.isArray((manifest as { readonly routes?: unknown }).routes)
   ) {
     throw new Error(
-      `Static module manifest at ${href} must default-export { routes: [...] } — re-run \`dawn build\`.`,
+      `Static module manifest at ${href} must default-export { routes: [...] } — re-run \`b4 build\`.`,
     )
   }
   // Middleware is optional, and `undefined` is legitimate (the emitted
@@ -37,7 +37,7 @@ export async function loadStaticModules(manifestUrl: URL | string): Promise<Dawn
   const middleware = (manifest as { readonly middleware?: unknown }).middleware
   if (middleware !== undefined && typeof middleware !== "function") {
     throw new Error(
-      `Static module manifest at ${href} has a non-function middleware entry — re-run \`dawn build\`.`,
+      `Static module manifest at ${href} has a non-function middleware entry — re-run \`b4 build\`.`,
     )
   }
   // Thread access is optional, and `undefined` is legitimate (an app with no
@@ -49,7 +49,7 @@ export async function loadStaticModules(manifestUrl: URL | string): Promise<Dawn
     const reason = validateThreadAccessPolicy(threadAccess)
     if (reason) {
       throw new Error(
-        `Static module manifest at ${href} has an invalid threadAccess entry (${reason}) — re-run \`dawn build\`.`,
+        `Static module manifest at ${href} has an invalid threadAccess entry (${reason}) — re-run \`b4 build\`.`,
       )
     }
   }
@@ -58,11 +58,11 @@ export async function loadStaticModules(manifestUrl: URL | string): Promise<Dawn
     if (!isStaticRouteModuleLike(entry)) {
       throw new Error(
         `Static module manifest at ${href} contains a malformed route entry — ` +
-          `each entry needs assistantId/routeId/routeFile/module/tools. Re-run \`dawn build\`.`,
+          `each entry needs assistantId/routeId/routeFile/module/tools. Re-run \`b4 build\`.`,
       )
     }
   }
-  return manifest as DawnStaticModules
+  return manifest as B4StaticModules
 }
 
 /**

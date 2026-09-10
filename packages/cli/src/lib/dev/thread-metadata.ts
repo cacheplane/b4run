@@ -8,12 +8,12 @@
  * Pure: no `node:` imports.
  */
 
-import { THREAD_ACCESS_METADATA_KEY } from "@dawn-ai/sdk"
+import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
 
 /**
- * Remove the key Dawn owns from anything a client supplied. Applied on EVERY
+ * Remove the key B4.run owns from anything a client supplied. Applied on EVERY
  * create path, hook or no hook: the key contains a colon, cannot be written as
- * a JS property identifier, and is namespaced to Dawn, so stripping it always
+ * a JS property identifier, and is namespaced to B4.run, so stripping it always
  * is safe — and it means an app that adopts a policy later cannot inherit
  * forged stamps written before it did.
  *
@@ -50,7 +50,7 @@ export function stripReservedThreadMetadata(
 /**
  * Guard for every `updateMetadata` patch the runtime builds, so a future
  * refactor cannot clobber the stamp through the store's shallow merge. Throws —
- * reaching it is a Dawn bug, not a caller error.
+ * reaching it is a B4.run bug, not a caller error.
  *
  * Deliberately NOT placed on `ThreadsStore.updateMetadata` itself: that is the
  * store contract, shared with operator tooling that legitimately needs to write
@@ -59,7 +59,7 @@ export function stripReservedThreadMetadata(
 export function assertNoReservedKey(patch: Record<string, unknown>): void {
   if (Object.hasOwn(patch, THREAD_ACCESS_METADATA_KEY)) {
     throw new Error(
-      `Dawn bug: a runtime thread-metadata patch carried the reserved key "${THREAD_ACCESS_METADATA_KEY}". ` +
+      `B4.run bug: a runtime thread-metadata patch carried the reserved key "${THREAD_ACCESS_METADATA_KEY}". ` +
         "That key is the server-issued access stamp and may only be written by the create path or by an operator backfill.",
     )
   }

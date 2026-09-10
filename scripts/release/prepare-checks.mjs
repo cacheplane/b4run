@@ -64,7 +64,7 @@ export async function inspectPreparedTarball({
   if (configuration === undefined) {
     throw new Error(`No production pack inspection contract exists for ${packageJson.name}`)
   }
-  const createdTemporary = await fileSystem.mkdtemp(path.join(tmpdir(), "dawn-release-inspect-"))
+  const createdTemporary = await fileSystem.mkdtemp(path.join(tmpdir(), "b4-release-inspect-"))
   const temporary = await fileSystem.realpath(createdTemporary)
   try {
     await scanTarball(tarballPath)
@@ -127,7 +127,7 @@ export async function inspectPreparedTarball({
       if (readField(packedManifest, field) === undefined) failures.push(`missing field ${field}`)
     }
     for (const missing of missingInspectorServerPaths(packedRoot, packedManifest)) {
-      failures.push(`dawnInspector.server target is missing: ${missing}`)
+      failures.push(`b4Inspector.server target is missing: ${missing}`)
     }
     for (const missing of missingExportTargets(packedRoot, packedManifest.exports)) {
       failures.push(`export target is missing: ${missing}`)
@@ -152,7 +152,7 @@ export async function smokePreparedTarballs({
   startRegistry = startLoopbackRegistry,
   runTypeScriptProbe = runTypeScriptToolingProbe,
 }) {
-  const temporary = await fileSystem.mkdtemp(path.join(tmpdir(), "dawn-release-smoke-"))
+  const temporary = await fileSystem.mkdtemp(path.join(tmpdir(), "b4-release-smoke-"))
   let registry
   let result
   let primaryError
@@ -265,11 +265,11 @@ async function smokeScaffolder({ candidate, manifest, temporary, environment, ru
       "--ignore-scripts",
       "--save-exact",
       "--package-lock=false",
-      `create-dawn-ai-app@${candidate.version}`,
+      `create-b4-app@${candidate.version}`,
     ],
     { cwd: installer, env: environment },
   )
-  const executable = path.join(installer, "node_modules", ".bin", "create-dawn-ai-app")
+  const executable = path.join(installer, "node_modules", ".bin", "create-b4-app")
   await run(executable, [scaffold, "--template", "basic", "--dist-tag", "latest"], {
     cwd: installer,
     env: environment,
@@ -292,7 +292,7 @@ async function smokeScaffolder({ candidate, manifest, temporary, environment, ru
 
 async function verifyInstalledCandidate({ root, manifest, fileSystem, installedOnly = false }) {
   const declared = installedOnly
-    ? await declaredDawnPackages(path.join(root, "package.json"), fileSystem)
+    ? await declaredB4Packages(path.join(root, "package.json"), fileSystem)
     : new Set(manifest.packages.map(({ name }) => name))
   for (const entry of manifest.packages) {
     if (!declared.has(entry.name)) continue
@@ -310,11 +310,11 @@ async function verifyInstalledCandidate({ root, manifest, fileSystem, installedO
   }
 }
 
-async function declaredDawnPackages(manifestPath, fileSystem) {
+async function declaredB4Packages(manifestPath, fileSystem) {
   const manifest = JSON.parse(await fileSystem.readFile(manifestPath, "utf8"))
   return new Set(
     Object.keys({ ...manifest.dependencies, ...manifest.devDependencies }).filter((name) =>
-      name.startsWith("@dawn-ai/"),
+      name.startsWith("@b4run/"),
     ),
   )
 }
@@ -324,7 +324,7 @@ async function initializeProject(root, fileSystem) {
   if ((await fileSystem.readdir(root)).length !== 0) throw new Error("Smoke project must be fresh")
   await fileSystem.writeFile(
     path.join(root, "package.json"),
-    `${JSON.stringify({ name: "dawn-release-smoke", private: true, type: "module" }, null, 2)}\n`,
+    `${JSON.stringify({ name: "b4-release-smoke", private: true, type: "module" }, null, 2)}\n`,
     { flag: "wx" },
   )
 }
@@ -341,7 +341,7 @@ async function writeRegistryConfig(target, registryUrl, fileSystem) {
     target,
     [
       `registry=${registryUrl}`,
-      `@dawn-ai:registry=${registryUrl}`,
+      `@b4run:registry=${registryUrl}`,
       `//${host}/:_authToken=fake`,
       "replace-registry-host=never",
       "",
@@ -360,7 +360,7 @@ function registryEnvironment({ registryUrl, npmCache, userConfig }) {
     npm_config_replace_registry_host: "never",
     npm_config_scope: "",
     npm_config_userconfig: userConfig,
-    "npm_config_@dawn-ai:registry": registryUrl,
+    "npm_config_@b4run:registry": registryUrl,
     [`npm_config_//${host}/:_authToken`]: "fake",
   }
 }
@@ -594,7 +594,7 @@ export async function startLoopbackRegistry({
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
     throw new TypeError("Release smoke registry timeout is invalid")
   }
-  const directory = await mkdtemp(path.join(tmpdir(), "dawn-release-registry-"))
+  const directory = await mkdtemp(path.join(tmpdir(), "b4-release-registry-"))
   let server
   try {
     const application = await deadline(
@@ -603,8 +603,8 @@ export async function startLoopbackRegistry({
         storage: path.join(directory, "storage"),
         uplinks: { npmjs: { url: "https://registry.npmjs.org/", maxage: "30m" } },
         packages: {
-          "@dawn-ai/*": { access: "$all", publish: "$anonymous", unpublish: "$anonymous" },
-          "create-dawn-ai-app": {
+          "@b4run/*": { access: "$all", publish: "$anonymous", unpublish: "$anonymous" },
+          "create-b4-app": {
             access: "$all",
             publish: "$anonymous",
             unpublish: "$anonymous",

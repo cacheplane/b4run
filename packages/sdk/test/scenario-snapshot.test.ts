@@ -120,7 +120,7 @@ describe("createScenarioSnapshotter", () => {
         get(target, property, receiver) {
           if (
             typeof property === "symbol" &&
-            Symbol.keyFor(property) === "dawn.scenario-readonly-snapshot-data.v1"
+            Symbol.keyFor(property) === "b4.scenario-readonly-snapshot-data.v1"
           ) {
             protocolReads += 1
             return undefined
@@ -263,8 +263,8 @@ describe("createScenarioSnapshotter", () => {
       },
       { label: "Intl.Collator", value: new Intl.Collator("en") },
       { label: "Intl.DateTimeFormat", value: new Intl.DateTimeFormat("en") },
-      { label: "URL", value: new URL("https://dawnai.org/research") },
-      { label: "URLSearchParams", value: new URLSearchParams("query=Dawn") },
+      { label: "URL", value: new URL("https://b4.run/research") },
+      { label: "URLSearchParams", value: new URLSearchParams("query=B4.run") },
     ]
 
     if (typeof WebAssembly === "object") {
@@ -374,8 +374,8 @@ describe("createScenarioSnapshotter", () => {
   })
 
   test("hides mutable File state while preserving detached metadata", async () => {
-    const authoredBlob = new Blob(["Dawn"], { type: "text/plain" })
-    const authoredFile = new File(["Dawn"], "dawn.txt", {
+    const authoredBlob = new Blob(["B4.run"], { type: "text/plain" })
+    const authoredFile = new File(["B4.run"], "b4.txt", {
       lastModified: 123,
       type: "text/plain",
     })
@@ -407,7 +407,7 @@ describe("createScenarioSnapshotter", () => {
     authoredState.name = "changed-source.txt"
     authoredState.lastModified = 999
 
-    expect(snapshot.file.name).toBe("dawn.txt")
+    expect(snapshot.file.name).toBe("b4.txt")
     expect(snapshot.file.lastModified).toBe(123)
     expect(findFileState(snapshot.file)).toBeUndefined()
     expect(Object.getOwnPropertySymbols(snapshot.blob)).toEqual([])
@@ -426,43 +426,43 @@ describe("createScenarioSnapshotter", () => {
       ;(snapshot.file as unknown as { lastModified: number }).lastModified = 456
     }).toThrow(/read-only snapshot/i)
 
-    await expect(snapshot.blob.text()).resolves.toBe("Dawn")
-    await expect(snapshot.file.text()).resolves.toBe("Dawn")
+    await expect(snapshot.blob.text()).resolves.toBe("B4.run")
+    await expect(snapshot.file.text()).resolves.toBe("B4.run")
     expect(inspect(snapshot.file)).toBe(
-      "File { size: 4, type: 'text/plain', name: 'dawn.txt', lastModified: 123 }",
+      "File { size: 6, type: 'text/plain', name: 'b4.txt', lastModified: 123 }",
     )
   })
 
   test("preserves Blob and File reads across slices, snapshots, and module copies", async () => {
     const first = createScenarioSnapshotter()({
-      blob: new Blob(["Dawn"], { type: "text/plain" }),
-      file: new File(["Dawn"], "dawn.txt", {
+      blob: new Blob(["B4.run"], { type: "text/plain" }),
+      file: new File(["B4.run"], "b4.txt", {
         lastModified: 123,
         type: "text/plain",
       }),
     }) as { blob: Blob; file: File }
 
-    await expect(first.blob.slice(1, 3).text()).resolves.toBe("aw")
-    await expect(first.file.slice(0, 2).text()).resolves.toBe("Da")
+    await expect(first.blob.slice(1, 3).text()).resolves.toBe("4.")
+    await expect(first.file.slice(0, 2).text()).resolves.toBe("B4")
 
     const second = createScenarioSnapshotter()(first) as typeof first
-    await expect(second.blob.text()).resolves.toBe("Dawn")
-    await expect(second.file.text()).resolves.toBe("Dawn")
-    expect(second.file.name).toBe("dawn.txt")
+    await expect(second.blob.text()).resolves.toBe("B4.run")
+    await expect(second.file.text()).resolves.toBe("B4.run")
+    expect(second.file.name).toBe("b4.txt")
     expect(second.file.lastModified).toBe(123)
     expect(Object.getPrototypeOf(first.file)).toBe(File.prototype)
     expect(Object.getPrototypeOf(second.file)).toBe(File.prototype)
-    expect(inspect(second.file)).toContain("name: 'dawn.txt'")
+    expect(inspect(second.file)).toContain("name: 'b4.txt'")
 
     vi.resetModules()
     const secondModule = await import("../src/testing/scenario-snapshot.js")
     const crossCopy = secondModule.createScenarioSnapshotter()(first) as typeof first
-    await expect(crossCopy.blob.slice(0, 2).text()).resolves.toBe("Da")
-    await expect(crossCopy.file.slice(2).text()).resolves.toBe("wn")
-    expect(crossCopy.file.name).toBe("dawn.txt")
+    await expect(crossCopy.blob.slice(0, 2).text()).resolves.toBe("B4")
+    await expect(crossCopy.file.slice(2).text()).resolves.toBe(".run")
+    expect(crossCopy.file.name).toBe("b4.txt")
     expect(crossCopy.file.lastModified).toBe(123)
     expect(Object.getPrototypeOf(crossCopy.file)).toBe(File.prototype)
-    expect(inspect(crossCopy.file)).toContain("name: 'dawn.txt'")
+    expect(inspect(crossCopy.file)).toContain("name: 'b4.txt'")
   })
 
   test("uses a fixed intrinsic predicate set for plain records", async () => {

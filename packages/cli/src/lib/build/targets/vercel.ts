@@ -33,7 +33,7 @@ export const vercelTarget: BuildTarget = {
   name: "vercel",
   async emit(ctx) {
     const vercelDir = join(ctx.appRoot, ".vercel")
-    const invocationDir = join(vercelDir, `.dawn-vercel-${randomUUID()}`)
+    const invocationDir = join(vercelDir, `.b4-vercel-${randomUUID()}`)
     const runtimeDir = join(invocationDir, "runtime")
     const stagedOutput = join(invocationDir, "output")
     const finalOutput = join(vercelDir, "output")
@@ -54,7 +54,7 @@ export const vercelTarget: BuildTarget = {
         await build({
           absWorkingDir: ctx.appRoot,
           bundle: true,
-          conditions: ["dawn-static-provider-imports", "module"],
+          conditions: ["b4-static-provider-imports", "module"],
           entryPoints: [runtime.appPath],
           format: "esm",
           minify: false,

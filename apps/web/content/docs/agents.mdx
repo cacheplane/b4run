@@ -1,6 +1,6 @@
 # Agents
 
-An agent is the default scaffolded route in Dawn — an LLM-driven workflow that picks tools at runtime. It's the path we recommend when you want the model to decide what to do; for deterministic flows, prefer a `workflow`, `graph`, or `chain`.
+An agent is the default scaffolded route in B4.run — an LLM-driven workflow that picks tools at runtime. It's the path we recommend when you want the model to decide what to do; for deterministic flows, prefer a `workflow`, `graph`, or `chain`.
 
 ## A minimal agent
 
@@ -8,7 +8,7 @@ A route's `index.ts` exports an agent created by `agent({ model, systemPrompt })
 
 <CodeGroup>
 ```ts title="src/app/(public)/research/index.ts"
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -24,16 +24,16 @@ export default async (input: { readonly query: string }) => {
 ```
 </CodeGroup>
 
-Tools live next to the agent — `index.ts` is the agent entry, and any TS file in `tools/` is discovered for it. Param types are inferred from the function signature at `dawn build` time and made available to the generated graph.
+Tools live next to the agent — `index.ts` is the agent entry, and any TS file in `tools/` is discovered for it. Param types are inferred from the function signature at `b4 build` time and made available to the generated graph.
 
 ## Model providers
 
-The built-in `agent()` route materializes to a LangChain chat model. Dawn infers providers for known model families and lazy-loads the matching LangChain integration package. Supported built-in provider ids are `openai`, `anthropic`, `google`, `mistral`, `groq`, `ollama`, `xai`, and `openrouter`; see [`ModelProviderId`](/docs/api/sdk#dawn-aisdk-1). Raw `graph` and `chain` routes can still instantiate any provider directly.
+The built-in `agent()` route materializes to a LangChain chat model. B4.run infers providers for known model families and lazy-loads the matching LangChain integration package. Supported built-in provider ids are `openai`, `anthropic`, `google`, `mistral`, `groq`, `ollama`, `xai`, and `openrouter`; see [`ModelProviderId`](/docs/api/sdk#b4runsdk-1). Raw `graph` and `chain` routes can still instantiate any provider directly.
 
 Set `provider` to one of the supported built-in provider ids when the model name is an alias, ambiguous, local, or routed through a provider gateway:
 
 ```ts title="src/app/(public)/research/index.ts"
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "llama3.1",
@@ -42,7 +42,7 @@ export default agent({
 })
 ```
 
-Dawn includes the OpenAI integration for the default path. Install other LangChain provider packages as your app needs them:
+B4.run includes the OpenAI integration for the default path. Install other LangChain provider packages as your app needs them:
 
 ```bash
 pnpm add @langchain/anthropic     # anthropic
@@ -54,11 +54,11 @@ pnpm add @langchain/xai           # xai
 pnpm add @langchain/openrouter    # openrouter
 ```
 
-`dawn check` (and `dawn verify`) warn when a model id isn't in Dawn's curated list for the resolved provider (`openai`, `google`, `anthropic`, `xai`), with did-you-mean suggestions; the runtime prints the same advisory once when the model is constructed. The lists are advisory — new, proxy, or gateway model ids run fine if your provider accepts them, and providers without curated lists (`mistral`, `groq`, `ollama`, `openrouter`) are never warned about.
+`b4 check` (and `b4 verify`) warn when a model id isn't in B4.run's curated list for the resolved provider (`openai`, `google`, `anthropic`, `xai`), with did-you-mean suggestions; the runtime prints the same advisory once when the model is constructed. The lists are advisory — new, proxy, or gateway model ids run fine if your provider accepts them, and providers without curated lists (`mistral`, `groq`, `ollama`, `openrouter`) are never warned about.
 
 ## When to pick an agent
 
-Dawn supports four route entry shapes. Pick the one that fits the problem:
+B4.run supports four route entry shapes. Pick the one that fits the problem:
 
 - **Agent** — LLM-driven, model picks tools at runtime. Default for conversational and discovery-style routes.
 - **Workflow** — deterministic async function with a typed state. Pick when you control the order of operations.
@@ -69,7 +69,7 @@ A route's `index.ts` exports exactly one of these. You can mix shapes across rou
 
 ## Tool auto-binding
 
-Any TypeScript file in a route's `tools/` directory is discovered for the agent. No manual `tools: [...]` config — Dawn wires them into the generated graph at build time.
+Any TypeScript file in a route's `tools/` directory is discovered for the agent. No manual `tools: [...]` config — B4.run wires them into the generated graph at build time.
 
 ```ts title="src/app/(public)/research/tools/search.ts"
 export default async (input: { readonly query: string }) => {
@@ -77,7 +77,7 @@ export default async (input: { readonly query: string }) => {
 }
 ```
 
-The exported parameter type is read by Dawn's compiler integration and turned into a JSON schema for the LLM. The agent calls `tools.search({ query })` at runtime; the model decides when.
+The exported parameter type is read by B4.run's compiler integration and turned into a JSON schema for the LLM. The agent calls `tools.search({ query })` at runtime; the model decides when.
 
 See [Tools](/docs/tools) for the full input/output rules and the generated declarations.
 

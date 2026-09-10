@@ -3,15 +3,9 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [
-        "dist/**",
-        ".next/**",
-        "!.next/cache/**",
-        ".dawn/build/**",
-        ".dawn/dawn.generated.d.ts"
-      ]
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**", ".b4/build/**", ".b4/b4.generated.d.ts"]
     },
-    "@dawn-ai/cli#build": {
+    "@b4run/cli#build": {
       "dependsOn": ["^build"],
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -34,18 +28,18 @@
     "test": {
       "dependsOn": ["build", "^test"]
     },
-    "@dawn-ai/cli#test": {
+    "@b4run/cli#test": {
       "dependsOn": [
         "build",
         "^test",
-        "@dawn-ai/testing#build",
-        "@dawn-ai/postgres-storage#build",
-        "@dawn-ai/evals#build",
-        "@dawn-ai/memory-pgvector#build",
-        "@dawn-ai/devkit#build",
-        "@dawn-ai/vite-plugin#build",
-        "@dawn-ai/inspector#build",
-        "create-dawn-ai-app#build"
+        "@b4run/testing#build",
+        "@b4run/postgres-storage#build",
+        "@b4run/evals#build",
+        "@b4run/memory-pgvector#build",
+        "@b4run/devkit#build",
+        "@b4run/vite-plugin#build",
+        "@b4run/inspector#build",
+        "create-b4-app#build"
       ],
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -55,14 +49,14 @@
         "$TURBO_ROOT$/examples/chat/**",
         "$TURBO_ROOT$/examples/research/**",
         "!$TURBO_ROOT$/examples/*/**/node_modules/**",
-        "!$TURBO_ROOT$/examples/*/**/.dawn/**",
+        "!$TURBO_ROOT$/examples/*/**/.b4/**",
         "!$TURBO_ROOT$/examples/*/**/.next/**",
         "!$TURBO_ROOT$/examples/*/**/.turbo/**",
         "!$TURBO_ROOT$/examples/*/**/dist/**",
         "!$TURBO_ROOT$/examples/*/**/*.tsbuildinfo"
       ]
     },
-    "@dawn-ai/core#test": {
+    "@b4run/core#test": {
       "dependsOn": ["build", "^test"],
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -71,7 +65,7 @@
         "$TURBO_ROOT$/test/fixtures/contracts/manifest.snap.json"
       ]
     },
-    "@dawn-ai/inspector#test": {
+    "@b4run/inspector#test": {
       "dependsOn": ["build", "^test"],
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -84,36 +78,37 @@
         "$TURBO_ROOT$/examples/research/web/package.json"
       ]
     },
-    "@dawn-ai/sandbox#test": {
+    "@b4run/sandbox#test": {
       "dependsOn": ["build", "^test"],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/.github/kubernetes-compatibility.json",
         "$TURBO_ROOT$/.github/workflows/ci.yml",
-        "$TURBO_ROOT$/charts/dawn-sandbox-infra/values.yaml"
+        "$TURBO_ROOT$/charts/b4-sandbox-infra/values.yaml"
       ]
     },
-    "@dawn-ai/testing#test": {
+    "@b4run/testing#test": {
       "dependsOn": ["build", "^test"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/examples/memory/server/dawn.config.ts",
+        "$TURBO_ROOT$/examples/memory/server/b4.config.ts",
         "$TURBO_ROOT$/examples/memory/server/package.json",
         "$TURBO_ROOT$/examples/memory/server/tsconfig.json",
         "$TURBO_ROOT$/examples/memory/server/src/**",
-        "$TURBO_ROOT$/test/runtime/fixtures/sandbox-app/dawn.config.ts",
+        "$TURBO_ROOT$/test/runtime/fixtures/sandbox-app/b4.config.ts",
         "$TURBO_ROOT$/test/runtime/fixtures/sandbox-app/package.json",
         "$TURBO_ROOT$/test/runtime/fixtures/sandbox-app/src/**"
       ]
     },
-    "create-dawn-ai-app#test": {
+    "create-b4-app#test": {
       "dependsOn": ["build", "^test"],
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/test/harness/**"]
     },
     "typecheck": {
       "dependsOn": ["build"]
     },
-    "@dawn-ai/cli#typecheck": {
-      "dependsOn": ["build", "@dawn-ai/testing#build", "@dawn-ai/postgres-storage#build"]
+    "@b4run/cli#typecheck": {
+      "dependsOn": ["build", "@b4run/testing#build", "@b4run/postgres-storage#build"]
     }
   }
 }

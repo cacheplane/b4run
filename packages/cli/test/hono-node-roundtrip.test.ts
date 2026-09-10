@@ -44,7 +44,7 @@ import {
 // contributor has" is not Docker: before this suite, only the `*-docker` jobs
 // needed a daemon and `pnpm test` never did. So it SKIPS without one — and
 // because a skip that nobody notices is indistinguishable from a pass, CI sets
-// DAWN_REQUIRE_DOCKER=1 on the job that runs `pnpm test`, which turns the skip
+// B4_REQUIRE_DOCKER=1 on the job that runs `pnpm test`, which turns the skip
 // into a hard failure. Both directions are load-bearing.
 //
 // FOUR requests, not two. The module-scope-pool failure this target is built to
@@ -65,7 +65,7 @@ import {
 const MIGRATION_LOCKS_PER_COLD_START = 3
 
 const docker = await probeDocker()
-const requireDocker = process.env.DAWN_REQUIRE_DOCKER === "1"
+const requireDocker = process.env.B4_REQUIRE_DOCKER === "1"
 /** Run when Docker is there — or when a skip is forbidden, so it can FAIL. */
 const roundTrip = docker.available || requireDocker ? test : test.skip
 
@@ -108,7 +108,7 @@ import app from "./app.mjs"
 // The bindings a deployed worker gets from wrangler. Passed as Hono's per
 // invocation \`env\`, which is the ONLY channel this process gives the app: its
 // own process.env deliberately carries no OPENAI_BASE_URL.
-const env = JSON.parse(process.env.DAWN_TEST_WORKER_ENV)
+const env = JSON.parse(process.env.B4_TEST_WORKER_ENV)
 
 serve({ fetch: (request) => app.fetch(request, env), hostname: "127.0.0.1", port: 0 }, (info) => {
   console.log(JSON.stringify({ port: info.port }))
@@ -125,7 +125,7 @@ interface EmittedServer {
  * for it to report its port.
  *
  * A child, not an in-process import, for two reasons: vitest's resolver would
- * alias `@dawn-ai/*` to TypeScript sources the emitted files never see, and the
+ * alias `@b4run/*` to TypeScript sources the emitted files never see, and the
  * process-global `seedRuntimeEnv` state the entry installs belongs to the
  * program under test, not to the test runner.
  */
@@ -146,7 +146,7 @@ async function startEmittedServer(
   // cannot stand in for the binding either.
   delete childEnv.DATABASE_URL
   childEnv.OPENAI_API_KEY = childEnv.OPENAI_API_KEY ?? "test-not-used"
-  childEnv.DAWN_TEST_WORKER_ENV = JSON.stringify(env)
+  childEnv.B4_TEST_WORKER_ENV = JSON.stringify(env)
 
   const child: ChildProcess = spawn(process.execPath, [join(buildDir, "serve.test.mjs")], {
     cwd: buildDir,
@@ -216,7 +216,7 @@ async function startAimock(): Promise<Aimock> {
  * writes its log in order, so everything earlier is already there.
  */
 async function countMigrationLocks(client: Client, log: () => string): Promise<number> {
-  const marker = `dawn_log_barrier_${Math.random().toString(36).slice(2)}`
+  const marker = `b4_log_barrier_${Math.random().toString(36).slice(2)}`
   await client.query(`SELECT '${marker}'`)
   const deadline = Date.now() + 60_000
   while (!log().includes(marker)) {
@@ -234,17 +234,17 @@ describe("hono target — the emitted app on Node, against real Postgres", () =>
   roundTrip(
     "serves four sequential turns and leaves durable state in Postgres",
     async () => {
-      // Reached only under DAWN_REQUIRE_DOCKER=1: without the flag this test is
+      // Reached only under B4_REQUIRE_DOCKER=1: without the flag this test is
       // `test.skip` and never runs at all.
       if (!docker.available || !containers) throw requireDockerFailure(docker)
 
-      const appRoot = await createFixtureApp("dawn-hono-roundtrip-")
+      const appRoot = await createFixtureApp("b4-hono-roundtrip-")
       cleanup.push(() => removeFixtureApp(appRoot))
       const buildDir = await buildFixture(appRoot)
 
       // ---- The node baseline -------------------------------------------------
       // The same fixture, the same turn, through the node handler in-process —
-      // the AG-UI shape the rest of Dawn is held to. Captured BEFORE the edge run
+      // the AG-UI shape the rest of B4.run is held to. Captured BEFORE the edge run
       // so a later failure cannot be explained away by shared state: it uses its
       // own aimock and its own (sqlite, on-disk) stores.
       const nodeAimock = await startAimock()
@@ -328,7 +328,7 @@ describe("hono target — the emitted app on Node, against real Postgres", () =>
       await client.connect()
       try {
         const threads = await client.query<{ thread_id: string; status: string }>(
-          "SELECT thread_id, status FROM dawn_threads",
+          "SELECT thread_id, status FROM b4_threads",
         )
         // `idle` and not `busy`: the run's own bookkeeping write, issued after
         // the stream finished, landed on a pool that was still open. A pool
@@ -338,13 +338,13 @@ describe("hono target — the emitted app on Node, against real Postgres", () =>
         expect(threads.rows).toEqual([{ status: "idle", thread_id: threadId }])
 
         const checkpoints = await client.query<{ n: string }>(
-          "SELECT count(*) AS n FROM dawn_checkpoints WHERE thread_id = $1",
+          "SELECT count(*) AS n FROM b4_checkpoints WHERE thread_id = $1",
           [threadId],
         )
         expect(Number(checkpoints.rows[0]?.n)).toBeGreaterThanOrEqual(TURNS.length)
 
         const writes = await client.query<{ n: string }>(
-          "SELECT count(*) AS n FROM dawn_writes WHERE thread_id = $1",
+          "SELECT count(*) AS n FROM b4_writes WHERE thread_id = $1",
           [threadId],
         )
         expect(Number(writes.rows[0]?.n)).toBeGreaterThan(0)

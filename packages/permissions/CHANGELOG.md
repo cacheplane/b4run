@@ -1,5 +1,60 @@
 # @dawn-ai/permissions
 
+## 0.8.30
+
+### Patch Changes
+
+- Updated dependencies [80a98ad]
+  - @b4run/sdk@0.8.30
+
+## 0.8.29
+
+### Patch Changes
+
+- Updated dependencies [481489e]
+  - @b4run/sdk@0.8.29
+
+## 0.8.28
+
+### Patch Changes
+
+- Updated dependencies [39ceb2e]
+  - @b4run/sdk@0.8.28
+
+## 0.8.27
+
+### Patch Changes
+
+- Updated dependencies [b05b96d]
+  - @b4run/sdk@0.8.27
+
+## 0.8.26
+
+### Patch Changes
+
+- @dawn-ai/sdk@0.8.26
+
+## 0.8.25
+
+### Patch Changes
+
+- @dawn-ai/sdk@0.8.25
+
+## 0.8.24
+
+### Patch Changes
+
+- @dawn-ai/sdk@0.8.24
+
+## 0.8.23
+
+### Patch Changes
+
+- 7e62bb1: Refresh the GitHub and npm documentation surfaces, add package discovery
+  metadata, and introduce reproducible product-loop media. No runtime API changed.
+- Updated dependencies [7e62bb1]
+  - @dawn-ai/sdk@0.8.23
+
 ## 0.8.22
 
 ### Patch Changes

@@ -15,7 +15,7 @@ import {
 import { runOwnerPreflightCli } from "../preflight-owner-cli.mjs"
 
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url))
-const REPOSITORY = "cacheplane/dawnai"
+const REPOSITORY = "cacheplane/b4run"
 const SHA = "0123456789abcdef0123456789abcdef01234567"
 const OTHER_SHA = "1123456789abcdef0123456789abcdef01234567"
 const BLOB_SHA = "2123456789abcdef0123456789abcdef01234567"
@@ -211,7 +211,7 @@ test("owner CLI rejects unknown, duplicate, missing, and implicit verification i
 })
 
 async function workspaceFixture(t) {
-  const root = await mkdtemp(path.join(tmpdir(), "dawn-owner-preflight-"))
+  const root = await mkdtemp(path.join(tmpdir(), "b4-owner-preflight-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   const bytes = new Map()
   const releaseRunCalls = []

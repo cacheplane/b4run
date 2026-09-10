@@ -5,13 +5,13 @@ import { dirname, join, resolve } from "node:path"
 import { afterEach, describe, expect, test } from "vitest"
 
 /**
- * End-to-end coverage for Dawn's enriched import diagnostics.
+ * End-to-end coverage for B4.run's enriched import diagnostics.
  *
  * This MUST exercise the compiled CLI as a real Node subprocess. An in-process
  * `run()` test does NOT reproduce the failure: vitest's Vite layer intercepts
  * dynamic `import()` and resolves missing named imports to `undefined`, so the
  * genuine "does not provide an export named" loader error never fires. Only the
- * real Node/tsx loader (running in a spawned `dawn` process) produces it, which
+ * real Node/tsx loader (running in a spawned `b4` process) produces it, which
  * is what `diagnose()` + `importModule` classify and enrich.
  */
 
@@ -22,12 +22,12 @@ afterEach(async () => {
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-import-diag-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-import-diag-"))
   tempDirs.push(appRoot)
 
   const appFiles = {
     "package.json": '{"type":"module"}\n',
-    "dawn.config.ts": "export default {};\n",
+    "b4.config.ts": "export default {};\n",
     // A real CommonJS dependency in the app's node_modules. The named export is
     // written as `exports.present = ...` (not `module.exports = { present }`) so
     // that Node's cjs-module-lexer can statically detect it — that detection is
@@ -59,10 +59,10 @@ async function buildCliExecutable() {
   const distEntry = join(packageRoot, "dist", "index.js")
 
   await new Promise<void>((resolvePromise, rejectPromise) => {
-    // No `--force`: it rebuilds every referenced project (incl. @dawn-ai/core)
+    // No `--force`: it rebuilds every referenced project (incl. @b4run/core)
     // unconditionally, rewriting the SHARED packages/core/dist mid-suite. Under
     // vitest's parallel files that races other tests spawning processes which
-    // import @dawn-ai/core from that dist (a half-written dist → "does not
+    // import @b4run/core from that dist (a half-written dist → "does not
     // provide an export" crash). Plain `tsc -b` is a no-op when already built.
     const child = spawn("pnpm", ["exec", "tsc", "-b", "tsconfig.build.json"], {
       cwd: packageRoot,
@@ -114,14 +114,14 @@ async function executeCli(entryPath: string, args: readonly string[]) {
   })
 }
 
-describe("dawn check import diagnostics (subprocess)", () => {
+describe("b4 check import diagnostics (subprocess)", () => {
   test("enriches a stale/CommonJS named-import failure with package, CommonJS hint, and the missing export", {
     timeout: 60_000,
   }, async () => {
     const appRoot = await createFixtureApp({
       // A route-local tool that imports a guaranteed-absent named binding from
       // the CommonJS dependency. The real Node/tsx loader throws the opaque
-      // "does not provide an export named" error, which Dawn enriches.
+      // "does not provide an export named" error, which B4.run enriches.
       "src/app/x/tools/load.ts":
         'import { absent } from "legacy-dep"\n\nexport default async () => absent\n',
     })
@@ -151,7 +151,7 @@ describe("dawn check import diagnostics (subprocess)", () => {
     const combined = `${result.stdout}${result.stderr}`
 
     expect(result.code).toBe(0)
-    expect(result.stdout).toContain("Dawn app is valid")
+    expect(result.stdout).toContain("B4.run app is valid")
     expect(combined).not.toMatch(/CommonJS/i)
   })
 })

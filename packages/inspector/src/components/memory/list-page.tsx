@@ -1,5 +1,5 @@
 "use client"
-import type { MemoryRecord, MemoryStats } from "@dawn-ai/memory"
+import type { MemoryRecord, MemoryStats } from "@b4run/memory"
 import type { ColumnFilter, PretableGrid, PretableSortEntry } from "@pretable/react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { canonicalBrowseQuery } from "../../browse/canonical-query"
