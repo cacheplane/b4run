@@ -109,8 +109,9 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // their original bytes and are checked at the immutable pre-rename revision.
 // Repinned for the first-publication npm bootstrap: the new npm-bootstrap.mjs policy module
 // and the bootstrap-aware npm adapter, observer, CLI, audit verifier, and publisher.
+// Repinned for verified published terminal selection and historical npm latest observations.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "922753c5abfb8e3f7d66fe2201bf8d5c1297e32aa5c85bbeb27a0d1085f0da0e"
+  "6b30a1629fd6ceb5fd62be6ce295aff5f750031c46ebebbde01128cf62f6dc6e"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
