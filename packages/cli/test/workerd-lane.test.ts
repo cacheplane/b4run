@@ -27,14 +27,14 @@ import {
 // ---------------------------------------------------------------------------
 // THE WORKERD LANE — the merge gate for the whole edge claim.
 //
-// A Dawn app, built by `dawn build` with the `hono` target and deployed exactly
+// A B4.run app, built by `b4 build` with the `hono` target and deployed exactly
 // as an operator would (the emitted `wrangler.toml`, untouched, plus a
 // `.dev.vars` standing in for `wrangler secret`), serving real AG-UI turns with
 // DURABLE POSTGRES STATE inside real Cloudflare workerd. No Cloudflare account
 // is involved: `wrangler dev --local` runs the same workerd binary the platform
 // runs, against local containers.
 //
-// Gated on DAWN_TEST_WORKERD=1 — it needs Docker and the workerd binary, which
+// Gated on B4_TEST_WORKERD=1 — it needs Docker and the workerd binary, which
 // `pnpm-workspace.yaml`'s `onlyBuiltDependencies` exists to let wrangler's
 // postinstall download. The `edge-workerd` CI job sets the flag. The ungated
 // round-trip beside it (`hono-node-roundtrip.test.ts`) covers the same fixture,
@@ -52,7 +52,7 @@ import {
 // `nodejs_compat` flag was added at any point.
 //
 //  1. THE BUNDLE DID NOT LINK. wrangler died with `No such module
-//     "node:async_hooks"`, from ONE specifier and it was Dawn's own:
+//     "node:async_hooks"`, from ONE specifier and it was B4.run's own:
 //     `packages/langchain/src/{tool-converter,subagent-tool-bridge}.ts`
 //     imported `dispatchCustomEvent` from "@langchain/core/callbacks/dispatch",
 //     whose entry statically imports `node:async_hooks` in order to INFER the
@@ -68,7 +68,7 @@ import {
 //     an AbortController is an I/O object bound to the request that built it —
 //     and the handler is necessarily built inside request one, because global
 //     scope refuses to construct one at all ("Disallowed operation called
-//     within global scope"). So a Dawn app served exactly ONE request per
+//     within global scope"). So a B4.run app served exactly ONE request per
 //     isolate. The shutdown signal is now minted per request
 //     (`getShutdownSignal(request)`, following the file's existing
 //     `getRunRegistry(request)` pattern) with `close()` aborting the live set.
@@ -106,7 +106,7 @@ import {
 // THIS LANE RUNS `dist`, NOT `src`. wrangler resolves the linked packages for
 // real, and vitest will not rebuild them for you — so without help this lane
 // can test arbitrarily old code and return a red OR a genuine-looking green.
-// `@dawn-ai/langchain` is the trap: it is nowhere in the fixture's linked list,
+// `@b4run/langchain` is the trap: it is nowhere in the fixture's linked list,
 // arriving through `packages/cli/node_modules`. The one unreproducible failure
 // during review was exactly this — a `dist` predating dccae091 fails here 5/5.
 // `createFixtureApp` now builds the whole closure first; see
@@ -114,7 +114,7 @@ import {
 // ═══════════════════════════════════════════════════════════════════════════
 // ---------------------------------------------------------------------------
 
-const enabled = process.env.DAWN_TEST_WORKERD === "1"
+const enabled = process.env.B4_TEST_WORKERD === "1"
 const workerdTest = enabled ? test : test.skip
 
 /**
@@ -154,7 +154,7 @@ interface WorkerdServer {
  *
  * Bindings are supplied through `.dev.vars`, which is wrangler's own local
  * stand-in for `wrangler secret put` — deliberately NOT by editing the emitted
- * `wrangler.toml`, which stays exactly as `dawn build` wrote it so that what
+ * `wrangler.toml`, which stays exactly as `b4 build` wrote it so that what
  * boots here is what an operator deploys. If the scaffold ever needs a
  * `nodejs_compat` flag or a `compatibility_flags` entry to work, this lane goes
  * red rather than quietly compensating.
@@ -266,7 +266,7 @@ describe("hono target — the emitted app inside real Cloudflare workerd", () =>
     async () => {
       if (!containers) throw new Error("containers were not started")
 
-      const appRoot = await createFixtureApp("dawn-workerd-lane-")
+      const appRoot = await createFixtureApp("b4-workerd-lane-")
       cleanup.push(() => removeFixtureApp(appRoot))
       await buildFixture(appRoot)
 
@@ -359,7 +359,7 @@ describe("hono target — the emitted app inside real Cloudflare workerd", () =>
       await client.connect()
       try {
         const threads = await client.query<{ thread_id: string; status: string }>(
-          "SELECT thread_id, status FROM dawn_threads",
+          "SELECT thread_id, status FROM b4_threads",
         )
         // `idle`, not `busy`: the run's bookkeeping write is issued AFTER the
         // SSE body finishes, so this is also the assertion that the per-request
@@ -368,13 +368,13 @@ describe("hono target — the emitted app inside real Cloudflare workerd", () =>
         expect(threads.rows).toEqual([{ status: "idle", thread_id: threadId }])
 
         const checkpoints = await client.query<{ n: string }>(
-          "SELECT count(*) AS n FROM dawn_checkpoints WHERE thread_id = $1",
+          "SELECT count(*) AS n FROM b4_checkpoints WHERE thread_id = $1",
           [threadId],
         )
         expect(Number(checkpoints.rows[0]?.n)).toBeGreaterThanOrEqual(TURNS.length)
 
         const writes = await client.query<{ n: string }>(
-          "SELECT count(*) AS n FROM dawn_writes WHERE thread_id = $1",
+          "SELECT count(*) AS n FROM b4_writes WHERE thread_id = $1",
           [threadId],
         )
         expect(Number(writes.rows[0]?.n)).toBeGreaterThan(0)

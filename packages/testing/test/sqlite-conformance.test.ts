@@ -1,4 +1,4 @@
-import { sqliteMemoryStore } from "@dawn-ai/memory"
+import { sqliteMemoryStore } from "@b4run/memory"
 import { describe } from "vitest"
 import { runMemoryStoreConformance } from "../src/memory-conformance.js"
 

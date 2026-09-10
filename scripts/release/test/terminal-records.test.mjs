@@ -6,7 +6,7 @@ import { parseAbandonmentRecord } from "../terminal-records.mjs"
 const VERSION = "0.8.21"
 const SHA = "3".repeat(40)
 const PACKAGE_NAMES = Array.from({ length: 21 }, (_, index) =>
-  index === 20 ? "create-dawn-ai-app" : `@dawn-ai/package-${String(index).padStart(2, "0")}`,
+  index === 20 ? "create-b4-app" : `@b4run/package-${String(index).padStart(2, "0")}`,
 )
 const OPTIONS = Object.freeze({
   candidate: Object.freeze({ version: VERSION, commitSha: SHA }),

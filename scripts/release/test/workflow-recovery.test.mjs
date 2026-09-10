@@ -37,7 +37,7 @@ test("materializes canonical prepared recovery inputs for a later release run", 
   assert.equal(recovered.auditDispatch, null)
   assert.equal(recovered.auditResult, null)
 
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-workflow-recovery-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-workflow-recovery-"))
   const output = path.join(directory, "recovered")
   try {
     await module.writeWorkflowRecovery({ report, outputDir: output })
@@ -65,7 +65,7 @@ test("requires and writes exact npm evidence at and after npm reconciliation", a
     transition: "reconcile-npm-evidence",
     npm: true,
   })
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-workflow-recovery-npm-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-workflow-recovery-npm-"))
   const output = path.join(directory, "recovered")
   try {
     const recovered = await module.writeWorkflowRecovery({
@@ -135,7 +135,7 @@ test("rejects diagnostics, state-transition drift, candidate drift, and extra re
 
 test("the executable accepts only one report and one new output directory", async () => {
   const module = await import("../workflow-recovery.mjs")
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dawn-workflow-recovery-cli-"))
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-workflow-recovery-cli-"))
   const reportPath = path.join(directory, "report.json")
   const output = path.join(directory, "recovered")
   const report = recoveryReport({
@@ -175,8 +175,8 @@ function recoveryReport({ state, transition, npm = false, audit = false }) {
     ? {
         workflow: ".github/workflows/published-artifact-verify.yml",
         workflowRunId: 500,
-        runUrl: "https://api.github.com/repos/cacheplane/dawnai/actions/runs/500",
-        htmlUrl: "https://github.com/cacheplane/dawnai/actions/runs/500",
+        runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/500",
+        htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/500",
       }
     : null
   const auditResult = audit
@@ -310,7 +310,7 @@ function npmEvidenceFor(manifest) {
             predicateType: "https://slsa.dev/provenance/v1",
             workflow: ".github/workflows/release.yml",
             commitSha: COMMIT_SHA,
-            repository: "https://github.com/cacheplane/dawnai",
+            repository: "https://github.com/cacheplane/b4run",
             ref: `refs/tags/v${VERSION}`,
           },
         })),

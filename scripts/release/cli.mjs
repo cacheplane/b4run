@@ -293,18 +293,31 @@ async function runObserve(options, runtime) {
     "waitForRequiredCi",
     "required CI waiter",
   )
-  classifyEvent(event)
+  const invocation = classifyEvent(event)
 
   const [git, github, npm, attestations, marker] = await Promise.all([
     requireProductionGit(runtime),
     requireProductionGitHub(runtime),
-    requireNpm(runtime),
+    requireNpm(runtime, { firstPublication: invocation.npmBootstrap === true }),
     requireAttestations(runtime),
     readControllerMarker(runtime),
   ])
+  // Pin the controller checkout once; candidate resolution and observation must
+  // use the same immutable source even if the checkout moves during this call.
+  requiredMethod(git, "listFirstParentHistory", "checkout HEAD reader")
+  const checkoutHistory = await git.listFirstParentHistory({ ref: "HEAD", maxCount: 1 })
+  if (
+    !Array.isArray(checkoutHistory) ||
+    checkoutHistory.length !== 1 ||
+    typeof checkoutHistory[0] !== "string" ||
+    !/^[a-f0-9]{40}$/u.test(checkoutHistory[0])
+  )
+    throw new TypeError("Release CLI checkout HEAD must resolve to exactly one immutable commit")
+  const terminalRecordRef = checkoutHistory[0]
   const inventory = runtime.inventory ?? createInventoryReader({ root: runtime.cwd, git })
   requiredMethod(inventory, "read", "production inventory reader")
 
+  const npmAuditFactory = await requireNpmAuditFactory(runtime)
   let selection
   let resolutionFailure = null
   let observationDiagnostics = []
@@ -316,8 +329,10 @@ async function runObserve(options, runtime) {
       git,
       github,
       npm,
+      npmAuditFactory,
       attestations,
       marker,
+      terminalRecordRef,
     })
   } catch (error) {
     resolutionFailure = safeObservationFailure(error, "CANDIDATE_DISCOVERY_AMBIGUOUS")
@@ -341,8 +356,9 @@ async function runObserve(options, runtime) {
     const ci = await waitForRequiredCi({
       sha: selection.candidate.commitSha,
       github,
-      attempts: 61,
-      delayMs: 10_000,
+      // 100 x 30 s = 50 min: must exceed ci.yml's 45-minute validate budget plus queueing.
+      attempts: 100,
+      delayMs: 30_000,
       delay: runtime.wait ?? defaultWait,
     })
     if (ci.status !== "success") {
@@ -365,9 +381,14 @@ async function runObserve(options, runtime) {
       ]
     }
   }
-  const npmAuditFactory = await requireNpmAuditFactory(runtime)
+  const currentPublisherRun = currentPublisherRunFromEnvironment(
+    runtime.environment,
+    selection.candidate,
+  )
   const observer = {
     async observe() {
+      if (["RECOVERY_REQUIRED", "RECOVERY_COMPLETE"].includes(selection.state))
+        return { schemaVersion: 2, owner: "postpublication-recovery", state: selection.state }
       if (resolutionFailure !== null || selection.candidate === null) {
         return {
           status: resolutionFailure === null ? "no-candidate" : "ambiguous",
@@ -384,7 +405,9 @@ async function runObserve(options, runtime) {
           npm,
           npmAuditFactory,
           attestations,
+          terminalRecordRef,
           includeRecovery: true,
+          ...(currentPublisherRun === null ? {} : { currentPublisherRun }),
         })
         observationDiagnostics = normalizeObservationDiagnostics(result.diagnostics)
         observationRecovery = snapshotCliData(result.recovery, "production recovery evidence")
@@ -410,6 +433,17 @@ async function runObserve(options, runtime) {
           conflicts: [...selection.conflicts, "production-observation-ambiguous"],
         })
       }
+      if (selection.state === "RECOVERY_REQUIRED")
+        return blockedObservePlan({
+          state: selection.state,
+          conflicts: selection.conflicts.length ? selection.conflicts : ["recovery-required"],
+        })
+      if (selection.state === "RECOVERY_COMPLETE")
+        return terminalObservePlan({
+          state: selection.state,
+          disposition: "recovery-terminal",
+          reason: "independently verified immutable recovery completion",
+        })
       if (selection.candidate === null) {
         return terminalObservePlan({
           state: "NO_CANDIDATE",
@@ -577,7 +611,7 @@ async function runEscrow(options, runtime) {
     {
       candidate,
       manifest: verified.manifest,
-      repository: "cacheplane/dawnai",
+      repository: "cacheplane/b4run",
     },
   )
   if (!Buffer.from(attestationSetBytes).equals(canonicalJsonBytes(attestationSet))) {
@@ -637,7 +671,13 @@ async function runEscrow(options, runtime) {
   }
   const [github, npm, attestations] = await Promise.all([
     requireGitHub(runtime),
-    requireNpm(runtime),
+    // Escrow proves each package version absent before sealing. A version missing
+    // from an existing package already reads as an exact E404, but a package that
+    // has never been published reads as ambiguous. That is every package of a
+    // first publication, and any package newly joining the fixed group. The
+    // first-publication reader resolves exactly that case, only for code-owned
+    // names and only from the trusted registry's own not-found response.
+    requireNpm(runtime, { firstPublication: true, tolerateInjectedPlainReader: true }),
     requireAttestations(runtime),
   ])
   const escrow = moduleFunction(metadataModule, "escrowCandidate", "candidate escrow")
@@ -1419,6 +1459,7 @@ async function runWaitAudit(options, runtime) {
   )({
     runId,
     candidate,
+    git: await requireProductionGit(runtime),
     github: github.reader,
     attempts: 181,
     delayMs: 10_000,
@@ -1555,7 +1596,7 @@ async function runTag(options, runtime) {
   const created = await createAnnotatedTag({
     tag,
     sha: candidate.commitSha,
-    message: `Dawn release ${tag}`,
+    message: `B4 release ${tag}`,
   })
   const pushed = await pushTag({ tag })
   return Object.freeze({
@@ -1801,6 +1842,38 @@ function projectEnvironment(environment, names) {
   return Object.freeze(result)
 }
 
+function currentPublisherRunFromEnvironment(environment, candidate) {
+  if (candidate === null) return null
+  const projected = projectEnvironment(environment, [
+    "GITHUB_REF",
+    "GITHUB_SHA",
+    "GITHUB_RUN_ID",
+    "GITHUB_RUN_ATTEMPT",
+  ])
+  if (
+    projected.GITHUB_REF !== `refs/tags/v${candidate.version}` ||
+    projected.GITHUB_SHA !== candidate.commitSha
+  ) {
+    return null
+  }
+  const runId = optionalEnvironmentPositiveInteger(projected, "GITHUB_RUN_ID")
+  const runAttempt = optionalEnvironmentPositiveInteger(projected, "GITHUB_RUN_ATTEMPT")
+  if (runId === null || runAttempt === null) return null
+  return Object.freeze({
+    runId,
+    runAttempt,
+    ref: projected.GITHUB_REF,
+    sha: projected.GITHUB_SHA,
+  })
+}
+
+function optionalEnvironmentPositiveInteger(environment, name) {
+  const value = environment[name]
+  if (typeof value !== "string" || !DECIMAL_ID_PATTERN.test(value)) return null
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null
+}
+
 function environmentPositiveInteger(environment, name) {
   const value = environment[name]
   if (typeof value !== "string" || !DECIMAL_ID_PATTERN.test(value)) {
@@ -1875,8 +1948,8 @@ function auditDispatchRunId(value) {
     !Number.isSafeInteger(value.workflowRunId) ||
     value.workflowRunId < 1 ||
     value.runUrl !==
-      `https://api.github.com/repos/cacheplane/dawnai/actions/runs/${value.workflowRunId}` ||
-    value.htmlUrl !== `https://github.com/cacheplane/dawnai/actions/runs/${value.workflowRunId}`
+      `https://api.github.com/repos/cacheplane/b4run/actions/runs/${value.workflowRunId}` ||
+    value.htmlUrl !== `https://github.com/cacheplane/b4run/actions/runs/${value.workflowRunId}`
   ) {
     throw new TypeError("Release CLI audit dispatch result is invalid")
   }
@@ -1920,7 +1993,7 @@ async function requireGitHub(runtime) {
     "GitHub reader factory",
   )({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     ...(runtime.environment.GITHUB_REPOSITORY_ID === undefined
       ? {}
       : { repositoryId: runtime.environment.GITHUB_REPOSITORY_ID }),
@@ -1932,7 +2005,7 @@ async function requireGitHub(runtime) {
     "GitHub writer factory",
   )({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     token,
     reader,
   })
@@ -1988,7 +2061,7 @@ async function requireProductionGitHub(runtime) {
     "GitHub reader factory",
   )({
     owner: "cacheplane",
-    repo: "dawnai",
+    repo: "b4run",
     ...(runtime.environment.GITHUB_REPOSITORY_ID === undefined
       ? {}
       : { repositoryId: runtime.environment.GITHUB_REPOSITORY_ID }),
@@ -2036,13 +2109,55 @@ async function requireNpmAuditFactory(runtime) {
   })
 }
 
-async function requireNpm(runtime) {
-  if (runtime.npm !== undefined) {
-    requiredMethod(runtime.npm, "observePackageVersion", "npm reader")
-    return runtime.npm
+async function requireNpm(
+  runtime,
+  { firstPublication = false, tolerateInjectedPlainReader = false } = {},
+) {
+  if (firstPublication !== true) {
+    if (runtime.npm !== undefined) {
+      requiredMethod(runtime.npm, "observePackageVersion", "npm reader")
+      return runtime.npm
+    }
+    const module = await runtime.importModule(new URL("./adapters/npm.mjs", import.meta.url).href)
+    return moduleFunction(module, "createNpmReader", "npm reader factory")()
   }
+  // Read-only first-publication detection: the explicitly selected reader may report a
+  // whole-package absence from npm's own not-found responses. It receives no credential and
+  // confers no publishing authority; the publisher re-validates its own bootstrap policy.
   const module = await runtime.importModule(new URL("./adapters/npm.mjs", import.meta.url).href)
-  return moduleFunction(module, "createNpmReader", "npm reader factory")()
+  if (runtime.npm !== undefined) {
+    // Observation selected by the bootstrap boolean must never fall back to a
+    // reader that cannot prove absence, so it requires the operation. Escrow
+    // opts into tolerating an injected reader that lacks it, because there the
+    // caller supplies the exact observations to use.
+    if (
+      tolerateInjectedPlainReader &&
+      typeof runtime.npm.observeFirstPublicationPackage !== "function"
+    ) {
+      requiredMethod(runtime.npm, "observePackageVersion", "npm reader")
+      return runtime.npm
+    }
+    requiredMethod(runtime.npm, "observeFirstPublicationPackage", "first-publication npm reader")
+    return moduleFunction(
+      module,
+      "adaptFirstPublicationNpmReader",
+      "first-publication npm reader adapter",
+    )(runtime.npm)
+  }
+  const manifestModule = await runtime.importModule(new URL("./manifest.mjs", import.meta.url).href)
+  const eligiblePackages = moduleValue(
+    manifestModule,
+    "CANONICAL_RELEASE_PACKAGE_ORDER",
+    "release package inventory",
+  )
+  if (!Array.isArray(eligiblePackages)) {
+    throw new TypeError("Release CLI first-publication package inventory is invalid")
+  }
+  return moduleFunction(
+    module,
+    "createFirstPublicationAwareNpmReader",
+    "first-publication npm reader factory",
+  )({ eligiblePackages })
 }
 
 async function requireAttestations(runtime) {
@@ -2054,7 +2169,7 @@ async function requireAttestations(runtime) {
   if (typeof token !== "string" || token.length === 0 || /[\r\n]/u.test(token)) {
     throw new TypeError("Release CLI attestation verification requires GITHUB_TOKEN")
   }
-  if (runtime.environment.GITHUB_REPOSITORY !== "cacheplane/dawnai") {
+  if (runtime.environment.GITHUB_REPOSITORY !== "cacheplane/b4run") {
     throw new TypeError("Release CLI attestation verification requires the exact GitHub repository")
   }
   const module = await runtime.importModule(new URL("./artifact-store.mjs", import.meta.url).href)
@@ -2063,7 +2178,7 @@ async function requireAttestations(runtime) {
     "createCliAttestationVerifier",
     "attestation verifier factory",
   )({
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     token,
     fileSystem: runtime.fileSystem,
   })
@@ -2099,7 +2214,7 @@ function normalizeArtifactUpload(value, manifest) {
   ) {
     throw new TypeError("Artifact upload output has an invalid exact-key schema")
   }
-  const expectedUrl = `https://github.com/cacheplane/dawnai/actions/runs/${manifest.artifact.prepareRunId}/artifacts/${value.artifactId}`
+  const expectedUrl = `https://github.com/cacheplane/b4run/actions/runs/${manifest.artifact.prepareRunId}/artifacts/${value.artifactId}`
   if (value.artifactUrl !== expectedUrl) {
     throw new TypeError("Artifact upload URL does not match the run and artifact ID")
   }
@@ -2816,6 +2931,24 @@ function usageError() {
   )
 }
 
+const FAILURE_DETAIL_MAX_LENGTH = 512
+// The joined message chain is cut here before any redaction regex runs, so a pathological
+// message (a megabyte of one repeated character) costs a bounded amount of matching work.
+const FAILURE_DETAIL_MAX_INPUT_LENGTH = 4096
+const FAILURE_DETAIL_MAX_CAUSES = 3
+const FAILURE_DETAIL_REDACTIONS = Object.freeze([
+  /gh[pous]_[A-Za-z0-9]{20,}/gu,
+  /github_pat_[A-Za-z0-9_]{20,}/gu,
+  /npm_[A-Za-z0-9]{20,}/gu,
+  /Bearer\s+\S+/giu,
+  /authorization:\s*\S+(?:\s+\S+)?/giu,
+  // JWT-like: anchored so the match can only start at the beginning of a token run; the
+  // unanchored form retried every offset of a long unbroken run (quadratic, 80k chars ~10 s).
+  // The lookbehind deliberately admits a preceding dot: `v1.<jwt>` and `id.<jwt>` are real
+  // shapes and must still redact.
+  /(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/gu,
+])
+
 const executedPath =
   process.argv[1] === undefined ? null : pathToFileURL(path.resolve(process.argv[1])).href
 if (executedPath === import.meta.url) {
@@ -2823,6 +2956,7 @@ if (executedPath === import.meta.url) {
     await runReleaseCli(process.argv.slice(2))
   } catch (error) {
     process.stderr.write(`release CLI failed: ${safeCode(error)}\n`)
+    process.stderr.write(`release CLI failure detail: ${safeDetail(error)}\n`)
     process.exitCode = 1
   }
 }
@@ -2832,6 +2966,69 @@ function safeCode(error) {
   return typeof code === "string" && /^[A-Z0-9_]{1,128}$/u.test(code)
     ? code
     : "INVALID_RELEASE_COMMAND"
+}
+
+/**
+ * One operator-facing line describing why the CLI failed. Most controller failures are
+ * plain Errors without a code, so `release CLI failed: INVALID_RELEASE_COMMAND` alone hides
+ * the actual reason (run 33889526426 failed in escrow with exactly that masked line). The
+ * detail is derived from the error message chain only: never a stack, never a body.
+ */
+export function safeDetail(error) {
+  // A hostile error (a throwing `message` getter, a Proxy that traps every get) must not turn
+  // the failure report itself into a second crash: the placeholder is the only fallback.
+  try {
+    return unsafeDetail(error)
+  } catch {
+    return "(no message)"
+  }
+}
+
+function unsafeDetail(error) {
+  const messages = []
+  let current = error
+  for (
+    let depth = 0;
+    depth <= FAILURE_DETAIL_MAX_CAUSES && (depth === 0 || current !== undefined);
+    depth += 1
+  ) {
+    const message = current?.message
+    messages.push(
+      typeof message === "string" && message.trim().length > 0 ? message : "(no message)",
+    )
+    current = current !== null && typeof current === "object" ? current.cause : undefined
+  }
+  let joined = messages.join(" <- ")
+  if (joined.length > FAILURE_DETAIL_MAX_INPUT_LENGTH) {
+    // Drop the token the cut landed inside, so a credential split at the boundary can never
+    // surface as a short fragment the redaction patterns no longer recognize.
+    joined = joined.slice(0, FAILURE_DETAIL_MAX_INPUT_LENGTH).replace(/(?<=\s)\S+$/u, "")
+  }
+  let detail = Array.from(joined, (character) =>
+    isControlCharacter(character) ? " " : character,
+  ).join("")
+  detail = detail.replace(/https?:\/\/[^\s?#]*\?\S*/gu, (token) =>
+    token.slice(0, token.indexOf("?")),
+  )
+  for (const pattern of FAILURE_DETAIL_REDACTIONS) {
+    detail = detail.replace(pattern, "[redacted]")
+  }
+  detail = detail.replace(/\s+/gu, " ").trim()
+  if (detail.length === 0) return "(no message)"
+  if (detail.length > FAILURE_DETAIL_MAX_LENGTH) {
+    detail = `${detail.slice(0, FAILURE_DETAIL_MAX_LENGTH - 1)}\u2026`
+  }
+  return detail
+}
+
+function isControlCharacter(character) {
+  const codePoint = character.codePointAt(0)
+  return (
+    codePoint < 0x20 ||
+    (codePoint >= 0x7f && codePoint <= 0x9f) ||
+    codePoint === 0x2028 ||
+    codePoint === 0x2029
+  )
 }
 
 function safeObservationFailure(error, fallback) {

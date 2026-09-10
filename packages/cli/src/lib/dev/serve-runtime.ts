@@ -1,11 +1,11 @@
-import type { DawnConfig } from "@dawn-ai/core"
+import type { B4Config } from "@b4run/core"
 // All store/middleware imports are type-only — they erase at runtime.
-import type { MemoryStore } from "@dawn-ai/memory"
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import type { DawnMiddleware } from "@dawn-ai/sdk"
-import type { ThreadsStore } from "@dawn-ai/sqlite-storage"
+import type { MemoryStore } from "@b4run/memory"
+import type { PermissionsStore } from "@b4run/permissions"
+import type { B4Middleware } from "@b4run/sdk"
+import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
-import type { DawnStaticModules } from "../runtime/static-modules.js"
+import type { B4StaticModules } from "../runtime/static-modules.js"
 import { startRuntimeServer } from "./runtime-server.js"
 
 export interface ServeRuntimeOptions {
@@ -14,9 +14,9 @@ export interface ServeRuntimeOptions {
   readonly port?: number
   readonly installSignalHandlers?: boolean
   /** A build-time-generated module manifest — see `StartRuntimeServerOptions.modules`. */
-  readonly modules?: DawnStaticModules
-  /** An already-constructed DawnConfig — see `StartRuntimeServerOptions.config`. */
-  readonly config?: DawnConfig
+  readonly modules?: B4StaticModules
+  /** An already-constructed B4Config — see `StartRuntimeServerOptions.config`. */
+  readonly config?: B4Config
   /** Boot-resolved checkpointer — see `StartRuntimeServerOptions.checkpointer`. */
   readonly checkpointer?: BaseCheckpointSaver
   /** Boot-resolved threads store — see `StartRuntimeServerOptions.threadsStore`. */
@@ -30,7 +30,7 @@ export interface ServeRuntimeOptions {
   /** Lazy memory-store thunk — see `StartRuntimeServerOptions.memoryStore`. */
   readonly memoryStore?: () => Promise<MemoryStore>
   /** Pre-loaded middleware — see `StartRuntimeServerOptions.middleware`. */
-  readonly middleware?: DawnMiddleware
+  readonly middleware?: B4Middleware
 }
 
 export interface ServeRuntimeHandle {
@@ -69,18 +69,18 @@ export function resolveServePort(
 }
 
 /**
- * Boot the Dawn runtime HTTP server for production use (`dawn serve`).
+ * Boot the B4.run runtime HTTP server for production use (`b4 serve`).
  *
  * Hands off directly to `startRuntimeServer`, the single assembly point
  * (runtime registry + threads store + checkpointer + sandbox manager + HTTP
- * listener) that `dawn dev` also uses in its child process. Unlike `dawn dev`,
+ * listener) that `b4 dev` also uses in its child process. Unlike `b4 dev`,
  * serveRuntime never watches the filesystem or restarts — it starts once and
  * stays up.
  *
- * Deliberately does NOT run typegen at boot. The host `dawn build` already
- * generated `.dawn/*` (COPY'd into the image), and the runtime's schema
+ * Deliberately does NOT run typegen at boot. The host `b4 build` already
+ * generated `.b4/*` (COPY'd into the image), and the runtime's schema
  * injection is best-effort with a fallback to discovered tools when those
- * artifacts are absent. Running typegen here would WRITE `.dawn/*`, crashing a
+ * artifacts are absent. Running typegen here would WRITE `.b4/*`, crashing a
  * read-only-rootfs production container with EROFS — see PR #339 review.
  */
 export async function serveRuntime(opts: ServeRuntimeOptions): Promise<ServeRuntimeHandle> {
@@ -90,7 +90,7 @@ export async function serveRuntime(opts: ServeRuntimeOptions): Promise<ServeRunt
 
   // Production loads the permissions store once at boot ("boot" mode); dev
   // keeps the default "per-request" re-load so mid-process HITL "Always"
-  // grants written to .dawn/permissions.json still apply without a restart.
+  // grants written to .b4/permissions.json still apply without a restart.
   const server = await startRuntimeServer({
     appRoot: opts.appRoot,
     host,

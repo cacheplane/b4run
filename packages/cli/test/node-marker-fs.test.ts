@@ -12,7 +12,7 @@ afterEach(async () => {
 
 describe("nodeMarkerFs", () => {
   it("reports existence, size, and content for a real file", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "dawn-marker-fs-"))
+    const dir = await mkdtemp(join(tmpdir(), "b4-marker-fs-"))
     cleanup.push(() => rm(dir, { force: true, recursive: true }))
     const file = join(dir, "AGENTS.md")
     const content = "remember the thing"

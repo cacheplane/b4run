@@ -1,17 +1,17 @@
 import { readdir } from "node:fs/promises"
 import { join, relative, resolve, sep } from "node:path"
 import { pathToFileURL } from "node:url"
-import type { RouteKind } from "@dawn-ai/sdk"
-import { isDawnAgent } from "@dawn-ai/sdk"
+import type { RouteKind } from "@b4run/sdk"
+import { isB4Agent } from "@b4run/sdk"
 import { registerTsxLoader } from "../config-node.js"
 import type { DiscoverRoutesOptions, RouteDefinition, RouteManifest } from "../types.js"
-import { findDawnApp } from "./find-dawn-app.js"
+import { findB4App } from "./find-b4-app.js"
 import { isPrivateSegment, isRouteGroupSegment, toRouteSegments } from "./route-segments.js"
 
 const INDEX_FILE = "index.ts"
 
 export async function discoverRoutes(options: DiscoverRoutesOptions = {}): Promise<RouteManifest> {
-  const app = await findDawnApp(options)
+  const app = await findB4App(options)
   const routes = validateRouteCollisions(await collectRouteDefinitions(app.routesDir))
 
   return {
@@ -94,8 +94,8 @@ async function inferRouteKind(indexFile: string): Promise<RouteKind | null> {
   await registerTsxLoader()
   const routeExports = await loadRouteExports(indexFile)
 
-  // Check default export for DawnAgent descriptor (preferred path)
-  if ("default" in routeExports && isDawnAgent(routeExports.default)) {
+  // Check default export for B4Agent descriptor (preferred path)
+  if ("default" in routeExports && isB4Agent(routeExports.default)) {
     return "agent"
   }
 
@@ -160,7 +160,7 @@ function validateRouteCollisions(routes: readonly RouteDefinition[]): RouteDefin
 
     if (existingRoute) {
       throw new Error(
-        `Duplicate Dawn route pathname "${route.pathname}" detected at ${existingRoute.routeDir} and ${route.routeDir}`,
+        `Duplicate B4.run route pathname "${route.pathname}" detected at ${existingRoute.routeDir} and ${route.routeDir}`,
       )
     }
 

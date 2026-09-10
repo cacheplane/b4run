@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { BrowseQuery, BrowseSortEntry, MemoryStore } from "@dawn-ai/memory"
-import { sqliteMemoryStore } from "@dawn-ai/memory"
+import type { BrowseQuery, BrowseSortEntry, MemoryStore } from "@b4run/memory"
+import { sqliteMemoryStore } from "@b4run/memory"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
   BROWSE_SEED_COUNT,
@@ -30,9 +30,9 @@ let appRoot: string
 let store: MemoryStore
 
 beforeAll(async () => {
-  appRoot = mkdtempSync(join(tmpdir(), "dawn-browse-seed-"))
+  appRoot = mkdtempSync(join(tmpdir(), "b4-browse-seed-"))
   await writeBrowseSeed(appRoot)
-  store = sqliteMemoryStore({ path: join(appRoot, ".dawn", "memory.sqlite") })
+  store = sqliteMemoryStore({ path: join(appRoot, ".b4", "memory.sqlite") })
 })
 
 afterAll(() => {

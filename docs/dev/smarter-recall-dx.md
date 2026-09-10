@@ -1,5 +1,9 @@
 # Smarter recall — DX draft
 
+> Historical design snapshot, retained to explain earlier implementation decisions.
+> For current B4.run behavior and commands, use the [documentation](https://b4.run/docs/getting-started)
+> and the repository README. This document is not a current implementation guide.
+
 > Draft developer-experience narrative for the smarter-recall feature
 > (spec: `docs/superpowers/specs/2026-07-05-smarter-recall-design.md`).
 > Written from the seat of a Dawn app developer. The acceptance bar at the

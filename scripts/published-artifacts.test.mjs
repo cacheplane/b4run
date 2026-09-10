@@ -8,7 +8,6 @@ import { afterEach, describe, it } from "node:test"
 import { fileURLToPath } from "node:url"
 
 import { parse } from "yaml"
-
 import {
   assertCleanDependencySpecs,
   assertInstalledCoreResolution,
@@ -45,6 +44,7 @@ import {
   runPublishedArtifactVerify,
 } from "./published-artifact-verify.mjs"
 import { CANONICAL_RELEASE_PACKAGE_ORDER, canonicalManifestBytes } from "./release/manifest.mjs"
+import { assertStrictSmokeCommandOptions } from "./release/smoke-process-runner.mjs"
 import { parseSmokeResult, REQUIRED_RELEASE_SMOKE_LANES } from "./release/smoke-result.mjs"
 
 const {
@@ -69,6 +69,10 @@ const {
 
 const tempRoots = []
 const workflowExpression = (value) => `\${{ ${value} }}`
+const validDiscoveryMetadata = {
+  description: "A complete public package used to validate publication metadata.",
+  keywords: ["b4", "typescript", "testing"],
+}
 const typescriptPackagePath = fileURLToPath(import.meta.resolve("typescript/package.json"))
 const typescriptPackage = JSON.parse(readFileSync(typescriptPackagePath, "utf8"))
 const typescriptCompilerPath = resolvePackageBinPath(
@@ -93,9 +97,9 @@ afterEach(async () => {
 describe("resolvePackageSet", () => {
   it("resolves the memory-pgvector-core package set", () => {
     assert.deepEqual(resolvePackageSet("memory-pgvector-core"), [
-      "@dawn-ai/memory-pgvector",
-      "@dawn-ai/memory",
-      "@dawn-ai/langchain",
+      "@b4run/memory-pgvector",
+      "@b4run/memory",
+      "@b4run/langchain",
     ])
   })
 
@@ -105,21 +109,21 @@ describe("resolvePackageSet", () => {
 
   it("resolves the TypeScript tooling package set", () => {
     assert.deepEqual(resolvePackageSet("typescript-tooling"), [
-      "@dawn-ai/sdk",
-      "@dawn-ai/core",
-      "@dawn-ai/vite-plugin",
-      "@dawn-ai/cli",
+      "@b4run/sdk",
+      "@b4run/core",
+      "@b4run/vite-plugin",
+      "@b4run/cli",
     ])
   })
 
   it("resolves the Docker sandbox package set", () => {
-    assert.deepEqual(resolvePackageSet("docker-sandbox"), ["@dawn-ai/sandbox"])
+    assert.deepEqual(resolvePackageSet("docker-sandbox"), ["@b4run/sandbox"])
   })
 })
 
 describe("packageSets", () => {
   it("includes the AG-UI package set", () => {
-    assert.deepEqual(packageSets["ag-ui"], ["@dawn-ai/ag-ui"])
+    assert.deepEqual(packageSets["ag-ui"], ["@b4run/ag-ui"])
   })
 
   it("includes the public package set placeholder", () => {
@@ -128,15 +132,15 @@ describe("packageSets", () => {
 
   it("includes SDK, Core, Vite, and CLI in the TypeScript tooling package set", () => {
     assert.deepEqual(packageSets["typescript-tooling"], [
-      "@dawn-ai/sdk",
-      "@dawn-ai/core",
-      "@dawn-ai/vite-plugin",
-      "@dawn-ai/cli",
+      "@b4run/sdk",
+      "@b4run/core",
+      "@b4run/vite-plugin",
+      "@b4run/cli",
     ])
   })
 
   it("includes the Docker sandbox package set", () => {
-    assert.deepEqual(packageSets["docker-sandbox"], ["@dawn-ai/sandbox"])
+    assert.deepEqual(packageSets["docker-sandbox"], ["@b4run/sandbox"])
   })
 })
 
@@ -215,7 +219,7 @@ describe("waitForPublishedVersions", () => {
     const delays = []
 
     await waitForPublishedVersions({
-      packages: ["@dawn-ai/core", "@dawn-ai/vite-plugin"],
+      packages: ["@b4run/core", "@b4run/vite-plugin"],
       version: "0.9.0",
       attempts: 3,
       delayMs: 10_000,
@@ -228,7 +232,7 @@ describe("waitForPublishedVersions", () => {
       },
     })
 
-    assert.deepEqual(calls, ["@dawn-ai/core", "@dawn-ai/vite-plugin"])
+    assert.deepEqual(calls, ["@b4run/core", "@b4run/vite-plugin"])
     assert.deepEqual(delays, [])
   })
 
@@ -237,7 +241,7 @@ describe("waitForPublishedVersions", () => {
     const resolvers = new Map()
 
     await waitForPublishedVersions({
-      packages: ["@dawn-ai/core", "@dawn-ai/vite-plugin", "@dawn-ai/cli"],
+      packages: ["@b4run/core", "@b4run/vite-plugin", "@b4run/cli"],
       version: "0.9.0",
       attempts: 1,
       delayMs: 0,
@@ -257,7 +261,7 @@ describe("waitForPublishedVersions", () => {
       async delay() {},
     })
 
-    assert.deepEqual(calls, ["@dawn-ai/core", "@dawn-ai/vite-plugin", "@dawn-ai/cli"])
+    assert.deepEqual(calls, ["@b4run/core", "@b4run/vite-plugin", "@b4run/cli"])
   })
 
   it("times out a never-resolving injected registry request", async () => {
@@ -265,7 +269,7 @@ describe("waitForPublishedVersions", () => {
 
     await assert.rejects(
       waitForPublishedVersions({
-        packages: ["@dawn-ai/core"],
+        packages: ["@b4run/core"],
         version: "0.9.0",
         attempts: 1,
         delayMs: 0,
@@ -275,7 +279,7 @@ describe("waitForPublishedVersions", () => {
       }),
       (error) => {
         assert.equal(error.code, "ETIMEDOUT")
-        assert.match(error.message, /@dawn-ai\/core.*timed out.*10ms/i)
+        assert.match(error.message, /@b4run\/core.*timed out.*10ms/i)
         return true
       },
     )
@@ -289,7 +293,7 @@ describe("waitForPublishedVersions", () => {
     const packageAttempts = new Map()
 
     await waitForPublishedVersions({
-      packages: ["@dawn-ai/core", "@dawn-ai/vite-plugin", "@dawn-ai/core", "@dawn-ai/cli"],
+      packages: ["@b4run/core", "@b4run/vite-plugin", "@b4run/core", "@b4run/cli"],
       version: "0.9.0",
       attempts: 3,
       delayMs: 25,
@@ -297,7 +301,7 @@ describe("waitForPublishedVersions", () => {
         calls.push(packageName)
         const attempt = (packageAttempts.get(packageName) ?? 0) + 1
         packageAttempts.set(packageName, attempt)
-        const visibleAfter = packageName === "@dawn-ai/vite-plugin" ? 3 : 1
+        const visibleAfter = packageName === "@b4run/vite-plugin" ? 3 : 1
         return { versions: attempt >= visibleAfter ? ["0.9.0"] : [] }
       },
       async delay(ms) {
@@ -306,11 +310,11 @@ describe("waitForPublishedVersions", () => {
     })
 
     assert.deepEqual(calls, [
-      "@dawn-ai/core",
-      "@dawn-ai/vite-plugin",
-      "@dawn-ai/cli",
-      "@dawn-ai/vite-plugin",
-      "@dawn-ai/vite-plugin",
+      "@b4run/core",
+      "@b4run/vite-plugin",
+      "@b4run/cli",
+      "@b4run/vite-plugin",
+      "@b4run/vite-plugin",
     ])
     assert.deepEqual(delays, [25, 25])
   })
@@ -321,14 +325,14 @@ describe("waitForPublishedVersions", () => {
 
     await assert.rejects(
       waitForPublishedVersions({
-        packages: ["@dawn-ai/core", "@dawn-ai/vite-plugin", "@dawn-ai/cli"],
+        packages: ["@b4run/core", "@b4run/vite-plugin", "@b4run/cli"],
         version: "0.9.0",
         attempts: 2,
         delayMs: 250,
         async npmViewImpl(packageName) {
           calls.push(packageName)
           return {
-            versions: packageName === "@dawn-ai/vite-plugin" ? [] : ["0.9.0"],
+            versions: packageName === "@b4run/vite-plugin" ? [] : ["0.9.0"],
           }
         },
         async delay(ms) {
@@ -336,9 +340,9 @@ describe("waitForPublishedVersions", () => {
         },
       }),
       (error) => {
-        assert.match(error.message, /@dawn-ai\/vite-plugin@0\.9\.0/)
-        assert.doesNotMatch(error.message, /@dawn-ai\/core@0\.9\.0/)
-        assert.doesNotMatch(error.message, /@dawn-ai\/cli@0\.9\.0/)
+        assert.match(error.message, /@b4run\/vite-plugin@0\.9\.0/)
+        assert.doesNotMatch(error.message, /@b4run\/core@0\.9\.0/)
+        assert.doesNotMatch(error.message, /@b4run\/cli@0\.9\.0/)
         assert.match(error.message, /2 attempts/)
         assert.match(error.message, /250ms/)
         return true
@@ -346,10 +350,10 @@ describe("waitForPublishedVersions", () => {
     )
 
     assert.deepEqual(calls, [
-      "@dawn-ai/core",
-      "@dawn-ai/vite-plugin",
-      "@dawn-ai/cli",
-      "@dawn-ai/vite-plugin",
+      "@b4run/core",
+      "@b4run/vite-plugin",
+      "@b4run/cli",
+      "@b4run/vite-plugin",
     ])
     assert.deepEqual(delays, [250])
   })
@@ -360,7 +364,7 @@ describe("waitForPublishedVersions", () => {
 
     await assert.rejects(
       waitForPublishedVersions({
-        packages: ["@dawn-ai/core"],
+        packages: ["@b4run/core"],
         version: "0.9.0",
         attempts: 3,
         delayMs: 5,
@@ -374,7 +378,7 @@ describe("waitForPublishedVersions", () => {
           delays.push(ms)
         },
       }),
-      /@dawn-ai\/core@0\.9\.0.*registry E500 on call 3/s,
+      /@b4run\/core@0\.9\.0.*registry E500 on call 3/s,
     )
 
     assert.equal(calls, 3)
@@ -425,7 +429,7 @@ describe("waitForPublishedVersions", () => {
       let calls = 0
       const delays = []
       await waitForPublishedVersions({
-        packages: ["@dawn-ai/core"],
+        packages: ["@b4run/core"],
         version: "0.9.0",
         attempts: 2,
         delayMs: 1,
@@ -462,7 +466,7 @@ describe("waitForPublishedVersions", () => {
       const delays = []
       await assert.rejects(
         waitForPublishedVersions({
-          packages: ["@dawn-ai/core"],
+          packages: ["@b4run/core"],
           version: "0.9.0",
           attempts: 3,
           delayMs: 1,
@@ -483,7 +487,7 @@ describe("waitForPublishedVersions", () => {
 
     await assert.rejects(
       waitForPublishedVersions({
-        packages: ["@dawn-ai/core"],
+        packages: ["@b4run/core"],
         version: "0.9.0",
         attempts: 3,
         delayMs: 1,
@@ -573,7 +577,7 @@ describe("waitForPublishedVersions", () => {
 describe("npmView", () => {
   it("forwards the bounded request timeout to both npm queries", async () => {
     const calls = []
-    const view = await npmView("@dawn-ai/core", {
+    const view = await npmView("@b4run/core", {
       requestTimeoutMs: 321,
       async npmJsonImpl(args, options) {
         calls.push({ args, options })
@@ -584,11 +588,11 @@ describe("npmView", () => {
     assert.deepEqual(view, { versions: ["0.9.0"], tags: { latest: "0.9.0" } })
     assert.deepEqual(calls, [
       {
-        args: ["view", "@dawn-ai/core", "versions"],
+        args: ["view", "@b4run/core", "versions"],
         options: { timeoutMs: 321 },
       },
       {
-        args: ["view", "@dawn-ai/core", "dist-tags"],
+        args: ["view", "@b4run/core", "dist-tags"],
         options: { timeoutMs: 321 },
       },
     ])
@@ -617,7 +621,7 @@ describe("npmView", () => {
       ],
     ]) {
       await assert.rejects(
-        npmView("@dawn-ai/core", {
+        npmView("@b4run/core", {
           async npmJsonImpl() {
             throw sourceError
           },
@@ -634,7 +638,7 @@ describe("npmView", () => {
 
   it("rejects malformed registry response shapes as fatal", async () => {
     await assert.rejects(
-      npmView("@dawn-ai/core", {
+      npmView("@b4run/core", {
         async npmJsonImpl(args) {
           return args.at(-1) === "versions" ? "0.9.0" : { latest: "0.9.0" }
         },
@@ -809,7 +813,7 @@ describe("published artifact verification CLI", () => {
 
     assert.deepEqual(result, {
       failures: [],
-      packageNames: ["@dawn-ai/sdk", "@dawn-ai/core", "@dawn-ai/vite-plugin", "@dawn-ai/cli"],
+      packageNames: ["@b4run/sdk", "@b4run/core", "@b4run/vite-plugin", "@b4run/cli"],
     })
     assert.deepEqual(events, [
       { type: "read-public" },
@@ -817,15 +821,15 @@ describe("published artifact verification CLI", () => {
         options: {
           attempts: 18,
           delayMs: 10_000,
-          packages: ["@dawn-ai/sdk", "@dawn-ai/core", "@dawn-ai/vite-plugin", "@dawn-ai/cli"],
+          packages: ["@b4run/sdk", "@b4run/core", "@b4run/vite-plugin", "@b4run/cli"],
           version: "0.9.0",
         },
         type: "wait",
       },
-      { packageName: "@dawn-ai/sdk", type: "verify", version: "0.9.0" },
-      { packageName: "@dawn-ai/core", type: "verify", version: "0.9.0" },
-      { packageName: "@dawn-ai/vite-plugin", type: "verify", version: "0.9.0" },
-      { packageName: "@dawn-ai/cli", type: "verify", version: "0.9.0" },
+      { packageName: "@b4run/sdk", type: "verify", version: "0.9.0" },
+      { packageName: "@b4run/core", type: "verify", version: "0.9.0" },
+      { packageName: "@b4run/vite-plugin", type: "verify", version: "0.9.0" },
+      { packageName: "@b4run/cli", type: "verify", version: "0.9.0" },
     ])
   })
 
@@ -1158,7 +1162,7 @@ describe("published artifact verification CLI", () => {
             return {
               async verifyPackage({ entry }) {
                 verified.push(entry.name)
-                if (entry.name === "@dawn-ai/core") {
+                if (entry.name === "@b4run/core") {
                   throw new Error("official npm audit package failure")
                 }
                 return officialAudit(entry)
@@ -1188,7 +1192,7 @@ describe("published artifact verification CLI", () => {
     assert.equal(receipt.conclusion, "failure")
     assert.deepEqual(
       receipt.checks.filter(({ conclusion }) => conclusion === "failure").map(({ name }) => name),
-      ["package:@dawn-ai/core", "official-npm-audit-cleanup"],
+      ["package:@b4run/core", "official-npm-audit-cleanup"],
     )
   })
 
@@ -1215,7 +1219,7 @@ describe("published artifact verification CLI", () => {
           return manifestBytes
         },
         async verifyReleasePackage(entry) {
-          if (entry.name === "@dawn-ai/core") throw new Error("provenance workflow mismatch")
+          if (entry.name === "@b4run/core") throw new Error("provenance workflow mismatch")
         },
         async writeFile(_path, bytes) {
           receipt = parseSmokeResult(bytes)
@@ -1230,7 +1234,7 @@ describe("published artifact verification CLI", () => {
       receipt.checks.filter(({ conclusion }) => conclusion === "failure"),
       [
         {
-          name: "package:@dawn-ai/core",
+          name: "package:@b4run/core",
           conclusion: "failure",
           detail: "provenance workflow mismatch",
         },
@@ -1261,7 +1265,7 @@ describe("published artifact verification CLI", () => {
           return manifestBytes
         },
         async verifyReleasePackage(entry) {
-          if (entry.name === "@dawn-ai/core") {
+          if (entry.name === "@b4run/core") {
             throw new Error(`npm_super_secret_token ${"💥".repeat(10_000)}`)
           }
         },
@@ -1372,7 +1376,7 @@ describe("validateExactPublishedPackageEvidence", () => {
 })
 
 describe("final published-artifact workflow", () => {
-  it("accepts only the three release identities and isolates draft from published exact-tag audits", () => {
+  it("accepts three payload identities and isolates draft and published executor modes", () => {
     const { source, workflow } = readParsedWorkflow("published-artifact-verify.yml")
     const inputs = workflow.on?.workflow_dispatch?.inputs
     assert.deepEqual(Object.keys(inputs ?? {}).sort(), ["commitSha", "manifestSha256", "version"])
@@ -1397,10 +1401,12 @@ describe("final published-artifact workflow", () => {
     assert.match(draft.if, /needs\.coordinate\.outputs\.mode == 'draft'/u)
     assert.match(draft.if, /github\.ref == format\('refs\/tags\/v\{0\}', inputs\.version\)/u)
     assert.match(draft.if, /github\.sha == inputs\.commitSha/u)
+    assert.match(draft.if, /draft-controller/u)
+    assert.match(draft.if, /github\.ref == 'refs\/heads\/main'/u)
     const checkout = draft.steps.find(
       (step) => step.uses === "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
     )
-    assert.equal(checkout?.with?.ref, workflowExpression("github.ref"))
+    assert.equal(checkout?.with?.ref, workflowExpression("github.sha"))
     assert.equal(checkout?.with?.["fetch-depth"], 0)
     const executor = draft.steps.filter(
       (step) =>
@@ -1429,6 +1435,12 @@ describe("final published-artifact workflow", () => {
     assert.match(published.if, /needs\.coordinate\.outputs\.mode == 'published'/u)
     assert.match(published.if, /github\.ref == format\('refs\/tags\/v\{0\}', inputs\.version\)/u)
     assert.match(published.if, /github\.sha == inputs\.commitSha/u)
+    assert.match(published.if, /published-controller/u)
+    assert.match(published.if, /github\.ref == 'refs\/heads\/main'/u)
+    assert.equal(
+      published.steps.find((step) => step.uses?.startsWith("actions/checkout@"))?.with?.ref,
+      workflowExpression("github.sha"),
+    )
     const publishedExecutor = published.steps.filter(
       (step) =>
         typeof step.run === "string" &&
@@ -1538,7 +1550,7 @@ function workflowCommandFlags(run, executable) {
 
 describe("expectedFilesForPackage", () => {
   it("returns AG-UI entrypoint expectations", () => {
-    assert.deepEqual(expectedFilesForPackage("@dawn-ai/ag-ui"), [
+    assert.deepEqual(expectedFilesForPackage("@b4run/ag-ui"), [
       "dist/activities.js",
       "dist/activities.d.ts",
       "dist/index.js",
@@ -1551,7 +1563,7 @@ describe("expectedFilesForPackage", () => {
   })
 
   it("returns memory-pgvector tarball expectations", () => {
-    assert.deepEqual(expectedFilesForPackage("@dawn-ai/memory-pgvector"), [
+    assert.deepEqual(expectedFilesForPackage("@b4run/memory-pgvector"), [
       "dist/index.js",
       "dist/index.d.ts",
       "README.md",
@@ -1560,19 +1572,19 @@ describe("expectedFilesForPackage", () => {
   })
 
   it("returns package-specific runtime expectations", () => {
-    assert.deepEqual(expectedFilesForPackage("@dawn-ai/memory"), [
+    assert.deepEqual(expectedFilesForPackage("@b4run/memory"), [
       "dist/index.js",
       "dist/index.d.ts",
       "README.md",
       "package.json",
     ])
-    assert.deepEqual(expectedFilesForPackage("@dawn-ai/langchain"), [
+    assert.deepEqual(expectedFilesForPackage("@b4run/langchain"), [
       "dist/index.js",
       "dist/index.d.ts",
       "README.md",
       "package.json",
     ])
-    assert.deepEqual(expectedFilesForPackage("@dawn-ai/sandbox"), [
+    assert.deepEqual(expectedFilesForPackage("@b4run/sandbox"), [
       "dist/index.js",
       "dist/index.d.ts",
       "README.md",
@@ -1581,7 +1593,7 @@ describe("expectedFilesForPackage", () => {
   })
 
   it("defaults to metadata and README expectations", () => {
-    assert.deepEqual(expectedFilesForPackage("@dawn-ai/unknown"), ["README.md", "package.json"])
+    assert.deepEqual(expectedFilesForPackage("@b4run/unknown"), ["README.md", "package.json"])
   })
 })
 
@@ -1594,12 +1606,12 @@ describe("AG-UI installed probes", () => {
   it("generates an ESM probe for the exact canonical root surface", () => {
     const source = agUiEsmProbeSource()
 
-    assert.match(source, /import \* as root from "@dawn-ai\/ag-ui"/)
-    assert.match(source, /import \{ encodeAgUiSse \} from "@dawn-ai\/ag-ui\/sse"/)
+    assert.match(source, /import \* as root from "@b4run\/ag-ui"/)
+    assert.match(source, /import \{ encodeAgUiSse \} from "@b4run\/ag-ui\/sse"/)
     assert.ok(
       source.includes(`assert.deepEqual(Object.keys(root).sort(), [
-  "DAWN_PLAN_ACTIVITY_TYPE",
-  "DAWN_SUBAGENT_ACTIVITY_TYPE",
+  "B4_PLAN_ACTIVITY_TYPE",
+  "B4_SUBAGENT_ACTIVITY_TYPE",
   "createCounterIdFactory",
   "createDefaultIdFactory",
   "fromRunAgentInput",
@@ -1607,8 +1619,8 @@ describe("AG-UI installed probes", () => {
 ])`),
       "ESM probe must compare the complete sorted root export surface",
     )
-    assert.match(source, /assert\.equal\(root\.DAWN_PLAN_ACTIVITY_TYPE, "dawn\.plan"\)/)
-    assert.match(source, /assert\.equal\(root\.DAWN_SUBAGENT_ACTIVITY_TYPE, "dawn\.subagent"\)/)
+    assert.match(source, /assert\.equal\(root\.B4_PLAN_ACTIVITY_TYPE, "b4\.plan"\)/)
+    assert.match(source, /assert\.equal\(root\.B4_SUBAGENT_ACTIVITY_TYPE, "b4\.subagent"\)/)
     assert.ok(
       source.includes(`for (const exportName of [
   "createCounterIdFactory",
@@ -1632,7 +1644,7 @@ describe("AG-UI installed probes", () => {
   it("generates a NodeNext consumer for root types and the SSE subpath", () => {
     const source = agUiTypeProbeSource()
 
-    assert.match(source, /from "@dawn-ai\/ag-ui"/)
+    assert.match(source, /from "@b4run\/ag-ui"/)
     for (const functionName of [
       "createCounterIdFactory",
       "createDefaultIdFactory",
@@ -1643,8 +1655,8 @@ describe("AG-UI installed probes", () => {
     }
     assert.ok(
       source.includes(`type RootValueSurface = readonly [
-  typeof DAWN_PLAN_ACTIVITY_TYPE,
-  typeof DAWN_SUBAGENT_ACTIVITY_TYPE,
+  typeof B4_PLAN_ACTIVITY_TYPE,
+  typeof B4_SUBAGENT_ACTIVITY_TYPE,
   typeof createCounterIdFactory,
   typeof createDefaultIdFactory,
   typeof fromRunAgentInput,
@@ -1654,32 +1666,32 @@ describe("AG-UI installed probes", () => {
     )
     for (const typeName of [
       "IdFactory",
-      "DawnMessage",
-      "DawnRunInput",
-      "DawnInterruptEnvelope",
-      "DawnResumeRequest",
+      "B4Message",
+      "B4RunInput",
+      "B4InterruptEnvelope",
+      "B4ResumeRequest",
       "AguiOutboundEvent",
       "ToAguiOptions",
-      "DawnAgentStreamChunk",
+      "B4AgentStreamChunk",
       "RunContext",
-      "DawnPlanActivityContent",
-      "DawnSubagentActivityContent",
+      "B4PlanActivityContent",
+      "B4SubagentActivityContent",
     ]) {
       assert.match(source, new RegExp(`type ${typeName}`))
     }
     assert.ok(
       source.includes(`type RootTypeSurface = readonly [
   IdFactory,
-  DawnMessage,
-  DawnRunInput,
-  DawnInterruptEnvelope,
-  DawnResumeRequest,
+  B4Message,
+  B4RunInput,
+  B4InterruptEnvelope,
+  B4ResumeRequest,
   AguiOutboundEvent,
   ToAguiOptions,
-  DawnAgentStreamChunk,
+  B4AgentStreamChunk,
   RunContext,
-  DawnPlanActivityContent,
-  DawnSubagentActivityContent,
+  B4PlanActivityContent,
+  B4SubagentActivityContent,
 ]`),
       "type probe must exercise every canonical root type",
     )
@@ -1688,15 +1700,15 @@ describe("AG-UI installed probes", () => {
       "ResumeDecision",
       "AgUiTranslator",
       "AgUiEvent",
-      "DawnStreamChunk",
-      "DawnToolCallData",
-      "DawnToolResultData",
+      "B4StreamChunk",
+      "B4ToolCallData",
+      "B4ToolResultData",
       "RawChunk",
       "TranslatorOptions",
     ]) {
       assert.ok(
         source.includes(`// @ts-expect-error ${removedTypeName} was removed from the canonical root
-import type { ${removedTypeName} } from "@dawn-ai/ag-ui"`),
+import type { ${removedTypeName} } from "@b4run/ag-ui"`),
         `type probe must reject restored ${removedTypeName}`,
       )
     }
@@ -1711,11 +1723,11 @@ import type { ${removedTypeName} } from "@dawn-ai/ag-ui"`),
     ]) {
       assert.ok(
         source.includes(`// @ts-expect-error ${removedFunctionName} was removed from the canonical root
-import { ${removedFunctionName} } from "@dawn-ai/ag-ui"`),
+import { ${removedFunctionName} } from "@b4run/ag-ui"`),
         `type probe must reject restored ${removedFunctionName}`,
       )
     }
-    assert.match(source, /from "@dawn-ai\/ag-ui\/sse"/)
+    assert.match(source, /from "@b4run\/ag-ui\/sse"/)
     assert.match(source, /typeof encodeAgUiSse/)
     assert.deepEqual(agUiTypeScriptConfig(), {
       compilerOptions: {
@@ -1741,8 +1753,8 @@ import { ${removedFunctionName} } from "@dawn-ai/ag-ui"`),
   })
 
   it("selects the AG-UI probe only when the package is installed", () => {
-    assert.equal(shouldRunAgUiProbe([{ name: "@dawn-ai/ag-ui", version: "1.0.0" }]), true)
-    assert.equal(shouldRunAgUiProbe([{ name: "@dawn-ai/core", version: "1.0.0" }]), false)
+    assert.equal(shouldRunAgUiProbe([{ name: "@b4run/ag-ui", version: "1.0.0" }]), true)
+    assert.equal(shouldRunAgUiProbe([{ name: "@b4run/core", version: "1.0.0" }]), false)
   })
 
   it("executes generated ESM and type probes against a local package fixture", async () => {
@@ -1795,21 +1807,21 @@ describe("TypeScript tooling installed probe", () => {
   it("generates a clean installed-package runtime probe with exact extraction assertions", () => {
     const source = typescriptToolingProbeSource()
 
-    assert.match(source, /from "@dawn-ai\/core\/node"/)
-    assert.match(source, /from "@dawn-ai\/vite-plugin"/)
-    assert.doesNotMatch(source, /@dawn-ai\/core\/internal\/compiler/)
+    assert.match(source, /from "@b4run\/core\/node"/)
+    assert.match(source, /from "@b4run\/vite-plugin"/)
+    assert.doesNotMatch(source, /@b4run\/core\/internal\/compiler/)
     assert.doesNotMatch(
       source,
       /(?:\.\.\/)+packages\/|packages\/core\/(?:src|dist)|packages\/vite-plugin\/(?:src|dist)/,
     )
     assert.match(source, /extractToolTypesForRoute/)
     assert.match(source, /extractToolSchemasForRoute/)
-    assert.match(source, /dawnToolSchemaPlugin\(\)\.transform/)
+    assert.match(source, /b4ToolSchemaPlugin\(\)\.transform/)
     assert.match(source, /assert\.deepEqual\(types,/)
     assert.match(source, /assert\.deepEqual\(schemas,/)
-    assert.match(source, /__dawnGeneratedDescription2/)
-    assert.match(source, /__dawnGeneratedSchema2/)
-    assert.match(source, /__dawnGeneratedZ2/)
+    assert.match(source, /__b4GeneratedDescription2/)
+    assert.match(source, /__b4GeneratedSchema2/)
+    assert.match(source, /__b4GeneratedZ2/)
     assert.match(source, /typescript\.version, expectedTypeScriptVersion/)
     assert.match(source, /coreCompiler\.version, "6\.0\.2"/)
     assert.match(source, /oldCompiler\.version, "6\.0\.2"/)
@@ -2108,10 +2120,10 @@ describe("TypeScript tooling installed probe", () => {
 describe("published TypeScript tooling smoke", () => {
   const packageVersion = "0.9.0"
   const toolingPackages = [
-    { name: "@dawn-ai/sdk", version: packageVersion },
-    { name: "@dawn-ai/core", version: packageVersion },
-    { name: "@dawn-ai/vite-plugin", version: packageVersion },
-    { name: "@dawn-ai/cli", version: packageVersion },
+    { name: "@b4run/sdk", version: packageVersion },
+    { name: "@b4run/core", version: packageVersion },
+    { name: "@b4run/vite-plugin", version: packageVersion },
+    { name: "@b4run/cli", version: packageVersion },
   ]
 
   it("selects the probe only when both Core and Vite are installed", () => {
@@ -2130,15 +2142,15 @@ describe("published TypeScript tooling smoke", () => {
     assert.equal(shouldRunTypeScriptToolingProbe([toolingPackages[3]]), false)
   })
 
-  it("uses separate exact, no-lock installs for selected Dawn packages and root tooling", () => {
+  it("uses separate exact, no-lock installs for selected B4 packages and root tooling", () => {
     assert.deepEqual(selectedPackageInstallArgs(toolingPackages), [
       "install",
       "--save-exact",
       "--package-lock=false",
-      "@dawn-ai/sdk@0.9.0",
-      "@dawn-ai/core@0.9.0",
-      "@dawn-ai/vite-plugin@0.9.0",
-      "@dawn-ai/cli@0.9.0",
+      "@b4run/sdk@0.9.0",
+      "@b4run/core@0.9.0",
+      "@b4run/vite-plugin@0.9.0",
+      "@b4run/cli@0.9.0",
     ])
     assert.deepEqual(typescriptToolingInstallArgs(), [
       "install",
@@ -2150,13 +2162,13 @@ describe("published TypeScript tooling smoke", () => {
       "zod@4.4.3",
     ])
     assert.equal(
-      typescriptToolingInstallArgs().some((arg) => arg.startsWith("@dawn-ai/")),
+      typescriptToolingInstallArgs().some((arg) => arg.startsWith("@b4run/")),
       false,
     )
   })
 
   it("enforces exact installed identities for all root tooling packages", async () => {
-    const root = await mkdtemp(join(tmpdir(), "dawn-published-tooling-install-test-"))
+    const root = await mkdtemp(join(tmpdir(), "b4-published-tooling-install-test-"))
     tempRoots.push(root)
     const calls = []
 
@@ -2292,7 +2304,7 @@ describe("published TypeScript tooling smoke", () => {
 
   it("preserves AG-UI probing without installing TypeScript tooling", async () => {
     const harness = await createPublishedSmokeHarness({
-      selectedPackages: [{ name: "@dawn-ai/ag-ui", version: packageVersion }],
+      selectedPackages: [{ name: "@b4run/ag-ui", version: packageVersion }],
     })
 
     await runPublishedArtifactSmoke(harness.options, harness.dependencies)
@@ -2321,9 +2333,9 @@ describe("published TypeScript tooling smoke", () => {
   it("preserves the non-pgvector skip path for existing package sets", async () => {
     const harness = await createPublishedSmokeHarness({
       selectedPackages: [
-        { name: "@dawn-ai/memory-pgvector", version: packageVersion },
-        { name: "@dawn-ai/memory", version: packageVersion },
-        { name: "@dawn-ai/langchain", version: packageVersion },
+        { name: "@b4run/memory-pgvector", version: packageVersion },
+        { name: "@b4run/memory", version: packageVersion },
+        { name: "@b4run/langchain", version: packageVersion },
       ],
     })
 
@@ -2351,8 +2363,8 @@ describe("published TypeScript tooling smoke", () => {
   it("forwards the injected command runner to the pgvector runtime smoke", async () => {
     const harness = await createPublishedSmokeHarness({
       selectedPackages: [
-        { name: "@dawn-ai/memory-pgvector", version: packageVersion },
-        { name: "@dawn-ai/langchain", version: packageVersion },
+        { name: "@b4run/memory-pgvector", version: packageVersion },
+        { name: "@b4run/langchain", version: packageVersion },
       ],
     })
     harness.options.pgvector = true
@@ -2377,7 +2389,7 @@ describe("published TypeScript tooling smoke", () => {
 
   it("runs Docker PID recovery against an installed sandbox artifact before cleanup", async () => {
     const harness = await createPublishedSmokeHarness({
-      selectedPackages: [{ name: "@dawn-ai/sandbox", version: packageVersion }],
+      selectedPackages: [{ name: "@b4run/sandbox", version: packageVersion }],
     })
 
     await runPublishedArtifactSmoke(harness.options, harness.dependencies)
@@ -2401,7 +2413,7 @@ describe("published TypeScript tooling smoke", () => {
         consumerRoot: root,
         expectedCoreVersion: packageVersion,
       }),
-      /Vite resolves @dawn-ai\/core to .* expected root artifact/s,
+      /Vite resolves @b4run\/core to .* expected root artifact/s,
     )
   })
 
@@ -2413,7 +2425,7 @@ describe("published TypeScript tooling smoke", () => {
         consumerRoot: root,
         expectedCoreVersion: packageVersion,
       }),
-      /resolved @dawn-ai\/core version 0\.8\.9, expected version 0\.9\.0/,
+      /resolved @b4run\/core version 0\.8\.9, expected version 0\.9\.0/,
     )
   })
 })
@@ -2464,9 +2476,9 @@ describe("assertCleanDependencySpecs", () => {
   it("rejects workspace and file dependency specs", () => {
     assert.throws(
       () =>
-        assertCleanDependencySpecs("@dawn-ai/demo", {
+        assertCleanDependencySpecs("@b4run/demo", {
           dependencies: {
-            "@dawn-ai/core": "workspace:*",
+            "@b4run/core": "workspace:*",
             local: "file:../local",
           },
         }),
@@ -2477,16 +2489,17 @@ describe("assertCleanDependencySpecs", () => {
 
 describe("validatePackageMetadata", () => {
   it("requires standard public package fields", () => {
-    const failures = validatePackageMetadata("@dawn-ai/demo", {
-      name: "@dawn-ai/demo",
+    const failures = validatePackageMetadata("@b4run/demo", {
+      name: "@b4run/demo",
       version: "1.0.0",
+      ...validDiscoveryMetadata,
       license: "MIT",
       repository: {
         type: "git",
-        url: "git+https://github.com/cacheplane/dawnai.git",
+        url: "git+https://github.com/cacheplane/b4run.git",
       },
-      homepage: "https://github.com/cacheplane/dawnai/tree/main/packages/demo#readme",
-      bugs: { url: "https://github.com/cacheplane/dawnai/issues" },
+      homepage: "https://github.com/cacheplane/b4run/tree/main/packages/demo#readme",
+      bugs: { url: "https://github.com/cacheplane/b4run/issues" },
       engines: { node: ">=22.13.0" },
       publishConfig: { access: "public" },
       exports: { ".": "./dist/index.js" },
@@ -2496,19 +2509,43 @@ describe("validatePackageMetadata", () => {
     assert.deepEqual(failures, [])
   })
 
+  it("requires npm discovery metadata", () => {
+    const failures = validatePackageMetadata("@b4run/demo", {
+      name: "@b4run/demo",
+      version: "1.0.0",
+      license: "MIT",
+      repository: {
+        type: "git",
+        url: "git+https://github.com/cacheplane/b4run.git",
+      },
+      homepage: "https://github.com/cacheplane/b4run/tree/main/packages/demo#readme",
+      bugs: { url: "https://github.com/cacheplane/b4run/issues" },
+      engines: { node: ">=22.13.0" },
+      publishConfig: { access: "public" },
+      exports: { ".": "./dist/index.js" },
+      types: "./dist/index.d.ts",
+    })
+
+    assert.deepEqual(failures, [
+      "@b4run/demo: package.json description must be a string of 30-180 characters",
+      "@b4run/demo: package.json keywords must contain 3-8 values",
+    ])
+  })
+
   it("rejects package metadata with mismatched name or version", () => {
     const failures = validatePackageMetadata(
-      "@dawn-ai/demo",
+      "@b4run/demo",
       {
-        name: "@dawn-ai/other",
+        name: "@b4run/other",
         version: "1.0.1",
+        ...validDiscoveryMetadata,
         license: "MIT",
         repository: {
           type: "git",
-          url: "git+https://github.com/cacheplane/dawnai.git",
+          url: "git+https://github.com/cacheplane/b4run.git",
         },
-        homepage: "https://github.com/cacheplane/dawnai/tree/main/packages/demo#readme",
-        bugs: { url: "https://github.com/cacheplane/dawnai/issues" },
+        homepage: "https://github.com/cacheplane/b4run/tree/main/packages/demo#readme",
+        bugs: { url: "https://github.com/cacheplane/b4run/issues" },
         engines: { node: ">=22.13.0" },
         publishConfig: { access: "public" },
         exports: { ".": "./dist/index.js" },
@@ -2518,22 +2555,23 @@ describe("validatePackageMetadata", () => {
     )
 
     assert.deepEqual(failures, [
-      "@dawn-ai/demo: package.json name is @dawn-ai/other",
-      "@dawn-ai/demo: package.json version is 1.0.1, expected 1.0.0",
+      "@b4run/demo: package.json name is @b4run/other",
+      "@b4run/demo: package.json version is 1.0.1, expected 1.0.0",
     ])
   })
 
   it("accepts config packages with JSON exports and no top-level types", () => {
-    const failures = validatePackageMetadata("@dawn-ai/config-biome", {
-      name: "@dawn-ai/config-biome",
+    const failures = validatePackageMetadata("@b4run/config-biome", {
+      name: "@b4run/config-biome",
       version: "1.0.0",
+      ...validDiscoveryMetadata,
       license: "MIT",
       repository: {
         type: "git",
-        url: "git+https://github.com/cacheplane/dawnai.git",
+        url: "git+https://github.com/cacheplane/b4run.git",
       },
-      homepage: "https://github.com/cacheplane/dawnai/tree/main/packages/config-biome#readme",
-      bugs: { url: "https://github.com/cacheplane/dawnai/issues" },
+      homepage: "https://github.com/cacheplane/b4run/tree/main/packages/config-biome#readme",
+      bugs: { url: "https://github.com/cacheplane/b4run/issues" },
       engines: { node: ">=22.13.0" },
       publishConfig: { access: "public" },
       exports: {
@@ -2545,24 +2583,25 @@ describe("validatePackageMetadata", () => {
     assert.deepEqual(failures, [])
   })
 
-  it("accepts a runnable app package that declares a dawnInspector server entry", () => {
-    // @dawn-ai/inspector is deliberately neither importable nor a bin: it is a Next
-    // standalone app that `dawn inspect` launches by resolving `dawnInspector.server`.
+  it("accepts a runnable app package that declares a b4Inspector server entry", () => {
+    // @b4run/inspector is deliberately neither importable nor a bin: it is a Next
+    // standalone app that `b4 inspect` launches by resolving `b4Inspector.server`.
     // That IS its entry point, so the "must expose exports or bin" rule was reporting a
     // false positive on every published release since 0.8.14.
-    const failures = validatePackageMetadata("@dawn-ai/inspector", {
-      name: "@dawn-ai/inspector",
+    const failures = validatePackageMetadata("@b4run/inspector", {
+      name: "@b4run/inspector",
       version: "1.0.0",
+      ...validDiscoveryMetadata,
       license: "MIT",
       repository: {
         type: "git",
-        url: "git+https://github.com/cacheplane/dawnai.git",
+        url: "git+https://github.com/cacheplane/b4run.git",
       },
-      homepage: "https://github.com/cacheplane/dawnai/tree/main/packages/inspector#readme",
-      bugs: { url: "https://github.com/cacheplane/dawnai/issues" },
+      homepage: "https://github.com/cacheplane/b4run/tree/main/packages/inspector#readme",
+      bugs: { url: "https://github.com/cacheplane/b4run/issues" },
       engines: { node: ">=22.13.0" },
       publishConfig: { access: "public" },
-      dawnInspector: {
+      b4Inspector: {
         server: ".next/standalone/packages/inspector/server.js",
       },
     })
@@ -2571,43 +2610,45 @@ describe("validatePackageMetadata", () => {
   })
 
   it("still rejects a package that declares no entry point at all", () => {
-    const failures = validatePackageMetadata("@dawn-ai/nothing", {
-      name: "@dawn-ai/nothing",
+    const failures = validatePackageMetadata("@b4run/nothing", {
+      name: "@b4run/nothing",
       version: "1.0.0",
+      ...validDiscoveryMetadata,
       license: "MIT",
       repository: {
         type: "git",
-        url: "git+https://github.com/cacheplane/dawnai.git",
+        url: "git+https://github.com/cacheplane/b4run.git",
       },
-      homepage: "https://github.com/cacheplane/dawnai/tree/main/packages/nothing#readme",
-      bugs: { url: "https://github.com/cacheplane/dawnai/issues" },
+      homepage: "https://github.com/cacheplane/b4run/tree/main/packages/nothing#readme",
+      bugs: { url: "https://github.com/cacheplane/b4run/issues" },
       engines: { node: ">=22.13.0" },
       publishConfig: { access: "public" },
     })
 
     assert.deepEqual(failures, [
-      "@dawn-ai/nothing: package.json must expose exports, bin, or dawnInspector.server",
+      "@b4run/nothing: package.json must expose exports, bin, or b4Inspector.server",
     ])
   })
 
-  it("rejects a dawnInspector field that names no server", () => {
-    const failures = validatePackageMetadata("@dawn-ai/inspector", {
-      name: "@dawn-ai/inspector",
+  it("rejects a b4Inspector field that names no server", () => {
+    const failures = validatePackageMetadata("@b4run/inspector", {
+      name: "@b4run/inspector",
       version: "1.0.0",
+      ...validDiscoveryMetadata,
       license: "MIT",
       repository: {
         type: "git",
-        url: "git+https://github.com/cacheplane/dawnai.git",
+        url: "git+https://github.com/cacheplane/b4run.git",
       },
-      homepage: "https://github.com/cacheplane/dawnai/tree/main/packages/inspector#readme",
-      bugs: { url: "https://github.com/cacheplane/dawnai/issues" },
+      homepage: "https://github.com/cacheplane/b4run/tree/main/packages/inspector#readme",
+      bugs: { url: "https://github.com/cacheplane/b4run/issues" },
       engines: { node: ">=22.13.0" },
       publishConfig: { access: "public" },
-      dawnInspector: {},
+      b4Inspector: {},
     })
 
     assert.deepEqual(failures, [
-      "@dawn-ai/inspector: package.json must expose exports, bin, or dawnInspector.server",
+      "@b4run/inspector: package.json must expose exports, bin, or b4Inspector.server",
     ])
   })
 })
@@ -2707,17 +2748,18 @@ describe("run", () => {
   })
 
   it("terminates the full descendant tree and returns within the timeout bound", async () => {
-    const root = await mkdtemp(join(tmpdir(), "dawn-run-descendants-"))
+    const root = await mkdtemp(join(tmpdir(), "b4-run-descendants-"))
     tempRoots.push(root)
     const pidPath = join(root, "grandchild.pid")
     const grandchildLifetimeMs = 3_000
     const source = `
       const { spawn } = require("node:child_process")
-      const { writeFileSync } = require("node:fs")
+      const { renameSync, writeFileSync } = require("node:fs")
       const grandchild = spawn(process.execPath, ["-e", "setTimeout(() => {}, ${grandchildLifetimeMs})"], {
         stdio: ["ignore", "inherit", "inherit"],
       })
-      writeFileSync(process.argv[1], String(grandchild.pid))
+      writeFileSync(process.argv[1] + ".tmp", String(grandchild.pid))
+      renameSync(process.argv[1] + ".tmp", process.argv[1])
       setInterval(() => {}, 1_000)
     `
     const startedAt = Date.now()
@@ -2732,8 +2774,7 @@ describe("run", () => {
         { code: "ETIMEDOUT" },
       )
       const elapsedMs = Date.now() - startedAt
-      grandchildPid = Number.parseInt(await readFile(pidPath, "utf8"), 10)
-      assert.equal(Number.isSafeInteger(grandchildPid), true)
+      grandchildPid = await waitForDescendantPid(pidPath, 750)
       assert.ok(elapsedMs < 1_500, `descendant cleanup took ${elapsedMs}ms`)
       assert.equal(
         await waitForProcessExit(grandchildPid, 750),
@@ -2748,16 +2789,17 @@ describe("run", () => {
   })
 
   it("terminates the full descendant tree when an AbortSignal cancels the command", async () => {
-    const root = await mkdtemp(join(tmpdir(), "dawn-run-abort-descendants-"))
+    const root = await mkdtemp(join(tmpdir(), "b4-run-abort-descendants-"))
     tempRoots.push(root)
     const pidPath = join(root, "grandchild.pid")
     const source = `
       const { spawn } = require("node:child_process")
-      const { writeFileSync } = require("node:fs")
+      const { renameSync, writeFileSync } = require("node:fs")
       const grandchild = spawn(process.execPath, ["-e", "setTimeout(() => {}, 5000)"], {
         stdio: ["ignore", "inherit", "inherit"],
       })
-      writeFileSync(process.argv[1], String(grandchild.pid))
+      writeFileSync(process.argv[1] + ".tmp", String(grandchild.pid))
+      renameSync(process.argv[1] + ".tmp", process.argv[1])
       setInterval(() => {}, 1_000)
     `
     const controller = new AbortController()
@@ -2770,8 +2812,7 @@ describe("run", () => {
         stdio: "pipe",
         timeoutMs: 5_000,
       })
-      grandchildPid = Number.parseInt(await waitForFile(pidPath, 750), 10)
-      assert.equal(Number.isSafeInteger(grandchildPid), true)
+      grandchildPid = await waitForDescendantPid(pidPath, 750)
       controller.abort()
       await assert.rejects(command, { code: "ABORT_ERR", name: "AbortError" })
       assert.ok(Date.now() - startedAt < 1_500, "aborted child tree must terminate promptly")
@@ -2871,6 +2912,10 @@ describe("run", () => {
 })
 
 function processExists(pid) {
+  // Signal 0 to pid 0 addresses the caller's own process group and NaN throws
+  // ERR_INVALID_ARG_TYPE, which from a finally block masks the assertion that actually
+  // failed. Neither is ever a descendant, so report both as absent.
+  if (!Number.isSafeInteger(pid) || pid < 1) return false
   try {
     process.kill(pid, 0)
     return true
@@ -2881,6 +2926,9 @@ function processExists(pid) {
 }
 
 async function waitForProcessExit(pid, timeoutMs) {
+  if (!Number.isSafeInteger(pid) || pid < 1) {
+    throw new Error(`${pid} is not a recorded descendant pid`)
+  }
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (!processExists(pid)) return true
@@ -2889,17 +2937,38 @@ async function waitForProcessExit(pid, timeoutMs) {
   return !processExists(pid)
 }
 
-async function waitForFile(path, timeoutMs) {
+// Polls until the file holds a complete pid. The writer renames a finished file into
+// place, so a partial read is impossible; this still waits, because the descendant may
+// not have recorded itself yet when the parent is asked for it.
+async function waitForDescendantPid(path, timeoutMs) {
   const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    try {
-      return await readFile(path, "utf8")
-    } catch (error) {
-      if (error?.code !== "ENOENT") throw error
+  let last
+  for (;;) {
+    last = await readDescendantPidSource(path)
+    const pid = parseDescendantPid(last)
+    if (pid !== null) return pid
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `${path} held no complete descendant pid within ${timeoutMs}ms (last read: ${JSON.stringify(last)})`,
+      )
     }
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 10))
   }
-  return readFile(path, "utf8")
+}
+
+async function readDescendantPidSource(path) {
+  try {
+    return await readFile(path, "utf8")
+  } catch (error) {
+    if (error?.code === "ENOENT") return null
+    throw error
+  }
+}
+
+function parseDescendantPid(source) {
+  if (typeof source !== "string" || !/^[1-9]\d*$/u.test(source)) return null
+  const pid = Number(source)
+  return Number.isSafeInteger(pid) ? pid : null
 }
 
 describe("public npm file and environment boundaries", () => {
@@ -2930,7 +2999,7 @@ describe("public npm file and environment boundaries", () => {
   })
 
   it("reads only bounded positive regular files and rejects symlinks", async () => {
-    const root = await mkdtemp(join(tmpdir(), "dawn-bounded-file-test-"))
+    const root = await mkdtemp(join(tmpdir(), "b4-bounded-file-test-"))
     tempRoots.push(root)
     const regular = join(root, "manifest.json")
     const empty = join(root, "empty.json")
@@ -2998,7 +3067,7 @@ describe("assertNoNativeLifecycleScripts", () => {
   })
 
   it("rejects packages with binding.gyp even without lifecycle scripts", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "dawn-native-indicator-test-"))
+    const tempDir = await mkdtemp(join(tmpdir(), "b4-native-indicator-test-"))
     try {
       const packageDir = join(tempDir, "node_modules", "native-addon")
       await mkdir(packageDir, { recursive: true })
@@ -3050,7 +3119,7 @@ async function createPublishedSmokeHarness({
   selectedPackages,
   toolingInstallFailure,
 }) {
-  const testRoot = await mkdtemp(join(tmpdir(), "dawn-published-smoke-orchestration-test-"))
+  const testRoot = await mkdtemp(join(tmpdir(), "b4-published-smoke-orchestration-test-"))
   const tempDir = join(testRoot, "owned-smoke-root")
   const events = []
   let cleaned = false
@@ -3084,7 +3153,7 @@ async function createPublishedSmokeHarness({
       }
     },
     async makeTempDir(prefix) {
-      assert.equal(prefix, "dawn-published-smoke-")
+      assert.equal(prefix, "b4-published-smoke-")
       await mkdir(tempDir)
       return tempDir
     },
@@ -3165,22 +3234,22 @@ async function createPublishedSmokeHarness({
 }
 
 async function createCoreResolutionFixture({ coreVersion = "0.9.0", nestedViteCore = false } = {}) {
-  const root = await mkdtemp(join(tmpdir(), "dawn-published-core-resolution-test-"))
+  const root = await mkdtemp(join(tmpdir(), "b4-published-core-resolution-test-"))
   const nodeModules = join(root, "node_modules")
   tempRoots.push(root)
   await Promise.all([
     writeFile(join(root, "package.json"), JSON.stringify({ type: "module" }), "utf8"),
-    writeResolutionPackage(join(nodeModules, "@dawn-ai", "core"), "@dawn-ai/core", coreVersion),
+    writeResolutionPackage(join(nodeModules, "@b4run", "core"), "@b4run/core", coreVersion),
     writeResolutionPackage(
-      join(nodeModules, "@dawn-ai", "vite-plugin"),
-      "@dawn-ai/vite-plugin",
+      join(nodeModules, "@b4run", "vite-plugin"),
+      "@b4run/vite-plugin",
       "0.9.0",
     ),
   ])
   if (nestedViteCore) {
     await writeResolutionPackage(
-      join(nodeModules, "@dawn-ai", "vite-plugin", "node_modules", "@dawn-ai", "core"),
-      "@dawn-ai/core",
+      join(nodeModules, "@b4run", "vite-plugin", "node_modules", "@b4run", "core"),
+      "@b4run/core",
       coreVersion,
     )
   }
@@ -3203,7 +3272,7 @@ async function createTypeScriptToolingRunnerFixture({
   bin = { tsc: "./custom-bin/tsc.mjs" },
   version = "7.0.2",
 } = {}) {
-  const root = await mkdtemp(join(tmpdir(), "dawn-typescript-tooling-probe-test-"))
+  const root = await mkdtemp(join(tmpdir(), "b4-typescript-tooling-probe-test-"))
   const typescriptRoot = join(root, "node_modules", "typescript")
   tempRoots.push(root)
   await mkdir(join(typescriptRoot, "custom-bin"), { recursive: true })
@@ -3236,14 +3305,14 @@ function escapeRegExp(value) {
 }
 
 async function createAgUiProbeFixture(options = {}) {
-  const root = await mkdtemp(join(tmpdir(), "dawn-ag-ui-probe-test-"))
-  const packageRoot = join(root, "node_modules", "@dawn-ai", "ag-ui")
+  const root = await mkdtemp(join(tmpdir(), "b4-ag-ui-probe-test-"))
+  const packageRoot = join(root, "node_modules", "@b4run", "ag-ui")
   const distRoot = join(packageRoot, "dist")
   tempRoots.push(root)
   await mkdir(distRoot, { recursive: true })
 
   const packageJson = {
-    name: "@dawn-ai/ag-ui",
+    name: "@b4run/ag-ui",
     type: "module",
     types: "./dist/index.d.ts",
     exports: {
@@ -3255,14 +3324,14 @@ async function createAgUiProbeFixture(options = {}) {
 export function createDefaultIdFactory() {}
 export function fromRunAgentInput(input) { return input }
 export function toAguiEvents(events) { return events }
-export { DAWN_PLAN_ACTIVITY_TYPE, DAWN_SUBAGENT_ACTIVITY_TYPE } from "./activities.js"
+export { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "./activities.js"
 `
   const canonicalFunctionDeclarations = {
     createCounterIdFactory: "export declare function createCounterIdFactory(): IdFactory",
     createDefaultIdFactory: "export declare function createDefaultIdFactory(): IdFactory",
-    fromRunAgentInput: "export declare function fromRunAgentInput(input: unknown): DawnRunInput",
+    fromRunAgentInput: "export declare function fromRunAgentInput(input: unknown): B4RunInput",
     toAguiEvents: `export declare function toAguiEvents(
-  events: AsyncIterable<DawnAgentStreamChunk>,
+  events: AsyncIterable<B4AgentStreamChunk>,
   context: RunContext,
   options?: ToAguiOptions,
 ): AsyncIterable<AguiOutboundEvent>`,
@@ -3272,38 +3341,38 @@ export { DAWN_PLAN_ACTIVITY_TYPE, DAWN_SUBAGENT_ACTIVITY_TYPE } from "./activiti
     .map(([, declaration]) => declaration)
     .join("\n")
   const rootDeclarations = `export type IdFactory = (kind: string) => string
-export interface DawnMessage { readonly role: string; readonly content: string }
-export interface DawnRunInput { readonly messages: readonly DawnMessage[] }
-export interface DawnInterruptEnvelope { readonly interruptId: string }
-export interface DawnResumeRequest { readonly interruptId: string; readonly value: unknown }
+export interface B4Message { readonly role: string; readonly content: string }
+export interface B4RunInput { readonly messages: readonly B4Message[] }
+export interface B4InterruptEnvelope { readonly interruptId: string }
+export interface B4ResumeRequest { readonly interruptId: string; readonly value: unknown }
 export interface AguiOutboundEvent { readonly type: string }
 export interface ToAguiOptions { readonly idFactory?: IdFactory }
-export type DawnAgentStreamChunk = { readonly type: string; readonly data?: unknown }
+export type B4AgentStreamChunk = { readonly type: string; readonly data?: unknown }
 export interface RunContext { readonly threadId: string; readonly runId: string }
 export {
-  DAWN_PLAN_ACTIVITY_TYPE,
-  DAWN_SUBAGENT_ACTIVITY_TYPE,
-  type DawnPlanActivityContent,
-  type DawnSubagentActivityContent,
+  B4_PLAN_ACTIVITY_TYPE,
+  B4_SUBAGENT_ACTIVITY_TYPE,
+  type B4PlanActivityContent,
+  type B4SubagentActivityContent,
 } from "./activities.js"
 ${includedFunctionDeclarations}
 ${options.extraRootDeclarations ?? ""}`
-  const activitiesJavaScript = `export const DAWN_PLAN_ACTIVITY_TYPE = "dawn.plan"
-export const DAWN_SUBAGENT_ACTIVITY_TYPE = "dawn.subagent"
+  const activitiesJavaScript = `export const B4_PLAN_ACTIVITY_TYPE = "b4.plan"
+export const B4_SUBAGENT_ACTIVITY_TYPE = "b4.subagent"
 `
-  const activitiesDeclarations = `export declare const DAWN_PLAN_ACTIVITY_TYPE: "dawn.plan"
-export declare const DAWN_SUBAGENT_ACTIVITY_TYPE: "dawn.subagent"
-export interface DawnPlanActivityContent {
+  const activitiesDeclarations = `export declare const B4_PLAN_ACTIVITY_TYPE: "b4.plan"
+export declare const B4_SUBAGENT_ACTIVITY_TYPE: "b4.subagent"
+export interface B4PlanActivityContent {
   readonly todos: ReadonlyArray<{
     readonly content: string
     readonly status: "pending" | "in_progress" | "completed"
   }>
 }
-export interface DawnSubagentActivityContent {
+export interface B4SubagentActivityContent {
   readonly name: string
   readonly depth: number
   readonly status: "running" | "completed" | "failed"
-  readonly todos?: DawnPlanActivityContent["todos"]
+  readonly todos?: B4PlanActivityContent["todos"]
   readonly tools: ReadonlyArray<{
     readonly name: string
     readonly status: "running" | "completed" | "incomplete"
@@ -3409,7 +3478,7 @@ function exactPublishedObservation(entry) {
         predicateTypes: ["https://slsa.dev/provenance/v1"],
         workflow: ".github/workflows/release.yml",
         commitSha: "a".repeat(40),
-        repository: "https://github.com/cacheplane/dawnai",
+        repository: "https://github.com/cacheplane/b4run",
         ref: `refs/tags/v${entry.version}`,
       },
     },
@@ -3438,7 +3507,7 @@ function officialAudit(entry) {
       predicateType: "https://slsa.dev/provenance/v1",
       workflow: ".github/workflows/release.yml",
       commitSha: "a".repeat(40),
-      repository: "https://github.com/cacheplane/dawnai",
+      repository: "https://github.com/cacheplane/b4run",
       ref: `refs/tags/v${entry.version}`,
     },
   }
@@ -3482,7 +3551,10 @@ function fakeStrictRunner(runCommand = async () => ({ stdout: "", stderr: "" }))
     async probe() {
       return { adapter: "systemd-cgroup-v2", imageOS: "ubuntu24", imageVersion: "test" }
     },
-    runCommand,
+    async runCommand(command, args, options = {}) {
+      assertStrictSmokeCommandOptions(options)
+      return await runCommand(command, args, options)
+    },
   }
 }
 

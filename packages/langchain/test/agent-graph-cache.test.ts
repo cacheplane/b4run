@@ -14,7 +14,7 @@
  * counted; the real graph would give us identity but not a call count.
  */
 
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 import { AIMessage } from "@langchain/core/messages"
 import { MemorySaver } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
@@ -50,7 +50,7 @@ describe("compiled-graph cache keying", () => {
   it("compiles ONCE per process when one checkpointer serves every request (the node path)", async () => {
     const counter = countCompilations()
     const descriptor = agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })
-    // Exactly what `dawn start` does: one instance resolved at boot, reused by
+    // Exactly what `b4 start` does: one instance resolved at boot, reused by
     // every request for the life of the process.
     const bootCheckpointer: BaseCheckpointSaver = new MemorySaver()
 

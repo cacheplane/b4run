@@ -29,8 +29,8 @@ export default async (
 ```
 
 ```ts title="src/app/(public)/research/index.ts"
-import type { RuntimeContext } from "@dawn-ai/sdk"
-import type { RouteTools } from "dawn:routes"
+import type { RuntimeContext } from "@b4run/sdk"
+import type { RouteTools } from "b4:routes"
 import type { z } from "zod"
 import type state from "./state.js"
 
@@ -48,11 +48,11 @@ export async function workflow(
 
 ## Notes
 
-- **No registration.** Drop the file into `tools/`. Run `dawn typegen` to regenerate types, or let the dev server do it on reload. Use `dawn check` to validate the app without writing files.
+- **No registration.** Drop the file into `tools/`. Run `b4 typegen` to regenerate types, or let the dev server do it on reload. Use `b4 check` to validate the app without writing files.
 - **Two discovery locations.** Tools are discovered from both `<route>/tools/` (route-local, only available to that route) and `src/tools/` (shared across all routes). Place a tool in `src/tools/` when multiple routes need it; place it in `<route>/tools/` to keep it scoped.
-- **Serializable types wherever they are declared.** Dawn's compiler pass extracts input and output types written inline, declared as local aliases or interfaces, or imported from another module. Keep the root input object-shaped so Dawn can emit the model-facing tool schema.
+- **Serializable types wherever they are declared.** B4.run's compiler pass extracts input and output types written inline, declared as local aliases or interfaces, or imported from another module. Keep the root input object-shaped so B4.run can emit the model-facing tool schema.
 - **Plain JSON in, plain JSON out.** Tool inputs and outputs cross the runtime boundary. No `Date`, no `Map`, no class instances.
-- **`agent` routes don't call `ctx.tools`.** The LLM picks tools by name once `dawn build` binds them. The example above uses a `workflow` route to show the typed call site.
+- **`agent` routes don't call `ctx.tools`.** The LLM picks tools by name once `b4 build` binds them. The example above uses a `workflow` route to show the typed call site.
 
 ## Related
 
@@ -61,5 +61,5 @@ export async function workflow(
   { href: "/docs/routes", title: "Routes", subtitle: "the four route kinds and their tool semantics" },
   { href: "/docs/recipes/typed-state", title: "Typed State", subtitle: "wire dynamic segments into state" },
   { href: "/docs/api/generated-routes#tools", title: "Generated route types", subtitle: "RouteTools and generated tool signatures" },
-  { href: "/docs/api/sdk#dawn-aisdk-1", title: "SDK Reference", subtitle: "RuntimeContext and route-authoring types" },
+  { href: "/docs/api/sdk#b4runsdk-1", title: "SDK Reference", subtitle: "RuntimeContext and route-authoring types" },
 ]} />

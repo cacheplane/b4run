@@ -1,17 +1,26 @@
 {
-  "name": "@dawn-ai/evals",
-  "version": "0.8.22",
+  "name": "@b4run/evals",
+  "version": "0.8.30",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "homepage": "https://github.com/cacheplane/dawnai/tree/main/packages/evals#readme",
+  "description": "Evaluation definitions, scorers, datasets, and runners for B4.run agents.",
+  "keywords": [
+    "b4",
+    "typescript",
+    "ai-agents",
+    "evals",
+    "testing",
+    "llm"
+  ],
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/evals#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/dawnai.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/evals"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/dawnai/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -36,11 +45,11 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },
   "peerDependencies": {
-    "@dawn-ai/testing": "workspace:*"
+    "@b4run/testing": "workspace:*"
   },
   "devDependencies": {
-    "@dawn-ai/config-typescript": "workspace:*",
-    "@dawn-ai/testing": "workspace:*",
+    "@b4run/config-typescript": "workspace:*",
+    "@b4run/testing": "workspace:*",
     "@types/node": "26.1.2"
   }
 }

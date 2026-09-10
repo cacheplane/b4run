@@ -7,7 +7,7 @@ import { join } from "node:path"
  */
 
 export interface LangGraphConfig {
-  /** Paths to local directories/tarballs to install. Always ["."] for Dawn apps. */
+  /** Paths to local directories/tarballs to install. Always ["."] for B4.run apps. */
   readonly dependencies: readonly string[]
   /** Path to env file relative to build output. */
   readonly env: string

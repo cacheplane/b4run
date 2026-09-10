@@ -7,18 +7,18 @@ consistent.
 ## What this is (and isn't)
 
 This is the **repo-root contributor/agent standards doc** — how to find your
-way around the Dawn monorepo, what "done" means for a change, and the rules
+way around the B4.run monorepo, what "done" means for a change, and the rules
 that keep the codebase consistent. It's the canonical entrypoint; see
 [Cross-links](#cross-links) for how it relates to `CONTRIBUTING.md` and
 `CONTRIBUTORS.md`.
 
-**This is not** the runtime `workspace/AGENTS.md` capability. Dawn ships a
+**This is not** the runtime `workspace/AGENTS.md` capability. B4.run ships a
 built-in capability
 (`packages/core/src/capabilities/built-in/agents-md.ts`) that auto-injects the
 contents of an **app's** `<appRoot>/workspace/AGENTS.md` into that agent's
 system prompt as its persistent "# Memory" — re-read every turn, updated by
-the agent itself via `writeFile`. That's an end-user Dawn app feature,
-documented at [dawnai.org/docs/memory](https://dawnai.org/docs/memory). The
+the agent itself via `writeFile`. That's an end-user B4.run app feature,
+documented at [b4.run/docs/memory](https://b4.run/docs/memory). The
 name collision is real: this file (repo root, for contributors) and that file
 (inside a generated app's `workspace/`, for the agent at runtime) share a
 filename but nothing else. If you're looking for the runtime feature, this
@@ -32,60 +32,60 @@ Every `packages/*` directory is a pnpm workspace member (verify: `pnpm -r list -
 
 | Package | Purpose |
 |---|---|
-| `@dawn-ai/sdk` | The author-facing TypeScript SDK — `agent()`, `defineMiddleware()`, `allow()`/`reject()`, and the type primitives the CLI consumes. |
-| `@dawn-ai/core` | Filesystem-based route discovery, app config loading, state-field resolution, and typegen primitives that the Dawn CLI builds on. |
-| `@dawn-ai/cli` | The `dawn` CLI — local HMR dev runtime, route execution, validation, typegen, and the build step that produces LangSmith deployment artifacts. |
-| `@dawn-ai/langgraph` | LangGraph runtime adapters and route module contracts (`graphAdapter`, `workflowAdapter`, `defineEntry`) used by the CLI. |
-| `@dawn-ai/langchain` | LangChain backend adapters — materializes `chain` routes and provider-aware `agent` routes (tool conversion, streaming, retry). |
+| `@b4run/sdk` | The author-facing TypeScript SDK — `agent()`, `defineMiddleware()`, `allow()`/`reject()`, and the type primitives the CLI consumes. |
+| `@b4run/core` | Filesystem-based route discovery, app config loading, state-field resolution, and typegen primitives that the B4.run CLI builds on. |
+| `@b4run/cli` | The `b4` CLI — local HMR dev runtime, route execution, validation, typegen, and the build step that produces LangSmith deployment artifacts. |
+| `@b4run/langgraph` | LangGraph runtime adapters and route module contracts (`graphAdapter`, `workflowAdapter`, `defineEntry`) used by the CLI. |
+| `@b4run/langchain` | LangChain backend adapters — materializes `chain` routes and provider-aware `agent` routes (tool conversion, streaming, retry). |
 
 **Capabilities & integrations**
 
 | Package | Purpose |
 |---|---|
-| `@dawn-ai/ag-ui` | AG-UI protocol translation for Dawn's local runtime — maps runtime stream chunks to AG-UI events and back, so CopilotKit and other AG-UI clients can drive Dawn agents. |
-| `@dawn-ai/permissions` | Permission and access-control primitives for Dawn agents — gating tool and resource access at runtime. |
-| `@dawn-ai/workspace` | Filesystem-backed workspace utilities for Dawn agents — reading, writing, and managing files in an agent's working directory. |
-| `@dawn-ai/sandbox` | Reference sandbox providers for Dawn workspace execution — a Docker-backed `SandboxProvider` that redirects the workspace filesystem and shell tools into a per-thread isolated environment. |
-| `@dawn-ai/vite-plugin` | Vite plugin for Dawn's typegen pipeline (extracts tool types and generates route ambient declarations). |
+| `@b4run/ag-ui` | AG-UI protocol translation for B4.run's local runtime — maps runtime stream chunks to AG-UI events and back, so CopilotKit and other AG-UI clients can drive B4.run agents. |
+| `@b4run/permissions` | Permission and access-control primitives for B4.run agents — gating tool and resource access at runtime. |
+| `@b4run/workspace` | Filesystem-backed workspace utilities for B4.run agents — reading, writing, and managing files in an agent's working directory. |
+| `@b4run/sandbox` | Reference sandbox providers for B4.run workspace execution — a Docker-backed `SandboxProvider` that redirects the workspace filesystem and shell tools into a per-thread isolated environment. |
+| `@b4run/vite-plugin` | Vite plugin for B4.run's typegen pipeline (extracts tool types and generates route ambient declarations). |
 
 **Storage & memory**
 
 | Package | Purpose |
 |---|---|
-| `@dawn-ai/memory` | Deterministic long-term memory storage and recall for Dawn's typed `memory.ts` capability — the storage/ranking layer under `@dawn-ai/core`. |
-| `@dawn-ai/memory-pgvector` | Postgres + pgvector backend for Dawn's typed long-term memory store, for deployments where SQLite is too local (multiple instances, shared DB, HNSW retrieval at scale). |
-| `@dawn-ai/sqlite-storage` | SQLite-backed storage adapter for Dawn — durable persistence for agent state and runtime data. |
-| `@dawn-ai/postgres-storage` | Postgres backend for Dawn's durable runtime state — checkpointer, Agent Protocol threads store, and permissions store over one `pg` pool, for deployments where the `.dawn/` files are too local (multiple instances, shared DB, ephemeral filesystem). |
+| `@b4run/memory` | Deterministic long-term memory storage and recall for B4.run's typed `memory.ts` capability — the storage/ranking layer under `@b4run/core`. |
+| `@b4run/memory-pgvector` | Postgres + pgvector backend for B4.run's typed long-term memory store, for deployments where SQLite is too local (multiple instances, shared DB, HNSW retrieval at scale). |
+| `@b4run/sqlite-storage` | SQLite-backed storage adapter for B4.run — durable persistence for agent state and runtime data. |
+| `@b4run/postgres-storage` | Postgres backend for B4.run's durable runtime state — checkpointer, Agent Protocol threads store, and permissions store over one `pg` pool, for deployments where the `.b4/` files are too local (multiple instances, shared DB, ephemeral filesystem). |
 
 **Testing & evals**
 
 | Package | Purpose |
 |---|---|
-| `@dawn-ai/testing` | Testing utilities for Dawn apps — helpers for exercising routes, tools, and agent behavior in unit and scenario tests. |
-| `@dawn-ai/evals` | Evaluation harness for Dawn agents — running and scoring agent behavior against datasets and scenarios. |
+| `@b4run/testing` | Testing utilities for B4.run apps — helpers for exercising routes, tools, and agent behavior in unit and scenario tests. |
+| `@b4run/evals` | Evaluation harness for B4.run agents — running and scoring agent behavior against datasets and scenarios. |
 
 **Scaffolding & tooling**
 
 | Package | Purpose |
 |---|---|
-| `create-dawn-ai-app` | Scaffold a new Dawn app — generates a working application from the supported starter templates with Dawn's canonical layout wired for local development. |
-| `@dawn-ai/devkit` | Internal scaffold templates and dev-time tooling shared between `@dawn-ai/cli` and `create-dawn-ai-app`. |
-| `@dawn-ai/config-typescript` | Shared TypeScript compiler configurations (`base`, `library`, `node`, `nextjs`) for Dawn workspace packages. |
-| `@dawn-ai/config-biome` | Shared Biome lint/format configuration used by Dawn workspace packages. |
+| `create-b4-app` | Scaffold a new B4.run app — generates a working application from the supported starter templates with B4.run's canonical layout wired for local development. |
+| `@b4run/devkit` | Internal scaffold templates and dev-time tooling shared between `@b4run/cli` and `create-b4-app`. |
+| `@b4run/config-typescript` | Shared TypeScript compiler configurations (`base`, `library`, `node`, `nextjs`) for B4.run workspace packages. |
+| `@b4run/config-biome` | Shared Biome lint/format configuration used by B4.run workspace packages. |
 
 **Apps**
 
 | Package | Purpose |
 |---|---|
-| `@dawn-ai/web` (`apps/web`) | The documentation website (dawnai.org) and its content/nav. |
+| `@b4run/web` (`apps/web`) | The documentation website (b4.run) and its content/nav. |
 
-**Examples** (`examples/*`, pnpm workspace members; consume Dawn via `workspace:*` and are typechecked in CI)
+**Examples** (`examples/*`, pnpm workspace members; consume B4.run via `workspace:*` and are typechecked in CI)
 
 | Package | Purpose |
 |---|---|
-| `@dawn-example/chat-server` / `@dawn-example/chat-web` (`examples/chat`) | Foundational agent-harness primitives (filesystem + bash) end-to-end, plus planning, skills, subagents, workspace, and HITL permissions, with a disposable smoke-test web client. |
-| `@dawn-example/memory` (`examples/memory/server`) | Long-term memory with a backend-switchable store — zero-setup SQLite by default, Postgres + pgvector via `DATABASE_URL`, hybrid keyword + vector recall via `OPENAI_API_KEY`. |
-| `@dawn-example/research-server` / `@dawn-example/research-web` (`examples/research`) | The flagship deep-research assistant example — routes, tools, subagents, memory, planning, offloading, HITL permissions, and an optional Docker sandbox. |
+| `@b4-example/chat-server` / `@b4-example/chat-web` (`examples/chat`) | Foundational agent-harness primitives (filesystem + bash) end-to-end, plus planning, skills, subagents, workspace, and HITL permissions, with a disposable smoke-test web client. |
+| `@b4-example/memory` (`examples/memory/server`) | Long-term memory with a backend-switchable store — zero-setup SQLite by default, Postgres + pgvector via `DATABASE_URL`, hybrid keyword + vector recall via `OPENAI_API_KEY`. |
+| `@b4-example/research-server` / `@b4-example/research-web` (`examples/research`) | The flagship deep-research assistant example — routes, tools, subagents, memory, planning, offloading, HITL permissions, and an optional Docker sandbox. |
 
 Note: `examples/chat/package.json` and `examples/research/package.json` are
 orchestration-only (`private: true`, one level above `server`/`web`) and are
@@ -97,38 +97,42 @@ orchestration-only (`private: true`, one level above `server`/`web`) and are
 
 | Chart | Purpose |
 |---|---|
-| `charts/dawn-app` | Runs a built Dawn app image (from `langgraphjs dockerfile`) on Kubernetes as a Deployment + Service, with optional Ingress, HorizontalPodAutoscaler, and PodDisruptionBudget, wired to the in-cluster `kubernetesSandbox` orchestrator ServiceAccount. |
-| `charts/dawn-sandbox-infra` | Cluster-side infrastructure for the Dawn `kubernetesSandbox` provider — namespace, least-privilege RBAC, default-deny egress, quotas/limits, Pod Security Standards, and a PVC reaper. |
+| `charts/b4-app` | Runs a built B4.run app image on Kubernetes as a Deployment + Service, with optional Ingress, HorizontalPodAutoscaler, and PodDisruptionBudget, with an application-owned ServiceAccount in the chart release namespace. Sandbox access is bound cross-namespace to the `b4-sandbox-infra` orchestrator Role. |
+| `charts/b4-sandbox-infra` | Cluster-side infrastructure for the B4.run `kubernetesSandbox` provider — namespace, least-privilege RBAC, default-deny egress, quotas/limits, Pod Security Standards, and a PVC reaper. |
 
 `test/` and `scripts/` are repo-level (verification lanes and workspace
 scripts respectively) — not workspace packages.
 
 ## Definition of Done
 
-The exact gates a change must pass are the `validate` job in
-`.github/workflows/ci.yml`, in order:
+The required `validate` job in `.github/workflows/ci.yml` aggregates four
+independent lanes and succeeds only when all four succeed. Failure, cancellation,
+or a skipped lane blocks it.
 
-1. `pnpm lint`
-2. `pnpm check:build-cache`
-3. `pnpm build`
-4. `pnpm typecheck`
-5. `pnpm test`
-6. `pnpm check:release-inventory`
-7. `pnpm test:release-controller`
+The `source-validate` lane runs these gates in order after installation:
+
+1. `pnpm test:release-integrity` — early content pins and recovery-policy checks
+2. `pnpm lint`
+3. `pnpm check:build-cache`
+4. `pnpm build`
+5. `pnpm typecheck`
+6. `pnpm test`
+7. `pnpm check:release-inventory`
 8. `node scripts/check-docs.mjs`
-9. `pnpm pack:check`
-10. `pnpm verify:typescript-tooling-pack`
-11. `pnpm verify:harness:self-test`
-12. `pnpm verify:harness:framework`
-13. `pnpm verify:harness:runtime`
-14. `pnpm verify:harness:smoke`
+
+The `release-controller` lane installs dependencies, runs the early integrity
+checks, and runs the complete `pnpm test:release-controller` suite from an unbuilt
+checkout. The `pack-smoke` lane runs `pnpm pack:check` and
+`pnpm verify:typescript-tooling-pack`. The `harness-verify` lane runs
+`pnpm verify:harness:self-test` and the framework, runtime, and smoke harnesses.
+These gates remain part of repository validation.
 
 On pull requests, a separate `changesets` job also runs
 `node scripts/check-changesets.mjs` to require a changeset for user-facing
 package changes.
 
-Run `pnpm ci:validate` locally to approximate this lane (it exists as a
-script in the root `package.json`). It runs the same lint → build-cache →
+Run `pnpm ci:validate` locally to run the validation commands sequentially.
+The script in the root `package.json` runs release-integrity → lint → build-cache →
 build → typecheck → source-test → release-inventory → release-controller-test →
 docs-check → pack-check → TypeScript-tooling-pack → harness sequence, plus
 the local-only `test:sync-chart-appversion` release-script unit test, which is
@@ -138,10 +142,10 @@ coverage is part of `test:release-controller`.
 
 **Gated lanes** — these run as separate CI jobs behind env flags or dedicated
 infrastructure, not part of `validate`, and aren't required for most PRs:
-`sandbox-docker` (`DAWN_TEST_DOCKER=1`), `pgvector-docker`
-(`DAWN_TEST_PGVECTOR=1`), `postgres-storage-docker` (`DAWN_TEST_PGSTORAGE=1`,
-Testcontainers `postgres:16`), `sandbox-k8s` (`DAWN_TEST_K8S=1`, kind + Calico),
-`sandbox-k8s-e2e` / `sandbox-docker-e2e` (`DAWN_TEST_SMOKE_E2E=1`, full-arc
+`sandbox-docker` (`B4_TEST_DOCKER=1`), `pgvector-docker`
+(`B4_TEST_PGVECTOR=1`), `postgres-storage-docker` (`B4_TEST_PGSTORAGE=1`,
+Testcontainers `postgres:16`), `sandbox-k8s` (`B4_TEST_K8S=1`, kind + Calico),
+`sandbox-k8s-e2e` / `sandbox-docker-e2e` (`B4_TEST_SMOKE_E2E=1`, full-arc
 deployed-app smoke), `chart-validate` (Helm lint + kubeconform), and
 `chart-apply-smoke` (kind install smoke).
 
@@ -184,8 +188,8 @@ substitute for the other or optional release cleanup.
   `CONTRIBUTING.md`, `CONTRIBUTORS.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`,
   `apps/web/app`, `apps/web/content`, `docs/` (excluding
   `docs/superpowers/`), and `packages/` for stale or overstated wording —
-  e.g. the retired `dawn-ai.org` domain, provider-prefixed model ids
-  (`openai:gpt...`), the old `agent.bindTools` / `.dawn/generated` /
+  e.g. the retired `b4.run` domain, provider-prefixed model ids
+  (`openai:gpt...`), the old `agent.bindTools` / `.b4/generated` /
   `auto-bound`/`auto-registered` phrasing, and claims like "byte-identical"
   or "speaks the LangSmith protocol natively" that overstate local/prod
   parity. This file (`AGENTS.md`) isn't in that scanned set, but keep it
@@ -200,9 +204,17 @@ substitute for the other or optional release cleanup.
   script, adding an unpinned entrypoint, or retaining a stale pin fails
   `pnpm test:release-controller` until the reviewed fixture is regenerated in
   the same commit. Reachability is re-derived from workflow `run:` steps,
-  package-script expansion, and action `with:` inputs. This is deliberately
-  limited to release ownership; ordinary CI-only scripts are not pinned. See
-  `CONTRIBUTORS.md`'s "Release Integrity Coverage" for the boundary.
+  package-script expansion, and action `with:` inputs, and then closed
+  transitively over each entrypoint's repository-local module loads — static
+  `import`/`export ... from`, dynamic `import()` with a literal specifier, and
+  the `new URL("./sibling.mjs", import.meta.url)` form the release CLI hands to
+  its injected loader. A load whose specifier cannot be resolved statically
+  fails the check rather than being skipped; the reviewed exceptions live in
+  `REVIEWED_DYNAMIC_IMPORT_SEAMS`. Files a pinned module reads off disk instead
+  of importing are declared in `RELEASE_DATA_FILES` and anchored to a reader.
+  This is deliberately limited to release ownership; ordinary CI-only scripts
+  are not pinned. See `CONTRIBUTORS.md`'s "Release Integrity Coverage" for the
+  boundary.
 
 ## Where things live
 

@@ -19,7 +19,7 @@ function withFixture(files: Record<string, string>, run: (dir: string) => void) 
 }
 
 const samplePost = `---
-title: Why we built Dawn
+title: Why we built B4.run
 description: Origin essay about the framework.
 date: 2026-05-12
 tags: [philosophy]
@@ -27,13 +27,13 @@ type: post
 author: brian
 ---
 
-# Why we built Dawn
+# Why we built B4.run
 
 Words here. ${"word ".repeat(200)}
 `
 
 const sampleRelease = `---
-title: Dawn 0.4
+title: B4.run 0.4
 description: Release notes.
 date: 2026-05-18
 tags: []
@@ -182,22 +182,22 @@ Scheduled body.
   it("parses frontmatter and returns sorted posts (newest first)", () => {
     withFixture(
       {
-        "2026-05-12-why-we-built-dawn.mdx": samplePost,
-        "2026-06-02-dawn-0-4.mdx": sampleRelease,
+        "2026-05-12-why-we-built-b4.mdx": samplePost,
+        "2026-06-02-b4-0-4.mdx": sampleRelease,
       },
       (dir) => {
         const posts = loadPostsFromDir(dir, { includeDrafts: false })
         expect(posts).toHaveLength(2)
-        expect(posts[0]?.slug).toBe("dawn-0-4")
-        expect(posts[1]?.slug).toBe("why-we-built-dawn")
+        expect(posts[0]?.slug).toBe("b4-0-4")
+        expect(posts[1]?.slug).toBe("why-we-built-b4")
       },
     )
   })
 
   it("derives slug from filename by stripping leading date prefix", () => {
-    withFixture({ "2026-05-12-why-we-built-dawn.mdx": samplePost }, (dir) => {
+    withFixture({ "2026-05-12-why-we-built-b4.mdx": samplePost }, (dir) => {
       const [p] = loadPostsFromDir(dir, { includeDrafts: false })
-      expect(p?.slug).toBe("why-we-built-dawn")
+      expect(p?.slug).toBe("why-we-built-b4")
     })
   })
 
@@ -238,21 +238,21 @@ Scheduled body.
   )
 
   it("preserves the on-disk filename as sourceFile", () => {
-    withFixture({ "2026-05-12-why-we-built-dawn.mdx": samplePost }, (dir) => {
+    withFixture({ "2026-05-12-why-we-built-b4.mdx": samplePost }, (dir) => {
       const [p] = loadPostsFromDir(dir, { includeDrafts: false })
-      expect(p?.sourceFile).toBe("2026-05-12-why-we-built-dawn.mdx")
+      expect(p?.sourceFile).toBe("2026-05-12-why-we-built-b4.mdx")
     })
   })
 
   it("computes reading time from body word count", () => {
-    withFixture({ "2026-05-12-why-we-built-dawn.mdx": samplePost }, (dir) => {
+    withFixture({ "2026-05-12-why-we-built-b4.mdx": samplePost }, (dir) => {
       const [p] = loadPostsFromDir(dir, { includeDrafts: false })
       expect(p?.readingTimeMinutes).toBeGreaterThanOrEqual(1)
     })
   })
 
   it("auto-tags releases with 'releases' when missing", () => {
-    withFixture({ "2026-06-02-dawn-0-4.mdx": sampleRelease }, (dir) => {
+    withFixture({ "2026-06-02-b4-0-4.mdx": sampleRelease }, (dir) => {
       const [p] = loadPostsFromDir(dir, { includeDrafts: false })
       expect(p?.tags).toContain("releases")
       expect(p?.type).toBe("release")

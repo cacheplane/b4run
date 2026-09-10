@@ -11,7 +11,7 @@ import {
 // park on. `HydratedInterrupts` is the other source — the ones the server was
 // already holding when the page loaded — and both render `PermissionPrompt`.
 //
-// Dawn's permission gate surfaces as an AG-UI *standard* interrupt: the run ends
+// B4.run's permission gate surfaces as an AG-UI *standard* interrupt: the run ends
 // with `RUN_FINISHED{ outcome:{ type:"interrupt", interrupts:[…] } }`, and the
 // client resumes via the top-level `RunAgentInput.resume` array. `useInterrupt`
 // handles that path natively — `render` receives the `Interrupt` objects, and
@@ -26,9 +26,9 @@ import {
 // does not make it render — so an interrupt that parked before this page
 // existed can never reach this component.
 //
-// @dawn-ai/ag-ui's `toAguiInterrupt` preserves the whole Dawn envelope under
+// @b4run/ag-ui's `toAguiInterrupt` preserves the whole B4.run envelope under
 // `interrupt.metadata`, so the command being gated is at
-// `metadata.detail.command`. For a permission prompt, Dawn reads the resolved
+// `metadata.detail.command`. For a permission prompt, B4.run reads the resolved
 // payload as its decision ("once" | "always").
 //
 // EVERY open interrupt gets a card, and every decision names its `interruptId`.
@@ -41,12 +41,12 @@ import {
 // composer blocked on `pendingInterrupts.length > 0` forever, and only a thread
 // switch to escape.
 //
-// DENIAL: always `cancel(id)`, never `resolve("deny")`. Both reach Dawn as a
+// DENIAL: always `cancel(id)`, never `resolve("deny")`. Both reach B4.run as a
 // denial — the runtime accepts a resolved "deny" payload and also maps
 // `status:"cancelled"` to denial — so this is a choice, not a bug fix, and the
 // two branches used to disagree about it. `cancel()` wins because it is the
 // AG-UI *protocol's* way to say "the human declined", which stays correct if
-// Dawn's payload vocabulary ever changes, whereas "deny" is a magic string
+// B4.run's payload vocabulary ever changes, whereas "deny" is a magic string
 // this file would have to keep in sync with the server. `HydratedInterrupts`
 // spells the same choice as `{ status: "cancelled" }` with no payload.
 //
@@ -85,7 +85,7 @@ export function PermissionInterrupt({ onError, isResuming }: PermissionInterrupt
     renderInChat: false,
     render: ({ interrupt, interrupts, resolve, cancel }) => {
       // A legacy (`on_interrupt`) interrupt has an empty `interrupts` array and
-      // a null `interrupt`; it resumes without an id. Dawn emits standard
+      // a null `interrupt`; it resumes without an id. B4.run emits standard
       // interrupts, but falling back to a single id-less card keeps that path
       // rendering something rather than nothing.
       const open: readonly (Interrupt | null)[] = interrupts.length > 0 ? interrupts : [interrupt]

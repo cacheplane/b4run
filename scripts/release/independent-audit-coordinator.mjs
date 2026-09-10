@@ -3,14 +3,14 @@
 import { appendFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
-
 import { normalizeAdapterEnvelope, snapshotJson } from "./adapter-normalize.mjs"
 import { createGitHubReader } from "./adapters/github.mjs"
 import { createGitHubWriter } from "./adapters/github-write.mjs"
-import { canonicalReleaseBody, parseReleaseMarker } from "./metadata.mjs"
+import { canonicalReleaseBody, isManagedReleaseForTag, parseReleaseMarker } from "./metadata.mjs"
+import { assertLegacyAuditCompatibleRelease } from "./recovery/observe.mjs"
 import { compareSemver, isExactSemver, parseSemver } from "./semver.mjs"
 
-const REPOSITORY = "cacheplane/dawnai"
+const REPOSITORY = "cacheplane/b4run"
 const WORKFLOW = ".github/workflows/published-artifact-verify.yml"
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u
@@ -40,14 +40,9 @@ export async function coordinateIndependentAudit(input) {
     if (invocation.sha !== invocation.inputs.commitSha) {
       throw new Error("Exact-tag audit SHA does not match its candidate input")
     }
-    const release = await readReleaseByTag(
-      invocation.github.reader,
-      `v${invocation.inputs.version}`,
-    )
-    const managed = parseManagedRelease(release, {
+    const managed = await readAuditableManagedRelease(invocation.github.reader, {
       defaultBranch: invocation.defaultBranch,
       expected: invocation.inputs,
-      allowDraft: true,
     })
     await verifyAnnotatedTag(invocation.github.reader, managed)
     return Object.freeze({ mode: managed.mode, ...managedIdentity(managed) })
@@ -60,25 +55,62 @@ export async function coordinateIndependentAudit(input) {
   const managed =
     invocation.eventName === "schedule"
       ? await discoverLatestPublishedRelease(invocation.github.reader, invocation.defaultBranch)
-      : parseManagedRelease(
-          await readReleaseByTag(invocation.github.reader, `v${invocation.inputs.version}`),
-          {
-            defaultBranch: invocation.defaultBranch,
-            expected: invocation.inputs,
-            allowDraft: false,
-          },
-        )
+      : await readAuditableManagedRelease(invocation.github.reader, {
+          defaultBranch: invocation.defaultBranch,
+          expected: invocation.inputs,
+        })
   await verifyAnnotatedTag(invocation.github.reader, managed)
   const identity = managedIdentity(managed)
+  // The verifier separately authorizes its real immutable main source before
+  // auditing. This coordinator performs no marker or release mutation.
+  if (managed.mode === "draft") return Object.freeze({ mode: "draft-controller", ...identity })
+  if (invocation.eventName === "workflow_dispatch") {
+    return Object.freeze({ mode: "published-controller", ...identity })
+  }
   const receipt = snapshotJson(
     await invocation.github.writer.dispatchWorkflowAtRef({
       workflow: WORKFLOW,
-      ref: managed.tag,
+      ref: invocation.defaultBranch,
       inputs: identity,
     }),
   )
   assertDispatchReceipt(receipt)
   return Object.freeze({ mode: "relayed", ...identity })
+}
+
+/**
+ * Find the managed Release for an exact candidate.
+ *
+ * A managed draft carries no resolvable `tag_name` — GitHub names it
+ * `untagged-<id>` until it is published — so `GET /releases/tags/{tag}` cannot
+ * see it and returns 404. The draft is instead identified by its marker, which
+ * `parseManagedRelease` already reads. Listing is paginated and covers drafts
+ * and published releases alike.
+ *
+ * Candidates are narrowed by exact release name before parsing, so a malformed
+ * release for this very version fails loudly instead of being skipped, and more
+ * than one match is an error rather than a silent pick: a duplicated draft is
+ * the hazard that stranded v0.8.22.
+ */
+async function readAuditableManagedRelease(reader, { defaultBranch, expected }) {
+  const releases = await readEnvelopeValue(reader.listReleases(), "releases")
+  if (!Array.isArray(releases)) throw new Error("GitHub Release list is malformed")
+  const name = `B4 v${expected.version}`
+  const matches = releases.filter(
+    (release) =>
+      release !== null &&
+      typeof release === "object" &&
+      !Array.isArray(release) &&
+      (release.name === name || release.tag_name === `v${expected.version}`),
+  )
+  if (matches.length === 0) {
+    throw new Error(`No managed Release named ${name} was found`)
+  }
+  if (matches.length > 1) {
+    throw new Error(`Managed Release ${name} is duplicated`)
+  }
+  await assertLegacyAuditCompatibleRelease({ release: matches[0], github: reader })
+  return parseManagedRelease(matches[0], { defaultBranch, expected, allowDraft: true })
 }
 
 async function discoverLatestPublishedRelease(reader, defaultBranch) {
@@ -88,16 +120,17 @@ async function discoverLatestPublishedRelease(reader, defaultBranch) {
   const versions = new Set()
   for (const release of releases) {
     if (!isPublishedReleaseCandidate(release)) continue
-    const parsed = parseManagedRelease(release, { defaultBranch, allowDraft: false })
-    if (versions.has(parsed.version)) {
-      throw new Error(`Managed published Release v${parsed.version} is duplicated`)
-    }
-    versions.add(parsed.version)
-    managed.push(parsed)
+    const version = release.tag_name.slice(1)
+    if (versions.has(version))
+      throw new Error(`Managed published Release v${version} is duplicated`)
+    versions.add(version)
+    managed.push(release)
   }
   if (managed.length === 0) throw new Error("No managed published immutable Release was found")
-  managed.sort((left, right) => compareSemver(left.version, right.version))
-  return managed.at(-1)
+  managed.sort((left, right) => compareSemver(left.tag_name.slice(1), right.tag_name.slice(1)))
+  const selected = managed.at(-1)
+  await assertLegacyAuditCompatibleRelease({ release: selected, github: reader })
+  return parseManagedRelease(selected, { defaultBranch, allowDraft: false })
 }
 
 function isPublishedReleaseCandidate(value) {
@@ -111,10 +144,6 @@ function isPublishedReleaseCandidate(value) {
     value.tag_name.startsWith("v") &&
     isReleaseVersion(value.tag_name.slice(1))
   )
-}
-
-async function readReleaseByTag(reader, tag) {
-  return readEnvelopeValue(reader.getReleaseByTag({ tag }), "release")
 }
 
 async function readEnvelopeValue(value, operation) {
@@ -144,18 +173,7 @@ function parseManagedRelease(value, { defaultBranch, expected, allowDraft }) {
   ) {
     throw new Error("Managed Release identity is malformed")
   }
-  const version = release.tag_name.startsWith("v") ? release.tag_name.slice(1) : ""
-  if (!isReleaseVersion(version) || release.name !== `Dawn v${version}`) {
-    throw new Error("Managed Release version or title is malformed")
-  }
   const marker = parseReleaseMarker(release.body)
-  if (
-    marker.version !== version ||
-    marker.tag !== release.tag_name ||
-    release.body !== canonicalReleaseBody({ marker, manifest: null })
-  ) {
-    throw new Error("Managed Release marker identity is malformed")
-  }
   let mode
   if (release.draft === false && release.immutable === true && marker.phase === "AUDIT_VERIFIED") {
     mode = "published"
@@ -168,6 +186,18 @@ function parseManagedRelease(value, { defaultBranch, expected, allowDraft }) {
     mode = "draft"
   } else {
     throw new Error("Managed Release is not an auditable draft or published immutable release")
+  }
+  const version = mode === "draft" ? marker.version : release.tag_name.slice(1)
+  const tag = `v${version}`
+  if (
+    !isReleaseVersion(version) ||
+    release.name !== `B4 v${version}` ||
+    marker.version !== version ||
+    marker.tag !== tag ||
+    (mode === "draft" ? !isManagedReleaseForTag(release, tag) : release.tag_name !== tag) ||
+    release.body !== canonicalReleaseBody({ marker, manifest: null })
+  ) {
+    throw new Error("Managed Release marker identity is malformed")
   }
   const identity = {
     version,
@@ -182,7 +212,7 @@ function parseManagedRelease(value, { defaultBranch, expected, allowDraft }) {
   ) {
     throw new Error("Managed Release does not match the exact audit inputs")
   }
-  return Object.freeze({ ...identity, tag: release.tag_name, mode })
+  return Object.freeze({ ...identity, tag, mode })
 }
 
 async function verifyAnnotatedTag(reader, release) {

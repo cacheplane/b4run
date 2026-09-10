@@ -1,0 +1,12 @@
+{
+  "observer": "assistant via authenticated blove GitHub settings session",
+  "observations": [
+    {
+      "url": "https://github.com/organizations/cacheplane/settings/secrets/dependabot",
+      "observedAt": "2026-09-05T23:58:41.023Z",
+      "visibleStatement": "This organization has no secrets."
+    }
+  ],
+  "authority": "dated operator UI observations, not live API guarantees",
+  "note": "Approximate agent UI timestamps removed; exact fresh inherited-agent API evidence is retained separately."
+}

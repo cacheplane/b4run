@@ -51,16 +51,16 @@ const PROJECT_FILE_CONTENTS = '{ "projectId": "preserved-project" }\n'
 const ENV_FILE_CONTENTS = "PRESERVE_ME=yes\n"
 const EXPECTED_RECOMMENDED_VERCEL_CONFIG = {
   $schema: "https://openapi.vercel.sh/vercel.json",
-  buildCommand: "node node_modules/@dawn-ai/cli/dist/index.js build",
+  buildCommand: "node node_modules/@b4run/cli/dist/index.js build",
   fluid: true,
 } as const
 const EXPECTED_RECOMMENDED_VERCEL_CONFIG_JSON = `{
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "node node_modules/@dawn-ai/cli/dist/index.js build",
+  "buildCommand": "node node_modules/@b4run/cli/dist/index.js build",
   "fluid": true
 }\n`
 const docker = await probeDocker()
-const requireDocker = process.env.DAWN_REQUIRE_DOCKER === "1"
+const requireDocker = process.env.B4_REQUIRE_DOCKER === "1"
 const isolatedRoundTrip = docker.available || requireDocker ? test : test.skip
 
 afterEach(async () => {
@@ -68,20 +68,20 @@ afterEach(async () => {
 })
 
 async function createOutputDir(): Promise<string> {
-  const outputDir = await mkdtemp(join(tmpdir(), "dawn-vercel-output-"))
+  const outputDir = await mkdtemp(join(tmpdir(), "b4-vercel-output-"))
   tempDirs.push(outputDir)
   return outputDir
 }
 
 async function createTargetFixture(files: Readonly<Record<string, string>> = {}): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-vercel-target-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-vercel-target-"))
   tempDirs.push(appRoot)
   const appFiles = {
-    "dawn.config.ts": 'export default { build: { targets: ["vercel"] } }\n',
+    "b4.config.ts": 'export default { build: { targets: ["vercel"] } }\n',
     "package.json": `${JSON.stringify({
       dependencies: {
-        "@dawn-ai/cli": "workspace:*",
-        "@dawn-ai/postgres-storage": "workspace:*",
+        "@b4run/cli": "workspace:*",
+        "@b4run/postgres-storage": "workspace:*",
         "@neondatabase/serverless": "^1.1.0",
         hono: "^4.12.28",
       },
@@ -105,8 +105,8 @@ async function createTargetFixture(files: Readonly<Record<string, string>> = {})
 
 async function linkTargetFixtureDependencies(appRoot: string): Promise<void> {
   const dependencies = {
-    "@dawn-ai/cli": cliPackageRoot,
-    "@dawn-ai/postgres-storage": join(cliPackageRoot, "..", "postgres-storage"),
+    "@b4run/cli": cliPackageRoot,
+    "@b4run/postgres-storage": join(cliPackageRoot, "..", "postgres-storage"),
     "@neondatabase/serverless": join(cliPackageRoot, "node_modules", "@neondatabase", "serverless"),
     hono: join(cliPackageRoot, "node_modules", "hono"),
   } as const
@@ -158,10 +158,10 @@ async function createPublicationFixture(): Promise<{
   stagedOutput: string
   vercelDir: string
 }> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-vercel-publish-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-vercel-publish-"))
   tempDirs.push(appRoot)
   const vercelDir = join(appRoot, ".vercel")
-  const stagedOutput = join(vercelDir, ".dawn-vercel-invocation", "output")
+  const stagedOutput = join(vercelDir, ".b4-vercel-invocation", "output")
   await validOutput(stagedOutput)
   await seedUnrelatedVercelFiles(vercelDir)
   return { stagedOutput, vercelDir }
@@ -185,12 +185,12 @@ async function expectUnrelatedVercelFilesPreserved(vercelDir: string): Promise<v
 }
 
 function isBackupPath(path: string): boolean {
-  return path.includes(".dawn-vercel-output-backup-")
+  return path.includes(".b4-vercel-output-backup-")
 }
 
 async function createVercelConfigDirs(): Promise<{ appRoot: string; buildDir: string }> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-vercel-app-"))
-  const buildDir = await mkdtemp(join(tmpdir(), "dawn-vercel-build-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-vercel-app-"))
+  const buildDir = await mkdtemp(join(tmpdir(), "b4-vercel-build-"))
   tempDirs.push(appRoot, buildDir)
   return { appRoot, buildDir }
 }
@@ -294,7 +294,7 @@ if (typeof module.default?.fetch !== "function") {
   throw new Error("expected a default Web Fetch API handler")
 }
 
-const evidence = globalThis.__dawnVercelPgEvidence
+const evidence = globalThis.__b4VercelPgEvidence
 if (
   evidence?.nativeAbsent !== true ||
   evidence?.poolInstance !== true ||
@@ -455,7 +455,7 @@ console.log(JSON.stringify({
 `
 
 async function copyFunctionOutsideApp(appRoot: string): Promise<string> {
-  const isolatedRoot = await realpath(await mkdtemp(join(tmpdir(), "dawn-vercel-isolated-")))
+  const isolatedRoot = await realpath(await mkdtemp(join(tmpdir(), "b4-vercel-isolated-")))
   tempDirs.push(isolatedRoot)
   const copiedFunctionDir = join(isolatedRoot, "index.func")
   await cp(functionDir(join(appRoot, ".vercel", "output")), copiedFunctionDir, {
@@ -509,6 +509,31 @@ describe("complete Vercel target", () => {
     })
   }, 180_000)
 
+  test("bundles a route's skill bodies into the function", async () => {
+    await ensureLinkedDistsFresh()
+    const appRoot = await createTargetFixture({
+      // The fixture's only default route is `probe`; the skill needs a route of
+      // its own to hang off, so this adds one.
+      // A plain workflow, not an agent, because this fixture links no
+      // `@b4run/sdk`: this case proves esbuild inlining and namespace keying,
+      // not that an agent consumes the skill (hono equivalence covers that).
+      "src/app/chat/index.ts": 'export async function workflow() { return { message: "chat" } }\n',
+      "src/app/chat/skills/research/SKILL.md": "---\ndescription: Research.\n---\n\nDo research.\n",
+    })
+
+    await runTargetBuild(appRoot)
+
+    // esbuild inlines the manifest into the single function file, so the skill
+    // body must be inside it — and keyed by the namespace, not the build path.
+    const bundled = await readFile(
+      join(appRoot, ".vercel", "output", "functions", "index.func", "index.mjs"),
+      "utf8",
+    )
+    expect(bundled).toContain("Do research.")
+    expect(bundled).toContain("/src/app/chat/skills/research/SKILL.md")
+    expect(bundled).not.toContain(appRoot)
+  }, 180_000)
+
   describe("Vercel CommonJS Node compatibility", () => {
     test("bundles a real pg Pool without changing absent pg.native semantics", async () => {
       await ensureLinkedDistsFresh()
@@ -520,8 +545,8 @@ describe("complete Vercel target", () => {
       const appRoot = await createTargetFixture({
         "package.json": `${JSON.stringify({
           dependencies: {
-            "@dawn-ai/cli": "workspace:*",
-            "@dawn-ai/postgres-storage": "workspace:*",
+            "@b4run/cli": "workspace:*",
+            "@b4run/postgres-storage": "workspace:*",
             "@neondatabase/serverless": "^1.1.0",
             hono: "^4.12.28",
             pg: "8.22.0",
@@ -540,7 +565,7 @@ const pool = new pg.Pool({
 pool.on("error", () => {})
 
 Object.assign(globalThis, {
-  __dawnVercelPgEvidence: {
+  __b4VercelPgEvidence: {
     nativeAbsent: pg.native === null,
     poolInstance: pool instanceof pg.Pool,
     poolName: pool.constructor.name,
@@ -736,7 +761,7 @@ export async function workflow() {
     ]) {
       expect(report).toContain(finalPath)
     }
-    expect(report).not.toContain(".dawn-vercel-")
+    expect(report).not.toContain(".b4-vercel-")
     expect(report).not.toContain("output-backup")
     expect(existsSync(join(appRoot, "wrangler.toml"))).toBe(false)
 
@@ -747,7 +772,7 @@ export async function workflow() {
 
   test("preflights forbidden edge capabilities before creating .vercel", async () => {
     const appRoot = await createTargetFixture({
-      "dawn.config.ts": `export default {
+      "b4.config.ts": `export default {
   build: { targets: ["vercel"] },
   sandbox: { provider: { name: "docker" } },
 }
@@ -784,7 +809,7 @@ export async function workflow() {
     await expect(readFile(join(outputDir, "prior.txt"), "utf8")).resolves.toBe(priorEntry)
     await expect(readFile(join(vercelDir, "project.json"), "utf8")).resolves.toBe(project)
     await expect(readFile(join(vercelDir, ".env.preview.local"), "utf8")).resolves.toBe(environment)
-    expect((await readdir(vercelDir)).some((name) => name.startsWith(".dawn-vercel-"))).toBe(false)
+    expect((await readdir(vercelDir)).some((name) => name.startsWith(".b4-vercel-"))).toBe(false)
   })
 
   test("invalid root config after staged validation preserves prior output and cleans staging", async () => {
@@ -801,7 +826,7 @@ export async function workflow() {
 
     expect(await listTree(outputDir)).toEqual(["prior.txt"])
     await expect(readFile(join(outputDir, "prior.txt"), "utf8")).resolves.toBe(priorEntry)
-    expect((await readdir(vercelDir)).some((name) => name.startsWith(".dawn-vercel-"))).toBe(false)
+    expect((await readdir(vercelDir)).some((name) => name.startsWith(".b4-vercel-"))).toBe(false)
   })
 
   test("reports invocation cleanup failure after publishing valid final output", async () => {
@@ -898,7 +923,7 @@ export async function workflow() {
     const nodeBundle = await buildBundle(common)
     const staticBundle = await buildBundle({
       ...common,
-      conditions: ["dawn-static-provider-imports", "module"],
+      conditions: ["b4-static-provider-imports", "module"],
     })
     const selectedLoaders = (result: typeof nodeBundle) =>
       Object.keys(result.metafile?.inputs ?? {})
@@ -1117,7 +1142,7 @@ describe("transactional Vercel output publication", () => {
     await cleanupStarted.promise
     await expect(readFile(entryPath(outputDir), "utf8")).resolves.toContain('"first"')
 
-    const secondStagedOutput = join(first.vercelDir, ".dawn-vercel-second", "output")
+    const secondStagedOutput = join(first.vercelDir, ".b4-vercel-second", "output")
     await validOutput(secondStagedOutput)
     await writeFile(
       entryPath(secondStagedOutput),
@@ -1329,7 +1354,7 @@ describe("Build Output contract", () => {
 
   test("rejects a function-tree symlink that resolves outside index.func", async () => {
     const outputDir = await createOutputDir()
-    const outsideDir = await mkdtemp(join(tmpdir(), "dawn-vercel-outside-"))
+    const outsideDir = await mkdtemp(join(tmpdir(), "b4-vercel-outside-"))
     tempDirs.push(outsideDir)
     await validOutput(outputDir)
     const outsideFile = join(outsideDir, "outside.mjs")
@@ -1521,7 +1546,7 @@ describe("root vercel config", () => {
   test("rejects a broken root symlink without creating its external target", async () => {
     const { appRoot, buildDir } = await createVercelConfigDirs()
     const rootPath = join(appRoot, "vercel.json")
-    const outsideDir = await mkdtemp(join(tmpdir(), "dawn-vercel-outside-"))
+    const outsideDir = await mkdtemp(join(tmpdir(), "b4-vercel-outside-"))
     const externalPath = join(outsideDir, "vercel.json")
     tempDirs.push(outsideDir)
     await symlink(externalPath, rootPath)
@@ -1544,7 +1569,7 @@ describe("root vercel config", () => {
     const { appRoot, buildDir } = await createVercelConfigDirs()
     const rootPath = join(appRoot, "vercel.json")
     const referencePath = join(buildDir, "vercel.json")
-    const outsideDir = await mkdtemp(join(tmpdir(), "dawn-vercel-outside-"))
+    const outsideDir = await mkdtemp(join(tmpdir(), "b4-vercel-outside-"))
     const externalPath = join(outsideDir, "preserved.json")
     const externalContents = "external content\n"
     tempDirs.push(outsideDir)
@@ -1566,7 +1591,7 @@ describe("root vercel config", () => {
     const rootPath = join(appRoot, "vercel.json")
     const referencePath = join(buildDir, "vercel.json")
     const racedContents =
-      '{ "fluid": true, "buildCommand": "node node_modules/@dawn-ai/cli/dist/index.js build" }\n'
+      '{ "fluid": true, "buildCommand": "node node_modules/@b4run/cli/dist/index.js build" }\n'
     const linkError = filesystemError("EEXIST")
     const { io, stderr } = collectIo()
     const restoreFileOps = setVercelConfigFileOpsForTesting({
@@ -1649,7 +1674,7 @@ describe("root vercel config", () => {
     const { appRoot, buildDir } = await createVercelConfigDirs()
     const rootPath = join(appRoot, "vercel.json")
     const contents =
-      '{ "fluid": true, "buildCommand": "node node_modules/@dawn-ai/cli/dist/index.js build" }\n'
+      '{ "fluid": true, "buildCommand": "node node_modules/@b4run/cli/dist/index.js build" }\n'
     const unexpectedWrite = new Error("root publication should not write")
     await writeFile(rootPath, contents)
     const restoreFileOps = setVercelConfigFileOpsForTesting({
@@ -1672,7 +1697,7 @@ describe("root vercel config", () => {
     const rootPath = join(appRoot, "vercel.json")
     const referencePath = join(buildDir, "vercel.json")
     const contents =
-      '{ "fluid": true, "buildCommand": "node node_modules/@dawn-ai/cli/dist/index.js build" }\n'
+      '{ "fluid": true, "buildCommand": "node node_modules/@b4run/cli/dist/index.js build" }\n'
     const { io, stderr } = collectIo()
     await writeFile(rootPath, contents)
 
@@ -1686,8 +1711,8 @@ describe("root vercel config", () => {
   })
 
   test.each([
-    ["spaces", " node  node_modules/@dawn-ai/cli/dist/index.js   build "],
-    ["tabs", "\tnode\t node_modules/@dawn-ai/cli/dist/index.js\tbuild\t"],
+    ["spaces", " node  node_modules/@b4run/cli/dist/index.js   build "],
+    ["tabs", "\tnode\t node_modules/@b4run/cli/dist/index.js\tbuild\t"],
   ])("accepts a direct command with only ASCII %s", async (_kind, buildCommand) => {
     const { appRoot, buildDir } = await createVercelConfigDirs()
     const rootPath = join(appRoot, "vercel.json")
@@ -1706,15 +1731,15 @@ describe("root vercel config", () => {
   })
 
   test.each([
-    ["non-breaking space", "\u00a0node node_modules/@dawn-ai/cli/dist/index.js build"],
-    ["form-feed", "\fnode node_modules/@dawn-ai/cli/dist/index.js build"],
-    ["carriage return", "node node_modules/@dawn-ai/cli/dist/index.js build\r"],
-    ["line feed", "node node_modules/@dawn-ai/cli/dist/index.js build\n"],
-    ["command chain", "node node_modules/@dawn-ai/cli/dist/index.js build && echo nope"],
-    ["semicolon", "node node_modules/@dawn-ai/cli/dist/index.js build; echo nope"],
-    ["extra argument", "node node_modules/@dawn-ai/cli/dist/index.js build --prod"],
-    ["environment prefix", "DAWN=1 node node_modules/@dawn-ai/cli/dist/index.js build"],
-    ["alternate path", "node ./node_modules/@dawn-ai/cli/dist/index.js build"],
+    ["non-breaking space", "\u00a0node node_modules/@b4run/cli/dist/index.js build"],
+    ["form-feed", "\fnode node_modules/@b4run/cli/dist/index.js build"],
+    ["carriage return", "node node_modules/@b4run/cli/dist/index.js build\r"],
+    ["line feed", "node node_modules/@b4run/cli/dist/index.js build\n"],
+    ["command chain", "node node_modules/@b4run/cli/dist/index.js build && echo nope"],
+    ["semicolon", "node node_modules/@b4run/cli/dist/index.js build; echo nope"],
+    ["extra argument", "node node_modules/@b4run/cli/dist/index.js build --prod"],
+    ["environment prefix", "B4=1 node node_modules/@b4run/cli/dist/index.js build"],
+    ["alternate path", "node ./node_modules/@b4run/cli/dist/index.js build"],
   ])("writes a reference and warning for a %s command variant", async (_kind, buildCommand) => {
     const { appRoot, buildDir } = await createVercelConfigDirs()
     const rootPath = join(appRoot, "vercel.json")
@@ -1747,7 +1772,7 @@ describe("root vercel config", () => {
     try {
       Object.defineProperty(Object.prototype, "buildCommand", {
         configurable: true,
-        value: "node node_modules/@dawn-ai/cli/dist/index.js build",
+        value: "node node_modules/@b4run/cli/dist/index.js build",
       })
       Object.defineProperty(Object.prototype, "fluid", { configurable: true, value: false })
 
@@ -1771,7 +1796,7 @@ describe("root vercel config", () => {
     const rootPath = join(appRoot, "vercel.json")
     const referencePath = join(buildDir, "vercel.json")
     const contents = `{
-  "buildCommand": "node node_modules/@dawn-ai/cli/dist/index.js build",
+  "buildCommand": "node node_modules/@b4run/cli/dist/index.js build",
   "fluid": true,
   "regions": ["sfo1"],
   "headers": [{ "source": "/(.*)", "headers": [{ "key": "x-user", "value": "kept" }] }]
@@ -1788,7 +1813,7 @@ describe("root vercel config", () => {
 
   test.each([
     ["missing", { fluid: true }],
-    ["unknown", { buildCommand: "dawn build", fluid: true }],
+    ["unknown", { buildCommand: "b4 build", fluid: true }],
     ["non-string", { buildCommand: 42, fluid: true }],
   ])("writes one reference and warning for a %s build command", async (_kind, config) => {
     const { appRoot, buildDir } = await createVercelConfigDirs()
@@ -1811,10 +1836,10 @@ describe("root vercel config", () => {
   })
 
   test.each([
-    ["omitted", { buildCommand: "node node_modules/@dawn-ai/cli/dist/index.js build" }],
+    ["omitted", { buildCommand: "node node_modules/@b4run/cli/dist/index.js build" }],
     [
       "non-true",
-      { buildCommand: "node node_modules/@dawn-ai/cli/dist/index.js build", fluid: "true" },
+      { buildCommand: "node node_modules/@b4run/cli/dist/index.js build", fluid: "true" },
     ],
   ])("writes a portability warning when fluid is %s", async (_kind, config) => {
     const { appRoot, buildDir } = await createVercelConfigDirs()
@@ -1859,7 +1884,7 @@ describe("root vercel config", () => {
     const rootPath = join(appRoot, "vercel.json")
     const referencePath = join(buildDir, "vercel.json")
     const contents =
-      '{ "buildCommand": "node node_modules/@dawn-ai/cli/dist/index.js build", "fluid": false }\n'
+      '{ "buildCommand": "node node_modules/@b4run/cli/dist/index.js build", "fluid": false }\n'
     const { io, stderr } = collectIo()
     await writeFile(rootPath, contents)
 
@@ -1894,7 +1919,7 @@ describe("root vercel config", () => {
     const { appRoot, buildDir } = await createVercelConfigDirs()
     const rootPath = join(appRoot, "vercel.json")
     const referencePath = join(buildDir, "vercel.json")
-    const contents = '{ "buildCommand": "dawn build", "fluid": true }\n'
+    const contents = '{ "buildCommand": "b4 build", "fluid": true }\n'
     await writeFile(rootPath, contents)
 
     await expect(reconcileVercelConfig({ appRoot, buildDir })).resolves.toEqual({

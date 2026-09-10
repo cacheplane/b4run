@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { ScenarioToolCallRecord, ScenarioToolMockDescriptor } from "@dawn-ai/sdk/testing"
+import type { ScenarioToolCallRecord, ScenarioToolMockDescriptor } from "@b4run/sdk/testing"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const langchainMocks = vi.hoisted(() => ({
@@ -9,8 +9,8 @@ const langchainMocks = vi.hoisted(() => ({
   materializeAgentGraph: vi.fn(),
 }))
 
-vi.mock("@dawn-ai/langchain", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@dawn-ai/langchain")>()
+vi.mock("@b4run/langchain", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@b4run/langchain")>()
   return {
     ...actual,
     executeAgentTurn: langchainMocks.executeAgentTurn,
@@ -213,7 +213,7 @@ async function createFixtureApp(): Promise<{
   readonly appRoot: string
   readonly workflowRouteFile: string
 }> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-scenario-override-boundary-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-scenario-override-boundary-"))
   fixtureRoots.push(appRoot)
   const agentRouteDir = join(appRoot, "src/app/agent")
   const workflowRouteDir = join(appRoot, "src/app/workflow")
@@ -224,7 +224,7 @@ async function createFixtureApp(): Promise<{
     '{ "name": "scenario-override-boundary-fixture", "type": "module" }\n',
     "utf8",
   )
-  await writeFile(join(appRoot, "dawn.config.ts"), "export default {}\n", "utf8")
+  await writeFile(join(appRoot, "b4.config.ts"), "export default {}\n", "utf8")
   await writeFile(
     join(workflowRouteDir, "index.ts"),
     [
@@ -239,7 +239,7 @@ async function createFixtureApp(): Promise<{
     join(agentRouteDir, "index.ts"),
     [
       "export const agent = {",
-      '  [Symbol.for("dawn.agent")]: true,',
+      '  [Symbol.for("b4.agent")]: true,',
       '  model: "gpt-5-mini",',
       '  systemPrompt: "Test agent.",',
       "}",

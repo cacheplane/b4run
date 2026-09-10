@@ -1,7 +1,7 @@
 /**
  * Process-local registry of in-flight runs, keyed by thread id.
  *
- * Dawn has no `run_id`. A thread runs at most one run at a time — enforced by
+ * B4.run has no `run_id`. A thread runs at most one run at a time — enforced by
  * `begin` refusing an already-running thread — so the thread id *is* the run
  * identity. Without that guarantee a second run would overwrite the first's
  * entry and orphan its controller, producing exactly the unkillable run this

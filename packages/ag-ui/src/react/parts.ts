@@ -5,14 +5,14 @@
  * Appending is not the same as winning, though: `styles.css` is unlayered, so a
  * consumer class only takes effect on a property that sheet leaves unset on the
  * same element. Anything the sheet does claim is reachable at rung 1 instead,
- * through the `--dawn-activity-*` tokens. Slot components replace a leaf's
+ * through the `--b4-activity-*` tokens. Slot components replace a leaf's
  * rendering while the card keeps ownership of validation, ordering, and the
  * bounded-content rules.
  */
 import type { ReactNode } from "react"
 
 /** Structural parts every activity surface can expose. */
-export interface DawnActivityClassNames {
+export interface B4ActivityClassNames {
   readonly root?: string
   readonly header?: string
   /** The disclosure triangle: an `aria-hidden` span, first child of the header. */
@@ -38,14 +38,14 @@ export interface DawnActivityClassNames {
   readonly error?: string
 }
 
-export interface DawnTodoRowProps {
+export interface B4TodoRowProps {
   readonly content: string
   readonly status: "pending" | "in_progress" | "completed"
   readonly glyph: string
   readonly label: string
 }
 
-export interface DawnToolRowProps {
+export interface B4ToolRowProps {
   readonly name: string
   readonly status: "running" | "completed" | "incomplete"
   readonly glyph: string
@@ -53,9 +53,9 @@ export interface DawnToolRowProps {
 }
 
 /** Leaf components a consumer may replace. */
-export interface DawnActivityComponents {
-  readonly TodoRow?: (props: DawnTodoRowProps) => ReactNode
-  readonly ToolRow?: (props: DawnToolRowProps) => ReactNode
+export interface B4ActivityComponents {
+  readonly TodoRow?: (props: B4TodoRowProps) => ReactNode
+  readonly ToolRow?: (props: B4ToolRowProps) => ReactNode
 }
 
 /** Join a package default with an optional consumer class. */

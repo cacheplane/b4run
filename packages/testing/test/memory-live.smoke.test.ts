@@ -3,8 +3,8 @@
 import { rmSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { runMemoryCommand } from "@dawn-ai/cli/runtime"
-import { sqliteMemoryStore } from "@dawn-ai/memory"
+import { runMemoryCommand } from "@b4run/cli/runtime"
+import { sqliteMemoryStore } from "@b4run/memory"
 import { afterEach, beforeEach, expect, it } from "vitest"
 import { createAgentHarness } from "../src/harness.js"
 import { expectToolCalled } from "../src/matchers.js"
@@ -14,11 +14,11 @@ const probeRoot = fileURLToPath(new URL("./fixtures/probe-app", import.meta.url)
 const candidateRoot = fileURLToPath(
   new URL("./fixtures/probe-app-memory-candidate", import.meta.url),
 )
-// Vector-recall probe wired to the REAL openaiEmbedder (via @dawn-ai/langchain).
+// Vector-recall probe wired to the REAL openaiEmbedder (via @b4run/langchain).
 const vectorRoot = fileURLToPath(new URL("./fixtures/probe-app-vector-openai", import.meta.url))
 
 function dbPath(root: string): string {
-  return join(root, ".dawn", "memory.sqlite")
+  return join(root, ".b4", "memory.sqlite")
 }
 function cleanDb(root: string): void {
   for (const s of ["", "-wal", "-shm"]) rmSync(`${dbPath(root)}${s}`, { force: true })
@@ -203,7 +203,7 @@ it.skipIf(!live)(
 )
 
 it.skipIf(!live)(
-  "candidate write is not recalled until approved via dawn memory CLI",
+  "candidate write is not recalled until approved via b4 memory CLI",
   async () => {
     const store = sqliteMemoryStore({ path: dbPath(candidateRoot) })
 

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import test from "node:test"
 import {
   cleanupStorageContainer,
@@ -6,6 +9,10 @@ import {
   startDisposableDatabase,
   storageDockerIdentities,
 } from "../smoke/storage.mjs"
+import {
+  assertStrictSmokeCommandOptions,
+  STRICT_SMOKE_COMMAND_OPTION_FIELDS,
+} from "../smoke-process-runner.mjs"
 import { parseSmokeResult } from "../smoke-result.mjs"
 
 const options = Object.freeze({
@@ -19,8 +26,8 @@ test("storage Docker identities use one validated UUID without cross-lane collis
   const first = storageDockerIdentities(() => "123e4567-e89b-42d3-a456-426614174000")
   const second = storageDockerIdentities(() => "123e4567-e89b-42d3-b456-426614174001")
   assert.deepEqual(first, {
-    pgvector: "dawn-storage-pgvector-123e4567e89b42d3a456426614174000",
-    postgres: "dawn-storage-postgres-123e4567e89b42d3a456426614174000",
+    pgvector: "b4-storage-pgvector-123e4567e89b42d3a456426614174000",
+    postgres: "b4-storage-postgres-123e4567e89b42d3a456426614174000",
   })
   assert.notEqual(first.pgvector, first.postgres)
   assert.notEqual(first.pgvector, second.pgvector)
@@ -35,7 +42,7 @@ test("storage Docker identities use one validated UUID without cross-lane collis
 })
 
 test("storage cleanup accepts only exact missing errors and verifies absence by inspect", async () => {
-  const name = "dawn-storage-postgres-123e4567e89b42d3a456426614174000"
+  const name = "b4-storage-postgres-123e4567e89b42d3a456426614174000"
   const calls = []
   await cleanupStorageContainer(name, {
     async runCommand(_command, args, options = {}) {
@@ -52,7 +59,7 @@ test("storage cleanup accepts only exact missing errors and verifies absence by 
 })
 
 test("storage cleanup propagates non-missing removal and inspect failures", async () => {
-  const name = "dawn-storage-postgres-123e4567e89b42d3a456426614174000"
+  const name = "b4-storage-postgres-123e4567e89b42d3a456426614174000"
   for (const failingOperation of ["rm", "inspect"]) {
     await assert.rejects(
       cleanupStorageContainer(name, {
@@ -109,12 +116,8 @@ test("runs exact pgvector and Postgres packages against separate disposable data
 
   const install = events.find((event) => typeof event === "object" && event.args[0] === "install")
   assert.deepEqual(
-    install.args.filter((arg) => arg.startsWith("@dawn-ai/")),
-    [
-      "@dawn-ai/memory-pgvector@0.8.22",
-      "@dawn-ai/langchain@0.8.22",
-      "@dawn-ai/postgres-storage@0.8.22",
-    ],
+    install.args.filter((arg) => arg.startsWith("@b4run/")),
+    ["@b4run/memory-pgvector@0.8.22", "@b4run/langchain@0.8.22", "@b4run/postgres-storage@0.8.22"],
   )
   assert.equal(
     events.some((event) => String(event).startsWith("probe:pgvector:")),
@@ -127,8 +130,8 @@ test("runs exact pgvector and Postgres packages against separate disposable data
   assert.deepEqual(
     events.slice(-3).map(String),
     [
-      events.findLast((event) => String(event).startsWith("stop:dawn-storage-postgres-")),
-      events.findLast((event) => String(event).startsWith("stop:dawn-storage-pgvector-")),
+      events.findLast((event) => String(event).startsWith("stop:b4-storage-postgres-")),
+      events.findLast((event) => String(event).startsWith("stop:b4-storage-pgvector-")),
       "remove-project",
     ].map(String),
   )
@@ -179,7 +182,7 @@ test("records probe failure and removes each started container and project", asy
     false,
   )
   assert.equal(
-    events.some((event) => String(event).startsWith("stop:dawn-storage-pgvector-")),
+    events.some((event) => String(event).startsWith("stop:b4-storage-pgvector-")),
     true,
   )
   assert.deepEqual(events.slice(-2), ["remove-project", "receipt"])
@@ -190,14 +193,14 @@ test("self-cleans a container when readiness fails before lane cleanup registrat
   const calls = []
   await assert.rejects(
     startDisposableDatabase(
-      { containerName: "dawn-startup-failure", image: "postgres:16" },
+      { containerName: "b4-startup-failure", image: "postgres:16" },
       {
         attempts: 1,
         async runCommand(_command, args) {
           calls.push(args)
           if (args[0] === "exec") throw new Error("not ready")
           if (args[0] === "inspect") {
-            throw missingContainerError("dawn-startup-failure", true)
+            throw missingContainerError("b4-startup-failure", true)
           }
           return { stdout: "", stderr: "" }
         },
@@ -210,8 +213,8 @@ test("self-cleans a container when readiness fails before lane cleanup registrat
     calls.map((args) => args[0]),
     ["run", "exec", "rm", "inspect"],
   )
-  assert.deepEqual(calls.at(-2), ["rm", "-f", "dawn-startup-failure"])
-  assert.deepEqual(calls.at(-1), ["inspect", "dawn-startup-failure"])
+  assert.deepEqual(calls.at(-2), ["rm", "-f", "b4-startup-failure"])
+  assert.deepEqual(calls.at(-1), ["inspect", "b4-startup-failure"])
 })
 
 test("pre-registers both exact container cleanups before the first Docker start", async () => {
@@ -246,8 +249,8 @@ test("pre-registers both exact container cleanups before the first Docker start"
     events.slice(0, 3).map((event) => event.split(":")[0]),
     ["start", "stop", "stop"],
   )
-  assert.match(events[1], /^stop:dawn-storage-postgres-/u)
-  assert.match(events[2], /^stop:dawn-storage-pgvector-/u)
+  assert.match(events[1], /^stop:b4-storage-postgres-/u)
+  assert.match(events[2], /^stop:b4-storage-pgvector-/u)
   assert.deepEqual(events.slice(3), ["remove-project", "receipt"])
 })
 
@@ -255,13 +258,13 @@ test("database startup attempts cleanup even when docker run loses its response"
   const calls = []
   await assert.rejects(
     startDisposableDatabase(
-      { containerName: "dawn-run-response-lost", image: "postgres:16" },
+      { containerName: "b4-run-response-lost", image: "postgres:16" },
       {
         async runCommand(_command, args) {
           calls.push(args)
           if (args[0] === "run") throw new Error("response lost")
           if (args[0] === "inspect") {
-            throw missingContainerError("dawn-run-response-lost", true)
+            throw missingContainerError("b4-run-response-lost", true)
           }
           return { stdout: "", stderr: "" }
         },
@@ -280,12 +283,55 @@ function clock() {
   return () => values.shift() ?? new Date("2026-08-25T12:00:01.000Z")
 }
 
+test("storage runtime probes reach the strict runner with only contract option fields", async (t) => {
+  const seen = []
+  let receipt
+  const probeRoot = await mkdtemp(join(tmpdir(), "b4-storage-smoke-"))
+  t.after(async () => {
+    await rm(probeRoot, { recursive: true, force: true })
+  })
+  await runStorageSmoke(options, {
+    env: releaseEnv("602", "1"),
+    now: clock(),
+    randomUUID: () => "123e4567-e89b-42d3-a456-426614174000",
+    async makeTempDir() {
+      return probeRoot
+    },
+    async removeDir() {},
+    strictRunner: fakeStrictRunner(async (command, args, runOptions) => {
+      seen.push({ command, args, fields: Object.keys(runOptions).sort() })
+      return { stdout: "", stderr: "" }
+    }),
+    async startDatabase({ kind }) {
+      return `postgres://postgres:postgres@127.0.0.1/${kind}`
+    },
+    async stopContainer() {},
+    async writeFile(_path, bytes) {
+      receipt = parseSmokeResult(bytes)
+    },
+    async mkdir() {},
+  })
+
+  assert.equal(receipt.conclusion, "success")
+  const probes = seen.filter((entry) => entry.command === "node")
+  assert.ok(probes.length >= 2, "both storage runtime probes must run through the strict runner")
+  for (const probe of probes) {
+    assert.deepEqual(
+      probe.fields.filter((field) => !STRICT_SMOKE_COMMAND_OPTION_FIELDS.includes(field)),
+      [],
+    )
+  }
+})
+
 function fakeStrictRunner(runCommand) {
   return {
     async probe() {
       return { adapter: "systemd-cgroup-v2", imageOS: "ubuntu24", imageVersion: "test" }
     },
-    runCommand,
+    async runCommand(command, args, options = {}) {
+      assertStrictSmokeCommandOptions(options)
+      return await runCommand(command, args, options)
+    },
   }
 }
 

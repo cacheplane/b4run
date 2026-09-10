@@ -1,23 +1,23 @@
-import type { DawnConfig, MemoryStoreLike, MemoryWritesMode } from "@dawn-ai/core"
-import type { RecallRankingOptions, VectorRankingOptions } from "@dawn-ai/memory"
-import type { ModelProviderId } from "@dawn-ai/sdk"
-import { inferProvider } from "@dawn-ai/sdk"
-import { loadDawnConfig } from "../node-config.js"
+import type { B4Config, MemoryStoreLike, MemoryWritesMode } from "@b4run/core"
+import type { RecallRankingOptions, VectorRankingOptions } from "@b4run/memory"
+import type { ModelProviderId } from "@b4run/sdk"
+import { inferProvider } from "@b4run/sdk"
+import { loadB4Config } from "../node-config.js"
 import { pureJoin } from "./pure-path.js"
 import { type ResolvedEpisodesConfig, resolveEpisodesFromConfig } from "./record-episode.js"
 
 /**
  * Resolves the MemoryStore for the given appRoot.
  *
- * Uses `config.memory.store` if the user's `dawn.config.ts` provides one;
+ * Uses `config.memory.store` if the user's `b4.config.ts` provides one;
  * otherwise falls back to the default SQLite-backed store at
- * `<appRoot>/.dawn/memory.sqlite`.
+ * `<appRoot>/.b4/memory.sqlite`.
  */
 export async function resolveMemoryStore(appRoot: string): Promise<MemoryStoreLike> {
   let recall: RecallRankingOptions | undefined
   let storeVector: VectorRankingOptions | undefined
   try {
-    const loaded = await loadDawnConfig({ appRoot })
+    const loaded = await loadB4Config({ appRoot })
     if (loaded.config.memory?.store) return loaded.config.memory.store
     recall = loaded.config.memory?.recall
     // The store gets only the hybrid TUNING (weights/rrfK/vectorK/recency/
@@ -38,14 +38,14 @@ export async function resolveMemoryStore(appRoot: string): Promise<MemoryStoreLi
       }
     }
   } catch {
-    // no dawn.config.ts / unreadable — use default
+    // no b4.config.ts / unreadable — use default
   }
   // Imported lazily: removes the static BINDING of sqliteMemoryStore, so
   // the default sqlite store (and node:sqlite behind it) is only reached when
   // this fallback branch actually runs.
-  const { sqliteMemoryStore } = await import("@dawn-ai/memory")
+  const { sqliteMemoryStore } = await import("@b4run/memory")
   return sqliteMemoryStore({
-    path: pureJoin(appRoot, ".dawn", "memory.sqlite"),
+    path: pureJoin(appRoot, ".b4", "memory.sqlite"),
     ...(recall ? { recall } : {}),
     ...(storeVector ? { vector: storeVector } : {}),
   })
@@ -58,7 +58,7 @@ export async function resolveMemoryStore(appRoot: string): Promise<MemoryStoreLi
  */
 export async function resolveMemoryWrites(appRoot: string): Promise<MemoryWritesMode> {
   try {
-    const loaded = await loadDawnConfig({ appRoot })
+    const loaded = await loadB4Config({ appRoot })
     return loaded.config.memory?.writes ?? "candidate"
   } catch {
     return "candidate"
@@ -67,22 +67,22 @@ export async function resolveMemoryWrites(appRoot: string): Promise<MemoryWrites
 
 /**
  * Resolves the episode-recorder config for the given appRoot, reading
- * `dawn.config.ts` through the same cached `loadDawnConfig` loader as the
+ * `b4.config.ts` through the same cached `loadB4Config` loader as the
  * other resolvers; missing/unreadable config falls back to the defaults.
  *
- * This is the DISK entry point — `dawn memory prune` and any other node caller
+ * This is the DISK entry point — `b4 memory prune` and any other node caller
  * that has an appRoot but no loaded config. The request path does not come
  * through here: `execute-route-core.ts` applies the same defaulting to the
- * `DawnConfig` it already holds via `resolveEpisodesFromConfig`, which is
+ * `B4Config` it already holds via `resolveEpisodesFromConfig`, which is
  * where the rule itself lives (and which stays reachable from the node-free
  * fetch graph).
  */
 export async function resolveEpisodesConfig(appRoot: string): Promise<ResolvedEpisodesConfig> {
   try {
-    const loaded = await loadDawnConfig({ appRoot })
+    const loaded = await loadB4Config({ appRoot })
     return resolveEpisodesFromConfig(loaded.config.memory?.episodes)
   } catch {
-    // No dawn.config.ts or unreadable — use defaults.
+    // No b4.config.ts or unreadable — use defaults.
     return resolveEpisodesFromConfig(undefined)
   }
 }
@@ -94,13 +94,13 @@ export interface ResolvedDistillConfig {
    *  `model`, else `"openai"`). Pair with `providerAuthored` before overriding. */
   readonly provider: ModelProviderId
   /**
-   * True only when `memory.distill.provider` was authored in `dawn.config.ts`.
+   * True only when `memory.distill.provider` was authored in `b4.config.ts`.
    *
    * `provider` alone cannot distinguish a deliberate choice from an inferred
    * default, and the two must be treated differently: an authored provider is a
    * decision (a proxy, an OpenAI-compatible endpoint) that outranks inference,
    * while an inferred one is just a guess derived from `model` — so a caller
-   * that overrides the model (`dawn memory consolidate --model …`) must re-infer
+   * that overrides the model (`b4 memory consolidate --model …`) must re-infer
    * rather than pair a Claude model id with ChatOpenAI.
    */
   readonly providerAuthored: boolean
@@ -132,24 +132,24 @@ export interface ResolvedDistillConfig {
  * the sources it supersedes, and reflection after 10 new records over at most
  * 100 records written as candidates.
  *
- * Uses the same cached `loadDawnConfig` loader as the other resolvers;
+ * Uses the same cached `loadB4Config` loader as the other resolvers;
  * missing/unreadable config falls back to defaults. Values are passed through
  * as authored — no range validation here (the engine clamps at use-site).
  *
  * Unlike the episodes rule, the defaulting stays INLINE here rather than being
- * split into a pure module: distillation is invoked only by `dawn memory
- * consolidate` / `dawn memory reflect`, so this resolver has exactly one
- * caller and no request-path twin. Nothing in the `@dawn-ai/cli/fetch` graph
+ * split into a pure module: distillation is invoked only by `b4 memory
+ * consolidate` / `b4 memory reflect`, so this resolver has exactly one
+ * caller and no request-path twin. Nothing in the `@b4run/cli/fetch` graph
  * reaches it (see test/fetch-entry-purity.test.ts) — the file still carries no
  * `node:` import of its own, so the split would buy nothing.
  */
 export async function resolveDistillConfig(appRoot: string): Promise<ResolvedDistillConfig> {
-  let distill: NonNullable<NonNullable<DawnConfig["memory"]>["distill"]> | undefined
+  let distill: NonNullable<NonNullable<B4Config["memory"]>["distill"]> | undefined
   try {
-    const loaded = await loadDawnConfig({ appRoot })
+    const loaded = await loadB4Config({ appRoot })
     distill = loaded.config.memory?.distill
   } catch {
-    // No dawn.config.ts or unreadable — use defaults.
+    // No b4.config.ts or unreadable — use defaults.
   }
   const model = distill?.model ?? "gpt-5-mini"
   const consolidate = distill?.consolidate

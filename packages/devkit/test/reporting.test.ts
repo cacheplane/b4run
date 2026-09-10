@@ -10,7 +10,7 @@ import {
 describe("harness reporting", () => {
   it("renders text and JSON summaries from the normalized run contract", () => {
     const runResult: HarnessRunResult = {
-      artifactRoot: "/tmp/dawn-testing/run-001",
+      artifactRoot: "/tmp/b4-testing/run-001",
       counts: {
         errored: 0,
         failed: 1,
@@ -22,7 +22,7 @@ describe("harness reporting", () => {
       requestedLanes: ["contract", "generated"],
       results: [
         {
-          artifacts: ["/tmp/dawn-testing/run-001/contract/manifest.json"],
+          artifacts: ["/tmp/b4-testing/run-001/contract/manifest.json"],
           durationMs: 125,
           failureReason: null,
           lane: "contract",
@@ -35,10 +35,10 @@ describe("harness reporting", () => {
             },
           ],
           status: "passed",
-          transcriptPath: "/tmp/dawn-testing/run-001/contract/transcript.log",
+          transcriptPath: "/tmp/b4-testing/run-001/contract/transcript.log",
         },
         {
-          artifacts: ["/tmp/dawn-testing/run-001/generated/build.log"],
+          artifacts: ["/tmp/b4-testing/run-001/generated/build.log"],
           durationMs: 275,
           failureReason: "typecheck failed",
           lane: "generated",
@@ -56,7 +56,7 @@ describe("harness reporting", () => {
             },
           ],
           status: "failed",
-          transcriptPath: "/tmp/dawn-testing/run-001/generated/transcript.log",
+          transcriptPath: "/tmp/b4-testing/run-001/generated/transcript.log",
         },
       ] satisfies HarnessLaneResult[],
       runId: "run-001",
@@ -74,6 +74,6 @@ describe("harness reporting", () => {
     expect(textSummary).toContain("[contract] valid-basic: passed (125ms)")
     expect(textSummary).toContain("[generated] basic: failed (275ms)")
     expect(textSummary).toContain("failure: typecheck failed")
-    expect(textSummary).toContain("transcript: /tmp/dawn-testing/run-001/generated/transcript.log")
+    expect(textSummary).toContain("transcript: /tmp/b4-testing/run-001/generated/transcript.log")
   })
 })

@@ -1,5 +1,5 @@
-import type { MemoryRecord } from "@dawn-ai/memory"
-import { tokenize } from "@dawn-ai/memory"
+import type { MemoryRecord } from "@b4run/memory"
+import { tokenize } from "@b4run/memory"
 
 // ---------------------------------------------------------------------------
 // Column selection

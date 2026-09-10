@@ -1,13 +1,13 @@
 # Agent Test Harness
 
-Agent tests in CI should be deterministic and replay committed fixtures. `@dawn-ai/testing` achieves this by intercepting the model's HTTP endpoint with **aimock**, a local mock that replays pre-written fixtures. Your tools, prompts, capabilities, and state all run normally; only the LLM is replaced. Optional, explicitly gated local smoke tests may instead use a live model.
+Agent tests in CI should be deterministic and replay committed fixtures. `@b4run/testing` achieves this by intercepting the model's HTTP endpoint with **aimock**, a local mock that replays pre-written fixtures. Your tools, prompts, capabilities, and state all run normally; only the LLM is replaced. Optional, explicitly gated local smoke tests may instead use a live model.
 
 For CI, the fixture is the source of truth. Use live mode locally to probe model behaviour, with looser assertions that account for nondeterminism.
 
 ## Install
 
 ```bash
-pnpm add -D @dawn-ai/testing vitest
+pnpm add -D @b4run/testing vitest
 ```
 
 ## First test
@@ -17,7 +17,7 @@ This is the full shape you'll use for most agent tests.
 ```ts title="test/agent.test.ts"
 import { fileURLToPath } from "node:url"
 import { afterAll, it } from "vitest"
-import { createAgentHarness, expectFinalMessage, expectToolCalled, script } from "@dawn-ai/testing"
+import { createAgentHarness, expectFinalMessage, expectToolCalled, script } from "@b4run/testing"
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url))
 const h = await createAgentHarness({ appRoot, route: "/chat#agent" })
@@ -42,7 +42,7 @@ it("filters open items", async () => {
 
 <Callout type="warn">
   Keep only one agent harness alive per process. The aimock endpoint and environment variables,
-  plus Dawn's materialized-model state, are process-global. Run harness suites sequentially or
+  plus B4.run's materialized-model state, are process-global. Run harness suites sequentially or
   isolate them in separate subprocesses.
 </Callout>
 
@@ -58,7 +58,7 @@ script()
   .build()                           // returns AimockFixture[]; or pass builder directly to h.run()
 ```
 
-aimock matches fixtures by substring on the latest user message plus `turnIndex` (count of assistant messages already in the thread). You do not need to call `.build()` — pass the builder directly to `h.run({ fixtures })` and Dawn unwraps it for you.
+aimock matches fixtures by substring on the latest user message plus `turnIndex` (count of assistant messages already in the thread). You do not need to call `.build()` — pass the builder directly to `h.run({ fixtures })` and B4.run unwraps it for you.
 
 ## Recipes
 
@@ -166,7 +166,7 @@ Asserts that no tool returned an error result. HITL permission interrupts are no
 To inspect tool results manually, use `run.toolResults` — a `ReadonlyArray<ObservedToolResult>` derived from the final conversation messages by `deriveToolResults` (also exported). Each entry has the shape `{ name: string, status?: "error" | "success", content: unknown, isError: boolean }`. This is useful for asserting on specific error messages or content when `expectNoToolErrors` is too broad.
 
 ```ts
-import { deriveToolResults } from "@dawn-ai/testing"
+import { deriveToolResults } from "@b4run/testing"
 
 const failing = run.toolResults.filter((r) => r.isError)
 expect(failing).toHaveLength(0)
@@ -184,17 +184,17 @@ expectState(run).field("todos").toEqual([{ content: "ship it", status: "pending"
 
 ## Choose the execution boundary
 
-`@dawn-ai/testing` exposes a separate factory for each execution boundary:
+`@b4run/testing` exposes a separate factory for each execution boundary:
 
-- **`createAgentHarness()`** runs tools, prompts, capabilities, and state directly through Dawn's runtime in the test process. It is the default choice for fast agent-behavior tests and does not bind an application port.
+- **`createAgentHarness()`** runs tools, prompts, capabilities, and state directly through B4.run's runtime in the test process. It is the default choice for fast agent-behavior tests and does not bind an application port.
 - **`createAgentProtocolInjector()`** drives Agent Protocol requests through the runtime's fetch handler without binding a port. Use it when the HTTP request, response, or SSE contract is the behavior under test.
-- **`createSubprocessApp()`** starts a real `dawn dev` child process. Use it for process-boundary, restart, and persistence tests.
+- **`createSubprocessApp()`** starts a real `b4 dev` child process. Use it for process-boundary, restart, and persistence tests.
 
 These factories deliberately have separate option and result types. Choose the factory for the boundary the test needs; `createAgentHarness()` does not accept a `mode` option.
 
 ## CI setup
 
-No extra setup needed. `@dawn-ai/testing` is CI-safe by default: aimock runs on a random port and stops when the harness closes. The only thing to guard is that fixture files are committed:
+No extra setup needed. `@b4run/testing` is CI-safe by default: aimock runs on a random port and stops when the harness closes. The only thing to guard is that fixture files are committed:
 
 ```yaml title=".github/workflows/ci.yml"
 - run: pnpm exec vitest --run
@@ -223,7 +223,7 @@ See [Fixtures and Recording](/docs/testing-agents/fixtures).
 
 ## Your scaffolded app already has a test
 
-`create-dawn-ai-app` generates `server/test/research.test.ts` that imports `@dawn-ai/testing` and covers the default `/research#agent` route. Run it immediately after scaffolding, from the workspace root:
+`create-b4-app` generates `server/test/research.test.ts` that imports `@b4run/testing` and covers the default `/research#agent` route. Run it immediately after scaffolding, from the workspace root:
 
 ```bash
 npm test
@@ -234,7 +234,7 @@ The generated suite starts by verifying the corpus search and citation path:
 ```ts title="server/test/research.test.ts"
 import { fileURLToPath } from "node:url"
 import { afterAll, it } from "vitest"
-import type { FixtureSet } from "@dawn-ai/testing"
+import type { FixtureSet } from "@b4run/testing"
 import {
   createAgentHarness,
   expectFinalMessage,
@@ -243,7 +243,7 @@ import {
   expectSubagent,
   expectToolCalled,
   script,
-} from "@dawn-ai/testing"
+} from "@b4run/testing"
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url))
 const h = await createAgentHarness({ appRoot, route: "/research#agent" })
@@ -287,7 +287,7 @@ Grow it by:
 <RelatedCards items={[
   { href: "/docs/testing", title: "Scenario Testing", subtitle: "declarative run.test.ts scenarios for route-output unit tests" },
   { href: "/docs/testing-agents/fixtures", title: "Fixtures and Recording", subtitle: "author, record, commit, and replay model fixtures" },
-  { href: "/docs/agents", title: "Agents", subtitle: "the agent route kind that @dawn-ai/testing exercises" },
+  { href: "/docs/agents", title: "Agents", subtitle: "the agent route kind that @b4run/testing exercises" },
   { href: "/docs/tools", title: "Tools", subtitle: "tools that run normally during harness tests" },
   { href: "/docs/state", title: "State", subtitle: "the state shape expectState() asserts against" },
 ]} />

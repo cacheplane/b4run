@@ -1,17 +1,19 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { RunAgentInputSchema } from "@ag-ui/core"
-import { type DawnAgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@dawn-ai/ag-ui"
-import { encodeAgUiSse } from "@dawn-ai/ag-ui/sse"
-import type { MemoryStoreLike } from "@dawn-ai/core"
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import type { DawnMiddleware, MiddlewareRequest, ThreadAccessPolicy } from "@dawn-ai/sdk"
-import type { ThreadsStore } from "@dawn-ai/sqlite-storage"
+import { type B4AgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
+import { encodeAgUiSse } from "@b4run/ag-ui/sse"
+import type { MemoryStoreLike } from "@b4run/core"
+import type { PermissionsStore } from "@b4run/permissions"
+import type { B4Middleware, MiddlewareRequest, ThreadAccessPolicy } from "@b4run/sdk"
+import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
+import { checkpointRoutes } from "../runtime/checkpoint-route-provenance.js"
 import { type BootResolvedInstances, streamResolvedRoute } from "../runtime/execute-route-core.js"
 import type { SandboxManager } from "../runtime/sandbox-manager.js"
-import type { DawnStaticModules } from "../runtime/static-modules-core.js"
+import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import type { StreamChunk } from "../runtime/stream-types.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
+import type { LiveTurnHub, LiveTurnProducer } from "./live-turn-hub.js"
 import { headersToRecord, runMiddleware } from "./middleware.js"
 import { toWebRequest, writeNodeResponse } from "./node-web-adapter.js"
 import { readParkedRoute, settleParkedRoute } from "./parked-route.js"
@@ -42,7 +44,8 @@ export interface AgUiFetchRequestOptions {
    * Optional so direct callers (tests) keep their existing behavior.
    */
   readonly getMemoryStore?: () => Promise<MemoryStoreLike>
-  readonly middleware: DawnMiddleware | undefined
+  readonly liveTurnHub: LiveTurnHub
+  readonly middleware: B4Middleware | undefined
   /**
    * Boot-resolved permissions store (or a per-request factory in dev),
    * forwarded into route execution so no per-request store construction is
@@ -66,7 +69,7 @@ export interface AgUiFetchRequestOptions {
    * without entry-file imports. Optional so direct callers (tests) keep
    * their existing behavior.
    */
-  readonly staticModules?: DawnStaticModules
+  readonly staticModules?: B4StaticModules
   readonly request: Request
   readonly routeKey: string
   readonly streamRoute?: typeof streamResolvedRoute
@@ -80,9 +83,9 @@ interface AgUiRequestOptions extends Omit<AgUiFetchRequestOptions, "request"> {
 /**
  * Pass-through tap that records whether the turn parked.
  *
- * Separate from `normalizeDawnStream`, and upstream of it, because that one has
+ * Separate from `normalizeB4Stream`, and upstream of it, because that one has
  * already translated chunks into AG-UI's vocabulary by the time anything
- * downstream sees them, while a park has to be recognised by Dawn's own
+ * downstream sees them, while a park has to be recognised by B4.run's own
  * `interrupt` chunk — the same signal `handleApStreamRequest` watches for
  * inline. Being upstream also means the flag is set before the enqueue, so a
  * park observed after the client has gone — the controller closed, every write
@@ -98,9 +101,30 @@ async function* observeInterrupts(
   }
 }
 
-async function* normalizeDawnStream(
+/**
+ * Pass-through tap that publishes each raw `StreamChunk` to the live turn
+ * BEFORE AG-UI translation, so an attacher on the AP wire sees AP-vocabulary
+ * frames rather than encoded AG-UI events. Upstream of `normalizeB4Stream`
+ * for the same reason `observeInterrupts` is: once translated, the chunk no
+ * longer carries the vocabulary the hub stores. The terminal `done` chunk is
+ * captured rather than published — see the `liveTurn?.close` call site for
+ * why it is delivered exactly once, never through the digest.
+ */
+async function* tapLiveTurn(
   chunks: AsyncIterable<StreamChunk>,
-): AsyncGenerator<DawnAgentStreamChunk> {
+  liveTurn: LiveTurnProducer | undefined,
+  onTerminal: (chunk: StreamChunk) => void,
+): AsyncGenerator<StreamChunk> {
+  for await (const chunk of chunks) {
+    if (chunk.type === "done") onTerminal(chunk)
+    else liveTurn?.publish(chunk)
+    yield chunk
+  }
+}
+
+async function* normalizeB4Stream(
+  chunks: AsyncIterable<StreamChunk>,
+): AsyncGenerator<B4AgentStreamChunk> {
   for await (const chunk of chunks) {
     switch (chunk.type) {
       case "chunk":
@@ -154,6 +178,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     boot,
     checkpointer,
     getMemoryStore,
+    liveTurnHub,
     middleware,
     permissionsStore,
     registry,
@@ -225,19 +250,19 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     }
 
     const requestUrl = new URL(request.url)
-    const dawnInput = fromRunAgentInput(input)
+    const b4Input = fromRunAgentInput(input)
     // The one place this turn decides it is a resume. Computed HERE, above
     // every gate site, because this endpoint gates up to twice per request and
     // a turn that reported `resuming: true` at one gate and `false` at another
     // would be describing two different requests. `fromRunAgentInput` leaves
     // `resume` undefined for an absent OR empty array, so this is exactly the
     // condition the resume claim below takes itself on.
-    const resuming = dawnInput.resume !== undefined
+    const resuming = b4Input.resume !== undefined
     const middlewareRequest: MiddlewareRequest = {
       assistantId: route.assistantId,
       headers: headersToRecord(request.headers),
       method: request.method,
-      params: extractRouteParams(route.routeId, dawnInput.raw),
+      params: extractRouteParams(route.routeId, b4Input.raw),
       routeId: route.routeId,
       url: `${requestUrl.pathname}${requestUrl.search}`,
     }
@@ -254,10 +279,12 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // client-supplied `input.threadId` is the only thread identity a caller
     // controls here, and it names any thread id it likes.
     //
-    // The create itself cannot happen here: it must land after the run slot is
-    // claimed, where it has always been. These two carry the `create` decision
-    // down to it. Both stay `undefined` on a row that already exists and on a
-    // hook-less app, which is what the create site branches on.
+    // The create itself lands below, once `resolvePendingResume` has run — but
+    // BEFORE `runRegistry.begin`, so a caller the row recheck ultimately denies
+    // never holds the victim thread's run slot for the width of that recheck.
+    // These two carry the `create` decision down to it. Both stay `undefined` on
+    // a row that already exists and on a hook-less app, which is what the create
+    // site branches on.
     let createGate: ((spec: GateSpec) => Gate | Promise<Gate>) | undefined
     let createStamp: Record<string, unknown> | undefined
     if (threadAccess) {
@@ -290,14 +317,14 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       }
     }
 
-    const newestUserMessage = [...dawnInput.messages]
+    const newestUserMessage = [...b4Input.messages]
       .reverse()
       .find((message) => message.role === "user")
     const pending = (await readPendingInterrupts(checkpointer, input.threadId)) ?? {
       interrupts: [],
       malformed: false,
     }
-    const resumeResolution = resolvePendingResume(dawnInput.resume, pending)
+    const resumeResolution = resolvePendingResume(b4Input.resume, pending)
     if (!resumeResolution.ok) {
       return Response.json(
         createRequestErrorBody(resumeResolution.message, {
@@ -308,29 +335,26 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     }
 
     const threadId = input.threadId
-    const run = runRegistry.begin(threadId, signal)
-    if (!run) {
-      return Response.json(
-        createRequestErrorBody(`A run is already in flight for thread "${threadId}"`, {
-          code: "run_in_flight",
-        }),
-        { status: 409 },
-      )
-    }
-    releaseRunBeforeStream = run.release
 
-    // Read before the turn, for the same reason and with the same staleness
-    // caveat as the Agent Protocol handlers: only the CLEAR consults it.
+    // Authorize — and, when this turn must, create — the concrete row BEFORE
+    // claiming the run slot, mirroring the Agent Protocol run handlers. Doing it
+    // after `runRegistry.begin` (where it used to sit) let a caller the recheck
+    // ultimately denies hold the victim thread's slot for the width of that
+    // recheck: a client-chosen id means the row that turned up may be anybody's,
+    // and a denied caller would brick a concurrent authorized run on the same
+    // thread with a transient `run_in_flight` 409. Read once here; only the
+    // CLEAR consults `previousParkedRoute`, with the same staleness caveat the
+    // Agent Protocol handlers carry.
     const existingThread = await threadsStore.getThread(threadId)
     const previousParkedRoute = readParkedRoute(existingThread)
     if (createGate && existingThread) {
-      // A row appeared between the gate and here. The window is wide on this
-      // endpoint — a resume claim, a run slot and a checkpointer read sit
-      // inside it — and the id is client-chosen, so the row that turned up may
-      // be anybody's. The `create` decision authorized a thread that did not
-      // exist; this one does, so it is authorized as what it now is. Skipping
-      // this on the strength of the earlier decision would run the turn on a
-      // thread nothing admitted this caller to.
+      // A row appeared between the gate and here. The window still exists — a
+      // resume claim and a checkpointer read sit inside it — and the id is
+      // client-chosen, so the row that turned up may be anybody's. The `create`
+      // decision authorized a thread that did not exist; this one does, so it is
+      // authorized as what it now is. Skipping this on the strength of the
+      // earlier decision would run the turn on a thread nothing admitted this
+      // caller to.
       const recheck = createGate({
         action: "update",
         operation: "run.agui",
@@ -354,6 +378,43 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       // Hook-less: unchanged.
       await threadsStore.createThread({ thread_id: threadId })
     }
+
+    const run = runRegistry.begin(threadId, signal)
+    if (!run) {
+      return Response.json(
+        createRequestErrorBody(`A run is already in flight for thread "${threadId}"`, {
+          code: "run_in_flight",
+        }),
+        { status: 409 },
+      )
+    }
+    releaseRunBeforeStream = run.release
+
+    // Live-turn anchor: one latest-tuple read, taken before the route stream
+    // begins executing so it races nothing the run itself writes. A failed
+    // read degrades attach to the durable path for this turn — it must never
+    // fail the run or leak the run slot, so the failure is only logged.
+    let liveTurn: LiveTurnProducer | undefined
+    try {
+      const anchorTuple = await checkpointer.getTuple({
+        configurable: { checkpoint_ns: "", thread_id: threadId },
+      })
+      liveTurn = liveTurnHub.open({
+        routeKey,
+        anchorRouteKeys: checkpointRoutes(anchorTuple) ?? [],
+        anchorCheckpointId: anchorTuple?.checkpoint?.id ?? null,
+        input: resumeResolution.mode === "resume" ? resumeResolution.resume : b4Input,
+        resume: resumeResolution.mode === "resume",
+        runStartedAt: new Date().toISOString(),
+        threadId,
+      })
+    } catch (error) {
+      console.warn(
+        `B4: live-turn anchor read failed for ${threadId}; attach degrades to the durable path.`,
+        error,
+      )
+    }
+
     // The last-run route, and therefore NOT the identity
     // GET /threads/:id/pending_interrupts gates on — any run the caller is
     // allowed to start overwrites it. See PARKED_ROUTE_KEY. This endpoint is the
@@ -363,8 +424,16 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // See the same guard in runtime-fetch-core.ts: the metadata merge is
     // shallow, so nothing the runtime writes may carry the access stamp's key.
     assertNoReservedKey(routePatch)
-    await threadsStore.updateMetadata(threadId, routePatch)
-    await threadsStore.updateStatus(threadId, "busy")
+    try {
+      await threadsStore.updateMetadata(threadId, routePatch)
+      await threadsStore.updateStatus(threadId, "busy")
+    } catch (error) {
+      // The live-turn entry cannot leak open with the run slot about to be
+      // released by the outer `finally` below: a viewer that raced this
+      // failure gets a terminal frame instead of a hanging heartbeat.
+      liveTurn?.close({ output: { error: String(error) }, type: "done" })
+      throw error
+    }
 
     const accept = request.headers.get("accept") ?? undefined
     const encoder = new TextEncoder()
@@ -379,6 +448,10 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // "deliberately left alone (tracked separately)" was pointing at; that note
     // is gone because this is the separate tracking, landed.
     let sawInterrupt = false
+    // Capture the raw done, or project AG-UI's caught failure/cancellation
+    // back into an AP terminal. The finally delivers it once to attachers,
+    // without adding a terminal frame to the live turn's digest.
+    let terminalChunk: StreamChunk | undefined
     // From here on, the stream owns both the request listeners and any resume
     // claim. Its execution-finally path releases the claim only after the
     // interrupted route has actually unwound.
@@ -419,13 +492,31 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             const observedRouteStream = observeInterrupts(abortableRouteStream, () => {
               sawInterrupt = true
             })
-            for await (const event of toAguiEvents(normalizeDawnStream(observedRouteStream), {
+            const liveTappedStream = tapLiveTurn(observedRouteStream, liveTurn, (chunk) => {
+              terminalChunk = chunk
+            })
+            for await (const event of toAguiEvents(normalizeB4Stream(liveTappedStream), {
               threadId,
               runId: input.runId,
             })) {
+              // The translator catches upstream errors and aborts as RUN_ERROR,
+              // so the raw stream may never produce a terminal chunk. Preserve
+              // that outcome for AP viewers instead of reporting null success.
+              if (event.type === "RUN_ERROR" && terminalChunk === undefined) {
+                terminalChunk = {
+                  type: "done",
+                  output: run.cancelled ? { cancelled: true } : { error: event.message },
+                }
+              }
               safeEnqueue(controller, encoder.encode(encodeAgUiSse(event, accept)))
             }
           } finally {
+            // Unconditional, same as handleApStreamRequest: attachers must see
+            // the terminal frame exactly when the primary client does. The
+            // identity guard inside `close` means a zombie route can never
+            // write into a successor turn that has already replaced this
+            // entry.
+            liveTurn?.close(terminalChunk ?? { output: null, type: "done" })
             // This finally covers BOTH the drained and the failed turn, which is
             // exactly the pair the Agent Protocol handlers cover with a
             // success-path call plus a catch-path retry: a turn that parked

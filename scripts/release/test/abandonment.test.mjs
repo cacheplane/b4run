@@ -3,12 +3,16 @@ import { createHash } from "node:crypto"
 import test from "node:test"
 
 import {
+  abandonmentRecordTag,
   canonicalAbandonmentBytes,
   canonicalAbandonmentReleaseBody,
   evaluateAbandonment,
+  parseAbandonmentReleaseBody,
+  parseAnyAbandonmentRecord,
   recordAbandonment,
 } from "../abandonment.mjs"
 import { createAbandonmentArtifactContext } from "../abandonment-handoff.mjs"
+import { RELEASE_PAYLOAD_LIMITS } from "../limits.mjs"
 import { CANONICAL_RELEASE_PACKAGE_ORDER } from "../manifest.mjs"
 import {
   abandonmentReleaseMarker,
@@ -16,6 +20,15 @@ import {
   parseReleaseMarker,
   releaseBodySha256,
 } from "../metadata.mjs"
+import {
+  canonicalTerminalRecordBytes,
+  MAX_TERMINAL_RECORD_BYTES,
+} from "../terminal-record-store.mjs"
+import {
+  COMMIT_SHA as TERMINAL_COMMIT_SHA,
+  VERSION as TERMINAL_VERSION,
+  record as terminalRecord,
+} from "./support/terminal-record-fixture.mjs"
 
 const VERSION = "0.8.22"
 const SHA = "a".repeat(40)
@@ -531,7 +544,7 @@ test("resumes both safe runner-loss boundaries without replacing retained eviden
     tag_name: `v${VERSION}`,
     target_commitish: "main",
     prerelease: false,
-    name: `Dawn v${VERSION} (abandoned before publication)`,
+    name: `B4 v${VERSION} (abandoned before publication)`,
     body: terminalBody,
     draft: true,
     immutable: false,
@@ -806,7 +819,7 @@ function makeAttestationSet() {
   ]
   const bundleSha256 = sha256(bytesForName("multi-subject.intoto.jsonl"))
   return {
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${VERSION}`,
     commitSha: SHA,
@@ -894,10 +907,10 @@ function fakeGitHub({
     const body = canonicalReleaseBody({ marker: context.release.marker, manifest: null })
     state.release = {
       id: context.release.releaseId,
-      tag_name: `v${VERSION}`,
+      tag_name: "untagged-opaque",
       target_commitish: "main",
       prerelease: false,
-      name: `Dawn v${VERSION}`,
+      name: `B4 v${VERSION}`,
       body,
       draft: true,
       immutable: false,
@@ -958,10 +971,11 @@ function fakeGitHub({
   }
   const writer = {
     createDraftRelease: async ({ tag, title, body }) => {
+      assert.equal(tag, `v${VERSION}`)
       if (createStatus === "created") state.mutations.push("create")
       state.release = {
         id: 10,
-        tag_name: tag,
+        tag_name: "untagged-opaque",
         target_commitish: "main",
         prerelease: false,
         name: title,
@@ -969,7 +983,7 @@ function fakeGitHub({
         draft: true,
         immutable: false,
       }
-      state.releases.push({ id: 10, tag_name: tag })
+      state.releases.push({ id: 10, tag_name: state.release.tag_name })
       if (failAfter === "create") throw new Error("Simulated runner loss after create")
       return { releaseId: 10, status: createStatus, bodySha256: releaseBodySha256(body) }
     },
@@ -1003,12 +1017,12 @@ async function createContextFromRemote(remote) {
     {
       candidate: CANDIDATE,
       environment: {
-        GITHUB_REPOSITORY: "cacheplane/dawnai",
+        GITHUB_REPOSITORY: "cacheplane/b4run",
         GITHUB_REF: `refs/tags/v${VERSION}`,
         GITHUB_SHA: SHA,
         GITHUB_RUN_ID: "910",
         GITHUB_RUN_ATTEMPT: "1",
-        GITHUB_WORKFLOW_REF: `cacheplane/dawnai/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+        GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
       },
     },
     {
@@ -1051,3 +1065,105 @@ function sha256(bytes) {
 function compareText(left, right) {
   return left === right ? 0 : left < right ? -1 : 1
 }
+
+test("operator-recovery records round-trip through the abandonment body", () => {
+  const tombstone = terminalRecord()
+  const bytes = canonicalTerminalRecordBytes(tombstone)
+  assert.ok(canonicalAbandonmentBytes(tombstone).equals(bytes))
+  const parsed = parseAnyAbandonmentRecord(tombstone)
+  assert.equal(parsed.authority.mode, "operator-recovery")
+  assert.equal(Object.hasOwn(parsed, "sha256"), false)
+  const marker = abandonmentReleaseMarker({
+    candidate: { version: TERMINAL_VERSION, commitSha: TERMINAL_COMMIT_SHA },
+    artifact: tombstone.predecessor.artifact,
+    abandonmentSha256: sha256(bytes),
+    previousMarker: tombstone.predecessor.marker,
+  })
+  const body = canonicalAbandonmentReleaseBody({
+    marker,
+    tombstone,
+    previousMarker: tombstone.predecessor.marker,
+  })
+  const reparsed = parseAbandonmentReleaseBody(body)
+  assert.deepEqual(reparsed.authority, tombstone.authority)
+  assert.deepEqual(reparsed.predecessor, tombstone.predecessor)
+})
+
+test("a tampered operator-recovery tombstone is rejected by the body parser", () => {
+  const tombstone = terminalRecord()
+  const bytes = canonicalTerminalRecordBytes(tombstone)
+  const marker = abandonmentReleaseMarker({
+    candidate: { version: TERMINAL_VERSION, commitSha: TERMINAL_COMMIT_SHA },
+    artifact: tombstone.predecessor.artifact,
+    abandonmentSha256: sha256(bytes),
+    previousMarker: tombstone.predecessor.marker,
+  })
+  const body = canonicalAbandonmentReleaseBody({
+    marker,
+    tombstone,
+    previousMarker: tombstone.predecessor.marker,
+  })
+
+  const start = body.indexOf("\n", body.indexOf("<!-- B4_ABANDONMENT_RECORD_BASE64")) + 1
+  const end = body.indexOf("\nEND_B4_ABANDONMENT_RECORD_BASE64")
+  const mid = Math.floor((start + end) / 2)
+  const tamperedMiddle = body.slice(0, mid) + (body[mid] === "A" ? "B" : "A") + body.slice(mid + 1)
+  assert.notEqual(tamperedMiddle, body)
+  assert.throws(
+    () => parseAbandonmentReleaseBody(tamperedMiddle),
+    // Flipping one base64 character can fail at any layer: decoding, UTF-8 JSON
+    // parsing, canonical re-encoding or digest comparison. The test's claim is
+    // that tampering anywhere is rejected, not that one specific layer catches it.
+    /not canonical|does not match|not exact|invalid|not valid UTF-8/iu,
+  )
+
+  const quarter = start + Math.floor((end - start) / 4)
+  const tamperedFirstQuarter =
+    body.slice(0, quarter) + (body[quarter] === "A" ? "B" : "A") + body.slice(quarter + 1)
+  assert.notEqual(tamperedFirstQuarter, body)
+  assert.throws(
+    () => parseAbandonmentReleaseBody(tamperedFirstQuarter),
+    // Flipping one base64 character can fail at any layer: decoding, UTF-8 JSON
+    // parsing, canonical re-encoding or digest comparison. The test's claim is
+    // that tampering anywhere is rejected, not that one specific layer catches it.
+    /not canonical|does not match|not exact|invalid|not valid UTF-8/iu,
+  )
+})
+
+test("a record without operator authority still requires the environment approval schema", () => {
+  const { authority: _authority, ...legacyShaped } = terminalRecord()
+  assert.throws(
+    () => parseAnyAbandonmentRecord({ ...legacyShaped, approval: {} }),
+    /Invalid abandonment/u,
+  )
+  assert.throws(
+    () => parseAnyAbandonmentRecord({ ...terminalRecord(), authority: { mode: "other" } }),
+    /Invalid abandonment/u,
+  )
+})
+
+test("abandonmentRecordTag returns the tag name for either tombstone variant and throws otherwise", () => {
+  assert.equal(abandonmentRecordTag({ tag: `v${VERSION}` }), `v${VERSION}`)
+  assert.equal(
+    abandonmentRecordTag({ tag: { name: `v${VERSION}`, objectSha: SHA } }),
+    `v${VERSION}`,
+  )
+  assert.throws(() => abandonmentRecordTag({ tag: null }), /Abandonment record tag is invalid/u)
+  assert.throws(() => abandonmentRecordTag({ tag: 42 }), /Abandonment record tag is invalid/u)
+  assert.throws(() => abandonmentRecordTag({ tag: {} }), /Abandonment record tag is invalid/u)
+  assert.throws(() => abandonmentRecordTag({}), /Abandonment record tag is invalid/u)
+  assert.throws(() => abandonmentRecordTag(null), /Abandonment record tag is invalid/u)
+})
+
+test("canonicalAbandonmentBytes rejects non-record input before touching its fields", () => {
+  assert.throws(() => canonicalAbandonmentBytes(null), /Canonical abandonment input is invalid/u)
+  assert.throws(
+    () => canonicalAbandonmentBytes("not a record"),
+    /Canonical abandonment input is invalid/u,
+  )
+  assert.throws(() => canonicalAbandonmentBytes([]), /Canonical abandonment input is invalid/u)
+})
+
+test("the terminal record byte cap stays under the audit-receipt payload limit", () => {
+  assert.ok(MAX_TERMINAL_RECORD_BYTES < RELEASE_PAYLOAD_LIMITS.auditReceiptBytes)
+})

@@ -1,4 +1,4 @@
-import { pureDirname } from "@dawn-ai/sdk/pure"
+import { pureDirname } from "@b4run/sdk/pure"
 
 export function subagentPermissionPattern(parentRouteId: string, subagentName: string): string {
   return JSON.stringify([parentRouteId, subagentName])

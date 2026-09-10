@@ -7,7 +7,7 @@ import { openDb } from "../src/internal/db.js"
 describe("openDb", () => {
   let dir: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "dawn-sqlite-"))
+    dir = mkdtempSync(join(tmpdir(), "b4-sqlite-"))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })

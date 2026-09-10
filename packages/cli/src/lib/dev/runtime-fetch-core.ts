@@ -1,10 +1,12 @@
-import { seedDawnConfig } from "@dawn-ai/core"
-import type { MemoryStore } from "@dawn-ai/memory"
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import type { DawnMiddleware, MiddlewareRequest, ThreadAccessPolicy } from "@dawn-ai/sdk"
-import { THREAD_ACCESS_METADATA_KEY } from "@dawn-ai/sdk"
-import type { Thread, ThreadStatus, ThreadsStore } from "@dawn-ai/sqlite-storage"
+import type { B4Config } from "@b4run/core"
+import { loadB4Config, seedB4Config } from "@b4run/core"
+import type { MemoryStore } from "@b4run/memory"
+import type { PermissionsStore } from "@b4run/permissions"
+import type { B4Middleware, MiddlewareRequest, ThreadAccessPolicy } from "@b4run/sdk"
+import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
+import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
+import { checkpointRoutes } from "../runtime/checkpoint-route-provenance.js"
 import {
   collectRuntimeCapabilityGaps,
   formatRuntimeCapabilityViolations,
@@ -18,10 +20,13 @@ import {
   streamResolvedRoute,
 } from "../runtime/execute-route-core.js"
 import type { SandboxManager } from "../runtime/sandbox-manager.js"
-import type { DawnStaticModules } from "../runtime/static-modules-core.js"
+import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import { type StreamChunk, toSseEvent } from "../runtime/stream-types.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
 import { handleAgUiFetchRequest } from "./agui-handler.js"
+import type { CorsConfig } from "./cors.js"
+import { applyCorsHeaders, corsPreflightResponse, resolveCorsPolicy } from "./cors.js"
+import { createLiveTurnHub, type LiveTurnHub, type LiveTurnProducer } from "./live-turn-hub.js"
 import {
   handleMemoryApproveRequest,
   handleMemoryListRequest,
@@ -30,9 +35,10 @@ import {
 import { headersToRecord, runMiddleware } from "./middleware.js"
 import { readParkedInterruptIds, readParkedRoute, settleParkedRoute } from "./parked-route.js"
 import {
+  type B4ResumeEntry,
   createPendingResumeClaims,
-  type DawnResumeEntry,
   type PendingResumeClaims,
+  parsePendingInterrupts,
   readPendingInterrupts,
   resolvePendingResume,
 } from "./pending-interrupts.js"
@@ -44,11 +50,7 @@ import {
   type RuntimeRegistry,
 } from "./runtime-registry-core.js"
 import type { RequestStores, StartRuntimeServerOptions } from "./runtime-server.js"
-import {
-  createExecutionErrorBody,
-  createRequestErrorBody,
-  dawnErrorCodeOf,
-} from "./server-errors.js"
+import { b4ErrorCodeOf, createExecutionErrorBody, createRequestErrorBody } from "./server-errors.js"
 import { statusResponse } from "./status-response.js"
 import { terminalStatus } from "./terminal-status.js"
 import { threadAccessBootLine, validateThreadAccessPolicy } from "./thread-access.js"
@@ -63,7 +65,7 @@ export type RouteHandler = (request: Request, params: Record<string, string>) =>
 
 /**
  * Boot state threaded verbatim into every route execution: the supplied
- * DawnConfig (so no route re-reads `dawn.config.ts`) and the node filesystem
+ * B4Config (so no route re-reads `b4.config.ts`) and the node filesystem
  * fallback bag (absent on edge runtimes, where every store is injected).
  */
 export type RouteBoot = Pick<BootResolvedInstances, "bootFallbacks" | "config">
@@ -97,8 +99,8 @@ function requireBoot(
  * still be told WHICH one.
  */
 class MissingStoreError extends Error {
-  /** Registry code, read back by `dawnErrorCodeOf`. */
-  readonly code = "DAWN_E5301"
+  /** Registry code, read back by `b4ErrorCodeOf`. */
+  readonly code = "B4_E5301"
   constructor(readonly store: string) {
     super(
       `${store}: no instance provided and this runtime has no filesystem fallback — pass one via options (see the edge deployment docs).`,
@@ -120,15 +122,15 @@ function requireStore<T>(store: T | undefined, what: string): T {
  * never touch it, and both cross a boundary where the type is erased.
  *
  * A local class, not `CliError`: `../output.js` is node-only and this module is
- * in the `@dawn-ai/cli/fetch` graph. `dawnErrorCodeOf` reads the code back, the
+ * in the `@b4run/cli/fetch` graph. `b4ErrorCodeOf` reads the code back, the
  * same way it does for `MissingStoreError`.
  */
 class ThreadAccessPolicyError extends Error {
-  readonly code = "DAWN_E3003"
+  readonly code = "B4_E3003"
   constructor(source: string, reason: string) {
     super(
       `Thread access policy from ${source} is not a valid policy: ${reason}. ` +
-        "Dawn will not boot with a policy it cannot apply, because every thread endpoint would be ungated.",
+        "B4.run will not boot with a policy it cannot apply, because every thread endpoint would be ungated.",
     )
     this.name = "ThreadAccessPolicyError"
   }
@@ -142,18 +144,18 @@ class ThreadAccessPolicyError extends Error {
  * endpoint open while logging that the app has no policy.
  *
  * A local class for the same reason `ThreadAccessPolicyError` is one:
- * `../output.js` is node-only and this module is in the `@dawn-ai/cli/fetch`
+ * `../output.js` is node-only and this module is in the `@b4run/cli/fetch`
  * graph. Same registry code, because from an operator's seat this IS the policy
  * failing to load — it just failed at the build boundary rather than at import.
  */
 class StaleThreadAccessManifestError extends Error {
-  readonly code = "DAWN_E3003"
+  readonly code = "B4_E3003"
   constructor() {
     super(
       "This app was built with a thread access policy, but the static module manifest it " +
         "booted with carries no thread access entry — the manifest is older than the build " +
-        "that stamped the policy. Dawn will not boot with every thread endpoint ungated: " +
-        "re-run `dawn build` and deploy the whole build output together.",
+        "that stamped the policy. B4.run will not boot with every thread endpoint ungated: " +
+        "re-run `b4 build` and deploy the whole build output together.",
     )
     this.name = "StaleThreadAccessManifestError"
   }
@@ -171,7 +173,7 @@ function threadAccessSourceLabel(source: {
 /**
  * A gated feature this app is configured for that this runtime cannot serve —
  * the REQUEST-time half of the `hono` target's build gate, raising the same
- * `DAWN_E1005`.
+ * `B4_E1005`.
  *
  * Detected once at boot (`collectRuntimeCapabilityGaps`) and raised from
  * `fetch` rather than rejecting the handler's construction, for two reasons:
@@ -187,8 +189,8 @@ function threadAccessSourceLabel(source: {
  * failure the spec forbids.
  */
 class RuntimeCapabilityError extends Error {
-  /** Registry code, read back by `dawnErrorCodeOf`. Same code the build gate throws. */
-  readonly code = "DAWN_E1005"
+  /** Registry code, read back by `b4ErrorCodeOf`. Same code the build gate throws. */
+  readonly code = "B4_E1005"
   constructor(message: string) {
     super(message)
     this.name = "RuntimeCapabilityError"
@@ -276,6 +278,11 @@ export interface RuntimeFetchHandler {
 const CLOSE_DRAIN_DEADLINE_MS = 30_000
 const AP_SSE_HEARTBEAT_INTERVAL_MS = 15_000
 const AP_SSE_HEARTBEAT = new TextEncoder().encode(": ping\n\n")
+const AP_ATTACH_DIGEST_MAX_BYTES = 2 * 1024 * 1024
+const AP_ATTACH_MAX_VIEWERS = 16
+/** Base retry hint for the durable-path terminator; jittered ±500ms to break multi-tab lockstep. */
+const AP_ATTACH_RETRY_BASE_MS = 2000
+const AP_ATTACH_RETRY_JITTER_MS = 500
 
 export async function createRuntimeFetchHandler(
   options: StartRuntimeServerOptions & {
@@ -283,10 +290,14 @@ export async function createRuntimeFetchHandler(
     readonly drainDeadlineMs?: number
     /** Internal/test hook: override AP SSE heartbeat interval (default 15s). */
     readonly apSseHeartbeatIntervalMs?: number
+    /** Serialized-bytes cap for a live turn's shared digest (default 2 MiB). */
+    readonly apAttachDigestMaxBytes?: number
+    /** Per-thread cap on concurrent `GET /runs/stream` attachers (default 16). */
+    readonly apAttachMaxViewers?: number
   },
 ): Promise<RuntimeFetchHandler> {
-  // The node filesystem fallbacks, when this runtime has any. `dawn dev` /
-  // `dawn start` (and every existing test) come through
+  // The node filesystem fallbacks, when this runtime has any. `b4 dev` /
+  // `b4 start` (and every existing test) come through
   // `runtime-fetch-handler.ts`, which supplies `nodeBootFallbacks`. An edge
   // caller supplies none: each store must then be injected, or the first use
   // throws with a message naming what is missing.
@@ -296,10 +307,10 @@ export async function createRuntimeFetchHandler(
     ...(fallbacks ? { bootFallbacks: fallbacks } : {}),
   }
   // Seed the config memo FIRST — every node fallback below (stores, sandbox,
-  // memory, permissions) goes through loadDawnConfig, and a supplied config
-  // means `dawn.config.ts` must never be read from disk.
+  // memory, permissions) goes through loadB4Config, and a supplied config
+  // means `b4.config.ts` must never be read from disk.
   if (options.config && fallbacks) {
-    seedDawnConfig(options.appRoot, options.config)
+    seedB4Config(options.appRoot, options.config)
   }
   // No `modules` means the route tree must be walked — a node-only capability
   // reached through the boot fallbacks, never imported here (that would put
@@ -350,7 +361,7 @@ export async function createRuntimeFetchHandler(
     throw new StaleThreadAccessManifestError()
   }
   // Authorization, unlike middleware, must never resolve to "allow all" by
-  // accident: `loadThreadAccess` throws DAWN_E3003 rather than degrading when a
+  // accident: `loadThreadAccess` throws B4_E3003 rather than degrading when a
   // policy file exists but cannot be bound. An absent file resolves to
   // undefined — an app that never had a policy keeps today's behavior exactly.
   const threadAccess: ThreadAccessPolicy | undefined =
@@ -373,7 +384,7 @@ export async function createRuntimeFetchHandler(
       throw new ThreadAccessPolicyError(threadAccessSourceLabel(threadAccessSource), reason)
   }
   // One line per boot, and the only signal an operator has that a policy
-  // vanished. Emitted AFTER resolution and validation, so any DAWN_E3003
+  // vanished. Emitted AFTER resolution and validation, so any B4_E3003
   // pre-empts it: a boot that failed never claims to have bound anything.
   console.log(threadAccessBootLine(threadAccessSource))
   // `requestStores` makes the boot resolution below OPTIONAL, but only on a
@@ -431,7 +442,7 @@ export async function createRuntimeFetchHandler(
     // `requireStore` call site of its own, and it is reachable on a deployed
     // worker — the `/memory/candidates*` routes are registered unconditionally.
     // A plain Error here carries no `.code`, so `fetch`'s catch-all flattened
-    // the documented DAWN_E5301 into an anonymous 500; the edge docs and
+    // the documented B4_E5301 into an anonymous 500; the edge docs and
     // `edge-capabilities.ts` both promise the code, so raise the error that
     // actually has it.
     memoryStorePromise ??= options.memoryStore
@@ -447,7 +458,7 @@ export async function createRuntimeFetchHandler(
   // itself be an instance or a per-request factory). Otherwise, per
   // StartRuntimeServerOptions.permissionsMode: "boot" (production) loads once
   // here and reuses the instance; the default "per-request" (dev) hands route
-  // execution a factory that re-loads `.dawn/permissions.json` each request,
+  // execution a factory that re-loads `.b4/permissions.json` each request,
   // so HITL "Always" grants written mid-process apply immediately — the one
   // deliberate per-request read kept.
   const resolvePermissions = (): Promise<PermissionsStore> =>
@@ -501,6 +512,14 @@ export async function createRuntimeFetchHandler(
   // sandboxes are released.
   const runRegistry = createRunRegistry()
   const resumeClaims = createPendingResumeClaims()
+
+  // Handler-scoped, same lifetime rule as runRegistry: a live turn's digest
+  // and subscriber set are per-process state, so multiple handler instances in
+  // one process (the (Request) => Response core exists to allow that) stay
+  // isolated from each other.
+  const liveTurnHub = createLiveTurnHub({
+    digestMaxBytes: options.apAttachDigestMaxBytes ?? AP_ATTACH_DIGEST_MAX_BYTES,
+  })
 
   // Request-scoped store overrides. Keyed on the Request object rather than
   // carried in AsyncLocalStorage, which would require nodejs_compat on workerd
@@ -657,8 +676,10 @@ export async function createRuntimeFetchHandler(
   }
 
   const apSseHeartbeatIntervalMs = options.apSseHeartbeatIntervalMs ?? AP_SSE_HEARTBEAT_INTERVAL_MS
+  const apAttachMaxViewers = options.apAttachMaxViewers ?? AP_ATTACH_MAX_VIEWERS
   const routes = buildRouteTable({
     appRoot: options.appRoot,
+    apAttachMaxViewers,
     apSseHeartbeatIntervalMs,
     boot,
     getCheckpointer,
@@ -666,6 +687,7 @@ export async function createRuntimeFetchHandler(
     getPermissionsStore,
     getRunRegistry,
     getThreadsStore,
+    liveTurnHub,
     middleware,
     registry,
     resumeClaims,
@@ -677,7 +699,7 @@ export async function createRuntimeFetchHandler(
     ...(options.modules ? { staticModules: options.modules } : {}),
   })
 
-  const fetch = async (request: Request): Promise<Response> => {
+  const serveRoutes = async (request: Request): Promise<Response> => {
     if (!state.acceptingRequests) {
       return Response.json(createRequestErrorBody("Server is shutting down"), {
         status: 503,
@@ -750,7 +772,7 @@ export async function createRuntimeFetchHandler(
         // feature and its config key, so there are no extra details to attach.
         if (!loggedFailures.has(error.message)) {
           loggedFailures.add(error.message)
-          console.error(`Dawn runtime misconfigured — ${error.message}`)
+          console.error(`B4.run runtime misconfigured — ${error.message}`)
         }
         return Response.json(
           createExecutionErrorBody(error.message, undefined, { code: error.code }),
@@ -766,7 +788,7 @@ export async function createRuntimeFetchHandler(
         // host is not flooded with the same line.
         if (!loggedMissingStores.has(error.store)) {
           loggedMissingStores.add(error.store)
-          console.error(`Dawn runtime misconfigured — ${error.message}`)
+          console.error(`B4.run runtime misconfigured — ${error.message}`)
         }
         return Response.json(
           createExecutionErrorBody(error.message, { store: error.store }, { code: error.code }),
@@ -783,12 +805,12 @@ export async function createRuntimeFetchHandler(
       // failure" with nothing anywhere saying why. Deduped by message, for the
       // same reason the MissingStoreError branch above dedupes by store: a
       // misconfiguration fails every request identically.
-      const code = dawnErrorCodeOf(error)
+      const code = b4ErrorCodeOf(error)
       const cause = error instanceof Error ? error.message : String(error)
       if (!loggedFailures.has(cause)) {
         loggedFailures.add(cause)
         console.error(
-          `Dawn runtime failure — ${cause}${code ? ` (${code})` : ""}`,
+          `B4.run runtime failure — ${cause}${code ? ` (${code})` : ""}`,
           error instanceof Error && error.stack ? `\n${error.stack}` : "",
         )
       }
@@ -824,6 +846,11 @@ export async function createRuntimeFetchHandler(
     liveShutdownControllers.clear()
 
     if (sandboxReaper) clearInterval(sandboxReaper)
+
+    // Fan a terminal frame to every hanging attach viewer before draining, so
+    // a shutdown does not leave them waiting on a heartbeat that will never
+    // resolve into a `done`.
+    liveTurnHub.closeAll()
 
     // Drain in-flight work — bounded: an SSE body nobody ever reads (or a
     // leaked in-flight slot) must not wedge shutdown forever.
@@ -866,6 +893,26 @@ export async function createRuntimeFetchHandler(
     // Release sandboxes only after in-flight requests have drained, so tools
     // executing against a sandbox are never yanked mid-request.
     if (sandboxManager) await sandboxManager.releaseAll()
+  }
+
+  // CORS wraps the whole handler rather than living inside it. `serveRoutes`
+  // has eight exit paths — the dispatch result, the tracked SSE response, the
+  // shutdown 503 and five error branches — and a cross-origin caller must be
+  // able to read ALL of them, including the failures. Stamping once here is
+  // the only version of that with no path left uncovered.
+  //
+  // Resolved at boot — see `readCorsConfig` for where the config comes from.
+  // Boot is also where a malformed origin list should fail, so an operator
+  // sees it on startup rather than on the first cross-origin request.
+  const corsPolicy = resolveCorsPolicy(await readCorsConfig(options))
+  const fetch = async (request: Request): Promise<Response> => {
+    // A preflight never reaches the route table: it claims no in-flight slot
+    // and needs no stores, and the router has no OPTIONS route that could
+    // answer it. Returns undefined when CORS is off or this is not a
+    // preflight, and the request proceeds normally.
+    const preflight = corsPreflightResponse(corsPolicy, request)
+    if (preflight !== undefined) return preflight
+    return applyCorsHeaders(corsPolicy, request, await serveRoutes(request))
   }
 
   return { close, fetch, shutdownController, state }
@@ -971,6 +1018,7 @@ function isRowWeJustWrote(thread: Thread, stored: Record<string, unknown> | unde
  */
 export function buildRouteTable(ctx: {
   readonly appRoot: string
+  readonly apAttachMaxViewers: number
   readonly apSseHeartbeatIntervalMs: number
   readonly boot: RouteBoot
   readonly getCheckpointer: (request: Request) => BaseCheckpointSaver
@@ -985,7 +1033,8 @@ export function buildRouteTable(ctx: {
    */
   readonly getRunRegistry: (request: Request) => RunRegistry
   readonly getThreadsStore: (request: Request) => ThreadsStore
-  readonly middleware: DawnMiddleware | undefined
+  readonly liveTurnHub: LiveTurnHub
+  readonly middleware: B4Middleware | undefined
   readonly registry: RuntimeRegistry
   /**
    * The boot-resolved policy. `buildRouteTable` runs before any request exists,
@@ -1003,10 +1052,11 @@ export function buildRouteTable(ctx: {
    * `request` and forward the result exactly as they forwarded the old one.
    */
   readonly getShutdownSignal: (request: Request) => AbortSignal
-  readonly staticModules?: DawnStaticModules
+  readonly staticModules?: B4StaticModules
 }): RouteMatcher[] {
   const {
     appRoot,
+    apAttachMaxViewers,
     apSseHeartbeatIntervalMs,
     boot,
     getCheckpointer,
@@ -1014,6 +1064,7 @@ export function buildRouteTable(ctx: {
     getPermissionsStore,
     getRunRegistry,
     getThreadsStore,
+    liveTurnHub,
     middleware,
     registry,
     threadAccess,
@@ -1060,7 +1111,7 @@ export function buildRouteTable(ctx: {
             metadata = bodyMetadata
           }
         }
-        // Unconditional, hook or no hook: the reserved key is Dawn's, contains
+        // Unconditional, hook or no hook: the reserved key is B4.run's, contains
         // a colon (so it cannot be written as a JS property identifier), and
         // stripping it always means an app that adopts a policy later can never
         // inherit a stamp a client forged before it did.
@@ -1220,7 +1271,7 @@ export function buildRouteTable(ctx: {
     // ------------------------------------------------------------------
     // POST /threads/:thread_id/cancel — stop the in-flight run
     // ------------------------------------------------------------------
-    // Thread-scoped rather than LangGraph's runs/:run_id/cancel: Dawn has no
+    // Thread-scoped rather than LangGraph's runs/:run_id/cancel: B4.run has no
     // run identity, and the one-run-per-thread gate makes the thread id an
     // unambiguous stand-in. Semantics match LangGraph's action=interrupt —
     // stop the run, keep checkpointed state. Rollback is not supported.
@@ -1294,6 +1345,7 @@ export function buildRouteTable(ctx: {
           boot,
           checkpointer: getCheckpointer(request),
           getMemoryStore: () => getMemoryStoreFor(request),
+          liveTurnHub,
           middleware,
           permissionsStore: getPermissionsStore(request),
           registry,
@@ -1312,6 +1364,30 @@ export function buildRouteTable(ctx: {
     },
 
     // ------------------------------------------------------------------
+    // GET /threads/:thread_id/runs/stream — reattach to a running turn
+    // ------------------------------------------------------------------
+    // A distinct array element on the SAME pattern as the POST above:
+    // dispatch is method-first, so GET and POST stay independently routed.
+    {
+      handle: async (request, params) =>
+        handleApAttachRequest({
+          apAttachMaxViewers,
+          apSseHeartbeatIntervalMs,
+          checkpointer: getCheckpointer(request),
+          liveTurnHub,
+          middleware,
+          registry,
+          request,
+          threadAccess,
+          threadId: params.thread_id ?? "",
+          threadRouteMap,
+          threadsStore: getThreadsStore(request),
+        }),
+      method: "GET",
+      pattern: /^\/threads\/(?<thread_id>[^/?#]+)\/runs\/stream(?:\?.*)?$/,
+    },
+
+    // ------------------------------------------------------------------
     // POST /agui/:routeId — AG-UI protocol endpoint (SSE)
     // ------------------------------------------------------------------
     {
@@ -1321,6 +1397,7 @@ export function buildRouteTable(ctx: {
           boot,
           checkpointer: getCheckpointer(request),
           getMemoryStore: () => getMemoryStoreFor(request),
+          liveTurnHub,
           middleware,
           permissionsStore: getPermissionsStore(request),
           registry,
@@ -1482,6 +1559,7 @@ export function buildRouteTable(ctx: {
           boot,
           checkpointer: getCheckpointer(request),
           getMemoryStore: () => getMemoryStoreFor(request),
+          liveTurnHub,
           middleware,
           permissionsStore: getPermissionsStore(request),
           registry,
@@ -1500,6 +1578,38 @@ export function buildRouteTable(ctx: {
       pattern: /^\/threads\/(?<thread_id>[^/?#]+)\/resume(?:\?.*)?$/,
     },
   ]
+}
+
+// ---------------------------------------------------------------------------
+// CORS config resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * `server.cors`, or undefined when this runtime has no config to read it from.
+ *
+ * Three callers, three shapes:
+ * - An edge runtime (or any caller that injects its own stores) passes
+ *   `config` and has no `b4.config.ts` — read it straight off the object.
+ * - `b4 dev` / `b4 start` pass none and DO have one on disk; routes read it
+ *   lazily through the same memo, so loading here costs nothing extra.
+ * - Neither: no config file and none supplied. That is a legal B4.run app, and
+ *   `loadB4Config` signals it by throwing (`access` ENOENT). No config means
+ *   no CORS, exactly like an app that omits the block — the same
+ *   try/catch-to-defaults shape `resolveMemoryStore` uses for this case.
+ *
+ * A config that EXISTS but is malformed still throws: the catch here covers
+ * only obtaining the config, and `resolveCorsPolicy` validates afterwards.
+ */
+async function readCorsConfig(options: {
+  readonly appRoot: string
+  readonly config?: B4Config
+}): Promise<CorsConfig | undefined> {
+  if (options.config) return options.config.server?.cors
+  try {
+    return (await loadB4Config({ appRoot: options.appRoot })).config.server?.cors
+  } catch {
+    return undefined
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1541,14 +1651,15 @@ async function handleApStreamRequest(options: {
   readonly boot: RouteBoot
   readonly checkpointer: BaseCheckpointSaver
   readonly getMemoryStore: () => Promise<MemoryStore>
-  readonly middleware: DawnMiddleware | undefined
+  readonly liveTurnHub: LiveTurnHub
+  readonly middleware: B4Middleware | undefined
   readonly permissionsStore: PermissionsStore | (() => Promise<PermissionsStore>)
   readonly registry: RuntimeRegistry
   readonly request: Request
   readonly runRegistry: RunRegistry
   readonly sandboxManager?: SandboxManager
   readonly signal: AbortSignal
-  readonly staticModules?: DawnStaticModules
+  readonly staticModules?: B4StaticModules
   readonly threadAccess: ThreadAccessPolicy | undefined
   readonly threadId: string
   readonly threadRouteMap: Map<string, string>
@@ -1560,6 +1671,7 @@ async function handleApStreamRequest(options: {
     boot,
     checkpointer,
     getMemoryStore,
+    liveTurnHub,
     middleware,
     permissionsStore,
     registry,
@@ -1655,7 +1767,7 @@ async function handleApStreamRequest(options: {
     thread = await threadsStore.createThread({ thread_id: threadId })
   }
 
-  // Claim the thread's run slot. Dawn has no run_id, so one run per thread is
+  // Claim the thread's run slot. B4.run has no run_id, so one run per thread is
   // what makes "cancel this thread's run" well-defined — and it stops two runs
   // from interleaving checkpoint writes against the same LangGraph thread.
   // Gated on the in-memory registry, never the persisted status column, so a
@@ -1680,6 +1792,31 @@ async function handleApStreamRequest(options: {
   // settleParkedRoute for why a value sampled this early is safe there.
   const previousParkedRoute = readParkedRoute(thread)
 
+  // Live-turn anchor: one latest-tuple read, taken before the route stream
+  // begins executing so it races nothing the run itself writes. A failed read
+  // degrades attach to the durable path for this turn — it must never fail the
+  // run or leak the run slot, so the failure is only logged.
+  let liveTurn: LiveTurnProducer | undefined
+  try {
+    const anchorTuple = await checkpointer.getTuple({
+      configurable: { checkpoint_ns: "", thread_id: threadId },
+    })
+    liveTurn = liveTurnHub.open({
+      routeKey,
+      anchorRouteKeys: checkpointRoutes(anchorTuple) ?? [],
+      anchorCheckpointId: anchorTuple?.checkpoint?.id ?? null,
+      input,
+      resume: false,
+      runStartedAt: new Date().toISOString(),
+      threadId,
+    })
+  } catch (error) {
+    console.warn(
+      `B4: live-turn anchor read failed for ${threadId}; attach degrades to the durable path.`,
+      error,
+    )
+  }
+
   // Record which route last ran on this thread so the resume endpoint can
   // re-invoke it without requiring the client to repeat the route key.
   // The in-memory map is fast-path for the current server session; the thread
@@ -1692,7 +1829,7 @@ async function handleApStreamRequest(options: {
     const routePatch = { route: routeKey }
     // The stamp lives in the same flat metadata object and this merge is
     // shallow, so a future patch that carried the reserved key would silently
-    // overwrite it. Assertion, not a gate: reaching it is a Dawn bug.
+    // overwrite it. Assertion, not a gate: reaching it is a B4.run bug.
     assertNoReservedKey(routePatch)
     await threadsStore.updateMetadata(threadId, routePatch)
     await threadsStore.updateStatus(threadId, "busy")
@@ -1701,12 +1838,16 @@ async function handleApStreamRequest(options: {
     // free this slot — without an explicit release the thread would 409 for the
     // remaining life of the process.
     run.release()
+    // The live-turn entry cannot leak open with the run slot already
+    // released: a viewer that raced this failure gets a terminal frame
+    // instead of a hanging heartbeat.
+    liveTurn?.close({ output: { error: String(error) }, type: "done" })
     throw error
   }
 
   // A client disconnect deliberately does NOT stop the run.
   //
-  // Agent Protocol is Dawn's durable surface: runs are checkpointed and a
+  // Agent Protocol is B4.run's durable surface: runs are checkpointed and a
   // thread can be resumed, so a dropped socket is a lost viewer, not a lost
   // intent — and a deliberate stop and a network drop are indistinguishable
   // on the wire. LangGraph Platform, the reference AP server, defaults to
@@ -1731,6 +1872,10 @@ async function handleApStreamRequest(options: {
   // handler's own flag, so parked-status honesty depends on nothing outside
   // this request.
   let sawInterrupt = false
+  // The terminal `done` chunk the primary emitted, whichever path produced it
+  // — captured (never published to the live turn's digest; see below) so the
+  // `finally` can close the live turn with the SAME terminal, unconditionally.
+  let terminalChunk: StreamChunk | undefined
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const stopHeartbeat = startSseHeartbeat(controller, apSseHeartbeatIntervalMs)
@@ -1764,6 +1909,12 @@ async function handleApStreamRequest(options: {
           })) {
             if (chunk.type === "interrupt") sawInterrupt = true
             safeEnqueue(controller, encoder.encode(toSseEvent(chunk)))
+            // The terminal is never published to the digest — it is delivered
+            // exactly once, via `close` in the `finally` below, so a live
+            // subscriber never sees it twice (once from the digest tail, once
+            // from close's own fan-out).
+            if (chunk.type === "done") terminalChunk = chunk
+            else liveTurn?.publish(chunk)
           }
           // Before the status write, and inside the same try, so a failure to
           // tighten the gate on a parked turn surfaces rather than leaving a
@@ -1789,7 +1940,7 @@ async function handleApStreamRequest(options: {
         } catch (error) {
           // A cancelled run is not a failure: clients must be able to tell the
           // two apart without inferring it from a truncated stream.
-          const terminalChunk: StreamChunk = run.cancelled
+          terminalChunk = run.cancelled
             ? { output: { cancelled: true }, type: "done" }
             : {
                 output: {
@@ -1816,6 +1967,13 @@ async function handleApStreamRequest(options: {
         }
       } finally {
         stopHeartbeat()
+        // Unconditional — never deferred behind `sourceCleanup` the way
+        // `run.release()` is below for a cancelled run: attachers must see the
+        // terminal frame exactly when the primary client does, since response
+        // lifetime (not run-slot lifetime) is what viewers share. The identity
+        // guard inside `close` means a zombie route can never write into a
+        // successor turn that has already replaced this entry.
+        liveTurn?.close(terminalChunk ?? { output: null, type: "done" })
         // The client's stream ends here regardless — safeClose below fires on
         // this same tick either way, so cancellation still looks instant to
         // the caller. What differs is when the run SLOT frees.
@@ -1861,14 +2019,14 @@ async function handleApWaitRequest(options: {
   readonly boot: RouteBoot
   readonly checkpointer: BaseCheckpointSaver
   readonly getMemoryStore: () => Promise<MemoryStore>
-  readonly middleware: DawnMiddleware | undefined
+  readonly middleware: B4Middleware | undefined
   readonly permissionsStore: PermissionsStore | (() => Promise<PermissionsStore>)
   readonly registry: RuntimeRegistry
   readonly request: Request
   readonly runRegistry: RunRegistry
   readonly sandboxManager?: SandboxManager
   readonly signal: AbortSignal
-  readonly staticModules?: DawnStaticModules
+  readonly staticModules?: B4StaticModules
   readonly threadAccess: ThreadAccessPolicy | undefined
   readonly threadId: string
   readonly threadRouteMap: Map<string, string>
@@ -2021,7 +2179,7 @@ async function handleApWaitRequest(options: {
     const routePatch = { route: routeKey }
     // The stamp lives in the same flat metadata object and this merge is
     // shallow, so a future patch that carried the reserved key would silently
-    // overwrite it. Assertion, not a gate: reaching it is a Dawn bug.
+    // overwrite it. Assertion, not a gate: reaching it is a B4.run bug.
     assertNoReservedKey(routePatch)
     await threadsStore.updateMetadata(threadId, routePatch)
     await threadsStore.updateStatus(threadId, "busy")
@@ -2233,7 +2391,7 @@ async function handleApWaitRequest(options: {
 
 async function handleApPendingInterruptsRequest(options: {
   readonly checkpointer: BaseCheckpointSaver
-  readonly middleware: DawnMiddleware | undefined
+  readonly middleware: B4Middleware | undefined
   readonly registry: RuntimeRegistry
   readonly request: Request
   readonly threadAccess: ThreadAccessPolicy | undefined
@@ -2462,6 +2620,255 @@ async function handleApPendingInterruptsRequest(options: {
 }
 
 // ---------------------------------------------------------------------------
+// Attach handler — GET mirror of POST /threads/:id/runs/stream, for a
+// disconnected client to rejoin a still-running (or already-settled) turn.
+// ---------------------------------------------------------------------------
+
+async function handleApAttachRequest(options: {
+  readonly apAttachMaxViewers: number
+  readonly apSseHeartbeatIntervalMs: number
+  readonly checkpointer: BaseCheckpointSaver
+  readonly liveTurnHub: LiveTurnHub
+  readonly middleware: B4Middleware | undefined
+  readonly registry: RuntimeRegistry
+  readonly request: Request
+  readonly threadAccess: ThreadAccessPolicy | undefined
+  readonly threadId: string
+  readonly threadRouteMap: Map<string, string>
+  readonly threadsStore: ThreadsStore
+}): Promise<Response> {
+  const {
+    apAttachMaxViewers,
+    apSseHeartbeatIntervalMs,
+    checkpointer,
+    liveTurnHub,
+    middleware,
+    registry,
+    request,
+    threadAccess,
+    threadId,
+    threadRouteMap,
+    threadsStore,
+  } = options
+
+  // Authorize the thread before exposing whether it or a live turn exists.
+  // Then authorize every known route whose content the snapshot can disclose:
+  // the selected producer, its verified checkpoint ancestry, and parked/last-run
+  // metadata. A denied read uses exactly the missing-thread response.
+  const notFound = () =>
+    Response.json(createRequestErrorBody("Thread not found", { code: "thread_not_found" }), {
+      status: 404,
+    })
+  const thread = await threadsStore.getThread(threadId)
+
+  if (threadAccess) {
+    const gate = makeThreadGate(threadAccess, request)
+    const g = gate({
+      action: "read",
+      notFound,
+      operation: "thread.attach",
+      threadId,
+      ...(thread ? { thread } : {}),
+    })
+    const settled = isThenable(g) ? await g : g
+    if (!settled.ok) return settled.response
+  }
+  if (!thread) return notFound()
+
+  // Select once, before any asynchronous route middleware. The hub attachment
+  // holds this turn's identity, digest and tail even if a successor starts.
+  const attachment = liveTurnHub.attach(threadId, { maxViewers: apAttachMaxViewers })
+  const recordedRoutes = (row: Thread) =>
+    [readParkedRoute(row), threadRouteMap.get(threadId), row.metadata.route].filter(
+      (key): key is string => typeof key === "string",
+    )
+  const knownRoutes = recordedRoutes(thread)
+  const routeKeys = new Set([
+    ...knownRoutes,
+    ...(attachment ? [attachment.routeKey, ...attachment.anchorRouteKeys] : []),
+  ])
+  const unknownRoute = () =>
+    Response.json(
+      createRequestErrorBody(
+        `The route recorded for thread "${threadId}" cannot be established for its attach stream.`,
+        { code: "thread_route_unknown" },
+      ),
+      { status: 409 },
+    )
+  let transferred = false
+  let finished = false
+  let controller: ReadableStreamDefaultController<Uint8Array> | undefined
+  let stopHeartbeat = () => {}
+  const finish = () => {
+    if (finished) return
+    finished = true
+    stopHeartbeat()
+    attachment?.detach()
+    request.signal.removeEventListener("abort", finish)
+    if (controller) safeClose(controller)
+  }
+  request.signal.addEventListener("abort", finish, { once: true })
+  if (request.signal.aborted) finish()
+
+  try {
+    // A known checkpoint without verified provenance cannot safely be
+    // assigned to the new producer. Keep the checkpoint owner binding and
+    // fail closed instead of inventing an anchor owner.
+    if (
+      routeKeys.size === 0 ||
+      (attachment &&
+        (!attachment.routeKey ||
+          (attachment.anchorCheckpointId !== null && attachment.anchorRouteKeys.length === 0)))
+    ) {
+      return unknownRoute()
+    }
+
+    // Pin the durable tuple before awaiting middleware, too: a new run during
+    // authorization must not replace the values/interrupts this request serves.
+    const durableTuple = attachment
+      ? undefined
+      : await checkpointer.getTuple({
+          configurable: { checkpoint_ns: "", thread_id: threadId },
+        })
+    if (durableTuple) {
+      const owners = checkpointRoutes(durableTuple)
+      if (!owners) return unknownRoute()
+      for (const owner of owners) routeKeys.add(owner)
+    }
+    if (!attachment) {
+      const current = await threadsStore.getThread(threadId)
+      if (!current || JSON.stringify(recordedRoutes(current)) !== JSON.stringify(knownRoutes)) {
+        return unknownRoute()
+      }
+    }
+
+    const requestUrl = new URL(request.url)
+    for (const routeKey of routeKeys) {
+      const route = registry.lookup(routeKey)
+      if (!route) return unknownRoute()
+      const mwResult = await runMiddleware(middleware, {
+        assistantId: route.assistantId,
+        headers: headersToRecord(request.headers),
+        method: "GET",
+        params: {},
+        routeId: route.routeId,
+        url: `${requestUrl.pathname}${requestUrl.search}`,
+      })
+      if (mwResult.action === "reject") return statusResponse(mwResult.status, mwResult.body)
+    }
+
+    const encoder = new TextEncoder()
+    const encodeEvent = (event: string, data: unknown) =>
+      encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    async function* frames(): AsyncGenerator<Uint8Array> {
+      if (finished) return
+      if (attachment?.overflowed() === "capacity") {
+        yield encodeEvent("detached", { reason: "capacity" })
+        return
+      }
+      if (attachment) {
+        const anchorValues =
+          attachment.anchorCheckpointId === null
+            ? null
+            : ((
+                await checkpointer.getTuple({
+                  configurable: {
+                    checkpoint_id: attachment.anchorCheckpointId,
+                    checkpoint_ns: "",
+                    thread_id: threadId,
+                  },
+                })
+              )?.checkpoint.channel_values ?? null)
+        if (finished) return
+        yield encodeEvent("state", {
+          anchor: attachment.anchorCheckpointId,
+          input: attachment.input,
+          interrupts: [],
+          live: true,
+          resume: attachment.resume,
+          run_started_at: attachment.runStartedAt,
+          status: thread?.status,
+          turn: attachment.turn,
+          values: anchorValues,
+          ...(attachment.truncated ? { turn_truncated: true } : {}),
+        })
+        for (;;) {
+          const frame = await attachment.next()
+          if (finished) return
+          if (frame === null) break
+          yield encoder.encode(toSseEvent(frame))
+        }
+        if (attachment.overflowed() === "overflow") {
+          yield encodeEvent("detached", { reason: "overflow" })
+        }
+        return
+      }
+      const interrupts = (durableTuple ? parsePendingInterrupts(durableTuple).interrupts : []).map(
+        ({ interruptId, resumeKey, value }) => ({ interruptId, resumeKey, value }),
+      )
+      yield encodeEvent("state", {
+        anchor: null,
+        input: null,
+        interrupts,
+        live: false,
+        resume: false,
+        run_started_at: null,
+        status: thread?.status,
+        turn: null,
+        values: durableTuple?.checkpoint.channel_values ?? null,
+      })
+      const jitter = Math.round((Math.random() * 2 - 1) * AP_ATTACH_RETRY_JITTER_MS)
+      yield encoder.encode(`retry: ${AP_ATTACH_RETRY_BASE_MS + jitter}\n\n`)
+      yield encodeEvent("done", { output: null })
+    }
+    const iterator = frames()
+    const stream = new ReadableStream<Uint8Array>({
+      start(value) {
+        controller = value
+        if (finished) {
+          safeClose(value)
+          return
+        }
+        // Heartbeats respect the same bounded response queue as data frames.
+        const heartbeat = setInterval(() => {
+          if (!finished && (value.desiredSize ?? 0) > 0) {
+            safeEnqueue(value, AP_SSE_HEARTBEAT.slice())
+          }
+        }, apSseHeartbeatIntervalMs)
+        stopHeartbeat = () => clearInterval(heartbeat)
+      },
+      async pull(value) {
+        try {
+          const next = await iterator.next()
+          if (finished) return
+          if (next.done) finish()
+          else value.enqueue(next.value)
+        } catch (error) {
+          if (!finished) value.error(error)
+          finish()
+        }
+      },
+      async cancel() {
+        // Release capacity and wake next() BEFORE waiting for generator cleanup.
+        // Only this viewer stops; its producer and other viewers stay alive.
+        finish()
+        await iterator.return(undefined)
+      },
+    })
+    transferred = true
+    return new Response(stream, {
+      headers: {
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive",
+        "content-type": "text/event-stream",
+      },
+    })
+  } finally {
+    if (!transferred) finish()
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Resume handler — state-based, reads __interrupt__ from SQLite checkpoint
 // ---------------------------------------------------------------------------
 
@@ -2471,7 +2878,8 @@ async function handleResumeRequest(options: {
   readonly boot: RouteBoot
   readonly checkpointer: BaseCheckpointSaver
   readonly getMemoryStore: () => Promise<MemoryStore>
-  readonly middleware: DawnMiddleware | undefined
+  readonly liveTurnHub: LiveTurnHub
+  readonly middleware: B4Middleware | undefined
   readonly permissionsStore: PermissionsStore | (() => Promise<PermissionsStore>)
   readonly registry: RuntimeRegistry
   readonly resumeClaims: PendingResumeClaims
@@ -2479,7 +2887,7 @@ async function handleResumeRequest(options: {
   readonly runRegistry: RunRegistry
   readonly sandboxManager?: SandboxManager
   readonly signal: AbortSignal
-  readonly staticModules?: DawnStaticModules
+  readonly staticModules?: B4StaticModules
   readonly threadAccess: ThreadAccessPolicy | undefined
   readonly threadId: string
   readonly threadRouteMap: Map<string, string>
@@ -2491,6 +2899,7 @@ async function handleResumeRequest(options: {
     boot,
     checkpointer,
     getMemoryStore,
+    liveTurnHub,
     middleware,
     permissionsStore,
     registry,
@@ -2514,7 +2923,7 @@ async function handleResumeRequest(options: {
 
   const rawBody = await request.text()
   const parsedBody = parseJson(rawBody)
-  if (!parsedBody.ok || !isDawnResumeBody(parsedBody.value)) {
+  if (!parsedBody.ok || !isB4ResumeBody(parsedBody.value)) {
     return Response.json(createRequestErrorBody("Malformed resume request body"), { status: 400 })
   }
 
@@ -2651,10 +3060,36 @@ async function handleResumeRequest(options: {
       )
     }
 
+    // Live-turn anchor: the latest tuple at resume time IS the parked
+    // checkpoint — read before the route stream begins executing, same
+    // rationale as handleApStreamRequest. A failed read degrades attach to
+    // the durable path for this turn; it never fails the resume.
+    let liveTurn: LiveTurnProducer | undefined
+    try {
+      const anchorTuple = await checkpointer.getTuple({
+        configurable: { checkpoint_ns: "", thread_id: threadId },
+      })
+      liveTurn = liveTurnHub.open({
+        routeKey,
+        anchorRouteKeys: checkpointRoutes(anchorTuple) ?? [],
+        anchorCheckpointId: anchorTuple?.checkpoint?.id ?? null,
+        input: resumeResolution.resume,
+        resume: true,
+        runStartedAt: new Date().toISOString(),
+        threadId,
+      })
+    } catch (error) {
+      console.warn(
+        `B4: live-turn anchor read failed for ${threadId}; attach degrades to the durable path.`,
+        error,
+      )
+    }
+
     try {
       await threadsStore.updateStatus(threadId, "busy")
     } catch (error) {
       run.release()
+      liveTurn?.close({ output: { error: String(error) }, type: "done" })
       throw error
     }
 
@@ -2666,6 +3101,9 @@ async function handleResumeRequest(options: {
     // not the tool). Same reasoning as handleApStreamRequest: the adapter's
     // `done` follows the interrupt chunk, so a drained loop is not completion.
     let sawInterrupt = false
+    // The terminal `done` chunk the primary emitted — see
+    // handleApStreamRequest for why this is never published to the digest.
+    let terminalChunk: StreamChunk | undefined
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         const stopHeartbeat = startSseHeartbeat(controller, apSseHeartbeatIntervalMs)
@@ -2700,6 +3138,10 @@ async function handleResumeRequest(options: {
             })) {
               if (chunk.type === "interrupt") sawInterrupt = true
               safeEnqueue(controller, encoder.encode(toSseEvent(chunk)))
+              // See handleApStreamRequest: the terminal is never published to
+              // the digest — `close` in the `finally` delivers it exactly once.
+              if (chunk.type === "done") terminalChunk = chunk
+              else liveTurn?.publish(chunk)
             }
             // A resume that parks again re-arms the gate on the route that
             // parked; one that answers the last prompt retires it. Same
@@ -2724,7 +3166,7 @@ async function handleResumeRequest(options: {
           } catch (error) {
             // A cancelled run is not a failure: clients must be able to tell the
             // two apart without inferring it from a truncated stream.
-            const terminalChunk: StreamChunk = run.cancelled
+            terminalChunk = run.cancelled
               ? { output: { cancelled: true }, type: "done" }
               : {
                   output: {
@@ -2748,6 +3190,9 @@ async function handleResumeRequest(options: {
           }
         } finally {
           stopHeartbeat()
+          // Unconditional, same as handleApStreamRequest: attachers must see
+          // the terminal frame exactly when the primary client does.
+          liveTurn?.close(terminalChunk ?? { output: null, type: "done" })
           // The client's stream ends here regardless — response lifetime and run
           // lifetime are deliberately different; see handleApStreamRequest.
           const releaseExecutionClaims = () => {
@@ -2887,9 +3332,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-function isDawnResumeBody(
+function isB4ResumeBody(
   value: unknown,
-): value is { readonly resume: DawnResumeEntry[]; readonly route: string } {
+): value is { readonly resume: B4ResumeEntry[]; readonly route: string } {
   return (
     isRecord(value) &&
     !Array.isArray(value) &&

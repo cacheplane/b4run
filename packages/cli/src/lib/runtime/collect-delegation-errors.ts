@@ -1,11 +1,11 @@
-import { type RouteDefinition, type RouteManifest, resolveSubagentRegistry } from "@dawn-ai/core"
-import { type DawnAgent, isDawnAgent } from "@dawn-ai/sdk"
+import { type RouteDefinition, type RouteManifest, resolveSubagentRegistry } from "@b4run/core"
+import { type B4Agent, isB4Agent } from "@b4run/sdk"
 
 import { buildDescriptorRouteIndex } from "./descriptor-route-index.js"
 import { normalizeRouteModule } from "./load-route-kind.js"
 
 interface LoadedAgentRoute {
-  readonly descriptor?: DawnAgent
+  readonly descriptor?: B4Agent
   readonly route: RouteDefinition
 }
 
@@ -27,9 +27,7 @@ export async function collectDelegationErrors(manifest: RouteManifest): Promise<
           try {
             const normalized = await normalizeRouteModule(route.entryFile, manifest.appRoot)
             if (normalized.kind !== "agent") return undefined
-            return isDawnAgent(normalized.entry)
-              ? { descriptor: normalized.entry, route }
-              : { route }
+            return isB4Agent(normalized.entry) ? { descriptor: normalized.entry, route } : { route }
           } catch {
             return undefined
           }
@@ -59,7 +57,7 @@ export async function collectDelegationErrors(manifest: RouteManifest): Promise<
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      if (message.includes("[DAWN_E1004]")) {
+      if (message.includes("[B4_E1004]")) {
         errors.push(`✗ ${route.pathname}: ${message}`)
         continue
       }
@@ -70,10 +68,7 @@ export async function collectDelegationErrors(manifest: RouteManifest): Promise<
   return errors
 }
 
-function collectReservedTaskErrors(
-  descriptor: DawnAgent,
-  route: RouteDefinition,
-): readonly string[] {
+function collectReservedTaskErrors(descriptor: B4Agent, route: RouteDefinition): readonly string[] {
   const tools = (descriptor as unknown as { readonly tools?: ToolScopeShape }).tools
   if (typeof tools !== "object" || tools === null) return []
 
@@ -92,7 +87,7 @@ function collectReservedTaskErrors(
 
   return fields.map(
     (field) =>
-      `✗ ${route.pathname}: [DAWN_E1004] tools.${field} references the reserved internal ` +
+      `✗ ${route.pathname}: [B4_E1004] tools.${field} references the reserved internal ` +
       '"task" tool. Remove that entry and use delegation to control subagent dispatch.',
   )
 }

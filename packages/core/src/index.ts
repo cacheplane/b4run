@@ -1,9 +1,9 @@
-export type { ThreadsStore } from "@dawn-ai/sqlite-storage"
+export type { ThreadsStore } from "@b4run/sqlite-storage"
 export { createAgentsMdMarker } from "./capabilities/built-in/agents-md.js"
 export { createMemoryMarker } from "./capabilities/built-in/memory.js"
-export { createMemoryMdMarker } from "./capabilities/built-in/memory-md.js"
+export { createMemoryMdMarker, MAX_MEMORY_BYTES } from "./capabilities/built-in/memory-md.js"
 export type { RuntimeTodo } from "./capabilities/built-in/planning.js"
-export { createPlanningMarker } from "./capabilities/built-in/planning.js"
+export { createPlanningMarker, MAX_PLAN_BYTES } from "./capabilities/built-in/planning.js"
 export { createSkillsMarker } from "./capabilities/built-in/skills.js"
 export { createSubagentsMarker } from "./capabilities/built-in/subagents.js"
 export { createWorkspaceMarker } from "./capabilities/built-in/workspace.js"
@@ -30,6 +30,7 @@ export {
   createCapabilityRegistry,
 } from "./capabilities/registry.js"
 export type {
+  B4ToolDefinition,
   BrowseFilterLike,
   BrowsePageLike,
   BrowseQueryLike,
@@ -38,7 +39,6 @@ export type {
   CapabilityContribution,
   CapabilityMarker,
   CapabilityMarkerContext,
-  DawnToolDefinition,
   Embedder,
   MarkerFs,
   MemoryContext,
@@ -55,17 +55,17 @@ export type {
 } from "./capabilities/types.js"
 export type { CreateWorkspaceFsOptions } from "./capabilities/workspace-fs.js"
 export { createWorkspaceFs } from "./capabilities/workspace-fs.js"
-export type { DawnConfigLoader } from "./config.js"
+export type { B4ConfigLoader } from "./config.js"
 export {
-  __clearDawnConfigCacheForTests,
-  loadDawnConfig,
+  __clearB4ConfigCacheForTests,
+  loadB4Config,
   registerConfigLoader,
-  seedDawnConfig,
+  seedB4Config,
 } from "./config.js"
 export { config } from "./config-helper.js"
-// DELIBERATELY NOT HERE: `discoverRoutes`, `findDawnApp`,
-// `assertDawnRoutesDir`, `registerTsxLoader`, `extractToolSchemasForRoute` and
-// `extractToolTypesForRoute` ship from "@dawn-ai/core/node". They read the
+// DELIBERATELY NOT HERE: `discoverRoutes`, `findB4App`,
+// `assertB4RoutesDir`, `registerTsxLoader`, `extractToolSchemasForRoute` and
+// `extractToolTypesForRoute` ship from "@b4run/core/node". They read the
 // filesystem / load the TypeScript compiler, and a barrel re-export is an
 // import edge even for consumers that never call them. Their PURE siblings
 // below (route segments, the type renderers) stay on this barrel — the fetch
@@ -83,6 +83,8 @@ export {
 } from "./runtime-env.js"
 export type { ResolveStateFieldsOptions } from "./state/resolve-state-fields.js"
 export { resolveStateFields } from "./state/resolve-state-fields.js"
+export type { StaticMarkerFiles } from "./static-marker-fs.js"
+export { staticMarkerFs } from "./static-marker-fs.js"
 export type {
   GuardedSubagentResult,
   ResolveGuardedSubagentArgs,
@@ -101,7 +103,7 @@ export type {
 export type { ScopeInput, ToolOrigin } from "./tool-scope.js"
 export { resolveToolScope, toolOrigin } from "./tool-scope.js"
 export {
-  renderDawnTypes,
+  renderB4Types,
   renderRouteTypes,
 } from "./typegen/render-route-types.js"
 export {
@@ -112,15 +114,16 @@ export type { RouteStateFields } from "./typegen/render-state-types.js"
 export { renderStateTypes } from "./typegen/render-state-types.js"
 export { renderToolTypes } from "./typegen/render-tool-types.js"
 export type {
-  DawnConfig,
-  DiscoveredDawnApp,
+  B4Config,
+  CorsConfig,
+  DiscoveredB4App,
   DiscoverRoutesOptions,
   ExtractedToolSchema,
   ExtractedToolType,
-  FindDawnAppOptions,
+  FindB4AppOptions,
   JsonSchemaProperty,
-  LoadDawnConfigOptions,
-  LoadedDawnConfig,
+  LoadB4ConfigOptions,
+  LoadedB4Config,
   NormalizedRouteModule,
   ResolvedStateField,
   RouteDefinition,

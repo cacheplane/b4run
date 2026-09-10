@@ -1,4 +1,4 @@
-import type { DawnActivityCorrelation, OrchestrationToolName } from "./activities.js"
+import type { B4ActivityCorrelation, OrchestrationToolName } from "./activities.js"
 import type { AguiOutboundEvent } from "./outbound.js"
 
 /**
@@ -32,7 +32,7 @@ export interface OrchestrationLedger {
   ): AguiOutboundEvent[]
   onActivity(
     event: AguiOutboundEvent,
-    correlation: DawnActivityCorrelation | undefined,
+    correlation: B4ActivityCorrelation | undefined,
   ): AguiOutboundEvent[]
   /** `name` is widened to `string` for the same reason as `onToolCall`. */
   onToolResult(id: string | undefined, name: string, event: AguiOutboundEvent): AguiOutboundEvent[]

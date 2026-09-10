@@ -28,14 +28,14 @@ const jetbrainsMono = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://dawnai.org"),
-  applicationName: "Dawn AI",
+  metadataBase: new URL("https://b4.run"),
+  applicationName: "B4.run",
   title: {
-    default: "Dawn AI — TypeScript meta-framework for LangGraph.js",
-    template: "%s | Dawn AI",
+    default: "B4.run — TypeScript meta-framework for LangGraph.js",
+    template: "%s | B4.run",
   },
   description:
-    "Dawn adds file-system routing, route-local tools, generated types, and HMR to your existing LangGraph.js stack. Keep the runtime. Drop the boilerplate.",
+    "B4.run adds file-system routing, route-local tools, generated types, and HMR to your existing LangGraph.js stack. Keep the runtime. Drop the boilerplate.",
   manifest: "/site.webmanifest",
   icons: {
     icon: [
@@ -49,22 +49,22 @@ export const metadata: Metadata = {
   },
   openGraph: {
     type: "website",
-    url: "https://dawnai.org",
+    url: "https://b4.run",
     siteName: SOCIAL_SITE_NAME,
-    title: "Dawn AI — TypeScript meta-framework for LangGraph.js",
+    title: "B4.run — TypeScript meta-framework for LangGraph.js",
     description:
-      "Dawn adds file-system routing, route-local tools, generated types, and HMR to your existing LangGraph.js stack. Keep the runtime. Drop the boilerplate.",
+      "B4.run adds file-system routing, route-local tools, generated types, and HMR to your existing LangGraph.js stack. Keep the runtime. Drop the boilerplate.",
     // Image is provided by app/opengraph-image.tsx (1200×630, cream palette).
   },
   twitter: {
     card: SOCIAL_CARD,
-    title: "Dawn AI — TypeScript meta-framework for LangGraph.js",
+    title: "B4.run — TypeScript meta-framework for LangGraph.js",
     description:
-      "Dawn adds file-system routing, route-local tools, generated types, and HMR to your existing LangGraph.js stack. Keep the runtime. Drop the boilerplate.",
+      "B4.run adds file-system routing, route-local tools, generated types, and HMR to your existing LangGraph.js stack. Keep the runtime. Drop the boilerplate.",
     // Image is provided by app/twitter-image.tsx (re-exports opengraph-image).
   },
   appleWebApp: {
-    title: "Dawn AI",
+    title: "B4.run",
     capable: true,
     statusBarStyle: "default",
   },

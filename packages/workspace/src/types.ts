@@ -5,7 +5,7 @@
  * workspace capability calls into them to perform filesystem reads,
  * writes, listings, and shell command execution. Defaults
  * (`localFilesystem`, `localExec`) ship in this package; users can
- * provide their own implementations via dawn.config.ts.
+ * provide their own implementations via b4.config.ts.
  */
 
 export interface BackendContext {

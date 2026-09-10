@@ -29,10 +29,10 @@ export function watchApp(options: {
     }),
   )
 
-  const configPath = join(options.appRoot, "dawn.config.ts")
+  const configPath = join(options.appRoot, "b4.config.ts")
   watchers.push(
     watch(configPath, (_eventType, fileName) => {
-      notify(fileName ?? "dawn.config.ts")
+      notify(fileName ?? "b4.config.ts")
     }),
   )
 

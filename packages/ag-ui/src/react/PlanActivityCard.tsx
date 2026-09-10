@@ -1,29 +1,29 @@
-import type { DawnPlanActivityContent } from "../activities.js"
+import type { B4PlanActivityContent } from "../activities.js"
 import { ActivityChecklist } from "./ActivityChecklist.js"
-import { cx, type DawnActivityClassNames, type DawnActivityComponents } from "./parts.js"
+import { type B4ActivityClassNames, type B4ActivityComponents, cx } from "./parts.js"
 
 export function PlanActivityCard({
   content,
   classNames,
   components,
 }: {
-  content: DawnPlanActivityContent
-  classNames?: DawnActivityClassNames
-  components?: DawnActivityComponents
+  content: B4PlanActivityContent
+  classNames?: B4ActivityClassNames
+  components?: B4ActivityComponents
 }) {
   const completedCount = content.todos.filter((todo) => todo.status === "completed").length
   const hasActiveTodo = content.todos.some((todo) => todo.status === "in_progress")
 
   return (
-    <details open={hasActiveTodo} className={cx("dawn-activity", classNames?.root)}>
-      <summary className={cx("dawn-activity__header", classNames?.header)}>
+    <details open={hasActiveTodo} className={cx("b4-activity", classNames?.root)}>
+      <summary className={cx("b4-activity__header", classNames?.header)}>
         {/* `aria-hidden`: `<details>` already announces its own expanded state, and
             the glyph would otherwise land in the summary's accessible name. */}
-        <span aria-hidden="true" className={cx("dawn-activity__marker", classNames?.marker)}>
+        <span aria-hidden="true" className={cx("b4-activity__marker", classNames?.marker)}>
           ▸
         </span>
-        <span className={cx("dawn-activity__title", classNames?.title)}>Plan</span>
-        <span className={cx("dawn-activity__meta", classNames?.meta)}>
+        <span className={cx("b4-activity__title", classNames?.title)}>Plan</span>
+        <span className={cx("b4-activity__meta", classNames?.meta)}>
           {" "}
           · {completedCount}/{content.todos.length} complete
         </span>

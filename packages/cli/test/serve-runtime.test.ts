@@ -19,7 +19,7 @@ afterEach(async () => {
 describe("serveRuntime", () => {
   test("boots the runtime server and serves healthz", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
@@ -39,16 +39,16 @@ describe("serveRuntime", () => {
     expect(await response.json()).toEqual({ status: "ready" })
   })
 
-  test("boots without running typegen (never writes .dawn artifacts)", async () => {
-    // Fixture app with NO prior .dawn/ — a read-only-rootfs production container
-    // must boot without writing anything under .dawn (typegen would EROFS).
+  test("boots without running typegen (never writes .b4 artifacts)", async () => {
+    // Fixture app with NO prior .b4/ — a read-only-rootfs production container
+    // must boot without writing anything under .b4 (typegen would EROFS).
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 
-    expect(existsSync(join(appRoot, ".dawn"))).toBe(false)
+    expect(existsSync(join(appRoot, ".b4"))).toBe(false)
 
     const handle = await serveRuntime({
       appRoot,
@@ -62,12 +62,12 @@ describe("serveRuntime", () => {
     expect(response.status).toBe(200)
 
     // The serve boot must NOT have generated route types.
-    expect(existsSync(join(appRoot, ".dawn/dawn.generated.d.ts"))).toBe(false)
+    expect(existsSync(join(appRoot, ".b4/b4.generated.d.ts"))).toBe(false)
   })
 
   test("does not register process signal handlers when installSignalHandlers is omitted", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
@@ -84,7 +84,7 @@ describe("serveRuntime", () => {
 
   test("registers idempotent signal handlers and removes them after close() when opted in", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": "{}\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
@@ -119,10 +119,10 @@ describe("serveRuntime", () => {
     process.env.OPENAI_BASE_URL = aimock.baseUrl
     process.env.OPENAI_API_KEY = "test-not-used"
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "package.json": '{ "type": "module" }\n',
       "src/app/chat/index.ts":
-        'import { agent } from "@dawn-ai/sdk";\nexport default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." });\n',
+        'import { agent } from "@b4run/sdk";\nexport default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." });\n',
     })
 
     try {
@@ -189,7 +189,7 @@ describe("resolveServePort", () => {
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-serve-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-serve-"))
   tempDirs.push(appRoot)
 
   await Promise.all(

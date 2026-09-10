@@ -92,7 +92,7 @@ describe("local thread source", () => {
   })
 
   test("tolerates corrupt storage rather than throwing", () => {
-    storage.setItem("dawn.workbench.threads", "{not json")
+    storage.setItem("b4.workbench.threads", "{not json")
     expect(createLocalThreadSource(storage).list()).toEqual([])
   })
 
@@ -112,13 +112,13 @@ describe("local thread source hydration", () => {
       rawMessageCount: 1,
       todos: [{ content: "Read the corpus", status: "completed" }],
     })
-    expect(fetchFn).toHaveBeenCalledWith("/api/dawn/threads/thread-1/state")
+    expect(fetchFn).toHaveBeenCalledWith("/api/b4/threads/thread-1/state")
   })
 
   test("encodes the thread id into the path", async () => {
     const fetchFn = stubFetch(404, {})
     await createLocalThreadSource(memoryStorage(), fetchFn).hydrate("a/b?c")
-    expect(fetchFn).toHaveBeenCalledWith("/api/dawn/threads/a%2Fb%3Fc/state")
+    expect(fetchFn).toHaveBeenCalledWith("/api/b4/threads/a%2Fb%3Fc/state")
   })
 
   test("treats a 404 as an empty thread rather than a failure", async () => {
@@ -148,15 +148,15 @@ describe("local thread source hydration", () => {
     const source = createLocalThreadSource(
       memoryStorage(),
       stubFetch(502, {
-        error: "Cannot reach the Dawn server at http://127.0.0.1:3002: ECONNREFUSED",
+        error: "Cannot reach the B4.run server at http://127.0.0.1:3002: ECONNREFUSED",
       }),
     )
     await expect(source.hydrate("thread-1")).rejects.toThrow(
-      "Could not load this conversation (HTTP 502): Cannot reach the Dawn server at http://127.0.0.1:3002: ECONNREFUSED",
+      "Could not load this conversation (HTTP 502): Cannot reach the B4.run server at http://127.0.0.1:3002: ECONNREFUSED",
     )
   })
 
-  test("unwraps the Dawn server's own {error:{message}} shape", async () => {
+  test("unwraps the B4.run server's own {error:{message}} shape", async () => {
     const source = createLocalThreadSource(
       memoryStorage(),
       stubFetch(500, { error: { kind: "internal_error", message: "checkpointer exploded" } }),
@@ -181,7 +181,7 @@ describe("local thread source hydration", () => {
 /**
  * The envelope of a real parked gate, as the endpoint returns it: the entry
  * carries the server's chosen `interruptId` and `resumeKey`, and `value` is
- * the Dawn envelope `permission-gate.ts` wrote.
+ * the B4.run envelope `permission-gate.ts` wrote.
  */
 const PARKED_BODY = {
   interrupts: [
@@ -260,7 +260,7 @@ describe("thread source pending interrupts", () => {
   test("asks the proxy for the thread's parked gates", async () => {
     const fetchFn = stubFetch(200, PARKED_BODY)
     const parked = await createLocalThreadSource(memoryStorage(), fetchFn).pendingInterrupts("t 1")
-    expect(fetchFn).toHaveBeenCalledWith("/api/dawn/threads/t%201/pending_interrupts", undefined)
+    expect(fetchFn).toHaveBeenCalledWith("/api/b4/threads/t%201/pending_interrupts", undefined)
     expect(parked).toHaveLength(1)
     expect(parked[0]?.interruptId).toBe("perm-1")
   })
@@ -272,7 +272,7 @@ describe("thread source pending interrupts", () => {
       "t1",
       controller.signal,
     )
-    expect(fetchFn).toHaveBeenCalledWith("/api/dawn/threads/t1/pending_interrupts", {
+    expect(fetchFn).toHaveBeenCalledWith("/api/b4/threads/t1/pending_interrupts", {
       signal: controller.signal,
     })
   })
@@ -281,7 +281,7 @@ describe("thread source pending interrupts", () => {
     ["404 — no checkpoint row for this thread", 404],
     ["409 — the thread has never run, or its route is gone", 409],
     ["403 — the proxy refused a path outside its allowlist", 403],
-    ["502 — the Dawn server is not reachable", 502],
+    ["502 — the B4.run server is not reachable", 502],
   ])("resolves empty rather than rejecting on %s", async (_label, status) => {
     const source = createLocalThreadSource(memoryStorage(), stubFetch(status, { error: "nope" }))
     await expect(source.pendingInterrupts("thread-1")).resolves.toEqual([])

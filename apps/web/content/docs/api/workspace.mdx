@@ -1,32 +1,32 @@
-# @dawn-ai/workspace
+# @b4run/workspace
 
 ## Use this when
 
-Use this package to implement or wrap filesystem, command, and execution-sandbox backends for a Dawn application. The root owns the portable backend and sandbox contracts, middleware composition, and logging wrappers. Import `/node` only for the local filesystem and shell implementations.
+Use this package to implement or wrap filesystem, command, and execution-sandbox backends for a B4.run application. The root owns the portable backend and sandbox contracts, middleware composition, and logging wrappers. Import `/node` only for the local filesystem and shell implementations.
 
 ## Install and import
 
 ```bash
-pnpm add @dawn-ai/workspace
+pnpm add @b4run/workspace
 ```
 
 ```ts
-import { compose, withExecLogging, type SandboxProvider } from "@dawn-ai/workspace"
-import { localExec, localFilesystem } from "@dawn-ai/workspace/node"
+import { compose, withExecLogging, type SandboxProvider } from "@b4run/workspace"
+import { localExec, localFilesystem } from "@b4run/workspace/node"
 ```
 
 ## Compatibility and audience
 
 | Surface | Runtime | Purity | Audience | Stability |
 |---|---|---|---|---|
-| `@dawn-ai/workspace` | edge-safe | dependency-free | application | supported |
-| `@dawn-ai/workspace/node` | node-only | not-claimed | application | supported |
+| `@b4run/workspace` | edge-safe | dependency-free | application | supported |
+| `@b4run/workspace/node` | node-only | not-claimed | application | supported |
 
 The root's emitted subpath graph has no runtime package or Node built-in dependencies. Its `LocalExecOptions` and `LocalFilesystemOptions` exports are types only. The `/node` factories use Node child-process, filesystem, path, and utility APIs.
 
 ## Public exports
 
-### `@dawn-ai/workspace`
+### `@b4run/workspace`
 
 | Export | Responsibility |
 |---|---|
@@ -47,7 +47,7 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | `withExecLogging` | Log command calls around an execution backend. |
 | `withFilesystemLogging` | Log public filesystem calls while preserving optional capabilities. |
 
-### `@dawn-ai/workspace/node`
+### `@b4run/workspace/node`
 
 The `/node` entry independently owns the following four exports. The two option types are also available from the dependency-free root for type-only consumers; the factories are not.
 
@@ -60,20 +60,20 @@ The `/node` entry independently owns the following four exports. The two option 
 
 ## Key contracts
 
-```ts api-contract="@dawn-ai/workspace#.:BackendContext"
+```ts api-contract="@b4run/workspace#.:BackendContext"
 export interface BackendContext {
   readonly signal: AbortSignal
   readonly workspaceRoot: string
 }
 ```
 
-**Fields: `@dawn-ai/workspace#.:BackendContext`**
+**Fields: `@b4run/workspace#.:BackendContext`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly signal` | `AbortSignal` | yes | Abort work when the parent run is cancelled. |
 | `readonly workspaceRoot` | `string` | yes | Name the active route workspace's absolute root. |
 
-```ts api-contract="@dawn-ai/workspace#.:FilesystemBackend"
+```ts api-contract="@b4run/workspace#.:FilesystemBackend"
 export interface FilesystemBackend {
   readFile(
     path: string,
@@ -102,7 +102,7 @@ export interface FilesystemBackend {
 }
 ```
 
-```ts api-contract="@dawn-ai/workspace#.:ExecBackend"
+```ts api-contract="@b4run/workspace#.:ExecBackend"
 export interface ExecBackend {
   runCommand(
     args: {
@@ -119,7 +119,7 @@ export interface ExecBackend {
 }
 ```
 
-```ts api-contract="@dawn-ai/workspace#.:compose"
+```ts api-contract="@b4run/workspace#.:compose"
 export declare function compose<T>(
   ...middlewares: ReadonlyArray<(next: T) => T>
 ): (base: T) => T
@@ -131,7 +131,7 @@ Backend middleware composes right-to-left, with the first listed middleware oute
 
 #### Sandbox contracts
 
-```ts api-contract="@dawn-ai/workspace#.:SandboxPolicy"
+```ts api-contract="@b4run/workspace#.:SandboxPolicy"
 export interface SandboxPolicy {
   readonly network:
     | { readonly mode: "allow"; readonly denylist?: readonly string[] }
@@ -147,7 +147,7 @@ export interface SandboxPolicy {
 }
 ```
 
-**Fields: `@dawn-ai/workspace#.:SandboxPolicy`**
+**Fields: `@b4run/workspace#.:SandboxPolicy`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly network` | `\| { readonly mode: "allow"; readonly denylist?: readonly string[] } \| { readonly mode: "deny"; readonly allowlist?: readonly string[] }` | yes | Set the provider's network policy intent. |
@@ -155,7 +155,7 @@ export interface SandboxPolicy {
 | `readonly resources` | `{ readonly memoryMb?: number; readonly cpus?: number; readonly timeoutMs?: number; readonly diskGb?: number }` | no | Request provider resource limits. |
 | `readonly security` | `SandboxSecurityPolicy` | no | Override provider hardening intent. |
 
-```ts api-contract="@dawn-ai/workspace#.:SandboxSecurityPolicy"
+```ts api-contract="@b4run/workspace#.:SandboxSecurityPolicy"
 export interface SandboxSecurityPolicy {
   readonly dropAllCapabilities?: boolean
   readonly noNewPrivileges?: boolean
@@ -165,7 +165,7 @@ export interface SandboxSecurityPolicy {
 }
 ```
 
-**Fields: `@dawn-ai/workspace#.:SandboxSecurityPolicy`**
+**Fields: `@b4run/workspace#.:SandboxSecurityPolicy`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly dropAllCapabilities` | `boolean` | no | Request dropping every Linux capability. |
@@ -174,7 +174,7 @@ export interface SandboxSecurityPolicy {
 | `readonly runAsNonRoot` | `boolean \| { readonly uid: number; readonly gid: number }` | no | Request non-root execution or an explicit identity. |
 | `readonly pidsLimit` | `number` | no | Request a process-count limit. |
 
-```ts api-contract="@dawn-ai/workspace#.:SandboxHandle"
+```ts api-contract="@b4run/workspace#.:SandboxHandle"
 export interface SandboxHandle {
   readonly threadId: string
   readonly filesystem: FilesystemBackend
@@ -183,7 +183,7 @@ export interface SandboxHandle {
 }
 ```
 
-**Fields: `@dawn-ai/workspace#.:SandboxHandle`**
+**Fields: `@b4run/workspace#.:SandboxHandle`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly threadId` | `string` | yes | Identify the owning conversation thread. |
@@ -191,7 +191,7 @@ export interface SandboxHandle {
 | `readonly exec` | `ExecBackend` | yes | Route command execution into the sandbox. |
 | `readonly workspaceRoot` | `string` | yes | Name the absolute root inside the sandbox. |
 
-```ts api-contract="@dawn-ai/workspace#.:SandboxProvider"
+```ts api-contract="@b4run/workspace#.:SandboxProvider"
 export interface SandboxProvider {
   readonly name: string
   acquire(input: {
@@ -209,12 +209,12 @@ export interface SandboxProvider {
 }
 ```
 
-**Fields: `@dawn-ai/workspace#.:SandboxProvider`**
+**Fields: `@b4run/workspace#.:SandboxProvider`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly name` | `string` | yes | Identify the provider. |
 
-```ts api-contract="@dawn-ai/workspace#.:SandboxConfig"
+```ts api-contract="@b4run/workspace#.:SandboxConfig"
 export interface SandboxConfig {
   readonly provider: SandboxProvider
   readonly network?: SandboxPolicy["network"]
@@ -225,7 +225,7 @@ export interface SandboxConfig {
 }
 ```
 
-**Fields: `@dawn-ai/workspace#.:SandboxConfig`**
+**Fields: `@b4run/workspace#.:SandboxConfig`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly provider` | `SandboxProvider` | yes | Supply the sandbox provider. |
@@ -235,14 +235,14 @@ export interface SandboxConfig {
 | `readonly security` | `SandboxSecurityPolicy` | no | Set default hardening intent. |
 | `readonly idleTimeoutMs` | `number` | no | Set the manager idle-reap window; default 600,000 ms. |
 
-```ts api-contract="@dawn-ai/workspace#./node:LocalExecOptions"
+```ts api-contract="@b4run/workspace#./node:LocalExecOptions"
 export interface LocalExecOptions {
   readonly timeout?: number
   readonly allowedCommands?: readonly RegExp[]
 }
 ```
 
-```ts api-contract="@dawn-ai/workspace#./node:localExec"
+```ts api-contract="@b4run/workspace#./node:localExec"
 export declare function localExec(opts?: LocalExecOptions): ExecBackend
 ```
 
@@ -250,13 +250,13 @@ export declare function localExec(opts?: LocalExecOptions): ExecBackend
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/workspace/test/local-exec.test.ts","testNames":["runCommand enforces timeout"]}] */}
 The local exec backend enforces its configured timeout.
 
-```ts api-contract="@dawn-ai/workspace#./node:LocalFilesystemOptions"
+```ts api-contract="@b4run/workspace#./node:LocalFilesystemOptions"
 export interface LocalFilesystemOptions {
   readonly maxFileBytes?: number
 }
 ```
 
-```ts api-contract="@dawn-ai/workspace#./node:localFilesystem"
+```ts api-contract="@b4run/workspace#./node:localFilesystem"
 export declare function localFilesystem(opts?: LocalFilesystemOptions): FilesystemBackend
 ```
 
@@ -277,8 +277,8 @@ Logging middleware defaults to `console.error`. A custom destination receives `{
 ## Examples and related guides
 
 ```ts
-import { compose, withExecLogging, withFilesystemLogging } from "@dawn-ai/workspace"
-import { localExec, localFilesystem } from "@dawn-ai/workspace/node"
+import { compose, withExecLogging, withFilesystemLogging } from "@b4run/workspace"
+import { localExec, localFilesystem } from "@b4run/workspace/node"
 
 const filesystem = compose(withFilesystemLogging())(
   localFilesystem({ maxFileBytes: 512 * 1024 }),

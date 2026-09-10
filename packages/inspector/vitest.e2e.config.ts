@@ -8,7 +8,7 @@ export default defineConfig({
     testTimeout: 120_000,
     hookTimeout: 120_000,
     // e2e files boot standalone servers against the SAME fixture app (and
-    // its .dawn sqlite dir) — parallel files would clobber each other's
+    // its .b4 sqlite dir) — parallel files would clobber each other's
     // seeds.
     fileParallelism: false,
   },

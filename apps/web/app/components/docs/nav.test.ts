@@ -1308,7 +1308,7 @@ describe("maintained documentation heading identity analysis", { timeout: 30_000
   })
 
   it.each([
-    ["inline code", "## Use `@dawn-ai/cli/fetch`\n", ["use-dawn-aiclifetch"]],
+    ["inline code", "## Use `@b4run/cli/fetch`\n", ["use-b4runclifetch"]],
     [
       "an ordinary Markdown link",
       "## Read the [deployment guide](/docs/deployment)\n",
@@ -1347,10 +1347,10 @@ describe("maintained documentation heading identity analysis", { timeout: 30_000
   })
 
   it("parses standard HTML comments in README Markdown mode", async () => {
-    const source = "<!-- ## Hidden -->\n# @dawn-ai/ag-ui\n"
+    const source = "<!-- ## Hidden -->\n# @b4run/ag-ui\n"
     const runtimeIds = await renderedHeadingIds(source, "md")
 
-    expect(runtimeIds).toEqual(["dawn-aiag-ui"])
+    expect(runtimeIds).toEqual(["b4runag-ui"])
     expect(analyzeMaintainedHeadingIds(source, "packages/ag-ui/README.md")).toEqual(runtimeIds)
   })
 
@@ -1401,10 +1401,10 @@ describe("compatibility stub analysis", { timeout: 30_000 }, () => {
 
   it("recognizes retained heading text that contains inline code", () => {
     const analysis = analyzeCompatibilityStub(
-      `### The \`@dawn-ai/cli/fetch\` entry point
+      `### The \`@b4run/cli/fetch\` entry point
 [Canonical](${canonicalHref})
 `,
-      "The `@dawn-ai/cli/fetch` entry point",
+      "The `@b4run/cli/fetch` entry point",
       canonicalHref,
     )
 
@@ -1565,7 +1565,7 @@ describe("canonical docs link guard analysis", { timeout: 30_000 }, () => {
   it("uses standard Markdown grammar for README ownership guards", () => {
     const requiredHref = "/docs/ag-ui"
     const source = `<!-- README ownership note -->
-# @dawn-ai/ag-ui
+# @b4run/ag-ui
 
 [AG-UI guide](${requiredHref})
 `
@@ -1575,7 +1575,7 @@ describe("canonical docs link guard analysis", { timeout: 30_000 }, () => {
         file: "packages/ag-ui/README.md",
         source,
         movedContracts: [],
-        canonicalContracts: [{ heading: "@dawn-ai/ag-ui", required: [requiredHref] }],
+        canonicalContracts: [{ heading: "@b4run/ag-ui", required: [requiredHref] }],
       }),
     ).toEqual({ movedViolations: [], canonicalViolations: [] })
   })

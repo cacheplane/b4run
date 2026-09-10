@@ -28,7 +28,7 @@ function fetchStub(routes: Record<string, { status: number; body: string }>): ty
   }) as unknown as typeof fetch
 }
 
-const BASE = "https://dawnai.org"
+const BASE = "https://b4.run"
 
 describe("runAddCommand()", () => {
   it("lists the catalog grouped by category when no target is given", async () => {
@@ -53,7 +53,7 @@ describe("runAddCommand()", () => {
     })
     await runAddCommand({ target: "opentelemetry", fetchImpl }, io)
     const text = out.join("\n")
-    expect(text).toContain("Apply this Dawn blueprint: opentelemetry")
+    expect(text).toContain("Apply this B4.run blueprint: opentelemetry")
     expect(text).toContain("# Add OpenTelemetry")
   })
 

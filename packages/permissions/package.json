@@ -1,17 +1,26 @@
 {
-  "name": "@dawn-ai/permissions",
-  "version": "0.8.22",
+  "name": "@b4run/permissions",
+  "version": "0.8.30",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "homepage": "https://github.com/cacheplane/dawnai/tree/main/packages/permissions#readme",
+  "description": "Permission matching, approval gates, and access-control stores for B4.run agents.",
+  "keywords": [
+    "b4",
+    "typescript",
+    "ai-agents",
+    "permissions",
+    "access-control",
+    "human-in-the-loop"
+  ],
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/permissions#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/dawnai.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/permissions"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/dawnai/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -40,10 +49,10 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.contracts.json && tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@dawn-ai/sdk": "workspace:*"
+    "@b4run/sdk": "workspace:*"
   },
   "devDependencies": {
-    "@dawn-ai/config-typescript": "workspace:*",
+    "@b4run/config-typescript": "workspace:*",
     "@types/node": "26.1.2",
     "esbuild": "^0.28.1"
   }

@@ -1,9 +1,9 @@
 node_modules/
 .DS_Store
 dist/
-# A stray `dawn inspect`/`dawn memory` run from the workspace root creates this;
+# A stray `b4 inspect`/`b4 memory` run from the workspace root creates this;
 # server/.gitignore cannot cover a sibling directory at the root.
-.dawn/
+.b4/
 *.tsbuildinfo
 .vercel/
 .env

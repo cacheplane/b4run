@@ -13,12 +13,12 @@ afterEach(async () => {
 })
 
 async function createFixtureApp() {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-typegen-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-typegen-"))
   tempDirs.push(appRoot)
 
   const fileEntries: ReadonlyArray<readonly [string, string]> = [
     ["package.json", '{"type":"module"}'],
-    ["dawn.config.ts", "export default {};\n"],
+    ["b4.config.ts", "export default {};\n"],
     ["src/app/index.ts", "export const graph = async () => ({});\n"],
     ["src/app/[tenant]/index.ts", "export const graph = async () => ({});\n"],
   ]
@@ -35,7 +35,7 @@ async function createFixtureApp() {
 }
 
 async function createCustomAppDirFixture() {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-typegen-custom-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-typegen-custom-"))
   tempDirs.push(appRoot)
 
   await mkdir(join(appRoot, "src", "custom-app", "[tenant]"), { recursive: true })
@@ -43,7 +43,7 @@ async function createCustomAppDirFixture() {
   await Promise.all([
     writeFile(join(appRoot, "package.json"), '{"type":"module"}'),
     writeFile(
-      join(appRoot, "dawn.config.ts"),
+      join(appRoot, "b4.config.ts"),
       'const appDir = "src/custom-app";\nexport default { appDir };\n',
     ),
     writeFile(
@@ -119,7 +119,7 @@ async function packPackage(packageName: string, outputDir: string) {
   return join(outputDir, basename(tarballName))
 }
 
-describe("dawn typegen", () => {
+describe("b4 typegen", () => {
   test("writes generated route types into the target app", async () => {
     const appRoot = await createFixtureApp()
     const stdout: string[] = []
@@ -134,13 +134,13 @@ describe("dawn typegen", () => {
       },
     })
 
-    const outputPath = join(appRoot, ".dawn/dawn.generated.d.ts")
+    const outputPath = join(appRoot, ".b4/b4.generated.d.ts")
     const output = await readFile(outputPath, "utf8")
 
     expect(exitCode).toBe(0)
     expect(stderr.join("")).toBe("")
     expect(stdout.join("")).toContain("Wrote types for 2 route(s)")
-    expect(output).toContain('export type DawnRoutePath = "/" | "/[tenant]";')
+    expect(output).toContain('export type B4RoutePath = "/" | "/[tenant]";')
     expect(output).toContain('"/[tenant]": { tenant: string };')
   })
 
@@ -163,39 +163,39 @@ describe("dawn typegen", () => {
       stdout: () => {},
     })
 
-    const output = await readFile(join(appRoot, ".dawn/dawn.generated.d.ts"), "utf8")
+    const output = await readFile(join(appRoot, ".b4/b4.generated.d.ts"), "utf8")
 
     expect(verifyExitCode).toBe(0)
     expect(verifyStderr.join("")).toBe("")
-    expect(verifyStdout.join("")).toContain("Dawn app integrity OK")
+    expect(verifyStdout.join("")).toContain("B4.run app integrity OK")
     expect(exitCode).toBe(0)
-    expect(output).toContain('export type DawnRoutePath = "/" | "/[tenant]";')
+    expect(output).toContain('export type B4RoutePath = "/" | "/[tenant]";')
   })
 
-  test("runs from an externally installed dawn bin against a custom appDir", {
+  test("runs from an externally installed b4 bin against a custom appDir", {
     // This builds and packs ten workspace packages, installs them into a clean
     // consumer, and runs two external CLI processes. Leave headroom for the
     // repository-wide suite running other package builds concurrently.
     timeout: 120_000,
   }, async () => {
-    const installerRoot = await mkdtemp(join(tmpdir(), "dawn-cli-packed-installer-"))
+    const installerRoot = await mkdtemp(join(tmpdir(), "b4-cli-packed-installer-"))
     const packsRoot = join(installerRoot, "packs")
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-typegen-external-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-typegen-external-"))
     tempDirs.push(installerRoot, appRoot)
 
     await mkdir(packsRoot, { recursive: true })
     await mkdir(join(appRoot, "src", "custom-app", "[tenant]"), { recursive: true })
 
-    const agUiTarball = await packPackage("@dawn-ai/ag-ui", packsRoot)
-    const cliTarball = await packPackage("@dawn-ai/cli", packsRoot)
-    const coreTarball = await packPackage("@dawn-ai/core", packsRoot)
-    const langchainTarball = await packPackage("@dawn-ai/langchain", packsRoot)
-    const langgraphTarball = await packPackage("@dawn-ai/langgraph", packsRoot)
-    const memoryTarball = await packPackage("@dawn-ai/memory", packsRoot)
-    const permissionsTarball = await packPackage("@dawn-ai/permissions", packsRoot)
-    const sdkTarball = await packPackage("@dawn-ai/sdk", packsRoot)
-    const sqliteStorageTarball = await packPackage("@dawn-ai/sqlite-storage", packsRoot)
-    const workspaceTarball = await packPackage("@dawn-ai/workspace", packsRoot)
+    const agUiTarball = await packPackage("@b4run/ag-ui", packsRoot)
+    const cliTarball = await packPackage("@b4run/cli", packsRoot)
+    const coreTarball = await packPackage("@b4run/core", packsRoot)
+    const langchainTarball = await packPackage("@b4run/langchain", packsRoot)
+    const langgraphTarball = await packPackage("@b4run/langgraph", packsRoot)
+    const memoryTarball = await packPackage("@b4run/memory", packsRoot)
+    const permissionsTarball = await packPackage("@b4run/permissions", packsRoot)
+    const sdkTarball = await packPackage("@b4run/sdk", packsRoot)
+    const sqliteStorageTarball = await packPackage("@b4run/sqlite-storage", packsRoot)
+    const workspaceTarball = await packPackage("@b4run/workspace", packsRoot)
 
     await writeFile(
       join(installerRoot, "package.json"),
@@ -205,11 +205,11 @@ describe("dawn typegen", () => {
           private: true,
           packageManager: "pnpm@10.33.0",
           dependencies: {
-            "@dawn-ai/cli": `file:${cliTarball}`,
-            "@dawn-ai/core": `file:${coreTarball}`,
-            "@dawn-ai/langchain": `file:${langchainTarball}`,
-            "@dawn-ai/langgraph": `file:${langgraphTarball}`,
-            "@dawn-ai/sqlite-storage": `file:${sqliteStorageTarball}`,
+            "@b4run/cli": `file:${cliTarball}`,
+            "@b4run/core": `file:${coreTarball}`,
+            "@b4run/langchain": `file:${langchainTarball}`,
+            "@b4run/langgraph": `file:${langgraphTarball}`,
+            "@b4run/sqlite-storage": `file:${sqliteStorageTarball}`,
           },
         },
         null,
@@ -229,15 +229,15 @@ describe("dawn typegen", () => {
         "  esbuild: true",
         "",
         "overrides:",
-        `  "@dawn-ai/ag-ui": ${JSON.stringify(`file:${agUiTarball}`)}`,
-        `  "@dawn-ai/core": ${JSON.stringify(`file:${coreTarball}`)}`,
-        `  "@dawn-ai/langchain": ${JSON.stringify(`file:${langchainTarball}`)}`,
-        `  "@dawn-ai/langgraph": ${JSON.stringify(`file:${langgraphTarball}`)}`,
-        `  "@dawn-ai/memory": ${JSON.stringify(`file:${memoryTarball}`)}`,
-        `  "@dawn-ai/permissions": ${JSON.stringify(`file:${permissionsTarball}`)}`,
-        `  "@dawn-ai/sdk": ${JSON.stringify(`file:${sdkTarball}`)}`,
-        `  "@dawn-ai/sqlite-storage": ${JSON.stringify(`file:${sqliteStorageTarball}`)}`,
-        `  "@dawn-ai/workspace": ${JSON.stringify(`file:${workspaceTarball}`)}`,
+        `  "@b4run/ag-ui": ${JSON.stringify(`file:${agUiTarball}`)}`,
+        `  "@b4run/core": ${JSON.stringify(`file:${coreTarball}`)}`,
+        `  "@b4run/langchain": ${JSON.stringify(`file:${langchainTarball}`)}`,
+        `  "@b4run/langgraph": ${JSON.stringify(`file:${langgraphTarball}`)}`,
+        `  "@b4run/memory": ${JSON.stringify(`file:${memoryTarball}`)}`,
+        `  "@b4run/permissions": ${JSON.stringify(`file:${permissionsTarball}`)}`,
+        `  "@b4run/sdk": ${JSON.stringify(`file:${sdkTarball}`)}`,
+        `  "@b4run/sqlite-storage": ${JSON.stringify(`file:${sqliteStorageTarball}`)}`,
+        `  "@b4run/workspace": ${JSON.stringify(`file:${workspaceTarball}`)}`,
         "",
       ].join("\n"),
     )
@@ -251,7 +251,7 @@ describe("dawn typegen", () => {
     await Promise.all([
       writeFile(join(appRoot, "package.json"), '{"type":"module"}'),
       writeFile(
-        join(appRoot, "dawn.config.ts"),
+        join(appRoot, "b4.config.ts"),
         'const appDir = "src/custom-app";\nexport default { appDir };\n',
       ),
       writeFile(
@@ -264,7 +264,7 @@ describe("dawn typegen", () => {
       ),
     ])
 
-    const externalBin = join(installerRoot, "node_modules", ".bin", "dawn")
+    const externalBin = join(installerRoot, "node_modules", ".bin", "b4")
     const verifyResult = await runCommand(externalBin, ["verify", "--cwd", appRoot], installerRoot)
     const typegenResult = await runCommand(
       externalBin,
@@ -274,11 +274,11 @@ describe("dawn typegen", () => {
 
     expect(verifyResult.code).toBe(0)
     expect(verifyResult.stderr).toBe("")
-    expect(verifyResult.stdout).toContain("Dawn app integrity OK")
+    expect(verifyResult.stdout).toContain("B4.run app integrity OK")
     expect(typegenResult.code).toBe(0)
     expect(typegenResult.stderr).toBe("")
-    await expect(
-      readFile(join(appRoot, ".dawn", "dawn.generated.d.ts"), "utf8"),
-    ).resolves.toContain('export type DawnRoutePath = "/" | "/[tenant]";')
+    await expect(readFile(join(appRoot, ".b4", "b4.generated.d.ts"), "utf8")).resolves.toContain(
+      'export type B4RoutePath = "/" | "/[tenant]";',
+    )
   })
 })

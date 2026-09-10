@@ -115,7 +115,7 @@ async function createNpmServerFixture(prefix: string, targetRoot?: string): Prom
       'const sigtermDelayMs = Number(process.env.FIXTURE_SIGTERM_DELAY_MS ?? "0")',
       "let healthRequestCount = 0",
       "let readyRequestCount = 0",
-      'await writeFile(new URL("./observed.json", import.meta.url), JSON.stringify({ args, host, mode, pid: process.pid, port, runtimeEnv: { apiKey: process.env.OPENAI_API_KEY ?? "missing", baseUrl: process.env.OPENAI_BASE_URL ?? "missing", dockerSandbox: process.env.DAWN_DEMO_DOCKER_SANDBOX ?? "missing" }, unsetEnv: process.env.DAWN_TEST_SERVER_UNSET_ENV ?? "missing" }))',
+      'await writeFile(new URL("./observed.json", import.meta.url), JSON.stringify({ args, host, mode, pid: process.pid, port, runtimeEnv: { apiKey: process.env.OPENAI_API_KEY ?? "missing", baseUrl: process.env.OPENAI_BASE_URL ?? "missing", dockerSandbox: process.env.B4_DEMO_DOCKER_SANDBOX ?? "missing" }, unsetEnv: process.env.B4_TEST_SERVER_UNSET_ENV ?? "missing" }))',
       'process.stdout.write("fixture " + mode + " stdout\\n")',
       'process.stderr.write("fixture " + mode + " stderr\\n")',
       "if (exitCode > 0) {",
@@ -274,7 +274,7 @@ describe("resolveNpmLaunch", () => {
   })
 
   it("runs npm through argv while retaining a human-readable transcript", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "dawn-npm-argv-"))
+    const tempRoot = await mkdtemp(join(tmpdir(), "b4-npm-argv-"))
     const cwd = join(tempRoot, "app & (argv)^ space")
     const transcriptPath = join(tempRoot, "npm.log")
 
@@ -295,7 +295,7 @@ describe("resolveNpmLaunch", () => {
 
 describe("runPackagedCommand", () => {
   it("records an asynchronous spawn failure before rethrowing it", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "dawn-packaged-spawn-error-"))
+    const tempRoot = await mkdtemp(join(tmpdir(), "b4-packaged-spawn-error-"))
     const transcriptPath = join(tempRoot, "spawn-error.log")
     const missingCommand = join(tempRoot, "missing-command")
     let thrown: unknown
@@ -328,7 +328,7 @@ describe("runPackagedCommand", () => {
   })
 
   it("aggregates command and transcript failures", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "dawn-packaged-transcript-error-"))
+    const tempRoot = await mkdtemp(join(tmpdir(), "b4-packaged-transcript-error-"))
     const transcriptPath = join(tempRoot, "transcript-directory")
     await mkdir(transcriptPath)
 
@@ -358,16 +358,16 @@ describe("runPackagedCommand", () => {
   })
 
   it("can remove selected inherited environment variables", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "dawn-packaged-command-"))
-    const restoreEnv = setTestEnvironmentVariable("DAWN_TEST_PACKAGED_UNSET_ENV", "inherited")
+    const tempRoot = await mkdtemp(join(tmpdir(), "b4-packaged-command-"))
+    const restoreEnv = setTestEnvironmentVariable("B4_TEST_PACKAGED_UNSET_ENV", "inherited")
 
     try {
       const result = await runPackagedCommand({
-        args: ["-e", 'process.stdout.write(process.env.DAWN_TEST_PACKAGED_UNSET_ENV ?? "missing")'],
+        args: ["-e", 'process.stdout.write(process.env.B4_TEST_PACKAGED_UNSET_ENV ?? "missing")'],
         command: process.execPath,
         cwd: tempRoot,
         transcriptPath: join(tempRoot, "command.log"),
-        unsetEnv: ["DAWN_TEST_PACKAGED_UNSET_ENV"],
+        unsetEnv: ["B4_TEST_PACKAGED_UNSET_ENV"],
       })
 
       expect(result.stdout).toBe("missing")
@@ -378,8 +378,8 @@ describe("runPackagedCommand", () => {
   })
 
   it("preserves stdin while removing environment overrides", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "dawn-packaged-stdin-"))
-    const restoreEnv = setTestEnvironmentVariable("DAWN_TEST_PACKAGED_STDIN_UNSET_ENV", "inherited")
+    const tempRoot = await mkdtemp(join(tmpdir(), "b4-packaged-stdin-"))
+    const restoreEnv = setTestEnvironmentVariable("B4_TEST_PACKAGED_STDIN_UNSET_ENV", "inherited")
 
     try {
       const result = await runPackagedCommand({
@@ -389,15 +389,15 @@ describe("runPackagedCommand", () => {
             'let stdin = ""',
             'process.stdin.setEncoding("utf8")',
             'process.stdin.on("data", (chunk) => { stdin += chunk })',
-            'process.stdin.on("end", () => process.stdout.write((process.env.DAWN_TEST_PACKAGED_STDIN_UNSET_ENV ?? "missing") + ":" + stdin))',
+            'process.stdin.on("end", () => process.stdout.write((process.env.B4_TEST_PACKAGED_STDIN_UNSET_ENV ?? "missing") + ":" + stdin))',
           ].join(";"),
         ],
         command: process.execPath,
         cwd: tempRoot,
-        env: { DAWN_TEST_PACKAGED_STDIN_UNSET_ENV: "override" },
+        env: { B4_TEST_PACKAGED_STDIN_UNSET_ENV: "override" },
         stdin: "input",
         transcriptPath: join(tempRoot, "command.log"),
-        unsetEnv: ["DAWN_TEST_PACKAGED_STDIN_UNSET_ENV"],
+        unsetEnv: ["B4_TEST_PACKAGED_STDIN_UNSET_ENV"],
       })
 
       expect(result.stdout).toBe("missing:input")
@@ -408,7 +408,7 @@ describe("runPackagedCommand", () => {
   })
 
   it("records timeout diagnostics only after the process tree has stopped", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "dawn-packaged-timeout-"))
+    const tempRoot = await mkdtemp(join(tmpdir(), "b4-packaged-timeout-"))
     const readyPath = join(tempRoot, "ready.json")
     const transcriptPath = join(tempRoot, "timeout.log")
     const startedAt = Date.now()
@@ -451,7 +451,7 @@ describe("runPackagedCommand", () => {
   it.runIf(process.platform !== "win32")(
     "records partial output when timed-out tree termination fails",
     async () => {
-      const tempRoot = await mkdtemp(join(tmpdir(), "dawn-packaged-termination-error-"))
+      const tempRoot = await mkdtemp(join(tmpdir(), "b4-packaged-termination-error-"))
       const readyPath = join(tempRoot, "ready.json")
       const transcriptPath = join(tempRoot, "termination-error.log")
       const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform")
@@ -503,7 +503,7 @@ describe("runPackagedCommand", () => {
   it.skipIf(process.platform === "win32")(
     "forwards an explicitly requested shell to the process launcher",
     async () => {
-      const tempRoot = await mkdtemp(join(tmpdir(), "dawn-packaged-shell-"))
+      const tempRoot = await mkdtemp(join(tmpdir(), "b4-packaged-shell-"))
 
       try {
         const result = await runPackagedCommand({
@@ -523,8 +523,8 @@ describe("runPackagedCommand", () => {
 
 describe("runGeneratedAppNpmCommand", () => {
   it("removes ambient runtime and sandbox configuration from npm children", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "dawn-generated-app-env-"))
-    const restoreDockerSandbox = setTestEnvironmentVariable("DAWN_DEMO_DOCKER_SANDBOX", "1")
+    const tempRoot = await mkdtemp(join(tmpdir(), "b4-generated-app-env-"))
+    const restoreDockerSandbox = setTestEnvironmentVariable("B4_DEMO_DOCKER_SANDBOX", "1")
     const restoreBaseUrl = setTestEnvironmentVariable("OPENAI_BASE_URL", "http://127.0.0.1:1/v1")
     const restoreApiKey = setTestEnvironmentVariable("OPENAI_API_KEY", "ambient-secret")
 
@@ -541,7 +541,7 @@ describe("runGeneratedAppNpmCommand", () => {
       await writeFile(
         join(tempRoot, "observe-env.mjs"),
         [
-          'const names = ["DAWN_DEMO_DOCKER_SANDBOX", "OPENAI_BASE_URL", "OPENAI_API_KEY"]',
+          'const names = ["B4_DEMO_DOCKER_SANDBOX", "OPENAI_BASE_URL", "OPENAI_API_KEY"]',
           'process.stdout.write(JSON.stringify(names.map((name) => Object.hasOwn(process.env, name) ? "present" : "missing")))',
           "",
         ].join("\n"),
@@ -567,7 +567,7 @@ describe("runGeneratedAppNpmCommand", () => {
   })
 
   it("propagates abort through npm and records it after the process tree stops", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "dawn-generated-app-abort-"))
+    const tempRoot = await mkdtemp(join(tmpdir(), "b4-generated-app-abort-"))
     const readyPath = join(tempRoot, "ready.json")
     const transcriptPath = join(tempRoot, "abort.log")
     const controller = new AbortController()
@@ -624,7 +624,7 @@ describe("runGeneratedAppNpmCommand", () => {
 
 describe("installRegistryScaffolderWithNpm", () => {
   it("ignores inherited registry overrides and installs current candidate bytes", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "dawn-npm-scaffolder-"))
+    const tempRoot = await mkdtemp(join(tmpdir(), "b4-npm-scaffolder-"))
     const transcriptPath = join(tempRoot, "install.log")
     const userconfigPath = join(tempRoot, "poison-user.npmrc")
     let poisonRegistry: Awaited<ReturnType<typeof startPoisonRegistry>> | undefined
@@ -639,7 +639,7 @@ describe("installRegistryScaffolderWithNpm", () => {
         [
           `scope=@poison`,
           `@poison:registry=${poisonRegistry.url}`,
-          `@dawn-ai:registry=${poisonRegistry.url}`,
+          `@b4run:registry=${poisonRegistry.url}`,
           "",
         ].join("\n"),
         "utf8",
@@ -653,9 +653,9 @@ describe("installRegistryScaffolderWithNpm", () => {
         ["npm_config_scope", "@poison"],
         ["NPM_CONFIG_SCOPE", "@poison"],
         ["nPm_CoNfIg_ScOpE", "@poison"],
-        ["npm_config_@dawn-ai:registry", poisonRegistry.url],
-        ["NPM_CONFIG_@DAWN-AI:REGISTRY", poisonRegistry.url],
-        ["nPm_CoNfIg_@DaWn-Ai:ReGiStRy", poisonRegistry.url],
+        ["npm_config_@b4run:registry", poisonRegistry.url],
+        ["NPM_CONFIG_@B4-AI:REGISTRY", poisonRegistry.url],
+        ["nPm_CoNfIg_@B4RuN:ReGiStRy", poisonRegistry.url],
       ] as const) {
         restoreRegistryEnvironment.push(setTestEnvironmentVariable(name, value))
       }
@@ -684,22 +684,19 @@ describe("installRegistryScaffolderWithNpm", () => {
         `registry=${getTestRegistryUrl()}`,
       )
       await expect(
-        readFile(join(installerDir, "node_modules", "create-dawn-ai-app", "package.json"), "utf8"),
-      ).resolves.toContain('"name": "create-dawn-ai-app"')
+        readFile(join(installerDir, "node_modules", "create-b4-app", "package.json"), "utf8"),
+      ).resolves.toContain('"name": "create-b4-app"')
       await expect(
-        readFile(
-          join(installerDir, "node_modules", "create-dawn-ai-app", "dist", "index.js"),
-          "utf8",
-        ),
+        readFile(join(installerDir, "node_modules", "create-b4-app", "dist", "index.js"), "utf8"),
       ).resolves.toBe(
-        await readFile(join(REPO_ROOT, "packages", "create-dawn-app", "dist", "index.js"), "utf8"),
+        await readFile(join(REPO_ROOT, "packages", "create-b4-app", "dist", "index.js"), "utf8"),
       )
       await expect(
         readFile(
           join(
             installerDir,
             "node_modules",
-            "@dawn-ai",
+            "@b4run",
             "devkit",
             "templates",
             "app-research",
@@ -723,7 +720,7 @@ describe("installRegistryScaffolderWithNpm", () => {
 
       const transcript = await readFile(transcriptPath, "utf8")
       expect(transcript).toContain(
-        `$ (cd ${installerDir} && npm install --no-save create-dawn-ai-app@latest)`,
+        `$ (cd ${installerDir} && npm install --no-save create-b4-app@latest)`,
       )
       expect(transcript).not.toContain("--registry")
       expect(transcript).not.toContain(getTestRegistryUrl())
@@ -745,7 +742,7 @@ describe("installRegistryScaffolderWithNpm", () => {
 
 describe("withPackagedNpmServer", () => {
   it("does not spawn when the caller signal is already aborted", async () => {
-    const appRoot = await createNpmServerFixture("dawn-npm-pre-aborted-server-")
+    const appRoot = await createNpmServerFixture("b4-npm-pre-aborted-server-")
     const transcriptPath = join(appRoot, "pre-aborted.log")
     const controller = new AbortController()
     const abortReason = new Error("cancel before npm server spawn")
@@ -776,7 +773,7 @@ describe("withPackagedNpmServer", () => {
   })
 
   it("aborts readiness after a real health probe and settles cleanup before rejecting", async () => {
-    const appRoot = await createNpmServerFixture("dawn-npm-abort-readiness-server-")
+    const appRoot = await createNpmServerFixture("b4-npm-abort-readiness-server-")
     const transcriptPath = join(appRoot, "abort-readiness.log")
     const controller = new AbortController()
     const abortReason = new Error("cancel npm server readiness")
@@ -831,7 +828,7 @@ describe("withPackagedNpmServer", () => {
   })
 
   it("bounds action waiting with the caller signal", async () => {
-    const appRoot = await createNpmServerFixture("dawn-npm-abort-action-server-")
+    const appRoot = await createNpmServerFixture("b4-npm-abort-action-server-")
     const transcriptPath = join(appRoot, "abort-action.log")
     const controller = new AbortController()
     const abortReason = new Error("cancel npm server action")
@@ -891,7 +888,7 @@ describe("withPackagedNpmServer", () => {
   })
 
   it("observes an action rejection when the action aborts its caller signal", async () => {
-    const appRoot = await createNpmServerFixture("dawn-npm-action-aborts-server-")
+    const appRoot = await createNpmServerFixture("b4-npm-action-aborts-server-")
     const transcriptPath = join(appRoot, "action-aborts.log")
     const controller = new AbortController()
     const abortReason = new Error("action cancelled its npm server")
@@ -941,8 +938,8 @@ describe("withPackagedNpmServer", () => {
   })
 
   it("settles a nested server before tearing down the outer one", async () => {
-    const outerRoot = await createNpmServerFixture("dawn-npm-nested-outer-")
-    const innerRoot = await createNpmServerFixture("dawn-npm-nested-inner-")
+    const outerRoot = await createNpmServerFixture("b4-npm-nested-outer-")
+    const innerRoot = await createNpmServerFixture("b4-npm-nested-inner-")
     // One transcript for both children, exactly as the activation lane does.
     const transcriptPath = join(outerRoot, "nested.log")
     const controller = new AbortController()
@@ -1028,7 +1025,7 @@ describe("withPackagedNpmServer", () => {
   it.skipIf(process.platform !== "win32")(
     "launches npm scripts through argv from a Windows metacharacter path",
     async () => {
-      const tempRoot = await mkdtemp(join(tmpdir(), "dawn-npm-windows-server-"))
+      const tempRoot = await mkdtemp(join(tmpdir(), "b4-npm-windows-server-"))
       const appRoot = await createNpmServerFixture("", join(tempRoot, "app & (native argv)^ space"))
       const transcriptPath = join(appRoot, "windows.log")
       let serverUrl = ""
@@ -1052,7 +1049,7 @@ describe("withPackagedNpmServer", () => {
   )
 
   it("waits for a canonical ready health response before running the action", async () => {
-    const appRoot = await createNpmServerFixture("dawn-npm-readiness-server-")
+    const appRoot = await createNpmServerFixture("b4-npm-readiness-server-")
     const transcriptPath = join(appRoot, "readiness.log")
     let serverUrl = ""
 
@@ -1078,9 +1075,9 @@ describe("withPackagedNpmServer", () => {
   })
 
   it("waits for a custom readiness probe on a child with no health endpoint", async () => {
-    const appRoot = await createNpmServerFixture("dawn-npm-web-readiness-")
+    const appRoot = await createNpmServerFixture("b4-npm-web-readiness-")
     const transcriptPath = join(appRoot, "web-readiness.log")
-    const restoreDockerSandbox = setTestEnvironmentVariable("DAWN_DEMO_DOCKER_SANDBOX", "1")
+    const restoreDockerSandbox = setTestEnvironmentVariable("B4_DEMO_DOCKER_SANDBOX", "1")
     const restoreBaseUrl = setTestEnvironmentVariable("OPENAI_BASE_URL", "ambient-base-url")
     const restoreApiKey = setTestEnvironmentVariable("OPENAI_API_KEY", "ambient-api-key")
     let serverUrl = ""
@@ -1134,7 +1131,7 @@ describe("withPackagedNpmServer", () => {
   })
 
   it("names the readiness contract when the child exits first", async () => {
-    const appRoot = await createNpmServerFixture("dawn-npm-web-early-exit-")
+    const appRoot = await createNpmServerFixture("b4-npm-web-early-exit-")
     const transcriptPath = join(appRoot, "web-early-exit.log")
     let actionRan = false
     let thrown: unknown
@@ -1168,7 +1165,7 @@ describe("withPackagedNpmServer", () => {
   })
 
   it("reports an early exit with process output and a transcript", async () => {
-    const appRoot = await createNpmServerFixture("dawn-npm-early-exit-")
+    const appRoot = await createNpmServerFixture("b4-npm-early-exit-")
     const transcriptPath = join(appRoot, "early-exit.log")
     let actionRan = false
     let thrown: unknown
@@ -1206,7 +1203,7 @@ describe("withPackagedNpmServer", () => {
   })
 
   it("preserves the asynchronous npm spawn error and transcript", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "dawn-npm-spawn-error-"))
+    const tempRoot = await mkdtemp(join(tmpdir(), "b4-npm-spawn-error-"))
     const appRoot = join(tempRoot, "missing-app-root")
     const transcriptPath = join(tempRoot, "spawn-error.log")
     let thrown: unknown
@@ -1233,10 +1230,10 @@ describe("withPackagedNpmServer", () => {
   })
 
   it("passes dev arguments after npm's separator and cleans up after returning", async () => {
-    const appRoot = await createNpmServerFixture("dawn-npm-dev-server-")
+    const appRoot = await createNpmServerFixture("b4-npm-dev-server-")
     const transcriptPath = join(appRoot, "dev.log")
-    const restoreEnv = setTestEnvironmentVariable("DAWN_TEST_SERVER_UNSET_ENV", "inherited")
-    const restoreDockerSandbox = setTestEnvironmentVariable("DAWN_DEMO_DOCKER_SANDBOX", "1")
+    const restoreEnv = setTestEnvironmentVariable("B4_TEST_SERVER_UNSET_ENV", "inherited")
+    const restoreDockerSandbox = setTestEnvironmentVariable("B4_DEMO_DOCKER_SANDBOX", "1")
     const restoreBaseUrl = setTestEnvironmentVariable("OPENAI_BASE_URL", "ambient-base-url")
     const restoreApiKey = setTestEnvironmentVariable("OPENAI_API_KEY", "ambient-api-key")
     let serverUrl = ""
@@ -1246,14 +1243,14 @@ describe("withPackagedNpmServer", () => {
         {
           appRoot,
           env: {
-            DAWN_TEST_SERVER_UNSET_ENV: "override",
+            B4_TEST_SERVER_UNSET_ENV: "override",
             OPENAI_API_KEY: "explicit-api-key",
             OPENAI_BASE_URL: "explicit-base-url",
           },
           script: "dev",
           scriptArgs: ["--silent"],
           transcriptPath,
-          unsetEnv: ["DAWN_TEST_SERVER_UNSET_ENV"],
+          unsetEnv: ["B4_TEST_SERVER_UNSET_ENV"],
         },
         async ({ url }) => {
           serverUrl = url
@@ -1298,7 +1295,7 @@ describe("withPackagedNpmServer", () => {
   })
 
   it("injects start HOST and PORT while retaining npm arguments", async () => {
-    const appRoot = await createNpmServerFixture("dawn-npm-start-server-")
+    const appRoot = await createNpmServerFixture("b4-npm-start-server-")
     const transcriptPath = join(appRoot, "start.log")
     let serverUrl = ""
 
@@ -1340,7 +1337,7 @@ describe("withPackagedNpmServer", () => {
   })
 
   it("cleans up and records a transcript when the action fails", async () => {
-    const appRoot = await createNpmServerFixture("dawn-npm-failing-action-")
+    const appRoot = await createNpmServerFixture("b4-npm-failing-action-")
     const transcriptPath = join(appRoot, "failure.log")
     let serverUrl = ""
 
@@ -1360,7 +1357,7 @@ describe("withPackagedNpmServer", () => {
   })
 
   it("surfaces a transcript failure after a successful action and closes the port", async () => {
-    const appRoot = await createNpmServerFixture("dawn-npm-transcript-failure-")
+    const appRoot = await createNpmServerFixture("b4-npm-transcript-failure-")
     const transcriptPath = join(appRoot, "transcript-directory")
     let actionRan = false
     let serverUrl = ""
@@ -1391,7 +1388,7 @@ describe("withPackagedNpmServer", () => {
   })
 
   it("aggregates action and transcript failures without replacing either error", async () => {
-    const appRoot = await createNpmServerFixture("dawn-npm-combined-failure-")
+    const appRoot = await createNpmServerFixture("b4-npm-combined-failure-")
     const transcriptPath = join(appRoot, "transcript-directory")
     const actionError = new Error("combined action failed")
     let serverUrl = ""

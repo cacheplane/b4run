@@ -23,7 +23,7 @@ const webManifest = (): WebManifest =>
  * It is excluded because it cannot work in a generated app as written. The
  * example's config runs `pnpm exec next dev`, while a scaffolded app is
  * npm-based; the spec asserts CopilotKit's internal transport choice, which
- * guards Dawn's own upgrades rather than anything the user wrote; and
+ * guards B4.run's own upgrades rather than anything the user wrote; and
  * `@playwright/test` fails on first use until the user separately runs
  * `playwright install`, which no scaffold step performs and no scaffold doc
  * mentions. A script without a config, or a config without tests, is worse than

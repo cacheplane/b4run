@@ -11,7 +11,7 @@ import { createAgentHarness } from "../src/harness.js"
 import { expectInterrupt, expectNoInterrupt, expectToolCalled } from "../src/matchers.js"
 
 const askRoot = fileURLToPath(new URL("./fixtures/probe-app-memory-ask", import.meta.url))
-const permissionsPath = join(askRoot, ".dawn", "permissions.json")
+const permissionsPath = join(askRoot, ".b4", "permissions.json")
 
 const NET30 = { subject: "acme", predicate: "payment-terms", value: "net-30" }
 const NET45 = { subject: "acme", predicate: "payment-terms", value: "net-45" }
@@ -23,7 +23,7 @@ function cleanPersistedState(): void {
   // leak in (the first write of a scenario must ADD silently, never supersede).
   // "always" also appends a .gitignore inside the fixture (ensureGitignoreEntry)
   // — the fixture has none committed, so removing it keeps the repo clean.
-  rmSync(join(askRoot, ".dawn"), { recursive: true, force: true })
+  rmSync(join(askRoot, ".b4"), { recursive: true, force: true })
   rmSync(join(askRoot, ".gitignore"), { force: true })
 }
 

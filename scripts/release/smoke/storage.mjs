@@ -13,6 +13,7 @@ import {
 } from "../../published-artifact-smoke.mjs"
 import {
   createStrictSmokeProcessRunner,
+  pickStrictSmokeCommandOptions,
   strictContainmentReceiptDetail,
 } from "../smoke-process-runner.mjs"
 import { executeSmokeLane, parseSmokeLaneArgs } from "../smoke-result.mjs"
@@ -22,6 +23,21 @@ const COMMAND_TIMEOUT_MS = 10 * 60 * 1000
 const COMMAND_OUTPUT_BYTES = 2 * 1024 * 1024
 
 export async function runStorageSmoke(options, overrides = {}) {
+  if (overrides.runCommand !== undefined || overrides.probeContainment !== undefined) {
+    throw new TypeError("Storage smoke command execution requires a strictRunner")
+  }
+  return executeSmokeLane(
+    { lane: "storage", ...options },
+    (context) => executeStorageSmoke(options, context, overrides),
+    overrides,
+  )
+}
+
+export async function executeStorageSmoke(
+  options,
+  { check, deferCleanup, captureInstallation = async () => {}, captureDockerImage },
+  overrides = {},
+) {
   if (overrides.runCommand !== undefined || overrides.probeContainment !== undefined) {
     throw new TypeError("Storage smoke command execution requires a strictRunner")
   }
@@ -44,83 +60,90 @@ export async function runStorageSmoke(options, overrides = {}) {
   const pgvectorContainer = identities.pgvector
   const postgresContainer = identities.postgres
 
-  return executeSmokeLane(
-    { lane: "storage", ...options },
-    async ({ check, deferCleanup }) => {
-      await check(
-        "containment",
-        strictContainmentReceiptDetail(dependencies.env),
-        dependencies.probeContainment,
-      )
-      const root = await check("temporary-project", "clean storage consumer created", () =>
-        dependencies.makeTempDir("dawn-published-storage-"),
-      )
-      deferCleanup("cleanup-project", "storage consumer removed", () =>
-        dependencies.removeDir(root),
-      )
-      deferCleanup("cleanup-pgvector", "pgvector container removed", () =>
-        dependencies.stopContainer(pgvectorContainer),
-      )
-      deferCleanup("cleanup-postgres", "Postgres container removed", () =>
-        dependencies.stopContainer(postgresContainer),
-      )
-
-      await check("docker", "Docker daemon is available", () =>
-        dependencies.runCommand("docker", ["info"]),
-      )
-      await check("exact-install", "exact storage packages installed from public npm", async () => {
-        await dependencies.runCommand("npm", ["init", "-y"], { cwd: root })
-        await dependencies.runCommand(
-          "npm",
-          [
-            "install",
-            "--save-exact",
-            "--package-lock=false",
-            `@dawn-ai/memory-pgvector@${options.version}`,
-            `@dawn-ai/langchain@${options.version}`,
-            `@dawn-ai/postgres-storage@${options.version}`,
-          ],
-          { cwd: root },
-        )
-      })
-
-      const pgvectorUrl = await check(
-        "pgvector-database",
-        "disposable pgvector database ready",
-        () =>
-          dependencies.startDatabase({
-            kind: "pgvector",
-            containerName: pgvectorContainer,
-            image: "pgvector/pgvector:pg16",
-          }),
-      )
-      await check("pgvector-runtime", "pgvector exact-package runtime passed", () =>
-        dependencies.runPgvectorProbe(root, pgvectorUrl),
-      )
-
-      const postgresUrl = await check(
-        "postgres-database",
-        "disposable Postgres database ready",
-        () =>
-          dependencies.startDatabase({
-            kind: "postgres",
-            containerName: postgresContainer,
-            image: "postgres:16",
-          }),
-      )
-      await check("postgres-runtime", "Postgres storage exact-package runtime passed", () =>
-        dependencies.runPostgresProbe(root, postgresUrl),
-      )
-    },
-    overrides,
+  await check(
+    "containment",
+    strictContainmentReceiptDetail(dependencies.env),
+    dependencies.probeContainment,
   )
+  const root = await check("temporary-project", "clean storage consumer created", () =>
+    dependencies.makeTempDir("b4-published-storage-"),
+  )
+  deferCleanup("cleanup-project", "storage consumer removed", () => dependencies.removeDir(root))
+  deferCleanup("cleanup-pgvector", "pgvector container removed", () =>
+    dependencies.stopContainer(pgvectorContainer),
+  )
+  deferCleanup("cleanup-postgres", "Postgres container removed", () =>
+    dependencies.stopContainer(postgresContainer),
+  )
+
+  await check("docker", "Docker daemon is available", () =>
+    dependencies.runCommand("docker", ["info"]),
+  )
+  await check("exact-install", "exact storage packages installed from public npm", async () => {
+    await dependencies.runCommand("npm", ["init", "-y"], { cwd: root })
+    await dependencies.runCommand(
+      "npm",
+      [
+        "install",
+        "--save-exact",
+        "--package-lock=false",
+        `@b4run/memory-pgvector@${options.version}`,
+        `@b4run/langchain@${options.version}`,
+        `@b4run/postgres-storage@${options.version}`,
+      ],
+      { cwd: root },
+    )
+    await captureInstallation("exact-install", root)
+  })
+
+  const pgvectorUrl = await check(
+    "pgvector-database",
+    "disposable pgvector database ready",
+    async () => {
+      const url = await dependencies.startDatabase({
+        kind: "pgvector",
+        containerName: pgvectorContainer,
+        image: "pgvector/pgvector:pg16",
+      })
+      if (captureDockerImage)
+        await captureContainerImage(pgvectorContainer, dependencies.runCommand, captureDockerImage)
+      return url
+    },
+  )
+  await check("pgvector-runtime", "pgvector exact-package runtime passed", () =>
+    dependencies.runPgvectorProbe(root, pgvectorUrl),
+  )
+
+  const postgresUrl = await check(
+    "postgres-database",
+    "disposable Postgres database ready",
+    async () => {
+      const url = await dependencies.startDatabase({
+        kind: "postgres",
+        containerName: postgresContainer,
+        image: "postgres:16",
+      })
+      if (captureDockerImage)
+        await captureContainerImage(postgresContainer, dependencies.runCommand, captureDockerImage)
+      return url
+    },
+  )
+  await check("postgres-runtime", "Postgres storage exact-package runtime passed", () =>
+    dependencies.runPostgresProbe(root, postgresUrl),
+  )
+}
+
+async function captureContainerImage(container, runCommand, capture) {
+  const result = await runCommand("docker", ["inspect", "--format", "{{json .}}", container])
+  const value = JSON.parse(result.stdout)
+  await capture(value.Config.Image, value.Image)
 }
 
 export function storageDockerIdentities(randomUUID = defaultRandomUUID) {
   const token = dockerUuidToken(randomUUID, "Storage Docker probe")
   return Object.freeze({
-    pgvector: `dawn-storage-pgvector-${token}`,
-    postgres: `dawn-storage-postgres-${token}`,
+    pgvector: `b4-storage-pgvector-${token}`,
+    postgres: `b4-storage-postgres-${token}`,
   })
 }
 
@@ -161,7 +184,11 @@ export async function startDisposableDatabase(
     throw new Error(`Database container did not become ready: ${lastError?.message ?? "unknown"}`)
   } catch (error) {
     try {
-      await removeAndVerifyDockerResource({ kind: "container", name: containerName, runCommand })
+      await removeAndVerifyDockerResource({
+        kind: "container",
+        name: containerName,
+        runCommand,
+      })
     } catch (cleanupError) {
       throw new AggregateError(
         [error, cleanupError],
@@ -177,7 +204,7 @@ function defaultSleep(milliseconds) {
 }
 
 export async function cleanupStorageContainer(name, { runCommand } = {}) {
-  if (!/^dawn-storage-(?:pgvector|postgres)-[0-9a-f]{32}$/u.test(name)) {
+  if (!/^b4-storage-(?:pgvector|postgres)-[0-9a-f]{32}$/u.test(name)) {
     throw new TypeError("Storage Docker container identity is invalid")
   }
   await removeAndVerifyDockerResource({ kind: "container", name, runCommand })
@@ -204,14 +231,14 @@ async function defaultPostgresProbe(root, databaseUrl, runCommand) {
     cwd: root,
     env: {
       DATABASE_URL: databaseUrl,
-      SMOKE_TABLE_PREFIX: `dawn_published_postgres_${process.pid}_${Date.now()}`,
+      SMOKE_TABLE_PREFIX: `b4_published_postgres_${process.pid}_${Date.now()}`,
     },
   })
 }
 
 export function postgresProbeSource() {
   return `import assert from "node:assert/strict"
-import { createPostgresThreadsStore } from "@dawn-ai/postgres-storage/node"
+import { createPostgresThreadsStore } from "@b4run/postgres-storage/node"
 
 const connectionString = process.env.DATABASE_URL
 assert.ok(connectionString, "DATABASE_URL is required")
@@ -231,7 +258,7 @@ try {
 
 function productionCommandOptions(options = {}) {
   return {
-    ...options,
+    ...pickStrictSmokeCommandOptions(options),
     env: publicNpmEnvironment({
       home: options.cwd ?? process.cwd(),
       extra: options.env,

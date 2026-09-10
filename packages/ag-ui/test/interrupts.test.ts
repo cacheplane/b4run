@@ -26,7 +26,7 @@ describe("toAguiInterrupt", () => {
     })
   })
 
-  test("maps a Dawn interrupt envelope to an AG-UI Interrupt, preserving the envelope as metadata", () => {
+  test("maps a B4.run interrupt envelope to an AG-UI Interrupt, preserving the envelope as metadata", () => {
     const envelope = {
       interruptId: "perm-1",
       kind: "command",
@@ -108,7 +108,7 @@ describe("toAguiInterrupt", () => {
 })
 
 describe("fromAguiResume", () => {
-  test("maps AG-UI resume entries to Dawn resume requests, preserving interruptId", () => {
+  test("maps AG-UI resume entries to B4.run resume requests, preserving interruptId", () => {
     expect(
       fromAguiResume([
         { interruptId: "perm-1", status: "resolved", payload: "once" },

@@ -37,13 +37,13 @@ import {
 const seoDirectory = dirname(fileURLToPath(import.meta.url))
 const GETTING_STARTED_PATH = "/docs/getting-started"
 const GETTING_STARTED_DESCRIPTION =
-  "Build a typed Dawn research agent with file-system routes, generated types, local tools, offline tests, and production build targets."
+  "Build a typed B4.run research agent with file-system routes, generated types, local tools, offline tests, and production build targets."
 const BLOG_INDEX_DESCRIPTION =
   "Writing on the agent stack, type-safety, and the tools we're building."
 const PRODUCTION_AS_OF = "2026-08-26"
-const HOME_TITLE = "Dawn AI — TypeScript Meta-Framework for LangGraph.js"
+const HOME_TITLE = "B4.run — TypeScript Meta-Framework for LangGraph.js"
 const HOME_DESCRIPTION =
-  "Dawn AI is the TypeScript meta-framework for LangGraph.js, with file-system routes, route-local tools, generated types, and durable threads."
+  "B4.run is the TypeScript meta-framework for LangGraph.js, with file-system routes, route-local tools, generated types, and durable threads."
 const BLOG_CONTENT_DIRECTORY = resolve(seoDirectory, "../../content/blog")
 const REPO_ROOT = resolve(seoDirectory, "../../../..")
 
@@ -106,25 +106,25 @@ describe("homepage SEO", () => {
 
     expect(page).toMatchObject({
       path: "/",
-      canonical: "https://dawnai.org/",
+      canonical: "https://b4.run/",
       title: HOME_TITLE,
       description: HOME_DESCRIPTION,
       kind: "WebPage",
       breadcrumbs: [],
     })
     expect(new Date(page.lastModified).toISOString()).toBe(page.lastModified)
-    expect(HOME_TITLE).toMatch(/^Dawn AI\b.*(?:TypeScript|LangGraph)/)
+    expect(HOME_TITLE).toMatch(/^B4.run\b.*(?:TypeScript|LangGraph)/)
     expect(HOME_TITLE.length).toBeLessThanOrEqual(60)
     expectValidDescription(page.description)
 
     expect(toMetadata(page)).toEqual({
       title: { absolute: HOME_TITLE },
       description: HOME_DESCRIPTION,
-      alternates: { canonical: "https://dawnai.org/" },
+      alternates: { canonical: "https://b4.run/" },
       openGraph: {
         type: "website",
-        url: "https://dawnai.org/",
-        siteName: "Dawn AI",
+        url: "https://b4.run/",
+        siteName: "B4.run",
         title: HOME_TITLE,
         description: HOME_DESCRIPTION,
         images: [
@@ -133,7 +133,7 @@ describe("homepage SEO", () => {
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "Dawn — TypeScript meta-framework for LangGraph.js",
+            alt: "B4.run — TypeScript meta-framework for LangGraph.js",
           },
         ],
       },
@@ -147,7 +147,7 @@ describe("homepage SEO", () => {
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "Dawn — TypeScript meta-framework for LangGraph.js",
+            alt: "B4.run — TypeScript meta-framework for LangGraph.js",
           },
         ],
       },
@@ -168,12 +168,12 @@ describe("homepage SEO", () => {
     expect(webPageJsonLd(page)).toEqual({
       "@context": "https://schema.org",
       "@type": "WebPage",
-      "@id": "https://dawnai.org/#webpage",
-      url: "https://dawnai.org/",
+      "@id": "https://b4.run/#webpage",
+      url: "https://b4.run/",
       name: HOME_TITLE,
       description: HOME_DESCRIPTION,
-      isPartOf: { "@id": "https://dawnai.org/#website" },
-      publisher: { "@id": "https://dawnai.org/#organization" },
+      isPartOf: { "@id": "https://b4.run/#website" },
+      publisher: { "@id": "https://b4.run/#organization" },
     })
   })
 
@@ -197,12 +197,12 @@ describe("homepage SEO", () => {
       {
         "@context": "https://schema.org",
         "@type": "WebPage",
-        "@id": "https://dawnai.org/#webpage",
-        url: "https://dawnai.org/",
+        "@id": "https://b4.run/#webpage",
+        url: "https://b4.run/",
         name: HOME_TITLE,
         description: HOME_DESCRIPTION,
-        isPartOf: { "@id": "https://dawnai.org/#website" },
-        publisher: { "@id": "https://dawnai.org/#organization" },
+        isPartOf: { "@id": "https://b4.run/#website" },
+        publisher: { "@id": "https://b4.run/#organization" },
       },
     ])
   })
@@ -260,7 +260,7 @@ describe("production SEO inventory", () => {
       slug: "scheduled-inventory-post",
       title: "Scheduled inventory post",
       description:
-        "A scheduled Dawn article that verifies date-bound production SEO inventory selection.",
+        "A scheduled B4.run article that verifies date-bound production SEO inventory selection.",
       date: "2026-08-27",
       tags: ["typescript"],
       draft: false,
@@ -271,7 +271,7 @@ describe("production SEO inventory", () => {
       slug: "draft-inventory-post",
       title: "Draft inventory post",
       description:
-        "A draft Dawn article that must remain outside production SEO inventory on every date.",
+        "A draft B4.run article that must remain outside production SEO inventory on every date.",
       date: "2026-08-20",
       tags: ["patterns"],
       draft: true,
@@ -319,7 +319,7 @@ describe("production SEO inventory", () => {
       slug: "scheduled-authored-post",
       title: "Scheduled authored post",
       description:
-        "A scheduled authored Dawn article used to verify production resolver date injection.",
+        "A scheduled authored B4.run article used to verify production resolver date injection.",
       date: "2026-08-27",
       tags: ["agents"],
       draft: false,
@@ -364,7 +364,7 @@ describe("production SEO inventory", () => {
       ...ALL_DOCS_PAGES.map(({ href }) => href),
       "/blog/eve-validates-the-shape",
       "/blog/app-router-for-ai-agents",
-      "/blog/why-we-built-dawn",
+      "/blog/why-we-built-b4",
       "/blog/tags/philosophy",
       "/blog/tags/agents",
       "/blog/tags/typescript",
@@ -435,7 +435,7 @@ describe("blog SEO API", () => {
       "/blog/tags/typescript",
       "/blog/eve-validates-the-shape",
       "/blog/app-router-for-ai-agents",
-      "/blog/why-we-built-dawn",
+      "/blog/why-we-built-b4",
     ])
   })
 
@@ -497,7 +497,7 @@ describe("blog SEO API", () => {
       expect(metadata.openGraph).toMatchObject({
         type: "website",
         url: page.canonical,
-        siteName: "Dawn AI",
+        siteName: "B4.run",
         title: page.title,
         images: expect.any(Array),
       })
@@ -524,7 +524,7 @@ describe("blog SEO API", () => {
         url: page.canonical,
         publishedTime: post.date,
         authors: [author.name],
-        siteName: "Dawn AI",
+        siteName: "B4.run",
         title: page.title,
       })
       expect(metadata.twitter).toMatchObject({
@@ -550,21 +550,21 @@ describe("blog SEO API", () => {
       "@graph": [
         {
           "@type": "Organization",
-          "@id": "https://dawnai.org/#organization",
-          name: "Dawn AI",
-          url: "https://dawnai.org/",
+          "@id": "https://b4.run/#organization",
+          name: "B4.run",
+          url: "https://b4.run/",
           logo: {
             "@type": "ImageObject",
-            "@id": "https://dawnai.org/#logo",
-            url: "https://dawnai.org/brand/dawn-logo-horizontal-black.svg",
+            "@id": "https://b4.run/#logo",
+            url: "https://b4.run/brand/b4-logo-horizontal-black.svg",
           },
         },
         {
           "@type": "WebSite",
-          "@id": "https://dawnai.org/#website",
-          name: "Dawn AI",
-          url: "https://dawnai.org/",
-          publisher: { "@id": "https://dawnai.org/#organization" },
+          "@id": "https://b4.run/#website",
+          name: "B4.run",
+          url: "https://b4.run/",
+          publisher: { "@id": "https://b4.run/#organization" },
         },
       ],
     })
@@ -598,7 +598,7 @@ describe("blog SEO API", () => {
         "@id": author.url,
         name: author.name,
         url: author.url,
-        image: new URL(author.avatar, "https://dawnai.org").href,
+        image: new URL(author.avatar, "https://b4.run").href,
       })
       expect(entity.author.name).not.toBe(post.author)
       for (const field of forbiddenPersonFields) {
@@ -623,15 +623,15 @@ describe("blog SEO API", () => {
     expect(
       breadcrumbJsonLd(postPage).itemListElement.map(({ name, item }) => ({ name, item })),
     ).toEqual([
-      { name: "Home", item: "https://dawnai.org/" },
-      { name: "Blog", item: "https://dawnai.org/blog" },
+      { name: "Home", item: "https://b4.run/" },
+      { name: "Blog", item: "https://b4.run/blog" },
       { name: post.title, item: postPage.canonical },
     ])
     expect(
       breadcrumbJsonLd(tagPage).itemListElement.map(({ name, item }) => ({ name, item })),
     ).toEqual([
-      { name: "Home", item: "https://dawnai.org/" },
-      { name: "Blog", item: "https://dawnai.org/blog" },
+      { name: "Home", item: "https://b4.run/" },
+      { name: "Blog", item: "https://b4.run/blog" },
       { name: `Posts tagged ${tag}`, item: tagPage.canonical },
     ])
   })
@@ -661,11 +661,11 @@ describe("static SEO pages", () => {
     expect(toMetadata(page)).toEqual({
       title: "Getting Started",
       description: GETTING_STARTED_DESCRIPTION,
-      alternates: { canonical: "https://dawnai.org/docs/getting-started" },
+      alternates: { canonical: "https://b4.run/docs/getting-started" },
       openGraph: {
         type: "article",
-        url: "https://dawnai.org/docs/getting-started",
-        siteName: "Dawn AI",
+        url: "https://b4.run/docs/getting-started",
+        siteName: "B4.run",
         title: "Getting Started",
         description: GETTING_STARTED_DESCRIPTION,
         images: [
@@ -674,7 +674,7 @@ describe("static SEO pages", () => {
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "Dawn — TypeScript meta-framework for LangGraph.js",
+            alt: "B4.run — TypeScript meta-framework for LangGraph.js",
           },
         ],
       },
@@ -688,7 +688,7 @@ describe("static SEO pages", () => {
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "Dawn — TypeScript meta-framework for LangGraph.js",
+            alt: "B4.run — TypeScript meta-framework for LangGraph.js",
           },
         ],
       },
@@ -700,7 +700,7 @@ describe("static SEO pages", () => {
     expect(page).toBeDefined()
     if (!page) throw new Error("Getting Started SEO page is not registered")
 
-    expect(page.canonical).toBe("https://dawnai.org/docs/getting-started")
+    expect(page.canonical).toBe("https://b4.run/docs/getting-started")
     expect(toMetadata(page).alternates?.canonical).toBe(page.canonical)
     expect(techArticleJsonLd(page).url).toBe(page.canonical)
   })
@@ -822,7 +822,10 @@ describe("static SEO pages", () => {
 
     const registrySource = readFileSync(resolve(seoDirectory, "registry.ts"), "utf8")
     expect(registrySource).not.toContain("as string")
-    expect(page.lastModified).toBe("2026-08-25T19:40:17.000Z")
+    const manifest = JSON.parse(
+      readFileSync(resolve(seoDirectory, "lastmod.generated.json"), "utf8"),
+    )
+    expect(page.lastModified).toBe(manifest.routes[GETTING_STARTED_PATH].lastModified)
     expect(Number.isNaN(Date.parse(page.lastModified))).toBe(false)
     expect(techArticleJsonLd(page).dateModified).toBe(page.lastModified)
   })

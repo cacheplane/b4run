@@ -20,11 +20,9 @@ export interface RejectResult {
 
 export type MiddlewareResult = ContinueResult | RejectResult
 
-export type DawnMiddleware = (
-  req: MiddlewareRequest,
-) => Promise<MiddlewareResult> | MiddlewareResult
+export type B4Middleware = (req: MiddlewareRequest) => Promise<MiddlewareResult> | MiddlewareResult
 
-export function defineMiddleware(fn: DawnMiddleware): DawnMiddleware {
+export function defineMiddleware(fn: B4Middleware): B4Middleware {
   return fn
 }
 

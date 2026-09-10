@@ -1,4 +1,4 @@
-import { defineMemory } from "@dawn-ai/sdk"
+import { defineMemory } from "@b4run/sdk"
 import { z } from "zod"
 
 // Long-term, cross-session memory for the research assistant. The agent stores

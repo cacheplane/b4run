@@ -29,18 +29,22 @@ concurrency:
   queue: max
   cancel-in-progress: false
 
+env:
+  GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+
 permissions:
   contents: read
 
 jobs:
   detect:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 60
     permissions:
       actions: read
       attestations: read
       checks: read
-      contents: read
+      # contents: write — the only scope that exposes draft Releases to GITHUB_TOKEN (spec 2026-09-04-controller-draft-visibility).
+      contents: write
     outputs:
       candidate_sha: ${{ steps.observe.outputs.candidate_sha }}
       candidate_version: ${{ steps.observe.outputs.candidate_version }}
@@ -389,7 +393,10 @@ jobs:
       - hydrate
       - tag
     if: >-
+      always() &&
+      needs.detect.result == 'success' &&
       needs.hydrate.result == 'success' &&
+      needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
       github.ref == format('refs/tags/v{0}', inputs.version) &&
       github.sha == needs.detect.outputs.candidate_sha &&
@@ -466,7 +473,11 @@ jobs:
       - hydrate
       - tag
     if: >-
+      always() &&
       needs.attest.result == 'success' &&
+      needs.detect.result == 'success' &&
+      needs.hydrate.result == 'success' &&
+      needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
       github.ref == format('refs/tags/v{0}', inputs.version) &&
       github.sha == needs.detect.outputs.candidate_sha &&
@@ -523,6 +534,7 @@ jobs:
       - tag
     if: >-
       always() &&
+      needs.detect.result == 'success' &&
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
@@ -551,18 +563,22 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             scripts/release/adapter-normalize.mjs
+            scripts/release/adapters/conditional-json.mjs
             scripts/release/adapters/github.mjs
             scripts/release/adapters/http.mjs
             scripts/release/adapters/npm.mjs
             scripts/release/artifact-store.mjs
             scripts/release/limits.mjs
             scripts/release/manifest.mjs
+            scripts/release/metadata.mjs
             scripts/release/npm-audit.mjs
             scripts/release/npm-evidence.mjs
             scripts/release/process-runner.mjs
             scripts/release/publisher.mjs
             scripts/release/release-record.mjs
             scripts/release/semver.mjs
+            scripts/release/smoke-result.mjs
+            scripts/release/terminal-records.mjs
             scripts/release/topology.mjs
 
       - name: Setup Node.js
@@ -611,6 +627,7 @@ jobs:
       - tag
     if: >-
       always() &&
+      needs.detect.result == 'success' &&
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
@@ -673,6 +690,7 @@ jobs:
       - tag
     if: >-
       always() &&
+      needs.detect.result == 'success' &&
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
@@ -737,6 +755,7 @@ jobs:
       - tag
     if: >-
       always() &&
+      needs.detect.result == 'success' &&
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
@@ -798,6 +817,7 @@ jobs:
       - tag
     if: >-
       always() &&
+      needs.detect.result == 'success' &&
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
@@ -859,6 +879,7 @@ jobs:
       - tag
     if: >-
       always() &&
+      needs.detect.result == 'success' &&
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
@@ -920,6 +941,7 @@ jobs:
       - tag
     if: >-
       always() &&
+      needs.detect.result == 'success' &&
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
@@ -987,6 +1009,7 @@ jobs:
       - tag
     if: >-
       always() &&
+      needs.detect.result == 'success' &&
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
@@ -1067,6 +1090,7 @@ jobs:
       - tag
     if: >-
       always() &&
+      needs.detect.result == 'success' &&
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
@@ -1081,7 +1105,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       actions: write
-      contents: read
+      # contents: write — the only scope that exposes draft Releases to GITHUB_TOKEN (spec 2026-09-04-controller-draft-visibility).
+      contents: write
     outputs:
       dispatch_artifact_id: ${{ steps.receipt.outputs.artifact-id }}
     steps:
@@ -1119,8 +1144,11 @@ jobs:
       - hydrate
       - tag
     if: >-
+      always() &&
+      needs.detect.result == 'success' &&
       needs.dispatch-audit.result == 'success' &&
       needs.hydrate.result == 'success' &&
+      needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
       github.ref == format('refs/tags/v{0}', inputs.version) &&
       github.sha == needs.detect.outputs.candidate_sha &&
@@ -1171,6 +1199,7 @@ jobs:
       - tag
     if: >-
       always() &&
+      needs.detect.result == 'success' &&
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
@@ -1247,6 +1276,7 @@ jobs:
       - tag
     if: >-
       always() &&
+      needs.detect.result == 'success' &&
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&

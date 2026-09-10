@@ -1,34 +1,34 @@
-# @dawn-ai/sdk
+# @b4run/sdk
 
 ## Use this when
 
-Start here when you build a Dawn application. `@dawn-ai/sdk` owns the route-authoring types and helpers most application code uses. Reach for `/pure` only when an integration needs dependency-free path or hash utilities, and `/testing` when you author route scenarios for `dawn test`.
+Start here when you build a B4.run application. `@b4run/sdk` owns the route-authoring types and helpers most application code uses. Reach for `/pure` only when an integration needs dependency-free path or hash utilities, and `/testing` when you author route scenarios for `b4 test`.
 
 ## Install and import
 
 ```bash
-pnpm add @dawn-ai/sdk
+pnpm add @b4run/sdk
 ```
 
 ```ts
-import { agent, defineMiddleware, defineMemory } from "@dawn-ai/sdk"
-import { pureJoin } from "@dawn-ai/sdk/pure"
-import { scenarios } from "@dawn-ai/sdk/testing"
+import { agent, defineMiddleware, defineMemory } from "@b4run/sdk"
+import { pureJoin } from "@b4run/sdk/pure"
+import { scenarios } from "@b4run/sdk/testing"
 ```
 
 ## Compatibility and audience
 
 | Surface | Runtime | Purity | Audience | Stability |
 |---|---|---|---|---|
-| `@dawn-ai/sdk` | edge-safe | not-claimed | application | supported |
-| `@dawn-ai/sdk/pure` | edge-safe | dependency-free | integration | supported |
-| `@dawn-ai/sdk/testing` | node-only | not-claimed | testing | supported |
+| `@b4run/sdk` | edge-safe | not-claimed | application | supported |
+| `@b4run/sdk/pure` | edge-safe | dependency-free | integration | supported |
+| `@b4run/sdk/testing` | node-only | not-claimed | testing | supported |
 
-`@dawn-ai/sdk/testing` is the route-scoped scenario API used by `dawn test`; it is not the `@dawn-ai/testing` package, which provides a programmatic agent harness.
+`@b4run/sdk/testing` is the route-scoped scenario API used by `b4 test`; it is not the `@b4run/testing` package, which provides a programmatic agent harness.
 
 ## Public exports
 
-### `@dawn-ai/sdk`
+### `@b4run/sdk`
 
 | Export | Responsibility |
 |---|---|
@@ -36,7 +36,7 @@ import { scenarios } from "@dawn-ai/sdk/testing"
 | `ConstraintContext` | Describe the live context passed to a tool constraint. |
 | `ConstraintPredicate` | Validate one tool call before execution. |
 | `ConstraintVerdict` | Express a constraint decision. |
-| `DawnAgent` | Represent an authored agent route. |
+| `B4Agent` | Represent an authored agent route. |
 | `DelegationConfig` | Configure subagent delegation policy. |
 | `DelegationConstraintPredicate` | Validate a delegated request. |
 | `DelegationContext` | Describe a delegated request's live context. |
@@ -49,11 +49,11 @@ import { scenarios } from "@dawn-ai/sdk/testing"
 | `SubagentMap` | Map local subagent names to agents. |
 | `ToolScope` | Select and gate route tools. |
 | `agent` | Declare an agent route. |
-| `isDawnAgent` | Test whether a value is an authored Dawn agent. |
+| `isB4Agent` | Test whether a value is an authored B4.run agent. |
 | `BackendAdapter` | Define a route backend adapter contract. |
-| `DawnErrorCode` | Name a registered Dawn error. |
-| `DawnErrorDescriptor` | Describe a registered Dawn error. |
-| `DAWN_ERRORS` | Read the error descriptor registry. |
+| `B4ErrorCode` | Name a registered B4.run error. |
+| `B4ErrorDescriptor` | Describe a registered B4.run error. |
+| `B4_ERRORS` | Read the error descriptor registry. |
 | `describeError` | Look up an error descriptor. |
 | `errorDocsUrl` | Build the documentation URL for an error code. |
 | `AnthropicModelId` | Name a curated Anthropic model. |
@@ -70,14 +70,14 @@ import { scenarios } from "@dawn-ai/sdk/testing"
 | `MemoryScopeDimension` | Define one typed memory namespace dimension. |
 | `defineMemory` | Declare a typed long-term memory schema. |
 | `ContinueResult` | Continue middleware execution with optional context. |
-| `DawnMiddleware` | Define the middleware function contract. |
+| `B4Middleware` | Define the middleware function contract. |
 | `MiddlewareRequest` | Describe a middleware request. |
 | `MiddlewareResult` | Express a middleware decision. |
 | `RejectResult` | Stop middleware execution with a response. |
 | `allow` | Continue middleware execution. |
 | `defineMiddleware` | Preserve types for a middleware function. |
 | `reject` | Stop middleware execution. |
-| `DawnThreadAccess` | Define one thread-access action handler. |
+| `B4ThreadAccess` | Define one thread-access action handler. |
 | `ThreadAccessAllow` | Express an allow decision, optionally stamping a thread on create. |
 | `ThreadAccessDeny` | Express a deny decision with an optional status and body. |
 | `ThreadAccessPolicy` | Declare per-action thread authorization handlers. |
@@ -104,10 +104,10 @@ import { scenarios } from "@dawn-ai/sdk/testing"
 | `Prettify` | Flatten an object type for editor display. |
 | `ModelIdValidation` | Represent advisory model-ID validation. |
 | `validateModelId` | Check a model ID against curated suggestions. |
-| `DawnToolContext` | Provide context to a Dawn tool. |
+| `B4ToolContext` | Provide context to a B4.run tool. |
 | `WorkspaceFs` | Define the workspace filesystem contract exposed to tools. |
 
-### `@dawn-ai/sdk/pure`
+### `@b4run/sdk/pure`
 
 | Export | Responsibility |
 |---|---|
@@ -120,7 +120,7 @@ import { scenarios } from "@dawn-ai/sdk/testing"
 | `sha1Hex` | Compute a SHA-1 hexadecimal digest. |
 | `sha256Hex` | Compute a SHA-256 hexadecimal digest. |
 
-### `@dawn-ai/sdk/testing`
+### `@b4run/sdk/testing`
 
 | Export | Responsibility |
 |---|---|
@@ -154,13 +154,13 @@ import { scenarios } from "@dawn-ai/sdk/testing"
 
 Use `agent()` as a route module's default export. `model` and `systemPrompt` are required; optional policy, retry, reasoning, subagent, and tool fields are preserved on the branded descriptor.
 
-```ts api-contract="@dawn-ai/sdk#.:agent"
+```ts api-contract="@b4run/sdk#.:agent"
 export declare function agent<const Subagents extends SubagentMap = {}>(
   config: AgentConfig<Subagents>,
-): DawnAgent<Subagents>
+): B4Agent<Subagents>
 ```
 
-```ts api-contract="@dawn-ai/sdk#.:AgentConfig"
+```ts api-contract="@b4run/sdk#.:AgentConfig"
 export interface AgentConfig<Subagents extends SubagentMap = {}> {
   readonly delegation?: DelegationConfig<NoInfer<Extract<keyof Subagents, string>>>
   readonly description?: string
@@ -175,7 +175,7 @@ export interface AgentConfig<Subagents extends SubagentMap = {}> {
 }
 ```
 
-**Fields: `@dawn-ai/sdk#.:AgentConfig`**
+**Fields: `@b4run/sdk#.:AgentConfig`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly delegation` | `DelegationConfig<NoInfer<Extract<keyof Subagents, string>>>` | no | Control dispatch to named subagents. |
@@ -190,52 +190,52 @@ export interface AgentConfig<Subagents extends SubagentMap = {}> {
 | `readonly systemPrompt` | `string` | yes | Set the agent's system instruction. |
 
 #### Behavior contract `sdk.agent.descriptor-shape`
-{/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/sdk/test/agent.test.ts","testNames":["descriptor is recognized by isDawnAgent","carries a tools scope through to the descriptor","omits tools when not provided"]}] */}
+{/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/sdk/test/agent.test.ts","testNames":["descriptor is recognized by isB4Agent","carries a tools scope through to the descriptor","omits tools when not provided"]}] */}
 agent() returns a branded descriptor and includes optional tool scope only when supplied.
 
 #### Exact agent configuration signatures
 
-```ts api-contract="@dawn-ai/sdk#.:ReasoningConfig"
+```ts api-contract="@b4run/sdk#.:ReasoningConfig"
 export interface ReasoningConfig {
   readonly effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
 }
 ```
 
-**Fields: `@dawn-ai/sdk#.:ReasoningConfig`**
+**Fields: `@b4run/sdk#.:ReasoningConfig`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly effort` | `"none" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh"` | no | Set the model reasoning budget. |
 
-```ts api-contract="@dawn-ai/sdk#.:RetryConfig"
+```ts api-contract="@b4run/sdk#.:RetryConfig"
 export interface RetryConfig {
   readonly maxAttempts?: number
   readonly baseDelay?: number
 }
 ```
 
-**Fields: `@dawn-ai/sdk#.:RetryConfig`**
+**Fields: `@b4run/sdk#.:RetryConfig`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly maxAttempts` | `number` | no | Cap attempts for a model call. |
 | `readonly baseDelay` | `number` | no | Set the base retry delay. |
 
-```ts api-contract="@dawn-ai/sdk#.:isDawnAgent"
-export declare function isDawnAgent(value: unknown): value is DawnAgent
+```ts api-contract="@b4run/sdk#.:isB4Agent"
+export declare function isB4Agent(value: unknown): value is B4Agent
 ```
 
 ### `allow()` and `reject()`
 
 Middleware returns an explicit continue or reject result. Use `allow(context?)` to continue and `reject(status, body?)` to stop the request.
 
-```ts api-contract="@dawn-ai/sdk#.:defineMiddleware"
-export declare function defineMiddleware(fn: DawnMiddleware): DawnMiddleware
+```ts api-contract="@b4run/sdk#.:defineMiddleware"
+export declare function defineMiddleware(fn: B4Middleware): B4Middleware
 ```
 
-```ts api-contract="@dawn-ai/sdk#.:allow"
+```ts api-contract="@b4run/sdk#.:allow"
 export declare function allow(context?: Record<string, unknown>): ContinueResult
 ```
 
-```ts api-contract="@dawn-ai/sdk#.:reject"
+```ts api-contract="@b4run/sdk#.:reject"
 export declare function reject(status: number, body?: unknown): RejectResult
 ```
 
@@ -247,7 +247,7 @@ allow() and reject() return discriminated result objects; omitted context and bo
 
 Use this helper to improve author feedback for likely model-ID typos. It does not restrict custom model IDs.
 
-```ts api-contract="@dawn-ai/sdk#.:validateModelId"
+```ts api-contract="@b4run/sdk#.:validateModelId"
 export declare function validateModelId(opts: {
   readonly model: string
   readonly provider?: string
@@ -266,7 +266,7 @@ Treat `ok: false` as a warning for application feedback, not a runtime gate.
 
 `runtime`, `streaming`, and `tags` are reserved metadata and do not change execution today. Select deployment runtime with `build.targets`, select streaming through the endpoint or transport, and do not rely on tags for behavior.
 
-```ts api-contract="@dawn-ai/sdk#.:RouteConfig"
+```ts api-contract="@b4run/sdk#.:RouteConfig"
 export interface RouteConfig {
   readonly runtime?: "node" | "edge"
   readonly streaming?: boolean
@@ -274,7 +274,7 @@ export interface RouteConfig {
 }
 ```
 
-**Fields: `@dawn-ai/sdk#.:RouteConfig`**
+**Fields: `@b4run/sdk#.:RouteConfig`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly runtime` | `"node" \| "edge"` | no | Reserved; has no effect. |
@@ -285,7 +285,7 @@ export interface RouteConfig {
 
 Declare the typed schema, kind, and namespace dimensions for a route's `memory.ts` module. `identity` is optional; semantic memory defaults its reconciliation identity elsewhere.
 
-```ts api-contract="@dawn-ai/sdk#.:defineMemory"
+```ts api-contract="@b4run/sdk#.:defineMemory"
 export declare function defineMemory<S extends z.ZodTypeAny>(def: {
   kind: DefinedMemory["kind"]
   scope: readonly MemoryScopeDimension[]
@@ -296,12 +296,12 @@ export declare function defineMemory<S extends z.ZodTypeAny>(def: {
 
 ### Choosing a surface
 
-Application routes normally import the root. Use `/pure` for infrastructure that must avoid runtime dependencies. Use `/testing` in `*.scenario.ts` files; use `@dawn-ai/testing` when a test needs a programmatic harness instead. Its detailed reference lands with the testing package page.
+Application routes normally import the root. Use `/pure` for infrastructure that must avoid runtime dependencies. Use `/testing` in `*.scenario.ts` files; use `@b4run/testing` when a test needs a programmatic harness instead. Its detailed reference lands with the testing package page.
 
 ## Examples and related guides
 
 ```ts
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",

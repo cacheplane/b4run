@@ -9,7 +9,7 @@ import { syncChartAppVersions } from "./sync-chart-appversion.mjs"
 const tempRoots = []
 
 function fixtureRoot(charts) {
-  const root = mkdtempSync(join(tmpdir(), "dawn-chart-sync-"))
+  const root = mkdtempSync(join(tmpdir(), "b4-chart-sync-"))
   tempRoots.push(root)
   for (const [relativePath, fixture] of Object.entries(charts)) {
     const { appVersion, chartVersion = "0.1.0" } =
@@ -78,7 +78,7 @@ describe("syncChartAppVersions", () => {
   })
 
   it("throws when a chart has no appVersion to sync", () => {
-    const root = mkdtempSync(join(tmpdir(), "dawn-chart-sync-"))
+    const root = mkdtempSync(join(tmpdir(), "b4-chart-sync-"))
     tempRoots.push(root)
     mkdirSync(resolve(root, "charts/a"), { recursive: true })
     writeFileSync(resolve(root, "charts/a/Chart.yaml"), "apiVersion: v2\nname: example\n", "utf8")
@@ -129,7 +129,7 @@ describe("syncChartAppVersions", () => {
     )
   })
 
-  it("keeps the real charts in sync with @dawn-ai/cli", () => {
+  it("keeps the real charts in sync with @b4run/cli", () => {
     // Guards the same invariant scripts/check-docs.mjs asserts: running the sync
     // against the live repo must be a no-op on a released tree.
     const cliVersion = JSON.parse(

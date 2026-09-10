@@ -67,7 +67,7 @@ export interface SandboxProvider {
   release(threadId: string): Promise<void>
   /** Destroy the sandbox AND its workspace volume (thread delete). */
   destroy(threadId: string): Promise<void>
-  /** Optional availability probe surfaced by `dawn check`. `warnings` are non-fatal notes (e.g. best-effort enforcement). */
+  /** Optional availability probe surfaced by `b4 check`. `warnings` are non-fatal notes (e.g. best-effort enforcement). */
   preflight?(): Promise<{
     readonly ok: boolean
     readonly detail?: string

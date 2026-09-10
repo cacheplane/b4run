@@ -34,8 +34,8 @@ interface RecordedRequest {
   readonly url: string
 }
 
-const dawnServerUrlEnvKey = "DAWN_SERVER_URL"
-const originalDawnServerUrl = process.env[dawnServerUrlEnvKey]
+const b4ServerUrlEnvKey = "B4_SERVER_URL"
+const originalB4ServerUrl = process.env[b4ServerUrlEnvKey]
 const recordedRequests: RecordedRequest[] = []
 const routeModules: Partial<Record<RouteLabel, RouteModule>> = {}
 let fixtureServer: Server | undefined
@@ -98,7 +98,7 @@ function createFixtureServer(): Server {
         {
           type: "TEXT_MESSAGE_CONTENT",
           messageId: "assistant-1",
-          delta: "dawn-v2-sentinel",
+          delta: "b4-v2-sentinel",
         },
         { type: "TEXT_MESSAGE_END", messageId: "assistant-1" },
         { type: "RUN_FINISHED", threadId, runId },
@@ -172,9 +172,9 @@ async function closeFixtureServer(server: Server): Promise<void> {
   })
 }
 
-function restoreDawnServerUrl(): void {
-  if (originalDawnServerUrl === undefined) delete process.env[dawnServerUrlEnvKey]
-  else process.env[dawnServerUrlEnvKey] = originalDawnServerUrl
+function restoreB4ServerUrl(): void {
+  if (originalB4ServerUrl === undefined) delete process.env[b4ServerUrlEnvKey]
+  else process.env[b4ServerUrlEnvKey] = originalB4ServerUrl
 }
 
 function routeModule(label: RouteLabel): RouteModule {
@@ -237,7 +237,7 @@ function parseSseDataFrames(stream: string): Record<string, unknown>[] {
 beforeAll(async () => {
   fixtureServer = createFixtureServer()
   try {
-    process.env[dawnServerUrlEnvKey] = await startOnLoopback(fixtureServer)
+    process.env[b4ServerUrlEnvKey] = await startOnLoopback(fixtureServer)
     const loadedModules = await Promise.all(
       routeCases.map(
         async (routeCase) => [routeCase.label, await routeCase.importRoute()] as const,
@@ -248,7 +248,7 @@ beforeAll(async () => {
     try {
       await closeFixtureServer(fixtureServer)
     } finally {
-      restoreDawnServerUrl()
+      restoreB4ServerUrl()
     }
     throw error
   }
@@ -258,7 +258,7 @@ afterAll(async () => {
   try {
     if (fixtureServer !== undefined) await closeFixtureServer(fixtureServer)
   } finally {
-    restoreDawnServerUrl()
+    restoreB4ServerUrl()
   }
 })
 
@@ -269,27 +269,27 @@ beforeEach(() => {
 describe.each(routeCases)(
   "$label CopilotKit V2 runtime ($modulePath)",
   ({ label, expectedPath }) => {
-    it("reports stable runtime information without contacting Dawn", async () => {
+    it("reports stable runtime information without contacting B4.run", async () => {
       const info = await routeModule(label).GET(
-        new Request("http://dawn.test/api/copilotkit/info", {
+        new Request("http://b4.test/api/copilotkit/info", {
           signal: AbortSignal.timeout(requestTimeoutMs),
         }),
       )
 
       expect(info.status).toBe(200)
       expect(await info.json()).toMatchObject({
-        version: "1.68.3",
+        version: "1.70.0",
         mode: "sse",
         agents: { default: { name: "default" } },
       })
       expect(recordedRequests).toHaveLength(0)
     })
 
-    it("rejects malformed run input before contacting Dawn", async () => {
+    it("rejects malformed run input before contacting B4.run", async () => {
       const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
       try {
         const invalidRun = await routeModule(label).POST(
-          jsonRequest("http://dawn.test/api/copilotkit/agent/default/run", {}),
+          jsonRequest("http://b4.test/api/copilotkit/agent/default/run", {}),
         )
 
         expect(invalidRun.status).toBe(400)
@@ -303,7 +303,7 @@ describe.each(routeCases)(
       }
     })
 
-    it("streams a real HttpAgent run across the encoded Dawn AG-UI boundary", async () => {
+    it("streams a real HttpAgent run across the encoded B4.run AG-UI boundary", async () => {
       const input = {
         threadId: `${label}-thread`,
         runId: `${label}-run`,
@@ -314,7 +314,7 @@ describe.each(routeCases)(
         forwardedProps: {},
       }
       const run = await routeModule(label).POST(
-        jsonRequest("http://dawn.test/api/copilotkit/agent/default/run", input),
+        jsonRequest("http://b4.test/api/copilotkit/agent/default/run", input),
       )
 
       expect(run.status).toBe(200)
@@ -331,7 +331,7 @@ describe.each(routeCases)(
       ])
       expect(events[2]).toMatchObject({
         type: "TEXT_MESSAGE_CONTENT",
-        delta: "dawn-v2-sentinel",
+        delta: "b4-v2-sentinel",
       })
 
       expect(recordedRequests).toHaveLength(1)

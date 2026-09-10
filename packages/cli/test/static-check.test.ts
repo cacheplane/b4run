@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { discoverRoutes } from "@dawn-ai/core/node"
+import { discoverRoutes } from "@b4run/core/node"
 import { afterEach, describe, expect, test } from "vitest"
 import { run } from "../src/index.js"
 import { emitEdgeModulesFile } from "../src/lib/build/targets/edge-modules-emitter.js"
@@ -33,11 +33,11 @@ afterEach(async () => {
 async function createFixtureApp(files: Readonly<Record<string, string>>): Promise<string> {
   // realpath: on macOS the tmpdir is behind a /var → /private/var symlink and
   // the loader resolves module URLs to real paths — keep everything resolved.
-  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "dawn-static-check-")))
+  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "b4-static-check-")))
   tempDirs.push(appRoot)
 
   const appFiles = {
-    "dawn.config.ts": "export default {};\n",
+    "b4.config.ts": "export default {};\n",
     "package.json": '{"type":"module"}\n',
     ...files,
   }
@@ -74,7 +74,7 @@ async function invoke(argv: readonly string[]) {
 }
 
 async function writeManifest(appRoot: string, text: string): Promise<string> {
-  const buildDir = join(appRoot, ".dawn", "build")
+  const buildDir = join(appRoot, ".b4", "build")
   await mkdir(buildDir, { recursive: true })
   const modulesPath = join(buildDir, "modules.mjs")
   await writeFile(modulesPath, text, "utf8")
@@ -83,12 +83,12 @@ async function writeManifest(appRoot: string, text: string): Promise<string> {
 
 /** Generate a REAL manifest for the app's current routes via the emitter. */
 async function emitRealManifest(appRoot: string): Promise<string> {
-  // The emitted manifest imports "@dawn-ai/cli/runtime" — link the real
+  // The emitted manifest imports "@b4run/cli/runtime" — link the real
   // package so it resolves from the tmpdir fixture (modules-emitter pattern).
-  await mkdir(join(appRoot, "node_modules", "@dawn-ai"), { recursive: true })
+  await mkdir(join(appRoot, "node_modules", "@b4run"), { recursive: true })
   await symlink(
     join(repoRoot, "packages", "cli"),
-    join(appRoot, "node_modules", "@dawn-ai", "cli"),
+    join(appRoot, "node_modules", "@b4run", "cli"),
     "dir",
   )
 
@@ -97,11 +97,11 @@ async function emitRealManifest(appRoot: string): Promise<string> {
   for (const route of manifest.routes) {
     discoveries.push(await collectRouteStaticDiscovery({ appRoot, route }))
   }
-  const buildDir = join(appRoot, ".dawn", "build")
+  const buildDir = join(appRoot, ".b4", "build")
   return await writeManifest(appRoot, emitModulesFile({ appRoot, buildDir, discoveries }))
 }
 
-describe("dawn check — static module manifest staleness", () => {
+describe("b4 check — static module manifest staleness", () => {
   test("no manifest present: check passes untouched", async () => {
     const appRoot = await createFixtureApp({
       "src/app/hello/index.ts": "export const workflow = async () => ({ ok: true });\n",
@@ -111,7 +111,7 @@ describe("dawn check — static module manifest staleness", () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.stderr).toBe("")
-    expect(result.stdout).toContain("Dawn app is valid")
+    expect(result.stdout).toContain("B4.run app is valid")
     expect(result.stdout).not.toContain("manifest")
   })
 
@@ -126,10 +126,10 @@ describe("dawn check — static module manifest staleness", () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.stderr).toBe("")
-    expect(result.stdout).toContain("Dawn app is valid")
+    expect(result.stdout).toContain("B4.run app is valid")
   })
 
-  test("stale manifest (route renamed after generation): error names BOTH ids and advises dawn build", async () => {
+  test("stale manifest (route renamed after generation): error names BOTH ids and advises b4 build", async () => {
     const appRoot = await createFixtureApp({
       "src/app/new/index.ts": "export const workflow = async () => ({ ok: true });\n",
     })
@@ -154,7 +154,7 @@ describe("dawn check — static module manifest staleness", () => {
     // the manifest) and the id only the manifest still has (extra).
     expect(result.stderr).toContain("/new#workflow")
     expect(result.stderr).toContain("/old#workflow")
-    expect(result.stderr).toContain("dawn build")
+    expect(result.stderr).toContain("b4 build")
   })
 
   test("corrupt manifest (fails to load): clean check error, not a crash", async () => {
@@ -168,7 +168,7 @@ describe("dawn check — static module manifest staleness", () => {
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("Static module manifest")
     expect(result.stderr).toContain("failed to load")
-    expect(result.stderr).toContain("dawn build")
+    expect(result.stderr).toContain("b4 build")
   })
 
   test("manifest with stale imports (route dir renamed, files gone): clean check error", async () => {
@@ -186,7 +186,7 @@ describe("dawn check — static module manifest staleness", () => {
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("Static module manifest")
     expect(result.stderr).toContain("failed to load")
-    expect(result.stderr).toContain("dawn build")
+    expect(result.stderr).toContain("b4 build")
   })
 })
 
@@ -212,23 +212,23 @@ const STALE_MANIFEST_TEXT =
   "}] }\n"
 
 async function writeEdgeManifest(appRoot: string, text: string): Promise<string> {
-  const buildDir = join(appRoot, ".dawn", "build")
+  const buildDir = join(appRoot, ".b4", "build")
   await mkdir(buildDir, { recursive: true })
   const modulesPath = join(buildDir, "modules.edge.mjs")
   await writeFile(modulesPath, text, "utf8")
   return modulesPath
 }
 
-describe("dawn check — edge module manifest staleness", () => {
+describe("b4 check — edge module manifest staleness", () => {
   test("stale modules.edge.mjs is caught even when no modules.mjs exists at all", async () => {
     // The exact regression: `targets: ["hono"]` emits only the edge manifest,
     // so the node-keyed pass returned at its existsSync and nothing was checked.
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": HONO_CONFIG,
+      "b4.config.ts": HONO_CONFIG,
       "src/app/new/index.ts": "export const workflow = async () => ({ ok: true });\n",
     })
     await writeEdgeManifest(appRoot, STALE_MANIFEST_TEXT)
-    expect(existsSync(join(appRoot, ".dawn", "build", "modules.mjs"))).toBe(false)
+    expect(existsSync(join(appRoot, ".b4", "build", "modules.mjs"))).toBe(false)
 
     const result = await invoke(["check", "--cwd", appRoot])
 
@@ -238,21 +238,21 @@ describe("dawn check — edge module manifest staleness", () => {
     expect(result.stderr).toContain("modules.edge.mjs")
     expect(result.stderr).toContain("/new#workflow")
     expect(result.stderr).toContain("/old#workflow")
-    expect(result.stderr).toContain("dawn build")
+    expect(result.stderr).toContain("b4 build")
   })
 
   test("fresh modules.edge.mjs (generated by the real emitter): check passes", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": HONO_CONFIG,
+      "b4.config.ts": HONO_CONFIG,
       "src/app/hello/index.ts": "export const workflow = async () => ({ ok: true });\n",
       "src/tools/greet.ts": "export default async (_input: unknown) => ({ greeting: 'hi' });\n",
     })
-    // The edge manifest imports "@dawn-ai/cli/fetch" — link the real package so
+    // The edge manifest imports "@b4run/cli/fetch" — link the real package so
     // it resolves from the tmpdir fixture, as the node flavor's test does.
-    await mkdir(join(appRoot, "node_modules", "@dawn-ai"), { recursive: true })
+    await mkdir(join(appRoot, "node_modules", "@b4run"), { recursive: true })
     await symlink(
       join(repoRoot, "packages", "cli"),
-      join(appRoot, "node_modules", "@dawn-ai", "cli"),
+      join(appRoot, "node_modules", "@b4run", "cli"),
       "dir",
     )
     const manifest = await discoverRoutes({ appRoot })
@@ -260,13 +260,13 @@ describe("dawn check — edge module manifest staleness", () => {
     for (const route of manifest.routes) {
       discoveries.push(await collectRouteStaticDiscovery({ appRoot, route }))
     }
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
     await writeEdgeManifest(appRoot, emitEdgeModulesFile({ appRoot, buildDir, discoveries }))
 
     const result = await invoke(["check", "--cwd", appRoot])
 
     expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain("Dawn app is valid")
+    expect(result.stdout).toContain("B4.run app is valid")
     expect(result.stderr).not.toContain("Stale static module manifest")
   })
 
@@ -275,7 +275,7 @@ describe("dawn check — edge module manifest staleness", () => {
     // would be noise, which is why the pass is gated on the target list — the
     // same gating the capability check uses.
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": 'export default { build: { targets: ["node"] } };\n',
+      "b4.config.ts": 'export default { build: { targets: ["node"] } };\n',
       "src/app/new/index.ts": "export const workflow = async () => ({ ok: true });\n",
     })
     await writeEdgeManifest(appRoot, STALE_MANIFEST_TEXT)
@@ -283,7 +283,7 @@ describe("dawn check — edge module manifest staleness", () => {
     const result = await invoke(["check", "--cwd", appRoot])
 
     expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain("Dawn app is valid")
+    expect(result.stdout).toContain("B4.run app is valid")
     expect(result.stderr).not.toContain("Stale static module manifest")
   })
 
@@ -291,7 +291,7 @@ describe("dawn check — edge module manifest staleness", () => {
     // Adding the edge pass must not replace the node one — an app can build
     // both targets, and either artifact going stale is a shipping hazard.
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": 'export default { build: { targets: ["node", "hono"] } };\n',
+      "b4.config.ts": 'export default { build: { targets: ["node", "hono"] } };\n',
       "src/app/new/index.ts": "export const workflow = async () => ({ ok: true });\n",
     })
     await writeManifest(appRoot, STALE_MANIFEST_TEXT)

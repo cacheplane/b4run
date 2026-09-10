@@ -1,18 +1,18 @@
 import { describe, expect, test } from "vitest"
 import {
-  DAWN_PLAN_ACTIVITY_TYPE,
-  DAWN_SUBAGENT_ACTIVITY_TYPE,
-  type DawnPlanActivityContent,
-  type DawnSubagentActivityContent,
+  B4_PLAN_ACTIVITY_TYPE,
+  B4_SUBAGENT_ACTIVITY_TYPE,
+  type B4PlanActivityContent,
+  type B4SubagentActivityContent,
 } from "../src/index.js"
-import { asToolCallData, asToolResultData, type DawnAgentStreamChunk } from "../src/types.js"
+import { asToolCallData, asToolResultData, type B4AgentStreamChunk } from "../src/types.js"
 
 const planActivityContent = {
   todos: [
     { content: "Search the corpus", status: "completed" },
     { content: "Read the best source", status: "in_progress" },
   ],
-} satisfies DawnPlanActivityContent
+} satisfies B4PlanActivityContent
 
 const subagentActivityContent = {
   name: "researcher",
@@ -25,28 +25,28 @@ const subagentActivityContent = {
   ],
   totalToolCount: 2,
   error: "Source unavailable",
-} satisfies DawnSubagentActivityContent
+} satisfies B4SubagentActivityContent
 
-const planActivityType: "dawn.plan" = DAWN_PLAN_ACTIVITY_TYPE
-const subagentActivityType: "dawn.subagent" = DAWN_SUBAGENT_ACTIVITY_TYPE
+const planActivityType: "b4.plan" = B4_PLAN_ACTIVITY_TYPE
+const subagentActivityType: "b4.subagent" = B4_SUBAGENT_ACTIVITY_TYPE
 
 test("exposes the activity content and literal constant types", () => {
   expect(planActivityContent.todos).toHaveLength(2)
   expect(subagentActivityContent.tools).toHaveLength(2)
-  expect(planActivityType).toBe("dawn.plan")
-  expect(subagentActivityType).toBe("dawn.subagent")
+  expect(planActivityType).toBe("b4.plan")
+  expect(subagentActivityType).toBe("b4.subagent")
 })
 
-describe("DawnAgentStreamChunk", () => {
+describe("B4AgentStreamChunk", () => {
   test("accepts canonical chunks and open extension chunks", () => {
     const chunks = [
       { type: "token", data: "hello" },
-      { type: "tool_call", data: { name: "greet", input: { name: "Dawn" } } },
+      { type: "tool_call", data: { name: "greet", input: { name: "B4.run" } } },
       { type: "tool_result", data: { name: "greet", output: "hello" } },
       { type: "interrupt", data: { interruptId: "perm-1" } },
       { type: "done" },
       { type: "plan_update", data: { steps: [] } },
-    ] satisfies DawnAgentStreamChunk[]
+    ] satisfies B4AgentStreamChunk[]
 
     expect(chunks.map((chunk) => chunk.type)).toEqual([
       "token",

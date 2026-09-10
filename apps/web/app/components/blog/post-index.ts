@@ -38,7 +38,7 @@ export interface Post {
   readonly ogImage?: string
   readonly draft: boolean
   readonly readingTimeMinutes: number
-  /** Original MDX filename (e.g. "2026-05-12-why-we-built-dawn.mdx").
+  /** Original MDX filename (e.g. "2026-05-12-why-we-built-b4.mdx").
    *  Source of truth for locating the file — do not reconstruct from date/slug. */
   readonly sourceFile: string
 }

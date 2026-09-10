@@ -1,4 +1,4 @@
-import type { SandboxProvider } from "@dawn-ai/workspace"
+import type { SandboxProvider } from "@b4run/workspace"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -11,7 +11,7 @@ import {
 // THE REQUEST-TIME HALF OF THE EDGE CAPABILITY GATE.
 //
 // The build gate (`assertEdgeCapabilities`) only runs when the `hono` target
-// does, and composing an entry by hand over `@dawn-ai/cli/fetch` is a supported
+// does, and composing an entry by hand over `@b4run/cli/fetch` is a supported
 // way to deploy — so a `sandbox` block can reach a runtime that cannot serve it
 // having never been gated. This probe is what stops that being a silent no-op.
 //
@@ -48,7 +48,7 @@ describe("collectRuntimeCapabilityGaps — fires when a feature is configured bu
     expect(found[0]?.capability).toBe("sandbox")
     // The config key, not just the feature: "sandbox is not supported" leaves a
     // user hunting for what turned it on.
-    expect(found[0]?.source).toContain("`sandbox` in dawn.config.ts")
+    expect(found[0]?.source).toContain("`sandbox` in b4.config.ts")
   })
 
   it("names `toolOutput` — offloading has nowhere to spill without a filesystem", () => {
@@ -56,13 +56,13 @@ describe("collectRuntimeCapabilityGaps — fires when a feature is configured bu
 
     expect(found).toHaveLength(1)
     expect(found[0]?.capability).toBe("tool-output offloading")
-    expect(found[0]?.source).toContain("`toolOutput` in dawn.config.ts")
+    expect(found[0]?.source).toContain("`toolOutput` in b4.config.ts")
   })
 
-  it("names the route's skills, which otherwise vanish from the prompt in silence", () => {
-    // The skills capability's `detect` returns false without a MarkerFs, so
-    // nothing at request time can tell "this route had skills" from "it had
-    // none". The build records the names into the manifest for exactly this.
+  it("names the route's skills when the manifest records names but bundles no bodies", () => {
+    // A hand-composed manifest, or one built before marker files were bundled:
+    // the skills capability's `detect` would return false and the skills would
+    // vanish from the prompt with nothing to report.
     const found = gaps({
       routes: [{ routeId: "/research", skills: ["synthesize-findings", "cite-sources"] }],
     })
@@ -72,6 +72,59 @@ describe("collectRuntimeCapabilityGaps — fires when a feature is configured bu
     expect(found[0]?.capability).toContain("cite-sources")
     expect(found[0]?.capability).toContain("synthesize-findings")
     expect(found[0]?.source).toContain("/research")
+  })
+
+  it("does not report skills whose bodies the manifest bundles", () => {
+    const found = gaps({
+      routes: [
+        {
+          markerFiles: { "/ns/src/app/research/skills/cite-sources/SKILL.md": "…" },
+          routeFile: "/ns/src/app/research/index.ts",
+          routeId: "/research",
+          skills: ["cite-sources"],
+        },
+      ],
+    })
+
+    expect(found).toEqual([])
+  })
+
+  it.each([
+    { "/other/src/app/research/skills/cite-sources/SKILL.md": "other namespace" },
+    { "/ns/src/app/chat/skills/cite-sources/SKILL.md": "other route" },
+    { "/ns/src/app/research/skills/cite-sources/SKILL.md": undefined },
+  ])("requires the route's exact skill path and a string body", (markerFiles) => {
+    const found = gaps({
+      routes: [
+        {
+          markerFiles: markerFiles as unknown as Readonly<Record<string, string>>,
+          routeFile: "/ns/src/app/research/index.ts",
+          routeId: "/research",
+          skills: ["cite-sources"],
+        },
+      ],
+    })
+    expect(found).toHaveLength(1)
+    expect(found[0]?.capability).toBe("skills (cite-sources)")
+  })
+
+  it("still reports a skill whose body is missing even when other marker files are bundled", () => {
+    const found = gaps({
+      routes: [
+        {
+          markerFiles: {
+            "/ns/src/app/research/plan.md": "- [ ] a\n",
+            "/ns/src/app/research/skills/cite-sources/SKILL.md": "…",
+          },
+          routeFile: "/ns/src/app/research/index.ts",
+          routeId: "/research",
+          skills: ["cite-sources", "synthesize-findings"],
+        },
+      ],
+    })
+
+    expect(found).toHaveLength(1)
+    expect(found[0]?.capability).toBe("skills (synthesize-findings)")
   })
 
   it("reports every gap at once, so one deploy teaches the operator all of it", () => {
@@ -89,8 +142,8 @@ describe("collectRuntimeCapabilityGaps — fires when a feature is configured bu
     // And the report names all three, plus the one global instruction.
     const report = formatRuntimeCapabilityViolations(found)
     expect(report).toContain("3 feature(s)")
-    expect(report).toContain("`sandbox` in dawn.config.ts")
-    expect(report).toContain("`toolOutput` in dawn.config.ts")
+    expect(report).toContain("`sandbox` in b4.config.ts")
+    expect(report).toContain("`toolOutput` in b4.config.ts")
     expect(report).toContain("cite-sources")
     expect(report).toContain('"node" build target')
   })

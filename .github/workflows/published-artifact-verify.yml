@@ -32,7 +32,8 @@ jobs:
     timeout-minutes: 5
     permissions:
       actions: write
-      contents: read
+      # contents: write — the only scope that exposes draft Releases to GITHUB_TOKEN (spec 2026-09-04-controller-draft-visibility).
+      contents: write
     outputs:
       mode: ${{ steps.route.outputs.mode }}
     steps:
@@ -64,21 +65,24 @@ jobs:
     needs: coordinate
     if: >-
       github.event_name == 'workflow_dispatch' &&
-      needs.coordinate.outputs.mode == 'draft' &&
-      github.ref == format('refs/tags/v{0}', inputs.version) &&
-      github.sha == inputs.commitSha
+      ((needs.coordinate.outputs.mode == 'draft' &&
+        github.ref == format('refs/tags/v{0}', inputs.version) &&
+        github.sha == inputs.commitSha) ||
+       (needs.coordinate.outputs.mode == 'draft-controller' &&
+        github.ref == 'refs/heads/main'))
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       actions: read
       attestations: read
       checks: read
-      contents: read
+      # contents: write — the only scope that exposes draft Releases to GITHUB_TOKEN (spec 2026-09-04-controller-draft-visibility).
+      contents: write
     steps:
-      - name: Checkout exact candidate
+      - name: Checkout exact audit executor
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -122,9 +126,9 @@ jobs:
     needs: coordinate
     if: >-
       github.event_name == 'workflow_dispatch' &&
-      needs.coordinate.outputs.mode == 'published' &&
-      github.ref == format('refs/tags/v{0}', inputs.version) &&
-      github.sha == inputs.commitSha
+      ((needs.coordinate.outputs.mode == 'published' &&
+        github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == inputs.commitSha) ||
+       (needs.coordinate.outputs.mode == 'published-controller' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -133,10 +137,10 @@ jobs:
       checks: read
       contents: read
     steps:
-      - name: Checkout exact annotated tag
+      - name: Checkout exact audit executor
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 

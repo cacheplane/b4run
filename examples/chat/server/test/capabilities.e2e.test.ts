@@ -1,5 +1,5 @@
 /**
- * Capability coverage e2e — dogfoods @dawn-ai/testing against the REAL chat
+ * Capability coverage e2e — dogfoods @b4run/testing against the REAL chat
  * example app (and the real coordinator route), in-process, with a mocked LLM.
  *
  * Each scenario reads the live capability behavior of the chat/coordinator
@@ -36,7 +36,7 @@ import {
   expectSystemPrompt,
   expectToolCalled,
   script,
-} from "@dawn-ai/testing"
+} from "@b4run/testing"
 import { afterAll, beforeAll, describe, it } from "vitest"
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url))

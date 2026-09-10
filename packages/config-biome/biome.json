@@ -2,7 +2,7 @@
   "$schema": "https://biomejs.dev/schemas/2.4.11/schema.json",
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!**/.dawn"]
+    "includes": ["**", "!**/.b4", "!scripts/release/terminal-records"]
   },
   "formatter": {
     "enabled": true,
@@ -26,5 +26,19 @@
     "enabled": false,
     "clientKind": "git",
     "useIgnoreFile": true
-  }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "scripts/release/recovery-platform-reviews/*.json",
+        "scripts/release/recovery-fence-contracts/*.json",
+        "scripts/release/recovery-fence-evidence/*.json",
+        "scripts/release/recovery-adoptions/*.json",
+        "scripts/release/recovery-verifier-repairs/*.json"
+      ],
+      "formatter": {
+        "enabled": false
+      }
+    }
+  ]
 }

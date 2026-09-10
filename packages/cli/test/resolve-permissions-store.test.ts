@@ -1,33 +1,33 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { __clearDawnConfigCacheForTests } from "@dawn-ai/core"
+import { __clearB4ConfigCacheForTests } from "@b4run/core"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { resolvePermissionsStore } from "../src/lib/runtime/execute-route.js"
 
 const cleanup: Array<() => Promise<void> | void> = []
 
-type LoadMarker = { __dawnPermissionsLoads?: number }
+type LoadMarker = { __b4PermissionsLoads?: number }
 
 // The config memo is process-global and shared with every other test in this
 // worker — clear what we seed on both sides, as config-seam.test.ts does.
 beforeEach(() => {
-  __clearDawnConfigCacheForTests()
-  delete (globalThis as LoadMarker).__dawnPermissionsLoads
-  delete process.env.DAWN_PERMISSIONS_MODE
+  __clearB4ConfigCacheForTests()
+  delete (globalThis as LoadMarker).__b4PermissionsLoads
+  delete process.env.B4_PERMISSIONS_MODE
 })
 
 afterEach(async () => {
   for (const fn of cleanup.splice(0).reverse()) await fn()
-  __clearDawnConfigCacheForTests()
-  delete (globalThis as LoadMarker).__dawnPermissionsLoads
+  __clearB4ConfigCacheForTests()
+  delete (globalThis as LoadMarker).__b4PermissionsLoads
 })
 
 async function fixtureApp(configBody: string): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-resolve-permissions-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-resolve-permissions-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
-  await writeFile(join(appRoot, "dawn.config.ts"), configBody, "utf8")
+  await writeFile(join(appRoot, "b4.config.ts"), configBody, "utf8")
   await writeFile(
     join(appRoot, "package.json"),
     '{ "name": "resolve-permissions-fixture", "type": "module" }\n',
@@ -41,11 +41,11 @@ async function fixtureApp(configBody: string): Promise<string> {
 // `allow: { bash: ["ls"] }` would allow "ls -la". It also counts its load()
 // calls, and reports a mode that differs from the config's.
 const CUSTOM_STORE_CONFIG =
-  "const marker = globalThis as { __dawnPermissionsLoads?: number }\n" +
+  "const marker = globalThis as { __b4PermissionsLoads?: number }\n" +
   "const store = {\n" +
   '  mode: "non-interactive" as const,\n' +
   "  load: async () => {\n" +
-  "    marker.__dawnPermissionsLoads = (marker.__dawnPermissionsLoads ?? 0) + 1\n" +
+  "    marker.__b4PermissionsLoads = (marker.__b4PermissionsLoads ?? 0) + 1\n" +
   "  },\n" +
   '  match: () => "deny" as const,\n' +
   "  addAllow: async () => {},\n" +
@@ -66,7 +66,7 @@ describe("resolvePermissionsStore — config.permissions.store seam", () => {
     // Returned as-is: its own mode survives, not the config's "interactive".
     expect(store.mode).toBe("non-interactive")
     // The resolver owns hydration — a cache-backed store is empty until then.
-    expect((globalThis as LoadMarker).__dawnPermissionsLoads).toBe(1)
+    expect((globalThis as LoadMarker).__b4PermissionsLoads).toBe(1)
   })
 
   it("without a config store, the file-backed store is used (negative control)", async () => {

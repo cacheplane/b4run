@@ -79,10 +79,10 @@ if (!buildOutputs.includes("dist/**")) {
   errors.push('turbo.json build task must include "dist/**" in outputs')
 }
 
-// `dawn build` writes the app bundle here. Without it a cache hit reports
+// `b4 build` writes the app bundle here. Without it a cache hit reports
 // success and restores nothing — a green `pnpm build` with no server bundle.
-if (!buildOutputs.includes(".dawn/build/**")) {
-  errors.push('turbo.json build task must include ".dawn/build/**" in outputs')
+if (!buildOutputs.includes(".b4/build/**")) {
+  errors.push('turbo.json build task must include ".b4/build/**" in outputs')
 }
 
 // Tests import their workspace dependencies through `exports`, which resolve to
@@ -146,11 +146,11 @@ for (const taskName of ["build", "test", "lint"]) {
   }
 }
 
-const cliBuildTask = taskIndex.get("@dawn-ai/cli#build")
+const cliBuildTask = taskIndex.get("@b4run/cli#build")
 
 if (cliBuildTask === undefined) {
   if (dryRunFailure === undefined) {
-    errors.push("Turbo dry run did not include the @dawn-ai/cli#build task")
+    errors.push("Turbo dry run did not include the @b4run/cli#build task")
   }
 } else {
   const requiredInputs = [
@@ -161,13 +161,13 @@ if (cliBuildTask === undefined) {
 
   for (const input of requiredInputs) {
     if (!cliBuildTask.inputs.has(input)) {
-      errors.push(`@dawn-ai/cli#build is missing cache input: ${input}`)
+      errors.push(`@b4run/cli#build is missing cache input: ${input}`)
     }
   }
 
   for (const output of ["dist/**", "docs/**"]) {
     if (!cliBuildTask.outputs.includes(output)) {
-      errors.push(`@dawn-ai/cli#build is missing cache output: ${output}`)
+      errors.push(`@b4run/cli#build is missing cache output: ${output}`)
     }
   }
 }
@@ -264,8 +264,8 @@ for (const { directory, packageName } of workspaceDirectories) {
         if (owner !== undefined && dependenciesOf(directory).has(owner.packageName)) continue
 
         // Reaching into another package's build output. That package cannot
-        // always be declared as a dependency — `@dawn-ai/testing` peer-depends
-        // on `@dawn-ai/cli`, so the reverse edge would be a cycle — and `dist/`
+        // always be declared as a dependency — `@b4run/testing` peer-depends
+        // on `@b4run/cli`, so the reverse edge would be a cycle — and `dist/`
         // is gitignored, so it can never be a cache input. An explicit
         // task-level edge is the only thing that both orders and hashes it.
         if (
@@ -340,5 +340,5 @@ if (uniqueErrors.length > 0) {
 }
 
 console.log(
-  `Build cache config check passed (${checkedConfigs.length} emitting tsconfig file(s), ${taskIndex.size} task(s) across build/test/lint, ${scannedFileCount} scanned source file(s); generic dist/** and .dawn/build/** caches, the test->build edge, the CLI bundled-docs contract, and every cross-package read declared).`,
+  `Build cache config check passed (${checkedConfigs.length} emitting tsconfig file(s), ${taskIndex.size} task(s) across build/test/lint, ${scannedFileCount} scanned source file(s); generic dist/** and .b4/build/** caches, the test->build edge, the CLI bundled-docs contract, and every cross-package read declared).`,
 )

@@ -1,8 +1,10 @@
+import { demoMedia } from "../../lib/demo-media"
 import { Card } from "../ui/Card"
+import { ClipPlayer } from "../ui/ClipPlayer"
 import { Eyebrow } from "../ui/Eyebrow"
 
 const PAYOFFS = [
-  "Threads survive a dawn dev restart — no lost state between edits.",
+  "Threads survive a b4 dev restart — no lost state between edits.",
   "Agents that pause for human input resume exactly where they left off.",
   "A working SQLite checkpointer and thread store ship by default — zero setup.",
 ] as const
@@ -41,16 +43,16 @@ export function DurableByDefault() {
         <div className="mt-8 grid lg:grid-cols-[1.2fr_1fr] gap-10 lg:gap-16">
           <div className="space-y-5 text-lg text-ink-muted leading-[30px] max-w-[58ch]">
             <p>
-              Every Dawn app ships a working checkpointer and thread store — no setup. Runs
+              Every B4.run app ships a working checkpointer and thread store — no setup. Runs
               checkpoint to SQLite between turns, so threads survive a{" "}
               <code className="text-sm font-mono text-ink bg-surface px-1.5 py-0.5 rounded border border-divider">
-                dawn dev
+                b4 dev
               </code>{" "}
               restart and an agent that pauses for human input resumes exactly where it left off.
             </p>
             <p>
-              LangGraph defines the checkpoint interface; Dawn ships the default implementation. So
-              durability is the path of least resistance — not a wiring task.
+              LangGraph defines the checkpoint interface; B4.run ships the default implementation.
+              So durability is the path of least resistance — not a wiring task.
             </p>
           </div>
 
@@ -65,6 +67,20 @@ export function DurableByDefault() {
             </ul>
           </Card>
         </div>
+
+        <figure className="mt-12 max-w-4xl">
+          <ClipPlayer clip={demoMedia.run} className="border border-divider shadow-sm" />
+          <figcaption className="mt-3 text-sm leading-6 text-ink-muted">
+            {demoMedia.run.caption}{" "}
+            <a
+              href={demoMedia.run.transcript}
+              className="font-medium text-ink underline underline-offset-4"
+            >
+              Read the transcript
+            </a>
+            .
+          </figcaption>
+        </figure>
       </div>
     </section>
   )

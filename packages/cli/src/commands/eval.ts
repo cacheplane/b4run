@@ -16,10 +16,10 @@ interface EvalOptions {
 }
 
 /**
- * Structural shapes for the dynamically imported `@dawn-ai/testing` and
- * `@dawn-ai/evals` packages. Declared locally (rather than `typeof import(...)`)
- * because the CLI must NOT statically depend on either package: `@dawn-ai/testing`
- * peer-depends on `@dawn-ai/cli`, so a build-time module reference would create a
+ * Structural shapes for the dynamically imported `@b4run/testing` and
+ * `@b4run/evals` packages. Declared locally (rather than `typeof import(...)`)
+ * because the CLI must NOT statically depend on either package: `@b4run/testing`
+ * peer-depends on `@b4run/cli`, so a build-time module reference would create a
  * dependency cycle. The packages are resolved from the *app* at runtime via
  * `importFromApp`, so the genuine implementations are exercised; these types only
  * describe the slice the command consumes.
@@ -87,14 +87,14 @@ interface EvalsModule {
 export function registerEvalCommand(program: Command, io: CommandIo): void {
   program
     .command("eval [path]")
-    .description("Run Dawn agent evals over their datasets")
-    .option("--cwd <path>", "Path to the Dawn app root or a child directory within it")
+    .description("Run B4.run agent evals over their datasets")
+    .option("--cwd <path>", "Path to the B4.run app root or a child directory within it")
     .option("--live", "Run against the real model (requires OPENAI_API_KEY); never use in CI")
     .option(
       "--record",
       "Record fixtures from the real model into sibling files (requires OPENAI_API_KEY); never use in CI",
     )
-    .option("--json [file]", "Write a JSON report (default .dawn/eval-report.json)")
+    .option("--json [file]", "Write a JSON report (default .b4/eval-report.json)")
     .action(async (path: string | undefined, options: EvalOptions) => {
       await runEvalCommand(path, options, io)
     })
@@ -122,7 +122,7 @@ export async function runEvalCommand(
   }
   if (options.record && !process.env.OPENAI_API_KEY) {
     throw new CliError(
-      "dawn eval --record requires OPENAI_API_KEY (records against the real model)",
+      "b4 eval --record requires OPENAI_API_KEY (records against the real model)",
       2,
     )
   }
@@ -130,9 +130,9 @@ export async function runEvalCommand(
   const appRoot = evals[0]!.appRoot
   const { createAgentHarness, loadFixtures, writeFixtures } = await importFromApp<TestingModule>(
     appRoot,
-    "@dawn-ai/testing",
+    "@b4run/testing",
   )
-  const { runEval } = await importFromApp<EvalsModule>(appRoot, "@dawn-ai/evals")
+  const { runEval } = await importFromApp<EvalsModule>(appRoot, "@b4run/evals")
 
   const reports = []
   let anyFailed = false
@@ -143,8 +143,8 @@ export async function runEvalCommand(
       route: loaded.route,
       ...(options.live ? { live: true } : {}),
       ...(options.record ? { record: true } : {}),
-      ...(options.record && process.env.DAWN_RECORD_UPSTREAM
-        ? { recordUpstream: process.env.DAWN_RECORD_UPSTREAM }
+      ...(options.record && process.env.B4_RECORD_UPSTREAM
+        ? { recordUpstream: process.env.B4_RECORD_UPSTREAM }
         : {}),
     })
     try {
@@ -222,13 +222,13 @@ export async function runEvalCommand(
 
   if (options.json !== undefined) {
     const target =
-      typeof options.json === "string" ? options.json : join(appRoot, ".dawn", "eval-report.json")
+      typeof options.json === "string" ? options.json : join(appRoot, ".b4", "eval-report.json")
     await mkdir(dirname(target), { recursive: true })
     await writeFile(target, `${JSON.stringify(reports, null, 2)}\n`, "utf8")
     writeLine(io.stdout, `Wrote report: ${target}`)
   }
 
-  if (anyFailed) throw new CommanderError(1, "dawn.eval.failed", "")
+  if (anyFailed) throw new CommanderError(1, "b4.eval.failed", "")
 }
 
 function printReport(report: EvalReportShape, io: CommandIo): void {
@@ -252,10 +252,7 @@ async function importFromApp<T>(appRoot: string, specifier: string): Promise<T> 
   try {
     resolved = require.resolve(specifier)
   } catch {
-    throw new CliError(
-      `dawn eval requires "${specifier}" — add it as a devDependency in your app`,
-      2,
-    )
+    throw new CliError(`b4 eval requires "${specifier}" — add it as a devDependency in your app`, 2)
   }
   return (await import(pathToFileURL(resolved).href)) as T
 }

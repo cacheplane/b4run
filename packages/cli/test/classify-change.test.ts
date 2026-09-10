@@ -23,8 +23,8 @@ describe("classifyChange", () => {
     expect(classifyChange("src/app/hello/[tenant]/index.ts")).toBe("restart")
   })
 
-  test("dawn.config.ts change returns restart", () => {
-    expect(classifyChange("dawn.config.ts")).toBe("restart")
+  test("b4.config.ts change returns restart", () => {
+    expect(classifyChange("b4.config.ts")).toBe("restart")
   })
 
   test("random source file returns restart", () => {
@@ -41,7 +41,7 @@ describe("classifyChange", () => {
     // (or was ignored) must classify exactly as it did before.
     expect(classifyChange("plan.md")).toBe("restart")
     expect(classifyChange("docs/plan.md")).toBe("restart")
-    expect(classifyChange(".dawn/checkpoints.sqlite")).toBe("ignore")
+    expect(classifyChange(".b4/checkpoints.sqlite")).toBe("ignore")
     expect(classifyChange("workspace/notes/output.md")).toBe("ignore")
   })
 
@@ -69,10 +69,10 @@ describe("classifyChange", () => {
     expect(classifyChange("")).toBe("ignore")
   })
 
-  test(".dawn runtime state changes are ignored (checkpoints, threads, wal)", () => {
-    expect(classifyChange(".dawn")).toBe("ignore")
-    expect(classifyChange(".dawn/checkpoints.sqlite")).toBe("ignore")
-    expect(classifyChange(".dawn/checkpoints.sqlite-wal")).toBe("ignore")
-    expect(classifyChange(".dawn/threads.sqlite")).toBe("ignore")
+  test(".b4 runtime state changes are ignored (checkpoints, threads, wal)", () => {
+    expect(classifyChange(".b4")).toBe("ignore")
+    expect(classifyChange(".b4/checkpoints.sqlite")).toBe("ignore")
+    expect(classifyChange(".b4/checkpoints.sqlite-wal")).toBe("ignore")
+    expect(classifyChange(".b4/threads.sqlite")).toBe("ignore")
   })
 })

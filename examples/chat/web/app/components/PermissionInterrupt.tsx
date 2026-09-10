@@ -1,7 +1,7 @@
 "use client"
 import { useInterrupt } from "@copilotkit/react-core/v2"
 
-// Dawn's permission gate surfaces as an AG-UI *standard* interrupt: the run ends
+// B4.run's permission gate surfaces as an AG-UI *standard* interrupt: the run ends
 // with `RUN_FINISHED{ outcome:{ type:"interrupt", interrupts:[…] } }`, and the
 // client resumes via the top-level `RunAgentInput.resume` array. `useInterrupt`
 // handles that path natively — `render` receives the `Interrupt` object, and
@@ -9,9 +9,9 @@ import { useInterrupt } from "@copilotkit/react-core/v2"
 // once every open interrupt is addressed), while `cancel()` records
 // `{ status:"cancelled" }`.
 //
-// @dawn-ai/ag-ui's `toAguiInterrupt` preserves the whole Dawn envelope under
+// @b4run/ag-ui's `toAguiInterrupt` preserves the whole B4.run envelope under
 // `interrupt.metadata`, so the command being gated is at
-// `metadata.detail.command`. For a permission prompt, Dawn reads the resolved
+// `metadata.detail.command`. For a permission prompt, B4.run reads the resolved
 // payload as its decision ("once" | "always"); cancelling maps to denial.
 type PermissionMetadata = {
   kind?: string

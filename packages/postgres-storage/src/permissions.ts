@@ -1,5 +1,5 @@
-import type { PermissionMode, PermissionsFile, PermissionsStore } from "@dawn-ai/permissions"
-import { matchPermission } from "@dawn-ai/permissions"
+import type { PermissionMode, PermissionsFile, PermissionsStore } from "@b4run/permissions"
+import { matchPermission } from "@b4run/permissions"
 import type { PostgresStoreOptions } from "./options.js"
 import {
   assertIdentifier,
@@ -13,7 +13,7 @@ import { throwNoPool } from "./sql.js"
 
 export interface PostgresPermissionsStoreOptions extends PostgresStoreOptions {
   /**
-   * Config-seeded allow/deny lists (from `dawn.config.ts`). Applied in memory
+   * Config-seeded allow/deny lists (from `b4.config.ts`). Applied in memory
    * on every construction and NEVER written to Postgres — config is the source
    * of truth for itself, exactly as in the file-backed store.
    */

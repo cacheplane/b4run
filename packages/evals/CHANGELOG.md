@@ -1,5 +1,56 @@
 # @dawn-ai/evals
 
+## 0.8.30
+
+### Patch Changes
+
+- @b4run/testing@0.8.30
+
+## 0.8.29
+
+### Patch Changes
+
+- @b4run/testing@0.8.29
+
+## 0.8.28
+
+### Patch Changes
+
+- @b4run/testing@0.8.28
+
+## 0.8.27
+
+### Patch Changes
+
+- @b4run/testing@0.8.27
+
+## 0.8.26
+
+### Patch Changes
+
+- @dawn-ai/testing@0.8.26
+
+## 0.8.25
+
+### Patch Changes
+
+- @dawn-ai/testing@0.8.25
+
+## 0.8.24
+
+### Patch Changes
+
+- @dawn-ai/testing@0.8.24
+
+## 0.8.23
+
+### Patch Changes
+
+- 7e62bb1: Refresh the GitHub and npm documentation surfaces, add package discovery
+  metadata, and introduce reproducible product-loop media. No runtime API changed.
+- Updated dependencies [7e62bb1]
+  - @dawn-ai/testing@0.8.23
+
 ## 0.8.22
 
 ### Patch Changes

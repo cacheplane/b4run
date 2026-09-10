@@ -1,5 +1,5 @@
 import { join } from "node:path"
-import { type MemoryRecord, sqliteMemoryStore } from "@dawn-ai/memory"
+import { type MemoryRecord, sqliteMemoryStore } from "@b4run/memory"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { browseSearchParams, canonicalBrowseQuery } from "../src/browse/canonical-query"
 import {
@@ -7,8 +7,8 @@ import {
   type InspectorServer,
   pkgRoot,
   rawRequestWithHost,
-  removeDawnDir,
-  resetDawnDir,
+  removeB4Dir,
+  resetB4Dir,
   startInspector,
 } from "./harness"
 
@@ -36,8 +36,8 @@ describe.skipIf(!gated)("memory JSON API", () => {
   let server: InspectorServer
 
   beforeAll(async () => {
-    resetDawnDir(fixtureApp)
-    const store = sqliteMemoryStore({ path: join(fixtureApp, ".dawn", "memory.sqlite") })
+    resetB4Dir(fixtureApp)
+    const store = sqliteMemoryStore({ path: join(fixtureApp, ".b4", "memory.sqlite") })
     await store.put(
       record({
         id: "active1",
@@ -78,7 +78,7 @@ describe.skipIf(!gated)("memory JSON API", () => {
 
   afterAll(async () => {
     await server?.stop()
-    removeDawnDir(fixtureApp)
+    removeB4Dir(fixtureApp)
   })
 
   it("browse lists all records with total", async () => {
@@ -400,8 +400,8 @@ describe.skipIf(!gated)("list time windows + expiry", () => {
   }
 
   beforeAll(async () => {
-    resetDawnDir(fixtureApp)
-    const store = sqliteMemoryStore({ path: join(fixtureApp, ".dawn", "memory.sqlite") })
+    resetB4Dir(fixtureApp)
+    const store = sqliteMemoryStore({ path: join(fixtureApp, ".b4", "memory.sqlite") })
     await store.put(episodeSeed({ id: "ep-day1", effectiveAt: "2026-08-01T10:00:00.000Z" }))
     await store.put(
       episodeSeed({
@@ -440,7 +440,7 @@ describe.skipIf(!gated)("list time windows + expiry", () => {
 
   afterAll(async () => {
     await server?.stop()
-    removeDawnDir(fixtureApp)
+    removeB4Dir(fixtureApp)
   })
 
   it("since narrows the list to episodes at or after the bound", async () => {
@@ -511,8 +511,8 @@ describe.skipIf(!gated)("identity resolution error discipline", () => {
   let server: InspectorServer
 
   beforeAll(async () => {
-    resetDawnDir(brokenApp)
-    const store = sqliteMemoryStore({ path: join(brokenApp, ".dawn", "memory.sqlite") })
+    resetB4Dir(brokenApp)
+    const store = sqliteMemoryStore({ path: join(brokenApp, ".b4", "memory.sqlite") })
     await store.put(
       record({
         id: "bcand1",
@@ -525,7 +525,7 @@ describe.skipIf(!gated)("identity resolution error discipline", () => {
 
   afterAll(async () => {
     await server?.stop()
-    removeDawnDir(brokenApp)
+    removeB4Dir(brokenApp)
   })
 
   it("approve surfaces a broken route memory.ts as 500 (no silent fallback)", async () => {
@@ -544,8 +544,8 @@ describe.skipIf(!gated)("identity resolution happy path (CLI mirror)", () => {
   let server: InspectorServer
 
   beforeAll(async () => {
-    resetDawnDir(identityApp)
-    const store = sqliteMemoryStore({ path: join(identityApp, ".dawn", "memory.sqlite") })
+    resetB4Dir(identityApp)
+    const store = sqliteMemoryStore({ path: join(identityApp, ".b4", "memory.sqlite") })
     await store.put(
       record({
         id: "iactive1",
@@ -571,7 +571,7 @@ describe.skipIf(!gated)("identity resolution happy path (CLI mirror)", () => {
 
   afterAll(async () => {
     await server?.stop()
-    removeDawnDir(identityApp)
+    removeB4Dir(identityApp)
   })
 
   it("approve uses the route memory.ts custom identity keys", async () => {
@@ -595,7 +595,7 @@ describe.skipIf(!gated)("store resolution failures", () => {
   let server: InspectorServer
 
   beforeAll(async () => {
-    // Deliberately NO resetDawnDir: the app root must not exist. /healthz never
+    // Deliberately NO resetB4Dir: the app root must not exist. /healthz never
     // touches the store, so the server still becomes ready.
     server = await startInspector(missingRoot)
   })

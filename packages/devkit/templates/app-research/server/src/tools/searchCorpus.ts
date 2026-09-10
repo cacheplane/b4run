@@ -1,11 +1,11 @@
-import type { DawnToolContext } from "@dawn-ai/sdk"
+import type { B4ToolContext } from "@b4run/sdk"
 
 /**
  * Search the bundled research corpus for documents matching a query.
  * Returns up to five matches ranked by how many query terms each document
  * contains, with a short snippet around the first matched term.
  */
-export default async (input: { readonly query: string }, ctx: DawnToolContext) => {
+export default async (input: { readonly query: string }, ctx: B4ToolContext) => {
   const terms = input.query.toLowerCase().split(/\s+/).filter(Boolean)
   const files = (await ctx.fs.listDir("corpus")).filter((file) => file.endsWith(".md"))
 

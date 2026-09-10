@@ -6,7 +6,7 @@ import { assertNoThreadAccessPolicy } from "./thread-access-probe.js"
 
 /**
  * The LangSmith deploy target. Emits the per-route materialized graph entry
- * files plus a merged `langgraph.json`. This is the original `dawn build`
+ * files plus a merged `langgraph.json`. This is the original `b4 build`
  * behavior, moved verbatim behind the target seam.
  */
 export const langsmithTarget: BuildTarget = {
@@ -34,7 +34,7 @@ export const langsmithTarget: BuildTarget = {
           .replace(/\.ts$/, ".js")
         entryContent = [
           `import { fileURLToPath } from "node:url"`,
-          `import { materializeResolvedRouteGraph } from "@dawn-ai/cli/runtime"`,
+          `import { materializeResolvedRouteGraph } from "@b4run/cli/runtime"`,
           ``,
           `const appRoot = fileURLToPath(new URL("../..", import.meta.url))`,
           ``,

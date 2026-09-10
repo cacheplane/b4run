@@ -5,9 +5,9 @@ import type {
   ThreadAction,
   ThreadOperation,
   ThreadSubject,
-} from "@dawn-ai/sdk"
-import { THREAD_ACCESS_METADATA_KEY } from "@dawn-ai/sdk"
-import type { Thread, ThreadsStore } from "@dawn-ai/sqlite-storage"
+} from "@b4run/sdk"
+import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
+import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import { headersToRecord } from "./middleware.js"
 import { createRequestErrorBody } from "./server-errors.js"
 import { statusResponse } from "./status-response.js"
@@ -124,7 +124,7 @@ function toThreadSubject(thread: Thread): ThreadSubject {
  * `{ code: … }` is the SECOND positional argument — `details`, not `options` —
  * so it lands at `error.details.code` with no `error.code` / `docsUrl`, exactly
  * as `run_in_flight` and `thread_not_found` do. Deliberately no registry code
- * on the deny path: `DAWN_E3003` is for load failures, and a docs URL on a 403
+ * on the deny path: `B4_E3003` is for load failures, and a docs URL on a 403
  * is noise.
  *
  * Every branch supplies a literal body, and the guard is on
@@ -194,7 +194,7 @@ export function makeThreadGate(
         if (!warnedIgnoredStamp) {
           warnedIgnoredStamp = true
           console.warn(
-            `Dawn thread access: the policy returned a stamp on a ${spec.action} allow ` +
+            `B4.run thread access: the policy returned a stamp on a ${spec.action} allow ` +
               `(${spec.operation}). Stamps are honored on create only, so it was ignored. ` +
               "This warning is emitted once per process.",
           )

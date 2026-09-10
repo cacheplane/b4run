@@ -9,21 +9,21 @@ export default defineConfig({
   root: resolve(rootDir, "../.."),
   resolve: {
     alias: {
-      "@dawn-ai/cli/runtime": resolve(rootDir, "../../packages/cli/src/runtime-exports.ts"),
-      "@dawn-ai/core/internal/compiler": resolve(
+      "@b4run/cli/runtime": resolve(rootDir, "../../packages/cli/src/runtime-exports.ts"),
+      "@b4run/core/internal/compiler": resolve(
         rootDir,
         "../../packages/core/src/compiler/index.ts",
       ),
       // Subpath alias must precede the bare-package alias (same ordering rule
-      // as @dawn-ai/sdk/testing below).
-      "@dawn-ai/core/node": resolve(rootDir, "../../packages/core/src/node.ts"),
-      "@dawn-ai/core": resolve(rootDir, "../../packages/core/src/index.ts"),
-      "@dawn-ai/langchain": resolve(rootDir, "../../packages/langchain/src/index.ts"),
-      "@dawn-ai/langgraph": resolve(rootDir, "../../packages/langgraph/src/index.ts"),
-      "@dawn-ai/sdk/pure": resolve(rootDir, "../../packages/sdk/src/pure/index.ts"),
-      "@dawn-ai/sdk/testing": resolve(rootDir, "../../packages/sdk/src/testing/index.ts"),
-      "@dawn-ai/sdk": resolve(rootDir, "../../packages/sdk/src/index.ts"),
-      "@dawn-ai/testing": resolve(rootDir, "../../packages/testing/src/index.ts"),
+      // as @b4run/sdk/testing below).
+      "@b4run/core/node": resolve(rootDir, "../../packages/core/src/node.ts"),
+      "@b4run/core": resolve(rootDir, "../../packages/core/src/index.ts"),
+      "@b4run/langchain": resolve(rootDir, "../../packages/langchain/src/index.ts"),
+      "@b4run/langgraph": resolve(rootDir, "../../packages/langgraph/src/index.ts"),
+      "@b4run/sdk/pure": resolve(rootDir, "../../packages/sdk/src/pure/index.ts"),
+      "@b4run/sdk/testing": resolve(rootDir, "../../packages/sdk/src/testing/index.ts"),
+      "@b4run/sdk": resolve(rootDir, "../../packages/sdk/src/index.ts"),
+      "@b4run/testing": resolve(rootDir, "../../packages/testing/src/index.ts"),
     },
   },
   test: {
@@ -40,7 +40,7 @@ export default defineConfig({
       "test/runtime/run-agent-protocol.test.ts",
       "test/runtime/run-tool-scope.test.ts",
       "test/runtime/run-sandbox-wiring.test.ts",
-      "test/runtime/dawn-testing/agent-behavior.test.ts",
+      "test/runtime/b4-testing/agent-behavior.test.ts",
     ],
     testTimeout: 240_000,
   },

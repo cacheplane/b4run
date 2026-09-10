@@ -10,7 +10,7 @@ import { canonicalAuditResultBytes } from "../terminal-records.mjs"
 import { SMOKE_LANES, smokeDescriptor } from "./support/marker-observation.mjs"
 
 const OWNER = "cacheplane"
-const REPO = "dawnai"
+const REPO = "b4run"
 const VERSION = "0.8.22"
 const TAG = `v${VERSION}`
 const SHA = "0123456789abcdef0123456789abcdef01234567"
@@ -42,10 +42,10 @@ test("draft creation proves an annotated tag and re-reads the exact created draf
     releases: [],
     release: {
       id: 7,
-      tag_name: TAG,
+      tag_name: "untagged-opaque",
       target_commitish: "main",
       prerelease: false,
-      name: `Dawn v${VERSION}`,
+      name: `B4 v${VERSION}`,
       body: "candidate body",
       draft: true,
       immutable: false,
@@ -64,7 +64,7 @@ test("draft creation proves an annotated tag and re-reads the exact created draf
   const result = await writer.createDraftRelease({
     tag: TAG,
     targetSha: SHA,
-    title: `Dawn v${VERSION}`,
+    title: `B4 v${VERSION}`,
     body: "candidate body",
   })
   assert.deepEqual(result, {
@@ -77,12 +77,166 @@ test("draft creation proves an annotated tag and re-reads the exact created draf
   assert.equal(calls[0].init.method, "POST")
   assert.deepEqual(JSON.parse(calls[0].init.body), {
     tag_name: TAG,
-    name: `Dawn v${VERSION}`,
+    name: `B4 v${VERSION}`,
     body: "candidate body",
     draft: true,
     generate_release_notes: false,
   })
   assert.equal(Object.hasOwn(JSON.parse(calls[0].init.body), "target_commitish"), false)
+})
+
+test("draft creation discovers one exact mutable draft despite an opaque temporary tag", async () => {
+  const fixture = verifiedPublicationFixture()
+  const release = { ...draftRelease(fixture.body), tag_name: "untagged-opaque" }
+  const writer = createGitHubWriter({
+    owner: OWNER,
+    repo: REPO,
+    reader: exactReader({ releases: [release], release }),
+    fetchImpl: assert.fail,
+  })
+
+  assert.deepEqual(
+    await writer.createDraftRelease({
+      tag: TAG,
+      targetSha: SHA,
+      title: `B4 v${VERSION}`,
+      body: fixture.body,
+    }),
+    {
+      releaseId: 7,
+      status: "existing",
+      bodySha256: releaseBodySha256(fixture.body),
+    },
+  )
+})
+
+test("draft creation reconciles one exact opaque-tag race and rejects ambiguous duplicates", async () => {
+  const fixture = verifiedPublicationFixture()
+  const release = { ...draftRelease(fixture.body), tag_name: "untagged-opaque" }
+  let lists = 0
+  const raced = createGitHubWriter({
+    owner: OWNER,
+    repo: REPO,
+    reader: exactReader({
+      releases() {
+        lists += 1
+        return lists === 1 ? [] : [release]
+      },
+      release,
+    }),
+    fetchImpl: async () => jsonResponse({}, 422),
+  })
+
+  assert.deepEqual(
+    await raced.createDraftRelease({
+      tag: TAG,
+      targetSha: SHA,
+      title: `B4 v${VERSION}`,
+      body: fixture.body,
+    }),
+    {
+      releaseId: 7,
+      status: "existing",
+      bodySha256: releaseBodySha256(fixture.body),
+    },
+  )
+  assert.equal(lists, 2)
+
+  let mutations = 0
+  const duplicate = createGitHubWriter({
+    owner: OWNER,
+    repo: REPO,
+    reader: exactReader({
+      releases: [release, { ...release, id: 8, tag_name: "untagged-other" }],
+      release,
+    }),
+    fetchImpl: async () => {
+      mutations += 1
+      return jsonResponse({}, 201)
+    },
+  })
+  await assert.rejects(
+    duplicate.createDraftRelease({
+      tag: TAG,
+      targetSha: SHA,
+      title: `B4 v${VERSION}`,
+      body: fixture.body,
+    }),
+    /duplicate|ambiguous/iu,
+  )
+  assert.equal(mutations, 0)
+})
+
+test("draft updates and asset uploads preserve tag verification around opaque-tag mutations", async () => {
+  let updateTagReads = 0
+  let body = "old body"
+  const updateWriter = createGitHubWriter({
+    owner: OWNER,
+    repo: REPO,
+    reader: exactReader({
+      release: () => ({ ...draftRelease(body), tag_name: "untagged-opaque" }),
+      tagTargetSha() {
+        updateTagReads += 1
+        return SHA
+      },
+    }),
+    fetchImpl: async (_url, init) => {
+      body = JSON.parse(init.body).body
+      return jsonResponse({ id: 7 }, 200)
+    },
+  })
+  assert.deepEqual(
+    await updateWriter.updateDraftReleaseIfCurrent({
+      releaseId: 7,
+      tag: TAG,
+      targetSha: SHA,
+      expectedBodySha256: releaseBodySha256("old body"),
+      title: `B4 v${VERSION}`,
+      body: "new body",
+    }),
+    {
+      releaseId: 7,
+      status: "updated",
+      bodySha256: releaseBodySha256("new body"),
+    },
+  )
+  assert.equal(updateTagReads, 2)
+
+  const bytes = Buffer.from("exact asset")
+  const digest = sha256(bytes)
+  const assets = []
+  const downloads = new Map()
+  let uploadTagReads = 0
+  const uploadWriter = createGitHubWriter({
+    owner: OWNER,
+    repo: REPO,
+    reader: exactReader({
+      release: { ...draftRelease("body"), tag_name: "untagged-opaque" },
+      assets,
+      downloads,
+      tagTargetSha() {
+        uploadTagReads += 1
+        return SHA
+      },
+    }),
+    fetchImpl: async () => {
+      assets.push({ id: 90, name: "manifest.json" })
+      downloads.set(90, bytes)
+      return jsonResponse({ id: 90 }, 201)
+    },
+  })
+  assert.deepEqual(
+    await uploadWriter.uploadAssetIfAbsentAndEqual({
+      releaseId: 7,
+      tag: TAG,
+      targetSha: SHA,
+      name: "manifest.json",
+      bytes,
+      sha256: digest,
+    }),
+    { assetId: 90, status: "uploaded", sha256: digest },
+  )
+  assert.equal(uploadTagReads, 2)
 })
 
 test("writer rejects lightweight tags and stale body CAS without mutation", async () => {
@@ -199,7 +353,7 @@ test("draft creation rejects a raced prerelease before returning an existing rec
     writer.createDraftRelease({
       tag: TAG,
       targetSha: SHA,
-      title: `Dawn v${VERSION}`,
+      title: `B4 v${VERSION}`,
       body: "candidate body",
     }),
     /identity|metadata|prerelease/iu,
@@ -226,7 +380,7 @@ test("writer revalidates an annotated tag before returning an existing-resource 
     writer.createDraftRelease({
       tag: TAG,
       targetSha: SHA,
-      title: `Dawn v${VERSION}`,
+      title: `B4 v${VERSION}`,
       body: "candidate body",
     }),
     /annotated|tag|target|commit/iu,
@@ -537,7 +691,268 @@ test("writer bounds response time, content type, redirects, and output bytes", a
   await assert.rejects(dispatch(oversized), /byte limit/iu)
 })
 
-test("publication changes only draft state and requires immutable unchanged re-read", async () => {
+const DRAFT_INPUT = { tag: TAG, targetSha: SHA, title: `B4 v${VERSION}`, body: "candidate body" }
+const FAKE_TOKEN = `ghp_${"A".repeat(30)}`
+
+function draftWriter(fetchImpl, options = {}) {
+  return createGitHubWriter({
+    owner: OWNER,
+    repo: REPO,
+    reader: exactReader({ releases: [], release: draftRelease("candidate body") }),
+    fetchImpl,
+    ...options,
+  })
+}
+
+async function rejection(promise) {
+  return promise.then(
+    () => assert.fail("the writer call must reject"),
+    (reason) => reason,
+  )
+}
+
+test("draft creation failures carry the HTTP status and the sanitized GitHub message", async () => {
+  const writer = draftWriter(
+    async () => jsonResponse({ message: "Resource not accessible by integration" }, 403),
+    { token: FAKE_TOKEN },
+  )
+  const error = await rejection(writer.createDraftRelease(DRAFT_INPUT))
+  assert.equal(
+    error.message,
+    "GitHub draft creation returned HTTP 403: Resource not accessible by integration",
+  )
+  assert.ok(!error.message.includes(FAKE_TOKEN))
+  assert.ok(!error.message.includes("Authorization"))
+})
+
+test("draft creation failures include structured GitHub errors and survive non-JSON bodies", async () => {
+  const validation = draftWriter(async () =>
+    jsonResponse(
+      {
+        message: "Validation Failed",
+        errors: [{ resource: "Release", code: "custom", field: "tag_name" }],
+        documentation_url: "https://docs.github.com/rest/releases/releases#create-a-release",
+      },
+      400,
+    ),
+  )
+  assert.equal(
+    (await rejection(validation.createDraftRelease(DRAFT_INPUT))).message,
+    'GitHub draft creation returned HTTP 400: Validation Failed errors=[{"resource":"Release","code":"custom","field":"tag_name"}]',
+  )
+
+  const html = draftWriter(
+    async () =>
+      new Response("<html>\n<body>  Bad Gateway\u0000 </body>\n</html>", {
+        status: 502,
+        headers: { "content-type": "text/html" },
+      }),
+  )
+  assert.equal(
+    (await rejection(html.createDraftRelease(DRAFT_INPUT))).message,
+    "GitHub draft creation returned HTTP 502: <html> <body> Bad Gateway </body> </html>",
+  )
+
+  const empty = draftWriter(async () => new Response(null, { status: 500 }))
+  assert.equal(
+    (await rejection(empty.createDraftRelease(DRAFT_INPUT))).message,
+    "GitHub draft creation returned HTTP 500",
+  )
+
+  const malformedJson = draftWriter(
+    async () =>
+      new Response("{not json", { status: 503, headers: { "content-type": "application/json" } }),
+  )
+  assert.equal(
+    (await rejection(malformedJson.createDraftRelease(DRAFT_INPUT))).message,
+    "GitHub draft creation returned HTTP 503: {not json",
+  )
+})
+
+test("writer failure detail redacts credentials and query strings from the response body", async () => {
+  const jwt =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+  const secrets = [
+    FAKE_TOKEN,
+    `github_pat_${"B".repeat(40)}`,
+    `npm_${"C".repeat(36)}`,
+    "bearer sk-live-topsecretvalue",
+    "authorization: Basic dXNlcjpwYXNz",
+    jwt,
+    `v1.${jwt}`,
+    `{"id.${jwt}":1}`,
+    `https://h.test/v1.${jwt}`,
+  ]
+  const writer = draftWriter(async () =>
+    jsonResponse(
+      {
+        message: `Bad credentials ${secrets.join(" | ")} see https://api.github.com/x?access_token=leaky`,
+      },
+      401,
+    ),
+  )
+  const error = await rejection(writer.createDraftRelease(DRAFT_INPUT))
+  assert.ok(error.message.startsWith("GitHub draft creation returned HTTP 401: Bad credentials "))
+  for (const leak of [
+    "A".repeat(30),
+    "B".repeat(40),
+    "C".repeat(36),
+    "sk-live-topsecretvalue",
+    "dXNlcjpwYXNz",
+    "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ",
+    "access_token",
+    "leaky",
+  ]) {
+    assert.ok(!error.message.includes(leak), `leaked ${leak}: ${error.message}`)
+  }
+  assert.equal((error.message.match(/\[redacted\]/gu) ?? []).length, 9, error.message)
+  assert.match(
+    error.message,
+    /\| https:\/\/h\.test\/v1\.\[redacted\] see https:\/\/api\.github\.com\/x$/u,
+  )
+})
+
+test("writer failure detail bounds a 10 KB body to a 200-character snippet", async () => {
+  const filler = "x".repeat(10 * 1024)
+  const jsonWriter = draftWriter(async () => jsonResponse({ message: filler }, 500))
+  const jsonError = await rejection(jsonWriter.createDraftRelease(DRAFT_INPUT))
+  const jsonPrefix = "GitHub draft creation returned HTTP 500: "
+  assert.ok(jsonError.message.startsWith(jsonPrefix))
+  const jsonSnippet = jsonError.message.slice(jsonPrefix.length)
+  assert.equal(jsonSnippet.length, 200)
+  assert.equal(jsonSnippet.at(-1), "…")
+
+  const textWriter = draftWriter(
+    async () =>
+      new Response(`gateway ${filler}`, { status: 504, headers: { "content-type": "text/plain" } }),
+  )
+  const textError = await rejection(textWriter.createDraftRelease(DRAFT_INPUT))
+  const textSnippet = textError.message.slice("GitHub draft creation returned HTTP 504: ".length)
+  assert.equal(textSnippet.length, 200)
+  assert.ok(textSnippet.startsWith("gateway xxxx"))
+  assert.equal(textSnippet.at(-1), "…")
+})
+
+test("an unreconciled 422 draft race reports the status and GitHub's explanation", async () => {
+  const writer = draftWriter(async () =>
+    jsonResponse({ message: "Validation Failed", errors: [{ code: "already_exists" }] }, 422),
+  )
+  assert.equal(
+    (await rejection(writer.createDraftRelease(DRAFT_INPUT))).message,
+    'GitHub draft creation race could not be reconciled: no Release matches the tag and the POST returned HTTP 422: Validation Failed errors=[{"code":"already_exists"}]',
+  )
+})
+
+test("draft update, asset upload, publication, and dispatch failures carry the HTTP status", async () => {
+  const forbidden = async () =>
+    jsonResponse({ message: "Resource not accessible by integration" }, 403)
+  const detail = "returned HTTP 403: Resource not accessible by integration"
+
+  const updateWriter = createGitHubWriter({
+    owner: OWNER,
+    repo: REPO,
+    reader: exactReader({ release: draftRelease("old body") }),
+    fetchImpl: forbidden,
+  })
+  assert.equal(
+    (
+      await rejection(
+        updateWriter.updateDraftReleaseIfCurrent({
+          releaseId: 7,
+          tag: TAG,
+          targetSha: SHA,
+          expectedBodySha256: releaseBodySha256("old body"),
+          title: `B4 v${VERSION}`,
+          body: "new body",
+        }),
+      )
+    ).message,
+    `GitHub draft update ${detail}`,
+  )
+
+  const bytes = Buffer.from("exact asset")
+  const uploadWriter = createGitHubWriter({
+    owner: OWNER,
+    repo: REPO,
+    reader: exactReader({ release: draftRelease("body"), assets: [], downloads: new Map() }),
+    fetchImpl: forbidden,
+  })
+  assert.equal(
+    (
+      await rejection(
+        uploadWriter.uploadAssetIfAbsentAndEqual({
+          releaseId: 7,
+          tag: TAG,
+          targetSha: SHA,
+          name: "manifest.json",
+          bytes,
+          sha256: sha256(bytes),
+        }),
+      )
+    ).message,
+    `GitHub Release asset upload ${detail}`,
+  )
+
+  const fixture = verifiedPublicationFixture()
+  const publishWriter = createGitHubWriter({
+    owner: OWNER,
+    repo: REPO,
+    reader: exactReader({
+      release: draftRelease(fixture.body),
+      assets: fixture.assets.map((asset, index) => ({ id: index + 1, name: asset.name })),
+      downloads: new Map(fixture.assets.map((asset, index) => [index + 1, asset.bytes])),
+    }),
+    fetchImpl: forbidden,
+  })
+  assert.equal(
+    (
+      await rejection(
+        publishWriter.publishReleaseIfCurrent({
+          releaseId: 7,
+          tag: TAG,
+          targetSha: SHA,
+          expectedBodySha256: releaseBodySha256(fixture.body),
+          assets: fixture.assets.map(({ name, digest }) => ({ name, sha256: digest })),
+        }),
+      )
+    ).message,
+    `Release publication ${detail}`,
+  )
+
+  const dispatchWriter = createGitHubWriter({
+    owner: OWNER,
+    repo: REPO,
+    reader: exactReader(),
+    fetchImpl: async () => jsonResponse({ message: "Not Found" }, 404),
+  })
+  assert.equal(
+    (
+      await rejection(
+        dispatchWriter.dispatchWorkflowAtRef({
+          workflow: ".github/workflows/release.yml",
+          ref: TAG,
+          inputs: {},
+        }),
+      )
+    ).message,
+    "GitHub workflow dispatch requires the direct HTTP 200 run receipt but returned HTTP 404: Not Found",
+  )
+})
+
+test("writer timeouts report the configured budget without headers or the token", async () => {
+  const writer = draftWriter(
+    (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })
+      }),
+    { timeoutMs: 5, token: FAKE_TOKEN },
+  )
+  const error = await rejection(writer.createDraftRelease(DRAFT_INPUT))
+  assert.equal(error.message, "GitHub write timed out after 5 ms (POST)")
+  assert.ok(!error.message.includes(FAKE_TOKEN))
+})
+
+test("publication binds the exact tag and requires an exact immutable unchanged re-read", async () => {
   const fixture = verifiedPublicationFixture()
   const calls = []
   let releaseReads = 0
@@ -546,10 +961,10 @@ test("publication changes only draft state and requires immutable unchanged re-r
       releaseReads += 1
       return {
         id: 7,
-        tag_name: TAG,
+        tag_name: releaseReads === 1 ? "untagged-opaque" : TAG,
         target_commitish: "main",
         prerelease: false,
-        name: `Dawn v${VERSION}`,
+        name: `B4 v${VERSION}`,
         body: fixture.body,
         draft: releaseReads === 1,
         immutable: releaseReads > 1,
@@ -578,7 +993,113 @@ test("publication changes only draft state and requires immutable unchanged re-r
   assert.deepEqual(result, { releaseId: 7, status: "published", immutable: true })
   assert.equal(calls.length, 1)
   assert.equal(calls[0].url, `${API_BASE}/releases/7`)
-  assert.deepEqual(JSON.parse(calls[0].init.body), { draft: false })
+  assert.deepEqual(JSON.parse(calls[0].init.body), { tag_name: TAG, draft: false })
+})
+
+test("publication PATCH includes the exact requested tag for an already tagged draft", async () => {
+  const fixture = verifiedPublicationFixture()
+  const calls = []
+  let releaseReads = 0
+  const writer = createGitHubWriter({
+    owner: OWNER,
+    repo: REPO,
+    reader: exactReader({
+      release() {
+        releaseReads += 1
+        return {
+          ...draftRelease(fixture.body),
+          draft: releaseReads === 1,
+          immutable: releaseReads > 1,
+        }
+      },
+      assets: fixture.assets.map((asset, index) => ({ id: index + 1, name: asset.name })),
+      downloads: new Map(fixture.assets.map((asset, index) => [index + 1, asset.bytes])),
+    }),
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), init })
+      return jsonResponse({ id: 7, draft: false }, 200)
+    },
+  })
+
+  await writer.publishReleaseIfCurrent({
+    releaseId: 7,
+    tag: TAG,
+    targetSha: SHA,
+    expectedBodySha256: releaseBodySha256(fixture.body),
+    assets: fixture.assets.map(({ name, digest }) => ({ name, sha256: digest })),
+  })
+
+  assert.equal(calls.length, 1)
+  assert.deepEqual(JSON.parse(calls[0].init.body), { tag_name: TAG, draft: false })
+})
+
+test("publication rejects an immutable re-read that retains the opaque temporary tag", async () => {
+  const fixture = verifiedPublicationFixture()
+  let releaseReads = 0
+  const writer = createGitHubWriter({
+    owner: OWNER,
+    repo: REPO,
+    reader: exactReader({
+      release() {
+        releaseReads += 1
+        return {
+          ...draftRelease(fixture.body),
+          tag_name: "untagged-opaque",
+          draft: releaseReads === 1,
+          immutable: releaseReads > 1,
+        }
+      },
+      assets: fixture.assets.map((asset, index) => ({ id: index + 1, name: asset.name })),
+      downloads: new Map(fixture.assets.map((asset, index) => [index + 1, asset.bytes])),
+    }),
+    fetchImpl: async () => jsonResponse({ id: 7, draft: false }, 200),
+  })
+
+  await assert.rejects(
+    writer.publishReleaseIfCurrent({
+      releaseId: 7,
+      tag: TAG,
+      targetSha: SHA,
+      expectedBodySha256: releaseBodySha256(fixture.body),
+      assets: fixture.assets.map(({ name, digest }) => ({ name, sha256: digest })),
+    }),
+    /identity|metadata|tag/iu,
+  )
+  assert.equal(releaseReads, 2)
+})
+
+test("an existing published Release must expose the exact tag and be immutable", async () => {
+  const fixture = verifiedPublicationFixture()
+  let mutations = 0
+  for (const release of [
+    { ...draftRelease(fixture.body), tag_name: "untagged-opaque", draft: false, immutable: true },
+    { ...draftRelease(fixture.body), draft: false, immutable: false },
+  ]) {
+    const writer = createGitHubWriter({
+      owner: OWNER,
+      repo: REPO,
+      reader: exactReader({
+        release,
+        assets: fixture.assets.map((asset, index) => ({ id: index + 1, name: asset.name })),
+        downloads: new Map(fixture.assets.map((asset, index) => [index + 1, asset.bytes])),
+      }),
+      fetchImpl: async () => {
+        mutations += 1
+        return jsonResponse({}, 200)
+      },
+    })
+    await assert.rejects(
+      writer.publishReleaseIfCurrent({
+        releaseId: 7,
+        tag: TAG,
+        targetSha: SHA,
+        expectedBodySha256: releaseBodySha256(fixture.body),
+        assets: fixture.assets.map(({ name, digest }) => ({ name, sha256: digest })),
+      }),
+      /identity|metadata|immutable/iu,
+    )
+  }
+  assert.equal(mutations, 0)
 })
 
 test("publication rejects a marker whose immutable base digest does not match its assets", async () => {
@@ -770,7 +1291,7 @@ function draftRelease(body) {
     tag_name: TAG,
     target_commitish: "main",
     prerelease: false,
-    name: `Dawn v${VERSION}`,
+    name: `B4 v${VERSION}`,
     body,
     draft: true,
     immutable: false,
@@ -887,7 +1408,7 @@ function verifiedPublicationFixture() {
 }
 
 function markerBody(marker) {
-  return `# release\n\n<!-- DAWN_RELEASE_CONTROLLER_MARKER\n${JSON.stringify(canonicalize(marker))}\nEND_DAWN_RELEASE_CONTROLLER_MARKER -->\n`
+  return `# release\n\n<!-- B4_RELEASE_CONTROLLER_MARKER\n${JSON.stringify(canonicalize(marker))}\nEND_B4_RELEASE_CONTROLLER_MARKER -->\n`
 }
 
 function jsonResponse(body, status) {
@@ -910,3 +1431,39 @@ function canonicalize(value) {
       .map((key) => [key, canonicalize(value[key])]),
   )
 }
+
+test("only the independent audit workflow can dispatch the main controller ref", async () => {
+  const calls = []
+  const writer = createGitHubWriter({
+    owner: OWNER,
+    repo: REPO,
+    reader: exactReader(),
+    fetchImpl: async (_, init) => {
+      calls.push(JSON.parse(init.body))
+      return jsonResponse(
+        {
+          workflow_run_id: 123,
+          run_url: `${API_BASE}/actions/runs/123`,
+          html_url: `https://github.com/${OWNER}/${REPO}/actions/runs/123`,
+        },
+        200,
+      )
+    },
+  })
+  await writer.dispatchWorkflowAtRef({
+    workflow: ".github/workflows/published-artifact-verify.yml",
+    ref: "main",
+    inputs: { version: VERSION, commitSha: SHA, manifestSha256: "a".repeat(64) },
+  })
+  assert.equal(calls[0].ref, "main")
+  for (const [workflow, ref] of [
+    ["release.yml", "main"],
+    ["published-artifact-verify.yml", "feature"],
+    ["published-artifact-verify.yml", "refs/heads/main"],
+  ]) {
+    await assert.rejects(
+      writer.dispatchWorkflowAtRef({ workflow: `.github/workflows/${workflow}`, ref, inputs: {} }),
+    )
+  }
+  assert.equal(calls.length, 1)
+})

@@ -9,7 +9,7 @@ import type { MarkerFs } from "./capabilities/types.js"
 
 /**
  * The Node implementation of the capability-marker fs facade. Lives in core
- * behind the explicitly node-only "@dawn-ai/core/node" subpath (NOT the "."
+ * behind the explicitly node-only "@b4run/core/node" subpath (NOT the "."
  * barrel) so every node-side consumer shares one implementation while
  * `node:fs` stays out of the default import graph — edge entries never import
  * this subpath.

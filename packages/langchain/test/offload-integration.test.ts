@@ -1,14 +1,14 @@
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { localFilesystem } from "@dawn-ai/workspace/node"
+import { localFilesystem } from "@b4run/workspace/node"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { convertToolToLangChain, OffloadStore, offloadToolOutput } from "../src/index.js"
 
 describe("tool-output offloading end-to-end", () => {
   let dir: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "dawn-offload-e2e-"))
+    dir = mkdtempSync(join(tmpdir(), "b4-offload-e2e-"))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })

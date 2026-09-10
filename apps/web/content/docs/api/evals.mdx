@@ -1,30 +1,30 @@
-# @dawn-ai/evals
+# @b4run/evals
 
 ## Use this when
 
-Use this package when application behavior needs repeatable datasets, scorers, reports, and release gates. Build deterministic agent runs with `@dawn-ai/testing`, then use `runEval()` to score them.
+Use this package when application behavior needs repeatable datasets, scorers, reports, and release gates. Build deterministic agent runs with `@b4run/testing`, then use `runEval()` to score them.
 
 ## Install and import
 
 ```bash
-pnpm add -D @dawn-ai/evals @dawn-ai/testing
+pnpm add -D @b4run/evals @b4run/testing
 ```
 
 ```ts
-import { contains, defineEval, gate, runEval } from "@dawn-ai/evals"
+import { contains, defineEval, gate, runEval } from "@b4run/evals"
 ```
 
 ## Compatibility and audience
 
 | Surface | Runtime | Purity | Audience | Stability |
 |---|---|---|---|---|
-| `@dawn-ai/evals` | node-only | not-claimed | testing | supported |
+| `@b4run/evals` | node-only | not-claimed | testing | supported |
 
 The root resolves JSON and JSONL datasets from disk, so it is a Node testing surface even though individual scorers may be pure.
 
 ## Public exports
 
-### `@dawn-ai/evals`
+### `@b4run/evals`
 
 | Export | Responsibility |
 |---|---|
@@ -65,7 +65,7 @@ The root resolves JSON and JSONL datasets from disk, so it is a Node testing sur
 
 ### `EvalDefinition`
 
-```ts api-contract="@dawn-ai/evals#.:EvalDefinition"
+```ts api-contract="@b4run/evals#.:EvalDefinition"
 export interface EvalDefinition {
   readonly name: string
   readonly route?: string
@@ -76,7 +76,7 @@ export interface EvalDefinition {
 }
 ```
 
-**Fields: `@dawn-ai/evals#.:EvalDefinition`**
+**Fields: `@b4run/evals#.:EvalDefinition`**
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `readonly name` | `string` | yes | Name the report. |
@@ -86,11 +86,11 @@ export interface EvalDefinition {
 | `readonly threshold` | `number` | no | Shorthand for a mean gate. |
 | `readonly gate` | `GatePolicy` | no | Define explicit report pass policy. |
 
-```ts api-contract="@dawn-ai/evals#.:defineEval"
+```ts api-contract="@b4run/evals#.:defineEval"
 export declare function defineEval(def: EvalDefinition): EvalDefinition
 ```
 
-```ts api-contract="@dawn-ai/evals#.:EvalCase"
+```ts api-contract="@b4run/evals#.:EvalCase"
 export interface EvalCase {
   readonly name?: string
   readonly input: unknown
@@ -100,7 +100,7 @@ export interface EvalCase {
 }
 ```
 
-```ts api-contract="@dawn-ai/evals#.:Scorer"
+```ts api-contract="@b4run/evals#.:Scorer"
 export interface Scorer {
   readonly name: string
   readonly threshold?: number
@@ -108,14 +108,14 @@ export interface Scorer {
 }
 ```
 
-```ts api-contract="@dawn-ai/evals#.:RunEvalOptions"
+```ts api-contract="@b4run/evals#.:RunEvalOptions"
 export interface RunEvalOptions {
   readonly runCase: (testCase: EvalCase) => Promise<AgentRunResult>
   readonly baseDir?: string
 }
 ```
 
-```ts api-contract="@dawn-ai/evals#.:EvalReport"
+```ts api-contract="@b4run/evals#.:EvalReport"
 export interface EvalReport extends ScoredReport {
   readonly gated: boolean
   readonly passed: boolean
@@ -123,7 +123,7 @@ export interface EvalReport extends ScoredReport {
 }
 ```
 
-```ts api-contract="@dawn-ai/evals#.:runEval"
+```ts api-contract="@b4run/evals#.:runEval"
 export declare function runEval(
   def: EvalDefinition,
   options: RunEvalOptions,
@@ -147,8 +147,8 @@ Cases and scorers run sequentially. A scorer error is contained, but a `runCase`
 ## Examples and related guides
 
 ```ts
-import { contains, defineEval, gate } from "@dawn-ai/evals"
-import { script } from "@dawn-ai/testing"
+import { contains, defineEval, gate } from "@b4run/evals"
+import { script } from "@b4run/testing"
 
 export default defineEval({
   name: "support replies",

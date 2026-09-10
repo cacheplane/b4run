@@ -7,7 +7,7 @@ import { sqliteMemoryStore } from "../src/index.js"
 
 const dirs: string[] = []
 function dbPath() {
-  const dir = mkdtempSync(join(tmpdir(), "dawn-idx-"))
+  const dir = mkdtempSync(join(tmpdir(), "b4-idx-"))
   dirs.push(dir)
   return join(dir, "m.sqlite")
 }

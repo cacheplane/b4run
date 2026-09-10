@@ -8,7 +8,7 @@ import { buildFixture, createFixtureApp, removeFixtureApp } from "./helpers/hono
 // THE EDGE BUNDLE'S node: GATE — the cheap half of the workerd lane.
 //
 // `fetch-entry-purity.test.ts` is the older and broader gate, and it is not
-// redundant with this one: it pins Dawn's own module graph, forbids the loader
+// redundant with this one: it pins B4.run's own module graph, forbids the loader
 // machinery, and carries the inventory of `node:` specifiers still reachable
 // through upstream packages. But it externalizes the model layer
 // (`@langchain/*`, `langchain`, `openai`) on the reasonable ground that a
@@ -31,7 +31,7 @@ import { buildFixture, createFixtureApp, removeFixtureApp } from "./helpers/hono
 //
 // ⚠ The one thing this cannot see is a bare Node-only GLOBAL (`process.foo`
 // with no import edge) — a metafile records imports, not identifiers. That is
-// what `fetch-entry-purity`'s own global-scan assertion is for, on Dawn-owned
+// what `fetch-entry-purity`'s own global-scan assertion is for, on B4.run-owned
 // code; on upstream code neither gate can see it and only the workerd lane can.
 // ---------------------------------------------------------------------------
 
@@ -79,7 +79,7 @@ afterEach(async () => {
 
 describe("the hono target's emitted bundle, resolved as wrangler resolves it", () => {
   test("links with zero node: specifiers, so no nodejs_compat flag is needed", async () => {
-    const appRoot = await createFixtureApp("dawn-edge-bundle-purity-")
+    const appRoot = await createFixtureApp("b4-edge-bundle-purity-")
     created.push(appRoot)
     const buildDir = await buildFixture(appRoot)
 

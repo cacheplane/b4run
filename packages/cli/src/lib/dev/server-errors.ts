@@ -1,4 +1,4 @@
-import { DAWN_ERRORS, type DawnErrorCode, errorDocsUrl } from "@dawn-ai/sdk"
+import { B4_ERRORS, type B4ErrorCode, errorDocsUrl } from "@b4run/sdk"
 
 export type RuntimeServerErrorKind = "request_error" | "execution_error"
 
@@ -7,13 +7,13 @@ export interface RuntimeServerErrorBody {
     readonly kind: RuntimeServerErrorKind
     readonly message: string
     readonly details?: Record<string, unknown>
-    readonly code?: DawnErrorCode
+    readonly code?: B4ErrorCode
     readonly docsUrl?: string
   }
 }
 
 interface ErrorBodyOptions {
-  readonly code?: DawnErrorCode
+  readonly code?: B4ErrorCode
 }
 
 function buildBody(
@@ -51,12 +51,12 @@ export function createExecutionErrorBody(
   return buildBody("execution_error", message, details, options)
 }
 
-/** Read a Dawn error code off a caught error, if it carries a real registry code. */
-export function dawnErrorCodeOf(error: unknown): DawnErrorCode | undefined {
+/** Read a B4.run error code off a caught error, if it carries a real registry code. */
+export function b4ErrorCodeOf(error: unknown): B4ErrorCode | undefined {
   if (error && typeof error === "object" && "code" in error) {
     const code = (error as { code?: unknown }).code
-    if (typeof code === "string" && code in DAWN_ERRORS) {
-      return code as DawnErrorCode
+    if (typeof code === "string" && code in B4_ERRORS) {
+      return code as B4ErrorCode
     }
   }
   return undefined

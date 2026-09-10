@@ -165,7 +165,7 @@ test("missing or mismatched workflow smoke receipts cannot advance", () => {
 })
 
 test("the rehearsal observer obtains every snapshot through the exact production observe CLI route", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-rehearsal-observer-test-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-rehearsal-observer-test-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const candidate = markerCandidate()
   const productionObservation = observationForMarker({ phase: "ESCROWED" })
@@ -234,7 +234,7 @@ test("the rehearsal observer obtains every snapshot through the exact production
 })
 
 test("candidate-discovery ambiguity retains the direct production resolution cause", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-rehearsal-discovery-diagnostic-test-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-rehearsal-discovery-diagnostic-test-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const candidate = markerCandidate()
   const observer = createRehearsalCliObserver({
@@ -278,7 +278,7 @@ test("candidate-discovery ambiguity retains the direct production resolution cau
 })
 
 test("durable post-reconcile production observations discard workflow receipt overlays", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-rehearsal-durable-observer-test-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-rehearsal-durable-observer-test-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const candidate = markerCandidate()
   const productionObservation = observationForMarker({ phase: "SMOKES_COMPLETE" })
@@ -306,7 +306,7 @@ test("durable post-reconcile production observations discard workflow receipt ov
 })
 
 test("pre-escrow observe CLI output is enriched only through the verified workflow receipt", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-rehearsal-attestation-observer-test-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-rehearsal-attestation-observer-test-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const fixture = preparedFixture()
   const observation = {
@@ -460,7 +460,7 @@ test("the rehearsal resumes a controller-selected accepted transition and termin
 })
 
 test("bounded rehearsal adapters classify the untouched candidate through the real observe CLI", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-rehearsal-production-cli-test-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-rehearsal-production-cli-test-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const candidate = markerCandidate()
   const parentSha = "e".repeat(40)
@@ -522,7 +522,7 @@ test("bounded rehearsal adapters classify the untouched candidate through the re
 })
 
 test("the real observe CLI proves preparation from exact Actions payload and handoff bytes", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-rehearsal-prepared-cli-test-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-rehearsal-prepared-cli-test-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const fixture = preparedFixture()
   const remote = createRehearsalGitHub({
@@ -549,7 +549,7 @@ test("the real observe CLI proves preparation from exact Actions payload and han
 })
 
 test("the verified attestation receipt lets the real CLI observation and planner select escrow", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-rehearsal-attested-cli-test-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-rehearsal-attested-cli-test-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const fixture = preparedFixture()
   const remote = createRehearsalGitHub({
@@ -588,7 +588,7 @@ test("the verified attestation receipt lets the real CLI observation and planner
 })
 
 test("the real escrow CLI produces durable evidence that the production observer classifies", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-rehearsal-escrow-cli-test-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-rehearsal-escrow-cli-test-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const fixture = preparedFixture()
   const attestation = attestationFixture(fixture)
@@ -683,7 +683,7 @@ test("the real escrow CLI produces durable evidence that the production observer
 })
 
 test("real registry observations drive partial, complete, and reconciled npm planner states", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "dawn-rehearsal-npm-observe-test-"))
+  const directory = await mkdtemp(join(tmpdir(), "b4-rehearsal-npm-observe-test-"))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const fixture = preparedFixture()
   const { remote, paths } = await escrowedFixture({ directory, fixture })
@@ -890,7 +890,7 @@ function preparedObservation(fixture) {
 }
 
 function multiSubjectBundle(fixture) {
-  const repository = "https://github.com/cacheplane/dawnai"
+  const repository = "https://github.com/cacheplane/b4run"
   const ref = `refs/tags/v${VERSION}`
   const statement = {
     _type: "https://in-toto.io/Statement/v1",
@@ -913,7 +913,7 @@ function multiSubjectBundle(fixture) {
       runDetails: {
         builder: { id: "https://github.com/actions/runner/github-hosted" },
         metadata: {
-          invocationId: "https://github.com/cacheplane/dawnai/actions/runs/300/attempts/1",
+          invocationId: "https://github.com/cacheplane/b4run/actions/runs/300/attempts/1",
         },
       },
     },
@@ -1039,7 +1039,7 @@ function verifiedAudit(candidate, entry) {
       predicateType: "https://slsa.dev/provenance/v1",
       workflow: candidate.publisherWorkflow,
       commitSha: candidate.commitSha,
-      repository: "https://github.com/cacheplane/dawnai",
+      repository: "https://github.com/cacheplane/b4run",
       ref: `refs/tags/v${candidate.version}`,
       subject: { name: entry.name, version: entry.version },
     },
@@ -1058,7 +1058,7 @@ function attestationFixture(fixture) {
   return {
     bundleBytes,
     set: {
-      repository: "cacheplane/dawnai",
+      repository: "cacheplane/b4run",
       workflow: fixture.candidate.publisherWorkflow,
       sourceRef: `refs/tags/v${fixture.candidate.version}`,
       commitSha: fixture.candidate.commitSha,
@@ -1093,8 +1093,8 @@ async function writeEscrowInputs({ directory, fixture, bundleBytes }) {
 
 function releaseEnvironment(candidate) {
   return {
-    GITHUB_REPOSITORY: "cacheplane/dawnai",
-    GITHUB_WORKFLOW_REF: `cacheplane/dawnai/${candidate.publisherWorkflow}@refs/tags/v${candidate.version}`,
+    GITHUB_REPOSITORY: "cacheplane/b4run",
+    GITHUB_WORKFLOW_REF: `cacheplane/b4run/${candidate.publisherWorkflow}@refs/tags/v${candidate.version}`,
     GITHUB_REF: `refs/tags/v${candidate.version}`,
     GITHUB_SHA: candidate.commitSha,
     GITHUB_RUN_ID: "300",
@@ -1281,7 +1281,7 @@ function npmEvidenceFixture(fixture) {
           predicateType: "https://slsa.dev/provenance/v1",
           workflow: fixture.candidate.publisherWorkflow,
           commitSha: fixture.candidate.commitSha,
-          repository: "https://github.com/cacheplane/dawnai",
+          repository: "https://github.com/cacheplane/b4run",
           ref: `refs/tags/v${fixture.candidate.version}`,
         },
       }

@@ -1,20 +1,20 @@
 import { EventType, type RunAgentInput } from "@ag-ui/core"
 import { describe, expect, test } from "vitest"
 import {
+  type B4AgentStreamChunk,
   createCounterIdFactory,
-  type DawnAgentStreamChunk,
   fromRunAgentInput,
   toAguiEvents,
 } from "../src/index.js"
 
-async function* one(chunk: DawnAgentStreamChunk) {
+async function* one(chunk: B4AgentStreamChunk) {
   yield chunk
-  yield { type: "done", data: {} } satisfies DawnAgentStreamChunk
+  yield { type: "done", data: {} } satisfies B4AgentStreamChunk
 }
 
 describe("interrupt round-trip", () => {
-  test("a Dawn interrupt's id survives outbound -> AG-UI -> resume input -> Dawn resume", async () => {
-    // 1. Dawn emits an interrupt; map it outbound.
+  test("a B4.run interrupt's id survives outbound -> AG-UI -> resume input -> B4.run resume", async () => {
+    // 1. B4.run emits an interrupt; map it outbound.
     const events = []
     for await (const ev of toAguiEvents(
       one({ type: "interrupt", data: { interruptId: "perm-42", kind: "command" } }),
@@ -40,8 +40,8 @@ describe("interrupt round-trip", () => {
       resume: [{ interruptId, status: "resolved", payload: "once" }],
     } as unknown as RunAgentInput
 
-    // 3. Map it back to Dawn -- the interruptId must survive.
-    const dawn = fromRunAgentInput(resumeInput)
-    expect(dawn.resume).toEqual([{ interruptId: "perm-42", status: "resolved", payload: "once" }])
+    // 3. Map it back to B4.run -- the interruptId must survive.
+    const b4 = fromRunAgentInput(resumeInput)
+    expect(b4.resume).toEqual([{ interruptId: "perm-42", status: "resolved", payload: "once" }])
   })
 })

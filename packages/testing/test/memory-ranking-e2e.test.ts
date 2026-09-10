@@ -6,13 +6,13 @@
 import { rmSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { sqliteMemoryStore } from "@dawn-ai/memory"
+import { sqliteMemoryStore } from "@b4run/memory"
 import { afterAll, beforeAll, expect, it } from "vitest"
 import { script } from "../src/fixture-builder.js"
 import { createAgentHarness } from "../src/harness.js"
 
 const appRoot = fileURLToPath(new URL("./fixtures/probe-app", import.meta.url))
-const dbBase = join(appRoot, ".dawn", "memory.sqlite")
+const dbBase = join(appRoot, ".b4", "memory.sqlite")
 function cleanDb() {
   for (const suffix of ["", "-wal", "-shm"]) rmSync(`${dbBase}${suffix}`, { force: true })
 }
@@ -67,7 +67,7 @@ it("ranks a relevant-but-old memory above a recent-but-marginal one", async () =
     const recall = r.toolResults.find((t) => t.name === "recall")
     expect(recall, "recall tool must have been executed").toBeDefined()
     // The runtime JSON-encodes plain (non-{result}-wrapper) tool returns into
-    // ToolMessage content (see unwrapToolResult in @dawn-ai/langchain), so the
+    // ToolMessage content (see unwrapToolResult in @b4run/langchain), so the
     // recall tool's newline-joined string arrives as a quoted JSON string with
     // escaped newlines. Decode before splitting; assertions are unchanged.
     const raw = String(recall?.content ?? "")

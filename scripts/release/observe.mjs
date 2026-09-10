@@ -2,17 +2,20 @@ import { createHash } from "node:crypto"
 import { canonicalAbandonmentBytes, parseAbandonmentReleaseBody } from "./abandonment.mjs"
 import { normalizeAdapterEnvelope, snapshotJson } from "./adapter-normalize.mjs"
 import { extractActionsArtifactZip } from "./artifact-store.mjs"
+import { auditExecutorIdentity, authorizeAuditExecutor } from "./audit-executor.mjs"
 import { discoverManagedCandidate, discoverScheduledCandidate } from "./candidate.mjs"
 import { assertValidReleaseInventory, readReleaseInventory } from "./inventory.mjs"
 import { assertPayloadByteLength, RELEASE_PAYLOAD_LIMITS } from "./limits.mjs"
 import {
   CANONICAL_RELEASE_PACKAGE_ORDER,
   canonicalManifestBytes,
+  HISTORICAL_RELEASE_PACKAGE_NAMES,
   manifestSha256,
   parseSealedReleaseManifest,
 } from "./manifest.mjs"
 import {
   canonicalReleaseBody,
+  isManagedReleaseForTag,
   MAX_AUDIT_ATTEMPTS,
   MAX_PUBLICATION_ASSETS,
   MAX_SMOKE_ASSETS,
@@ -24,12 +27,15 @@ import {
 } from "./metadata.mjs"
 import { NPM_AUDIT_VERIFIER } from "./npm-audit.mjs"
 import { canonicalNpmEvidenceBytes } from "./npm-evidence.mjs"
+import { planRelease } from "./planner.mjs"
+import { routeRecoveryCandidate } from "./recovery/observe.mjs"
 import {
   canonicalReleaseRecordBytes,
   parseReleaseRecord,
   releaseRecordSha256,
 } from "./release-record.mjs"
 import { compareSemver, isExactSemver, parseSemver } from "./semver.mjs"
+import { readSmokeAdjudication } from "./smoke-adjudication.mjs"
 import {
   aggregateSmokeResults,
   canonicalAggregateSmokeResultBytes,
@@ -37,6 +43,7 @@ import {
   REQUIRED_RELEASE_SMOKE_LANES,
 } from "./smoke-result.mjs"
 import { ReleaseState } from "./state.mjs"
+import { readTerminalRecord } from "./terminal-record-store.mjs"
 import { canonicalAuditResultBytes, parseAuditResult } from "./terminal-records.mjs"
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
@@ -67,9 +74,22 @@ const DEFAULT_CANDIDATE_POLICY = Object.freeze({
   publisherWorkflow: ".github/workflows/release.yml",
 })
 const REQUIRED_SMOKE_LANES = REQUIRED_RELEASE_SMOKE_LANES
+// B4.run's first release version; releases below it predate this identity.
+const FIRST_B4_RELEASE_VERSION = "0.8.27"
+
 const ACTIVE_PACKAGE_NAMES = Object.freeze([...CANONICAL_RELEASE_PACKAGE_ORDER].sort(compareText))
+const HISTORICAL_PACKAGE_NAMES = Object.freeze(
+  [...HISTORICAL_RELEASE_PACKAGE_NAMES].sort(compareText),
+)
 const PRODUCTION_SELECTION_STATES = new Set(Object.values(ReleaseState))
-const PRODUCTION_SELECTION_DISPOSITIONS = new Set(["selected", "blocked", "audit-only", "noop"])
+const PRODUCTION_SELECTION_DISPOSITIONS = new Set([
+  "selected",
+  "blocked",
+  "audit-only",
+  "noop",
+  "recovery-owned",
+  "recovery-terminal",
+])
 const MAX_ACTIONS_ARTIFACT_CANDIDATES = 16
 const MAX_ACTIONS_OBSERVATION_BYTES = RELEASE_PAYLOAD_LIMITS.actionsArchiveBytes * 2
 
@@ -82,11 +102,16 @@ export function classifyProductionEvent(value) {
   if (Number(scheduled) + Number(pushed) + Number(dispatched) !== 1) {
     throw new TypeError("Production release event candidate source is ambiguous")
   }
+  // The first-publication boolean is a sealed dispatch input only. A scheduled or push event
+  // (or a dispatch event) carrying it at the top level is not a shape this controller emits.
+  if (Object.hasOwn(event, "npmBootstrap")) {
+    throw new TypeError("Production release dispatch inputs are invalid")
+  }
   if (scheduled) {
     if (typeof event.schedule !== "string" || event.schedule.length === 0) {
       throw new TypeError("Production release schedule is invalid")
     }
-    return deepFreeze({ kind: "scheduled", ref: null, expectedVersion: null })
+    return deepFreeze({ kind: "scheduled", ref: null, expectedVersion: null, npmBootstrap: false })
   }
   if (pushed) {
     if (event.ref !== "refs/heads/main" || !isSha(event.after)) {
@@ -96,13 +121,22 @@ export function classifyProductionEvent(value) {
       kind: "exact-ref",
       ref: event.after,
       expectedVersion: null,
+      npmBootstrap: false,
     })
   }
+  // The sealed manual event carries the optional first-publication boolean. Only a literal
+  // boolean is accepted; scheduled and push executions can never carry it. Selecting it here
+  // only chooses the read-only first-publication registry reader for detection; publishing
+  // authority is decided separately at the publisher boundary after escrow.
   if (
     !isRecord(event.inputs) ||
-    !hasExactKeys(event.inputs, ["version", "commitSha"]) ||
+    !(
+      hasExactKeys(event.inputs, ["version", "commitSha"]) ||
+      hasExactKeys(event.inputs, ["version", "commitSha", "npmBootstrap"])
+    ) ||
     !isReleaseVersion(event.inputs.version) ||
-    !isSha(event.inputs.commitSha)
+    !isSha(event.inputs.commitSha) ||
+    !(event.inputs.npmBootstrap === undefined || typeof event.inputs.npmBootstrap === "boolean")
   ) {
     throw new TypeError("Production release dispatch inputs are invalid")
   }
@@ -110,6 +144,7 @@ export function classifyProductionEvent(value) {
     kind: "exact-ref",
     ref: event.inputs.commitSha,
     expectedVersion: event.inputs.version,
+    npmBootstrap: event.inputs.npmBootstrap === true,
   })
 }
 
@@ -122,8 +157,10 @@ export async function resolveProductionCandidate({
   npmAuditFactory,
   attestations,
   marker,
+  terminalRecordRef,
   discovery = { discoverManagedCandidate, discoverScheduledCandidate },
 }) {
+  assertTerminalRecordRef(terminalRecordRef)
   assertMethods(inventory, ["read"], "inventory reader")
   assertMethods(
     discovery,
@@ -131,6 +168,42 @@ export async function resolveProductionCandidate({
     "candidate discovery",
   )
   const invocation = classifyProductionEvent(event)
+  const verifyTerminalPublication =
+    npm !== undefined && attestations !== undefined
+      ? async ({ candidate, release, releaseRecord }) => {
+          try {
+            const verified = await observeProductionCandidate({
+              candidate,
+              inventory: await inventory.read({ ref: candidate.commitSha }),
+              marker,
+              git,
+              github,
+              npm,
+              npmAuditFactory,
+              attestations,
+              terminalRecordRef,
+            })
+            const { observation, diagnostics } = verified
+            const plan = planRelease({ candidate, observation, mode: "controller" })
+            return (
+              diagnostics.length === 0 &&
+              observation.release.status === "published" &&
+              observation.release.immutable === true &&
+              observation.release.tag === `v${candidate.version}` &&
+              observation.release.commitSha === candidate.commitSha &&
+              observation.release.bodySha256 === sha256(Buffer.from(release.body, "utf8")) &&
+              observation.release.marker?.manifestSha256 === releaseRecord.manifestSha256 &&
+              plan.state === "AUDIT_COMPLETE" &&
+              plan.disposition === "noop" &&
+              plan.conflicts.length === 0 &&
+              plan.nextTransition === null &&
+              plan.proposedMutations.length === 0
+            )
+          } catch {
+            return false
+          }
+        }
+      : undefined
   const verifyTerminalAbandonment =
     npm !== undefined && attestations !== undefined
       ? async ({ candidate, release }) => {
@@ -147,6 +220,7 @@ export async function resolveProductionCandidate({
               npm,
               npmAuditFactory,
               attestations,
+              terminalRecordRef,
             })
             const observation = verified.observation
             const baseAssets = observation.release.assets.filter(
@@ -172,16 +246,25 @@ export async function resolveProductionCandidate({
           }
         }
       : undefined
+  const scheduledDiscovery = discovery.discoverScheduledCandidate
   const discoverScheduled = () =>
-    discovery.discoverScheduledCandidate({
+    scheduledDiscovery({
       inventory,
       git,
       github,
       marker,
+      terminalRecordRef,
+      npm,
+      npmAuditFactory,
+      attestations,
+      releaseFloorVersion: FIRST_B4_RELEASE_VERSION,
       ...(verifyTerminalAbandonment === undefined ? {} : { verifyTerminalAbandonment }),
+      ...(verifyTerminalPublication === undefined ? {} : { verifyTerminalPublication }),
     })
   let normalized
+  let globallySelected = false
   if (invocation.kind === "scheduled") {
+    globallySelected = true
     normalized = normalizeProductionCandidateSelection(await discoverScheduled())
   } else {
     const exact = normalizeProductionCandidateSelection(
@@ -204,7 +287,8 @@ export async function resolveProductionCandidate({
     ) {
       throw new Error("Production exact dispatch conflicts with global candidate arbitration")
     }
-    normalized = global.candidate === null ? exact : global
+    globallySelected = global.candidate !== null
+    normalized = globallySelected ? global : exact
   }
   const verifiedCurrentVersionNoop =
     invocation.expectedVersion !== null && normalized.candidate === null
@@ -220,6 +304,24 @@ export async function resolveProductionCandidate({
       normalized.candidate?.commitSha !== invocation.ref)
   ) {
     throw new Error("Production dispatch inputs do not match the discovered candidate")
+  }
+  // Only the built-in global discovery has already independently routed this
+  // selected recovery candidate. Exact fallbacks and injected discovery still route.
+  const recoveryAlreadyObserved =
+    globallySelected &&
+    scheduledDiscovery === discoverScheduledCandidate &&
+    ["RECOVERY_REQUIRED", "RECOVERY_COMPLETE"].includes(normalized.state)
+  if (normalized.candidate !== null && !recoveryAlreadyObserved) {
+    const recovery = await routeRecoveryCandidate({
+      candidate: normalized.candidate,
+      git,
+      github,
+      terminalRecordRef,
+      npm,
+      npmAuditFactory,
+      attestations,
+    })
+    if (recovery !== null) normalized = normalizeProductionCandidateSelection(recovery)
   }
   return deepFreeze(normalized)
 }
@@ -309,7 +411,15 @@ export function createProductionInventoryReader({
         throw new TypeError("Production release inventory validation is malformed")
       }
       const names = [...validated.packages].sort(compareText)
-      if (!arraysEqual(names, ACTIVE_PACKAGE_NAMES)) {
+      // The inventory must be exactly one of the two known 21-package families:
+      // the current one, or the one the original repository released. Version is
+      // not a usable discriminator, because the rename commit carries the new
+      // family at the previous version number. Which family a candidate may
+      // actually publish is bound by its sealed manifest, not here.
+      if (
+        !arraysEqual(names, ACTIVE_PACKAGE_NAMES) &&
+        !arraysEqual(names, HISTORICAL_PACKAGE_NAMES)
+      ) {
         throw new Error("Production release inventory must match the canonical 21-package set")
       }
       return deepFreeze({
@@ -329,15 +439,19 @@ export async function observeProductionCandidate({
   npm,
   npmAuditFactory,
   attestations,
+  terminalRecordRef,
   includeRecovery = false,
+  currentPublisherRun = null,
 }) {
   if (typeof includeRecovery !== "boolean") {
     throw new TypeError("Production recovery inclusion flag is invalid")
   }
+  assertTerminalRecordRef(terminalRecordRef)
   const identity = normalizeCandidate(candidate)
+  const currentRun = normalizeCurrentPublisherRun(currentPublisherRun, identity)
   const managedInventory = normalizeProductionInventory(inventory, identity)
   normalizeControllerMarker(marker)
-  assertMethods(git, ["resolveTag"], "Git reader")
+  assertMethods(git, ["resolveTag", "listTree", "showFile"], "Git reader")
   assertMethods(
     github,
     [
@@ -365,6 +479,59 @@ export async function observeProductionCandidate({
   }
 
   const diagnostics = []
+  let committedTerminalRecord = null
+  let terminalRecordUnusable = false
+  let terminalRecordMismatch = false
+  try {
+    committedTerminalRecord = await readTerminalRecord({
+      git,
+      ref: terminalRecordRef,
+      version: identity.version,
+    })
+  } catch (error) {
+    // The store throws TypeError for a record it read but could not validate; anything else came
+    // from the git transport itself (spawn failure, timeout, output cap), which is not evidence
+    // of tampering. Both fail closed, but an operator must be able to tell them apart.
+    terminalRecordUnusable = true
+    addDiagnostic(
+      diagnostics,
+      "git",
+      "terminal-record",
+      "AMBIGUOUS",
+      error instanceof TypeError ? "TERMINAL_RECORD_INVALID" : "TERMINAL_RECORD_UNREADABLE",
+    )
+  }
+  let smokeAdjudication = null
+  try {
+    smokeAdjudication = await readSmokeAdjudication({
+      git,
+      ref: terminalRecordRef,
+      version: identity.version,
+    })
+  } catch (error) {
+    // A present-but-unreadable adjudication must never widen into a waiver: leave it null so the
+    // smoke gate stays shut, and record why an operator's record did not take effect.
+    smokeAdjudication = null
+    addDiagnostic(
+      diagnostics,
+      "git",
+      "smoke-adjudication",
+      "AMBIGUOUS",
+      error instanceof TypeError ? "SMOKE_ADJUDICATION_INVALID" : "SMOKE_ADJUDICATION_UNREADABLE",
+    )
+  }
+  if (
+    committedTerminalRecord !== null &&
+    !terminalRecordBindsCandidate(committedTerminalRecord, identity)
+  ) {
+    // A record for another version or another commit proves nothing about THIS candidate, and a
+    // record whose own tag disagrees with its commit is self-inconsistent. Discard it entirely
+    // (it is never read again below) and fail closed exactly like a draft mismatch, under its own
+    // code: a foreign record is a different operator situation from a draft that disagrees.
+    committedTerminalRecord = null
+    terminalRecordMismatch = true
+    addDiagnostic(diagnostics, "git", "terminal-record", "AMBIGUOUS", "TERMINAL_RECORD_FOREIGN")
+  }
   const [ciResult, ciWorkflowResult, tagRefsResult, releasesResult, artifactResult, publisherRuns] =
     await Promise.all([
       observeAdapter(() => github.getCommitCheckRuns({ commitSha: identity.commitSha }), {
@@ -432,6 +599,7 @@ export async function observeProductionCandidate({
   })
   const artifactState = preparedArtifactState
   const releaseState = await mapProductionRelease({
+    git,
     result: releasesResult,
     candidate: identity,
     inventory: managedInventory,
@@ -441,6 +609,23 @@ export async function observeProductionCandidate({
     attestations,
     diagnostics,
   })
+  let abandonment = releaseState.abandonment
+  if (committedTerminalRecord !== null) {
+    if (terminalRecordMatchesRelease(committedTerminalRecord, releaseState.release)) {
+      abandonment = {
+        requested: true,
+        recorded: true,
+        predecessor: committedTerminalRecord.predecessor.state,
+      }
+    } else {
+      // The committed record and the visible draft disagree, so neither may be reported as the
+      // abandonment of record. The release itself is forced ambiguous further below, where the
+      // observed release is finalized, so planRelease blocks rather than only the CLI.
+      terminalRecordMismatch = true
+      addDiagnostic(diagnostics, "github", "release", "AMBIGUOUS", "TERMINAL_RECORD_MISMATCH")
+    }
+  }
+  if (terminalRecordMismatch) abandonment = { requested: true, recorded: false, predecessor: null }
   const retentionResolvedByDurableRelease =
     releaseState.release.status !== "absent" &&
     releaseState.release.status !== "ambiguous" &&
@@ -448,8 +633,8 @@ export async function observeProductionCandidate({
     ((releaseState.artifactState.artifacts.status === "attested" &&
       releaseState.release.marker.attestationSet !== null) ||
       (releaseState.release.marker.phase === "ABANDONED_PREPUBLICATION" &&
-        releaseState.abandonment.requested === true &&
-        releaseState.abandonment.recorded === true))
+        abandonment.requested === true &&
+        abandonment.recorded === true))
   if (!retentionResolvedByDurableRelease) {
     diagnostics.push(...(preparedArtifactState.deferredDiagnostics ?? []))
   }
@@ -540,6 +725,19 @@ export async function observeProductionCandidate({
     )
   }
 
+  // registryPresenceObserved, not the mapped package status: without an npmAuditFactory an
+  // observed-PRESENT package is downgraded to "ambiguous", and a record can never mask a
+  // publication just because signature verification was unavailable.
+  if ((committedTerminalRecord !== null || terminalRecordUnusable) && registryPresenceObserved) {
+    addDiagnostic(
+      diagnostics,
+      "npm",
+      "package-version",
+      "AMBIGUOUS",
+      "TERMINAL_RECORD_PUBLISHED_VERSION",
+    )
+  }
+
   const tag = await mapProductionTag({
     result: tagRefsResult,
     candidate: identity,
@@ -553,6 +751,7 @@ export async function observeProductionCandidate({
     candidate: identity,
     manifest: observedArtifactState.manifest,
     registryPackages,
+    publishedImmutable: release.status === "published" && release.immutable === true,
   })
   if (release.marker !== null && release.marker.npmEvidenceSha256 !== null) {
     try {
@@ -579,11 +778,15 @@ export async function observeProductionCandidate({
       release = nonPresentRelease("ambiguous")
     }
   }
+  // A record we cannot parse, or one the visible draft contradicts, leaves the terminal state
+  // unknown: fail closed so planRelease blocks on github-release-ambiguous, not only the CLI.
+  if (terminalRecordUnusable || terminalRecordMismatch) release = nonPresentRelease("ambiguous")
   const publicationHistory = await observeProductionPublicationHistory({
     result: publisherRuns,
     candidate: identity,
     github,
     diagnostics,
+    currentPublisherRun: currentRun,
   })
   if (publicationHistory.ambiguous) {
     registryPackages = registryPackages.map((pkg) => ambiguousRegistryPackage(pkg.name))
@@ -607,7 +810,8 @@ export async function observeProductionCandidate({
         ? releaseState.smokes
         : pendingProductionSmokeObservations(identity, artifacts.manifestSha256),
     audit: releaseState.audit,
-    abandonment: releaseState.abandonment,
+    abandonment,
+    smokeAdjudication,
   }
   diagnostics.sort(compareDiagnostics)
   const result = { observation, diagnostics }
@@ -1440,7 +1644,12 @@ function inventoryFromManifest(inventory, manifest) {
   }
 }
 
-function parseProductionManifest(bytes, { candidate }) {
+/**
+ * Parse the sealed manifest exactly as production observation does. Exported so
+ * the one-time terminal recovery command rebuilds the ESCROWED Release body
+ * through the very same parser the observer renders it with.
+ */
+export function parseProductionManifest(bytes, { candidate }) {
   return parseSealedReleaseManifest(bytes, { candidate })
 }
 
@@ -1650,6 +1859,7 @@ function emptyProductionArtifacts(inventory) {
 }
 
 async function mapProductionRelease({
+  git,
   result,
   candidate,
   inventory,
@@ -1666,7 +1876,9 @@ async function mapProductionRelease({
       escrow: { status: "ambiguous", manifestSha256: null, assets: [] },
     })
   }
-  const matches = result.value.filter((release) => release?.tag_name === `v${candidate.version}`)
+  const matches = result.value.filter((release) =>
+    isManagedReleaseForTag(release, `v${candidate.version}`),
+  )
   if (matches.length === 0) {
     return productionReleaseState({
       release: nonPresentRelease("absent"),
@@ -1716,8 +1928,8 @@ async function mapProductionRelease({
     }
     const expectedTitle =
       releaseMarker.phase === "ABANDONED_PREPUBLICATION"
-        ? `Dawn v${candidate.version} (abandoned before publication)`
-        : `Dawn v${candidate.version}`
+        ? `B4 v${candidate.version} (abandoned before publication)`
+        : `B4 v${candidate.version}`
     if (release.name !== expectedTitle) throw observationError("RELEASE_TITLE_PHASE_MISMATCH")
     if (
       !["ATTACHING", "ESCROWED", "ABANDONED_PREPUBLICATION"].includes(releaseMarker.phase) &&
@@ -1865,6 +2077,7 @@ async function mapProductionRelease({
         ),
       )
     const terminal = await observeReleaseTerminal({
+      git,
       candidate,
       controllerMarker,
       release,
@@ -2399,16 +2612,59 @@ async function mapProductionAbandonmentRelease({
   })
 }
 
+/** The ref a terminal record is read from is always explicit: never defaulted, never empty. */
+function assertTerminalRecordRef(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new TypeError("Terminal record ref is invalid")
+  }
+}
+
+/** The record must name exactly this candidate: version, commit, and its own self-consistent tag. */
+function terminalRecordBindsCandidate(record, identity) {
+  return (
+    record.version === identity.version &&
+    record.commitSha === identity.commitSha &&
+    record.tag.name === `v${identity.version}` &&
+    record.tag.commitSha === identity.commitSha
+  )
+}
+
+/**
+ * true  — no draft is visible (absent/ambiguous: the committed record stands alone), or the
+ *         visible draft is the stamped abandonment whose marker digest and tombstone asset
+ *         digest both equal the record's canonical SHA-256.
+ * false — a draft is visible but is not the stamped tombstone for this exact record.
+ * The numeric Release ID is not part of the observation; the apply command verifies it.
+ */
+function terminalRecordMatchesRelease(record, release) {
+  // An already-ambiguous release means GitHub itself was unreadable, not that the draft
+  // contradicts the record; that path carries its own AMBIGUOUS diagnostic, so the committed
+  // record still stands alone here rather than being reported as a mismatch.
+  if (release.status === "absent" || release.status === "ambiguous") return true
+  if (release.status !== "draft") return false
+  const marker = release.marker
+  if (
+    marker === null ||
+    marker.phase !== "ABANDONED_PREPUBLICATION" ||
+    marker.abandonmentSha256 !== record.sha256
+  ) {
+    return false
+  }
+  const tombstones = release.assets.filter((asset) => asset.name === "abandonment.json")
+  return tombstones.length === 1 && tombstones[0].sha256 === record.sha256
+}
+
 function normalizeReleaseIdentity(value, candidate) {
   const allowedTitles = new Set([
-    `Dawn v${candidate.version}`,
-    `Dawn v${candidate.version} (abandoned before publication)`,
+    `B4 v${candidate.version}`,
+    `B4 v${candidate.version} (abandoned before publication)`,
   ])
   if (
     !isRecord(value) ||
     !isPositiveId(value.id) ||
     !allowedTitles.has(value.name) ||
-    value.tag_name !== `v${candidate.version}` ||
+    (!(value.draft === true && value.immutable === false) &&
+      value.tag_name !== `v${candidate.version}`) ||
     value.target_commitish !== "main" ||
     typeof value.draft !== "boolean" ||
     typeof value.immutable !== "boolean" ||
@@ -2725,7 +2981,7 @@ function inventoryFromAttestationSet({ inventory, manifest, marker, attestationS
   if (
     !Array.isArray(subjects) ||
     subjects.length !== 22 ||
-    observedSet.repository !== "cacheplane/dawnai" ||
+    observedSet.repository !== "cacheplane/b4run" ||
     observedSet.workflow !== ".github/workflows/release.yml" ||
     observedSet.sourceRef !== `refs/tags/v${manifest.version}` ||
     observedSet.commitSha !== manifest.commitSha ||
@@ -2805,6 +3061,7 @@ function markerBaseAssets(marker) {
 }
 
 async function observeReleaseTerminal({
+  git,
   candidate,
   release,
   marker,
@@ -2861,7 +3118,15 @@ async function observeReleaseTerminal({
   if (runResult.status !== "PRESENT" || jobsResult.status !== "PRESENT") {
     throw observationError("RELEASE_AUDIT_RUN_AMBIGUOUS")
   }
+  const executor = await authorizeAuditExecutor({
+    candidate,
+    manifestSha256: marker.manifestSha256,
+    run: runResult.value,
+    git,
+    github,
+  })
   const run = validateProductionAuditRun({
+    executor,
     value: runResult.value,
     jobs:
       exactAttempt === null
@@ -2925,14 +3190,15 @@ async function observeReleaseTerminal({
   }
 }
 
-export function validateProductionAuditRun({ value, jobs, candidate, marker }) {
+export function validateProductionAuditRun({ value, jobs, candidate, marker, executor }) {
+  const identity = auditExecutorIdentity({ candidate, executor })
   if (
     !isRecord(value) ||
     String(value.id) !== String(marker.audit.workflowRunId) ||
     !isPositiveSafeInteger(value.run_attempt) ||
     value.run_attempt > MAX_AUDIT_ATTEMPTS ||
-    value.head_sha !== candidate.commitSha ||
-    value.head_branch !== `v${candidate.version}` ||
+    value.head_sha !== identity.headSha ||
+    value.head_branch !== identity.headBranch ||
     value.event !== "workflow_dispatch" ||
     value.path !== ".github/workflows/published-artifact-verify.yml" ||
     !ACTIONS_RUN_STATUSES.includes(value.status) ||
@@ -3264,7 +3530,7 @@ async function mapProductionRegistryPackage({
   }
 }
 
-function createObservedNpmEvidence({ candidate, manifest, registryPackages }) {
+function createObservedNpmEvidence({ candidate, manifest, registryPackages, publishedImmutable }) {
   if (!isRecord(manifest)) return null
   const entries = new Map(manifest.packages.map((entry) => [entry.name, entry]))
   const observed = new Map(registryPackages.map((pkg) => [pkg.name, pkg]))
@@ -3280,13 +3546,17 @@ function createObservedNpmEvidence({ candidate, manifest, registryPackages }) {
       pkg.tarballSha256 !== entry.sha256 ||
       pkg.integrity !== entry.npmIntegrity ||
       pkg.latest?.status !== "present" ||
-      pkg.latest.version !== candidate.version ||
+      (pkg.latest.version !== candidate.version &&
+        !(publishedImmutable && compareSemver(pkg.latest.version, candidate.version) > 0)) ||
       pkg.signature?.status !== "valid" ||
       pkg.provenance?.workflow !== candidate.publisherWorkflow ||
       pkg.provenance.commitSha !== candidate.commitSha
     ) {
       return null
     }
+    // The immutable receipt records latest at publication. A later release may
+    // advance that mutable tag, while the old version's exact bytes and authority
+    // must still match. Keep the live latest unchanged in registryPackages.
     packages.push({
       name,
       version: candidate.version,
@@ -3301,7 +3571,7 @@ function createObservedNpmEvidence({ candidate, manifest, registryPackages }) {
         predicateType: "https://slsa.dev/provenance/v1",
         workflow: candidate.publisherWorkflow,
         commitSha: candidate.commitSha,
-        repository: "https://github.com/cacheplane/dawnai",
+        repository: "https://github.com/cacheplane/b4run",
         ref: `refs/tags/v${candidate.version}`,
       },
     })
@@ -3378,7 +3648,7 @@ function exactNpmAuditEvidence(value, candidate) {
     value.provenance.predicateType === "https://slsa.dev/provenance/v1" &&
     value.provenance.workflow === candidate.publisherWorkflow &&
     value.provenance.commitSha === candidate.commitSha &&
-    value.provenance.repository === "https://github.com/cacheplane/dawnai" &&
+    value.provenance.repository === "https://github.com/cacheplane/b4run" &&
     value.provenance.ref === `refs/tags/v${candidate.version}`
   )
 }
@@ -3738,10 +4008,12 @@ async function mapRelease(result, inventory, candidate, github, diagnostics, obs
     return ambiguousRelease()
   }
   const tag = release.tag_name
+  const expectedTag = `v${candidate.version}`
   const commitSha = marker.commitSha
+  const mutableDraft = release.draft === true && release.immutable === false
   if (
-    tag !== `v${candidate.version}` ||
-    marker.tag !== tag ||
+    (mutableDraft ? !isManagedReleaseForTag(release, expectedTag) : tag !== expectedTag) ||
+    marker.tag !== expectedTag ||
     marker.version !== candidate.version ||
     commitSha !== candidate.commitSha
   ) {
@@ -3829,7 +4101,7 @@ async function mapRelease(result, inventory, candidate, github, diagnostics, obs
   })
   return {
     status: release.draft === true ? "draft" : "published",
-    tag,
+    tag: expectedTag,
     commitSha,
     immutable: release.immutable,
     bodySha256: sha256(Buffer.from(release.body, "utf8")),
@@ -4093,7 +4365,13 @@ function normalizeEnvelope(value, options, diagnostics) {
   return result
 }
 
-async function observeProductionPublicationHistory({ result, candidate, github, diagnostics }) {
+async function observeProductionPublicationHistory({
+  result,
+  candidate,
+  github,
+  diagnostics,
+  currentPublisherRun,
+}) {
   if (result.status !== "PRESENT" || !Array.isArray(result.value)) {
     return { started: false, ambiguous: true }
   }
@@ -4133,7 +4411,12 @@ async function observeProductionPublicationHistory({ result, candidate, github, 
     }
     runIds.add(value.id)
     if (value.head_branch === `v${candidate.version}`) {
-      runs.push({ id: value.id, runAttempt: value.run_attempt })
+      runs.push({
+        id: value.id,
+        runAttempt: value.run_attempt,
+        status: value.status,
+        conclusion: value.conclusion,
+      })
     }
   }
 
@@ -4145,7 +4428,14 @@ async function observeProductionPublicationHistory({ result, candidate, github, 
       payloadKey: "value",
       diagnostics,
     })
-    const jobs = normalizePublisherJobs(jobsResult, run.runAttempt)
+    const jobs = normalizePublisherJobs(jobsResult, run.runAttempt, {
+      allowCurrentAttemptWithoutPublisherJob:
+        currentPublisherRun !== null &&
+        run.id === currentPublisherRun.runId &&
+        run.runAttempt === currentPublisherRun.runAttempt &&
+        run.status === "in_progress" &&
+        run.conclusion === null,
+    })
     if (jobs === null) {
       addDiagnostic(
         diagnostics,
@@ -4161,7 +4451,11 @@ async function observeProductionPublicationHistory({ result, candidate, github, 
   return { started, ambiguous: false }
 }
 
-function normalizePublisherJobs(result, currentAttempt) {
+function normalizePublisherJobs(
+  result,
+  currentAttempt,
+  { allowCurrentAttemptWithoutPublisherJob = false } = {},
+) {
   if (
     result.status !== "PRESENT" ||
     !Array.isArray(result.value) ||
@@ -4230,9 +4524,29 @@ function normalizePublisherJobs(result, currentAttempt) {
     return null
   }
   for (let attempt = 1; attempt <= currentAttempt; attempt += 1) {
-    if (publisherJobsByAttempt.get(attempt) !== 1) return null
+    const publisherJobs = publisherJobsByAttempt.get(attempt) ?? 0
+    if (
+      publisherJobs !== 1 &&
+      !(allowCurrentAttemptWithoutPublisherJob && attempt === currentAttempt && publisherJobs === 0)
+    ) {
+      return null
+    }
   }
   return jobs
+}
+
+function normalizeCurrentPublisherRun(value, candidate) {
+  if (value === null || value === undefined) return null
+  if (
+    !hasExactKeys(value, ["runId", "runAttempt", "ref", "sha"]) ||
+    !isPositiveSafeInteger(value.runId) ||
+    !isPositiveSafeInteger(value.runAttempt) ||
+    value.ref !== `refs/tags/v${candidate.version}` ||
+    value.sha !== candidate.commitSha
+  ) {
+    throw new TypeError("Current publisher run identity is invalid")
+  }
+  return snapshotJson(value)
 }
 
 function publisherJobObservedStarted(job) {

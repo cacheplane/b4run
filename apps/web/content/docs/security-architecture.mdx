@@ -1,18 +1,18 @@
 # Security Architecture
 
-Dawn's route middleware is an execution hook, not a service-wide security boundary. Put outer authentication and tenant authorization in front of every non-local runtime endpoint, then layer Dawn's inner agent controls behind it.
+B4.run's route middleware is an execution hook, not a service-wide security boundary. Put outer authentication and tenant authorization in front of every non-local runtime endpoint, then layer B4.run's inner agent controls behind it.
 
 ## Start at the service edge
 
-Authenticate the caller before the request reaches the Dawn service and restrict network reachability where possible. The outer layer should reject unauthenticated access consistently, apply rate and body-size limits, terminate TLS, and attach verified identity for authorization and audit.
+Authenticate the caller before the request reaches the B4.run service and restrict network reachability where possible. The outer layer should reject unauthenticated access consistently, apply rate and body-size limits, terminate TLS, and attach verified identity for authorization and audit.
 
 This boundary must cover the entire service. Do not expose management or health routes on the assumption that `src/middleware.ts` will see them.
 
 ## Endpoint coverage
 
-Dawn middleware runs only when a request is about to execute a route. Management surfaces bypass it.
+B4.run middleware runs only when a request is about to execute a route. Management surfaces bypass it.
 
-| Surface | Examples | Dawn middleware | Outer auth required |
+| Surface | Examples | B4.run middleware | Outer auth required |
 |---|---|---|---|
 | Health | `GET /healthz` | No | Yes on a non-local service; a platform may expose a separately constrained probe path |
 | Thread management | `POST /threads`, `GET /threads/:thread_id`, `DELETE /threads/:thread_id` | No | Yes, with per-thread ownership checks |
@@ -22,9 +22,9 @@ Dawn middleware runs only when a request is about to execute a route. Management
 | AG-UI execution | `POST /agui/:routeId` | Yes | Yes |
 | Memory candidate management | `GET /memory/candidates` and approve/reject routes under `/memory/candidates/:id` | No | Yes; listing can span namespaces |
 
-Apply authorization before dispatch so create, read, delete, state, cancel, memory candidates, and health cannot reach their narrower Dawn handlers unauthenticated.
+Apply authorization before dispatch so create, read, delete, state, cancel, memory candidates, and health cannot reach their narrower B4.run handlers unauthenticated.
 
-The "Dawn middleware" column is about route execution only. Every thread row above — management, state, cancellation, Agent Protocol execution and AG-UI execution — is additionally covered in-runtime by a [thread-access policy](/docs/thread-access) when the app has one, on the per-thread ownership axis this table asks the outer boundary to supply. It is a second gate, not a replacement for the outer one, and health and memory-candidate routes are outside it.
+The "B4.run middleware" column is about route execution only. Every thread row above — management, state, cancellation, Agent Protocol execution and AG-UI execution — is additionally covered in-runtime by a [thread-access policy](/docs/thread-access) when the app has one, on the per-thread ownership axis this table asks the outer boundary to supply. It is a second gate, not a replacement for the outer one, and health and memory-candidate routes are outside it.
 
 ## Authorize the tenant, not the identifier
 
@@ -36,10 +36,10 @@ Memory deserves the same care. Candidate management can operate across namespace
 
 ## Pass verified identity to tools
 
-For execution routes, outer authentication can forward a signed/internal identity header or trusted request context to Dawn middleware. The middleware verifies or consumes only that trusted value and returns canonical identity through `allow({ ... })`. Tools read it from `ctx.middleware`.
+For execution routes, outer authentication can forward a signed/internal identity header or trusted request context to B4.run middleware. The middleware verifies or consumes only that trusted value and returns canonical identity through `allow({ ... })`. Tools read it from `ctx.middleware`.
 
 ```ts title="src/middleware.ts"
-import { allow, defineMiddleware, reject } from "@dawn-ai/sdk"
+import { allow, defineMiddleware, reject } from "@b4run/sdk"
 
 export default defineMiddleware(async (req) => {
   const identity = await verifyInternalIdentity(req.headers.authorization)
@@ -56,14 +56,14 @@ After service authentication and tenant authorization, use [Access Control](/doc
 
 - [tool scope](/docs/tools#scoping-a-routes-tools) limits which tools are offered;
 - [Permissions](/docs/permissions) gates commands, paths, approved tools, delegations, and selected memory writes;
-- [Execution Sandbox](/docs/sandbox) constrains Dawn's workspace filesystem and shell backends;
+- [Execution Sandbox](/docs/sandbox) constrains B4.run's workspace filesystem and shell backends;
 - [Subagents](/docs/subagents#delegation-policy) can guard the input sent to a child.
 
 These controls do not isolate arbitrary application code. Authored tools execute in the app process unless they isolate themselves; give their database clients, cloud credentials, network access, and filesystem behavior least privilege of their own.
 
 ## Secrets and stored data
 
-Do not put secrets in `dawn.config.ts` values that cross a build boundary. The Hono target serializes JSON-compatible configuration into the generated `app.mjs` build artifact. Use platform bindings or environment variables for secrets, and keep emitted artifacts out of places where their contents are exposed.
+Do not put secrets in `b4.config.ts` values that cross a build boundary. The Hono target serializes JSON-compatible configuration into the generated `app.mjs` build artifact. Use platform bindings or environment variables for secrets, and keep emitted artifacts out of places where their contents are exposed.
 
 Protect `.env`, provider keys, database URLs, internal identity-signing keys, and sandbox credentials with the host's secret system. Scrub verified tokens and sensitive tool arguments from logs and traces.
 
@@ -73,9 +73,9 @@ Postgres rows are plaintext application data unless the app or platform adds enc
 
 | Target | Service boundary | Inner behavior |
 |---|---|---|
-| Node (`dawn start`, `serveRuntime`, generated server) | Your reverse proxy or Node host owns blanket auth | Dawn middleware covers execution/AG-UI only; Node can use configured sandboxes |
-| Hono | Hono/platform middleware must protect the rooted Dawn app | Dawn execution middleware is included in the static manifest; filesystem workspace and Dawn sandbox features are gated off this target |
-| LangSmith | The LangSmith/platform boundary owns authentication | Generated graph entries do not include Dawn HTTP middleware; route tool scope and applicable agent controls remain part of graph materialization |
+| Node (`b4 start`, `serveRuntime`, generated server) | Your reverse proxy or Node host owns blanket auth | B4.run middleware covers execution/AG-UI only; Node can use configured sandboxes |
+| Hono | Hono/platform middleware must protect the rooted B4.run app | B4.run execution middleware is included in the static manifest; filesystem workspace and B4.run sandbox features are gated off this target |
+| LangSmith | The LangSmith/platform boundary owns authentication | Generated graph entries do not include B4.run HTTP middleware; route tool scope and applicable agent controls remain part of graph materialization |
 
 Review the exact capabilities of the selected [Deployment Options](/docs/deployment) instead of assuming a control transfers unchanged between targets.
 

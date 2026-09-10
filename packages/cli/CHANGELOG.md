@@ -1,5 +1,238 @@
 # @dawn-ai/cli
 
+## 0.8.30
+
+### Patch Changes
+
+- 80a98ad: Authorize a thread's row before claiming its run slot on `POST /agui/:routeId`.
+  The AG-UI handler previously ran `runRegistry.begin` before rechecking the
+  concrete row, so on the create-race path a caller the recheck ultimately denies
+  held the victim thread's run slot for the width of that recheck — a client-chosen
+  thread id let a denied caller brick a concurrent authorized run on the same
+  thread with a transient `run_in_flight` 409. The row authorization (and the
+  implicit create, when the turn makes one) now runs before the slot is claimed,
+  mirroring the Agent Protocol run handlers. Behavior is unchanged for authorized
+  callers and for hook-less apps.
+- 80a98ad: Add `GET /threads/{id}/runs/stream` — reattach to a running turn. A disconnected
+  client rejoins by attaching to this read-only GET mirror of the POST stream: one
+  `event: state` snapshot (channel values, the turn's coalesced frames so far, and
+  parked interrupts) followed by the live tail, or an immediate durable snapshot +
+  `done` when no live turn exists in this process. It requires thread-access `read` plus middleware approval for the selected
+  producer and the recorded parked, last-run, and anchor routes. The selected
+  turn stays fixed across asynchronous authorization. Backed by a bounded in-memory `LiveTurnHub`; the durable
+  path works across restarts, replicas, and serverless. Being a GET with no body,
+  it is the first Agent Protocol stream a stock `EventSource` can consume.
+
+  `@b4run/sdk` gains one additive `ThreadOperation` member, `thread.attach`, for
+  the new endpoint. A thread-access policy that switches exhaustively over
+  `ThreadOperation` should add a `thread.attach` arm; a `fallback` handler already
+  covers it.
+
+  Canceling or aborting an attach releases its viewer slot and heartbeat without
+  stopping the producer. Slow viewers remain bounded and are detached on overflow.
+  The durable retry hint precedes `done`, so clients can stop reading at the terminal frame.
+
+  Bind checkpoint ownership to the exact checkpoint ID at the saver write boundary,
+  retaining verified ancestor routes and overwriting any upstream ownership claim.
+  Attach authorizes that provenance instead of inferring checkpoint ownership from
+  mutable thread metadata. Legacy or unknown checkpoint ancestry fails closed with
+  `thread_route_unknown`; a fresh thread establishes verified provenance.
+
+- 111d45c: Add `b4 threads tail <thread-id>` — reattach to a thread from the terminal.
+  It consumes `GET /threads/:thread_id/runs/stream`, printing a snapshot (the
+  committed transcript, the in-flight turn's output so far, and any parked
+  human-in-the-loop prompts) and then following live frames until the turn ends.
+  When no turn is live in the target process it prints the durable
+  checkpoint-backed snapshot and exits, so it works across restarts and replicas.
+
+  `--url` points at a server other than `http://127.0.0.1:3000`, `--header` is
+  repeatable for middleware that authenticates the thread's route, and `--json`
+  prints raw SSE frames for scripting. Attaching takes no run slot and cancels
+  nothing.
+
+  This is B4.run's first first-party Agent Protocol stream client: it parses the
+  documented wire defensively rather than importing the server's frame types, so
+  the published contract now has a consumer that exercises it.
+
+- 18c7b61: Route skills, `plan.md`, and `memory.md` now work on the `hono` and `vercel` targets: `b4 build` bundles them into the static manifest and the runtime serves them through the new `staticMarkerFs` in `@b4run/core`. The build no longer gates skills off those targets; instead `b4 build` and `b4 check` enforce a per-file size limit (32 KiB for `SKILL.md` and `memory.md`, 64 KiB for `plan.md`) and fail with `B4_E1005` by name. `@b4run/core` also exports `MAX_PLAN_BYTES` and `MAX_MEMORY_BYTES`.
+- Updated dependencies [80a98ad]
+- Updated dependencies [18c7b61]
+- Updated dependencies [6039fd2]
+  - @b4run/sdk@0.8.30
+  - @b4run/core@0.8.30
+  - @b4run/langchain@0.8.30
+  - @b4run/langgraph@0.8.30
+  - @b4run/permissions@0.8.30
+  - @b4run/ag-ui@0.8.30
+  - @b4run/memory@0.8.30
+  - @b4run/sqlite-storage@0.8.30
+
+## 0.8.29
+
+### Patch Changes
+
+- Updated dependencies [481489e]
+  - @b4run/sdk@0.8.29
+  - @b4run/core@0.8.29
+  - @b4run/langchain@0.8.29
+  - @b4run/langgraph@0.8.29
+  - @b4run/permissions@0.8.29
+  - @b4run/ag-ui@0.8.29
+  - @b4run/memory@0.8.29
+  - @b4run/sqlite-storage@0.8.29
+
+## 0.8.28
+
+### Patch Changes
+
+- Updated dependencies [39ceb2e]
+  - @b4run/sdk@0.8.28
+  - @b4run/core@0.8.28
+  - @b4run/langchain@0.8.28
+  - @b4run/langgraph@0.8.28
+  - @b4run/permissions@0.8.28
+  - @b4run/ag-ui@0.8.28
+  - @b4run/memory@0.8.28
+  - @b4run/sqlite-storage@0.8.28
+
+## 0.8.27
+
+### Patch Changes
+
+- Updated dependencies [b05b96d]
+  - @b4run/sdk@0.8.27
+  - @b4run/core@0.8.27
+  - @b4run/langchain@0.8.27
+  - @b4run/langgraph@0.8.27
+  - @b4run/permissions@0.8.27
+  - @b4run/ag-ui@0.8.27
+  - @b4run/memory@0.8.27
+  - @b4run/sqlite-storage@0.8.27
+
+## 0.8.26
+
+### Patch Changes
+
+- c7fd197: Add `server.cors`, off by default.
+
+  A Dawn server sends no `Access-Control-*` header unless `dawn.config.ts` sets
+  `server.cors`. With the block absent the runtime answers exactly as it did
+  before — no header on any response, and `OPTIONS` still falling through the
+  route table to its 404. Opening a server to other origins is a deployment
+  decision, so nothing is inferred.
+
+  ```ts
+  server: {
+    cors: {
+      origins: ["https://app.example.com"];
+    }
+  }
+  ```
+
+  Set it when a browser client talks to Dawn directly rather than through a
+  same-origin proxy. Origins are compared exactly after normalizing case and a
+  trailing slash; note that `localhost` and `127.0.0.1` are different origins to
+  a browser, so list both if your dev client may be opened at either.
+
+  Every response carries the headers, including error responses and the shutdown
+  503 — a browser that cannot read a 404 reports an opaque CORS failure instead,
+  which is the most confusing way to debug this. A request from an origin that
+  is not on the list is still served normally and simply carries no CORS header;
+  answering 403 there would break non-browser clients that happen to send an
+  `Origin`. A preflight from a disallowed origin does get a 403.
+
+  The policy is validated once at boot, so a malformed origin list fails on
+  startup rather than on the first cross-origin request. `origins: "*"` combined
+  with `credentials: true` is rejected outright: browsers refuse a wildcard
+  allow-origin on a credentialed request, so accepting it would produce a server
+  that looks configured and fails only in the console.
+
+  Defaults for the rest: `credentials` false; `methods` `GET, POST, DELETE,
+OPTIONS`; `headers` echoes the browser's own `Access-Control-Request-Headers`;
+  `exposeHeaders` empty; `maxAgeSeconds` 600.
+
+  CORS controls which origins a browser will let read a response. It does not
+  decide who may call the server — pair it with `defineThreadAccess`.
+
+- Updated dependencies [c7fd197]
+  - @dawn-ai/core@0.8.26
+  - @dawn-ai/langchain@0.8.26
+  - @dawn-ai/ag-ui@0.8.26
+  - @dawn-ai/langgraph@0.8.26
+  - @dawn-ai/memory@0.8.26
+  - @dawn-ai/permissions@0.8.26
+  - @dawn-ai/sdk@0.8.26
+  - @dawn-ai/sqlite-storage@0.8.26
+
+## 0.8.25
+
+### Patch Changes
+
+- 95901e7: Re-cut the release so the repaired release automation runs end to end.
+
+  There are no functional changes to any package in this version: the published
+  0.8.24 packages and these are built from the same sources. 0.8.24 published
+  correctly, but its release ceremony could not finish because two defects in
+  that candidate's own smoke lanes made them fail on every attempt, and every
+  release job outside the controller runs from the frozen candidate commit, so
+  the fixes could not reach it.
+
+  This version is the first candidate to carry the repaired publish retry and
+  smoke lanes, which is what proves them.
+
+  - @dawn-ai/ag-ui@0.8.25
+  - @dawn-ai/core@0.8.25
+  - @dawn-ai/langchain@0.8.25
+  - @dawn-ai/langgraph@0.8.25
+  - @dawn-ai/memory@0.8.25
+  - @dawn-ai/permissions@0.8.25
+  - @dawn-ai/sdk@0.8.25
+  - @dawn-ai/sqlite-storage@0.8.25
+
+## 0.8.24
+
+### Patch Changes
+
+- 7495d06: Cut a new patch release. The previous version bump was never tagged or published: its merge commit failed CI on a literal chart-version pin in the Kubernetes documentation checks, and the release controller binds a candidate to the commit that introduced its version. The pin is now a floor, so this bump can be released. No runtime behavior changes.
+  - @dawn-ai/ag-ui@0.8.24
+  - @dawn-ai/core@0.8.24
+  - @dawn-ai/langchain@0.8.24
+  - @dawn-ai/langgraph@0.8.24
+  - @dawn-ai/memory@0.8.24
+  - @dawn-ai/permissions@0.8.24
+  - @dawn-ai/sdk@0.8.24
+  - @dawn-ai/sqlite-storage@0.8.24
+
+## 0.8.23
+
+### Patch Changes
+
+- 21654e8: Align the CopilotKit v2 examples, research scaffold, and Dawn AG-UI runtime on CopilotKit 1.70 and AG-UI 0.0.59.
+- 7e62bb1: Refresh the GitHub and npm documentation surfaces, add package discovery
+  metadata, and introduce reproducible product-loop media. No runtime API changed.
+- 47bf96b: Validate the complete Kubernetes runtime permission contract during preflight,
+  replace existing owned NetworkPolicies with their live resource version, and
+  export the structured `KubePermission` type and
+  `KubeAuthorizationReviewError`. Custom `KubeClient` implementations must
+  replace positional `canI(namespace, verb, resource)` with
+  `canI(namespace, permission)`; no compatibility overload is provided, and the
+  exported error preserves API-versus-transport preflight diagnostics.
+
+  Serialize filesystem changes observed during the initial `dawn dev` child boot
+  so startup and restart children cannot race for the same listening port, and
+  drain fixing edits queued while a watched restart is failing.
+
+- Updated dependencies [21654e8]
+- Updated dependencies [7e62bb1]
+  - @dawn-ai/ag-ui@0.8.23
+  - @dawn-ai/core@0.8.23
+  - @dawn-ai/langchain@0.8.23
+  - @dawn-ai/langgraph@0.8.23
+  - @dawn-ai/memory@0.8.23
+  - @dawn-ai/permissions@0.8.23
+  - @dawn-ai/sdk@0.8.23
+  - @dawn-ai/sqlite-storage@0.8.23
+
 ## 0.8.22
 
 ### Patch Changes
