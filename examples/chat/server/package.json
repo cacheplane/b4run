@@ -1,7 +1,7 @@
 {
   "name": "@b4-example/chat-server",
   "private": true,
-  "version": "0.0.35",
+  "version": "0.0.36",
   "type": "module",
   "scripts": {
     "dev": "node node_modules/@b4run/cli/dist/index.js dev --port 3001",

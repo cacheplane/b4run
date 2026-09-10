@@ -27,6 +27,7 @@ import {
 } from "./metadata.mjs"
 import { NPM_AUDIT_VERIFIER } from "./npm-audit.mjs"
 import { canonicalNpmEvidenceBytes } from "./npm-evidence.mjs"
+import { planRelease } from "./planner.mjs"
 import { routeRecoveryCandidate } from "./recovery/observe.mjs"
 import {
   canonicalReleaseRecordBytes,
@@ -167,6 +168,42 @@ export async function resolveProductionCandidate({
     "candidate discovery",
   )
   const invocation = classifyProductionEvent(event)
+  const verifyTerminalPublication =
+    npm !== undefined && attestations !== undefined
+      ? async ({ candidate, release, releaseRecord }) => {
+          try {
+            const verified = await observeProductionCandidate({
+              candidate,
+              inventory: await inventory.read({ ref: candidate.commitSha }),
+              marker,
+              git,
+              github,
+              npm,
+              npmAuditFactory,
+              attestations,
+              terminalRecordRef,
+            })
+            const { observation, diagnostics } = verified
+            const plan = planRelease({ candidate, observation, mode: "controller" })
+            return (
+              diagnostics.length === 0 &&
+              observation.release.status === "published" &&
+              observation.release.immutable === true &&
+              observation.release.tag === `v${candidate.version}` &&
+              observation.release.commitSha === candidate.commitSha &&
+              observation.release.bodySha256 === sha256(Buffer.from(release.body, "utf8")) &&
+              observation.release.marker?.manifestSha256 === releaseRecord.manifestSha256 &&
+              plan.state === "AUDIT_COMPLETE" &&
+              plan.disposition === "noop" &&
+              plan.conflicts.length === 0 &&
+              plan.nextTransition === null &&
+              plan.proposedMutations.length === 0
+            )
+          } catch {
+            return false
+          }
+        }
+      : undefined
   const verifyTerminalAbandonment =
     npm !== undefined && attestations !== undefined
       ? async ({ candidate, release }) => {
@@ -222,6 +259,7 @@ export async function resolveProductionCandidate({
       attestations,
       releaseFloorVersion: FIRST_B4_RELEASE_VERSION,
       ...(verifyTerminalAbandonment === undefined ? {} : { verifyTerminalAbandonment }),
+      ...(verifyTerminalPublication === undefined ? {} : { verifyTerminalPublication }),
     })
   let normalized
   let globallySelected = false
@@ -713,6 +751,7 @@ export async function observeProductionCandidate({
     candidate: identity,
     manifest: observedArtifactState.manifest,
     registryPackages,
+    publishedImmutable: release.status === "published" && release.immutable === true,
   })
   if (release.marker !== null && release.marker.npmEvidenceSha256 !== null) {
     try {
@@ -3491,7 +3530,7 @@ async function mapProductionRegistryPackage({
   }
 }
 
-function createObservedNpmEvidence({ candidate, manifest, registryPackages }) {
+function createObservedNpmEvidence({ candidate, manifest, registryPackages, publishedImmutable }) {
   if (!isRecord(manifest)) return null
   const entries = new Map(manifest.packages.map((entry) => [entry.name, entry]))
   const observed = new Map(registryPackages.map((pkg) => [pkg.name, pkg]))
@@ -3507,13 +3546,17 @@ function createObservedNpmEvidence({ candidate, manifest, registryPackages }) {
       pkg.tarballSha256 !== entry.sha256 ||
       pkg.integrity !== entry.npmIntegrity ||
       pkg.latest?.status !== "present" ||
-      pkg.latest.version !== candidate.version ||
+      (pkg.latest.version !== candidate.version &&
+        !(publishedImmutable && compareSemver(pkg.latest.version, candidate.version) > 0)) ||
       pkg.signature?.status !== "valid" ||
       pkg.provenance?.workflow !== candidate.publisherWorkflow ||
       pkg.provenance.commitSha !== candidate.commitSha
     ) {
       return null
     }
+    // The immutable receipt records latest at publication. A later release may
+    // advance that mutable tag, while the old version's exact bytes and authority
+    // must still match. Keep the live latest unchanged in registryPackages.
     packages.push({
       name,
       version: candidate.version,

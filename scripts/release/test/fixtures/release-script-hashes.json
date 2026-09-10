@@ -65,7 +65,7 @@
       "sha256": "c2558913a95111ad8fe88a56f1bff8183adbc52484f45362a9d4dd010868c515"
     },
     "scripts/release/candidate.mjs": {
-      "sha256": "f5e2e53cf079e3e8198f1c90d72029b49b39747a9707bbb3e121e67c513e81d0"
+      "sha256": "24e1a16a6da2917d6ace69c0457c81e72ce3ad356098202077417687b4b61b9f"
     },
     "scripts/release/cli.mjs": {
       "sha256": "8c5b7d79fdc159be5bfab629fb1ab6fab669141c9da05549c5e8a4d9840ddc53"
@@ -116,7 +116,7 @@
       "sha256": "fc3847533cbf01b8fa2420f484680a7576b8b2b4edf4d6f41f56df925f4914c3"
     },
     "scripts/release/observe.mjs": {
-      "sha256": "7c124c21ac23abbd53d1b83f25828dc1d6598a7403a264bd363557b28dd557ea"
+      "sha256": "1b986fac90194836f9c900494270555d6689eba47c2ce410e35aad70a53593b4"
     },
     "scripts/release/planner.mjs": {
       "sha256": "2e09281ff952da69e985de7802307b849b76525e838e4cab49516a3d05793433"

@@ -44,6 +44,7 @@ import {
   resolveGuardedSubagent,
   resolveSubagentRegistry,
   resolveToolScope,
+  staticMarkerFs,
   toolOrigin,
   wrapToolWithApproval,
   wrapToolWithConstraint,
@@ -73,6 +74,7 @@ import { isGraphInterrupt } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { createB4Context } from "./b4-context.js"
 import { checkToolNameUniqueness } from "./check-tool-name-uniqueness.js"
+import { routeCheckpointer } from "./checkpoint-route-provenance.js"
 import { buildMemoryContext } from "./memory-context.js"
 import { pureDirname, pureJoin } from "./pure-path.js"
 import {
@@ -98,7 +100,7 @@ import {
   type ScenarioToolCallJournal,
   type ScenarioToolOverride,
 } from "./scenario-tool-overrides.js"
-import type { B4StaticModules } from "./static-modules-core.js"
+import { type B4StaticModules, staticModulesMarkerFiles } from "./static-modules-core.js"
 import type { StreamChunk } from "./stream-types.js"
 import type { DiscoveredToolDefinition } from "./tool-shape.js"
 
@@ -203,9 +205,11 @@ export interface RuntimeBootFallbacks {
  *                               takes its documented default
  *   - `resolveMemoryWrites`   → "candidate" (the same default an app with no
  *                               `memory.writes` gets)
- *   - `markerFs`              → omitted from `applyCapabilities`; an absent
- *                               MarkerFs means "no filesystem" by contract, so
- *                               the disk-backed markers contribute nothing
+ *   - `markerFs`              → the manifest's bundled marker files when it
+ *                               carries any (`staticMarkerFs`), else omitted
+ *                               from `applyCapabilities`; an absent MarkerFs
+ *                               means "no filesystem" by contract, so the
+ *                               disk-backed markers contribute nothing
  *   - `hasWorkspaceDir`       → false ⇒ tool-output offloading stays off; it
  *                               is an optimization, not a capability the route
  *                               asked for (this also makes the offload store's
@@ -227,11 +231,14 @@ export interface RuntimeBootFallbacks {
  *                               when nothing asked: a `sandbox` block on a
  *                               fallback-less runtime with no injected
  *                               `sandboxManager` is B4_E1005 at boot
- *   - route `skills/`         → contribute nothing without a `markerFs`. A
- *                               route the BUILD recorded skills for is
- *                               B4_E1005 at boot (the manifest carries the
- *                               names precisely because nothing else at request
- *                               time can tell "had skills" from "had none")
+ *   - route `skills/`         → contribute nothing without a `markerFs`. The
+ *                               edge manifest supplies one when the build
+ *                               bundled the skill bodies, so those skills serve
+ *                               normally. A route the BUILD recorded skills for
+ *                               but bundled no bodies for is B4_E1005 at boot
+ *                               (the manifest carries the names precisely
+ *                               because nothing else at request time can tell
+ *                               "had skills" from "had none")
  *   - `resolveIdentityKeys`   → the default semantic identity for memory
  *                               approve (memory-handler)
  *
@@ -888,12 +895,17 @@ async function prepareRouteExecutionForInvocation(
 
   // Boot-resolved instances win when provided (no per-request sqlite open);
   // otherwise fall back to config, then to the default sqlite stores.
-  const checkpointer: BaseCheckpointSaver | undefined =
+  const resolvedCheckpointer: BaseCheckpointSaver | undefined =
     options.checkpointer === false
       ? undefined
       : (options.checkpointer ??
         configCheckpointer ??
         requireFallbacks(fallbacks, "checkpointer").defaultCheckpointer(options.appRoot))
+
+  const checkpointer =
+    normalized.kind === "agent" && resolvedCheckpointer
+      ? routeCheckpointer(resolvedCheckpointer, `${options.routeId}#${normalized.kind}`)
+      : resolvedCheckpointer
 
   const threadsStore: ThreadsStore =
     options.threadsStore ??
@@ -1085,6 +1097,11 @@ async function prepareRouteExecutionForInvocation(
     }
 
     const capabilityBackends = sandboxBackends ?? configBackends
+    // Node reads every marker from disk through the fallback bag. A runtime
+    // with no fallbacks serves the three the build bundles — plan.md,
+    // memory.md, and skills/*/SKILL.md — from the manifest instead;
+    // workspace/AGENTS.md stays absent there.
+    const markerFs = fallbacks ? fallbacks.markerFs : getStaticMarkerFs(options.staticModules)
     const applied = await applyCapabilities(registry, routeDir, {
       routeManifest,
       descriptor,
@@ -1102,7 +1119,7 @@ async function prepareRouteExecutionForInvocation(
             },
           }
         : {}),
-      ...(fallbacks ? { markerFs: fallbacks.markerFs } : {}),
+      ...(markerFs ? { markerFs } : {}),
       permissions: permissionsStore,
       appRoot: options.appRoot,
       ...(sandboxWorkspaceRoot ? { workspaceRoot: sandboxWorkspaceRoot } : {}),
@@ -1734,6 +1751,28 @@ export function getCachedStaticDescriptorMaps(modules: B4StaticModules): StaticD
     staticDescriptorMapsCache.set(modules, maps)
   }
   return maps
+}
+
+/**
+ * One `MarkerFs` per manifest, built on first use. The manifest is immutable
+ * and process-wide, so the cache is a WeakMap keyed on it — never rebuilt per
+ * request, never leaked past the manifest's lifetime. `null` records "this
+ * manifest bundles no marker files" so the union is not recomputed per route.
+ * Markers that normally re-read per turn (memory.md) get the same build-time
+ * content on every read through this facade — correct for an immutable
+ * bundle that nothing on the edge can write to.
+ */
+const staticMarkerFsCache = new WeakMap<B4StaticModules, MarkerFs | null>()
+
+function getStaticMarkerFs(modules: B4StaticModules | undefined): MarkerFs | undefined {
+  if (!modules) return undefined
+  let cached = staticMarkerFsCache.get(modules)
+  if (cached === undefined) {
+    const files = staticModulesMarkerFiles(modules)
+    cached = files ? staticMarkerFs(files) : null
+    staticMarkerFsCache.set(modules, cached)
+  }
+  return cached ?? undefined
 }
 
 export interface ChildPreparationContext {

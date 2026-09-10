@@ -410,6 +410,62 @@ test("scheduled discovery never excludes an audit-looking Release without durabl
   assert.deepEqual(result, selectedCandidate("0.8.21", SHA_21, "CANDIDATE_TAGGED"))
 })
 
+test("scheduled discovery advances only after independent published terminal verification", async () => {
+  for (const outcome of [true, false, "throw"]) {
+    const repository = repositoryFixture([
+      commit(BASE_SHA, "0.8.27"),
+      commit(SHA_21, "0.8.28", { parent: BASE_SHA, marker: true }),
+      commit(SHA_22, "0.8.30", { parent: SHA_21, marker: true }),
+    ])
+    const older = managedRelease(21, "0.8.28", SHA_21, {
+      auditComplete: true,
+      published: true,
+    })
+    let verified = 0
+    const result = await discoverScheduledCandidate({
+      terminalRecordRef: RECORD_REF,
+      inventory: repository.inventory,
+      git: repository.git,
+      github: githubFixture({ tags: [tagRef("0.8.28", SHA_21)], releases: [older] }),
+      marker: ACTIVE_MARKER,
+      async verifyTerminalPublication({ candidate, release }) {
+        verified += 1
+        assert.equal(candidate.commitSha, SHA_21)
+        assert.equal(release.id, older.id)
+        if (outcome === "throw") throw new Error("authority unavailable")
+        return outcome
+      },
+    })
+    assert.equal(verified, 1)
+    assert.deepEqual(
+      result,
+      outcome === true
+        ? selectedCandidate("0.8.30", SHA_22, "CANDIDATE_VALIDATED")
+        : selectedCandidate("0.8.28", SHA_21, "CANDIDATE_TAGGED"),
+    )
+  }
+})
+
+test("scheduled discovery never promotes an audited draft through terminal verification", async () => {
+  const repository = repositoryFixture([
+    commit(BASE_SHA, "0.8.20"),
+    commit(SHA_21, "0.8.21", { parent: BASE_SHA, marker: true }),
+    commit(SHA_22, "0.8.22", { parent: SHA_21, marker: true }),
+  ])
+  const older = auditVerifiedDraftRelease(21, "0.8.21", SHA_21)
+  const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
+    inventory: repository.inventory,
+    git: repository.git,
+    github: githubFixture({ tags: [tagRef("0.8.21", SHA_21)], releases: [older] }),
+    marker: ACTIVE_MARKER,
+    async verifyTerminalPublication() {
+      assert.fail("drafts must retain publication priority")
+    },
+  })
+  assert.deepEqual(result, selectedCandidate("0.8.21", SHA_21, "CANDIDATE_TAGGED"))
+})
+
 test("scheduled discovery admits an exact AUDIT_VERIFIED draft for production observation", async () => {
   const repository = repositoryFixture([
     commit(BASE_SHA, "0.8.20"),

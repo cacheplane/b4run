@@ -1,5 +1,7 @@
 # B4.run First Publication Implementation Plan
 
+> **Historical planning record — current status is in the [B4.run cutover runbook](../runbooks/2026-09-09-b4-run-cutover.md).** B4.run 0.8.28 is published and independently audited. Prior replacement-repository, first-publication, and recovery instructions below describe earlier stages; do not execute them as a current checklist. Preserve historical release evidence.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Publish the first real B4.run fixed-group candidate with the existing integrity and provenance guarantees, then permanently use npm trusted publishing.
@@ -12,7 +14,7 @@
 
 ## Status and scope
 
-**Design only; unimplemented.** This document does not enable Actions, create a candidate, authorize a registry mutation, configure trust, provision credentials or change executable gates. The rename includes distribution; implementing the necessary narrow bootstrap is within that work. Owner credential provisioning is a separate operational step, not an implied requirement to ask again before preparing the implementation.
+**Implemented; first publication completed on 2026-09-09.** Version 0.8.28 is public and independently audited. The implementation and credential-provisioning checklist below is retained as historical design context. Remaining work is trusted-publisher verification and retirement of bootstrap authority, tracked in issue #599 and the current cutover runbook.
 
 The permanent flow remains tokenless. Do not use the rejected root `.env` credential, read a developer's `.npmrc`, transfer a saved interactive login into CI, introduce automatic token fallback, publish placeholder packages or bypass the controller with `npm publish` in another workflow.
 

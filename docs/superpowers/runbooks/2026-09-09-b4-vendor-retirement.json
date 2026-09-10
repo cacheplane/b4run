@@ -1,0 +1,73 @@
+{
+  "date": "2026-09-10T04:04:29.220Z",
+  "storeId": "store_9RQ8eZyGheVy0wOp",
+  "removed": [
+    {
+      "pathname": "demo/author.mp4",
+      "size": 154208
+    },
+    {
+      "pathname": "demo/author.webm",
+      "size": 344119
+    },
+    {
+      "pathname": "demo/product-loop.mp4",
+      "size": 338363
+    },
+    {
+      "pathname": "demo/product-loop.webm",
+      "size": 854722
+    },
+    {
+      "pathname": "demo/run.mp4",
+      "size": 127254
+    },
+    {
+      "pathname": "demo/run.webm",
+      "size": 240476
+    },
+    {
+      "pathname": "demo/test.mp4",
+      "size": 114712
+    },
+    {
+      "pathname": "demo/test.webm",
+      "size": 250809
+    }
+  ],
+  "remaining": [
+    {
+      "pathname": "b4/demo/author.mp4",
+      "size": 106249
+    },
+    {
+      "pathname": "b4/demo/author.webm",
+      "size": 222855
+    },
+    {
+      "pathname": "b4/demo/product-loop.mp4",
+      "size": 267644
+    },
+    {
+      "pathname": "b4/demo/product-loop.webm",
+      "size": 687325
+    },
+    {
+      "pathname": "b4/demo/run.mp4",
+      "size": 112989
+    },
+    {
+      "pathname": "b4/demo/run.webm",
+      "size": 249766
+    },
+    {
+      "pathname": "b4/demo/test.mp4",
+      "size": 104983
+    },
+    {
+      "pathname": "b4/demo/test.webm",
+      "size": 239733
+    }
+  ],
+  "hasMore": false
+}

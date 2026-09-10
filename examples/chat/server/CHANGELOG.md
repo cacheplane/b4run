@@ -1,5 +1,19 @@
 # @dawn-example/chat-server
 
+## 0.0.36
+
+### Patch Changes
+
+- Updated dependencies [80a98ad]
+- Updated dependencies [80a98ad]
+- Updated dependencies [111d45c]
+- Updated dependencies [18c7b61]
+- Updated dependencies [6039fd2]
+  - @b4run/cli@0.8.30
+  - @b4run/sdk@0.8.30
+  - @b4run/core@0.8.30
+  - @b4run/langchain@0.8.30
+
 ## 0.0.35
 
 ### Patch Changes

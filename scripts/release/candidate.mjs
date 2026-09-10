@@ -168,6 +168,7 @@ export async function discoverScheduledCandidate({
   marker,
   terminalRecordRef,
   verifyTerminalAbandonment,
+  verifyTerminalPublication,
   npm,
   npmAuditFactory,
   attestations,
@@ -191,6 +192,9 @@ export async function discoverScheduledCandidate({
   assertMethods(inventory, ["read"], "inventory reader")
   if (verifyTerminalAbandonment !== undefined && typeof verifyTerminalAbandonment !== "function") {
     throw new TypeError("Terminal abandonment verifier is invalid")
+  }
+  if (verifyTerminalPublication !== undefined && typeof verifyTerminalPublication !== "function") {
+    throw new TypeError("Terminal publication verifier is invalid")
   }
   assertMethods(
     github,
@@ -246,6 +250,7 @@ export async function discoverScheduledCandidate({
     github,
     marker,
     verifyTerminalAbandonment,
+    verifyTerminalPublication,
     terminalRecordRef,
     npm,
     npmAuditFactory,
@@ -510,6 +515,7 @@ async function inspectManagedReleases({
   github,
   marker,
   verifyTerminalAbandonment,
+  verifyTerminalPublication,
   terminalRecordRef,
   npm,
   npmAuditFactory,
@@ -696,13 +702,34 @@ async function inspectManagedReleases({
       maximumBytes: RELEASE_PAYLOAD_LIMITS.releaseRecordBytes,
     })
     validateReleaseRecordIdentity(record, tagIdentity)
-    const state = await releaseStateFromAssets({
+    let state = await releaseStateFromAssets({
       release,
       releaseRecord: record,
       assets,
       tagIdentity,
       github,
     })
+    if (
+      release.draft === false &&
+      release.immutable === true &&
+      verifyTerminalPublication !== undefined
+    ) {
+      try {
+        // Only the full observer can prove terminal smoke, audit, and Release
+        // authority. A receipt alone must never let a newer candidate proceed.
+        if (
+          (await verifyTerminalPublication({
+            candidate: discovery.candidate,
+            release,
+            releaseRecord: record,
+          })) === true
+        ) {
+          state = ReleaseState.AUDIT_COMPLETE
+        }
+      } catch {
+        // Preserve this candidate's priority when terminal proof is unavailable.
+      }
+    }
     releases.push(
       candidateSelection({
         candidate: discovery.candidate,
