@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { createThreadsStore, sqliteCheckpointer } from "@b4run/sqlite-storage"
 import { afterEach, describe, expect, it } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { script } from "../../testing/dist/fixture-builder.js"
@@ -131,11 +132,15 @@ async function waitForFile(path: string, timeoutMs = 15_000): Promise<string> {
   throw new Error(`probe file never appeared: ${path}`)
 }
 
-async function createHandler(appRoot: string) {
+async function createHandler(
+  appRoot: string,
+  options: Partial<Parameters<typeof createRuntimeFetchHandler>[0]> = {},
+) {
   const handler = await createRuntimeFetchHandler({
     appRoot,
     apSseHeartbeatIntervalMs: 60_000,
     drainDeadlineMs: 250,
+    ...options,
   })
   cleanup.push(() => handler.close())
   return handler
@@ -591,4 +596,158 @@ describe("handler.close() — live-turn shutdown", () => {
     await writeFile(releaseFile, "release").catch(() => undefined)
     await runPromise
   }, 60_000)
+})
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((r) => {
+    resolve = r
+  })
+  return { promise, resolve }
+}
+
+describe("attach checkpoint provenance across routes", () => {
+  it.each(["ap", "agui"])(
+    "keeps the actual anchor owner when a %s thread gate pauses before an admin turn",
+    async (wire) => {
+      const appRoot = await fixtureApp({
+        "src/app/admin/index.ts": CHAT_ROUTE,
+        "src/app/public/index.ts": SLOW_PING_TOOL.replace(
+          "export default async function slowPing",
+          "export async function graph",
+        ),
+      })
+      const entered = deferred()
+      const releaseGate = deferred()
+      const startedFile = join(appRoot, "public-started")
+      const releaseFile = join(appRoot, "public-release")
+      await writeFile(
+        join(appRoot, "src/app/public/index.ts"),
+        SLOW_PING_TOOL.replace(
+          "export default async function slowPing",
+          "export async function graph",
+        )
+          .replaceAll("input.startedFile", JSON.stringify(startedFile))
+          .replaceAll("input.releaseFile", JSON.stringify(releaseFile)),
+      )
+      const threadsStore = createThreadsStore({ path: join(appRoot, "threads.sqlite") })
+      await threadsStore.createThread({ thread_id: "race", metadata: { route: "/public#graph" } })
+      await withAimock(script().user("private question").replies("private answer").build())
+      const handler = await createHandler(appRoot, {
+        threadsStore,
+        threadAccess: {
+          fallback: () => ({ decision: "allow" }),
+          update: async (r) => {
+            if (r.headers["x-pause"] === "yes") {
+              entered.resolve()
+              await releaseGate.promise
+            }
+            return { decision: "allow" }
+          },
+        },
+        middleware: (r) =>
+          r.method === "GET" && r.routeId === "/admin"
+            ? { action: "reject", status: 403, body: "denied" }
+            : { action: "continue" },
+      })
+      const publicRequest =
+        wire === "ap"
+          ? runStreamRequest("race", "/public#graph", { startedFile, releaseFile })
+          : new Request(`http://localhost/agui/${encodeURIComponent("/public#graph")}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                threadId: "race",
+                runId: "public-run",
+                messages: [],
+                tools: [],
+                context: [],
+                state: { startedFile, releaseFile },
+                forwardedProps: { startedFile, releaseFile },
+              }),
+            })
+      publicRequest.headers.set("x-pause", "yes")
+      const publicRun = handler.fetch(publicRequest)
+      await entered.promise
+      await drain(
+        await handler.fetch(
+          runStreamRequest("race", "/admin#agent", {
+            messages: [{ role: "user", content: "private question" }],
+          }),
+        ),
+      )
+      releaseGate.resolve()
+      const primary = await publicRun
+      await waitForFile(startedFile)
+      try {
+        const attached = await handler.fetch(attachRequest("race"))
+        expect(attached.status).toBe(403)
+      } finally {
+        await writeFile(releaseFile, "release")
+        await drain(primary)
+      }
+    },
+  )
+
+  it("retains ancestor authorization when a public agent inherits admin channel state", async () => {
+    const appRoot = await fixtureApp({
+      "src/app/admin/index.ts": CHAT_ROUTE,
+      "src/app/public/index.ts": CHAT_ROUTE,
+    })
+    await withAimock(
+      script()
+        .user("private question")
+        .replies("private answer")
+        .user("public question")
+        .replies("public answer")
+        .build(),
+    )
+    const handler = await createHandler(appRoot, {
+      middleware: (r) =>
+        r.method === "GET" && r.routeId === "/admin"
+          ? { action: "reject", status: 403, body: "denied" }
+          : { action: "continue" },
+    })
+    for (const [route, content] of [
+      ["/admin#agent", "private question"],
+      ["/public#agent", "public question"],
+    ]) {
+      await drain(
+        await handler.fetch(
+          runStreamRequest("inherited-owner", route!, { messages: [{ role: "user", content }] }),
+        ),
+      )
+    }
+    expect((await handler.fetch(attachRequest("inherited-owner"))).status).toBe(403)
+  })
+
+  it("retains admin checkpoint authorization after a public graph run and restart", async () => {
+    const appRoot = await fixtureApp({ "src/app/admin/index.ts": CHAT_ROUTE })
+    await withAimock(script().user("private question").replies("private answer").build())
+    const checkpointer = sqliteCheckpointer({ path: join(appRoot, "checkpoint.sqlite") })
+    const threadsStore = createThreadsStore({ path: join(appRoot, "threads.sqlite") })
+    const options = {
+      checkpointer,
+      threadsStore,
+      middleware: (r: import("@b4run/sdk").MiddlewareRequest) =>
+        r.method === "GET" && r.routeId === "/admin"
+          ? { action: "reject" as const, status: 403, body: "denied" }
+          : { action: "continue" as const },
+    }
+    const handler = await createHandler(appRoot, options)
+    await drain(
+      await handler.fetch(
+        runStreamRequest("durable-owner", "/admin#agent", {
+          messages: [{ role: "user", content: "private question" }],
+        }),
+      ),
+    )
+    await drain(await handler.fetch(runStreamRequest("durable-owner", "/echo#graph")))
+    expect((await threadsStore.getThread("durable-owner"))?.metadata.route).toBe("/echo#graph")
+    await handler.close()
+    const restarted = await createHandler(appRoot, options)
+    const response = await restarted.fetch(attachRequest("durable-owner"))
+    expect(response.status).toBe(403)
+    expect(await response.text()).not.toContain("private answer")
+  })
 })
