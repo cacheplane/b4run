@@ -1,20 +1,21 @@
 # B4.run marketing and external-account inventory
 
 **Updated:** 2026-09-10 UTC; initial HTTP inventory observed September 9. **Tracking:** [issue #602](https://github.com/cacheplane/b4run/issues/602).
-**Source baseline:** `811cd0402a478f3d541bd60572b24a34ddd6665b` on
+**Initial source baseline:** `811cd0402a478f3d541bd60572b24a34ddd6665b` on
 `blove/b4-rename-followup-plan`.
 
 The public homepage and Getting Started page serve B4.run canonical and social
 metadata. All cataloged brand downloads, favicon variants, four demo posters,
-and eight hosted video URLs respond successfully. One active public entrypoint
-is broken: **`https://b4.run/brand` returns HTTP 404**, despite links from the
-homepage navigation, issue template, and brand asset manifest. The source tree
-has no `apps/web/app/brand` page because [commit 5b161844](https://github.com/cacheplane/b4run/commit/5b161844d426ddd8fd893e8e8e80197bd64194e9)
-intentionally removed it on 2026-05-13 ([PR #137](https://github.com/cacheplane/b4run/pull/137)).
-The repair is to point surviving links at the existing ZIP and set the asset
-manifest homepage to `/`, with the ZIP copy of that manifest synchronized.
-**Repair prepared in [PR #618](https://github.com/cacheplane/b4run/pull/618), which remains unmerged and undeployed; production verification pending.** No new
-brand landing page is required.
+and eight hosted video URLs responded successfully in the initial inventory.
+The intentionally removed `/brand` route remains absent. Its surviving links
+were repaired in [PR #618](https://github.com/cacheplane/b4run/pull/618), merged
+as `777138ccf7b9599f1e7041c9d07d01a8c72d3781` on September 10.
+Fresh production checks confirmed that the homepage and not-found response
+link directly to the existing ZIP, the public manifest homepage is `/`, and
+the ZIP matches the merged repository asset (SHA-256
+`5026d1dbb08e85af2710d5ff4b1c326ab1339914c64c9301ed077971dd763571`).
+No brand landing page or redirect was added. The broader account inventory
+remains deferred by the owner under #602.
 
 This inventory combines current HTTP/API reads, repository source, and explicitly
 identified historical account evidence. It does not establish that every external
@@ -35,9 +36,9 @@ Named technical ownership does not establish who has billing or editorial author
 | Organization profile | [cacheplane](https://github.com/cacheplane), `cacheplane/.github/profile/README.md` | `cacheplane`; individual editor unknown | Current API content names B4.run, `@b4run/*`, the final repository and docs. [Commit 8040b3c](https://github.com/cacheplane/.github/commit/8040b3c0e35b5efd003999114ca7b6d5852473ff) changes that README. | **Verified current.** Existing profile update is retained; no publication needed for this finding. |
 | OpenSSF Best Practices profile | [project 13317](https://www.bestpractices.dev/en/projects/13317/passing) | Authenticated project owner; submission explicitly approved | September 10 profile reads confirm `B4.run`, `https://b4.run`, and `https://github.com/cacheplane/b4run`. Exactly three identity fields and seven evidence-link prefixes changed, plus two server timestamps. | **Verified current.** All 194 status fields unchanged; passing remains 100%. Owner approved submission after disclosure of the CDLA license notice; see the concise receipt below. |
 | Blog author profile | [blove](https://github.com/blove) | Brian Love, per `apps/web/app/components/blog/post-index.ts` | Source author mapping links Brian Love to this personal GitHub profile and `/brand/brian.jpg`. | **Source verified.** No separate personal-profile rebranding requirement established. |
-| Website hosting | [b4.run](https://b4.run), Vercel project `prj_Syd2iGdPVSDoqtZCqqP2XeWnNlLB` | Historical vendor audit: Cacheplane team `team_RWMT2bzjj1nkSXI3N3arQ6CP`; individual account owner unknown | Current homepage HTTP 200. Earlier audit identifies renamed project `b4-run`; this pass did not re-read authenticated project settings. | **Public site verified; account metadata historical.** The parent task prepared surviving-link repairs to the existing ZIP; verify deployment afterward. The intentionally removed `/brand` route should remain absent. |
-| npm public organization | [b4run](https://www.npmjs.com/org/b4run) | npm owner `blove` authenticated for trust management | All 21 package publishers verified for `cacheplane/b4run`, `release.yml`, publish/staged-publish permissions, and no environment restriction. Dedicated bootstrap token revoked; repository bootstrap secret and authorization variable removed. | **Publisher settings and retirement verified.** [#599](https://github.com/cacheplane/b4run/issues/599) closed; actual production OIDC proof remains open in [#619](https://github.com/cacheplane/b4run/issues/619) for the next ordinary release. See the cutover receipt; no throwaway release. |
-| Brand page and asset catalog | [brand page](https://b4.run/brand), [manifest](https://b4.run/brand/assets.json), [ZIP](https://b4.run/brand/b4-run-brand-assets.zip) | Repository maintainers; editorial owner unknown | Manifest identifies B4.run, version `2026-09-07`, eight public asset entries and the ZIP. `/brand` is 404; manifest, ZIP and all eight entries are 200. | **Repair prepared; deployment pending:** point MobileMenu, not-found and issue-template links to the existing ZIP; set manifest homepage to `/` and synchronize the archived manifest. Keep the intentional route removal. |
+| Website hosting | [b4.run](https://b4.run), Vercel project `prj_Syd2iGdPVSDoqtZCqqP2XeWnNlLB` | Historical vendor audit: Cacheplane team `team_RWMT2bzjj1nkSXI3N3arQ6CP`; individual account owner unknown | Current homepage HTTP 200. Earlier audit identifies renamed project `b4-run`; this pass did not re-read authenticated project settings. | **Public site verified; account metadata historical.** PR #618 is merged; September 10 production checks verified the surviving-link repair and exact ZIP. The intentionally removed `/brand` route should remain absent. |
+| npm public organization | [b4run](https://www.npmjs.com/org/b4run) | npm owner `blove` authenticated for trust management | All 21 package publishers verified for `cacheplane/b4run`, `release.yml`, publish/staged-publish permissions, and no environment restriction. Dedicated bootstrap token revoked; repository bootstrap secret and authorization variable removed. | **Production OIDC verified.** The ordinary 0.8.30 release passed for all 21 packages, with bootstrap disabled, five consumer checks, and an independent audit. [#599](https://github.com/cacheplane/b4run/issues/599) and [#619](https://github.com/cacheplane/b4run/issues/619) link the existing evidence in the cutover runbook; no extra release or publishing requirement. |
+| Brand page and asset catalog | [brand page](https://b4.run/brand), [manifest](https://b4.run/brand/assets.json), [ZIP](https://b4.run/brand/b4-run-brand-assets.zip) | Repository maintainers; editorial owner unknown | Manifest identifies B4.run, version `2026-09-07`, eight public asset entries and the ZIP. `/brand` is 404; manifest, ZIP and all eight entries are 200. | **Repair deployed and verified:** MobileMenu, not-found and issue-template links target the existing ZIP. Public manifest homepage is `/`; the live ZIP matches the merged archive with its synchronized manifest. The intentional route removal is retained. |
 | Social previews, favicons and app icons | [OG image](https://b4.run/opengraph-image), `/favicon.ico`, `/site.webmanifest`, PNG variants under the website root | Repository maintainers; design owner unknown | Live root/docs metadata uses `B4.run`, `summary_large_image` and `/opengraph-image`; icons and manifest respond 200. Source layout and structured data use B4.run. | **HTTP and metadata verified.** Local horizontal PNG visually reads B4.run. Full remote-image visual QA and previews inside third-party social platforms remain unverified. |
 | Demo video hosting and transcripts | Vercel Blob `store_9RQ8eZyGheVy0wOp`; host `9rq8ezyghevy0wop.public.blob.vercel-storage.com`; prefix `/b4/demo/`; [transcript](https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md) | Historical audit associates store with Cacheplane; individual media owner unknown | Current `apps/web/app/lib/demo-media.json` selects four clips, two encodings each, four local posters and transcript anchors. All respond 200. Text describes B4.run and the `npm create b4-app@latest my-agent` closing card. | **Current links/text verified.** Playback and every video frame were not re-reviewed. Parent-task cleanup deleted all eight pre-rename `/demo/` objects after the 83-page reference audit; parent reports fresh HEAD checks: all eight retired URLs 404 and all eight current URLs 200. Historical store-label details remain in the cutover inventory. |
 | Public support/community contact | [Discussions](https://github.com/cacheplane/b4run/discussions), [Issues](https://github.com/cacheplane/b4run/issues), [private security reporting](https://github.com/cacheplane/b4run/security/advisories/new) | Repository maintainers | `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md` and `.github/ISSUE_TEMPLATE/config.yml` route contacts through GitHub. The API confirms Discussions enabled. | **Published routing verified.** No ticket/report was created and private reporting was not submitted. No B4-specific mailbox is evidenced in these sources. |
@@ -61,7 +62,7 @@ Read-only Python HTTP GET/HEAD requests on 2026-09-09 returned:
 | `/opengraph-image` | 200 `image/png`, 57,417 bytes. Metadata declares 1200 × 630. |
 | `/twitter-image` | 404. Current live Twitter metadata uses `/opengraph-image`, so this is not a broken current metadata reference. Layout comments mentioning a re-export are stale source commentary. |
 | `/brand/assets.json` and ZIP | 200 JSON and ZIP; ZIP 276,153 bytes. All eight manifest asset URLs return 200 with corresponding SVG/PNG/ICO/manifest types. |
-| ZIP integrity before prepared repair | Live ZIP SHA256 `e545e90662791b9ae7c34a085d8ecb8b1085ccdad3d26a221205e069c4504082` equaled the local ZIP at initial audit. The subsequently prepared manifest synchronization changes the local archive; deployment and its new digest remain pending. `unzip -l` lists 22 B4-named files, including logos, app icons, social cards, tokens and README. |
+| ZIP integrity before prepared repair | Live ZIP SHA256 `e545e90662791b9ae7c34a085d8ecb8b1085ccdad3d26a221205e069c4504082` equaled the local ZIP at initial audit. The later deployed manifest synchronization has SHA256 `5026d1dbb08e85af2710d5ff4b1c326ab1339914c64c9301ed077971dd763571`, verified against the repository on September 10. `unzip -l` lists 22 B4-named files, including logos, app icons, social cards, tokens and README. |
 | Favicons and app icons | ICO, 16/32/48/64 PNGs, Apple touch icon, Android 192/512 icons all 200 with image content types. Webmanifest is 200 and both name fields are B4.run. |
 | Demo clips | `product-loop`, `author`, `test`, `run`: all eight MP4/WebM URLs are 200 with correct video types; four posters are 200 `image/webp`. No playback inference is made from HEAD responses. |
 | Demo transcripts | All four GitHub document URLs return 200. Source headings correspond to the four catalog fragments. HTTP does not independently validate browser fragment navigation. |
@@ -86,8 +87,7 @@ URLs returning 404 and all eight current `/b4/demo/` URLs returning 200. The par
 also removed the unbound pre-rename native deployment domain and bootstrap
 placeholder alias. These were parent-task operations, not mutations by this
 inventory subtask; see the [cutover runbook](2026-09-09-b4-run-cutover.md) for
-authorization, resource scope and cleanup receipts. The brand-link repair is
-prepared separately; it must not be described as deployed until live verification.
+authorization, resource scope and cleanup receipts. The brand-link repair subsequently merged and passed live verification on September 10, as recorded above.
 
 ## September 10 owner-approved updates
 
@@ -105,16 +105,15 @@ identity and change counts, without copying historical account snapshots.
 The owner also explicitly approved keeping the existing old-website and GitHub
 rename redirects, superseding the initial no-redirect requirement. Runtime and
 package compatibility aliases remain prohibited. This resolves the earlier
-policy ambiguity without changing the brand-link repair: PR #618 still awaits
-merge, deployment, and production verification.
+policy ambiguity. PR #618 subsequently merged, deployed, and passed production verification; it adds no route or redirect.
 
 ## Follow-up and closure
 
-1. Deploy and verify the prepared link repair. Acceptance: MobileMenu, not-found
-   and issue-template brand links target the existing ZIP; public manifest homepage
-   is `/`; the ZIP contains the synchronized manifest; downloads respond 200.
-   Preserve the intentional absence of `/brand`; a new page or redirect is not
-   part of the repair.
+The account work in items 2–4 remains deferred by the owner; the completed website check does not resume that inventory.
+
+1. **Complete:** PR #618 repaired the existing brand links and synchronized the
+   public/archived manifests. Production checks verified the ZIP links, manifest
+   homepage `/`, and exact deployed archive. The `/brand` route remains absent.
 2. Have the account owner supply exact resource URLs/IDs and responsible editors
    for the unknown rows, including confirmation where a service is not used.
    A credential name or absent source match cannot close an account row.
