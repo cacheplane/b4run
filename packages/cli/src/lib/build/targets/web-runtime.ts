@@ -71,9 +71,9 @@ export async function emitWebRuntimeArtifacts(
   // marker bodies an edge runtime has no filesystem to read.
   //
   // Runs BEFORE the mkdir/writes below on purpose: an over-limit marker file
-  // must fail THIS target's build with none of its artifacts written. Other
-  // targets configured earlier in `build.targets` may already have written
-  // theirs — this guard only protects the target currently building.
+  // must fail this target's build with none of its artifacts written, including
+  // callers that invoke an emitter directly. The build command also preflights
+  // all markers before any target emits or prior output is cleaned.
   // Marker-file limits are checked across EVERY route first, in one pass, so a
   // build names every oversized file at once. The per-route throw inside
   // `collectRouteStaticDiscovery` below aggregates only within a single route,

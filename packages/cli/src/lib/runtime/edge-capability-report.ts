@@ -22,6 +22,7 @@
  */
 
 import type { B4Config } from "@b4run/core"
+import { pureDirname, pureJoin } from "./pure-path.js"
 
 /** The target these rules describe. Named in the build-time message. */
 export const EDGE_TARGET = "hono"
@@ -133,6 +134,8 @@ export interface RuntimeCapabilityInput {
   /** The static module manifest's routes, when the handler booted from one. */
   readonly routes: readonly {
     readonly routeId: string
+    /** Exact runtime path used to resolve bundled marker files. */
+    readonly routeFile?: string
     /** Skill directory names this route had at BUILD time (see StaticRouteModule). */
     readonly skills?: readonly string[]
     /** Bundled marker file bodies (see StaticRouteModule.markerFiles); their presence serves the skills. */
@@ -212,10 +215,14 @@ export function collectRuntimeCapabilityGaps(
     // Trust the manifest for bodies exactly as little as for names: a skill is
     // served only when its own SKILL.md body is bundled. A hand-composed
     // manifest that records names beside a lone plan.md still reports.
-    const bundled = route.markerFiles ? Object.keys(route.markerFiles) : []
-    const unserved = skills.filter(
-      (name) => !bundled.some((key) => key.endsWith(`/skills/${name}/SKILL.md`)),
-    )
+    const unserved = skills.filter((name) => {
+      if (!route.routeFile) return true
+      const path = pureJoin(pureDirname(route.routeFile), "skills", name, "SKILL.md")
+      return (
+        !Object.hasOwn(route.markerFiles ?? {}, path) ||
+        typeof route.markerFiles?.[path] !== "string"
+      )
+    })
     if (unserved.length === 0) continue
     violations.push({
       // Re-sorted even though `discoverSkillDirs` already sorts: `route.skills`

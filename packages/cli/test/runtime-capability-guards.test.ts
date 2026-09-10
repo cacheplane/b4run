@@ -79,6 +79,7 @@ describe("collectRuntimeCapabilityGaps — fires when a feature is configured bu
       routes: [
         {
           markerFiles: { "/ns/src/app/research/skills/cite-sources/SKILL.md": "…" },
+          routeFile: "/ns/src/app/research/index.ts",
           routeId: "/research",
           skills: ["cite-sources"],
         },
@@ -86,6 +87,25 @@ describe("collectRuntimeCapabilityGaps — fires when a feature is configured bu
     })
 
     expect(found).toEqual([])
+  })
+
+  it.each([
+    { "/other/src/app/research/skills/cite-sources/SKILL.md": "other namespace" },
+    { "/ns/src/app/chat/skills/cite-sources/SKILL.md": "other route" },
+    { "/ns/src/app/research/skills/cite-sources/SKILL.md": undefined },
+  ])("requires the route's exact skill path and a string body", (markerFiles) => {
+    const found = gaps({
+      routes: [
+        {
+          markerFiles: markerFiles as unknown as Readonly<Record<string, string>>,
+          routeFile: "/ns/src/app/research/index.ts",
+          routeId: "/research",
+          skills: ["cite-sources"],
+        },
+      ],
+    })
+    expect(found).toHaveLength(1)
+    expect(found[0]?.capability).toBe("skills (cite-sources)")
   })
 
   it("still reports a skill whose body is missing even when other marker files are bundled", () => {
@@ -96,6 +116,7 @@ describe("collectRuntimeCapabilityGaps — fires when a feature is configured bu
             "/ns/src/app/research/plan.md": "- [ ] a\n",
             "/ns/src/app/research/skills/cite-sources/SKILL.md": "…",
           },
+          routeFile: "/ns/src/app/research/index.ts",
           routeId: "/research",
           skills: ["cite-sources", "synthesize-findings"],
         },

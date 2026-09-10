@@ -536,6 +536,34 @@ describe("hono target — edge capability gating", () => {
     expect(existsSync(join(appRoot, "wrangler.toml"))).toBe(false)
   })
 
+  test.each(["hono", "vercel"])(
+    "preflights %s marker limits before earlier node artifacts",
+    async (target) => {
+      const appRoot = await createFixtureApp({
+        "b4.config.ts": `export default { build: { targets: ["node", "${target}"] } }\n`,
+        "src/app/chat/memory.md": "x".repeat(32 * 1024 + 1),
+      })
+      const error = await runBuild(appRoot).catch((e: unknown) => e)
+      expect((error as { code?: string }).code).toBe("B4_E1005")
+      expect(existsSync(join(appRoot, ".b4"))).toBe(false)
+      expect(existsSync(join(appRoot, ".vercel"))).toBe(false)
+    },
+  )
+
+  test("preflights UTF-8 expansion before cleaning prior build artifacts", async () => {
+    const appRoot = await createFixtureApp({
+      "b4.config.ts": 'export default { build: { targets: ["node", "hono"] } }\n',
+      "src/app/chat/memory.md": "",
+      ".b4/build/prior.mjs": "prior build\n",
+    })
+    await writeFile(join(appRoot, "src/app/chat/memory.md"), Buffer.alloc(12 * 1024, 0xff))
+    const error = await runBuild(appRoot).catch((e: unknown) => e)
+    expect((error as { code?: string }).code).toBe("B4_E1005")
+    expect(String(error)).toContain("UTF-8 re-encoding")
+    expect(await readdir(join(appRoot, ".b4/build"))).toEqual(["prior.mjs"])
+    expect(await readBuildFile(appRoot, "prior.mjs")).toBe("prior build\n")
+  })
+
   test("names every oversized marker file across all routes in one failed build", async () => {
     const oversized = `---\ndescription: Big.\n---\n${"x".repeat(32 * 1024 + 1)}`
     const appRoot = await createFixtureApp({
