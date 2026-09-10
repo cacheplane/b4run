@@ -1829,7 +1829,7 @@
                 "id": "claude",
                 "if": "steps.preflight.outputs.skip != 'true'",
                 "name": "Claude review",
-                "uses": "anthropics/claude-code-action@1623c36729ac1cd5895198cded705a287de7db79",
+                "uses": "anthropics/claude-code-action@a874e9ecd7bb36efdad65429c6b35815f5a08f10",
                 "with": {
                   "anthropic_api_key": "${{ secrets.ANTHROPIC_API_KEY }}",
                   "claude_args": "--model claude-sonnet-4-6\n--max-turns 40\n--allowedTools \"Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)\"\n",
