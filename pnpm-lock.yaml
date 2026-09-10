@@ -17,9 +17,6 @@ importers:
 
   .:
     devDependencies:
-      '@b4run/sdk':
-        specifier: workspace:*
-        version: link:packages/sdk
       '@biomejs/biome':
         specifier: 2.5.6
         version: 2.5.6
@@ -29,6 +26,9 @@ importers:
       '@copilotkit/aimock':
         specifier: ^1.37.4
         version: 1.38.0(vitest@4.1.10)
+      '@b4run/sdk':
+        specifier: workspace:*
+        version: link:packages/sdk
       '@playwright/test':
         specifier: 1.62.1
         version: 1.62.1
@@ -202,15 +202,15 @@ importers:
       '@ag-ui/client':
         specifier: 0.0.59
         version: 0.0.59
-      '@b4run/ag-ui':
-        specifier: workspace:*
-        version: link:../../../packages/ag-ui
       '@copilotkit/react-core':
         specifier: ^1.70.0
         version: 1.70.0(@types/mdast@4.0.4)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(graphql@16.14.2)(micromark-util-types@2.0.2)(micromark@4.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
       '@copilotkit/runtime':
         specifier: ^1.70.0
         version: 1.70.0(@anthropic-ai/sdk@0.115.0(zod@4.4.3))(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(@langchain/langgraph-sdk@1.9.28(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@langchain/openai@1.5.6(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(ws@8.21.0))(@opentelemetry/api@1.9.1)(langchain@1.5.2(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(ws@8.21.0))(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.10)
+      '@b4run/ag-ui':
+        specifier: workspace:*
+        version: link:../../../packages/ag-ui
       next:
         specifier: 16.3.3
         version: 16.3.3(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@26.1.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -325,15 +325,15 @@ importers:
       '@ag-ui/client':
         specifier: 0.0.59
         version: 0.0.59
-      '@b4run/ag-ui':
-        specifier: workspace:*
-        version: link:../../../packages/ag-ui
       '@copilotkit/react-core':
         specifier: ^1.70.0
         version: 1.70.0(@types/mdast@4.0.4)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(graphql@16.14.2)(micromark-util-types@2.0.2)(micromark@4.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
       '@copilotkit/runtime':
         specifier: ^1.70.0
         version: 1.70.0(@anthropic-ai/sdk@0.115.0(zod@4.4.3))(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(@langchain/langgraph-sdk@1.9.28(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@langchain/openai@1.5.6(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(ws@8.21.0))(@opentelemetry/api@1.9.1)(langchain@1.5.2(@langchain/core@1.2.5(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(ws@8.21.0))(openai@6.45.0(ws@8.21.0)(zod@4.4.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.10)
+      '@b4run/ag-ui':
+        specifier: workspace:*
+        version: link:../../../packages/ag-ui
       '@tailwindcss/postcss':
         specifier: ^4.3.3
         version: 4.3.3
@@ -387,12 +387,12 @@ importers:
       '@ag-ui/client':
         specifier: 0.0.59
         version: 0.0.59
-      '@b4run/config-typescript':
-        specifier: workspace:*
-        version: link:../config-typescript
       '@copilotkit/react-core':
         specifier: ^1.70.0
         version: 1.70.0(@types/mdast@4.0.4)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(graphql@16.14.2)(micromark-util-types@2.0.2)(micromark@4.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
+      '@b4run/config-typescript':
+        specifier: workspace:*
+        version: link:../config-typescript
       '@types/node':
         specifier: 26.1.2
         version: 26.1.2
@@ -495,7 +495,7 @@ importers:
         version: 12.0.4
       vercel:
         specifier: 58.9.0
-        version: 58.9.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(rollup@4.62.2)
+        version: 58.9.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)(rollup@4.62.2)
       wrangler:
         specifier: 4.120.0
         version: 4.120.0
@@ -886,12 +886,12 @@ importers:
 
   packages/testing:
     dependencies:
-      '@b4run/memory':
-        specifier: workspace:*
-        version: link:../memory
       '@copilotkit/aimock':
         specifier: ^1.37.4
         version: 1.38.0(vitest@4.1.10)
+      '@b4run/memory':
+        specifier: workspace:*
+        version: link:../memory
     devDependencies:
       '@b4run/cli':
         specifier: workspace:*
@@ -1607,9 +1607,6 @@ packages:
 
   '@emnapi/runtime@1.11.2':
     resolution: {integrity: sha512-kyOl3X0DuTiT1h2ft8r2fYO8JYtU9a9Xis/zBSiGArNaagCOWx90N1k2wxp18czFDH+OgcWGb5ZP/XMt3dcyPA==}
-
-  '@emnapi/runtime@1.11.3':
-    resolution: {integrity: sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==}
 
   '@emnapi/wasi-threads@1.2.3':
     resolution: {integrity: sha512-ELEBe8PsLvvJ6QMr0zLt8ffvOHW/dc1m3CEzNMg7aJUv3bMaoDtw2TXyDAwkYBuroxxuHEwhRTLJSe5sya547g==}
@@ -10056,11 +10053,6 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@emnapi/runtime@1.11.3':
-    dependencies:
-      tslib: 2.8.1
-    optional: true
-
   '@emnapi/wasi-threads@1.2.3':
     dependencies:
       tslib: 2.8.1
@@ -10616,7 +10608,7 @@ snapshots:
 
   '@img/sharp-wasm32@0.35.2':
     dependencies:
-      '@emnapi/runtime': 1.11.3
+      '@emnapi/runtime': 1.11.2
     optional: true
 
   '@img/sharp-wasm32@0.35.3':
@@ -11059,10 +11051,10 @@ snapshots:
       '@napi-rs/keyring-win32-ia32-msvc': 1.2.0
       '@napi-rs/keyring-win32-x64-msvc': 1.2.0
 
-  '@napi-rs/wasm-runtime@1.2.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
+  '@napi-rs/wasm-runtime@1.2.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)':
     dependencies:
       '@emnapi/core': 1.11.3
-      '@emnapi/runtime': 1.11.3
+      '@emnapi/runtime': 1.11.2
       '@tybys/wasm-util': 0.10.3
     optional: true
 
@@ -11165,9 +11157,9 @@ snapshots:
   '@oxc-transform/binding-openharmony-arm64@0.111.0':
     optional: true
 
-  '@oxc-transform/binding-wasm32-wasi@0.111.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
+  '@oxc-transform/binding-wasm32-wasi@0.111.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)':
     dependencies:
-      '@napi-rs/wasm-runtime': 1.2.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
+      '@napi-rs/wasm-runtime': 1.2.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -11549,9 +11541,9 @@ snapshots:
   '@rolldown/binding-openharmony-arm64@1.0.0-rc.1':
     optional: true
 
-  '@rolldown/binding-wasm32-wasi@1.0.0-rc.1(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
+  '@rolldown/binding-wasm32-wasi@1.0.0-rc.1(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)':
     dependencies:
-      '@napi-rs/wasm-runtime': 1.2.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
+      '@napi-rs/wasm-runtime': 1.2.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -12397,7 +12389,7 @@ snapshots:
     transitivePeerDependencies:
       - graphql
 
-  '@vercel/backends@0.8.34(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(rollup@4.62.2)':
+  '@vercel/backends@0.8.34(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)(rollup@4.62.2)':
     dependencies:
       '@vercel/build-utils': 14.0.3
       '@vercel/nft': 1.10.0(rollup@4.62.2)
@@ -12405,10 +12397,10 @@ snapshots:
       execa: 3.2.0
       fs-extra: 11.1.0
       get-port: 5.1.1
-      oxc-transform: 0.111.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
+      oxc-transform: 0.111.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)
       path-to-regexp: 8.3.0
       resolve.exports: 2.0.3
-      rolldown: 1.0.0-rc.1(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
+      rolldown: 1.0.0-rc.1(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)
       srvx: 0.11.16
       ts-morph: 12.0.0
       tsx: 4.21.0
@@ -12434,9 +12426,9 @@ snapshots:
       cjs-module-lexer: 1.2.3
       es-module-lexer: 1.5.0
 
-  '@vercel/cervel@0.1.42(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(rollup@4.62.2)':
+  '@vercel/cervel@0.1.42(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)(rollup@4.62.2)':
     dependencies:
-      '@vercel/backends': 0.8.34(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(rollup@4.62.2)
+      '@vercel/backends': 0.8.34(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)(rollup@4.62.2)
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -12472,9 +12464,9 @@ snapshots:
 
   '@vercel/error-utils@2.2.1': {}
 
-  '@vercel/express@0.1.125(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(rollup@4.62.2)':
+  '@vercel/express@0.1.125(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)(rollup@4.62.2)':
     dependencies:
-      '@vercel/cervel': 0.1.42(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(rollup@4.62.2)
+      '@vercel/cervel': 0.1.42(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)(rollup@4.62.2)
       '@vercel/nft': 1.10.0(rollup@4.62.2)
       '@vercel/node': 5.9.7(rollup@4.62.2)
       '@vercel/static-config': 3.4.1
@@ -16191,7 +16183,7 @@ snapshots:
 
   outdent@0.5.0: {}
 
-  oxc-transform@0.111.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3):
+  oxc-transform@0.111.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2):
     optionalDependencies:
       '@oxc-transform/binding-android-arm-eabi': 0.111.0
       '@oxc-transform/binding-android-arm64': 0.111.0
@@ -16209,7 +16201,7 @@ snapshots:
       '@oxc-transform/binding-linux-x64-gnu': 0.111.0
       '@oxc-transform/binding-linux-x64-musl': 0.111.0
       '@oxc-transform/binding-openharmony-arm64': 0.111.0
-      '@oxc-transform/binding-wasm32-wasi': 0.111.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
+      '@oxc-transform/binding-wasm32-wasi': 0.111.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)
       '@oxc-transform/binding-win32-arm64-msvc': 0.111.0
       '@oxc-transform/binding-win32-ia32-msvc': 0.111.0
       '@oxc-transform/binding-win32-x64-msvc': 0.111.0
@@ -16931,7 +16923,7 @@ snapshots:
 
   robust-predicates@3.0.3: {}
 
-  rolldown@1.0.0-rc.1(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3):
+  rolldown@1.0.0-rc.1(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2):
     dependencies:
       '@oxc-project/types': 0.110.0
       '@rolldown/pluginutils': 1.0.0-rc.1
@@ -16946,7 +16938,7 @@ snapshots:
       '@rolldown/binding-linux-x64-gnu': 1.0.0-rc.1
       '@rolldown/binding-linux-x64-musl': 1.0.0-rc.1
       '@rolldown/binding-openharmony-arm64': 1.0.0-rc.1
-      '@rolldown/binding-wasm32-wasi': 1.0.0-rc.1(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
+      '@rolldown/binding-wasm32-wasi': 1.0.0-rc.1(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)
       '@rolldown/binding-win32-arm64-msvc': 1.0.0-rc.1
       '@rolldown/binding-win32-x64-msvc': 1.0.0-rc.1
     transitivePeerDependencies:
@@ -17954,9 +17946,9 @@ snapshots:
 
   vary@1.1.2: {}
 
-  vercel@58.9.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(rollup@4.62.2):
+  vercel@58.9.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)(rollup@4.62.2):
     dependencies:
-      '@vercel/backends': 0.8.34(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(rollup@4.62.2)
+      '@vercel/backends': 0.8.34(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)(rollup@4.62.2)
       '@vercel/blob': 2.4.0
       '@vercel/build-utils': 14.0.3
       '@vercel/cli-auth': 0.3.2
@@ -17964,7 +17956,7 @@ snapshots:
       '@vercel/container': 0.1.1
       '@vercel/detect-agent': 1.2.4
       '@vercel/elysia': 0.1.111(rollup@4.62.2)
-      '@vercel/express': 0.1.125(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(rollup@4.62.2)
+      '@vercel/express': 0.1.125(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.2)(rollup@4.62.2)
       '@vercel/fastify': 0.1.114(rollup@4.62.2)
       '@vercel/fun': 1.3.0
       '@vercel/go': 3.10.4
