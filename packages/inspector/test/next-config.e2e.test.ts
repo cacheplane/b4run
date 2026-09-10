@@ -41,9 +41,9 @@ async function loadConfig(moduleId: string): Promise<ResolvedNextConfig> {
 }
 
 describe("Next TypeScript CLI configuration", () => {
-  test("pins every Next application to Next 16.3.0", () => {
+  test("pins every Next application to Next 16.3.3", () => {
     for (const [appDir] of nextApps) {
-      expect.soft(readManifest(appDir).dependencies?.next, appDir).toBe("16.3.0")
+      expect.soft(readManifest(appDir).dependencies?.next, appDir).toBe("16.3.3")
     }
   })
 
