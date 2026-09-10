@@ -1,13 +1,13 @@
 # Middleware
 
-Dawn supports a single global request middleware for authentication, request shaping, and per-request context. The middleware runs once per route-execution request, before the route executes, and its decision (allow or reject) gates execution.
+B4.run supports a single global request middleware for authentication, request shaping, and per-request context. The middleware runs once per route-execution request, before the route executes, and its decision (allow or reject) gates execution.
 
 ## File location
 
 Define middleware as a default-exported function in `src/middleware.ts` (or `middleware.ts` at the app root):
 
 ```ts title="src/middleware.ts"
-import { allow, defineMiddleware, reject } from "@dawn-ai/sdk"
+import { allow, defineMiddleware, reject } from "@b4run/sdk"
 
 export default defineMiddleware(async (req) => {
   if (!req.headers["x-api-key"]) {
@@ -17,7 +17,7 @@ export default defineMiddleware(async (req) => {
 })
 ```
 
-If no middleware file is present, every request is allowed. Dawn probes four
+If no middleware file is present, every request is allowed. B4.run probes four
 paths, in this order, and the first one that **exists** is the one it loads:
 `src/middleware.ts`, `src/middleware.js`, `middleware.ts`, `middleware.js`. A
 later candidate is never a fallback for an earlier one that fails to load — see
@@ -27,10 +27,10 @@ later candidate is never a fallback for an earlier one that fails to load — se
 
 ### `defineMiddleware(fn)`
 
-Identity helper that types `fn` as `DawnMiddleware`. Use it for editor inference:
+Identity helper that types `fn` as `B4Middleware`. Use it for editor inference:
 
 ```ts
-type DawnMiddleware = (
+type B4Middleware = (
   req: MiddlewareRequest,
 ) => Promise<MiddlewareResult> | MiddlewareResult
 ```
@@ -93,7 +93,7 @@ Context is per-request — there is no shared state between requests. The `middl
 
 ## Single-function model
 
-Dawn middleware is intentionally a single global function, not an array of layered middlewares. If you need branching by route, do it with normal control flow inside the function:
+B4.run middleware is intentionally a single global function, not an array of layered middlewares. If you need branching by route, do it with normal control flow inside the function:
 
 ```ts
 export default defineMiddleware(async (req) => {
@@ -108,7 +108,7 @@ This keeps the request lifecycle predictable and avoids ordering questions about
 
 ## Where middleware runs
 
-Middleware runs in every Dawn HTTP runtime: `dawn dev`, the Node runtime served by `dawn start` or the generated `server.mjs`, and Hono builds. These endpoints invoke it before any route executes:
+Middleware runs in every B4.run HTTP runtime: `b4 dev`, the Node runtime served by `b4 start` or the generated `server.mjs`, and Hono builds. These endpoints invoke it before any route executes:
 
 | Endpoint | `req.method` | `req.params` |
 |---|---|---|
@@ -148,7 +148,7 @@ the resulting failure was swallowed — so middleware never ran there at all. If
 you develop on Windows, expect a middleware file that was previously inert to
 start gating requests.
 
-The `langsmith` build target is different: its generated graph entries do not include Dawn HTTP middleware. Put equivalent authentication at the LangSmith/platform boundary when you deploy those entries.
+The `langsmith` build target is different: its generated graph entries do not include B4.run HTTP middleware. Put equivalent authentication at the LangSmith/platform boundary when you deploy those entries.
 
 <Callout type="warn" title="Middleware is execution-only">
   Do not use this hook as blanket service authentication. Create/read/delete, state, cancellation, health, and memory-candidate routes bypass it. Thread authorization is a [separate file on a separate axis](/docs/thread-access) and covers the thread endpoints; health and memory-candidate routes are covered by neither. Put an outer boundary around the complete runtime surface as described in [Security Architecture](/docs/security-architecture).
@@ -156,9 +156,9 @@ The `langsmith` build target is different: its generated graph entries do not in
 
 ## When middleware fails to load
 
-Middleware is an authorization gate, so Dawn refuses to start rather than start
+Middleware is an authorization gate, so B4.run refuses to start rather than start
 without one it was supposed to have. A middleware file that is present but
-cannot be loaded fails the boot with `DAWN_E3004`, naming the file and the
+cannot be loaded fails the boot with `B4_E3004`, naming the file and the
 underlying cause:
 
 ```
@@ -171,7 +171,7 @@ middleware.
 
 This covers a middleware file that throws while it is being imported — a
 missing environment variable, an ESM/CJS interop break, a syntax error, an
-unresolved dependency — and a file Dawn cannot even probe, such as one inside a
+unresolved dependency — and a file B4.run cannot even probe, such as one inside a
 directory it lacks permission to read. Existence is decided before the import,
 so a permission error is never mistaken for "this app has no middleware".
 
@@ -181,14 +181,14 @@ Three consequences worth knowing:
   definitively absent, so the boot proceeds with every request allowed, exactly
   as before.
 - **The first existing candidate is the only candidate.** If `src/middleware.ts`
-  exists but fails to import, Dawn does not quietly fall back to a
+  exists but fails to import, B4.run does not quietly fall back to a
   `middleware.ts` at the app root.
 - **A file that exports no middleware function is not fatal.** It is ignored,
   with a warning on stderr naming the file, because the built manifest binds the
   same way and dev must not diverge from it.
 
-In `dawn dev` the failure is printed and the watcher restarts the child once you
-fix the file. In `dawn start`, a container, or a built `server.mjs`, the process
+In `b4 dev` the failure is printed and the watcher restarts the child once you
+fix the file. In `b4 start`, a container, or a built `server.mjs`, the process
 exits non-zero — so the failure surfaces to your deploy's health check before
 traffic reaches an ungated server.
 

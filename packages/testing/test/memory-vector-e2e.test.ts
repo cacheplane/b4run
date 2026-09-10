@@ -21,7 +21,7 @@ import { script } from "../src/fixture-builder.js"
 import { createAgentHarness } from "../src/harness.js"
 
 const appRoot = fileURLToPath(new URL("./fixtures/probe-app-vector", import.meta.url))
-const dbBase = join(appRoot, ".dawn", "memory.sqlite")
+const dbBase = join(appRoot, ".b4", "memory.sqlite")
 function cleanDb() {
   for (const suffix of ["", "-wal", "-shm"]) rmSync(`${dbBase}${suffix}`, { force: true })
 }

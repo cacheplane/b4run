@@ -28,11 +28,11 @@ vi.mock("@kubernetes/client-node", async (importOriginal) => {
   return { ...actual, KubeConfig }
 })
 
-const policyName = "dawn-sbx-net-thread"
+const policyName = "b4-sbx-net-thread"
 const threadLabelValue = "thread"
 const ownerLabels = {
-  "app.kubernetes.io/managed-by": "dawn",
-  "dawn.sh/thread": threadLabelValue,
+  "app.kubernetes.io/managed-by": "b4",
+  "b4.run/thread": threadLabelValue,
 }
 const desired: V1NetworkPolicy = {
   apiVersion: "networking.k8s.io/v1",
@@ -44,7 +44,7 @@ const desired: V1NetworkPolicy = {
     annotations: { desired: "preserved" },
   },
   spec: {
-    podSelector: { matchLabels: { "dawn.sh/thread": threadLabelValue } },
+    podSelector: { matchLabels: { "b4.run/thread": threadLabelValue } },
     policyTypes: ["Egress"],
     egress: [],
   },
@@ -58,7 +58,7 @@ const networkPolicySpec = {
 const generatedPolicyBody: V1NetworkPolicy = {
   metadata: { name: policyName, labels: ownerLabels },
   spec: {
-    podSelector: { matchLabels: { "dawn.sh/thread": threadLabelValue } },
+    podSelector: { matchLabels: { "b4.run/thread": threadLabelValue } },
     policyTypes: ["Egress"],
     egress: [
       {
@@ -117,7 +117,7 @@ describe("prepareNetworkPolicyReplacement", () => {
   })
 
   test.each([
-    ["missing", { "dawn.sh/thread": threadLabelValue }],
+    ["missing", { "b4.run/thread": threadLabelValue }],
     ["wrong", { ...ownerLabels, "app.kubernetes.io/managed-by": "other" }],
   ])("rejects a %s managed-by label", (_case, labels) => {
     const existing = existingPolicy({ name: policyName, resourceVersion: "42", labels })
@@ -128,8 +128,8 @@ describe("prepareNetworkPolicyReplacement", () => {
   })
 
   test.each([
-    ["missing", { "app.kubernetes.io/managed-by": "dawn" }],
-    ["wrong", { ...ownerLabels, "dawn.sh/thread": "other" }],
+    ["missing", { "app.kubernetes.io/managed-by": "b4" }],
+    ["wrong", { ...ownerLabels, "b4.run/thread": "other" }],
   ])("rejects a %s thread label", (_case, labels) => {
     const existing = existingPolicy({ name: policyName, resourceVersion: "42", labels })
 
@@ -251,7 +251,7 @@ describe("default Kubernetes NetworkPolicy replacement", () => {
         resourceVersion: "42",
         labels: {
           "app.kubernetes.io/managed-by": "other",
-          "dawn.sh/thread": threadLabelValue,
+          "b4.run/thread": threadLabelValue,
         },
       }),
     )

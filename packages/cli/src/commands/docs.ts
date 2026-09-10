@@ -51,7 +51,7 @@ function listTopics(dir: string): string[] {
 export function registerDocsCommand(program: Command, io: CommandIo): void {
   program
     .command("docs [topic]")
-    .description("Print the bundled, version-matched Dawn docs (or a single topic)")
+    .description("Print the bundled, version-matched B4.run docs (or a single topic)")
     .action(async (topic: string | undefined) => {
       await runDocsCommand(topic !== undefined ? { topic } : {}, io)
     })
@@ -61,13 +61,13 @@ export async function runDocsCommand(args: DocsArgs, io: CommandIo): Promise<voi
   const dir = args.docsDir ?? defaultDocsDir()
   if (!existsSync(dir)) {
     throw new CliError(
-      `Bundled docs not found at ${dir}. If running from source, build the CLI first (pnpm --filter @dawn-ai/cli build).`,
+      `Bundled docs not found at ${dir}. If running from source, build the CLI first (pnpm --filter @b4run/cli build).`,
     )
   }
 
   if (!args.topic) {
-    writeLine(io.stdout, `Dawn docs (version-matched) at: ${dir}`)
-    writeLine(io.stdout, "Index: dawn docs README  (or open docs/README.md)")
+    writeLine(io.stdout, `B4.run docs (version-matched) at: ${dir}`)
+    writeLine(io.stdout, "Index: b4 docs README  (or open docs/README.md)")
     writeLine(io.stdout, "")
     writeLine(io.stdout, "Topics:")
     for (const topic of listTopics(dir)) {

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Sync each Helm chart's `appVersion` to the current @dawn-ai/cli version and
+// Sync each Helm chart's `appVersion` to the current @b4run/cli version and
 // advance the chart's own patch version once.
 //
 // Changesets versions the npm packages but knows nothing about the charts, while
-// scripts/check-docs.mjs asserts the charts track @dawn-ai/cli. Left manual, that
+// scripts/check-docs.mjs asserts the charts track @b4run/cli. Left manual, that
 // mismatch fails the Release workflow's "Validate Release Candidate" step *after*
 // the Version PR has already merged — blocking the publish until someone bumps the
 // charts by hand (which is exactly what happened for 0.8.13).
@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url"
 import { parseSemver } from "./release/semver.mjs"
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
-const CHARTS = ["charts/dawn-app/Chart.yaml", "charts/dawn-sandbox-infra/Chart.yaml"]
+const CHARTS = ["charts/b4-app/Chart.yaml", "charts/b4-sandbox-infra/Chart.yaml"]
 
 const APP_VERSION_LINE = /^appVersion:\s*["']?([^"'\n]+)["']?$/m
 const CHART_VERSION_LINE = /^version:\s*["']?([^"'\n]+)["']?$/m

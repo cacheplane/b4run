@@ -4,7 +4,7 @@ export type RouteKind = "agent" | "chain" | "graph" | "workflow"
  * Optional metadata a route's `index.ts` may export as `config` alongside its
  * entry.
  *
- * **Reserved. Dawn reads none of these fields today.** The shape is accepted,
+ * **Reserved. B4.run reads none of these fields today.** The shape is accepted,
  * type-checked, normalized onto the route module and carried into the static
  * build manifest — and then nothing branches on it. Exporting a `config` is
  * therefore inert: it will not change how a route builds, deploys, streams, or
@@ -18,7 +18,7 @@ export type RouteKind = "agent" | "chain" | "graph" | "workflow"
 export interface RouteConfig {
   /**
    * Reserved; **no effect**. The node/edge split is decided entirely by
-   * `build.targets` in `dawn.config.ts` — see the `hono` build target — and
+   * `build.targets` in `b4.config.ts` — see the `hono` build target — and
    * never per route. A route marked `"edge"` is not excluded from a node build,
    * and one marked `"node"` is not excluded from an edge build.
    */

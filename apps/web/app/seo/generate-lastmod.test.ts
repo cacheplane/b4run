@@ -41,7 +41,7 @@ describe("generate-seo-lastmod", () => {
   })
 
   it("generates timestamps for new content state without consulting Git history", () => {
-    const directory = mkdtempSync(join(tmpdir(), "dawn-lastmod-"))
+    const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-"))
     temporaryDirectories.push(directory)
     const output = join(directory, "lastmod.generated.json")
     const startedAt = Date.now()
@@ -121,7 +121,7 @@ describe("generate-seo-lastmod", () => {
   })
 
   it("recognizes a symlinked direct invocation of the generator", () => {
-    const directory = mkdtempSync(join(tmpdir(), "dawn-lastmod-"))
+    const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-"))
     temporaryDirectories.push(directory)
     const symlink = join(directory, "generate-seo-lastmod.mjs")
     symlinkSync(generator, symlink)
@@ -131,7 +131,7 @@ describe("generate-seo-lastmod", () => {
 
   it("fails check mode for a stale target without changing the checked-in manifest", () => {
     const originalManifest = readFileSync(generatedManifest, "utf8")
-    const directory = mkdtempSync(join(tmpdir(), "dawn-lastmod-"))
+    const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-"))
     temporaryDirectories.push(directory)
     const staleManifest = join(directory, "lastmod.generated.json")
     writeFileSync(staleManifest, "stale\n")
@@ -145,7 +145,7 @@ describe("generate-seo-lastmod", () => {
   })
 
   it("fails check mode when a preserved timestamp is moved into the future", () => {
-    const directory = mkdtempSync(join(tmpdir(), "dawn-lastmod-"))
+    const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-"))
     temporaryDirectories.push(directory)
     const tamperedManifest = join(directory, "lastmod.generated.json")
     const manifest = JSON.parse(readFileSync(generatedManifest, "utf8"))

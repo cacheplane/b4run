@@ -77,7 +77,7 @@ async function buildTuple(
   return base
 }
 
-export class DawnSqliteSaver extends BaseCheckpointSaver {
+export class B4SqliteSaver extends BaseCheckpointSaver {
   constructor(private readonly db: Db) {
     super()
   }
@@ -157,7 +157,7 @@ export class DawnSqliteSaver extends BaseCheckpointSaver {
   ): Promise<RunnableConfig> {
     const threadId = config.configurable?.thread_id as string | undefined
     if (!threadId) {
-      throw new Error("[DawnSqliteSaver] config.configurable.thread_id is required")
+      throw new Error("[B4SqliteSaver] config.configurable.thread_id is required")
     }
     const ns = (config.configurable?.checkpoint_ns as string | undefined) ?? ""
     const parentId = (config.configurable?.checkpoint_id as string | undefined) ?? null
@@ -188,12 +188,12 @@ export class DawnSqliteSaver extends BaseCheckpointSaver {
   ): Promise<void> {
     const threadId = config.configurable?.thread_id as string | undefined
     if (!threadId) {
-      throw new Error("[DawnSqliteSaver] config.configurable.thread_id is required")
+      throw new Error("[B4SqliteSaver] config.configurable.thread_id is required")
     }
     const ns = (config.configurable?.checkpoint_ns as string | undefined) ?? ""
     const ckptId = config.configurable?.checkpoint_id as string | undefined
     if (!ckptId) {
-      throw new Error("[DawnSqliteSaver] config.configurable.checkpoint_id is required")
+      throw new Error("[B4SqliteSaver] config.configurable.checkpoint_id is required")
     }
 
     // Serialize all values before opening the transaction (serde is async).
@@ -223,7 +223,7 @@ export class DawnSqliteSaver extends BaseCheckpointSaver {
   }
 
   async deleteThread(threadId: string): Promise<void> {
-    if (!threadId) throw new Error("[DawnSqliteSaver] deleteThread requires a thread_id")
+    if (!threadId) throw new Error("[B4SqliteSaver] deleteThread requires a thread_id")
     this.db.exec("BEGIN")
     try {
       this.db.prepare("DELETE FROM writes WHERE thread_id = ?").run(threadId)

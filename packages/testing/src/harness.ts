@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto"
 import {
   __resetMaterializedAgentsForTests,
   __resetRouteLoadCachesForTests,
+  type B4ResumeEntry,
   createRuntimeRegistry,
-  type DawnResumeEntry,
   readPendingInterrupts,
   resolveCheckpointer,
   resolvePendingResume,
@@ -11,9 +11,9 @@ import {
   runTypegen,
   type SandboxManager,
   streamResolvedRoute,
-} from "@dawn-ai/cli/runtime"
-import { __clearDawnConfigCacheForTests } from "@dawn-ai/core"
-import { discoverRoutes } from "@dawn-ai/core/node"
+} from "@b4run/cli/runtime"
+import { __clearB4ConfigCacheForTests } from "@b4run/core"
+import { discoverRoutes } from "@b4run/core/node"
 import { type Aimock, createAimock } from "./aimock-runner.js"
 import type { FixtureSet, ScriptBuilder } from "./fixture-builder.js"
 import { recordingsToFixtures } from "./record-fixtures.js"
@@ -62,7 +62,7 @@ export interface AgentHarness {
   readonly baseUrl: string
   run(opts: { input: string; fixtures?: FixtureSet | ScriptBuilder }): Promise<AgentRunResult>
   resume(opts: {
-    resume: readonly DawnResumeEntry[]
+    resume: readonly B4ResumeEntry[]
     fixtures?: FixtureSet | ScriptBuilder
   }): Promise<AgentRunResult>
   reset(): void
@@ -139,7 +139,7 @@ export async function createAgentHarness(options: AgentHarnessOptions): Promise<
   async function drive(driveOpts: {
     fixtures?: FixtureSet | ScriptBuilder
     input?: string
-    resume?: readonly DawnResumeEntry[]
+    resume?: readonly B4ResumeEntry[]
   }): Promise<AgentRunResult> {
     // In live and record modes, fixtures are proxied to the upstream — skip registration.
     if (!live && !record && driveOpts.fixtures) {
@@ -237,17 +237,17 @@ export async function createAgentHarness(options: AgentHarnessOptions): Promise<
       else process.env.OPENAI_API_KEY = prevKey
       // Reset the per-descriptor LLM cache so the next harness constructs a
       // fresh ChatOpenAI instance pointing to its own aimock URL. Without this,
-      // successive harnesses that share the same DawnAgent descriptor object
+      // successive harnesses that share the same B4Agent descriptor object
       // (ESM module cache returns the same export) would reuse an LLM already
       // bound to the previous (stopped) aimock server.
       __resetMaterializedAgentsForTests()
-      // loadDawnConfig is now memoized per appRoot for the process lifetime
-      // (perf(core): memoize loadDawnConfig per appRoot). Test suites that
-      // rewrite a fixture app's dawn.config.ts and drive it again through a
+      // loadB4Config is now memoized per appRoot for the process lifetime
+      // (perf(core): memoize loadB4Config per appRoot). Test suites that
+      // rewrite a fixture app's b4.config.ts and drive it again through a
       // fresh harness in the same process (e.g. switching a memory backend
       // via env + config) need that mutation to actually take effect — clear
       // the memo here so the next createAgentHarness call reloads from disk.
-      __clearDawnConfigCacheForTests()
+      __clearB4ConfigCacheForTests()
       // Same reasoning for the per-route module cache and per-appRoot route
       // manifest memo (perf(cli): load route modules/tools/state once per
       // process): a fixture app mutated between harnesses (new tool file,

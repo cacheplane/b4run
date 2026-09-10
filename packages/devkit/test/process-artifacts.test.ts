@@ -100,11 +100,11 @@ describe("spawnProcess", () => {
     const result = await spawnProcess({
       args: [
         "-e",
-        'process.stdout.write((process.env.PATH ?? "") + "\\n" + (process.env.DAWN_TEST_ENV ?? ""))',
+        'process.stdout.write((process.env.PATH ?? "") + "\\n" + (process.env.B4_TEST_ENV ?? ""))',
       ],
       command: process.execPath,
       env: {
-        DAWN_TEST_ENV: "merged",
+        B4_TEST_ENV: "merged",
       },
     })
 
@@ -114,22 +114,22 @@ describe("spawnProcess", () => {
   })
 
   it("can remove selected inherited environment variables", async () => {
-    process.env.DAWN_TEST_UNSET_ENV = "inherited"
+    process.env.B4_TEST_UNSET_ENV = "inherited"
     try {
       const result = await spawnProcess({
-        args: ["-e", 'process.stdout.write(process.env.DAWN_TEST_UNSET_ENV ?? "missing")'],
+        args: ["-e", 'process.stdout.write(process.env.B4_TEST_UNSET_ENV ?? "missing")'],
         command: process.execPath,
-        unsetEnv: ["DAWN_TEST_UNSET_ENV"],
+        unsetEnv: ["B4_TEST_UNSET_ENV"],
       })
       expect(result.exitCode).toBe(0)
       expect(result.stdout).toBe("missing")
     } finally {
-      delete process.env.DAWN_TEST_UNSET_ENV
+      delete process.env.B4_TEST_UNSET_ENV
     }
   })
 
   it("terminates a timed-out process tree before returning", async () => {
-    const tempRoot = await mkdtemp(resolve(tmpdir(), "dawn-timed-out-process-tree-"))
+    const tempRoot = await mkdtemp(resolve(tmpdir(), "b4-timed-out-process-tree-"))
     const readyPath = resolve(tempRoot, "ready.json")
 
     try {
@@ -156,7 +156,7 @@ describe("spawnProcess", () => {
   it.skipIf(process.platform === "win32")(
     "polls at a bounded cadence while force-stopping a TERM-resistant descendant",
     async () => {
-      const tempRoot = await mkdtemp(resolve(tmpdir(), "dawn-force-escalation-"))
+      const tempRoot = await mkdtemp(resolve(tmpdir(), "b4-force-escalation-"))
       const readyPath = resolve(tempRoot, "ready.json")
       let maximumTimerGapMs = 0
       let lastTimerAt = performance.now()
@@ -188,7 +188,7 @@ describe("spawnProcess", () => {
   )
 
   it("terminates an aborted process tree before returning", async () => {
-    const tempRoot = await mkdtemp(resolve(tmpdir(), "dawn-aborted-process-tree-"))
+    const tempRoot = await mkdtemp(resolve(tmpdir(), "b4-aborted-process-tree-"))
     const readyPath = resolve(tempRoot, "ready.json")
     const controller = new AbortController()
     const abortReason = new Error("cancel generated lifecycle")
@@ -216,7 +216,7 @@ describe("spawnProcess", () => {
   it("clears the deadline when spawning fails asynchronously", async () => {
     vi.useFakeTimers()
     try {
-      const missingCommand = resolve(tmpdir(), `dawn-missing-command-${process.pid}`)
+      const missingCommand = resolve(tmpdir(), `b4-missing-command-${process.pid}`)
 
       await expect(
         spawnProcess({ command: missingCommand, timeoutMs: 180_000 }),
@@ -231,7 +231,7 @@ describe("spawnProcess", () => {
     "awaits a bounded close race when Windows tree termination loses to child exit",
     async () => {
       const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform")
-      const tempRoot = await mkdtemp(resolve(tmpdir(), "dawn-windows-close-race-"))
+      const tempRoot = await mkdtemp(resolve(tmpdir(), "b4-windows-close-race-"))
       const readyPath = resolve(tempRoot, "ready.json")
       Object.defineProperty(process, "platform", { configurable: true, value: "win32" })
       try {
@@ -260,7 +260,7 @@ describe("spawnProcess", () => {
 
 describe("createArtifactRoot", () => {
   it("creates a deterministic testing artifact path and ensures it exists", async () => {
-    const baseDir = await mkdtemp(resolve(tmpdir(), "dawn-devkit-artifacts-"))
+    const baseDir = await mkdtemp(resolve(tmpdir(), "b4-devkit-artifacts-"))
 
     try {
       const artifactRoot = await createArtifactRoot({

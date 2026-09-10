@@ -1,1 +1,1 @@
-export type { RuntimeContext, RuntimeTool, ToolRegistry } from "@dawn-ai/sdk"
+export type { RuntimeContext, RuntimeTool, ToolRegistry } from "@b4run/sdk"

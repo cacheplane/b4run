@@ -1,4 +1,4 @@
-import type { SandboxProvider } from "@dawn-ai/workspace"
+import type { SandboxProvider } from "@b4run/workspace"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -11,7 +11,7 @@ import {
 // THE REQUEST-TIME HALF OF THE EDGE CAPABILITY GATE.
 //
 // The build gate (`assertEdgeCapabilities`) only runs when the `hono` target
-// does, and composing an entry by hand over `@dawn-ai/cli/fetch` is a supported
+// does, and composing an entry by hand over `@b4run/cli/fetch` is a supported
 // way to deploy — so a `sandbox` block can reach a runtime that cannot serve it
 // having never been gated. This probe is what stops that being a silent no-op.
 //
@@ -48,7 +48,7 @@ describe("collectRuntimeCapabilityGaps — fires when a feature is configured bu
     expect(found[0]?.capability).toBe("sandbox")
     // The config key, not just the feature: "sandbox is not supported" leaves a
     // user hunting for what turned it on.
-    expect(found[0]?.source).toContain("`sandbox` in dawn.config.ts")
+    expect(found[0]?.source).toContain("`sandbox` in b4.config.ts")
   })
 
   it("names `toolOutput` — offloading has nowhere to spill without a filesystem", () => {
@@ -56,7 +56,7 @@ describe("collectRuntimeCapabilityGaps — fires when a feature is configured bu
 
     expect(found).toHaveLength(1)
     expect(found[0]?.capability).toBe("tool-output offloading")
-    expect(found[0]?.source).toContain("`toolOutput` in dawn.config.ts")
+    expect(found[0]?.source).toContain("`toolOutput` in b4.config.ts")
   })
 
   it("names the route's skills, which otherwise vanish from the prompt in silence", () => {
@@ -89,8 +89,8 @@ describe("collectRuntimeCapabilityGaps — fires when a feature is configured bu
     // And the report names all three, plus the one global instruction.
     const report = formatRuntimeCapabilityViolations(found)
     expect(report).toContain("3 feature(s)")
-    expect(report).toContain("`sandbox` in dawn.config.ts")
-    expect(report).toContain("`toolOutput` in dawn.config.ts")
+    expect(report).toContain("`sandbox` in b4.config.ts")
+    expect(report).toContain("`toolOutput` in b4.config.ts")
     expect(report).toContain("cite-sources")
     expect(report).toContain('"node" build target')
   })

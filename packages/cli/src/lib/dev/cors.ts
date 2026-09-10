@@ -1,7 +1,7 @@
 /**
- * CORS for the Dawn runtime.
+ * CORS for the B4.run runtime.
  *
- * Off unless `dawn.config.ts` sets `server.cors`. A Dawn server with no CORS
+ * Off unless `b4.config.ts` sets `server.cors`. A B4.run server with no CORS
  * config answers exactly as it did before this module existed — no
  * `Access-Control-*` header on any response, and `OPTIONS` still falling
  * through the route table to its 404. That default is deliberate: turning on
@@ -12,7 +12,7 @@
  * is tested directly rather than through a live server.
  */
 
-import type { CorsConfig } from "@dawn-ai/core"
+import type { CorsConfig } from "@b4run/core"
 
 export type { CorsConfig }
 

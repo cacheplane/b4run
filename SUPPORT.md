@@ -4,9 +4,9 @@
 
 Use GitHub Discussions for usage questions, design discussions, and integration help:
 
-https://github.com/cacheplane/dawnai/discussions
+https://github.com/cacheplane/b4run/discussions
 
-The public documentation is available at https://dawnai.org/docs/getting-started.
+The public documentation is available at https://b4.run/docs/getting-started.
 
 ## Bugs
 

@@ -1,12 +1,12 @@
 import { join } from "node:path"
-import { sqliteMemoryStore } from "@dawn-ai/memory"
+import { sqliteMemoryStore } from "@b4run/memory"
 import { afterAll, beforeAll, expect, it } from "vitest"
 import {
   gated,
   type InspectorServer,
   pkgRoot,
-  removeDawnDir,
-  resetDawnDir,
+  removeB4Dir,
+  resetB4Dir,
   startInspector,
 } from "./harness"
 
@@ -16,8 +16,8 @@ let server: InspectorServer | undefined
 
 beforeAll(async () => {
   if (!gated) return
-  resetDawnDir(fixtureApp)
-  const store = sqliteMemoryStore({ path: join(fixtureApp, ".dawn", "memory.sqlite") })
+  resetB4Dir(fixtureApp)
+  const store = sqliteMemoryStore({ path: join(fixtureApp, ".b4", "memory.sqlite") })
   await store.put({
     id: "memory_spike_1",
     kind: "semantic",
@@ -36,7 +36,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await server?.stop()
-  removeDawnDir(fixtureApp)
+  removeB4Dir(fixtureApp)
 })
 
 it.skipIf(!gated)("serves the live config-defined store through the API", async () => {

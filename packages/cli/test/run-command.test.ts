@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { Command } from "@dawn-ai/langchain"
+import { Command } from "@b4run/langchain"
 import { afterEach, describe, expect, test } from "vitest"
 import { createAimock, script } from "../../testing/dist/index.js"
 import { run } from "../src/index.js"
@@ -18,12 +18,12 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => server.close()))
 })
 
-describe("dawn run", () => {
+describe("b4 run", () => {
   test("streamResolvedRoute rejects when route preparation fails", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
-      "src/app/invalid/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "b4.config.ts": "export default {};\n",
+      "src/app/invalid/index.ts": `import { agent } from "@b4run/sdk"
 export default agent({
   model: "gpt-5-mini",
   tools: { allow: ["missing-tool"] },
@@ -66,8 +66,8 @@ export default agent({
   test("executes local agent routes with a generated one-shot thread id", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
-      "src/app/hello/[tenant]/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "b4.config.ts": "export default {};\n",
+      "src/app/hello/[tenant]/index.ts": `import { agent } from "@b4run/sdk"
 export default agent({
   model: "gpt-5-mini",
   systemPrompt: "You are a helpful assistant for {tenant}.",
@@ -116,8 +116,8 @@ export default agent({
   test("streamResolvedRoute preserves upstream tool invocation ids", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
-      "src/app/hello/[tenant]/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "b4.config.ts": "export default {};\n",
+      "src/app/hello/[tenant]/index.ts": `import { agent } from "@b4run/sdk"
 export default agent({
   model: "gpt-5-mini",
   systemPrompt: "You are a helpful assistant for {tenant}.",
@@ -187,13 +187,13 @@ export default agent({
   test("executes the route directory's index.ts and exposes shared and route-local tools through ctx.tools", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/tools/greet.ts": `export default {
   name: "greet",
   run: async (input: { tenant: string }) => ({ scope: "shared", message: \`Hello, \${input.tenant}!\` }),
 };
 `,
-      "src/app/hello/[tenant]/index.ts": `import type { RuntimeContext } from "@dawn-ai/sdk"
+      "src/app/hello/[tenant]/index.ts": `import type { RuntimeContext } from "@b4run/sdk"
 export const workflow = async (
   state: { tenant: string },
   ctx: RuntimeContext,
@@ -245,7 +245,7 @@ export const workflow = async (
   test("resolves route pathname to its entry file", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const workflow = async (state: { tenant: string }) => ({ tenant: state.tenant, source: "direct-index" });\n`,
     })
 
@@ -275,13 +275,13 @@ export const workflow = async (
   test("prefers route-local tools over shared tools with the same name", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/tools/greet.ts": `export default {
   name: "greet",
   run: async () => ({ scope: "shared" }),
 };
 `,
-      "src/app/hello/[tenant]/index.ts": `import type { RuntimeContext } from "@dawn-ai/sdk"
+      "src/app/hello/[tenant]/index.ts": `import type { RuntimeContext } from "@b4run/sdk"
 export const workflow = async (
   _state: unknown,
   ctx: RuntimeContext,
@@ -321,7 +321,7 @@ export const workflow = async (
   test("executes a graph route when graph is exported as a function", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async (state: { tenant: string }) => ({ tenant: state.tenant, greeting: \`Hello, \${state.tenant}!\` });\n`,
     })
 
@@ -351,7 +351,7 @@ export const workflow = async (
   test("executes a graph route exposed as an object with .invoke", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = {
   invoke: async (state: { tenant: string }) => ({ tenant: state.tenant, source: "graph-object" }),
 }
@@ -384,7 +384,7 @@ export const workflow = async (
   test("fails when an index.ts exports both workflow and graph", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const workflow = async () => ({ ok: true })
 export const graph = async () => ({ ok: true })
 `,
@@ -415,7 +415,7 @@ export const graph = async () => ({ ok: true })
   test("returns route not found when pathname does not match any route", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/page.tsx": "export default function Page() { return null; }\n",
     })
 
@@ -442,7 +442,7 @@ export const graph = async () => ({ ok: true })
   test("normalizes route identity from a configured custom appDir", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": 'const appDir = "src/custom-app";\nexport default { appDir };\n',
+      "b4.config.ts": 'const appDir = "src/custom-app";\nexport default { appDir };\n',
       "src/custom-app/docs/index.ts": `export const workflow = async (state: { tenant: string }) => ({ tenant: state.tenant, greeting: \`Hello, \${state.tenant}!\` });\n`,
     })
 
@@ -472,7 +472,7 @@ export const graph = async () => ({ ok: true })
   test("normalizes grouped route directories to canonical route ids", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/(public)/hello/[tenant]/index.ts": `export const graph = async (state: { tenant: string }) => ({ tenant: state.tenant, greeting: \`Hello, \${state.tenant}!\` });\n`,
     })
 
@@ -500,7 +500,7 @@ export const graph = async () => ({ ok: true })
   })
 
   test("returns a modeled app discovery failure as JSON with exit 1", async () => {
-    const outsideAppRoot = await mkdtemp(join(tmpdir(), "dawn-cli-run-outside-"))
+    const outsideAppRoot = await mkdtemp(join(tmpdir(), "b4-cli-run-outside-"))
     tempDirs.push(outsideAppRoot)
 
     const result = await invoke(["run", "/support/[tenant]"], {
@@ -534,7 +534,7 @@ export const graph = async () => ({ ok: true })
       executionSource: "in-process",
       error: {
         kind: "app_discovery_error",
-        message: `Could not find dawn.config.ts from ${normalizePrivatePath(outsideAppRoot)}`,
+        message: `Could not find b4.config.ts from ${normalizePrivatePath(outsideAppRoot)}`,
       },
       mode: null,
       routePath: "/support/[tenant]",
@@ -545,7 +545,7 @@ export const graph = async () => ({ ok: true })
   test("returns a route resolution failure as JSON when the target does not exist", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/page.tsx": "export default {};\n",
     })
 
@@ -572,7 +572,7 @@ export const graph = async () => ({ ok: true })
   test("returns modeled execution failures as JSON with exit 1", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async (state: { tenant: string }) => { throw new Error(\`Graph exploded for \${state.tenant}\`); };\n`,
     })
 
@@ -601,7 +601,7 @@ export const graph = async () => ({ ok: true })
   test("uses stderr-only exit 2 failures for malformed JSON input", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts":
         "export const graph = async (state: { tenant: string }) => ({ tenant: state.tenant });\n",
     })
@@ -618,7 +618,7 @@ export const graph = async () => ({ ok: true })
   test("executes a route over --url and returns the same normalized shape as in-process", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async (state: { tenant: string }) => ({ tenant: state.tenant, greeting: \`Hello, \${state.tenant}!\` });\n`,
     })
     const server = await startFakeAgentServer(async () => ({
@@ -654,7 +654,7 @@ export const graph = async () => ({ ok: true })
   test("marks --url executions with executionSource server", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const workflow = async (state: { tenant: string }) => ({ tenant: state.tenant, greeting: \`Hello, \${state.tenant}!\` });\n`,
     })
     const server = await startFakeAgentServer(async () => ({
@@ -683,7 +683,7 @@ export const graph = async () => ({ ok: true })
   test("sends a mode-qualified assistant_id to /runs/wait", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const workflow = async (state: { tenant: string }) => ({ tenant: state.tenant });\n`,
     })
     let receivedRequest: Record<string, unknown> | null = null
@@ -714,7 +714,7 @@ export const graph = async () => ({ ok: true })
   test("preserves base path prefixes when targeting a running server", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async (state: { tenant: string }) => ({ tenant: state.tenant, greeting: \`Hello, \${state.tenant}!\` });\n`,
     })
     let receivedRequestPath: string | null = null
@@ -766,7 +766,7 @@ export const graph = async () => ({ ok: true })
   test("times out stalled server transport with a bounded failure", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
     })
     const server = await startHangingAgentServer()
 
@@ -799,7 +799,7 @@ export const graph = async () => ({ ok: true })
   test("normalizes non-200 server responses to server_transport_error", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async (state: { tenant: string }) => ({ tenant: state.tenant });\n`,
     })
     const server = await startFakeAgentServer(async () => ({
@@ -839,7 +839,7 @@ export const graph = async () => ({ ok: true })
   test("normalizes malformed server payloads to transport errors", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async (state: { tenant: string }) => ({ tenant: state.tenant });\n`,
     })
     const server = await startFakeAgentServer(async () => ({
@@ -877,7 +877,7 @@ export const graph = async () => ({ ok: true })
   test("treats non-200 request failures as transport failures", async () => {
     const appRoot = await createFixtureApp({
       "package.json": "{}\n",
-      "dawn.config.ts": "export default {};\n",
+      "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ tenant: "ok" });\n`,
     })
     const server = await startFakeAgentServer(async () => ({
@@ -917,7 +917,7 @@ export const graph = async () => ({ ok: true })
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-run-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-run-"))
   tempDirs.push(appRoot)
 
   await Promise.all(

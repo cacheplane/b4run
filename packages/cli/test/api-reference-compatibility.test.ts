@@ -14,7 +14,7 @@ import type {
   Symbol as TypeScriptSymbol,
 } from "../../core/node_modules/typescript/lib/typescript.js"
 
-// Resolve Dawn's supported TS6 compiler from Core's declared dependency, as the
+// Resolve B4.run's supported TS6 compiler from Core's declared dependency, as the
 // repository tooling probe does. The root `typescript` export is a TS7 preview
 // version shim and does not expose the stable compiler API used by this test.
 const coreRequire = createRequire(
@@ -48,7 +48,7 @@ const COMPUTED_LOAD_BOUNDARIES = [
     pathSuffix: "/packages/langchain/dist/openai-embedder.js",
     enclosing: "openaiEmbedder",
     call: "import(s)",
-    start: 362,
+    start: 360,
   },
 ] as const
 const exercisedComputedLoadBoundaries = new Map<string, number>()
@@ -159,9 +159,9 @@ const packageDirectoryByName = new Map<string, string>()
 let packageFixtureRoot = ""
 
 beforeAll(async () => {
-  packageFixtureRoot = await mkdtemp(join(tmpdir(), "dawn-api-compatibility-"))
+  packageFixtureRoot = await mkdtemp(join(tmpdir(), "b4-api-compatibility-"))
   const nodeModules = join(packageFixtureRoot, "node_modules")
-  await mkdir(join(nodeModules, "@dawn-ai"), { recursive: true })
+  await mkdir(join(nodeModules, "@b4run"), { recursive: true })
 
   for (const entry of await readdir(packagesRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
@@ -172,8 +172,8 @@ beforeAll(async () => {
       }
       if (!manifest.name) continue
       packageDirectoryByName.set(manifest.name, packageRoot)
-      const target = manifest.name.startsWith("@dawn-ai/")
-        ? join(nodeModules, "@dawn-ai", manifest.name.slice("@dawn-ai/".length))
+      const target = manifest.name.startsWith("@b4run/")
+        ? join(nodeModules, "@b4run", manifest.name.slice("@b4run/".length))
         : join(nodeModules, manifest.name)
       await symlink(packageRoot, target, "dir")
     } catch {
@@ -261,7 +261,7 @@ async function bundleSpecifier(options: {
 }
 
 function sentinel(name: string): string {
-  return `__DAWN_API_NODE_GLOBAL_${name}__`
+  return `__B4_API_NODE_GLOBAL_${name}__`
 }
 
 const GLOBAL_SENTINEL_DEFINES: Record<string, string> = Object.fromEntries(
@@ -300,18 +300,18 @@ function findNodeGlobalReferences(code: string): GlobalReference[] {
   return found
 }
 
-const externalizeNonDawn: Plugin = {
-  name: "externalize-non-dawn",
+const externalizeNonB4: Plugin = {
+  name: "externalize-non-b4",
   setup(pluginBuild) {
     pluginBuild.onResolve({ filter: /^[^./]/ }, (args) =>
-      args.path.startsWith("@dawn-ai/") ? null : { external: true, path: args.path },
+      args.path.startsWith("@b4run/") ? null : { external: true, path: args.path },
     )
   },
 }
 
 async function fullGraphGlobalReferences(artifact: ImportArtifact): Promise<GlobalReference[]> {
   const { code } = await bundleSpecifier({
-    conditions: ["dawn-static-provider-imports", "workerd", "worker", "browser", "import"],
+    conditions: ["b4-static-provider-imports", "workerd", "worker", "browser", "import"],
     define: GLOBAL_SENTINEL_DEFINES,
     external: [...FULL_GRAPH_EXTERNALS, "node:*"],
     platform: "browser",
@@ -320,13 +320,13 @@ async function fullGraphGlobalReferences(artifact: ImportArtifact): Promise<Glob
   return findNodeGlobalReferences(code)
 }
 
-async function dawnOwnedGlobalReferences(artifact: ImportArtifact): Promise<GlobalReference[]> {
+async function b4OwnedGlobalReferences(artifact: ImportArtifact): Promise<GlobalReference[]> {
   const { code } = await bundleSpecifier({
-    conditions: ["dawn-static-provider-imports", "workerd", "worker", "browser", "import"],
+    conditions: ["b4-static-provider-imports", "workerd", "worker", "browser", "import"],
     define: GLOBAL_SENTINEL_DEFINES,
     external: [...FULL_GRAPH_EXTERNALS, "node:*"],
     platform: "browser",
-    plugins: [externalizeNonDawn],
+    plugins: [externalizeNonB4],
     specifier: packageSpecifier(artifact),
   })
   return findNodeGlobalReferences(code)
@@ -793,7 +793,7 @@ function normalizePath(path: string): string {
   return path.replaceAll("\\", "/")
 }
 
-function isDawnOwnedRuntimePath(path: string): boolean {
+function isB4OwnedRuntimePath(path: string): boolean {
   const normalizedPath = normalizePath(path)
   return normalizedPath.includes("/packages/") && !normalizedPath.includes("/node_modules/")
 }
@@ -838,10 +838,10 @@ async function analyzeGraphInputs(metafile: Metafile): Promise<SourceHazards> {
         exercisedComputedGlobalBoundaries.add(boundaryIndex)
         continue
       }
-      // Dawn's emitted edge code may deliberately use optional Node-global probes.
+      // B4.run's emitted edge code may deliberately use optional Node-global probes.
       // Third-party occurrences still require an exact exception above so dependency
       // upgrades cannot silently broaden the accepted graph.
-      if (occurrence.guarded && isDawnOwnedRuntimePath(normalizedAbsolute)) continue
+      if (occurrence.guarded && isB4OwnedRuntimePath(normalizedAbsolute)) continue
       globalProperties.add(
         `${occurrence.property} in ${occurrence.enclosing}@${occurrence.start} <- ${normalizedAbsolute}`,
       )
@@ -884,7 +884,7 @@ function runtimeDependencyEdges(metafile: Metafile): string[] {
 
 async function browserGraph(artifact: ImportArtifact): Promise<Metafile> {
   const result = await bundleSpecifier({
-    conditions: ["dawn-static-provider-imports", "workerd", "worker", "browser", "import"],
+    conditions: ["b4-static-provider-imports", "workerd", "worker", "browser", "import"],
     external: [...FULL_GRAPH_EXTERNALS, "node:*"],
     metafile: true,
     platform: "browser",
@@ -897,7 +897,7 @@ async function browserGraph(artifact: ImportArtifact): Promise<Metafile> {
 async function assertEdgeImport(artifact: ImportArtifact): Promise<void> {
   await expect(
     bundleSpecifier({
-      conditions: ["dawn-static-provider-imports", "workerd", "worker", "browser", "import"],
+      conditions: ["b4-static-provider-imports", "workerd", "worker", "browser", "import"],
       external: FULL_GRAPH_EXTERNALS,
       platform: "browser",
       specifier: packageSpecifier(artifact),
@@ -911,8 +911,8 @@ async function assertEdgeImport(artifact: ImportArtifact): Promise<void> {
     `${addressFor(artifact)} has unguarded full-graph Node globals`,
   ).toEqual([])
   expect(
-    await dawnOwnedGlobalReferences(artifact),
-    `${addressFor(artifact)} has Dawn-owned Node globals`,
+    await b4OwnedGlobalReferences(artifact),
+    `${addressFor(artifact)} has B4.run-owned Node globals`,
   ).toEqual([])
 
   const hazards = await analyzeGraphInputs(await browserGraph(artifact))
@@ -950,7 +950,7 @@ async function assertNodeImport(artifact: ImportArtifact): Promise<void> {
 async function assertBrowserImportNegative(artifact: ImportArtifact): Promise<void> {
   try {
     await bundleSpecifier({
-      conditions: ["dawn-static-provider-imports", "workerd", "worker", "browser", "import"],
+      conditions: ["b4-static-provider-imports", "workerd", "worker", "browser", "import"],
       external: FULL_GRAPH_EXTERNALS,
       platform: "browser",
       specifier: packageSpecifier(artifact),
@@ -960,13 +960,13 @@ async function assertBrowserImportNegative(artifact: ImportArtifact): Promise<vo
   }
 
   const fullReferences = await fullGraphGlobalReferences(artifact)
-  const dawnReferences = await dawnOwnedGlobalReferences(artifact)
+  const b4References = await b4OwnedGlobalReferences(artifact)
   const hazards = await analyzeGraphInputs(await browserGraph(artifact))
   const violations = [
     ...fullReferences
       .filter((reference) => !reference.guarded)
       .map((reference) => reference.global),
-    ...dawnReferences.map((reference) => reference.global),
+    ...b4References.map((reference) => reference.global),
     ...hazards.globalProperties,
     ...hazards.unresolvedLoads,
   ]
@@ -984,7 +984,7 @@ async function assertNodeOperated(artifact: OperatedArtifact): Promise<void> {
   expect(check.status, `${addressFor(artifact)}\n${check.stderr}`).toBe(0)
 
   if (artifact.selector.startsWith("bin.")) {
-    const isScaffolder = artifact.selector === "bin.create-dawn-ai-app"
+    const isScaffolder = artifact.selector === "bin.create-b4-app"
     const probe = spawnSync(
       process.execPath,
       [target, isScaffolder ? "--definitely-invalid" : "--help"],
@@ -996,7 +996,7 @@ async function assertNodeOperated(artifact: OperatedArtifact): Promise<void> {
     )
     expect(probe.status, `${addressFor(artifact)}\n${probe.stderr}`).toBe(isScaffolder ? 1 : 0)
     expect(isScaffolder ? probe.stderr : probe.stdout, addressFor(artifact)).toMatch(
-      isScaffolder ? /Unknown argument "--definitely-invalid"/ : /usage|dawn/i,
+      isScaffolder ? /Unknown argument "--definitely-invalid"/ : /usage|b4/i,
     )
     return
   }
@@ -1140,7 +1140,7 @@ describe("API reference compatibility guards", () => {
     const specifier = await createConditionalFixture()
     await expect(
       bundleSpecifier({
-        conditions: ["dawn-static-provider-imports", "workerd", "worker", "browser", "import"],
+        conditions: ["b4-static-provider-imports", "workerd", "worker", "browser", "import"],
         platform: "browser",
         specifier,
       }),
@@ -1157,7 +1157,7 @@ describe("API reference compatibility guards", () => {
 
   it("detects Node globals and unresolved runtime loads without flagging guarded access", async () => {
     const dirty = analyzeRuntimeSource(
-      'const g = globalThis; export const a = globalThis.Buffer; export const b = globalThis.process; export const c = g.process; const z = "zod"; const d = "@dawn-ai/" + "sdk"; const n = "node:" + "fs"; import(z); import(d); require(n)',
+      'const g = globalThis; export const a = globalThis.Buffer; export const b = globalThis.process; export const c = g.process; const z = "zod"; const d = "@b4run/" + "sdk"; const n = "node:" + "fs"; import(z); import(d); require(n)',
     )
     expect(dirty.globalProperties).toEqual(["Buffer", "process"])
     expect(dirty.unresolvedLoads).toEqual(["import(d)", "import(z)", "require(n)"])
@@ -1434,26 +1434,26 @@ describe("API reference compatibility guards", () => {
     const result = await build({
       absWorkingDir: repoRoot,
       bundle: true,
-      external: ["node:*", "@dawn-ai/sdk", "zod"],
+      external: ["node:*", "@b4run/sdk", "zod"],
       format: "esm",
       logLevel: "silent",
       metafile: true,
       platform: "neutral",
       stdin: {
-        contents: 'import "node:fs"; import "@dawn-ai/sdk"; import "zod"',
+        contents: 'import "node:fs"; import "@b4run/sdk"; import "zod"',
         loader: "js",
         resolveDir: repoRoot,
       },
       write: false,
     })
     expect(runtimeDependencyEdges(result.metafile as Metafile)).toEqual([
-      "@dawn-ai/sdk",
+      "@b4run/sdk",
       "node:fs",
       "zod",
     ])
     expect(
       analyzeRuntimeSource(
-        'const z = "zod"; const d = "@dawn-ai/" + "sdk"; const n = "node:" + "fs"; import(z); import(d); require(n)',
+        'const z = "zod"; const d = "@b4run/" + "sdk"; const n = "node:" + "fs"; import(z); import(d); require(n)',
       ).unresolvedLoads,
     ).toEqual(["import(d)", "import(z)", "require(n)"])
   })
@@ -1462,29 +1462,29 @@ describe("API reference compatibility guards", () => {
     const artifacts = await loadRuntimeArtifacts()
     const byAddress = new Map(artifacts.map((artifact) => [addressFor(artifact), artifact]))
 
-    expect(byAddress.get("import:@dawn-ai/permissions:.")).toMatchObject({
+    expect(byAddress.get("import:@b4run/permissions:.")).toMatchObject({
       runtime: "edge-safe",
       purity: "not-claimed",
       guardIds: ["edge-import-bundle"],
     })
-    expect(byAddress.get("import:@dawn-ai/permissions:./node")).toMatchObject({
+    expect(byAddress.get("import:@b4run/permissions:./node")).toMatchObject({
       runtime: "node-only",
       guardIds: ["node-import-bundle", "browser-import-negative-control"],
     })
-    const workspaceRoot = byAddress.get("import:@dawn-ai/workspace:.")
+    const workspaceRoot = byAddress.get("import:@b4run/workspace:.")
     expect(workspaceRoot).toMatchObject({
       runtime: "edge-safe",
       purity: "dependency-free",
       guardIds: ["edge-import-bundle", "dependency-free-import-graph"],
     })
-    expect(byAddress.get("import:@dawn-ai/workspace:./node")).toMatchObject({
+    expect(byAddress.get("import:@b4run/workspace:./node")).toMatchObject({
       runtime: "node-only",
       guardIds: ["node-import-bundle", "browser-import-negative-control"],
     })
 
     const graph = await browserGraph(workspaceRoot as ImportArtifact)
     expect(runtimeDependencyEdges(graph)).toEqual([])
-    const workspaceRootDirectory = `${await packageDirectory("@dawn-ai/workspace")}/`
+    const workspaceRootDirectory = `${await packageDirectory("@b4run/workspace")}/`
     expect(
       Object.keys(graph.inputs)
         .filter((input) => !input.endsWith("api-reference-boundary.mjs"))
@@ -1498,9 +1498,9 @@ describe("API reference compatibility guards", () => {
     const byAddress = new Map(artifacts.map((artifact) => [addressFor(artifact), artifact]))
 
     for (const address of [
-      "import:@dawn-ai/sandbox:.",
-      "import:@dawn-ai/sandbox:./testing",
-      "import:@dawn-ai/sqlite-storage:.",
+      "import:@b4run/sandbox:.",
+      "import:@b4run/sandbox:./testing",
+      "import:@b4run/sqlite-storage:.",
     ]) {
       expect(byAddress.get(address)).toMatchObject({
         runtime: "node-only",
@@ -1515,9 +1515,9 @@ describe("API reference compatibility guards", () => {
     const byAddress = new Map(artifacts.map((artifact) => [addressFor(artifact), artifact]))
 
     for (const address of [
-      "import:@dawn-ai/langgraph:.",
-      "import:@dawn-ai/langgraph:./define-entry",
-      "import:@dawn-ai/langgraph:./route-module",
+      "import:@b4run/langgraph:.",
+      "import:@b4run/langgraph:./define-entry",
+      "import:@b4run/langgraph:./route-module",
     ]) {
       const artifact = byAddress.get(address)
       expect(artifact).toMatchObject({
@@ -1528,7 +1528,7 @@ describe("API reference compatibility guards", () => {
 
       const graph = await browserGraph(artifact as ImportArtifact)
       expect(runtimeDependencyEdges(graph), address).toEqual([])
-      const langgraphRoot = `${await packageDirectory("@dawn-ai/langgraph")}/`
+      const langgraphRoot = `${await packageDirectory("@b4run/langgraph")}/`
       expect(
         Object.keys(graph.inputs)
           .filter((input) => !input.endsWith("api-reference-boundary.mjs"))
@@ -1538,7 +1538,7 @@ describe("API reference compatibility guards", () => {
       ).toEqual([])
     }
 
-    expect(byAddress.get("import:@dawn-ai/langchain:.")).toMatchObject({
+    expect(byAddress.get("import:@b4run/langchain:.")).toMatchObject({
       runtime: "edge-safe",
       purity: "not-claimed",
       guardIds: ["edge-import-bundle"],

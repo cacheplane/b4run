@@ -92,8 +92,25 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // independent-audit.mjs all read it off disk and its values select the npm trusted-publisher
 // environment and the abandonment environment. It is declared in RELEASE_DATA_FILES and anchored
 // to those readers, so the declaration fails as a stale pin if they stop naming it.
+// Repinned for GitHub transport-error precedence: body timeouts and deterministic read
+// failures retain their cause before HTTP status can classify them as retryable responses.
+// Repinned for recovery Task 5: shared bounded write transport, strict partial adoption
+// observations, and finalization proof validation even before the readiness marker. Legacy
+// NPM_COMPLETE plus finalization is an invalid mixed state, never a resumable adoption.
+// Repinned for Task 6: shared v1/v2 smoke operations and bounded physical installation evidence.
+// Repinned for Task 7: independently observed Actions escrow and durable provenance selection.
+// Repinned for Task 9: frozen finalization observation and canonical metadata reconstruction.
+// Repinned for Task 10a: strict GitHub inventories, bounded exact git reads, and dormant verifier closure.
+// Repinned for Task 12a: fresh complete-inventory npm signature batching.
+// Repinned for the exact adopted-verifier repair and bounded smoke failure diagnostics.
+// Repinned for asset counter comparisons and bounded invocation payload/Git text reuse.
+// Repinned for fixed evidence stage boundaries with fresh runtime readers.
+// Repinned for the B4.run source identity. Historical incident authorizations retain
+// their original bytes and are checked at the immutable pre-rename revision.
+// Repinned for the first-publication npm bootstrap: the new npm-bootstrap.mjs policy module
+// and the bootstrap-aware npm adapter, observer, CLI, audit verifier, and publisher.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "8009b5b7f7cc4aed302b134ad9b9eab117fbf75a478a653b1c8ad66c21ec2f49"
+  "922753c5abfb8e3f7d66fe2201bf8d5c1297e32aa5c85bbeb27a0d1085f0da0e"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
@@ -117,7 +134,10 @@ const REVIEWED_DYNAMIC_IMPORT_SEAMS = Object.freeze([
 // so an entry whose reader disappears fails as a stale pin rather than lingering unreviewed.
 // scripts/release/controller-schema.json selects the npm trusted-publisher environment and the
 // abandonment environment; candidate.mjs, cli.mjs, and independent-audit.mjs all read it.
-const RELEASE_DATA_FILES = Object.freeze(["scripts/release/controller-schema.json"])
+const RELEASE_DATA_FILES = Object.freeze([
+  "scripts/release/controller-schema.json",
+  "scripts/release/recovery/policy.json",
+])
 const RELEASE_PIN_REACH = Object.freeze({
   workflowEntrypoint:
     "A final release owner runs it directly or through package.json, so its bytes must be pinned with the command line.",
@@ -137,6 +157,8 @@ const ACTIONS = Object.freeze({
 })
 const FINAL_WORKFLOW_FILES = Object.freeze([
   "published-artifact-verify.yml",
+  "release-postpublication-audit.yml",
+  "release-postpublication.yml",
   "release.yml",
   "version-pr.yml",
 ])
@@ -219,26 +241,24 @@ test("workflow isolation rejects Release DELETE bypasses in each execution conte
     ],
     [
       "curl compact method",
-      runWorkflow(
-        "curl -XDELETE https://api.github.com/repos/cacheplane/dawnai/releases/379982100",
-      ),
+      runWorkflow("curl -XDELETE https://api.github.com/repos/cacheplane/b4run/releases/379982100"),
     ],
     [
       "curl spaced method",
       runWorkflow(
-        "curl -x   DeLeTe https://api.github.com/repos/cacheplane/dawnai/releases/379982100",
+        "curl -x   DeLeTe https://api.github.com/repos/cacheplane/b4run/releases/379982100",
       ),
     ],
     [
       "curl request method",
       runWorkflow(
-        "curl --request DELETE https://api.github.com/repos/cacheplane/dawnai/releases/379982100",
+        "curl --request DELETE https://api.github.com/repos/cacheplane/b4run/releases/379982100",
       ),
     ],
     [
       "curl request equals method",
       runWorkflow(
-        "curl --request=delete https://api.github.com/repos/cacheplane/dawnai/releases/379982100",
+        "curl --request=delete https://api.github.com/repos/cacheplane/b4run/releases/379982100",
       ),
     ],
     [
@@ -281,7 +301,7 @@ repos/\${{ github.repository }}/releases/379982100`,
       "job environment",
       runWorkflow('curl -X "$HTTP_METHOD" "$RELEASE_ENDPOINT"', "|", undefined, {
         HTTP_METHOD: "DELETE",
-        RELEASE_ENDPOINT: "/repos/cacheplane/dawnai/releases/379982100",
+        RELEASE_ENDPOINT: "/repos/cacheplane/b4run/releases/379982100",
       }),
     ],
     [
@@ -344,7 +364,7 @@ repos/\${{ github.repository }}/releases/379982100`,
           include: [
             {
               method: "DELETE",
-              endpoint: "/repos/cacheplane/dawnai/releases/379982100",
+              endpoint: "/repos/cacheplane/b4run/releases/379982100",
             },
           ],
         },
@@ -356,7 +376,7 @@ repos/\${{ github.repository }}/releases/379982100`,
       matrixWorkflow(
         {
           a: ["GET", "DELETE"],
-          b: ["/repos/cacheplane/dawnai/releases/379982100"],
+          b: ["/repos/cacheplane/b4run/releases/379982100"],
         },
         `gh api --method "\${{ matrix.a }}" "\${{ matrix.b }}"`,
       ),
@@ -380,7 +400,7 @@ repos/\${{ github.repository }}/releases/379982100`,
       matrixWorkflow(
         {
           v: ["DELETE"],
-          r: ["/repos/cacheplane/dawnai/releases/379982100"],
+          r: ["/repos/cacheplane/b4run/releases/379982100"],
         },
         `curl --request "\${{ matrix['v'] }}" "\${{ matrix["r"] }}"`,
       ),
@@ -392,7 +412,7 @@ repos/\${{ github.repository }}/releases/379982100`,
           prefix: ["DEL"],
           suffix: ["ETE"],
           owner: ["cacheplane"],
-          repository: ["dawnai"],
+          repository: ["b4run"],
           release: ["379982100"],
         },
         `gh api --method "\${{ matrix.prefix }}\${{ matrix.suffix }}" "repos/\${{ matrix.owner }}/\${{ matrix.repository }}/releases/\${{ matrix.release }}"`,
@@ -437,7 +457,7 @@ repos/\${{ github.repository }}/releases/379982100`,
       "generic environment indirection",
       runWorkflow('curl --request "$A" "$B"', "|", {
         A: "DELETE",
-        B: "/repos/cacheplane/dawnai/releases/379982100",
+        B: "/repos/cacheplane/b4run/releases/379982100",
       }),
     ],
     [
@@ -459,18 +479,18 @@ repos/\${{ github.repository }}/releases/379982100`,
 })
 
 test("workflow isolation permits comments, documentation, GETs, and separate invocations", () => {
-  const safe = `name: "Documentation: DELETE /repos/cacheplane/dawnai/releases/379982100"
+  const safe = `name: "Documentation: DELETE /repos/cacheplane/b4run/releases/379982100"
 on:
   workflow_dispatch: {}
 jobs:
   safe:
     runs-on: ubuntu-latest
     steps:
-      # curl -XDELETE https://api.github.com/repos/cacheplane/dawnai/releases/379982100
-      - name: "DELETE /repos/cacheplane/dawnai/releases/379982100 is forbidden"
+      # curl -XDELETE https://api.github.com/repos/cacheplane/b4run/releases/379982100
+      - name: "DELETE /repos/cacheplane/b4run/releases/379982100 is forbidden"
         run: gh api --method GET repos/\${{ github.repository }}/releases/379982100
       - run: echo --method DELETE
-      - run: echo /repos/cacheplane/dawnai/releases/379982100
+      - run: echo /repos/cacheplane/b4run/releases/379982100
 `
   assert.doesNotThrow(() => assertNoDuplicateDraftWorkflowMutation({ "safe.yml": safe }))
 
@@ -491,9 +511,9 @@ jobs:
   const unusedDangerousMatrix = matrixWorkflow(
     {
       a: ["DELETE"],
-      b: ["/repos/cacheplane/dawnai/releases/379982100"],
+      b: ["/repos/cacheplane/b4run/releases/379982100"],
       safeMethod: ["GET"],
-      safeEndpoint: ["/repos/cacheplane/dawnai/releases/379982100"],
+      safeEndpoint: ["/repos/cacheplane/b4run/releases/379982100"],
     },
     `gh api --method "\${{ matrix.safeMethod }}" "\${{ matrix.safeEndpoint }}"`,
   )
@@ -517,7 +537,7 @@ jobs:
   endpoint:
     runs-on: ubuntu-latest
     steps:
-      - run: echo /repos/cacheplane/dawnai/releases/379982100
+      - run: echo /repos/cacheplane/b4run/releases/379982100
 `
   assert.doesNotThrow(() =>
     assertNoDuplicateDraftWorkflowMutation({
@@ -528,7 +548,7 @@ jobs:
   const separateMatrixSteps = matrixWorkflow(
     {
       a: ["DELETE"],
-      b: ["/repos/cacheplane/dawnai/releases/379982100"],
+      b: ["/repos/cacheplane/b4run/releases/379982100"],
     },
     [`echo "\${{ matrix.a }}"`, `echo "\${{ matrix.b }}"`],
   )
@@ -551,7 +571,7 @@ jobs:
   const excludedDeleteRow = matrixWorkflow(
     {
       a: ["GET", "DELETE"],
-      b: ["/repos/cacheplane/dawnai/releases/379982100"],
+      b: ["/repos/cacheplane/b4run/releases/379982100"],
       exclude: [{ a: "DELETE" }],
     },
     `curl --request "\${{ matrix.a }}" "\${{ matrix.b }}"`,
@@ -565,7 +585,7 @@ jobs:
   const nonComposingInclude = matrixWorkflow(
     {
       a: ["GET"],
-      b: ["/repos/cacheplane/dawnai/releases/379982100"],
+      b: ["/repos/cacheplane/b4run/releases/379982100"],
       include: [{ a: "DELETE", c: "https://example.invalid/not-a-release" }],
     },
     `curl --request "\${{ matrix.a }}" "\${{ matrix.b }}\${{ matrix.c }}"`,
@@ -579,7 +599,7 @@ jobs:
   const standaloneIncludesDoNotCompose = matrixWorkflow(
     {
       method: ["GET"],
-      include: [{ method: "DELETE" }, { endpoint: "/repos/cacheplane/dawnai/releases/1" }],
+      include: [{ method: "DELETE" }, { endpoint: "/repos/cacheplane/b4run/releases/1" }],
     },
     `curl --request "\${{ matrix.method }}" "\${{ matrix.endpoint }}"`,
   )
@@ -629,7 +649,7 @@ test("workflow isolation follows every repository-local executable transitively"
       files: {
         "scripts/first.sh": "bash scripts/second.sh\n",
         "scripts/second.sh":
-          "curl --request DELETE https://api.github.com/repos/cacheplane/dawnai/releases/379982100\n",
+          "curl --request DELETE https://api.github.com/repos/cacheplane/b4run/releases/379982100\n",
       },
     },
     {
@@ -753,7 +773,7 @@ test("workflow isolation follows every repository-local executable transitively"
     const root = await createWorkflowReachabilityFixture(t, {
       workflow: "bash scripts/escape.sh",
     })
-    const outside = await mkdtemp(path.join(os.tmpdir(), "dawn-workflow-outside-"))
+    const outside = await mkdtemp(path.join(os.tmpdir(), "b4-workflow-outside-"))
     t.after(() => rm(outside, { recursive: true, force: true }))
     await writeFile(path.join(outside, "escape.sh"), "echo safe\n")
     await mkdir(path.join(root, "scripts"), { recursive: true })
@@ -869,6 +889,7 @@ test("release.yml has exact triggers and one repository-global non-cancelling qu
   assert.match(workflow.on.schedule[0].cron, /^[\d*/,-]+(?: [\d*/,-]+){4}$/u)
   assert.deepEqual(Object.keys(workflow.on.workflow_dispatch.inputs).sort(), [
     "commitSha",
+    "npmBootstrap",
     "operation",
     "version",
   ])
@@ -884,6 +905,12 @@ test("release.yml has exact triggers and one repository-global non-cancelling qu
     workflow.on.workflow_dispatch.inputs.operation.description,
     "Reconcile this candidate",
   )
+  assert.deepEqual(dispatchInputContract(workflow.on.workflow_dispatch.inputs.npmBootstrap), {
+    default: false,
+    required: false,
+    type: "boolean",
+  })
+  assert.match(workflow.on.workflow_dispatch.inputs.npmBootstrap.description, /first publication/iu)
 
   assert.equal(typeof workflow.concurrency?.group, "string")
   assert.match(workflow.concurrency.group, /release/iu)
@@ -1220,6 +1247,17 @@ test("every exact-tag ladder job after tag opts out of the implicit success() an
   }
 })
 
+test("lazy publisher absence during escrow remains protected by the fixed workflow dependency", async () => {
+  const { workflow } = await readRequiredWorkflow("release.yml")
+  const publish = requiredJob(workflow, "publish-npm")
+  const escrow = requiredJob(workflow, "escrow")
+  assert.ok(normalizeNeeds(publish.needs).includes("escrow"))
+  assert.ok(!normalizeNeeds(escrow.needs).includes("publish-npm"))
+  assert.equal(escrow.name, undefined)
+  assert.equal(publish.name, undefined)
+  assert.match(publish.if, /needs\.escrow\.result == 'success'/u)
+})
+
 test("publish-npm is exact-tag, sparse, dependency-free, and schema-bound", async () => {
   const { workflow } = await readRequiredWorkflow("release.yml")
   const schema = JSON.parse(await readBoundedFixture(CONTROLLER_SCHEMA_PATH, { root: ROOT }))
@@ -1265,6 +1303,7 @@ test("publish-npm is exact-tag, sparse, dependency-free, and schema-bound", asyn
     "--artifact-dir",
     "--report",
     "--github-output",
+    "--npm-auth-mode",
   ])
   const runs = runSource(publish)
   assert.doesNotMatch(
@@ -1273,6 +1312,238 @@ test("publish-npm is exact-tag, sparse, dependency-free, and schema-bound", asyn
   )
   assert.doesNotMatch(runs, /cli\.mjs|npm\s+publish/iu, "publisher.mjs owns the only npm mutation")
 })
+
+const BOOTSTRAP_INPUT_EXPRESSION = "inputs.npmBootstrap == true"
+const BOOTSTRAP_PUBLISHER_ENV = Object.freeze({
+  GITHUB_TOKEN: workflowExpression("github.token"),
+  NPM_CONFIG_PROVENANCE: "true",
+  NPM_AUTH_MODE: workflowExpression(`${BOOTSTRAP_INPUT_EXPRESSION} && 'bootstrap' || 'oidc'`),
+  B4_NPM_BOOTSTRAP_AUTHORIZATION: workflowExpression(
+    `${BOOTSTRAP_INPUT_EXPRESSION} && vars.B4_NPM_BOOTSTRAP_AUTHORIZATION || ''`,
+  ),
+  B4_NPM_BOOTSTRAP_TOKEN: workflowExpression(
+    `${BOOTSTRAP_INPUT_EXPRESSION} && secrets.B4_NPM_BOOTSTRAP_TOKEN || ''`,
+  ),
+})
+
+test("publish-npm activates the first-publication bootstrap only from the literal boolean input", async () => {
+  const { source, workflow } = await readRequiredWorkflow("release.yml")
+  assertBootstrapActivationContract(source, workflow)
+
+  const sources = await readWorkflowSourcesFromRoot(ROOT)
+  for (const [file, text] of Object.entries(sources)) {
+    if (file === "release.yml") continue
+    assert.doesNotMatch(text, /B4_NPM_BOOTSTRAP|npmBootstrap|npm-auth-mode/u, file)
+  }
+})
+
+test("bootstrap activation bindings fail closed under every mutation", async (t) => {
+  const { source } = await readRequiredWorkflow("release.yml")
+  const relayLine =
+    'BODY="$(node -e \'process.stdout.write(JSON.stringify({ref:"v"+process.env.VERSION,inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,operation:"reconcile",npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}}))\')"'
+  assert.ok(source.includes(relayLine))
+  const cases = [
+    ["input default removed", (text) => text.replace("        default: false\n", "")],
+    [
+      "input default true",
+      (text) => text.replace("        default: false\n", "        default: true\n"),
+    ],
+    [
+      "input typed as string",
+      (text) => text.replace("        type: boolean\n", "        type: string\n"),
+    ],
+    [
+      "unconditional secret",
+      (text) =>
+        text.replace(
+          BOOTSTRAP_PUBLISHER_ENV.B4_NPM_BOOTSTRAP_TOKEN,
+          workflowExpression("secrets.B4_NPM_BOOTSTRAP_TOKEN"),
+        ),
+    ],
+    [
+      "truthiness instead of literal boolean",
+      (text) =>
+        text.replace(
+          `${BOOTSTRAP_INPUT_EXPRESSION} && secrets.B4_NPM_BOOTSTRAP_TOKEN`,
+          "inputs.npmBootstrap && secrets.B4_NPM_BOOTSTRAP_TOKEN",
+        ),
+    ],
+    [
+      "string comparison",
+      (text) =>
+        text.replace(
+          `${BOOTSTRAP_INPUT_EXPRESSION} && 'bootstrap'`,
+          "inputs.npmBootstrap == 'true' && 'bootstrap'",
+        ),
+    ],
+    [
+      "unconditional authorization",
+      (text) =>
+        text.replace(
+          BOOTSTRAP_PUBLISHER_ENV.B4_NPM_BOOTSTRAP_AUTHORIZATION,
+          workflowExpression("vars.B4_NPM_BOOTSTRAP_AUTHORIZATION"),
+        ),
+    ],
+    [
+      "literal bootstrap mode",
+      (text) => text.replace(BOOTSTRAP_PUBLISHER_ENV.NPM_AUTH_MODE, "bootstrap"),
+    ],
+    [
+      "mode flag dropped",
+      (text) =>
+        text.replace(
+          '            --github-output "$GITHUB_OUTPUT" \\\n            --npm-auth-mode "$NPM_AUTH_MODE"\n',
+          '            --github-output "$GITHUB_OUTPUT"\n',
+        ),
+    ],
+    [
+      "expression interpolated into shell",
+      (text) =>
+        text.replace(
+          '--npm-auth-mode "$NPM_AUTH_MODE"',
+          `--npm-auth-mode "${workflowExpression("inputs.npmBootstrap && 'bootstrap' || 'oidc'")}"`,
+        ),
+    ],
+    [
+      "secret reaches the observer",
+      (text) =>
+        text.replace(
+          `        env:\n          GITHUB_TOKEN: ${workflowExpression("github.token")}\n        run: |\n          node scripts/release/cli.mjs observe`,
+          `        env:\n          GITHUB_TOKEN: ${workflowExpression("github.token")}\n          B4_NPM_BOOTSTRAP_TOKEN: ${workflowExpression("secrets.B4_NPM_BOOTSTRAP_TOKEN")}\n        run: |\n          node scripts/release/cli.mjs observe`,
+        ),
+    ],
+    [
+      "job-level secret",
+      (text) =>
+        text.replace(
+          `    outputs:\n      npm_artifact_id: ${workflowExpression("steps.npm.outputs.artifact-id")}\n`,
+          `    outputs:\n      npm_artifact_id: ${workflowExpression("steps.npm.outputs.artifact-id")}\n    env:\n      B4_NPM_BOOTSTRAP_TOKEN: ${workflowExpression("secrets.B4_NPM_BOOTSTRAP_TOKEN")}\n`,
+        ),
+    ],
+    [
+      "second secret site",
+      (text) =>
+        text.replace(
+          "      - name: Upload exact npm evidence\n",
+          `      - name: Leak\n        env:\n          B4_NPM_BOOTSTRAP_TOKEN: ${workflowExpression("secrets.B4_NPM_BOOTSTRAP_TOKEN")}\n        run: env\n      - name: Upload exact npm evidence\n`,
+        ),
+    ],
+    [
+      "seal env dropped",
+      (text) =>
+        text.replace(`          NPM_BOOTSTRAP: ${workflowExpression("inputs.npmBootstrap")}\n`, ""),
+    ],
+    [
+      "seal accepts any non-false value",
+      (text) =>
+        text.replace(
+          'npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}}))\' "$RUNNER_TEMP/release-event.json"',
+          'npmBootstrap:process.env.NPM_BOOTSTRAP!=="false"}}))\' "$RUNNER_TEMP/release-event.json"',
+        ),
+    ],
+    [
+      "seal forwards a string",
+      (text) =>
+        text.replace(
+          'npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}}))\' "$RUNNER_TEMP/release-event.json"',
+          'npmBootstrap:process.env.NPM_BOOTSTRAP}}))\' "$RUNNER_TEMP/release-event.json"',
+        ),
+    ],
+    [
+      "relay drops the boolean",
+      (text) =>
+        text.replace(',npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}}))\')"', "}}))')\""),
+    ],
+    [
+      "another npm publisher",
+      (text) =>
+        text.replace(
+          "      - name: Upload exact npm evidence\n",
+          "      - name: Direct publish\n        run: npm publish --provenance\n      - name: Upload exact npm evidence\n",
+        ),
+    ],
+  ]
+  for (const [name, mutate] of cases) {
+    await t.test(name, () => {
+      const mutated = mutate(source)
+      assert.notEqual(mutated, source, "mutation must change the workflow")
+      assert.throws(() =>
+        assertBootstrapActivationContract(mutated, parseWorkflowSource(mutated, "release.yml")),
+      )
+    })
+  }
+})
+
+function assertBootstrapActivationContract(source, workflow) {
+  const input = workflow.on.workflow_dispatch.inputs.npmBootstrap
+  assert.deepEqual(dispatchInputContract(input), {
+    default: false,
+    required: false,
+    type: "boolean",
+  })
+  assert.deepEqual(Object.keys(workflow.on).sort(), ["push", "schedule", "workflow_dispatch"])
+  assert.equal(workflow.on.workflow_dispatch.inputs.operation.options.length, 1)
+
+  const publish = requiredJob(workflow, "publish-npm")
+  assert.equal(publish.env, undefined, "publish-npm must not hold a job-level environment")
+  assert.equal(publish.environment, undefined)
+  const publisher = onlyRunStepMatching(publish, /node scripts\/release\/publisher\.mjs\b/u)
+  assert.deepEqual(publisher.env, { ...BOOTSTRAP_PUBLISHER_ENV })
+  assertCommandFlags(publisher.run, "node scripts/release/publisher.mjs", [
+    "--candidate",
+    "--record",
+    "--artifact-dir",
+    "--report",
+    "--github-output",
+    "--npm-auth-mode",
+  ])
+  assert.match(publisher.run, /--npm-auth-mode\s+"\$NPM_AUTH_MODE"/u)
+  assert.doesNotMatch(publisher.run, /\$\{\{|inputs\.|secrets\.|vars\./u)
+  for (const step of publish.steps) {
+    if (step === publisher) continue
+    assert.doesNotMatch(JSON.stringify(step), /B4_NPM|NPM_AUTH_MODE|npm publish/u)
+  }
+
+  const detect = requiredJob(workflow, "detect")
+  const seal = onlyRunStepMatching(detect, /cp "\$GITHUB_EVENT_PATH"/u)
+  assert.deepEqual(seal.env, {
+    VERSION: workflowExpression("inputs.version"),
+    COMMIT_SHA: workflowExpression("inputs.commitSha"),
+    NPM_BOOTSTRAP: workflowExpression("inputs.npmBootstrap"),
+  })
+  assert.ok(
+    seal.run.includes(
+      'JSON.stringify({inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}})',
+    ),
+    "the sealed manual event must carry the literal boolean",
+  )
+  const observe = onlyRunStepMatching(detect, /node scripts\/release\/cli\.mjs observe\b/u)
+  assert.deepEqual(observe.env, { GITHUB_TOKEN: workflowExpression("github.token") })
+
+  const tag = requiredJob(workflow, "tag")
+  const relay = onlyRunStepMatching(tag, /2026-03-10/u)
+  assert.equal(relay.env.NPM_BOOTSTRAP, workflowExpression("inputs.npmBootstrap"))
+  assert.ok(
+    relay.run.includes(
+      'inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,operation:"reconcile",npmBootstrap:process.env.NPM_BOOTSTRAP==="true"}',
+    ),
+    "the exact-tag relay must forward the literal boolean unchanged",
+  )
+
+  assert.equal(countMatches(source, /secrets\.B4_NPM_BOOTSTRAP_TOKEN/gu), 1)
+  assert.equal(countMatches(source, /B4_NPM_BOOTSTRAP_TOKEN/gu), 2)
+  assert.equal(countMatches(source, /vars\.B4_NPM_BOOTSTRAP_AUTHORIZATION/gu), 1)
+  assert.equal(countMatches(source, /B4_NPM_BOOTSTRAP_AUTHORIZATION/gu), 2)
+  assert.equal(countMatches(source, /inputs\.npmBootstrap == true &&/gu), 3)
+  assert.equal(countMatches(source, /inputs\.npmBootstrap/gu), 5)
+  assert.equal(countMatches(source, /NPM_BOOTSTRAP==="true"/gu), 2)
+  assert.equal(countMatches(source, /secrets\./gu), 1)
+  assert.doesNotMatch(source, /NPM_TOKEN|NODE_AUTH_TOKEN|npm\s+publish\b/u)
+  for (const [id, job] of Object.entries(workflow.jobs)) {
+    if (id === "publish-npm") continue
+    assert.doesNotMatch(JSON.stringify(job), /B4_NPM_BOOTSTRAP|NPM_AUTH_MODE|npm-auth-mode/u, id)
+  }
+}
 
 test("npm reconciliation and five controller-owned smoke lanes are separate and fail closed", async () => {
   const { workflow } = await readRequiredWorkflow("release.yml")
@@ -1425,7 +1696,7 @@ test("release.yml makes workflow abandonment unreachable", async () => {
   assert.equal(schema.abandonmentEnvironment, "release-abandonment")
   const liveBytes = await readFile(path.join(WORKFLOWS, "release.yml"))
   const disabledBytes = await readFile(
-    path.join(ROOT, "scripts/release/test/fixtures/release-workflow-disabled.yml"),
+    path.join(ROOT, "scripts/release/test/fixtures/release-workflow-b4-disabled.yml"),
   )
   assert.deepEqual(liveBytes, disabledBytes)
   assert.equal(
@@ -1487,8 +1758,10 @@ test("the independent workflow relays default-branch audits and verifies exact t
   assertContentsWriteOnly(draft)
   assert.equal(draft.permissions?.checks, "read")
   assertExactIndependentTagGate(draft, "draft")
+  assert.match(draft.if, /needs\.coordinate\.outputs\.mode == 'draft-controller'/u)
+  assert.match(draft.if, /github\.ref == 'refs\/heads\/main'/u)
   const checkout = onlyStepUsing(draft, ACTIONS.checkout)
-  assert.equal(checkout.with?.ref, workflowExpression("github.ref"))
+  assert.equal(checkout.with?.ref, workflowExpression("github.sha"))
   assert.equal(checkout.with?.["fetch-depth"], 0)
   assert.equal(checkout.with?.["persist-credentials"], false)
   const draftPnpm = onlyStepUsing(draft, ACTIONS.pnpm)
@@ -1527,8 +1800,12 @@ test("the independent workflow relays default-branch audits and verifies exact t
   assert.equal(hasWritePermission(published.permissions), false)
   assert.equal(published.permissions?.checks, "read")
   assertExactIndependentTagGate(published, "published")
+  assert.match(published.if, /needs\.coordinate\.outputs\.mode == 'published-controller'/u)
+  assert.match(published.if, /github\.ref == 'refs\/heads\/main'/u)
+  assert.match(published.if, /needs\.coordinate\.outputs\.mode == 'published'/u)
+  assert.match(published.if, /github\.sha == inputs\.commitSha/u)
   const publishedCheckout = onlyStepUsing(published, ACTIONS.checkout)
-  assert.equal(publishedCheckout.with?.ref, workflowExpression("github.ref"))
+  assert.equal(publishedCheckout.with?.ref, workflowExpression("github.sha"))
   assert.equal(publishedCheckout.with?.["fetch-depth"], 0)
   assert.equal(publishedCheckout.with?.["persist-credentials"], false)
   const publishedPnpm = onlyStepUsing(published, ACTIONS.pnpm)
@@ -1694,6 +1971,27 @@ test("workflow entrypoints fail closed unless their exact normalized form is exp
   )
 })
 
+test("recovery containment runs on an actual eligible Linux host without publication credentials", async () => {
+  const sources = await readWorkflowSourcesFromRoot(ROOT)
+  const ci = parseWorkflowSource(sources["ci.yml"], "ci.yml")
+  const job = ci.jobs["recovery-strict-runner"]
+  assert.ok(job, "dedicated recovery strict-runner CI job required")
+  assert.equal(job["runs-on"], "ubuntu-24.04")
+  assert.equal(job["timeout-minutes"], 5)
+  assert.deepEqual(job.permissions, { contents: "read" })
+  assert.equal(job.steps.length, 3)
+  assert.equal(job.steps[0].uses, "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1")
+  assert.deepEqual(job.steps[0].with, { "persist-credentials": false })
+  assert.equal(job.steps[1].uses, "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020")
+  assert.deepEqual(job.steps[1].with, { "node-version": "24.19.0" })
+  assert.deepEqual(job.steps[2].env, { B4_TEST_RECOVERY_RUNNER: "1" })
+  assert.equal(
+    job.steps[2].run,
+    "node --test scripts/release/test/recovery-strict-runner.integration.mjs",
+  )
+  assert.equal(job.env, undefined, "runner identity must come from the real host")
+})
+
 test("testing-windows has the exact safe descriptors and executable classifications", async () => {
   const descriptors = JSON.parse(
     await readBoundedFixture(ENTRYPOINT_ALLOWLIST_PATH, { root: ROOT }),
@@ -1735,14 +2033,14 @@ test("testing-windows has the exact safe descriptors and executable classificati
         classification: "safe",
         descriptor: {
           name: "Build testing dependency closure",
-          run: "pnpm --filter @dawn-ai/testing... build",
+          run: "pnpm --filter @b4run/testing... build",
         },
       },
       {
         classification: "safe",
         descriptor: {
           name: "Native Windows subprocess shutdown tests",
-          run: 'pnpm --filter @dawn-ai/testing exec vitest --run --config vitest.config.ts test/subprocess.test.ts --testNamePattern "Windows process tree|injected Windows tree kill"',
+          run: 'pnpm --filter @b4run/testing exec vitest --run --config vitest.config.ts test/subprocess.test.ts --testNamePattern "Windows process tree|injected Windows tree kill"',
         },
       },
       {
@@ -1768,8 +2066,8 @@ test("testing-windows has the exact safe descriptors and executable classificati
 
   const sources = await readWorkflowSourcesFromRoot(ROOT)
   const mutated = sources["ci.yml"].replace(
-    "pnpm --filter @dawn-ai/testing... build",
-    "pnpm --filter @dawn-ai/testing... build && echo bypass",
+    "pnpm --filter @b4run/testing... build",
+    "pnpm --filter @b4run/testing... build && echo bypass",
   )
   assert.throws(
     () => auditWorkflowEntrypoints({ ...sources, "ci.yml": mutated }, descriptors.workflows),
@@ -1851,6 +2149,16 @@ test("dependency-security-browser has one exact isolated read-only descriptor", 
   )
 })
 
+test("historical Dawn security receipt uploader stays unconditionally disabled in B4.run", async () => {
+  const source = await readBoundedFixture(path.join(WORKFLOWS, "dependency-security-receipt.yml"), {
+    root: ROOT,
+  })
+  const workflow = parse(source, { maxAliasCount: 0, uniqueKeys: true })
+  assert.deepEqual(Object.keys(workflow.jobs), ["upload"])
+  assert.equal(workflow.jobs.upload.if, false)
+  assert.match(source, /^ {4}if: false$/mu)
+})
+
 test("dependency security receipt uploader is exact, offline, read-only, and write-once", async () => {
   const source = await readBoundedFixture(path.join(WORKFLOWS, "dependency-security-receipt.yml"), {
     root: ROOT,
@@ -1929,7 +2237,7 @@ test("dependency security receipt uploader is exact, offline, read-only, and wri
     GH_TOKEN: githubToken,
   })
   assert.match(requireHead.run, /GITHUB_SHA/u)
-  assert.match(requireHead.run, /repos\/cacheplane\/dawnai\/git\/ref\/heads\/main/u)
+  assert.match(requireHead.run, /repos\/cacheplane\/b4run\/git\/ref\/heads\/main/u)
   assert.deepEqual(prepare.env, {
     RECEIPT_OUTPUT_ROOT: `${runnerTemp}/dependency-security-receipt-root`,
   })
@@ -2037,6 +2345,16 @@ test("dependency security workflow mutations fail closed", async (t) => {
           job.replace("pnpm install --frozen-lockfile", "pnpm install"),
         ),
     ],
+    ...[
+      ["receipt uploader activation", "    if: true\n"],
+      ["receipt uploader condition removal", ""],
+      ["receipt uploader expression", `    if: ${workflowExpression("always()")}\n`],
+      ["receipt uploader string false", '    if: "false"\n'],
+    ].map(([name, replacement]) => [
+      name,
+      "dependency-security-receipt.yml",
+      (source) => source.replace("    if: false\n", replacement),
+    ]),
     [
       "receipt trigger expansion",
       "dependency-security-receipt.yml",
@@ -2140,8 +2458,8 @@ test("dependency security workflow mutations fail closed", async (t) => {
       "dependency-security-receipt.yml",
       (source) =>
         source.replace(
-          "repos/cacheplane/dawnai/git/ref/heads/main",
-          "repos/cacheplane/dawnai/git/ref/heads/reviewed-head",
+          "repos/cacheplane/b4run/git/ref/heads/main",
+          "repos/cacheplane/b4run/git/ref/heads/reviewed-head",
         ),
     ],
     [
@@ -2243,7 +2561,7 @@ test("workflow audit binds complete execution descriptors and byte-exact run str
   }
 
   const backslash = "\\"
-  const line = `DAWN_TEST_WORKERD=1 pnpm --filter @dawn-ai/cli test workerd-lane ${backslash}\n`
+  const line = `B4_TEST_WORKERD=1 pnpm --filter @b4run/cli test workerd-lane ${backslash}\n`
   assert.ok(sources["ci.yml"].includes(line))
   assert.throws(
     () =>
@@ -2282,6 +2600,37 @@ test("workflow classifications are explicit safe or release-only publication", a
     ),
     false,
   )
+})
+
+test("v2 publication is a distinct exact owner classification and copied commands cannot be safe", async () => {
+  const source = (await readWorkflowSourcesFromRoot(ROOT))["release-postpublication.yml"]
+  const workflow = parse(source)
+  const entries = workflowExecutables(workflow)
+  const writes = entries.filter((entry) =>
+    /scripts\/release\/recovery\/cli\.mjs (?:adopt|reconcile-verification|dispatch-audit|reconcile-audit|finalize|publish) /u.test(
+      entry.value,
+    ),
+  )
+  assert.equal(writes.length, 6)
+  for (const entry of writes) {
+    assert.throws(() =>
+      classifyExecutables("foreign.yml", [entry], [{ ...entry, classification: "safe" }]),
+    )
+    assert.throws(() =>
+      classifyExecutables(
+        "foreign.yml",
+        [entry],
+        [{ ...entry, classification: "recovery-publication" }],
+      ),
+    )
+    assert.doesNotThrow(() =>
+      classifyExecutables(
+        "release-postpublication.yml",
+        [entry],
+        [{ ...entry, classification: "recovery-publication" }],
+      ),
+    )
+  }
 })
 
 test("matching descriptor inventory cannot classify a new executable as safe", () => {
@@ -2364,8 +2713,8 @@ test("workflow parsing rejects duplicate keys, aliases, accessors, sparse data, 
 })
 
 test("workflow reads are bounded, contained, regular, and no-follow", async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-workflow-read-"))
-  const outside = await mkdtemp(path.join(os.tmpdir(), "dawn-workflow-outside-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-workflow-read-"))
+  const outside = await mkdtemp(path.join(os.tmpdir(), "b4-workflow-outside-"))
   t.after(() =>
     Promise.all([
       rm(root, { recursive: true, force: true }),
@@ -2388,8 +2737,8 @@ test("workflow reads are bounded, contained, regular, and no-follow", async (t) 
 })
 
 test("workflow directory traversal is anchored at regular repository components", async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-workflow-root-"))
-  const outside = await mkdtemp(path.join(os.tmpdir(), "dawn-workflow-external-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-workflow-root-"))
+  const outside = await mkdtemp(path.join(os.tmpdir(), "b4-workflow-external-"))
   t.after(() =>
     Promise.all([
       rm(root, { recursive: true, force: true }),
@@ -2454,7 +2803,7 @@ test("final release reachability fails closed on hidden scripts and package indi
   const packageJson = {
     scripts: { version: "changeset version && node scripts/sync.mjs" },
   }
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-release-reach-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-release-reach-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   await mkdir(path.join(root, "scripts"), { recursive: true })
   await writeFile(path.join(root, "scripts", "visible.mjs"), "export {}\n")
@@ -2525,7 +2874,7 @@ test("final release reachability fails closed on hidden scripts and package indi
 
 test("final release reachability pins the transitive import closure of every entrypoint", async (t) => {
   const packageJson = { scripts: {} }
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-release-imports-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-release-imports-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   for (const directory of ["nested", "release"]) {
     await mkdir(path.join(root, "scripts", directory), { recursive: true })
@@ -2671,7 +3020,10 @@ test("final release reachability pins the transitive import closure of every ent
   })
 
   await t.test("the declared release data files are read by pinned release modules", () => {
-    assert.deepEqual(RELEASE_DATA_FILES, ["scripts/release/controller-schema.json"])
+    assert.deepEqual(RELEASE_DATA_FILES, [
+      "scripts/release/controller-schema.json",
+      "scripts/release/recovery/policy.json",
+    ])
   })
 
   await t.test("a pinned module that disappeared fails closed", async () => {
@@ -2687,7 +3039,7 @@ test("final release reachability pins the transitive import closure of every ent
 })
 
 test("script content pins fail closed on drift and on a pinned script that went missing", async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-script-pins-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-script-pins-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   await mkdir(path.join(root, "scripts", "release"), { recursive: true })
   const file = "scripts/release/example.mjs"
@@ -3535,7 +3887,7 @@ jobs:
 }
 
 async function createWorkflowReachabilityFixture(t, fixture) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "dawn-workflow-reachability-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-workflow-reachability-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   await mkdir(path.join(root, ".github", "workflows"), { recursive: true })
   const step =
@@ -4155,7 +4507,10 @@ function classifyExecutables(file, actual, expected) {
   const classifications = new Map()
   for (let index = 0; index < actual.length; index += 1) {
     const allowed = expected[index]
-    if (!isRecord(allowed) || !["safe", "publication"].includes(allowed.classification))
+    if (
+      !isRecord(allowed) ||
+      !["safe", "publication", "recovery-publication"].includes(allowed.classification)
+    )
       throw unauditedEntrypoint()
     const identity = {
       job: allowed.job,
@@ -4166,12 +4521,24 @@ function classifyExecutables(file, actual, expected) {
     }
     if (canonicalJson(actual[index]) !== canonicalJson(identity)) throw unauditedEntrypoint()
     const publication = isReleaseMutationExecutable(file, actual[index])
+    const recovery = isRecoveryMutationExecutable(actual[index])
     if (allowed.classification === "publication") {
-      if (file !== "release.yml" || !publication) throw unauditedEntrypoint()
-    } else if (publication) throw unauditedEntrypoint()
+      if (file !== "release.yml" || !publication || recovery) throw unauditedEntrypoint()
+    } else if (allowed.classification === "recovery-publication") {
+      if (file !== "release-postpublication.yml" || !recovery) throw unauditedEntrypoint()
+    } else if (publication || recovery) throw unauditedEntrypoint()
     classifications.set(executableIdentity(actual[index]), allowed.classification)
   }
   return classifications
+}
+
+function isRecoveryMutationExecutable(entry) {
+  return (
+    entry.kind === "run" &&
+    /scripts\/release\/recovery\/cli\.mjs\s+(?:adopt|reconcile-verification|dispatch-audit|reconcile-audit|finalize|publish)\b/u.test(
+      entry.value,
+    )
+  )
 }
 
 function isReleaseMutationExecutable(file, entry) {
@@ -4278,7 +4645,8 @@ function workflowDescriptor(workflow, classifications) {
               value: hasRun ? step.run : step.uses,
             }
             const classification = classifications.get(executableIdentity(executable))
-            if (!["safe", "publication"].includes(classification)) throw unauditedEntrypoint()
+            if (!["safe", "publication", "recovery-publication"].includes(classification))
+              throw unauditedEntrypoint()
             return {
               classification,
               descriptor: snapshotDescriptor(step),

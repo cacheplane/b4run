@@ -1,5 +1,5 @@
 import { z } from "zod"
-import type { DawnPlanActivityContent, DawnSubagentActivityContent } from "../activities.js"
+import type { B4PlanActivityContent, B4SubagentActivityContent } from "../activities.js"
 
 const todoSchema = z.strictObject({
   content: z.string().trim().min(1),
@@ -12,7 +12,7 @@ export const planActivityContentSchema = z.strictObject({
 
 function assignPlanOutputToPublicType(
   content: z.output<typeof planActivityContentSchema>,
-): DawnPlanActivityContent {
+): B4PlanActivityContent {
   return content
 }
 void assignPlanOutputToPublicType
@@ -46,7 +46,7 @@ export const subagentActivityContentSchema = z
   })
 
 /**
- * What a successful parse actually yields: `DawnSubagentActivityContent`, but
+ * What a successful parse actually yields: `B4SubagentActivityContent`, but
  * with `todos` widened to admit an explicit `undefined`.
  *
  * This package compiles with `exactOptionalPropertyTypes`, which distinguishes
@@ -57,13 +57,13 @@ export const subagentActivityContentSchema = z
  *
  * Only that one property is relaxed. Every other field name, its value type,
  * and the presence or absence of all other properties are still checked against
- * `DawnSubagentActivityContent` by the probe below, which is what keeps this
+ * `B4SubagentActivityContent` by the probe below, which is what keeps this
  * zod mirror honest. Exported from the `./react` entry, since it is the
- * parameter type consumers see on `dawnSubagentActivityRenderer.render` and on
+ * parameter type consumers see on `b4SubagentActivityRenderer.render` and on
  * `SubagentActivityCard`.
  */
-export type SubagentActivityContentOutput = Omit<DawnSubagentActivityContent, "todos"> & {
-  readonly todos?: DawnSubagentActivityContent["todos"] | undefined
+export type SubagentActivityContentOutput = Omit<B4SubagentActivityContent, "todos"> & {
+  readonly todos?: B4SubagentActivityContent["todos"] | undefined
 }
 
 function assignSubagentOutputToPublicType(

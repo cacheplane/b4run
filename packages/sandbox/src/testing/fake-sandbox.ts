@@ -4,7 +4,7 @@ import type {
   FilesystemBackend,
   SandboxHandle,
   SandboxProvider,
-} from "@dawn-ai/workspace"
+} from "@b4run/workspace"
 
 type ExecFn = (
   args: {

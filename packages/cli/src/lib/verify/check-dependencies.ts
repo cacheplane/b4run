@@ -1,9 +1,9 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
-import { providerPackages } from "@dawn-ai/langchain"
-import type { BuiltInModelProviderId } from "@dawn-ai/sdk"
+import { providerPackages } from "@b4run/langchain"
+import type { BuiltInModelProviderId } from "@b4run/sdk"
 import { resolveEnvPath } from "../dev/resolve-env-path.js"
-import { loadDawnConfig } from "../node-config.js"
+import { loadB4Config } from "../node-config.js"
 
 export interface DependencyCheckResult {
   readonly missingPackages: readonly string[]
@@ -24,27 +24,27 @@ export interface CheckDependenciesOptions {
 }
 
 /**
- * The packages Dawn's own LangChain/LangGraph layer imports no matter which
- * model an app runs. Every Dawn app needs both.
+ * The packages B4.run's own LangChain/LangGraph layer imports no matter which
+ * model an app runs. Every B4.run app needs both.
  *
  * The provider packages are NOT here: which one an app needs is a function of
  * the providers its routes use, exactly as the required API-key env var is.
  * See {@link requiredPackages}.
  */
-const DAWN_LAYER_PACKAGES = ["@langchain/core", "@langchain/langgraph"] as const
+const B4_LAYER_PACKAGES = ["@langchain/core", "@langchain/langgraph"] as const
 
-/** The package that imports {@link DAWN_LAYER_PACKAGES} and every provider package. */
-const IMPORTING_PACKAGE = "@dawn-ai/langchain"
+/** The package that imports {@link B4_LAYER_PACKAGES} and every provider package. */
+const IMPORTING_PACKAGE = "@b4run/langchain"
 
 /**
- * Every package this app must be able to resolve: Dawn's own layer, plus one
+ * Every package this app must be able to resolve: B4.run's own layer, plus one
  * model package per provider its routes use.
  *
- * `providerPackages` is the same provider→package map `dawn build`'s
+ * `providerPackages` is the same provider→package map `b4 build`'s
  * web-runtime target bakes into an edge bundle, so verify and build answer
  * "which model package does this app need" from one source. A provider with no
  * entry is skipped rather than guessed at — `providers` is derived from route
- * model ids, and an id Dawn cannot map must not invent a package name.
+ * model ids, and an id B4.run cannot map must not invent a package name.
  */
 function requiredPackages(providers: readonly string[]): readonly string[] {
   const forProviders = new Set<string>()
@@ -52,14 +52,14 @@ function requiredPackages(providers: readonly string[]): readonly string[] {
     const packageName = providerPackages[provider as BuiltInModelProviderId]
     if (packageName) forProviders.add(packageName)
   }
-  return [...DAWN_LAYER_PACKAGES, ...[...forProviders].sort()]
+  return [...B4_LAYER_PACKAGES, ...[...forProviders].sort()]
 }
 
 /**
  * Provider → the API-key env var it authenticates with. `null` means the
  * provider needs no key (e.g. a local Ollama server). Keyed exhaustively by the
  * SDK's provider union so it stays in lockstep with the provider list backing
- * `providerSpecs` in @dawn-ai/langchain's chat-model-factory.ts (source of truth).
+ * `providerSpecs` in @b4run/langchain's chat-model-factory.ts (source of truth).
  */
 const PROVIDER_ENV_VAR: Record<BuiltInModelProviderId, string | null> = {
   openai: "OPENAI_API_KEY",
@@ -77,7 +77,7 @@ const PROVIDER_ENV_VAR: Record<BuiltInModelProviderId, string | null> = {
  *
  * Walks `<dir>/node_modules/<pkg>` up from `from` to the filesystem root, the
  * way Node's own resolution walk does. The upward walk is the point: in an npm
- * workspace the generated app's `dawn.config.ts` lives in `<app>/server`, so
+ * workspace the generated app's `b4.config.ts` lives in `<app>/server`, so
  * the app root is the workspace MEMBER, while npm hoists dependencies to
  * `<app>/node_modules` one level up. A probe that looks only in one directory
  * reports every hoisted package as missing.
@@ -102,10 +102,10 @@ function isPackageInstalled(from: string, pkg: string): boolean {
 /**
  * Where to start the walk, nearest importer first.
  *
- * These packages are imported by `@dawn-ai/langchain`, not by the user's app,
+ * These packages are imported by `@b4run/langchain`, not by the user's app,
  * so the question Node will actually ask at runtime is whether THAT package can
  * resolve them. Rooting the walk only at the app is what made the flagship
- * example report all three Dawn-layer packages missing on every `dawn verify`
+ * example report all three B4.run-layer packages missing on every `b4 verify`
  * while they were installed and working: pnpm keeps a package's dependencies in
  * the store beside it, reachable from the importer and deliberately not from
  * the app. npm's layout is a subset of that — a hoisted dependency sits above
@@ -118,7 +118,7 @@ function isPackageInstalled(from: string, pkg: string): boolean {
  * throwing.
  *
  * The app root stays in the list. An app may declare and import these packages
- * itself, and when `@dawn-ai/langchain` is not installed at all it is the only
+ * itself, and when `@b4run/langchain` is not installed at all it is the only
  * root there is.
  */
 function resolutionRoots(appRoot: string): readonly string[] {
@@ -126,7 +126,7 @@ function resolutionRoots(appRoot: string): readonly string[] {
   return importer ? [importer, appRoot] : [appRoot]
 }
 
-/** The real directory of the installed `@dawn-ai/langchain`, or undefined. */
+/** The real directory of the installed `@b4run/langchain`, or undefined. */
 function importingPackageDir(appRoot: string): string | undefined {
   let dir = resolve(appRoot)
   for (;;) {
@@ -196,10 +196,10 @@ export async function checkDependencies(
   // Resolve the env file the same way dev-session does: flag > config > default.
   let configEnv: string | undefined
   try {
-    const loaded = await loadDawnConfig({ appRoot })
+    const loaded = await loadB4Config({ appRoot })
     configEnv = loaded.config.env
   } catch {
-    // No dawn.config.ts (or it failed to load) — fall through to default.
+    // No b4.config.ts (or it failed to load) — fall through to default.
     configEnv = undefined
   }
 

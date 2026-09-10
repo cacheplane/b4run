@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
-import { discoverRoutes } from "@dawn-ai/core/node"
+import { discoverRoutes } from "@b4run/core/node"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { checkToolNameUniqueness } from "../src/lib/runtime/check-tool-name-uniqueness.js"
@@ -14,16 +14,16 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })))
 })
 
-const child = `import { agent } from "@dawn-ai/sdk"
+const child = `import { agent } from "@b4run/sdk"
 export default agent({ model: "gpt-5-mini", systemPrompt: "Child." })
 `
 
 async function collect(files: Readonly<Record<string, string>>): Promise<readonly string[]> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-check-delegation-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-check-delegation-"))
   tempDirs.push(appRoot)
   const allFiles = {
     "package.json": '{"type":"module"}\n',
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     ...files,
   }
   await Promise.all(
@@ -37,7 +37,7 @@ async function collect(files: Readonly<Record<string, string>>): Promise<readonl
 }
 
 function parent(body: string, imports = ""): string {
-  return `${imports}import { agent } from "@dawn-ai/sdk"
+  return `${imports}import { agent } from "@b4run/sdk"
 export default agent({ model: "gpt-5-mini", systemPrompt: "Parent.", ${body} } as any)
 `
 }
@@ -53,14 +53,14 @@ describe("collectDelegationErrors", () => {
     })
 
     expect(errors).toHaveLength(1)
-    expect(errors[0]).toMatch(/\[DAWN_E1004\].*Invalid convention subagent name "bad\.name"/)
+    expect(errors[0]).toMatch(/\[B4_E1004\].*Invalid convention subagent name "bad\.name"/)
   })
 
   it("rejects when registry resolution throws an unexpected error", async () => {
     await expect(
       collect({
         "src/app/parent/index.ts": `const descriptor = {
-  [Symbol.for("dawn.agent")]: true,
+  [Symbol.for("b4.agent")]: true,
   model: "gpt-5-mini",
   systemPrompt: "Parent.",
   get delegation() {
@@ -102,7 +102,7 @@ export default descriptor
       name: "non-agent registration",
       parent: parent("subagents: { child: {} }"),
       extra: {},
-      message: /Explicit subagent "child" must reference a Dawn agent descriptor/,
+      message: /Explicit subagent "child" must reference a B4.run agent descriptor/,
     },
     {
       name: "unresolved descriptor",
@@ -208,7 +208,7 @@ export default descriptor
     })
 
     expect(errors).toHaveLength(1)
-    expect(errors[0]).toMatch(/\[DAWN_E1004\]/)
+    expect(errors[0]).toMatch(/\[B4_E1004\]/)
     expect(errors[0]).toMatch(message)
   })
 
@@ -221,7 +221,7 @@ export default descriptor
     const errors = await collect({ "src/app/parent/index.ts": parent(body) })
 
     expect(errors).toHaveLength(1)
-    expect(errors[0]).toMatch(/\[DAWN_E1004\]/)
+    expect(errors[0]).toMatch(/\[B4_E1004\]/)
     expect(errors[0]).toContain(`tools.${field}`)
     expect(errors[0]).toMatch(/use delegation/i)
   })

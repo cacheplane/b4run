@@ -2,13 +2,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
-import type { ThreadAccessPolicy } from "@dawn-ai/sdk"
+import type { ThreadAccessPolicy } from "@b4run/sdk"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
 import { loadThreadAccess } from "../src/lib/dev/thread-access-node.js"
 import { nodeBootFallbacks } from "../src/lib/runtime/execute-route.js"
-import type { DawnStaticModules } from "../src/lib/runtime/static-modules.js"
+import type { B4StaticModules } from "../src/lib/runtime/static-modules.js"
 import { loadStaticModules } from "../src/lib/runtime/static-modules.js"
 
 const cleanup: Array<() => Promise<void> | void> = []
@@ -25,10 +25,10 @@ const VALID_POLICY_FILE = `export default {
 `
 
 async function fixtureApp(files: Readonly<Record<string, string>> = {}): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-thread-access-boot-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-thread-access-boot-"))
   cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
   const appFiles: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "thread-access-boot-fixture", "type": "module" }\n',
     "src/app/hello/index.ts": TRIVIAL_ROUTE,
     ...files,
@@ -83,25 +83,25 @@ describe("thread-access boot resolution", () => {
   it("logs that there is no policy for an app with no policy file", async () => {
     const appRoot = await fixtureApp()
     const lines = await bootWithLog({ appRoot })
-    expect(lines).toContain("Dawn: no thread access policy (all thread endpoints are open)")
+    expect(lines).toContain("B4.run: no thread access policy (all thread endpoints are open)")
   })
 
   it("binds the app's policy file from disk and says so", async () => {
     const appRoot = await fixtureApp({ "src/thread-access.ts": VALID_POLICY_FILE })
     const lines = await bootWithLog({ appRoot })
-    expect(lines).toContain("Dawn: thread access policy bound from src/thread-access.ts")
+    expect(lines).toContain("B4.run: thread access policy bound from src/thread-access.ts")
   })
 
   it("prefers an injected policy over the disk probe", async () => {
     const appRoot = await fixtureApp({ "src/thread-access.ts": VALID_POLICY_FILE })
     const lines = await bootWithLog({ appRoot, threadAccess: allowAll })
-    expect(lines).toContain("Dawn: thread access policy bound from the runtime options")
+    expect(lines).toContain("B4.run: thread access policy bound from the runtime options")
   })
 
-  it("fails the boot with DAWN_E3003 when the policy file cannot be bound", async () => {
+  it("fails the boot with B4_E3003 when the policy file cannot be bound", async () => {
     const appRoot = await fixtureApp({ "src/thread-access.ts": "export default { read: 1 }\n" })
     await expect(createRuntimeFetchHandler({ appRoot })).rejects.toMatchObject({
-      code: "DAWN_E3003",
+      code: "B4_E3003",
     })
   })
 
@@ -117,8 +117,8 @@ describe("thread-access boot resolution", () => {
       ...(await diskPolicyApp("export default { read: () => ({ decision: 'allow' }) }\n")),
     })
 
-    expect(injected.code).toBe("DAWN_E3003")
-    expect(onDisk.code).toBe("DAWN_E3003")
+    expect(injected.code).toBe("B4_E3003")
+    expect(onDisk.code).toBe("B4_E3003")
     // Same cause named the same way, differing only in where it came from.
     expect(injected.message).toContain("`fallback` is missing or is not a function")
     expect(onDisk.message).toContain("`fallback` is missing or is not a function")
@@ -127,14 +127,14 @@ describe("thread-access boot resolution", () => {
 
   it("rejects a malformed policy handed straight in through the build manifest", async () => {
     // The manifest layer has its own guard in `loadStaticModules`, but an edge
-    // embed that constructs `DawnStaticModules` itself never goes through it.
+    // embed that constructs `B4StaticModules` itself never goes through it.
     const appRoot = await fixtureApp()
     const modules = {
       routes: [],
       threadAccess: { fallback: "nope" } as unknown as ThreadAccessPolicy,
     }
     const failure = await bootFailure({ appRoot, modules })
-    expect(failure.code).toBe("DAWN_E3003")
+    expect(failure.code).toBe("B4_E3003")
     expect(failure.message).toContain("the build manifest")
   })
 
@@ -182,11 +182,11 @@ describe("thread-access boot resolution", () => {
               }),
           },
         }),
-      ).rejects.toMatchObject({ code: "DAWN_E3003" })
+      ).rejects.toMatchObject({ code: "B4_E3003" })
     } finally {
       log.mockRestore()
     }
-    expect(lines).not.toContain("Dawn: no thread access policy (all thread endpoints are open)")
+    expect(lines).not.toContain("B4.run: no thread access policy (all thread endpoints are open)")
   })
 })
 
@@ -209,8 +209,8 @@ describe("thread-access manifest staleness", () => {
       modules: emptyManifest,
       threadAccessExpected: true,
     })
-    expect(failure.code).toBe("DAWN_E3003")
-    expect(failure.message).toContain("re-run `dawn build`")
+    expect(failure.code).toBe("B4_E3003")
+    expect(failure.message).toContain("re-run `b4 build`")
   })
 
   it("does not log a boot line for the manifest it rejected", async () => {
@@ -224,7 +224,7 @@ describe("thread-access manifest staleness", () => {
     } finally {
       log.mockRestore()
     }
-    expect(lines).not.toContain("Dawn: no thread access policy (all thread endpoints are open)")
+    expect(lines).not.toContain("B4.run: no thread access policy (all thread endpoints are open)")
   })
 
   it("accepts a manifest that carries the key bound to nothing", async () => {
@@ -236,9 +236,9 @@ describe("thread-access manifest staleness", () => {
     // Cast because `exactOptionalPropertyTypes` forbids writing the key as
     // undefined in TypeScript at all — which is exactly why the runtime must
     // handle it: a generated `.mjs` manifest carries no types.
-    const modules = { routes: [], threadAccess: undefined } as unknown as DawnStaticModules
+    const modules = { routes: [], threadAccess: undefined } as unknown as B4StaticModules
     const lines = await bootWithLog({ appRoot, modules, threadAccessExpected: true })
-    expect(lines).toContain("Dawn: no thread access policy (all thread endpoints are open)")
+    expect(lines).toContain("B4.run: no thread access policy (all thread endpoints are open)")
   })
 
   it("accepts a manifest that carries the policy", async () => {
@@ -248,31 +248,31 @@ describe("thread-access manifest staleness", () => {
       modules: { routes: [], threadAccess: allowAll },
       threadAccessExpected: true,
     })
-    expect(lines).toContain("Dawn: thread access policy bound from the build manifest")
+    expect(lines).toContain("B4.run: thread access policy bound from the build manifest")
   })
 
   it("leaves a build that saw no policy alone", async () => {
     const appRoot = await fixtureApp()
     const lines = await bootWithLog({ appRoot, modules: emptyManifest })
-    expect(lines).toContain("Dawn: no thread access policy (all thread endpoints are open)")
+    expect(lines).toContain("B4.run: no thread access policy (all thread endpoints are open)")
   })
 })
 
 describe("loadStaticModules — threadAccess validation", () => {
   async function writeManifest(body: string): Promise<string> {
-    const dir = await mkdtemp(join(tmpdir(), "dawn-thread-access-manifest-"))
+    const dir = await mkdtemp(join(tmpdir(), "b4-thread-access-manifest-"))
     cleanup.push(() => rm(dir, { force: true, recursive: true }))
     const manifestPath = join(dir, "modules.mjs")
     await writeFile(manifestPath, body, "utf8")
     return manifestPath
   }
 
-  it("throws the re-run-dawn-build error on a malformed threadAccess entry", async () => {
+  it("throws the re-run-b4-build error on a malformed threadAccess entry", async () => {
     const manifestPath = await writeManifest(
       "export default { threadAccess: { read: 1 }, routes: [] }\n",
     )
     await expect(loadStaticModules(pathToFileURL(manifestPath))).rejects.toThrow(
-      /threadAccess.*re-run `dawn build`/s,
+      /threadAccess.*re-run `b4 build`/s,
     )
   })
 

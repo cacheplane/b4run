@@ -1,6 +1,6 @@
 # Research workspace memory
 
-Dawn injects this file into the agent's system prompt every turn. Use it for
+B4.run injects this file into the agent's system prompt every turn. Use it for
 durable research conventions; the agent updates it with
 `writeFile({ path: "AGENTS.md", content: "..." })` when it learns something
 worth keeping across sessions.

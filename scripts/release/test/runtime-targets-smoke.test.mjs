@@ -30,17 +30,17 @@ async function writeStubPackage(root, name, source, exportsMap) {
 }
 
 async function runNodeRuntimeProbe(graphAdapterSource) {
-  const root = await mkdtemp(join(tmpdir(), "dawn-runtime-probe-"))
+  const root = await mkdtemp(join(tmpdir(), "b4-runtime-probe-"))
   try {
     await writeFile(join(root, "package.json"), JSON.stringify({ type: "module" }), "utf8")
-    await writeStubPackage(root, "@dawn-ai/sdk", "export const agent = () => {}", "./index.js")
-    await writeStubPackage(root, "@dawn-ai/ag-ui", "export const toAguiEvents = () => {}", {
+    await writeStubPackage(root, "@b4run/sdk", "export const agent = () => {}", "./index.js")
+    await writeStubPackage(root, "@b4run/ag-ui", "export const toAguiEvents = () => {}", {
       ".": "./index.js",
     })
-    await writeStubPackage(root, "@dawn-ai/core", "export const discoverRoutes = () => {}", {
+    await writeStubPackage(root, "@b4run/core", "export const discoverRoutes = () => {}", {
       "./node": "./index.js",
     })
-    await writeStubPackage(root, "@dawn-ai/langgraph", graphAdapterSource, "./index.js")
+    await writeStubPackage(root, "@b4run/langgraph", graphAdapterSource, "./index.js")
     await writeFile(join(root, "node-runtime.mjs"), nodeRuntimeProbeSource(), "utf8")
     await execFileAsync(process.execPath, ["node-runtime.mjs"], { cwd: root })
     return { ok: true, stderr: "" }
@@ -101,8 +101,8 @@ test("installs exact public packages and runs Node plus edge-target bundle/impor
   })
 
   const install = commands.find(({ command, args }) => command === "npm" && args[0] === "install")
-  assert.equal(install.args.includes("@dawn-ai/sdk@0.8.22"), true)
-  assert.equal(install.args.includes("@dawn-ai/postgres-storage@0.8.22"), true)
+  assert.equal(install.args.includes("@b4run/sdk@0.8.22"), true)
+  assert.equal(install.args.includes("@b4run/postgres-storage@0.8.22"), true)
   assert.equal(
     install.args.some((arg) => /workspace:|file:/u.test(arg)),
     false,

@@ -1,6 +1,6 @@
 {
-  "name": "@dawn-ai/web",
-  "version": "0.0.4",
+  "name": "@b4run/web",
+  "version": "0.0.8",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dawn-ai/sdk": "workspace:*",
+    "@b4run/sdk": "workspace:*",
     "@mdx-js/loader": "^3.1.1",
     "@mdx-js/mdx": "^3.1.1",
     "@mdx-js/react": "^3.1.1",
@@ -35,8 +35,8 @@
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
-    "@dawn-ai/config-typescript": "workspace:*",
-    "@dawn-ai/core": "workspace:*",
+    "@b4run/config-typescript": "workspace:*",
+    "@b4run/core": "workspace:*",
     "@types/mdx": "^2.0.14",
     "@types/node": "26.1.2",
     "@types/react": "19.2.18",

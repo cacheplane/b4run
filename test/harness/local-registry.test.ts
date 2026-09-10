@@ -17,7 +17,7 @@ describe("local-registry", () => {
 
   beforeAll(async () => {
     registry = await startLocalRegistry()
-    inheritedPublishCache = await mkdtemp(join(tmpdir(), "dawn-inherited-npm-cache-"))
+    inheritedPublishCache = await mkdtemp(join(tmpdir(), "b4-inherited-npm-cache-"))
     const previousCaches = new Map(
       NPM_CACHE_ENV_VARIANTS.map((name) => [name, process.env[name]] as const),
     )
@@ -50,12 +50,12 @@ describe("local-registry", () => {
     expect(inheritedPublishCacheEntries).toEqual([])
   })
 
-  test("serves a published @dawn-ai package that a real install resolves", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "dawn-reg-probe-"))
+  test("serves a published @b4run package that a real install resolves", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "b4-reg-probe-"))
     try {
       await writeFile(
         join(dir, "package.json"),
-        `${JSON.stringify({ name: "probe", private: true, dependencies: { "@dawn-ai/core": "latest" } }, null, 2)}\n`,
+        `${JSON.stringify({ name: "probe", private: true, dependencies: { "@b4run/core": "latest" } }, null, 2)}\n`,
         "utf8",
       )
       await writeFile(join(dir, ".npmrc"), `registry=${registry.url}\n`, "utf8")
@@ -66,26 +66,26 @@ describe("local-registry", () => {
         command: "pnpm",
         cwd: dir,
         // Pin the install onto this registry via npm_config_registry (highest
-        // precedence). The .npmrc alone leaks transitive @dawn-ai/* resolution
+        // precedence). The .npmrc alone leaks transitive @b4run/* resolution
         // to npmjs, which fails mid-release when the candidate is partially
         // published there.
         env: { npm_config_registry: registry.url },
       })
 
       const lockfile = await readFile(join(dir, "pnpm-lock.yaml"), "utf8")
-      expect(lockfile).toContain("@dawn-ai/core")
-      expect(lockfile).not.toContain("registry.npmjs.org/@dawn-ai")
+      expect(lockfile).toContain("@b4run/core")
+      expect(lockfile).not.toContain("registry.npmjs.org/@b4run")
     } finally {
       await rm(dir, { force: true, recursive: true })
     }
   }, 180_000)
 
-  test("404s for an @dawn-ai package that was never published (fail-closed)", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "dawn-reg-neg-"))
+  test("404s for an @b4run package that was never published (fail-closed)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "b4-reg-neg-"))
     try {
       await writeFile(
         join(dir, "package.json"),
-        `${JSON.stringify({ name: "neg", private: true, dependencies: { "@dawn-ai/does-not-exist": "latest" } }, null, 2)}\n`,
+        `${JSON.stringify({ name: "neg", private: true, dependencies: { "@b4run/does-not-exist": "latest" } }, null, 2)}\n`,
         "utf8",
       )
       await writeFile(join(dir, ".npmrc"), `registry=${registry.url}\n`, "utf8")

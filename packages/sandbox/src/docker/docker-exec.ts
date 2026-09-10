@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import type { BackendContext, ExecBackend } from "@dawn-ai/workspace"
+import type { BackendContext, ExecBackend } from "@b4run/workspace"
 import type { Docker } from "./docker-cli.js"
 import {
   type DockerPidExhaustionRecovery,
@@ -39,7 +39,7 @@ export function dockerExec(
       const cwd = args.cwd ?? ctx.workspaceRoot
       const cdPrefix = cwd ? `cd ${shellQuote(cwd)} && ` : ""
       const full = `${envPrefix}${cdPrefix}${args.command}`
-      const startedMarker = `__DAWN_EXEC_STARTED_${randomUUID()}__`
+      const startedMarker = `__B4_EXEC_STARTED_${randomUUID()}__`
       const startedPrefix = `${startedMarker}\n`
       const shArgs = ["sh", "-c", `printf '%s\\n' ${shellQuote(startedMarker)}; ${full}`]
       // `timeout` has second granularity, so round up to the enforced ceiling and

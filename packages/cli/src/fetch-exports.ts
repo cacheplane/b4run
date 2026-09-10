@@ -1,5 +1,5 @@
 /**
- * The edge-safe runtime surface: everything needed to serve a Dawn app from a
+ * The edge-safe runtime surface: everything needed to serve a B4.run app from a
  * web-standard runtime. Excludes the CLI bin, the node HTTP server, the
  * dynamic discovery/loaders, tsx, and sqlite — callers supply `modules` (the
  * build-time manifest), `config`, and store instances instead, and anything
@@ -7,17 +7,17 @@
  * not there.
  *
  * `test/fetch-entry-purity.test.ts` bundles this entry and gates its module
- * graph: no `node:` import from any `@dawn-ai/cli` source, no sqlite, no tsx,
+ * graph: no `node:` import from any `@b4run/cli` source, no sqlite, no tsx,
  * no commander, and a pinned inventory of the `node:` specifiers still
- * reachable through upstream Dawn packages.
+ * reachable through upstream B4.run packages.
  *
- * Exposed as `@dawn-ai/cli/fetch`.
+ * Exposed as `@b4run/cli/fetch`.
  */
 
 /**
  * `seedRuntimeEnv` is for build-emitted edge entry points. On a runtime without
  * `process` (workerd without `nodejs_compat` — what this target emits),
- * `process.env` does not merely come back empty, it throws. Dawn reads env
+ * `process.env` does not merely come back empty, it throws. B4.run reads env
  * through `readRuntimeEnv`, which prefers `process.env` and falls back to what
  * this seeds, so an edge entry can supply the knobs that are configuration
  * rather than debug output — `OPENAI_BASE_URL` above all, which is how the
@@ -25,21 +25,21 @@
  */
 /**
  * `readRuntimeEnv` is the other half, and the emitted `stores.mjs` uses it: a
- * generated entry must read its own bindings the way Dawn does — `process.env`
+ * generated entry must read its own bindings the way B4.run does — `process.env`
  * first, the seeded map second — so the SAME file serves a Workers deploy (where
  * bindings arrive as `env` and there is no `process`) and a Node or Bun host
  * (where the host's second argument is not a bindings object at all and the
  * values live in the process environment).
  */
-export { type RuntimeEnv, readRuntimeEnv, seedDawnConfig, seedRuntimeEnv } from "@dawn-ai/core"
+export { type RuntimeEnv, readRuntimeEnv, seedB4Config, seedRuntimeEnv } from "@b4run/core"
 /**
  * Re-exported for build-emitted edge entry points: an edge bundle cannot keep
  * `createChatModel`'s default `import(specifier)` (a bundler cannot follow a
  * variable specifier), so the generated `app.mjs` seeds a map of static ones.
  * Adds no weight to this graph — `execute-route-core.ts` already imports
- * `@dawn-ai/langchain`.
+ * `@b4run/langchain`.
  */
-export { seedModelImporter } from "@dawn-ai/langchain"
+export { seedModelImporter } from "@b4run/langchain"
 export {
   createRuntimeFetchHandler,
   type RuntimeFetchHandler,
@@ -50,8 +50,8 @@ export type {
   RuntimeBootFallbacks,
 } from "./lib/runtime/execute-route-core.js"
 export {
+  type B4StaticModules,
   buildStaticRouteModule,
-  type DawnStaticModules,
   normalizeMiddlewareModule,
   normalizeThreadAccessModule,
   type StaticRouteModule,

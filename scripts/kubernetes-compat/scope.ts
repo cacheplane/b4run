@@ -22,8 +22,8 @@ export const KUBERNETES_COMPATIBILITY_PATHS = Object.freeze({
     "test/k8s-compat/",
     "test/k8s-smoke/",
     "packages/sandbox/",
-    "charts/dawn-app/",
-    "charts/dawn-sandbox-infra/",
+    "charts/b4-app/",
+    "charts/b4-sandbox-infra/",
   ]),
 })
 

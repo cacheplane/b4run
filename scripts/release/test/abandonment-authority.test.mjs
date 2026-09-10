@@ -251,7 +251,7 @@ function authorityFixture({
     },
     packageNames: PACKAGE_NAMES,
     environment: {
-      GITHUB_REPOSITORY: "cacheplane/dawnai",
+      GITHUB_REPOSITORY: "cacheplane/b4run",
       GITHUB_RUN_ID: String(RUN_ID),
       GITHUB_RUN_ATTEMPT: "1",
       GITHUB_ACTOR: "release-operator",

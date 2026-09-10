@@ -10,18 +10,18 @@ import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 
 // Count sqlite memory-store constructions at the seam resolve-memory.ts
-// actually calls: the default (no dawn.config.ts `memory.store`) path opens
+// actually calls: the default (no b4.config.ts `memory.store`) path opens
 // exactly one DatabaseSync via `sqliteMemoryStore`. The mock passes through
 // to the real implementation, so counting calls counts sqlite opens.
-vi.mock("@dawn-ai/memory", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@dawn-ai/memory")>()
+vi.mock("@b4run/memory", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@b4run/memory")>()
   return {
     ...actual,
     sqliteMemoryStore: vi.fn(actual.sqliteMemoryStore),
   }
 })
 
-import { sqliteMemoryStore } from "@dawn-ai/memory"
+import { sqliteMemoryStore } from "@b4run/memory"
 
 const cleanup: Array<() => Promise<void> | void> = []
 
@@ -30,10 +30,10 @@ afterEach(async () => {
 })
 
 async function fixtureApp(overrides: Record<string, string> = {}): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-lazy-memory-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-lazy-memory-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "lazy-memory-fixture", "type": "module" }\n',
     "src/app/probe/index.ts": "export const workflow = async (_input: unknown) => ({ ok: true })\n",
     ...overrides,
@@ -51,12 +51,12 @@ async function fixtureApp(overrides: Record<string, string> = {}): Promise<strin
 async function memoryAgentFixtureApp(): Promise<string> {
   const appRoot = await fixtureApp({
     "src/app/chat/index.ts": [
-      'import { agent } from "@dawn-ai/sdk"',
+      'import { agent } from "@b4run/sdk"',
       'export default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })',
       "",
     ].join("\n"),
     "src/app/chat/memory.ts": [
-      'import { defineMemory } from "@dawn-ai/sdk"',
+      'import { defineMemory } from "@b4run/sdk"',
       'import { z } from "zod"',
       "export default defineMemory({",
       '  kind: "semantic",',
@@ -66,7 +66,7 @@ async function memoryAgentFixtureApp(): Promise<string> {
       "",
     ].join("\n"),
   })
-  // `memory.ts` imports `zod` directly (not just via `@dawn-ai/sdk`'s
+  // `memory.ts` imports `zod` directly (not just via `@b4run/sdk`'s
   // re-exports) — make it resolvable from the tmpdir fixture the same way
   // load-memory.test.ts does for loadRouteMemory's own fixtures.
   await mkdir(join(appRoot, "node_modules"), { recursive: true })
@@ -78,7 +78,7 @@ async function memoryAgentFixtureApp(): Promise<string> {
   return appRoot
 }
 
-const memorySqlitePath = (appRoot: string) => join(appRoot, ".dawn", "memory.sqlite")
+const memorySqlitePath = (appRoot: string) => join(appRoot, ".b4", "memory.sqlite")
 
 async function getMemoryCandidates(
   handler: Awaited<ReturnType<typeof createRuntimeFetchHandler>>,
@@ -110,7 +110,7 @@ async function withAimock(fixtures: ReturnType<ReturnType<typeof script>["build"
 // ---------------------------------------------------------------------------
 
 describe("createRuntimeFetchHandler — lazy memory store", () => {
-  it("does not create .dawn/memory.sqlite for an app that never hits a memory route", async () => {
+  it("does not create .b4/memory.sqlite for an app that never hits a memory route", async () => {
     const appRoot = await fixtureApp()
     const handler = await createRuntimeFetchHandler({ appRoot })
     cleanup.push(() => handler.close())
@@ -122,7 +122,7 @@ describe("createRuntimeFetchHandler — lazy memory store", () => {
   // (2) First touch opens the store, on demand
   // -------------------------------------------------------------------
 
-  it("opens .dawn/memory.sqlite (and serves 200) on the first /memory/candidates hit", async () => {
+  it("opens .b4/memory.sqlite (and serves 200) on the first /memory/candidates hit", async () => {
     const appRoot = await fixtureApp()
     const handler = await createRuntimeFetchHandler({ appRoot })
     cleanup.push(() => handler.close())

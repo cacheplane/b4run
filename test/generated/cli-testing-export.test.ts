@@ -15,14 +15,14 @@ import { writeRegistryNpmrc } from "../harness/scaffold-packaging.js"
 const tempDirs: TrackedTempDir[] = []
 
 const CONSUMER_PACKAGES = [
-  "@dawn-ai/core",
-  "@dawn-ai/langchain",
-  "@dawn-ai/langgraph",
-  "@dawn-ai/permissions",
-  "@dawn-ai/sdk",
-  "@dawn-ai/sqlite-storage",
-  "@dawn-ai/workspace",
-  "@dawn-ai/cli",
+  "@b4run/core",
+  "@b4run/langchain",
+  "@b4run/langgraph",
+  "@b4run/permissions",
+  "@b4run/sdk",
+  "@b4run/sqlite-storage",
+  "@b4run/workspace",
+  "@b4run/cli",
 ] as const
 
 afterEach(async () => {
@@ -30,13 +30,13 @@ afterEach(async () => {
 })
 
 describe.each([
-  { subpath: "@dawn-ai/sdk/testing", label: "sdk" },
-  { subpath: "@dawn-ai/cli/testing", label: "cli" },
+  { subpath: "@b4run/sdk/testing", label: "sdk" },
+  { subpath: "@b4run/cli/testing", label: "cli" },
 ])("$subpath", ({ subpath, label }) => {
   test("registry consumers can import the published testing helpers", {
     timeout: 60_000,
   }, async () => {
-    const consumerDir = await createTrackedTempDir(`dawn-${label}-testing-`, tempDirs)
+    const consumerDir = await createTrackedTempDir(`b4-${label}-testing-`, tempDirs)
 
     await writeFile(
       join(consumerDir, "package.json"),
@@ -54,7 +54,7 @@ describe.each([
       [
         `import { expectError, expectMeta, expectOutput } from "${subpath}";`,
         "const passed = {",
-        '  appRoot: "/tmp/dawn-app",',
+        '  appRoot: "/tmp/b4-app",',
         "  durationMs: 1,",
         '  executionSource: "server",',
         '  finishedAt: "2026-04-13T00:00:01.000Z",',
@@ -68,7 +68,7 @@ describe.each([
         "expectOutput(passed, { profile: { tenant: 'acme' }, tags: ['alpha', 'beta'] });",
         "expectMeta(passed, { executionSource: 'server', mode: 'graph', routeId: '/support/[tenant]', routePath: 'src/app/support/[tenant]/index.ts' });",
         "const failed = {",
-        '  appRoot: "/tmp/dawn-app",',
+        '  appRoot: "/tmp/b4-app",',
         "  durationMs: 1,",
         "  error: { kind: 'execution_error', message: 'tenant acme exploded while rendering' },",
         '  executionSource: "server",',

@@ -1,3 +1,6 @@
+// This dated Dawn incident suite executes the exact pre-rename source.
+// Current incident file preservation is independently checked in b4-identity.test.mjs.
+
 import assert from "node:assert/strict"
 import {
   chmod,
@@ -19,13 +22,10 @@ import {
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
+import { importHistoricalReleaseModule } from "./support/frozen-history.mjs"
 
-import {
-  readPrivateEnvelope,
-  readTrackedReceipt,
-  writePrivateEnvelope,
-  writeTrackedReceipt,
-} from "../duplicate-draft-consolidation-files.mjs"
+const { readPrivateEnvelope, readTrackedReceipt, writePrivateEnvelope, writeTrackedReceipt } =
+  await importHistoricalReleaseModule("scripts/release/duplicate-draft-consolidation-files.mjs")
 
 const MAXIMUM_BYTES = 1024 * 1024
 const MAXIMUM_WRITE_BYTES = 96 * 1024 * 1024

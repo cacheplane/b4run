@@ -292,7 +292,7 @@ async function assertActualUiInputs(
 
 async function buildExampleBundle(appRelativePath: string): Promise<Bundle> {
   const graph = resolveAppGraph(appRelativePath)
-  const tempRoot = await mkdtemp(resolve(tmpdir(), "dawn-mermaid-ui-"))
+  const tempRoot = await mkdtemp(resolve(tmpdir(), "b4-mermaid-ui-"))
   const outdir = resolve(tempRoot, "bundle")
   try {
     const entrySource = await readFile(browserEntryPath, "utf8")
@@ -322,9 +322,9 @@ async function buildExampleBundle(appRelativePath: string): Promise<Bundle> {
       platform: "browser",
       plugins: [
         {
-          name: "dawn-resolved-mermaid",
+          name: "b4-resolved-mermaid",
           setup(context) {
-            context.onResolve({ filter: /^dawn-resolved-mermaid$/ }, () => ({
+            context.onResolve({ filter: /^b4-resolved-mermaid$/ }, () => ({
               path: graph.mermaidEntry,
             }))
           },
@@ -506,9 +506,9 @@ async function renderMarkdown(page: Page, content: string): Promise<void> {
   await page.evaluate((markdown) => {
     const harness = (
       window as Window & {
-        __dawnMermaidHarness?: { render(content: string): void }
+        __b4MermaidHarness?: { render(content: string): void }
       }
-    ).__dawnMermaidHarness
+    ).__b4MermaidHarness
     if (harness === undefined) throw new Error("browser harness unavailable")
     harness.render(markdown)
   }, content)
@@ -527,9 +527,9 @@ async function unmountHarness(page: Page): Promise<void> {
   await page.evaluate(() => {
     const harness = (
       window as Window & {
-        __dawnMermaidHarness?: { unmount(): void }
+        __b4MermaidHarness?: { unmount(): void }
       }
-    ).__dawnMermaidHarness
+    ).__b4MermaidHarness
     if (harness === undefined) throw new Error("browser harness unavailable")
     harness.unmount()
   })
@@ -581,9 +581,9 @@ async function runExampleCase(
       () =>
         typeof (
           window as Window & {
-            __dawnMermaidHarness?: { render?: unknown }
+            __b4MermaidHarness?: { render?: unknown }
           }
-        ).__dawnMermaidHarness?.render === "function",
+        ).__b4MermaidHarness?.render === "function",
     )
     await renderMarkdown(page, benignMarkdown)
     await assertVisibleDiagram(page, ["Start", "Done"])
@@ -688,16 +688,16 @@ test("chat keeps the browser prototype clean after architecture rendering", asyn
       async ({ marker, source }) => {
         const harness = (
           window as Window & {
-            __dawnMermaidHarness?: {
+            __b4MermaidHarness?: {
               renderMermaid(id: string, value: string): Promise<void>
             }
           }
-        ).__dawnMermaidHarness
+        ).__b4MermaidHarness
         if (harness === undefined) throw new Error("browser harness unavailable")
         const before = Object.hasOwn(Object.prototype, marker)
         let settled: "fulfilled" | "rejected" = "fulfilled"
         try {
-          await harness.renderMermaid("dawn-browser-architecture", source)
+          await harness.renderMermaid("b4-browser-architecture", source)
         } catch {
           settled = "rejected"
         }
@@ -717,7 +717,7 @@ test("chat keeps the browser prototype clean after configuration", async ({ brow
     const receipt = await page.evaluate((marker) => {
       const harness = (
         window as Window & {
-          __dawnMermaidHarness?: {
+          __b4MermaidHarness?: {
             inspectMermaidConfig(marker: string): {
               readonly markerAbsent: boolean
               readonly prototypeClean: boolean
@@ -725,7 +725,7 @@ test("chat keeps the browser prototype clean after configuration", async ({ brow
             initializeMermaid(config: Readonly<Record<string, unknown>>): void
           }
         }
-      ).__dawnMermaidHarness
+      ).__b4MermaidHarness
       if (harness === undefined) throw new Error("browser harness unavailable")
       const activeConfigBefore = harness.inspectMermaidConfig(marker)
       const objectPrototypeCleanBefore = !Object.hasOwn(Object.prototype, marker)
@@ -769,7 +769,7 @@ test("chat contains Mermaid sibling CSS inside the generated SVG", async ({ brow
       const parent = svg.parentElement
       if (parent === null) throw new Error("generated SVG has no parent")
       const sentinel = document.createElement("div")
-      sentinel.id = "dawn-css-sibling-sentinel"
+      sentinel.id = "b4-css-sibling-sentinel"
       sentinel.style.backgroundColor = "rgb(1, 2, 3)"
       sentinel.textContent = "CSS sibling sentinel"
       parent.insertBefore(sentinel, svg.nextSibling)

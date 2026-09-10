@@ -1,6 +1,11 @@
+// This dated Dawn incident suite executes the exact pre-rename source.
+// Current incident file preservation is independently checked in b4-identity.test.mjs.
+
 import assert from "node:assert/strict"
 import test from "node:test"
-import {
+import { importHistoricalReleaseModule } from "./support/frozen-history.mjs"
+
+const {
   canonicalConsolidationEnvelopeBytes,
   canonicalEventEnvelope,
   canonicalRecordSha256,
@@ -8,9 +13,11 @@ import {
   DUPLICATE_DRAFT_CONSOLIDATION_LIMITS,
   parseConsolidationEnvelope,
   parseJournalEventEnvelope,
-} from "../duplicate-draft-consolidation-schema.mjs"
-import { RELEASE_PAYLOAD_LIMITS } from "../limits.mjs"
-import { CANONICAL_RELEASE_PACKAGE_ORDER } from "../manifest.mjs"
+} = await importHistoricalReleaseModule("scripts/release/duplicate-draft-consolidation-schema.mjs")
+const { RELEASE_PAYLOAD_LIMITS } = await importHistoricalReleaseModule("scripts/release/limits.mjs")
+const { CANONICAL_RELEASE_PACKAGE_ORDER } = await importHistoricalReleaseModule(
+  "scripts/release/manifest.mjs",
+)
 
 const MEBIBYTE = 1024 * 1024
 const SHA = "0123456789abcdef0123456789abcdef01234567"

@@ -32,13 +32,13 @@ export function FinalCta() {
           Start building.
         </h2>
         <p className="mt-5 text-lg text-ink-muted leading-[30px] max-w-[48ch] mx-auto">
-          Scaffold a Dawn app, open the example, and see whether the shape fits your team in under
+          Scaffold a B4.run app, open the example, and see whether the shape fits your team in under
           five minutes.
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
-          <CopyCommand command="npm create dawn-ai-app@latest my-agent" />
+          <CopyCommand command="npm create b4-app@latest my-agent" />
           <a
-            href="https://github.com/cacheplane/dawnai"
+            href="https://github.com/cacheplane/b4run"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-sm font-medium text-ink hover:text-accent-saas transition-colors"

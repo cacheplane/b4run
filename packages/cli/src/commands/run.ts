@@ -24,9 +24,9 @@ interface RunOptions {
 export function registerRunCommand(program: Command, io: CommandIo): void {
   program
     .command("run <routePath>")
-    .description("Execute one Dawn route invocation")
-    .option("--cwd <path>", "Path to the Dawn app root or a child directory within it")
-    .option("--url <baseUrl>", "Invoke a Dawn route against a running Agent Server")
+    .description("Execute one B4.run route invocation")
+    .option("--cwd <path>", "Path to the B4.run app root or a child directory within it")
+    .option("--url <baseUrl>", "Invoke a B4.run route against a running Agent Server")
     .action(async (routePath: string, options: RunOptions) => {
       await runRunCommand(routePath, options, io)
     })
@@ -46,7 +46,7 @@ export async function runRunCommand(
 
     if ("status" in resolvedTarget && resolvedTarget.status === "failed") {
       writeResult(routePath, resolvedTarget, io)
-      throw new CommanderError(1, "dawn.run.failed", "")
+      throw new CommanderError(1, "b4.run.failed", "")
     }
 
     const target = resolvedTarget as ResolvedRouteTarget
@@ -68,7 +68,7 @@ export async function runRunCommand(
     writeResult(routePath, normalizedResult, io)
 
     if (normalizedResult.status === "failed") {
-      throw new CommanderError(1, "dawn.run.failed", "")
+      throw new CommanderError(1, "b4.run.failed", "")
     }
   } catch (error) {
     if (error instanceof CliError || error instanceof CommanderError) {

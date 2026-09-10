@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import type { AgentRunResult } from "@dawn-ai/testing"
+import type { AgentRunResult } from "@b4run/testing"
 import { describe, expect, it } from "vitest"
 import { createSafeRegexTester } from "../src/regex-safety.js"
 import { normalizeScore } from "../src/score.js"

@@ -11,18 +11,18 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })))
 })
 
-const VALID_ROUTE = `import type { RuntimeContext } from "@dawn-ai/sdk"
+const VALID_ROUTE = `import type { RuntimeContext } from "@b4run/sdk"
 export async function workflow(_input: unknown, _ctx: RuntimeContext) {
   return {}
 }
 `
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-check-codes-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-check-codes-"))
   tempDirs.push(appRoot)
   const appFiles = {
     "package.json": '{"type":"module"}\n',
-    "dawn.config.ts": "export default {};\n",
+    "b4.config.ts": "export default {};\n",
     "src/app/hello/index.ts": VALID_ROUTE,
     ...files,
   }
@@ -50,10 +50,10 @@ async function invoke(argv: readonly string[]) {
   return { exitCode, stderr: stderr.join(""), stdout: stdout.join("") }
 }
 
-describe("dawn check emits error codes", () => {
-  test("invalid delegation policy → [DAWN_E1004] with docs link", async () => {
+describe("b4 check emits error codes", () => {
+  test("invalid delegation policy → [B4_E1004] with docs link", async () => {
     const appRoot = await createFixtureApp({
-      "src/app/hello/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "src/app/hello/index.ts": `import { agent } from "@b4run/sdk"
 export default agent({
   model: "gpt-5-mini",
   tools: { approve: ["task"] },
@@ -63,19 +63,19 @@ export default agent({
     const result = await invoke(["check", "--cwd", appRoot])
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("Invalid delegation policy")
-    expect(result.stderr).toContain("[DAWN_E1004]")
-    expect(result.stderr).toContain("https://dawnai.org/docs/subagents#delegation-policy")
+    expect(result.stderr).toContain("[B4_E1004]")
+    expect(result.stderr).toContain("https://b4.run/docs/subagents#delegation-policy")
   })
 
   test("groups delegation diagnostics independently and reports each once", async () => {
     const appRoot = await createFixtureApp({
-      "src/app/hello/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "src/app/hello/index.ts": `import { agent } from "@b4run/sdk"
 export default agent({
   model: "gpt-5-mini",
   tools: { allow: ["task", "missingTool"] },
 } as any)
 `,
-      "src/app/other/index.ts": `import { agent } from "@dawn-ai/sdk"
+      "src/app/other/index.ts": `import { agent } from "@b4run/sdk"
 export default agent({
   model: "gpt-5-mini",
   tools: { approve: ["task"] },
@@ -87,31 +87,31 @@ export default agent({
 
     expect(result.exitCode).toBe(1)
     expect(result.stderr.match(/Invalid delegation policy/g)).toHaveLength(1)
-    expect(result.stderr.match(/\/hello: \[DAWN_E1004\] tools\.allow/g)).toHaveLength(1)
-    expect(result.stderr.match(/\/other: \[DAWN_E1004\] tools\.approve/g)).toHaveLength(1)
+    expect(result.stderr.match(/\/hello: \[B4_E1004\] tools\.allow/g)).toHaveLength(1)
+    expect(result.stderr.match(/\/other: \[B4_E1004\] tools\.approve/g)).toHaveLength(1)
     expect(result.stderr).not.toContain("Invalid tool scope")
-    expect(result.stderr).not.toContain("DAWN_E1001")
+    expect(result.stderr).not.toContain("B4_E1001")
   })
 
-  test("unknown build target → [DAWN_E1003] with docs link", async () => {
+  test("unknown build target → [B4_E1003] with docs link", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": 'export default { build: { targets: ["nonsense"] } };\n',
+      "b4.config.ts": 'export default { build: { targets: ["nonsense"] } };\n',
     })
     const result = await invoke(["check", "--cwd", appRoot])
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("Invalid build config")
-    expect(result.stderr).toContain("[DAWN_E1003]")
-    expect(result.stderr).toContain("https://dawnai.org/docs/deployment")
+    expect(result.stderr).toContain("[B4_E1003]")
+    expect(result.stderr).toContain("https://b4.run/docs/deployment")
   })
 
-  test("invalid sandbox config → [DAWN_E1002] with docs link", async () => {
+  test("invalid sandbox config → [B4_E1002] with docs link", async () => {
     const appRoot = await createFixtureApp({
-      "dawn.config.ts": 'export default { sandbox: { provider: { name: "bad" } } };\n',
+      "b4.config.ts": 'export default { sandbox: { provider: { name: "bad" } } };\n',
     })
     const result = await invoke(["check", "--cwd", appRoot])
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("Invalid sandbox config")
-    expect(result.stderr).toContain("[DAWN_E1002]")
-    expect(result.stderr).toContain("https://dawnai.org/docs/configuration#sandbox")
+    expect(result.stderr).toContain("[B4_E1002]")
+    expect(result.stderr).toContain("https://b4.run/docs/configuration#sandbox")
   })
 })

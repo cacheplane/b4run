@@ -9,7 +9,7 @@ const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
 const CURRENT_PRODUCTION_SLUGS = [
   "eve-validates-the-shape",
   "app-router-for-ai-agents",
-  "why-we-built-dawn",
+  "why-we-built-b4",
 ] as const
 
 const nativeFetch = globalThis.fetch
@@ -57,7 +57,7 @@ describe("blog Open Graph images", () => {
     if (!generateForDate) return
 
     expect(generateForDate("2026-05-11")).toEqual([])
-    expect(generateForDate("2026-05-12")).toEqual([{ slug: "why-we-built-dawn" }])
+    expect(generateForDate("2026-05-12")).toEqual([{ slug: "why-we-built-b4" }])
     expect(generateForDate("2026-06-17").map(({ slug }) => slug)).not.toContain(
       "eve-validates-the-shape",
     )
@@ -67,7 +67,7 @@ describe("blog Open Graph images", () => {
     expect(generateForDate("2026-06-19").map(({ slug }) => slug)).toContain(
       "eve-validates-the-shape",
     )
-    expect(generateForDate("2026-08-26").map(({ slug }) => slug)).not.toContain("dawn-0-4-release")
+    expect(generateForDate("2026-08-26").map(({ slug }) => slug)).not.toContain("b4-0-4-release")
   })
 
   it("derives image params from visibility without depending on tags", () => {
@@ -119,8 +119,8 @@ describe("blog Open Graph images", () => {
   })
 
   it.each([
-    ["draft", "dawn-0-4-release"],
-    ["unknown", "not-a-dawn-blog-post"],
+    ["draft", "b4-0-4-release"],
+    ["unknown", "not-a-b4-blog-post"],
   ])("rejects a %s slug with real 404 semantics", async (_kind, slug) => {
     await expect(imageModule.default({ params: Promise.resolve({ slug }) })).rejects.toMatchObject({
       digest: "NEXT_HTTP_ERROR_FALLBACK;404",
@@ -129,7 +129,7 @@ describe("blog Open Graph images", () => {
 
   it("exports factual alt metadata for social-image discovery", () => {
     const { alt } = imageModule as ImageModule & { alt?: string }
-    expect(alt).toBe("Dawn blog post title, type, and publication date")
+    expect(alt).toBe("B4.run blog post title, type, and publication date")
   })
 
   it("bounds and fully renders a pathological long title", async () => {

@@ -6,60 +6,60 @@ const KEYWORD_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 
 const ROOT_HEADINGS = [
   "Quickstart",
-  "Why Dawn",
-  "How Dawn fits",
-  "What Dawn writes for you",
+  "Why B4.run",
+  "How B4.run fits",
+  "What B4.run writes for you",
   "What are you building?",
-  "When Dawn fits",
+  "When B4.run fits",
   "Build with a coding agent",
   "Run it live",
   "Maturity and support",
 ]
 
 const DEFAULT_PUBLIC_PACKAGE_TIERS = {
-  entry: ["create-dawn-ai-app", "@dawn-ai/sdk", "@dawn-ai/cli"],
+  entry: ["create-b4-app", "@b4run/sdk", "@b4run/cli"],
   capability: [
-    "@dawn-ai/ag-ui",
-    "@dawn-ai/evals",
-    "@dawn-ai/inspector",
-    "@dawn-ai/memory",
-    "@dawn-ai/memory-pgvector",
-    "@dawn-ai/permissions",
-    "@dawn-ai/postgres-storage",
-    "@dawn-ai/sandbox",
-    "@dawn-ai/sqlite-storage",
-    "@dawn-ai/testing",
-    "@dawn-ai/workspace",
+    "@b4run/ag-ui",
+    "@b4run/evals",
+    "@b4run/inspector",
+    "@b4run/memory",
+    "@b4run/memory-pgvector",
+    "@b4run/permissions",
+    "@b4run/postgres-storage",
+    "@b4run/sandbox",
+    "@b4run/sqlite-storage",
+    "@b4run/testing",
+    "@b4run/workspace",
   ],
   tooling: [
-    "@dawn-ai/core",
-    "@dawn-ai/langchain",
-    "@dawn-ai/langgraph",
-    "@dawn-ai/vite-plugin",
-    "@dawn-ai/devkit",
-    "@dawn-ai/config-biome",
-    "@dawn-ai/config-typescript",
+    "@b4run/core",
+    "@b4run/langchain",
+    "@b4run/langgraph",
+    "@b4run/vite-plugin",
+    "@b4run/devkit",
+    "@b4run/config-biome",
+    "@b4run/config-typescript",
   ],
 }
 
-const OLD_GIF_CAPTION = "Dawn quickstart — scaffold a route and invoke it in under a minute"
+const OLD_GIF_CAPTION = "B4.run quickstart — scaffold a route and invoke it in under a minute"
 const ROOT_LINK_CONTRACTS = {
   migration: {
     relative: new Set(["/docs/migrating-from-langgraph"]),
-    absolute: new Set(["https://dawnai.org/docs/migrating-from-langgraph"]),
+    absolute: new Set(["https://b4.run/docs/migrating-from-langgraph"]),
   },
   transcript: {
     relative: new Set(["docs/brand/demo/transcript.md", "./docs/brand/demo/transcript.md"]),
     absolute: new Set([
-      "https://github.com/cacheplane/dawnai/blob/main/docs/brand/demo/transcript.md",
+      "https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md",
     ]),
   },
 }
 
 const CANONICAL_ROOT_HERO = `<p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/dawn-logo-horizontal-white-on-black.png">
-    <img src="docs/brand/dawn-logo-horizontal-black-on-white.png" alt="Dawn" width="360">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/b4-logo-horizontal-white-on-black.png">
+    <img src="docs/brand/b4-logo-horizontal-black-on-white.png" alt="B4.run" width="360">
   </picture>
 </p>
 
@@ -67,35 +67,35 @@ const CANONICAL_ROOT_HERO = `<p align="center">
 
 # Build LangGraph agents like Next.js apps.
 
-Dawn adds file-system routes, shared and route-local tools, generated types,
+B4.run adds file-system routes, shared and route-local tools, generated types,
 deterministic tests, durable threads, and build targets around LangGraph.js.
 Keep the runtime. Drop the boilerplate.`
 
 const CANONICAL_ROOT_BADGES = `<p align="center">
-  <a href="https://www.npmjs.com/package/create-dawn-ai-app"><img src="https://img.shields.io/npm/v/create-dawn-ai-app?label=create-dawn-ai-app" alt="create-dawn-ai-app npm version"></a>
-  <a href="https://github.com/cacheplane/dawnai/actions/workflows/ci.yml"><img src="https://github.com/cacheplane/dawnai/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://www.npmjs.com/package/create-b4-app"><img src="https://img.shields.io/npm/v/create-b4-app?label=create-b4-app" alt="create-b4-app npm version"></a>
+  <a href="https://github.com/cacheplane/b4run/actions/workflows/ci.yml"><img src="https://github.com/cacheplane/b4run/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-111827.svg" alt="MIT license"></a>
-  <a href="https://github.com/cacheplane/dawnai/stargazers"><img src="https://img.shields.io/github/stars/cacheplane/dawnai" alt="GitHub stars"></a>
-  <a href="https://github.com/cacheplane/dawnai/actions/workflows/scorecard.yml"><img src="https://github.com/cacheplane/dawnai/actions/workflows/scorecard.yml/badge.svg" alt="OpenSSF Scorecard"></a>
+  <a href="https://github.com/cacheplane/b4run/stargazers"><img src="https://img.shields.io/github/stars/cacheplane/b4run" alt="GitHub stars"></a>
+  <a href="https://github.com/cacheplane/b4run/actions/workflows/scorecard.yml"><img src="https://github.com/cacheplane/b4run/actions/workflows/scorecard.yml/badge.svg" alt="OpenSSF Scorecard"></a>
 </p>`
 
 const CANONICAL_ROOT_NAVIGATION = `<p align="center">
-  <a href="https://dawnai.org/docs/getting-started">Get started</a> ·
-  <a href="https://dawnai.org/docs/migrating-from-langgraph">Migrate from LangGraph.js</a> ·
-  <a href="https://dawnai.org/docs">Documentation</a> ·
-  <a href="https://github.com/cacheplane/dawnai/discussions">Discussions</a>
+  <a href="https://b4.run/docs/getting-started">Get started</a> ·
+  <a href="https://b4.run/docs/migrating-from-langgraph">Migrate from LangGraph.js</a> ·
+  <a href="https://b4.run/docs">Documentation</a> ·
+  <a href="https://github.com/cacheplane/b4run/discussions">Discussions</a>
 </p>`
 
 const CANONICAL_PRODUCT_LOOP_BLOCK = `<p align="center">
-  <a href="https://dawnai.org/#product-loop">
-    <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the Dawn Workbench" width="900">
+  <a href="https://b4.run/#product-loop">
+    <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench" width="900">
   </a>
 </p>`
 
 const CANONICAL_QUICKSTART_BLOCK = `Requires Node.js 24 or later.
 
 \`\`\`bash
-npm create dawn-ai-app@latest my-agent
+npm create b4-app@latest my-agent
 cd my-agent
 npm install
 npm test
@@ -106,7 +106,7 @@ const CANONICAL_TRANSCRIPT_LINK =
 const CANONICAL_FINAL_CTA = `Ready to start?
 
 \`\`\`bash
-npm create dawn-ai-app@latest my-agent
+npm create b4-app@latest my-agent
 \`\`\``
 const CANONICAL_LICENSE_SECTION = "## License\n\nMIT. See [LICENSE](./LICENSE)."
 const CANONICAL_PROVIDER_CREDENTIAL_GUIDANCE = `Credentials are provider-specific: the published research starter's OpenAI live
@@ -920,7 +920,7 @@ function markdownLinkPresent(source, contract) {
 }
 
 function canonicalScaffoldCommandPresent(source) {
-  return /(?:^|[\s`$>])npm create dawn-ai-app@latest my-agent(?=$|[\s`'";|&])/mu.test(source)
+  return /(?:^|[\s`$>])npm create b4-app@latest my-agent(?=$|[\s`'";|&])/mu.test(source)
 }
 
 function universalCredentialClaimPresent(source) {
@@ -958,25 +958,23 @@ function validateCanonicalRootReadme(readme, withoutComments, visibleMarkdown, v
     .map((match) => match[1] ?? match[2] ?? match[3])
     .filter(
       (source) =>
-        source !== "docs/brand/dawn-logo-horizontal-black-on-white.png" &&
+        source !== "docs/brand/b4-logo-horizontal-black-on-white.png" &&
         source !== "docs/brand/product-loop.gif",
     )
   const firstScrollMarkdownImages = markdownImageDestinations(firstScrollMarkdown).filter(
     (destination) =>
-      ![
-        "docs/brand/dawn-logo-horizontal-black-on-white.png",
-        "docs/brand/product-loop.gif",
-      ].includes(destination.split(/[?#]/u, 1)[0]),
+      !["docs/brand/b4-logo-horizontal-black-on-white.png", "docs/brand/product-loop.gif"].includes(
+        destination.split(/[?#]/u, 1)[0],
+      ),
   )
   const firstScrollReferenceImages = markdownReferenceImageDestinations(
     firstScrollMarkdown,
     definitions,
   ).filter(
     (destination) =>
-      ![
-        "docs/brand/dawn-logo-horizontal-black-on-white.png",
-        "docs/brand/product-loop.gif",
-      ].includes(destination.split(/[?#]/u, 1)[0]),
+      !["docs/brand/b4-logo-horizontal-black-on-white.png", "docs/brand/product-loop.gif"].includes(
+        destination.split(/[?#]/u, 1)[0],
+      ),
   )
   if (
     firstScrollImages.length +
@@ -1008,7 +1006,7 @@ function validateCanonicalRootReadme(readme, withoutComments, visibleMarkdown, v
     failures.push("README must contain exactly four canonical hero navigation links")
   }
 
-  const firstCommand = withoutComments.indexOf("npm create dawn-ai-app@latest my-agent")
+  const firstCommand = withoutComments.indexOf("npm create b4-app@latest my-agent")
   const productLoopGif = withoutComments.indexOf("docs/brand/product-loop.gif")
   if (firstCommand === -1 || productLoopGif === -1 || firstCommand >= productLoopGif) {
     failures.push("README must put the first scaffold command before the product-loop GIF")
@@ -1166,7 +1164,7 @@ export function validateRootReadme(source, options = {}) {
   const visible = visibleBlockProjections(readme)
   if (!canonicalScaffoldCommandPresent(withoutComments)) {
     failures.push(
-      "README is missing the canonical scaffold command: npm create dawn-ai-app@latest my-agent",
+      "README is missing the canonical scaffold command: npm create b4-app@latest my-agent",
     )
   }
   if (!productLoopImagePresent(visible.markdown, visible.rendered)) {

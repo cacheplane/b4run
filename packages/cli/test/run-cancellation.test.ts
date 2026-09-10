@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { createThreadsStore } from "@dawn-ai/sqlite-storage"
+import { createThreadsStore } from "@b4run/sqlite-storage"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
 
@@ -55,7 +55,7 @@ const BOOM_ROUTE = [
 // mark a thread "busy" — used to simulate a setup failure (e.g. a locked or
 // corrupted SQLite file) between claiming the run slot and starting the
 // stream, to prove the slot is released even then. Plain JS (no imports from
-// workspace packages): dawn.config.ts is loaded from a scratch tmp directory
+// workspace packages): b4.config.ts is loaded from a scratch tmp directory
 // with no node_modules, so it can only rely on what tsx can transpile inline.
 const FAULTY_THREADS_STORE_CONFIG = [
   "const threads = new Map()",
@@ -103,11 +103,11 @@ async function waitForFile(path: string, timeoutMs = 15_000): Promise<string> {
 }
 
 async function setupBlockingRoute(options: { readonly apSseHeartbeatIntervalMs?: number } = {}) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-run-cancellation-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-run-cancellation-"))
   cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
 
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "run-cancellation-fixture", "type": "module" }\n',
     "src/app/blocking/index.ts": BLOCKING_ROUTE,
     "src/app/boom/index.ts": BOOM_ROUTE,
@@ -153,11 +153,11 @@ async function setupBlockingRoute(options: { readonly apSseHeartbeatIntervalMs?:
  * never gets far enough to need them.
  */
 async function setupFaultyThreadsStore() {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-run-cancellation-faulty-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-run-cancellation-faulty-"))
   cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
 
   const files: Record<string, string> = {
-    "dawn.config.ts": FAULTY_THREADS_STORE_CONFIG,
+    "b4.config.ts": FAULTY_THREADS_STORE_CONFIG,
     "package.json": '{ "name": "run-cancellation-faulty-fixture", "type": "module" }\n',
     "src/app/other/index.ts": OTHER_ROUTE,
   }
@@ -272,7 +272,7 @@ function runWaitRequest(
 
 // ---------------------------------------------------------------------------
 // Fixture: a thread parked on a real (checkpointer-backed) HITL interrupt, for
-// exercising /resume. The checkpointer is faked via dawn.config.ts — the same
+// exercising /resume. The checkpointer is faked via b4.config.ts — the same
 // mechanism packages/cli/test/resume-endpoint.test.ts uses to seed a pending
 // __interrupt__ — so readPendingInterrupts() sees a genuine pending interrupt
 // without needing a live agent-mode graph to produce one. The resumed route
@@ -324,14 +324,14 @@ function resumeBlockingRoute(startedFile: string, releaseFile: string): string {
 }
 
 async function setupResumeInterrupt(options: { readonly apSseHeartbeatIntervalMs?: number } = {}) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-run-cancellation-resume-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-run-cancellation-resume-"))
   cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
 
   const startedFile = join(appRoot, "resume-started.json")
   const releaseFile = join(appRoot, "resume-release.json")
 
   const files: Record<string, string> = {
-    "dawn.config.ts": RESUME_CHECKPOINTER_CONFIG,
+    "b4.config.ts": RESUME_CHECKPOINTER_CONFIG,
     "package.json": '{ "name": "run-cancellation-resume-fixture", "type": "module" }\n',
     "src/app/resume-blocking/index.ts": resumeBlockingRoute(startedFile, releaseFile),
   }
@@ -659,7 +659,7 @@ describe("AP concurrency gate", () => {
     const { handler, appRoot, startedFile, releaseFile, releaseRoute } = await setupBlockingRoute()
 
     const store = createThreadsStore({
-      path: join(appRoot, ".dawn/threads.sqlite"),
+      path: join(appRoot, ".b4/threads.sqlite"),
     })
     await store.createThread({ thread_id: "stale-thread" })
     await store.updateStatus("stale-thread", "busy")

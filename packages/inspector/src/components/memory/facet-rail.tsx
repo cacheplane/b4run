@@ -1,5 +1,5 @@
 "use client"
-import type { MemoryStats } from "@dawn-ai/memory"
+import type { MemoryStats } from "@b4run/memory"
 import { useId } from "react"
 
 export function FacetRail({

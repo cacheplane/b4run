@@ -1,5 +1,5 @@
 export type { PostgresCheckpointerOptions } from "./checkpointer.js"
-export { DawnPostgresSaver, postgresCheckpointer } from "./checkpointer.js"
+export { B4PostgresSaver, postgresCheckpointer } from "./checkpointer.js"
 export type { PostgresStoreOptions } from "./options.js"
 export type {
   PostgresPermissionsStore,

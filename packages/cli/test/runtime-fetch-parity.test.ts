@@ -3,7 +3,7 @@ import type { IncomingMessage } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { PassThrough } from "node:stream"
-import type { ThreadsStore } from "@dawn-ai/sqlite-storage"
+import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { afterEach, describe, expect, it, test, vi } from "vitest"
 import { handleAgUiFetchRequest } from "../src/lib/dev/agui-handler.js"
@@ -165,10 +165,10 @@ function fakeReq(init: {
 }
 
 async function fixtureApp(): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-fetch-parity-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-fetch-parity-"))
   cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "fetch-parity-fixture", "type": "module" }\n',
     // A slow non-agent route that records, at completion, whether its run
     // signal was aborted — the probe for disconnect-abort behavior.

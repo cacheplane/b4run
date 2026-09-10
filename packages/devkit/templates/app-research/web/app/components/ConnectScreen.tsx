@@ -3,8 +3,8 @@ import { neutralButton } from "./ui"
 export interface ConnectScreenProps {
   /**
    * The URL this client proxies to by default. Not read from an env var
-   * here — `DAWN_SERVER_URL` is server-side only (`api/copilotkit/[...path]/route.ts`,
-   * `api/dawn/[...path]/route.ts`), and a client component cannot read it.
+   * here — `B4_SERVER_URL` is server-side only (`api/copilotkit/[...path]/route.ts`,
+   * `api/b4/[...path]/route.ts`), and a client component cannot read it.
    * The app has no `NEXT_PUBLIC_` twin for it, and adding one just to label
    * this screen would be a second source of truth that can drift from the
    * real one — so the caller passes the same default those routes fall back
@@ -24,10 +24,10 @@ export interface ConnectScreenProps {
 }
 
 /** Exported so `ConnectScreen.test.tsx` asserts against the same string this renders, not a copy of it. */
-export const CONNECT_SCREEN_HEADING = "Can’t reach the Dawn server"
+export const CONNECT_SCREEN_HEADING = "Can’t reach the B4.run server"
 
 /**
- * Full-viewport first impression for "the Dawn server is not running yet".
+ * Full-viewport first impression for "the B4.run server is not running yet".
  *
  * Without this, the likeliest first run of this example — open the web app
  * before the agent server — showed an empty workbench and, on send, a run
@@ -45,11 +45,11 @@ export function ConnectScreen({ serverUrl, onRetry }: ConnectScreenProps) {
     <div className="flex h-dvh items-center justify-center bg-wb-bg px-6">
       <div className="max-w-md text-center">
         <span className="wb-brand-mark text-[15px] font-semibold tracking-tight">
-          Dawn research
+          B4.run research
         </span>
         <h1 className="mt-6 text-xl font-semibold tracking-tight">{CONNECT_SCREEN_HEADING}</h1>
         <p className="mt-3 text-sm leading-6 text-wb-muted">
-          If you haven&rsquo;t set <code className="text-[13px]">DAWN_SERVER_URL</code>, this client
+          If you haven&rsquo;t set <code className="text-[13px]">B4_SERVER_URL</code>, this client
           proxies to{" "}
           <code className="rounded-wb border border-wb-border bg-wb-surface px-1.5 py-0.5 text-[13px]">
             {serverUrl}

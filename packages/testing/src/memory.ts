@@ -1,5 +1,5 @@
-import type { MemoryRecord, MemoryStore } from "@dawn-ai/memory"
-import { sqliteMemoryStore } from "@dawn-ai/memory"
+import type { MemoryRecord, MemoryStore } from "@b4run/memory"
+import { sqliteMemoryStore } from "@b4run/memory"
 
 type SeedInput = Partial<MemoryRecord> &
   Pick<MemoryRecord, "id" | "namespace" | "content"> & {

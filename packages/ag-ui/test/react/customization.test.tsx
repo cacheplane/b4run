@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
 import { PlanActivityCard } from "../../src/react/PlanActivityCard.js"
-import type { DawnActivityClassNames } from "../../src/react/parts.js"
+import type { B4ActivityClassNames } from "../../src/react/parts.js"
 import { SubagentActivityCard } from "../../src/react/SubagentActivityCard.js"
 
 const PLAN = {
@@ -20,10 +20,10 @@ const SUBAGENT = {
 } as const
 
 /**
- * Every part in `DawnActivityClassNames`, each with a distinct consumer class,
+ * Every part in `B4ActivityClassNames`, each with a distinct consumer class,
  * so a render can be checked part-by-part instead of sampling a lucky few.
  */
-const EVERY_PART: Required<DawnActivityClassNames> = {
+const EVERY_PART: Required<B4ActivityClassNames> = {
   root: "my-root",
   header: "my-header",
   marker: "my-marker",
@@ -47,46 +47,46 @@ const EVERY_PART: Required<DawnActivityClassNames> = {
  * appended. Matching the whole attribute — not a substring — is what proves the
  * default survives rather than being replaced.
  */
-const APPENDED_ATTRIBUTE: Record<keyof DawnActivityClassNames, RegExp> = {
-  root: /class="dawn-activity my-root"/,
-  header: /class="dawn-activity__header my-header"/,
-  marker: /class="dawn-activity__marker my-marker"/,
-  title: /class="dawn-activity__title my-title"/,
-  meta: /class="dawn-activity__meta my-meta"/,
-  badge: /class="dawn-activity__badge my-badge"/,
-  section: /class="dawn-activity__section my-section"/,
-  sectionLabel: /class="dawn-activity__section-label my-section-label"/,
-  checklist: /class="dawn-activity__checklist my-checklist"/,
-  list: /class="dawn-activity__list my-list"/,
-  item: /class="dawn-activity__item dawn-activity__item--\w+ my-item"/,
-  itemGlyph: /class="dawn-activity__item-glyph my-item-glyph"/,
-  itemLabel: /class="dawn-activity__item-label my-item-label"/,
-  itemStatus: /class="dawn-activity__item-status my-item-status"/,
-  overflow: /class="dawn-activity__overflow my-overflow"/,
-  error: /class="dawn-activity__error my-error"/,
+const APPENDED_ATTRIBUTE: Record<keyof B4ActivityClassNames, RegExp> = {
+  root: /class="b4-activity my-root"/,
+  header: /class="b4-activity__header my-header"/,
+  marker: /class="b4-activity__marker my-marker"/,
+  title: /class="b4-activity__title my-title"/,
+  meta: /class="b4-activity__meta my-meta"/,
+  badge: /class="b4-activity__badge my-badge"/,
+  section: /class="b4-activity__section my-section"/,
+  sectionLabel: /class="b4-activity__section-label my-section-label"/,
+  checklist: /class="b4-activity__checklist my-checklist"/,
+  list: /class="b4-activity__list my-list"/,
+  item: /class="b4-activity__item b4-activity__item--\w+ my-item"/,
+  itemGlyph: /class="b4-activity__item-glyph my-item-glyph"/,
+  itemLabel: /class="b4-activity__item-label my-item-label"/,
+  itemStatus: /class="b4-activity__item-status my-item-status"/,
+  overflow: /class="b4-activity__overflow my-overflow"/,
+  error: /class="b4-activity__error my-error"/,
 }
 
 /** The default class a part emits, used to prove a card renders no such part. */
-const DEFAULT_CLASS: Record<keyof DawnActivityClassNames, string> = {
-  root: "dawn-activity",
-  header: "dawn-activity__header",
-  marker: "dawn-activity__marker",
-  title: "dawn-activity__title",
-  meta: "dawn-activity__meta",
-  badge: "dawn-activity__badge",
-  section: "dawn-activity__section",
-  sectionLabel: "dawn-activity__section-label",
-  checklist: "dawn-activity__checklist",
-  list: "dawn-activity__list",
-  item: "dawn-activity__item ",
-  itemGlyph: "dawn-activity__item-glyph",
-  itemLabel: "dawn-activity__item-label",
-  itemStatus: "dawn-activity__item-status",
-  overflow: "dawn-activity__overflow",
-  error: "dawn-activity__error",
+const DEFAULT_CLASS: Record<keyof B4ActivityClassNames, string> = {
+  root: "b4-activity",
+  header: "b4-activity__header",
+  marker: "b4-activity__marker",
+  title: "b4-activity__title",
+  meta: "b4-activity__meta",
+  badge: "b4-activity__badge",
+  section: "b4-activity__section",
+  sectionLabel: "b4-activity__section-label",
+  checklist: "b4-activity__checklist",
+  list: "b4-activity__list",
+  item: "b4-activity__item ",
+  itemGlyph: "b4-activity__item-glyph",
+  itemLabel: "b4-activity__item-label",
+  itemStatus: "b4-activity__item-status",
+  overflow: "b4-activity__overflow",
+  error: "b4-activity__error",
 }
 
-const ALL_PARTS = Object.keys(APPENDED_ATTRIBUTE) as Array<keyof DawnActivityClassNames>
+const ALL_PARTS = Object.keys(APPENDED_ATTRIBUTE) as Array<keyof B4ActivityClassNames>
 
 /** A plan long enough to overflow, with a completed and an active todo. */
 const OVERFLOWING_PLAN = {
@@ -173,7 +173,7 @@ describe("customization ladder", () => {
     // `::before` with no key; Chrome put its content in the summary's accessible
     // name, so the span must stay `aria-hidden` and stay first.
     const markerFirst =
-      /<summary class="dawn-activity__header[^"]*"><span aria-hidden="true" class="dawn-activity__marker/
+      /<summary class="b4-activity__header[^"]*"><span aria-hidden="true" class="b4-activity__marker/
     expect(
       renderToStaticMarkup(<PlanActivityCard content={PLAN} classNames={EVERY_PART} />),
     ).toMatch(markerFirst)
@@ -185,7 +185,7 @@ describe("customization ladder", () => {
 
   test("rung 2: omitted parts keep bare defaults", () => {
     const html = renderToStaticMarkup(<PlanActivityCard content={PLAN} />)
-    expect(html).toContain('class="dawn-activity"')
+    expect(html).toContain('class="b4-activity"')
     expect(html).not.toContain("undefined")
   })
 
@@ -197,7 +197,7 @@ describe("customization ladder", () => {
       />,
     )
     expect(html).toContain("<em>Search the corpus</em>")
-    expect(html).not.toContain("dawn-activity__item-glyph")
+    expect(html).not.toContain("b4-activity__item-glyph")
   })
 
   test("rung 3: a ToolRow slot replaces tool rows", () => {
@@ -229,7 +229,7 @@ describe("customization ladder", () => {
 
   test("status modifiers drive per-item styling hooks", () => {
     const html = renderToStaticMarkup(<PlanActivityCard content={PLAN} />)
-    expect(html).toContain("dawn-activity__item--completed")
-    expect(html).toContain("dawn-activity__item--in_progress")
+    expect(html).toContain("b4-activity__item--completed")
+    expect(html).toContain("b4-activity__item--in_progress")
   })
 })

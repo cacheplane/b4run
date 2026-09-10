@@ -7,7 +7,7 @@ Agent routes can opt into automatic retry of transient LLM failures via the `ret
 Set `retry` on the `agent()` descriptor:
 
 ```ts title="src/app/(public)/research/index.ts"
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -55,7 +55,7 @@ The non-stream fallback honors the configured `baseDelay`. The cap at 10 seconds
 
 ## Streaming behavior
 
-For streaming routes, retry only applies if the failure happens **before any token or event is yielded to the client**. The current streaming path starts retries with a 1-second base delay regardless of the configured `baseDelay`. Once content has streamed, the partial response is committed — Dawn cannot retry a partially-emitted stream because the client has already seen content. In that case the error propagates through the stream.
+For streaming routes, retry only applies if the failure happens **before any token or event is yielded to the client**. The current streaming path starts retries with a 1-second base delay regardless of the configured `baseDelay`. Once content has streamed, the partial response is committed — B4.run cannot retry a partially-emitted stream because the client has already seen content. In that case the error propagates through the stream.
 
 If you need stronger retry guarantees in streaming mode, wrap the call at a higher level in your client or use `/threads/:id/runs/wait` for operations where partial output is not useful.
 
@@ -92,6 +92,6 @@ There is no global retry config — each route states its own intent.
 <RelatedCards items={[
   { href: "/docs/routes", title: "Routes", subtitle: "agent() descriptor and the four route kinds" },
   { href: "/docs/tools", title: "Tools", subtitle: "tool error handling and the ctx.signal contract" },
-  { href: "/docs/deployment", title: "Deployment Options", subtitle: "how retry composes with dawn build output" },
+  { href: "/docs/deployment", title: "Deployment Options", subtitle: "how retry composes with b4 build output" },
   { href: "/docs/recipes/retry-flaky-tools", title: "Retry Transient Model Calls", subtitle: "recipe applying agent retry policies per route" },
 ]} />

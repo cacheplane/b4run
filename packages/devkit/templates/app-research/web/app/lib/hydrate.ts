@@ -8,7 +8,7 @@ import type { TranscriptMessage } from "./transcript.js"
  * call's args are announced as a real object from `on_chat_model_end`
  * (`packages/langchain/src/agent-adapter.ts:493`) OR, on the resume-replay
  * path, as the `{input}` shape LangGraph's own `on_tool_start` event carries
- * (`agent-adapter.ts:582`) — either way, `@dawn-ai/ag-ui`'s outbound layer
+ * (`agent-adapter.ts:582`) — either way, `@b4run/ag-ui`'s outbound layer
  * (`packages/ag-ui/src/outbound.ts`'s `stringifyArgs`) is what serializes that
  * to the JSON string the transcript's `ToolCallCard` receives. Tool results go
  * out as a serialized `ToolMessage` envelope the same way. The checkpoint has
@@ -36,7 +36,7 @@ import type { TranscriptMessage } from "./transcript.js"
  * here and this file could not read it".
  */
 
-/** The checkpointed plan. Structurally `DawnPlanActivityContent["todos"]`. */
+/** The checkpointed plan. Structurally `B4PlanActivityContent["todos"]`. */
 export interface HydratedTodo {
   readonly content: string
   readonly status: "pending" | "in_progress" | "completed"
@@ -65,7 +65,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * `contentText` in `packages/cli/src/lib/runtime/record-episode.ts`. Anthropic
  * models emit array content whenever a turn carries tool calls, so this is the
  * live hazard for `AIMessageChunk`. It is defence-in-depth for `ToolMessage`:
- * Dawn's own tool loop always produces a plain string via `unwrapToolResult`,
+ * B4.run's own tool loop always produces a plain string via `unwrapToolResult`,
  * but a checkpoint from a user's own model/tool wiring should not go blank
  * just because it didn't.
  */

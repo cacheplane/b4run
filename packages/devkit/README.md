@@ -1,40 +1,40 @@
-# @dawn-ai/devkit
+# @b4run/devkit
 
-Internal scaffold templates and generated-application test utilities shared by Dawn tooling.
+Internal scaffold templates and generated-application test utilities shared by B4.run tooling.
 
-**Use this when:** You are working on Dawn scaffold templates or generator tests. Application authors should run [`create-dawn-ai-app`](https://www.npmjs.com/package/create-dawn-ai-app) instead of importing this package.
+**Use this when:** You are working on B4.run scaffold templates or generator tests. Application authors should run [`create-b4-app`](https://www.npmjs.com/package/create-b4-app) instead of importing this package.
 
 ## Install
 
 ```bash
-pnpm add -D @dawn-ai/devkit
+pnpm add -D @b4run/devkit
 ```
 
 ## Example
 
 ```ts
-import { resolveTemplateDir } from "@dawn-ai/devkit"
+import { resolveTemplateDir } from "@b4run/devkit"
 
 const templateDir = await resolveTemplateDir("research")
 ```
 
-`resolveTemplateDir` accepts Dawn's supported `basic` and `research` template names and verifies that the bundled template directory exists.
+`resolveTemplateDir` accepts B4.run's supported `basic` and `research` template names and verifies that the bundled template directory exists.
 
 ## Runtime and stability
 
-`@dawn-ai/devkit` is a Node-only, internal tooling surface. It reads packaged templates and supports Dawn's own scaffold generation and generated-app tests; it is not an application runtime or author-facing SDK.
+`@b4run/devkit` is a Node-only, internal tooling surface. It reads packaged templates and supports B4.run's own scaffold generation and generated-app tests; it is not an application runtime or author-facing SDK.
 
 ## Related
 
-- [`create-dawn-ai-app`](https://www.npmjs.com/package/create-dawn-ai-app) — the supported scaffold command for application authors.
-- [`@dawn-ai/cli`](https://www.npmjs.com/package/@dawn-ai/cli) — development, verification, and build tooling for generated applications.
-- [API catalog entry](https://dawnai.org/docs/api#dawn-aidevkit) — audience and compatibility summary.
-- [Getting Started](https://dawnai.org/docs/getting-started) — scaffold and run a Dawn application.
+- [`create-b4-app`](https://www.npmjs.com/package/create-b4-app) — the supported scaffold command for application authors.
+- [`@b4run/cli`](https://www.npmjs.com/package/@b4run/cli) — development, verification, and build tooling for generated applications.
+- [API catalog entry](https://b4.run/docs/api#b4rundevkit) — audience and compatibility summary.
+- [Getting Started](https://b4.run/docs/getting-started) — scaffold and run a B4.run application.
 
 ## Maturity and support
 
-This package is pre-1.0 and releases in Dawn's fixed package group. Review the [changelog](https://github.com/cacheplane/dawnai/blob/main/packages/devkit/CHANGELOG.md) before upgrading. For support, [open an issue](https://github.com/cacheplane/dawnai/issues).
+This package is pre-1.0 and releases in B4.run's fixed package group. Review the [changelog](https://github.com/cacheplane/b4run/blob/main/packages/devkit/CHANGELOG.md) before upgrading. For support, [open an issue](https://github.com/cacheplane/b4run/issues).
 
 ## License
 
-MIT. See the [repository license](https://github.com/cacheplane/dawnai/blob/main/LICENSE).
+MIT. See the [repository license](https://github.com/cacheplane/b4run/blob/main/LICENSE).

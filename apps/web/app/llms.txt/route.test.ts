@@ -32,10 +32,10 @@ describe("compact LLM documentation route", () => {
 
     expect(start).toBeGreaterThanOrEqual(0)
     for (const [label, href] of EXPECTED_MAP_LINKS) {
-      expect(documentationMap).toContain(`- [${label}](https://dawnai.org${href})`)
+      expect(documentationMap).toContain(`- [${label}](https://b4.run${href})`)
     }
-    expect(documentationMap).toContain("[CLI Reference](https://dawnai.org/docs/cli)")
-    expect(documentationMap).toContain("[Embed the Runtime](https://dawnai.org/docs/embedding)")
+    expect(documentationMap).toContain("[CLI Reference](https://b4.run/docs/cli)")
+    expect(documentationMap).toContain("[Embed the Runtime](https://b4.run/docs/embedding)")
   })
 
   it("preserves the compact runtime exposure and cancellation warnings", async () => {
@@ -50,12 +50,12 @@ describe("compact LLM documentation route", () => {
 
   it("keeps the API hub compact instead of listing detailed reference leaves", async () => {
     const body = await (await GET()).text()
-    expect(body).toContain("https://dawnai.org/docs/api")
+    expect(body).toContain("https://b4.run/docs/api")
     for (const page of API_REFERENCE_PAGES) {
-      expect(body).not.toContain(`https://dawnai.org${page.href}`)
+      expect(body).not.toContain(`https://b4.run${page.href}`)
     }
     for (const href of FINAL_PR2_API_HREFS) {
-      expect(body).not.toContain(`https://dawnai.org${href}`)
+      expect(body).not.toContain(`https://b4.run${href}`)
     }
   })
 })

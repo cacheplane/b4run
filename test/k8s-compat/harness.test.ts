@@ -46,7 +46,7 @@ type Runner = (command: Command, options?: CommandExecutionOptions) => Promise<C
 
 const REPOSITORY_ROOT = resolve(__dirname, "../..")
 const RUN_ID = "123e4567-e89b-12d3-a456-426614174000"
-const CONTEXT = "kind-dawn"
+const CONTEXT = "kind-b4"
 const TARGET = "1.35"
 const ORCHESTRATOR_TOKEN = "sensitive-token-material"
 const NAMES = deriveClusterNames(RUN_ID)
@@ -121,7 +121,7 @@ function namespace(name: string, uid: string): unknown {
     metadata: {
       name,
       uid,
-      labels: { "dawn.sh/compat-run": RUN_ID },
+      labels: { "b4.run/compat-run": RUN_ID },
     },
   }
 }
@@ -156,20 +156,35 @@ async function nextEventLoopTurn(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve))
 }
 
-async function waitForHarnessFile(path: string): Promise<void> {
+async function waitForHarnessPid(
+  path: string,
+  readMarker: (path: string) => Promise<Buffer> = readFile,
+): Promise<number> {
+  let marker = "missing"
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
-      await readFile(path)
-      return
+      const text = (await readMarker(path)).toString("utf8").trim()
+      marker = text.length === 0 ? "empty" : JSON.stringify(text.slice(0, 128))
+      if (text.length > 0) {
+        const pid = Number(text)
+        if (!/^[1-9][0-9]*$/.test(text) || !validHarnessPid(pid))
+          throw new Error(`Invalid harness PID publication ${marker} at ${path}`)
+        return pid
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
-  throw new Error(`Timed out waiting for harness process marker ${path}`)
+  throw new Error(`Timed out waiting for valid harness PID at ${path}; marker=${marker}`)
+}
+
+function validHarnessPid(pid: number): boolean {
+  return Number.isSafeInteger(pid) && pid > 1 && pid <= 2147483647 && pid !== process.pid
 }
 
 function processIsRunning(pid: number): boolean {
+  if (!validHarnessPid(pid)) throw new Error(`Invalid harness PID probe ${pid}`)
   try {
     process.kill(pid, 0)
     return true
@@ -179,18 +194,62 @@ function processIsRunning(pid: number): boolean {
   }
 }
 
-async function stopHarnessProcess(pidPath: string): Promise<void> {
-  let pid: number
-  try {
-    pid = Number(await readFile(pidPath, "utf8"))
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
-    throw error
-  }
-  if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid || !processIsRunning(pid))
-    return
+async function stopHarnessProcess(pid: number | undefined): Promise<void> {
+  if (pid === undefined || !validHarnessPid(pid) || !processIsRunning(pid)) return
   process.kill(pid, "SIGKILL")
 }
+
+test("PID readiness waits behind empty-marker publication before returning the exact PID", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "b4-harness-pid-readiness-"))
+  const path = join(directory, "pid")
+  const emptyRead = deferred()
+  const expected = process.pid + 1
+  let settled = false
+  await writeFile(path, "")
+  const ready = waitForHarnessPid(path, async (file) => {
+    const bytes = await readFile(file)
+    if (bytes.length === 0) emptyRead.resolve()
+    return bytes
+  }).then((pid) => {
+    settled = true
+    return pid
+  })
+  try {
+    await emptyRead.promise
+    await nextEventLoopTurn()
+    expect(settled).toBe(false)
+    await writeFile(path, String(expected))
+    expect(await ready).toBe(expected)
+  } finally {
+    await writeFile(path, String(expected))
+    await ready
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test.each([
+  "0",
+  "1",
+  "-2",
+  "NaN",
+  "Infinity",
+  "1e3",
+  "2147483648",
+  "9007199254740992",
+  String(process.pid),
+])("PID readiness rejects invalid publication %s without probing a process", async (value) => {
+  const directory = await mkdtemp(join(tmpdir(), "b4-harness-invalid-pid-"))
+  const path = join(directory, "pid")
+  const kill = vi.spyOn(process, "kill")
+  try {
+    await writeFile(path, value)
+    await expect(waitForHarnessPid(path)).rejects.toThrow(/invalid.*PID/i)
+    expect(kill).not.toHaveBeenCalled()
+  } finally {
+    kill.mockRestore()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 interface FixtureOptions {
   readonly failAt?: string
@@ -328,6 +387,10 @@ function createHarnessFixture(options: FixtureOptions = {}): HarnessFixture {
         finish(): void {
           mark("provider.finish")
         },
+        async dispose(): Promise<void> {
+          await Promise.resolve()
+          mark("provider.dispose")
+        },
       }
     },
     assertStepAccounting: (expected, observed) => {
@@ -438,7 +501,7 @@ describe("Kubernetes compatibility CLI parser", () => {
         "--target",
         "1.35",
         "--context",
-        "kind-dawn",
+        "kind-b4",
         "--storage-class",
         "standard-rwo",
         "--keep-on-failure",
@@ -447,7 +510,7 @@ describe("Kubernetes compatibility CLI parser", () => {
       kind: "run",
       options: {
         target: "1.35",
-        context: "kind-dawn",
+        context: "kind-b4",
         storageClass: "standard-rwo",
         keepOnFailure: true,
       },
@@ -458,34 +521,25 @@ describe("Kubernetes compatibility CLI parser", () => {
   test.each([
     ["missing all required flags", []],
     ["missing context", ["--target", "1.35"]],
-    ["missing target", ["--context", "kind-dawn"]],
-    ["unknown flag", ["--target", "1.35", "--context", "kind-dawn", "--namespace", "x"]],
-    ["target duplicate", ["--target", "1.35", "--target", "1.35", "--context", "kind-dawn"]],
+    ["missing target", ["--context", "kind-b4"]],
+    ["unknown flag", ["--target", "1.35", "--context", "kind-b4", "--namespace", "x"]],
+    ["target duplicate", ["--target", "1.35", "--target", "1.35", "--context", "kind-b4"]],
     ["context duplicate", ["--target", "1.35", "--context", "a", "--context", "b"]],
     [
       "storage duplicate",
-      [
-        "--target",
-        "1.35",
-        "--context",
-        "kind-dawn",
-        "--storage-class",
-        "a",
-        "--storage-class",
-        "b",
-      ],
+      ["--target", "1.35", "--context", "kind-b4", "--storage-class", "a", "--storage-class", "b"],
     ],
     [
       "boolean duplicate",
-      ["--target", "1.35", "--context", "kind-dawn", "--keep-on-failure", "--keep-on-failure"],
+      ["--target", "1.35", "--context", "kind-b4", "--keep-on-failure", "--keep-on-failure"],
     ],
-    ["missing target value", ["--target", "--context", "kind-dawn"]],
+    ["missing target value", ["--target", "--context", "kind-b4"]],
     ["missing context value", ["--target", "1.35", "--context"]],
-    ["missing storage value", ["--target", "1.35", "--context", "kind-dawn", "--storage-class"]],
-    ["positional argument", ["--target", "1.35", "--context", "kind-dawn", "extra"]],
-    ["boolean value", ["--target", "1.35", "--context", "kind-dawn", "--keep-on-failure", "true"]],
-    ["unsupported target", ["--target", "1.33", "--context", "kind-dawn"]],
-    ["help with run flags", ["--help", "--target", "1.35", "--context", "kind-dawn"]],
+    ["missing storage value", ["--target", "1.35", "--context", "kind-b4", "--storage-class"]],
+    ["positional argument", ["--target", "1.35", "--context", "kind-b4", "extra"]],
+    ["boolean value", ["--target", "1.35", "--context", "kind-b4", "--keep-on-failure", "true"]],
+    ["unsupported target", ["--target", "1.33", "--context", "kind-b4"]],
+    ["help with run flags", ["--help", "--target", "1.35", "--context", "kind-b4"]],
     ["duplicate help", ["--help", "--help"]],
   ])("rejects %s", (_case, argv) => {
     expect(() => parseKubernetesCompatibilityArgs(argv)).toThrow(KubernetesCompatibilityUsageError)
@@ -497,7 +551,7 @@ describe("Kubernetes compatibility CLI parser", () => {
     let stderr = ""
 
     const exitCode = await runKubernetesCompatibilityMain(
-      ["--target", "1.35", "--context", "kind-dawn", "--unknown"],
+      ["--target", "1.35", "--context", "kind-b4", "--unknown"],
       {
         loadPolicy,
         preflight,
@@ -608,6 +662,7 @@ describe("portable compatibility lifecycle", () => {
       "probe.app.service-ready.after-application-upgrade",
       "provider.finish",
       "probe.accounting",
+      "provider.dispose",
       "report.persist",
       "cleanup.verify",
       "network.cleanup",
@@ -645,7 +700,7 @@ describe("portable compatibility lifecycle", () => {
       kind: "Namespace",
       metadata: {
         name: NAMES.managementNamespace,
-        labels: { "dawn.sh/compat-run": RUN_ID },
+        labels: { "b4.run/compat-run": RUN_ID },
       },
     })
 
@@ -683,7 +738,7 @@ describe("portable compatibility lifecycle", () => {
         file: "pnpm",
         args: [
           "--filter",
-          "@dawn-ai/sandbox",
+          "@b4run/sandbox",
           "exec",
           "vitest",
           "--run",
@@ -702,11 +757,11 @@ describe("portable compatibility lifecycle", () => {
       expect(call.options?.terminateProcessTree).toBe(true)
       expect(call.options?.sensitiveOutput).toBe(true)
       expect(call.options?.env).toMatchObject({
-        DAWN_TEST_K8S: "1",
-        DAWN_TEST_K8S_NS: NAMES.sandboxNamespace,
-        DAWN_TEST_K8S_IMAGE: POLICY.images.sandboxWorkload,
-        DAWN_TEST_K8S_STORAGE_CLASS: "standard",
-        DAWN_TEST_K8S_EGRESS_CONTROL_URL: `http://network.${NAMES.sandboxNamespace}.svc.cluster.local:8080/`,
+        B4_TEST_K8S: "1",
+        B4_TEST_K8S_NS: NAMES.sandboxNamespace,
+        B4_TEST_K8S_IMAGE: POLICY.images.sandboxWorkload,
+        B4_TEST_K8S_STORAGE_CLASS: "standard",
+        B4_TEST_K8S_EGRESS_CONTROL_URL: `http://network.${NAMES.sandboxNamespace}.svc.cluster.local:8080/`,
         KUBECONFIG: secure?.path,
       })
       expect(JSON.stringify({ command: call.command, env: call.options?.env })).not.toContain(
@@ -741,7 +796,7 @@ describe("portable compatibility lifecycle", () => {
       "utf8",
     )
 
-    expect(source).toContain('requiredLiveEnvironment("DAWN_TEST_K8S_STORAGE_CLASS")')
+    expect(source).toContain('requiredLiveEnvironment("B4_TEST_K8S_STORAGE_CLASS")')
     expect(source).toMatch(/kubernetesSandbox\(\{[^}]*storageClass:\s*STORAGE_CLASS/s)
   })
 
@@ -821,20 +876,20 @@ describe("portable compatibility lifecycle", () => {
             runChartCommand(
               "infrastructure.install",
               "install",
-              "charts/dawn-sandbox-infra",
+              "charts/b4-sandbox-infra",
               execute,
             ),
           upgradeInfrastructure: async ({ execute }) =>
             runChartCommand(
               "probe.upgrade.infrastructure",
               "upgrade",
-              "charts/dawn-sandbox-infra",
+              "charts/b4-sandbox-infra",
               execute,
             ),
           installApplication: async ({ execute }) =>
-            runChartCommand("application.install", "install", "charts/dawn-app", execute),
+            runChartCommand("application.install", "install", "charts/b4-app", execute),
           upgradeApplication: async ({ execute }) =>
-            runChartCommand("probe.upgrade.application", "upgrade", "charts/dawn-app", execute),
+            runChartCommand("probe.upgrade.application", "upgrade", "charts/b4-app", execute),
           sandboxSecretsEmpty: async ({ execute }) => {
             if (execute === undefined) throw new Error("Expected injected lifecycle executor")
             fixture.events.push("probe.namespace.sandbox-secrets-empty")
@@ -901,6 +956,7 @@ describe("failure boundaries and cleanup", () => {
     "probe.app.service-ready.after-application-upgrade",
     "provider.finish",
     "probe.accounting",
+    "provider.dispose",
   ] as const
 
   test.each(mutationBoundaries)("cleans safely when %s fails", async (boundary) => {
@@ -911,6 +967,7 @@ describe("failure boundaries and cleanup", () => {
     )
 
     expect(fixture.events).toContain("report.persist")
+    expect(fixture.events).toContain("provider.dispose")
     if (
       fixture.events.includes("management.create") ||
       fixture.events.includes("management.recover")
@@ -938,7 +995,7 @@ describe("failure boundaries and cleanup", () => {
     )
 
     expect(flattenErrorMessages(error)).toContain("management.create failed")
-    expect(fixture.events.slice(0, 8)).toEqual([
+    expect(fixture.events.slice(0, 9)).toEqual([
       "policy.load",
       "preflight",
       "permissions",
@@ -946,6 +1003,7 @@ describe("failure boundaries and cleanup", () => {
       "signal.register",
       "management.create",
       "management.recover",
+      "provider.dispose",
       "diagnostics.collect",
     ])
     const destructiveInput = fixture.cleanupInputs.at(-1) as {
@@ -995,7 +1053,7 @@ describe("failure boundaries and cleanup", () => {
             metadata: {
               name: NAMES.sandboxNamespace,
               uid: "sandbox-uid",
-              labels: { "dawn.sh/compat-run": "another-run" },
+              labels: { "b4.run/compat-run": "another-run" },
             },
           })
         }
@@ -1163,6 +1221,28 @@ describe("failure boundaries and cleanup", () => {
     expect(fixture.reports.at(-1)?.cleanup.status).toBe("failed")
   })
 
+  test("preserves the original failure alongside accounting disposal failure", async () => {
+    const fixture = createHarnessFixture({ failAt: "provider.account.provider-before-upgrade" })
+    const createSession = fixture.dependencies.createProviderAccountingSession
+    if (createSession === undefined) throw new Error("Missing fixture accounting factory")
+    const error = await runKubernetesCompatibility(OPTIONS, {
+      ...fixture.dependencies,
+      createProviderAccountingSession: async (options) => ({
+        ...(await createSession(options)),
+        async dispose() {
+          throw new Error("accounting descriptor close failed")
+        },
+      }),
+    }).catch((cause: unknown) => cause)
+    expect(flattenErrorMessages(error)).toEqual(
+      expect.arrayContaining([
+        "provider.account.provider-before-upgrade failed",
+        "accounting descriptor close failed",
+      ]),
+    )
+    expect(fixture.events).toContain("cleanup.destroy")
+  })
+
   test("accounts a provider report before destroying its directory even when later accounting fails", async () => {
     const fixture = createHarnessFixture({ failAt: "provider.account.provider-before-upgrade" })
 
@@ -1188,7 +1268,7 @@ describe("failure boundaries and cleanup", () => {
     const createTokenKubeconfig = vi.fn(async (): Promise<SecureTokenKubeconfig> => {
       tokenIndex += 1
       fixture.events.push(`token.create.${tokenIndex}`)
-      const directory = await mkdtemp(join(tmpdir(), "dawn-harness-provider-"))
+      const directory = await mkdtemp(join(tmpdir(), "b4-harness-provider-"))
       tokenDirectories.push(directory)
       return {
         directory,
@@ -1277,7 +1357,7 @@ describe("failure boundaries and cleanup", () => {
     const credentialValues = [
       "OPENAI_API_KEY=plain-api-key-value",
       "PASSWORD=hunter2",
-      "postgres://user:pass@db.internal/dawn",
+      "postgres://user:pass@db.internal/b4",
     ]
     const providerStderr = credentialValues.join("\n")
     const baseExecute = fixture.dependencies.execute as Runner
@@ -1560,11 +1640,13 @@ describe("signal cleanup", () => {
     "waits for confirmed detached provider descendants before token and cluster cleanup",
     async () => {
       const fixture = createHarnessFixture()
-      const directory = await mkdtemp(join(tmpdir(), "dawn-harness-provider-tree-"))
+      const directory = await mkdtemp(join(tmpdir(), "b4-harness-provider-tree-"))
       const pidPath = join(directory, "descendant-pid")
       const sentinelPath = join(directory, "descendant-sentinel")
       const emitter = new EventEmitter()
       const terminated = deferred()
+      let descendantPid: number | undefined
+      let run: Promise<unknown> | undefined
       const descendantScript = [
         'const { writeFileSync } = require("node:fs")',
         `writeFileSync(${JSON.stringify(pidPath)}, String(process.pid))`,
@@ -1589,9 +1671,12 @@ describe("signal cleanup", () => {
             options,
           )
         } finally {
-          const descendantPid = Number(await readFile(pidPath, "utf8"))
           fixture.events.push(
-            processIsRunning(descendantPid) ? "provider.tree.alive" : "provider.tree.confirmed",
+            descendantPid === undefined
+              ? "provider.tree.pid-unavailable"
+              : processIsRunning(descendantPid)
+                ? "provider.tree.alive"
+                : "provider.tree.confirmed",
           )
         }
       })
@@ -1599,7 +1684,7 @@ describe("signal cleanup", () => {
         fixture.dependencies
 
       try {
-        const run = runKubernetesCompatibility(OPTIONS, {
+        run = runKubernetesCompatibility(OPTIONS, {
           ...dependenciesWithoutFakeRegistration,
           execute,
           registerSignalCleanup: registerOwnedResourceSignalCleanup,
@@ -1613,13 +1698,19 @@ describe("signal cleanup", () => {
           },
         }).catch((error: unknown) => error)
 
-        await waitForHarnessFile(pidPath)
+        descendantPid = await waitForHarnessPid(pidPath)
         emitter.emit("SIGTERM")
         await terminated.promise
         const error = await run
 
-        expect(error).toBeInstanceOf(Error)
-        expect(fixture.events).toContain("provider.tree.confirmed")
+        const diagnostic = JSON.stringify({
+          descendantPid,
+          marker: await readFile(pidPath, "utf8").catch(() => "unavailable"),
+          errors: flattenErrorMessages(error),
+          events: fixture.events,
+        })
+        expect(error, diagnostic).toBeInstanceOf(Error)
+        expect(fixture.events, diagnostic).toContain("provider.tree.confirmed")
         expect(fixture.events).not.toContain("provider.tree.alive")
         expect(fixture.events.indexOf("provider.tree.confirmed")).toBeLessThan(
           fixture.events.indexOf("token.destroy.1"),
@@ -1628,7 +1719,11 @@ describe("signal cleanup", () => {
           fixture.events.indexOf("cleanup.destroy"),
         )
       } finally {
-        await stopHarnessProcess(pidPath)
+        if (run !== undefined) {
+          emitter.emit("SIGTERM")
+          await run
+        }
+        await stopHarnessProcess(descendantPid)
         await rm(directory, { recursive: true, force: true })
       }
     },
@@ -2326,7 +2421,7 @@ describe("failure reports and diagnostics", () => {
         metadata: {
           name: NAMES.sandboxNamespace,
           uid: "replacement-uid",
-          labels: { "dawn.sh/compat-run": RUN_ID },
+          labels: { "b4.run/compat-run": RUN_ID },
         },
       },
     },
@@ -2338,7 +2433,7 @@ describe("failure reports and diagnostics", () => {
         metadata: {
           name: NAMES.sandboxNamespace,
           uid: "sandbox-uid",
-          labels: { "dawn.sh/compat-run": "another-run" },
+          labels: { "b4.run/compat-run": "another-run" },
         },
       },
     },
@@ -2409,7 +2504,7 @@ describe("failure reports and diagnostics", () => {
       "PASSWORD=hunter2",
       "OPENAI_API_KEY=plain-api-key-value",
       "credential=opaque-value",
-      "postgres://ordinary-user:ordinary-password@db.internal/dawn",
+      "postgres://ordinary-user:ordinary-password@db.internal/b4",
       "Bearer plain-bearer-secret",
       "ordinary-non-jwt-credential",
     ]
@@ -2593,7 +2688,7 @@ describe("failure reports and diagnostics", () => {
       cleanup: { status: "failed" },
       diagnostics,
     }
-    const temporaryRepository = await mkdtemp(join(tmpdir(), "dawn-k8s-diagnostics-"))
+    const temporaryRepository = await mkdtemp(join(tmpdir(), "b4-k8s-diagnostics-"))
     try {
       const reportPath = await persistCompatibilityReport(
         temporaryRepository,

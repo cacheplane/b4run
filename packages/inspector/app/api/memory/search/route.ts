@@ -1,4 +1,4 @@
-import type { MemoryRecord } from "@dawn-ai/memory"
+import type { MemoryRecord } from "@b4run/memory"
 import { assertLocalRequest } from "../../../../src/store/guard"
 import { storeOr500 } from "../../../../src/store/resolve"
 

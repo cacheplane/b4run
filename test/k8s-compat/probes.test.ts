@@ -38,7 +38,7 @@ import {
 
 type JsonObject = Record<string, unknown>
 
-const context = "kind-dawn"
+const context = "kind-b4"
 const kubeconfig = "/secure/token-kubeconfig"
 const runId = "run-a"
 const names = deriveClusterNames(runId)
@@ -145,7 +145,7 @@ function expectRestrictedPod(
 ): void {
   expect(pod.kind).toBe("Pod")
   expect(metadata(pod).namespace).toBe(namespace)
-  expect(metadata(pod).labels).toMatchObject({ "dawn.sh/compat-run": runId })
+  expect(metadata(pod).labels).toMatchObject({ "b4.run/compat-run": runId })
   const spec = podSpec(pod)
   expect(spec.automountServiceAccountToken).toBe(false)
   expect(spec.securityContext).toMatchObject({
@@ -237,7 +237,7 @@ function reaperCronJob(
     apiVersion: "batch/v1",
     kind: "CronJob",
     metadata: {
-      name: "dawn-reaper",
+      name: "b4-reaper",
       namespace: names.sandboxNamespace,
       ...(uid !== null ? { uid } : {}),
     },
@@ -247,7 +247,7 @@ function reaperCronJob(
       jobTemplate: {
         spec: {
           template: {
-            metadata: { labels: { "app.kubernetes.io/name": "dawn-sandbox-infra" } },
+            metadata: { labels: { "app.kubernetes.io/name": "b4-sandbox-infra" } },
             spec: {
               restartPolicy: "Never",
               containers: [
@@ -291,7 +291,7 @@ function scheduledReaperJob(input: {
               {
                 apiVersion: "batch/v1",
                 kind: "CronJob",
-                name: "dawn-reaper",
+                name: "b4-reaper",
                 uid: ownerUid,
                 controller: true,
               },
@@ -353,7 +353,7 @@ function deploymentList(
     items: [
       {
         metadata: {
-          name: `${names.appRelease}-dawn-app`,
+          name: `${names.appRelease}-b4-app`,
           namespace: names.managementNamespace,
           labels: { "app.kubernetes.io/instance": names.appRelease },
         },
@@ -371,7 +371,7 @@ function serviceList(): JsonObject {
     items: [
       {
         metadata: {
-          name: `${names.appRelease}-dawn-app`,
+          name: `${names.appRelease}-b4-app`,
           namespace: names.managementNamespace,
           labels: { "app.kubernetes.io/instance": names.appRelease },
         },
@@ -401,7 +401,7 @@ interface ReaperRunnerOptions {
 }
 
 const scheduledJobsApiPath = `/apis/batch/v1/namespaces/${encodeURIComponent(names.sandboxNamespace)}/jobs`
-const reaperPvcSelector = `dawn.sh/compat-run=${runId},dawn.sh/compat-component=reaper-lifecycle`
+const reaperPvcSelector = `b4.run/compat-run=${runId},b4.run/compat-component=reaper-lifecycle`
 const reaperPvcsApiPath = `/api/v1/namespaces/${encodeURIComponent(names.sandboxNamespace)}/persistentvolumeclaims?labelSelector=${encodeURIComponent(reaperPvcSelector)}`
 const applicationSelector = `app.kubernetes.io/instance=${names.appRelease}`
 const deploymentsApiPath = `/apis/apps/v1/namespaces/${encodeURIComponent(names.managementNamespace)}/deployments?labelSelector=${encodeURIComponent(applicationSelector)}`
@@ -484,7 +484,7 @@ function createReaperRunner(options: ReaperRunnerOptions = {}): {
       if (cleanupCalls > 1 && options.cleanupError !== undefined) return options.cleanupError
       return {}
     }
-    if (command.args.includes("patch") && command.args.includes("cronjob/dawn-reaper")) {
+    if (command.args.includes("patch") && command.args.includes("cronjob/b4-reaper")) {
       patchCalls += 1
       if (patchCalls > 1 && options.restoreError !== undefined) return options.restoreError
       const patchIndex = command.args.indexOf("--patch")
@@ -507,7 +507,7 @@ function createReaperRunner(options: ReaperRunnerOptions = {}): {
       }
       return manifest
     }
-    if (command.args.includes("cronjob/dawn-reaper")) return currentCronJob()
+    if (command.args.includes("cronjob/b4-reaper")) return currentCronJob()
     if (isScheduledJobsRead(command)) {
       let jobs: readonly JsonObject[]
       if (options.jobSnapshots === undefined) {
@@ -565,7 +565,7 @@ function createReaperRunner(options: ReaperRunnerOptions = {}): {
       const observedFresh = structuredClone(fresh)
       if (options.markNew !== false) {
         metadata(observedFresh).annotations = {
-          "dawn.sh/unbound-since": options.newMarker ?? String(REAPER_TEST_EPOCH_SECONDS),
+          "b4.run/unbound-since": options.newMarker ?? String(REAPER_TEST_EPOCH_SECONDS),
         }
       }
       if (options.deletingNew === true) {
@@ -574,7 +574,7 @@ function createReaperRunner(options: ReaperRunnerOptions = {}): {
       const observedReferenced = structuredClone(referenced)
       metadata(observedReferenced).annotations =
         options.markReferenced === true
-          ? { "dawn.sh/unbound-since": String(REAPER_TEST_EPOCH_SECONDS) }
+          ? { "b4.run/unbound-since": String(REAPER_TEST_EPOCH_SECONDS) }
           : {}
       if (options.deletingReferenced === true) {
         metadata(observedReferenced).deletionTimestamp = "2033-05-18T03:33:20Z"
@@ -638,7 +638,7 @@ describe("positive and negative pod fixtures", () => {
       if (command.args.includes("get") && command.args.some((arg) => arg.startsWith("pod/"))) {
         return successPod(clientPod as JsonObject)
       }
-      if (command.args.includes("logs")) return "DAWN_NETWORK_CONTROL=reachable\n"
+      if (command.args.includes("logs")) return "B4_NETWORK_CONTROL=reachable\n"
       return {}
     })
 
@@ -656,14 +656,14 @@ describe("positive and negative pod fixtures", () => {
     expect(pods).toHaveLength(2)
     for (const pod of pods) expectRestrictedPod(pod, policy.images.sandboxWorkload)
     for (const manifest of manifests) {
-      expect(metadata(manifest).labels).toMatchObject({ "dawn.sh/compat-run": runId })
+      expect(metadata(manifest).labels).toMatchObject({ "b4.run/compat-run": runId })
     }
     const service = manifests.find((item) => item.kind === "Service")
     if (service === undefined) throw new Error("Expected network control Service manifest")
-    expect(metadata(service).labels).not.toHaveProperty("app.kubernetes.io/managed-by", "dawn")
+    expect(metadata(service).labels).not.toHaveProperty("app.kubernetes.io/managed-by", "b4")
     expect((service.spec as JsonObject).selector).not.toHaveProperty(
       "app.kubernetes.io/managed-by",
-      "dawn",
+      "b4",
     )
     const serverName = metadata(pods[0] as JsonObject).name
     const clientName = metadata(pods[1] as JsonObject).name
@@ -714,8 +714,8 @@ describe("positive and negative pod fixtures", () => {
       retainedCleanupCalls.map(([command]) => command.args[command.args.indexOf("--selector") + 1]),
     ).toEqual(
       expect.arrayContaining([
-        `dawn.sh/compat-run=${runId},dawn.sh/compat-component=${String(metadata(pods[0] as JsonObject).name)}`,
-        `dawn.sh/compat-run=${runId},dawn.sh/compat-component=${String(metadata(service).name)}`,
+        `b4.run/compat-run=${runId},b4.run/compat-component=${String(metadata(pods[0] as JsonObject).name)}`,
+        `b4.run/compat-run=${runId},b4.run/compat-component=${String(metadata(service).name)}`,
       ]),
     )
     const cleanupCalls = execute.mock.calls.filter(([command]) => command.args.includes("delete"))
@@ -746,7 +746,7 @@ describe("positive and negative pod fixtures", () => {
       if (command.args.includes("get") && command.args.some((arg) => arg.startsWith("pod/"))) {
         return successPod(clientPod as JsonObject)
       }
-      if (command.args.includes("logs")) return "DAWN_NETWORK_CONTROL=reachable\n"
+      if (command.args.includes("logs")) return "B4_NETWORK_CONTROL=reachable\n"
       return {}
     })
 
@@ -782,7 +782,7 @@ describe("positive and negative pod fixtures", () => {
     expect(succeededWaitIndex).toBeLessThan(liveSucceededReadIndex)
     expect(liveSucceededReadIndex).toBeLessThan(markerReadIndex)
     expect(clientCommand).toContain("response.statusCode===200")
-    expect(clientCommand).toContain('console.log("DAWN_NETWORK_CONTROL=reachable")')
+    expect(clientCommand).toContain('console.log("B4_NETWORK_CONTROL=reachable")')
     expect(clientCommand).toContain("process.exit(0)")
     expect(clientCommand).toContain("attempts>=30")
     expect(
@@ -803,13 +803,13 @@ describe("positive and negative pod fixtures", () => {
         return {
           exitCode: 1,
           body: forbidden(
-            'pods "quota-negative" is forbidden: exceeded quota: dawn-sandbox-quota, requested: requests.cpu=9',
+            'pods "quota-negative" is forbidden: exceeded quota: b4-sandbox-quota, requested: requests.cpu=9',
             {
               kind: "pods",
               causes: [
                 {
                   reason: "FieldValueForbidden",
-                  message: "exceeded quota: dawn-sandbox-quota, requested: requests.cpu=9",
+                  message: "exceeded quota: b4-sandbox-quota, requested: requests.cpu=9",
                 },
               ],
             },
@@ -921,7 +921,7 @@ describe("positive and negative pod fixtures", () => {
   test("scopes admission cleanup so retained network-control Pods survive later phases", async () => {
     const policy = await loadCompatibilityPolicy()
     const quotaStatus = forbidden(
-      'pods "probe" is forbidden: exceeded quota: dawn-sandbox-quota, requested: requests.cpu=9',
+      'pods "probe" is forbidden: exceeded quota: b4-sandbox-quota, requested: requests.cpu=9',
       { kind: "pods" },
     )
     const podSecurityStatus = forbidden(
@@ -959,13 +959,13 @@ describe("positive and negative pod fixtures", () => {
     await runLimitRangeProbe({ context, kubeconfig, runId, policy, execute: limitRange })
 
     expect(quota.mock.calls.at(-1)?.[0].args).toContain(
-      `dawn.sh/compat-run=${runId},dawn.sh/compat-component=quota-admission`,
+      `b4.run/compat-run=${runId},b4.run/compat-component=quota-admission`,
     )
     expect(restricted.mock.calls.at(-1)?.[0].args).toContain(
-      `dawn.sh/compat-run=${runId},dawn.sh/compat-component=restricted-admission`,
+      `b4.run/compat-run=${runId},b4.run/compat-component=restricted-admission`,
     )
     expect(limitRange.mock.calls.at(-1)?.[0].args).toContain(
-      `dawn.sh/compat-run=${runId},dawn.sh/compat-component=limit-range`,
+      `b4.run/compat-run=${runId},b4.run/compat-component=limit-range`,
     )
   })
 })
@@ -978,7 +978,7 @@ describe("same-candidate chart operations", () => {
       if (command.file === "helm" && command.args.includes("status")) {
         return helmStatus(names.sandboxRelease, revision)
       }
-      if (command.args.includes("cronjob/dawn-reaper")) return reaperCronJob(schedule)
+      if (command.args.includes("cronjob/b4-reaper")) return reaperCronJob(schedule)
       return {}
     })
 
@@ -996,7 +996,7 @@ describe("same-candidate chart operations", () => {
     const upgradeIndex = upgrade.args.indexOf("upgrade")
     expect(install.args[installIndex + 1]).toBe(names.sandboxRelease)
     expect(upgrade.args[upgradeIndex + 1]).toBe(names.sandboxRelease)
-    expect(install.args[installIndex + 2]).toBe("charts/dawn-sandbox-infra")
+    expect(install.args[installIndex + 2]).toBe("charts/b4-sandbox-infra")
     expect(upgrade.args[upgradeIndex + 2]).toBe(install.args[installIndex + 2])
     for (const command of [install, upgrade]) {
       expect(command.args).toEqual(
@@ -1006,7 +1006,7 @@ describe("same-candidate chart operations", () => {
           "--set-string",
           `namespace.name=${names.sandboxNamespace}`,
           "--set-string",
-          `namespace.extraLabels.dawn\\.sh/compat-run=${runId}`,
+          `namespace.extraLabels.b4\\.run/compat-run=${runId}`,
         ]),
       )
     }
@@ -1042,7 +1042,7 @@ describe("same-candidate chart operations", () => {
       ])
     }
     const cronChecks = execute.mock.calls.filter(([command]) =>
-      command.args.includes("cronjob/dawn-reaper"),
+      command.args.includes("cronjob/b4-reaper"),
     )
     expect(cronChecks).toHaveLength(2)
     for (const [command] of cronChecks) {
@@ -1050,7 +1050,7 @@ describe("same-candidate chart operations", () => {
         "--context",
         context,
         "get",
-        "cronjob/dawn-reaper",
+        "cronjob/b4-reaper",
         "--namespace",
         names.sandboxNamespace,
         "--output",
@@ -1063,7 +1063,7 @@ describe("same-candidate chart operations", () => {
     const execute = fakeRunner((command) =>
       command.file === "helm" && command.args.includes("status")
         ? helmStatus(names.sandboxRelease, 1)
-        : command.args.includes("cronjob/dawn-reaper")
+        : command.args.includes("cronjob/b4-reaper")
           ? reaperCronJob("18 * * * *")
           : {},
     )
@@ -1082,7 +1082,7 @@ describe("same-candidate chart operations", () => {
       const execute = fakeRunner((command) =>
         command.file === "helm" && command.args.includes("status")
           ? helmStatus(names.sandboxRelease, observedRevision)
-          : command.args.includes("cronjob/dawn-reaper")
+          : command.args.includes("cronjob/b4-reaper")
             ? reaperCronJob(observedSchedule)
             : {},
       )
@@ -1125,7 +1125,7 @@ describe("same-candidate chart operations", () => {
     const upgradeIndex = upgrade.args.indexOf("upgrade")
     expect(install.args[installIndex + 1]).toBe(names.appRelease)
     expect(upgrade.args[upgradeIndex + 1]).toBe(names.appRelease)
-    expect(install.args[installIndex + 2]).toBe("charts/dawn-app")
+    expect(install.args[installIndex + 2]).toBe("charts/b4-app")
     expect(upgrade.args[upgradeIndex + 2]).toBe(install.args[installIndex + 2])
     const [repository, digest] = policy.images.placeholderApp.split("@")
     for (const command of [install, upgrade]) {
@@ -1306,15 +1306,14 @@ describe("reaper and application Service probes", () => {
       await runReaperLifecycleProbe({ context, runId, policy, execute }, { delay, now })
 
       const patches = execute.mock.calls.filter(
-        ([command]) =>
-          command.args.includes("patch") && command.args.includes("cronjob/dawn-reaper"),
+        ([command]) => command.args.includes("patch") && command.args.includes("cronjob/b4-reaper"),
       )
       expect(patches).toHaveLength(2)
       expect(patches[0]?.[0].args).toEqual([
         "--context",
         context,
         "patch",
-        "cronjob/dawn-reaper",
+        "cronjob/b4-reaper",
         "--namespace",
         names.sandboxNamespace,
         "--type=merge",
@@ -1327,7 +1326,7 @@ describe("reaper and application Service probes", () => {
         "--context",
         context,
         "patch",
-        "cronjob/dawn-reaper",
+        "cronjob/b4-reaper",
         "--namespace",
         names.sandboxNamespace,
         "--type=merge",
@@ -1352,8 +1351,7 @@ describe("reaper and application Service probes", () => {
     expect(submitted).toHaveLength(0)
     expect(
       execute.mock.calls.filter(
-        ([command]) =>
-          command.args.includes("patch") && command.args.includes("cronjob/dawn-reaper"),
+        ([command]) => command.args.includes("patch") && command.args.includes("cronjob/b4-reaper"),
       ),
     ).toHaveLength(2)
   })
@@ -1361,7 +1359,7 @@ describe("reaper and application Service probes", () => {
   test("drains a late owned Job and observes a full new quiet period before fixtures", async () => {
     const policy = await loadCompatibilityPolicy()
     const lateJob = scheduledReaperJob({
-      name: "dawn-reaper-late",
+      name: "b4-reaper-late",
       uid: "44444444-4444-4444-8444-444444444444",
     })
     let submitted: readonly JsonObject[] = []
@@ -1397,7 +1395,7 @@ describe("reaper and application Service probes", () => {
     expect(pvcLists).toHaveLength(1)
     expect(pvcLists[0]?.[0].args).toEqual(["--context", context, "get", "--raw", reaperPvcsApiPath])
     const lateWaitIndex = runner.execute.mock.calls.findIndex(([command]) =>
-      command.args.includes("job/dawn-reaper-late"),
+      command.args.includes("job/b4-reaper-late"),
     )
     const lateWait = runner.execute.mock.calls[lateWaitIndex]
     expect(lateWait?.[0].args).toContain("--timeout=120s")
@@ -1409,7 +1407,7 @@ describe("reaper and application Service probes", () => {
     })
     expect(lateWaitIndex).toBeGreaterThan(-1)
     expect(lateWaitIndex).toBeLessThan(firstFixture)
-    const lateWaitTime = runner.scheduledWaitTimes.get("dawn-reaper-late")
+    const lateWaitTime = runner.scheduledWaitTimes.get("b4-reaper-late")
     const firstFixtureTime = runner.fixtureCreateTimes[0]
     expect(lateWaitTime).toEqual(expect.any(Number))
     expect(firstFixtureTime).toEqual(expect.any(Number))
@@ -1427,7 +1425,7 @@ describe("reaper and application Service probes", () => {
     [
       "name",
       (job: JsonObject) => {
-        metadata(job).name = "dawn-reaper-other"
+        metadata(job).name = "b4-reaper-other"
         return job
       },
     ],
@@ -1473,7 +1471,7 @@ describe("reaper and application Service probes", () => {
     async (_case, mutateJob) => {
       const policy = await loadCompatibilityPolicy()
       const matchingJob = scheduledReaperJob({
-        name: "dawn-reaper-active",
+        name: "b4-reaper-active",
         uid: "22222222-2222-4222-8222-222222222222",
       })
       const activeReference = activeJobReference(matchingJob)
@@ -1530,7 +1528,7 @@ describe("reaper and application Service probes", () => {
   test("treats completed owned Jobs as drained without waiting", async () => {
     const policy = await loadCompatibilityPolicy()
     const completed = scheduledReaperJob({
-      name: "dawn-reaper-completed",
+      name: "b4-reaper-completed",
       uid: "99999999-9999-4999-8999-999999999999",
       status: "complete",
     })
@@ -1545,14 +1543,14 @@ describe("reaper and application Service probes", () => {
     const listCalls = execute.mock.calls.filter(([command]) => isScheduledJobsRead(command))
     expect(listCalls.length).toBeGreaterThan(2)
     expect(
-      execute.mock.calls.some(([command]) => command.args.includes("job/dawn-reaper-completed")),
+      execute.mock.calls.some(([command]) => command.args.includes("job/b4-reaper-completed")),
     ).toBe(false)
   })
 
   test("fails explicitly when an owned scheduled Job has failed", async () => {
     const policy = await loadCompatibilityPolicy()
     const failed = scheduledReaperJob({
-      name: "dawn-reaper-failed",
+      name: "b4-reaper-failed",
       uid: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       status: "failed",
     })
@@ -1566,14 +1564,14 @@ describe("reaper and application Service probes", () => {
 
     expect(submitted).toHaveLength(0)
     expect(
-      execute.mock.calls.some(([command]) => command.args.includes("job/dawn-reaper-failed")),
+      execute.mock.calls.some(([command]) => command.args.includes("job/b4-reaper-failed")),
     ).toBe(false)
   })
 
   test("fails within a finite settlement budget when scheduled Jobs never quiesce", async () => {
     const policy = await loadCompatibilityPolicy()
     const unfinished = scheduledReaperJob({
-      name: "dawn-reaper-never-quiescent",
+      name: "b4-reaper-never-quiescent",
       uid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     })
     const { execute, submitted, delay, now } = createReaperRunner({
@@ -1592,8 +1590,7 @@ describe("reaper and application Service probes", () => {
     expect(submitted).toHaveLength(0)
     expect(
       execute.mock.calls.filter(
-        ([command]) =>
-          command.args.includes("patch") && command.args.includes("cronjob/dawn-reaper"),
+        ([command]) => command.args.includes("patch") && command.args.includes("cronjob/b4-reaper"),
       ),
     ).toHaveLength(2)
   })
@@ -1619,7 +1616,7 @@ describe("reaper and application Service probes", () => {
       expect(
         execute.mock.calls.filter(
           ([command]) =>
-            command.args.includes("patch") && command.args.includes("cronjob/dawn-reaper"),
+            command.args.includes("patch") && command.args.includes("cronjob/b4-reaper"),
         ),
       ).toHaveLength(2)
     },
@@ -1631,14 +1628,14 @@ describe("reaper and application Service probes", () => {
       {
         apiVersion: "batch/v1",
         kind: "Job",
-        name: "dawn-reaper-existing-a",
+        name: "b4-reaper-existing-a",
         namespace: names.sandboxNamespace,
         uid: "22222222-2222-4222-8222-222222222222",
       },
       {
         apiVersion: "batch/v1",
         kind: "Job",
-        name: "dawn-reaper-existing-b",
+        name: "b4-reaper-existing-b",
         namespace: names.sandboxNamespace,
         uid: "33333333-3333-4333-8333-333333333333",
       },
@@ -1649,10 +1646,10 @@ describe("reaper and application Service probes", () => {
 
     const calls = execute.mock.calls
     const cronReads = calls.flatMap(([command], index) =>
-      command.args.includes("get") && command.args.includes("cronjob/dawn-reaper") ? [index] : [],
+      command.args.includes("get") && command.args.includes("cronjob/b4-reaper") ? [index] : [],
     )
     const patches = calls.flatMap(([command], index) =>
-      command.args.includes("patch") && command.args.includes("cronjob/dawn-reaper") ? [index] : [],
+      command.args.includes("patch") && command.args.includes("cronjob/b4-reaper") ? [index] : [],
     )
     const firstFixture = calls.findIndex(([, options]) => {
       if (options?.stdin === undefined) return false
@@ -1694,7 +1691,7 @@ describe("reaper and application Service probes", () => {
       {
         apiVersion: "v1",
         kind: "Job",
-        name: "dawn-reaper-existing",
+        name: "b4-reaper-existing",
         namespace: names.sandboxNamespace,
         uid: "22222222-2222-4222-8222-222222222222",
       },
@@ -1704,7 +1701,7 @@ describe("reaper and application Service probes", () => {
       {
         apiVersion: "batch/v1",
         kind: "Pod",
-        name: "dawn-reaper-existing",
+        name: "b4-reaper-existing",
         namespace: names.sandboxNamespace,
         uid: "22222222-2222-4222-8222-222222222222",
       },
@@ -1714,7 +1711,7 @@ describe("reaper and application Service probes", () => {
       {
         apiVersion: "batch/v1",
         kind: "Job",
-        name: "dawn-reaper-existing",
+        name: "b4-reaper-existing",
         namespace: names.managementNamespace,
         uid: "22222222-2222-4222-8222-222222222222",
       },
@@ -1734,7 +1731,7 @@ describe("reaper and application Service probes", () => {
       {
         apiVersion: "batch/v1",
         kind: "Job",
-        name: "dawn-reaper-existing",
+        name: "b4-reaper-existing",
         namespace: names.sandboxNamespace,
         uid: "",
       },
@@ -1755,7 +1752,7 @@ describe("reaper and application Service probes", () => {
       expect(
         execute.mock.calls.filter(
           ([command]) =>
-            command.args.includes("patch") && command.args.includes("cronjob/dawn-reaper"),
+            command.args.includes("patch") && command.args.includes("cronjob/b4-reaper"),
         ),
       ).toHaveLength(2)
     },
@@ -1769,7 +1766,7 @@ describe("reaper and application Service probes", () => {
         {
           apiVersion: "batch/v1",
           kind: "Job",
-          name: "dawn-reaper-existing",
+          name: "b4-reaper-existing",
           namespace: names.sandboxNamespace,
           uid: "22222222-2222-4222-8222-222222222222",
         },
@@ -1790,8 +1787,7 @@ describe("reaper and application Service probes", () => {
     ).toHaveLength(1)
     expect(
       execute.mock.calls.filter(
-        ([command]) =>
-          command.args.includes("patch") && command.args.includes("cronjob/dawn-reaper"),
+        ([command]) => command.args.includes("patch") && command.args.includes("cronjob/b4-reaper"),
       ),
     ).toHaveLength(2)
   })
@@ -1824,8 +1820,8 @@ describe("reaper and application Service probes", () => {
     for (const claim of claims) {
       expect(metadata(claim).namespace).toBe(names.sandboxNamespace)
       expect(metadata(claim).labels).toMatchObject({
-        "app.kubernetes.io/managed-by": "dawn",
-        "dawn.sh/compat-run": runId,
+        "app.kubernetes.io/managed-by": "b4",
+        "b4.run/compat-run": runId,
       })
       expect((claim.spec as JsonObject).storageClassName).toBe("")
     }
@@ -1839,9 +1835,9 @@ describe("reaper and application Service probes", () => {
     expect(jobTemplate).toMatchObject({
       metadata: {
         labels: {
-          "app.kubernetes.io/name": "dawn-sandbox-infra",
-          "dawn.sh/compat-run": runId,
-          "dawn.sh/compat-component": "reaper-lifecycle",
+          "app.kubernetes.io/name": "b4-sandbox-infra",
+          "b4.run/compat-run": runId,
+          "b4.run/compat-component": "reaper-lifecycle",
         },
       },
       spec: {
@@ -1881,10 +1877,10 @@ describe("reaper and application Service probes", () => {
     expect(staleWait?.[1]?.timeoutMs).toBe(60_000)
     expect(metadata(job)).toMatchObject({
       namespace: names.sandboxNamespace,
-      labels: { "dawn.sh/compat-run": runId },
+      labels: { "b4.run/compat-run": runId },
     })
     expect(metadata((job.spec as JsonObject).template as JsonObject).labels).toMatchObject({
-      "dawn.sh/compat-run": runId,
+      "b4.run/compat-run": runId,
     })
 
     const cleanup = execute.mock.calls.filter(
@@ -1898,7 +1894,7 @@ describe("reaper and application Service probes", () => {
           "--namespace",
           names.sandboxNamespace,
           "--selector",
-          `dawn.sh/compat-run=${runId},dawn.sh/compat-component=reaper-lifecycle`,
+          `b4.run/compat-run=${runId},b4.run/compat-component=reaper-lifecycle`,
           "--ignore-not-found=true",
           "--wait=true",
         ]),
@@ -1989,7 +1985,7 @@ describe("reaper and application Service probes", () => {
     )
     expect(podContainer(submittedPod as JsonObject).args).toEqual(
       expect.arrayContaining([
-        `http://${names.appRelease}-dawn-app.${names.managementNamespace}.svc.cluster.local:80/`,
+        `http://${names.appRelease}-b4-app.${names.managementNamespace}.svc.cluster.local:80/`,
       ]),
     )
     const serviceCheck = execute.mock.calls.find(([command]) =>
@@ -2022,7 +2018,7 @@ describe("reaper and application Service probes", () => {
       ([command]) =>
         command.args.includes("delete") &&
         command.args.includes(
-          `dawn.sh/compat-run=${runId},dawn.sh/compat-component=app-service-ready`,
+          `b4.run/compat-run=${runId},b4.run/compat-component=app-service-ready`,
         ),
     )
     expect(cleanup).toHaveLength(4)
@@ -2059,13 +2055,13 @@ describe("reaper and application Service probes", () => {
 
 describe("structured rejection validation", () => {
   const quotaStatus = forbidden(
-    'pods "probe" is forbidden: exceeded quota: dawn-sandbox-quota, requested: requests.cpu=9',
+    'pods "probe" is forbidden: exceeded quota: b4-sandbox-quota, requested: requests.cpu=9',
     {
       kind: "pods",
       causes: [
         {
           reason: "FieldValueForbidden",
-          message: "exceeded quota: dawn-sandbox-quota, requested: requests.cpu=9",
+          message: "exceeded quota: b4-sandbox-quota, requested: requests.cpu=9",
         },
       ],
     },
@@ -2074,24 +2070,24 @@ describe("structured rejection validation", () => {
     'pods "probe" is forbidden: violates PodSecurity "restricted:latest": runAsNonRoot != true',
   )
   const rbacStatus = forbidden(
-    'roles.rbac.authorization.k8s.io "probe" is forbidden: User "system:serviceaccount:ns:dawn-orchestrator" cannot create resource "roles" in API group "rbac.authorization.k8s.io" in the namespace "ns"',
+    'roles.rbac.authorization.k8s.io "probe" is forbidden: User "system:serviceaccount:ns:b4-orchestrator" cannot create resource "roles" in API group "rbac.authorization.k8s.io" in the namespace "ns"',
   )
 
   test("accepts only quota-specific Forbidden Status objects", () => {
-    expect(() => assertQuotaRejection(quotaStatus, "dawn-sandbox-quota")).not.toThrow()
+    expect(() => assertQuotaRejection(quotaStatus, "b4-sandbox-quota")).not.toThrow()
     for (const invalid of [
       { ...quotaStatus, code: 404 },
       { ...quotaStatus, reason: "Unauthorized" },
       { ...quotaStatus, message: "exceeded quota: another-quota" },
       {
         ...quotaStatus,
-        message: "exceeded quota: dawn-sandbox-quota-shadow, requested: requests.cpu=9",
+        message: "exceeded quota: b4-sandbox-quota-shadow, requested: requests.cpu=9",
       },
       { ...quotaStatus, details: { causes: [{ message: "generic admission denial" }] } },
       pssStatus,
       "not-json",
     ]) {
-      expect(() => assertQuotaRejection(invalid, "dawn-sandbox-quota")).toThrow()
+      expect(() => assertQuotaRejection(invalid, "b4-sandbox-quota")).toThrow()
     }
   })
 
@@ -2099,19 +2095,19 @@ describe("structured rejection validation", () => {
     expect(() =>
       assertQuotaRejection(
         forbidden(
-          'pods "probe" is forbidden: exceeded quota: dawn-sandbox-quota, requested: requests.cpu=9',
+          'pods "probe" is forbidden: exceeded quota: b4-sandbox-quota, requested: requests.cpu=9',
           { name: "probe", kind: "pods" },
         ),
-        "dawn-sandbox-quota",
+        "b4-sandbox-quota",
       ),
     ).not.toThrow()
     expect(() =>
       assertQuotaRejection(
         forbidden(
-          'pods "probe" is forbidden: exceeded quota: dawn-sandbox-quota, requested: requests.cpu=9',
+          'pods "probe" is forbidden: exceeded quota: b4-sandbox-quota, requested: requests.cpu=9',
           { name: "probe", kind: "deployments" },
         ),
-        "dawn-sandbox-quota",
+        "b4-sandbox-quota",
       ),
     ).toThrow(/quota-specific/i)
   })
@@ -2232,10 +2228,10 @@ describe("probe command routing, evidence, and cleanup", () => {
       const pathIndex = command.args.indexOf("--raw") + 1
       const path = command.args[pathIndex] ?? ""
       const message = path.endsWith("/secrets")
-        ? `secrets is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:dawn-orchestrator" cannot list resource "secrets" in API group "" in the namespace "${names.sandboxNamespace}"`
+        ? `secrets is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:b4-orchestrator" cannot list resource "secrets" in API group "" in the namespace "${names.sandboxNamespace}"`
         : path.endsWith("/roles")
-          ? `roles.rbac.authorization.k8s.io is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:dawn-orchestrator" cannot create resource "roles" in API group "rbac.authorization.k8s.io" in the namespace "${names.sandboxNamespace}"`
-          : `networkpolicies.networking.k8s.io is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:dawn-orchestrator" cannot create resource "networkpolicies" in API group "networking.k8s.io" in the namespace "${names.managementNamespace}"`
+          ? `roles.rbac.authorization.k8s.io is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:b4-orchestrator" cannot create resource "roles" in API group "rbac.authorization.k8s.io" in the namespace "${names.sandboxNamespace}"`
+          : `networkpolicies.networking.k8s.io is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:b4-orchestrator" cannot create resource "networkpolicies" in API group "networking.k8s.io" in the namespace "${names.managementNamespace}"`
       return { exitCode: 1, body: forbidden(message) }
     })
 
@@ -2271,24 +2267,24 @@ describe("probe command routing, evidence, and cleanup", () => {
     const outside = stdinObject(requests[2]?.[1] ?? {})
     expect(metadata(role)).toMatchObject({
       namespace: names.sandboxNamespace,
-      labels: { "dawn.sh/compat-run": runId },
+      labels: { "b4.run/compat-run": runId },
     })
     expect(outside).toEqual({
       apiVersion: "networking.k8s.io/v1",
       kind: "NetworkPolicy",
       metadata: {
-        name: expect.stringMatching(/^dawn-compat-outside-namespace-rbac-probe-[0-9a-f]{8}$/),
+        name: expect.stringMatching(/^b4-compat-outside-namespace-rbac-probe-[0-9a-f]{8}$/),
         namespace: names.managementNamespace,
         labels: {
-          "dawn.sh/compat-run": runId,
-          "dawn.sh/compat-component": "outside-namespace-rbac-probe",
+          "b4.run/compat-run": runId,
+          "b4.run/compat-component": "outside-namespace-rbac-probe",
         },
       },
       spec: {
         podSelector: {
           matchLabels: {
-            "dawn.sh/compat-run": runId,
-            "dawn.sh/compat-component": "outside-namespace-rbac-probe",
+            "b4.run/compat-run": runId,
+            "b4.run/compat-component": "outside-namespace-rbac-probe",
           },
         },
         policyTypes: ["Ingress", "Egress"],
@@ -2304,7 +2300,7 @@ describe("probe command routing, evidence, and cleanup", () => {
         "--namespace",
         names.managementNamespace,
         "--selector",
-        `dawn.sh/compat-run=${runId},dawn.sh/compat-component=outside-namespace-rbac-probe`,
+        `b4.run/compat-run=${runId},b4.run/compat-component=outside-namespace-rbac-probe`,
         "--ignore-not-found=true",
         "--wait=true",
       ],
@@ -2323,7 +2319,7 @@ describe("probe command routing, evidence, and cleanup", () => {
         return {
           exitCode: 1,
           body: forbidden(
-            `configmaps is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:dawn-orchestrator" cannot create resource "configmaps" in API group "" in the namespace "${names.managementNamespace}"`,
+            `configmaps is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:b4-orchestrator" cannot create resource "configmaps" in API group "" in the namespace "${names.managementNamespace}"`,
           ),
         }
       }
@@ -2367,7 +2363,7 @@ describe("probe command routing, evidence, and cleanup", () => {
 
   test("extracts the structured Status response body from bounded kubectl diagnostics", async () => {
     const status = forbidden(
-      `secrets is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:dawn-orchestrator" cannot list resource "secrets" in API group "" in the namespace "${names.sandboxNamespace}"`,
+      `secrets is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:b4-orchestrator" cannot list resource "secrets" in API group "" in the namespace "${names.sandboxNamespace}"`,
       { kind: "secrets" },
     )
     const stderr = [
@@ -2387,7 +2383,7 @@ describe("probe command routing, evidence, and cleanup", () => {
 
   test("extracts the kubectl v1.35 multiline Status response body", async () => {
     const status = forbidden(
-      `secrets is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:dawn-orchestrator" cannot list resource "secrets" in API group "" in the namespace "${names.sandboxNamespace}"`,
+      `secrets is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:b4-orchestrator" cannot list resource "secrets" in API group "" in the namespace "${names.sandboxNamespace}"`,
       { kind: "secrets" },
     )
     const execute = fakeRunner(() => ({
@@ -2402,7 +2398,7 @@ describe("probe command routing, evidence, and cleanup", () => {
   test("routes v1.35 structured response bodies through quota, Pod Security, and RBAC validators", async () => {
     const policy = await loadCompatibilityPolicy()
     const quotaStatus = forbidden(
-      'pods "probe" is forbidden: exceeded quota: dawn-sandbox-quota, requested: requests.cpu=9',
+      'pods "probe" is forbidden: exceeded quota: b4-sandbox-quota, requested: requests.cpu=9',
       { name: "probe", kind: "pods" },
     )
     const podSecurityStatus = forbidden(
@@ -2410,7 +2406,7 @@ describe("probe command routing, evidence, and cleanup", () => {
       { name: "probe", kind: "pods" },
     )
     const secretStatus = forbidden(
-      `secrets is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:dawn-orchestrator" cannot list resource "secrets" in API group "" in the namespace "${names.sandboxNamespace}"`,
+      `secrets is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:b4-orchestrator" cannot list resource "secrets" in API group "" in the namespace "${names.sandboxNamespace}"`,
       { kind: "secrets" },
     )
     const admissionRunner = (status: JsonObject) =>
@@ -2454,7 +2450,7 @@ describe("probe command routing, evidence, and cleanup", () => {
       { kind: "pods" },
     )
     const expected = forbidden(
-      `secrets is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:dawn-orchestrator" cannot list resource "secrets" in API group "" in the namespace "${names.sandboxNamespace}"`,
+      `secrets is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:b4-orchestrator" cannot list resource "secrets" in API group "" in the namespace "${names.sandboxNamespace}"`,
       { kind: "secrets" },
     )
 
@@ -2489,7 +2485,7 @@ describe("probe command routing, evidence, and cleanup", () => {
       "trailing fields",
       `${structuredResponseLog(
         forbidden(
-          `secrets is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:dawn-orchestrator" cannot list resource "secrets" in API group "" in the namespace "${names.sandboxNamespace}"`,
+          `secrets is forbidden: User "system:serviceaccount:${names.sandboxNamespace}:b4-orchestrator" cannot list resource "secrets" in API group "" in the namespace "${names.sandboxNamespace}"`,
           { kind: "secrets" },
         ),
       ).trimEnd()} extra="value"\n`,
@@ -2522,7 +2518,7 @@ describe("probe command routing, evidence, and cleanup", () => {
         "--namespace",
         names.sandboxNamespace,
         "--selector",
-        `dawn.sh/compat-run=${runId}`,
+        `b4.run/compat-run=${runId}`,
       ]),
     )
   })
@@ -2540,7 +2536,7 @@ describe("probe command routing, evidence, and cleanup", () => {
       if (command.args.includes("get") && command.args.some((arg) => arg.startsWith("pod/"))) {
         return successPod(clientPod as JsonObject)
       }
-      if (command.args.includes("logs")) return "DAWN_NETWORK_CONTROL=reachable\n"
+      if (command.args.includes("logs")) return "B4_NETWORK_CONTROL=reachable\n"
       if (command.args.includes("--selector")) {
         retainedCleanupAttempts += 1
         if (retainedCleanupAttempts === 1) return new Error("retained cleanup failed")
@@ -2597,8 +2593,8 @@ describe("probe command routing, evidence, and cleanup", () => {
         ]),
       )
       const selector = cleanupCommand.args[cleanupCommand.args.indexOf("--selector") + 1]
-      expect(selector).toContain(`dawn.sh/compat-run=${runId}`)
-      expect(selector).toContain("dawn.sh/compat-component=")
+      expect(selector).toContain(`b4.run/compat-run=${runId}`)
+      expect(selector).toContain("b4.run/compat-component=")
     }
   })
 
@@ -2650,7 +2646,7 @@ describe("probe command routing, evidence, and cleanup", () => {
         metadata: {
           name: names.sandboxNamespace,
           uid: "replacement-uid",
-          labels: { "dawn.sh/compat-run": runId },
+          labels: { "b4.run/compat-run": runId },
         },
       },
     },
@@ -2662,7 +2658,7 @@ describe("probe command routing, evidence, and cleanup", () => {
         metadata: {
           name: names.sandboxNamespace,
           uid: sandboxOwnership.uid,
-          labels: { "dawn.sh/compat-run": "another-run" },
+          labels: { "b4.run/compat-run": "another-run" },
         },
       },
     },
@@ -2679,7 +2675,7 @@ describe("probe command routing, evidence, and cleanup", () => {
       if (command.args.includes("get") && command.args.some((arg) => arg.startsWith("pod/"))) {
         return successPod(clientPod as JsonObject)
       }
-      if (command.args.includes("logs")) return "DAWN_NETWORK_CONTROL=reachable\n"
+      if (command.args.includes("logs")) return "B4_NETWORK_CONTROL=reachable\n"
       return {}
     })
     const verifyCleanupOwnership = vi.fn(async () => {
@@ -2692,7 +2688,7 @@ describe("probe command routing, evidence, and cleanup", () => {
               metadata: {
                 name: names.sandboxNamespace,
                 uid: sandboxOwnership.uid,
-                labels: { "dawn.sh/compat-run": runId },
+                labels: { "b4.run/compat-run": runId },
               },
             },
         sandboxOwnership,
@@ -2727,7 +2723,7 @@ describe("probe command routing, evidence, and cleanup", () => {
         metadata: {
           name: names.sandboxNamespace,
           uid: "replacement-uid",
-          labels: { "dawn.sh/compat-run": runId },
+          labels: { "b4.run/compat-run": runId },
         },
       },
     },
@@ -2739,7 +2735,7 @@ describe("probe command routing, evidence, and cleanup", () => {
         metadata: {
           name: names.sandboxNamespace,
           uid: sandboxOwnership.uid,
-          labels: { "dawn.sh/compat-run": "another-run" },
+          labels: { "b4.run/compat-run": "another-run" },
         },
       },
     },

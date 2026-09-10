@@ -79,8 +79,8 @@ const DEFAULT_EXPECTED_TESTS_PATH = resolve(
   "test/k8s-compat/expected-tests.json",
 )
 const SUPPORTED_TARGETS = new Set(["1.34", "1.35", "1.36"])
-const RUN_LABEL = "dawn.sh/compat-run"
-const ORCHESTRATOR_SERVICE_ACCOUNT = "dawn-orchestrator"
+const RUN_LABEL = "b4.run/compat-run"
+const ORCHESTRATOR_SERVICE_ACCOUNT = "b4-orchestrator"
 const PROVIDER_TIMEOUT_MS = 12 * 60 * 1_000
 const PROVIDER_STDOUT_LIMIT_BYTES = 64 * 1_024
 const PROVIDER_STDERR_LIMIT_BYTES = 1024 * 1_024
@@ -1579,6 +1579,7 @@ export async function runKubernetesCompatibility(
     }
   }
 
+  let providerAccounting: VitestProviderAccountingSession | undefined
   let primaryFailure: unknown
   let collectedDiagnostics: unknown
   try {
@@ -1614,9 +1615,10 @@ export async function runKubernetesCompatibility(
       managementNamespace: derivedNames.managementNamespace,
       sandboxNamespace: derivedNames.sandboxNamespace,
     })
-    const providerAccounting = await resolved.createProviderAccountingSession({
+    providerAccounting = await resolved.createProviderAccountingSession({
       manifestPath: resolved.expectedTestsPath,
     })
+    const accounting = providerAccounting
     ensureSignalRegistration()
     await createManagementNamespace()
 
@@ -1663,7 +1665,7 @@ export async function runKubernetesCompatibility(
             file: "pnpm",
             args: [
               "--filter",
-              "@dawn-ai/sandbox",
+              "@b4run/sandbox",
               "exec",
               "vitest",
               "--run",
@@ -1684,16 +1686,16 @@ export async function runKubernetesCompatibility(
             sensitiveOutput: true,
             env: {
               ...process.env,
-              DAWN_TEST_K8S: "1",
-              DAWN_TEST_K8S_NS: derivedNames.sandboxNamespace,
-              DAWN_TEST_K8S_IMAGE: activePolicy.images.sandboxWorkload,
-              DAWN_TEST_K8S_STORAGE_CLASS: selectedStorageClass,
-              DAWN_TEST_K8S_EGRESS_CONTROL_URL: networkControlLease.url,
+              B4_TEST_K8S: "1",
+              B4_TEST_K8S_NS: derivedNames.sandboxNamespace,
+              B4_TEST_K8S_IMAGE: activePolicy.images.sandboxWorkload,
+              B4_TEST_K8S_STORAGE_CLASS: selectedStorageClass,
+              B4_TEST_K8S_EGRESS_CONTROL_URL: networkControlLease.url,
               KUBECONFIG: secure.path,
             },
           },
         )
-        await providerAccounting.record({ reportPath, phase })
+        await accounting.record({ reportPath, phase })
         if (providerResult.exitCode !== 0) {
           throw new Error(`${phase} provider command exited with code ${providerResult.exitCode}`)
         }
@@ -1800,6 +1802,15 @@ export async function runKubernetesCompatibility(
     resolved.assertStepAccounting(KUBERNETES_COMPAT_PROBE_IDS, observedProbes)
   } catch (error) {
     primaryFailure = error
+  } finally {
+    try {
+      await providerAccounting?.dispose()
+    } catch (error) {
+      primaryFailure = aggregateErrors(
+        [...(primaryFailure !== undefined ? [primaryFailure] : []), error],
+        "Kubernetes compatibility run and report disposal failed",
+      )
+    }
   }
 
   if (reportRecorder === undefined) {

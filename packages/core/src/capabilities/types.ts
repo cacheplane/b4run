@@ -1,12 +1,12 @@
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import type { DawnAgent, WorkspaceFs } from "@dawn-ai/sdk"
-import type { ExecBackend, FilesystemBackend } from "@dawn-ai/workspace"
+import type { PermissionsStore } from "@b4run/permissions"
+import type { B4Agent, WorkspaceFs } from "@b4run/sdk"
+import type { ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import type { ResolvedSubagent } from "../subagents/types.js"
 import type { ResolvedStateField, RouteManifest } from "../types.js"
 
-// Literal unions mirroring @dawn-ai/memory's MemoryKind/MemoryStatus/
+// Literal unions mirroring @b4run/memory's MemoryKind/MemoryStatus/
 // MemorySource["type"]. Declared locally (NOT imported) because core must not
-// depend on @dawn-ai/memory — its barrel pulls node:sqlite (see the inline
+// depend on @b4run/memory — its barrel pulls node:sqlite (see the inline
 // comment in built-in/memory.ts). Keep in lockstep with packages/memory/src/types.ts.
 export type MemoryKindLike = "semantic" | "episodic" | "procedural" | "reflection"
 export type MemoryStatusLike = "candidate" | "active" | "superseded"
@@ -41,7 +41,7 @@ export interface Embedder {
   embed(texts: readonly string[]): Promise<Float32Array[]>
 }
 
-/** Mirror of @dawn-ai/memory's `BrowseSortField`. */
+/** Mirror of @b4run/memory's `BrowseSortField`. */
 export type BrowseSortFieldLike =
   | "updatedAt"
   | "createdAt"
@@ -50,13 +50,13 @@ export type BrowseSortFieldLike =
   | "kind"
   | "status"
 
-/** Mirror of @dawn-ai/memory's `BrowseSortEntry`. */
+/** Mirror of @b4run/memory's `BrowseSortEntry`. */
 export interface BrowseSortEntryLike {
   readonly field: BrowseSortFieldLike
   readonly dir: "asc" | "desc"
 }
 
-/** Mirror of @dawn-ai/memory's `BrowseFilter`. */
+/** Mirror of @b4run/memory's `BrowseFilter`. */
 export type BrowseFilterLike =
   // Split per field, mirroring `BrowseFilter`: a shared `field: "status" | "kind"` arm
   // with `values: readonly string[]` would compile a typo'd value.
@@ -104,7 +104,7 @@ export type BrowseFilterLike =
     }
 
 /**
- * Structural mirror of @dawn-ai/memory's `BrowseQuery`. Named (not inlined on
+ * Structural mirror of @b4run/memory's `BrowseQuery`. Named (not inlined on
  * `MemoryStoreLike.browse`) so drift is a one-line diff instead of an invisible
  * parameter tweak, and so the parity tripwire can compare it directly — see
  * packages/testing/test/memory-contract-parity.contract.ts for why comparing the
@@ -143,7 +143,7 @@ export interface BrowseQueryLike {
   readonly cursor?: string
 }
 
-/** Structural mirror of @dawn-ai/memory's `BrowsePage`. See `BrowseQueryLike`. */
+/** Structural mirror of @b4run/memory's `BrowsePage`. See `BrowseQueryLike`. */
 export interface BrowsePageLike {
   readonly records: readonly MemoryRecordLike[]
   /** Exact count of the whole matching set. Rows and total are two separate statements
@@ -252,7 +252,7 @@ export interface MemoryContext {
  * `promptFragment.render()` is synchronous (called per model turn) — the
  * async `FilesystemBackend` cannot serve it. The node implementation lives in
  * the cli layer so that markers can drop their own `node:fs` imports (keeping
- * `node:fs` OUT of @dawn-ai/core's capability graph so edge bundles stay
+ * `node:fs` OUT of @b4run/core's capability graph so edge bundles stay
  * clean); edge entries simply omit it, and markers must detect-false /
  * render-empty when it is absent.
  */
@@ -280,7 +280,7 @@ export interface MarkerFs {
 
 export interface CapabilityMarkerContext {
   readonly routeManifest: RouteManifest
-  readonly descriptor: DawnAgent | undefined
+  readonly descriptor: B4Agent | undefined
   readonly subagentRegistry?: readonly ResolvedSubagent[]
   /**
    * Already-constructed backends for this run (a sandbox's, or the app's
@@ -293,9 +293,9 @@ export interface CapabilityMarkerContext {
   /**
    * How to construct a backend when no instance was supplied above. Core owns
    * no node backend of its own — `localExec`/`localFilesystem` live in
-   * `@dawn-ai/workspace/node` and would drag `node:child_process`, `node:fs`
+   * `@b4run/workspace/node` and would drag `node:child_process`, `node:fs`
    * and friends into every graph that imports a capability marker. The node
-   * runtime (`@dawn-ai/cli`'s boot fallbacks) supplies them here; an edge
+   * runtime (`@b4run/cli`'s boot fallbacks) supplies them here; an edge
    * runtime supplies `backends` instead, or neither — in which case a
    * workspace tool invocation fails loudly rather than silently reaching for
    * a filesystem that is not there. Called at most once per contribution, and
@@ -317,7 +317,7 @@ export interface CapabilityMarkerContext {
    */
   readonly markerFs?: MarkerFs
   readonly permissions?: PermissionsStore
-  /** Absolute path to the Dawn app root. Capabilities should resolve app-relative paths (e.g. workspace/) against this, NOT process.cwd(). */
+  /** Absolute path to the B4.run app root. Capabilities should resolve app-relative paths (e.g. workspace/) against this, NOT process.cwd(). */
   readonly appRoot: string
   /**
    * When set, the workspace root path INSIDE a sandbox (e.g. "/workspace").
@@ -328,7 +328,7 @@ export interface CapabilityMarkerContext {
   readonly memory?: MemoryContext
 }
 
-export interface DawnToolDefinition {
+export interface B4ToolDefinition {
   readonly description?: string
   readonly name: string
   readonly run: (
@@ -338,7 +338,7 @@ export interface DawnToolDefinition {
       readonly signal: AbortSignal
       // Optional here because pre-wrap invokers (langchain tool-converter/loop)
       // omit it; the cli's prepareRouteExecution wrapper guarantees it at
-      // runtime, which is why the author-facing DawnToolContext requires it.
+      // runtime, which is why the author-facing B4ToolContext requires it.
       readonly fs?: WorkspaceFs
       // Live per-call runtime identity, forwarded by the langchain tool-converter
       // from config.configurable. Optional because pre-wrap/legacy invokers omit
@@ -392,7 +392,7 @@ export interface StreamTransformer {
 }
 
 export interface CapabilityContribution {
-  readonly tools?: ReadonlyArray<DawnToolDefinition>
+  readonly tools?: ReadonlyArray<B4ToolDefinition>
   readonly stateFields?: ReadonlyArray<ResolvedStateField>
   readonly promptFragment?: PromptFragment
   readonly streamTransformers?: ReadonlyArray<StreamTransformer>

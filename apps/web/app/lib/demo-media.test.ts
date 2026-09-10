@@ -38,7 +38,7 @@ describe("demoMedia", () => {
       expect(clip.caption.trim(), `${key} caption`).not.toBe("")
       expect(clip.ariaLabel.trim(), `${key} aria label`).not.toBe("")
       expect(clip.transcript, `${key} transcript`).toMatch(
-        /^https:\/\/github\.com\/cacheplane\/dawnai\/blob\/main\/docs\/brand\/demo\/transcript\.md#/u,
+        /^https:\/\/github\.com\/cacheplane\/b4run\/blob\/main\/docs\/brand\/demo\/transcript\.md#/u,
       )
     }
   })
@@ -61,6 +61,6 @@ describe("demoMedia", () => {
     expect(demoMedia.run.caption).toMatch(/browser reload/iu)
     expect(demoMedia.run.caption).toMatch(/checkpoint/iu)
     expect(demoMedia.run.caption).toMatch(/restore/iu)
-    expect(demoMedia.run.caption).not.toMatch(/(?:Dawn|server|dev) restart/iu)
+    expect(demoMedia.run.caption).not.toMatch(/(?:B4.run|server|dev) restart/iu)
   })
 })

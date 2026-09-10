@@ -118,7 +118,7 @@ describe("Kubernetes compatibility policy", () => {
 
   it("loads the default policy relative to the repository from an alternate working directory", async () => {
     const originalCwd = process.cwd()
-    const alternateCwd = await mkdtemp(join(tmpdir(), "dawn-k8s-policy-cwd-"))
+    const alternateCwd = await mkdtemp(join(tmpdir(), "b4-k8s-policy-cwd-"))
 
     try {
       vi.resetModules()
@@ -136,7 +136,7 @@ describe("Kubernetes compatibility policy", () => {
   })
 
   it("wraps missing policy file errors with the explicit path and cause", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "dawn-k8s-policy-missing-"))
+    const directory = await mkdtemp(join(tmpdir(), "b4-k8s-policy-missing-"))
     const policyPath = join(directory, "missing.json")
 
     try {
@@ -150,7 +150,7 @@ describe("Kubernetes compatibility policy", () => {
   })
 
   it("wraps invalid JSON errors with the explicit path and cause", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "dawn-k8s-policy-json-"))
+    const directory = await mkdtemp(join(tmpdir(), "b4-k8s-policy-json-"))
     const policyPath = join(directory, "invalid.json")
 
     try {

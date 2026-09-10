@@ -1,26 +1,26 @@
 {
-  "name": "@dawn-ai/config-biome",
-  "version": "0.8.25",
+  "name": "@b4run/config-biome",
+  "version": "0.8.29",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "description": "Shared Biome configuration for Dawn TypeScript workspace packages.",
+  "description": "Shared Biome configuration for B4.run TypeScript workspace packages.",
   "keywords": [
-    "dawn",
+    "b4",
     "biome",
     "linting",
     "formatting",
     "typescript",
     "configuration"
   ],
-  "homepage": "https://github.com/cacheplane/dawnai/tree/main/packages/config-biome#readme",
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/config-biome#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/dawnai.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/config-biome"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/dawnai/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"

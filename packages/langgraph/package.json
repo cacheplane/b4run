@@ -1,26 +1,26 @@
 {
-  "name": "@dawn-ai/langgraph",
-  "version": "0.8.25",
+  "name": "@b4run/langgraph",
+  "version": "0.8.29",
   "private": false,
   "type": "module",
   "license": "MIT",
-  "description": "LangGraph.js adapters and route contracts for Dawn agents, workflows, and graphs.",
+  "description": "LangGraph.js adapters and route contracts for B4.run agents, workflows, and graphs.",
   "keywords": [
-    "dawn",
+    "b4",
     "typescript",
     "langgraph",
     "langgraphjs",
     "ai-agents",
     "workflows"
   ],
-  "homepage": "https://github.com/cacheplane/dawnai/tree/main/packages/langgraph#readme",
+  "homepage": "https://github.com/cacheplane/b4run/tree/main/packages/langgraph#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cacheplane/dawnai.git",
+    "url": "git+https://github.com/cacheplane/b4run.git",
     "directory": "packages/langgraph"
   },
   "bugs": {
-    "url": "https://github.com/cacheplane/dawnai/issues"
+    "url": "https://github.com/cacheplane/b4run/issues"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -53,10 +53,10 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@dawn-ai/sdk": "workspace:*"
+    "@b4run/sdk": "workspace:*"
   },
   "devDependencies": {
-    "@dawn-ai/config-typescript": "workspace:*",
+    "@b4run/config-typescript": "workspace:*",
     "@types/node": "26.1.2"
   }
 }

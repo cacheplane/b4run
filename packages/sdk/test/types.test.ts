@@ -1,4 +1,4 @@
-import type { Prettify, RouteStateMap, RouteToolMap } from "@dawn-ai/sdk"
+import type { Prettify, RouteStateMap, RouteToolMap } from "@b4run/sdk"
 import { describe, expectTypeOf, test } from "vitest"
 
 describe("Prettify<T>", () => {

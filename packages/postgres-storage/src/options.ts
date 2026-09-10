@@ -12,7 +12,7 @@ import type { SqlPool } from "./sql.js"
 export interface PostgresStoreOptions {
   /**
    * The pool every store call goes through. Required on this entry — build one
-   * with `pg` yourself, or import from `@dawn-ai/postgres-storage/node` for the
+   * with `pg` yourself, or import from `@b4run/postgres-storage/node` for the
    * `connectionString` convenience. On an edge runtime pass a per-request pool
    * (see the edge deployment docs): a module-scope pool hangs on workerd.
    *
@@ -27,13 +27,13 @@ export interface PostgresStoreOptions {
    * `'error'` listener turns a routine Postgres blip into an outage. These
    * stores deliberately do not attach one to a pool they were handed: that
    * would mask the contract from the owner who controls the lifecycle.
-   * `@dawn-ai/postgres-storage/node` attaches one to pools IT builds.
+   * `@b4run/postgres-storage/node` attaches one to pools IT builds.
    */
   readonly pool?: SqlPool
   /**
    * Whether the store owns `pool` and should `end()` it on `close()`. Defaults
    * to `false`: a pool handed in here is the caller's to close, so `close()` is
-   * a no-op and the pool stays usable. `@dawn-ai/postgres-storage/node` sets it
+   * a no-op and the pool stays usable. `@b4run/postgres-storage/node` sets it
    * when it builds the pool itself from a connection string.
    */
   readonly ownsPool?: boolean
@@ -59,6 +59,6 @@ export interface PostgresStoreOptions {
   readonly assumeMigrated?: boolean
   /** Postgres schema to place tables in. Defaults to `public`. */
   readonly schema?: string
-  /** Table name prefix. Defaults to `dawn`; vary it to share one database. */
+  /** Table name prefix. Defaults to `b4`; vary it to share one database. */
   readonly tablePrefix?: string
 }

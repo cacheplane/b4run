@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 /** e2e tests boot the built standalone server — gated behind an explicit flag. */
-export const gated = process.env.DAWN_TEST_INSPECTOR === "1"
+export const gated = process.env.B4_TEST_INSPECTOR === "1"
 
 export const pkgRoot = fileURLToPath(new URL("..", import.meta.url))
 const serverJs = join(pkgRoot, ".next/standalone/packages/inspector/server.js")
@@ -41,25 +41,25 @@ async function waitReady(url: string): Promise<void> {
   throw new Error(`server never became ready at ${url}`)
 }
 
-/** Wipe and recreate <appRoot>/.dawn so each run seeds a fresh store. */
-export function resetDawnDir(appRoot: string): void {
-  rmSync(join(appRoot, ".dawn"), { recursive: true, force: true })
-  mkdirSync(join(appRoot, ".dawn"), { recursive: true })
+/** Wipe and recreate <appRoot>/.b4 so each run seeds a fresh store. */
+export function resetB4Dir(appRoot: string): void {
+  rmSync(join(appRoot, ".b4"), { recursive: true, force: true })
+  mkdirSync(join(appRoot, ".b4"), { recursive: true })
 }
 
-export function removeDawnDir(appRoot: string): void {
-  rmSync(join(appRoot, ".dawn"), { recursive: true, force: true })
+export function removeB4Dir(appRoot: string): void {
+  rmSync(join(appRoot, ".b4"), { recursive: true, force: true })
 }
 
 /** Boot the built standalone inspector server against the given app root. */
 export async function startInspector(appRoot: string): Promise<InspectorServer> {
   if (!existsSync(serverJs)) {
-    throw new Error(`${serverJs} missing — run \`pnpm --filter @dawn-ai/inspector build\` first`)
+    throw new Error(`${serverJs} missing — run \`pnpm --filter @b4run/inspector build\` first`)
   }
   const port = await freePort()
   const base = `http://127.0.0.1:${port}`
   const spawned: ChildProcess = spawn(process.execPath, [serverJs], {
-    env: { ...process.env, DAWN_APP_ROOT: appRoot, PORT: String(port), HOSTNAME: "127.0.0.1" },
+    env: { ...process.env, B4_APP_ROOT: appRoot, PORT: String(port), HOSTNAME: "127.0.0.1" },
     stdio: "inherit",
   })
   // Fail fast if the server dies at startup instead of polling out the clock.
@@ -75,7 +75,7 @@ export async function startInspector(appRoot: string): Promise<InspectorServer> 
     async stop() {
       if (spawned.exitCode === null && spawned.signalCode === null) {
         // SIGTERM → short grace → SIGKILL, and await the exit before callers
-        // clean up a fixture .dawn dir the server may still have open.
+        // clean up a fixture .b4 dir the server may still have open.
         const done = new Promise<void>((resolve) => {
           spawned.once("exit", () => resolve())
         })

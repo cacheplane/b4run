@@ -1,9 +1,9 @@
 /**
- * Public types for the Dawn HITL permissions system.
+ * Public types for the B4.run HITL permissions system.
  *
  * The workspace capability calls into a `PermissionsStore` before
  * invoking its filesystem/exec backends. The store consults the
- * runtime file at .dawn/permissions.json plus the config-seeded
+ * runtime file at .b4/permissions.json plus the config-seeded
  * allow/deny lists and returns one of three decisions: "allow",
  * "deny", or "unknown". On "unknown" in interactive mode the
  * capability emits LangGraph's `interrupt()` with a `PermissionRequest`

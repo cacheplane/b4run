@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { discoverRoutes } from "@dawn-ai/core/node"
+import { discoverRoutes } from "@b4run/core/node"
 import { afterEach, describe, expect, test } from "vitest"
 
 import { collectRouteProviders } from "../src/lib/runtime/collect-route-providers.js"
@@ -13,12 +13,12 @@ afterEach(async () => {
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-providers-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-providers-"))
   tempDirs.push(appRoot)
 
   const appFiles = {
     "package.json": '{"type":"module"}\n',
-    "dawn.config.ts": "export default {};\n",
+    "b4.config.ts": "export default {};\n",
     ...files,
   }
 
@@ -35,7 +35,7 @@ async function createFixtureApp(files: Readonly<Record<string, string>>) {
 
 function agentRoute(model: string, provider?: string): string {
   const providerLine = provider ? `\n  provider: "${provider}",` : ""
-  return `import { agent } from "@dawn-ai/sdk"
+  return `import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "${model}",${providerLine}

@@ -13,7 +13,7 @@ afterEach(async () => {
 
 it("builds a request listener without binding a port", async () => {
   const appRoot = await createFixtureApp({
-    "dawn.config.ts": "export default {};\n",
+    "b4.config.ts": "export default {};\n",
     "package.json": "{}\n",
     "src/app/noop/index.ts": "export const graph = async () => ({ ok: true });\n",
   })
@@ -24,7 +24,7 @@ it("builds a request listener without binding a port", async () => {
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-listener-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-listener-"))
   tempDirs.push(appRoot)
   await Promise.all(
     Object.entries(files).map(async ([relativePath, source]) => {

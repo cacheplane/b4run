@@ -13,12 +13,12 @@ afterEach(async () => {
 })
 
 async function createFixtureApp(files: Readonly<Record<string, string>>) {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-check-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-check-"))
   tempDirs.push(appRoot)
 
   const appFiles = {
     "package.json": '{"type":"module"}\n',
-    "dawn.config.ts": "export default {};\n",
+    "b4.config.ts": "export default {};\n",
     ...files,
   }
 
@@ -58,10 +58,10 @@ async function buildCliExecutable() {
   const distEntry = join(packageRoot, "dist", "index.js")
 
   await new Promise<void>((resolvePromise, rejectPromise) => {
-    // No `--force`: it rebuilds every referenced project (incl. @dawn-ai/core)
+    // No `--force`: it rebuilds every referenced project (incl. @b4run/core)
     // unconditionally, rewriting the SHARED packages/core/dist mid-suite. Under
     // vitest's parallel files that races other tests spawning processes which
-    // import @dawn-ai/core from that dist (a half-written dist → "does not
+    // import @b4run/core from that dist (a half-written dist → "does not
     // provide an export" crash). Plain `tsc -b` is a no-op when already built.
     const child = spawn("pnpm", ["exec", "tsc", "-b", "tsconfig.build.json"], {
       cwd: packageRoot,
@@ -113,10 +113,10 @@ async function executeCli(entryPath: string, args: readonly string[]) {
   })
 }
 
-describe("dawn check", () => {
+describe("b4 check", () => {
   test("passes for an app with a workflow index.ts and reports the route list", async () => {
     const appRoot = await createFixtureApp({
-      "src/app/hello/index.ts": `import type { RuntimeContext } from "@dawn-ai/sdk"
+      "src/app/hello/index.ts": `import type { RuntimeContext } from "@b4run/sdk"
 export async function workflow(_input: unknown, _ctx: RuntimeContext) {
   return {}
 }
@@ -127,14 +127,14 @@ export async function workflow(_input: unknown, _ctx: RuntimeContext) {
 
     expect(result.exitCode).toBe(0)
     expect(result.stderr).toBe("")
-    expect(result.stdout).toContain("Dawn app is valid")
+    expect(result.stdout).toContain("B4.run app is valid")
     expect(result.stdout).toContain("1 routes discovered")
     expect(result.stdout).toContain("- /hello (workflow)")
   })
 
   test("passes for an app with a graph index.ts", async () => {
     const appRoot = await createFixtureApp({
-      "src/app/support/[tenant]/index.ts": `import type { RuntimeContext } from "@dawn-ai/sdk"
+      "src/app/support/[tenant]/index.ts": `import type { RuntimeContext } from "@b4run/sdk"
 export const graph = {
   invoke: async (_input: unknown, _ctx: RuntimeContext) => ({}),
 }
@@ -145,7 +145,7 @@ export const graph = {
 
     expect(result.exitCode).toBe(0)
     expect(result.stderr).toBe("")
-    expect(result.stdout).toContain("Dawn app is valid")
+    expect(result.stdout).toContain("B4.run app is valid")
     expect(result.stdout).toContain("- /support/[tenant] (graph)")
   })
 
@@ -183,10 +183,10 @@ export const graph = { invoke: async () => ({}) }
   })
 
   test("returns a nonzero exit code and a stable error prefix for invalid apps", async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), "dawn-cli-check-invalid-"))
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-check-invalid-"))
     tempDirs.push(appRoot)
     await writeFile(join(appRoot, "package.json"), '{"type":"module"}\n')
-    await writeFile(join(appRoot, "dawn.config.ts"), "export default {};\n")
+    await writeFile(join(appRoot, "b4.config.ts"), "export default {};\n")
 
     const result = await invoke(["check", "--cwd", appRoot])
 
@@ -196,7 +196,7 @@ export const graph = { invoke: async () => ({}) }
     expect(result.stderr).toContain("Missing:")
   })
 
-  test("runs check and verify from the built dawn executable for direct and symlinked invocation paths", {
+  test("runs check and verify from the built b4 executable for direct and symlinked invocation paths", {
     timeout: 30_000,
   }, async () => {
     const appRoot = await createFixtureApp({
@@ -205,7 +205,7 @@ export const graph = { invoke: async () => ({}) }
     })
     const builtCli = await buildCliExecutable()
     const builtSource = await readFile(builtCli, "utf8")
-    const symlinkPath = join(appRoot, "dawn-link.js")
+    const symlinkPath = join(appRoot, "b4-link.js")
 
     await symlink(builtCli, symlinkPath)
 
@@ -217,16 +217,16 @@ export const graph = { invoke: async () => ({}) }
     expect(builtSource.startsWith("#!/usr/bin/env node")).toBe(true)
     expect(directCheckResult.code).toBe(0)
     expect(directCheckResult.stderr).toBe("")
-    expect(directCheckResult.stdout).toContain("Dawn app is valid")
+    expect(directCheckResult.stdout).toContain("B4.run app is valid")
     expect(directVerifyResult.code).toBe(0)
     expect(directVerifyResult.stderr).toBe("")
-    expect(directVerifyResult.stdout).toContain("Dawn app integrity OK")
+    expect(directVerifyResult.stdout).toContain("B4.run app integrity OK")
     expect(symlinkCheckResult.code).toBe(0)
     expect(symlinkCheckResult.stderr).toBe("")
-    expect(symlinkCheckResult.stdout).toContain("Dawn app is valid")
+    expect(symlinkCheckResult.stdout).toContain("B4.run app is valid")
     expect(symlinkVerifyResult.code).toBe(0)
     expect(symlinkVerifyResult.stderr).toBe("")
-    expect(symlinkVerifyResult.stdout).toContain("Dawn app integrity OK")
+    expect(symlinkVerifyResult.stdout).toContain("B4.run app integrity OK")
   })
 
   test("passes when shared tools each have unique names derived from their filenames", async () => {
@@ -240,7 +240,7 @@ export const graph = { invoke: async () => ({}) }
 
     expect(result.exitCode).toBe(0)
     expect(result.stderr).toBe("")
-    expect(result.stdout).toContain("Dawn app is valid")
+    expect(result.stdout).toContain("B4.run app is valid")
   })
 
   test("passes when route-local tools each have unique names derived from their filenames", async () => {
@@ -256,7 +256,7 @@ export const graph = { invoke: async () => ({}) }
 
     expect(result.exitCode).toBe(0)
     expect(result.stderr).toBe("")
-    expect(result.stdout).toContain("Dawn app is valid")
+    expect(result.stdout).toContain("B4.run app is valid")
   })
 
   test("fails when a shared tool module does not default export a function", async () => {

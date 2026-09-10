@@ -1,6 +1,6 @@
 // Measures the five §11 SERVER budgets against a seeded store and reports pass/fail.
 //
-//   pnpm --filter @dawn-ai/memory bench:budgets -- [rowCount] [--assert]
+//   pnpm --filter @b4run/memory bench:budgets -- [rowCount] [--assert]
 //
 // It reads the COMPILED ceilings, so it must be built first — that is why the package
 // script builds and this file is not meant to be run bare. Node 24+ only (native .mts);
@@ -34,11 +34,11 @@ if (!Number.isInteger(rowCount) || rowCount < 1) {
 const SAMPLES = 20
 /** The design's resident cap, which is also the maximum request limit: one head refresh
  *  covers the whole resident span, which is what makes convergence arithmetic. Duplicated
- *  from BROWSE_RESIDENT_CAP in @dawn-ai/inspector (browse/browse-machine.ts), which this
+ *  from BROWSE_RESIDENT_CAP in @b4run/inspector (browse/browse-machine.ts), which this
  *  package cannot import; if that moves, this bench certifies a span that no longer exists. */
 const RESIDENT_CAP = 1_000
 
-const dir = mkdtempSync(join(tmpdir(), "dawn-budget-"))
+const dir = mkdtempSync(join(tmpdir(), "b4-budget-"))
 const path = join(dir, "bench.sqlite")
 
 function seed(): void {

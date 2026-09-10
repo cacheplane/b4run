@@ -1,6 +1,6 @@
 # Brian Love author persona
 
-Source corpus: 141 public posts from `https://brianflove.com/writing/` dated 2012-2024, totaling roughly 122,600 words. This file captures the reusable writing voice for future Dawn and marketing content.
+Source corpus: 141 public posts from `https://brianflove.com/writing/` dated 2012-2024, totaling roughly 122,600 words. This file captures the reusable writing voice for future B4.run and marketing content.
 
 ## Core voice
 
@@ -25,7 +25,7 @@ The older corpus repeatedly uses simple scaffolding:
 - Code or concrete examples after the concept is introduced.
 - A brief closing that returns to the practical takeaway.
 
-Good Dawn posts should use this same rhythm:
+Good B4.run posts should use this same rhythm:
 
 1. State the problem in concrete terms.
 2. Explain the use case or personal trigger.
@@ -68,11 +68,11 @@ Use these sparingly. They should make the writing feel like Brian, not like imit
 
 Brian usually explains technology by defining the moving parts and then showing how they fit together. He is comfortable saying when something is not needed, when a pattern adds complexity, or when a tool is solving only part of the problem.
 
-For Dawn:
+For B4.run:
 
 - Lead with developer workflow and codebase shape, not AI hype.
-- Keep LangGraph.js positioned as the runtime Dawn builds around.
-- Explain Dawn as a practical framework for route structure, generated types, local development, build output, and capability composition.
+- Keep LangGraph.js positioned as the runtime B4.run builds around.
+- Explain B4.run as a practical framework for route structure, generated types, local development, build output, and capability composition.
 - Be precise about what is shipped versus experimental.
 - Use code examples only when they clarify the shape.
 
@@ -84,9 +84,9 @@ For Dawn:
 - Do not hide tradeoffs. If a feature currently has a boundary, name it.
 - Do not use too much abstract language like "policy", "surface area", "load-bearing", or "coordinate system" without a concrete example nearby.
 
-## Target Dawn voice
+## Target B4.run voice
 
-The Dawn voice should feel like:
+The B4.run voice should feel like:
 
-> I ran into this building real agent applications. Here is the concrete problem. Here is the shape I wanted. Here is how Dawn makes that shape explicit. It is not magic, and it is not a new runtime. It is a practical way to organize agent code so the editor, tests, dev server, and deployment artifact all agree.
+> I ran into this building real agent applications. Here is the concrete problem. Here is the shape I wanted. Here is how B4.run makes that shape explicit. It is not magic, and it is not a new runtime. It is a practical way to organize agent code so the editor, tests, dev server, and deployment artifact all agree.
 

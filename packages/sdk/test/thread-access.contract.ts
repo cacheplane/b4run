@@ -1,5 +1,5 @@
 import {
-  type DawnThreadAccess,
+  type B4ThreadAccess,
   defineThreadAccess,
   deny,
   permit,
@@ -12,7 +12,7 @@ import {
   type ThreadAction,
   type ThreadOperation,
   type ThreadSubject,
-} from "@dawn-ai/sdk"
+} from "@b4run/sdk"
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <Value>() => Value extends Right ? 1 : 2
@@ -40,18 +40,18 @@ type _Operation = Expect<
   >
 >
 
-type _HandlerInput = Expect<Equal<Parameters<DawnThreadAccess>[0], ThreadAccessRequest>>
-type _HandlerOutput = Expect<Equal<Awaited<ReturnType<DawnThreadAccess>>, ThreadAccessResult>>
+type _HandlerInput = Expect<Equal<Parameters<B4ThreadAccess>[0], ThreadAccessRequest>>
+type _HandlerOutput = Expect<Equal<Awaited<ReturnType<B4ThreadAccess>>, ThreadAccessResult>>
 type _ResultUnion = Expect<Equal<ThreadAccessResult, ThreadAccessAllow | ThreadAccessDeny>>
 type _Stamp = Expect<Equal<ThreadAccessAllow["stamp"], Record<string, unknown> | undefined>>
 type _Status = Expect<Equal<ThreadAccessDeny["status"], 403 | 404 | undefined>>
 type _Access = Expect<Equal<ThreadSubject["access"], Readonly<Record<string, unknown>> | undefined>>
-type _Fallback = Expect<Equal<ThreadAccessPolicy["fallback"], DawnThreadAccess>>
+type _Fallback = Expect<Equal<ThreadAccessPolicy["fallback"], B4ThreadAccess>>
 type _PermitReturn = Expect<Equal<ReturnType<typeof permit>, ThreadAccessAllow>>
 type _DenyReturn = Expect<Equal<ReturnType<typeof deny>, ThreadAccessDeny>>
 // The reserved key must reach consumers as a literal, not as `string` — that is
 // what lets store migrations and the operator backfill lift it out by name.
-type _ReservedKey = Expect<Equal<typeof THREAD_ACCESS_METADATA_KEY, "dawn:access">>
+type _ReservedKey = Expect<Equal<typeof THREAD_ACCESS_METADATA_KEY, "b4:access">>
 
 const stored: Record<string, unknown> = {
   [THREAD_ACCESS_METADATA_KEY]: { ownerId: "u-1" },
@@ -93,7 +93,7 @@ type _Resuming = Expect<Equal<ThreadAccessRequest["resuming"], boolean>>
 
 // A resume-aware policy: the AG-UI door reports `run.agui` whether or not it is
 // resuming, so `operation` cannot answer this question and `resuming` must.
-const stepUpOnResume: DawnThreadAccess = (req) =>
+const stepUpOnResume: B4ThreadAccess = (req) =>
   req.resuming && req.headers["x-step-up"] === undefined ? deny({ status: 403 }) : permit()
 void stepUpOnResume
 
@@ -102,7 +102,7 @@ declare function sessionFor(
 ): Promise<{ readonly userId: string } | undefined>
 
 // A sync handler: header-only, no await, the hot-path shape.
-const owned: DawnThreadAccess = (req) => {
+const owned: B4ThreadAccess = (req) => {
   const caller = req.headers["x-user-id"]
   return caller !== undefined && req.thread?.access?.ownerId === caller ? permit() : deny()
 }
@@ -145,7 +145,7 @@ defineThreadAccess({ delete: owned })
 deny({ status: 500 })
 
 // @ts-expect-error the discriminant is `decision`; a copy-pasted middleware body must not compile.
-const _wrongDiscriminant: DawnThreadAccess = () => ({ action: "continue" })
+const _wrongDiscriminant: B4ThreadAccess = () => ({ action: "continue" })
 void _wrongDiscriminant
 
 // @ts-expect-error the operation union is closed.

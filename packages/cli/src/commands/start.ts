@@ -12,7 +12,7 @@ interface StartOptions {
 export function registerStartCommand(program: Command, io: CommandIo): void {
   program
     .command("start")
-    .description("Serve the app in production (Dawn runtime; binds 0.0.0.0 by default)")
+    .description("Serve the app in production (B4.run runtime; binds 0.0.0.0 by default)")
     .option("--host <host>", "Host to bind (default: 0.0.0.0)")
     .option("--port <number>", "Port to bind (default: 8000)")
     .action(async (options: StartOptions) => {
@@ -50,7 +50,7 @@ export async function runStartCommand(
     installSignalHandlers: true,
   })
 
-  writeLine(io.stdout, `dawn start listening on ${handle.url}`)
+  writeLine(io.stdout, `b4 start listening on ${handle.url}`)
 
   return handle
 }

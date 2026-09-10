@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { discoverRoutes } from "@dawn-ai/core/node"
+import { discoverRoutes } from "@b4run/core/node"
 import { afterEach, describe, expect, it } from "vitest"
 
 import * as fetchBarrel from "../src/fetch-exports.js"
@@ -26,7 +26,7 @@ afterEach(async () => {
 })
 
 const VALID_POLICY_FILE =
-  'import { defineThreadAccess } from "@dawn-ai/sdk"\n' +
+  'import { defineThreadAccess } from "@b4run/sdk"\n' +
   "export default defineThreadAccess({\n" +
   '  fallback: () => ({ decision: "allow" }),\n' +
   "})\n"
@@ -36,13 +36,13 @@ async function fixtureApp(
 ): Promise<string> {
   // realpath: on macOS the tmpdir is behind a /var → /private/var symlink, and
   // the loader resolves module URLs to their real paths.
-  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "dawn-static-thread-access-")))
+  const appRoot = await realpath(await mkdtemp(join(tmpdir(), "b4-static-thread-access-")))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const appFiles: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "static-thread-access-fixture", "type": "module" }\n',
     "src/app/chat/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\n' +
+      'import { agent } from "@b4run/sdk"\n' +
       'export default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
     ...files,
   }
@@ -63,13 +63,13 @@ async function collectFixtureDiscoveries(appRoot: string): Promise<RouteStaticDi
   return discoveries
 }
 
-/** Link the real @dawn-ai/cli package into the fixture so the emitted
- * manifest's `"@dawn-ai/cli/runtime"` import resolves from the tmpdir. */
+/** Link the real @b4run/cli package into the fixture so the emitted
+ * manifest's `"@b4run/cli/runtime"` import resolves from the tmpdir. */
 async function linkCliPackage(appRoot: string): Promise<void> {
-  await mkdir(join(appRoot, "node_modules", "@dawn-ai"), { recursive: true })
+  await mkdir(join(appRoot, "node_modules", "@b4run"), { recursive: true })
   await symlink(
     join(repoRoot, "packages", "cli"),
-    join(appRoot, "node_modules", "@dawn-ai", "cli"),
+    join(appRoot, "node_modules", "@b4run", "cli"),
     "dir",
   )
 }
@@ -87,13 +87,13 @@ describe("emitModulesFile — thread access", () => {
 
     const text = emitModulesFile({
       appRoot,
-      buildDir: join(appRoot, ".dawn", "build"),
+      buildDir: join(appRoot, ".b4", "build"),
       discoveries,
       threadAccessFile: join(appRoot, "src", "thread-access.ts"),
     })
 
     expect(text).toContain(
-      'import { buildStaticRouteModule, normalizeThreadAccessModule } from "@dawn-ai/cli/runtime"',
+      'import { buildStaticRouteModule, normalizeThreadAccessModule } from "@b4run/cli/runtime"',
     )
     expect(text).toContain('import * as threadAccessModule from "../../src/thread-access.ts"')
     expect(text).toContain("  threadAccess: normalizeThreadAccessModule(threadAccessModule),")
@@ -107,7 +107,7 @@ describe("emitModulesFile — thread access", () => {
   it("composes one import line with middleware, in a fixed order", async () => {
     const appRoot = await fixtureApp({
       "src/middleware.ts":
-        'import { allow, defineMiddleware } from "@dawn-ai/sdk"\n' +
+        'import { allow, defineMiddleware } from "@b4run/sdk"\n' +
         "export default defineMiddleware(() => allow())\n",
       "src/thread-access.ts": VALID_POLICY_FILE,
     })
@@ -115,14 +115,14 @@ describe("emitModulesFile — thread access", () => {
 
     const text = emitModulesFile({
       appRoot,
-      buildDir: join(appRoot, ".dawn", "build"),
+      buildDir: join(appRoot, ".b4", "build"),
       discoveries,
       middlewareFile: join(appRoot, "src", "middleware.ts"),
       threadAccessFile: join(appRoot, "src", "thread-access.ts"),
     })
 
     expect(text).toContain(
-      'import { buildStaticRouteModule, normalizeMiddlewareModule, normalizeThreadAccessModule } from "@dawn-ai/cli/runtime"',
+      'import { buildStaticRouteModule, normalizeMiddlewareModule, normalizeThreadAccessModule } from "@b4run/cli/runtime"',
     )
     // middleware → threadAccess → routes, so the middleware entry keeps the
     // position the existing manifest assertions pin it to.
@@ -137,7 +137,7 @@ describe("emitModulesFile — thread access", () => {
   it("JSON-escapes hostile thread-access specifiers", () => {
     const text = emitModulesFile({
       appRoot: "/app",
-      buildDir: "/app/.dawn/build",
+      buildDir: "/app/.b4/build",
       discoveries: [],
       threadAccessFile: '/app/src/thread"access.ts',
     })
@@ -152,19 +152,19 @@ describe("emitModulesFile — thread access", () => {
     const discoveries = await collectFixtureDiscoveries(appRoot)
     const text = emitModulesFile({
       appRoot,
-      buildDir: join(appRoot, ".dawn", "build"),
+      buildDir: join(appRoot, ".b4", "build"),
       discoveries,
     })
     expect(text).not.toContain("normalizeThreadAccessModule")
     expect(text).not.toContain("threadAccessModule")
     expect(text).not.toContain("threadAccess:")
-    expect(text).toContain('import { buildStaticRouteModule } from "@dawn-ai/cli/runtime"')
+    expect(text).toContain('import { buildStaticRouteModule } from "@b4run/cli/runtime"')
   })
 })
 
 // ---------------------------------------------------------------------------
 // Both barrels, or the generated manifest cannot link: the node flavor imports
-// `@dawn-ai/cli/runtime` and the edge flavor `@dawn-ai/cli/fetch`, each by
+// `@b4run/cli/runtime` and the edge flavor `@b4run/cli/fetch`, each by
 // literal specifier.
 // ---------------------------------------------------------------------------
 
@@ -202,12 +202,12 @@ describe("normalizeThreadAccessModule — selection parity and fail-closed", () 
     expect(() => normalizeThreadAccessModule(undefined)).toThrow(/default.*threadAccess/s)
   })
 
-  it("throws DAWN_E3003 rather than degrading to `no policy`", () => {
+  it("throws B4_E3003 rather than degrading to `no policy`", () => {
     try {
       normalizeThreadAccessModule({})
       expect.unreachable("expected a throw")
     } catch (error) {
-      expect(error).toMatchObject({ code: "DAWN_E3003" })
+      expect(error).toMatchObject({ code: "B4_E3003" })
     }
   })
 
@@ -224,7 +224,7 @@ describe("normalizeThreadAccessModule — selection parity and fail-closed", () 
 
 // ---------------------------------------------------------------------------
 // Round-trip: the emitted manifest carries a working policy, bound through the
-// published `@dawn-ai/cli/runtime` specifier the generated file imports.
+// published `@b4run/cli/runtime` specifier the generated file imports.
 // ---------------------------------------------------------------------------
 
 describe("static manifest thread access — round-trip", () => {
@@ -233,7 +233,7 @@ describe("static manifest thread access — round-trip", () => {
     await linkCliPackage(appRoot)
 
     const discoveries = await collectFixtureDiscoveries(appRoot)
-    const buildDir = join(appRoot, ".dawn", "build")
+    const buildDir = join(appRoot, ".b4", "build")
     await mkdir(buildDir, { recursive: true })
     const modulesPath = join(buildDir, "modules.mjs")
     await writeFile(

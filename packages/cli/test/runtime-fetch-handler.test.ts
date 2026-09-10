@@ -13,16 +13,16 @@ afterEach(async () => {
 })
 
 async function fixtureApp(overrides: Record<string, string> = {}): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-fetch-handler-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-fetch-handler-"))
   // maxRetries handles the ENOTEMPTY race where an aborted run's SQLite WAL
-  // flush lands in .dawn/ between readdir and rmdir (same pattern as
+  // flush lands in .b4/ between readdir and rmdir (same pattern as
   // test/harness/packaged-app.ts) — the abort test kills a run mid-flight by
   // design, so under full-suite load the flush can lose the race with cleanup.
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "fetch-handler-fixture", "type": "module" }\n',
-    // `src/app` must exist for findDawnApp() to recognize this as a Dawn app,
+    // `src/app` must exist for findB4App() to recognize this as a B4.run app,
     // even for tests that only exercise routes with no app-defined handlers.
     "src/app/.gitkeep": "",
     ...overrides,
@@ -41,7 +41,7 @@ async function fixtureApp(overrides: Record<string, string> = {}): Promise<strin
 async function agentFixtureApp(): Promise<string> {
   return fixtureApp({
     "src/app/chat/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
+      'import { agent } from "@b4run/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
   })
 }
 

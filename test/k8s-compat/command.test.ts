@@ -170,16 +170,16 @@ class ControlledChild extends EventEmitter {
 
 describe("context-owned commands", () => {
   test("builds immutable kubectl and Helm metadata with explicit contexts", () => {
-    const kubectlCommand = kubectl.command("kind-dawn", ["get", "pods"])
-    const helmCommand = helm.command("kind-dawn", ["status", "release"])
+    const kubectlCommand = kubectl.command("kind-b4", ["get", "pods"])
+    const helmCommand = helm.command("kind-b4", ["status", "release"])
 
     expect(kubectlCommand).toEqual({
       file: "kubectl",
-      args: ["--context", "kind-dawn", "get", "pods"],
+      args: ["--context", "kind-b4", "get", "pods"],
     })
     expect(helmCommand).toEqual({
       file: "helm",
-      args: ["--kube-context", "kind-dawn", "status", "release"],
+      args: ["--kube-context", "kind-b4", "status", "release"],
     })
     expect(Object.isFrozen(kubectlCommand)).toBe(true)
     expect(Object.isFrozen(kubectlCommand.args)).toBe(true)
@@ -189,12 +189,12 @@ describe("context-owned commands", () => {
 
   test("places a token kubeconfig before the wrapper-owned kubectl context", () => {
     expect(
-      kubectl.command("kind-dawn", ["get", "pods"], {
+      kubectl.command("kind-b4", ["get", "pods"], {
         kubeconfig: "/secure/token-kubeconfig",
       }),
     ).toEqual({
       file: "kubectl",
-      args: ["--kubeconfig", "/secure/token-kubeconfig", "--context", "kind-dawn", "get", "pods"],
+      args: ["--kubeconfig", "/secure/token-kubeconfig", "--context", "kind-b4", "get", "pods"],
     })
   })
 
@@ -211,7 +211,7 @@ describe("context-owned commands", () => {
   })
 
   test("rejects an empty wrapper-owned kubeconfig path", () => {
-    expect(() => kubectl.command("kind-dawn", ["get", "pods"], { kubeconfig: " " })).toThrow(
+    expect(() => kubectl.command("kind-b4", ["get", "pods"], { kubeconfig: " " })).toThrow(
       /kubeconfig.*non-empty/i,
     )
   })
@@ -224,8 +224,8 @@ describe("context-owned commands", () => {
     ["--kubeconfig", "/tmp/other"],
     ["--kubeconfig=/tmp/other"],
   ])("rejects caller-owned context or kubeconfig arguments %#", (...args) => {
-    expect(() => kubectl.command("kind-dawn", ["get", ...args])).toThrow(/wrapper-owned/i)
-    expect(() => helm.command("kind-dawn", ["status", ...args])).toThrow(/wrapper-owned/i)
+    expect(() => kubectl.command("kind-b4", ["get", ...args])).toThrow(/wrapper-owned/i)
+    expect(() => helm.command("kind-b4", ["status", ...args])).toThrow(/wrapper-owned/i)
   })
 })
 
@@ -289,7 +289,7 @@ describe("shell-free command executor", () => {
   })
 
   test("rejects spawn errors with safe command metadata", async () => {
-    const directory = await createTemporaryDirectory("dawn-k8s-command-spawn-")
+    const directory = await createTemporaryDirectory("b4-k8s-command-spawn-")
     const missingExecutable = join(directory, "missing-command")
     const error = await rejectedError(
       executeCommand(
@@ -308,7 +308,7 @@ describe("shell-free command executor", () => {
   })
 
   test("does not retain a raw spawn cause for sensitive commands", async () => {
-    const directory = await createTemporaryDirectory("dawn-k8s-command-sensitive-spawn-")
+    const directory = await createTemporaryDirectory("b4-k8s-command-sensitive-spawn-")
     const missingExecutable = join(directory, "missing-command")
     const secret = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzZW5zaXRpdmUifQ.signature-value"
     const error = await rejectedError(
@@ -395,7 +395,7 @@ describe("shell-free command executor", () => {
   })
 
   test("times out and terminates the child before rejecting", async () => {
-    const directory = await createTemporaryDirectory("dawn-k8s-command-timeout-")
+    const directory = await createTemporaryDirectory("b4-k8s-command-timeout-")
     const pidPath = join(directory, "pid")
     const startedAt = Date.now()
 
@@ -411,7 +411,7 @@ describe("shell-free command executor", () => {
   })
 
   test("terminates the child when stdout exceeds its independent byte limit", async () => {
-    const directory = await createTemporaryDirectory("dawn-k8s-command-stdout-")
+    const directory = await createTemporaryDirectory("b4-k8s-command-stdout-")
     const pidPath = join(directory, "pid")
 
     await expect(
@@ -431,7 +431,7 @@ describe("shell-free command executor", () => {
   })
 
   test("bounds stderr independently and terminates its child", async () => {
-    const directory = await createTemporaryDirectory("dawn-k8s-command-stderr-")
+    const directory = await createTemporaryDirectory("b4-k8s-command-stderr-")
     const pidPath = join(directory, "pid")
     const hiddenSuffix = "MUST_NOT_APPEAR_IN_DIAGNOSTICS"
     const error = await rejectedError(
@@ -458,7 +458,7 @@ describe("shell-free command executor", () => {
   })
 
   test("honors an external AbortSignal and terminates before rejecting", async () => {
-    const directory = await createTemporaryDirectory("dawn-k8s-command-abort-")
+    const directory = await createTemporaryDirectory("b4-k8s-command-abort-")
     const pidPath = join(directory, "pid")
     const controller = new AbortController()
     const execution = executeCommand(
@@ -477,7 +477,7 @@ describe("shell-free command executor", () => {
   })
 
   test("terminates an opted-in descendant process tree before reporting abort", async () => {
-    const directory = await createTemporaryDirectory("dawn-k8s-command-tree-abort-")
+    const directory = await createTemporaryDirectory("b4-k8s-command-tree-abort-")
     const readyPath = join(directory, "wrapper-ready")
     const sentinelPath = join(directory, "descendant-sentinel")
     const descendantScript = [
@@ -513,7 +513,7 @@ describe("shell-free command executor", () => {
   test.skipIf(process.platform === "win32")(
     "does not settle an abort until a setsid descendant has stopped",
     async () => {
-      const directory = await createTemporaryDirectory("dawn-k8s-command-setsid-abort-")
+      const directory = await createTemporaryDirectory("b4-k8s-command-setsid-abort-")
       const pidPath = join(directory, "descendant-pid")
       const sentinelPath = join(directory, "descendant-sentinel")
       const controller = new AbortController()
@@ -550,7 +550,7 @@ describe("shell-free command executor", () => {
     { name: "normal exit 0", exitCode: 0 as const, acceptedExitCodes: [] as const },
   ])("fails closed for $name after a setsid descendant reparents", async (input) => {
     if (process.platform === "win32") return
-    const directory = await createTemporaryDirectory(`dawn-k8s-command-setsid-${input.exitCode}-`)
+    const directory = await createTemporaryDirectory(`b4-k8s-command-setsid-${input.exitCode}-`)
     const pidPath = join(directory, "descendant-pid")
     const sentinelPath = join(directory, "descendant-sentinel")
     const execution = executeCommand(

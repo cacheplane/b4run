@@ -6,7 +6,7 @@ import { FeatureBlock } from "./FeatureBlock"
 import { MediaSwitcher } from "./MediaSwitcher"
 
 const ROUTE_CODE = `// src/app/(public)/support/index.ts
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
@@ -39,7 +39,7 @@ export async function FeatureRouting() {
         <MediaSwitcher
           videoLabel="Video"
           codeLabel="Code"
-          ariaLabel="Dawn route authoring"
+          ariaLabel="B4.run route authoring"
           video={
             <figure>
               <ClipPlayer clip={demoMedia.author} className="border border-divider shadow-sm" />

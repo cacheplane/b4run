@@ -237,7 +237,11 @@ test("scheduled discovery enumerates managed Releases and standalone tags before
       .sort((left, right) => left - right),
     [221, 233, 241, 242],
   )
-  assert.ok(github.calls.every(([operation, id]) => operation !== "listReleaseAssets" || id !== 99))
+  // Display labels cannot hide durable recovery ownership on otherwise unmanaged Releases.
+  assert.equal(
+    github.calls.filter(([operation, id]) => operation === "listReleaseAssets" && id === 99).length,
+    1,
+  )
 })
 
 test("a standalone active candidate tag is recovered as CANDIDATE_TAGGED", async () => {
@@ -433,7 +437,7 @@ test("scheduled discovery admits an exact AUDIT_VERIFIED draft for production ob
   )
 })
 
-test("scheduled discovery ignores malformed temporary drafts beside a marker-backed candidate", async () => {
+test("scheduled discovery blocks an unclassifiable controller envelope on an opaque draft", async () => {
   const repository = repositoryFixture([
     commit(BASE_SHA, "0.8.20"),
     commit(SHA_21, "0.8.21", { parent: BASE_SHA, marker: true }),
@@ -455,18 +459,19 @@ test("scheduled discovery ignores malformed temporary drafts beside a marker-bac
     ],
   })
 
-  const result = await discoverScheduledCandidate({
-    terminalRecordRef: RECORD_REF,
-    inventory: repository.inventory,
-    git: repository.git,
-    github,
-    marker: ACTIVE_MARKER,
-  })
-
-  assert.deepEqual(result, selectedCandidate("0.8.21", SHA_21, "CANDIDATE_TAGGED"))
+  await assert.rejects(
+    discoverScheduledCandidate({
+      terminalRecordRef: RECORD_REF,
+      inventory: repository.inventory,
+      git: repository.git,
+      github,
+      marker: ACTIVE_MARKER,
+    }),
+    /Unsupported recovery\/legacy marker blocks routing/,
+  )
   assert.deepEqual(
     github.calls.filter(([operation]) => operation === "listReleaseAssets"),
-    [["listReleaseAssets", release.id]],
+    [["listReleaseAssets", 99]],
   )
 })
 
@@ -810,6 +815,60 @@ test("scheduled recovery keeps both abandonment runner-loss boundaries nontermin
       ...selectedCandidate("0.8.21", SHA_21, "CANDIDATE_TAGGED"),
       disposition: "blocked",
       conflicts: [conflict],
+    })
+  }
+})
+
+test("terminal abandonment revalidates assets through the original reader", async (t) => {
+  for (const mode of ["stable", "replaced", "deleted", "unavailable", "rejected"]) {
+    await t.test(mode, async () => {
+      const repository = repositoryFixture([
+        commit(BASE_SHA, "0.8.20"),
+        commit(CUTOVER_SHA, "0.8.20", { parent: BASE_SHA, marker: true }),
+        commit(SHA_21, "0.8.21", { parent: CUTOVER_SHA, marker: true }),
+        commit(SHA_22, "0.8.22", { parent: SHA_21, marker: true }),
+      ])
+      const abandoned = managedRelease(21, "0.8.21", SHA_21, {
+        abandoned: true,
+        releaseRecord: false,
+      })
+      const github = githubFixture({ tags: [tagRef("0.8.21", SHA_21)], releases: [abandoned] })
+      const listAssets = github.listReleaseAssets
+      let targetReads = 0
+      github.listReleaseAssets = async (args) => {
+        const response = await listAssets(args)
+        if (args.releaseId !== abandoned.id) return response
+        targetReads++
+        if (targetReads < 2 || mode === "stable") return response
+        if (mode === "rejected") throw new Error("fresh terminal assets unavailable")
+        if (mode === "unavailable") return { status: "UNKNOWN" }
+        return present(
+          "release-assets",
+          mode === "deleted"
+            ? []
+            : response.value.map((asset) => ({
+                ...asset,
+                id: asset.id + 1,
+              })),
+        )
+      }
+      const discover = () =>
+        discoverScheduledCandidate({
+          terminalRecordRef: RECORD_REF,
+          inventory: repository.inventory,
+          git: repository.git,
+          github,
+          marker: ACTIVE_MARKER,
+        })
+      if (mode === "stable") {
+        assert.deepEqual(
+          await discover(),
+          selectedCandidate("0.8.22", SHA_22, "CANDIDATE_VALIDATED"),
+        )
+      } else {
+        await assert.rejects(discover(), /assets.*(?:changed|unavailable)|final assets/iu)
+      }
+      assert.equal(targetReads, 2, "final terminal verification must reach the original reader")
     })
   }
 })
@@ -1458,7 +1517,7 @@ function managedRelease(
     id,
     version,
     tag_name: `v${version}`,
-    name: `Dawn v${version}`,
+    name: `B4 v${version}`,
     target_commitish: "main",
     draft: !published,
     immutable: published,
@@ -1466,7 +1525,7 @@ function managedRelease(
     ...(abandonmentMarker === null
       ? {}
       : {
-          name: `Dawn v${version} (abandoned before publication)`,
+          name: `B4 v${version} (abandoned before publication)`,
           body: canonicalAbandonmentReleaseBody({
             marker: abandonmentMarker,
             tombstone: abandonment,
@@ -1519,7 +1578,7 @@ function auditVerifiedDraftRelease(id, version, commitSha) {
     },
     ...Array.from({ length: 21 }, (_unused, index) => {
       const ordinal = String(index + 1).padStart(2, "0")
-      const subjectName = `dawn-ai-package-${ordinal}-${version}.tgz`
+      const subjectName = `b4run-package-${ordinal}-${version}.tgz`
       return {
         subjectName,
         subjectSha256: (index + 1).toString(16).padStart(64, "0"),
@@ -1558,8 +1617,8 @@ function auditVerifiedDraftRelease(id, version, commitSha) {
     audit: {
       ...template.audit,
       workflowRunId: release.auditResult.workflowRunId,
-      runUrl: `https://api.github.com/repos/cacheplane/dawnai/actions/runs/${release.auditResult.workflowRunId}`,
-      htmlUrl: `https://github.com/cacheplane/dawnai/actions/runs/${release.auditResult.workflowRunId}`,
+      runUrl: `https://api.github.com/repos/cacheplane/b4run/actions/runs/${release.auditResult.workflowRunId}`,
+      htmlUrl: `https://github.com/cacheplane/b4run/actions/runs/${release.auditResult.workflowRunId}`,
       runAttempt: release.auditResult.runAttempt,
       attemptAssetName: `audit-attempt-${release.auditResult.workflowRunId}-${release.auditResult.runAttempt}.json`,
       attemptSha256: auditSha256,
@@ -1595,7 +1654,7 @@ function interruptedAbandonmentRelease(id, version, commitSha) {
     audit: null,
     abandonmentSha256: null,
   }
-  release.name = `Dawn v${version}`
+  release.name = `B4 v${version}`
   release.body = canonicalReleaseBody({ marker, manifest: null })
   return release
 }
@@ -1626,7 +1685,7 @@ function terminalAttestedAbandonmentRelease(id, version, commitSha) {
     }
   })
   const attestationSet = {
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${version}`,
     commitSha,
@@ -1708,7 +1767,7 @@ function terminalAttestedAbandonmentRelease(id, version, commitSha) {
       .map((asset) => [asset.id, bytesByName.get(asset.name)]),
     [id * 1_000 + 100, release.abandonmentBytes],
   ])
-  release.name = `Dawn v${version} (abandoned before publication)`
+  release.name = `B4 v${version} (abandoned before publication)`
   release.body = canonicalAbandonmentReleaseBody({
     marker,
     tombstone: release.abandonment,
@@ -1777,7 +1836,7 @@ function abandonmentRecord(version, commitSha) {
 }
 
 function unmanagedRelease(id) {
-  return { id, tag_name: "@dawn-ai/core@0.8.21", draft: false, assets: [] }
+  return { id, tag_name: "@b4run/core@0.8.21", draft: false, assets: [] }
 }
 
 function releaseRecordAsset(id) {
@@ -2058,7 +2117,7 @@ test("a visible Release for a recorded version must be its exact stamped tombsto
       "unstamped escrowed draft",
       {
         ...stamped,
-        name: `Dawn v${RECORD_VERSION}`,
+        name: `B4 v${RECORD_VERSION}`,
         body: canonicalReleaseBody({ marker: value.predecessor.marker, manifest: null }),
       },
     ],
@@ -2253,7 +2312,7 @@ function stampedTombstoneRelease(value) {
   return {
     id: value.predecessor.releaseId,
     tag_name: `v${value.version}`,
-    name: `Dawn v${value.version} (abandoned before publication)`,
+    name: `B4 v${value.version} (abandoned before publication)`,
     target_commitish: "main",
     draft: true,
     immutable: false,
@@ -2290,7 +2349,7 @@ function operatorRecoveryAbandonmentRelease(id) {
     }
   })
   const attestationSet = {
-    repository: "cacheplane/dawnai",
+    repository: "cacheplane/b4run",
     workflow: ".github/workflows/release.yml",
     sourceRef: `refs/tags/v${version}`,
     commitSha,
@@ -2359,7 +2418,7 @@ function operatorRecoveryAbandonmentRelease(id) {
     id,
     version,
     tag_name: `v${version}`,
-    name: `Dawn v${version} (abandoned before publication)`,
+    name: `B4 v${version} (abandoned before publication)`,
     target_commitish: "main",
     draft: true,
     immutable: false,

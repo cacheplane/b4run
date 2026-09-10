@@ -2,10 +2,10 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import type { MemoryStore } from "@dawn-ai/memory"
-import type { PermissionsStore } from "@dawn-ai/permissions"
-import type { DawnMiddleware } from "@dawn-ai/sdk"
-import type { Thread, ThreadsStore } from "@dawn-ai/sqlite-storage"
+import type { MemoryStore } from "@b4run/memory"
+import type { PermissionsStore } from "@b4run/permissions"
+import type { B4Middleware } from "@b4run/sdk"
+import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import { MemorySaver } from "@langchain/langgraph"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -22,8 +22,8 @@ import {
 // createThreadsStore / sqliteCheckpointer each open exactly one DatabaseSync,
 // so counting factory calls counts sqlite opens. Passthrough spies — real
 // behavior is unchanged (the negative control below depends on it).
-vi.mock("@dawn-ai/sqlite-storage", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@dawn-ai/sqlite-storage")>()
+vi.mock("@b4run/sqlite-storage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@b4run/sqlite-storage")>()
   return {
     ...actual,
     createThreadsStore: vi.fn(actual.createThreadsStore),
@@ -32,11 +32,11 @@ vi.mock("@dawn-ai/sqlite-storage", async (importOriginal) => {
 })
 
 // Every default permissions-store construction performs exactly one
-// `.dawn/permissions.json` read (store.load() inside buildPermissionsStore /
+// `.b4/permissions.json` read (store.load() inside buildPermissionsStore /
 // resolvePermissionsStore), so zero createPermissionsStore calls proves zero
 // permissions-file reads.
-vi.mock("@dawn-ai/permissions/node", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@dawn-ai/permissions/node")>()
+vi.mock("@b4run/permissions/node", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@b4run/permissions/node")>()
   return {
     ...actual,
     createPermissionsStore: vi.fn(actual.createPermissionsStore),
@@ -46,17 +46,17 @@ vi.mock("@dawn-ai/permissions/node", async (importOriginal) => {
 // The default memory path (resolveMemoryStore, no config `memory.store`)
 // opens exactly one DatabaseSync via sqliteMemoryStore — counting factory
 // calls counts sqlite memory opens.
-vi.mock("@dawn-ai/memory", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@dawn-ai/memory")>()
+vi.mock("@b4run/memory", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@b4run/memory")>()
   return {
     ...actual,
     sqliteMemoryStore: vi.fn(actual.sqliteMemoryStore),
   }
 })
 
-import { sqliteMemoryStore } from "@dawn-ai/memory"
-import { createPermissionsStore } from "@dawn-ai/permissions/node"
-import { createThreadsStore, sqliteCheckpointer } from "@dawn-ai/sqlite-storage"
+import { sqliteMemoryStore } from "@b4run/memory"
+import { createPermissionsStore } from "@b4run/permissions/node"
+import { createThreadsStore, sqliteCheckpointer } from "@b4run/sqlite-storage"
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 
@@ -74,7 +74,7 @@ afterEach(async () => {
 // turn activate the memory capability — pinning that one memoized store
 // thunk serves the whole tree (and, un-injected, that sqlite memory opens).
 const MEMORY_TS =
-  'import { defineMemory } from "@dawn-ai/sdk"\n' +
+  'import { defineMemory } from "@b4run/sdk"\n' +
   'import { z } from "zod"\n' +
   "export default defineMemory({\n" +
   '  kind: "semantic",\n' +
@@ -83,13 +83,13 @@ const MEMORY_TS =
   "})\n"
 
 async function subagentFixtureApp(): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-store-injection-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-store-injection-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "store-injection-fixture", "type": "module" }\n',
     "src/app/chat/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\n' +
+      'import { agent } from "@b4run/sdk"\n' +
       'import helper from "../helper/index.js"\n' +
       "export default agent({\n" +
       '  model: "gpt-5-mini",\n' +
@@ -98,7 +98,7 @@ async function subagentFixtureApp(): Promise<string> {
       "})\n",
     "src/app/chat/memory.ts": MEMORY_TS,
     "src/app/helper/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\n' +
+      'import { agent } from "@b4run/sdk"\n' +
       "export default agent({\n" +
       '  description: "Echoes text back verbatim.",\n' +
       '  model: "gpt-5-mini",\n' +
@@ -224,7 +224,7 @@ function spyCounts(): {
 
 // ---------------------------------------------------------------------------
 // The seam proof: with all five options injected (+ seeded config + static
-// modules), NOTHING touches sqlite or `.dawn/permissions.json` — not boot,
+// modules), NOTHING touches sqlite or `.b4/permissions.json` — not boot,
 // not the parent turn, not the subagent re-entry.
 // ---------------------------------------------------------------------------
 
@@ -235,7 +235,7 @@ describe("createRuntimeFetchHandler — full store/middleware injection", () => 
     await withAimock(subagentScript())
 
     const { store: threadsStore, threads } = memoryThreadsStore()
-    const middleware = vi.fn<DawnMiddleware>(() => ({ action: "continue" as const }))
+    const middleware = vi.fn<B4Middleware>(() => ({ action: "continue" as const }))
     const memoryStoreThunk = vi.fn(async () => fakeMemoryStore())
 
     const before = spyCounts()
@@ -261,7 +261,7 @@ describe("createRuntimeFetchHandler — full store/middleware injection", () => 
     expect(body).toContain("RUN_FINISHED")
 
     // Zero sqlite constructions (threads, checkpoints, memory) and zero
-    // permissions-store constructions (⇒ zero `.dawn/permissions.json`
+    // permissions-store constructions (⇒ zero `.b4/permissions.json`
     // reads) across boot + both turns.
     expect(spyCounts()).toEqual(before)
 
@@ -305,7 +305,7 @@ describe("createRuntimeFetchHandler — full store/middleware injection", () => 
 
     const after = spyCounts()
     // Turn-time movement: the per-request permissions factory constructs (and
-    // re-reads `.dawn/permissions.json`) per turn, and routes with a memory.ts
+    // re-reads `.b4/permissions.json`) per turn, and routes with a memory.ts
     // resolve the default sqlite memory store lazily on first use.
     expect(after.permissions).toBeGreaterThan(afterBoot.permissions)
     expect(after.memory).toBeGreaterThan(afterBoot.memory)

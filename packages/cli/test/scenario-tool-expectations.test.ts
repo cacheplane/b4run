@@ -1,7 +1,7 @@
 import type {
   ScenarioToolCallExpectationDescriptor,
   ScenarioToolCallRecord,
-} from "@dawn-ai/sdk/testing"
+} from "@b4run/sdk/testing"
 import { describe, expect, it } from "vitest"
 import { evaluateScenarioToolExpectations } from "../src/lib/runtime/scenario-tool-expectations.js"
 

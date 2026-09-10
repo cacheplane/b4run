@@ -6,7 +6,7 @@ import {
   type ResolvedBrowseSort,
   utcDayAfter,
   utcDayStart,
-} from "@dawn-ai/memory"
+} from "@b4run/memory"
 
 /**
  * Append one normalized filter to a Postgres WHERE list, numbering `$n` from the

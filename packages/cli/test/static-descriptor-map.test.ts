@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { agent } from "@dawn-ai/sdk"
+import { agent } from "@b4run/sdk"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { script } from "../../testing/dist/index.js"
@@ -12,7 +12,7 @@ import {
   buildDescriptorMapsFromStaticModules,
   getCachedStaticDescriptorMaps,
 } from "../src/lib/runtime/execute-route.js"
-import type { DawnStaticModules, StaticRouteModule } from "../src/lib/runtime/static-modules.js"
+import type { B4StaticModules, StaticRouteModule } from "../src/lib/runtime/static-modules.js"
 import {
   buildStaticModulesForFixture,
   cleanup,
@@ -53,7 +53,7 @@ describe("buildDescriptorMapsFromStaticModules", () => {
     const agentA = agent({ model: "gpt-5-mini", systemPrompt: "Agent A." })
     const agentB = agent({ model: "gpt-5-mini", systemPrompt: "Agent B." })
     const workflowEntry = async () => "done"
-    const modules: DawnStaticModules = {
+    const modules: B4StaticModules = {
       routes: [
         staticRoute({ entry: agentA, kind: "agent", routeId: "/a" }),
         staticRoute({
@@ -93,7 +93,7 @@ describe("buildDescriptorMapsFromStaticModules", () => {
 
   it("memoizes per manifest object identity, reset by __resetDescriptorRouteMapCacheForTests", () => {
     __resetDescriptorRouteMapCacheForTests()
-    const modules: DawnStaticModules = {
+    const modules: B4StaticModules = {
       routes: [
         staticRoute({
           entry: agent({ model: "gpt-5-mini", systemPrompt: "Agent A." }),
@@ -107,7 +107,7 @@ describe("buildDescriptorMapsFromStaticModules", () => {
     expect(getCachedStaticDescriptorMaps(modules)).toBe(first)
 
     // A different manifest object gets its own maps.
-    const other: DawnStaticModules = { routes: [...modules.routes] }
+    const other: B4StaticModules = { routes: [...modules.routes] }
     expect(getCachedStaticDescriptorMaps(other)).not.toBe(first)
 
     __resetDescriptorRouteMapCacheForTests()
@@ -128,7 +128,7 @@ describe("buildDescriptorMapsFromStaticModules", () => {
 const HELPER_DESCRIPTION = "Echoes text back verbatim."
 
 async function subagentFixtureApp(): Promise<string> {
-  const appRoot = await mkdtemp(join(tmpdir(), "dawn-static-descriptor-"))
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-static-descriptor-"))
   cleanup.push(() =>
     rm(appRoot, {
       force: true,
@@ -138,10 +138,10 @@ async function subagentFixtureApp(): Promise<string> {
     }),
   )
   const files: Record<string, string> = {
-    "dawn.config.ts": "export default {}\n",
+    "b4.config.ts": "export default {}\n",
     "package.json": '{ "name": "static-descriptor-fixture", "type": "module" }\n',
     "src/app/chat/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\n' +
+      'import { agent } from "@b4run/sdk"\n' +
       'import helper from "../helper/index.js"\n' +
       "export default agent({\n" +
       '  model: "gpt-5-mini",\n' +
@@ -149,7 +149,7 @@ async function subagentFixtureApp(): Promise<string> {
       "  subagents: { helper },\n" +
       "})\n",
     "src/app/helper/index.ts":
-      'import { agent } from "@dawn-ai/sdk"\n' +
+      'import { agent } from "@b4run/sdk"\n' +
       "export default agent({\n" +
       `  description: "${HELPER_DESCRIPTION}",\n` +
       '  model: "gpt-5-mini",\n' +
@@ -168,10 +168,10 @@ async function subagentFixtureApp(): Promise<string> {
  * elsewhere shape: modules built on one machine, served from another where
  * the sources do not exist (and were never imported into the module cache). */
 function relocateModules(
-  modules: DawnStaticModules,
+  modules: B4StaticModules,
   fromRoot: string,
   toRoot: string,
-): DawnStaticModules {
+): B4StaticModules {
   return {
     routes: modules.routes.map((route) => ({
       ...route,
@@ -193,7 +193,7 @@ describe("subagent dispatch from static modules (pruned-source proof)", () => {
 
     // Pruned root: config + package.json + empty src/app only. Route file
     // paths in the manifest are relocated here, where they do not exist.
-    const prunedRoot = await mkdtemp(join(tmpdir(), "dawn-static-descriptor-pruned-"))
+    const prunedRoot = await mkdtemp(join(tmpdir(), "b4-static-descriptor-pruned-"))
     cleanup.push(() =>
       rm(prunedRoot, {
         force: true,
@@ -202,7 +202,7 @@ describe("subagent dispatch from static modules (pruned-source proof)", () => {
         retryDelay: 100,
       }),
     )
-    await writeFile(join(prunedRoot, "dawn.config.ts"), "export default {}\n", "utf8")
+    await writeFile(join(prunedRoot, "b4.config.ts"), "export default {}\n", "utf8")
     await writeFile(
       join(prunedRoot, "package.json"),
       '{ "name": "static-descriptor-fixture", "type": "module" }\n',

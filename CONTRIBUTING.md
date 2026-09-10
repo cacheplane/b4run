@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve Dawn. This guide covers the public contribution path for issues, pull requests, and package changes. For detailed monorepo layout, package ownership, and verification lanes, see [CONTRIBUTORS.md](./CONTRIBUTORS.md).
+Thanks for helping improve B4.run. This guide covers the public contribution path for issues, pull requests, and package changes. For detailed monorepo layout, package ownership, and verification lanes, see [CONTRIBUTORS.md](./CONTRIBUTORS.md).
 
 Standards, the workspace map, and the Definition of Done for any change live in [AGENTS.md](./AGENTS.md) — read that first.
 
@@ -52,8 +52,8 @@ Prefer `pnpm build` over a per-package `--filter` build whenever you're about to
 
 Use GitHub Issues for reproducible bugs and concrete feature requests. Include:
 
-- Dawn package, command, or route surface involved.
-- Dawn version or commit.
+- B4.run package, command, or route surface involved.
+- B4.run version or commit.
 - Node.js and pnpm versions.
 - The smallest reproduction, failing test, or route fixture you can provide.
 - Expected behavior and actual behavior.

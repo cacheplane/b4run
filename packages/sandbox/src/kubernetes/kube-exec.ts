@@ -1,4 +1,4 @@
-import type { BackendContext, ExecBackend } from "@dawn-ai/workspace"
+import type { BackendContext, ExecBackend } from "@b4run/workspace"
 import type { KubeClient } from "./kube-client.js"
 
 function shellQuote(s: string): string {

@@ -1,5 +1,34 @@
 # @dawn-ai/sdk
 
+## 0.8.29
+
+### Patch Changes
+
+- 481489e: Publish the B4.run package family with the first-publication registry
+  convergence fix in effect, so every package is published and verified in a
+  single release rather than stalling on each newly created packument.
+
+## 0.8.28
+
+### Patch Changes
+
+- 39ceb2e: Release controller fixes for the B4.run identity: read release history written
+  under the previous identity, exclude releases made under it from candidate
+  arbitration, allow the one-time package family rename across a candidate's first
+  parent, and prove a never-published package absent during escrow.
+
+## 0.8.27
+
+### Patch Changes
+
+- b05b96d: Rename the framework to B4.run and publish the package family under `@b4run`.
+  Use `b4`, `b4.config.ts`, `.b4`, and `create-b4-app` for the CLI, configuration,
+  local state, and scaffold. Branded public types and environment variables use
+  the B4 prefix. Existing package names, config files, state locations and exported
+  aliases are not supported by this release.
+
+## 0.8.26
+
 ## 0.8.25
 
 ## 0.8.24

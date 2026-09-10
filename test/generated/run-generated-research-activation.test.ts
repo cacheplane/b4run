@@ -28,11 +28,11 @@ const tempDirs: TrackedTempDir[] = []
 // other agents' builds). Body totals across three green runs: 174s / 203s /
 // 230s. Per-command, from the 203s run:
 //   root `npm install` 136.6s          `npm run build` 23.1s
-//   `dawn dev` boot+readiness 4.9s     `npm start` boot+readiness 1.6s
+//   `b4 dev` boot+readiness 4.9s     `npm start` boot+readiness 1.6s
 //   dev session total 12.3s, of which the NESTED web client is:
-//     `npm run dev:web` boot + /api/dawn/memory/candidates readiness  2.6s
+//     `npm run dev:web` boot + /api/b4/memory/candidates readiness  2.6s
 //     the six web assertions (incl. a 3.8s cold /api/copilotkit compile) 3.9s
-//     web teardown 87ms; the Dawn child's own teardown after it, 58ms
+//     web teardown 87ms; the B4.run child's own teardown after it, 58ms
 // So the web tier costs ~6.6s. Do not read a body total as a regression signal:
 // `npm install` alone swung 92-137s across measurements, several times the
 // web tier's whole cost.
@@ -74,9 +74,9 @@ const FETCH_STDOUT =
 // they keep the three direct journeys' aimock accounting untouched and remove
 // any dependence on whether an aimock fixture is consumed or reusable.
 const WEB_PROMPT = "Web hop smoke: outline the workbench check."
-const WEB_REPLY = "Workbench reached the Dawn server through the CopilotKit runtime."
+const WEB_REPLY = "Workbench reached the B4.run server through the CopilotKit runtime."
 const WEB_TODOS = [
-  { content: "Confirm the web client reaches the Dawn server", status: "completed" },
+  { content: "Confirm the web client reaches the B4.run server", status: "completed" },
 ]
 const WEB_GATED_PROMPT = "Web hop gate: run the external fetch script for the workbench check."
 const WEB_FETCH_COMMAND = "node scripts/fetch-source.mjs workbench hop"
@@ -84,10 +84,10 @@ const WEB_GATED_REPLY = "Fetched external context after approval through the web
 // CopilotKit's fetch-router matches `agent/<agentId>/run`; `default` is the id
 // the runtime route registers and every CopilotKit hook resolves.
 const COPILOTKIT_RUN_PATH = "/api/copilotkit/agent/default/run"
-// The allowlisted read the generated app itself treats as "the Dawn server
+// The allowlisted read the generated app itself treats as "the B4.run server
 // answered" (`AppShell.tsx`'s SERVER_PROBE_PATH). A 2xx means the route's whole
-// module graph compiled AND the proxy reached a Dawn server.
-const WEB_READY_PATH = "/api/dawn/memory/candidates"
+// module graph compiled AND the proxy reached a B4.run server.
+const WEB_READY_PATH = "/api/b4/memory/candidates"
 const todos = [
   { content: "Restate the question and list the sub-questions to research", status: "completed" },
   { content: "Search the corpus for each sub-question", status: "in_progress" },
@@ -174,7 +174,7 @@ function correlateRootToolCalls(events: readonly AgUiEvent[]): Map<string, unkno
     event.type === "TOOL_CALL_START" ? [{ event, index }] : [],
   )
   // `writeTodos` and `task` are absent by design: each presents once, as its
-  // dawn.plan / dawn.subagent activity, with no generic tool frames.
+  // b4.plan / b4.subagent activity, with no generic tool frames.
   expect(starts.map(({ event }) => event.toolCallName)).toEqual([
     "recall",
     "searchCorpus",
@@ -417,7 +417,7 @@ async function appendAgUiFailure(
 async function postAgui(options: {
   readonly baseUrl: string
   /**
-   * Where to POST. Defaults to the Dawn server's own AG-UI route; the web hop
+   * Where to POST. Defaults to the B4.run server's own AG-UI route; the web hop
    * points it at CopilotKit's runtime instead. Nothing else changes: the
    * runtime accepts a plain AG-UI `RunAgentInput` — the same object built below
    * — and answers `text/event-stream` of raw `data: {...}` AG-UI frames.
@@ -545,15 +545,15 @@ function assertSafeResearchJourney(
   expect(activities).toEqual([
     {
       type: "ACTIVITY_SNAPSHOT",
-      messageId: `dawn:plan:${ids.runId}`,
-      activityType: "dawn.plan",
+      messageId: `b4:plan:${ids.runId}`,
+      activityType: "b4.plan",
       replace: true,
       content: { todos },
     },
     {
       type: "ACTIVITY_SNAPSHOT",
-      messageId: "dawn:subagent:call_task_0_2",
-      activityType: "dawn.subagent",
+      messageId: "b4:subagent:call_task_0_2",
+      activityType: "b4.subagent",
       replace: true,
       content: {
         name: "researcher",
@@ -565,8 +565,8 @@ function assertSafeResearchJourney(
     },
     {
       type: "ACTIVITY_SNAPSHOT",
-      messageId: "dawn:subagent:call_task_0_2",
-      activityType: "dawn.subagent",
+      messageId: "b4:subagent:call_task_0_2",
+      activityType: "b4.subagent",
       replace: true,
       content: {
         name: "researcher",
@@ -578,8 +578,8 @@ function assertSafeResearchJourney(
     },
     {
       type: "ACTIVITY_SNAPSHOT",
-      messageId: "dawn:subagent:call_task_0_2",
-      activityType: "dawn.subagent",
+      messageId: "b4:subagent:call_task_0_2",
+      activityType: "b4.subagent",
       replace: true,
       content: {
         name: "researcher",
@@ -591,8 +591,8 @@ function assertSafeResearchJourney(
     },
     {
       type: "ACTIVITY_SNAPSHOT",
-      messageId: "dawn:subagent:call_task_0_2",
-      activityType: "dawn.subagent",
+      messageId: "b4:subagent:call_task_0_2",
+      activityType: "b4.subagent",
       replace: true,
       content: {
         name: "researcher",
@@ -607,8 +607,8 @@ function assertSafeResearchJourney(
     },
     {
       type: "ACTIVITY_SNAPSHOT",
-      messageId: "dawn:subagent:call_task_0_2",
-      activityType: "dawn.subagent",
+      messageId: "b4:subagent:call_task_0_2",
+      activityType: "b4.subagent",
       replace: true,
       content: {
         name: "researcher",
@@ -623,8 +623,8 @@ function assertSafeResearchJourney(
     },
     {
       type: "ACTIVITY_SNAPSHOT",
-      messageId: "dawn:subagent:call_task_0_2",
-      activityType: "dawn.subagent",
+      messageId: "b4:subagent:call_task_0_2",
+      activityType: "b4.subagent",
       replace: true,
       content: {
         name: "researcher",
@@ -863,12 +863,12 @@ function assertBuiltArtifactJourney(
 }
 
 /**
- * W4 — Dawn's events survive a third-party runtime that re-validates and
+ * W4 — B4.run's events survive a third-party runtime that re-validates and
  * re-encodes every frame.
  *
  * Deliberately without run/thread id equality on the terminal frames: CopilotKit
  * adds an `input` echo to RUN_STARTED, and id echo is a property of a
- * third-party runtime rather than of Dawn. The thread-state read at the call
+ * third-party runtime rather than of B4.run. The thread-state read at the call
  * site proves the id round-trip in a way that does not depend on it.
  */
 function assertWebHopJourney(events: readonly AgUiEvent[]): void {
@@ -884,11 +884,11 @@ function assertWebHopJourney(events: readonly AgUiEvent[]): void {
   const activities = events.filter((event) => event.type === "ACTIVITY_SNAPSHOT")
   expect(activities).toHaveLength(1)
   expect(activities[0]).toMatchObject({
-    activityType: "dawn.plan",
+    activityType: "b4.plan",
     content: { todos: WEB_TODOS },
     replace: true,
   })
-  expect(String(activities[0]?.messageId)).toMatch(/^dawn:plan:/)
+  expect(String(activities[0]?.messageId)).toMatch(/^b4:plan:/)
   expect(
     events.filter((event) => event.type === "TOOL_CALL_START").map((event) => event.toolCallName),
   ).not.toContain("writeTodos")
@@ -1032,7 +1032,7 @@ test("anchors the recorded server exit to a whole command line", () => {
   const appRoot = "/tmp/anchored-activation-app"
   const serverBlock = [
     `$ (cd ${appRoot} && npm run dev -- --port 4711)`,
-    "dawn dev stdout",
+    "b4 dev stdout",
     "[exit 0 signal none]",
     "",
   ]
@@ -1063,7 +1063,7 @@ test("anchors the recorded server exit to a whole command line", () => {
 test("activates the default research scaffold through the complete npm lifecycle", {
   timeout: ACTIVATION_TIMEOUT_MS,
 }, async ({ signal: testSignal }) => {
-  const tempRoot = await createTrackedTempDir("dawn-generated-research-activation-", tempDirs)
+  const tempRoot = await createTrackedTempDir("b4-generated-research-activation-", tempDirs)
   const appRoot = join(tempRoot, "app")
   const installerRoot = join(tempRoot, "installer")
   const expectedArtifactRoot = join(
@@ -1100,7 +1100,7 @@ test("activates the default research scaffold through the complete npm lifecycle
     lifecycleDeadline.unref()
     const lifecycleSignal = AbortSignal.any([testSignal, lifecycleController.signal])
 
-    Reflect.set(process.env, "DAWN_DEMO_DOCKER_SANDBOX", "1")
+    Reflect.set(process.env, "B4_DEMO_DOCKER_SANDBOX", "1")
     Reflect.set(process.env, "OPENAI_BASE_URL", "http://127.0.0.1:1/v1")
     Reflect.set(process.env, "OPENAI_API_KEY", "ambient-secret")
 
@@ -1142,7 +1142,7 @@ test("activates the default research scaffold through the complete npm lifecycle
     })
     expect(installerDir).toBe(installerRoot)
     const creatorResult = await runPackagedNpmCommand({
-      args: ["exec", "--", "create-dawn-ai-app", appRoot],
+      args: ["exec", "--", "create-b4-app", appRoot],
       cwd: installerDir,
       signal: lifecycleSignal,
       transcriptPath: commandsTranscriptPath,
@@ -1167,12 +1167,12 @@ test("activates the default research scaffold through the complete npm lifecycle
       .split("\n")
       .filter((line) => line.startsWith(`$ (cd ${installerDir} && npm exec `))
     expect(creatorCommandLines).toEqual([
-      `$ (cd ${installerDir} && npm exec -- create-dawn-ai-app ${appRoot})`,
+      `$ (cd ${installerDir} && npm exec -- create-b4-app ${appRoot})`,
     ])
     expect(creatorCommandLines[0]?.split(/\s+/)).not.toContain("--template")
 
     await writeRegistryNpmrc(appRoot, getTestRegistryUrl())
-    // The Dawn server lives in `server/`, and its `start` script is
+    // The B4.run server lives in `server/`, and its `start` script is
     // `node --env-file-if-exists=.env …` resolved from ITS cwd. A `.env` left at
     // the workspace root is invisible to it: `npm run verify` starts warning
     // about missing environment variables, and the built-artifact journey boots
@@ -1220,10 +1220,10 @@ test("activates the default research scaffold through the complete npm lifecycle
       transcriptPath: commandsTranscriptPath,
     })
     expect(typegenResult.stdout).toContain("Wrote types for")
-    const generatedTypesPath = join(appRoot, "server/.dawn/dawn.generated.d.ts")
+    const generatedTypesPath = join(appRoot, "server/.b4/b4.generated.d.ts")
     await expect(access(generatedTypesPath, constants.F_OK)).resolves.toBeUndefined()
     const generatedTypes = await readFile(generatedTypesPath, "utf8")
-    const checkSentinel = "// sentinel: dawn check must not generate types\n"
+    const checkSentinel = "// sentinel: b4 check must not generate types\n"
     await writeFile(generatedTypesPath, checkSentinel, "utf8")
 
     const checkResult = await runGeneratedAppNpmCommand({
@@ -1232,7 +1232,7 @@ test("activates the default research scaffold through the complete npm lifecycle
       signal: lifecycleSignal,
       transcriptPath: commandsTranscriptPath,
     })
-    expect(checkResult.stdout).toContain("Dawn app is valid:")
+    expect(checkResult.stdout).toContain("B4.run app is valid:")
     expect(checkResult.stdout).not.toContain("Wrote types for")
     await expect(readFile(generatedTypesPath, "utf8")).resolves.toBe(checkSentinel)
     await writeFile(generatedTypesPath, generatedTypes, "utf8")
@@ -1279,14 +1279,14 @@ test("activates the default research scaffold through the complete npm lifecycle
     // One root `npm run build` fans out across both workspace members, so both
     // halves must have produced their artifact.
     await expect(
-      access(join(appRoot, "server/.dawn/build/server.mjs"), constants.F_OK),
+      access(join(appRoot, "server/.b4/build/server.mjs"), constants.F_OK),
     ).resolves.toBeUndefined()
     await expect(access(join(appRoot, "web/.next"), constants.F_OK)).resolves.toBeUndefined()
 
     // The root manifest is pure orchestration: every entry delegates into a
     // workspace member. The trailing ` --` on each single-workspace delegator is
     // load-bearing — without it npm swallows the flag NAME out of
-    // `npm run dev -- --port 4123` and `dawn dev` hard-errors — which is why the
+    // `npm run dev -- --port 4123` and `b4 dev` hard-errors — which is why the
     // harness can boot these apps at all. `packages/devkit/test/template-root-scripts.test.ts`
     // guards the rule at the template; this pins what a real scaffold produced.
     expect(rootManifest.scripts).toEqual({
@@ -1307,18 +1307,18 @@ test("activates the default research scaffold through the complete npm lifecycle
     // The delegation targets. Pinned separately so a rename on either side of
     // the hand-off reds here rather than silently going nowhere.
     expect(serverManifest.scripts).toEqual({
-      dev: "dawn dev --port 3002",
-      verify: "dawn verify",
-      typegen: "dawn typegen",
-      check: "dawn check",
+      dev: "b4 dev --port 3002",
+      verify: "b4 verify",
+      typegen: "b4 typegen",
+      check: "b4 check",
       typecheck: "tsc --noEmit",
       test: "vitest run",
-      eval: "dawn eval",
-      build: "dawn build",
-      start: "node --env-file-if-exists=.env .dawn/build/server.mjs",
-      "test:sandbox:docker": "DAWN_DEMO_DOCKER_SANDBOX=1 vitest run test/sandbox-docker.test.ts",
-      "memory:list": "dawn memory list",
-      "memory:approve": "dawn memory approve",
+      eval: "b4 eval",
+      build: "b4 build",
+      start: "node --env-file-if-exists=.env .b4/build/server.mjs",
+      "test:sandbox:docker": "B4_DEMO_DOCKER_SANDBOX=1 vitest run test/sandbox-docker.test.ts",
+      "memory:list": "b4 memory list",
+      "memory:approve": "b4 memory approve",
     })
     await expect(
       readFile(join(appRoot, "server/src/app/research/index.ts"), "utf8"),
@@ -1411,17 +1411,17 @@ test("activates the default research scaffold through the complete npm lifecycle
           gatedToolCallId,
         )
 
-        // The generated web client, against the SAME Dawn server. Nested rather
+        // The generated web client, against the SAME B4.run server. Nested rather
         // than sequential: the server is already BOUND when the web child
         // allocates its port, and LIFO teardown kills the web half first.
         const webResult = await withPackagedNpmServer(
           {
             appRoot,
             env: {
-              DAWN_SERVER_URL: url,
-              // Both route handlers read DAWN_SERVER_URL at module scope under
+              B4_SERVER_URL: url,
+              // Both route handlers read B4_SERVER_URL at module scope under
               // `runtime = "nodejs"`, and Next does NOT inline it — the built
-              // chunk carries `process.env.DAWN_SERVER_URL??"http://127.0.0.1:3002"`
+              // chunk carries `process.env.B4_SERVER_URL??"http://127.0.0.1:3002"`
               // verbatim — so injecting it at spawn is what points this child at
               // this server rather than at that hard-coded default.
               //
@@ -1436,7 +1436,7 @@ test("activates the default research scaffold through the complete npm lifecycle
             // imprecise — it is wrong in a way that HANGS: `Ready in Xms` prints
             // 12-29s before the process can serve, and a request issued at that
             // line blocked 20.7s. A 2xx on the proxy route means the route's
-            // whole module graph compiled AND the proxy reached a Dawn server.
+            // whole module graph compiled AND the proxy reached a B4.run server.
             readiness: httpOkReadiness(WEB_READY_PATH),
             script: "dev:web",
             signal: lifecycleSignal,
@@ -1450,18 +1450,18 @@ test("activates the default research scaffold through the complete npm lifecycle
             const webIdleJournalStart = activeAimock.getRequests().length
 
             // W1 — the allowlist denies by default in a real Next process.
-            const denied = await fetchWeb(webUrl, "/api/dawn/threads", lifecycleSignal)
+            const denied = await fetchWeb(webUrl, "/api/b4/threads", lifecycleSignal)
             expect(denied.status).toBe(403)
             await expect(denied.json()).resolves.toEqual({ error: "Not proxied" })
 
-            // W2 — the proxy reached THIS server. A mis-wired DAWN_SERVER_URL
+            // W2 — the proxy reached THIS server. A mis-wired B4_SERVER_URL
             // cannot pass: only this server has a checkpoint for the thread the
-            // safe journey just drove, so a stray Dawn server on the hard-coded
+            // safe journey just drove, so a stray B4.run server on the hard-coded
             // :3002 default answers 404 here while W1 and W3 stay green. Do not
             // weaken the 200 to a "not 502" check — that is the whole assertion.
             const state = await fetchWeb(
               webUrl,
-              `/api/dawn/threads/${encodeURIComponent(safeThreadId)}/state`,
+              `/api/b4/threads/${encodeURIComponent(safeThreadId)}/state`,
               lifecycleSignal,
             )
             expect(state.status).toBe(200)
@@ -1476,7 +1476,7 @@ test("activates the default research scaffold through the complete npm lifecycle
             // makes the 200 above evidence rather than coincidence.
             const absent = await fetchWeb(
               webUrl,
-              `/api/dawn/threads/${encodeURIComponent(`absent-${randomUUID()}`)}/state`,
+              `/api/b4/threads/${encodeURIComponent(`absent-${randomUUID()}`)}/state`,
               lifecycleSignal,
             )
             expect(absent.status).toBe(404)
@@ -1495,11 +1495,11 @@ test("activates the default research scaffold through the complete npm lifecycle
             expect(infoBody.mode).toBe("sse")
             expect(infoBody.telemetryDisabled).toBe(true)
 
-            // W6 — the web tier's ONLY path to a model is through Dawn, and only
+            // W6 — the web tier's ONLY path to a model is through B4.run, and only
             // for an actual run. Nothing above may move the journal.
             expect(activeAimock.getRequests()).toHaveLength(webIdleJournalStart)
 
-            // W4 — Next route -> CopilotRuntime -> HttpAgent -> Dawn /agui ->
+            // W4 — Next route -> CopilotRuntime -> HttpAgent -> B4.run /agui ->
             // LangGraph -> aimock, and back. The +2 is one tool turn plus one
             // text turn. `assertWebHopJourney` already proves the run reached a
             // model — `WEB_REPLY` exists nowhere but the fixture — so what this
@@ -1520,10 +1520,10 @@ test("activates the default research scaffold through the complete npm lifecycle
             expect(webJourney.status).toBe(200)
             expect(activeAimock.getRequests()).toHaveLength(webJournalStart + 2)
             assertWebHopJourney(webJourney.events)
-            // Our thread id survived the hop into Dawn's checkpointer.
+            // Our thread id survived the hop into B4.run's checkpointer.
             const webState = await fetchWeb(
               webUrl,
-              `/api/dawn/threads/${encodeURIComponent(webThreadId)}/state`,
+              `/api/b4/threads/${encodeURIComponent(webThreadId)}/state`,
               lifecycleSignal,
             )
             expect(webState.status).toBe(200)
@@ -1580,7 +1580,7 @@ test("activates the default research scaffold through the complete npm lifecycle
     // A leak canary, not a proof of the strip. It says only that nothing echoed
     // the ambient key into a transcript this lane preserves and CI uploads —
     // which holds largely because the web tier has no model path except through
-    // Dawn, so there is little to echo it. Breaking `GENERATED_APP_UNSET_ENV`
+    // B4.run, so there is little to echo it. Breaking `GENERATED_APP_UNSET_ENV`
     // for `dev:web` leaves this green; the assertion that actually fails is
     // `observed.runtimeEnv` in `test/harness/packaged-app.test.ts:1114`. Kept
     // anyway: it is nearly free and mirrors the same sweep over the AG-UI

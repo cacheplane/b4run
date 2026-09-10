@@ -1,4 +1,4 @@
-import { defineMemory } from "@dawn-ai/sdk"
+import { defineMemory } from "@b4run/sdk"
 import { z } from "zod"
 export default defineMemory({
   kind: "semantic",

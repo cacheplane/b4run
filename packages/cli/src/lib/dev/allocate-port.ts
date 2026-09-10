@@ -1,6 +1,6 @@
 import { createServer } from "node:net"
 
-/** Allocate a free localhost TCP port. Shared by dawn dev and dawn inspect. */
+/** Allocate a free localhost TCP port. Shared by b4 dev and b4 inspect. */
 export async function allocateFreePort(): Promise<number> {
   return await new Promise<number>((resolvePromise, rejectPromise) => {
     const server = createServer()

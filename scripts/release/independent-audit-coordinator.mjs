@@ -3,14 +3,14 @@
 import { appendFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
-
 import { normalizeAdapterEnvelope, snapshotJson } from "./adapter-normalize.mjs"
 import { createGitHubReader } from "./adapters/github.mjs"
 import { createGitHubWriter } from "./adapters/github-write.mjs"
 import { canonicalReleaseBody, isManagedReleaseForTag, parseReleaseMarker } from "./metadata.mjs"
+import { assertLegacyAuditCompatibleRelease } from "./recovery/observe.mjs"
 import { compareSemver, isExactSemver, parseSemver } from "./semver.mjs"
 
-const REPOSITORY = "cacheplane/dawnai"
+const REPOSITORY = "cacheplane/b4run"
 const WORKFLOW = ".github/workflows/published-artifact-verify.yml"
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u
@@ -55,20 +55,22 @@ export async function coordinateIndependentAudit(input) {
   const managed =
     invocation.eventName === "schedule"
       ? await discoverLatestPublishedRelease(invocation.github.reader, invocation.defaultBranch)
-      : parseManagedRelease(
-          await readReleaseByTag(invocation.github.reader, `v${invocation.inputs.version}`),
-          {
-            defaultBranch: invocation.defaultBranch,
-            expected: invocation.inputs,
-            allowDraft: false,
-          },
-        )
+      : await readAuditableManagedRelease(invocation.github.reader, {
+          defaultBranch: invocation.defaultBranch,
+          expected: invocation.inputs,
+        })
   await verifyAnnotatedTag(invocation.github.reader, managed)
   const identity = managedIdentity(managed)
+  // The verifier separately authorizes its real immutable main source before
+  // auditing. This coordinator performs no marker or release mutation.
+  if (managed.mode === "draft") return Object.freeze({ mode: "draft-controller", ...identity })
+  if (invocation.eventName === "workflow_dispatch") {
+    return Object.freeze({ mode: "published-controller", ...identity })
+  }
   const receipt = snapshotJson(
     await invocation.github.writer.dispatchWorkflowAtRef({
       workflow: WORKFLOW,
-      ref: managed.tag,
+      ref: invocation.defaultBranch,
       inputs: identity,
     }),
   )
@@ -93,13 +95,13 @@ export async function coordinateIndependentAudit(input) {
 async function readAuditableManagedRelease(reader, { defaultBranch, expected }) {
   const releases = await readEnvelopeValue(reader.listReleases(), "releases")
   if (!Array.isArray(releases)) throw new Error("GitHub Release list is malformed")
-  const name = `Dawn v${expected.version}`
+  const name = `B4 v${expected.version}`
   const matches = releases.filter(
     (release) =>
       release !== null &&
       typeof release === "object" &&
       !Array.isArray(release) &&
-      release.name === name,
+      (release.name === name || release.tag_name === `v${expected.version}`),
   )
   if (matches.length === 0) {
     throw new Error(`No managed Release named ${name} was found`)
@@ -107,6 +109,7 @@ async function readAuditableManagedRelease(reader, { defaultBranch, expected }) 
   if (matches.length > 1) {
     throw new Error(`Managed Release ${name} is duplicated`)
   }
+  await assertLegacyAuditCompatibleRelease({ release: matches[0], github: reader })
   return parseManagedRelease(matches[0], { defaultBranch, expected, allowDraft: true })
 }
 
@@ -117,16 +120,17 @@ async function discoverLatestPublishedRelease(reader, defaultBranch) {
   const versions = new Set()
   for (const release of releases) {
     if (!isPublishedReleaseCandidate(release)) continue
-    const parsed = parseManagedRelease(release, { defaultBranch, allowDraft: false })
-    if (versions.has(parsed.version)) {
-      throw new Error(`Managed published Release v${parsed.version} is duplicated`)
-    }
-    versions.add(parsed.version)
-    managed.push(parsed)
+    const version = release.tag_name.slice(1)
+    if (versions.has(version))
+      throw new Error(`Managed published Release v${version} is duplicated`)
+    versions.add(version)
+    managed.push(release)
   }
   if (managed.length === 0) throw new Error("No managed published immutable Release was found")
-  managed.sort((left, right) => compareSemver(left.version, right.version))
-  return managed.at(-1)
+  managed.sort((left, right) => compareSemver(left.tag_name.slice(1), right.tag_name.slice(1)))
+  const selected = managed.at(-1)
+  await assertLegacyAuditCompatibleRelease({ release: selected, github: reader })
+  return parseManagedRelease(selected, { defaultBranch, allowDraft: false })
 }
 
 function isPublishedReleaseCandidate(value) {
@@ -140,10 +144,6 @@ function isPublishedReleaseCandidate(value) {
     value.tag_name.startsWith("v") &&
     isReleaseVersion(value.tag_name.slice(1))
   )
-}
-
-async function readReleaseByTag(reader, tag) {
-  return readEnvelopeValue(reader.getReleaseByTag({ tag }), "release")
 }
 
 async function readEnvelopeValue(value, operation) {
@@ -191,7 +191,7 @@ function parseManagedRelease(value, { defaultBranch, expected, allowDraft }) {
   const tag = `v${version}`
   if (
     !isReleaseVersion(version) ||
-    release.name !== `Dawn v${version}` ||
+    release.name !== `B4 v${version}` ||
     marker.version !== version ||
     marker.tag !== tag ||
     (mode === "draft" ? !isManagedReleaseForTag(release, tag) : release.tag_name !== tag) ||

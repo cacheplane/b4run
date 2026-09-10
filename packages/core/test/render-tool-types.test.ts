@@ -7,9 +7,9 @@ describe("renderToolTypes", () => {
   test("empty routeTools renders empty interface", () => {
     const result = renderToolTypes([])
     expect(result).toMatchInlineSnapshot(`
-      "  export interface DawnRouteTools {}
+      "  export interface B4RouteTools {}
 
-        export type RouteTools<P extends DawnRoutePath> = DawnRouteTools[P];
+        export type RouteTools<P extends B4RoutePath> = B4RouteTools[P];
       "
     `)
   })
@@ -31,13 +31,13 @@ describe("renderToolTypes", () => {
 
     const result = renderToolTypes(routeTools)
     expect(result).toMatchInlineSnapshot(`
-      "  export interface DawnRouteTools {
+      "  export interface B4RouteTools {
           "/hello/[tenant]": {
             readonly greet: (input: { readonly tenant: string; }) => Promise<{ greeting: string; }>;
           };
         }
 
-        export type RouteTools<P extends DawnRoutePath> = DawnRouteTools[P];
+        export type RouteTools<P extends B4RoutePath> = B4RouteTools[P];
       "
     `)
   })
@@ -65,14 +65,14 @@ describe("renderToolTypes", () => {
 
     const result = renderToolTypes(routeTools)
     expect(result).toMatchInlineSnapshot(`
-      "  export interface DawnRouteTools {
+      "  export interface B4RouteTools {
           "/api/users": {
             readonly getUser: (input: { id: string }) => Promise<{ name: string }>;
             readonly listUsers: () => Promise<{ users: string[] }>;
           };
         }
 
-        export type RouteTools<P extends DawnRoutePath> = DawnRouteTools[P];
+        export type RouteTools<P extends B4RoutePath> = B4RouteTools[P];
       "
     `)
   })
@@ -94,13 +94,13 @@ describe("renderToolTypes", () => {
 
     const result = renderToolTypes(routeTools)
     expect(result).toMatchInlineSnapshot(`
-      "  export interface DawnRouteTools {
+      "  export interface B4RouteTools {
           "/ping": {
             readonly ping: () => Promise<{ pong: boolean }>;
           };
         }
 
-        export type RouteTools<P extends DawnRoutePath> = DawnRouteTools[P];
+        export type RouteTools<P extends B4RoutePath> = B4RouteTools[P];
       "
     `)
   })
@@ -126,13 +126,13 @@ describe("renderToolTypes", () => {
 
     const result = renderToolTypes(routeTools)
     expect(result).toMatchInlineSnapshot(`
-      "  export interface DawnRouteTools {
+      "  export interface B4RouteTools {
           "/has-tools": {
             readonly doThing: (input: { x: number }) => Promise<{ result: number }>;
           };
         }
 
-        export type RouteTools<P extends DawnRoutePath> = DawnRouteTools[P];
+        export type RouteTools<P extends B4RoutePath> = B4RouteTools[P];
       "
     `)
   })
@@ -178,7 +178,7 @@ describe("renderToolTypes", () => {
 
     const result = renderToolTypes(routeTools)
     expect(result).toMatchInlineSnapshot(`
-      "  export interface DawnRouteTools {
+      "  export interface B4RouteTools {
           "/route-a": {
             readonly toolA: (input: string) => Promise<number>;
           };
@@ -187,7 +187,7 @@ describe("renderToolTypes", () => {
           };
         }
 
-        export type RouteTools<P extends DawnRoutePath> = DawnRouteTools[P];
+        export type RouteTools<P extends B4RoutePath> = B4RouteTools[P];
       "
     `)
   })

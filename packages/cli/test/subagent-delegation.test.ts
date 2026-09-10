@@ -1,5 +1,5 @@
-import { createSubagentsMarker } from "@dawn-ai/core"
-import { convertSubagentTaskToLangChain, streamAgent } from "@dawn-ai/langchain"
+import { createSubagentsMarker } from "@b4run/core"
+import { convertSubagentTaskToLangChain, streamAgent } from "@b4run/langchain"
 import { AIMessage } from "@langchain/core/messages"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/langgraph"
@@ -62,7 +62,7 @@ describe("guarded CLI subagent resolution", () => {
       resolver({ callId: "call-2", config, input: "Inspect", name: "researcher" }),
     ).resolves.toEqual({
       ok: false,
-      message: "[DAWN_E5003] No subagent named 'researcher' is available.",
+      message: "[B4_E5003] No subagent named 'researcher' is available.",
     })
   })
 
@@ -109,7 +109,7 @@ describe("guarded CLI subagent resolution", () => {
       configurable: { thread_id: "thread-denied" },
       version: "v2",
     })) {
-      if (event.event === "on_custom_event" && event.name === "dawn.subagent") {
+      if (event.event === "on_custom_event" && event.name === "b4.subagent") {
         rawEvents.push(event.data)
       }
       if (event.event === "on_tool_end" && event.name === "task") {
@@ -135,7 +135,7 @@ describe("guarded CLI subagent resolution", () => {
       projected.push(chunk)
     }
 
-    expect(rawResult).toContain("[DAWN_E3002] Delegation to subagent 'researcher' is denied.")
+    expect(rawResult).toContain("[B4_E3002] Delegation to subagent 'researcher' is denied.")
     expect(rawEvents).toEqual([])
     expect(projected).not.toContainEqual(expect.objectContaining({ type: "subagent.start" }))
     expect(prepareChild).not.toHaveBeenCalled()

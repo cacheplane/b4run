@@ -1,20 +1,20 @@
 /**
  * The PURE half of the runtime registry: the registry shape, the static
- * (`DawnStaticModules`) builder, and the manifest→registry mapping.
+ * (`B4StaticModules`) builder, and the manifest→registry mapping.
  *
  * Split from `runtime-registry.ts` so the fetch path never imports
  * `discoverRoutes` — route discovery is a filesystem walk behind
- * `@dawn-ai/core/node`, and importing it here would put `node:fs` back in the
- * `@dawn-ai/cli/fetch` graph even though the edge shape (static modules)
+ * `@b4run/core/node`, and importing it here would put `node:fs` back in the
+ * `@b4run/cli/fetch` graph even though the edge shape (static modules)
  * never calls it. The node lane reaches discovery through
  * `RuntimeBootFallbacks.discoverRouteManifest` instead.
  */
 
-import { type RouteDefinition, type RouteManifest, toRouteSegments } from "@dawn-ai/core"
+import { type RouteDefinition, type RouteManifest, toRouteSegments } from "@b4run/core"
 
 import { pureDirname } from "../runtime/pure-path.js"
 import { createRouteAssistantId } from "../runtime/route-identity.js"
-import type { DawnStaticModules } from "../runtime/static-modules-core.js"
+import type { B4StaticModules } from "../runtime/static-modules-core.js"
 
 export interface RuntimeRegistryEntry {
   readonly assistantId: string
@@ -67,19 +67,19 @@ export function createRuntimeRegistryFromManifest(manifest: RouteManifest): Runt
 }
 
 /**
- * Build a registry from a prebuilt `DawnStaticModules` manifest — zero
+ * Build a registry from a prebuilt `B4StaticModules` manifest — zero
  * filesystem access, no route-file imports. Used when the runtime boots from
  * a build-time-generated module manifest (PR 2's static-wiring seam).
  *
  * The `RouteManifest` field is synthesized from the static entries (rather
  * than left absent) so every downstream consumer that threads `manifest`
  * through `routeManifest` (capability resolution, the subagent
- * descriptor-route map, `dawn check`) keeps working unmodified — it only
+ * descriptor-route map, `b4 check`) keeps working unmodified — it only
  * ever reads route identity/shape fields, never re-imports `entryFile`.
  */
 export function createStaticRuntimeRegistry(
   appRoot: string,
-  modules: DawnStaticModules,
+  modules: B4StaticModules,
 ): RuntimeRegistry {
   const entries: RuntimeRegistryEntry[] = modules.routes.map(
     (route) =>

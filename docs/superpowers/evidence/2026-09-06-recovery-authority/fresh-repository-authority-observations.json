@@ -1,0 +1,82 @@
+[
+  {
+    "endpoint": "repos/cacheplane/dawnai/agents/secrets?per_page=100",
+    "observedAt": "2026-09-06T00:06:20.989621+00:00",
+    "exitCode": 0,
+    "status": "HTTP/2.0 200 OK",
+    "bodySha256": "28c5423a249b6b471b90805492666338fab88266ac6a72b4f2b711fa65c03a68",
+    "paginationHeaders": [],
+    "totalCount": 0,
+    "listedCount": 0,
+    "valuesRetained": false
+  },
+  {
+    "endpoint": "repos/cacheplane/dawnai/agents/organization-secrets?per_page=100",
+    "observedAt": "2026-09-06T00:06:21.305632+00:00",
+    "exitCode": 0,
+    "status": "HTTP/2.0 200 OK",
+    "bodySha256": "28c5423a249b6b471b90805492666338fab88266ac6a72b4f2b711fa65c03a68",
+    "paginationHeaders": [],
+    "totalCount": 0,
+    "listedCount": 0,
+    "valuesRetained": false
+  },
+  {
+    "endpoint": "repos/cacheplane/dawnai/agents/variables?per_page=100",
+    "observedAt": "2026-09-06T00:06:21.615544+00:00",
+    "exitCode": 0,
+    "status": "HTTP/2.0 200 OK",
+    "bodySha256": "8fb236d9855d43b214ea37db3296df40b54f11ee84dd9c96394813c4fbdf6423",
+    "paginationHeaders": [],
+    "totalCount": 0,
+    "listedCount": 0,
+    "valuesRetained": false
+  },
+  {
+    "endpoint": "repos/cacheplane/dawnai/agents/organization-variables?per_page=100",
+    "observedAt": "2026-09-06T00:06:22.013249+00:00",
+    "exitCode": 0,
+    "status": "HTTP/2.0 200 OK",
+    "bodySha256": "8fb236d9855d43b214ea37db3296df40b54f11ee84dd9c96394813c4fbdf6423",
+    "paginationHeaders": [],
+    "totalCount": 0,
+    "listedCount": 0,
+    "valuesRetained": false
+  },
+  {
+    "endpoint": "repos/cacheplane/dawnai/dependabot/secrets?per_page=100",
+    "observedAt": "2026-09-06T00:06:22.365976+00:00",
+    "exitCode": 0,
+    "status": "HTTP/2.0 200 OK",
+    "bodySha256": "28c5423a249b6b471b90805492666338fab88266ac6a72b4f2b711fa65c03a68",
+    "paginationHeaders": [],
+    "totalCount": 0,
+    "listedCount": 0,
+    "valuesRetained": false
+  },
+  {
+    "endpoint": "repos/cacheplane/dawnai/copilot/cloud-agent/configuration",
+    "observedAt": "2026-09-06T00:06:22.686221+00:00",
+    "exitCode": 0,
+    "status": "HTTP/2.0 200 OK",
+    "bodySha256": "acc698dda6f07b0a23d55e14f3eddf73d09675c934dab103e57bfbe9b68d6439",
+    "paginationHeaders": [],
+    "mcpConfigurationIsNull": true,
+    "keys": [
+      "custom_allowlist",
+      "enabled_tools",
+      "is_automations_enabled",
+      "is_firewall_enabled",
+      "is_firewall_recommended_allowlist_enabled",
+      "mcp_configuration",
+      "require_actions_workflow_approval",
+      "require_write_access_for_automation_triggers"
+    ],
+    "settings": {
+      "require_actions_workflow_approval": true,
+      "is_firewall_enabled": true,
+      "is_automations_enabled": true,
+      "require_write_access_for_automation_triggers": true
+    }
+  }
+]

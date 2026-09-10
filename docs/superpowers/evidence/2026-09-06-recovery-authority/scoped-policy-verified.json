@@ -1,0 +1,14 @@
+{
+  "run": 34000061901,
+  "sha": "4e641e5ffc6d443fd934d1a5835d149e0afa7067",
+  "observations": [
+    {
+      "probe": "release-immutable-policy",
+      "status": 200,
+      "value": {
+        "enabled": true,
+        "enforced_by_owner": false
+      }
+    }
+  ]
+}

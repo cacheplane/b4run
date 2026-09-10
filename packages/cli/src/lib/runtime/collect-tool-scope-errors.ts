@@ -1,6 +1,6 @@
-import type { MemoryWritesMode, RouteManifest } from "@dawn-ai/core"
-import { BUILT_IN_TOOL_NAMES } from "@dawn-ai/core"
-import { isDawnAgent } from "@dawn-ai/sdk"
+import type { MemoryWritesMode, RouteManifest } from "@b4run/core"
+import { BUILT_IN_TOOL_NAMES } from "@b4run/core"
+import { isB4Agent } from "@b4run/sdk"
 
 import { type NormalizedRouteModule, normalizeRouteModule } from "./load-route-kind.js"
 import { discoverToolDefinitions } from "./tool-discovery.js"
@@ -46,7 +46,7 @@ const defaultDeps: Deps = {
     } catch {
       return undefined // load failures surfaced elsewhere
     }
-    if (!isDawnAgent(normalized.entry)) return undefined
+    if (!isB4Agent(normalized.entry)) return undefined
     const entry = normalized.entry as { tools?: ToolScopeShape }
     return entry.tools
   },

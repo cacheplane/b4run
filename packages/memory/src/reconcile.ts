@@ -61,7 +61,7 @@ export interface ApproveResult {
  * Approve a candidate WITH supersede reconciliation (fixes the two-actives bug):
  * same identity + different data → the old active row is superseded; same
  * identity + identical data → the candidate is dropped (dedupe); no identity
- * match → plain activation. Used by `dawn memory approve` and the inspector —
+ * match → plain activation. Used by `b4 memory approve` and the inspector —
  * the capability's auto-write path keeps its own inline logic by design.
  * Append-kind candidates (per writePolicyFor, e.g. episodic) bypass
  * reconciliation entirely — approval is a plain activation, no identity scan.
