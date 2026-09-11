@@ -16,6 +16,8 @@ Runbook-only pull requests can use the narrow prose path introduced in [#626](ht
 
 [The npm audit improvement](https://github.com/cacheplane/b4run/pull/627) lets known temporary npm audit transport and service failures use the publisher's existing convergence budget. Complete signatures and provenance remain required. Authentication, unknown/malformed errors, batch failures, and incomplete final verification remain fatal. No timeout, token fallback, workflow, manual prerequisite, or publishing step is added. This does not establish the cause of the historical audit failures or shorten registry propagation itself.
 
+The full [CI validation of the prose-path implementation](https://github.com/cacheplane/b4run/actions/runs/34620340882) completed in 13 minutes 26 seconds from workflow creation through the final job. This is a full-CI comparison point, not a measurement of prose-path speed or total release duration.
+
 ## Measuring subsequent ordinary releases
 
 Use existing GitHub job timestamps and publisher diagnostics to distinguish queue time, setup, package publication, registry convergence, verification, and follow-up work. Report end-to-end elapsed time separately from the successful publisher duration. Compare against the same workflow scope and similar CI load; do not attribute a faster run to one change without evidence.
