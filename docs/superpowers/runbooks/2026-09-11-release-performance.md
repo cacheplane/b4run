@@ -14,7 +14,7 @@ Prepare independent changes locally, but keep full CI submissions in small batch
 
 Runbook-only pull requests can use the narrow prose path introduced in [#626](https://github.com/cacheplane/b4run/pull/626). Eligibility is restricted to regular, non-executable Markdown under `docs/superpowers/runbooks/`; mixed changes, executable files, symlinks, site MDX, code, and configuration retain full validation. The base revision supplies classifier code. The existing required `validate` check remains present, and main pushes keep full CI.
 
-Known temporary npm audit transport and service failures can use the publisher's existing convergence budget. Complete signatures and provenance remain required. Authentication, unknown/malformed errors, batch failures, and incomplete final verification remain fatal. No timeout, token fallback, workflow, manual prerequisite, or publishing step is added. This does not establish the cause of the historical audit failures or shorten registry propagation itself.
+[The npm audit improvement](https://github.com/cacheplane/b4run/pull/627) lets known temporary npm audit transport and service failures use the publisher's existing convergence budget. Complete signatures and provenance remain required. Authentication, unknown/malformed errors, batch failures, and incomplete final verification remain fatal. No timeout, token fallback, workflow, manual prerequisite, or publishing step is added. This does not establish the cause of the historical audit failures or shorten registry propagation itself.
 
 ## Measuring subsequent ordinary releases
 
