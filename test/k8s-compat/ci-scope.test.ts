@@ -46,6 +46,7 @@ describe("metadata-only CI scope", () => {
                 .replaceAll("cancelled()", JSON.stringify(cancelled))
                 .replaceAll("github.event_name", JSON.stringify(event))
                 .replaceAll("needs.metadata_scope.result", JSON.stringify(result))
+                .replaceAll("needs.metadata_scope.outputs.prose_only", JSON.stringify("false"))
                 .replaceAll(
                   "needs.metadata_scope.outputs.metadata_only",
                   JSON.stringify(metadataOnly),
@@ -230,7 +231,7 @@ describe("metadata-only CI scope", () => {
 })
 
 describe("CI workflow metadata scope", () => {
-  test("uses one scope output to skip only the expensive Kubernetes and full-arc jobs", () => {
+  test("preserves metadata scope alongside narrow prose routing", () => {
     const jobs = ciWorkflow.jobs as Record<string, Record<string, unknown>>
     const scope = jobs.metadata_scope
     expect(scope).toBeDefined()
@@ -238,6 +239,7 @@ describe("CI workflow metadata scope", () => {
     expect(scope?.if).toBe("github.event_name == 'pull_request'")
     expect(scope?.outputs).toEqual({
       metadata_only: githubExpression("steps.classify.outputs.metadata_only"),
+      prose_only: githubExpression("steps.classify.outputs.prose_only"),
     })
 
     const steps = scope?.steps as Record<string, unknown>[]
@@ -257,38 +259,28 @@ describe("CI workflow metadata scope", () => {
       BASE_SHA: githubExpression("github.event.pull_request.base.sha"),
       HEAD_SHA: githubExpression("github.event.pull_request.head.sha"),
     })
-    expect(classify?.run).toContain("node scripts/ci-scope.mjs")
+    expect(classify?.run).toContain('git show "$BASE_SHA:scripts/ci-scope.mjs"')
+    expect(classify?.run).toContain('node "$SCOPE_DIR/ci-scope.mjs"')
     expect(classify?.run).toContain("Malformed metadata-only scope output")
 
     const scopedJobs = ["sandbox-k8s", "sandbox-k8s-e2e", "sandbox-docker-e2e", "chart-apply-smoke"]
     const failOpenCondition = githubExpression(
-      "!cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true')",
+      "!cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || (needs.metadata_scope.outputs.metadata_only != 'true' && needs.metadata_scope.outputs.prose_only != 'true'))",
     )
     for (const id of scopedJobs) {
       expect(jobs[id]?.needs).toBe("metadata_scope")
       expect(jobs[id]?.if).toBe(failOpenCondition)
     }
 
-    expect(
-      Object.entries(jobs)
-        .filter(([, job]) => job.needs === "metadata_scope")
-        .map(([id]) => id)
-        .sort(),
-    ).toEqual([...scopedJobs].sort())
-
-    for (const id of [
-      "source-validate",
-      "release-controller",
-      "sandbox-docker",
-      "chart-validate",
-      "vercel-native",
-    ]) {
-      expect(jobs[id]?.needs).toBeUndefined()
-    }
-    for (const id of ["source-validate", "release-controller"]) {
-      expect(jobs[id]?.if).toBeUndefined()
+    const fullJobs = Object.keys(jobs).filter(
+      (id) => !["metadata_scope", "changesets", "validate"].includes(id),
+    )
+    for (const id of fullJobs) {
+      expect(jobs[id]?.needs).toBe("metadata_scope")
+      expect(jobs[id]?.if).toContain("needs.metadata_scope.outputs.prose_only != 'true'")
     }
     expect(jobs.validate?.needs).toEqual([
+      "metadata_scope",
       "source-validate",
       "release-controller",
       "pack-smoke",

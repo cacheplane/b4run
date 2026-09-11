@@ -7,7 +7,11 @@
         "name": "Auto Approve",
         "on": {
           "pull_request": {
-            "types": ["opened", "reopened", "ready_for_review"]
+            "types": [
+              "opened",
+              "reopened",
+              "ready_for_review"
+            ]
           }
         },
         "permissions": {
@@ -50,7 +54,9 @@
         "on": {
           "pull_request": null,
           "push": {
-            "branches": ["main"]
+            "branches": [
+              "main"
+            ]
           }
         },
         "permissions": {
@@ -98,7 +104,7 @@
             "env": {
               "B4_TEST_K8S_CONTEXT": "kind-b4-chart-apply"
             },
-            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}",
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || (needs.metadata_scope.outputs.metadata_only != 'true' && needs.metadata_scope.outputs.prose_only != 'true')) }}",
             "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 15
@@ -154,6 +160,8 @@
           "classification": "safe",
           "id": "chart-validate",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 15
           },
@@ -248,6 +256,8 @@
           "classification": "safe",
           "id": "copilotkit-examples-e2e",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 20
           },
@@ -321,6 +331,8 @@
           "classification": "safe",
           "id": "dependency-security-browser",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "permissions": {
               "contents": "read"
             },
@@ -383,6 +395,8 @@
           "classification": "safe",
           "id": "edge-workerd",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 30
           },
@@ -449,6 +463,8 @@
           "classification": "safe",
           "id": "harness-verify",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 30
           },
@@ -545,6 +561,8 @@
           "classification": "safe",
           "id": "inspector-e2e",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 35
           },
@@ -634,7 +652,8 @@
             "if": "github.event_name == 'pull_request'",
             "name": "metadata-scope",
             "outputs": {
-              "metadata_only": "${{ steps.classify.outputs.metadata_only }}"
+              "metadata_only": "${{ steps.classify.outputs.metadata_only }}",
+              "prose_only": "${{ steps.classify.outputs.prose_only }}"
             },
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 5
@@ -669,7 +688,7 @@
                 },
                 "id": "classify",
                 "name": "Classify metadata-only change",
-                "run": "set -eu\nMETADATA_ONLY=\"$(node scripts/ci-scope.mjs --event pull_request --base \"$BASE_SHA\" --head \"$HEAD_SHA\")\"\ncase \"$METADATA_ONLY\" in\n  true|false) ;;\n  *) echo \"Malformed metadata-only scope output\" >&2; exit 1 ;;\nesac\nprintf 'metadata_only=%s\\n' \"$METADATA_ONLY\" >> \"$GITHUB_OUTPUT\"\n"
+                "run": "set -eu\nSCOPE_DIR=\"$(mktemp -d)\"\nSCOPE_DIR=\"$(cd \"$SCOPE_DIR\" && pwd -P)\"\ntrap 'rm -rf \"$SCOPE_DIR\"' EXIT\ngit show \"$BASE_SHA:scripts/ci-scope.mjs\" > \"$SCOPE_DIR/ci-scope.mjs\"\nMETADATA_ONLY=\"$(node \"$SCOPE_DIR/ci-scope.mjs\" --event pull_request --base \"$BASE_SHA\" --head \"$HEAD_SHA\")\"\ncase \"$METADATA_ONLY\" in\n  true|false) ;;\n  *) echo \"Malformed metadata-only scope output\" >&2; exit 1 ;;\nesac\nPROSE_ONLY=\"$(node --input-type=module - \"$SCOPE_DIR/ci-scope.mjs\" <<'NODE'\nimport { pathToFileURL } from \"node:url\"\nconst scope = await import(pathToFileURL(process.argv[2]).href)\nconst proseOnly = scope.classifyProseOnlyScope === undefined\n  ? false\n  : await scope.classifyProseOnlyScope({\n      event: \"pull_request\",\n      base: process.env.BASE_SHA,\n      head: process.env.HEAD_SHA,\n    })\nprocess.stdout.write(String(proseOnly))\nNODE\n)\"\ncase \"$PROSE_ONLY\" in\n  true|false) ;;\n  *) echo \"Malformed prose-only scope output\" >&2; exit 1 ;;\nesac\nprintf 'prose_only=%s\\n' \"$PROSE_ONLY\" >> \"$GITHUB_OUTPUT\"\nprintf 'metadata_only=%s\\n' \"$METADATA_ONLY\" >> \"$GITHUB_OUTPUT\"\n"
               }
             }
           ]
@@ -678,6 +697,8 @@
           "classification": "safe",
           "id": "pack-smoke",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 30
           },
@@ -747,6 +768,8 @@
           "classification": "safe",
           "id": "pgvector-docker",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 20
           },
@@ -806,6 +829,8 @@
           "classification": "safe",
           "id": "postgres-storage-docker",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 30
           },
@@ -872,11 +897,13 @@
           "classification": "safe",
           "id": "recovery-strict-runner",
           "descriptor": {
-            "runs-on": "ubuntu-24.04",
-            "timeout-minutes": 5,
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "permissions": {
               "contents": "read"
-            }
+            },
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 5
           },
           "steps": [
             {
@@ -902,10 +929,10 @@
             {
               "classification": "safe",
               "descriptor": {
-                "name": "Verify real recovery process containment",
                 "env": {
                   "B4_TEST_RECOVERY_RUNNER": "1"
                 },
+                "name": "Verify real recovery process containment",
                 "run": "node --test scripts/release/test/recovery-strict-runner.integration.mjs"
               }
             }
@@ -915,6 +942,8 @@
           "classification": "safe",
           "id": "release-controller",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 30
           },
@@ -945,8 +974,8 @@
                 "name": "Setup Node.js",
                 "uses": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
                 "with": {
-                  "node-version": "24.17.0",
-                  "cache": "pnpm"
+                  "cache": "pnpm",
+                  "node-version": "24.17.0"
                 }
               }
             },
@@ -977,6 +1006,8 @@
           "classification": "safe",
           "id": "sandbox-docker",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 20
           },
@@ -1046,7 +1077,7 @@
             "env": {
               "B4_TEST_SMOKE_E2E": "1"
             },
-            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}",
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || (needs.metadata_scope.outputs.metadata_only != 'true' && needs.metadata_scope.outputs.prose_only != 'true')) }}",
             "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 30
@@ -1132,7 +1163,7 @@
             "env": {
               "B4_TEST_K8S_CONTEXT": "kind-b4-k8s-canonical"
             },
-            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}",
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || (needs.metadata_scope.outputs.metadata_only != 'true' && needs.metadata_scope.outputs.prose_only != 'true')) }}",
             "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 35
@@ -1266,7 +1297,7 @@
               "B4_TEST_SMOKE_E2E": "1",
               "KIND_CLUSTER": "b4-smoke"
             },
-            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}",
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || (needs.metadata_scope.outputs.metadata_only != 'true' && needs.metadata_scope.outputs.prose_only != 'true')) }}",
             "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 30
@@ -1445,6 +1476,8 @@
           "classification": "safe",
           "id": "source-validate",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 45
           },
@@ -1475,8 +1508,8 @@
                 "name": "Setup Node.js",
                 "uses": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
                 "with": {
-                  "node-version": "24.17.0",
-                  "cache": "pnpm"
+                  "cache": "pnpm",
+                  "node-version": "24.17.0"
                 }
               }
             },
@@ -1525,10 +1558,10 @@
             {
               "classification": "safe",
               "descriptor": {
-                "name": "Source Tests",
                 "env": {
                   "B4_REQUIRE_DOCKER": "1"
                 },
+                "name": "Source Tests",
                 "run": "pnpm test"
               }
             },
@@ -1552,6 +1585,8 @@
           "classification": "safe",
           "id": "testing-windows",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "windows-latest",
             "timeout-minutes": 20
           },
@@ -1618,8 +1653,14 @@
           "classification": "safe",
           "id": "validate",
           "descriptor": {
-            "needs": ["source-validate", "release-controller", "pack-smoke", "harness-verify"],
             "if": "always()",
+            "needs": [
+              "metadata_scope",
+              "source-validate",
+              "release-controller",
+              "pack-smoke",
+              "harness-verify"
+            ],
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 5
           },
@@ -1627,14 +1668,18 @@
             {
               "classification": "safe",
               "descriptor": {
-                "name": "Require every validation lane",
                 "env": {
+                  "EVENT_NAME": "${{ github.event_name }}",
                   "LANE_0": "${{ needs.source-validate.result }}",
                   "LANE_1": "${{ needs.release-controller.result }}",
                   "LANE_2": "${{ needs.pack-smoke.result }}",
-                  "LANE_3": "${{ needs.harness-verify.result }}"
+                  "LANE_3": "${{ needs.harness-verify.result }}",
+                  "METADATA_ONLY": "${{ needs.metadata_scope.outputs.metadata_only }}",
+                  "PROSE_ONLY": "${{ needs.metadata_scope.outputs.prose_only }}",
+                  "SCOPE_RESULT": "${{ needs.metadata_scope.result }}"
                 },
-                "run": "for result in \"$LANE_0\" \"$LANE_1\" \"$LANE_2\" \"$LANE_3\"; do\n  if [ \"$result\" != success ]; then\n    echo \"Required validation lane did not succeed: $result\" >&2\n    exit 1\n  fi\ndone\n"
+                "name": "Require every validation lane",
+                "run": "set -eu\nEXPECTED=success\ncase \"$EVENT_NAME\" in\n  pull_request)\n    [ \"$SCOPE_RESULT\" = success ] || { echo \"CI scope did not succeed\" >&2; exit 1; }\n    case \"$PROSE_ONLY:$METADATA_ONLY\" in\n      true:false) EXPECTED=skipped ;;\n      false:true|false:false) ;;\n      *) echo \"Malformed CI scope outputs\" >&2; exit 1 ;;\n    esac\n    ;;\n  push) ;;\n  *) echo \"Unsupported validation event\" >&2; exit 1 ;;\nesac\nfor result in \"$LANE_0\" \"$LANE_1\" \"$LANE_2\" \"$LANE_3\"; do\n  if [ \"$result\" != \"$EXPECTED\" ]; then\n    echo \"Required validation lane did not succeed: $result\" >&2\n    exit 1\n  fi\ndone\n"
               }
             }
           ]
@@ -1644,7 +1689,8 @@
           "id": "vercel-native",
           "descriptor": {
             "environment": "vercel-preview",
-            "if": "(github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' &&\n github.event.pull_request.head.repo.full_name == github.repository)",
+            "if": "(!cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true')) && ( (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' &&\n github.event.pull_request.head.repo.full_name == github.repository))",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 45
           },
@@ -1780,7 +1826,12 @@
         "name": "Claude Review",
         "on": {
           "pull_request": {
-            "types": ["opened", "synchronize", "reopened", "ready_for_review"]
+            "types": [
+              "opened",
+              "synchronize",
+              "reopened",
+              "ready_for_review"
+            ]
           }
         },
         "permissions": {
@@ -1860,10 +1911,14 @@
         "name": "CodeQL",
         "on": {
           "pull_request": {
-            "branches": ["main"]
+            "branches": [
+              "main"
+            ]
           },
           "push": {
-            "branches": ["main"]
+            "branches": [
+              "main"
+            ]
           },
           "schedule": [
             {
@@ -2239,7 +2294,10 @@
           "descriptor": {
             "if": "always()",
             "name": "kubernetes-compat",
-            "needs": ["scope", "compat"],
+            "needs": [
+              "scope",
+              "compat"
+            ],
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 5
           },
@@ -2331,8 +2389,13 @@
         "name": "Publish Chart",
         "on": {
           "push": {
-            "branches": ["main"],
-            "paths": ["charts/b4-sandbox-infra/**", "charts/b4-app/**"]
+            "branches": [
+              "main"
+            ],
+            "paths": [
+              "charts/b4-sandbox-infra/**",
+              "charts/b4-app/**"
+            ]
           }
         },
         "permissions": {
@@ -2348,7 +2411,10 @@
             "runs-on": "ubuntu-latest",
             "strategy": {
               "matrix": {
-                "chart": ["b4-sandbox-infra", "b4-app"]
+                "chart": [
+                  "b4-sandbox-infra",
+                  "b4-app"
+                ]
               }
             },
             "timeout-minutes": 10
@@ -2968,7 +3034,9 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success'",
             "name": "recovery-adopt",
-            "needs": ["recovery-admit"],
+            "needs": [
+              "recovery-admit"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -3072,7 +3140,11 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.audit == 'true' && (needs.recovery-admit.outputs.dispatch == 'false' || needs.recovery-dispatch-audit.result == 'success')",
             "name": "recovery-audit-evidence",
-            "needs": ["recovery-admit", "recovery-adopt", "recovery-dispatch-audit"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt",
+              "recovery-dispatch-audit"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -3176,7 +3248,11 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.dispatch == 'true' && (needs.recovery-admit.outputs.evidence == 'false' || needs.recovery-evidence.result == 'success')",
             "name": "recovery-dispatch-audit",
-            "needs": ["recovery-admit", "recovery-adopt", "recovery-evidence"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt",
+              "recovery-evidence"
+            ],
             "permissions": {
               "actions": "write",
               "attestations": "read",
@@ -3392,7 +3468,11 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.finalize == 'true' && (needs.recovery-admit.outputs.audit == 'false' || needs.recovery-audit-evidence.result == 'success')",
             "name": "recovery-finalize",
-            "needs": ["recovery-admit", "recovery-adopt", "recovery-audit-evidence"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt",
+              "recovery-audit-evidence"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -3497,7 +3577,10 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.smoke == 'true'",
             "name": "recovery-metadata",
-            "needs": ["recovery-admit", "recovery-adopt"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -3627,7 +3710,11 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.publish == 'true' && (needs.recovery-admit.outputs.finalize == 'false' || needs.recovery-finalize.result == 'success')",
             "name": "recovery-publish",
-            "needs": ["recovery-admit", "recovery-adopt", "recovery-finalize"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt",
+              "recovery-finalize"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -3732,7 +3819,10 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.smoke == 'true'",
             "name": "recovery-published-harness",
-            "needs": ["recovery-admit", "recovery-adopt"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -3980,7 +4070,10 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.smoke == 'true'",
             "name": "recovery-runtime-targets",
-            "needs": ["recovery-admit", "recovery-adopt"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -4110,7 +4203,10 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.smoke == 'true'",
             "name": "recovery-scaffold",
-            "needs": ["recovery-admit", "recovery-adopt"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -4240,7 +4336,10 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.smoke == 'true'",
             "name": "recovery-storage",
-            "needs": ["recovery-admit", "recovery-adopt"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -4380,7 +4479,9 @@
         "name": "Release",
         "on": {
           "push": {
-            "branches": ["main"]
+            "branches": [
+              "main"
+            ]
           },
           "schedule": [
             {
@@ -4403,7 +4504,9 @@
               "operation": {
                 "default": "reconcile",
                 "description": "Reconcile this candidate",
-                "options": ["reconcile"],
+                "options": [
+                  "reconcile"
+                ],
                 "required": true,
                 "type": "choice"
               },
@@ -4425,7 +4528,11 @@
           "id": "attest",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\"]'), needs.detect.outputs.next_transition)",
-            "needs": ["detect", "hydrate", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "tag"
+            ],
             "outputs": {
               "attestation_artifact_id": "${{ steps.evidence.outputs.artifact-id }}"
             },
@@ -4520,7 +4627,12 @@
           "id": "correlate-audit",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\",\"dispatch-release-audit\",\"complete-release-audit\"]'), needs.detect.outputs.next_transition) && (needs.detect.outputs.next_transition == 'complete-release-audit' || needs.record-audit-dispatch.result == 'success')",
-            "needs": ["detect", "hydrate", "record-audit-dispatch", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "record-audit-dispatch",
+              "tag"
+            ],
             "outputs": {
               "audit_artifact_id": "${{ steps.audit-result.outputs.artifact-id }}"
             },
@@ -4742,7 +4854,12 @@
           "id": "dispatch-audit",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\",\"dispatch-release-audit\"]'), needs.detect.outputs.next_transition) && (needs.detect.outputs.next_transition == 'dispatch-release-audit' || needs.reconcile-smokes.result == 'success')",
-            "needs": ["detect", "hydrate", "reconcile-smokes", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "reconcile-smokes",
+              "tag"
+            ],
             "outputs": {
               "dispatch_artifact_id": "${{ steps.receipt.outputs.artifact-id }}"
             },
@@ -4806,7 +4923,12 @@
           "id": "escrow",
           "descriptor": {
             "if": "always() && needs.attest.result == 'success' && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\"]'), needs.detect.outputs.next_transition)",
-            "needs": ["attest", "detect", "hydrate", "tag"],
+            "needs": [
+              "attest",
+              "detect",
+              "hydrate",
+              "tag"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -4876,7 +4998,11 @@
           "id": "hydrate",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\",\"dispatch-release-audit\",\"complete-release-audit\",\"publish-github-release\"]'), needs.detect.outputs.next_transition) && (needs.detect.outputs.next_transition != 'prepare-artifacts' || needs.prepare.result == 'success')",
-            "needs": ["detect", "prepare", "tag"],
+            "needs": [
+              "detect",
+              "prepare",
+              "tag"
+            ],
             "outputs": {
               "artifact_id": "${{ steps.runtime.outputs.artifact-id }}",
               "manifest_sha256": "${{ steps.identity.outputs.manifest_sha256 }}"
@@ -5030,7 +5156,10 @@
           "id": "prepare",
           "descriptor": {
             "if": "needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && needs.detect.outputs.next_transition == 'prepare-artifacts'",
-            "needs": ["detect", "tag"],
+            "needs": [
+              "detect",
+              "tag"
+            ],
             "outputs": {
               "handoff_artifact_id": "${{ steps.handoff.outputs.artifact-id }}",
               "manifest_sha256": "${{ steps.identity.outputs.manifest_sha256 }}",
@@ -5159,7 +5288,12 @@
           "id": "publish-npm",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\"]'), needs.detect.outputs.next_transition) && (!contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\"]'), needs.detect.outputs.next_transition) || needs.escrow.result == 'success')",
-            "needs": ["detect", "escrow", "hydrate", "tag"],
+            "needs": [
+              "detect",
+              "escrow",
+              "hydrate",
+              "tag"
+            ],
             "outputs": {
               "npm_artifact_id": "${{ steps.npm.outputs.artifact-id }}"
             },
@@ -5250,7 +5384,12 @@
           "id": "publish-release",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\",\"dispatch-release-audit\",\"complete-release-audit\",\"publish-github-release\"]'), needs.detect.outputs.next_transition) && (needs.detect.outputs.next_transition == 'publish-github-release' || needs.correlate-audit.result == 'success')",
-            "needs": ["correlate-audit", "detect", "hydrate", "tag"],
+            "needs": [
+              "correlate-audit",
+              "detect",
+              "hydrate",
+              "tag"
+            ],
             "permissions": {
               "actions": "read",
               "contents": "write"
@@ -5328,7 +5467,12 @@
           "id": "reconcile-npm",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\"]'), needs.detect.outputs.next_transition) && (needs.detect.outputs.next_transition == 'reconcile-npm-evidence' || needs.publish-npm.result == 'success')",
-            "needs": ["detect", "hydrate", "publish-npm", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "publish-npm",
+              "tag"
+            ],
             "permissions": {
               "actions": "read",
               "contents": "write"
@@ -5514,7 +5658,12 @@
           "id": "record-audit-dispatch",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.dispatch-audit.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\",\"dispatch-release-audit\"]'), needs.detect.outputs.next_transition)",
-            "needs": ["detect", "dispatch-audit", "hydrate", "tag"],
+            "needs": [
+              "detect",
+              "dispatch-audit",
+              "hydrate",
+              "tag"
+            ],
             "outputs": {
               "dispatch_artifact_id": "${{ needs.dispatch-audit.outputs.dispatch_artifact_id }}"
             },
@@ -5586,7 +5735,12 @@
           "id": "smoke-metadata",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) && (contains(fromJSON('[\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) || needs.reconcile-npm.result == 'success')",
-            "needs": ["detect", "hydrate", "reconcile-npm", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "reconcile-npm",
+              "tag"
+            ],
             "outputs": {
               "artifact_id": "${{ steps.result.outputs.artifact-id }}"
             },
@@ -5670,7 +5824,12 @@
           "id": "smoke-published-harness",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) && (contains(fromJSON('[\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) || needs.reconcile-npm.result == 'success')",
-            "needs": ["detect", "hydrate", "reconcile-npm", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "reconcile-npm",
+              "tag"
+            ],
             "outputs": {
               "artifact_id": "${{ steps.result.outputs.artifact-id }}"
             },
@@ -5751,7 +5910,12 @@
           "id": "smoke-runtime-targets",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) && (contains(fromJSON('[\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) || needs.reconcile-npm.result == 'success')",
-            "needs": ["detect", "hydrate", "reconcile-npm", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "reconcile-npm",
+              "tag"
+            ],
             "outputs": {
               "artifact_id": "${{ steps.result.outputs.artifact-id }}"
             },
@@ -5832,7 +5996,12 @@
           "id": "smoke-scaffold",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) && (contains(fromJSON('[\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) || needs.reconcile-npm.result == 'success')",
-            "needs": ["detect", "hydrate", "reconcile-npm", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "reconcile-npm",
+              "tag"
+            ],
             "outputs": {
               "artifact_id": "${{ steps.result.outputs.artifact-id }}"
             },
@@ -5913,7 +6082,12 @@
           "id": "smoke-storage",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) && (contains(fromJSON('[\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) || needs.reconcile-npm.result == 'success')",
-            "needs": ["detect", "hydrate", "reconcile-npm", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "reconcile-npm",
+              "tag"
+            ],
             "outputs": {
               "artifact_id": "${{ steps.result.outputs.artifact-id }}"
             },
@@ -6071,7 +6245,9 @@
         "on": {
           "branch_protection_rule": null,
           "push": {
-            "branches": ["main"]
+            "branches": [
+              "main"
+            ]
           },
           "schedule": [
             {
@@ -6141,7 +6317,9 @@
         "name": "Version Packages",
         "on": {
           "push": {
-            "branches": ["main"]
+            "branches": [
+              "main"
+            ]
           }
         },
         "permissions": {

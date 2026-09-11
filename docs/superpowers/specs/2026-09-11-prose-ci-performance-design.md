@@ -15,3 +15,12 @@ Add contributor guidance: prepare independent changes concurrently, but normally
 ## Validation
 
 Regression tests use real Git repositories for allowed prose edits, mixed paths, rename/delete cases, modes and malformed output. Workflow contract tests cover full/prose/push/failed/cancelled/missing-output gate behavior and preserved jobs. Run baseline and failing regressions before implementation, focused tests afterward, then the repository-required validation and independent reviews before PR/merge. Measure the fast path on a real useful runbook update after integration; no throwaway release or unrelated edit is required.
+
+
+The scope job extracts the dependency-free classifier from the exact trusted PR
+base commit into a private temporary directory. Both scope decisions use that
+copy; edited classifier code in the PR is never executed for classification.
+If the base classifier predates the prose export, prose is false and normal
+validation remains required, preserving the separate metadata exception. Missing
+base code, invalid outputs, import failures, or classification failures remain
+fatal. The temporary directory is removed on success and failure.

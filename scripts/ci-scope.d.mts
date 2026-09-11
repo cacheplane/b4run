@@ -16,3 +16,8 @@ export function classifyMetadataOnlyScope(
   request: MetadataOnlyScopeRequest,
   runCommand?: GitCommandRunner,
 ): Promise<boolean>
+
+export function classifyProseOnlyScope(
+  request: MetadataOnlyScopeRequest,
+  runCommand?: GitCommandRunner,
+): Promise<boolean>

@@ -21,3 +21,12 @@
 - [ ] Verify a useful follow-up runbook-only PR takes the prose path, update measured evidence, and continue to the separately reviewed npm diagnostics change.
 
 Independent spec/plan review passed. Raw modes must validate both sides (100644; zero only for the absent add/delete side), retain merge-base semantics, account for renames as delete/add, and reject malformed or contradictory scope outputs.
+
+
+Quality review found that PR-owned classifier code could authorize its own skipped
+validation. Extract the dependency-free classifier from the exact trusted base
+SHA into a temporary `.mjs` file for both decisions, and default prose to false
+when that base has no prose export. Exercise the actual workflow shell against a
+forged PR classifier, a legacy base, a current base with qualifying runbook edits,
+and a failing trusted classifier; assert cleanup and no forged execution. Update
+only the affected CI command inventory and focused contracts.

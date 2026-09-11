@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       metadata_only: ${{ steps.classify.outputs.metadata_only }}
+      prose_only: ${{ steps.classify.outputs.prose_only }}
 
     steps:
       - name: Checkout
@@ -36,11 +37,33 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -eu
-          METADATA_ONLY="$(node scripts/ci-scope.mjs --event pull_request --base "$BASE_SHA" --head "$HEAD_SHA")"
+          SCOPE_DIR="$(mktemp -d)"
+          SCOPE_DIR="$(cd "$SCOPE_DIR" && pwd -P)"
+          trap 'rm -rf "$SCOPE_DIR"' EXIT
+          git show "$BASE_SHA:scripts/ci-scope.mjs" > "$SCOPE_DIR/ci-scope.mjs"
+          METADATA_ONLY="$(node "$SCOPE_DIR/ci-scope.mjs" --event pull_request --base "$BASE_SHA" --head "$HEAD_SHA")"
           case "$METADATA_ONLY" in
             true|false) ;;
             *) echo "Malformed metadata-only scope output" >&2; exit 1 ;;
           esac
+          PROSE_ONLY="$(node --input-type=module - "$SCOPE_DIR/ci-scope.mjs" <<'NODE'
+          import { pathToFileURL } from "node:url"
+          const scope = await import(pathToFileURL(process.argv[2]).href)
+          const proseOnly = scope.classifyProseOnlyScope === undefined
+            ? false
+            : await scope.classifyProseOnlyScope({
+                event: "pull_request",
+                base: process.env.BASE_SHA,
+                head: process.env.HEAD_SHA,
+              })
+          process.stdout.write(String(proseOnly))
+          NODE
+          )"
+          case "$PROSE_ONLY" in
+            true|false) ;;
+            *) echo "Malformed prose-only scope output" >&2; exit 1 ;;
+          esac
+          printf 'prose_only=%s\n' "$PROSE_ONLY" >> "$GITHUB_OUTPUT"
           printf 'metadata_only=%s\n' "$METADATA_ONLY" >> "$GITHUB_OUTPUT"
 
   changesets:
@@ -62,6 +85,8 @@ jobs:
         run: node scripts/check-changesets.mjs
 
   source-validate:
+    needs: metadata_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
     runs-on: ubuntu-latest
     # Source verification runs alongside the controller, packaging, and harness lanes.
     timeout-minutes: 45
@@ -121,6 +146,8 @@ jobs:
         run: node scripts/check-docs.mjs
 
   release-controller:
+    needs: metadata_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -153,20 +180,38 @@ jobs:
         run: pnpm test:release-controller
 
   validate:
-    needs: [source-validate, release-controller, pack-smoke, harness-verify]
+    needs: [metadata_scope, source-validate, release-controller, pack-smoke, harness-verify]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Require every validation lane
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          SCOPE_RESULT: ${{ needs.metadata_scope.result }}
+          PROSE_ONLY: ${{ needs.metadata_scope.outputs.prose_only }}
+          METADATA_ONLY: ${{ needs.metadata_scope.outputs.metadata_only }}
           LANE_0: ${{ needs.source-validate.result }}
           LANE_1: ${{ needs.release-controller.result }}
           LANE_2: ${{ needs.pack-smoke.result }}
           LANE_3: ${{ needs.harness-verify.result }}
         run: |
+          set -eu
+          EXPECTED=success
+          case "$EVENT_NAME" in
+            pull_request)
+              [ "$SCOPE_RESULT" = success ] || { echo "CI scope did not succeed" >&2; exit 1; }
+              case "$PROSE_ONLY:$METADATA_ONLY" in
+                true:false) EXPECTED=skipped ;;
+                false:true|false:false) ;;
+                *) echo "Malformed CI scope outputs" >&2; exit 1 ;;
+              esac
+              ;;
+            push) ;;
+            *) echo "Unsupported validation event" >&2; exit 1 ;;
+          esac
           for result in "$LANE_0" "$LANE_1" "$LANE_2" "$LANE_3"; do
-            if [ "$result" != success ]; then
+            if [ "$result" != "$EXPECTED" ]; then
               echo "Required validation lane did not succeed: $result" >&2
               exit 1
             fi
@@ -175,6 +220,8 @@ jobs:
   # Each lane verifies the same commit independently. The stable validate check
   # requires success from source, controller, packaging, and harness verification.
   pack-smoke:
+    needs: metadata_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -210,6 +257,8 @@ jobs:
         run: pnpm verify:typescript-tooling-pack
 
   harness-verify:
+    needs: metadata_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -259,6 +308,8 @@ jobs:
           retention-days: 7
 
   testing-windows:
+    needs: metadata_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
     runs-on: windows-latest
     timeout-minutes: 20
 
@@ -294,6 +345,8 @@ jobs:
         run: pnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/dependency-resolution.test.ts test/security-dependencies/hono-serve-static-windows.test.ts
 
   dependency-security-browser:
+    needs: metadata_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -326,6 +379,8 @@ jobs:
           pnpm exec playwright test --config test/security-dependencies/playwright.config.ts
 
   sandbox-docker:
+    needs: metadata_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -363,6 +418,8 @@ jobs:
         run: B4_TEST_DOCKER=1 pnpm --filter @b4run/sandbox test docker-sandbox.integration
 
   pgvector-docker:
+    needs: metadata_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -396,6 +453,8 @@ jobs:
         run: B4_TEST_PGVECTOR=1 pnpm --filter @b4run/memory-pgvector test
 
   postgres-storage-docker:
+    needs: metadata_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
     runs-on: ubuntu-latest
     # Five test files (four in @b4run/postgres-storage, one in @b4run/cli)
     # each start their own postgres:16 container, and a cold runner also pulls
@@ -452,6 +511,8 @@ jobs:
         run: B4_TEST_PGSTORAGE=1 pnpm --filter @b4run/cli test pending-interrupts-endpoint
 
   edge-workerd:
+    needs: metadata_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
     runs-on: ubuntu-latest
     # Postgres + a wsproxy container, plus `wrangler dev` booting real workerd.
     # 30 minutes leaves headroom for a cold image pull and the workerd binary
@@ -532,6 +593,8 @@ jobs:
           ' "${{ runner.temp }}/workerd-lane-report.json"
 
   copilotkit-examples-e2e:
+    needs: metadata_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -566,10 +629,12 @@ jobs:
         run: pnpm --filter @b4-example/research-web test:e2e
 
   vercel-native:
+    needs: metadata_scope
     if: >-
+      (!cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true')) && (
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.repo.full_name == github.repository)
+       github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: vercel-preview
@@ -649,6 +714,8 @@ jobs:
           retention-days: 3
 
   inspector-e2e:
+    needs: metadata_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
     runs-on: ubuntu-latest
     # 35, not 20: the browser lane below adds a chromium download, a second
     # standalone boot and 19 single-worker spec files (44 tests) on top of the
@@ -707,6 +774,8 @@ jobs:
           retention-days: 7
 
   chart-validate:
+    needs: metadata_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -792,7 +861,7 @@ jobs:
 
   sandbox-k8s:
     needs: metadata_scope
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || (needs.metadata_scope.outputs.metadata_only != 'true' && needs.metadata_scope.outputs.prose_only != 'true')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -885,7 +954,7 @@ jobs:
     # both Helm charts (cross-namespace: app in b4-app, sandboxes in
     # b4-sandboxes). Determinism comes from a baked aimock (no model key).
     needs: metadata_scope
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || (needs.metadata_scope.outputs.metadata_only != 'true' && needs.metadata_scope.outputs.prose_only != 'true')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -1045,7 +1114,7 @@ jobs:
     # adds a Verdaccio-published image build (same mechanism as sandbox-k8s-e2e).
     # Determinism comes from a baked aimock (no model key).
     needs: metadata_scope
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || (needs.metadata_scope.outputs.metadata_only != 'true' && needs.metadata_scope.outputs.prose_only != 'true')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -1127,7 +1196,7 @@ jobs:
 
   chart-apply-smoke:
     needs: metadata_scope
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || (needs.metadata_scope.outputs.metadata_only != 'true' && needs.metadata_scope.outputs.prose_only != 'true')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -1180,6 +1249,8 @@ jobs:
             curl -sf http://b4-app.default.svc.cluster.local/ >/dev/null && echo "app served OK"
 
   recovery-strict-runner:
+    needs: metadata_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
