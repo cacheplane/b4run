@@ -426,6 +426,7 @@ async function runPublisherCliWithinDeadline(
       fileSystem,
       environment,
       signal: deadline.signal,
+      log,
     }),
   )
   try {
@@ -563,6 +564,7 @@ async function runBootstrapPublisher({
         fileSystem,
         environment,
         signal: deadline.signal,
+        log,
         bootstrap: { token },
       }),
     )
