@@ -106,8 +106,17 @@ scripts respectively) — not workspace packages.
 ## Definition of Done
 
 The required `validate` job in `.github/workflows/ci.yml` aggregates four
-independent lanes and succeeds only when all four succeed. Failure, cancellation,
-or a skipped lane blocks it.
+independent lanes for code and release-bearing changes and succeeds only when all
+four succeed. Failure, cancellation, or an unexpected skipped lane blocks it.
+
+A pull request changing only regular, non-executable Markdown files under
+`docs/superpowers/runbooks/` uses the narrow prose path. The existing scope job
+checks the exact merge-base diff, both sides of file modes, and whitespace before
+emitting that result. `validate` still runs and requires successful classification
+and all four heavy lanes to be deliberately skipped. Mixed changes, other paths,
+missing or malformed results, and failed classification cannot pass this route.
+All pushes to main retain full validation; generated-metadata scope remains a
+separate exception for its existing infrastructure jobs.
 
 The `source-validate` lane runs these gates in order after installation:
 
@@ -179,6 +188,12 @@ substitute for the other or optional release cleanup.
 - **Branch per PR; pin before dispatching parallel/subagent work.** In a
   multi-worktree setup, a subagent's commits can land on a detached HEAD
   tracking the wrong branch if the feature branch isn't checked out first.
+- **Limit simultaneous full CI submissions.** Prepare independent changes locally
+  in parallel, but normally keep at most two maintainer-managed PRs with full CI
+  active at once, accounting for validation already running on main. Wait for
+  active runs before pushing a follow-up head. Do not cancel release runs or add
+  a repository-wide serialization gate; this is submission guidance. During
+  performance work, submit one performance PR at a time so its impact is clear.
 - **Build before running anything against `dist/`.** Packages compile
   `src/*.ts` to a gitignored `dist/`, and consumers import the built output —
   a stale or skewed `dist/` (from a branch switch or a per-package filtered

@@ -77,7 +77,7 @@ test("required validate aggregates independent complete lanes and fails closed",
   )
   const required = ["source-validate", "release-controller", "pack-smoke", "harness-verify"]
   const gate = workflow.jobs.validate
-  assert.deepEqual(gate.needs, required)
+  assert.deepEqual(gate.needs, ["metadata_scope", ...required])
   assert.equal(gate.if, "always()")
   assert.equal(gate["continue-on-error"], undefined)
   assert.equal(gate.steps.length, 1)
@@ -88,12 +88,25 @@ test("required validate aggregates independent complete lanes and fails closed",
   const bindings = Object.fromEntries(
     required.map((name, index) => [`LANE_${index}`, `\${{ needs.${name}.result }}`]),
   )
-  assert.deepEqual(step.env, bindings)
+  assert.deepEqual(step.env, {
+    EVENT_NAME: `\${{ github.event_name }}`,
+    SCOPE_RESULT: `\${{ needs.metadata_scope.result }}`,
+    PROSE_ONLY: `\${{ needs.metadata_scope.outputs.prose_only }}`,
+    METADATA_ONLY: `\${{ needs.metadata_scope.outputs.metadata_only }}`,
+    ...bindings,
+  })
   const success = Object.fromEntries(Object.keys(bindings).map((key) => [key, "success"]))
   const execute = (values) =>
     spawnSync("/bin/sh", ["-c", step.run], {
       encoding: "utf8",
-      env: { PATH: process.env.PATH, ...values },
+      env: {
+        PATH: process.env.PATH,
+        EVENT_NAME: "pull_request",
+        SCOPE_RESULT: "success",
+        PROSE_ONLY: "false",
+        METADATA_ONLY: "false",
+        ...values,
+      },
       timeout: 5000,
     })
   assert.equal(execute(success).status, 0)
@@ -106,8 +119,8 @@ test("required validate aggregates independent complete lanes and fails closed",
   for (const name of required) {
     const job = workflow.jobs[name]
     assert.ok(job, `${name} must exist`)
-    assert.equal(job.if, undefined)
-    assert.equal(job.needs, undefined, `${name} must be independent`)
+    assert.match(job.if, /needs\.metadata_scope\.outputs\.prose_only != 'true'/u)
+    assert.equal(job.needs, "metadata_scope", `${name} depends only on classification`)
     assert.equal(job["continue-on-error"], undefined)
     const checkout = job.steps.find((item) => item.name === "Checkout")
     assert.equal(checkout.with.ref, undefined, "all lanes use the run's default checkout ref")

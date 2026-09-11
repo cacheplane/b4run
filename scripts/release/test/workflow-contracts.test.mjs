@@ -2001,7 +2001,14 @@ test("testing-windows has the exact safe descriptors and executable classificati
   assert.deepEqual(job, {
     classification: "safe",
     id: "testing-windows",
-    descriptor: { "runs-on": "windows-latest", "timeout-minutes": 20 },
+    descriptor: {
+      if: workflowExpression(
+        "!cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true')",
+      ),
+      needs: "metadata_scope",
+      "runs-on": "windows-latest",
+      "timeout-minutes": 20,
+    },
     steps: [
       {
         classification: "safe",
@@ -2087,6 +2094,10 @@ test("dependency-security-browser has one exact isolated read-only descriptor", 
     classification: "safe",
     id: "dependency-security-browser",
     descriptor: {
+      if: workflowExpression(
+        "!cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true')",
+      ),
+      needs: "metadata_scope",
       permissions: { contents: "read" },
       "runs-on": "ubuntu-latest",
       "timeout-minutes": 15,

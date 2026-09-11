@@ -228,10 +228,14 @@ describe("native Vercel job", () => {
     const steps = requireSteps(nativeJob, "jobs.vercel-native")
 
     expect(workflow.permissions).toEqual({ contents: "read" })
+    expect(nativeJob.needs).toBe("metadata_scope")
     expect(normalizedExpression(nativeJob.if)).toBe(
-      "(github.event_name == 'push' && github.ref == 'refs/heads/main') || " +
+      "(!cancelled() && (github.event_name != 'pull_request' || " +
+        "needs.metadata_scope.result != 'success' || " +
+        "needs.metadata_scope.outputs.prose_only != 'true')) && ( " +
+        "(github.event_name == 'push' && github.ref == 'refs/heads/main') || " +
         "(github.event_name == 'pull_request' && " +
-        "github.event.pull_request.head.repo.full_name == github.repository)",
+        "github.event.pull_request.head.repo.full_name == github.repository))",
     )
     expect(nativeJob["runs-on"]).toBe("ubuntu-latest")
     expect(nativeJob["timeout-minutes"]).toBe(45)

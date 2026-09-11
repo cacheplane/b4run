@@ -34,7 +34,7 @@
         "stepIndex": 2,
         "step": "Classify metadata-only change",
         "kind": "run",
-        "value": "set -eu\nMETADATA_ONLY=\"$(node scripts/ci-scope.mjs --event pull_request --base \"$BASE_SHA\" --head \"$HEAD_SHA\")\"\ncase \"$METADATA_ONLY\" in\n  true|false) ;;\n  *) echo \"Malformed metadata-only scope output\" >&2; exit 1 ;;\nesac\nprintf 'metadata_only=%s\\n' \"$METADATA_ONLY\" >> \"$GITHUB_OUTPUT\"\n"
+        "value": "set -eu\nSCOPE_DIR=\"$(mktemp -d)\"\nSCOPE_DIR=\"$(cd \"$SCOPE_DIR\" && pwd -P)\"\ntrap 'rm -rf \"$SCOPE_DIR\"' EXIT\ngit show \"$BASE_SHA:scripts/ci-scope.mjs\" > \"$SCOPE_DIR/ci-scope.mjs\"\nMETADATA_ONLY=\"$(node \"$SCOPE_DIR/ci-scope.mjs\" --event pull_request --base \"$BASE_SHA\" --head \"$HEAD_SHA\")\"\ncase \"$METADATA_ONLY\" in\n  true|false) ;;\n  *) echo \"Malformed metadata-only scope output\" >&2; exit 1 ;;\nesac\nPROSE_ONLY=\"$(node --input-type=module - \"$SCOPE_DIR/ci-scope.mjs\" <<'NODE'\nimport { pathToFileURL } from \"node:url\"\nconst scope = await import(pathToFileURL(process.argv[2]).href)\nconst proseOnly = scope.classifyProseOnlyScope === undefined\n  ? false\n  : await scope.classifyProseOnlyScope({\n      event: \"pull_request\",\n      base: process.env.BASE_SHA,\n      head: process.env.HEAD_SHA,\n    })\nprocess.stdout.write(String(proseOnly))\nNODE\n)\"\ncase \"$PROSE_ONLY\" in\n  true|false) ;;\n  *) echo \"Malformed prose-only scope output\" >&2; exit 1 ;;\nesac\nprintf 'prose_only=%s\\n' \"$PROSE_ONLY\" >> \"$GITHUB_OUTPUT\"\nprintf 'metadata_only=%s\\n' \"$METADATA_ONLY\" >> \"$GITHUB_OUTPUT\"\n"
       },
       {
         "classification": "safe",
@@ -202,7 +202,7 @@
         "stepIndex": 0,
         "step": "Require every validation lane",
         "kind": "run",
-        "value": "for result in \"$LANE_0\" \"$LANE_1\" \"$LANE_2\" \"$LANE_3\"; do\n  if [ \"$result\" != success ]; then\n    echo \"Required validation lane did not succeed: $result\" >&2\n    exit 1\n  fi\ndone\n"
+        "value": "set -eu\nEXPECTED=success\ncase \"$EVENT_NAME\" in\n  pull_request)\n    [ \"$SCOPE_RESULT\" = success ] || { echo \"CI scope did not succeed\" >&2; exit 1; }\n    case \"$PROSE_ONLY:$METADATA_ONLY\" in\n      true:false) EXPECTED=skipped ;;\n      false:true|false:false) ;;\n      *) echo \"Malformed CI scope outputs\" >&2; exit 1 ;;\n    esac\n    ;;\n  push) ;;\n  *) echo \"Unsupported validation event\" >&2; exit 1 ;;\nesac\nfor result in \"$LANE_0\" \"$LANE_1\" \"$LANE_2\" \"$LANE_3\"; do\n  if [ \"$result\" != \"$EXPECTED\" ]; then\n    echo \"Required validation lane did not succeed: $result\" >&2\n    exit 1\n  fi\ndone\n"
       },
       {
         "classification": "safe",

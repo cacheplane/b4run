@@ -133,3 +133,20 @@ The full packaged-app `sandbox-k8s-e2e` lane remains on Kubernetes 1.35.
 - Do not use root docs to describe planned behavior as if it already exists.
 - Keep command examples and repo guidance aligned with the current workspace scripts.
 - Prefer the narrowest change that preserves the current contract and verification model.
+
+
+## Keeping validation responsive
+
+Runbook-only pull requests use a narrow prose path when every changed file is
+regular, non-executable Markdown under `docs/superpowers/runbooks/`. The existing
+scope job checks the exact PR diff and whitespace; the required `validate` check
+remains present. Source, dependencies, workflow changes, site MDX, other documents,
+and mixed changes use full validation. All main pushes retain the full lanes.
+A missing or failed classification never grants the prose path.
+
+Prepare independent changes concurrently, but normally keep no more than two
+maintainer-managed full-CI PRs active at once, taking active main validation into
+account. Let an active run finish before pushing its replacement head. Submit
+performance PRs one at a time to make timing comparisons useful. This is working
+guidance, not an additional automated gate or publishing prerequisite. Preserve
+active releases and the existing publishing workflow.

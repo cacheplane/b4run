@@ -98,7 +98,7 @@
             "env": {
               "B4_TEST_K8S_CONTEXT": "kind-b4-chart-apply"
             },
-            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}",
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || (needs.metadata_scope.outputs.metadata_only != 'true' && needs.metadata_scope.outputs.prose_only != 'true')) }}",
             "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 15
@@ -154,6 +154,8 @@
           "classification": "safe",
           "id": "chart-validate",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 15
           },
@@ -248,6 +250,8 @@
           "classification": "safe",
           "id": "copilotkit-examples-e2e",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 20
           },
@@ -321,6 +325,8 @@
           "classification": "safe",
           "id": "dependency-security-browser",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "permissions": {
               "contents": "read"
             },
@@ -383,6 +389,8 @@
           "classification": "safe",
           "id": "edge-workerd",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 30
           },
@@ -449,6 +457,8 @@
           "classification": "safe",
           "id": "harness-verify",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 30
           },
@@ -545,6 +555,8 @@
           "classification": "safe",
           "id": "inspector-e2e",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 35
           },
@@ -634,7 +646,8 @@
             "if": "github.event_name == 'pull_request'",
             "name": "metadata-scope",
             "outputs": {
-              "metadata_only": "${{ steps.classify.outputs.metadata_only }}"
+              "metadata_only": "${{ steps.classify.outputs.metadata_only }}",
+              "prose_only": "${{ steps.classify.outputs.prose_only }}"
             },
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 5
@@ -669,7 +682,7 @@
                 },
                 "id": "classify",
                 "name": "Classify metadata-only change",
-                "run": "set -eu\nMETADATA_ONLY=\"$(node scripts/ci-scope.mjs --event pull_request --base \"$BASE_SHA\" --head \"$HEAD_SHA\")\"\ncase \"$METADATA_ONLY\" in\n  true|false) ;;\n  *) echo \"Malformed metadata-only scope output\" >&2; exit 1 ;;\nesac\nprintf 'metadata_only=%s\\n' \"$METADATA_ONLY\" >> \"$GITHUB_OUTPUT\"\n"
+                "run": "set -eu\nSCOPE_DIR=\"$(mktemp -d)\"\nSCOPE_DIR=\"$(cd \"$SCOPE_DIR\" && pwd -P)\"\ntrap 'rm -rf \"$SCOPE_DIR\"' EXIT\ngit show \"$BASE_SHA:scripts/ci-scope.mjs\" > \"$SCOPE_DIR/ci-scope.mjs\"\nMETADATA_ONLY=\"$(node \"$SCOPE_DIR/ci-scope.mjs\" --event pull_request --base \"$BASE_SHA\" --head \"$HEAD_SHA\")\"\ncase \"$METADATA_ONLY\" in\n  true|false) ;;\n  *) echo \"Malformed metadata-only scope output\" >&2; exit 1 ;;\nesac\nPROSE_ONLY=\"$(node --input-type=module - \"$SCOPE_DIR/ci-scope.mjs\" <<'NODE'\nimport { pathToFileURL } from \"node:url\"\nconst scope = await import(pathToFileURL(process.argv[2]).href)\nconst proseOnly = scope.classifyProseOnlyScope === undefined\n  ? false\n  : await scope.classifyProseOnlyScope({\n      event: \"pull_request\",\n      base: process.env.BASE_SHA,\n      head: process.env.HEAD_SHA,\n    })\nprocess.stdout.write(String(proseOnly))\nNODE\n)\"\ncase \"$PROSE_ONLY\" in\n  true|false) ;;\n  *) echo \"Malformed prose-only scope output\" >&2; exit 1 ;;\nesac\nprintf 'prose_only=%s\\n' \"$PROSE_ONLY\" >> \"$GITHUB_OUTPUT\"\nprintf 'metadata_only=%s\\n' \"$METADATA_ONLY\" >> \"$GITHUB_OUTPUT\"\n"
               }
             }
           ]
@@ -678,6 +691,8 @@
           "classification": "safe",
           "id": "pack-smoke",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 30
           },
@@ -747,6 +762,8 @@
           "classification": "safe",
           "id": "pgvector-docker",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 20
           },
@@ -806,6 +823,8 @@
           "classification": "safe",
           "id": "postgres-storage-docker",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 30
           },
@@ -872,11 +891,13 @@
           "classification": "safe",
           "id": "recovery-strict-runner",
           "descriptor": {
-            "runs-on": "ubuntu-24.04",
-            "timeout-minutes": 5,
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "permissions": {
               "contents": "read"
-            }
+            },
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 5
           },
           "steps": [
             {
@@ -902,10 +923,10 @@
             {
               "classification": "safe",
               "descriptor": {
-                "name": "Verify real recovery process containment",
                 "env": {
                   "B4_TEST_RECOVERY_RUNNER": "1"
                 },
+                "name": "Verify real recovery process containment",
                 "run": "node --test scripts/release/test/recovery-strict-runner.integration.mjs"
               }
             }
@@ -915,6 +936,8 @@
           "classification": "safe",
           "id": "release-controller",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 30
           },
@@ -945,8 +968,8 @@
                 "name": "Setup Node.js",
                 "uses": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
                 "with": {
-                  "node-version": "24.17.0",
-                  "cache": "pnpm"
+                  "cache": "pnpm",
+                  "node-version": "24.17.0"
                 }
               }
             },
@@ -977,6 +1000,8 @@
           "classification": "safe",
           "id": "sandbox-docker",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 20
           },
@@ -1046,7 +1071,7 @@
             "env": {
               "B4_TEST_SMOKE_E2E": "1"
             },
-            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}",
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || (needs.metadata_scope.outputs.metadata_only != 'true' && needs.metadata_scope.outputs.prose_only != 'true')) }}",
             "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 30
@@ -1132,7 +1157,7 @@
             "env": {
               "B4_TEST_K8S_CONTEXT": "kind-b4-k8s-canonical"
             },
-            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}",
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || (needs.metadata_scope.outputs.metadata_only != 'true' && needs.metadata_scope.outputs.prose_only != 'true')) }}",
             "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 35
@@ -1266,7 +1291,7 @@
               "B4_TEST_SMOKE_E2E": "1",
               "KIND_CLUSTER": "b4-smoke"
             },
-            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.metadata_only != 'true') }}",
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || (needs.metadata_scope.outputs.metadata_only != 'true' && needs.metadata_scope.outputs.prose_only != 'true')) }}",
             "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 30
@@ -1445,6 +1470,8 @@
           "classification": "safe",
           "id": "source-validate",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 45
           },
@@ -1475,8 +1502,8 @@
                 "name": "Setup Node.js",
                 "uses": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
                 "with": {
-                  "node-version": "24.17.0",
-                  "cache": "pnpm"
+                  "cache": "pnpm",
+                  "node-version": "24.17.0"
                 }
               }
             },
@@ -1525,10 +1552,10 @@
             {
               "classification": "safe",
               "descriptor": {
-                "name": "Source Tests",
                 "env": {
                   "B4_REQUIRE_DOCKER": "1"
                 },
+                "name": "Source Tests",
                 "run": "pnpm test"
               }
             },
@@ -1552,6 +1579,8 @@
           "classification": "safe",
           "id": "testing-windows",
           "descriptor": {
+            "if": "${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}",
+            "needs": "metadata_scope",
             "runs-on": "windows-latest",
             "timeout-minutes": 20
           },
@@ -1618,8 +1647,14 @@
           "classification": "safe",
           "id": "validate",
           "descriptor": {
-            "needs": ["source-validate", "release-controller", "pack-smoke", "harness-verify"],
             "if": "always()",
+            "needs": [
+              "metadata_scope",
+              "source-validate",
+              "release-controller",
+              "pack-smoke",
+              "harness-verify"
+            ],
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 5
           },
@@ -1627,14 +1662,18 @@
             {
               "classification": "safe",
               "descriptor": {
-                "name": "Require every validation lane",
                 "env": {
+                  "EVENT_NAME": "${{ github.event_name }}",
                   "LANE_0": "${{ needs.source-validate.result }}",
                   "LANE_1": "${{ needs.release-controller.result }}",
                   "LANE_2": "${{ needs.pack-smoke.result }}",
-                  "LANE_3": "${{ needs.harness-verify.result }}"
+                  "LANE_3": "${{ needs.harness-verify.result }}",
+                  "METADATA_ONLY": "${{ needs.metadata_scope.outputs.metadata_only }}",
+                  "PROSE_ONLY": "${{ needs.metadata_scope.outputs.prose_only }}",
+                  "SCOPE_RESULT": "${{ needs.metadata_scope.result }}"
                 },
-                "run": "for result in \"$LANE_0\" \"$LANE_1\" \"$LANE_2\" \"$LANE_3\"; do\n  if [ \"$result\" != success ]; then\n    echo \"Required validation lane did not succeed: $result\" >&2\n    exit 1\n  fi\ndone\n"
+                "name": "Require every validation lane",
+                "run": "set -eu\nEXPECTED=success\ncase \"$EVENT_NAME\" in\n  pull_request)\n    [ \"$SCOPE_RESULT\" = success ] || { echo \"CI scope did not succeed\" >&2; exit 1; }\n    case \"$PROSE_ONLY:$METADATA_ONLY\" in\n      true:false) EXPECTED=skipped ;;\n      false:true|false:false) ;;\n      *) echo \"Malformed CI scope outputs\" >&2; exit 1 ;;\n    esac\n    ;;\n  push) ;;\n  *) echo \"Unsupported validation event\" >&2; exit 1 ;;\nesac\nfor result in \"$LANE_0\" \"$LANE_1\" \"$LANE_2\" \"$LANE_3\"; do\n  if [ \"$result\" != \"$EXPECTED\" ]; then\n    echo \"Required validation lane did not succeed: $result\" >&2\n    exit 1\n  fi\ndone\n"
               }
             }
           ]
@@ -1644,7 +1683,8 @@
           "id": "vercel-native",
           "descriptor": {
             "environment": "vercel-preview",
-            "if": "(github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' &&\n github.event.pull_request.head.repo.full_name == github.repository)",
+            "if": "(!cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true')) && ( (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' &&\n github.event.pull_request.head.repo.full_name == github.repository))",
+            "needs": "metadata_scope",
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 45
           },
