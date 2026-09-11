@@ -30,6 +30,7 @@ import {
   manifestSha256,
 } from "../manifest.mjs"
 import { canonicalReleaseBody } from "../metadata.mjs"
+import { createNpmAuditVerifier } from "../npm-audit.mjs"
 import { canonicalNpmEvidenceBytes, parseNpmEvidence } from "../npm-evidence.mjs"
 import {
   PUBLISHER_OVERALL_TIMEOUT_MS,
@@ -731,7 +732,7 @@ test("OIDC mode ignores bootstrap variables, never selects the first-publication
     environment,
   })
   assert.equal(result.status, "NPM_COMPLETE")
-  assert.deepEqual(factoryCalls, [["environment", "fileSystem", "runNpm", "signal"]])
+  assert.deepEqual(factoryCalls, [["environment", "fileSystem", "log", "runNpm", "signal"]])
   const publishes = npmCalls.filter(({ args }) => args[0] === "publish")
   assert.equal(publishes.length, 1)
   for (const call of npmCalls) {
@@ -2882,4 +2883,70 @@ function multiSubjectBundleBytes(files) {
     })}\n`,
     "utf8",
   )
+}
+
+for (const mode of ["converges", "deadline", "abort", "fatal", "final-sweep"]) {
+  test(`real audit result handling in publisher: ${mode}`, async () => {
+    const fixture = publisherFixture({ initiallyPresent: "all-except-last" })
+    const controller = new AbortController()
+    let targetAudits = 0
+    const target = CANONICAL_RELEASE_PACKAGE_ORDER.at(-1)
+    const logs = []
+    const verifier = await createNpmAuditVerifier({
+      environment: {},
+      signal: controller.signal,
+      log: (event) => logs.push(event),
+      async runNpm(_command, args, options) {
+        if (args[0] === "--version") return { stdout: "11.17.0", exitCode: 0 }
+        options.signal.throwIfAborted()
+        const consumer = JSON.parse(await readFile(path.join(options.cwd, "package.json")))
+        const name = Object.keys(consumer.dependencies)[0]
+        const entry = fixture.inputs.manifest.packages.find((item) => item.name === name)
+        if (name === target) {
+          targetAudits += 1
+          if (mode !== "converges" || targetAudits === 1) {
+            if (mode !== "final-sweep" || targetAudits === 2)
+              return {
+                exitCode: 1,
+                stdout: JSON.stringify({
+                  error: {
+                    code: mode === "fatal" ? "E404" : "ECONNRESET",
+                    summary: "secret-output",
+                    detail: "secret-output",
+                  },
+                }),
+              }
+          }
+        }
+        return { exitCode: 0, stdout: npmAuditOutput(entry) }
+      },
+    })
+    const poll = fixture.inputs.poll
+    fixture.inputs.verifyPackage = (request) => verifier.verifyPackage(request)
+    fixture.inputs.poll = async (request) => {
+      await poll(request)
+      if (mode === "abort") controller.abort()
+    }
+    try {
+      if (mode === "converges")
+        assert.equal((await publishManifestSerially(fixture.inputs)).status, "NPM_COMPLETE")
+      else
+        await assert.rejects(
+          publishManifestSerially(fixture.inputs),
+          mode === "final-sweep"
+            ? /Final npm verification is incomplete/u
+            : mode === "deadline"
+              ? /registry did not converge/u
+              : /audit/u,
+        )
+      assert.deepEqual(fixture.publishCalls, [target])
+      assert.equal(
+        fixture.pollCalls.length,
+        mode === "deadline" ? 68 : ["fatal", "final-sweep"].includes(mode) ? 0 : 1,
+      )
+      assert.ok(!JSON.stringify(logs).includes("secret-output"))
+    } finally {
+      await verifier.dispose()
+    }
+  })
 }

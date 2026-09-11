@@ -33,6 +33,16 @@ const VERIFIED_FIELDS = Object.freeze([
   "attestationBundles",
 ])
 const EXPECTED_NPM_VERSION = "11.17.0"
+const TRANSIENT_AUDIT_CODES = new Set([
+  "ETIMEDOUT",
+  "ECONNRESET",
+  "EAI_AGAIN",
+  "E429",
+  "E500",
+  "E502",
+  "E503",
+  "E504",
+])
 
 export const NPM_AUDIT_OUTPUT_MAX_BYTES = 2 * 1024 * 1024
 export const NPM_AUDIT_VERIFIER = `npm-audit-signatures@${EXPECTED_NPM_VERSION}`
@@ -106,9 +116,11 @@ export async function createNpmAuditVerifier({
   environment = process.env,
   signal,
   bootstrap,
+  log = () => {},
 } = {}) {
   if (
     typeof runNpm !== "function" ||
+    typeof log !== "function" ||
     environment === null ||
     Array.isArray(environment) ||
     typeof environment !== "object" ||
@@ -169,6 +181,19 @@ export async function createNpmAuditVerifier({
       signal,
     })
     assertNpm11Version(versionResult?.stdout)
+
+    const runAudit = async (options) => {
+      try {
+        return await runNpm(
+          "npm",
+          ["audit", "signatures", "--no-package-lock", "--json", "--include-attestations"],
+          { ...options, env: auditEnvironment, signal, acceptedExitCodes: [0, 1] },
+        )
+      } catch {
+        // Runner errors can contain subprocess output or nested credential-bearing causes.
+        auditFailure(log, auditDiagnostic(undefined), "command-failure")
+      }
+    }
 
     return {
       root,
@@ -269,21 +294,17 @@ export async function createNpmAuditVerifier({
           active()
           let result
           try {
-            result = await runNpm(
-              "npm",
-              ["audit", "signatures", "--no-package-lock", "--json", "--include-attestations"],
-              {
-                cwd: directory,
-                env: auditEnvironment,
-                signal,
-                acceptedExitCodes: [0, 1],
-              },
-            )
+            result = await runAudit({ cwd: directory })
           } finally {
             await assertTree()
           }
           active()
-          return parseBatchAudit(result?.stdout, identities)
+          return classifyAuditResult(
+            result,
+            (output) => parseBatchAudit(output, identities),
+            false,
+            log,
+          )
         })()
         batches.add(work)
         work.then(
@@ -350,18 +371,14 @@ export async function createNpmAuditVerifier({
           throw new Error(`npm audit consumer identity changed for ${identity.entry.name}`)
         }
         await assertSyntheticAuditTree(fileSystem, consumer, identity.entry.name)
-        const auditResult = await runNpm(
-          "npm",
-          ["audit", "signatures", "--no-package-lock", "--json", "--include-attestations"],
-          {
-            cwd: consumer.directory,
-            env: auditEnvironment,
-            signal,
-            acceptedExitCodes: [0, 1],
-          },
-        )
+        const auditResult = await runAudit({ cwd: consumer.directory })
         await assertSyntheticAuditTree(fileSystem, consumer, identity.entry.name)
-        return parseNpmAuditSignatures(auditResult?.stdout, identity)
+        return classifyAuditResult(
+          auditResult,
+          (output) => parseNpmAuditSignatures(output, identity),
+          true,
+          log,
+        )
       },
       dispose() {
         if (disposal !== undefined) return disposal
@@ -378,6 +395,85 @@ export async function createNpmAuditVerifier({
     await fileSystem.rm(root, { recursive: true, force: true }).catch(() => undefined)
     throw error
   }
+}
+
+// Keep command outcomes separate from proof. Only the publisher's existing single-package
+// convergence loop can consume pending; batch callers still require a complete capture.
+function classifyAuditResult(result, parse, single, log) {
+  const diagnostic = auditDiagnostic(result)
+  if (!result || ![0, 1].includes(result.exitCode)) auditFailure(log, diagnostic, "invalid-exit")
+  if (
+    typeof result.stdout !== "string" ||
+    diagnostic.stdoutBytes < 1 ||
+    diagnostic.stdoutBytes > NPM_AUDIT_OUTPUT_MAX_BYTES ||
+    (result.stderr !== undefined && typeof result.stderr !== "string")
+  )
+    auditFailure(log, diagnostic, "invalid-output")
+  let value
+  try {
+    value = snapshotJson(JSON.parse(result.stdout))
+  } catch {
+    auditFailure(log, diagnostic, "malformed-output")
+  }
+  diagnostic.rootShape =
+    value === null
+      ? "null"
+      : Array.isArray(value)
+        ? "array"
+        : typeof value === "object"
+          ? "object"
+          : "primitive"
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.hasOwn(value, "error")
+  ) {
+    try {
+      assertExactFields(value, ["error"], "error envelope")
+      assertExactFields(value.error, ["code", "summary", "detail"], "error envelope")
+      if (Object.values(value.error).some((field) => typeof field !== "string")) throw new Error()
+    } catch {
+      auditFailure(log, diagnostic, "invalid-error-envelope")
+    }
+    diagnostic.rootShape = "error-envelope"
+    if (TRANSIENT_AUDIT_CODES.has(value.error.code)) diagnostic.code = value.error.code
+    if (result.exitCode !== 1) auditFailure(log, diagnostic, "exit-output-conflict")
+    if (!diagnostic.code) auditFailure(log, diagnostic, "fatal-error-envelope")
+    if (!single) auditFailure(log, diagnostic, "batch-transient")
+    log(Object.freeze({ ...diagnostic, classification: "transient" }))
+    return deepFreeze({ status: "pending" })
+  }
+  if (result.exitCode !== 0) auditFailure(log, diagnostic, "exit-output-conflict")
+  try {
+    return parse(result.stdout)
+  } catch {
+    // Low-level parser messages and SyntaxError causes can contain untrusted names/JSON.
+    auditFailure(log, diagnostic, "invalid-evidence")
+  }
+}
+
+function auditDiagnostic(result) {
+  const byteCount = (value) =>
+    typeof value === "string"
+      ? Math.min(Buffer.byteLength(value, "utf8"), NPM_AUDIT_OUTPUT_MAX_BYTES + 1)
+      : 0
+  return {
+    event: "npm-audit-diagnostic",
+    ...(Number.isInteger(result?.exitCode) && result.exitCode >= 0 && result.exitCode <= 255
+      ? { exitCode: result.exitCode }
+      : {}),
+    stdoutBytes: byteCount(result?.stdout),
+    stderrBytes: byteCount(result?.stderr),
+    rootShape: "unclassified",
+  }
+}
+
+function auditFailure(log, diagnostic, classification) {
+  const safe = Object.freeze({ ...diagnostic, classification })
+  log(safe)
+  // Recovery/batch callers have no logger; existing CLI errors still retain this safe metadata.
+  throw new Error(`npm audit signatures failed: ${JSON.stringify(safe)}`)
 }
 
 function validateBatchContext(input) {

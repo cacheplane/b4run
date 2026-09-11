@@ -9,6 +9,7 @@ import test from "node:test"
 
 import {
   createNpmAuditVerifier,
+  NPM_AUDIT_OUTPUT_MAX_BYTES,
   NPM_AUDIT_VERIFIER,
   parseNpmAuditSignatures,
 } from "../npm-audit.mjs"
@@ -683,7 +684,7 @@ test("batch audits the whole inventory once in a fresh exact tree on every call"
         version: entry.version,
       })
     }
-    return { stdout: batchOutput(), exitCode: 1 }
+    return { stdout: batchOutput(), exitCode: 0 }
   })
   try {
     for (let i = 0; i < 2; i++) {
@@ -780,7 +781,10 @@ for (const [label, mutate] of [
   test(`batch rejects ${label} anywhere in whole audit stdout`, async () => {
     const audit = JSON.parse(batchOutput())
     mutate(audit)
-    const verifier = await batchVerifier(async () => ({ stdout: JSON.stringify(audit) }))
+    const verifier = await batchVerifier(async () => ({
+      stdout: JSON.stringify(audit),
+      exitCode: 0,
+    }))
     try {
       await assert.rejects(
         verifier.verifyPackages({ entries: BATCH_ENTRIES, candidate: BATCH_CANDIDATE }),
@@ -792,7 +796,7 @@ for (const [label, mutate] of [
   })
 for (const output of ["bad json", " ".repeat(2 * 1024 * 1024) + batchOutput()])
   test("batch bounds original stdout before parsing", async () => {
-    const verifier = await batchVerifier(async () => ({ stdout: output }))
+    const verifier = await batchVerifier(async () => ({ stdout: output, exitCode: 0 }))
     try {
       await assert.rejects(
         verifier.verifyPackages({ entries: BATCH_ENTRIES, candidate: BATCH_CANDIDATE }),
@@ -882,7 +886,7 @@ for (const stage of ["before", "after"])
           commands++
           cwd = directory
           if (stage === "after") await tamper(cwd)
-          return { stdout: batchOutput() }
+          return { stdout: batchOutput(), exitCode: 0 }
         },
         {
           ...fs,
@@ -908,7 +912,7 @@ for (const stage of ["before", "after"])
 test("batch snapshots every caller identity before asynchronous filesystem work", async () => {
   const entries = structuredClone(BATCH_ENTRIES),
     candidate = structuredClone(BATCH_CANDIDATE)
-  const verifier = await batchVerifier(async () => ({ stdout: batchOutput() }), {
+  const verifier = await batchVerifier(async () => ({ stdout: batchOutput(), exitCode: 0 }), {
     ...fs,
     async mkdtemp(prefix) {
       if (prefix.includes("/consumers/")) {
@@ -952,6 +956,7 @@ test("fresh batch cannot reuse successful stdout after a later audit fails", asy
   let count = 0
   const verifier = await batchVerifier(async () => ({
     stdout: ++count === 1 ? batchOutput() : "{}",
+    exitCode: 0,
   }))
   try {
     await verifier.verifyPackages({ entries: BATCH_ENTRIES, candidate: BATCH_CANDIDATE })
@@ -980,7 +985,7 @@ for (const stop of ["abort", "dispose"])
       async () => {
         start()
         await pending
-        return { stdout: batchOutput() }
+        return { stdout: batchOutput(), exitCode: 0 }
       },
       {
         ...fs,
@@ -1061,7 +1066,7 @@ test("controlled 21-package captures reduce actual audit runner invocations from
       counts[mode].factories++
       const verifier = await batchVerifier(async () => {
         counts[mode].auditCommands++
-        return { stdout: batchOutput(entries) }
+        return { stdout: batchOutput(entries), exitCode: 0 }
       })
       try {
         if (mode === "verifyPackages")
@@ -1102,7 +1107,7 @@ test("batch verifies the complete tree even when the audit command rejects", asy
   try {
     await assert.rejects(
       verifier.verifyPackages({ entries: BATCH_ENTRIES, candidate: BATCH_CANDIDATE }),
-      /audit process failed/,
+      /command-failure/,
     )
     assert.equal(readsAfterFailure, BATCH_ENTRIES.length + 1)
   } finally {
@@ -1123,7 +1128,10 @@ test("batch rejects unknown, missing, or malformed canonical entry and candidate
         : value,
     ]),
   )
-  const verifier = await batchVerifier(async () => ({ stdout: batchOutput() }), fileSystem)
+  const verifier = await batchVerifier(
+    async () => ({ stdout: batchOutput(), exitCode: 0 }),
+    fileSystem,
+  )
   const valid = {
     entries: structuredClone(BATCH_ENTRIES),
     candidate: structuredClone(BATCH_CANDIDATE),
@@ -1192,7 +1200,7 @@ for (const stage of ["before", "after"])
         commands++
         if (stage === "after")
           await replace(path.join(cwd, "node_modules/@b4run/core/package.json"))
-        return { stdout: batchOutput() }
+        return { stdout: batchOutput(), exitCode: 0 }
       },
       {
         ...fs,
@@ -1238,7 +1246,10 @@ for (const stage of ["before", "after"])
 test("legacy verifier dependencies need no lstat until a batch is requested", async () => {
   const fileSystem = { ...fs }
   delete fileSystem.lstat
-  const verifier = await batchVerifier(async () => ({ stdout: auditOutput() }), fileSystem)
+  const verifier = await batchVerifier(
+    async () => ({ stdout: auditOutput(), exitCode: 0 }),
+    fileSystem,
+  )
   try {
     assert.equal(
       (await verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE })).status,
@@ -1252,3 +1263,136 @@ test("legacy verifier dependencies need no lstat until a batch is requested", as
     await verifier.dispose()
   }
 })
+
+const TRANSIENT_AUDIT_CODES = [
+  "ETIMEDOUT",
+  "ECONNRESET",
+  "EAI_AGAIN",
+  "E429",
+  "E500",
+  "E502",
+  "E503",
+  "E504",
+]
+const AUDIT_SECRET = "secret-marker-do-not-log"
+function errorOutput(code) {
+  return JSON.stringify({ error: { code, summary: AUDIT_SECRET, detail: AUDIT_SECRET } })
+}
+async function resultVerifier(result, logs, signal = new AbortController().signal) {
+  return createNpmAuditVerifier({
+    environment: {},
+    signal,
+    log: (value) => logs.push(value),
+    async runNpm(_command, args) {
+      if (args[0] === "--version") return { stdout: "11.17.0", exitCode: 0 }
+      if (result instanceof Error) throw result
+      return result
+    },
+  })
+}
+for (const code of TRANSIENT_AUDIT_CODES) {
+  test(`exact ${code} is pending only for single audits and logs no output`, async () => {
+    const logs = []
+    const verifier = await resultVerifier(
+      { exitCode: 1, stdout: errorOutput(code), stderr: AUDIT_SECRET },
+      logs,
+    )
+    const root = verifier.root
+    try {
+      assert.deepEqual(await verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE }), {
+        status: "pending",
+      })
+      await assert.rejects(
+        verifier.verifyPackages({ entries: BATCH_ENTRIES, candidate: BATCH_CANDIDATE }),
+        (error) => {
+          assert.equal(error.cause, undefined)
+          assert.ok(!error.stack.includes(AUDIT_SECRET))
+          return true
+        },
+      )
+      assert.equal(logs.length, 2)
+      assert.ok(
+        logs.every((value) => value.code === code && value.event === "npm-audit-diagnostic"),
+      )
+      assert.ok(!JSON.stringify(logs).includes(AUDIT_SECRET))
+    } finally {
+      await verifier.dispose()
+    }
+    await assert.rejects(access(root))
+  })
+}
+const rejectedAuditResults = [
+  undefined,
+  null,
+  [],
+  ...[undefined, null, 42].map((stdout) => ({ exitCode: 0, stdout })),
+  ...[undefined, null, "0", 0.5, -1, 2, NaN].map((exitCode) => ({
+    exitCode,
+    stdout: auditOutput(),
+  })),
+  { exitCode: 1, stdout: auditOutput() },
+  { exitCode: 0, stdout: errorOutput("ETIMEDOUT") },
+  ...["E404", "E401", "E403", "EOTP", "E501", "E505", "UNKNOWN", AUDIT_SECRET].map((code) => ({
+    exitCode: 1,
+    stdout: errorOutput(code),
+  })),
+  ...[
+    null,
+    [],
+    {},
+    { code: "ETIMEDOUT" },
+    { code: "ETIMEDOUT", summary: 1, detail: "" },
+    { code: "ETIMEDOUT", summary: "", detail: null },
+    { code: 1, summary: "", detail: "" },
+    { code: "ETIMEDOUT", summary: "", detail: "", extra: AUDIT_SECRET },
+  ].map((error) => ({ exitCode: 1, stdout: JSON.stringify({ error }) })),
+  {
+    exitCode: 1,
+    stdout: JSON.stringify({
+      error: { code: "ETIMEDOUT", summary: "", detail: "" },
+      ...JSON.parse(auditOutput()),
+    }),
+  },
+  ...[
+    "",
+    AUDIT_SECRET,
+    `{"${AUDIT_SECRET}":`,
+    "[]",
+    "null",
+    '"text"',
+    JSON.stringify({ [AUDIT_SECRET]: true }),
+    "x".repeat(NPM_AUDIT_OUTPUT_MAX_BYTES + 1),
+  ].map((stdout) => ({ exitCode: 1, stdout })),
+  ...["invalid", "missing"].flatMap((field) =>
+    [0, 1].map((exitCode) => ({
+      exitCode,
+      stdout: JSON.stringify({
+        ...JSON.parse(auditOutput()),
+        [field]: [{ name: AUDIT_SECRET, version: AUDIT_SECRET }],
+      }),
+    })),
+  ),
+  new Error(AUDIT_SECRET, { cause: new Error(AUDIT_SECRET) }),
+]
+for (const [index, result] of rejectedAuditResults.entries()) {
+  test(`audit command result ${index} fails closed without leaking output or causes`, async () => {
+    const logs = []
+    const verifier = await resultVerifier(result, logs)
+    try {
+      for (const operation of [
+        () => verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE }),
+        () => verifier.verifyPackages({ entries: BATCH_ENTRIES, candidate: BATCH_CANDIDATE }),
+      ])
+        await assert.rejects(operation(), (error) => {
+          assert.ok(!error.stack.includes(AUDIT_SECRET))
+          assert.equal(error.cause, undefined)
+          return true
+        })
+      assert.equal(logs.length, 2)
+      assert.ok(JSON.stringify(logs).length < 1024)
+      assert.ok(!JSON.stringify(logs).includes(AUDIT_SECRET))
+    } finally {
+      await verifier.dispose()
+    }
+  })
+}
