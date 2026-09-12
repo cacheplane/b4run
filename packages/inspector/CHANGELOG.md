@@ -1,5 +1,13 @@
 # @dawn-ai/inspector
 
+## 0.8.31
+
+### Patch Changes
+
+- 1150a7c: Update the Inspector's Next.js runtime dependency to 16.3.3.
+  - @b4run/core@0.8.31
+  - @b4run/memory@0.8.31
+
 ## 0.8.30
 
 ### Patch Changes

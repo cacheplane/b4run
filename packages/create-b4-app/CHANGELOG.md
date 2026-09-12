@@ -1,5 +1,11 @@
 # create-dawn-ai-app
 
+## 0.8.31
+
+### Patch Changes
+
+- @b4run/devkit@0.8.31
+
 ## 0.8.30
 
 ### Patch Changes
