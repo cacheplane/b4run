@@ -25,16 +25,16 @@ The selected Big Dot / Raised stem / Open counter lettering uses native editable
 SVG geometry. The compact mark is `b4`; the primary wordmark is `b4.run`.
 
 - [Editable masters and usage sheet](../../apps/web/public/brand/identity/index.html)
-- [Usage guidance and palettes](../../apps/web/public/brand/identity/usage-notes.md)
+- [Public guidelines](../../apps/web/public/brand/identity/guidelines.md)
+- [Concise usage guidance](../../apps/web/public/brand/identity/usage-notes.md)
 - [Machine-readable manifest](../../apps/web/public/brand/assets.json)
 - [Downloadable kit](../../apps/web/public/brand/b4-run-brand-assets.zip)
 
-Existing public logo URLs remain stable. This original kit supplies monochrome,
-Relay, and Tight Shift alternatives. Its usage sheet, notes, and ZIP are an earlier
-snapshot; synchronizing them to the approved guidelines is a subsequent task.
-The documentation mockup in the usage sheet contains provisional messaging,
-not replacement website copy. These guidelines do not change live styling or
-favicon selection. Product-loop recordings are independent of this kit.
+Existing public logo URLs remain stable. The reference page, usage sheet, notes,
+manifest, and ZIP now follow Paper Relay in this repository revision. Tight Shift
+files remain available as archived alternatives. The reference uses typography
+specimens, not proposed homepage messaging. Main-site styling and favicon selection
+are outside this kit update. Product-loop recordings are independent of this kit.
 
 ## Product-loop media
 

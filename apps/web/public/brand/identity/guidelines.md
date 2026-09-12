@@ -14,12 +14,12 @@ nor the brainstorming layouts establish that future architecture.
 
 This document records the visual system approved during the September 12 brand
 review. It supersedes the original kit's provisional palette and typography
-guidance. The [D2.2 masters](../../apps/web/public/brand/identity/logos/)
+guidance. The [D2.2 masters](logos/)
 remain authoritative for logo geometry.
 
-The [identity sheet](../../apps/web/public/brand/identity/index.html),
-[usage notes](../../apps/web/public/brand/identity/usage-notes.md), and
-[downloadable ZIP](../../apps/web/public/brand/b4-run-brand-assets.zip) are
+The [identity sheet](index.html),
+[usage notes](usage-notes.md), and
+[downloadable ZIP](https://b4.run/brand/b4-run-brand-assets.zip) are
 synchronized to Paper Relay in this repository revision. Tight Shift files remain
 available as archived alternatives, not approved defaults. Kit synchronization
 does not change the main website's styling, logo masters, or favicon selection;
@@ -46,9 +46,9 @@ deployment status is separate from the checked-in assets.
 | Favicon | Existing `identity/icons/` size-specific exports | Verify at actual display size |
 
 All master names above are relative to
-[`apps/web/public/brand/identity/logos/`](../../apps/web/public/brand/identity/logos/),
+[`apps/web/public/brand/identity/logos/`](logos/),
 except favicon exports, which are in
-[`identity/icons/`](../../apps/web/public/brand/identity/icons/).
+[`identity/icons/`](icons/).
 
 Use one wordmark dot diameter as clear space around the visible artwork. The
 master dot diameter is 34 units; the visible artwork is 512 × 105 units inside a
@@ -224,3 +224,7 @@ contrast, keyboard focus, narrow layouts, and cropping. Verify links and technic
 claims against the actual product. Keep exported assets and editable sources in
 sync, and record exactly which surfaces changed. Brand approval does not imply
 that an account, site, or package has already been updated.
+
+---
+
+Source: [repository brand guidelines](https://github.com/cacheplane/b4run/blob/brand/d2-2-identity-kit/docs/brand/guidelines.md).

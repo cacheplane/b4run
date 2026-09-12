@@ -1,31 +1,65 @@
-# b4.run — D2.2 working identity kit
+# b4.run — Paper Relay identity kit
 
-The user selected D2 and approved continuing with the recommended D2.2 refinement. This kit adopts that geometry unchanged. It supplies practical assets and proposed usage guidance, not a new concept round or a website deployment.
+Approved visual system · September 12, 2026 · D2.2 geometry
 
-## Core assets
-- `logos/wordmark-ink.svg`: primary lowercase b4.run identity.
-- `logos/compact-ink.svg`: compact b4, separately proportioned for small spaces.
-- Both marks also have white, Relay and Tight Shift ink variants. Accent ink is intended for dark backgrounds. Use dark ink on bright accent fields.
-- `icons/`: square SVG icons and PNGs at 16, 24, 32, 48, 64, 180, 192, 256 and 512 pixels. Includes three ICO files with 16/32/48 frames. Relay, Tight Shift and dark are available. Square corners let the target platform apply its own mask.
-- `previews/`: large transparent PNGs, plus size proofs. White transparent previews need a dark background to be visible.
+Read the [full brand guidelines](guidelines.md) for normative rules. The
+[visual reference](index.html) includes editable assets and exact-size proofs.
 
-## Proposed usage rules
-Preserve the oversized round period, raised right stem of 4, and the letter spacing. Do not replace the dot with a different symbol, stretch the mark, recolor individual letters, or attach the tagline to the core master.
+## Logo
 
-Clear space: use one wordmark dot diameter around the visible logo. In the master coordinate system that is 34 units. The wordmark visible artwork is 512 units wide and 105 units tall; its export viewBox is 522 × 115. Existing 5-unit padding is not full clear space. For a master rendered at 160 px wide, the full recommended clear space is approximately 10.4 px per side measured from the artwork. For the compact, use approximately one-third of its visible letter height as clear space in ordinary layouts. Favicon containers are a deliberately tighter constrained use.
+Pronounce the name “bee-four dot run.” Use the custom D2.2 vectors; the logo is
+not a font. Preserve the round period, raised stem of the `4`, open counters,
+proportions, and letter spacing. Use one ink per logo and keep taglines separate.
+Do not stretch, outline, redraw, or replace the period.
 
-Starting size guidance: primary wordmark 160 px wide; compact preferably 24 px square or larger. Included 120 px wordmark and 16 px compact proofs show constrained use, not a guarantee of readability. Verify in the actual interface and on target displays before rollout. These are design recommendations, not measured audience-testing results.
+- [Ink wordmark](logos/wordmark-ink.svg): primary on paper, white, or Relay.
+- [White wordmark](logos/wordmark-white.svg): primary on dark surfaces.
+- [Ink compact](logos/compact-ink.svg) and [white compact](logos/compact-white.svg):
+  separately proportioned `b4` marks for small spaces.
+- [Icons](icons/): square SVG, PNG, and ICO exports at the supplied sizes.
 
-## Color
-Shared ink #111111; neutral dark #17181B; paper #F5F4F0.
-Relay yellow-green #B4CE37; pale tint #E7EDD1.
-Tight Shift orange #ED5428; pale tint #F9D7C8.
-Both remain available. Relay is used in the documentation study as a working application, not a final palette selection. For body text and controls, verify accessibility separately in the finished interface; logo palette choices do not establish UI accessibility.
+Allow one wordmark dot diameter of clear space around the visible artwork.
+The dot diameter is 34 master units; artwork is 512 × 105 inside a 522 × 115
+viewBox. At a 160 px export width, allow about 10.4 px per side of the artwork.
+The SVG padding does not provide the full clear space. For the compact, allow
+about one-third of its visible letter height. Favicons are a constrained exception.
 
-## Messaging and typography
-The logo is pronounced “bee-four dot run.” Logo lettering consists entirely of custom paths and shapes, not a font. No font files are required or supplied. Sheet captions use Arial/system sans-serif.
-The documentation study keeps proposed copy separate: “Ridiculous speed. Readable code.” and “Built by AI. For AI builders.” These remain positioning aspirations about developer building speed, not verified performance or invented authorship details.
+Start with a 160 px wordmark and a 24 px compact. The included 120 px wordmark
+and 16 px compact proofs demonstrate constrained use; inspect the actual context.
+These are starting points, not measured legibility guarantees.
 
-## Source and status
-Geometry is taken directly from round-three concepts/open (D2.2). Metadata has been clarified. Native editable character groups remain intact, with no embedded images or external dependencies. Icons nest the same compact SVG inside a square field; their background shape is independently editable.
-This is the selected working direction. No deployment, trademark clearance, audience testing, or final production sign-off is claimed.
+## Color and type
+
+Paper Relay is the approved default:
+
+| Role | Value |
+| --- | --- |
+| Paper | `#F5F4F0` |
+| Ink | `#111111` |
+| Dark / code | `#17181B` |
+| Relay | `#B4CE37` |
+| Relay tint | `#E7EDD1` |
+
+Paper leads; Relay emphasizes a meaningful action or graphic. Use ink on Relay
+controls. Relay on paper has only 1.61:1 contrast: use it decoratively, not as
+reading text or an essential focus indicator. See the full guidelines for
+secondary colors, contrast pairs, and interaction requirements.
+
+Use Inter for headings, reading text, and controls; JetBrains Mono for code and
+technical labels. The [font directory](fonts/README.md) includes the reference's
+required fonts, original licenses, and provenance. Preserve those licenses when
+redistributing fonts. The logo masters have no font dependency.
+
+The sheet captions are outlined for portable rendering. Its [text source](usage-sheet-source.svg)
+retains editable text and embedded fonts; the [outlined SVG](usage-sheet.svg) and
+[PNG](usage-sheet.png) are visual exports. Logo geometry remains native vectors.
+
+## Archived alternatives and scope
+
+Tight Shift orange `#ED5428` and tint `#F9D7C8` remain for compatibility and historical
+reference. Its [wordmark](logos/wordmark-tight-shift.svg), [compact](logos/compact-tight-shift.svg),
+and icon files are archived alternatives, not a second approved default.
+
+Specimens are not marketing copy. Homepage narrative and structure will be rebuilt
+separately; this kit prescribes no hero, slogan, section order, or product claim.
+Main-site styling, production favicons, and account avatars are separate rollout work.

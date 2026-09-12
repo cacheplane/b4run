@@ -1,14 +1,14 @@
 {
   "name": "B4.run Brand Assets",
-  "version": "2026-09-11-d2.2",
-  "description": "B4.run D2.2 logos, compact marks, favicons, and social assets.",
+  "version": "2026-09-12-paper-relay-v1",
+  "description": "B4.run Paper Relay identity kit: D2.2 logos, guidelines, typography, usage proofs, and archived alternatives.",
   "homepage": "/",
   "downloadUrl": "/brand/b4-run-brand-assets.zip",
   "manifestUrl": "/brand/assets.json",
   "usage": {
-    "summary": "Use the supplied D2.2 files without stretching or changing letter spacing. Use white on dark backgrounds and ink on light or accent backgrounds. Keep taglines separate and allow one dot diameter of clear space.",
-    "preferredLogo": "logo-horizontal-white-svg",
-    "preferredIcon": "icon-white-svg",
+    "summary": "Paper Relay is the approved default. Use ink D2.2 masters on paper and accent fields, and white on dark. Preserve geometry and letter spacing, allow one dot diameter of clear space, and keep taglines separate. These preferences do not change deployed website styling or favicon selection.",
+    "preferredLogo": "logo-horizontal-black-svg",
+    "preferredIcon": "icon-black-svg",
     "guidelinesUrl": "/brand/identity/usage-notes.md"
   },
   "assets": [
@@ -145,29 +145,29 @@
     },
     {
       "id": "wordmark-tight-shift-svg",
-      "label": "D2.2 wordmark, tight-shift",
+      "label": "Archived alternative: D2.2 wordmark, tight-shift",
       "type": "logo",
       "format": "svg",
       "url": "/brand/identity/logos/wordmark-tight-shift.svg",
       "background": "dark",
       "recommendedFor": [
-        "brand applications"
+        "historical reference"
       ]
     },
     {
       "id": "compact-tight-shift-svg",
-      "label": "D2.2 compact, tight-shift",
+      "label": "Archived alternative: D2.2 compact, tight-shift",
       "type": "icon",
       "format": "svg",
       "url": "/brand/identity/logos/compact-tight-shift.svg",
       "background": "dark",
       "recommendedFor": [
-        "brand applications"
+        "historical reference"
       ]
     },
     {
       "id": "usage-sheet-png",
-      "label": "D2.2 usage sheet",
+      "label": "Paper Relay brand system usage sheet",
       "type": "guide",
       "format": "png",
       "url": "/brand/identity/usage-sheet.png",
@@ -195,5 +195,10 @@
       "accent": "#ED5428",
       "tint": "#F9D7C8"
     }
+  },
+  "defaultPalette": "relay",
+  "paletteStatus": {
+    "relay": "approved",
+    "tightShift": "archived"
   }
 }
