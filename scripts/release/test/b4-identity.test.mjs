@@ -25,7 +25,7 @@ test("B4.run audit executor rejects the original repository name on the adopted 
   await assert.rejects(authorizeAuditExecutor(fixture), /invalid main run identity/)
 })
 
-test("B4.run cannot use the historical v0.8.26 audit authorization", async () => {
+test("B4.run cannot authorize old executor source using the historical v0.8.26 record", async () => {
   const fixture = auditExecutorFixture()
   fixture.run.repository = { id: 1210070282, full_name: "cacheplane/b4run" }
   const historical = await readFile(
@@ -33,10 +33,11 @@ test("B4.run cannot use the historical v0.8.26 audit authorization", async () =>
     "utf8",
   )
   fixture.files.set("scripts/release/audit-executor-authorizations/v0.8.26.json", historical)
-  await assert.rejects(authorizeAuditExecutor(fixture), /invalid source authorization/)
+  fixture.files.delete("scripts/release/postpublication-executor.mjs")
+  await assert.rejects(authorizeAuditExecutor(fixture), /source|pinned/)
 })
 
-test("the historical authorization stays rejected even with its repository forged", async () => {
+test("old executor source stays rejected even with its historical repository forged", async () => {
   // Defense in depth for the adopted identity: rewriting the historical record's
   // repository to the current name must not make it authorize a B4.run
   // candidate. The candidate and digest bindings must reject it on their own.
@@ -53,10 +54,11 @@ test("the historical authorization stays rejected even with its repository forge
     "scripts/release/audit-executor-authorizations/v0.8.26.json",
     JSON.stringify({ ...historical, repository: "cacheplane/b4run" }),
   )
+  fixture.files.delete("scripts/release/postpublication-executor.mjs")
   await assert.rejects(
     authorizeAuditExecutor(fixture),
-    /authorization does not match candidate/,
-    "a forged repository field must still fail on the candidate and digest bindings",
+    /source|pinned/,
+    "a forged historical record cannot authorize source lacking the generic authority",
   )
 })
 

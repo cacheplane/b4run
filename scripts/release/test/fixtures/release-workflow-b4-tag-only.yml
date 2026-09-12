@@ -51,7 +51,6 @@ jobs:
       # contents: write — the only scope that exposes draft Releases to GITHUB_TOKEN (spec 2026-09-04-controller-draft-visibility).
       contents: write
     outputs:
-      executor_sha: ${{ steps.executor.outputs.executor_sha }}
       candidate_sha: ${{ steps.observe.outputs.candidate_sha }}
       candidate_version: ${{ steps.observe.outputs.candidate_version }}
       disposition: ${{ steps.observe.outputs.disposition }}
@@ -62,7 +61,7 @@ jobs:
       - name: Checkout controller
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.ref == 'refs/heads/main' && github.sha || github.event.repository.default_branch }}
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -101,18 +100,6 @@ jobs:
             --report "$RUNNER_TEMP/production-observation.json" \
             --github-output "$GITHUB_OUTPUT"
 
-      - name: Authorize reviewed post-publication executor
-        id: executor
-        if: >-
-          github.ref == 'refs/heads/main' &&
-          contains(fromJSON('["run-release-smokes","reconcile-smoke-evidence","dispatch-release-audit","complete-release-audit","publish-github-release"]'), steps.observe.outputs.next_transition)
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          node scripts/release/postpublication-executor.mjs \
-            --report "$RUNNER_TEMP/production-observation.json" \
-            --github-output "$GITHUB_OUTPUT"
-
       - name: Preserve production observation
         id: observation
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -140,11 +127,11 @@ jobs:
     outputs:
       continue: ${{ steps.route.outputs.continue }}
     steps:
-      - name: Checkout exact release executor
+      - name: Checkout exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-          ref: ${{ needs.detect.outputs.executor_sha || needs.detect.outputs.candidate_sha }}
+          ref: ${{ needs.detect.outputs.candidate_sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -168,15 +155,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.detect.outputs.candidate_version }}
           COMMIT_SHA: ${{ needs.detect.outputs.candidate_sha }}
-          EXECUTOR_SHA: ${{ needs.detect.outputs.executor_sha }}
           NPM_BOOTSTRAP: ${{ inputs.npmBootstrap }}
         run: |
-          if [[ "$GITHUB_REF" == "refs/heads/main" && -n "$EXECUTOR_SHA" &&
-                "$GITHUB_SHA" == "$EXECUTOR_SHA" ]]; then
-            printf 'continue=true\n' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" &&
                 "$GITHUB_REF" == "refs/tags/v${VERSION}" &&
                 "$GITHUB_SHA" == "$COMMIT_SHA" ]]; then
@@ -306,13 +286,11 @@ jobs:
       needs.detect.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
-      ((github.ref == format('refs/tags/v{0}', inputs.version) &&
-        github.sha == needs.detect.outputs.candidate_sha &&
-        inputs.version == needs.detect.outputs.candidate_version &&
-        inputs.commitSha == needs.detect.outputs.candidate_sha &&
-        inputs.operation == 'reconcile') ||
-       (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&
-        needs.detect.outputs.executor_sha == github.sha)) &&
+      github.ref == format('refs/tags/v{0}', inputs.version) &&
+      github.sha == needs.detect.outputs.candidate_sha &&
+      inputs.version == needs.detect.outputs.candidate_version &&
+      inputs.commitSha == needs.detect.outputs.candidate_sha &&
+      inputs.operation == 'reconcile' &&
       contains(fromJSON('["prepare-artifacts","attest-artifacts","escrow-candidate","publish-npm-packages","resume-npm-publish","reconcile-npm-evidence","run-release-smokes","reconcile-smoke-evidence","dispatch-release-audit","complete-release-audit","publish-github-release"]'), needs.detect.outputs.next_transition) &&
       (needs.detect.outputs.next_transition != 'prepare-artifacts' || needs.prepare.result == 'success')
     runs-on: ubuntu-24.04
@@ -325,10 +303,10 @@ jobs:
       artifact_id: ${{ steps.runtime.outputs.artifact-id }}
       manifest_sha256: ${{ steps.identity.outputs.manifest_sha256 }}
     steps:
-      - name: Checkout exact release executor
+      - name: Checkout exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.detect.outputs.executor_sha || needs.detect.outputs.candidate_sha }}
+          ref: ${{ needs.detect.outputs.candidate_sha }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -728,13 +706,11 @@ jobs:
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
-      ((github.ref == format('refs/tags/v{0}', inputs.version) &&
-        github.sha == needs.detect.outputs.candidate_sha &&
-        inputs.version == needs.detect.outputs.candidate_version &&
-        inputs.commitSha == needs.detect.outputs.candidate_sha &&
-        inputs.operation == 'reconcile') ||
-       (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&
-        needs.detect.outputs.executor_sha == github.sha)) &&
+      github.ref == format('refs/tags/v{0}', inputs.version) &&
+      github.sha == needs.detect.outputs.candidate_sha &&
+      inputs.version == needs.detect.outputs.candidate_version &&
+      inputs.commitSha == needs.detect.outputs.candidate_sha &&
+      inputs.operation == 'reconcile' &&
       contains(fromJSON('["prepare-artifacts","attest-artifacts","escrow-candidate","publish-npm-packages","resume-npm-publish","reconcile-npm-evidence","run-release-smokes","reconcile-smoke-evidence"]'), needs.detect.outputs.next_transition) &&
       (contains(fromJSON('["run-release-smokes","reconcile-smoke-evidence"]'), needs.detect.outputs.next_transition) || needs.reconcile-npm.result == 'success')
     runs-on: ubuntu-24.04
@@ -746,10 +722,10 @@ jobs:
     outputs:
       artifact_id: ${{ steps.result.outputs.artifact-id }}
     steps:
-      - name: Checkout exact release executor
+      - name: Checkout exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.detect.outputs.executor_sha || needs.detect.outputs.candidate_sha }}
+          ref: ${{ needs.detect.outputs.candidate_sha }}
           persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -795,13 +771,11 @@ jobs:
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
-      ((github.ref == format('refs/tags/v{0}', inputs.version) &&
-        github.sha == needs.detect.outputs.candidate_sha &&
-        inputs.version == needs.detect.outputs.candidate_version &&
-        inputs.commitSha == needs.detect.outputs.candidate_sha &&
-        inputs.operation == 'reconcile') ||
-       (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&
-        needs.detect.outputs.executor_sha == github.sha)) &&
+      github.ref == format('refs/tags/v{0}', inputs.version) &&
+      github.sha == needs.detect.outputs.candidate_sha &&
+      inputs.version == needs.detect.outputs.candidate_version &&
+      inputs.commitSha == needs.detect.outputs.candidate_sha &&
+      inputs.operation == 'reconcile' &&
       contains(fromJSON('["prepare-artifacts","attest-artifacts","escrow-candidate","publish-npm-packages","resume-npm-publish","reconcile-npm-evidence","run-release-smokes","reconcile-smoke-evidence"]'), needs.detect.outputs.next_transition) &&
       (contains(fromJSON('["run-release-smokes","reconcile-smoke-evidence"]'), needs.detect.outputs.next_transition) || needs.reconcile-npm.result == 'success')
     runs-on: ubuntu-24.04
@@ -813,10 +787,10 @@ jobs:
     outputs:
       artifact_id: ${{ steps.result.outputs.artifact-id }}
     steps:
-      - name: Checkout exact release executor
+      - name: Checkout exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.detect.outputs.executor_sha || needs.detect.outputs.candidate_sha }}
+          ref: ${{ needs.detect.outputs.candidate_sha }}
           persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -859,13 +833,11 @@ jobs:
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
-      ((github.ref == format('refs/tags/v{0}', inputs.version) &&
-        github.sha == needs.detect.outputs.candidate_sha &&
-        inputs.version == needs.detect.outputs.candidate_version &&
-        inputs.commitSha == needs.detect.outputs.candidate_sha &&
-        inputs.operation == 'reconcile') ||
-       (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&
-        needs.detect.outputs.executor_sha == github.sha)) &&
+      github.ref == format('refs/tags/v{0}', inputs.version) &&
+      github.sha == needs.detect.outputs.candidate_sha &&
+      inputs.version == needs.detect.outputs.candidate_version &&
+      inputs.commitSha == needs.detect.outputs.candidate_sha &&
+      inputs.operation == 'reconcile' &&
       contains(fromJSON('["prepare-artifacts","attest-artifacts","escrow-candidate","publish-npm-packages","resume-npm-publish","reconcile-npm-evidence","run-release-smokes","reconcile-smoke-evidence"]'), needs.detect.outputs.next_transition) &&
       (contains(fromJSON('["run-release-smokes","reconcile-smoke-evidence"]'), needs.detect.outputs.next_transition) || needs.reconcile-npm.result == 'success')
     runs-on: ubuntu-24.04
@@ -877,10 +849,10 @@ jobs:
     outputs:
       artifact_id: ${{ steps.result.outputs.artifact-id }}
     steps:
-      - name: Checkout exact release executor
+      - name: Checkout exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.detect.outputs.executor_sha || needs.detect.outputs.candidate_sha }}
+          ref: ${{ needs.detect.outputs.candidate_sha }}
           persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -923,13 +895,11 @@ jobs:
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
-      ((github.ref == format('refs/tags/v{0}', inputs.version) &&
-        github.sha == needs.detect.outputs.candidate_sha &&
-        inputs.version == needs.detect.outputs.candidate_version &&
-        inputs.commitSha == needs.detect.outputs.candidate_sha &&
-        inputs.operation == 'reconcile') ||
-       (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&
-        needs.detect.outputs.executor_sha == github.sha)) &&
+      github.ref == format('refs/tags/v{0}', inputs.version) &&
+      github.sha == needs.detect.outputs.candidate_sha &&
+      inputs.version == needs.detect.outputs.candidate_version &&
+      inputs.commitSha == needs.detect.outputs.candidate_sha &&
+      inputs.operation == 'reconcile' &&
       contains(fromJSON('["prepare-artifacts","attest-artifacts","escrow-candidate","publish-npm-packages","resume-npm-publish","reconcile-npm-evidence","run-release-smokes","reconcile-smoke-evidence"]'), needs.detect.outputs.next_transition) &&
       (contains(fromJSON('["run-release-smokes","reconcile-smoke-evidence"]'), needs.detect.outputs.next_transition) || needs.reconcile-npm.result == 'success')
     runs-on: ubuntu-24.04
@@ -941,10 +911,10 @@ jobs:
     outputs:
       artifact_id: ${{ steps.result.outputs.artifact-id }}
     steps:
-      - name: Checkout exact release executor
+      - name: Checkout exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.detect.outputs.executor_sha || needs.detect.outputs.candidate_sha }}
+          ref: ${{ needs.detect.outputs.candidate_sha }}
           persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -987,13 +957,11 @@ jobs:
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
-      ((github.ref == format('refs/tags/v{0}', inputs.version) &&
-        github.sha == needs.detect.outputs.candidate_sha &&
-        inputs.version == needs.detect.outputs.candidate_version &&
-        inputs.commitSha == needs.detect.outputs.candidate_sha &&
-        inputs.operation == 'reconcile') ||
-       (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&
-        needs.detect.outputs.executor_sha == github.sha)) &&
+      github.ref == format('refs/tags/v{0}', inputs.version) &&
+      github.sha == needs.detect.outputs.candidate_sha &&
+      inputs.version == needs.detect.outputs.candidate_version &&
+      inputs.commitSha == needs.detect.outputs.candidate_sha &&
+      inputs.operation == 'reconcile' &&
       contains(fromJSON('["prepare-artifacts","attest-artifacts","escrow-candidate","publish-npm-packages","resume-npm-publish","reconcile-npm-evidence","run-release-smokes","reconcile-smoke-evidence"]'), needs.detect.outputs.next_transition) &&
       (contains(fromJSON('["run-release-smokes","reconcile-smoke-evidence"]'), needs.detect.outputs.next_transition) || needs.reconcile-npm.result == 'success')
     runs-on: ubuntu-24.04
@@ -1005,10 +973,10 @@ jobs:
     outputs:
       artifact_id: ${{ steps.result.outputs.artifact-id }}
     steps:
-      - name: Checkout exact release executor
+      - name: Checkout exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.detect.outputs.executor_sha || needs.detect.outputs.candidate_sha }}
+          ref: ${{ needs.detect.outputs.candidate_sha }}
           persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -1057,13 +1025,11 @@ jobs:
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
-      ((github.ref == format('refs/tags/v{0}', inputs.version) &&
-        github.sha == needs.detect.outputs.candidate_sha &&
-        inputs.version == needs.detect.outputs.candidate_version &&
-        inputs.commitSha == needs.detect.outputs.candidate_sha &&
-        inputs.operation == 'reconcile') ||
-       (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&
-        needs.detect.outputs.executor_sha == github.sha)) &&
+      github.ref == format('refs/tags/v{0}', inputs.version) &&
+      github.sha == needs.detect.outputs.candidate_sha &&
+      inputs.version == needs.detect.outputs.candidate_version &&
+      inputs.commitSha == needs.detect.outputs.candidate_sha &&
+      inputs.operation == 'reconcile' &&
       contains(fromJSON('["prepare-artifacts","attest-artifacts","escrow-candidate","publish-npm-packages","resume-npm-publish","reconcile-npm-evidence","run-release-smokes","reconcile-smoke-evidence"]'), needs.detect.outputs.next_transition) &&
       needs.smoke-metadata.result == 'success' &&
       needs.smoke-published-harness.result == 'success' &&
@@ -1074,14 +1040,12 @@ jobs:
     timeout-minutes: 15
     permissions:
       actions: read
-      checks: read
       contents: write
     steps:
-      - name: Checkout exact release executor
+      - name: Checkout exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.detect.outputs.executor_sha || needs.detect.outputs.candidate_sha }}
-          fetch-depth: 0
+          ref: ${{ needs.detect.outputs.candidate_sha }}
           persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -1142,13 +1106,11 @@ jobs:
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
-      ((github.ref == format('refs/tags/v{0}', inputs.version) &&
-        github.sha == needs.detect.outputs.candidate_sha &&
-        inputs.version == needs.detect.outputs.candidate_version &&
-        inputs.commitSha == needs.detect.outputs.candidate_sha &&
-        inputs.operation == 'reconcile') ||
-       (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&
-        needs.detect.outputs.executor_sha == github.sha)) &&
+      github.ref == format('refs/tags/v{0}', inputs.version) &&
+      github.sha == needs.detect.outputs.candidate_sha &&
+      inputs.version == needs.detect.outputs.candidate_version &&
+      inputs.commitSha == needs.detect.outputs.candidate_sha &&
+      inputs.operation == 'reconcile' &&
       contains(fromJSON('["prepare-artifacts","attest-artifacts","escrow-candidate","publish-npm-packages","resume-npm-publish","reconcile-npm-evidence","run-release-smokes","reconcile-smoke-evidence","dispatch-release-audit"]'), needs.detect.outputs.next_transition) &&
       (needs.detect.outputs.next_transition == 'dispatch-release-audit' || needs.reconcile-smokes.result == 'success')
     runs-on: ubuntu-24.04
@@ -1160,10 +1122,10 @@ jobs:
     outputs:
       dispatch_artifact_id: ${{ steps.receipt.outputs.artifact-id }}
     steps:
-      - name: Checkout exact release executor
+      - name: Checkout exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.detect.outputs.executor_sha || needs.detect.outputs.candidate_sha }}
+          ref: ${{ needs.detect.outputs.candidate_sha }}
           persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -1200,13 +1162,11 @@ jobs:
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
-      ((github.ref == format('refs/tags/v{0}', inputs.version) &&
-        github.sha == needs.detect.outputs.candidate_sha &&
-        inputs.version == needs.detect.outputs.candidate_version &&
-        inputs.commitSha == needs.detect.outputs.candidate_sha &&
-        inputs.operation == 'reconcile') ||
-       (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&
-        needs.detect.outputs.executor_sha == github.sha)) &&
+      github.ref == format('refs/tags/v{0}', inputs.version) &&
+      github.sha == needs.detect.outputs.candidate_sha &&
+      inputs.version == needs.detect.outputs.candidate_version &&
+      inputs.commitSha == needs.detect.outputs.candidate_sha &&
+      inputs.operation == 'reconcile' &&
       contains(fromJSON('["prepare-artifacts","attest-artifacts","escrow-candidate","publish-npm-packages","resume-npm-publish","reconcile-npm-evidence","run-release-smokes","reconcile-smoke-evidence","dispatch-release-audit"]'), needs.detect.outputs.next_transition)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -1216,10 +1176,10 @@ jobs:
     outputs:
       dispatch_artifact_id: ${{ needs.dispatch-audit.outputs.dispatch_artifact_id }}
     steps:
-      - name: Checkout exact release executor
+      - name: Checkout exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.detect.outputs.executor_sha || needs.detect.outputs.candidate_sha }}
+          ref: ${{ needs.detect.outputs.candidate_sha }}
           persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -1255,29 +1215,25 @@ jobs:
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
-      ((github.ref == format('refs/tags/v{0}', inputs.version) &&
-        github.sha == needs.detect.outputs.candidate_sha &&
-        inputs.version == needs.detect.outputs.candidate_version &&
-        inputs.commitSha == needs.detect.outputs.candidate_sha &&
-        inputs.operation == 'reconcile') ||
-       (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&
-        needs.detect.outputs.executor_sha == github.sha)) &&
+      github.ref == format('refs/tags/v{0}', inputs.version) &&
+      github.sha == needs.detect.outputs.candidate_sha &&
+      inputs.version == needs.detect.outputs.candidate_version &&
+      inputs.commitSha == needs.detect.outputs.candidate_sha &&
+      inputs.operation == 'reconcile' &&
       contains(fromJSON('["prepare-artifacts","attest-artifacts","escrow-candidate","publish-npm-packages","resume-npm-publish","reconcile-npm-evidence","run-release-smokes","reconcile-smoke-evidence","dispatch-release-audit","complete-release-audit"]'), needs.detect.outputs.next_transition) &&
       (needs.detect.outputs.next_transition == 'complete-release-audit' || needs.record-audit-dispatch.result == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
       actions: read
-      checks: read
       contents: write
     outputs:
       audit_artifact_id: ${{ steps.audit-result.outputs.artifact-id }}
     steps:
-      - name: Checkout exact release executor
+      - name: Checkout exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.detect.outputs.executor_sha || needs.detect.outputs.candidate_sha }}
-          fetch-depth: 0
+          ref: ${{ needs.detect.outputs.candidate_sha }}
           persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -1336,13 +1292,11 @@ jobs:
       needs.hydrate.result == 'success' &&
       needs.tag.result == 'success' &&
       needs.tag.outputs.continue == 'true' &&
-      ((github.ref == format('refs/tags/v{0}', inputs.version) &&
-        github.sha == needs.detect.outputs.candidate_sha &&
-        inputs.version == needs.detect.outputs.candidate_version &&
-        inputs.commitSha == needs.detect.outputs.candidate_sha &&
-        inputs.operation == 'reconcile') ||
-       (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&
-        needs.detect.outputs.executor_sha == github.sha)) &&
+      github.ref == format('refs/tags/v{0}', inputs.version) &&
+      github.sha == needs.detect.outputs.candidate_sha &&
+      inputs.version == needs.detect.outputs.candidate_version &&
+      inputs.commitSha == needs.detect.outputs.candidate_sha &&
+      inputs.operation == 'reconcile' &&
       contains(fromJSON('["prepare-artifacts","attest-artifacts","escrow-candidate","publish-npm-packages","resume-npm-publish","reconcile-npm-evidence","run-release-smokes","reconcile-smoke-evidence","dispatch-release-audit","complete-release-audit","publish-github-release"]'), needs.detect.outputs.next_transition) &&
       (needs.detect.outputs.next_transition == 'publish-github-release' || needs.correlate-audit.result == 'success')
     runs-on: ubuntu-24.04
@@ -1351,10 +1305,10 @@ jobs:
       actions: read
       contents: write
     steps:
-      - name: Checkout exact release executor
+      - name: Checkout exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.detect.outputs.executor_sha || needs.detect.outputs.candidate_sha }}
+          ref: ${{ needs.detect.outputs.candidate_sha }}
           persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020

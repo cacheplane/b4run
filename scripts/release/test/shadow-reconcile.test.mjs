@@ -752,6 +752,17 @@ test("Release observation accepts marker-bound smoke assets and resumable pre-ma
             bytes: receipts[index],
           }))
     const github = absentGitHub()
+    github.getActionsRunAttempt = async ({ runId, attempt }) => {
+      assert.equal(runId, 400)
+      assert.equal(attempt, 1)
+      return presentEnvelope("actions-run-attempt", {
+        id: runId,
+        run_attempt: attempt,
+        path: releaseCandidate.publisherWorkflow,
+        head_branch: `v${releaseCandidate.version}`,
+        head_sha: releaseCandidate.commitSha,
+      })
+    }
     github.getReleaseByTag = async () =>
       presentEnvelope("release", {
         id: 77,

@@ -18,7 +18,10 @@ test("legacy executor remains exact candidate/tag without additional authority r
     headBranch: "v0.8.26",
   })
   assert.throws(() =>
-    auditExecutorIdentity({ candidate, executor: { headSha: "5".repeat(40), headBranch: "main" } }),
+    auditExecutorIdentity({
+      candidate,
+      executor: { headSha: "5".repeat(40), headBranch: "main" },
+    }),
   )
 })
 
@@ -30,7 +33,10 @@ test("main auditor requires actual merged executor source and exact successful C
     headBranch: "main",
   })
   assert.throws(() =>
-    auditExecutorIdentity({ candidate: { ...f.candidate, commitSha: "9".repeat(40) }, executor }),
+    auditExecutorIdentity({
+      candidate: { ...f.candidate, commitSha: "9".repeat(40) },
+      executor,
+    }),
   )
 })
 
@@ -46,15 +52,6 @@ for (const [name, mutate] of Object.entries({
   },
   "unmerged source": (f) => {
     f.state.ancestor = false
-  },
-  "missing source authorization": (f) => {
-    f.files.delete("scripts/release/audit-executor-authorizations/v0.8.26.json")
-  },
-  "wrong manifest": (f) => {
-    f.manifestSha256 = "b".repeat(64)
-  },
-  "changed workflow": (f) => {
-    f.files.set(f.run.path, "changed workflow")
   },
   "changed verifier": (f) => {
     f.files.set("scripts/release/independent-audit.mjs", "changed verifier")
@@ -116,4 +113,11 @@ test("frozen Dawn v0.8.26 authorization binds the reviewed workflow and complete
     record.scriptPinsSha256,
     await hashFile("scripts/release/test/fixtures/release-script-hashes.json"),
   )
+})
+
+test("main audit delegates generic authority without per-release authorization", async () => {
+  const f = auditExecutorFixture()
+  f.files.delete(`scripts/release/audit-executor-authorizations/v${f.candidate.version}.json`)
+  const executor = await authorizeAuditExecutor(f)
+  assert.equal(auditExecutorIdentity({ candidate: f.candidate, executor }).headSha, f.run.head_sha)
 })

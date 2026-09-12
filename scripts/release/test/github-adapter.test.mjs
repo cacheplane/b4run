@@ -11,6 +11,7 @@ const SHA = "0123456789abcdef0123456789abcdef01234567"
 const BASE = "https://api.github.com/repos/b4run/b4"
 const REPOSITORY_ID = "1210070282"
 const ALLOWED_METHODS = [
+  "compareCommits",
   "downloadActionsArtifact",
   "downloadReleaseAsset",
   "getActionsArtifact",
@@ -1767,4 +1768,35 @@ test("all-SHA invalid first-page records prevent any speculative page read", asy
     "DUPLICATE_ID",
   )
   assert.equal(calls, 1)
+})
+
+test("GitHub compares only exact commit SHAs with a bounded single page", async () => {
+  const headSha = "a".repeat(40)
+  const comparison = {
+    status: "ahead",
+    base_commit: { sha: SHA },
+    merge_base_commit: { sha: SHA },
+    ahead_by: 1,
+    behind_by: 0,
+    total_commits: 1,
+  }
+  const { fetchImpl, calls } = recordingFetch([jsonResponse(comparison)])
+  const github = createGitHubReader({ owner: OWNER, repo: REPO, token: TOKEN, fetchImpl })
+  assert.equal(typeof github.compareCommits, "function")
+  assert.deepEqual(await github.compareCommits({ baseSha: SHA, headSha }), {
+    status: "PRESENT",
+    operation: "compare-commits",
+    httpStatus: 200,
+    code: null,
+    value: comparison,
+  })
+  assert.deepEqual(
+    calls.map(({ url, init }) => [url, init.method]),
+    [[`${BASE}/compare/${SHA}...${headSha}?per_page=1`, "GET"]],
+  )
+  for (const args of [
+    { baseSha: "main", headSha },
+    { baseSha: SHA, headSha: "refs/heads/main" },
+  ])
+    assert.throws(() => github.compareCommits(args))
 })

@@ -447,7 +447,11 @@ for (const wrongDispatch of [false, true]) {
         const response = await remote.github.getActionsRun(request)
         return {
           ...response,
-          value: { ...response.value, repository: fixture.run.repository },
+          value: {
+            ...response.value,
+            workflow_id: fixture.run.workflow_id,
+            repository: fixture.run.repository,
+          },
         }
       },
     }
@@ -486,7 +490,11 @@ for (const damagedArtifact of [false, true]) {
         const response = await remote.github.getActionsRun(request)
         return {
           ...response,
-          value: { ...response.value, repository: fixture.run.repository },
+          value: {
+            ...response.value,
+            workflow_id: fixture.run.workflow_id,
+            repository: fixture.run.repository,
+          },
         }
       },
       async getActionsArtifact(request) {
@@ -1130,3 +1138,44 @@ function zip(files) {
   end.writeUInt32LE(centralOffset, 16)
   return Buffer.concat([...locals, ...centrals, end])
 }
+
+test("main verification dispatch keeps the candidate immutable and uses the direct audit receipt", async () => {
+  const calls = []
+  const github = {
+    async dispatchWorkflowAtRef(input) {
+      calls.push(input)
+      return directReceipt(501)
+    },
+  }
+  assert.deepEqual(
+    await dispatchIndependentAudit({
+      candidate: CANDIDATE,
+      manifestSha256: MANIFEST_SHA256,
+      ref: "main",
+      github,
+    }),
+    dispatch(501),
+  )
+  assert.deepEqual(calls, [
+    {
+      workflow: WORKFLOW,
+      ref: "main",
+      inputs: {
+        version: VERSION,
+        commitSha: COMMIT_SHA,
+        manifestSha256: MANIFEST_SHA256,
+      },
+    },
+  ])
+  for (const ref of ["feature", "v0.8.99", COMMIT_SHA]) {
+    await assert.rejects(
+      dispatchIndependentAudit({
+        candidate: CANDIDATE,
+        manifestSha256: MANIFEST_SHA256,
+        ref,
+        github,
+      }),
+    )
+  }
+  assert.equal(calls.length, 1)
+})

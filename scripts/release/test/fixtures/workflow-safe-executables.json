@@ -2850,6 +2850,14 @@
         "classification": "safe",
         "job": "detect",
         "stepIndex": 6,
+        "step": "Authorize reviewed post-publication executor",
+        "kind": "run",
+        "value": "node scripts/release/postpublication-executor.mjs \\\n  --report \"$RUNNER_TEMP/production-observation.json\" \\\n  --github-output \"$GITHUB_OUTPUT\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "detect",
+        "stepIndex": 7,
         "step": "Preserve production observation",
         "kind": "step-uses",
         "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
@@ -2857,7 +2865,7 @@
       {
         "classification": "safe",
         "job": "detect",
-        "stepIndex": 7,
+        "stepIndex": 8,
         "step": "Require a non-ambiguous route",
         "kind": "run",
         "value": "test \"$DISPOSITION\" != \"blocked\""
@@ -2866,7 +2874,7 @@
         "classification": "safe",
         "job": "tag",
         "stepIndex": 0,
-        "step": "Checkout exact candidate",
+        "step": "Checkout exact release executor",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },
@@ -2900,7 +2908,7 @@
         "stepIndex": 4,
         "step": "Continue at the exact tag or relay once",
         "kind": "run",
-        "value": "if [[ \"$GITHUB_EVENT_NAME\" == \"workflow_dispatch\" &&\n      \"$GITHUB_REF\" == \"refs/tags/v${VERSION}\" &&\n      \"$GITHUB_SHA\" == \"$COMMIT_SHA\" ]]; then\n  printf 'continue=true\\n' >> \"$GITHUB_OUTPUT\"\n  exit 0\nfi\n\nWORKFLOW_PATH=\".github/workflows/release.yml\"\nWORKFLOW_ID=\"$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' \"$WORKFLOW_PATH\")\"\nBODY=\"$(node -e 'process.stdout.write(JSON.stringify({ref:\"v\"+process.env.VERSION,inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,operation:\"reconcile\",npmBootstrap:process.env.NPM_BOOTSTRAP===\"true\"}}))')\"\nSTATUS=\"$(curl --silent --show-error --output \"$RUNNER_TEMP/dispatch.json\" --write-out '%{http_code}' \\\n  --request POST \\\n  --header 'Accept: application/vnd.github+json' \\\n  --header \"Authorization: Bearer $GITHUB_TOKEN\" \\\n  --header 'X-GitHub-Api-Version: 2026-03-10' \\\n  \"https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_ID/dispatches\" \\\n  --data \"$BODY\")\"\ntest \"$STATUS\" = \"200\"\nprintf 'continue=false\\n' >> \"$GITHUB_OUTPUT\"\n"
+        "value": "if [[ \"$GITHUB_REF\" == \"refs/heads/main\" && -n \"$EXECUTOR_SHA\" &&\n      \"$GITHUB_SHA\" == \"$EXECUTOR_SHA\" ]]; then\n  printf 'continue=true\\n' >> \"$GITHUB_OUTPUT\"\n  exit 0\nfi\n\nif [[ \"$GITHUB_EVENT_NAME\" == \"workflow_dispatch\" &&\n      \"$GITHUB_REF\" == \"refs/tags/v${VERSION}\" &&\n      \"$GITHUB_SHA\" == \"$COMMIT_SHA\" ]]; then\n  printf 'continue=true\\n' >> \"$GITHUB_OUTPUT\"\n  exit 0\nfi\n\nWORKFLOW_PATH=\".github/workflows/release.yml\"\nWORKFLOW_ID=\"$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' \"$WORKFLOW_PATH\")\"\nBODY=\"$(node -e 'process.stdout.write(JSON.stringify({ref:\"v\"+process.env.VERSION,inputs:{version:process.env.VERSION,commitSha:process.env.COMMIT_SHA,operation:\"reconcile\",npmBootstrap:process.env.NPM_BOOTSTRAP===\"true\"}}))')\"\nSTATUS=\"$(curl --silent --show-error --output \"$RUNNER_TEMP/dispatch.json\" --write-out '%{http_code}' \\\n  --request POST \\\n  --header 'Accept: application/vnd.github+json' \\\n  --header \"Authorization: Bearer $GITHUB_TOKEN\" \\\n  --header 'X-GitHub-Api-Version: 2026-03-10' \\\n  \"https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_ID/dispatches\" \\\n  --data \"$BODY\")\"\ntest \"$STATUS\" = \"200\"\nprintf 'continue=false\\n' >> \"$GITHUB_OUTPUT\"\n"
       },
       {
         "classification": "safe",
@@ -2994,7 +3002,7 @@
         "classification": "safe",
         "job": "hydrate",
         "stepIndex": 0,
-        "step": "Checkout exact candidate",
+        "step": "Checkout exact release executor",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },
@@ -3282,7 +3290,7 @@
         "classification": "safe",
         "job": "smoke-metadata",
         "stepIndex": 0,
-        "step": "Checkout exact candidate",
+        "step": "Checkout exact release executor",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },
@@ -3330,7 +3338,7 @@
         "classification": "safe",
         "job": "smoke-published-harness",
         "stepIndex": 0,
-        "step": "Checkout exact candidate",
+        "step": "Checkout exact release executor",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },
@@ -3378,7 +3386,7 @@
         "classification": "safe",
         "job": "smoke-runtime-targets",
         "stepIndex": 0,
-        "step": "Checkout exact candidate",
+        "step": "Checkout exact release executor",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },
@@ -3426,7 +3434,7 @@
         "classification": "safe",
         "job": "smoke-scaffold",
         "stepIndex": 0,
-        "step": "Checkout exact candidate",
+        "step": "Checkout exact release executor",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },
@@ -3474,7 +3482,7 @@
         "classification": "safe",
         "job": "smoke-storage",
         "stepIndex": 0,
-        "step": "Checkout exact candidate",
+        "step": "Checkout exact release executor",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },
@@ -3522,7 +3530,7 @@
         "classification": "safe",
         "job": "reconcile-smokes",
         "stepIndex": 0,
-        "step": "Checkout exact candidate",
+        "step": "Checkout exact release executor",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },
@@ -3586,7 +3594,7 @@
         "classification": "safe",
         "job": "dispatch-audit",
         "stepIndex": 0,
-        "step": "Checkout exact candidate",
+        "step": "Checkout exact release executor",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },
@@ -3618,7 +3626,7 @@
         "classification": "safe",
         "job": "record-audit-dispatch",
         "stepIndex": 0,
-        "step": "Checkout exact candidate",
+        "step": "Checkout exact release executor",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },
@@ -3658,7 +3666,7 @@
         "classification": "safe",
         "job": "correlate-audit",
         "stepIndex": 0,
-        "step": "Checkout exact candidate",
+        "step": "Checkout exact release executor",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },
@@ -3730,7 +3738,7 @@
         "classification": "safe",
         "job": "publish-release",
         "stepIndex": 0,
-        "step": "Checkout exact candidate",
+        "step": "Checkout exact release executor",
         "kind": "step-uses",
         "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
       },

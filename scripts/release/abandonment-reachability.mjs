@@ -145,6 +145,25 @@ const B4_DISABLED_ROUTE_STEP = Object.freeze({
   ].join("\n"),
 })
 
+// This exact main continuation only skips the tag relay; it adds no abandonment
+// input or job. Preserve the historical tag-only shape for existing receipts.
+const B4_POSTPUBLICATION_ROUTE_STEP = Object.freeze({
+  ...B4_DISABLED_ROUTE_STEP,
+  env: Object.freeze({
+    ...B4_DISABLED_ROUTE_STEP.env,
+    EXECUTOR_SHA: workflowExpression("needs.detect.outputs.executor_sha"),
+  }),
+  run: [
+    'if [[ "$GITHUB_REF" == "refs/heads/main" && -n "$EXECUTOR_SHA" &&',
+    '      "$GITHUB_SHA" == "$EXECUTOR_SHA" ]]; then',
+    "  printf 'continue=true\\n' >> \"$GITHUB_OUTPUT\"",
+    "  exit 0",
+    "fi",
+    "",
+    B4_DISABLED_ROUTE_STEP.run,
+  ].join("\n"),
+})
+
 const PROTECTED_ABANDON_IF = [
   "github.event_name == 'workflow_dispatch'",
   "needs.tag.outputs.continue == 'true'",
@@ -323,7 +342,11 @@ function assertDisabledTopology(jobs, tag, routeStep) {
   if (
     Object.hasOwn(jobs, "abandon") ||
     tag.steps.length !== 5 ||
-    !sameValue(tag.steps[4], routeStep)
+    !(
+      sameValue(tag.steps[4], routeStep) ||
+      (routeStep === B4_DISABLED_ROUTE_STEP &&
+        sameValue(tag.steps[4], B4_POSTPUBLICATION_ROUTE_STEP))
+    )
   ) {
     throw invalidTopology()
   }

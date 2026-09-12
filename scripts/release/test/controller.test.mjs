@@ -1147,181 +1147,194 @@ test("abandon CLI derives fresh protected evidence inside each requested mutatio
   }
 })
 
-test("audit CLI routes keep dispatch, marker recording, correlation, and publication distinct", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "b4-release-audit-cli-"))
-  t.after(() => rm(directory, { recursive: true, force: true }))
-  const paths = {
-    candidate: join(directory, "candidate.json"),
-    dispatch: join(directory, "dispatch.json"),
-    audit: join(directory, "audit.json"),
-    record: join(directory, "record.json"),
-    output: join(directory, "dispatch-output.json"),
-    waitOutput: join(directory, "wait-output.json"),
-  }
-  const dispatchReceipt = {
-    workflow: ".github/workflows/published-artifact-verify.yml",
-    workflowRunId: 501,
-    runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/501",
-    htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/501",
-  }
-  const audit = {
-    schemaVersion: 1,
-    version: CANDIDATE.version,
-    commitSha: CANDIDATE.commitSha,
-    manifestSha256: "a".repeat(64),
-    workflowRunId: 501,
-    runAttempt: 1,
-    startedAt: "2026-08-24T01:00:00Z",
-    finishedAt: "2026-08-24T01:01:00Z",
-    checks: [{ name: "published-artifacts", conclusion: "success", detail: "verified" }],
-    conclusion: "success",
-  }
-  await Promise.all([
-    writeFile(paths.candidate, JSON.stringify(CANDIDATE)),
-    writeFile(paths.dispatch, JSON.stringify(dispatchReceipt)),
-    writeFile(paths.audit, JSON.stringify(audit)),
-    writeFile(paths.record, JSON.stringify({ release: "record" })),
-  ])
-  const calls = []
-  const github = { reader: { capability: "contents-read" }, writer: { capability: "scoped" } }
-  const importModule = async (specifier) => {
-    const name = new URL(specifier).pathname.split("/").at(-1)
-    if (name === "terminal-records.mjs") {
-      return {
-        parseAuditResult: (value) => value,
-        canonicalAuditResultBytes: (value) => Buffer.from(`${JSON.stringify(value)}\n`),
-      }
+for (const mainExecutor of [false, true])
+  test(`audit CLI routes keep dispatch, marker recording, correlation, and publication distinct (main=${mainExecutor})`, async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "b4-release-audit-cli-"))
+    t.after(() => rm(directory, { recursive: true, force: true }))
+    const paths = {
+      candidate: join(directory, "candidate.json"),
+      dispatch: join(directory, "dispatch.json"),
+      audit: join(directory, "audit.json"),
+      record: join(directory, "record.json"),
+      output: join(directory, "dispatch-output.json"),
+      waitOutput: join(directory, "wait-output.json"),
     }
-    if (name === "metadata.mjs") {
+    const dispatchReceipt = {
+      workflow: ".github/workflows/published-artifact-verify.yml",
+      workflowRunId: 501,
+      runUrl: "https://api.github.com/repos/cacheplane/b4run/actions/runs/501",
+      htmlUrl: "https://github.com/cacheplane/b4run/actions/runs/501",
+    }
+    const audit = {
+      schemaVersion: 1,
+      version: CANDIDATE.version,
+      commitSha: CANDIDATE.commitSha,
+      manifestSha256: "a".repeat(64),
+      workflowRunId: 501,
+      runAttempt: 1,
+      startedAt: "2026-08-24T01:00:00Z",
+      finishedAt: "2026-08-24T01:01:00Z",
+      checks: [{ name: "published-artifacts", conclusion: "success", detail: "verified" }],
+      conclusion: "success",
+    }
+    await Promise.all([
+      writeFile(paths.candidate, JSON.stringify(CANDIDATE)),
+      writeFile(paths.dispatch, JSON.stringify(dispatchReceipt)),
+      writeFile(paths.audit, JSON.stringify(audit)),
+      writeFile(paths.record, JSON.stringify({ release: "record" })),
+    ])
+    const calls = []
+    const github = { reader: { capability: "contents-read" }, writer: { capability: "scoped" } }
+    const importModule = async (specifier) => {
+      const name = new URL(specifier).pathname.split("/").at(-1)
+      if (name === "terminal-records.mjs") {
+        return {
+          parseAuditResult: (value) => value,
+          canonicalAuditResultBytes: (value) => Buffer.from(`${JSON.stringify(value)}\n`),
+        }
+      }
+      if (name === "metadata.mjs") {
+        return {
+          async publishConsolidatedRelease(input) {
+            calls.push(["publish", input])
+            return { phase: "AUDIT_COMPLETE" }
+          },
+        }
+      }
+      assert.equal(name, "audit.mjs")
       return {
-        async publishConsolidatedRelease(input) {
-          calls.push(["publish", input])
-          return { phase: "AUDIT_COMPLETE" }
+        async dispatchIndependentAudit(input) {
+          calls.push(["dispatch", input])
+          return dispatchReceipt
+        },
+        async recordAuditDispatch(input) {
+          calls.push(["record-dispatch", input])
+          return { phase: "AUDIT_DISPATCHED" }
+        },
+        async waitForAudit(input) {
+          calls.push(["wait", input])
+          return {
+            status: "terminal",
+            workflowRunId: 501,
+            runAttempt: 1,
+            conclusion: "success",
+            result: audit,
+          }
+        },
+        async recordAuditAttempt(input) {
+          calls.push(["record-attempt", input])
+          return { phase: "AUDIT_DISPATCHED" }
+        },
+        async verifyAuditSuccess(input) {
+          calls.push(["verify-success", input])
+          return { phase: "AUDIT_VERIFIED" }
         },
       }
     }
-    assert.equal(name, "audit.mjs")
-    return {
-      async dispatchIndependentAudit(input) {
-        calls.push(["dispatch", input])
-        return dispatchReceipt
-      },
-      async recordAuditDispatch(input) {
-        calls.push(["record-dispatch", input])
-        return { phase: "AUDIT_DISPATCHED" }
-      },
-      async waitForAudit(input) {
-        calls.push(["wait", input])
-        return {
-          status: "terminal",
-          workflowRunId: 501,
-          runAttempt: 1,
-          conclusion: "success",
-          result: audit,
-        }
-      },
-      async recordAuditAttempt(input) {
-        calls.push(["record-attempt", input])
-        return { phase: "AUDIT_DISPATCHED" }
-      },
-      async verifyAuditSuccess(input) {
-        calls.push(["verify-success", input])
-        return { phase: "AUDIT_VERIFIED" }
-      },
-    }
-  }
 
-  await runReleaseCli(
-    [
-      "dispatch-audit",
-      "--version",
-      CANDIDATE.version,
-      "--commit-sha",
-      CANDIDATE.commitSha,
-      "--manifest-sha256",
-      "a".repeat(64),
-      "--output",
-      paths.output,
-    ],
-    {
-      cwd: directory,
-      github,
-      importModule,
-      environment: { GITHUB_RUN_ID: "701", GITHUB_RUN_ATTEMPT: "2" },
-    },
-  )
-  assert.deepEqual(JSON.parse(await readFile(paths.output, "utf8")), dispatchReceipt)
-  await runReleaseCli(
-    ["record-audit-dispatch", "--candidate", paths.candidate, "--dispatch-result", paths.dispatch],
-    { cwd: directory, github, importModule },
-  )
-  const wait = async () => {}
-  await runReleaseCli(
-    [
-      "wait-audit",
-      "--candidate",
-      paths.candidate,
-      "--dispatch-result",
-      paths.dispatch,
-      "--output",
-      paths.waitOutput,
-    ],
-    {
-      cwd: directory,
-      github,
-      importModule,
-      wait,
-      git: { capability: "immutable-git" },
-    },
-  )
-  assert.deepEqual(JSON.parse(await readFile(paths.waitOutput, "utf8")), audit)
-  await runReleaseCli(
-    [
-      "correlate-audit",
-      "--candidate",
-      paths.candidate,
-      "--dispatch-result",
-      paths.dispatch,
-      "--audit-result",
-      paths.audit,
-    ],
-    { cwd: directory, github, importModule },
-  )
-  await runReleaseCli(
-    [
-      "publish-release",
-      "--candidate",
-      paths.candidate,
-      "--record",
-      paths.record,
-      "--audit-result",
-      paths.audit,
-    ],
-    { cwd: directory, github, importModule },
-  )
+    await runReleaseCli(
+      [
+        "dispatch-audit",
+        "--version",
+        CANDIDATE.version,
+        "--commit-sha",
+        CANDIDATE.commitSha,
+        "--manifest-sha256",
+        "a".repeat(64),
+        "--output",
+        paths.output,
+      ],
+      {
+        cwd: directory,
+        github,
+        importModule,
+        environment: {
+          GITHUB_RUN_ID: "701",
+          GITHUB_RUN_ATTEMPT: "2",
+          ...(mainExecutor ? { GITHUB_REF: "refs/heads/main" } : {}),
+        },
+        ...(mainExecutor ? { git: { source: "exact-checkout" } } : {}),
+      },
+    )
+    assert.deepEqual(JSON.parse(await readFile(paths.output, "utf8")), dispatchReceipt)
+    await runReleaseCli(
+      [
+        "record-audit-dispatch",
+        "--candidate",
+        paths.candidate,
+        "--dispatch-result",
+        paths.dispatch,
+      ],
+      { cwd: directory, github, importModule },
+    )
+    const wait = async () => {}
+    await runReleaseCli(
+      [
+        "wait-audit",
+        "--candidate",
+        paths.candidate,
+        "--dispatch-result",
+        paths.dispatch,
+        "--output",
+        paths.waitOutput,
+      ],
+      {
+        cwd: directory,
+        github,
+        importModule,
+        wait,
+        git: { capability: "immutable-git" },
+      },
+    )
+    assert.deepEqual(JSON.parse(await readFile(paths.waitOutput, "utf8")), audit)
+    await runReleaseCli(
+      [
+        "correlate-audit",
+        "--candidate",
+        paths.candidate,
+        "--dispatch-result",
+        paths.dispatch,
+        "--audit-result",
+        paths.audit,
+      ],
+      { cwd: directory, github, importModule },
+    )
+    await runReleaseCli(
+      [
+        "publish-release",
+        "--candidate",
+        paths.candidate,
+        "--record",
+        paths.record,
+        "--audit-result",
+        paths.audit,
+      ],
+      { cwd: directory, github, importModule },
+    )
 
-  assert.deepEqual(
-    calls.map(([name]) => name),
-    ["dispatch", "record-dispatch", "wait", "record-attempt", "verify-success", "publish"],
-  )
-  assert.equal(calls[0][1].github, github.writer)
-  assert.equal(calls[1][1].github, github)
-  assert.equal(calls[2][1].github, github.reader)
-  assert.deepEqual(calls[2][1].git, { capability: "immutable-git" })
-  assert.equal(calls[2][1].runId, dispatchReceipt.workflowRunId)
-  assert.deepEqual(calls[2][1].candidate, CANDIDATE)
-  assert.equal(calls[2][1].attempts, 181)
-  assert.equal(calls[2][1].delayMs, 10_000)
-  assert.equal(calls[2][1].delay, wait)
-  assert.equal(typeof calls[2][1].now, "function")
-  assert.equal(calls[3][1].github, github)
-  assert.equal(calls[4][1].github, github)
-  assert.equal(calls[5][1].github, github)
-  assert.equal(
-    calls.some(([name], index) => name === "publish" && index < calls.length - 1),
-    false,
-  )
-})
+    assert.deepEqual(
+      calls.map(([name]) => name),
+      ["dispatch", "record-dispatch", "wait", "record-attempt", "verify-success", "publish"],
+    )
+    assert.equal(calls[0][1].ref, mainExecutor ? "main" : undefined)
+    assert.equal(calls[0][1].github, github.writer)
+    assert.equal(calls[1][1].github, github)
+    assert.equal(calls[2][1].github, github.reader)
+    assert.deepEqual(calls[2][1].git, { capability: "immutable-git" })
+    assert.equal(calls[2][1].runId, dispatchReceipt.workflowRunId)
+    assert.deepEqual(calls[2][1].candidate, CANDIDATE)
+    assert.equal(calls[2][1].attempts, 181)
+    assert.equal(calls[2][1].delayMs, 10_000)
+    assert.equal(calls[2][1].delay, wait)
+    assert.equal(typeof calls[2][1].now, "function")
+    assert.equal(calls[3][1].github, github)
+    assert.equal(calls[4][1].github, github)
+    assert.equal(calls[5][1].github, github)
+    assert.equal(
+      calls.some(([name], index) => name === "publish" && index < calls.length - 1),
+      false,
+    )
+  })
 
 test("wait-audit fails closed without writing a result when the exact run stays pending", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "b4-release-audit-wait-cli-"))
@@ -1382,131 +1395,145 @@ test("wait-audit fails closed without writing a result when the exact run stays 
   await assert.rejects(readFile(outputPath), (error) => error?.code === "ENOENT")
 })
 
-test("npm and smoke reconciliation CLI routes remain separate manifest-bound transitions", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "b4-release-reconcile-cli-"))
-  t.after(() => rm(directory, { recursive: true, force: true }))
-  const smokeDirectory = join(directory, "smokes")
-  await mkdir(smokeDirectory)
-  const files = {
-    candidate: CANDIDATE,
-    record: { version: CANDIDATE.version, commitSha: CANDIDATE.commitSha },
-    manifest: sealedManifest(),
-    npm: { status: "NPM_COMPLETE", complete: true },
-  }
-  const paths = Object.fromEntries(
-    await Promise.all(
-      Object.entries(files).map(async ([name, value]) => {
-        const target = join(directory, `${name}.json`)
-        await writeFile(
-          target,
-          name === "manifest" ? canonicalManifestBytes(value) : JSON.stringify(value),
-        )
-        return [name, target]
+for (const mainExecutor of [false, true])
+  test(`npm and smoke reconciliation CLI routes remain separate manifest-bound transitions (main=${mainExecutor})`, async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "b4-release-reconcile-cli-"))
+    t.after(() => rm(directory, { recursive: true, force: true }))
+    const smokeDirectory = join(directory, "smokes")
+    await mkdir(smokeDirectory)
+    const files = {
+      candidate: CANDIDATE,
+      record: { version: CANDIDATE.version, commitSha: CANDIDATE.commitSha },
+      manifest: sealedManifest(),
+      npm: { status: "NPM_COMPLETE", complete: true },
+    }
+    const paths = Object.fromEntries(
+      await Promise.all(
+        Object.entries(files).map(async ([name, value]) => {
+          const target = join(directory, `${name}.json`)
+          await writeFile(
+            target,
+            name === "manifest" ? canonicalManifestBytes(value) : JSON.stringify(value),
+          )
+          return [name, target]
+        }),
+      ),
+    )
+    const smokeBytes = new Map(
+      REQUIRED_RELEASE_SMOKE_LANES.map((lane) => {
+        const bytes = canonicalSmokeResultBytes(smokeResult(lane, 701, 2))
+        return [lane, bytes]
       }),
-    ),
-  )
-  const smokeBytes = new Map(
-    REQUIRED_RELEASE_SMOKE_LANES.map((lane) => {
-      const bytes = canonicalSmokeResultBytes(smokeResult(lane, 701, 2))
-      return [lane, bytes]
-    }),
-  )
-  await Promise.all(
-    [...smokeBytes].map(([lane, bytes]) => writeFile(join(smokeDirectory, `${lane}.json`), bytes)),
-  )
-  const calls = []
-  const github = { reader: {}, writer: {} }
-  const directoryOpenFlags = []
-  const pinnedFileSystem = {
-    ...nodeFileSystem,
-    async open(target, flags, ...args) {
-      if (target === smokeDirectory) directoryOpenFlags.push(flags)
-      return nodeFileSystem.open(target, flags, ...args)
-    },
-  }
-  const importModule = async (specifier) => {
-    const name = new URL(specifier).pathname.split("/").at(-1)
-    if (name === "manifest.mjs") {
-      return { parseSealedReleaseManifest: (bytes) => JSON.parse(bytes.toString("utf8")) }
-    }
-    assert.equal(name, "metadata.mjs")
-    return {
-      async reconcileNpmEvidence(input) {
-        calls.push(["npm", input])
-        return { phase: "NPM_COMPLETE" }
-      },
-      async reconcileSmokeEvidence(input) {
-        calls.push(["smokes", input])
-        return { phase: "SMOKES_COMPLETE" }
+    )
+    await Promise.all(
+      [...smokeBytes].map(([lane, bytes]) =>
+        writeFile(join(smokeDirectory, `${lane}.json`), bytes),
+      ),
+    )
+    const calls = []
+    const github = { reader: {}, writer: {} }
+    const directoryOpenFlags = []
+    const pinnedFileSystem = {
+      ...nodeFileSystem,
+      async open(target, flags, ...args) {
+        if (target === smokeDirectory) directoryOpenFlags.push(flags)
+        return nodeFileSystem.open(target, flags, ...args)
       },
     }
-  }
-  await runReleaseCli(
-    [
-      "reconcile-npm",
-      "--candidate",
-      paths.candidate,
-      "--record",
-      paths.record,
-      "--manifest",
-      paths.manifest,
-      "--npm-evidence",
-      paths.npm,
-    ],
-    {
-      cwd: directory,
-      github,
-      importModule,
-      environment: { GITHUB_RUN_ID: "701", GITHUB_RUN_ATTEMPT: "2" },
-    },
-  )
-  await runReleaseCli(
-    [
-      "reconcile-smokes",
-      "--candidate",
-      paths.candidate,
-      "--record",
-      paths.record,
-      "--manifest",
-      paths.manifest,
-      "--npm-evidence",
-      paths.npm,
-      "--smoke-results",
-      smokeDirectory,
-    ],
-    {
-      cwd: directory,
-      fileSystem: pinnedFileSystem,
-      github,
-      importModule,
-      environment: { GITHUB_RUN_ID: "701", GITHUB_RUN_ATTEMPT: "2" },
-    },
-  )
-  assert.deepEqual(
-    calls.map(([name]) => name),
-    ["npm", "smokes"],
-  )
-  assert.equal(calls[0][1].github, github)
-  assert.equal(calls[1][1].github, github)
-  assert.deepEqual(
-    calls[1][1].smokeResults.map((bytes) => parseSmokeResult(bytes).lane),
-    REQUIRED_RELEASE_SMOKE_LANES,
-  )
-  assert.equal(Object.isFrozen(calls[1][1].smokeResults), true)
-  assert.equal(calls[1][1].smokeResults.every(Buffer.isBuffer), true)
-  assert.equal(calls[1][1].workflowRunId, 701)
-  assert.equal(calls[1][1].runAttempt, 2)
-  assert.equal(directoryOpenFlags.length, 1)
-  assert.notEqual(directoryOpenFlags[0] & fsConstants.O_DIRECTORY, 0)
-  assert.notEqual(directoryOpenFlags[0] & fsConstants.O_NOFOLLOW, 0)
-  for (const [index, lane] of REQUIRED_RELEASE_SMOKE_LANES.entries()) {
-    const received = calls[1][1].smokeResults[index]
-    assert.deepEqual(received, smokeBytes.get(lane))
-    assert.notEqual(received, smokeBytes.get(lane))
-  }
-  assert.equal(calls[0][1].manifest.version, CANDIDATE.version)
-  assert.equal(calls[1][1].manifest.version, CANDIDATE.version)
-})
+    const importModule = async (specifier) => {
+      const name = new URL(specifier).pathname.split("/").at(-1)
+      if (name === "manifest.mjs") {
+        return { parseSealedReleaseManifest: (bytes) => JSON.parse(bytes.toString("utf8")) }
+      }
+      assert.equal(name, "metadata.mjs")
+      return {
+        async reconcileNpmEvidence(input) {
+          calls.push(["npm", input])
+          return { phase: "NPM_COMPLETE" }
+        },
+        async reconcileSmokeEvidence(input) {
+          calls.push(["smokes", input])
+          return { phase: "SMOKES_COMPLETE" }
+        },
+      }
+    }
+    await runReleaseCli(
+      [
+        "reconcile-npm",
+        "--candidate",
+        paths.candidate,
+        "--record",
+        paths.record,
+        "--manifest",
+        paths.manifest,
+        "--npm-evidence",
+        paths.npm,
+      ],
+      {
+        cwd: directory,
+        github,
+        importModule,
+        environment: {
+          GITHUB_RUN_ID: "701",
+          GITHUB_RUN_ATTEMPT: "2",
+          ...(mainExecutor ? { GITHUB_REF: "refs/heads/main" } : {}),
+        },
+        ...(mainExecutor ? { git: { source: "exact-checkout" } } : {}),
+      },
+    )
+    await runReleaseCli(
+      [
+        "reconcile-smokes",
+        "--candidate",
+        paths.candidate,
+        "--record",
+        paths.record,
+        "--manifest",
+        paths.manifest,
+        "--npm-evidence",
+        paths.npm,
+        "--smoke-results",
+        smokeDirectory,
+      ],
+      {
+        cwd: directory,
+        fileSystem: pinnedFileSystem,
+        github,
+        importModule,
+        environment: {
+          GITHUB_RUN_ID: "701",
+          GITHUB_RUN_ATTEMPT: "2",
+          ...(mainExecutor ? { GITHUB_REF: "refs/heads/main" } : {}),
+        },
+        ...(mainExecutor ? { git: { source: "exact-checkout" } } : {}),
+      },
+    )
+    assert.deepEqual(
+      calls.map(([name]) => name),
+      ["npm", "smokes"],
+    )
+    assert.equal(calls[0][1].github, github)
+    assert.deepEqual(calls[1][1].git, mainExecutor ? { source: "exact-checkout" } : undefined)
+    assert.equal(calls[1][1].github, github)
+    assert.deepEqual(
+      calls[1][1].smokeResults.map((bytes) => parseSmokeResult(bytes).lane),
+      REQUIRED_RELEASE_SMOKE_LANES,
+    )
+    assert.equal(Object.isFrozen(calls[1][1].smokeResults), true)
+    assert.equal(calls[1][1].smokeResults.every(Buffer.isBuffer), true)
+    assert.equal(calls[1][1].workflowRunId, 701)
+    assert.equal(calls[1][1].runAttempt, 2)
+    assert.equal(directoryOpenFlags.length, 1)
+    assert.notEqual(directoryOpenFlags[0] & fsConstants.O_DIRECTORY, 0)
+    assert.notEqual(directoryOpenFlags[0] & fsConstants.O_NOFOLLOW, 0)
+    for (const [index, lane] of REQUIRED_RELEASE_SMOKE_LANES.entries()) {
+      const received = calls[1][1].smokeResults[index]
+      assert.deepEqual(received, smokeBytes.get(lane))
+      assert.notEqual(received, smokeBytes.get(lane))
+    }
+    assert.equal(calls[0][1].manifest.version, CANDIDATE.version)
+    assert.equal(calls[1][1].manifest.version, CANDIDATE.version)
+  })
 
 test("smoke reconciliation rejects unsafe or inexact receipt directories before metadata", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "b4-release-smoke-input-cli-"))

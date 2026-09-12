@@ -1289,6 +1289,7 @@ export async function reconcileSmokeEvidence(input) {
     workflowRunId: snapshot.workflowRunId,
     runAttempt: snapshot.runAttempt,
     smokeResults: snapshot.smokeResults,
+    git: snapshot.git,
   })
   let observedAssets = await observeSmokeReceiptAssets(effects.reader, release.id, marker, identity)
   const currentByLane = new Map(
@@ -1456,6 +1457,7 @@ function snapshotSmokeReconciliationInput(input) {
     "workflowRunId",
     "runAttempt",
     "github",
+    ...(Object.hasOwn(input, "git") ? ["git"] : []),
   ]
   assertOwnDataFields(input, fields, "smoke reconciliation input")
   const rawResults = dataValue(input, "smokeResults")
@@ -1503,6 +1505,7 @@ function snapshotSmokeReconciliationInput(input) {
     workflowRunId,
     runAttempt,
     github: dataValue(input, "github"),
+    git: Object.hasOwn(input, "git") ? dataValue(input, "git") : undefined,
   })
 }
 
@@ -1513,6 +1516,7 @@ async function observeExactSmokeActionsArtifacts({
   workflowRunId,
   runAttempt,
   smokeResults,
+  git,
 }) {
   const run = await readGitHubValue(
     reader.getActionsRunAttempt({ runId: workflowRunId, attempt: runAttempt }),
@@ -1522,11 +1526,30 @@ async function observeExactSmokeActionsArtifacts({
     !isRecord(run) ||
     positiveId(run.id, "Smoke workflow run ID") !== workflowRunId ||
     run.run_attempt !== runAttempt ||
-    run.path !== SMOKE_WORKFLOW ||
-    run.head_branch !== marker.tag ||
-    run.head_sha !== identity.commitSha
+    run.path !== SMOKE_WORKFLOW
   ) {
     throw new Error("Smoke workflow run attempt does not match the workflow, tag, or commit")
+  }
+  let source = { headSha: identity.commitSha, headBranch: marker.tag }
+  if (run.head_branch === "main") {
+    const { authorizePostpublicationExecutor, postpublicationExecutorIdentity } = await import(
+      "./postpublication-executor.mjs"
+    )
+    try {
+      const executor = await authorizePostpublicationExecutor({
+        candidate: identity,
+        run,
+        git,
+        github: reader,
+        workflow: SMOKE_WORKFLOW,
+      })
+      source = postpublicationExecutorIdentity({ candidate: identity, executor })
+    } catch (cause) {
+      throw new Error("Smoke executor authority is invalid", { cause })
+    }
+  }
+  if (run.head_sha !== source.headSha || run.head_branch !== source.headBranch) {
+    throw new Error("Smoke workflow run attempt does not match its authorized executor")
   }
   const listed = await readGitHubValue(
     reader.listActionsRunArtifacts({ runId: workflowRunId }),
@@ -1560,8 +1583,8 @@ async function observeExactSmokeActionsArtifacts({
       !ACTIONS_DIGEST_PATTERN.test(artifact.digest) ||
       !isRecord(artifact.workflow_run) ||
       positiveId(artifact.workflow_run.id, "Smoke artifact workflow run ID") !== workflowRunId ||
-      artifact.workflow_run.head_sha !== identity.commitSha ||
-      artifact.workflow_run.head_branch !== marker.tag
+      artifact.workflow_run.head_sha !== source.headSha ||
+      artifact.workflow_run.head_branch !== source.headBranch
     ) {
       throw new Error(`Smoke Actions artifact ${expectedName} metadata is not exact`)
     }
@@ -2245,6 +2268,13 @@ function snapshotGitHubBoundary(value) {
       "getActionsRunAttempt",
       "getActionsArtifact",
       "downloadActionsArtifact",
+      ...[
+        "getWorkflow",
+        "listWorkflowRuns",
+        "listActionsRunJobs",
+        "getCommitCheckRuns",
+        "compareCommits",
+      ].filter((method) => Object.hasOwn(readerDescriptor.value, method)),
     ],
     "GitHub reader",
   )

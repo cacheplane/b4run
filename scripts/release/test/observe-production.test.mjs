@@ -2424,6 +2424,7 @@ for (const mainExecutor of [false, true]) {
         `scripts/release/audit-executor-authorizations/v${VERSION}.json`,
         JSON.stringify(fixture.authorization),
       )
+      audited.run.workflow_id = fixture.run.workflow_id
       audited.run.head_sha = fixture.run.head_sha
       audited.run.head_branch = "main"
       audited.run.repository = fixture.run.repository
@@ -2458,6 +2459,7 @@ for (const mainExecutor of [false, true]) {
             ? fixture.github.getCommitCheckRuns(request)
             : original.getCommitCheckRuns(request),
         getWorkflow: fixture.github.getWorkflow,
+        compareCommits: fixture.github.compareCommits,
       }
     }
 
@@ -3869,6 +3871,15 @@ function githubReader(overrides = {}) {
       throw new Error("no terminal audit run should be read without an audit marker")
     },
     async getActionsRunAttempt(input) {
+      if (Number(input.runId) === 400 && input.attempt === 1) {
+        return present("actions-run-attempt", {
+          id: 400,
+          run_attempt: 1,
+          path: ".github/workflows/release.yml",
+          head_sha: COMMIT_SHA,
+          head_branch: `v${VERSION}`,
+        })
+      }
       if (Number(input.runId) === 30 && input.attempt === 1) {
         return present("actions-run-attempt", ciRuns()[0])
       }
