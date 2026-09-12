@@ -43,13 +43,13 @@ No changes to logo master paths, their geometry, the existing icon exports,
 
 ## Task 1: Establish the baseline and public guidance
 
-- [ ] Confirm `git status --short --branch` and `gh pr view 631 --json headRefName,headRefOid,state`.
+- [x] Confirm `git status --short --branch` and `gh pr view 631 --json headRefName,headRefOid,state`.
   Expected: the PR branch is checked out, with the approved guideline commits.
   Reconcile new upstream changes before editing; do not overwrite another writer.
-- [ ] Run `pnpm install --frozen-lockfile` to restore the checkout's dependencies.
+- [x] Run `pnpm install --frozen-lockfile` to restore the checkout's dependencies.
   The preceding docs check failed to start because `tsx` was missing. Confirm the
   install succeeds; do not change the lockfile to resolve a local setup issue.
-- [ ] Save the pre-change ZIP, manifest, and master checksums outside the repository:
+- [x] Save the pre-change ZIP, manifest, and master checksums outside the repository:
 
 ```bash
 python3 - <<'PY'
@@ -73,44 +73,44 @@ PY
   Export the printed path with `export B4_KIT_BASELINE='/the/printed/path'` for
   subsequent commands. This variable
   must refer to that existing baseline directory, not a freshly generated snapshot.
-- [ ] Update the guidelines' status section to say that the public kit now follows
+- [x] Update the guidelines' status section to say that the public kit now follows
   Paper Relay, once the synchronization in this plan is complete. Keep the approved
   rules and deferred homepage boundary intact. Change README snapshot wording to
   match. Prepare these edits together with the kit, not as an early published claim.
-- [ ] Create the public `identity/guidelines.md` from the approved guidelines.
+- [x] Create the public `identity/guidelines.md` from the approved guidelines.
   Adapt repository links to portable local paths: `logos/`, `icons/`, `index.html`,
   and `usage-notes.md`. Point the download link to the absolute public ZIP URL so
   it also works from the extracted archive. Add a source link to the repository
   guidelines. Preserve the rules and values; do not maintain a divergent design.
-- [ ] Rewrite the existing `usage-notes.md` as a concise summary: approved palette,
+- [x] Rewrite the existing `usage-notes.md` as a concise summary: approved palette,
   unchanged D2.2 geometry, clear space and starting sizes, Inter/JetBrains Mono,
   archived Tight Shift status, and a relative `guidelines.md` link. Explicitly
   distinguish reference examples from homepage positioning or claims.
 
 ## Task 2: Synchronize the visual reference
 
-- [ ] Recompose the existing 1200 × 1800 SVG usage sheet around five sections:
+- [x] Recompose the existing 1200 × 1800 SVG usage sheet around five sections:
   primary/compact marks; paper/ink/Relay/dark color roles; clear-space and small-size
   proofs; typography hierarchy; separate dot graphic usage. Use the approved
   guideline values. Keep a 48 px outer margin and avoid screenshot text too small
   to read at normal viewing size.
-- [ ] Replace the equal-weight orange palette panels with typography/role guidance.
+- [x] Replace the equal-weight orange palette panels with typography/role guidance.
   Keep a short archival note linking to existing Tight Shift files on the HTML
   page. Remove the old unapproved slogans and miniature homepage study from the
   primary sheet. Use neutral specimen labels, not new marketing claims.
-- [ ] Load Inter and JetBrains Mono from their official distributions for rendering.
+- [x] Load Inter and JetBrains Mono from their official distributions for rendering.
   If the HTML/SVG needs distributed font files, add only the required files and
   their original licenses under `identity/fonts/`. Use relative paths and include
   them in the archive. Do not reuse temporary embedded font blobs without licenses.
-- [ ] Preserve logo character groups and geometry when placing masters into the
+- [x] Preserve logo character groups and geometry when placing masters into the
   sheet. Reference or nest the original vectors; never typeset or redraw the logo.
   For sheet captions, use licensed fonts. If the chosen SVG renderer cannot resolve
   fonts reliably, outline caption text in the distributable SVG and retain the
   editable text composition as `identity/usage-sheet-source.svg` in the kit.
-- [ ] Render `usage-sheet.png` from the final SVG at exactly 1200 × 1800. Use a
+- [x] Render `usage-sheet.png` from the final SVG at exactly 1200 × 1800. Use a
   browser or installed SVG renderer with fonts loaded. Compare the SVG and PNG
   visually; do not assume an export succeeded because a file was created.
-- [ ] Update `index.html` to present the new sheet and approved guidance. Reference
+- [x] Update `index.html` to present the new sheet and approved guidance. Reference
   `usage-sheet.svg` as an image instead of maintaining a second inline copy of the
   entire sheet. Keep the existing exact-size proof images and their paths. Add
   readable HTML summaries of typography, color roles, and logo clear space, plus
@@ -122,18 +122,18 @@ PY
 
 ## Task 3: Manifest and offline archive
 
-- [ ] Set manifest version to `2026-09-12-paper-relay-v1`. Keep every existing asset
+- [x] Set manifest version to `2026-09-12-paper-relay-v1`. Keep every existing asset
   ID and URL. Set `usage.preferredLogo` to `logo-horizontal-black-svg` and
   `usage.preferredIcon` to `icon-black-svg`; describe these as preferences for
   paper/light surfaces, not evidence of a deployed header or favicon change.
-- [ ] Keep `usage.guidelinesUrl` at its stable `/brand/identity/usage-notes.md`
+- [x] Keep `usage.guidelinesUrl` at its stable `/brand/identity/usage-notes.md`
   entrypoint and link onward to full guidelines. Add root `defaultPalette: "relay"`
   and `paletteStatus: { "relay": "approved", "tightShift": "archived" }` metadata.
   Preserve existing palette values. Label Tight Shift assets as archived and
   remove current-default recommendations from those entries.
-- [ ] Update the sheet label/description to Paper Relay and retain its documented
+- [x] Update the sheet label/description to Paper Relay and retain its documented
   1200 × 1800 dimensions. Validate all manifest URLs against `apps/web/public`.
-- [ ] Rebuild the ZIP from the saved baseline, replacing the `identity/` subtree
+- [x] Rebuild the ZIP from the saved baseline, replacing the `identity/` subtree
   with the current public subtree. Preserve all other old entries and their bytes,
   except the archive-root manifest and README, which are deliberately updated.
   Replace `assets.json` at archive root; its URLs are online public URLs,
@@ -170,7 +170,7 @@ PY
 
 ## Task 4: Verify, review, and submit
 
-- [ ] Run the focused integrity checks below. Expected: all assertions pass.
+- [x] Run the focused integrity checks below. Expected: all assertions pass.
 
 ```bash
 python3 - <<'PY'
@@ -215,30 +215,63 @@ PY
   Inspect every relative Markdown link from both public and extracted contexts.
   External repository/download links should be visibly external; they need not
   work offline. Check the PNG at full size and in the responsive reference page.
-- [ ] Run `git diff --check`, `pnpm --filter @b4run/web lint`, and
+- [x] Run `git diff --check`, `pnpm --filter @b4run/web lint`, and
   `node scripts/check-docs.mjs`. Resolve failures attributable to this change;
   report any environment blocker with the actual command and error.
-- [ ] Review the diff against the file map. Confirm the underlying website,
+- [x] Review the diff against the file map. Confirm the underlying website,
   production icons, logo masters, and technical claims have not changed.
   Commit the synchronized kit as one cohesive change, including docs status.
-- [ ] Run `node scripts/check-changesets.mjs` against the committed head. No
+- [x] Run `node scripts/check-changesets.mjs` against the committed head. No
   changeset is expected for this non-published website/brand-only change.
-- [ ] Run the repository validation required by `AGENTS.md` before claiming the
+- [x] Run the repository validation required by `AGENTS.md` before claiming the
   PR is fully validated: `pnpm ci:validate`. This path is not the narrow
   runbook-prose exception. Record any skipped or blocked checks precisely.
-- [ ] Obtain a focused review of asset fidelity, archive synchronization, public
+- [x] Obtain a focused review of asset fidelity, archive synchronization, public
   guidance, and the explicit homepage boundary. Fix findings before submission.
-- [ ] Before pushing, inspect `gh run list --repo cacheplane/b4run --limit 50
+- [x] Before pushing, inspect `gh run list --repo cacheplane/b4run --limit 50
   --json status,event,headBranch,workflowName` and relevant active runs. Respect
   the limit of two maintainer-managed full-CI PRs, accounting for main validation;
   wait for active runs rather than cancelling release work.
-- [ ] Update PR #631's description to cover the final synchronized Paper Relay
+- [x] Update PR #631's description to cover the final synchronized Paper Relay
   kit and the actual checks performed. Use a body file for multiline text. Push
   only after local checks/review and the repository's CI submission constraint
   permit it; verify the PR points to the intended head and report its CI status.
 
 ## Handoff
 
-Implementation has not started. This plan covers public-kit synchronization only.
+Submission: PR #631 is the delivery target; remote CI status is reported separately
+from these local checks.
+
+The public kit is implemented and independently reviewed. The review found one
+primary-logo label inside the clear-space boundary; the label was moved and the
+SVG, PNG, and ZIP were regenerated and reviewed again.
+
+Verification completed:
+
+- Preserved every existing manifest ID/URL, master checksum, and ZIP entry;
+  verified archive/public byte synchronization and 1200 × 1800 raster dimensions.
+- Verified local HTML, CSS, and Markdown references, nested native logo geometry,
+  unique SVG IDs, and equivalent public/normative guideline rules.
+- Inspected desktop and 390 px mobile layouts, loaded images/fonts, keyboard
+  focus, archival disclosure, and actual-size proofs. No horizontal overflow.
+- Passed web lint, root lint, release integrity, build-cache checks, build
+  (25 tasks), typecheck (51 tasks), docs completeness, and changeset scope checks.
+- The first `pnpm ci:validate` stopped at one CLI subprocess-deadline failure
+  (5,874 tests passed, 218 skipped). The failed test and its full file passed
+  focused reruns (299 passed, one skipped). The full workspace rerun with `pnpm test --maxWorkers=2` passed: 479 files,
+  5,875 tests passed, 218 skipped. The original run's additional Node safety
+  lanes also passed. The initial aggregate command remains a failed run;
+  these are explicitly recorded follow-up results.
+- Passed release inventory, release-controller tests, chart-version tests,
+  package checks, TypeScript tooling pack smoke, and harness self-test.
+  Framework, runtime, and smoke harness verification all passed (three lanes,
+  zero failures or skips).
+
+Browser verification limits: the browser URL policy blocked opening the extracted
+kit via `file://`. Extracted dependencies and links were checked directly, but a
+network-disabled browser run and fallback-font rendering were not verified.
+The two browser checklist items remain open for these specific checks.
+
+This plan covers public-kit synchronization only.
 The next independent workstreams are shared UI/docs styling, a fresh homepage
 narrative and architecture phase, and format-specific marketing rollout.
