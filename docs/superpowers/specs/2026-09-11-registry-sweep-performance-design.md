@@ -12,7 +12,7 @@ A read-only probe using the production npm reader and all 21 already released pa
 
 Change only `sweepLatest` in `scripts/release/publisher.mjs` to await `Promise.all` of the existing `observeMetadata` call for each manifest entry. Each call still performs its fresh observation. Preserve manifest order in the returned array, including when responses complete in a different order. Manifest validation already restricts the exact package inventory; concurrency is bounded to the existing 21 entries, with no new queue, knob, or worker.
 
-The caller still awaits the full successful sweep immediately before each mutation. Any rejected or ambiguous observation prevents that mutation. A newer latest value still supersedes an untouched candidate or fails a partially published candidate. Other in-flight work on rejection consists only of bounded GET requests; the existing owner deadline and cleanup stay in charge. No request cache or evidence reuse is introduced.
+The caller still awaits the full successful sweep immediately before each mutation. Any rejected or ambiguous observation prevents that mutation. A newer latest value still supersedes an untouched candidate or fails a partially published candidate. After early rejection, remaining work consists only of GET requests bounded by their individual HTTP deadlines; disposing the outer publisher deadline does not abort them. No new cancellation machinery, request cache, or evidence reuse is introduced.
 
 Initial observation, package publication, per-package convergence and auditing, final verification, recovery rules, and evidence formats remain unchanged. Update only the existing content hash for the changed publisher module; do not change workflow topology or its fixtures.
 
