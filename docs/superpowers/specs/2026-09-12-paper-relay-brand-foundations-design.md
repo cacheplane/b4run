@@ -1,7 +1,7 @@
 # Paper Relay brand foundations
 
 Date: 2026-09-12
-Status: visual direction approved; independent spec review passed; written guidelines ready for user review
+Status: visual direction and written guidelines approved by the user; independent spec review passed
 Related work: [PR #631](https://github.com/cacheplane/b4run/pull/631)
 
 ## Decision
