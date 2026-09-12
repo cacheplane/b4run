@@ -851,6 +851,15 @@ function exactAuditGitHub({ calls, getReleaseByTag }) {
       return selected
     },
     async getActionsRunAttempt(input) {
+      if (input.runId === 400 && input.attempt === 1) {
+        return present("actions-run-attempt", {
+          id: 400,
+          run_attempt: 1,
+          path: ".github/workflows/release.yml",
+          head_sha: COMMIT_SHA,
+          head_branch: `v${VERSION}`,
+        })
+      }
       calls.push(["getActionsRunAttempt", input])
       return present("actions-run-attempt", {
         id: 500,

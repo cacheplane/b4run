@@ -192,6 +192,14 @@ export function createGitHubReader({
       }
       return normalized
     },
+    compareCommits({ baseSha, headSha }) {
+      assertCommitSha(baseSha)
+      assertCommitSha(headSha)
+      return readObject(context, {
+        url: `${base}/compare/${baseSha}...${headSha}?per_page=1`,
+        operation: "compare-commits",
+      })
+    },
     getCommitCheckRuns({ commitSha }) {
       assertCommitSha(commitSha)
       return readPaginated(context, {

@@ -959,6 +959,7 @@ export async function observeCandidate({ candidate, inventory, git, npm, github 
     github,
     diagnostics,
     observedSmokes,
+    git,
   )
   const published = rawNpmPresent || publicationRunStarted(publisherRunsResult, normalizedCandidate)
   const smokes =
@@ -2029,6 +2030,7 @@ async function mapProductionRelease({
       marker: releaseMarker,
       candidate,
       github,
+      git,
       rawAssets: assetsResult.value,
       diagnostics,
     })
@@ -3984,7 +3986,7 @@ function mapRegistryPackage(result, expected, candidate, diagnostics) {
   return ambiguousRegistryPackage(expected.name)
 }
 
-async function mapRelease(result, inventory, candidate, github, diagnostics, observedSmokes) {
+async function mapRelease(result, inventory, candidate, github, diagnostics, observedSmokes, git) {
   if (result.status !== "PRESENT") {
     return nonPresentRelease(result.status === "ABSENT" ? "absent" : "ambiguous")
   }
@@ -4077,6 +4079,7 @@ async function mapRelease(result, inventory, candidate, github, diagnostics, obs
     marker,
     candidate,
     github,
+    git,
     rawAssets,
     diagnostics,
   })
@@ -4139,6 +4142,7 @@ function expectedReleaseAssets(inventory, marker) {
 }
 
 export async function observeDurableSmokeReceipts({
+  git,
   marker,
   candidate,
   github,
@@ -4304,6 +4308,50 @@ export async function observeDurableSmokeReceipts({
     }
   }
   if (!markerBound) return { assets: observed, smokes: [] }
+  // The durable receipt keeps the candidate identity. Its exact Actions attempt
+  // independently identifies the code that produced it, including repaired main code.
+  try {
+    const envelope = normalizeAdapterEnvelope(
+      await github.getActionsRunAttempt({
+        runId: marker.smoke.workflowRunId,
+        attempt: marker.smoke.runAttempt,
+      }),
+      { source: "github", operation: "actions-run-attempt", payloadKey: "value" },
+    )
+    const run = envelope.value
+    if (
+      envelope.status !== "PRESENT" ||
+      run?.id !== marker.smoke.workflowRunId ||
+      run.run_attempt !== marker.smoke.runAttempt ||
+      run.path !== candidate.publisherWorkflow
+    ) {
+      throw new Error("Durable smoke run attempt is not exact")
+    }
+    if (run.head_branch === "main") {
+      const { authorizePostpublicationExecutor } = await import("./postpublication-executor.mjs")
+      await authorizePostpublicationExecutor({
+        candidate,
+        run,
+        git,
+        github,
+        workflow: candidate.publisherWorkflow,
+      })
+    } else if (
+      run.head_branch !== `v${candidate.version}` ||
+      run.head_sha !== candidate.commitSha
+    ) {
+      throw new Error("Durable smoke executor does not match the candidate")
+    }
+  } catch {
+    addDiagnostic(
+      diagnostics,
+      "github",
+      "actions-run-attempt",
+      "AMBIGUOUS",
+      "SMOKE_EXECUTOR_INVALID",
+    )
+    return null
+  }
   const selected = parsedReceipts.filter(
     ({ receipt }) =>
       receipt.workflowRunId === marker.smoke.workflowRunId &&

@@ -18,12 +18,14 @@ import {
   validateAllAttemptJobs,
   validatePublicationAuditAssets,
 } from "../metadata.mjs"
+import { observeDurableSmokeReceipts } from "../observe.mjs"
 import { createReleaseRecord, releaseRecordSha256 } from "../release-record.mjs"
 import {
   canonicalSmokeResultBytes,
   parseSmokeResult,
   REQUIRED_RELEASE_SMOKE_LANES,
 } from "../smoke-result.mjs"
+import { postpublicationExecutorFixture } from "./support/postpublication-executor-fixture.mjs"
 
 const VERSION = "0.8.22"
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567"
@@ -2262,3 +2264,79 @@ function assertRecursivelyFrozen(value) {
   assert.equal(Object.isFrozen(value), true)
   for (const child of Object.values(value)) assertRecursivelyFrozen(child)
 }
+
+// Exercise the real durable writer with a candidate distinct from its verifier.
+// The authority fixture supplies only the remote CI/source boundary.
+test("reviewed main smoke executor advances the original npm-complete draft with real receipts", async () => {
+  const fixture = releaseFixture()
+  const remote = inMemoryGitHub()
+  const npmEvidence = await prepareSmokeReconciliation(fixture, remote)
+  const before = parseReleaseMarker(remote.release.body)
+  const base = new Map([...remote.assets].map(([name, a]) => [name, Buffer.from(a.bytes)]))
+  const smokeResults = completeSmokeResults(fixture)
+  remote.setSmokeArtifacts(smokeResults)
+  const authority = postpublicationExecutorFixture({ candidate: CANDIDATE })
+  remote.actionsRun = {
+    ...authority.run,
+    id: SMOKE_RUN.workflowRunId,
+    run_attempt: SMOKE_RUN.runAttempt,
+  }
+  for (const artifact of remote.actionsArtifacts) {
+    artifact.workflow_run.head_sha = authority.run.head_sha
+    artifact.workflow_run.head_branch = "main"
+  }
+  const legacy = remote.github.reader
+  const reader = {
+    ...legacy,
+    ...authority.github,
+    getRef: (args) =>
+      args.ref === "heads/main" ? authority.github.getRef(args) : legacy.getRef(args),
+    getActionsRunAttempt: (args) =>
+      args.runId === SMOKE_RUN.workflowRunId
+        ? legacy.getActionsRunAttempt(args)
+        : authority.github.getActionsRunAttempt(args),
+  }
+  const input = {
+    candidate: CANDIDATE,
+    record: fixture.record,
+    manifest: fixture.manifest,
+    npmEvidence,
+    smokeResults,
+    ...SMOKE_RUN,
+    git: authority.git,
+    github: { reader, writer: remote.github.writer },
+  }
+  const result = await reconcileSmokeEvidence(input)
+  assert.equal(result.phase, "SMOKES_COMPLETE")
+  const marker = parseReleaseMarker(remote.release.body)
+  assert.equal(marker.commitSha, before.commitSha)
+  assert.equal(marker.manifestSha256, before.manifestSha256)
+  assert.equal(marker.npmEvidenceSha256, before.npmEvidenceSha256)
+  assert.equal(marker.attestationSet.commitSha, before.attestationSet.commitSha)
+  assert.equal(marker.smoke.receiptAssets.length, 5)
+  assert.equal(remote.assets.size, 50)
+  for (const [name, bytes] of base) assert.deepEqual(remote.assets.get(name).bytes, bytes)
+  const writes = remote.uploadCount + remote.updateCount
+  assert.equal((await reconcileSmokeEvidence(input)).status, "unchanged")
+  assert.equal(remote.uploadCount + remote.updateCount, writes)
+  const rawAssets = [...remote.assets].map(([name, a]) => ({
+    id: a.id,
+    name,
+    size: a.bytes.byteLength,
+    digest: `sha256:${sha256(a.bytes)}`,
+  }))
+  const durableInput = {
+    marker,
+    candidate: CANDIDATE,
+    github: reader,
+    git: authority.git,
+    rawAssets,
+  }
+  assert.equal((await observeDurableSmokeReceipts(durableInput)).smokes.length, 5)
+  authority.state.ci.conclusion = "failure"
+  assert.equal(
+    await observeDurableSmokeReceipts(durableInput),
+    null,
+    "durable receipts cannot hide an unapproved main executor",
+  )
+})

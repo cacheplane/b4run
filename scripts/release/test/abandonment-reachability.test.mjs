@@ -26,6 +26,7 @@ const LIVE_BYTES = await readFile(ROOT + "/.github/workflows/release.yml")
 const PROTECTED_BYTES = await readFile(FIXTURE_ROOT + "/release-workflow-protected.yml")
 const DISABLED_BYTES = await readFile(FIXTURE_ROOT + "/release-workflow-disabled.yml")
 const B4_DISABLED_BYTES = await readFile(FIXTURE_ROOT + "/release-workflow-b4-disabled.yml")
+const B4_TAG_ONLY_BYTES = await readFile(FIXTURE_ROOT + "/release-workflow-b4-tag-only.yml")
 const POLICY_BYTES = await readFile(ROOT + "/scripts/release/abandonment-workflow-policy.json")
 const POLICY_SOURCE = JSON.parse(POLICY_BYTES.toString("utf8"))
 
@@ -53,7 +54,8 @@ test("policy entries are bound to production-canonicalized immutable fixtures", 
   const expected = [
     ["disabled-2026-08-28", "disabled", DISABLED_BYTES],
     ["protected-2026-08-28", "protected", PROTECTED_BYTES],
-    ["renamed-b4-disabled-2026-09-07", "disabled", B4_DISABLED_BYTES],
+    ["renamed-b4-disabled-2026-09-07", "disabled", B4_TAG_ONLY_BYTES],
+    ["reviewed-b4-postpublication-2026-09-12", "disabled", B4_DISABLED_BYTES],
   ]
   assert.equal(loaded.variants.length, expected.length)
   for (const [index, [id, mode, bytes]] of expected.entries()) {

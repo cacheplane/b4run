@@ -1298,6 +1298,9 @@ async function runReconcileSmokes(options, runtime) {
     workflowRunId,
     runAttempt,
     github,
+    ...(runtime.environment.GITHUB_REF === "refs/heads/main"
+      ? { git: await requireProductionGit(runtime) }
+      : {}),
   })
 }
 
@@ -1406,6 +1409,7 @@ async function runDispatchAudit(options, runtime) {
     candidate,
     manifestSha256: options["manifest-sha256"],
     github: github.writer,
+    ...(runtime.environment.GITHUB_REF === "refs/heads/main" ? { ref: "main" } : {}),
   })
   await writeCanonicalFile(
     runtime.fileSystem,

@@ -40,14 +40,18 @@ const AUDIT_WAIT_BUDGET_MS = 30 * 60 * 1_000
 
 class AuditWaitDeadlineError extends Error {}
 
-export async function dispatchIndependentAudit({ candidate, manifestSha256, github }) {
+export async function dispatchIndependentAudit({ candidate, manifestSha256, github, ref }) {
   const identity = validateCandidate(snapshotJson(candidate))
   assertSha256(manifestSha256, "Audit manifest digest")
+  const sourceRef = ref ?? `v${identity.version}`
+  if (sourceRef !== "main" && sourceRef !== `v${identity.version}`) {
+    throw new Error("Audit dispatch requires the candidate tag or reviewed main executor")
+  }
   const actions = bindMethods(github, ["dispatchWorkflowAtRef"], "Independent audit dispatcher")
   const receipt = snapshotJson(
     await actions.dispatchWorkflowAtRef({
       workflow: WORKFLOW,
-      ref: `v${identity.version}`,
+      ref: sourceRef,
       inputs: {
         version: identity.version,
         commitSha: identity.commitSha,

@@ -112,7 +112,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for verified published terminal selection and historical npm latest observations.
 // Repinned for strict npm audit command outcomes and bounded safe diagnostics.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "0cbaa337bc1f3c8c9c666c0fae41a35f186233f9dc73f60dbdc51c98dbf25d15"
+  "dd732d1428d72712a7eff68a6e0d5ed82bfb18dc410ad020661122e23d2ec7b2"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
@@ -998,6 +998,7 @@ test("detect invokes the sole production observer and exports only validated con
   ])
   assert.match(observe.run, /--github-output\s+["']?\$GITHUB_OUTPUT["']?/u)
   assert.deepEqual(detect.outputs, {
+    executor_sha: workflowExpression("steps.executor.outputs.executor_sha"),
     candidate_sha: workflowExpression("steps.observe.outputs.candidate_sha"),
     candidate_version: workflowExpression("steps.observe.outputs.candidate_version"),
     disposition: workflowExpression("steps.observe.outputs.disposition"),
@@ -1018,7 +1019,12 @@ test("detect invokes the sole production observer and exports only validated con
   assert.equal(countMatches(source, /scripts\/release\/cli\.mjs observe\b/gu), 1)
   assert.doesNotMatch(source, /release:shadow|shadow-reconcile|release-shadow/iu)
 
-  assert.equal(checkout.with?.ref, workflowExpression("github.event.repository.default_branch"))
+  assert.equal(
+    checkout.with?.ref,
+    workflowExpression(
+      "github.ref == 'refs/heads/main' && github.sha || github.event.repository.default_branch",
+    ),
+  )
   assert.equal(checkout.with?.["fetch-depth"], 0)
   assert.equal(checkout.with?.["persist-credentials"], false)
   assert.doesNotMatch(source, /RELEASE_ADMIN_READ_TOKEN|immutable-releases-gate/iu)
@@ -1742,7 +1748,9 @@ test("the independent workflow relays default-branch audits and verifies exact t
   const coordinatorCheckout = onlyStepUsing(coordinator, ACTIONS.checkout)
   assert.equal(
     coordinatorCheckout.with?.ref,
-    workflowExpression("github.event.repository.default_branch"),
+    workflowExpression(
+      "github.ref == 'refs/heads/main' && github.sha || github.event.repository.default_branch",
+    ),
   )
   assert.equal(coordinatorCheckout.with?.["persist-credentials"], false)
   const relay = onlyRunStepMatching(
