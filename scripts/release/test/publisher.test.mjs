@@ -80,6 +80,100 @@ test("publishes missing manifest tarballs serially in dependency order with crea
   }
 })
 
+test("starts every latest sweep read before waiting and preserves manifest order", async () => {
+  const fixture = publisherFixture({
+    initiallyPresent: [CANONICAL_RELEASE_PACKAGE_ORDER.length - 1],
+  })
+  const gates = new Map()
+  const readCounts = new Map()
+  const observe = fixture.inputs.observeRegistry
+  let releaseAfterFailure = false
+  let firstSweepReadStartedResolve
+  const firstSweepReadStarted = new Promise((resolve) => {
+    firstSweepReadStartedResolve = resolve
+  })
+  fixture.inputs.observeRegistry = async (request) => {
+    if (request.version === undefined) {
+      const reads = (readCounts.get(request.name) ?? 0) + 1
+      readCounts.set(request.name, reads)
+      if (reads === 2) {
+        if (gates.size === 0) firstSweepReadStartedResolve()
+        const gate = deferredGate()
+        gates.set(request.name, gate)
+        if (releaseAfterFailure) gate.resolve()
+        await gate.promise
+      }
+    }
+    return observe(request)
+  }
+
+  const publishing = publishManifestSerially(fixture.inputs)
+  try {
+    await firstSweepReadStarted
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(gates.size, CANONICAL_RELEASE_PACKAGE_ORDER.length)
+    assert.deepEqual(fixture.publishCalls, [])
+
+    const heldName = CANONICAL_RELEASE_PACKAGE_ORDER[0]
+    for (const name of [...CANONICAL_RELEASE_PACKAGE_ORDER].reverse()) {
+      if (name === heldName) continue
+      gates.get(name).resolve()
+    }
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(fixture.publishCalls, [])
+
+    gates.get(CANONICAL_RELEASE_PACKAGE_ORDER[0]).resolve()
+    const result = await publishing
+    assert.equal(result.status, "NPM_COMPLETE")
+    assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, -1))
+  } finally {
+    releaseAfterFailure = true
+    for (const gate of gates.values()) gate.resolve()
+    await publishing.catch(() => {})
+  }
+})
+
+for (const partial of [false, true]) {
+  for (const latest of ["ambiguous", "newer"]) {
+    test(`${latest} latest metadata blocks mutation for ${partial ? "partial" : "untouched"} candidates`, async () => {
+      const fixture = publisherFixture(partial ? { initiallyPresent: [0] } : {})
+      const readCounts = new Map()
+      const observe = fixture.inputs.observeRegistry
+      fixture.inputs.observeRegistry = async (request) => {
+        if (request.version === undefined) {
+          const reads = (readCounts.get(request.name) ?? 0) + 1
+          readCounts.set(request.name, reads)
+          if (reads === 2 && request.name === CANONICAL_RELEASE_PACKAGE_ORDER[1]) {
+            if (latest === "ambiguous") {
+              return {
+                status: "AMBIGUOUS",
+                operation: "package-metadata",
+                httpStatus: 503,
+                code: "EUNAVAILABLE",
+              }
+            }
+            const result = await observe(request)
+            return { ...result, metadata: { ...result.metadata, latest: "0.9.0" } }
+          }
+        }
+        return observe(request)
+      }
+
+      const publishing = publishManifestSerially(fixture.inputs)
+      if (latest === "newer" && !partial) {
+        const result = await publishing
+        assert.equal(result.status, "SUPERSEDED_NOOP")
+      } else {
+        await assert.rejects(
+          publishing,
+          /metadata observation is ambiguous|newer latest|partial.*conflict/iu,
+        )
+      }
+      assert.deepEqual(fixture.publishCalls, [])
+    })
+  }
+}
+
 test("matching existing packages are a no-op and mismatched registry bytes stop before mutation", async () => {
   const existing = publisherFixture({ initiallyPresent: "all" })
   const repeated = await publishManifestSerially(existing.inputs)
@@ -2583,6 +2677,14 @@ function publisherFixture(overrides = {}) {
       present.set(entry.name, { ready: 4 })
     },
   }
+}
+
+function deferredGate() {
+  let resolve
+  const promise = new Promise((completed) => {
+    resolve = completed
+  })
+  return { promise, resolve }
 }
 
 function verifiedAuditEvidence() {

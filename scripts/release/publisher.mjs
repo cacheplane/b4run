@@ -734,11 +734,13 @@ function isPublished(analyzed) {
 }
 
 async function sweepLatest({ manifest, observeRegistry, observeMetadata }) {
-  const result = []
-  for (const entry of manifest.packages) {
-    result.push({ entry, metadata: await observeMetadata(observeRegistry, entry.name) })
-  }
-  return result
+  // Only metadata reads are concurrent; callers still gate publication mutations.
+  return Promise.all(
+    manifest.packages.map(async (entry) => ({
+      entry,
+      metadata: await observeMetadata(observeRegistry, entry.name),
+    })),
+  )
 }
 
 async function observePackageMetadata(observeRegistry, name, { firstPublication }) {

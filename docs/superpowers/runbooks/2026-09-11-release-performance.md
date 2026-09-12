@@ -22,7 +22,26 @@ The full [CI validation of the prose-path implementation](https://github.com/cac
 
 Use existing GitHub job timestamps and publisher diagnostics to distinguish queue time, setup, package publication, registry convergence, verification, and follow-up work. Report end-to-end elapsed time separately from the successful publisher duration. Compare against the same workflow scope and similar CI load; do not attribute a faster run to one change without evidence.
 
-The next candidate is profiling registry verification waits before considering whether independent verification work can safely overlap. Keep exact candidate binding, package ordering requirements, complete signature and provenance verification, the existing convergence budget, and duplicate-publication protection. Use the existing logs and a local rehearsal; do not cut a measurement release or change publication order without evidence. This is a follow-up investigation, not an additional release requirement.
+Keep exact candidate binding, package ordering requirements, complete signature and provenance verification, the existing convergence budget, and duplicate-publication protection when investigating registry verification performance. Use existing logs and local rehearsals; do not cut a measurement release or change publication order without evidence. These are follow-up investigations, not additional release requirements.
+
+## Registry profile and read-only sweep optimization
+
+The four 0.8.30 publisher attempts contain at least 26 minutes 47 seconds of accumulated registry-pending intervals. This is the sum of each package's last logged elapsed time within each attempt, a lower bound that excludes the unlogged tail until successful verification or failure. The 305 pending events comprise 273 version-absence and 32 metadata-pending observations. Event counts do not attribute duration by cause, and the original failed audit responses remain unavailable.
+
+| Publisher attempt | Accepted packages | Logged pending lower bound |
+| --- | ---: | ---: |
+| [First](https://github.com/cacheplane/b4run/actions/runs/34528132560) | 4 | 3m 39.56s |
+| [Second](https://github.com/cacheplane/b4run/actions/runs/34530122431) | 1 | 0.41s |
+| [Timed out](https://github.com/cacheplane/b4run/actions/runs/34531019102) | 13 | 20m 57.62s |
+| [Completed](https://github.com/cacheplane/b4run/actions/runs/34534130844) | 3 | 2m 9.79s |
+
+The publisher intentionally completes each package's verification before publishing the next. Overlapping propagation by uploading later packages first would change that failure boundary: a later package could already be public when verification of an earlier package fails. That change is outside this optimization.
+
+The small optimization is limited to reading the 21 current latest-version records concurrently before each new publication. Every observation remains fresh, all successful results are required, and manifest order is preserved. Publication itself stays serial, with unchanged per-package verification, final verification, deadlines, and recovery behavior. The existing fixed manifest bounds the scan to 21 read-only requests; no queue, option, workflow, or publishing step is added.
+
+Local read-only probes on Node 24.20.0 against already released packages returned identical records. Sequential scans took 5.65s and 1.30s; concurrent scans took 0.16s and 0.07s. These measurements show request-latency savings, not faster registry propagation or a measured improvement to an entire release. Warm-cache effects and network conditions prevent projecting the cold scan across every package.
+
+An audit-batching probe also returned identical complete proofs for all 21 packages: warm individual audits took 8.96s across 21 commands, and the existing batch verifier took 0.70s in one command. That separate change is deferred. A current registry probe did not establish a cache workaround: the version endpoint reported dynamic delivery, and a metadata request with `Cache-Control: no-cache` still received a cache hit. Neither probe establishes the cause of the historical visibility delays.
 
 ## Recovery test experiment: rejected
 
