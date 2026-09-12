@@ -22,4 +22,14 @@ The full [CI validation of the prose-path implementation](https://github.com/cac
 
 Use existing GitHub job timestamps and publisher diagnostics to distinguish queue time, setup, package publication, registry convergence, verification, and follow-up work. Report end-to-end elapsed time separately from the successful publisher duration. Compare against the same workflow scope and similar CI load; do not attribute a faster run to one change without evidence.
 
-The next candidates are reducing repeated setup in the recovery test matrix and, only after profiling, overlapping safe registry verification work. Keep the complete interruption coverage, exact candidate binding, package ordering requirements, and duplicate-publication protection. These are follow-up investigations, not additional release requirements.
+The next candidate is profiling registry verification waits before considering whether independent verification work can safely overlap. Keep exact candidate binding, package ordering requirements, complete signature and provenance verification, the existing convergence budget, and duplicate-publication protection. Use the existing logs and a local rehearsal; do not cut a measurement release or change publication order without evidence. This is a follow-up investigation, not an additional release requirement.
+
+## Recovery test experiment: rejected
+
+The successful [main controller job before the experiment](https://github.com/cacheplane/b4run/actions/runs/34624194978/job/103345200150) spent 16 minutes 44 seconds in its test step. The 64-case recovery interruption matrix accounted for approximately 10 minutes 17 seconds. These are CI test timings, separate from publisher execution.
+
+Local profiling on Node 24.20.0 found that fixture setup took only about 40 ms. The complete scenario made 6,950 loopback HTTP requests; idle-connection validation accounted for much of the waiting. A controlled fresh-connection comparison reduced one scenario from 14.49 seconds to 4.49 seconds with the same requests, recovery mutations, and logical outcome. This isolated result did not establish a safe matrix optimization.
+
+An implementation using the owned test server's `maxRequestsPerSocket = 1` passed the persistent-versus-fresh equivalence regression, but failed during the complete interruption matrix. A bounded successive-pair diagnostic reproduced `EADDRNOTAVAIL` on loopback connections in its second pair after the first pair opened 14,211 connections. The fresh-connection approach exhausted available local connection addresses under sustained load. The test code was restored unchanged; no production code, workflow, timeout, concurrency, or coverage changed, and no hosted run used the experiment.
+
+Do not adopt fresh connections based on the isolated speedup, cache negligible fixture setup, or add OS tuning, retries, longer deadlines, or platform branches to rescue this approach. Any future test optimization must pass the complete matrix and preserve persistent-connection coverage before a hosted timing comparison is useful.
