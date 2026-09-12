@@ -59,7 +59,7 @@ export function createStrictSmokeProcessRunner({
         error.stderr = result.stderr
         throw error
       }
-      return { stdout: result.stdout, stderr: result.stderr }
+      return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode }
     },
   })
 }

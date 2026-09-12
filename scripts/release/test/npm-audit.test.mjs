@@ -13,6 +13,7 @@ import {
   NPM_AUDIT_VERIFIER,
   parseNpmAuditSignatures,
 } from "../npm-audit.mjs"
+import { createStrictSmokeProcessRunner } from "../smoke-process-runner.mjs"
 import {
   EXACT_NPM_PROVENANCE_CERTIFICATE,
   MULTIPLE_NPM_PROVENANCE_CERTIFICATE,
@@ -26,6 +27,62 @@ const CANDIDATE = Object.freeze({
   version: VERSION,
   commitSha: COMMIT_SHA,
   publisherWorkflow: ".github/workflows/release.yml",
+})
+
+test("strict smoke commands preserve the result needed by the real npm audit verifier", async (t) => {
+  for (const scenario of [
+    { name: "successful signed evidence", exitCode: 0, stdout: auditOutput(), status: "verified" },
+    {
+      name: "accepted transient error",
+      exitCode: 1,
+      stdout: errorOutput("E503"),
+      status: "pending",
+    },
+    {
+      name: "nonzero exit with success-shaped evidence",
+      exitCode: 1,
+      stdout: auditOutput(),
+      error: /exit-output-conflict/u,
+    },
+    {
+      name: "unaccepted command failure",
+      exitCode: 2,
+      stdout: auditOutput(),
+      error: /command-failure/u,
+    },
+  ]) {
+    await t.test(scenario.name, async () => {
+      const runner = createStrictSmokeProcessRunner({
+        containment: {
+          async probe() {
+            return { adapter: "systemd-cgroup-v2", imageOS: "ubuntu24", imageVersion: "test" }
+          },
+          async runContained({ command, args, acceptedExitCodes }) {
+            assert.equal(command, "npm")
+            if (args[0] === "--version") {
+              return { stdout: "11.17.0\n", stderr: "", exitCode: 0 }
+            }
+            assert.equal(args[0], "audit")
+            assert.deepEqual(acceptedExitCodes, [0, 1])
+            return { stdout: scenario.stdout, stderr: "", exitCode: scenario.exitCode }
+          },
+        },
+      })
+      await runner.probe()
+      const verifier = await createNpmAuditVerifier({
+        runNpm: runner.runCommand,
+        environment: { PATH: process.env.PATH ?? "" },
+        signal: new AbortController().signal,
+      })
+      try {
+        const verify = () => verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE })
+        if (scenario.error) await assert.rejects(verify(), scenario.error)
+        else assert.equal((await verify()).status, scenario.status)
+      } finally {
+        await verifier.dispose()
+      }
+    })
+  }
 })
 
 test("parses the exact npm 11 audit shape and binds its verified SLSA statement", () => {

@@ -4,7 +4,7 @@
 
 The 0.8.31 release published all 21 packages with verified signatures and provenance. Four consumer smoke lanes passed. The metadata lane failed for every package with `npm-audit-diagnostic` classification `invalid-exit` in run 34674215423, attempt 4, job 103507425377.
 
-`createStrictSmokeProcessRunner` validates the containment result's integer `exitCode` and enforces the caller's accepted exit codes, but returns only stdout and stderr. The metadata lane passes this runner directly to `createNpmAuditVerifier`. Since the audit error classification change, that verifier requires the actual exit code. The process succeeded, but its exit status was discarded at the adapter boundary.
+`createStrictSmokeProcessRunner` validates the containment result's integer `exitCode` and enforces the caller's accepted exit codes, but returns only stdout and stderr. The metadata lane passes this runner directly to `createNpmAuditVerifier`. Since the audit error classification change, that verifier requires the actual exit code. The process returned an accepted exit code, which the runner discarded. The audit invocation accepts both 0 and 1, so the diagnostic alone does not establish which occurred.
 
 ## Repair
 

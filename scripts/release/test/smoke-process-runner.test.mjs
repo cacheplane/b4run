@@ -278,6 +278,7 @@ test("strict runner refuses workloads until its capability probe succeeds", asyn
   assert.deepEqual(await runner.runCommand("node", ["probe.mjs"], { cwd: "/tmp" }), {
     stdout: "ok",
     stderr: "",
+    exitCode: 0,
   })
   assert.equal(calls[0], "probe")
   assert.equal(calls[1].command, "node")
@@ -481,7 +482,7 @@ test("systemd cleanup hard-kills and verifies detached descendants on every outc
     })
     if (scenario === "abort") setTimeout(() => controller.abort(), 5)
     if (scenario === "success") {
-      assert.deepEqual(await promise, { stdout: "ok", stderr: "" })
+      assert.deepEqual(await promise, { stdout: "ok", stderr: "", exitCode: 0 })
     } else {
       const expected = {
         nonzero: /exit code 2/iu,
