@@ -218,7 +218,11 @@ substitute for the other or optional release cleanup.
   `scripts/release/test/fixtures/release-script-hashes.json`. Editing a reachable
   script, adding an unpinned entrypoint, or retaining a stale pin fails
   `pnpm test:release-controller` until the reviewed fixture is regenerated in
-  the same commit. Reachability is re-derived from workflow `run:` steps,
+  the same commit. The pin file also has a reviewed digest snapshot in
+  `scripts/release/test/workflow-contracts.test.mjs`; intentional pin changes
+  must update that snapshot too. Run that focused test file alongside
+  `pnpm test:release-integrity` before the full controller suite to catch
+  mismatched snapshots early. Reachability is re-derived from workflow `run:` steps,
   package-script expansion, and action `with:` inputs, and then closed
   transitively over each entrypoint's repository-local module loads — static
   `import`/`export ... from`, dynamic `import()` with a literal specifier, and
