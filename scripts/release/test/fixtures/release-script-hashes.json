@@ -134,7 +134,7 @@
       "sha256": "bdc06e4902b3e853e858166240e3dd1e068061c3ec69f74cad33f1ae122c7e1b"
     },
     "scripts/release/publisher.mjs": {
-      "sha256": "35c8a29a6eea108e2687247af654c9c185afd1c04717038c923a4a8684b1b9de"
+      "sha256": "daeb8e136aef6cc5a0310be10d11bd95f21b4a79db1cd8815f73b094885025c1"
     },
     "scripts/release/recovery/adopt.mjs": {
       "sha256": "efe0b8da53dc035932d2ce266bb88456a5547332313bca9bfa2bf50ee4e0ac8a"
