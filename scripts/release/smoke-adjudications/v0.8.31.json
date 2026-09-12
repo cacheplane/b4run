@@ -1,0 +1,45 @@
+{
+  "adjudicatedLanes": [
+    {
+      "detail": "Failed deterministically in release run 34674215423 attempt 4 (job 103507425377): all 21 audit results were rejected as invalid-exit because the strict smoke runner validated the command exit code and then omitted it from its returned result. Reproduced with the real runner and verifier; the frozen candidate cannot receive the fix.",
+      "name": "metadata",
+      "outcome": "failed"
+    },
+    {
+      "detail": "Passed in release run 34674215423 attempt 4, job 103507425385, completing at 2026-09-12T05:51:26Z.",
+      "name": "published-harness",
+      "outcome": "passed"
+    },
+    {
+      "detail": "Passed in release run 34674215423 attempt 4, job 103507425350, completing at 2026-09-12T05:50:35Z.",
+      "name": "runtime-targets",
+      "outcome": "passed"
+    },
+    {
+      "detail": "Passed in release run 34674215423 attempt 4, job 103507425376, completing at 2026-09-12T05:51:01Z.",
+      "name": "scaffold",
+      "outcome": "passed"
+    },
+    {
+      "detail": "Passed in release run 34674215423 attempt 4, job 103507425399, completing at 2026-09-12T05:50:58Z.",
+      "name": "storage",
+      "outcome": "passed"
+    }
+  ],
+  "authority": {
+    "capturedAt": "2026-09-12T16:50:50.000Z",
+    "mode": "operator-adjudication",
+    "operator": "blove",
+    "reviewedCommit": "49ec20f8ea4cbf168f0092ce195deb3597217292"
+  },
+  "commitSha": "96552800bf4bbd85c156eab12bdf2e6ade90a0a7",
+  "kind": "smoke-gate-adjudicated",
+  "manifestSha256": "1a362c6c2bd9dfd4aea97292d7556d4f0524d2a735842b7f346774b1bf2a01c9",
+  "reason": "All 21 packages published at 0.8.31 with verified npm signatures and provenance bound to this candidate; npm reconciliation passed. Anonymous downloads matched the original manifest sizes, SHA256, SHA512 and npm integrity. Four smoke lanes passed. The metadata lane fails because the candidate's own strict runner discards the exit code required by its audit verifier. Each smoke job checks out the immutable candidate, and moving the tag would invalidate published provenance, so a main-branch fix cannot repair this frozen lane. The operator approved this one-candidate exception after reviewing the failed lane, package evidence, and merged repair. Only the smoke gate is adjudicated; the independent release audit remains required.",
+  "remediation": {
+    "fixCommitSha": "49ec20f8ea4cbf168f0092ce195deb3597217292",
+    "summary": "PR #632 preserves the actual validated exit code from the strict smoke runner. Real runner-to-verifier integration regressions cover success, accepted transient errors, conflicting success-shaped output, and unaccepted exit codes. All technical CI checks passed, including 3732 controller tests. Containment, accepted-code enforcement, deadlines, and signature/provenance requirements are unchanged; the fix reaches future candidates."
+  },
+  "schemaVersion": 1,
+  "version": "0.8.31"
+}
