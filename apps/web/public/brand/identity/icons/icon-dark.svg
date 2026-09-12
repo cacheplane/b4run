@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="b4.run"><title>b4.run / dark icon</title><rect x="0" y="0" width="256" height="256" fill="#17181B"/><svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 190 115" role="img" aria-label="b4" x="24" y="65" width="208" height="126">
+<title>b4.run / D2.2 / compact</title>
+<desc>Selected D2.2 working identity. Custom native vector geometry; transparent background; no font dependencies.</desc>
+<g id="letter-b" transform="translate(0.0000 0)" fill="#FFFFFF">
+<path d="M0 4Q0 0 4 0H22V35C28 26 37 23 47 23C69 23 82 40 82 64C82 89 67 103 45 103C33 103 25 99 21 92V100H0Z M21 64C21 80 28 89 41 89C55 89 62 78 62 64C62 48 54 38 42 38C28 38 21 48 21 64Z" fill-rule="evenodd" />
+</g>
+<g id="numeral-4" transform="translate(94 0)" fill="#FFFFFF">
+<path d="M17 12H37L18 59H54V0H74V59H86V79H74V100H54V79H0V59Z" fill-rule="evenodd" />
+</g>
+</svg></svg>

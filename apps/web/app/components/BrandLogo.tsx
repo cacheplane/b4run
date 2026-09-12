@@ -26,8 +26,8 @@ export function BrandLogo({ className, imageClassName, variant = "light" }: Prop
       <Image
         src={src}
         alt="B4.run"
-        width={720}
-        height={220}
+        width={522}
+        height={115}
         className={`block h-7 w-auto ${imageClassName ?? ""}`}
         priority
       />

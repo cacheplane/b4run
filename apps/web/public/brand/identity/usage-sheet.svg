@@ -1,0 +1,214 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1800" viewBox="0 0 1200 1800"><rect x="0" y="0" width="1200" height="1800" fill="#F5F4F0"/><text x="48" y="44" font-family="Arial,sans-serif" font-size="13" fill="#111111" font-weight="400">b4.run / WORKING IDENTITY / D2.2</text><text x="48" y="115" font-family="Arial,sans-serif" font-size="48" fill="#111111" font-weight="600">Bold letters. Room to breathe.</text><text x="48" y="157" font-family="Arial,sans-serif" font-size="20" fill="#111111" font-weight="400">Selected direction: Big Dot / Raised stem / Open counter.</text><rect x="48" y="193" width="1104" height="264" fill="#FFFFFF"/><svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 522 115" role="img" aria-label="b4.run" x="85" y="244" width="780" height="168">
+<title>b4.run / D2.2 / wordmark</title>
+<desc>Selected D2.2 working identity. Custom native vector geometry; transparent background; no font dependencies.</desc>
+<g id="letter-b" transform="translate(0.0000 0)" fill="#111111">
+<path d="M0 4Q0 0 4 0H23V35C30 26 40 23 51 23C75 23 89 40 89 64C89 89 73 103 49 103C36 103 28 99 22 92V100H0Z M22 64C22 80 31 89 46 89C61 89 69 78 69 64C69 48 60 38 46 38C31 38 22 48 22 64Z" fill-rule="evenodd" />
+</g>
+<g id="numeral-4" transform="translate(105 0)" fill="#111111">
+<path d="M19 12H40L20 59H61V0H82V59H94V79H82V100H61V79H0V59Z" fill-rule="evenodd" />
+</g>
+<g id="domain-dot" transform="translate(216 0)" fill="#111111">
+<circle cx="17" cy="83" r="17" />
+</g>
+<g id="letter-r" transform="translate(269 0)" fill="#111111">
+<path d="M0 25H21L22 40C28 27 39 21 55 25L51 45C32 42 24 52 24 69V100H0Z" fill-rule="evenodd" />
+</g>
+<g id="letter-u" transform="translate(336 0)" fill="#111111">
+<path d="M0 25H24V70C24 82 28 88 38 88C49 88 55 81 55 69V25H79V100H58L56 90C49 100 41 105 28 105C9 105 0 93 0 73Z" fill-rule="evenodd" />
+</g>
+<g id="letter-n" transform="translate(430 0)" fill="#111111">
+<path d="M0 25H21L23 37C30 27 40 22 53 22C73 22 82 35 82 54V100H58V58C58 45 54 39 44 39C32 39 24 48 24 63V100H0Z" fill-rule="evenodd" />
+</g>
+</svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 190 115" role="img" aria-label="b4" x="930" y="270" width="166" height="101">
+<title>b4.run / D2.2 / compact</title>
+<desc>Selected D2.2 working identity. Custom native vector geometry; transparent background; no font dependencies.</desc>
+<g id="letter-b" transform="translate(0.0000 0)" fill="#111111">
+<path d="M0 4Q0 0 4 0H22V35C28 26 37 23 47 23C69 23 82 40 82 64C82 89 67 103 45 103C33 103 25 99 21 92V100H0Z M21 64C21 80 28 89 41 89C55 89 62 78 62 64C62 48 54 38 42 38C28 38 21 48 21 64Z" fill-rule="evenodd" />
+</g>
+<g id="numeral-4" transform="translate(94 0)" fill="#111111">
+<path d="M17 12H37L18 59H54V0H74V59H86V79H74V100H54V79H0V59Z" fill-rule="evenodd" />
+</g>
+</svg><text x="78" y="222" font-family="Arial,sans-serif" font-size="11" fill="#111111" font-weight="400">PRIMARY WORDMARK</text><text x="930" y="244" font-family="Arial,sans-serif" font-size="11" fill="#111111" font-weight="400">COMPACT</text><rect x="48" y="481" width="540" height="164" fill="#17181B"/><svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 522 115" role="img" aria-label="b4.run" x="86" y="520" width="464" height="90">
+<title>b4.run / D2.2 / wordmark</title>
+<desc>Selected D2.2 working identity. Custom native vector geometry; transparent background; no font dependencies.</desc>
+<g id="letter-b" transform="translate(0.0000 0)" fill="#FFFFFF">
+<path d="M0 4Q0 0 4 0H23V35C30 26 40 23 51 23C75 23 89 40 89 64C89 89 73 103 49 103C36 103 28 99 22 92V100H0Z M22 64C22 80 31 89 46 89C61 89 69 78 69 64C69 48 60 38 46 38C31 38 22 48 22 64Z" fill-rule="evenodd" />
+</g>
+<g id="numeral-4" transform="translate(105 0)" fill="#FFFFFF">
+<path d="M19 12H40L20 59H61V0H82V59H94V79H82V100H61V79H0V59Z" fill-rule="evenodd" />
+</g>
+<g id="domain-dot" transform="translate(216 0)" fill="#FFFFFF">
+<circle cx="17" cy="83" r="17" />
+</g>
+<g id="letter-r" transform="translate(269 0)" fill="#FFFFFF">
+<path d="M0 25H21L22 40C28 27 39 21 55 25L51 45C32 42 24 52 24 69V100H0Z" fill-rule="evenodd" />
+</g>
+<g id="letter-u" transform="translate(336 0)" fill="#FFFFFF">
+<path d="M0 25H24V70C24 82 28 88 38 88C49 88 55 81 55 69V25H79V100H58L56 90C49 100 41 105 28 105C9 105 0 93 0 73Z" fill-rule="evenodd" />
+</g>
+<g id="letter-n" transform="translate(430 0)" fill="#FFFFFF">
+<path d="M0 25H21L23 37C30 27 40 22 53 22C73 22 82 35 82 54V100H58V58C58 45 54 39 44 39C32 39 24 48 24 63V100H0Z" fill-rule="evenodd" />
+</g>
+</svg><rect x="612" y="481" width="540" height="164" fill="#B4CE37"/><svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 522 115" role="img" aria-label="b4.run" x="650" y="520" width="464" height="90">
+<title>b4.run / D2.2 / wordmark</title>
+<desc>Selected D2.2 working identity. Custom native vector geometry; transparent background; no font dependencies.</desc>
+<g id="letter-b" transform="translate(0.0000 0)" fill="#111111">
+<path d="M0 4Q0 0 4 0H23V35C30 26 40 23 51 23C75 23 89 40 89 64C89 89 73 103 49 103C36 103 28 99 22 92V100H0Z M22 64C22 80 31 89 46 89C61 89 69 78 69 64C69 48 60 38 46 38C31 38 22 48 22 64Z" fill-rule="evenodd" />
+</g>
+<g id="numeral-4" transform="translate(105 0)" fill="#111111">
+<path d="M19 12H40L20 59H61V0H82V59H94V79H82V100H61V79H0V59Z" fill-rule="evenodd" />
+</g>
+<g id="domain-dot" transform="translate(216 0)" fill="#111111">
+<circle cx="17" cy="83" r="17" />
+</g>
+<g id="letter-r" transform="translate(269 0)" fill="#111111">
+<path d="M0 25H21L22 40C28 27 39 21 55 25L51 45C32 42 24 52 24 69V100H0Z" fill-rule="evenodd" />
+</g>
+<g id="letter-u" transform="translate(336 0)" fill="#111111">
+<path d="M0 25H24V70C24 82 28 88 38 88C49 88 55 81 55 69V25H79V100H58L56 90C49 100 41 105 28 105C9 105 0 93 0 73Z" fill-rule="evenodd" />
+</g>
+<g id="letter-n" transform="translate(430 0)" fill="#111111">
+<path d="M0 25H21L23 37C30 27 40 22 53 22C73 22 82 35 82 54V100H58V58C58 45 54 39 44 39C32 39 24 48 24 63V100H0Z" fill-rule="evenodd" />
+</g>
+</svg><text x="48" y="671" font-family="Arial,sans-serif" font-size="11" fill="#111111" font-weight="400">WHITE ON INK</text><text x="612" y="671" font-family="Arial,sans-serif" font-size="11" fill="#111111" font-weight="400">RELAY / #B4CE37</text><rect x="48" y="699" width="540" height="164" fill="#ED5428"/><svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 522 115" role="img" aria-label="b4.run" x="86" y="738" width="464" height="90">
+<title>b4.run / D2.2 / wordmark</title>
+<desc>Selected D2.2 working identity. Custom native vector geometry; transparent background; no font dependencies.</desc>
+<g id="letter-b" transform="translate(0.0000 0)" fill="#111111">
+<path d="M0 4Q0 0 4 0H23V35C30 26 40 23 51 23C75 23 89 40 89 64C89 89 73 103 49 103C36 103 28 99 22 92V100H0Z M22 64C22 80 31 89 46 89C61 89 69 78 69 64C69 48 60 38 46 38C31 38 22 48 22 64Z" fill-rule="evenodd" />
+</g>
+<g id="numeral-4" transform="translate(105 0)" fill="#111111">
+<path d="M19 12H40L20 59H61V0H82V59H94V79H82V100H61V79H0V59Z" fill-rule="evenodd" />
+</g>
+<g id="domain-dot" transform="translate(216 0)" fill="#111111">
+<circle cx="17" cy="83" r="17" />
+</g>
+<g id="letter-r" transform="translate(269 0)" fill="#111111">
+<path d="M0 25H21L22 40C28 27 39 21 55 25L51 45C32 42 24 52 24 69V100H0Z" fill-rule="evenodd" />
+</g>
+<g id="letter-u" transform="translate(336 0)" fill="#111111">
+<path d="M0 25H24V70C24 82 28 88 38 88C49 88 55 81 55 69V25H79V100H58L56 90C49 100 41 105 28 105C9 105 0 93 0 73Z" fill-rule="evenodd" />
+</g>
+<g id="letter-n" transform="translate(430 0)" fill="#111111">
+<path d="M0 25H21L23 37C30 27 40 22 53 22C73 22 82 35 82 54V100H58V58C58 45 54 39 44 39C32 39 24 48 24 63V100H0Z" fill-rule="evenodd" />
+</g>
+</svg><rect x="612" y="699" width="540" height="164" fill="#F9D7C8"/><svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 522 115" role="img" aria-label="b4.run" x="650" y="738" width="464" height="90">
+<title>b4.run / D2.2 / wordmark</title>
+<desc>Selected D2.2 working identity. Custom native vector geometry; transparent background; no font dependencies.</desc>
+<g id="letter-b" transform="translate(0.0000 0)" fill="#111111">
+<path d="M0 4Q0 0 4 0H23V35C30 26 40 23 51 23C75 23 89 40 89 64C89 89 73 103 49 103C36 103 28 99 22 92V100H0Z M22 64C22 80 31 89 46 89C61 89 69 78 69 64C69 48 60 38 46 38C31 38 22 48 22 64Z" fill-rule="evenodd" />
+</g>
+<g id="numeral-4" transform="translate(105 0)" fill="#111111">
+<path d="M19 12H40L20 59H61V0H82V59H94V79H82V100H61V79H0V59Z" fill-rule="evenodd" />
+</g>
+<g id="domain-dot" transform="translate(216 0)" fill="#111111">
+<circle cx="17" cy="83" r="17" />
+</g>
+<g id="letter-r" transform="translate(269 0)" fill="#111111">
+<path d="M0 25H21L22 40C28 27 39 21 55 25L51 45C32 42 24 52 24 69V100H0Z" fill-rule="evenodd" />
+</g>
+<g id="letter-u" transform="translate(336 0)" fill="#111111">
+<path d="M0 25H24V70C24 82 28 88 38 88C49 88 55 81 55 69V25H79V100H58L56 90C49 100 41 105 28 105C9 105 0 93 0 73Z" fill-rule="evenodd" />
+</g>
+<g id="letter-n" transform="translate(430 0)" fill="#111111">
+<path d="M0 25H21L23 37C30 27 40 22 53 22C73 22 82 35 82 54V100H58V58C58 45 54 39 44 39C32 39 24 48 24 63V100H0Z" fill-rule="evenodd" />
+</g>
+</svg><text x="48" y="889" font-family="Arial,sans-serif" font-size="11" fill="#111111" font-weight="400">TIGHT SHIFT / #ED5428</text><text x="612" y="889" font-family="Arial,sans-serif" font-size="11" fill="#111111" font-weight="400">TIGHT SHIFT TINT / #F9D7C8</text><text x="48" y="953" font-family="Arial,sans-serif" font-size="30" fill="#111111" font-weight="600">Give the mark its own space.</text><rect x="48" y="980" width="580" height="173" fill="#E7EDD1"/><rect x="82" y="1014" width="512" height="105" fill="none" stroke="#758334" stroke-dasharray="4 4"/><svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 522 115" role="img" aria-label="b4.run" x="77" y="1009" width="522" height="115">
+<title>b4.run / D2.2 / wordmark</title>
+<desc>Selected D2.2 working identity. Custom native vector geometry; transparent background; no font dependencies.</desc>
+<g id="letter-b" transform="translate(0.0000 0)" fill="#111111">
+<path d="M0 4Q0 0 4 0H23V35C30 26 40 23 51 23C75 23 89 40 89 64C89 89 73 103 49 103C36 103 28 99 22 92V100H0Z M22 64C22 80 31 89 46 89C61 89 69 78 69 64C69 48 60 38 46 38C31 38 22 48 22 64Z" fill-rule="evenodd" />
+</g>
+<g id="numeral-4" transform="translate(105 0)" fill="#111111">
+<path d="M19 12H40L20 59H61V0H82V59H94V79H82V100H61V79H0V59Z" fill-rule="evenodd" />
+</g>
+<g id="domain-dot" transform="translate(216 0)" fill="#111111">
+<circle cx="17" cy="83" r="17" />
+</g>
+<g id="letter-r" transform="translate(269 0)" fill="#111111">
+<path d="M0 25H21L22 40C28 27 39 21 55 25L51 45C32 42 24 52 24 69V100H0Z" fill-rule="evenodd" />
+</g>
+<g id="letter-u" transform="translate(336 0)" fill="#111111">
+<path d="M0 25H24V70C24 82 28 88 38 88C49 88 55 81 55 69V25H79V100H58L56 90C49 100 41 105 28 105C9 105 0 93 0 73Z" fill-rule="evenodd" />
+</g>
+<g id="letter-n" transform="translate(430 0)" fill="#111111">
+<path d="M0 25H21L23 37C30 27 40 22 53 22C73 22 82 35 82 54V100H58V58C58 45 54 39 44 39C32 39 24 48 24 63V100H0Z" fill-rule="evenodd" />
+</g>
+</svg><text x="650" y="1013" font-family="Arial,sans-serif" font-size="19" fill="#111111" font-weight="400">Proposed clear space = one dot diameter.</text><text x="650" y="1048" font-family="Arial,sans-serif" font-size="17" fill="#111111" font-weight="400">34 units around the visible artwork.</text><text x="650" y="1081" font-family="Arial,sans-serif" font-size="17" fill="#111111" font-weight="400">The master’s export padding is smaller;</text><text x="650" y="1108" font-family="Arial,sans-serif" font-size="17" fill="#111111" font-weight="400">add this spacing in your layout.</text><text x="48" y="1194" font-family="Arial,sans-serif" font-size="30" fill="#111111" font-weight="600">Small surfaces</text><rect x="48" y="1222" width="16" height="16" fill="#B4CE37"/><svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 190 115" role="img" aria-label="b4" x="49.5" y="1226.0625" width="13.0" height="7.875">
+<title>b4.run / D2.2 / compact</title>
+<desc>Selected D2.2 working identity. Custom native vector geometry; transparent background; no font dependencies.</desc>
+<g id="letter-b" transform="translate(0.0000 0)" fill="#111111">
+<path d="M0 4Q0 0 4 0H22V35C28 26 37 23 47 23C69 23 82 40 82 64C82 89 67 103 45 103C33 103 25 99 21 92V100H0Z M21 64C21 80 28 89 41 89C55 89 62 78 62 64C62 48 54 38 42 38C28 38 21 48 21 64Z" fill-rule="evenodd" />
+</g>
+<g id="numeral-4" transform="translate(94 0)" fill="#111111">
+<path d="M17 12H37L18 59H54V0H74V59H86V79H74V100H54V79H0V59Z" fill-rule="evenodd" />
+</g>
+</svg><text x="48" y="1282" font-family="Arial,sans-serif" font-size="12" fill="#111111" font-weight="400">16 px</text><rect x="138" y="1222" width="24" height="24" fill="#B4CE37"/><svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 190 115" role="img" aria-label="b4" x="140.25" y="1228.09375" width="19.5" height="11.8125">
+<title>b4.run / D2.2 / compact</title>
+<desc>Selected D2.2 working identity. Custom native vector geometry; transparent background; no font dependencies.</desc>
+<g id="letter-b" transform="translate(0.0000 0)" fill="#111111">
+<path d="M0 4Q0 0 4 0H22V35C28 26 37 23 47 23C69 23 82 40 82 64C82 89 67 103 45 103C33 103 25 99 21 92V100H0Z M21 64C21 80 28 89 41 89C55 89 62 78 62 64C62 48 54 38 42 38C28 38 21 48 21 64Z" fill-rule="evenodd" />
+</g>
+<g id="numeral-4" transform="translate(94 0)" fill="#111111">
+<path d="M17 12H37L18 59H54V0H74V59H86V79H74V100H54V79H0V59Z" fill-rule="evenodd" />
+</g>
+</svg><text x="138" y="1282" font-family="Arial,sans-serif" font-size="12" fill="#111111" font-weight="400">24 px</text><rect x="228" y="1222" width="32" height="32" fill="#B4CE37"/><svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 190 115" role="img" aria-label="b4" x="231.0" y="1230.125" width="26.0" height="15.75">
+<title>b4.run / D2.2 / compact</title>
+<desc>Selected D2.2 working identity. Custom native vector geometry; transparent background; no font dependencies.</desc>
+<g id="letter-b" transform="translate(0.0000 0)" fill="#111111">
+<path d="M0 4Q0 0 4 0H22V35C28 26 37 23 47 23C69 23 82 40 82 64C82 89 67 103 45 103C33 103 25 99 21 92V100H0Z M21 64C21 80 28 89 41 89C55 89 62 78 62 64C62 48 54 38 42 38C28 38 21 48 21 64Z" fill-rule="evenodd" />
+</g>
+<g id="numeral-4" transform="translate(94 0)" fill="#111111">
+<path d="M17 12H37L18 59H54V0H74V59H86V79H74V100H54V79H0V59Z" fill-rule="evenodd" />
+</g>
+</svg><text x="228" y="1282" font-family="Arial,sans-serif" font-size="12" fill="#111111" font-weight="400">32 px</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 522 115" role="img" aria-label="b4.run" x="410" y="1221" width="160" height="36">
+<title>b4.run / D2.2 / wordmark</title>
+<desc>Selected D2.2 working identity. Custom native vector geometry; transparent background; no font dependencies.</desc>
+<g id="letter-b" transform="translate(0.0000 0)" fill="#111111">
+<path d="M0 4Q0 0 4 0H23V35C30 26 40 23 51 23C75 23 89 40 89 64C89 89 73 103 49 103C36 103 28 99 22 92V100H0Z M22 64C22 80 31 89 46 89C61 89 69 78 69 64C69 48 60 38 46 38C31 38 22 48 22 64Z" fill-rule="evenodd" />
+</g>
+<g id="numeral-4" transform="translate(105 0)" fill="#111111">
+<path d="M19 12H40L20 59H61V0H82V59H94V79H82V100H61V79H0V59Z" fill-rule="evenodd" />
+</g>
+<g id="domain-dot" transform="translate(216 0)" fill="#111111">
+<circle cx="17" cy="83" r="17" />
+</g>
+<g id="letter-r" transform="translate(269 0)" fill="#111111">
+<path d="M0 25H21L22 40C28 27 39 21 55 25L51 45C32 42 24 52 24 69V100H0Z" fill-rule="evenodd" />
+</g>
+<g id="letter-u" transform="translate(336 0)" fill="#111111">
+<path d="M0 25H24V70C24 82 28 88 38 88C49 88 55 81 55 69V25H79V100H58L56 90C49 100 41 105 28 105C9 105 0 93 0 73Z" fill-rule="evenodd" />
+</g>
+<g id="letter-n" transform="translate(430 0)" fill="#111111">
+<path d="M0 25H21L23 37C30 27 40 22 53 22C73 22 82 35 82 54V100H58V58C58 45 54 39 44 39C32 39 24 48 24 63V100H0Z" fill-rule="evenodd" />
+</g>
+</svg><text x="410" y="1282" font-family="Arial,sans-serif" font-size="12" fill="#111111" font-weight="400">160 px wordmark / proposed starting minimum</text><svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 190 115" role="img" aria-label="b4" x="943" y="1200" width="160" height="98">
+<title>b4.run / D2.2 / compact</title>
+<desc>Selected D2.2 working identity. Custom native vector geometry; transparent background; no font dependencies.</desc>
+<g id="letter-b" transform="translate(0.0000 0)" fill="#111111">
+<path d="M0 4Q0 0 4 0H22V35C28 26 37 23 47 23C69 23 82 40 82 64C82 89 67 103 45 103C33 103 25 99 21 92V100H0Z M21 64C21 80 28 89 41 89C55 89 62 78 62 64C62 48 54 38 42 38C28 38 21 48 21 64Z" fill-rule="evenodd" />
+</g>
+<g id="numeral-4" transform="translate(94 0)" fill="#111111">
+<path d="M17 12H37L18 59H54V0H74V59H86V79H74V100H54V79H0V59Z" fill-rule="evenodd" />
+</g>
+</svg><text x="48" y="1320" font-family="Arial,sans-serif" font-size="16" fill="#111111" font-weight="400">Use the compact when space is tight. Prefer 24 px or larger; 16 px is a constrained favicon use.</text><text x="48" y="1351" font-family="Arial,sans-serif" font-size="16" fill="#111111" font-weight="400">Keep proportions, punctuation and spacing intact. Use one ink per logo; keep taglines separate.</text><rect x="48" y="1390" width="1104" height="282" fill="#17181B"/><svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 522 115" role="img" aria-label="b4.run" x="76" y="1419" width="180" height="40">
+<title>b4.run / D2.2 / wordmark</title>
+<desc>Selected D2.2 working identity. Custom native vector geometry; transparent background; no font dependencies.</desc>
+<g id="letter-b" transform="translate(0.0000 0)" fill="#FFFFFF">
+<path d="M0 4Q0 0 4 0H23V35C30 26 40 23 51 23C75 23 89 40 89 64C89 89 73 103 49 103C36 103 28 99 22 92V100H0Z M22 64C22 80 31 89 46 89C61 89 69 78 69 64C69 48 60 38 46 38C31 38 22 48 22 64Z" fill-rule="evenodd" />
+</g>
+<g id="numeral-4" transform="translate(105 0)" fill="#FFFFFF">
+<path d="M19 12H40L20 59H61V0H82V59H94V79H82V100H61V79H0V59Z" fill-rule="evenodd" />
+</g>
+<g id="domain-dot" transform="translate(216 0)" fill="#FFFFFF">
+<circle cx="17" cy="83" r="17" />
+</g>
+<g id="letter-r" transform="translate(269 0)" fill="#FFFFFF">
+<path d="M0 25H21L22 40C28 27 39 21 55 25L51 45C32 42 24 52 24 69V100H0Z" fill-rule="evenodd" />
+</g>
+<g id="letter-u" transform="translate(336 0)" fill="#FFFFFF">
+<path d="M0 25H24V70C24 82 28 88 38 88C49 88 55 81 55 69V25H79V100H58L56 90C49 100 41 105 28 105C9 105 0 93 0 73Z" fill-rule="evenodd" />
+</g>
+<g id="letter-n" transform="translate(430 0)" fill="#FFFFFF">
+<path d="M0 25H21L23 37C30 27 40 22 53 22C73 22 82 35 82 54V100H58V58C58 45 54 39 44 39C32 39 24 48 24 63V100H0Z" fill-rule="evenodd" />
+</g>
+</svg><text x="798" y="1446" font-family="Arial,sans-serif" font-size="14" fill="#FFFFFF" font-weight="400">Guide   Reference   GitHub</text><rect x="76" y="1483" width="1048" height="1" fill="#47484A"/><text x="76" y="1535" font-family="Arial,sans-serif" font-size="35" fill="#FFFFFF" font-weight="600">Ridiculous speed. Readable code.</text><text x="76" y="1575" font-family="Arial,sans-serif" font-size="20" fill="#FFFFFF" font-weight="400">Built by AI. For AI builders.</text><rect x="76" y="1599" width="158" height="48" fill="#B4CE37"/><text x="97" y="1630" font-family="Arial,sans-serif" font-size="16" fill="#111111" font-weight="600">Start building</text><text x="48" y="1710" font-family="Arial,sans-serif" font-size="13" fill="#111111" font-weight="400">Documentation study / provisional copy about developer building speed, not verified performance.</text><text x="48" y="1751" font-family="Arial,sans-serif" font-size="14" fill="#111111" font-weight="400">D2.2 is the selected working direction. Both palettes remain available; rollout is not implied.</text></svg>

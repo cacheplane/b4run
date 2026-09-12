@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 522 115" role="img" aria-label="b4.run">
+<title>b4.run / D2.2 / wordmark</title>
+<desc>Selected D2.2 working identity. Custom native vector geometry; transparent background; no font dependencies.</desc>
+<g id="letter-b" transform="translate(0.0000 0)" fill="#ED5428">
+<path d="M0 4Q0 0 4 0H23V35C30 26 40 23 51 23C75 23 89 40 89 64C89 89 73 103 49 103C36 103 28 99 22 92V100H0Z M22 64C22 80 31 89 46 89C61 89 69 78 69 64C69 48 60 38 46 38C31 38 22 48 22 64Z" fill-rule="evenodd" />
+</g>
+<g id="numeral-4" transform="translate(105 0)" fill="#ED5428">
+<path d="M19 12H40L20 59H61V0H82V59H94V79H82V100H61V79H0V59Z" fill-rule="evenodd" />
+</g>
+<g id="domain-dot" transform="translate(216 0)" fill="#ED5428">
+<circle cx="17" cy="83" r="17" />
+</g>
+<g id="letter-r" transform="translate(269 0)" fill="#ED5428">
+<path d="M0 25H21L22 40C28 27 39 21 55 25L51 45C32 42 24 52 24 69V100H0Z" fill-rule="evenodd" />
+</g>
+<g id="letter-u" transform="translate(336 0)" fill="#ED5428">
+<path d="M0 25H24V70C24 82 28 88 38 88C49 88 55 81 55 69V25H79V100H58L56 90C49 100 41 105 28 105C9 105 0 93 0 73Z" fill-rule="evenodd" />
+</g>
+<g id="letter-n" transform="translate(430 0)" fill="#ED5428">
+<path d="M0 25H21L23 37C30 27 40 22 53 22C73 22 82 35 82 54V100H58V58C58 45 54 39 44 39C32 39 24 48 24 63V100H0Z" fill-rule="evenodd" />
+</g>
+</svg>

@@ -1,12 +1,27 @@
 # Brand assets
 
-The B4.run logos and reproducible product-loop media live here.
+The B4.run D2.2 logos and reproducible product-loop media live here.
 
 ## Logos
 
 - `b4-logo-horizontal-black-on-white.png` — primary logo, light background.
 - `b4-logo-horizontal-white-on-black.png` — inverted, dark background.
 - `b4-social-avatar-white-on-black-1024.png` — square social/avatar.
+
+## D2.2 identity kit
+
+The selected Big Dot / Raised stem / Open counter lettering uses native editable
+SVG geometry. The compact mark is `b4`; the primary wordmark is `b4.run`.
+
+- [Editable masters and usage sheet](../../apps/web/public/brand/identity/index.html)
+- [Usage guidance and palettes](../../apps/web/public/brand/identity/usage-notes.md)
+- [Machine-readable manifest](../../apps/web/public/brand/assets.json)
+- [Downloadable kit](../../apps/web/public/brand/b4-run-brand-assets.zip)
+
+Existing public logo URLs remain stable. White-on-dark remains the default site
+and favicon treatment; Relay and Tight Shift are supplied as palette alternatives.
+The documentation mockup in the usage sheet contains provisional messaging,
+not replacement website copy. Product-loop recordings are independent of this kit.
 
 ## Product-loop media
 
