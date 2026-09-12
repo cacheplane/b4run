@@ -2,6 +2,17 @@
 
 The B4.run D2.2 logos and reproducible product-loop media live here.
 
+## Approved visual system
+
+[Brand guidelines](./guidelines.md) define the approved Paper Relay direction:
+paper surfaces, ink typography, yellow-green accents, Inter, and JetBrains Mono.
+They take precedence over provisional palette and typography guidance in the
+original identity kit. D2.2 vector masters remain authoritative for logo geometry.
+
+The guidelines formalize the visual identity. The homepage narrative and
+structure will be rebuilt in a later phase; the current homepage and review
+mockups do not constrain that redesign.
+
 ## Logos
 
 - `b4-logo-horizontal-black-on-white.png` — primary logo, light background.
@@ -18,10 +29,12 @@ SVG geometry. The compact mark is `b4`; the primary wordmark is `b4.run`.
 - [Machine-readable manifest](../../apps/web/public/brand/assets.json)
 - [Downloadable kit](../../apps/web/public/brand/b4-run-brand-assets.zip)
 
-Existing public logo URLs remain stable. White-on-dark remains the default site
-and favicon treatment; Relay and Tight Shift are supplied as palette alternatives.
+Existing public logo URLs remain stable. This original kit supplies monochrome,
+Relay, and Tight Shift alternatives. Its usage sheet, notes, and ZIP are an earlier
+snapshot; synchronizing them to the approved guidelines is a subsequent task.
 The documentation mockup in the usage sheet contains provisional messaging,
-not replacement website copy. Product-loop recordings are independent of this kit.
+not replacement website copy. These guidelines do not change live styling or
+favicon selection. Product-loop recordings are independent of this kit.
 
 ## Product-loop media
 
