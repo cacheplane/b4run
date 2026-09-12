@@ -1,5 +1,7 @@
 # @dawn-ai/sdk
 
+## 0.8.31
+
 ## 0.8.30
 
 ### Patch Changes

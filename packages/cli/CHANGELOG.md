@@ -1,5 +1,18 @@
 # @dawn-ai/cli
 
+## 0.8.31
+
+### Patch Changes
+
+- @b4run/ag-ui@0.8.31
+- @b4run/core@0.8.31
+- @b4run/langchain@0.8.31
+- @b4run/langgraph@0.8.31
+- @b4run/memory@0.8.31
+- @b4run/permissions@0.8.31
+- @b4run/sdk@0.8.31
+- @b4run/sqlite-storage@0.8.31
+
 ## 0.8.30
 
 ### Patch Changes
