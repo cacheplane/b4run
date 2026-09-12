@@ -230,7 +230,7 @@
       "sha256": "37ffb629366bd21e31da07795cc87e3047aa1ca1bc61a1f2ec606e1ff59aff51"
     },
     "scripts/release/smoke-process-runner.mjs": {
-      "sha256": "453072ab899f3a542a634baa7d368f6f2d6a65b889ab3c11eb080a7b3f43449f"
+      "sha256": "0a7d3d377a2b6b55ad9deaebe14dcc5b379f363078ad7aee51b97fe339215e69"
     },
     "scripts/release/smoke-result.mjs": {
       "sha256": "5595e7bd2bab245f0a4c2862be634f26aec9be9f137895f3ac9fa1bd08f60d43"
