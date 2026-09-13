@@ -1,7 +1,7 @@
 # Paper Relay Docs Styling
 
-Status: design sections approved in conversation; independent spec review approved;
-written spec awaiting user review.
+Status: design sections and written spec approved by the user; independent spec
+review approved. Ready for implementation planning.
 
 ## Outcome
 
