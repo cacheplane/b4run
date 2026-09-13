@@ -47,9 +47,9 @@ an actual in-scope docs consumer requires a hook; its default appearance stays.
 
 ## Task 1: Baseline and test preparation
 
-- [ ] Confirm `git status --short --branch`, PR #631 state/head, and current
+- [x] Confirm `git status --short --branch`, PR #631 state/head, and current
   `AGENTS.md`. Preserve other work. Run `pnpm install --frozen-lockfile` if needed.
-- [ ] Start `pnpm --filter @b4run/web dev --port 59621` from the root. Save baseline
+- [x] Start `pnpm --filter @b4run/web dev --port 59621` from the root. Save baseline
   screenshots outside tracked source at desktop 1440 px, tablet 768 px, and mobile
   390 px. Use the same viewport and content positions for final comparisons.
 - [ ] Baseline `/docs/routes` (prose/code), `/docs/getting-started` and
@@ -58,11 +58,11 @@ an actual in-scope docs consumer requires a hook; its default appearance stays.
   `rg -n '<Callout|<Steps|<Tabs' apps/web/content/docs` to select and record actual
   additional routes for info/tip/danger/steps/tabs. If a type is not used in
   content, verify its rendered component in tests instead of adding a public page.
-- [ ] Capture `/`, one existing `/blog/<slug>` from `apps/web/content/blog`,
+- [x] Capture `/`, one existing `/blog/<slug>` from `apps/web/content/blog`,
   shared header/footer, and mobile menu for non-docs leakage comparisons.
-- [ ] Run `pnpm --filter @b4run/web test` and record the baseline. Inspect current
+- [x] Run `pnpm --filter @b4run/web test` and record the baseline. Inspect current
   search/page-action/anchor tests before adding coverage; avoid duplicate suites.
-- [ ] Add focused failing tests for the new boundary and semantic changes: docs
+- [x] Add focused failing tests for the new boundary and semantic changes: docs
   wrapper and rendered search portal have explicit scopes; callout types remain
   identifiable without titles inside docs; custom titles/content remain intact;
   non-docs callouts have no newly visible labels. Use DOM/render tests, not CSS
@@ -72,35 +72,35 @@ an actual in-scope docs consumer requires a hook; its default appearance stays.
 
 ## Task 2: Scope and shared rendering contracts
 
-- [ ] In `docs/layout.tsx`, import `./docs-brand.css` and wrap the existing
+- [x] In `docs/layout.tsx`, import `./docs-brand.css` and wrap the existing
   `ReadingLayout` in `<div data-docs-brand>`. Do not add overflow/transform or
   positioning that changes sticky behavior.
-- [ ] Add `data-docs-brand` to the existing root of the `DocsSearch` portal. Keep
+- [x] Add `data-docs-brand` to the existing root of the `DocsSearch` portal. Keep
   its fixed positioning, overlay, keyboard handling, query/results, and navigation
   unchanged. `PageActions` is currently an inline absolute dropdown, not a portal;
   it inherits the docs boundary.
-- [ ] Add stable hooks such as `data-docs-nav-item`, `data-active`,
+- [x] Add stable hooks such as `data-docs-nav-item`, `data-active`,
   `data-code-frame`, `data-code-header`, and `data-callout-type` to existing DOM
   elements where needed. Preserve existing default utility classes.
-- [ ] For callout type labels, use the smallest docs-only rendering mechanism.
+- [x] For callout type labels, use the smallest docs-only rendering mechanism.
   One viable approach is a small client context provider at the docs boundary
   and a context-aware label subcomponent inside the existing server-compatible
   Callout. It returns null outside docs, and renders Info/Tip/Warning/Danger
   inside docs alongside any custom title. Do not convert all MDX or the root
   layout into client components. Add `DocsBrandProvider.tsx` under
   `app/components/docs/` if this mechanism is chosen and cover its default case.
-- [ ] Run `pnpm --filter @b4run/web test app/components/docs/docs-brand.test.tsx`.
+- [x] Run `pnpm --filter @b4run/web test app/components/docs/docs-brand.test.tsx`.
   Expected: new boundary/label tests pass; existing tests remain for later suite.
-- [ ] Commit the small scoping/semantic change with a focused message.
+- [x] Commit the small scoping/semantic change with a focused message.
 
 ## Task 3: Dark syntax without blog regressions
 
-- [ ] Add a real MDX compilation test using the existing plugin list and a code
+- [x] Add a real MDX compilation test using the existing plugin list and a code
   fence with keywords, strings, comments and plain identifiers. Assert heading
   IDs/code text remain unchanged and tokens provide light and dark color values.
   Run `pnpm --filter @b4run/web test app/components/docs/docs-syntax-theme.test.ts`; expect failure
   before changing the single-theme pipeline.
-- [ ] Configure `rehype-pretty-code` with
+- [x] Configure `rehype-pretty-code` with
   `theme: { light: "github-light", dark: "github-dark" }`, retaining
   `keepBackground: false` and existing language defaults. Inspect the actual
   emitted HTML for installed versions before writing selectors. Preserve the
@@ -112,65 +112,65 @@ an actual in-scope docs consumer requires a hook; its default appearance stays.
   for dual-theme code; do not change root tokens or prose. Scoped docs rules must
   win by specificity regardless of stylesheet load order. Do not globally
   activate dark mode or depend on docs CSS to style a direct blog load.
-- [ ] Under `[data-docs-brand]` only, select emitted dark variables for token
+- [x] Under `[data-docs-brand]` only, select emitted dark variables for token
   color (normally `--shiki-dark`), background, font style, weight and decoration
   where supplied. Set plain code foreground to paper and frame background to
   `#17181B`. Verify actual syntax contrast and adjust a docs-only token palette
   if needed; do not replace all token colors with a single foreground.
-- [ ] Run the compilation test and existing MDX/anchor tests. In the browser,
+- [x] Run the compilation test and existing MDX/anchor tests. In the browser,
   compare a fresh direct blog load against baseline, then navigate blog → docs
   → blog and inspect computed token colors in each. Also test a direct docs load. Expected: light blog code, dark docs code, unchanged code text.
-- [ ] Commit the syntax-output change with its regression test.
+- [x] Commit the syntax-output change with its regression test.
 
 ## Task 4: Apply the approved component treatments
 
-- [ ] Define scoped tokens in `docs-brand.css`: paper `#F5F4F0`, ink `#111111`,
+- [x] Define scoped tokens in `docs-brand.css`: paper `#F5F4F0`, ink `#111111`,
   dark `#17181B`, Relay `#B4CE37`, tint `#E7EDD1`; use neutral muted text and
   dividers meeting the spec's contrast rules. Root/body token defaults remain.
-- [ ] Apply Inter to docs headings/prose and JetBrains Mono to code/labels using
+- [x] Apply Inter to docs headings/prose and JetBrains Mono to code/labels using
   existing font variables. Override shared display typography only within docs.
   Preserve heading scale and reading width; remove irrelevant font-variation
   settings within docs if necessary for predictable Inter rendering.
-- [ ] Style active navigation with tint and an ink marker, preserving
+- [x] Style active navigation with tint and an ink marker, preserving
   current-page semantics; decorate article h2 sections with thin rules and small
   Relay markers using empty pseudo-elements. No text glyphs in heading content.
-- [ ] Style square dark code frames/header bars, copy states, group tabs and
+- [x] Style square dark code frames/header bars, copy states, group tabs and
   selected indicators. Keep inline code neutral and light; prevent rules for
   inline code from leaking into block code. Preserve mobile inline wrapping.
-- [ ] Style info/tip callouts with tint and ink labels. Warn/danger retain distinct
+- [x] Style info/tip callouts with tint and ink labels. Warn/danger retain distinct
   semantic colors and explicit labels. Style tables, steps, tabs, related cards,
   previous/next links, breadcrumbs, page actions and search results consistently.
-- [ ] Use underlined prose links and square buttons. Provide ink focus outlines
+- [x] Use underlined prose links and square buttons. Provide ink focus outlines
   on paper and contrasting light outlines on dark surfaces, including selected,
   hover and copy-feedback states. Decorative pale rules are not control outlines.
-- [ ] Preserve scoped overflow for code/tables and existing mobile UI. Do not
+- [x] Preserve scoped overflow for code/tables and existing mobile UI. Do not
   use blanket `overflow:hidden` or global border-radius resets as shortcuts.
-- [ ] Run `pnpm --filter @b4run/web lint` and `pnpm --filter @b4run/web test`.
+- [x] Run `pnpm --filter @b4run/web lint` and `pnpm --filter @b4run/web test`.
   Expected: pass; fix only changes attributable to this work. Commit treatments.
 
 ## Task 5: Browser verification, review and submission
 
-- [ ] Repeat baseline views at all three widths. Check text/syntax contrast,
+- [x] Repeat baseline views at all three widths. Check text/syntax contrast,
   loaded and fallback fonts, h2 decoration, no page overflow, code/table scroll,
   active outline, sticky offsets, and all callout variants. Record screenshots
   and exact routes outside tracked application source.
-- [ ] Exercise keyboard search including no results, result navigation and
+- [x] Exercise keyboard search including no results, result navigation and
   Escape; copy controls and feedback; page-action menu; tabs; anchor navigation;
   previous/next; and the unchanged mobile menu. Test portal focus visibly.
-- [ ] Compare non-docs pages/chrome against baseline. Any visual leakage blocks
+- [x] Compare non-docs pages/chrome against baseline. Any visual leakage blocks
   completion. Re-run targeted checks after fixes; do not claim blocked browser
   scenarios passed or bypass browser URL policy restrictions.
-- [ ] Run `git diff --check`, `pnpm build`, `pnpm --filter @b4run/web typecheck`,
+- [x] Run `git diff --check`, `pnpm build`, `pnpm --filter @b4run/web typecheck`,
   `node scripts/check-docs.mjs`, and `node scripts/check-changesets.mjs`. Build
   before checks consuming package dist. No package changeset is expected.
-- [ ] Run `pnpm ci:validate` and record outcomes. This is not the narrow prose
+- [x] Run `pnpm ci:validate` and record outcomes. This is not the narrow prose
   exception. Diagnose failures using @superpowers:systematic-debugging; retain
   original and rerun results separately. Do not claim an aggregate pass after
   merely rerunning one failed test.
-- [ ] Use @superpowers:requesting-code-review for a bounded review against the
+- [x] Use @superpowers:requesting-code-review for a bounded review against the
   spec, emphasizing shared-style leakage, dark token rendering, mobile header
   exclusion, and interaction preservation. Resolve substantive findings.
-- [ ] Update spec/plan status and commit the final result. Check PR #631 state
+- [x] Update spec/plan status and commit the final result. Check PR #631 state
   and active GitHub workflow runs; respect the two-active-full-CI submission
   constraint, including main. Push only after local checks/review permit it.
 - [ ] Create the docs PR on the correct base as described above, using a body
@@ -181,6 +181,41 @@ an actual in-scope docs consumer requires a hook; its default appearance stays.
 ## Handoff
 
 Independent plan review approved after correcting the direct-load light syntax
-boundary. Implementation has not started. The user approved the written design spec.
-Execute this plan inline by default, consistent with the existing workflow, once
-the plan review is complete. No further brand direction decisions are needed.
+boundary. Implementation completed inline in `fd396571`, with one cohesive
+implementation commit after the scoping, syntax, and treatment checks rather
+than separate intermediate commits. Independent code review approved with no
+substantive findings.
+
+Verification record:
+
+- Baseline website suite: 606 passed, one skipped. Final website suite: 612 passed,
+  one skipped. The new regression suites failed before implementation; all six new
+  semantic/syntax tests passed afterward. Final web lint passes without warnings.
+- Browser inspected Routes, Agents, Permissions, Access Control, State, SDK API
+  reference, and Testing at representative 1440/768/390 px widths. Code and
+  tables stay contained; checked pages have no horizontal page overflow.
+- Search query/results and empty state, Escape dismissal, code copy and feedback,
+  keyboard code-tab selection, page actions, anchors, and mobile menu were checked.
+  Info and tip labels were checked on real pages; danger is covered in component
+  tests because no current docs page uses that callout type.
+- Direct blog load and docs-to-blog navigation preserve sampled syntax colors,
+  heading font, header markup and footer markup. Homepage stays outside scope.
+- Blocked actual font requests in a separate browser session: Inter and JetBrains
+  Mono fell back successfully, with no horizontal overflow at 390 or 1440 px.
+- GitHub Dark comments initially measured 3.69:1; docs-only adjustment raises
+  contrast. Final Routes token audit has zero colors below 4.5:1 (minimum 6.68:1).
+- Screenshots and comparison data are local in `/tmp/b4-docs-visual/`.
+- Final website build and docs completeness passed. Full source suite passed:
+  5,881 tests passed, 218 skipped. The complete `pnpm ci:validate` run exited 0:
+  release-controller (3,727 tests), package and TypeScript tooling checks,
+  chart-version checks, docs completeness, and all three harness lanes passed.
+  Harness artifacts: `artifacts/testing/harness-2026-09-13T030024-620Z-45114/`.
+  The final web build was also rerun successfully after the comment-contrast fix.
+- Baseline screenshots cover Routes at all three widths and the homepage/blog
+  at desktop. The additional representative docs pages were inspected after
+  implementation; no before screenshots were captured for every listed route.
+
+The implementation adds a small docs context provider and label leaf. New tests
+live under `app/` for existing Vitest discovery; portal tests use jsdom. Shared
+light syntax defaults live in root CSS but target only emitted syntax tokens;
+all Paper Relay colors and dark syntax rules remain under the docs boundary.

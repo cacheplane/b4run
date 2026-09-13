@@ -1,7 +1,8 @@
 # Paper Relay Docs Styling
 
 Status: design sections and written spec approved by the user; independent spec
-review approved. Ready for implementation planning.
+review approved. Implemented, independently reviewed, and locally validated;
+see the [execution record](../plans/2026-09-12-paper-relay-docs-styling.md).
 
 ## Outcome
 
