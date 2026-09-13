@@ -65,7 +65,7 @@
       "sha256": "29c5d3cb5f9981a5f15bbbbd14ca816ecc2a1f40a26e56cfdaa702ae6b4e35cc"
     },
     "scripts/release/candidate.mjs": {
-      "sha256": "a87a1d5f624dc9254b47569d20bd6739fa52c97ea0649e0a4dcd855633f37ec5"
+      "sha256": "81c1c662cdbe68efe5f65d767af8d4df1ae2998f3ca4a2f6010511158c3df737"
     },
     "scripts/release/cli.mjs": {
       "sha256": "ae707a313100796ea63149967bf956b09a39e8c5e512f6f3bcee4ac2e023194c"
