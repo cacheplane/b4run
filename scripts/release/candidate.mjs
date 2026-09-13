@@ -1312,6 +1312,13 @@ function classifyRequiredCi({ sha, checkResult, workflowResult }) {
   ) {
     return failedCi(sha, "required-ci-identity-conflict")
   }
+  if (
+    namedChecks.length === 0 &&
+    ["queued", "in_progress", "waiting", "pending", "requested"].includes(workflow.status) &&
+    workflow.conclusion === null
+  ) {
+    return { status: "pending" }
+  }
   const checks = namedChecks.filter(
     (check) => String(check.check_suite.id) === String(workflow.check_suite_id),
   )

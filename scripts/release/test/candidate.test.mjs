@@ -2055,7 +2055,8 @@ function ciFixture(attempts) {
     attemptsRead: () => index,
     async getCommitCheckRuns({ commitSha }) {
       assert.equal(commitSha, SHA_22)
-      return present("commit-check-runs", [attempts[Math.min(index, attempts.length - 1)].check])
+      const check = attempts[Math.min(index, attempts.length - 1)].check
+      return present("commit-check-runs", check === undefined ? [] : [check])
     },
     async listWorkflowRuns({ workflow, commitSha }) {
       assert.equal(workflow, "ci.yml")
@@ -2491,3 +2492,80 @@ function operatorRecoveryAbandonmentRelease(id) {
     ),
   }
 }
+
+for (const status of ["queued", "in_progress", "waiting", "pending", "requested"]) {
+  test(`required CI waits for an absent validate job while exact main CI is ${status}`, async () => {
+    const absent = ciAttempt({ status })
+    delete absent.check
+    const fixture = ciFixture([
+      absent,
+      ciAttempt({ status: "in_progress" }),
+      ciAttempt({ status: "completed", conclusion: "success" }),
+    ])
+    const delays = []
+    const result = await waitForRequiredCi({
+      sha: SHA_22,
+      github: fixture,
+      attempts: 3,
+      delayMs: 25,
+      delay: async (ms) => delays.push(ms),
+    })
+    assert.equal(result.status, "success")
+    assert.deepEqual(delays, [25, 25])
+    assert.equal(fixture.attemptsRead(), 3)
+  })
+}
+
+test("an absent validate job remains bounded by the existing polling budget", async () => {
+  const absent = ciAttempt({ status: "in_progress" })
+  delete absent.check
+  const fixture = ciFixture([absent])
+  let delays = 0
+  const result = await waitForRequiredCi({
+    sha: SHA_22,
+    github: fixture,
+    attempts: 3,
+    delayMs: 1,
+    delay: async () => delays++,
+  })
+  assert.equal(result.status, "timeout")
+  assert.equal(result.retryable, true)
+  assert.equal(fixture.attemptsRead(), 3)
+  assert.equal(delays, 2)
+})
+
+for (const [label, overrides] of [
+  ["completed success", { status: "completed", conclusion: "success" }],
+  ["completed failure", { status: "completed", conclusion: "failure" }],
+  ["completed cancellation", { status: "completed", conclusion: "cancelled" }],
+  ["unknown status", { status: "unknown" }],
+  ["premature conclusion", { status: "in_progress", conclusion: "success" }],
+  ["wrong suite", { status: "in_progress", workflowSuiteId: 0 }],
+  ["wrong branch", { status: "in_progress", workflowBranch: "feature" }],
+  ["wrong event", { status: "in_progress", workflowEvent: "pull_request" }],
+]) {
+  test(`absent validate cannot hide ${label}`, async () => {
+    const absent = ciAttempt(overrides)
+    delete absent.check
+    const result = await waitForRequiredCi({
+      sha: SHA_22,
+      github: ciFixture([absent]),
+      attempts: 3,
+      delayMs: 1,
+      delay: async () => assert.fail("invalid identity must stop immediately"),
+    })
+    assert.equal(result.status, "failed")
+    assert.equal(result.retryable, false)
+  })
+}
+
+test("an uncorrelated validate check cannot take the new absent-job route", async () => {
+  const result = await waitForRequiredCi({
+    sha: SHA_22,
+    github: ciFixture([ciAttempt({ status: "in_progress", workflowSuiteId: 88 })]),
+    attempts: 3,
+    delayMs: 1,
+    delay: async () => assert.fail("identity conflict must stop immediately"),
+  })
+  assert.equal(result.status, "failed")
+})
