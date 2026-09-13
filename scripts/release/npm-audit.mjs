@@ -472,7 +472,7 @@ function isExactPropagationError(error, entry) {
     return error.summary === `No matching version found for ${entry.name}@${entry.version}.`
   }
   if (error.code === "E404") {
-    const escapedName = entry.name.replace("/", "%2f")
+    const escapedName = entry.name.replaceAll("/", "%2f")
     return (
       error.summary ===
       `Not Found - GET https://registry.npmjs.org/-/npm/v1/attestations/${escapedName}@${entry.version} - Not found`

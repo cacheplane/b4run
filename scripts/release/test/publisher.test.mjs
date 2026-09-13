@@ -3019,7 +3019,7 @@ for (const code of ["ECONNRESET", "ETARGET", "E404"]) {
                           ? "secret-output"
                           : code === "ETARGET"
                             ? `No matching version found for ${entry.name}@${entry.version}.`
-                            : `Not Found - GET https://registry.npmjs.org/-/npm/v1/attestations/${entry.name.replace("/", "%2f")}@${entry.version} - Not found`,
+                            : `Not Found - GET https://registry.npmjs.org/-/npm/v1/attestations/${entry.name.replaceAll("/", "%2f")}@${entry.version} - Not found`,
                       detail: "secret-output",
                     },
                   }),

@@ -1458,7 +1458,7 @@ function propagationError(code, entry = ENTRY) {
   const summary =
     code === "ETARGET"
       ? `No matching version found for ${entry.name}@${entry.version}.`
-      : `Not Found - GET https://registry.npmjs.org/-/npm/v1/attestations/${entry.name.replace("/", "%2f")}@${entry.version} - Not found`
+      : `Not Found - GET https://registry.npmjs.org/-/npm/v1/attestations/${entry.name.replaceAll("/", "%2f")}@${entry.version} - Not found`
   return { code, summary, detail: AUDIT_SECRET }
 }
 

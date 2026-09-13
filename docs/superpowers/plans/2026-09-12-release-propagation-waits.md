@@ -32,6 +32,8 @@ Files: `scripts/release/candidate.mjs`, `scripts/release/test/candidate.test.mjs
 Files: `scripts/release/test/fixtures/release-script-hashes.json`, digest in `scripts/release/test/workflow-contracts.test.mjs`, release performance runbook.
 
 - [x] Update changed source pins and digest; run integrity and workflow contracts.
-- [ ] Run relevant focused and complete controller suites; lint and independent review.
+- [x] Run relevant focused and complete controller suites; lint and independent review.
 - [x] Update performance runbook with behavior and measurement limits.
 - [ ] Submit one PR, complete required hosted checks including Vercel and CopilotKit, and merge on green. Preserve active CI/release runs. Verify main checks without cutting another release.
+
+Validation before submission: 3,847 complete controller tests, 440 focused/workflow-contract tests, 33 integrity checks, lint and documentation checks passed; independent implementation review found no actionable issues. CodeQL identified single-occurrence slash replacement. The follow-up uses `replaceAll` in the production matcher and both test helpers; package-name validation permits at most one slash, so accepted inputs retain identical behavior. The correction also received independent review and will receive full hosted validation before merge.
