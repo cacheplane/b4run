@@ -1,14 +1,15 @@
 {
   "name": "B4.run Brand Assets",
-  "version": "2026-09-07",
-  "description": "Official B4.run logos, icons, favicons, and social assets for developers and coding agents.",
+  "version": "2026-09-12-paper-relay-v1",
+  "description": "B4.run Paper Relay identity kit: D2.2 logos, guidelines, typography, usage proofs, and archived alternatives.",
   "homepage": "/",
   "downloadUrl": "/brand/b4-run-brand-assets.zip",
   "manifestUrl": "/brand/assets.json",
   "usage": {
-    "summary": "Use the official files as provided. Use white assets on dark backgrounds and black assets on light backgrounds. Do not stretch, recolor, redraw, or imply endorsement.",
-    "preferredLogo": "logo-horizontal-white-svg",
-    "preferredIcon": "icon-white-svg"
+    "summary": "Paper Relay is the approved default. Use ink D2.2 masters on paper and accent fields, and white on dark. Preserve geometry and letter spacing, allow one dot diameter of clear space, and keep taglines separate. These preferences do not change deployed website styling or favicon selection.",
+    "preferredLogo": "logo-horizontal-black-svg",
+    "preferredIcon": "icon-black-svg",
+    "guidelinesUrl": "/brand/identity/usage-notes.md"
   },
   "assets": [
     {
@@ -103,7 +104,7 @@
       "type": "favicon",
       "format": "ico",
       "url": "/favicon.ico",
-      "background": "transparent",
+      "background": "included",
       "recommendedFor": [
         "browser favicon"
       ]
@@ -119,6 +120,85 @@
         "web apps",
         "installable app metadata"
       ]
+    },
+    {
+      "id": "wordmark-relay-svg",
+      "label": "D2.2 wordmark, relay",
+      "type": "logo",
+      "format": "svg",
+      "url": "/brand/identity/logos/wordmark-relay.svg",
+      "background": "dark",
+      "recommendedFor": [
+        "brand applications"
+      ]
+    },
+    {
+      "id": "compact-relay-svg",
+      "label": "D2.2 compact, relay",
+      "type": "icon",
+      "format": "svg",
+      "url": "/brand/identity/logos/compact-relay.svg",
+      "background": "dark",
+      "recommendedFor": [
+        "brand applications"
+      ]
+    },
+    {
+      "id": "wordmark-tight-shift-svg",
+      "label": "Archived alternative: D2.2 wordmark, tight-shift",
+      "type": "logo",
+      "format": "svg",
+      "url": "/brand/identity/logos/wordmark-tight-shift.svg",
+      "background": "dark",
+      "recommendedFor": [
+        "historical reference"
+      ]
+    },
+    {
+      "id": "compact-tight-shift-svg",
+      "label": "Archived alternative: D2.2 compact, tight-shift",
+      "type": "icon",
+      "format": "svg",
+      "url": "/brand/identity/logos/compact-tight-shift.svg",
+      "background": "dark",
+      "recommendedFor": [
+        "historical reference"
+      ]
+    },
+    {
+      "id": "usage-sheet-png",
+      "label": "Paper Relay brand system usage sheet",
+      "type": "guide",
+      "format": "png",
+      "url": "/brand/identity/usage-sheet.png",
+      "background": "included",
+      "dimensions": {
+        "width": 1200,
+        "height": 1800
+      },
+      "recommendedFor": [
+        "identity guidance"
+      ]
     }
-  ]
+  ],
+  "palettes": {
+    "shared": {
+      "ink": "#111111",
+      "paper": "#F5F4F0",
+      "dark": "#17181B"
+    },
+    "relay": {
+      "accent": "#B4CE37",
+      "tint": "#E7EDD1"
+    },
+    "tightShift": {
+      "accent": "#ED5428",
+      "tint": "#F9D7C8"
+    }
+  },
+  "defaultPalette": "relay",
+  "paletteStatus": {
+    "relay": "approved",
+    "tightShift": "archived"
+  }
 }

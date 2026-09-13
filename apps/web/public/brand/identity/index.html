@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="description" content="The b4.run Paper Relay identity: approved guidelines, D2.2 logo masters, typography, and small-size proofs.">
+    <title>b4.run — Paper Relay brand kit</title>
+    <style>
+      @font-face{font-family:Inter;src:url("fonts/Inter-400.ttf") format("truetype");font-weight:400;font-display:swap}
+      @font-face{font-family:Inter;src:url("fonts/Inter-600.ttf") format("truetype");font-weight:600;font-display:swap}
+      @font-face{font-family:"JetBrains Mono";src:url("fonts/JetBrainsMono-400.ttf") format("truetype");font-weight:400;font-display:swap}
+      :root{--paper:#f5f4f0;--ink:#111;--muted:#595b53;--relay:#b4ce37;--tint:#e7edd1;--dark:#17181b;--line:#d6d6cc}
+      *{box-sizing:border-box}html{scroll-padding-top:24px}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.75 Inter,Arial,sans-serif}
+      a{color:inherit;text-decoration-thickness:1px;text-underline-offset:4px}a:hover{text-decoration-thickness:2px}a:focus-visible,summary:focus-visible{outline:3px solid #667811;outline-offset:5px}
+      .skip{position:absolute;left:24px;top:-100px;background:var(--ink);color:white;padding:12px;z-index:2}.skip:focus{top:16px}
+      main{max-width:1200px;margin:auto;padding:0 48px}header{padding:32px 0;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:28px}
+      .logo{display:block;width:160px;height:auto}nav{display:flex;gap:22px;flex-wrap:wrap;font-size:13px}section{padding:48px 0;border-bottom:1px solid var(--line)}
+      h1,h2,h3{font-weight:600;line-height:1.15;letter-spacing:-.035em;margin:0 0 24px}h1{font-size:64px;max-width:850px;margin:22px 0}h2{font-size:32px}h3{font-size:21px;letter-spacing:-.02em;margin:0 0 12px}
+      p{margin:0 0 18px;max-width:74ch;color:var(--muted)}strong{font-weight:600;color:var(--ink)}.eyebrow{font:11px/1.6 "JetBrains Mono",monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+      .dot{display:inline-block;width:.16em;height:.16em;border-radius:50%;background:var(--relay);margin-left:.07em}
+      .actions{display:flex;align-items:center;gap:20px;flex-wrap:wrap;margin-top:28px;font-size:14px}.primary{background:var(--relay);border:1px solid var(--ink);padding:11px 18px;text-decoration:none;font-weight:600}.primary:hover{background:#c3db4c;text-decoration:underline}
+      .summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px}.swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:28px 0}.swatch{border:1px solid var(--line);padding:16px;min-height:120px;display:flex;flex-direction:column;justify-content:space-between}.swatch span{font-size:13px}.swatch code{font:12px "JetBrains Mono",monospace}
+      .paper{background:var(--paper)}.ink{background:var(--ink);color:var(--paper);border-color:var(--ink)}.relay{background:var(--relay);border-color:var(--relay)}.dark{background:var(--dark);color:var(--paper);border-color:var(--dark)}
+      .note{padding:16px 20px;background:var(--tint);border-left:3px solid #718719;margin:24px 0;font-size:14px;color:#424d18}.note p{color:inherit;margin:0}.type-sample{font-size:40px;line-height:1.1;letter-spacing:-.04em;font-weight:600;margin:24px 0}
+      .mono-sample{padding:24px;background:var(--dark);color:var(--paper);font:14px/1.8 "JetBrains Mono",monospace;overflow-wrap:anywhere}.small{font-size:13px}
+      .sheet{display:block;width:100%;height:auto;border:1px solid var(--line);margin-top:28px}figure{margin:0}figcaption{font-size:13px;color:var(--muted);margin-top:14px}.downloads{display:flex;flex-wrap:wrap;gap:12px 24px;margin-top:22px;font-size:14px}
+      .proofs{display:flex;gap:24px;align-items:end;flex-wrap:wrap;margin:25px 0}.proof{display:flex;flex-direction:column;gap:12px;font:11px/1.5 "JetBrains Mono",monospace}.proof img{display:block;max-width:none}.wordmarks{align-items:start;gap:28px}.proof-panel{padding:24px;margin:20px 0}.proof-panel.dark a:focus-visible{outline-color:var(--relay)}
+      ul{padding-left:22px}li{margin-bottom:10px;color:var(--muted)}.filelinks{display:flex;gap:12px 24px;flex-wrap:wrap;font-size:14px}details{margin:24px 0}summary{cursor:pointer;font-weight:600}details>div{padding-top:20px}.archived{border-left:2px solid var(--line);padding-left:24px}
+      footer{padding:32px 0 48px;font-size:13px;color:var(--muted)}footer p{font-size:13px}.footer-links{display:flex;gap:20px;flex-wrap:wrap}
+      @media(max-width:760px){main{padding:0 24px}header{align-items:start;flex-direction:column;padding:25px 0}h1{font-size:44px}h2{font-size:28px}section{padding:36px 0}.summary-grid{grid-template-columns:1fr;gap:28px}.swatches{grid-template-columns:1fr 1fr}.type-sample{font-size:32px}.proof-panel{padding:16px}.proofs{gap:18px}.wordmarks{flex-direction:column}.archived{padding-left:16px}nav{gap:15px}.downloads{gap:14px}}
+      @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+    </style>
+  </head>
+  <body>
+    <a class="skip" href="#content">Skip to brand guidelines</a>
+    <main>
+      <header>
+        <img class="logo" src="logos/wordmark-ink.svg" width="522" height="115" alt="b4.run">
+        <nav aria-label="Brand reference"><a href="#rules">Guidelines</a><a href="#sheet">Usage sheet</a><a href="#proofs">Size proofs</a><a href="#archive">Archive</a></nav>
+      </header>
+      <section id="content">
+        <div class="eyebrow">D2.2 / Approved visual system / September 2026</div>
+        <h1>Paper Relay<span class="dot" aria-hidden="true"></span></h1>
+        <p>Paper surfaces. Ink typography. A deliberate yellow-green accent. The b4.run brand kit brings the approved visual system together with the original D2.2 masters.</p>
+        <div class="actions"><a class="primary" href="guidelines.md">Read the full guidelines</a><a href="usage-notes.md">Concise usage notes</a><a href="https://b4.run/brand/b4-run-brand-assets.zip">Download kit (online) ↗</a></div>
+      </section>
+      <section id="rules">
+        <div class="eyebrow">01 / Logo and space</div>
+        <h2 style="margin-top:16px">Keep the mark intact.</h2>
+        <div class="summary-grid"><div><p>The primary wordmark is <strong>b4.run</strong>; the separately proportioned compact is <strong>b4</strong>. Pronounce the name “bee-four dot run.” Both use custom vector geometry.</p><p>Preserve the Big Dot, raised stem of the 4, open counters, and letter spacing. Use one ink per logo, and keep taglines separate.</p></div><div><p>Allow <strong>one dot diameter</strong> of clear space around the visible wordmark: 34 master units, or about 10.4 px at a 160 px export width. The SVG padding is smaller than this margin.</p><p>Start at 160 px for the wordmark and 24 px for the compact. Allow roughly one-third of the compact’s visible letter height as clear space; favicons are a constrained exception.</p></div></div>
+        <div class="filelinks"><a href="logos/wordmark-ink.svg">Ink wordmark</a><a href="logos/wordmark-white.svg">White wordmark</a><a href="logos/compact-ink.svg">Ink compact</a><a href="logos/compact-white.svg">White compact</a></div>
+        <div class="note"><p>Use ink on paper, white, and Relay fields. Use white on dark fields. Never stretch, outline, redraw, recolor individual letters, or replace the period.</p></div>
+      </section>
+      <section>
+        <div class="eyebrow">02 / Color roles</div><h2 style="margin-top:16px">Paper leads. Relay emphasizes.</h2>
+        <div class="swatches" aria-label="Approved palette"><div class="swatch paper"><span>Paper / page</span><code>#F5F4F0</code></div><div class="swatch ink"><span>Ink / text</span><code>#111111</code></div><div class="swatch relay"><span>Relay / accent</span><code>#B4CE37</code></div><div class="swatch dark"><span>Dark / code</span><code>#17181B</code></div></div>
+        <p>Use Relay tint <strong>#E7EDD1</strong> for quiet selection and informational backgrounds. Keep body text neutral; dark ink on Relay has 10.63:1 contrast. Relay on paper has only 1.61:1 and is decorative there.</p>
+        <p>Normal text needs at least 4.5:1 contrast. Essential boundaries and focus indicators need at least 3:1. Verify real interaction states; palette choices alone do not establish interface accessibility.</p>
+      </section>
+      <section>
+        <div class="eyebrow">03 / Typography and rhythm</div><h2 style="margin-top:16px">One hierarchy across surfaces.</h2>
+        <div class="summary-grid"><div><h3>Inter</h3><div class="type-sample">Bold letters.<br>Room to breathe.</div><p>600–700 for headings; 400–500 for reading and controls. Start body text at 16 px with a 1.7–1.85 line height and a 60–75 character reading measure.</p></div><div><h3>JetBrains Mono</h3><div class="mono-sample">model: "gpt-5-mini"<br>src/app/support/index.ts</div><p style="margin-top:18px">Use for code, commands, paths, and short technical labels. Start code at 13–14 px, and let long lines scroll within their panel.</p><a class="small" href="fonts/README.md">Font sources and licenses</a></div></div>
+        <p>Spacing: <strong>8 / 16 / 24 / 32 / 48 / 72</strong>. Use generous margins, thin rules, and square panels. A separate dot may provide a graphic focal point; keep it clear of text and logo clear space.</p>
+      </section>
+      <section id="sheet">
+        <div class="eyebrow">04 / Visual reference</div><h2 style="margin-top:16px">The system on one sheet.</h2>
+        <p>Logo geometry, approved colors, clear space, typography, and dot graphics. This is a brand reference with neutral specimens, not proposed homepage messaging.</p>
+        <figure><img class="sheet" src="usage-sheet.svg" width="1200" height="1800" alt="Paper Relay brand sheet: D2.2 wordmark and compact, paper/ink/Relay/dark palette, one-dot clear space, Inter and JetBrains Mono specimens, and a separate circular graphic. The same rules are described above and in the full guidelines."><figcaption>1200 × 1800. Caption text is outlined for portable rendering; editable text and fonts are retained in the source SVG.</figcaption></figure>
+        <div class="downloads"><a href="usage-sheet.svg">Outlined SVG</a><a href="usage-sheet-source.svg">Editable text source</a><a href="usage-sheet.png">PNG usage sheet</a><a href="guidelines.md">Full text guidelines</a></div>
+      </section>
+      <section id="proofs">
+        <div class="eyebrow">05 / Actual-size proofs</div><h2 style="margin-top:16px">Check the size you use.</h2>
+        <p>These PNGs use fixed CSS dimensions at 100% browser zoom. A 120 px wordmark or 16 px icon is constrained use; verify legibility on the target display and in its actual surroundings.</p>
+        <h3>Wordmarks</h3><div class="proofs wordmarks"><div class="proof"><img src="previews/wordmark-ink-120.png" width="120" alt="Ink wordmark at 120 CSS pixels wide"><span>120 px / constrained</span></div><div class="proof"><img src="previews/wordmark-ink-160.png" width="160" alt="Ink wordmark at 160 CSS pixels wide"><span>160 px / starting width</span></div><div class="proof"><img src="previews/wordmark-ink-240.png" width="240" alt="Ink wordmark at 240 CSS pixels wide"><span>240 px</span></div></div>
+        <div class="proof-panel dark"><div class="proofs wordmarks"><div class="proof"><img src="previews/wordmark-white-120.png" width="120" alt="White wordmark at 120 CSS pixels wide"><span>120 px / constrained</span></div><div class="proof"><img src="previews/wordmark-white-160.png" width="160" alt="White wordmark at 160 CSS pixels wide"><span>160 px / starting width</span></div><div class="proof"><img src="previews/wordmark-white-240.png" width="240" alt="White wordmark at 240 CSS pixels wide"><span>240 px</span></div></div></div>
+        <h3>Relay and dark icons</h3><div class="proofs"><div class="proof"><img src="icons/icon-relay-16.png" width="16" height="16" alt="Relay icon at 16 pixels"><span>16 px / Relay</span></div><div class="proof"><img src="icons/icon-relay-24.png" width="24" height="24" alt="Relay icon at 24 pixels"><span>24 px / Relay</span></div><div class="proof"><img src="icons/icon-relay-32.png" width="32" height="32" alt="Relay icon at 32 pixels"><span>32 px / Relay</span></div><div class="proof"><img src="icons/icon-dark-16.png" width="16" height="16" alt="Dark icon at 16 pixels"><span>16 px / dark</span></div><div class="proof"><img src="icons/icon-dark-24.png" width="24" height="24" alt="Dark icon at 24 pixels"><span>24 px / dark</span></div><div class="proof"><img src="icons/icon-dark-32.png" width="32" height="32" alt="Dark icon at 32 pixels"><span>32 px / dark</span></div></div>
+      </section>
+      <section id="archive">
+        <div class="eyebrow">06 / Archived alternatives</div><h2 style="margin-top:16px">Tight Shift is retained as reference.</h2>
+        <p>Orange #ED5428 and tint #F9D7C8 remain at their existing URLs for compatibility. They are archived alternatives, not a second approved default.</p>
+        <details><summary>Show archived files and size proofs</summary><div class="archived"><div class="filelinks"><a href="logos/wordmark-tight-shift.svg">Archived wordmark</a><a href="logos/compact-tight-shift.svg">Archived compact</a><a href="icons/icon-tight-shift.svg">Archived icon SVG</a><a href="icons/favicon-tight-shift.ico">Archived ICO</a></div><div class="proofs"><div class="proof"><img src="icons/icon-tight-shift-16.png" width="16" height="16" alt="Archived Tight Shift icon at 16 pixels"><span>16 px / archived</span></div><div class="proof"><img src="icons/icon-tight-shift-24.png" width="24" height="24" alt="Archived Tight Shift icon at 24 pixels"><span>24 px / archived</span></div><div class="proof"><img src="icons/icon-tight-shift-32.png" width="32" height="32" alt="Archived Tight Shift icon at 32 pixels"><span>32 px / archived</span></div></div></div></details>
+      </section>
+      <footer><p>The homepage narrative and structure will be rebuilt separately. This kit establishes the visual identity; it does not prescribe a hero, slogan, or section order, or change production favicons and account avatars.</p><div class="footer-links"><a href="guidelines.md">Brand guidelines</a><a href="https://b4.run/brand/assets.json">Asset manifest (online) ↗</a><a href="https://github.com/cacheplane/b4run">Repository (online) ↗</a></div></footer>
+    </main>
+  </body>
+</html>

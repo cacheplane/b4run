@@ -1,12 +1,40 @@
 # Brand assets
 
-The B4.run logos and reproducible product-loop media live here.
+The B4.run D2.2 logos and reproducible product-loop media live here.
+
+## Approved visual system
+
+[Brand guidelines](./guidelines.md) define the approved Paper Relay direction:
+paper surfaces, ink typography, yellow-green accents, Inter, and JetBrains Mono.
+They take precedence over provisional palette and typography guidance in the
+original identity kit. D2.2 vector masters remain authoritative for logo geometry.
+
+The guidelines formalize the visual identity. The homepage narrative and
+structure will be rebuilt in a later phase; the current homepage and review
+mockups do not constrain that redesign.
 
 ## Logos
 
 - `b4-logo-horizontal-black-on-white.png` — primary logo, light background.
 - `b4-logo-horizontal-white-on-black.png` — inverted, dark background.
 - `b4-social-avatar-white-on-black-1024.png` — square social/avatar.
+
+## D2.2 identity kit
+
+The selected Big Dot / Raised stem / Open counter lettering uses native editable
+SVG geometry. The compact mark is `b4`; the primary wordmark is `b4.run`.
+
+- [Editable masters and usage sheet](../../apps/web/public/brand/identity/index.html)
+- [Public guidelines](../../apps/web/public/brand/identity/guidelines.md)
+- [Concise usage guidance](../../apps/web/public/brand/identity/usage-notes.md)
+- [Machine-readable manifest](../../apps/web/public/brand/assets.json)
+- [Downloadable kit](../../apps/web/public/brand/b4-run-brand-assets.zip)
+
+Existing public logo URLs remain stable. The reference page, usage sheet, notes,
+manifest, and ZIP now follow Paper Relay in this repository revision. Tight Shift
+files remain available as archived alternatives. The reference uses typography
+specimens, not proposed homepage messaging. Main-site styling and favicon selection
+are outside this kit update. Product-loop recordings are independent of this kit.
 
 ## Product-loop media
 
