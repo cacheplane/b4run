@@ -1453,3 +1453,156 @@ for (const [index, result] of rejectedAuditResults.entries()) {
     }
   })
 }
+
+function propagationError(code, entry = ENTRY) {
+  const summary =
+    code === "ETARGET"
+      ? `No matching version found for ${entry.name}@${entry.version}.`
+      : `Not Found - GET https://registry.npmjs.org/-/npm/v1/attestations/${entry.name.replace("/", "%2f")}@${entry.version} - Not found`
+  return { code, summary, detail: AUDIT_SECRET }
+}
+
+for (const code of ["ETARGET", "E404"]) {
+  for (const name of [ENTRY.name, "create-b4-app"]) {
+    test(`exact ${code} propagation for ${name} is pending only in a single audit`, async () => {
+      const entry = packageEntry(name)
+      const logs = []
+      const verifier = await resultVerifier(
+        {
+          exitCode: 1,
+          stdout: JSON.stringify({ error: propagationError(code, entry) }),
+        },
+        logs,
+      )
+      try {
+        assert.deepEqual(await verifier.verifyPackage({ entry, candidate: CANDIDATE }), {
+          status: "pending",
+        })
+        await assert.rejects(
+          verifier.verifyPackages({
+            entries: BATCH_ENTRIES,
+            candidate: BATCH_CANDIDATE,
+          }),
+        )
+        assert.ok(logs.every((value) => value.code === code))
+        assert.ok(!JSON.stringify(logs).includes(AUDIT_SECRET))
+      } finally {
+        await verifier.dispose()
+      }
+    })
+  }
+  for (const [label, mutate] of [
+    ["wrong package", (e) => ({ ...e, summary: e.summary.replace("sdk", "other") })],
+    ["wrong version", (e) => ({ ...e, summary: e.summary.replace(VERSION, "0.0.1") })],
+    ["trailing data", (e) => ({ ...e, summary: `${e.summary} ${AUDIT_SECRET}` })],
+    ["wrong case", (e) => ({ ...e, summary: e.summary.toLowerCase() })],
+    ["conflicting exit", (e) => e],
+  ]) {
+    test(`${code} propagation rejects ${label}`, async () => {
+      const logs = []
+      const verifier = await resultVerifier(
+        {
+          exitCode: label === "conflicting exit" ? 0 : 1,
+          stdout: JSON.stringify({ error: mutate(propagationError(code)) }),
+        },
+        logs,
+      )
+      try {
+        await assert.rejects(verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE }))
+        assert.equal(logs[0].code, code)
+        assert.ok(!JSON.stringify(logs).includes(AUDIT_SECRET))
+      } finally {
+        await verifier.dispose()
+      }
+    })
+  }
+}
+
+for (const replacement of [
+  "http://registry.npmjs.org",
+  "https://registry.npmjs.org.evil.invalid",
+  "https://secret@registry.npmjs.org",
+  "https://registry.npmjs.org:443",
+  "https://another-registry.invalid",
+]) {
+  test(`attestation E404 rejects altered registry ${replacement}`, async () => {
+    const error = propagationError("E404")
+    error.summary = error.summary.replace("https://registry.npmjs.org", replacement)
+    const verifier = await resultVerifier({ exitCode: 1, stdout: JSON.stringify({ error }) }, [])
+    try {
+      await assert.rejects(verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE }))
+    } finally {
+      await verifier.dispose()
+    }
+  })
+}
+for (const summary of [
+  propagationError("E404").summary.replace("/-/npm/v1/attestations/", "/"),
+  propagationError("E404").summary.replace(" - Not found", "?token=secret - Not found"),
+  propagationError("E404").summary.replace(" - Not found", "#fragment - Not found"),
+]) {
+  test(`attestation E404 rejects altered path or URL suffix: ${summary}`, async () => {
+    const verifier = await resultVerifier(
+      {
+        exitCode: 1,
+        stdout: JSON.stringify({
+          error: { ...propagationError("E404"), summary },
+        }),
+      },
+      [],
+    )
+    try {
+      await assert.rejects(verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE }))
+    } finally {
+      await verifier.dispose()
+    }
+  })
+}
+
+for (const code of ["E401", "E403", "EOTP", "EINTEGRITY"]) {
+  test(`observable fatal audit code ${code} never becomes retryable`, async () => {
+    const logs = []
+    const verifier = await resultVerifier({ exitCode: 1, stdout: errorOutput(code) }, logs)
+    try {
+      await assert.rejects(verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE }))
+      assert.equal(logs[0].code, code)
+      assert.equal(logs[0].classification, "fatal-error-envelope")
+      assert.ok(!JSON.stringify(logs).includes(AUDIT_SECRET))
+    } finally {
+      await verifier.dispose()
+    }
+  })
+}
+
+test("exact propagation errors can converge only to complete verified evidence", async () => {
+  const results = [
+    ...["ETARGET", "E404"].map((code) => ({
+      exitCode: 1,
+      stdout: JSON.stringify({ error: propagationError(code) }),
+    })),
+    { exitCode: 0, stdout: auditOutput() },
+  ]
+  const verifier = await createNpmAuditVerifier({
+    environment: {},
+    signal: new AbortController().signal,
+    async runNpm(_command, args) {
+      if (args[0] === "--version") return { exitCode: 0, stdout: "11.17.0" }
+      return results.shift()
+    },
+  })
+  try {
+    assert.deepEqual(await verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE }), {
+      status: "pending",
+    })
+    assert.deepEqual(await verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE }), {
+      status: "pending",
+    })
+    assert.equal(
+      (await verifier.verifyPackage({ entry: ENTRY, candidate: CANDIDATE })).status,
+      "verified",
+    )
+    assert.equal(results.length, 0)
+  } finally {
+    await verifier.dispose()
+  }
+})

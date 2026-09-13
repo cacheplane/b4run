@@ -11,11 +11,11 @@ Captured npm 11.17.0 responses showed exact-version HTTP 200 before audit could 
 
 Unknown messages, other versions/packages/hosts/paths, altered URLs, authentication errors, malformed output and incomplete signature/provenance evidence remain fatal. Batch verification never treats pending as success. Existing transient transport/service codes retain their behavior. The existing publisher convergence loop consumes pending and retains its deadline and exactly-once publication behavior.
 
-Diagnostics may emit only a finite allowlist of known npm codes, including the new propagation codes and common fatal authentication/integrity codes. Never log arbitrary error codes, summary, detail, stderr or nested causes. Propagation errors are observable without exposing response text.
+Retry eligibility is computed separately from diagnostic-code visibility; emitting a known fatal code must never make it retryable. Diagnostics may emit only a finite allowlist of known npm codes, including the new propagation codes and common fatal authentication/integrity codes. Never log arbitrary error codes, summary, detail, stderr or nested causes. Propagation errors are observable without exposing response text.
 
 ## Prepublication CI polling
 
-The existing waiter may continue polling when there is exactly one matching main/push CI workflow with valid run/attempt/suite identity, a known pending status and null conclusion, and no named validate check yet. Successful completion still requires the exact correlated validate check. Missing checks on completed workflows, conflicting or malformed identities, duplicate checks/workflows and failed conclusions remain fatal. Existing polling attempts/delay remain unchanged.
+The existing waiter may continue polling when there is exactly one matching main/push CI workflow with valid run/attempt/suite identity, a known pending status and null conclusion, and no named validate check yet. Successful completion still requires the exact correlated validate check. Missing checks on completed workflows, conflicting or malformed identities, duplicate correlated checks/matching workflows and failed conclusions remain fatal. Preserve existing success when unrelated PR/suite checks accompany the one exact correlated check. The new absence branch requires `namedChecks.length === 0`; unrelated named validate checks alone do not satisfy it. Existing polling attempts/delay remain unchanged.
 
 Keep this narrow: do not refactor either waiter or introduce a shared service. The postpublication waiter already handles the corresponding absent-job case and is unchanged.
 

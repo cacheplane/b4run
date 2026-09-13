@@ -44,6 +44,16 @@ const TRANSIENT_AUDIT_CODES = new Set([
   "E504",
 ])
 
+const DIAGNOSTIC_AUDIT_CODES = new Set([
+  ...TRANSIENT_AUDIT_CODES,
+  "ETARGET",
+  "E404",
+  "E401",
+  "E403",
+  "EOTP",
+  "EINTEGRITY",
+])
+
 export const NPM_AUDIT_OUTPUT_MAX_BYTES = 2 * 1024 * 1024
 export const NPM_AUDIT_VERIFIER = `npm-audit-signatures@${EXPECTED_NPM_VERSION}`
 
@@ -378,6 +388,7 @@ export async function createNpmAuditVerifier({
           (output) => parseNpmAuditSignatures(output, identity),
           true,
           log,
+          identity.entry,
         )
       },
       dispose() {
@@ -399,7 +410,7 @@ export async function createNpmAuditVerifier({
 
 // Keep command outcomes separate from proof. Only the publisher's existing single-package
 // convergence loop can consume pending; batch callers still require a complete capture.
-function classifyAuditResult(result, parse, single, log) {
+function classifyAuditResult(result, parse, single, log, entry) {
   const diagnostic = auditDiagnostic(result)
   if (!result || ![0, 1].includes(result.exitCode)) auditFailure(log, diagnostic, "invalid-exit")
   if (
@@ -437,9 +448,12 @@ function classifyAuditResult(result, parse, single, log) {
       auditFailure(log, diagnostic, "invalid-error-envelope")
     }
     diagnostic.rootShape = "error-envelope"
-    if (TRANSIENT_AUDIT_CODES.has(value.error.code)) diagnostic.code = value.error.code
+    if (DIAGNOSTIC_AUDIT_CODES.has(value.error.code)) diagnostic.code = value.error.code
     if (result.exitCode !== 1) auditFailure(log, diagnostic, "exit-output-conflict")
-    if (!diagnostic.code) auditFailure(log, diagnostic, "fatal-error-envelope")
+    const retryable =
+      TRANSIENT_AUDIT_CODES.has(value.error.code) ||
+      (single && isExactPropagationError(value.error, entry))
+    if (!retryable) auditFailure(log, diagnostic, "fatal-error-envelope")
     if (!single) auditFailure(log, diagnostic, "batch-transient")
     log(Object.freeze({ ...diagnostic, classification: "transient" }))
     return deepFreeze({ status: "pending" })
@@ -451,6 +465,20 @@ function classifyAuditResult(result, parse, single, log) {
     // Low-level parser messages and SyntaxError causes can contain untrusted names/JSON.
     auditFailure(log, diagnostic, "invalid-evidence")
   }
+}
+
+function isExactPropagationError(error, entry) {
+  if (error.code === "ETARGET") {
+    return error.summary === `No matching version found for ${entry.name}@${entry.version}.`
+  }
+  if (error.code === "E404") {
+    const escapedName = entry.name.replace("/", "%2f")
+    return (
+      error.summary ===
+      `Not Found - GET https://registry.npmjs.org/-/npm/v1/attestations/${escapedName}@${entry.version} - Not found`
+    )
+  }
+  return false
 }
 
 function auditDiagnostic(result) {
