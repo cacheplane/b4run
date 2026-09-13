@@ -14,7 +14,7 @@ export function DocsSidebar({ searchIndex }: Props) {
   const pathname = usePathname()
 
   return (
-    <div>
+    <div data-docs-sidebar>
       <p className="text-xs text-ink-dim uppercase tracking-widest mb-4 inline-flex items-center gap-2">
         <span className="inline-block w-1 h-1 rounded-full bg-accent-saas" aria-hidden />
         Documentation
@@ -33,6 +33,8 @@ export function DocsSidebar({ searchIndex }: Props) {
                   <li key={item.href}>
                     <Link
                       href={item.href}
+                      data-docs-nav-item
+                      aria-current={active ? "page" : undefined}
                       className={`block text-sm px-3 py-1.5 rounded-md transition-colors ${
                         active
                           ? "text-accent-saas bg-accent-saas/15"

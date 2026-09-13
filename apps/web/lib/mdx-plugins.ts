@@ -22,7 +22,7 @@ export const MDX_REHYPE_PLUGINS: MdxPluginSpec[] = [
   [
     "rehype-pretty-code",
     {
-      theme: "github-light",
+      theme: { light: "github-light", dark: "github-dark" },
       keepBackground: false,
       defaultLang: "plaintext",
     },

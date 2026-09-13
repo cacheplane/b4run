@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { DocsCalloutLabel } from "../docs/DocsBrandProvider"
 
 type CalloutType = "info" | "tip" | "warn" | "danger"
 
@@ -35,6 +36,7 @@ export function Callout({ type = "info", title, children }: Props) {
   const s = STYLES[type]
   return (
     <aside
+      data-callout-type={type}
       className={`my-6 p-4 bg-surface border rounded-lg flex gap-3 items-start ${s.border}`}
       role="note"
     >
@@ -42,6 +44,7 @@ export function Callout({ type = "info", title, children }: Props) {
         {s.glyph}
       </span>
       <div className="flex-1 min-w-0">
+        <DocsCalloutLabel type={type} />
         {title && <p className="font-semibold text-ink mb-1 text-sm">{title}</p>}
         <div className="text-sm text-ink-muted leading-relaxed [&>p]:m-0 [&>p+p]:mt-2">
           {children}

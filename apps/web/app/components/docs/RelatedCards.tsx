@@ -32,7 +32,7 @@ function ArrowIcon() {
 
 export function RelatedCards({ items }: RelatedCardsProps) {
   return (
-    <div className="not-prose grid grid-cols-1 md:grid-cols-2 gap-3 my-6">
+    <div data-related-cards className="not-prose grid grid-cols-1 md:grid-cols-2 gap-3 my-6">
       {items.map((item) => (
         <Link
           key={item.href}

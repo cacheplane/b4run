@@ -122,7 +122,10 @@ export function Pre({ children, className, ...rest }: PreProps) {
   const label = tabLabel(language, title)
 
   return (
-    <div className="relative my-6 rounded-lg border border-divider bg-surface overflow-hidden">
+    <div
+      data-code-frame
+      className="relative my-6 rounded-lg border border-divider bg-surface overflow-hidden"
+    >
       <CodeHeaderRow
         left={<TabPill label={label} active />}
         right={<CopyButton onCopy={copy} copied={copied} />}
@@ -150,7 +153,10 @@ export function CodeHeaderRow({
   readonly right: ReactNode
 }) {
   return (
-    <div className="flex items-end justify-between px-3 pt-2 border-b border-divider bg-surface/60">
+    <div
+      data-code-header
+      className="flex items-end justify-between px-3 pt-2 border-b border-divider bg-surface/60"
+    >
       <div className="flex items-end gap-1">{left}</div>
       <div className="pb-1.5">{right}</div>
     </div>
@@ -173,6 +179,7 @@ export function TabPill({
   const underline = active ? (
     <span
       aria-hidden
+      data-code-active-marker
       className="absolute left-1 right-1 -bottom-px h-[2px] rounded-full bg-accent-saas"
     />
   ) : null
@@ -182,6 +189,7 @@ export function TabPill({
       <button
         type="button"
         onClick={onClick}
+        data-code-tab
         role="tab"
         aria-selected={active}
         className={baseClasses}
@@ -192,7 +200,7 @@ export function TabPill({
     )
   }
   return (
-    <span className={baseClasses}>
+    <span data-code-tab data-active={active} className={baseClasses}>
       {label}
       {underline}
     </span>
@@ -295,6 +303,7 @@ export function RehypeFigure({
 
   return (
     <figure
+      data-code-frame
       {...rest}
       className="relative my-6 rounded-lg border border-divider bg-surface overflow-hidden"
     >
