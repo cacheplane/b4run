@@ -112,7 +112,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for verified published terminal selection and historical npm latest observations.
 // Repinned for strict npm audit command outcomes and bounded safe diagnostics.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "694dfa1213d4049964b9c3be636f25abb62e44e3fb156fa7fe5af7f389ac97f9"
+  "d0a949027f4b657f1dc84ab2efd885ae85a696d9cd9dd5b45960c57dd01350f8"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu

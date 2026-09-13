@@ -1,8 +1,12 @@
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
 import test from "node:test"
-
 import { canonicalAbandonmentBytes, canonicalAbandonmentReleaseBody } from "../abandonment.mjs"
+import { createGitReader } from "../adapters/git.mjs"
 import {
   arbitrateCandidate,
   decideInvocation,
@@ -1037,8 +1041,7 @@ test("scheduled discovery keeps an audit-looking release selected until smoke au
   assert.deepEqual(result, selectedCandidate("0.8.21", SHA_21, "CANDIDATE_TAGGED"))
   assert.equal(
     repository.calls.some(
-      ([operation, ref, maxCount]) =>
-        operation === "history" && ref === "main" && maxCount === 1000,
+      ([operation, , maxCount]) => operation === "history" && maxCount === 1000,
     ),
     false,
   )
@@ -2569,3 +2572,108 @@ test("an uncorrelated validate check cannot take the new absent-job route", asyn
   })
   assert.equal(result.status, "failed")
 })
+
+for (const newCandidate of [false, true]) {
+  test(`detached scheduled discovery after a completed release: ${newCandidate ? "new candidate" : "no-op"}`, async (t) => {
+    const repository = await detachedRepositoryFixture(t, { newCandidate })
+    let verified = 0
+    const result = await discoverScheduledCandidate({
+      terminalRecordRef: "HEAD",
+      inventory: repository.inventory,
+      git: repository.reader,
+      github: repository.github,
+      marker: ACTIVE_MARKER,
+      async verifyTerminalPublication({ candidate }) {
+        verified += 1
+        assert.equal(candidate.commitSha, repository.releaseSha)
+        return true
+      },
+    })
+    assert.equal(verified, 1)
+    if (newCandidate) {
+      assert.deepEqual(result, selectedCandidate("0.8.30", repository.head, "CANDIDATE_VALIDATED"))
+    } else {
+      assert.equal(result.state, "NO_CANDIDATE")
+      assert.equal(result.disposition, "noop")
+      assert.equal(result.candidate, null)
+    }
+  })
+}
+
+test("scheduled history cannot substitute local main for missing canonical main", async (t) => {
+  const repository = await detachedRepositoryFixture(t)
+  repository.command("update-ref", "refs/heads/main", repository.head)
+  repository.command("update-ref", "-d", "refs/remotes/origin/main")
+  await assert.rejects(
+    discoverScheduledCandidate({
+      terminalRecordRef: "HEAD",
+      inventory: repository.inventory,
+      git: repository.reader,
+      github: githubFixture(),
+      marker: ACTIVE_MARKER,
+    }),
+    (error) => error.code === "REF_NOT_FOUND",
+  )
+})
+
+async function detachedRepositoryFixture(t, { newCandidate = false } = {}) {
+  const root = await mkdtemp(join(tmpdir(), "b4-detached-candidate-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const command = (...args) =>
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=B4 fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "-c",
+        "tag.gpgsign=false",
+        ...args,
+      ],
+      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    ).trim()
+  const versions = new Map()
+  const commitVersion = (version) => {
+    command("add", ".")
+    command("commit", "--allow-empty", "-m", `Fixture ${version}`)
+    const sha = command("rev-parse", "HEAD")
+    versions.set(sha, version)
+    return sha
+  }
+  command("init", "--initial-branch=fixture")
+  commitVersion("0.8.27")
+  await mkdir(dirname(join(root, MARKER_PATH)), { recursive: true })
+  await writeFile(join(root, MARKER_PATH), JSON.stringify(ACTIVE_MARKER))
+  const releaseSha = commitVersion("0.8.28")
+  command("tag", "-a", "v0.8.28", "-m", "Fixture release", releaseSha)
+  const head = commitVersion(newCandidate ? "0.8.30" : "0.8.28")
+  command("update-ref", "refs/remotes/origin/main", head)
+  command("checkout", "--detach", head)
+  command("branch", "-D", "fixture")
+  assert.throws(() => command("symbolic-ref", "-q", "HEAD"))
+  assert.throws(() => command("show-ref", "--verify", "refs/heads/main"))
+  assert.equal(command("rev-parse", "refs/remotes/origin/main"), head)
+  const tag = tagRef("0.8.28", releaseSha)
+  tag.object.sha = command("rev-parse", "refs/tags/v0.8.28")
+  return {
+    head,
+    releaseSha,
+    command,
+    reader: createGitReader({ root }),
+    inventory: {
+      async read({ ref }) {
+        assert.ok(versions.has(ref), "inventory must refer to an exact fixture commit")
+        return releaseInventory(versions.get(ref))
+      },
+    },
+    github: githubFixture({
+      tags: [tag],
+      releases: [
+        managedRelease(21, "0.8.28", releaseSha, { auditComplete: true, published: true }),
+      ],
+    }),
+  }
+}

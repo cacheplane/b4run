@@ -331,7 +331,7 @@ export async function discoverScheduledCandidate({
   }
 
   const history = await git.listFirstParentHistory({
-    ref: "main",
+    ref: PRODUCTION_MAIN_REF,
     maxCount: 1000,
   })
   if (!Array.isArray(history) || !history.every(isSha)) {
