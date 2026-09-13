@@ -119,6 +119,8 @@ export function DocsSearch({ index }: Props) {
         mounted &&
         createPortal(
           <div
+            data-docs-brand
+            data-docs-search-overlay
             className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] bg-ink/40 backdrop-blur-sm"
             onClick={close}
             onKeyDown={(e) => {

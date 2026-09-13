@@ -67,7 +67,7 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     ),
     strong: ({ children }) => <strong className="text-ink font-semibold">{children}</strong>,
     table: ({ children }) => (
-      <div className="my-6 overflow-x-auto border border-divider rounded-lg">
+      <div data-prose-table className="my-6 overflow-x-auto border border-divider rounded-lg">
         <table className="w-full text-sm">{children}</table>
       </div>
     ),

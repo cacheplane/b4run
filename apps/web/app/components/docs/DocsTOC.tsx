@@ -64,6 +64,7 @@ export function DocsTOC() {
           <li key={h.id} className={h.level === 3 ? "pl-5" : "pl-3"}>
             <a
               href={`#${h.id}`}
+              aria-current={activeId === h.id ? "location" : undefined}
               className={`block py-0.5 transition-colors -ml-px border-l ${
                 activeId === h.id
                   ? "text-accent-saas border-accent-saas"

@@ -24,7 +24,7 @@ export function Tabs({ children }: TabsProps) {
   if (tabs.length === 0) return null
 
   return (
-    <div className="my-6 border border-divider rounded-lg overflow-hidden">
+    <div data-prose-tabs className="my-6 border border-divider rounded-lg overflow-hidden">
       <div role="tablist" className="flex bg-surface border-b border-divider">
         {tabs.map((tab, i) => (
           <button

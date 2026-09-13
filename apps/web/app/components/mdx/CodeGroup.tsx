@@ -122,7 +122,10 @@ export function CodeGroup({ children }: CodeGroupProps) {
   if (!current) return null
 
   return (
-    <div className="my-6 rounded-lg border border-divider overflow-hidden bg-surface">
+    <div
+      data-code-frame
+      className="my-6 rounded-lg border border-divider overflow-hidden bg-surface"
+    >
       <CodeHeaderRow
         left={
           <div role="tablist" className="flex items-end gap-1">

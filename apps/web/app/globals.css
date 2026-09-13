@@ -108,6 +108,14 @@ pre .mdx-inline-code {
 pre > code {
   display: grid;
 }
+/* Dual-theme Shiki output has no default color. Keep the existing light
+   presentation on direct non-docs loads, independently of docs CSS loading. */
+pre[data-theme] span[style*="--shiki-light"] {
+  color: var(--shiki-light);
+  font-style: var(--shiki-light-font-style, normal);
+  font-weight: var(--shiki-light-font-weight, inherit);
+  text-decoration: var(--shiki-light-text-decoration, none);
+}
 /* Scope to <pre> only so inline-code <code> chips (which also receive a [data-line]
    wrapper from rehype-pretty-code) don't get block-level line styling. */
 pre [data-line] {

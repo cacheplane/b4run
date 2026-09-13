@@ -267,7 +267,7 @@ export function PageActions({ slug, promptSlug, promptBody }: PageActionsProps) 
   }
 
   return (
-    <div ref={containerRef} className="relative flex items-center gap-2">
+    <div data-page-actions ref={containerRef} className="relative flex items-center gap-2">
       {hasPrompt && (
         <button
           type="button"

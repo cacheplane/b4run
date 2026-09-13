@@ -14,7 +14,7 @@ export function Steps({ children }: StepsProps) {
     isValidElement(child),
   )
   return (
-    <ol className="my-8 space-y-6 list-none pl-0">
+    <ol data-prose-steps className="my-8 space-y-6 list-none pl-0">
       {steps.map((step, i) => (
         <li key={step.props.title ?? i} className="flex gap-5 items-start">
           <span className="w-7 h-7 rounded-full bg-accent-saas/15 border border-accent-saas/40 text-accent-saas flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
