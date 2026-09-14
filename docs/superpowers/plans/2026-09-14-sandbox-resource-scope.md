@@ -33,9 +33,9 @@
 
 ### Task 4: Verification and review
 
-- [ ] Run scoped Biome, `pnpm build`, typecheck, sandbox tests, relevant consumer/release tests, docs checks and changeset validation. Run full `pnpm ci:validate` before merge; report unavailable Docker/Kubernetes infrastructure explicitly.
+- [x] Run scoped Biome, `pnpm build`, typecheck, sandbox tests, relevant consumer/release tests, docs checks and changeset validation. Run full `pnpm ci:validate` before merge; report unavailable Docker/Kubernetes infrastructure explicitly.
 - [x] Request independent review of the final diff; resolve substantive findings and rerun affected checks.
-- [ ] Show the new public API and remaining library work to the user before creating a PR, as previously requested. Keep changes local until that walkthrough.
+- [x] Show the new public API and remaining library work to the user before creating a PR, as previously requested. Keep changes local until that walkthrough.
 
 ## Verification record
 
@@ -52,4 +52,12 @@
   smoke/cleanup regression tests: 14 passed. Independent reviewer verified both
   changed script hashes and the pin fixture digest.
 - Independent review: approved after fixing scaffold shared scope and stale overview.
-- Full `pnpm ci:validate`: in progress; final status recorded before delivery.
+- Full `pnpm ci:validate`: passed (exit 0). Source: 496 files / 5,954 tests
+  passed, 220 gated tests skipped. Release controller: 3,850 passed. Packaging,
+  TypeScript tooling installation, and all three harness lanes passed.
+- Harness evidence: `artifacts/testing/harness-2026-09-14T213613-874Z-46073/run-result.json`.
+- Changeset check: passed after implementation commit `c47b04b9`.
+- Public API walkthrough delivered. Work remains local on
+  `blove/code-fixer-app-correction`; no PR, push, merge, or release performed.
+- Remote CI and the real Kubernetes lane remain pre-merge requirements where
+  applicable; local success is not a claim that those external checks ran.
