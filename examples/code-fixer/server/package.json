@@ -1,0 +1,28 @@
+{
+  "name": "@b4-example/code-fixer-server",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p . --noEmit",
+    "lint": "biome check --config-path ../../../packages/config-biome/biome.json package.json tsconfig.json vitest.config.ts src scripts test",
+    "fixtures:qualify": "tsx scripts/qualify.ts"
+  },
+  "dependencies": {
+    "@b4run/cli": "workspace:*",
+    "@b4run/sdk": "workspace:*",
+    "@b4run/sandbox": "workspace:*",
+    "@b4run/workspace": "workspace:*",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@b4run/config-typescript": "workspace:*",
+    "@b4run/testing": "workspace:*",
+    "@b4run/evals": "workspace:*",
+    "@types/node": "26.1.2",
+    "typescript": "7.0.2",
+    "tsx": "4.23.10",
+    "vitest": "4.1.11"
+  }
+}

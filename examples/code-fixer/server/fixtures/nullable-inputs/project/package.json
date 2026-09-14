@@ -1,0 +1,16 @@
+{
+  "name": "b4-fixture-nullable-inputs",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --import tsx --test test/*.test.ts",
+    "check:independent": "node --import tsx --test checks/*.test.ts"
+  },
+  "dependencies": {
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "@typescript/old": "npm:typescript@6.0.2",
+    "zod": "4.4.3",
+    "tsx": "4.23.5"
+  }
+}

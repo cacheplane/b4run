@@ -1,0 +1,14 @@
+--- a/src/cli.ts
++++ b/src/cli.ts
+@@ -1,9 +1,10 @@
+ import { Command } from "commander"
+ import { runMemoryCommand } from "./memory.js"
+ 
+-const program = new Command().name("fixture")
++const program = new Command().name("fixture").enablePositionalOptions()
+ program
+   .command("memory [subcommand] [args...]")
++  .passThroughOptions()
+   .description("Manage memory")
+   .option("--cwd <path>", "App directory")
+   .action(async (subcommand: string, args: string[], options: { cwd?: string }) => {
