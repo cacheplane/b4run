@@ -743,6 +743,7 @@ export function dockerSandboxInstalledProbeSource(
   const capture = imageEvidencePath !== undefined
   return `import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
+import { createHash } from "node:crypto"
 import { readFile, rm${capture ? ", writeFile" : ""} } from "node:fs/promises"
 import { promisify } from "node:util"
 
@@ -752,7 +753,7 @@ const execFileAsync = promisify(execFile)
 const pidsLimit = 32
 const recoveryCommands = 24
 const threadId = ${JSON.stringify(threadId)}
-const container = "b4-sbx-" + threadId
+const container = "b4-sbx-" + createHash("sha256").update(JSON.stringify(["b4-sandbox-scope-v1", "published-probe", threadId])).digest("hex").slice(0, 40)
 const readinessPath = "/workspace/.published-pids-ready.json"
 const readinessTemporaryPath = readinessPath + ".tmp"
 const localReadinessPath = ".published-pids-ready-" + process.pid + ".json"
@@ -837,7 +838,7 @@ ${
 `
     : ""
 }
-const provider = dockerSandbox({ image: "node:22-slim" })
+const provider = dockerSandbox({ scope: "published-probe", image: "node:22-slim" })
 try {
   const handle = await provider.acquire({
     threadId,

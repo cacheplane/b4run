@@ -7,7 +7,7 @@ import { seededProvider } from "../src/blueprint/seeded-provider.ts"
 
 it("uses the same isolated workspace for files and commands, then destroys it", async () => {
   const provider = seededProvider(
-    dockerSandbox({ image: "b4-code-fixer:fixture-v1" }),
+    dockerSandbox({ scope: "code-fixer", image: "b4-code-fixer:fixture-v1" }),
     (h, signal) => seedFixture("cli-flags", h, signal),
   )
   const policy: SandboxPolicy = {

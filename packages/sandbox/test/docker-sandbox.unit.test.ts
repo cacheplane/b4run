@@ -27,7 +27,7 @@ function filesystemStartedOutput(command: readonly string[], output = ""): strin
 describe("dockerSandbox (unit, no daemon)", () => {
   test("acquire runs a container named for the thread + names a volume; deny → --network none", async () => {
     const { docker, runs } = recordingDocker()
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     const h = await p.acquire({
       threadId: "abc",
       policy: { network: { mode: "deny" } },
@@ -38,16 +38,16 @@ describe("dockerSandbox (unit, no daemon)", () => {
     const runCmd = runs.find((r) => r[0] === "run")
     expect(runCmd).toBeDefined()
     const joined = (runCmd ?? []).join(" ")
-    expect(joined).toContain("b4-sbx-abc")
-    expect(joined).toContain("b4-sbx-vol-abc:/workspace")
+    expect(joined).toContain("b4-sbx-2b15794eccdd038fd62a47fecd25562bace17167")
+    expect(joined).toContain("b4-sbx-vol-2b15794eccdd038fd62a47fecd25562bace17167:/workspace")
     expect(joined).toContain("--network none")
-    expect(joined).toContain("--label b4.sandbox=abc")
+    expect(joined).toContain("--label b4.sandbox=2b15794eccdd038fd62a47fecd25562bace17167")
     expect(joined).toContain("sleep infinity")
   })
 
   test("allow mode uses bridge network; resources + env are applied; host env NOT inherited", async () => {
     const { docker, runs } = recordingDocker()
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await p.acquire({
       threadId: "abc",
       policy: {
@@ -110,7 +110,7 @@ describe("dockerSandbox (unit, no daemon)", () => {
       },
       exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
     }
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await p.acquire({ threadId: "t", policy: { network: { mode: "deny" } }, signal: signal() })
     expect(runs.filter((r) => r[0] === "run" && r.includes("-d"))).toHaveLength(1)
     expect(runs.some((r) => r[0] === "start")).toBe(false)
@@ -125,7 +125,9 @@ describe("dockerSandbox (unit, no daemon)", () => {
 
     identity = "tampered"
     await p.acquire({ threadId: "t", policy: { network: { mode: "deny" } }, signal: signal() })
-    expect(runs.filter((r) => r[0] === "rm")).toEqual([["rm", "-f", "b4-sbx-t"]])
+    expect(runs.filter((r) => r[0] === "rm")).toEqual([
+      ["rm", "-f", "b4-sbx-f4d51473b06dae3d6b54cf4e19b525b611857dc2"],
+    ])
     expect(runs.filter((r) => r[0] === "run" && r.includes("-d"))).toHaveLength(2)
   })
 
@@ -176,13 +178,13 @@ describe("dockerSandbox (unit, no daemon)", () => {
       exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
     }
 
-    const firstProvider = dockerSandbox({ image: "node:22-slim", docker })
+    const firstProvider = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await firstProvider.acquire({
       threadId: "abc",
       policy: { network: { mode: "allow" } },
       signal: signal(),
     })
-    const secondProvider = dockerSandbox({ image: "node:22-slim", docker })
+    const secondProvider = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await secondProvider.acquire({
       threadId: "abc",
       policy: { network: { mode: "deny" } },
@@ -193,19 +195,30 @@ describe("dockerSandbox (unit, no daemon)", () => {
     expect(keeperRuns).toHaveLength(2)
     expect(keeperRuns[0]).toEqual(expect.arrayContaining(["--network", "bridge"]))
     expect(keeperRuns[1]).toEqual(expect.arrayContaining(["--network", "none"]))
-    expect(runs.filter((run) => run[0] === "rm")).toEqual([["rm", "-f", "b4-sbx-abc"]])
+    expect(runs.filter((run) => run[0] === "rm")).toEqual([
+      ["rm", "-f", "b4-sbx-2b15794eccdd038fd62a47fecd25562bace17167"],
+    ])
   })
 
   test("release removes container but not volume; destroy removes both", async () => {
     const { docker, runs } = recordingDocker()
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await p.acquire({ threadId: "abc", policy: { network: { mode: "deny" } }, signal: signal() })
     await p.release("abc")
-    expect(runs.some((r) => r[0] === "rm" && r.includes("b4-sbx-abc"))).toBe(true)
+    expect(
+      runs.some(
+        (r) => r[0] === "rm" && r.includes("b4-sbx-2b15794eccdd038fd62a47fecd25562bace17167"),
+      ),
+    ).toBe(true)
     expect(runs.some((r) => r[0] === "volume" && r[1] === "rm")).toBe(false)
     await p.destroy("abc")
     expect(
-      runs.some((r) => r[0] === "volume" && r[1] === "rm" && r.includes("b4-sbx-vol-abc")),
+      runs.some(
+        (r) =>
+          r[0] === "volume" &&
+          r[1] === "rm" &&
+          r.includes("b4-sbx-vol-2b15794eccdd038fd62a47fecd25562bace17167"),
+      ),
     ).toBe(true)
   })
 
@@ -214,18 +227,18 @@ describe("dockerSandbox (unit, no daemon)", () => {
       run: async () => ({ stdout: "", stderr: "cannot connect", exitCode: 1 }),
       exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
     }
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     const r = await p.preflight?.()
     expect(r?.ok).toBe(false)
     expect(r?.detail).toMatch(/daemon|reachable/i)
   })
 
-  test("thread ids are sanitized for container/volume names", async () => {
+  test("thread ids are hashed with application scope", async () => {
     const { docker, runs } = recordingDocker()
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await p.acquire({ threadId: "t/1:x", policy: { network: { mode: "deny" } }, signal: signal() })
     const joined = (runs.find((r) => r[0] === "run") ?? []).join(" ")
-    expect(joined).toContain("b4-sbx-t_1_x")
+    expect(joined).toContain("b4-sbx-41a00726f986d0157225d6a0fa110c51019be3e4")
     expect(joined).not.toContain("t/1:x")
   })
 })
@@ -235,7 +248,7 @@ describe("dockerSandbox hardening flags", () => {
 
   test("hardened by default: cap-drop ALL, no-new-privileges, pids-limit 512, read-only + tmpfs, non-root user + HOME", async () => {
     const { docker, runs } = recordingDocker()
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await p.acquire({ threadId: "abc", policy: { network: { mode: "deny" } }, signal: signal() })
     const j = acquireArgs(runs)
     expect(j).toContain("--cap-drop ALL")
@@ -250,7 +263,7 @@ describe("dockerSandbox hardening flags", () => {
 
   test("per-flag opt-outs remove exactly their flags", async () => {
     const { docker, runs } = recordingDocker()
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await p.acquire({
       threadId: "abc",
       policy: {
@@ -277,7 +290,7 @@ describe("dockerSandbox hardening flags", () => {
 
   test("keeper `run -d` does NOT set -w (so Docker can't stomp the chown'd /workspace ownership)", async () => {
     const { docker, runs } = recordingDocker()
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await p.acquire({ threadId: "abc", policy: { network: { mode: "deny" } }, signal: signal() })
     const keeper = runs.find((r) => r[0] === "run" && r.includes("-d")) ?? []
     expect(keeper).not.toContain("-w")
@@ -286,7 +299,7 @@ describe("dockerSandbox hardening flags", () => {
 
   test("custom runAsNonRoot uid/gid", async () => {
     const { docker, runs } = recordingDocker()
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await p.acquire({
       threadId: "abc",
       policy: { network: { mode: "deny" }, security: { runAsNonRoot: { uid: 2000, gid: 3000 } } },
@@ -297,7 +310,7 @@ describe("dockerSandbox hardening flags", () => {
 
   test("runAsNonRoot: null (raw-parsed config) still runs non-root — fails safe, not root", async () => {
     const { docker, runs } = recordingDocker()
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await p.acquire({
       threadId: "abc",
       policy: { network: { mode: "deny" }, security: { runAsNonRoot: null as never } },
@@ -329,13 +342,13 @@ describe("dockerSandbox chown-init (Architecture B)", () => {
 
   test("volume absent + non-root → chown-init runs as root BEFORE the keeper", async () => {
     const { docker, runs } = chownRecorder(false)
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await p.acquire({ threadId: "abc", policy: { network: { mode: "deny" } }, signal: signal() })
     const init = chownRun(runs)
     expect(init).toBeDefined()
     const j = (init ?? []).join(" ")
     expect(j).toContain("--user 0:0")
-    expect(j).toContain("b4-sbx-vol-abc:/workspace")
+    expect(j).toContain("b4-sbx-vol-2b15794eccdd038fd62a47fecd25562bace17167:/workspace")
     expect(j).toContain("chown 1000:1000 /workspace")
     const idxInit = runs.findIndex((r) => r === init)
     const idxKeeper = runs.findIndex((r) => r[0] === "run" && r.includes("-d"))
@@ -345,14 +358,14 @@ describe("dockerSandbox chown-init (Architecture B)", () => {
 
   test("volume present → NO chown-init (reattach)", async () => {
     const { docker, runs } = chownRecorder(true)
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await p.acquire({ threadId: "abc", policy: { network: { mode: "deny" } }, signal: signal() })
     expect(chownRun(runs)).toBeUndefined()
   })
 
   test("runAsNonRoot:false → NO chown-init", async () => {
     const { docker, runs } = chownRecorder(false)
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await p.acquire({
       threadId: "abc",
       policy: { network: { mode: "deny" }, security: { runAsNonRoot: false } },
@@ -410,7 +423,7 @@ describe("dockerSandbox lifecycle launch configuration", () => {
 
   test("reacquire accepts semantically equivalent defaults, env order, and timeout changes", async () => {
     const { docker, runs } = lifecycleDocker()
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await p.acquire({
       threadId: "abc",
       policy: {
@@ -470,7 +483,7 @@ describe("dockerSandbox lifecycle launch configuration", () => {
     "reacquire rejects a different effective $name config before Docker calls",
     async ({ policy }) => {
       const { docker, runs } = lifecycleDocker()
-      const p = dockerSandbox({ image: "node:22-slim", docker })
+      const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
       await p.acquire({
         threadId: "abc",
         policy: { network: { mode: "deny" } },
@@ -496,7 +509,7 @@ describe("dockerSandbox lifecycle launch configuration", () => {
       pidFailure,
       { stdout: "recovered", stderr: "", exitCode: 0 },
     ])
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     const policyA = {
       network: { mode: "allow" as const },
       env: { ZED: "last", ALPHA: "first" },
@@ -595,7 +608,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
           : { stdout: filesystemStartedOutput(command, "sentinel"), stderr: "", exitCode: 0 }
       },
     }
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     const h = await p.acquire({
       threadId: "abc",
       policy: { network: { mode: "deny" }, security: { pidsLimit: 32 } },
@@ -611,7 +624,9 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
 
     expect(execCommands).toHaveLength(2)
     expect(execCommands[1]).toEqual(execCommands[0])
-    expect(runs.filter((run) => run[0] === "rm")).toEqual([["rm", "-f", "b4-sbx-abc"]])
+    expect(runs.filter((run) => run[0] === "rm")).toEqual([
+      ["rm", "-f", "b4-sbx-2b15794eccdd038fd62a47fecd25562bace17167"],
+    ])
     expect(runs.filter((run) => run[0] === "run" && run.includes("-d"))).toHaveLength(2)
     expect(runs.some((run) => run[0] === "volume" && run[1] === "rm")).toBe(false)
   })
@@ -758,7 +773,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
       resources: { memoryMb: 256, cpus: 0.5, timeoutMs: 1_250 },
       security: { pidsLimit: 64, runAsNonRoot: { uid: 2000, gid: 3000 } },
     }
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     const h = await p.acquire({ threadId: "abc", policy, signal: acquireSignal })
 
     const result = await h.exec.runCommand(
@@ -769,7 +784,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
     expect(result).toEqual({ stdout: "recovered", stderr: "", exitCode: 0 })
     expect(execSignals).toEqual([activeSignal, activeSignal])
     const removal = runs.find((run) => run.args[0] === "rm")
-    expect(removal?.args).toEqual(["rm", "-f", "b4-sbx-abc"])
+    expect(removal?.args).toEqual(["rm", "-f", "b4-sbx-2b15794eccdd038fd62a47fecd25562bace17167"])
     expect(removal?.signal).toBeDefined()
     expect(removal?.signal).not.toBe(activeSignal)
     expect(removal?.signal).not.toBe(acquireSignal)
@@ -778,7 +793,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
     expect(keeperRuns[1]?.args).toEqual(keeperRuns[0]?.args)
     expect(keeperRuns[1]?.args).toEqual(
       expect.arrayContaining([
-        "b4-sbx-vol-abc:/workspace",
+        "b4-sbx-vol-2b15794eccdd038fd62a47fecd25562bace17167:/workspace",
         "--network",
         "none",
         "FOO=bar",
@@ -803,9 +818,11 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
     expect(chownRuns).toHaveLength(1)
     expect(volumeInspects).toBe(2)
     const firstExecIndex = events.indexOf("exec:1")
-    const removalIndex = events.indexOf("run:rm -f b4-sbx-abc")
+    const removalIndex = events.indexOf("run:rm -f b4-sbx-2b15794eccdd038fd62a47fecd25562bace17167")
     const recoveryInspectIndex = events.findIndex(
-      (event, index) => index > removalIndex && event === "run:volume inspect b4-sbx-vol-abc",
+      (event, index) =>
+        index > removalIndex &&
+        event === "run:volume inspect b4-sbx-vol-2b15794eccdd038fd62a47fecd25562bace17167",
     )
     const replacementIndex = events.findIndex(
       (event, index) => index > recoveryInspectIndex && event.startsWith("run:run -d "),
@@ -888,7 +905,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
       },
     }
     const policy = { network: { mode: "deny" as const } }
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     const firstHandle = await p.acquire({ threadId: "abc", policy, signal: signal() })
     const secondHandle = await p.acquire({ threadId: "abc", policy, signal: signal() })
 
@@ -994,7 +1011,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
         return { stdout: "recovered\n", stderr: "", exitCode: 0 }
       },
     }
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     const handle = await p.acquire({
       threadId: "abc",
       policy: { network: { mode: "deny" } },
@@ -1099,7 +1116,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
         },
       }
       const policy = { network: { mode: "deny" as const } }
-      const p = dockerSandbox({ image: "node:22-slim", docker })
+      const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
       const oldHandle = await p.acquire({ threadId: "abc", policy, signal: signal() })
       const oldResultPromise = oldHandle.exec.runCommand(
         { command: "echo old" },
@@ -1189,7 +1206,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
         exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
       }
       const policy = { network: { mode: "deny" as const } }
-      const p = dockerSandbox({ image: "node:22-slim", docker })
+      const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
       await p.acquire({ threadId: "abc", policy, signal: signal() })
       const cleanupPromise = operation === "release" ? p.release("abc") : p.destroy("abc")
       await cleanupStarted.promise
@@ -1285,7 +1302,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
         },
       }
       const policy = { network: { mode: "deny" as const } }
-      const p = dockerSandbox({ image: "node:22-slim", docker })
+      const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
       const h = await p.acquire({ threadId: "abc", policy, signal: signal() })
       const commandResultPromise = h.exec.runCommand(
         { command: "echo old" },
@@ -1399,7 +1416,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
       },
     }
     const policy = { network: { mode: "deny" as const } }
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     const firstHandle = await p.acquire({ threadId: "abc", policy, signal: signal() })
     const secondHandle = await p.acquire({ threadId: "abc", policy, signal: signal() })
     const firstResultPromise = firstHandle.exec.runCommand(
@@ -1502,7 +1519,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
       },
     }
     const policy = { network: { mode: "deny" as const } }
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     const h = await p.acquire({ threadId: "abc", policy, signal: signal() })
     let firstSettled = false
     let secondSettled = false
@@ -1621,7 +1638,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
         },
       }
       const policy = { network: { mode: "allow" as const } }
-      const p = dockerSandbox({ image: "node:22-slim", docker })
+      const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
       const firstHandle = await p.acquire({ threadId: "abc", policy, signal: signal() })
       const delayedHandle = await p.acquire({ threadId: "abc", policy, signal: signal() })
       const delayedResultPromise = delayedHandle.exec.runCommand(
@@ -1722,7 +1739,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
           }
         },
       }
-      const p = dockerSandbox({ image: "node:22-slim", docker })
+      const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
       const h = await p.acquire({
         threadId: "abc",
         policy: { network: { mode: "deny" } },
@@ -1774,7 +1791,7 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
         }
       },
     }
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     const h = await p.acquire({
       threadId: "abc",
       policy: { network: { mode: "deny" } },
@@ -1794,6 +1811,8 @@ describe("dockerSandbox PID-exhaustion recovery", () => {
     })
     expect(execCalls).toBe(1)
     expect(runs.filter((run) => run[0] === "run" && run.includes("-d"))).toHaveLength(1)
-    expect(runs.filter((run) => run[0] === "rm")).toEqual([["rm", "-f", "b4-sbx-abc"]])
+    expect(runs.filter((run) => run[0] === "rm")).toEqual([
+      ["rm", "-f", "b4-sbx-2b15794eccdd038fd62a47fecd25562bace17167"],
+    ])
   })
 })

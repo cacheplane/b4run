@@ -87,7 +87,7 @@ Then point `b4.config.ts` at the same namespace:
 
 ```ts
 sandbox: {
-  provider: kubernetesSandbox({ namespace: "b4-sandboxes" });
+  provider: kubernetesSandbox({ scope: "my-app", namespace: "b4-sandboxes" });
 }
 ```
 

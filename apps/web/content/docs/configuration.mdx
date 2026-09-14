@@ -70,7 +70,7 @@ export default config({
   },
 
   // sandbox: {
-  //   provider: dockerSandbox({ image: "node:24-slim" }),
+  //   provider: dockerSandbox({ scope: "my-app", image: "node:24-slim" }),
   //   network: { mode: "allow", denylist: ["169.254.169.254"] },
   //   // network: { mode: "deny", allowlist: ["api.openai.com"] },
   //   env: { NODE_ENV: "production" },

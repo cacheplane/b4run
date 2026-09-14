@@ -1,6 +1,6 @@
 # Execution Sandbox
 
-The execution sandbox gives a provider-keyed Agent Protocol thread an isolated filesystem, shell, and network boundary instead of letting workspace tools operate in the app's local `workspace/` directory. That boundary depends on thread IDs remaining distinct after provider resource naming; the built-in providers do not add an application or tenant namespace. Add a `sandbox` key to `b4.config.ts`, and B4.run routes `readFile`, `writeFile`, `listDir`, and `runBash` through a `SandboxProvider`. B4.run includes a Docker reference implementation; the same portable contract also supports other providers.
+The execution sandbox gives a provider-keyed Agent Protocol thread an isolated filesystem, shell, and network boundary instead of letting workspace tools operate in the app's local `workspace/` directory. The built-in providers require an application scope and hash it with each logical thread ID to address resources. Applications still authorize thread access. Add a `sandbox` key to `b4.config.ts`, and B4.run routes `readFile`, `writeFile`, `listDir`, and `runBash` through a `SandboxProvider`. B4.run includes a Docker reference implementation; the same portable contract also supports other providers.
 
 This is one of three independent controls: [tool scoping](/docs/tools) decides which tools the model can call, [permissions](/docs/permissions) decide whether a call may run, and the sandbox constrains what an allowed call can touch. Use all three where your threat model calls for them.
 
@@ -18,7 +18,7 @@ import { dockerSandbox } from "@b4run/sandbox"
 
 export default config({
   sandbox: {
-    provider: dockerSandbox({ image: "node:24-slim" }),
+    provider: dockerSandbox({ scope: "my-app", image: "node:24-slim" }),
     network: { mode: "allow", denylist: ["169.254.169.254"] },
     env: { NODE_ENV: "production" },
     resources: { memoryMb: 512, cpus: 1, timeoutMs: 120_000 },
@@ -46,12 +46,26 @@ B4.run passes the conversation thread ID to the provider and reuses the resultin
 - A later turn reattaches that retained volume.
 - Thread deletion calls `destroy()`, removing both compute and workspace data.
 
-Storage is named from a provider-specific transformation of the thread ID so a provider can reattach it after compute is released. Provider retention can shorten this lifecycle: an operator-owned cleanup policy may delete released storage before the thread is deleted. See [Kubernetes Sandbox](/docs/sandbox/kubernetes) for that provider's reaper boundary. Subagents share their parent's thread and therefore share its sandbox.
+Storage is named from a stable hash of the required application scope and thread ID so a provider can reattach it after compute is released. Provider retention can shorten this lifecycle: an operator-owned cleanup policy may delete released storage before the thread is deleted. See [Kubernetes Sandbox](/docs/sandbox/kubernetes) for that provider's reaper boundary. Subagents share their parent's thread and therefore share its sandbox.
 
-<Callout type="warn" title="Canonicalize IDs and separate provider scopes">
-  Docker substitutes unsupported name characters, while Kubernetes lowercases, substitutes, trims, and conditionally truncates its resource-name input. This is a lossy sanitizer boundary: distinct short IDs that differ only by case or substituted punctuation can name the same container, volume, Pod, PVC, or NetworkPolicy. The current runtime does not add an app or tenant discriminator and does not hash every sanitized ID.
+### Application scope
 
-  Before a caller can select `thread_id`, map application ownership to a collision-resistant, provider-safe canonical thread ID that is globally unique within that provider scope; opaque lowercase UUID/ULID-style IDs are safer than meaningful caller strings. Run each application or trust boundary against a separate Docker daemon or equivalent isolated Docker context. Mutually untrusted tenants must not share a provider scope in which their names can alias. Changing built-in resource naming to hash every ID would affect reattachment to existing volumes, so treat that runtime change as a compatibility-sensitive follow-up rather than assuming it here.
+Both providers require `scope`, a stable application/environment identifier such
+as `code-fixer-production`. Scope and thread ID are hashed together for every
+container, volume, Pod, PVC, and NetworkPolicy name. Case and punctuation remain
+significant. Handles and tool context retain the original logical thread ID.
+
+Use different scopes for independent applications or environments. Keep a scope
+stable across restarts and deployments; do not generate it on startup. Replicas
+using the same scope address the same storage, but scope adds no cross-process
+coordination. It is not authentication: authorize access to each thread and keep
+mutually untrusted workloads behind appropriate daemon/namespace boundaries.
+
+<Callout type="warn" title="Breaking change: workspace resource names">
+  Upgrading from providers without scope changes all resource names. Old storage
+  is not automatically reattached, migrated, or deleted. Export any required data
+  before upgrading and explicitly manage the old resources. Changing scope also
+  selects different storage. Missing or blank scopes fail immediately.
 </Callout>
 
 ## Security hardening
@@ -78,7 +92,7 @@ The portable `security` policy exposes `dropAllCapabilities`, `noNewPrivileges`,
 
 ```ts
 sandbox: {
-  provider: dockerSandbox({ image: "node:24-slim" }),
+  provider: dockerSandbox({ scope: "my-app", image: "node:24-slim" }),
   resources: { timeoutMs: 120_000 },
 },
 ```

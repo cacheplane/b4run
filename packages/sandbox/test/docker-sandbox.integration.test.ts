@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { describe, expect, test } from "vitest"
 import { createDocker, type Docker, type SpawnResult } from "../src/docker/docker-cli.ts"
 import { dockerSandbox } from "../src/index.ts"
+import { resourceScope } from "../src/resource-scope.ts"
 import { runProviderConformance } from "../src/testing/index.ts"
 
 // Real-Docker lane. Runs ONLY when B4_TEST_DOCKER=1 (the dedicated CI job
@@ -73,12 +74,12 @@ async function waitForContainerFile(
 describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, () => {
   runProviderConformance({
     name: "dockerSandbox",
-    makeProvider: () => dockerSandbox({ image: IMAGE }),
+    makeProvider: () => dockerSandbox({ scope: "sandbox-test", image: IMAGE }),
     describe,
   })
 
   test("network deny blocks egress (curl/wget fails inside)", { timeout: 120_000 }, async () => {
-    const p = dockerSandbox({ image: IMAGE })
+    const p = dockerSandbox({ scope: "sandbox-test", image: IMAGE })
     const threadId = `net-${randomUUID()}`
     try {
       const h = await p.acquire({ threadId, policy: policyDeny, signal: ctx("/").signal })
@@ -97,7 +98,7 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
   })
 
   test("host filesystem is untouched by sandbox writes", { timeout: 120_000 }, async () => {
-    const p = dockerSandbox({ image: IMAGE })
+    const p = dockerSandbox({ scope: "sandbox-test", image: IMAGE })
     const threadId = `host-${randomUUID()}`
     try {
       const h = await p.acquire({ threadId, policy: policyDeny, signal: ctx("/").signal })
@@ -119,7 +120,7 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
   test("restart durability: release then reacquire reattaches the volume", {
     timeout: 180_000,
   }, async () => {
-    const p = dockerSandbox({ image: IMAGE })
+    const p = dockerSandbox({ scope: "sandbox-test", image: IMAGE })
     const threadId = `dur-${randomUUID()}`
     try {
       const h1 = await p.acquire({ threadId, policy: policyDeny, signal: ctx("/").signal })
@@ -143,7 +144,7 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
     timeout: 180_000,
   }, async () => {
     const pidsLimit = 32
-    const p = dockerSandbox({ image: IMAGE })
+    const p = dockerSandbox({ scope: "sandbox-test", image: IMAGE })
     const threadId = `fork-${randomUUID()}`
     try {
       const h = await p.acquire({
@@ -230,9 +231,9 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
     const pidsLimit = 32
     const recoveryCommands = 24
     const docker = createDocker()
-    const p = dockerSandbox({ image: IMAGE, docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: IMAGE, docker })
     const threadId = `pid-recovery-${randomUUID()}`
-    const container = `b4-sbx-${threadId}`
+    const container = `b4-sbx-${resourceId(threadId)}`
     const readinessPath = "/workspace/.pids-ready.json"
     const readinessTemporaryPath = "/workspace/.pids-ready.json.tmp"
     const sentinelPath = "/workspace/pid-recovery-sentinel.txt"
@@ -367,7 +368,7 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
   test("read-only root blocks /etc writes; workspace + /tmp writable", {
     timeout: 120_000,
   }, async () => {
-    const p = dockerSandbox({ image: IMAGE })
+    const p = dockerSandbox({ scope: "sandbox-test", image: IMAGE })
     const threadId = `ro-${randomUUID()}`
     try {
       const h = await p.acquire({ threadId, policy: policyDeny, signal: ctx("/").signal })
@@ -392,7 +393,7 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
   })
 
   test("runs as non-root by default", { timeout: 120_000 }, async () => {
-    const p = dockerSandbox({ image: IMAGE })
+    const p = dockerSandbox({ scope: "sandbox-test", image: IMAGE })
     const threadId = `nr-${randomUUID()}`
     try {
       const h = await p.acquire({ threadId, policy: policyDeny, signal: ctx("/").signal })
@@ -406,7 +407,7 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
   test("per-command timeout kills the in-container process (exit 124)", {
     timeout: 120_000,
   }, async () => {
-    const p = dockerSandbox({ image: IMAGE })
+    const p = dockerSandbox({ scope: "sandbox-test", image: IMAGE })
     const threadId = `to-${randomUUID()}`
     try {
       const h = await p.acquire({
@@ -426,3 +427,46 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
     }
   })
 })
+
+const resourceId = resourceScope("sandbox-test")
+
+test.skipIf(!enabled)(
+  "scoped storage survives provider restart and isolated destruction",
+  async () => {
+    const threadId = randomUUID()
+    const create = (scope: string) => dockerSandbox({ image: IMAGE, scope })
+    const scopes = ["scope-restart-one", "scope-restart-two"]
+    const providers = scopes.map(create)
+    const policy = { network: { mode: "deny" as const } }
+    try {
+      for (const [index, provider] of providers.entries()) {
+        const handle = await provider.acquire({
+          threadId,
+          policy,
+          signal: ctx("/workspace").signal,
+        })
+        await handle.filesystem.writeFile(
+          "/workspace/scope.txt",
+          String(index),
+          ctx(handle.workspaceRoot),
+        )
+        await provider.release(threadId)
+      }
+      for (const [index, scope] of scopes.entries()) {
+        const provider = create(scope)
+        const handle = await provider.acquire({
+          threadId,
+          policy,
+          signal: ctx("/workspace").signal,
+        })
+        expect(
+          await handle.filesystem.readFile("/workspace/scope.txt", ctx(handle.workspaceRoot)),
+        ).toBe(String(index))
+        await provider.destroy(threadId)
+      }
+    } finally {
+      await Promise.all(providers.map((provider) => provider.destroy(threadId)))
+    }
+  },
+  120_000,
+)

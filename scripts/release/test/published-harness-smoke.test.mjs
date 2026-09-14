@@ -28,8 +28,8 @@ test("published Docker probe identities use one validated collision-resistant UU
   const second = publishedDockerProbeIdentity(() => "123e4567-e89b-42d3-b456-426614174001")
   assert.deepEqual(first, {
     threadId: "published-uuid-123e4567e89b42d3a456426614174000",
-    containerName: "b4-sbx-published-uuid-123e4567e89b42d3a456426614174000",
-    volumeName: "b4-sbx-vol-published-uuid-123e4567e89b42d3a456426614174000",
+    containerName: "b4-sbx-26a9121b86d1eeedc709652669c2f3c15cb50e69",
+    volumeName: "b4-sbx-vol-26a9121b86d1eeedc709652669c2f3c15cb50e69",
   })
   assert.notEqual(first.threadId, second.threadId)
   assert.notEqual(first.containerName, second.containerName)
@@ -407,11 +407,11 @@ test("writes a receipt and outer-cleans Docker identities when the installed pro
     /Docker installed probe failed/,
   )
 
-  assert.match(events[0], /^probe:b4-sbx-published-uuid-[0-9a-f]{32}:b4-sbx-vol-published-uuid-/u)
-  assert.match(events[1], /^cleanup-command:rm -f b4-sbx-published-uuid-/u)
-  assert.match(events[2], /^cleanup-command:inspect b4-sbx-published-uuid-/u)
-  assert.match(events[3], /^cleanup-command:volume rm --force b4-sbx-vol-published-uuid-/u)
-  assert.match(events[4], /^cleanup-command:volume inspect b4-sbx-vol-published-uuid-/u)
+  assert.match(events[0], /^probe:b4-sbx-[0-9a-f]{40}:b4-sbx-vol-[0-9a-f]{40}/u)
+  assert.match(events[1], /^cleanup-command:rm -f b4-sbx-[0-9a-f]{40}/u)
+  assert.match(events[2], /^cleanup-command:inspect b4-sbx-[0-9a-f]{40}/u)
+  assert.match(events[3], /^cleanup-command:volume rm --force b4-sbx-vol-[0-9a-f]{40}/u)
+  assert.match(events[4], /^cleanup-command:volume inspect b4-sbx-vol-[0-9a-f]{40}/u)
   assert.deepEqual(events.slice(5), ["cleanup", "receipt"])
   assert.equal(receipt.conclusion, "failure")
 })

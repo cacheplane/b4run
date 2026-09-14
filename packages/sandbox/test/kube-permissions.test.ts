@@ -89,6 +89,7 @@ describe("Kubernetes permission contract", () => {
       ],
     })
     const result = await kubernetesSandbox({
+      scope: "sandbox-test",
       image: "image",
       namespace: "ns",
       client,
@@ -110,6 +111,7 @@ describe("Kubernetes permission contract", () => {
       ]),
     })
     const result = await kubernetesSandbox({
+      scope: "sandbox-test",
       image: "image",
       namespace: "ns",
       client,
@@ -132,6 +134,7 @@ describe("Kubernetes permission contract", () => {
       ]),
     })
     const result = await kubernetesSandbox({
+      scope: "sandbox-test",
       image: "image",
       namespace: "ns",
       client,
@@ -154,6 +157,7 @@ describe("Kubernetes permission contract", () => {
       ]),
     })
     const result = await kubernetesSandbox({
+      scope: "sandbox-test",
       image: "image",
       namespace: "ns",
       client,

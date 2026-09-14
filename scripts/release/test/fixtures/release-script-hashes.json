@@ -14,7 +14,7 @@
       "sha256": "91e2c5e978ab14961fd3b52fae3f32000ee7a99792a60196cb79c86a4bd3a538"
     },
     "scripts/published-artifact-smoke.mjs": {
-      "sha256": "8d7f2aabe9d1dac4a9f39f69eb528b8459c7cfe882e7cd57617ba7cd9b9c4524"
+      "sha256": "79a03ca33ce79267dccec21ceecd93ef1b2ce5de428b2e14c4f4f4d436b00689"
     },
     "scripts/published-artifact-verify.mjs": {
       "sha256": "2a191340bdc3bf63c9c8b195515fcd9d62be4384f7a7710c6e847f8383b41eee"
@@ -242,7 +242,7 @@
       "sha256": "591f8d4bffb7c80d3d1b771c556ff411016b593324655b67753fc4a172e665b6"
     },
     "scripts/release/smoke/published-harness.mjs": {
-      "sha256": "e023b1db1060451b48b2d9c92a763ca1070e622c66c98ee52fffb83efdf2dc82"
+      "sha256": "467f4d9bee072d8561f51cdb4bcc8b5fc38c3556cbae334099a1162c6ddb2dee"
     },
     "scripts/release/smoke/runtime-targets.mjs": {
       "sha256": "9f4400105520d9562f7fd68b40173ebbd1ee4837a6666cfa50b2df800e39d5b6"

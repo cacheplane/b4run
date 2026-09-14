@@ -1,15 +1,18 @@
+import { randomUUID } from "node:crypto"
 import { constants } from "node:fs"
 import { access, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { dockerSandbox } from "@b4run/sandbox"
 import { createAgentHarness, expectFinalMessage, expectToolCalled, script } from "@b4run/testing"
-import { expect, it } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url))
 const enabled = process.env.B4_DEMO_DOCKER_SANDBOX === "1"
 const sandboxOnlyPath = "reports/sandbox-only.md"
 const hostSandboxOnlyPath = join(appRoot, "workspace", sandboxOnlyPath)
+
+afterEach(() => vi.unstubAllEnvs())
 
 it.skipIf(!enabled)(
   "runs shared corpus tools against an isolated Docker sandbox workspace without touching host files",
@@ -18,6 +21,8 @@ it.skipIf(!enabled)(
     // test:sandbox:docker` proves the generated app can resolve the sandbox
     // package before b4.config.ts creates the provider.
     void dockerSandbox
+    // Each test invocation owns a disposable installation scope.
+    vi.stubEnv("B4_SANDBOX_SCOPE", `research-test-${randomUUID()}`)
     await rm(hostSandboxOnlyPath, { force: true })
 
     const h = await createAgentHarness({ appRoot, route: "/research#agent" })

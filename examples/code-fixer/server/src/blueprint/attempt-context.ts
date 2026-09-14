@@ -10,7 +10,7 @@ function createContext() {
   const task = selectFixture(process.env.B4_CODE_FIXER_TASK ?? "cli-flags")
   const baselines = new Map<string, Record<string, string>>()
   const provider = seededProvider(
-    ownedProvider(dockerSandbox({ image: sandboxImage })),
+    ownedProvider(dockerSandbox({ scope: "code-fixer", image: sandboxImage })),
     async (handle, signal) => {
       await seedFixture(task, handle, signal)
       baselines.set(handle.threadId, await snapshot(handle, signal))

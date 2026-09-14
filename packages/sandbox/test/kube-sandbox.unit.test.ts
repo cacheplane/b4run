@@ -11,7 +11,7 @@ const seedSpec = (name: string): KubePodSpec => ({
   name,
   image: "i",
   labels: {},
-  pvcName: "b4-sbx-vol-t",
+  pvcName: "b4-sbx-vol-f4d51473b06dae3d6b54cf4e19b525b611857dc2",
   env: [],
   limits: {},
   podSecurityContext: {},
@@ -22,11 +22,16 @@ const seedSpec = (name: string): KubePodSpec => ({
 
 test("acquire creates PVC + Pod with hardened SecurityContext and fsGroup", async () => {
   const k = fakeKubeClient()
-  const p = kubernetesSandbox({ image: "node:22-slim", client: k, namespace: "ns" })
+  const p = kubernetesSandbox({
+    scope: "sandbox-test",
+    image: "node:22-slim",
+    client: k,
+    namespace: "ns",
+  })
   await p.acquire({ threadId: "t1", policy, signal: signal() })
-  const pod = k.pods.get("b4-sbx-t1")
+  const pod = k.pods.get("b4-sbx-3653fd5a889a83e42a5d4f3784e2ae1366f9c695")
   expect(pod).toBeTruthy()
-  expect(k.pvcs.has("b4-sbx-vol-t1")).toBe(true)
+  expect(k.pvcs.has("b4-sbx-vol-3653fd5a889a83e42a5d4f3784e2ae1366f9c695")).toBe(true)
   expect(pod?.spec.podSecurityContext).toMatchObject({
     runAsNonRoot: true,
     runAsUser: 1000,
@@ -40,55 +45,55 @@ test("acquire creates PVC + Pod with hardened SecurityContext and fsGroup", asyn
     readOnlyRootFilesystem: true,
     capabilities: { drop: ["ALL"] },
   })
-  expect(pod?.spec.labels["b4.run/thread"]).toBe("t1")
+  expect(pod?.spec.labels["b4.run/thread"]).toBe("3653fd5a889a83e42a5d4f3784e2ae1366f9c695")
   expect(pod?.spec.automountServiceAccountToken).toBe(false)
 })
 
 test("runAsNonRoot:false omits user/fsGroup (image default)", async () => {
   const k = fakeKubeClient()
-  const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
+  const p = kubernetesSandbox({ scope: "sandbox-test", image: "i", client: k, namespace: "ns" })
   await p.acquire({
     threadId: "t",
     policy: { ...policy, security: { runAsNonRoot: false } },
     signal: signal(),
   })
-  const sc = k.pods.get("b4-sbx-t")?.spec.podSecurityContext
+  const sc = k.pods.get("b4-sbx-f4d51473b06dae3d6b54cf4e19b525b611857dc2")?.spec.podSecurityContext
   expect(sc?.runAsUser).toBeUndefined()
   expect(sc?.fsGroup).toBeUndefined()
 })
 
 test("acquire reattaches a Running pod (no duplicate create)", async () => {
   const k = fakeKubeClient()
-  const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
+  const p = kubernetesSandbox({ scope: "sandbox-test", image: "i", client: k, namespace: "ns" })
   await p.acquire({ threadId: "t", policy, signal: signal() })
-  const first = k.pods.get("b4-sbx-t")
+  const first = k.pods.get("b4-sbx-f4d51473b06dae3d6b54cf4e19b525b611857dc2")
   await p.acquire({ threadId: "t", policy, signal: signal() })
-  expect(k.pods.get("b4-sbx-t")).toBe(first)
+  expect(k.pods.get("b4-sbx-f4d51473b06dae3d6b54cf4e19b525b611857dc2")).toBe(first)
 })
 
 test("release deletes the pod but keeps the PVC; destroy removes both", async () => {
   const k = fakeKubeClient()
-  const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
+  const p = kubernetesSandbox({ scope: "sandbox-test", image: "i", client: k, namespace: "ns" })
   await p.acquire({ threadId: "t", policy, signal: signal() })
   await p.release("t")
-  expect(k.pods.has("b4-sbx-t")).toBe(false)
-  expect(k.pvcs.has("b4-sbx-vol-t")).toBe(true)
+  expect(k.pods.has("b4-sbx-f4d51473b06dae3d6b54cf4e19b525b611857dc2")).toBe(false)
+  expect(k.pvcs.has("b4-sbx-vol-f4d51473b06dae3d6b54cf4e19b525b611857dc2")).toBe(true)
   await p.destroy("t")
-  expect(k.pvcs.has("b4-sbx-vol-t")).toBe(false)
+  expect(k.pvcs.has("b4-sbx-vol-f4d51473b06dae3d6b54cf4e19b525b611857dc2")).toBe(false)
 })
 
 test("destroy waits until the PVC is actually gone (async deletion)", async () => {
   const k = fakeKubeClient({ pvcLingerReads: 2 })
-  const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
+  const p = kubernetesSandbox({ scope: "sandbox-test", image: "i", client: k, namespace: "ns" })
   await p.acquire({ threadId: "t", policy, signal: signal() })
   await p.destroy("t")
   // after destroy returns, the PVC probe must report gone (the poll drained the linger)
-  expect(await k.pvcExists("ns", "b4-sbx-vol-t")).toBe(false)
+  expect(await k.pvcExists("ns", "b4-sbx-vol-f4d51473b06dae3d6b54cf4e19b525b611857dc2")).toBe(false)
 })
 
 test("long thread IDs sharing a 40-char prefix get distinct pod names (no collision)", async () => {
   const k = fakeKubeClient()
-  const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
+  const p = kubernetesSandbox({ scope: "sandbox-test", image: "i", client: k, namespace: "ns" })
   const idA = `thread-${"a".repeat(40)}ALPHA`
   const idB = `thread-${"a".repeat(40)}BETA`
   await p.acquire({ threadId: idA, policy, signal: signal() })
@@ -105,21 +110,21 @@ test("long thread IDs sharing a 40-char prefix get distinct pod names (no collis
 
 test("diskGb sets the PVC storage size", async () => {
   const k = fakeKubeClient()
-  const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
+  const p = kubernetesSandbox({ scope: "sandbox-test", image: "i", client: k, namespace: "ns" })
   await p.acquire({
     threadId: "t",
     policy: { ...policy, resources: { diskGb: 5 } },
     signal: signal(),
   })
-  expect(k.pvcs.get("b4-sbx-vol-t")?.spec.storageGi).toBe(5)
+  expect(k.pvcs.get("b4-sbx-vol-f4d51473b06dae3d6b54cf4e19b525b611857dc2")?.spec.storageGi).toBe(5)
 })
 
-test("sanitize strips trailing dash from the thread label", async () => {
+test("hashes punctuation into a valid thread resource label", async () => {
   const k = fakeKubeClient()
-  const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
+  const p = kubernetesSandbox({ scope: "sandbox-test", image: "i", client: k, namespace: "ns" })
   await p.acquire({ threadId: "abc/", policy, signal: signal() })
-  const pod = k.pods.get("b4-sbx-abc")
-  expect(pod?.spec.labels["b4.run/thread"]).toBe("abc")
+  const pod = k.pods.get("b4-sbx-6bc6586579cb1678723e2ac057cc7f25e02d2db9")
+  expect(pod?.spec.labels["b4.run/thread"]).toBe("6bc6586579cb1678723e2ac057cc7f25e02d2db9")
   expect(pod?.spec.labels["b4.run/thread"]?.endsWith("-")).toBe(false)
 })
 
@@ -128,52 +133,64 @@ test("existing Pending pod is waited on, not recreated (no 409)", async () => {
   // (which acquire's initial check sees), then Running on the next. The fake now
   // throws 409 on any duplicate create, so the old fall-through code would fail.
   const k = fakeKubeClient({ pendingReads: 1 })
-  await k.createNamespacedPvcIfAbsent("ns", { name: "b4-sbx-vol-t", labels: {}, storageGi: 1 })
-  await k.createNamespacedPod("ns", seedSpec("b4-sbx-t"))
-  const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
+  await k.createNamespacedPvcIfAbsent("ns", {
+    name: "b4-sbx-vol-f4d51473b06dae3d6b54cf4e19b525b611857dc2",
+    labels: {},
+    storageGi: 1,
+  })
+  await k.createNamespacedPod("ns", seedSpec("b4-sbx-f4d51473b06dae3d6b54cf4e19b525b611857dc2"))
+  const p = kubernetesSandbox({ scope: "sandbox-test", image: "i", client: k, namespace: "ns" })
   await expect(p.acquire({ threadId: "t", policy, signal: signal() })).resolves.toBeTruthy()
-  expect(await k.readNamespacedPodPhase("ns", "b4-sbx-t")).toBe("Running")
+  expect(
+    await k.readNamespacedPodPhase("ns", "b4-sbx-f4d51473b06dae3d6b54cf4e19b525b611857dc2"),
+  ).toBe("Running")
 })
 
 test("crashed (Failed) pod is deleted and replaced with a Running pod", async () => {
   const k = fakeKubeClient()
-  await k.createNamespacedPvcIfAbsent("ns", { name: "b4-sbx-vol-t", labels: {}, storageGi: 1 })
-  await k.createNamespacedPod("ns", seedSpec("b4-sbx-t"))
-  const seeded = k.pods.get("b4-sbx-t")
+  await k.createNamespacedPvcIfAbsent("ns", {
+    name: "b4-sbx-vol-f4d51473b06dae3d6b54cf4e19b525b611857dc2",
+    labels: {},
+    storageGi: 1,
+  })
+  await k.createNamespacedPod("ns", seedSpec("b4-sbx-f4d51473b06dae3d6b54cf4e19b525b611857dc2"))
+  const seeded = k.pods.get("b4-sbx-f4d51473b06dae3d6b54cf4e19b525b611857dc2")
   if (seeded) seeded.phase = "Failed"
-  const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
+  const p = kubernetesSandbox({ scope: "sandbox-test", image: "i", client: k, namespace: "ns" })
   await expect(p.acquire({ threadId: "t", policy, signal: signal() })).resolves.toBeTruthy()
-  const pod = k.pods.get("b4-sbx-t")
+  const pod = k.pods.get("b4-sbx-f4d51473b06dae3d6b54cf4e19b525b611857dc2")
   expect(pod).toBeTruthy()
   expect(pod).not.toBe(seeded) // a freshly recreated pod, not the crashed one
-  expect(await k.readNamespacedPodPhase("ns", "b4-sbx-t")).toBe("Running")
+  expect(
+    await k.readNamespacedPodPhase("ns", "b4-sbx-f4d51473b06dae3d6b54cf4e19b525b611857dc2"),
+  ).toBe("Running")
 })
 
 test("network:deny emits a deny NetworkPolicy selecting the thread", async () => {
   const k = fakeKubeClient()
-  const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
+  const p = kubernetesSandbox({ scope: "sandbox-test", image: "i", client: k, namespace: "ns" })
   await p.acquire({ threadId: "t", policy: { network: { mode: "deny" } }, signal: signal() })
-  const np = k.netpols.get("b4-sbx-net-t")
+  const np = k.netpols.get("b4-sbx-net-f4d51473b06dae3d6b54cf4e19b525b611857dc2")
   expect(np?.mode).toBe("deny")
-  expect(np?.threadLabelValue).toBe("t")
+  expect(np?.threadLabelValue).toBe("f4d51473b06dae3d6b54cf4e19b525b611857dc2")
 })
 
 test("network:allow with no allowlist emits no NetworkPolicy", async () => {
   const k = fakeKubeClient()
-  const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
+  const p = kubernetesSandbox({ scope: "sandbox-test", image: "i", client: k, namespace: "ns" })
   await p.acquire({ threadId: "t", policy: { network: { mode: "allow" } }, signal: signal() })
-  expect(k.netpols.has("b4-sbx-net-t")).toBe(false)
+  expect(k.netpols.has("b4-sbx-net-f4d51473b06dae3d6b54cf4e19b525b611857dc2")).toBe(false)
 })
 
 test("network:deny with an allowlist emits a deny NetworkPolicy carrying the allowlist", async () => {
   const k = fakeKubeClient()
-  const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
+  const p = kubernetesSandbox({ scope: "sandbox-test", image: "i", client: k, namespace: "ns" })
   await p.acquire({
     threadId: "t",
     policy: { network: { mode: "deny", allowlist: ["10.0.0.0/8"] } },
     signal: signal(),
   })
-  const np = k.netpols.get("b4-sbx-net-t")
+  const np = k.netpols.get("b4-sbx-net-f4d51473b06dae3d6b54cf4e19b525b611857dc2")
   expect(np?.mode).toBe("deny")
   expect(np?.allowlist).toEqual(["10.0.0.0/8"])
 })
@@ -182,7 +199,7 @@ test("preflight reports a denied required permission", async () => {
   const k = fakeKubeClient({
     deniedPermissions: [{ apiGroup: "", resource: "pods", verb: "create" }],
   })
-  const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
+  const p = kubernetesSandbox({ scope: "sandbox-test", image: "i", client: k, namespace: "ns" })
   const r = await p.preflight?.()
   expect(r).toEqual({
     ok: false,
@@ -192,7 +209,7 @@ test("preflight reports a denied required permission", async () => {
 
 test("preflight warns when the CNI won't enforce NetworkPolicy", async () => {
   const k = fakeKubeClient({ cniEnforced: false })
-  const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
+  const p = kubernetesSandbox({ scope: "sandbox-test", image: "i", client: k, namespace: "ns" })
   const r = await p.preflight?.()
   expect(r?.ok).toBe(true)
   expect(r?.warnings?.join(" ")).toMatch(/NetworkPolicy/i)
@@ -200,7 +217,7 @@ test("preflight warns when the CNI won't enforce NetworkPolicy", async () => {
 
 test("preflight passes clean when required permissions are granted and CNI enforces", async () => {
   const k = fakeKubeClient({ cniEnforced: true })
-  const p = kubernetesSandbox({ image: "i", client: k, namespace: "ns" })
+  const p = kubernetesSandbox({ scope: "sandbox-test", image: "i", client: k, namespace: "ns" })
   const r = await p.preflight?.()
   expect(r).toEqual({
     ok: true,

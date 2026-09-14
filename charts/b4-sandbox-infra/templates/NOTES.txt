@@ -14,7 +14,7 @@ Point your B4.run app's `b4.config.ts` at this namespace so the
 kubernetesSandbox provider agrees with the chart:
 
   sandbox: {
-    provider: kubernetesSandbox({ namespace: "{{ include "b4-sandbox-infra.namespace" . }}" })
+    provider: kubernetesSandbox({ scope: "my-app", namespace: "{{ include "b4-sandbox-infra.namespace" . }}" })
   }
 
 Application ServiceAccount / namespace wiring:

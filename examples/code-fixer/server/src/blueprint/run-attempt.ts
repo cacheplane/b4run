@@ -128,7 +128,7 @@ export async function runAttempt(options: {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
-    const provider = dockerSandbox({ image: sandboxImage })
+    const provider = dockerSandbox({ scope: "code-fixer", image: sandboxImage })
     await destroyRegisteredThreads(provider, registered)
   } catch (error) {
     receipt.cleanupError = String(error)

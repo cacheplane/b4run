@@ -24,7 +24,7 @@ export async function verifyChanges(
     if (!manifest.allowedSourcePaths.includes(path))
       throw new Error(`Disallowed patch path: ${path}`)
   }
-  const provider = ownedProvider(dockerSandbox({ image: sandboxImage }))
+  const provider = ownedProvider(dockerSandbox({ scope: "code-fixer", image: sandboxImage }))
   const threadId = randomUUID()
   try {
     const handle = await provider.acquire({ threadId, policy: sandboxPolicy, signal })

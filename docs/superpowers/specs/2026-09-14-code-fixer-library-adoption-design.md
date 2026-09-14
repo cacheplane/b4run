@@ -53,8 +53,9 @@ Initialization content remains application-supplied and versioned.
 
 Scope resource identity by installation/application and logical thread with a
 stable collision-resistant mapping. Assess both Docker and Kubernetes naming and
-reattachment. Existing storage requires an explicit compatibility/migration path;
-never silently orphan or attach legacy resources. Application isolation alone
+reattachment. The user explicitly authorized breaking changes on 2026-09-14. Require scope
+and remove legacy naming; document the storage cutover without compatibility
+branches or automatic legacy attachment/deletion. Application isolation alone
 does not constitute tenant authorization. Trusted ownership metadata must not
 reside solely in the agent-editable workspace.
 

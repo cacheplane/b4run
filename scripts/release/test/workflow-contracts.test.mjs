@@ -113,7 +113,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for strict npm audit command outcomes and bounded safe diagnostics.
 // Repinned for the Paper Relay root introduction and historical demo destination.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "fefebd9b3e267d9dd3bf794fc3da58dd09a30df6f58258b503be03c81d7dd12c"
+  "9838c3af7b5fb352d27d8036b69fd8d06e7512acf6453dec25f3a943ad48011c"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu

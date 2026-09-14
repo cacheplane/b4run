@@ -1,7 +1,7 @@
-# Stable application scope for sandbox resources
+# Required application scope for sandbox resources
 
 Date: 2026-09-14
-Status: independent spec review passed; awaiting user review of the concrete API
+Status: approved; user explicitly authorized breaking changes and removal of compatibility paths
 
 ## Problem and boundary
 
@@ -12,7 +12,7 @@ Docker replaces punctuation with underscores, and Kubernetes lowercases and
 replaces punctuation. Long Kubernetes identifiers receive a hash suffix, but
 short identifiers still collide under normalization.
 
-This increment adds opt-in stable resource addressing. It is the first part of
+This increment adds required stable resource addressing. It is the first part of
 the library-adoption lifecycle work, not completion of durable initialization or
 verified resource ownership. It does not yet remove code-fixer's seeding and
 cleanup wrappers. Those require separate persistent-state and lifecycle designs.
@@ -31,7 +31,7 @@ cleanup wrappers. Those require separate persistent-state and lifecycle designs.
 
 ## Public API
 
-Add `readonly scope?: string` to `DockerSandboxOptions` and
+Add `readonly scope: string` to `DockerSandboxOptions` and
 `KubernetesSandboxOptions`. For example:
 
 ```ts
@@ -45,22 +45,23 @@ The application chooses a stable installation/environment identifier. Replicas
 that intentionally share thread storage use the same value; independent apps,
 environments, and disposable eval attempts use different values. Do not derive
 it from a PID, cwd, or random value on ordinary runtime startup. No new required
-environment variable or provider wrapper is introduced.
+framework-owned environment variable or provider wrapper is introduced. The research
+scaffold reads an explicit installation-specific `B4_SANDBOX_SCOPE` when its
+optional Docker mode is enabled; its dedicated test uses a disposable scope.
 
 Sharing a scope permits addressing the same storage; it does not add
 cross-process coordination or make concurrent replica access safe. Existing
 provider lifecycle and concurrency behavior remains unchanged.
 
-An omitted scope preserves the current names and labels exactly. Explicit empty
-or whitespace-only values fail at provider construction before provider I/O.
+Missing, empty, or whitespace-only scopes fail at provider construction before provider I/O.
 Other strings are opaque, case-sensitive values: no trimming or normalization.
 TypeScript remains the type boundary; runtime validation also rejects non-string
-values other than undefined. Image and execution policy are not identity inputs:
+values including undefined. Image and execution policy are not identity inputs:
 changing them must not select a different workspace volume.
 
 ## Resource addressing
 
-For scoped operation derive a lowercase resource token from SHA-256 of the UTF-8
+For every operation derive a lowercase resource token from SHA-256 of the UTF-8
 encoding of `JSON.stringify(["b4-sandbox-scope-v1", scope, threadId])`.
 Use the first 40 hexadecimal characters (160 bits). This avoids delimiter
 ambiguity and fits the existing Kubernetes resource-token length without further
@@ -70,8 +71,8 @@ Use that token wherever the provider currently uses its normalized thread ID:
 Docker container/volume names and its thread label; Kubernetes Pod/PVC/network
 policy names, thread labels, and network policy selectors. Preserve current name
 prefixes and the Kubernetes managed-by label. Do not hash the token again.
-Both providers use the same helper; its unscoped branch retains each provider's
-existing normalization behavior.
+Both providers use the same helper. Delete both legacy sanitizers; there is no
+unscoped branch or compatibility mode.
 
 Keep logical `threadId` unchanged in handles, manager caches, lifecycle
 coordination, and author-facing tool context. Resolve the resource token
@@ -80,18 +81,20 @@ Existing Docker policy identity labels and execution leases continue unchanged.
 
 This is collision-resistant addressing, not authentication or proof of ownership.
 An actor with the same Docker/Kubernetes control-plane privileges can still
-create or manipulate these names. An unscoped caller could also deliberately
-choose a thread ID equal to a scoped token. This increment does not assert
-isolation from such callers, add adoption checks, or broaden cleanup privileges.
+create or manipulate these names. Older clients could also deliberately address these resource names. This increment
+does not add adoption checks or broaden cleanup privileges.
 
 ## Compatibility and retention
 
-Existing installations remain unscoped until explicitly configured. Adding or
-changing a scope selects a different resource address; it does not migrate,
-delete, or fall back to legacy volumes. Document this as an explicit storage
-cutover: preserve the old configuration to access/export old workspaces, and
-verify a backup/import procedure appropriate to the deployment before switching
-existing durable threads. No automatic migration command is part of this change.
+This is an intentional breaking change. Every caller supplies a scope, and every
+resource name changes to the hashed format. There is no legacy fallback,
+automatic migration, or automatic deletion of old volumes. Document that existing
+storage is not reattached after upgrading and remains for explicit operator
+export/cleanup. Changing a scope likewise selects different storage.
+
+Update all active repository callers, scaffold templates, documentation, and
+verification fixtures together. Preserve historical changelogs, recorded evidence,
+and older design documents as records of their original revisions.
 
 Kubernetes's current reaper selects the managed-by label and compares PVC names
 against actual Pod claim references. It does not parse thread identifiers. Keep
@@ -111,8 +114,8 @@ the configured reaper TTL. Do not add a sweeper or change the chart in this slic
   Docker recovery; Kubernetes selectors match scoped Pod labels and PVC mounts.
 - Handles retain the original logical thread ID. Preflight and policy behavior
   are unchanged. Invalid scope fails before any mocked provider call.
-- Existing unscoped provider tests continue to pass without rewriting their
-  expected resource names. Reattachment with a new provider instance preserves
+- Existing provider tests use explicit scopes and hashed resource expectations.
+  Reattachment with a new provider instance preserves
   workspace edits; destroying one scope leaves the other scope's storage intact.
 - Add Docker and Kubernetes gated integration coverage for that last lifecycle
   boundary, and report explicitly when the necessary infrastructure is unavailable.

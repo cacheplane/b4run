@@ -82,5 +82,5 @@ Make sure your app's `b4.config.ts` points the kubernetesSandbox provider at
 the same namespace as the b4-sandbox-infra chart:
 
   sandbox: {
-    provider: kubernetesSandbox({ namespace: "{{ .Values.sandboxNamespace }}" })
+    provider: kubernetesSandbox({ scope: "my-app", namespace: "{{ .Values.sandboxNamespace }}" })
   }

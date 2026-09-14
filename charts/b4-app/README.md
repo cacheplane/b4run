@@ -120,7 +120,7 @@ app's `b4.config.ts`:
 
 ```ts
 sandbox: {
-  provider: kubernetesSandbox({ namespace: "b4-sandboxes" })
+  provider: kubernetesSandbox({ scope: "my-app", namespace: "b4-sandboxes" })
 }
 ```
 
@@ -148,7 +148,7 @@ sandbox: {
 | `serviceAccount.create` | `true` | Creates an application-owned ServiceAccount in the release namespace. |
 | `serviceAccount.name` | `""` | Defaults to the release-scoped chart fullname (`b4-app` for the canonical release). |
 | `automountServiceAccountToken` | `true` | Required when the app calls the Kubernetes API for `kubernetesSandbox`; disable it for apps without that provider where the setup allows. |
-| `sandboxNamespace` | `b4-sandboxes` | Informational; must match `b4-sandbox-infra`'s `namespace.name` and the app's `kubernetesSandbox({ namespace })`. |
+| `sandboxNamespace` | `b4-sandboxes` | Informational; must match `b4-sandbox-infra`'s `namespace.name` and the app's `kubernetesSandbox({ scope: "my-app", namespace })`. |
 | `env` / `envFrom` | `[]` | Standard container env / envFrom. |
 | `secretName` | `""` | Convenience `envFrom.secretRef` (e.g. `OPENAI_API_KEY`, `DATABASE_URL`). The chart does **not** template Secrets — supply them out-of-band. |
 | `resources` | `{}` | |

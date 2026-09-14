@@ -32,7 +32,7 @@ import { kubernetesSandbox } from "@b4run/sandbox"
 
 export default config({
   sandbox: {
-    provider: kubernetesSandbox({
+    provider: kubernetesSandbox({ scope: "my-app",
       image: "node:24-slim",
       namespace: "b4-sandboxes",
     }),
@@ -44,7 +44,13 @@ export default config({
 
 `storageClass` and `startupTimeoutMs` are optional provider settings. `resources.diskGb` becomes the PVC storage request; confirm the selected StorageClass can provision that request.
 
-The namespace is also the provider resource-name scope. Give each application or trust boundary a separate Kubernetes namespace. Before a caller can choose `thread_id`, map ownership to a collision-resistant, provider-safe canonical thread ID that is globally unique inside that namespace. The provider lowercases the ID, replaces unsupported characters, trims dashes, and only adds a hash when the cleaned form is overlength. That lossy sanitizer means distinct short IDs that differ by case or substituted punctuation can still address the same Pod, PVC, and NetworkPolicy. Mutually untrusted tenants must not share a provider namespace in which their resource names can alias. Hashing every ID in the runtime would break reattachment to existing PVC names and is therefore a compatibility-sensitive follow-up, not a current guarantee.
+`scope` is required and identifies the application/environment within the provider.
+The provider hashes scope and the exact logical thread ID into stable resource
+names, including NetworkPolicy selectors. Keep scope stable across deployments.
+Different scopes address different resources in the same namespace; they do not
+replace tenant authorization, RBAC, or namespace trust boundaries. Sharing scope
+also does not coordinate concurrent replicas. See [Application scope](/docs/sandbox#application-scope)
+for the breaking storage-name change and upgrade implications.
 
 The provider replaces the image entrypoint with `sleep infinity` and runs shell and filesystem operations through `sh -c`. The image must provide a POSIX `sh`, a `sleep` implementation that accepts `infinity`, and the core utilities used by the filesystem backend (`cat`, `mkdir`, `dirname`, `ls`, `realpath`, `stat`, `rm`, and `touch`). It also needs `timeout` when `resources.timeoutMs` is set. The hardened default runs as numeric UID/GID `1000:1000`; an `/etc/passwd` entry is not required, but the image's executables and filesystem permissions must work for that identity. Set an explicit compatible UID/GID through `security.runAsNonRoot` when they do not.
 
@@ -55,7 +61,7 @@ The app Pod's ServiceAccount must be a subject of the infrastructure chart's `b4
 Add the management-namespace app ServiceAccount to the complete `orchestrator.subjects` list before deploying the app so there is no running-but-unauthorized interval. Follow [Kubernetes deployment](/docs/deployment/kubernetes) for the ordered RoleBinding and application-chart commands. Keep these three values aligned:
 
 - `b4-sandbox-infra`'s `namespace.name`;
-- `kubernetesSandbox({ namespace: "b4-sandboxes" })`;
+- `kubernetesSandbox({ scope: "my-app", namespace: "b4-sandboxes" })`;
 - the application chart's informational `sandboxNamespace`.
 
 Changing `sandboxNamespace` alone does not move workloads or change RBAC.
