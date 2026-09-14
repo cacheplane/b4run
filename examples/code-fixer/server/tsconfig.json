@@ -1,5 +1,16 @@
 {
   "extends": "@b4run/config-typescript/node",
-  "compilerOptions": { "noEmit": true, "rootDir": ".", "allowImportingTsExtensions": true },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "test/**/*.ts",
+    "vitest.config.ts",
+    "b4.config.ts",
+    "vitest.sandbox.config.ts"
+  ]
 }

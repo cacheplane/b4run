@@ -57,4 +57,3 @@ function jsonSchemaFieldToZod(prop: JsonSchemaProperty, depth = 0): z.ZodTypeAny
       return z.unknown()
   }
 }
-

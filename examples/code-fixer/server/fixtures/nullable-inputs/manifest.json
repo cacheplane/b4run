@@ -3,7 +3,7 @@
   "version": 1,
   "sourcePr": "https://github.com/cacheplane/b4run/pull/573",
   "sourceCommit": "777138ccf7b9599f1e7041c9d07d01a8c72d3781",
-  "extractionNotes": "Compiler model, analyzer, and schema functions copied from the baseline before the refreshed nullable repair tracked under issue #605 (original PR #573). Only JSON schema type declarations and validator conversion functions retained from their larger modules. Added pipeline entry point; no TypeScript parsing or Zod validation mocks. Exact faulty baseline is sourceCommit; reference repair is 6039fd29ebd3b4aa264d3375ae5cf9d1bf0c0cac.",
+  "extractionNotes": "Compiler model, analyzer, and schema functions copied from the baseline before the refreshed nullable repair tracked under issue #605 (original PR #573). Only JSON schema type declarations and validator conversion functions retained from their larger modules. Added pipeline entry point; no TypeScript parsing or Zod validation mocks. Exact faulty baseline is sourceCommit; reference repair is 6039fd29ebd3b4aa264d3375ae5cf9d1bf0c0cac. Tests execute the real pipeline in a child process and assert its returned schema and validation results in the parent.",
   "allowedSourcePaths": [
     "src/compiler/json-schema.ts",
     "src/validator.ts"
@@ -16,7 +16,9 @@
     "src/compiler/typescript-backend.ts",
     "src/pipeline.ts",
     "src/types.ts",
-    "test/nullable.test.ts"
+    "test/nullable.test.ts",
+    "test/evaluate-tool.ts",
+    "test/inspect-tool.ts"
   ],
   "command": [
     "npm",

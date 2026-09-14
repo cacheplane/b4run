@@ -1,0 +1,12 @@
+---
+name: verify-change
+description: Reproduce and verify a focused code repair.
+---
+
+Read TASK.md. Run the documented failing command and inspect its output before
+editing. Follow the actual entry point through the source; don't stop at a
+handler test if the failure occurs at a parser or adapter boundary.
+
+Change only the permitted source files. Preserve tests and validation behavior.
+Run the documented tests again. Report the command, actual result, and any
+remaining failure. Ask to export for review only after verification.

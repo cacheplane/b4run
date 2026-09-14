@@ -10,6 +10,39 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-13-code-fixer-blueprint-design.md` (approved).
 
+## Implementation checkpoint — September 13, 2026
+
+The executable blueprint is implemented on `blove/code-fixer-blueprint`.
+The checklist below remains the original detailed acceptance plan; this ledger
+records the verified state rather than implying every completion gate has passed.
+Some planned modules were consolidated (`fixture-catalog.ts` owns contracts;
+`exportForReview.ts` owns the small outbox action). Fixture commits were combined.
+
+| Area | Verified state |
+|---|---|
+| Fixture contracts and historical qualification | Both faulty baselines fail as intended; reference repairs pass visible and independent checks. |
+| Docker, workspace, and approval | Seven integration tests pass, including isolation, preserved edits, actual allow/deny, exit-zero bypass rejection, runtime file tampering, and assertion tampering. |
+| Runner and evaluations | Both fixtures pass full replay and stop at approval-pending; all six deterministic criteria pass. Failed batches exit nonzero, cancellation stops the batch, cleanup attempts every owned ID, and artifact failures retain fallback accounting. |
+| Unit and root discovery | 34 tests pass, including a root-workspace invocation. |
+| Standalone consumer | Published B4 `0.8.31` passes install, check, build, typecheck, unit tests, and both Docker replay cases outside the monorepo. |
+| Independent review | Verifier and runner findings fixed and re-reviewed with no remaining findings in those scopes. |
+| Repository validation | Full `pnpm ci:validate` passes on sequential rerun: 5,916 source tests, release-controller checks, packaging, and all three harness lanes. Changeset check reports no user-facing package changes. |
+| Live evaluation and recordings | Not run: `OPENAI_API_KEY` unavailable. Six live attempts and successful per-fixture recordings remain required. |
+
+Recorded replay durations were 5,984 ms (CLI) and 10,127 ms (nullable), including
+independent verification. These are scripted wiring measurements, not inference
+or live-agent speed claims. No replay is eligible for live recording export.
+
+Verifier assertions now run in a separate process from submitted target source.
+Named test receipts and post-execution file snapshots additionally reject early
+exit and runtime tampering. Export includes a host-generated unified review diff.
+A real terminal replay displayed that diff, accepted denial, and created no outbox.
+
+The first full validation attempt failed two existing CLI marker tests when a
+build hit `ENOTEMPTY` while regenerating `packages/cli/docs`. A sequential rerun
+passed all required gates without changing framework or release code. This first
+failure is retained here rather than omitted from the verification history.
+
 ## Execution rules and boundaries
 
 All commands run from the repository root. Use the existing isolated worktree;

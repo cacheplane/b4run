@@ -1,0 +1,5 @@
+- [ ] Read the task and reproduce the failing test
+- [ ] Inspect the relevant source and identify the cause
+- [ ] Make a focused source repair
+- [ ] Run the test and explain the verified result
+- [ ] Request approval to export the patch for review

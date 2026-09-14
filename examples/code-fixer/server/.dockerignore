@@ -1,0 +1,11 @@
+**
+!Dockerfile
+!fixtures
+!fixtures/cli-flags
+!fixtures/cli-flags/project
+!fixtures/cli-flags/project/package.json
+!fixtures/cli-flags/project/package-lock.json
+!fixtures/nullable-inputs
+!fixtures/nullable-inputs/project
+!fixtures/nullable-inputs/project/package.json
+!fixtures/nullable-inputs/project/package-lock.json

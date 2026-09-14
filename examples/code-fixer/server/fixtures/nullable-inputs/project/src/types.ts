@@ -19,4 +19,3 @@ export interface ExtractedToolSchema {
     readonly additionalProperties: false
   }
 }
-
