@@ -13,19 +13,19 @@
   },
   "dependencies": {
     "@ag-ui/client": "0.0.59",
-    "@copilotkit/react-core": "^1.70.0",
-    "@copilotkit/runtime": "^1.70.0",
+    "@copilotkit/react-core": "^1.71.0",
+    "@copilotkit/runtime": "^1.71.0",
     "@b4run/ag-ui": "workspace:*",
-    "next": "16.3.3",
-    "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "next": "16.3.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",
-    "@playwright/test": "1.62.1",
-    "@types/node": "26.1.2",
-    "@types/react": "19.2.18",
-    "@types/react-dom": "19.2.4",
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.5.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "typescript": "7.0.2"
   }
 }

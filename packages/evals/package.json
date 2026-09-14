@@ -50,6 +50,6 @@
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",
     "@b4run/testing": "workspace:*",
-    "@types/node": "26.1.2"
+    "@types/node": "26.5.1"
   }
 }
