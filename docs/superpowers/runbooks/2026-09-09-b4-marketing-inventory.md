@@ -1,8 +1,14 @@
 # B4.run marketing and external-account inventory
 
-**Updated:** 2026-09-10 UTC; initial HTTP inventory observed September 9. **Tracking:** [issue #602](https://github.com/cacheplane/b4run/issues/602).
+**Updated:** 2026-09-14 UTC (September 13 Pacific); initial HTTP inventory observed September 9. **Tracking:** [issue #602](https://github.com/cacheplane/b4run/issues/602).
 **Initial source baseline:** `811cd0402a478f3d541bd60572b24a34ddd6665b` on
 `blove/b4-rename-followup-plan`.
+
+The September 14 refresh below supersedes the older asset counts, archive hash,
+account deferral, and search-account unknowns. The owner resumed #602 and
+identified the Google Search Console account; release measurement remains
+deferred until the next ordinary release, and optional automated-review credits
+remain deferred.
 
 The public homepage and Getting Started page serve B4.run canonical and social
 metadata. All cataloged brand downloads, favicon variants, four demo posters,
@@ -15,7 +21,7 @@ link directly to the existing ZIP, the public manifest homepage is `/`, and
 the ZIP matches the merged repository asset (SHA-256
 `5026d1dbb08e85af2710d5ff4b1c326ab1339914c64c9301ed077971dd763571`).
 No brand landing page or redirect was added. The broader account inventory
-remains deferred by the owner under #602.
+was deferred on September 10 and resumed on September 13 Pacific under #602.
 
 This inventory combines current HTTP/API reads, repository source, and explicitly
 identified historical account evidence. It does not establish that every external
@@ -109,7 +115,8 @@ policy ambiguity. PR #618 subsequently merged, deployed, and passed production v
 
 ## Follow-up and closure
 
-The account work in items 2–4 remains deferred by the owner; the completed website check does not resume that inventory.
+The owner resumed items 2–4 on September 13 Pacific. The current search-console
+findings and remaining ownership gaps are recorded below.
 
 1. **Complete:** PR #618 repaired the existing brand links and synchronized the
    public/archived manifests. Production checks verified the ZIP links, manifest
@@ -131,3 +138,61 @@ Documentation-only artifact validation: check whitespace and new-file brand
 strings; runtime/package tests are not meaningful for this inventory. No source,
 package behavior or CI configuration was edited by this inventory subtask. The
 parent task owns the separate website repair and its validation.
+
+## September 14 refresh (September 13 Pacific)
+
+Source baseline: `0e046d2a4eda0a84f5de1ca1c1d696d80b3a30f3`.
+Public HTTP checks began at 03:22 UTC; authenticated vendor reads followed at
+03:22 UTC. These observations supersede corresponding September 9–10 rows.
+
+| Resource | Owner / actual use | Current evidence | Action / disposition |
+|---|---|---|---|
+| Google Search Console | Brian Love; owner identified the account in this task, and the authenticated UI matched it. The account address is retained in the private task rather than this public runbook. | Existing domain property `sc-domain:dawnai.org` reports a verified owner. The property selector contains no B4.run property. Overview shows 68 indexed and 60 not-indexed pages for the old property, not B4.run coverage. | Prepare the B4.run domain property and DNS verification, submit the final sitemap, then use Change of Address. Verification challenge is ready. Vercel API subsequently found the exact challenge already present as TXT record `rec_e5669872791548c075f2f1eb`, and an authoritative nameserver query confirmed it; this audit did not create it. Owner approval remains pending before domain-level verification. No verified B4.run property or address-change submission is claimed. |
+| Old Google sitemap registration | Same Search Console owner | Registered `https://dawnai.org/sitemap.xml` on August 26; last read September 12. Google reports 83 discovered pages and 83 “URL not allowed” errors, with examples on `https://b4.run/`, `/blog`, and `/docs/getting-started`. | This is a cross-domain sitemap registration problem. Register `https://b4.run/sitemap.xml` under the final property. Keep the old property/history and redirects; assess the old sitemap separately after the migration is accepted. |
+| Website crawl inputs | Repository maintainers | All 83 sitemap URLs return 200 with matching canonical URLs; no old framework name, old domain, or old npm scope found in raw HTML. All observed script source origins are same-origin. Robots advertises the final sitemap and permits public crawling. | Public crawl checks pass. These checks do not prove Google ingestion, indexing, or client-side analytics event delivery. |
+| Retained website and GitHub redirects | Repository / Vercel maintainers | Old homepage and Kubernetes docs deep link return 301 to the corresponding B4.run URLs. Old repository URL returns 301 to `cacheplane/b4run`. | Preserve under the owner's explicit redirect decision. Cached search results using the old URLs are distinct from live stale content. |
+| Vercel project | Cacheplane team `team_RWMT2bzjj1nkSXI3N3arQ6CP`; individual billing owner unconfirmed | Authenticated project GET: `prj_Syd2iGdPVSDoqtZCqqP2XeWnNlLB`, name `b4-run`, GitHub link `cacheplane/b4run`. | Rename and repository connection freshly verified. |
+| Vercel analytics / Speed Insights | Same project; operational owner unconfirmed | Project API returns a Web Analytics ID and a Speed Insights ID; Speed Insights says `hasData: false`. Neither identifier alone proves collection is enabled or receiving events. | Dashboard requires a Vercel browser login; collection and continuity remain unverified. No analytics vendor or publishing step added. |
+| B4.run DNS and mail | Vercel nameservers; mailbox provider/owner unknown | Public DNS returns `ns1.vercel-dns.com` and `ns2.vercel-dns.com`; initial apex MX and TXT queries returned no records. A later Vercel DNS API read found the exact prepared Google TXT challenge already present; no duplicate record was added. | Do not publish a B4 mailbox until a chosen existing provider and delivery are confirmed. No email sent or mail records added. |
+| Resend | Account owner / B4 use still unknown | Fresh authenticated complete domain list contains only the previously recorded two verified domains, both with sending enabled and receiving disabled. No B4 sender domain. | Preserve other-product domains. Identify B4 campaigns/templates/support use before editing anything. |
+| Paper Relay brand kit | Repository maintainers; external design-library editor unknown | Live manifest version `2026-09-12-paper-relay-v1`, 13 assets, all HTTP 200. ZIP is 1,380,996 bytes and matches this baseline's source, SHA256 `07fd4e21d2f1e64acd1ab698d8e3445e602a066f27431f9ceb865f6c1738bf1b`. | Use the approved current kit for identified profile updates. Historical eight-asset/22-entry counts and the September 10 ZIP hash above are superseded. |
+| Mengbi third-party listing | External directory operator; product editor/access unknown | [Live listing](https://mengbi-ai.net/en/ai-tools/agents/dawn-ai) returns 200 and still displays the old product title, domain, favicon URL and npm scope. This is live stale content, not just a cached search snippet. | Prepared correction below. No contact message or listing submission sent. |
+| Bing, social/community, newsletters, external design libraries | Unknown | Owner supplied Google Search Console ownership only. No confirmation that these other channels are unused. | Keep these rows open; request actual resource URLs and editors when available. |
+
+### Prepared directory correction
+
+Target: [Mengbi listing](https://mengbi-ai.net/en/ai-tools/agents/dawn-ai).
+This is a proposed field update, not an outreach message or submitted edit.
+
+| Field | Replacement |
+|---|---|
+| Product name | B4.run |
+| Listing heading | B4.run: capabilities, use cases, and sources |
+| Website | https://b4.run/ |
+| Favicon | https://b4.run/favicon.ico |
+| Repository | https://github.com/cacheplane/b4run |
+| Short description | TypeScript framework for LangGraph.js agents, with filesystem routes, route-local tools, generated types, and durable threads. |
+| SDK package scope | `@b4run/sdk` |
+| Brand reference | https://b4.run/brand/assets.json |
+
+The page also contains broken fragments extracted from source examples. Ask its
+editor to refresh that generated material from current documentation instead of
+performing a blind global replacement of historical API names. Its existing
+[contact page](https://mengbi-ai.net/contact) is a possible owner route, not
+authorization to send a message.
+
+### Google migration sequence
+
+1. Verify the prepared `b4.run` domain property under the existing owner's
+   account using Google's generated TXT challenge in Vercel DNS.
+2. Submit `https://b4.run/sitemap.xml` in that property and record Google's
+   submission/read status separately from the 83 successful HTTP checks.
+3. From the old property, validate and submit the move to the verified B4.run
+   property, retaining existing 301 redirects and both properties.
+4. Inspect the homepage and Getting Started URL and capture the initial indexing
+   baseline. Recheck after Google processes the move; do not promise immediate
+   indexing or manufacture a release to trigger it.
+
+Google documents [Change of Address](https://support.google.com/webmasters/answer/9370220)
+for a moved and redirected site, and requires ownership of both properties.
+This console migration has no dependency on package releases or CI.
