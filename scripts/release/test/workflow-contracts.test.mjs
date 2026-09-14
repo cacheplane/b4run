@@ -111,8 +111,9 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // and the bootstrap-aware npm adapter, observer, CLI, audit verifier, and publisher.
 // Repinned for verified published terminal selection and historical npm latest observations.
 // Repinned for strict npm audit command outcomes and bounded safe diagnostics.
+// Repinned for the Paper Relay root introduction and historical demo destination.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "d0a949027f4b657f1dc84ab2efd885ae85a696d9cd9dd5b45960c57dd01350f8"
+  "fefebd9b3e267d9dd3bf794fc3da58dd09a30df6f58258b503be03c81d7dd12c"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu

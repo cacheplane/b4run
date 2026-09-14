@@ -5,6 +5,12 @@ import { MDX_REHYPE_PLUGINS, MDX_REMARK_PLUGINS } from "./lib/mdx-plugins"
 const nextConfig: NextConfig = {
   experimental: { useTypeScriptCli: true },
   reactStrictMode: true,
+  outputFileTracingIncludes: {
+    "/blog/*": [
+      "./public/brand/identity/fonts/Inter-600.ttf",
+      "./public/brand/identity/logos/wordmark-ink.svg",
+    ],
+  },
   pageExtensions: ["ts", "tsx", "md", "mdx"],
   typescript: { tsconfigPath: "./tsconfig.build.json" },
   async redirects() {

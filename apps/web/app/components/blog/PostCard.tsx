@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { Eyebrow } from "../ui/Eyebrow"
+import styles from "./blog.module.css"
 import type { Post } from "./post-index"
 
 function formatDate(iso: string): string {
@@ -14,18 +15,9 @@ function formatDate(iso: string): string {
 export function PostCard({ post }: { readonly post: Post }) {
   const isRelease = post.type === "release"
   return (
-    <Link
-      href={`/blog/${encodeURIComponent(post.slug)}`}
-      className={`block p-5 rounded-xl border transition-colors ${
-        isRelease
-          ? "border-divider bg-surface/30 hover:bg-surface/60"
-          : "border-divider bg-surface/60 hover:border-accent-saas/40"
-      }`}
-    >
+    <Link href={`/blog/${encodeURIComponent(post.slug)}`} className={styles.card}>
       {isRelease ? (
-        <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-accent-blue/15 text-accent-blue-deep">
-          v{post.version}
-        </span>
+        <span className={styles.version}>v{post.version}</span>
       ) : (
         <Eyebrow>Essay · {post.readingTimeMinutes} min</Eyebrow>
       )}

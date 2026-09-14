@@ -9,9 +9,8 @@ paper surfaces, ink typography, yellow-green accents, Inter, and JetBrains Mono.
 They take precedence over provisional palette and typography guidance in the
 original identity kit. D2.2 vector masters remain authoritative for logo geometry.
 
-The guidelines formalize the visual identity. The homepage narrative and
-structure will be rebuilt in a later phase; the current homepage and review
-mockups do not constrain that redesign.
+The homepage now applies this direction to real agent source and a recorded
+repair. Shared public surfaces follow the same paper, ink, and Relay palette.
 
 ## Logos
 
@@ -33,8 +32,24 @@ SVG geometry. The compact mark is `b4`; the primary wordmark is `b4.run`.
 Existing public logo URLs remain stable. The reference page, usage sheet, notes,
 manifest, and ZIP now follow Paper Relay in this repository revision. Tight Shift
 files remain available as archived alternatives. The reference uses typography
-specimens, not proposed homepage messaging. Main-site styling and favicon selection
-are outside this kit update. Product-loop recordings are independent of this kit.
+specimens. Product-loop recordings are independent historical evidence; the
+new developer walkthrough has its own recorded repair and evaluation report.
+
+## Repository social preview
+
+- [1280×640 PNG](./b4-repository-social.png) — ready for repository and social sharing.
+- [Editable SVG](./b4-repository-social.svg) — supplied wordmark geometry and the
+  approved headline. Install the checked-in Inter font when editing.
+
+Regenerate from the repository root with installed dependencies:
+
+```sh
+node apps/web/scripts/export-repository-social.mjs
+```
+
+The renderer uses the checked-in Inter fonts through an isolated font configuration.
+The assets are committed here; GitHub's repository social-preview setting is a
+separate upload in repository settings. This script does not change that setting.
 
 ## Product-loop media
 

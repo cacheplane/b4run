@@ -5,13 +5,13 @@
   </picture>
 </p>
 
-<p align="center"><strong>TypeScript meta-framework for LangGraph.js</strong></p>
+<p align="center"><strong>The TypeScript framework for agents.</strong></p>
 
-# Build LangGraph agents like Next.js apps.
+# Ridiculous speed. Readable code.
 
-B4.run adds file-system routes, shared and route-local tools, generated types,
-deterministic tests, durable threads, and build targets around LangGraph.js.
-Keep the runtime. Drop the boilerplate.
+Write the agent. Give it tools. Set the limits. Ship code you can actually read.
+B4.run adds file-system routes, generated types, workspaces, sandbox execution,
+and approval around LangGraph.js. Keep your application code in TypeScript.
 
 <p align="center">
   <a href="https://www.npmjs.com/package/create-b4-app"><img src="https://img.shields.io/npm/v/create-b4-app?label=create-b4-app" alt="create-b4-app npm version"></a>
@@ -33,7 +33,7 @@ npm create b4-app@latest my-agent
 ```
 
 <p align="center">
-  <a href="https://b4.run/#product-loop">
+  <a href="https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md">
     <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench" width="900">
   </a>
 </p>
@@ -102,6 +102,14 @@ The [full migration guide](https://b4.run/docs/migrating-from-langgraph)
 covers that incremental path.
 
 ## What are you building?
+
+Start with the [runnable developer agent](./examples/code-fixer/server/README.md)
+and its [code walkthrough](./examples/code-fixer/server/WALKTHROUGH.md).
+It reproduces a historical defect, repairs source in an isolated workspace,
+verifies the patch independently, and pauses for your approval before local export.
+The [homepage](https://b4.run) shows one real recorded repair; the
+[evaluation report](./docs/superpowers/runbooks/2026-09-13-code-fixer-live-evaluations.md)
+retains the failed attempts too.
 
 - [Research assistant](./examples/research/README.md)
 - [Chat and workspace assistant](./examples/chat/README.md)

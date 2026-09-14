@@ -457,7 +457,7 @@ const canonicalHeroCommandBlock = `\`\`\`bash
 npm create b4-app@latest my-agent
 \`\`\``
 const canonicalProductLoopBlock = `<p align="center">
-  <a href="https://b4.run/#product-loop">
+  <a href="https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md">
     <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench" width="900">
   </a>
 </p>`
@@ -1310,7 +1310,7 @@ describe("validateRootReadme", () => {
 
   it("requires the exact canonical hero", () => {
     const source = actualRootReadme.replace(
-      "# Build LangGraph agents like Next.js apps.",
+      "# Ridiculous speed. Readable code.",
       "# Build LangGraph agents with fewer conventions.",
     )
     assertFailure(validateRootReadme(source, { canonical: true }), /exact canonical hero/i)
@@ -1510,7 +1510,10 @@ describe("validateRootReadme", () => {
     ],
     [
       "wrong product-loop anchor",
-      actualRootReadme.replace("https://b4.run/#product-loop", "https://b4.run/docs"),
+      actualRootReadme.replace(
+        "https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md",
+        "https://b4.run/docs",
+      ),
     ],
     [
       "wrong product-loop alt text",

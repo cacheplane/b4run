@@ -63,13 +63,13 @@ const CANONICAL_ROOT_HERO = `<p align="center">
   </picture>
 </p>
 
-<p align="center"><strong>TypeScript meta-framework for LangGraph.js</strong></p>
+<p align="center"><strong>The TypeScript framework for agents.</strong></p>
 
-# Build LangGraph agents like Next.js apps.
+# Ridiculous speed. Readable code.
 
-B4.run adds file-system routes, shared and route-local tools, generated types,
-deterministic tests, durable threads, and build targets around LangGraph.js.
-Keep the runtime. Drop the boilerplate.`
+Write the agent. Give it tools. Set the limits. Ship code you can actually read.
+B4.run adds file-system routes, generated types, workspaces, sandbox execution,
+and approval around LangGraph.js. Keep your application code in TypeScript.`
 
 const CANONICAL_ROOT_BADGES = `<p align="center">
   <a href="https://www.npmjs.com/package/create-b4-app"><img src="https://img.shields.io/npm/v/create-b4-app?label=create-b4-app" alt="create-b4-app npm version"></a>
@@ -87,7 +87,7 @@ const CANONICAL_ROOT_NAVIGATION = `<p align="center">
 </p>`
 
 const CANONICAL_PRODUCT_LOOP_BLOCK = `<p align="center">
-  <a href="https://b4.run/#product-loop">
+  <a href="https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md">
     <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench" width="900">
   </a>
 </p>`

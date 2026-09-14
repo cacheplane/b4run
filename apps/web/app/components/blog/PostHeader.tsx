@@ -1,6 +1,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import { Eyebrow } from "../ui/Eyebrow"
+import styles from "./blog.module.css"
 import { AUTHORS, type Author, type Post } from "./post-index"
 
 function formatDate(iso: string): string {
@@ -57,11 +58,7 @@ export function PostHeader({ post }: { readonly post: Post }) {
       {post.tags.length > 0 && (
         <div className="md:hidden mt-3 flex flex-wrap gap-1.5">
           {post.tags.map((tag) => (
-            <Link
-              key={tag}
-              href={`/blog/tags/${tag}`}
-              className="text-xs px-2 py-0.5 rounded-full bg-surface/60 text-ink-muted hover:text-accent-saas transition-colors"
-            >
+            <Link key={tag} href={`/blog/tags/${tag}`} className={styles.chip}>
               {tag}
             </Link>
           ))}

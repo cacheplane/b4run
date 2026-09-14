@@ -1,0 +1,103 @@
+.blog {
+  --color-page: #f5f4f0;
+  --color-surface: #efeee8;
+  --color-surface-sunk: #e8e8df;
+  --color-ink: #111111;
+  --color-ink-muted: #55594f;
+  --color-ink-dim: #62665b;
+  --color-divider: #d6d6cc;
+  --color-accent-saas: #52610f;
+  --color-accent-saas-soft: #e6eccf;
+  --font-display: var(--font-inter), sans-serif;
+  background: #f5f4f0;
+  color: #111111;
+}
+.blog :is(h1, h2, h3, h4) {
+  font-family: var(--font-inter), sans-serif;
+  font-variation-settings: normal;
+}
+.blog :focus-visible {
+  outline: 3px solid #667811;
+  outline-offset: 4px;
+}
+.card {
+  display: block;
+  padding: 28px;
+  border: 1px solid #d6d6cc;
+  background: #f5f4f0;
+}
+.card:hover {
+  border-color: #667811;
+  background: #efeee8;
+}
+.featured {
+  padding: 36px;
+  margin-bottom: 24px;
+  border-left: 4px solid #b4ce37;
+  background: #e9eddb;
+}
+.version {
+  font:
+    11px var(--font-jetbrains-mono),
+    monospace;
+  padding: 5px 8px;
+  background: #e6eccf;
+  color: #354007;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #d6d6cc;
+  color: #55594f;
+  font-size: 12px;
+}
+.chip:hover {
+  border-color: #667811;
+  color: #111;
+}
+.active {
+  background: #b4ce37;
+  color: #111;
+  border-color: #667811;
+}
+.cta {
+  padding: 64px 24px;
+  background: #17181b;
+  color: #f5f4f0;
+}
+.ctaInner {
+  max-width: 960px;
+  margin: auto;
+}
+.cta h2 {
+  font:
+    600 clamp(32px, 5vw, 56px) / 1.1 var(--font-inter),
+    sans-serif;
+  letter-spacing: -0.04em;
+}
+.cta p {
+  margin: 20px 0;
+  max-width: 55ch;
+  color: #c3c6bb;
+}
+.ctaLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: center;
+}
+.ctaLinks > a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+@media (max-width: 600px) {
+  .card,
+  .featured {
+    padding: 24px;
+  }
+}

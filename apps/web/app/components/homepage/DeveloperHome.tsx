@@ -96,6 +96,13 @@ export async function DeveloperHome() {
               <br />
               The README covers setup and replay without a model call.
             </p>
+            <a
+              href="https://github.com/cacheplane/b4run/blob/main/examples/code-fixer/server/WALKTHROUGH.md"
+              className={styles.reportLink}
+            >
+              Read the code walkthrough ↗
+            </a>
+            <br />
             <a href={reportUrl} className={styles.reportLink}>
               See every attempt, including the failures ↗
             </a>
