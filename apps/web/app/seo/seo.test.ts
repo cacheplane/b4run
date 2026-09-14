@@ -41,9 +41,9 @@ const GETTING_STARTED_DESCRIPTION =
 const BLOG_INDEX_DESCRIPTION =
   "Writing on the agent stack, type-safety, and the tools we're building."
 const PRODUCTION_AS_OF = "2026-08-26"
-const HOME_TITLE = "B4.run — TypeScript Meta-Framework for LangGraph.js"
+const HOME_TITLE = "B4.run — Ridiculous speed. Readable code."
 const HOME_DESCRIPTION =
-  "B4.run is the TypeScript meta-framework for LangGraph.js, with file-system routes, route-local tools, generated types, and durable threads."
+  "Build TypeScript agents with tools, workspaces, sandbox execution, and approval. Inspect a real recorded repair and run the blueprint yourself."
 const BLOG_CONTENT_DIRECTORY = resolve(seoDirectory, "../../content/blog")
 const REPO_ROOT = resolve(seoDirectory, "../../../..")
 
@@ -113,7 +113,7 @@ describe("homepage SEO", () => {
       breadcrumbs: [],
     })
     expect(new Date(page.lastModified).toISOString()).toBe(page.lastModified)
-    expect(HOME_TITLE).toMatch(/^B4.run\b.*(?:TypeScript|LangGraph)/)
+    expect(HOME_TITLE).toMatch(/^B4.run\b.*Readable code/)
     expect(HOME_TITLE.length).toBeLessThanOrEqual(60)
     expectValidDescription(page.description)
 
@@ -133,7 +133,7 @@ describe("homepage SEO", () => {
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "B4.run — TypeScript meta-framework for LangGraph.js",
+            alt: "B4.run — Ridiculous speed. Readable code.",
           },
         ],
       },
@@ -147,7 +147,7 @@ describe("homepage SEO", () => {
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "B4.run — TypeScript meta-framework for LangGraph.js",
+            alt: "B4.run — Ridiculous speed. Readable code.",
           },
         ],
       },
@@ -207,38 +207,20 @@ describe("homepage SEO", () => {
     ])
   })
 
-  it("bases every snippet claim on visibly rendered homepage sections", () => {
-    const homeSource = readFileSync(resolve(seoDirectory, "../page.tsx"), "utf8")
-    const visibleSources = [
-      "Hero.tsx",
-      "FeatureRouting.tsx",
-      "FeatureTools.tsx",
-      "FeatureTypes.tsx",
-      "DurableByDefault.tsx",
-    ]
-      .map((file) => readFileSync(resolve(seoDirectory, `../components/landing/${file}`), "utf8"))
-      .join("\n")
-
-    for (const component of [
-      "Hero",
-      "FeatureRouting",
-      "FeatureTools",
-      "FeatureTypes",
-      "DurableByDefault",
-    ]) {
-      expect(homeSource).toContain(`<${component} />`)
-    }
-    for (const factualTerm of [
-      "TypeScript meta-framework",
-      "LangGraph.js",
-      "File-system routing",
-      "Route-local tools",
-      "generated types",
-      "durable threads",
-    ]) {
-      expect(visibleSources.toLowerCase()).toContain(factualTerm.toLowerCase())
-    }
-
+  it("bases every snippet claim on visibly rendered homepage sections", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server")
+    const { DeveloperHome } = await import("../components/homepage/DeveloperHome")
+    const html = renderToStaticMarkup(await DeveloperHome()).toLowerCase()
+    for (const term of [
+      "typescript",
+      "tools",
+      "workspaces",
+      "sandboxes",
+      "approval",
+      "recorded",
+      "blueprint",
+    ])
+      expect(html).toContain(term)
     expect(readFileSync(resolve(seoDirectory, "../layout.tsx"), "utf8")).not.toContain(
       "webPageJsonLd",
     )
@@ -674,7 +656,7 @@ describe("static SEO pages", () => {
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "B4.run — TypeScript meta-framework for LangGraph.js",
+            alt: "B4.run — Ridiculous speed. Readable code.",
           },
         ],
       },
@@ -688,7 +670,7 @@ describe("static SEO pages", () => {
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "B4.run — TypeScript meta-framework for LangGraph.js",
+            alt: "B4.run — Ridiculous speed. Readable code.",
           },
         ],
       },

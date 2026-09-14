@@ -607,9 +607,9 @@ export const DOCS_SEO_PAGES: DocsSeoRegistry = buildDocsSeoRegistry(DOCS_SEO_ENT
 export const HOME_SEO_PAGE: StaticWebSeoPage = {
   path: "/",
   canonical: "https://b4.run/",
-  title: "B4.run — TypeScript Meta-Framework for LangGraph.js",
+  title: "B4.run — Ridiculous speed. Readable code.",
   description:
-    "B4.run is the TypeScript meta-framework for LangGraph.js, with file-system routes, route-local tools, generated types, and durable threads.",
+    "Build TypeScript agents with tools, workspaces, sandbox execution, and approval. Inspect a real recorded repair and run the blueprint yourself.",
   kind: "WebPage",
   routeKind: "home",
   breadcrumbs: [],

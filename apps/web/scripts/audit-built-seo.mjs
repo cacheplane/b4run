@@ -11,7 +11,6 @@ const appRoot = resolve(scriptDirectory, "..")
 const productionOrigin = "https://b4.run"
 const currentInventoryDate = "2026-08-26"
 const currentInventoryCount = 83
-export const CURRENT_SNAPSHOT_MINIMUM_DISTINCT_LASTMOD_DATES = 23
 const approvedRobotsAgents = [
   "*",
   "GPTBot",
@@ -262,17 +261,22 @@ export function compareOrderedInventory(expected, actual) {
   return failures
 }
 
-export function lastmodDateDistributionFailure(distinctDates, asOf) {
-  if (
-    asOf === currentInventoryDate &&
-    distinctDates < CURRENT_SNAPSHOT_MINIMUM_DISTINCT_LASTMOD_DATES
-  ) {
-    return `sitemap has only ${distinctDates} distinct lastmod dates; expected at least ${CURRENT_SNAPSHOT_MINIMUM_DISTINCT_LASTMOD_DATES} for the ${currentInventoryDate} production inventory snapshot`
-  }
-  if (asOf !== currentInventoryDate && distinctDates <= 10) {
-    return `sitemap has only ${distinctDates} distinct lastmod dates; expected more than 10`
-  }
-  return undefined
+export function lastmodSourceFailures(entries, records, posts) {
+  const expected = new Map(
+    Object.entries(records).map(([path, record]) => [path, record.lastModified]),
+  )
+  for (const post of posts)
+    expected.set(`/blog/${post.slug}`, new Date(`${post.date}T00:00:00Z`).toISOString())
+  return entries.flatMap((entry) => {
+    const path = new URL(entry.url).pathname
+    const date = expected.get(path)
+    if (date === undefined) return [`missing lastmod source for ${path}`]
+    return entry.lastModified === date
+      ? []
+      : [
+          `lastmod differs from source for ${path}: expected ${date}, received ${entry.lastModified}`,
+        ]
+  })
 }
 
 function extractJourneyDocs() {
@@ -631,8 +635,10 @@ export async function auditBuiltSeo({ asOf, baseUrl }) {
       }
     }
     summary.lastmodDates = dates.size
-    const dateDistributionFailure = lastmodDateDistributionFailure(dates.size, asOf)
-    if (dateDistributionFailure !== undefined) failures.push(dateDistributionFailure)
+    const records = JSON.parse(
+      readFileSync(join(appRoot, "app/seo/lastmod.generated.json"), "utf8"),
+    ).routes
+    failures.push(...lastmodSourceFailures(sitemapEntries, records, inventory.visiblePosts))
     if (actualUrls.some((url) => new URL(url).pathname === "/docs")) {
       failures.push("sitemap contains the /docs redirect")
     }

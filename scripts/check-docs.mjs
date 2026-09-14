@@ -4143,14 +4143,14 @@ for (const filePath of maintainedReadmeFiles) {
 }
 
 // Current scaffold CTAs must include both the package tag and a target directory.
-// Keep this scoped to active website surfaces so historical snapshots remain intact.
+// Keep this scoped to surfaces that present a scaffold CTA. The root social card
+// carries the brand headline; it no longer presents an installation command.
 const targetBearingCtaFiles = [
   "apps/web/app/components/HeaderInner.tsx",
   "apps/web/app/components/MobileMenu.tsx",
   "apps/web/app/components/landing/Hero.tsx",
   "apps/web/app/components/landing/FinalCta.tsx",
   "apps/web/app/components/landing/Quickstart.tsx",
-  "apps/web/app/opengraph-image.tsx",
 ]
 const canonicalScaffoldCommand = "npm create b4-app@latest my-agent"
 const targetlessScaffoldCommand = /\b(?:npm|pnpm) create b4-app(?!@latest my-agent)\b/
