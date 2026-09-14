@@ -24,6 +24,12 @@ export interface WorkspaceFs {
 /** The context argument B4.run passes to a route tool's function. */
 export interface B4ToolContext {
   readonly signal: AbortSignal
+  /**
+   * Conversation thread identity supplied by the runtime when available.
+   * Not an authenticated principal, authorization decision, or globally scoped
+   * sandbox resource identifier. May be absent outside a threaded invocation.
+   */
+  readonly threadId?: string
   readonly middleware?: Readonly<Record<string, unknown>>
   readonly fs: WorkspaceFs
 }

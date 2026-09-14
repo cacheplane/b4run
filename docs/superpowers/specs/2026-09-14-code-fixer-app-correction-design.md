@@ -1,7 +1,7 @@
 # Code-fixer application and distribution correction
 
 Date: 2026-09-14
-Status: independent design review approved; user review pending
+Status: correction direction approved; library-first expansion approved September 14
 
 ## Objective
 
@@ -21,9 +21,10 @@ that application. A directory-only rename would leave the runner dependency
 intact. Adding a guide around the current runner would distribute the wrong
 example. Neither meets the requested correction.
 
-Implement in two sequential increments: correct and verify the example first;
-then publish the installation guide against a verified source revision and
-compatible published B4 release. A new scaffold template is not required.
+Implement library improvements first, then correct and verify the example, then
+publish the installation guide against a verified source revision and compatible
+published B4 release. A new scaffold template is not required. Follow the
+[library adoption sequence](2026-09-14-code-fixer-library-adoption-design.md).
 
 ## Application contract
 
@@ -34,9 +35,11 @@ compatible published B4 release. A new scaffold template is not required.
   supported B4 interfaces. Live user execution must not import the testing
   harness or require an evaluation-attempt process or environment variable.
 - Keep deterministic application helpers in responsibility-named directories:
-  `src/sandbox/` for fixture-backed workspace initialization and lifecycle;
+  `src/sandbox/` for fixture-specific initialization content and configuration;
   `src/review/` for patch validation, independent verification, and local export;
   `src/fixtures/` for the trusted fixture catalog. No `src/blueprint/` layer.
+  Generic lifecycle, identity, acquisition coordination, and evaluation resource
+  management belong in the library where the adoption sequence establishes a gap.
 - Keep the two controlled historical fixtures. The CLI task is the default;
   nullable remains available for harder evaluations. Do not silently replace
   the task with arbitrary remote-repository access.
