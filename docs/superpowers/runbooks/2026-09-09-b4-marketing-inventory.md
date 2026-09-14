@@ -147,7 +147,7 @@ Public HTTP checks began at 03:22 UTC; authenticated vendor reads followed at
 
 | Resource | Owner / actual use | Current evidence | Action / disposition |
 |---|---|---|---|
-| Google Search Console | Brian Love; owner identified the account in this task, and the authenticated UI matched it. The account address is retained in the private task rather than this public runbook. | Existing domain property `sc-domain:dawnai.org` reports a verified owner. The property selector contains no B4.run property. Overview shows 68 indexed and 60 not-indexed pages for the old property, not B4.run coverage. | Prepare the B4.run domain property and DNS verification, submit the final sitemap, then use Change of Address. Verification challenge is ready. Vercel API subsequently found the exact challenge already present as TXT record `rec_e5669872791548c075f2f1eb`, and an authoritative nameserver query confirmed it; this audit did not create it. Owner approval remains pending before domain-level verification. No verified B4.run property or address-change submission is claimed. |
+| Google Search Console | Brian Love; owner identified the account in this task, and the authenticated UI matched it. The account address is retained in the private task rather than this public runbook. | Existing domain property `sc-domain:dawnai.org` reports a verified owner. At the initial 03:22 UTC read, the property selector contained no B4.run property; the 04:02 UTC completion receipt below supersedes that observation. Overview shows 68 indexed and 60 not-indexed pages for the old property, not B4.run coverage. | Prepare the B4.run domain property and DNS verification, submit the final sitemap, then use Change of Address. Verification challenge is ready. Vercel API subsequently found the exact challenge already present as TXT record `rec_e5669872791548c075f2f1eb`, and an authoritative nameserver query confirmed it; this audit did not create it. After owner approval, Google confirmed domain ownership. The owner separately registered the move; the completion receipt below records the accepted move and sitemap ingestion. |
 | Old Google sitemap registration | Same Search Console owner | Registered `https://dawnai.org/sitemap.xml` on August 26; last read September 12. Google reports 83 discovered pages and 83 “URL not allowed” errors, with examples on `https://b4.run/`, `/blog`, and `/docs/getting-started`. | This is a cross-domain sitemap registration problem. Register `https://b4.run/sitemap.xml` under the final property. Keep the old property/history and redirects; assess the old sitemap separately after the migration is accepted. |
 | Website crawl inputs | Repository maintainers | All 83 sitemap URLs return 200 with matching canonical URLs; no old framework name, old domain, or old npm scope found in raw HTML. All observed script source origins are same-origin. Robots advertises the final sitemap and permits public crawling. | Public crawl checks pass. These checks do not prove Google ingestion, indexing, or client-side analytics event delivery. |
 | Retained website and GitHub redirects | Repository / Vercel maintainers | Old homepage and Kubernetes docs deep link return 301 to the corresponding B4.run URLs. Old repository URL returns 301 to `cacheplane/b4run`. | Preserve under the owner's explicit redirect decision. Cached search results using the old URLs are distinct from live stale content. |
@@ -181,7 +181,7 @@ performing a blind global replacement of historical API names. Its existing
 [contact page](https://mengbi-ai.net/contact) is a possible owner route, not
 authorization to send a message.
 
-### Google migration sequence
+### Google migration sequence (completed setup; indexing follow-up remains)
 
 1. Verify the prepared `b4.run` domain property under the existing owner's
    account using Google's generated TXT challenge in Vercel DNS.
@@ -196,3 +196,25 @@ authorization to send a message.
 Google documents [Change of Address](https://support.google.com/webmasters/answer/9370220)
 for a moved and redirected site, and requires ownership of both properties.
 This console migration has no dependency on package releases or CI.
+
+### Google setup completion — September 14, 04:02 UTC
+
+The owner approved continuation and confirmed that they had already registered
+the domain move. This audit verified the existing move instead of submitting a
+duplicate. Google confirmed B4.run ownership using the existing domain-provider
+TXT record. No additional DNS record was needed or created.
+
+| Check | Observed Google result |
+|---|---|
+| B4.run domain ownership | “Ownership verified”; method: Domain name provider. Retain the existing TXT record. |
+| Registered domain move | Destination property shows “This site b4.run / Moving site dawnai.org.” Submitted separately by the owner; not resubmitted by this audit. |
+| Final sitemap | Submitted `https://b4.run/sitemap.xml` to the B4.run domain property after confirming the list was empty. Google reported “Sitemap submitted successfully,” then status **Success**, 83 discovered pages, 0 discovered videos. Submitted and last-read dates both September 13 in the console's display. |
+| Homepage inspection | `https://b4.run/`: “Discovered - currently not indexed”; no last crawl or canonical recorded yet. The final sitemap is listed under Discovery. |
+| Getting Started inspection | `https://b4.run/docs/getting-started`: “URL is on Google” and “Page is indexed.” Last crawl September 8, 01:09:33 in the console display; fetch successful; crawling/indexing allowed. User-declared canonical is the inspected B4.run URL, and Google-selected canonical is “Inspected URL.” HTTPS and one valid breadcrumb item are reported. |
+| Property-wide indexing and performance | “Processing data, please check again in a day or so.” No complete index-coverage baseline is available yet. Discovered URLs are not a count of indexed URLs. |
+
+Both Search Console properties and the existing website/GitHub redirects remain
+intact. No address-change cancellation, sitemap removal, outreach, email,
+publishing, or CI configuration change was performed. Recheck Google coverage
+after processing; keep #602 open for that evidence and the unresolved external
+account rows.
