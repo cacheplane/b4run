@@ -1,10 +1,10 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import { BlogCta } from "../../../components/blog/BlogCta"
 import { PostCard } from "../../../components/blog/PostCard"
 import { getAllTags, getPostsByTag } from "../../../components/blog/post-index"
 import { TagChips } from "../../../components/blog/TagChips"
-import { FinalCta } from "../../../components/landing/FinalCta"
 import { JsonLd } from "../../../seo/JsonLd"
 import { resolveBlogTagSeoPage, toMetadata } from "../../../seo/resolve"
 import { breadcrumbJsonLd, collectionPageJsonLd } from "../../../seo/structured-data"
@@ -51,7 +51,7 @@ export default async function TagPage({ params }: PageProps) {
           ))}
         </div>
       </div>
-      <FinalCta />
+      <BlogCta />
     </>
   )
 }

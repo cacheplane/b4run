@@ -1,6 +1,14 @@
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { notFound } from "next/navigation"
 import { ImageResponse } from "next/og"
+import { webContentRoot } from "../../../lib/content-root"
 import { getAuthoredPosts, selectVisiblePosts } from "../../components/blog/post-index"
+
+// Assets sit beside the content root in both the site build and test workspace.
+const assetRoot = join(webContentRoot(), "..", "public", "brand", "identity")
+const font = readFileSync(join(assetRoot, "fonts", "Inter-600.ttf"))
+const wordmark = `data:image/svg+xml;base64,${readFileSync(join(assetRoot, "logos", "wordmark-ink.svg")).toString("base64")}`
 
 export const contentType = "image/png"
 export const size = { width: 1200, height: 630 }
@@ -50,10 +58,10 @@ export function renderBlogImage(post: BlogImageContent) {
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
-        padding: "80px",
-        background: "linear-gradient(180deg,#fff7e0 0%,#ffe2a8 100%)",
-        color: "#1a1530",
-        fontFamily: "system-ui, sans-serif",
+        padding: "60px 72px",
+        background: "#f5f4f0",
+        color: "#111111",
+        fontFamily: "Inter",
       }}
     >
       <div
@@ -61,7 +69,7 @@ export function renderBlogImage(post: BlogImageContent) {
           fontSize: 22,
           letterSpacing: 4,
           textTransform: "uppercase",
-          color: "#8a7657",
+          color: "#55594f",
         }}
       >
         {eyebrow}
@@ -77,14 +85,35 @@ export function renderBlogImage(post: BlogImageContent) {
           maxWidth: "1040px",
           overflow: "hidden",
           wordBreak: "break-word",
-          fontFamily: "ui-serif, Georgia, serif",
+          fontFamily: "Inter",
         }}
       >
         {post.title}
       </div>
-      <div style={{ fontSize: 24, color: "#6d5638" }}>b4.run/blog</div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          borderTop: "1px solid #d6d6cc",
+          paddingTop: 24,
+        }}
+      >
+        {/* biome-ignore lint/performance/noImgElement: ImageResponse renders the supplied vector wordmark. */}
+        <img src={wordmark} width={172} height={38} alt="b4.run" />
+        <span style={{ fontSize: 22, color: "#55594f" }}>Notes on building agents.</span>
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: "50%",
+            background: "#b4ce37",
+            display: "flex",
+          }}
+        />
+      </div>
     </div>,
-    { ...size },
+    { ...size, fonts: [{ name: "Inter", data: font, weight: 600, style: "normal" }] },
   )
 }
 

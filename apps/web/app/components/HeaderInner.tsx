@@ -32,13 +32,14 @@ interface HeaderInnerProps {
 export function HeaderInner({ repoUrl }: HeaderInnerProps) {
   const pathname = usePathname()
   const homepage = pathname === "/"
+  const brandPage = homepage || pathname.startsWith("/blog")
 
   const linkClass = (active: boolean) =>
     active ? "text-ink transition-colors" : "text-ink-muted hover:text-ink transition-colors"
 
   return (
     <header
-      className={`sticky top-0 z-50 bg-page border-b border-divider ${homepage ? homepageStyles.header : ""}`}
+      className={`sticky top-0 z-50 bg-page border-b border-divider ${brandPage ? homepageStyles.header : ""}`}
     >
       <div className="max-w-[1280px] mx-auto flex justify-between items-center px-6 md:px-8 py-4">
         <BrandLogo imageClassName="h-8" variant="dark" />

@@ -2,8 +2,8 @@
 
 One readable B4 agent repairs two historical defects. The same route uses a real
 workspace, Docker sandbox, verification skill, plan, and approval-gated tool.
-This is the runnable foundation for a future recorded developer walkthrough.
-The homepage is a separate phase.
+The [homepage](https://b4.run) shows a real recorded CLI repair.
+[Read the code walkthrough](./WALKTHROUGH.md) to follow the boundaries behind it.
 
 The CLI fixture reproduces argument forwarding from PR #399. The nullable-input
 fixture runs the real TypeScript compiler → JSON schema → Zod pipeline from
@@ -53,9 +53,10 @@ pnpm --filter @b4-example/code-fixer-server run:agent -- --task nullable-inputs
 ```
 
 The default model is `gpt-5-mini`. Set `B4_CODE_FIXER_MODEL=gpt-5` for the
-model comparison used in the live-evaluation report. Initial small batches did
-not establish reliable success: the revised mini configuration passed 0/6 full
-workflows, while the same configuration with gpt-5 passed 3/6. See the
+final batch used in the live-evaluation report. That six-attempt batch passed
+4/6 full workflows: CLI 3/3 and nullable-inputs 1/3. All 24 attempts across four
+batches are retained, including earlier failures; this is a small historical
+evaluation, not a general reliability guarantee. See the
 [retained evaluation report](../../../docs/superpowers/runbooks/2026-09-13-code-fixer-live-evaluations.md).
 
 An interactive terminal shows the verified source diff and asks before exporting it to the local

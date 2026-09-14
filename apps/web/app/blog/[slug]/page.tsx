@@ -1,11 +1,11 @@
 import type { Metadata } from "next"
 import { notFound } from "next/navigation"
+import { BlogCta } from "../../components/blog/BlogCta"
 import { PostHeader } from "../../components/blog/PostHeader"
 import { PostMeta } from "../../components/blog/PostMeta"
 import { getAllPosts, getPost, getRelatedPosts } from "../../components/blog/post-index"
 import { DocsTOC } from "../../components/docs/DocsTOC"
 import { RelatedCards } from "../../components/docs/RelatedCards"
-import { FinalCta } from "../../components/landing/FinalCta"
 import { ReadingLayout } from "../../components/ReadingLayout"
 import { JsonLd } from "../../seo/JsonLd"
 import { resolveBlogSeoPage, toMetadata } from "../../seo/resolve"
@@ -60,7 +60,7 @@ export default async function BlogPostPage({ params }: PageProps) {
           )}
         </article>
       </ReadingLayout>
-      <FinalCta />
+      <BlogCta />
     </>
   )
 }

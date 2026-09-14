@@ -1,8 +1,8 @@
+import { BlogCta } from "../components/blog/BlogCta"
 import { FeaturedPostCard } from "../components/blog/FeaturedPostCard"
 import { PostCard } from "../components/blog/PostCard"
 import { getAllPosts, getAllTags, getFeaturedPost } from "../components/blog/post-index"
 import { TagChips } from "../components/blog/TagChips"
-import { FinalCta } from "../components/landing/FinalCta"
 import { Eyebrow } from "../components/ui/Eyebrow"
 import { JsonLd } from "../seo/JsonLd"
 import { resolveBlogIndexSeoPage, toMetadata } from "../seo/resolve"
@@ -43,7 +43,7 @@ export default function BlogIndexPage() {
           ))}
         </div>
       </div>
-      <FinalCta />
+      <BlogCta />
     </>
   )
 }

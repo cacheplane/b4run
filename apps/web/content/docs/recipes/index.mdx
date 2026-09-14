@@ -6,6 +6,14 @@ Concept pages explain the pieces. Recipes show the pieces wired up.
 
 For route-level agent behavior, start with [Memory](/docs/memory), [Planning](/docs/planning), [Skills](/docs/skills), [Subagents](/docs/subagents), and [Reasoning Effort](/docs/reasoning-effort). Those features are building blocks rather than single recipes today.
 
+## Runnable developer agent
+
+[Read the code-fixer walkthrough](https://github.com/cacheplane/b4run/blob/main/examples/code-fixer/server/WALKTHROUGH.md)
+to see a complete agent reproduce a failure, edit an isolated workspace, run
+independent verification, score the result, and pause before local export.
+The example owns the fixture and verification policy; B4 supplies the runtime
+capabilities. Its README includes setup and a replay mode without a model call.
+
 ## Build
 
 - [Add a Tool](/docs/recipes/add-a-tool) — author a tool, get type-safe access from a route
