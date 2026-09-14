@@ -6,6 +6,9 @@
   max-width: 1280px;
 }
 .blueprint {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   background: #b4ce37;
   border: 1px solid #111;
   color: #111;

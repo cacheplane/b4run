@@ -185,27 +185,28 @@ in the new module. Do not remove Fraunces from routes outside this scope.
 
 ## Task 5: Rendered review, validation, and PR
 
-- [ ] Run `pnpm build` before any consumer of workspace `dist` output. Run
+- [x] Run `pnpm build` before any consumer of workspace `dist` output. Run
   `pnpm --filter @b4run/web lint`, `pnpm --filter @b4run/web typecheck`,
   `pnpm --filter @b4run/web test`, and `pnpm --filter @b4run/web seo:audit-built`.
   All must pass; inspect any build-generated files before committing.
-- [ ] Start `pnpm --filter @b4run/web dev --port 59620` if that port is free;
+- [x] Start `pnpm --filter @b4run/web dev --port 59620` if that port is free;
   otherwise choose a free port and record it. Use the browser tools and applicable
   browser skill to inspect the real route, not the inline study.
-- [ ] At 320, 390, 768, and 1280px: verify no document overflow, readable code,
+- [x] At 320, 390, 768, and 1280px: verify no document overflow, readable code,
   working selection, result-first mobile order, focus, touch target sizes,
   clipboard failure, and functioning external links. At 200% zoom and reduced
   motion, ensure all content remains available. Verify no-JS initial content
   includes the correct evidence and source. Save review screenshots locally.
-- [ ] Inspect `/docs/getting-started`, the mobile docs menu, and one blog page for
+- [x] Inspect `/docs/getting-started`, the mobile docs menu, and one blog page for
   unintended chrome/token changes. Inspect the generated root social image.
-- [ ] Request independent final review of evidence handling, SSR/hydration,
+- [x] Request independent final review of evidence handling, SSR/hydration,
   accessibility, homepage scope, and factual claims. Correct material issues and
   re-run only affected focused tests before the full lane.
-- [ ] Run `node scripts/check-docs.mjs`, `node scripts/check-changesets.mjs`,
+- [x] Run `node scripts/check-docs.mjs`, `node scripts/check-changesets.mjs`,
   `git diff --check`, and `pnpm ci:validate`. No changeset is expected for the
   private website alone; investigate rather than bypass a different result.
-- [ ] Check active full CI submissions before pushing. Create a homepage PR with
+- [ ] Publish after this committed verification checkpoint: check active full CI
+  submissions, then create a homepage PR with
   the visual preview, exact evidence identity, actual checks, and known limits.
   Preserve all local recordings. Do not merge on the authority of the earlier
   #640-specific merge request. Report preview and PR for the user's review.
@@ -220,23 +221,30 @@ commits; repaired target code retains separate recording provenance.
 
 - Evidence checkpoint: `c8c0d4b4`; independent review passed after adding an
   independent whole-document integrity pin.
-- Walkthrough, capabilities, composition, and metadata are implemented together
+- Integration checkpoint: `c7a5271f`. Walkthrough, capabilities, composition, and metadata are implemented together
   as one integration checkpoint. No new model call or runtime dependency.
 - Preview: `http://localhost:59620` (local production build).
 - Browser review: 320/390/768/1280px, keyboard selection, result-first mobile
-  layout, reduced motion, 640px reflow equivalent to 200% zoom of 1280px,
+  layout, reduced motion, 200% content scaling plus 640px reflow,
   and JavaScript-disabled initial source/proof. Docs desktop/mobile menu and
   blog index retain existing styling. Screenshots stay in ignored
   `artifacts/visuals/`.
 - Independent final review: all three findings fixed (curated patch link,
   named visible check, folded source emphasis); no remaining material findings.
 - Web suite: 631 passed, one skipped; focused evidence/homepage/SEO: 50 passed.
-  Web lint/typecheck and production build passed. Full repository validation
-  is in progress.
+  Web lint/typecheck and production build passed. Repository source tests:
+  5,943 passed, 218 skipped. Full `pnpm ci:validate` passed with exit 0,
+  including 3,850 release-controller tests, package checks, and all three
+  framework/runtime/smoke harness lanes.
 - Built SEO audit: 83 pages, 331 JSON-LD entities, 75 docs, three article
   social images, zero failures. Root 1200×630 social card visually verified.
   The audit's pre-existing date-count heuristic failed the current inventory;
   it now checks each sitemap date against the generated source record or
   authored blog date. Regression tests passed after confirming the failures.
 - Changesets check confirms no publishable package change. Recordings and
-  studies are preserved. PR creation and final validation remain pending.
+  studies are preserved. PR creation follows this verification checkpoint;
+  its URL and remote CI status are recorded in the final task response.
+- Final production browser check: no page errors; 44px source, report, and
+  header CTA targets. Logs are retained under ignored
+  `artifacts/validation/developer-homepage/`; complete harness results under
+  `artifacts/testing/harness-2026-09-14T174007-125Z-13509/`.
