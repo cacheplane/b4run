@@ -98,5 +98,43 @@ directory and running Node diagnostics inside the existing isolated sandbox.
 Dependency writes remain unapproved, source scope and independent verification
 remain enforced, and export still requires runtime approval. Step exhaustion is
 now reported as `step-limit`, not infrastructure failure. A fresh six-attempt
-comparison will test this final configuration; earlier recordings retain their
+comparison below tested this final configuration; earlier recordings retain their
 original commit and source snapshots.
+
+## Final configuration results
+
+- Batch: `batch-9377dec7-1792-40f7-a721-645d4caa9959`
+- Agent commit: `cbe93c9b53ac6981436b20814b544aa4ce38f4b5` (clean)
+- Model: `gpt-5`; three sequential attempts per fixture.
+- Full-workflow success: **4/6**, comprising **CLI 3/3** and **nullable 1/3**.
+- All 24 attempts across four batches are retained. No tests or reference repairs were altered to improve live outcomes.
+
+| Attempt | Duration (s) | Visible checks | Independent checks | Runtime export gate | Full workflow |
+|---|---:|---|---|---|---|
+| cli-flags 1 | 113.145 | Pass | Pass | Reached | Pass |
+| cli-flags 2 | 235.000 | Pass | Pass | Reached | Pass |
+| cli-flags 3 | 274.860 | Pass | Pass | Reached | Pass |
+| nullable-inputs 1 | 152.401 | Pass | Fail | Reached | Fail |
+| nullable-inputs 2 | 195.919 | Pass | Fail | Reached | Fail |
+| nullable-inputs 3 | 171.713 | Pass | Pass | Reached | Pass |
+
+All six final attempts reproduced the failure, re-ran the visible suite, stayed
+within source scope, and reached the actual runtime export gate. Two nullable
+repairs failed independent correctness. The CLI fixture is the stronger initial
+walkthrough; nullable remains a useful harder evaluation case. These samples
+are too small for a reliability claim, and durations are not development-speed
+measurements. Authoritative billable token usage remains unavailable.
+
+The implementation checkpoint in the plan is superseded by this final live
+ledger: required six-attempt execution and one qualifying recording per fixture
+are complete. No human patch approval or remote patch publication is claimed.
+
+Final recordings (local ignored evidence, source and verdict included):
+
+| Recording | Attempt ID | SHA-256 |
+|---|---|---|
+| `cli-flags-final-gpt5.json` | `90532f93-a8b9-43ff-9d94-b664a37af813` | `1a1dd2187554737ef3401e4c63fcd5d4e746c3506b9dc01eb9dfaa3db57c95db` |
+| `nullable-inputs-final-gpt5.json` | `535e134f-a05c-498c-811b-15b2dae6bd9c` | `db05121db10d5e0353ccfee174e24c5ea34c0aa07076c88c489b3bbe8aaf07f7` |
+
+The known credential and local host path were checked absent from exported
+recordings. Each recording remains pinned to its own clean source commit.
