@@ -21,13 +21,13 @@ Some planned modules were consolidated (`fixture-catalog.ts` owns contracts;
 | Area | Verified state |
 |---|---|
 | Fixture contracts and historical qualification | Both faulty baselines fail as intended; reference repairs pass visible and independent checks. |
-| Docker, workspace, and approval | Seven integration tests pass, including isolation, preserved edits, actual allow/deny, exit-zero bypass rejection, runtime file tampering, and assertion tampering. |
+| Docker, workspace, and approval | Eight integration tests pass, including isolation, preserved edits, actual allow/deny, exit-zero bypass rejection, runtime file tampering, and assertion tampering. |
 | Runner and evaluations | Both fixtures pass full replay and stop at approval-pending; all six deterministic criteria pass. Failed batches exit nonzero, cancellation stops the batch, cleanup attempts every owned ID, and artifact failures retain fallback accounting. |
-| Unit and root discovery | 34 tests pass, including a root-workspace invocation. |
+| Unit and root discovery | 42 unit tests pass after live-workflow fixes; the preceding 34-test suite also passed root-workspace discovery. |
 | Standalone consumer | Published B4 `0.8.31` passes install, check, build, typecheck, unit tests, and both Docker replay cases outside the monorepo. |
 | Independent review | Verifier and runner findings fixed and re-reviewed with no remaining findings in those scopes. |
 | Repository validation | Full `pnpm ci:validate` passes on sequential rerun: 5,916 source tests, release-controller checks, packaging, and all three harness lanes. Changeset check reports no user-facing package changes. |
-| Live evaluation and recordings | Not run: `OPENAI_API_KEY` unavailable. Six live attempts and successful per-fixture recordings remain required. |
+| Live evaluation and recordings | First six-attempt live batch retained: zero full-workflow successes, with two independently correct CLI repairs. Generic workflow fixes are reviewed and tested; a fresh batch and successful per-fixture recordings remain required. See the live-evaluations runbook. |
 
 Recorded replay durations were 5,984 ms (CLI) and 10,127 ms (nullable), including
 independent verification. These are scripted wiring measurements, not inference

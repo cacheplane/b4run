@@ -17,7 +17,9 @@ it("checks source repairs in a fresh sandbox and rejects test substitutions", as
       '.command("memory [subcommand] [args...]")',
       '.command("memory [subcommand] [args...]").passThroughOptions()',
     )
-  expect((await verifyChanges("cli-flags", {}, signal)).passed).toBe(false)
+  const baseline = await verifyChanges("cli-flags", {}, signal)
+  expect(baseline.passed).toBe(false)
+  expect(JSON.stringify(baseline.visible.receipt)).toContain("unknown option")
   const checked = await verifyChanges("cli-flags", { [path]: repaired }, signal)
   expect(checked.passed, JSON.stringify(checked)).toBe(true)
   await expect(verifyChanges("cli-flags", { "test/cli.test.ts": "" }, signal)).rejects.toThrow(

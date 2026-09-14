@@ -24,7 +24,9 @@ try {
   if (live && !process.env.OPENAI_API_KEY)
     throw new Error("OPENAI_API_KEY is required for live runs")
   const manifest = await loadManifest(context.task)
-  const digest = createHash("sha256").update(JSON.stringify(manifest))
+  const digest = createHash("sha256")
+    .update(JSON.stringify(manifest))
+    .update(await readFile(join(fixturesRoot, context.task, "task.md")))
   for (const path of [...manifest.allowedSourcePaths, ...manifest.immutablePaths].sort())
     digest.update(path).update(await readFile(join(fixturesRoot, context.task, "project", path)))
   const image = execFileSync("docker", ["image", "inspect", sandboxImage, "--format", "{{.Id}}"], {

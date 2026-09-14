@@ -31,6 +31,9 @@ it.each(["once", "deny"])(
         fixtures: script()
           .user("Fix the task")
           .callsTool("readFile", { path: "TASK.md" })
+          .callsTool("runBash", {
+            command: "node --import tsx src/cli.ts memory consolidate --dry-run | cat -v",
+          })
           .callsTool("runBash", { command: "npm test" })
           .callsTool("writeFile", { path: "src/cli.ts", content: repaired })
           .callsTool("runBash", { command: "npm test" })

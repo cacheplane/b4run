@@ -88,7 +88,7 @@ const {run} = require('node:test');
 (async () => {
  const events = []; let output = '';
  for await (const event of run({files:[${JSON.stringify(file)}], execArgv:['--import','tsx'], concurrency:1})) {
-  if (['test:pass','test:fail'].includes(event.type)) events.push({type:event.type,name:event.data.name,skip:!!event.data.skip,todo:!!event.data.todo});
+  if (['test:pass','test:fail'].includes(event.type)) events.push({type:event.type,name:event.data.name,skip:!!event.data.skip,todo:!!event.data.todo,...(event.data.details?.error ? {error:String(event.data.details.error.message ?? event.data.details.error)} : {})});
   if (['test:stdout','test:stderr'].includes(event.type)) output += event.data.message;
  }
  process.stdout.write(JSON.stringify({events,output}));
@@ -100,7 +100,7 @@ const {run} = require('node:test');
     { workspaceRoot: handle.workspaceRoot, signal },
   )
   const receipt = JSON.parse(result.stdout) as {
-    events: { type: string; name: string; skip: boolean; todo: boolean }[]
+    events: { type: string; name: string; skip: boolean; todo: boolean; error?: string }[]
     output: string
   }
   const expected = expectedChecks[id]?.[suite] ?? []

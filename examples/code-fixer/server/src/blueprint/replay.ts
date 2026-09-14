@@ -6,7 +6,7 @@ import { script } from "@b4run/testing"
 import { fixturesRoot, loadManifest } from "./fixture-catalog.js"
 
 export const taskInput =
-  "Read TASK.md, reproduce the failure, repair the permitted source, verify it, and request export for review."
+  "Read TASK.md, reproduce the failure, repair the permitted source, verify the preservation requirements, and call exportForReview to request runtime approval."
 
 /** Offline wiring test only. Never presented as a model-generated repair. */
 export async function replayFixture(id: string) {

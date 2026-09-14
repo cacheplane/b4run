@@ -12,7 +12,13 @@ export function behaviorCriteria(run: AgentRunResult) {
     const result = results[commandIndex++]
     if (!result || result.isError) continue
     const args = call.args as { command?: unknown } | null
-    if (args?.command !== "npm test") continue
+    if (
+      typeof args?.command !== "string" ||
+      !/^npm[ \t]+(?:--silent[ \t]+)?(?:test|run[ \t]+test)(?:[ \t]+--silent)?$/.test(
+        args.command.trim(),
+      )
+    )
+      continue
     let content = result.content
     if (typeof content === "string") {
       try {

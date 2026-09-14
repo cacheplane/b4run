@@ -27,3 +27,34 @@ it("rejects final-answer-only success and unrelated permission pauses", () => {
     approval: false,
   })
 })
+it.each(["npm test --silent", "npm --silent test", "npm run test", "npm run test --silent"])(
+  "scores the equivalent test command %s",
+  (command) => {
+    const equivalent = {
+      ...run,
+      toolCalls: run.toolCalls.map((call) =>
+        call.name === "runBash" ? { ...call, args: { command } } : call,
+      ),
+    }
+    expect(behaviorCriteria(equivalent)).toEqual({
+      reproduced: true,
+      verified: true,
+      approval: true,
+    })
+  },
+)
+it.each([
+  "npm test || true",
+  "npm test -- --test-name-pattern=missing",
+  "npm test; echo ok",
+  "npm\ntest",
+])("rejects weakened or compound test commands %s", (command) => {
+  const changed = {
+    ...run,
+    toolCalls: run.toolCalls.map((call) =>
+      call.name === "runBash" ? { ...call, args: { command } } : call,
+    ),
+  }
+  expect(behaviorCriteria(changed).reproduced).toBe(false)
+  expect(behaviorCriteria(changed).verified).toBe(false)
+})
