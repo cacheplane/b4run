@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { BrandLogo } from "./BrandLogo"
 import { CopyCommand } from "./CopyCommand"
+import homepageStyles from "./homepage/header.module.css"
 import { MobileMenu } from "./MobileMenu"
 
 function GitHubIcon() {
@@ -30,12 +31,15 @@ interface HeaderInnerProps {
 
 export function HeaderInner({ repoUrl }: HeaderInnerProps) {
   const pathname = usePathname()
+  const homepage = pathname === "/"
 
   const linkClass = (active: boolean) =>
     active ? "text-ink transition-colors" : "text-ink-muted hover:text-ink transition-colors"
 
   return (
-    <header className="sticky top-0 z-50 bg-page border-b border-divider">
+    <header
+      className={`sticky top-0 z-50 bg-page border-b border-divider ${homepage ? homepageStyles.header : ""}`}
+    >
       <div className="max-w-[1280px] mx-auto flex justify-between items-center px-6 md:px-8 py-4">
         <BrandLogo imageClassName="h-8" variant="dark" />
         <nav className="hidden md:flex items-center gap-6 text-sm">
@@ -54,7 +58,16 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
           >
             <GitHubIcon />
           </a>
-          <CopyCommand command="npm create b4-app@latest my-agent" />
+          {homepage ? (
+            <a
+              className={homepageStyles.blueprint}
+              href="https://github.com/cacheplane/b4run/tree/main/examples/code-fixer/server"
+            >
+              Get the blueprint ↗
+            </a>
+          ) : (
+            <CopyCommand command="npm create b4-app@latest my-agent" />
+          )}
         </nav>
         <MobileMenu />
       </div>

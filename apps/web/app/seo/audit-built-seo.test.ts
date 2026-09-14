@@ -3,13 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   assertExactRobots,
   auditBuiltSeo,
-  CURRENT_SNAPSHOT_MINIMUM_DISTINCT_LASTMOD_DATES,
   canonicalForPath,
   compareOrderedInventory,
   docSectionOccurrences,
   extractPageMetadata,
   flattenJsonLd,
-  lastmodDateDistributionFailure,
+  lastmodSourceFailures,
   obviousTextRegression,
   parseAuditOptions,
   readPngDimensions,
@@ -283,15 +282,35 @@ describe("built SEO audit parsing", () => {
     expect(docSectionOccurrences(body, "Tools", source)).toBe(1)
   })
 
-  it("rejects 22 distinct lastmod dates for the current production inventory snapshot", () => {
-    expect(CURRENT_SNAPSHOT_MINIMUM_DISTINCT_LASTMOD_DATES).toBe(23)
-    expect(lastmodDateDistributionFailure(22, "2026-08-26")).toBe(
-      "sitemap has only 22 distinct lastmod dates; expected at least 23 for the 2026-08-26 production inventory snapshot",
-    )
+  it("accepts shared sitemap dates when each matches its source record", () => {
+    const date = "2026-09-14T00:00:00.000Z"
+    expect(
+      lastmodSourceFailures(
+        [
+          { url: "https://b4.run/", lastModified: date },
+          { url: "https://b4.run/docs/agents", lastModified: date },
+          { url: "https://b4.run/blog/example", lastModified: date },
+        ],
+        { "/": { lastModified: date }, "/docs/agents": { lastModified: date } },
+        [{ slug: "example", date: "2026-09-14" }],
+      ),
+    ).toEqual([])
   })
 
-  it("accepts 23 distinct lastmod dates for the current production inventory snapshot", () => {
-    expect(lastmodDateDistributionFailure(23, "2026-08-26")).toBeUndefined()
+  it("rejects sitemap dates that differ from static and blog source records", () => {
+    const date = "2026-09-14T00:00:00.000Z"
+    const failures = lastmodSourceFailures(
+      [
+        { url: "https://b4.run/", lastModified: date },
+        { url: "https://b4.run/blog/example", lastModified: date },
+        { url: "https://b4.run/unknown", lastModified: date },
+      ],
+      { "/": { lastModified: "2026-09-13T00:00:00.000Z" } },
+      [{ slug: "example", date: "2026-09-12" }],
+    )
+    expect(failures).toHaveLength(3)
+    expect(failures.join(" ")).toContain("lastmod differs from source")
+    expect(failures.join(" ")).toContain("missing lastmod source")
   })
 
   it("keeps a double-slash sitemap path on the configured local origin", async () => {

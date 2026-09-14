@@ -46,29 +46,29 @@ in the new module. Do not remove Fraunces from routes outside this scope.
 
 ## Task 1: Curated evidence and reproducible source
 
-- [ ] Read the selected recording and report. Confirm UUID
+- [x] Read the selected recording and report. Confirm UUID
   `90532f93-a8b9-43ff-9d94-b664a37af813`, clean source, live mode, approval pending,
   duration 113145ms, and the four named checks. Capture its report-pinned hash.
-- [ ] Define the evidence contract in `evidence.ts`: version, run ID, original
+- [x] Define the evidence contract in `evidence.ts`: version, run ID, original
   recording hash, agent commit, source-link commit, image and fixture identity,
   timings, all six criteria, suite receipts, exact selected command results,
   original/repaired CLI source, complete displayed source files, and excerpts
   identified by file plus start/end lines. Use readonly types; optional fields
   are omitted rather than assigned undefined.
-- [ ] Write integrity tests first. Mutations must fail for `live: false`, dirty
+- [x] Write integrity tests first. Mutations must fail for `live: false`, dirty
   provenance, a false criterion, a missing named check, an edited source excerpt,
   a changed original/repaired diff, or an approval-completed claim. Include a
   source string containing `<script>` as data to exercise later escaping.
-- [ ] Run `pnpm --filter @b4run/web test -- app/components/homepage/evidence.test.ts`.
+- [x] Run `pnpm --filter @b4run/web exec vitest run --config vitest.config.ts app/components/homepage/evidence.test.ts`.
   Confirm failure because the contract/export does not yet exist.
-- [ ] Implement `export-homepage-evidence.mjs` with `--recording` and `--output`.
+- [x] Implement `export-homepage-evidence.mjs` with `--recording` and `--output`.
   Use an explicit allowlist of output fields, not a recursive dump of the run.
   Accept only the selected successful live receipt with expected identity/hash.
   Load original fixture and capability source using `git show <recorded-sha>:<path>`
   without executing it. Copy the recorded agent/config/plan text directly.
   Capture visible failure and passing results from actual run tool results.
   Preserve omitted observation boundaries as labeled highlights.
-- [ ] For stable source links, verify repository source snapshots and capability files are byte-equal at merged
+- [x] For stable source links, verify repository source snapshots and capability files are byte-equal at merged
   commit `91619fa68522079087f09e9ead792b30a09bd6de`; use that commit for links while
   preserving `cbe93c9b`'s full recorded commit in provenance. Record SHA-256 per
   complete source file and ensure each snippet equals its selected line range.
@@ -77,7 +77,7 @@ in the new module. Do not remove Fraunces from routes outside this scope.
   fixture file as though that were the repair. Generate a normal line diff from
   original/repaired source. Do not substitute
   the reference patch or rewrite source around prettier demo text.
-- [ ] Export the bounded document:
+- [x] Export the bounded document:
 
   ```sh
   node apps/web/scripts/export-homepage-evidence.mjs --recording artifacts/code-fixer/recordings/cli-flags-final-gpt5.json --output apps/web/app/components/homepage/evidence.json
@@ -87,31 +87,31 @@ in the new module. Do not remove Fraunces from routes outside this scope.
   The exporter refuses overwrite without an explicit `--replace` flag and never
   changes the original recording. Review the JSON for secrets/host paths and
   unnecessary fields before committing. CI reads the committed document only.
-- [ ] Implement pure validation and display selectors. Keep all failure criteria
+- [x] Implement pure validation and display selectors. Keep all failure criteria
   strict; a missing source is an error, not fallback demo content. Test duration
   rounding and exact model-override labeling.
-- [ ] Run the evidence test again; expect pass. Request independent evidence
+- [x] Run the evidence test again; expect pass. Request independent evidence
   review against the original receipt and pinned source. Fix material findings.
-- [ ] Commit evidence, exporter, contract, and tests.
+- [x] Commit evidence, exporter, contract, and tests.
 
 ## Task 2: Server-rendered code and recorded walkthrough
 
-- [ ] Read existing `apps/web/lib/shiki/highlight-light.ts` and
+- [x] Read existing `apps/web/lib/shiki/highlight-light.ts` and
   `apps/web/app/components/ui/CodeFrame.tsx`. Reuse applicable server highlighter
   setup. Add a dark Paper Relay theme in `homepage/highlight.ts` using installed
   Shiki; keep it server-only. No browser highlighter bundle.
-- [ ] Write meaningful `homepage.test.tsx` coverage using the existing React DOM
+- [x] Write meaningful `homepage.test.tsx` coverage using the existing React DOM
   and jsdom patterns: SSR contains agent source and 1+3 passing receipts before
   hydration; selected state is Verify + review; no “approved” or “exported” success.
   Test source text with markup characters is inert, not executed or injected.
-- [ ] Run `pnpm --filter @b4run/web test -- app/components/homepage/homepage.test.tsx`;
+- [x] Run `pnpm --filter @b4run/web exec vitest run --config vitest.config.ts app/components/homepage/homepage.test.tsx`;
   confirm the expected missing-component failure.
-- [ ] Implement `CodePanel` with full underlying source, prepared highlighted
+- [x] Implement `CodePanel` with full underlying source, prepared highlighted
   lines, file metadata, source-link URL, and optional instruction-fold range.
   Folding hides only a contiguous instruction range and shows a labeled native
   button. Copy uses full source; catch clipboard failure and show a polite error.
   Displayed line numbers preserve original positions and are excluded from copying.
-- [ ] Implement the walkthrough data flow:
+- [x] Implement the walkthrough data flow:
 
   ```ts
   type Step = "reproduce" | "repair" | "verify"
@@ -126,32 +126,32 @@ in the new module. Do not remove Fraunces from routes outside this scope.
   not reset step selection. Source highlighting follows the selected step only
   where relevant; never change source text. Result DOM precedes code DOM for
   mobile/screen readers; desktop CSS places code on the left.
-- [ ] Implement selected failure/patch/test/approval presentations from evidence.
+- [x] Implement selected failure/patch/test/approval presentations from evidence.
   Label edited highlights and total recorded duration; never simulate streaming
   or playback. Use escaped React text for command output. Include the historical
   fixture qualifier near the walkthrough even when supporting copy is brief.
-- [ ] Extend tests to select all steps/files, expand/collapse instructions, copy
+- [x] Extend tests to select all steps/files, expand/collapse instructions, copy
   exact source, deny clipboard, and preserve independent section state. Use
   `react-dom/client`, `act`, and DOM selectors; no new testing library is required.
-- [ ] Run both homepage test files; expect pass. Commit the walkthrough.
+- [x] Run both homepage test files; expect pass. Commit the walkthrough.
 
 ## Task 3: Code-led capabilities and page composition
 
-- [ ] Implement `Capabilities` with Workspaces, Sandboxes (default), Evals, and
+- [x] Implement `Capabilities` with Workspaces, Sandboxes (default), Evals, and
   Approval. Each selection renders its pinned source range and one sentence
   from the spec. Source links open complete files. Evals code uses `runEval`/
   `defineEval`; distinguish blueprint checks from built-in framework behavior.
-- [ ] Cover capability switching and state independence in `homepage.test.tsx`.
+- [x] Cover capability switching and state independence in `homepage.test.tsx`.
   Assert the sandbox policy is initial HTML and switching capabilities does not
   reset the walkthrough. Verify excerpts equal the evidence selector output.
-- [ ] Compose `DeveloperHome`: hero, walkthrough, capabilities, project map,
+- [x] Compose `DeveloperHome`: hero, walkthrough, capabilities, project map,
   run section. Keep exactly one h1 and structured heading order. Import the
   composition from `page.tsx`, preserving its SEO resolution and JSON-LD.
-- [ ] Implement scoped `homepage.module.css`: paper surface, ink display,
+- [x] Implement scoped `homepage.module.css`: paper surface, ink display,
   Relay selection, dark code, restrained rules. Start at 13–14px code; stack
   before labels become cramped. No horizontal document overflow at 320px.
   Use a static dot only if it clears text at all widths. Hide it on narrow screens.
-- [ ] Use this exact run command, with setup context and README link:
+- [x] Use this exact run command, with setup context and README link:
 
   ```sh
   B4_CODE_FIXER_MODEL=gpt-5 pnpm --filter @b4-example/code-fixer-server run:agent -- --task cli-flags
@@ -160,26 +160,26 @@ in the new module. Do not remove Fraunces from routes outside this scope.
   State Node 24, pnpm, Docker, and host API key prerequisites. Mention replay in
   one sentence and link to the retained report. Do not imply the command works
   before dependency installation, package build, and fixture image preparation.
-- [ ] Implement the header's pathname-specific homepage class and blueprint CTA.
+- [x] Implement the header's pathname-specific homepage class and blueprint CTA.
   Retain Docs/Blog/GitHub/mobile links and the existing height. For mobile, keep
   the existing accessible menu; changing its destination set is unnecessary.
   Test header behavior for `/` and `/docs/getting-started` with mocked pathname.
-- [ ] Run web tests, lint, and typecheck. Commit composition and styles.
+- [x] Run web tests, lint, and typecheck. Commit composition and styles.
 
 ## Task 4: Homepage metadata and social card
 
-- [ ] Update only the homepage entry in `seo/registry.ts`: title
-  “Ridiculous speed. Readable code.” and a plain description about TypeScript
+- [x] Update only the homepage entry in `seo/registry.ts`: title
+  “B4.run — Ridiculous speed. Readable code.” and a plain description about TypeScript
   agents with tools, workspaces, sandbox execution, and approval. Respect existing
   metadata title templating. Preserve all canonical and structured-data fields.
-- [ ] Update the root `opengraph-image.tsx` to the approved Paper Relay identity
+- [x] Update the root `opengraph-image.tsx` to the approved Paper Relay identity
   and headline using the actual logo assets. Retain 1200×630 output, image route
   exports, and existing font/asset loading conventions. Article-specific social
   image routes remain unchanged. Inspect actual generated output.
-- [ ] Extend existing SEO tests for homepage title/description, canonical URL,
+- [x] Extend existing SEO tests for homepage title/description, canonical URL,
   one WebPage JSON-LD record, and social image dimensions. Do not lock decorative
   pixel coordinates in unit tests.
-- [ ] Run `pnpm --filter @b4run/web seo:lastmod` if the generator reports changed
+- [x] Run `pnpm --filter @b4run/web seo:lastmod` if the generator reports changed
   source dependencies; review its diff. Then run `pnpm --filter @b4run/web
   seo:lastmod:check` and the web tests. Commit SEO updates.
 
@@ -218,5 +218,25 @@ commits; repaired target code retains separate recording provenance.
 
 ## Completion record
 
-Update this ledger with commit, preview, checks, and review outcome during
-execution. Planning does not claim implementation, deployment, or a new live run.
+- Evidence checkpoint: `c8c0d4b4`; independent review passed after adding an
+  independent whole-document integrity pin.
+- Walkthrough, capabilities, composition, and metadata are implemented together
+  as one integration checkpoint. No new model call or runtime dependency.
+- Preview: `http://localhost:59620` (local production build).
+- Browser review: 320/390/768/1280px, keyboard selection, result-first mobile
+  layout, reduced motion, 640px reflow equivalent to 200% zoom of 1280px,
+  and JavaScript-disabled initial source/proof. Docs desktop/mobile menu and
+  blog index retain existing styling. Screenshots stay in ignored
+  `artifacts/visuals/`.
+- Independent final review: all three findings fixed (curated patch link,
+  named visible check, folded source emphasis); no remaining material findings.
+- Web suite: 631 passed, one skipped; focused evidence/homepage/SEO: 50 passed.
+  Web lint/typecheck and production build passed. Full repository validation
+  is in progress.
+- Built SEO audit: 83 pages, 331 JSON-LD entities, 75 docs, three article
+  social images, zero failures. Root 1200×630 social card visually verified.
+  The audit's pre-existing date-count heuristic failed the current inventory;
+  it now checks each sitemap date against the generated source record or
+  authored blog date. Regression tests passed after confirming the failures.
+- Changesets check confirms no publishable package change. Recordings and
+  studies are preserved. PR creation and final validation remain pending.
