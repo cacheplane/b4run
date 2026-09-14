@@ -7,12 +7,15 @@ export default config({
   sandbox: { ...sandboxPolicy, provider: attemptContext().provider },
   permissions: {
     allow: {
+      // Prepared dependencies are readable inside the container, never writable.
+      readFile: [`/opt/fixtures/${attemptContext().task}/node_modules/`],
+      listDir: [`/opt/fixtures/${attemptContext().task}/node_modules`],
       bash: [
         "npm test",
         "npm run test",
         "npm --silent test",
-        "node --import tsx src/cli.ts",
-        "node --import tsx test/evaluate-tool.ts",
+        // General Node diagnostics still run under the isolated sandbox policy.
+        "node ",
         "printf",
         "cat",
         "ls",

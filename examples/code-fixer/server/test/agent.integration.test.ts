@@ -34,6 +34,11 @@ it.each(["once", "deny"])(
           .callsTool("runBash", {
             command: "node --import tsx src/cli.ts memory consolidate --dry-run | cat -v",
           })
+          .callsTool("listDir", { path: "node_modules" })
+          .callsTool("listDir", { path: "node_modules/commander" })
+          .callsTool("readFile", { path: "node_modules/commander/package.json" })
+          .callsTool("runBash", { command: "node --import tsx -e 'console.log(process.argv)'" })
+          .callsTool("runBash", { command: "node -e 'console.log(process.execArgv)'" })
           .callsTool("runBash", { command: "npm test" })
           .callsTool("writeFile", { path: "src/cli.ts", content: repaired })
           .callsTool("runBash", { command: "npm test" })

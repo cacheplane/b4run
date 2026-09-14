@@ -71,3 +71,9 @@ export function assertExportable(value: unknown): void {
   if (!verdict(parsed.criteria, true).passed || Object.keys(parsed.source).length === 0)
     throw new Error("Incomplete recording criteria or source snapshot")
 }
+
+export function failureStatus(error: unknown) {
+  if (error instanceof Error && error.name === "GraphRecursionError") return "step-limit"
+  if (error instanceof Error && error.name === "PatchRejectedError") return "behavior-failed"
+  return "infrastructure-failed"
+}

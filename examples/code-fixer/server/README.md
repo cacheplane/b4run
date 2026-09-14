@@ -52,6 +52,12 @@ pnpm --filter @b4-example/code-fixer-server run:agent -- --task cli-flags
 pnpm --filter @b4-example/code-fixer-server run:agent -- --task nullable-inputs
 ```
 
+The default model is `gpt-5-mini`. Set `B4_CODE_FIXER_MODEL=gpt-5` for the
+model comparison used in the live-evaluation report. Initial small batches did
+not establish reliable success: the revised mini configuration passed 0/6 full
+workflows, while the same configuration with gpt-5 passed 3/6. See the
+[retained evaluation report](../../../docs/superpowers/runbooks/2026-09-13-code-fixer-live-evaluations.md).
+
 An interactive terminal shows the verified source diff and asks before exporting it to the local
 review outbox. Answer `y` to approve once. Any other answer denies export.
 Without a terminal, the run stops at `approval-pending`. No remote publication

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 import { createAgentHarness } from "@b4run/testing"
 import { attemptContext } from "../src/blueprint/attempt-context.js"
 import { behaviorCriteria, evaluateRun } from "../src/blueprint/evaluate.js"
-import { redactEvidence, verdict } from "../src/blueprint/evidence.js"
+import { failureStatus, redactEvidence, verdict } from "../src/blueprint/evidence.js"
 import { fixturesRoot, loadManifest } from "../src/blueprint/fixture-catalog.js"
 import { replayFixture, taskInput } from "../src/blueprint/replay.js"
 import { sandboxImage } from "../src/blueprint/verifier.js"
@@ -139,10 +139,7 @@ try {
   }
 } catch (error) {
   receipt.passed = false
-  if (error instanceof Error && error.name === "PatchRejectedError")
-    receipt.status = "behavior-failed"
-  if (receipt.status === "passed" || receipt.status === "approval-pending")
-    receipt.status = "infrastructure-failed"
+  receipt.status = failureStatus(error)
   receipt.error = error instanceof Error ? error.message : String(error)
 } finally {
   try {
