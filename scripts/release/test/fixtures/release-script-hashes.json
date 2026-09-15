@@ -68,7 +68,7 @@
       "sha256": "81c1c662cdbe68efe5f65d767af8d4df1ae2998f3ca4a2f6010511158c3df737"
     },
     "scripts/release/cli.mjs": {
-      "sha256": "ae707a313100796ea63149967bf956b09a39e8c5e512f6f3bcee4ac2e023194c"
+      "sha256": "cd335a30886413e9c296188efc501a9344f1dc6f691526d2d60d15014f77c34c"
     },
     "scripts/release/conflicts.mjs": {
       "sha256": "9fb3ff5154dab04d975b56baf29255493ece213824801e3504fad534ae81db7f"

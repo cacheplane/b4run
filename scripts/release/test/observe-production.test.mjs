@@ -3618,6 +3618,115 @@ test("observe CLI waits within a fixed budget for the exact main CI before autho
   }
 })
 
+for (const [label, error, expectedDetail] of [
+  [
+    "a plain Error",
+    new Error("scheduled candidate lookup failed"),
+    "scheduled candidate lookup failed",
+  ],
+  [
+    "credentials, signed URLs, controls, and oversized messages",
+    new Error(
+      `lookup\r\nfailed\u0000 with ghp_abcdefghijklmnopqrstuvwxyz0123456789 at https://example.test/artifact?signature=secretvalue ${"x".repeat(600)}`,
+    ),
+    `${"lookup failed with [redacted] at https://example.test/artifact ".padEnd(511, "x")}…`,
+  ],
+  [
+    "a throwing message getter",
+    {
+      get message() {
+        throw new Error("message getter exploded")
+      },
+    },
+    "(no message)",
+  ],
+  [
+    "a throwing cause getter",
+    {
+      message: "outer failure",
+      get cause() {
+        throw new Error("cause getter exploded")
+      },
+    },
+    "(no message)",
+  ],
+]) {
+  test(`observe CLI preserves safe discovery detail for ${label} while blocking mutations`, async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-discovery-detail-"))
+    try {
+      const eventPath = path.join(directory, "event.json")
+      const reportPath = path.join(directory, "report.json")
+      const outputPath = path.join(directory, "github-output")
+      await Promise.all([
+        writeFile(eventPath, JSON.stringify({ schedule: "17 7 * * *" })),
+        writeFile(outputPath, "existing=value\n"),
+      ])
+      const dependencies = cliCandidateDependencies(directory)
+      let resolutionCalls = 0
+      dependencies.importModule = async (specifier) => {
+        const module = await import(specifier)
+        if (!specifier.endsWith("/observe.mjs")) return module
+        return {
+          ...module,
+          async resolveProductionCandidate() {
+            resolutionCalls++
+            throw error
+          },
+        }
+      }
+      const result = await runReleaseCli(
+        ["observe", "--event", eventPath, "--report", reportPath, "--github-output", outputPath],
+        dependencies,
+      )
+
+      assert.equal(resolutionCalls, 1)
+      assert.equal(result.schemaVersion, 1)
+      assert.equal(result.candidate, null)
+      assert.deepEqual(result.before.observation, {
+        status: "ambiguous",
+        code: "CANDIDATE_DISCOVERY_AMBIGUOUS",
+      })
+      assert.equal(result.before.plan.disposition, "blocked")
+      assert.ok(result.before.plan.conflicts.includes("candidate-discovery-ambiguous"))
+      assert.equal(result.before.plan.nextTransition, null)
+      assert.deepEqual(result.before.plan.proposedMutations, [])
+      assert.deepEqual(result.transition, {
+        name: null,
+        status: "blocked",
+        result: null,
+        error: null,
+      })
+      assert.equal(result.after, null)
+      assert.deepEqual(result.diagnostics, [
+        {
+          source: "controller",
+          operation: "candidate-discovery",
+          status: "AMBIGUOUS",
+          httpStatus: null,
+          code: "CANDIDATE_DISCOVERY_AMBIGUOUS",
+          classification: "conflict",
+          detail: expectedDetail,
+        },
+      ])
+      assert.deepEqual(JSON.parse(await readFile(reportPath, "utf8")), result)
+      assert.equal(
+        await readFile(outputPath, "utf8"),
+        [
+          "existing=value",
+          "candidate_version=",
+          "candidate_sha=",
+          "state=NO_CANDIDATE",
+          "disposition=blocked",
+          "next_transition=",
+          "",
+        ].join("\n"),
+      )
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+}
+
 test("observe CLI reports an authorization failure as blocked ambiguity, never as absence", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-cli-auth-"))
   try {
