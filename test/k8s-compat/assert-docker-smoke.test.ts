@@ -1836,7 +1836,18 @@ describe("Docker smoke ownership", () => {
           ? result.state.networks[renamedName]
           : result.state.containers[renamedName]
       expect(result.code).toBe(1)
-      expect(replacement).toBeDefined()
+      expect(
+        replacement,
+        JSON.stringify({
+          resource,
+          exitCode: result.code,
+          signal: result.signal,
+          listingOccurrences: result.state.occurrences["container-list:<all>"],
+          mutations: result.state.options.mutations,
+          stderr: result.stderr,
+          lastCommands: result.transcript.slice(-12),
+        }),
+      ).toBeDefined()
       expect(renamed).toBeUndefined()
       expect(destructiveTargets(result)).toContain(expectedId)
       expect(destructiveTargets(result)).not.toContain(replacement?.id)
