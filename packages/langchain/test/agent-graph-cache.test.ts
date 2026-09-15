@@ -18,7 +18,7 @@ import { agent } from "@b4run/sdk"
 import { AIMessage } from "@langchain/core/messages"
 import { MemorySaver } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, test, vi } from "vitest"
 
 import {
   __resetMaterializedAgentsForTests,
@@ -204,4 +204,79 @@ describe("compiled-graph cache keying", () => {
 
     expect(counter.calls()).toBe(2)
   })
+})
+
+test.each([
+  [{ userId: "alice" }, { userId: "bob" }, undefined, undefined],
+  [undefined, { userId: "alice" }, {}, undefined],
+  [{}, {}, undefined, undefined],
+])(
+  "tools use invocation middleware without contaminating the ordinary cache: %j",
+  async (...contexts) => {
+    const observed: unknown[] = []
+    const createReactAgent = vi.fn(
+      (options: { tools: { invoke: (input: object) => Promise<unknown> }[] }) => ({
+        invoke: async () => {
+          await options.tools[0]?.invoke({})
+          return new AIMessage({ content: "ok" })
+        },
+      }),
+    )
+    vi.doMock("@langchain/langgraph/prebuilt", () => ({ createReactAgent }))
+    vi.doMock("@langchain/openai", () => ({
+      ChatOpenAI: class {},
+    }))
+    const descriptor = agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })
+    const checkpointer = new MemorySaver()
+    const tools = [
+      {
+        name: "readContext",
+        run: async (
+          _input: unknown,
+          context: { readonly middleware?: Readonly<Record<string, unknown>> },
+        ) => {
+          observed.push(context.middleware)
+          return "ok"
+        },
+      },
+    ]
+
+    for (const middlewareContext of contexts) {
+      const graph = (await materializeAgentGraph({
+        descriptor,
+        checkpointer,
+        tools,
+        ...(middlewareContext !== undefined ? { middlewareContext } : {}),
+      })) as { invoke: () => Promise<unknown> }
+      await graph.invoke()
+    }
+
+    expect(observed).toEqual(contexts)
+    expect(createReactAgent).toHaveBeenCalledTimes(
+      contexts.filter((context) => context !== undefined).length + 1,
+    )
+  },
+)
+
+test("streamAgent bypasses middleware-bound graphs while retaining the context-free cache", async () => {
+  const counter = countCompilations()
+  const base = {
+    checkpointer: new MemorySaver(),
+    entry: agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." }),
+    input: { messages: [] },
+    routeParamNames: [],
+    signal: new AbortController().signal,
+    tools: [],
+  }
+
+  for (const middlewareContext of [undefined, { userId: "alice" }, {}, undefined]) {
+    for await (const _chunk of streamAgent({
+      ...base,
+      ...(middlewareContext !== undefined ? { middlewareContext } : {}),
+    })) {
+      // Drain each invocation against the shared descriptor and checkpointer.
+    }
+  }
+
+  expect(counter.calls()).toBe(3)
 })
