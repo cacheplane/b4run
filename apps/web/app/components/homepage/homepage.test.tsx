@@ -5,6 +5,7 @@ import { renderToString } from "react-dom/server"
 import { afterEach, expect, it, vi } from "vitest"
 import { Capabilities } from "./Capabilities"
 import { CodePanel } from "./CodePanel"
+import { DeveloperHome } from "./DeveloperHome"
 import { prepareHomepage } from "./highlight"
 import { Walkthrough } from "./Walkthrough"
 
@@ -16,6 +17,21 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 const prepared = await prepareHomepage()
+
+it("offers the qualified installation guide while labeling the historical recording", async () => {
+  const container = document.createElement("div")
+  container.innerHTML = renderToString(await DeveloperHome())
+  expect(container.textContent).toContain("Recorded implementation")
+  expect(container.textContent).toContain("Qualified example · B4 0.8.32")
+  expect(container.textContent).toContain("b4 add code-fixer")
+  expect(container.textContent).toContain("prints the installation guide")
+  expect(container.textContent).not.toContain("run:agent")
+  expect(container.querySelector('a[href="/blueprints/code-fixer.md"]')).not.toBeNull()
+  expect(container.querySelector('a[href="/docs/cli#b4-add"]')).not.toBeNull()
+  expect(container.textContent).toContain("fix/tools/prepareReview.ts")
+  expect(container.textContent).toContain("Recorded run · 1m 53s")
+  expect(container.textContent).toContain("Awaiting your approval")
+})
 
 it("server renders actual source, checks, and pending approval", () => {
   const html = renderToString(<Walkthrough {...prepared.walkthrough} />)

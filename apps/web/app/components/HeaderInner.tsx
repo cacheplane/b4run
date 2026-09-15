@@ -60,10 +60,7 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
             <GitHubIcon />
           </a>
           {homepage ? (
-            <a
-              className={homepageStyles.blueprint}
-              href="https://github.com/cacheplane/b4run/tree/main/examples/code-fixer/server"
-            >
+            <a className={homepageStyles.blueprint} href="/blueprints/code-fixer.md">
               Get the blueprint ↗
             </a>
           ) : (

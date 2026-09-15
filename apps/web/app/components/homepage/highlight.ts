@@ -1,13 +1,12 @@
 import "server-only"
 import { type BundledLanguage, createHighlighter } from "shiki"
+import { curatedEvidenceUrl, evidence, type SourceKey, sourceUrl } from "./evidence"
 import {
-  type CapabilityKey,
-  curatedEvidenceUrl,
-  evidence,
-  type SourceKey,
-  sourceExcerpt,
-  sourceUrl,
-} from "./evidence"
+  type QualifiedSourceKey,
+  qualifiedExcerpt,
+  qualifiedSource,
+  qualifiedSourceUrl,
+} from "./qualified-source"
 import type { Capability, DisplayCode, WalkthroughProps } from "./types"
 
 const highlighter = createHighlighter({
@@ -114,38 +113,40 @@ export async function prepareHomepage(): Promise<{
       key: "workspace",
       name: "Workspaces",
       lead: "Give the agent a project.",
-      explanation: "The blueprint seeds once per thread. Edits survive the next tool call.",
+      explanation: "Declare the source. B4 owns capture, creation, reconnection, and cleanup.",
     },
     {
       key: "sandbox",
       name: "Sandboxes",
       lead: "Let it execute. Set the limits.",
-      explanation: "Network denied. Resource limits explicit. Your policy, in code.",
+      explanation: "The Docker sandbox policy denies network access and sets resource limits.",
     },
     {
       key: "evals",
       name: "Evals",
       lead: "Make ‘done’ measurable.",
-      explanation: "Score tool activity and independent checks. Gate on every criterion.",
+      explanation:
+        "The app performs independent verification in prepareReview. B4 evals score its results and gate on every scorer.",
     },
     {
       key: "approval",
       name: "Approval",
       lead: "The next action is your call.",
-      explanation: "The runtime pauses before exportForReview executes.",
+      explanation:
+        "The app verifies the candidate. The runtime pauses before exportForReview executes.",
     },
   ] as const
   const capabilities = await Promise.all(
     definitions.map(async (item) => {
-      const snippet = evidence.snippets[item.key as CapabilityKey]
-      const source = evidence.sources[snippet.source as SourceKey]
+      const snippet = qualifiedSource.snippets[item.key]
+      const source = qualifiedSource.sources[snippet.source as QualifiedSourceKey]
       return {
         ...item,
         code: await highlightCode(
-          sourceExcerpt(evidence, item.key),
+          qualifiedExcerpt(item.key),
           "typescript",
           `${source.path} · excerpt`,
-          sourceUrl(source.path),
+          qualifiedSourceUrl(item.key),
           snippet.start,
         ),
       }
