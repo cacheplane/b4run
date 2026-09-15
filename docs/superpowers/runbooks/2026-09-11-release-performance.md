@@ -60,3 +60,58 @@ The 0.8.31 release exposed two false terminal failures. npm 11.17.0 returned exa
 The npm adapter now treats those two exact error summaries as pending only when they identify the validated single package and version. An attestation 404 must use the exact public npm registry URL. Known error codes are visible in bounded diagnostics, while raw output remains excluded. Authentication, integrity, malformed or unrelated errors remain fatal; batch audits and final verification still require complete evidence. The existing publisher convergence deadline, serial publication, and duplicate-publication protection remain unchanged.
 
 The prepublication CI waiter now continues within its existing polling budget when exactly one valid active main/push CI run has no named `validate` check and no conclusion. Completed runs with missing checks and conflicting identities still fail. Neither fix adds a workflow, credential, timeout, gate, or publishing step. Regression tests establish recovery within the current budget; they do not establish a faster release. Measure the effect during the next ordinary release.
+
+## Ordinary-release measurement — September 15, 2026
+
+The completed 0.8.32 release does **not** establish an end-to-end speedup.
+Use candidate merge → public GitHub release for comparable totals, excluding
+later documentation/dependency work:
+
+| Release | Candidate merge (UTC) | Public release (UTC) | Elapsed |
+| --- | --- | --- | --- |
+| 0.8.30 | September 10, 19:55:44 | September 10, 22:06:58 | 2h 11m 14s |
+| 0.8.32 | September 15, 16:12:11 | September 15, 18:32:41 | 2h 20m 30s |
+
+The approximately 3h34m 0.8.30 baseline at the top includes post-release follow-up;
+it is not comparable to the 0.8.32 publication total. The 0.8.31 recovery incident
+is also not a clean performance baseline. The 0.8.33 release was still recovering
+when sampled; do not include it as a completed measurement.
+
+### 0.8.32 critical path
+
+| Stage | Evidence / elapsed |
+| --- | --- |
+| Initial detection | [34993488038](https://github.com/cacheplane/b4run/actions/runs/34993488038): 21m24s in detect, including the prepublication observation/wait. Not all of this is observer CPU time. |
+| Prepare | [34995822203](https://github.com/cacheplane/b4run/actions/runs/34995822203): 4m31s. |
+| First npm attempt | Same run: 25m12s, 7 publication-accepted events; failed with `npm publisher overall deadline expired`. |
+| Intervening blocked detection | Runs 34996309125, 34998832904 and 35000250824: 18m39s of detect jobs combined. They did not publish packages; route-ambiguity checks failed. These times are separate from time queued behind the active publisher. |
+| Second npm attempt | [35002292034](https://github.com/cacheplane/b4run/actions/runs/35002292034): 25m16s, 11 publication-accepted events and 7 already-published verifications; same overall-deadline failure. |
+| Final npm recovery | [35005950564](https://github.com/cacheplane/b4run/actions/runs/35005950564): 3m58s, 3 publication-accepted events and 18 already-published verifications. All 21 packages verified. |
+| Final verification/publication | Same run: npm job finished 18:25:39; public GitHub release at 18:32:41, another 7m02s including smokes, reconciliation, independent audit and release publication. |
+
+The three npm jobs total **54m26s**, not the 3m58s of the successful recovery
+alone. There were **397 registry-pending events** across those attempts; summing
+each package's maximum logged `elapsedMs` within each attempt gives a lower
+bound of **41m33.731s** (17m52.762s + 21m42.490s + 1m58.479s). This excludes
+unlogged tails and separately logged tarball waits. Event counts by reason are
+340 version-absence, 29 metadata-pending, and 28 audit-pending; event counts do
+not partition elapsed time by cause.
+
+The second attempt's 28 pending audit observations continued within the existing
+budget and eventually verified, so the new retry classification was exercised.
+The remaining terminal failures were the publisher's overall deadline, not those
+transient audit errors. The first and second attempts exhausted the overall
+budget while an individual package was still within its ten-minute convergence
+budget. A third recovery reused the first 18 accepted publications. This is
+confirmed recovery behavior, not evidence that npm propagation became faster.
+
+### Disposition
+
+Measurement is complete for 0.8.32. Keep the active 0.8.33 recovery untouched and
+capture its final timings later. The largest evidenced follow-up is the interaction
+between serial registry convergence and the overall publisher budget, followed by
+repeated detection/recovery overhead. Increasing a timeout alone would hide the
+symptom without shortening propagation. Any future change should be a separately
+reviewed simplification of existing behavior, with original package order,
+verification and recovery guarantees preserved; no new credential, manual gate,
+workflow or release is needed for this measurement.
