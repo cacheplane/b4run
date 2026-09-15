@@ -39,7 +39,9 @@ export const HISTORICAL_RELEASE_PACKAGE_ORDER = Object.freeze([
 
 export const HISTORICAL_RELEASE_PACKAGE_NAMES = HISTORICAL_RELEASE_PACKAGE_ORDER
 
-export const CANONICAL_RELEASE_PACKAGE_ORDER = Object.freeze([
+// B4 releases sealed before the workspace-storage dependency was introduced.
+// Preserve this order independently of the live publication topology.
+export const HISTORICAL_B4_RELEASE_PACKAGE_ORDER = Object.freeze([
   "@b4run/ag-ui",
   "@b4run/config-biome",
   "@b4run/config-typescript",
@@ -57,6 +59,30 @@ export const CANONICAL_RELEASE_PACKAGE_ORDER = Object.freeze([
   "@b4run/langchain",
   "@b4run/cli",
   "@b4run/sandbox",
+  "@b4run/testing",
+  "@b4run/evals",
+  "@b4run/vite-plugin",
+  "create-b4-app",
+])
+
+export const CANONICAL_RELEASE_PACKAGE_ORDER = Object.freeze([
+  "@b4run/ag-ui",
+  "@b4run/config-biome",
+  "@b4run/config-typescript",
+  "@b4run/devkit",
+  "@b4run/sdk",
+  "@b4run/langgraph",
+  "@b4run/permissions",
+  "@b4run/postgres-storage",
+  "@b4run/workspace",
+  "@b4run/sandbox",
+  "@b4run/sqlite-storage",
+  "@b4run/core",
+  "@b4run/langchain",
+  "@b4run/memory",
+  "@b4run/cli",
+  "@b4run/inspector",
+  "@b4run/memory-pgvector",
   "@b4run/testing",
   "@b4run/evals",
   "@b4run/vite-plugin",
@@ -185,11 +211,12 @@ export function validateSealedReleaseManifest(value, { candidate } = {}) {
     packageOrder: manifest.packageOrder,
     version: manifest.version,
   })
-  // A sealed manifest carries the dependency order of the family it published:
-  // the current one, or the original repository's for releases sealed before
-  // the rename. Both orders are code-owned constants.
+  // A sealed manifest retains its publication order, including the previous B4
+  // topology and the original repository's pre-rename family. Admission remains
+  // an exact code-owned allowlist; current preparation uses only the live order.
   if (
     !arraysEqual(manifest.packageOrder, CANONICAL_RELEASE_PACKAGE_ORDER) &&
+    !arraysEqual(manifest.packageOrder, HISTORICAL_B4_RELEASE_PACKAGE_ORDER) &&
     !arraysEqual(manifest.packageOrder, HISTORICAL_RELEASE_PACKAGE_ORDER)
   ) {
     throw new Error("packageOrder must match the sealed fixed-group-v1 dependency order")

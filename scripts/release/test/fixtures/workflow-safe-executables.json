@@ -501,6 +501,46 @@
         "value": "B4_TEST_DOCKER=1 pnpm --filter @b4run/sandbox test docker-sandbox.integration"
       },
       {
+        "job": "sandbox-docker",
+        "stepIndex": 7,
+        "step": "Build managed workspace runtime and example",
+        "kind": "run",
+        "value": "pnpm turbo run build --filter=@b4-example/code-fixer-server...",
+        "classification": "safe"
+      },
+      {
+        "job": "sandbox-docker",
+        "stepIndex": 8,
+        "step": "Prepare isolated code-fixer environment",
+        "kind": "run",
+        "value": "pnpm --filter @b4-example/code-fixer-server sandbox:prepare",
+        "classification": "safe"
+      },
+      {
+        "job": "sandbox-docker",
+        "stepIndex": 9,
+        "step": "Managed Docker lifecycle and runtime restart",
+        "kind": "run",
+        "value": "B4_TEST_DOCKER=1 pnpm --filter @b4run/sandbox test managed-workspace\nB4_TEST_DOCKER=1 pnpm --filter @b4run/cli test managed-workspace-process\n",
+        "classification": "safe"
+      },
+      {
+        "job": "sandbox-docker",
+        "stepIndex": 10,
+        "step": "Code-fixer approval and verifier recovery",
+        "kind": "run",
+        "value": "pnpm --filter @b4-example/code-fixer-server test:sandbox",
+        "classification": "safe"
+      },
+      {
+        "job": "sandbox-docker",
+        "stepIndex": 11,
+        "step": "Both historical repair replays",
+        "kind": "run",
+        "value": "pnpm --filter @b4-example/code-fixer-server eval:replay",
+        "classification": "safe"
+      },
+      {
         "classification": "safe",
         "job": "pgvector-docker",
         "stepIndex": 0,

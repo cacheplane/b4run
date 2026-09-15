@@ -1061,6 +1061,41 @@
                 "name": "Real-Docker sandbox conformance + e2e",
                 "run": "B4_TEST_DOCKER=1 pnpm --filter @b4run/sandbox test docker-sandbox.integration"
               }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
+                "name": "Build managed workspace runtime and example",
+                "run": "pnpm turbo run build --filter=@b4-example/code-fixer-server..."
+              }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
+                "name": "Prepare isolated code-fixer environment",
+                "run": "pnpm --filter @b4-example/code-fixer-server sandbox:prepare"
+              }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
+                "name": "Managed Docker lifecycle and runtime restart",
+                "run": "B4_TEST_DOCKER=1 pnpm --filter @b4run/sandbox test managed-workspace\nB4_TEST_DOCKER=1 pnpm --filter @b4run/cli test managed-workspace-process\n"
+              }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
+                "name": "Code-fixer approval and verifier recovery",
+                "run": "pnpm --filter @b4-example/code-fixer-server test:sandbox"
+              }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
+                "name": "Both historical repair replays",
+                "run": "pnpm --filter @b4-example/code-fixer-server eval:replay"
+              }
             }
           ]
         },
