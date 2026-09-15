@@ -102,7 +102,7 @@ try {
     for (const [name, spec] of Object.entries(dependencies))
       if (String(spec).startsWith("workspace:"))
         dependencies[name] = packed ? replacements[name] : version
-  await writeFile(join(consumer, "package.json"), JSON.stringify(pkg, null, 2))
+  await writeFile(join(consumer, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`)
   for (const command of [
     [
       "install",

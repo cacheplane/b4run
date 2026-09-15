@@ -2,11 +2,10 @@ import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import { runEval } from "@b4run/evals"
 import { type AgentRunResult, createAgentHarness, script } from "@b4run/testing"
-import {
-  evaluateRun,
-  repairCriteria,
-} from "../../../examples/code-fixer/server/src/app/fix/evals/scoring.js"
+import repairEval from "../../../examples/code-fixer/server/src/app/fix/evals/repair.eval.js"
+import { repairCriteria } from "../../../examples/code-fixer/server/src/app/fix/evals/scoring.js"
 import type { prepareReview } from "../../../examples/code-fixer/server/src/review/prepare.js"
 import { sandboxImage } from "../../../examples/code-fixer/server/src/review/verifier.js"
 import { failureStatus, redactEvidence, verdict } from "../evaluation/evidence.js"
@@ -118,7 +117,7 @@ try {
     source,
     ...verdict(criteria, run.interrupts.length > 0),
     criteria,
-    evaluation: await evaluateRun(run),
+    evaluation: await runEval(repairEval, { runCase: async () => run }),
     prepared: { ...prepared, changes: prepared.candidate.changes },
     run,
     timings: { runMs, verificationMs },

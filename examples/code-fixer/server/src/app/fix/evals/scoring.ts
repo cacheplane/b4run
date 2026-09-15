@@ -1,4 +1,4 @@
-import { custom, defineEval, gate, runEval } from "@b4run/evals"
+import { custom } from "@b4run/evals"
 import type { AgentRunResult } from "@b4run/testing"
 import { type ReviewCandidate, validateCandidate } from "../../../review/candidate.js"
 
@@ -39,19 +39,6 @@ export function behaviorCriteria(run: AgentRunResult) {
     run.interrupts[0].detail.toolName === "exportForReview" &&
     !run.toolResults.some((result) => result.name === "exportForReview")
   return { reproduced, verified, approval }
-}
-
-export async function evaluateRun(run: AgentRunResult) {
-  return runEval(
-    defineEval({
-      name: "code-fixer independent verification",
-      route: "/fix#agent",
-      dataset: [{ name: "attempt", input: "Repair the fixture" }],
-      scorers: repairScorers,
-      gate: gate.perScorer(),
-    }),
-    { runCase: async () => run },
-  )
 }
 
 /** The same six gates drive route evals, replay tests, and maintainer recordings. */

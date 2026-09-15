@@ -31,6 +31,9 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | Export | Responsibility |
 |---|---|
 | `compose` | Compose backend middleware right-to-left. |
+| `inspectWorkspace` | Inspect a bounded text inventory through author filesystem APIs or a sandbox handle. |
+| `InspectWorkspaceOptions` | Set byte and entry limits, cancellation, omitted directories, and required root links. |
+| `WorkspaceInspection` | Return relative-path text files, validated links, byte count, and entry count. |
 | `WorkspaceDefinition` | Declare initial source, immutable environment links, and an optional Git baseline. |
 | `CapturedWorkspaceDefinition` | Hold a verified source bundle and canonical creation options. |
 | `WorkspaceEnvironment` | Bind an immutable environment identity to provider, account, and scope. |
@@ -89,6 +92,36 @@ The `/node` entry owns the exports below. Types are also available from the depe
 | `verifyCreationStatus` | Validate every provider inspection outcome before acting on it. |
 
 ## Key contracts
+
+### Bounded text inspection
+
+`inspectWorkspace(source, options?)` accepts a `WorkspaceFs` or `SandboxHandle`.
+It returns `{ files, symlinks, totalBytes, entries }`; file keys are relative paths.
+Metadata and binary reads are required. Unsupported entries, executable files,
+NUL bytes, invalid UTF-8, and exceeded limits fail inspection. UTF-8 BOMs remain
+part of the returned text.
+
+Defaults are 10,000 entries, 2 MiB per file, and 16 MiB total. Override these with
+`maxEntries`, `maxFileBytes`, and `maxTotalBytes`. `excludeRootDirectories` omits
+only directory subtrees; a file or link at an excluded name fails. Every entry in
+`expectedRootSymlinks` must exist with its exact raw link target. Other symlinks
+are rejected. `signal` cancels inspection.
+
+```ts
+import { inspectWorkspace } from "@b4run/workspace"
+
+const inspection = await inspectWorkspace(ctx.fs, {
+  signal: ctx.signal,
+  maxTotalBytes: 2 * 1024 * 1024,
+  excludeRootDirectories: [".git"],
+})
+```
+
+Inspection uses separate metadata and read operations, so it is not an atomic
+snapshot. Quiesce writers or revalidate before acting on an inventory. Expected
+links establish link identity, not the contents of their targets. Custom backends
+must honor byte limits during reads to bound allocation; the built-in local,
+Docker, and Kubernetes readers cap content before collecting it.
 
 ```ts api-contract="@b4run/workspace#.:BackendContext"
 export interface BackendContext {

@@ -57,3 +57,18 @@ released and separately qualified against published packages.
 CI's Docker lane runs both the ordinary app and maintainer Docker tests, followed
 by deterministic replays of both historical fixtures. The normal source-test
 lane includes the maintainer unit tests through `vitest.workspace.ts`.
+
+Before publishing a new installation pin, verify the copied app against the built
+local packages, then set `B4_RELEASE_VERSION` to the exact published version
+containing the new API:
+
+```sh
+pnpm code-fixer:consumer --packed
+pnpm code-fixer:consumer --version "$B4_RELEASE_VERSION"
+```
+
+Only a release containing `inspectWorkspace` can qualify this revised source. The probe
+runs lint, check, build, typecheck, unit and Docker tests, the ordinary eval
+recording command against a controlled local model, and built HTTP approval and
+export. It makes no paid model calls. No private repository configs are copied
+into the application; packed-package overrides are test installation metadata.
