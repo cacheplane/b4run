@@ -1313,7 +1313,7 @@ export const ARTIFACT_REGISTRY = [
   runtimeImport("@b4run/devkit", ".", "internal", "node-only", "internal", "internal"),
   runtimeImport("@b4run/vite-plugin", ".", "internal", "node-only", "tooling", "internal"),
 
-  operatedArtifact("@b4run/cli", "bin.b4", "executable", "./dist/index.js", "detailed", "tooling"),
+  operatedArtifact("@b4run/cli", "bin.b4", "executable", "./bin/b4.js", "detailed", "tooling"),
   operatedArtifact(
     "create-b4-app",
     "bin.create-b4-app",
