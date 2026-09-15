@@ -45,7 +45,7 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.contracts.json"
   },
   "dependencies": {
-    "@copilotkit/aimock": "^1.37.4",
+    "@copilotkit/aimock": "^1.41.0",
     "@b4run/memory": "workspace:*"
   },
   "peerDependencies": {
@@ -63,9 +63,9 @@
     "@b4run/sdk": "workspace:*",
     "@b4run/sqlite-storage": "workspace:*",
     "@b4run/workspace": "workspace:*",
-    "@langchain/langgraph-checkpoint": "^1.1.3",
-    "@testcontainers/postgresql": "^12.0.4",
-    "@types/node": "26.1.2",
-    "zod": "^4.4.3"
+    "@langchain/langgraph-checkpoint": "^1.1.5",
+    "@testcontainers/postgresql": "^12.1.0",
+    "@types/node": "26.5.1",
+    "zod": "^4.6.2"
   }
 }

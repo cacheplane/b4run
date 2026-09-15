@@ -21,13 +21,13 @@
     "@b4run/langchain": "workspace:*",
     "@b4run/sandbox": "workspace:*",
     "@b4run/sdk": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "^4.6.2"
   },
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",
     "@b4run/evals": "workspace:*",
     "@b4run/testing": "workspace:*",
-    "@types/node": "26.1.2",
+    "@types/node": "26.5.1",
     "typescript": "7.0.2",
     "vitest": "^4.1.11"
   }
