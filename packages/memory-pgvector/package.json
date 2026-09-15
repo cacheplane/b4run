@@ -46,15 +46,15 @@
   },
   "dependencies": {
     "@b4run/memory": "workspace:*",
-    "pg": "^8.22.0",
+    "pg": "^8.23.0",
     "pgvector": "^0.3.0"
   },
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",
     "@b4run/langchain": "workspace:*",
     "@b4run/testing": "workspace:*",
-    "@testcontainers/postgresql": "^12.0.4",
-    "@types/node": "26.1.2",
-    "@types/pg": "^8.20.3"
+    "@testcontainers/postgresql": "^12.1.0",
+    "@types/node": "26.5.1",
+    "@types/pg": "^8.23.1"
   }
 }

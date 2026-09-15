@@ -62,7 +62,7 @@
   },
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",
-    "@types/node": "26.1.2",
-    "zod": "^4.4.3"
+    "@types/node": "26.5.1",
+    "zod": "^4.6.2"
   }
 }
