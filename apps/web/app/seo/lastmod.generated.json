@@ -247,9 +247,9 @@
       "recordDigest": "433703cf2db897bda5d558fad7b137bbaa8c90f77aad4776b0f193ad93d7374c"
     },
     "/docs/middleware": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "f5157c95760112d746916039f41a22e80175e55a9e89444f7a665c585f1628e3",
-      "recordDigest": "7a7dbc144fba793b3d74d4d6dfed10cea1ba54bec18cc8d34cc110c69087ac21"
+      "lastModified": "2026-09-15T15:01:15.967Z",
+      "sourceDigest": "f5474bf689f9e0e5fbd39b4eefa6e79fbab002b5ea273ef8daf0c913ba3b28a0",
+      "recordDigest": "2ab136185fdf0468217de94604365acb2ccedf16fdefa0b465a2f54c6540a254"
     },
     "/docs/migrating-from-langgraph": {
       "lastModified": "2026-09-07T19:58:55.550Z",
