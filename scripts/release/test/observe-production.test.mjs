@@ -9,7 +9,11 @@ import { Worker } from "node:worker_threads"
 import { canonicalAbandonmentBytes, canonicalAbandonmentReleaseBody } from "../abandonment.mjs"
 import { authorizeAuditExecutor } from "../audit-executor.mjs"
 import { runReleaseCli } from "../cli.mjs"
-import { CANONICAL_RELEASE_PACKAGE_ORDER, canonicalManifestBytes } from "../manifest.mjs"
+import {
+  CANONICAL_RELEASE_PACKAGE_ORDER,
+  canonicalManifestBytes,
+  HISTORICAL_B4_RELEASE_PACKAGE_ORDER,
+} from "../manifest.mjs"
 import { abandonmentReleaseMarker, canonicalReleaseBody } from "../metadata.mjs"
 import { canonicalNpmEvidenceBytes } from "../npm-evidence.mjs"
 import {
@@ -2077,6 +2081,33 @@ test("production observation accepts npm presence only through exact tarball and
   assert.deepEqual(plan.conflicts, [])
 })
 
+test("production observation preserves historical B4 receipt order after topology changes", async () => {
+  const escrow = npmCompletedReleaseFixture({ packageOrder: HISTORICAL_B4_RELEASE_PACKAGE_ORDER })
+  const npmFixture = publishedNpmFixture(escrow.manifest)
+  const { observation, diagnostics, recovery } = await observeProductionCandidate({
+    terminalRecordRef: "HEAD",
+    candidate: candidate(),
+    inventory: inventory(),
+    marker: MARKER,
+    git: gitReader(),
+    github: releaseFixtureReader(escrow),
+    npm: npmFixture.npm,
+    npmAuditFactory: npmFixture.npmAuditFactory,
+    attestations: attestationVerifier([]),
+    includeRecovery: true,
+  })
+  assert.deepEqual(diagnostics, [])
+  assert.deepEqual(
+    recovery.npmEvidence.packages.map((entry) => entry.name),
+    HISTORICAL_B4_RELEASE_PACKAGE_ORDER,
+  )
+  assert.equal(recovery.npmEvidence.manifestSha256, escrow.marker.manifestSha256)
+  assert.equal(
+    planRelease({ candidate: candidate(), observation, mode: "controller" }).state,
+    "NPM_COMPLETE",
+  )
+})
+
 test("production observation rejects a marker whose npm evidence digest does not match public npm", async () => {
   const escrow = attestedReleaseFixture()
   const marker = {
@@ -4127,7 +4158,7 @@ function completeNpmEvidenceFixture(manifest) {
     manifestSha256: digest(canonicalManifestBytes(manifest)),
     complete: true,
     status: "NPM_COMPLETE",
-    packages: CANONICAL_RELEASE_PACKAGE_ORDER.map((name) => {
+    packages: manifest.packageOrder.map((name) => {
       const entry = manifest.packages.find((pkg) => pkg.name === name)
       return {
         name,
@@ -4174,6 +4205,7 @@ function binary(operation, bytes) {
 
 function preparedArtifactFixture({
   artifactId = 100,
+  packageOrder = CANONICAL_RELEASE_PACKAGE_ORDER,
   prepareRunId = 200,
   recordId = 101,
   ci = { workflow: "CI", runId: 30, runAttempt: 1 },
@@ -4188,8 +4220,8 @@ function preparedArtifactFixture({
       prepareRunId,
       prepareRunAttempt: 1,
     },
-    packageOrder: [...CANONICAL_RELEASE_PACKAGE_ORDER],
-    packages: CANONICAL_RELEASE_PACKAGE_ORDER.map((name) => packageEntry(name)),
+    packageOrder: [...packageOrder],
+    packages: packageOrder.map((name) => packageEntry(name)),
   }
   const manifestBytes = canonicalManifestBytes(manifest)
   const payloadArchive = storedZip([
@@ -4311,8 +4343,9 @@ function attestationVerifier(calls, status = "VERIFIED") {
   }
 }
 
-function attestedReleaseFixture({ ci } = {}) {
+function attestedReleaseFixture({ ci, packageOrder } = {}) {
   const prepared = preparedArtifactFixture({
+    ...(packageOrder === undefined ? {} : { packageOrder }),
     ...(ci === undefined ? {} : { ci }),
   })
   const bundleBytes = new Map()
@@ -4432,8 +4465,8 @@ function attachingReleaseFixture(retainedNames = ["release-record.json", "manife
   }
 }
 
-function npmCompletedReleaseFixture({ smokeReceiptCount = 0 } = {}) {
-  const escrow = attestedReleaseFixture()
+function npmCompletedReleaseFixture({ smokeReceiptCount = 0, packageOrder } = {}) {
+  const escrow = attestedReleaseFixture({ packageOrder })
   const npmEvidence = completeNpmEvidenceFixture(escrow.manifest)
   const npmEvidenceSha256 = digest(
     canonicalNpmEvidenceBytes(npmEvidence, {
