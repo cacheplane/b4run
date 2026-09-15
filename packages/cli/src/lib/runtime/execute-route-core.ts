@@ -159,7 +159,10 @@ export interface RuntimeBootFallbacks {
   /** Memory write-governance mode from `b4.config.ts`. */
   readonly resolveMemoryWrites: (appRoot: string) => Promise<MemoryWritesMode>
   /** The per-server SandboxManager built from `config.sandbox`. */
-  readonly resolveSandboxManager: (appRoot: string) => Promise<SandboxManager | undefined>
+  readonly resolveSandboxManager: (
+    appRoot: string,
+    options?: { built?: boolean; artifact?: unknown },
+  ) => Promise<SandboxManager | undefined>
   /** Identity keys for a memory namespace, from the route's `memory.ts`. */
   readonly resolveIdentityKeys: (
     appRoot: string,
@@ -492,178 +495,194 @@ export async function* streamResolvedRoute(
     readonly threadId?: string
   },
 ): AsyncGenerator<StreamChunk> {
-  const startedAt = Date.now()
-  const prepared = await prepareRouteExecution({
-    ...options,
-    isSubagent: options.isSubagent ?? false,
-  })
-
-  if (!prepared.ok) {
-    throw new Error(prepared.message)
-  }
-
-  const {
-    normalized,
-    tools,
-    stateFields,
-    promptFragments,
-    streamTransformers,
-    subagentResolver,
-    checkpointer,
-    offload,
-    summarization,
-    workspaceFs,
-    sandboxed,
-    bypassCache,
-  } = prepared
-
-  if (normalized.kind !== "agent") {
-    // Non-agent routes don't support incremental streaming — execute and emit done
-    const context = createB4Context({
-      ...(options.middlewareContext ? { middleware: options.middlewareContext } : {}),
-      fs: workspaceFs,
-      tools,
-      ...(options.signal ? { signal: options.signal } : {}),
-    })
-    const { output } = await invokeEntry(normalized.kind, normalized.entry, options.input, context)
-    yield { type: "done", output }
-    return
-  }
-
-  if (!checkpointer) {
-    throw new Error(
-      "[b4] streamResolvedRoute called for an agent route without a checkpointer. This is an internal bug — please report it.",
-    )
-  }
-
-  const routeParamNames = extractRouteParamNames(options.routeId)
-
-  const agentInput = toAgentInput(options.input, options.resume)
-
-  // Episode recorder (streaming path): a COMPLETED turn records an "ok"
-  // episode; a thrown execution error records an "error" episode before
-  // propagating. Parked (HITL-interrupted) turns record NOTHING: the
-  // agent-adapter yields {type:"done"} unconditionally after its event stream
-  // — including parked turns — so "done" alone is not completion. On this
-  // path pending interrupts surface only as "interrupt" chunks (the adapter's
-  // streamEvents output does not carry `__interrupt__`), so we track them
-  // here; once an interrupt is seen the turn is parked and no further model
-  // work happens in it. The resuming turn records when it completes, with the
-  // RESUME turn's own startedAt (honest: the completing invocation's start —
-  // the original turn's start is not reconstructed).
-  let sawDone = false
-  let sawInterrupt = false
-  let recordedError = false
-  let finalOutput: unknown
-
+  const sandboxRunKey = options.sandboxThreadId ?? options.threadId
+  const releaseSandbox = sandboxRunKey ? options.sandboxManager?.retain(sandboxRunKey) : undefined
   try {
-    for await (const chunk of streamAgent({
-      checkpointer,
-      entry: normalized.entry,
-      input: agentInput,
-      ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
-      routeParamNames,
-      signal: options.signal ?? new AbortController().signal,
-      ...(stateFields ? { stateFields } : {}),
+    const startedAt = Date.now()
+    const prepared = await prepareRouteExecution({
+      ...options,
+      isSubagent: options.isSubagent ?? false,
+    })
+
+    if (!prepared.ok) {
+      throw new Error(prepared.message)
+    }
+
+    const {
+      normalized,
       tools,
-      ...(offload ? { offload } : {}),
-      ...(summarization ? { summarization } : {}),
-      ...(promptFragments && promptFragments.length > 0 ? { promptFragments } : {}),
-      ...(streamTransformers && streamTransformers.length > 0 ? { streamTransformers } : {}),
-      ...(subagentResolver ? { subagentResolver } : {}),
-      ...(options.threadId ? { threadId: options.threadId } : {}),
-      ...(bypassCache ? { bypassCache: true } : {}),
-      ...(sandboxed ? { sandboxed: true } : {}),
-    })) {
-      switch (chunk.type) {
-        case "token":
-          yield { type: "chunk", data: chunk.data }
-          break
-        case "tool_call": {
-          const tc = chunk.data as {
-            id?: string
-            name: string
-            input: unknown
+      stateFields,
+      promptFragments,
+      streamTransformers,
+      subagentResolver,
+      checkpointer,
+      offload,
+      summarization,
+      workspaceFs,
+      sandboxed,
+      bypassCache,
+    } = prepared
+
+    if (normalized.kind !== "agent") {
+      // Non-agent routes don't support incremental streaming — execute and emit done
+      const context = createB4Context({
+        ...(options.middlewareContext ? { middleware: options.middlewareContext } : {}),
+        fs: workspaceFs,
+        tools,
+        ...(options.signal ? { signal: options.signal } : {}),
+      })
+      const { output } = await invokeEntry(
+        normalized.kind,
+        normalized.entry,
+        options.input,
+        context,
+      )
+      yield { type: "done", output }
+      return
+    }
+
+    if (!checkpointer) {
+      throw new Error(
+        "[b4] streamResolvedRoute called for an agent route without a checkpointer. This is an internal bug — please report it.",
+      )
+    }
+
+    const routeParamNames = extractRouteParamNames(options.routeId)
+
+    const agentInput = toAgentInput(options.input, options.resume)
+
+    // Episode recorder (streaming path): a COMPLETED turn records an "ok"
+    // episode; a thrown execution error records an "error" episode before
+    // propagating. Parked (HITL-interrupted) turns record NOTHING: the
+    // agent-adapter yields {type:"done"} unconditionally after its event stream
+    // — including parked turns — so "done" alone is not completion. On this
+    // path pending interrupts surface only as "interrupt" chunks (the adapter's
+    // streamEvents output does not carry `__interrupt__`), so we track them
+    // here; once an interrupt is seen the turn is parked and no further model
+    // work happens in it. The resuming turn records when it completes, with the
+    // RESUME turn's own startedAt (honest: the completing invocation's start —
+    // the original turn's start is not reconstructed).
+    let sawDone = false
+    let sawInterrupt = false
+    let recordedError = false
+    let finalOutput: unknown
+
+    try {
+      for await (const chunk of streamAgent({
+        checkpointer,
+        entry: normalized.entry,
+        input: agentInput,
+        ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
+        routeParamNames,
+        signal: options.signal ?? new AbortController().signal,
+        ...(stateFields ? { stateFields } : {}),
+        tools,
+        ...(offload ? { offload } : {}),
+        ...(summarization ? { summarization } : {}),
+        ...(promptFragments && promptFragments.length > 0 ? { promptFragments } : {}),
+        ...(streamTransformers && streamTransformers.length > 0 ? { streamTransformers } : {}),
+        ...(subagentResolver ? { subagentResolver } : {}),
+        ...(options.threadId ? { threadId: options.threadId } : {}),
+        ...(bypassCache ? { bypassCache: true } : {}),
+        ...(sandboxed ? { sandboxed: true } : {}),
+      })) {
+        switch (chunk.type) {
+          case "token":
+            yield { type: "chunk", data: chunk.data }
+            break
+          case "tool_call": {
+            const tc = chunk.data as {
+              id?: string
+              name: string
+              input: unknown
+            }
+            yield {
+              type: "tool_call",
+              ...(tc.id ? { id: tc.id } : {}),
+              name: tc.name,
+              input: tc.input,
+            }
+            break
           }
-          yield {
-            type: "tool_call",
-            ...(tc.id ? { id: tc.id } : {}),
-            name: tc.name,
-            input: tc.input,
+          case "tool_result": {
+            const tr = chunk.data as {
+              id?: string
+              name: string
+              output: unknown
+            }
+            yield {
+              type: "tool_result",
+              ...(tr.id ? { id: tr.id } : {}),
+              name: tr.name,
+              output: tr.output,
+            }
+            break
           }
-          break
-        }
-        case "tool_result": {
-          const tr = chunk.data as {
-            id?: string
-            name: string
-            output: unknown
+          case "done":
+            sawDone = true
+            finalOutput = chunk.data
+            yield { type: "done", output: chunk.data }
+            break
+          case "interrupt": {
+            // The agent-adapter registers the pending entry in
+            // pending-interrupts so the /threads/:thread_id/resume endpoint
+            // can correlate the POST. We just forward the chunk to the SSE
+            // consumer.
+            sawInterrupt = true
+            yield { type: "interrupt", data: chunk.data }
+            break
           }
-          yield {
-            type: "tool_result",
-            ...(tr.id ? { id: tr.id } : {}),
-            name: tr.name,
-            output: tr.output,
+          default: {
+            // Capability-contributed event types (e.g. plan_update from the planning capability).
+            // The langchain layer widened AgentStreamChunk["type"] to allow arbitrary strings;
+            // pass them through verbatim with their literal type as the SSE event name.
+            yield { type: chunk.type, data: chunk.data }
+            break
           }
-          break
-        }
-        case "done":
-          sawDone = true
-          finalOutput = chunk.data
-          yield { type: "done", output: chunk.data }
-          break
-        case "interrupt": {
-          // The agent-adapter registers the pending entry in
-          // pending-interrupts so the /threads/:thread_id/resume endpoint
-          // can correlate the POST. We just forward the chunk to the SSE
-          // consumer.
-          sawInterrupt = true
-          yield { type: "interrupt", data: chunk.data }
-          break
-        }
-        default: {
-          // Capability-contributed event types (e.g. plan_update from the planning capability).
-          // The langchain layer widened AgentStreamChunk["type"] to allow arbitrary strings;
-          // pass them through verbatim with their literal type as the SSE event name.
-          yield { type: chunk.type, data: chunk.data }
-          break
         }
       }
-    }
-  } catch (error) {
-    recordedError = true
-    await recordRunEpisode({
-      memoryContext: prepared.memoryContext,
-      episodes: prepared.episodes,
-      outcome: "error",
-      input: options.input,
-      startedAt,
-      ...(options.threadId ? { threadId: options.threadId } : {}),
-    })
-    throw error
-  } finally {
-    // The "ok" record lives in the finally, NOT after the loop: stream
-    // consumers may close the generator early — the AG-UI outbound translator
-    // early-returns on RUN_FINISHED without draining, which cascades a
-    // .return() into this generator while it is suspended at the done yield.
-    // A finally still runs on that close path (sawDone/finalOutput were
-    // assigned BEFORE yielding the done chunk, so they are already set when
-    // the close lands on the yield). `recordedError` prevents a double record
-    // when the catch above already recorded the failure; abandoned (closed
-    // before done) turns record nothing, and a parked turn is filtered by the
-    // recorder itself via `parked`. recordRunEpisode never throws, so this is
-    // finally-safe.
-    if (!recordedError && sawDone) {
+    } catch (error) {
+      recordedError = true
       await recordRunEpisode({
         memoryContext: prepared.memoryContext,
         episodes: prepared.episodes,
-        outcome: "ok",
-        output: finalOutput,
-        parked: sawInterrupt,
+        outcome: "error",
         input: options.input,
         startedAt,
         ...(options.threadId ? { threadId: options.threadId } : {}),
       })
+      throw error
+    } finally {
+      // The "ok" record lives in the finally, NOT after the loop: stream
+      // consumers may close the generator early — the AG-UI outbound translator
+      // early-returns on RUN_FINISHED without draining, which cascades a
+      // .return() into this generator while it is suspended at the done yield.
+      // A finally still runs on that close path (sawDone/finalOutput were
+      // assigned BEFORE yielding the done chunk, so they are already set when
+      // the close lands on the yield). `recordedError` prevents a double record
+      // when the catch above already recorded the failure; abandoned (closed
+      // before done) turns record nothing, and a parked turn is filtered by the
+      // recorder itself via `parked`. recordRunEpisode never throws, so this is
+      // finally-safe.
+      if (!recordedError && sawDone) {
+        await recordRunEpisode({
+          memoryContext: prepared.memoryContext,
+          episodes: prepared.episodes,
+          outcome: "ok",
+          output: finalOutput,
+          parked: sawInterrupt,
+          input: options.input,
+          startedAt,
+          ...(options.threadId ? { threadId: options.threadId } : {}),
+        })
+      }
+    }
+  } finally {
+    try {
+      const key = options.sandboxThreadId ?? options.threadId
+      if (key) await options.sandboxManager?.settle(key, options.signal)
+    } finally {
+      releaseSandbox?.()
     }
   }
 }
@@ -856,16 +875,12 @@ async function prepareRouteExecutionForInvocation(
   let configCheckpointer: BaseCheckpointSaver | undefined
   let configThreadsStore: ThreadsStore | undefined
   let loadedB4Config: B4Config | undefined
-  try {
-    // A supplied `config` IS the config — no disk read, no memo lookup.
-    loadedB4Config = options.config ?? (await fallbacks?.loadConfig(options.appRoot))
-    configBackends = loadedB4Config?.backends
-    permissionsConfig = loadedB4Config?.permissions
-    configCheckpointer = loadedB4Config?.checkpointer
-    configThreadsStore = loadedB4Config?.threadsStore
-  } catch {
-    // No b4.config.ts (or unreadable). Fall back to defaults for all fields.
-  }
+  // A supplied config wins; the Node loader distinguishes absence from failure.
+  loadedB4Config = options.config ?? (await fallbacks?.loadConfig(options.appRoot))
+  configBackends = loadedB4Config?.backends
+  permissionsConfig = loadedB4Config?.permissions
+  configCheckpointer = loadedB4Config?.checkpointer
+  configThreadsStore = loadedB4Config?.threadsStore
 
   // When a SandboxManager is configured and we have a stable thread id, resolve
   // the thread's sandbox handle and route the workspace filesystem/exec (and the
@@ -874,6 +889,11 @@ async function prepareRouteExecutionForInvocation(
   let sandboxBackends: { filesystem: FilesystemBackend; exec: ExecBackend } | undefined
   let sandboxWorkspaceRoot: string | undefined
   const sandboxKey = options.sandboxThreadId ?? options.threadId
+  if (loadedB4Config?.sandbox?.workspace && (!options.sandboxManager?.managed || !sandboxKey)) {
+    throw new Error(
+      "Managed workspace execution requires an admitted Node runtime and a thread identity",
+    )
+  }
   if (options.sandboxManager && sandboxKey) {
     const handle = await options.sandboxManager.getForThread(
       sandboxKey,
@@ -956,6 +976,45 @@ async function prepareRouteExecutionForInvocation(
     ...workspaceFsOptions,
     signal: options.signal ?? new AbortController().signal,
   })
+
+  const admittedWorkspace = sandboxKey
+    ? options.sandboxManager?.getWorkspace(sandboxKey)
+    : undefined
+  const workspaceContext = (signal: AbortSignal): import("@b4run/sdk").WorkspaceContext => {
+    if (!admittedWorkspace || !sandboxWorkspaceRoot)
+      throw new Error("No admitted managed workspace")
+    const root = sandboxWorkspaceRoot
+    const initialBackend: FilesystemBackend = {
+      async realPath(path) {
+        return path
+      },
+      async readBinaryFile(path) {
+        signal.throwIfAborted()
+        if (!path.startsWith(`${root}/`))
+          throw new Error("Initial source path is outside the workspace")
+        return admittedWorkspace.readInitialFile(path.slice(root.length + 1))
+      },
+      async readFile() {
+        throw new Error("Initial source uses binary reads")
+      },
+      async writeFile() {
+        throw new Error("Initial source is immutable")
+      },
+      async listDir() {
+        throw new Error("Initial source does not expose directory listing")
+      },
+    }
+    const initialFs = createWorkspaceFs({ ...workspaceFsOptions, backend: initialBackend, signal })
+    return Object.freeze({
+      id: admittedWorkspace.ready.reference.operationId,
+      sourceDigest: admittedWorkspace.ready.provenance.sourceDigest,
+      environment: admittedWorkspace.ready.provenance.environment,
+      ...(admittedWorkspace.ready.provenance.baselineCommit
+        ? { baselineCommit: admittedWorkspace.ready.provenance.baselineCommit }
+        : {}),
+      readInitialFile: (path: string) => initialFs.readBinaryFile(path),
+    })
+  }
 
   if (normalized.kind === "agent") {
     const registry = createCapabilityRegistry([
@@ -1334,6 +1393,7 @@ async function prepareRouteExecutionForInvocation(
       t.run(input, {
         ...ctx,
         fs: createWorkspaceFs({ ...workspaceFsOptions, signal: ctx.signal }),
+        ...(admittedWorkspace ? { workspace: workspaceContext(ctx.signal) } : {}),
       }),
   }))
 
@@ -1443,6 +1503,7 @@ export async function executeRouteAtResolvedPath(
   },
   scenarioInvocation?: ScenarioRouteInvocation,
 ): Promise<RuntimeExecutionResult> {
+  let releaseSandbox: (() => void) | undefined
   let mode: RuntimeExecutionMode | null = null
   // Episode-recorder context, captured once prepare succeeds so the catch
   // path can record failed runs too. Absent (recorder no-op) until then.
@@ -1451,6 +1512,8 @@ export async function executeRouteAtResolvedPath(
   let epThreadId: string | undefined
 
   try {
+    const sandboxRunKey = options.sandboxThreadId ?? options.threadId
+    releaseSandbox = sandboxRunKey ? options.sandboxManager?.retain(sandboxRunKey) : undefined
     const prepared = await prepareRouteExecutionForInvocation(
       {
         ...options,
@@ -1572,6 +1635,13 @@ export async function executeRouteAtResolvedPath(
       routePath: options.routePath,
       startedAt: options.startedAt,
     })
+  } finally {
+    try {
+      const key = options.sandboxThreadId ?? options.threadId
+      if (key) await options.sandboxManager?.settle(key, options.signal)
+    } finally {
+      releaseSandbox?.()
+    }
   }
 }
 

@@ -42,7 +42,7 @@ describe("subagent sandbox preparation", () => {
       routeFile: join(appRoot, "src/app/parent/index.ts"),
       routeId: "/parent",
       routePath: "src/app/parent/index.ts",
-      sandboxManager: { getForThread } as never,
+      sandboxManager: { getForThread, getWorkspace: () => undefined } as never,
       sandboxThreadId: "sandbox-root",
     })
 

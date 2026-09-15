@@ -53,11 +53,15 @@ export default config({
   // --- Capability seam: Docker execution sandbox ---
   // Default runs use the local workspace so the bundled corpus works without
   // Docker. Run `npm run test:sandbox:docker` to dogfood the same scaffold with
-  // per-thread isolated Docker workspaces.
+  // per-thread isolated Docker workspaces. For ordinary runs, set a stable,
+  // installation-specific B4_SANDBOX_SCOPE when enabling Docker.
   ...(process.env.B4_DEMO_DOCKER_SANDBOX === "1"
     ? {
         sandbox: {
-          provider: dockerSandbox({ image: "node:24-slim" }),
+          provider: dockerSandbox({
+            scope: process.env.B4_SANDBOX_SCOPE ?? "",
+            image: "node:24-slim",
+          }),
           network: { mode: "deny" },
           resources: { memoryMb: 512, cpus: 1, timeoutMs: 120_000 },
           idleTimeoutMs: 600_000,

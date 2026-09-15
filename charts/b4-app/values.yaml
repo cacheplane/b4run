@@ -112,7 +112,7 @@ serviceAccount:
 automountServiceAccountToken: true
 
 # sandboxNamespace: informational only — must match the app's
-# `kubernetesSandbox({ namespace })` config and the b4-sandbox-infra
+# `kubernetesSandbox({ scope: "my-app", namespace })` config and the b4-sandbox-infra
 # chart's `namespace.name`.
 sandboxNamespace: b4-sandboxes
 

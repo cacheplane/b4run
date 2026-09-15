@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { expect, it } from "vitest"
-import { fixturesRoot } from "../src/blueprint/fixture-catalog.ts"
-import { verifyChanges } from "../src/blueprint/verifier.ts"
+import { fixturesRoot } from "../src/fixtures/catalog.ts"
+import { verifyChanges } from "../src/review/verifier.ts"
 
 it("checks source repairs in a fresh sandbox and rejects test substitutions", async () => {
   const signal = AbortSignal.timeout(120_000)

@@ -45,6 +45,15 @@ describe("createWorkspaceFs", () => {
     expect([...(await fs.listDir())]).toContain("reports")
   })
 
+  it("inspects file types without following the leaf symlink", async () => {
+    writeFileSync(join(workspaceRoot, "run.sh"), "echo ok", { mode: 0o755 })
+    symlinkSync("run.sh", join(workspaceRoot, "link"))
+    const fs = make()
+    expect(await fs.stat!("run.sh")).toMatchObject({ kind: "file", size: 7, executable: true })
+    expect(await fs.stat!(".")).toMatchObject({ kind: "directory" })
+    expect(await fs.stat!("link")).toMatchObject({ kind: "symlink", target: "run.sh" })
+  })
+
   it("reads binary files as Uint8Array", async () => {
     const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47])
     writeFileSync(join(workspaceRoot, "img.png"), bytes)

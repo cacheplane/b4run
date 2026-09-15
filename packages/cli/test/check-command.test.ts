@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { access, chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { afterEach, describe, expect, test } from "vitest"
@@ -53,31 +53,20 @@ async function invoke(argv: readonly string[]) {
   }
 }
 
-async function buildCliExecutable() {
+async function cliExecutable() {
   const packageRoot = resolve(import.meta.dirname, "..")
   const distEntry = join(packageRoot, "dist", "index.js")
 
-  await new Promise<void>((resolvePromise, rejectPromise) => {
-    // No `--force`: it rebuilds every referenced project (incl. @b4run/core)
-    // unconditionally, rewriting the SHARED packages/core/dist mid-suite. Under
-    // vitest's parallel files that races other tests spawning processes which
-    // import @b4run/core from that dist (a half-written dist → "does not
-    // provide an export" crash). Plain `tsc -b` is a no-op when already built.
-    const child = spawn("pnpm", ["exec", "tsc", "-b", "tsconfig.build.json"], {
-      cwd: packageRoot,
-      stdio: "inherit",
-    })
-
-    child.once("error", rejectPromise)
-    child.once("exit", (code) => {
-      if (code === 0) {
-        resolvePromise()
-        return
-      }
-
-      rejectPromise(new Error(`CLI build failed with exit code ${code ?? "unknown"}`))
-    })
-  })
+  // Repository validation builds before testing. Rebuilding shared dist here
+  // races other tests importing it, even without --force when compilers differ.
+  try {
+    await access(distEntry)
+  } catch (cause) {
+    throw new Error(
+      "Missing built CLI executable. Run pnpm build from the repository root before testing.",
+      { cause },
+    )
+  }
 
   await chmod(distEntry, 0o755)
 
@@ -203,7 +192,7 @@ export const graph = { invoke: async () => ({}) }
       "src/app/hello/index.ts": `export async function workflow() { return {} }
 `,
     })
-    const builtCli = await buildCliExecutable()
+    const builtCli = await cliExecutable()
     const builtSource = await readFile(builtCli, "utf8")
     const symlinkPath = join(appRoot, "b4-link.js")
 

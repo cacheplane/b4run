@@ -16,6 +16,16 @@ export interface BackendContext {
 }
 
 export interface FilesystemBackend {
+  /** Inspect the leaf entry without following a symlink. */
+  lstat?(
+    path: string,
+    ctx: BackendContext,
+  ): Promise<{
+    readonly kind: "file" | "directory" | "symlink" | "other"
+    readonly size: number
+    readonly executable: boolean
+    readonly target?: string
+  }>
   /**
    * Read a UTF-8 file. `path` is an already-resolved absolute path
    * inside `ctx.workspaceRoot` — the capability has done the path-jail.

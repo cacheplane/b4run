@@ -100,6 +100,8 @@ export interface StaticRouteModule {
  * request.
  */
 export interface B4StaticModules {
+  /** Verified by Node sandbox resolution; null means no managed workspace at build. */
+  readonly workspace?: unknown
   /**
    * App-level middleware bound from the manifest's static import, when the
    * app has a middleware file. `undefined` also covers a middleware file with

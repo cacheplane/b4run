@@ -383,6 +383,35 @@ describe("convertToolToLangChain — {result, state} wrapped returns", () => {
 })
 
 describe("convertToolToLangChain — config.configurable forwarding", () => {
+  it.each([undefined, "runtime-thread"])(
+    "does not use model arguments as thread identity when runtime identity is %s",
+    async (threadId) => {
+      let seen: { threadId?: string } | undefined
+      let observedInput: unknown
+      const converted = convertToolToLangChain({
+        name: "identityProbe",
+        schema: {
+          type: "object",
+          properties: { threadId: { type: "string" } },
+          required: ["threadId"],
+        },
+        run: (input: unknown, ctx: { threadId?: string }) => {
+          observedInput = input
+          seen = ctx
+          return "ok"
+        },
+      })
+      await converted.invoke(
+        { threadId: "model-supplied-thread" },
+        { configurable: threadId === undefined ? {} : { thread_id: threadId } },
+      )
+      expect(observedInput).toEqual({ threadId: "model-supplied-thread" })
+      expect(seen).toBeDefined()
+      expect(seen?.threadId).toBe(threadId)
+      expect(Object.hasOwn(seen ?? {}, "threadId")).toBe(threadId !== undefined)
+    },
+  )
+
   it("forwards thread_id and route params from config.configurable into the tool run context", async () => {
     let seen:
       | { threadId: string | undefined; params: Record<string, string> | undefined }

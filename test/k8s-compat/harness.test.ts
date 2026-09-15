@@ -818,6 +818,33 @@ describe("portable compatibility lifecycle", () => {
     expect(manifest.providerPhases["provider-after-upgrade"]).toContain(fullName)
   })
 
+  test("requires scoped storage restart coverage in both provider phases", async () => {
+    const title = "scoped storage survives provider restart and isolated destruction"
+    const manifest = JSON.parse(
+      await readFile(join(REPOSITORY_ROOT, "test/k8s-compat/expected-tests.json"), "utf8"),
+    ) as { readonly providerPhases: Readonly<Record<string, readonly string[]>> }
+    for (const phase of ["provider-before-upgrade", "provider-after-upgrade"]) {
+      const expected = manifest.providerPhases[phase] ?? []
+      expect(expected.filter((id) => id === title)).toEqual([title])
+      const observed = expected.map((id) => ({ id, status: "passed" as const }))
+      expect(() => assertExactStepAccounting(expected, observed)).not.toThrow()
+      expect(() =>
+        assertExactStepAccounting(
+          expected,
+          observed.filter(({ id }) => id !== title),
+        ),
+      ).toThrow(`missing: ${title}`)
+      expect(() =>
+        assertExactStepAccounting(
+          expected,
+          observed.map((step) =>
+            step.id === title ? { ...step, status: "skipped" as const } : step,
+          ),
+        ),
+      ).toThrow(`skipped: ${title}`)
+    }
+  })
+
   test("accounts both provider manifests before finish and exact probe IDs once in declaration order", async () => {
     const fixture = createHarnessFixture()
     const accounting = vi.fn((expected: readonly string[], observed: readonly unknown[]) => {

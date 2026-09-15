@@ -1,56 +1,33 @@
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { readdir, readFile, rm } from "node:fs/promises"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
 import { createAgentHarness, script } from "@b4run/testing"
 import { expect, it } from "vitest"
-import { attemptContext } from "../src/blueprint/attempt-context.ts"
-import { fixturesRoot } from "../src/blueprint/fixture-catalog.ts"
+import { isolatedApp } from "../src/evaluation/isolated-app.ts"
+import { replayFixture, taskInput } from "../src/evaluation/replay.ts"
 
 it.each(["once", "deny"])(
   "requires actual approval before review export: %s",
   async (decision) => {
-    const output = await mkdtemp(join(tmpdir(), "b4-code-fixer-approval-"))
-    const previous = process.env.B4_CODE_FIXER_ATTEMPT_DIR
-    process.env.B4_CODE_FIXER_ATTEMPT_DIR = output
-    const appRoot = fileURLToPath(new URL("../", import.meta.url))
-    const original = await readFile(join(fixturesRoot, "cli-flags/project/src/cli.ts"), "utf8")
-    const repaired = original
-      .replace(
-        'new Command().name("fixture")',
-        'new Command().name("fixture").enablePositionalOptions()',
-      )
-      .replace(
-        '.command("memory [subcommand] [args...]")',
-        '.command("memory [subcommand] [args...]").passThroughOptions()',
-      )
+    const appRoot = await isolatedApp()
     const h = await createAgentHarness({ appRoot, route: "/fix#agent" })
     try {
+      const first = await h.run({ input: taskInput, fixtures: await replayFixture("cli-flags") })
+      const prepared = first.toolResults.find((tool) => tool.name === "prepareReview")
+      expect(prepared).toBeDefined()
+      const payload =
+        typeof prepared?.content === "string" ? JSON.parse(prepared.content) : prepared?.content
+      expect(payload.verification.passed).toBe(true)
+      const input = "Export the verified candidate"
       const run = await h.run({
-        input: "Fix the task",
+        input,
         fixtures: script()
-          .user("Fix the task")
-          .callsTool("readFile", { path: "TASK.md" })
-          .callsTool("runBash", {
-            command: "node --import tsx src/cli.ts memory consolidate --dry-run | cat -v",
-          })
-          .callsTool("listDir", { path: "node_modules" })
-          .callsTool("listDir", { path: "node_modules/commander" })
-          .callsTool("readFile", { path: "node_modules/commander/package.json" })
-          .callsTool("runBash", { command: "node --import tsx -e 'console.log(process.argv)'" })
-          .callsTool("runBash", { command: "node -e 'console.log(process.execArgv)'" })
-          .callsTool("runBash", { command: "npm test" })
-          .callsTool("writeFile", { path: "src/cli.ts", content: repaired })
-          .callsTool("runBash", { command: "npm test" })
-          .callsTool("exportForReview", {})
-          .replies("Exported the verified patch for review."),
+          .user(input)
+          .callsTool("exportForReview", { candidate: payload.candidate })
+          .replies("Review request handled."),
       })
       expect(run.interrupts).toHaveLength(1)
-      expect(run.interrupts[0]?.kind).toBe("tool")
-      expect((await readdir(output)).filter((name) => name !== "owned-threads.jsonl")).toEqual([])
-      expect(
-        (await attemptContext().verify(AbortSignal.timeout(120_000))).verification.passed,
-      ).toBe(true)
+      const outbox = join(appRoot, ".b4/code-fixer/review-outbox")
+      expect(await readdir(outbox).catch(() => [])).toEqual([])
       await h.resume({
         resume: run.interrupts.map((entry) => ({
           interruptId: entry.interruptId,
@@ -58,20 +35,16 @@ it.each(["once", "deny"])(
           payload: decision,
         })),
       })
+      const files = await readdir(outbox).catch(() => [])
       if (decision === "once") {
-        expect(
-          JSON.parse(await readFile(join(output, "review-outbox/patch.json"), "utf8")).verification
-            .passed,
-        ).toBe(true)
-      } else {
-        expect((await readdir(output)).filter((name) => name !== "owned-threads.jsonl")).toEqual([])
-      }
+        expect(files).toHaveLength(1)
+        expect(JSON.parse(await readFile(join(outbox, files[0]!), "utf8")).candidate).toEqual(
+          payload.candidate,
+        )
+      } else expect(files).toEqual([])
     } finally {
-      await h.close()
-      await attemptContext().provider.destroyAll()
-      if (previous === undefined) delete process.env.B4_CODE_FIXER_ATTEMPT_DIR
-      else process.env.B4_CODE_FIXER_ATTEMPT_DIR = previous
-      await rm(output, { recursive: true, force: true })
+      await h.close({ destroyWorkspaces: true })
+      await rm(appRoot, { recursive: true, force: true })
     }
   },
   120_000,

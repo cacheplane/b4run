@@ -3,32 +3,32 @@ import { createHash } from "node:crypto"
 import { readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { createInterface } from "node:readline/promises"
-import { fileURLToPath } from "node:url"
-import { createAgentHarness } from "@b4run/testing"
-import { attemptContext } from "../src/blueprint/attempt-context.js"
-import { behaviorCriteria, evaluateRun } from "../src/blueprint/evaluate.js"
-import { failureStatus, redactEvidence, verdict } from "../src/blueprint/evidence.js"
-import { fixturesRoot, loadManifest } from "../src/blueprint/fixture-catalog.js"
-import { replayFixture, taskInput } from "../src/blueprint/replay.js"
-import { sandboxImage } from "../src/blueprint/verifier.js"
+import { type AgentRunResult, createAgentHarness, script } from "@b4run/testing"
+import { behaviorCriteria, evaluateRun } from "../src/evaluation/evaluate.js"
+import { failureStatus, redactEvidence, verdict } from "../src/evaluation/evidence.js"
+import { replayFixture, taskInput } from "../src/evaluation/replay.js"
+import { fixturesRoot, loadManifest } from "../src/fixtures/catalog.js"
+import type { prepareReview } from "../src/review/prepare.js"
+import { sandboxImage } from "../src/review/verifier.js"
 
-const appRoot = fileURLToPath(new URL("../", import.meta.url))
+const appRoot = process.env.B4_CODE_FIXER_APP_ROOT
+if (!appRoot) throw new Error("Evaluation app installation is required")
 const output = process.env.B4_CODE_FIXER_ATTEMPT_DIR
 if (!output) throw new Error("Attempt output is required")
 const live = process.env.B4_CODE_FIXER_MODE === "live"
-const context = attemptContext()
+const task = process.env.B4_CODE_FIXER_TASK ?? "cli-flags"
 const started = performance.now()
 let harness: Awaited<ReturnType<typeof createAgentHarness>> | undefined
 let receipt: Record<string, unknown> = { passed: false, status: "infrastructure-failed" }
 try {
   if (live && !process.env.OPENAI_API_KEY)
     throw new Error("OPENAI_API_KEY is required for live runs")
-  const manifest = await loadManifest(context.task)
+  const manifest = await loadManifest(task)
   const digest = createHash("sha256")
     .update(JSON.stringify(manifest))
-    .update(await readFile(join(fixturesRoot, context.task, "task.md")))
+    .update(await readFile(join(fixturesRoot, task, "task.md")))
   for (const path of [...manifest.allowedSourcePaths, ...manifest.immutablePaths].sort())
-    digest.update(path).update(await readFile(join(fixturesRoot, context.task, "project", path)))
+    digest.update(path).update(await readFile(join(fixturesRoot, task, "project", path)))
   const image = execFileSync("docker", ["image", "inspect", sandboxImage, "--format", "{{.Id}}"], {
     encoding: "utf8",
     timeout: 10_000,
@@ -53,15 +53,15 @@ try {
   }
   harness = await createAgentHarness({ appRoot, route: "/fix#agent", live })
   const runStarted = performance.now()
-  const run = await harness.run({
+  let run = await harness.run({
     input: taskInput,
-    ...(!live ? { fixtures: await replayFixture(context.task) } : {}),
+    ...(!live ? { fixtures: await replayFixture(task) } : {}),
   })
   const runMs = Math.round(performance.now() - runStarted)
   receipt = {
     schemaVersion: 1,
     mode: live ? "live" : "replay",
-    task: context.task,
+    task: task,
     passed: false,
     status: "infrastructure-failed",
     run,
@@ -76,10 +76,30 @@ try {
     "src/app/fix/tools/exportForReview.ts",
   ])
     source[path] = await readFile(join(appRoot, path), "utf8")
-  digest.update(await readFile(join(fixturesRoot, context.task, "checks/independent.test.ts")))
-  const verifyStarted = performance.now()
-  const prepared = await context.verify(AbortSignal.timeout(120_000))
-  const verificationMs = Math.round(performance.now() - verifyStarted)
+  digest.update(await readFile(join(fixturesRoot, task, "checks/independent.test.ts")))
+  const preparation = [...run.toolResults]
+    .reverse()
+    .find((entry) => entry.name === "prepareReview" && !entry.isError)
+  if (!preparation) throw new Error("Agent did not prepare an independently verified candidate")
+  const prepared = (
+    typeof preparation.content === "string" ? JSON.parse(preparation.content) : preparation.content
+  ) as Awaited<ReturnType<typeof prepareReview>>
+  const verificationMs = 0 // Independent checks are included in the route tool's run time.
+  if (!live) {
+    const input = "Request approval to export the prepared candidate."
+    const approval = await harness.run({
+      input,
+      fixtures: script()
+        .user(input)
+        .callsTool("exportForReview", { candidate: prepared.candidate })
+        .replies("Verified candidate exported for local review."),
+    })
+    run = {
+      ...approval,
+      toolCalls: [...run.toolCalls, ...approval.toolCalls],
+      toolResults: [...run.toolResults, ...approval.toolResults],
+    } as AgentRunResult
+  }
   const criteria = {
     visible: prepared.verification.visible.passed,
     independent: prepared.verification.independent.passed,
@@ -89,7 +109,7 @@ try {
   receipt = {
     schemaVersion: 1,
     mode: live ? "live" : "replay",
-    task: context.task,
+    task: task,
     agent: {
       commit,
       dirty,
@@ -102,7 +122,7 @@ try {
     ...verdict(criteria, run.interrupts.length > 0),
     criteria,
     evaluation: await evaluateRun(run, criteria),
-    prepared,
+    prepared: { ...prepared, changes: prepared.candidate.changes },
     run,
     timings: { runMs, verificationMs },
     usage: {
@@ -134,7 +154,10 @@ try {
     receipt.status = approved ? "passed" : "approval-denied"
     if (approved)
       receipt.exported = JSON.parse(
-        await readFile(join(output, "review-outbox/patch.json"), "utf8"),
+        await readFile(
+          join(appRoot, ".b4/code-fixer/review-outbox", `${prepared.candidate.receiptDigest}.json`),
+          "utf8",
+        ),
       )
   }
 } catch (error) {
@@ -143,16 +166,9 @@ try {
   receipt.error = error instanceof Error ? error.message : String(error)
 } finally {
   try {
-    await harness?.close()
+    await harness?.close({ destroyWorkspaces: true })
   } catch (error) {
     receipt.closeError = String(error)
-    receipt.passed = false
-    receipt.status = "cleanup-failed"
-  }
-  try {
-    await context.provider.destroyAll()
-  } catch (error) {
-    receipt.cleanupError = String(error)
     receipt.passed = false
     receipt.status = "cleanup-failed"
   }

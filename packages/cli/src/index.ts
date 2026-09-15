@@ -6,11 +6,13 @@ export {
   type ServeRuntimeOptions,
   serveRuntime,
 } from "./lib/dev/serve-runtime.js"
+export { cleanupWorkspaces } from "./lib/runtime/cleanup-workspaces.js"
 export {
   type B4StaticModules,
   loadStaticModules,
   type StaticRouteModule,
 } from "./lib/runtime/static-modules.js"
+export { type WithWorkspaceOptions, withWorkspace } from "./lib/runtime/with-workspace.js"
 
 import { realpathSync } from "node:fs"
 import { resolve } from "node:path"

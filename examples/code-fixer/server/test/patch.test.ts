@@ -1,5 +1,5 @@
 import { expect, it } from "vitest"
-import { collectChanges, renderReviewDiff } from "../src/blueprint/patch.ts"
+import { collectChanges, renderReviewDiff } from "../src/review/patch.ts"
 
 const baseline = { "src/cli.ts": "old", "test/test.ts": "assert", "package.json": "{}" }
 it("accepts only a focused source patch", () => {

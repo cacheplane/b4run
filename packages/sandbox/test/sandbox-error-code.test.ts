@@ -17,7 +17,7 @@ describe("sandbox unavailable errors carry the B4_E2001 code", () => {
       },
       exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
     }
-    const p = dockerSandbox({ image: "node:22-slim", docker })
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await expect(
       p.acquire({ threadId: "t1", policy: { network: { mode: "deny" } }, signal: signal() }),
     ).rejects.toMatchObject({ code: "B4_E2001" })

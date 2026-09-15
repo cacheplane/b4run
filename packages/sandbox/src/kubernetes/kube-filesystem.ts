@@ -26,18 +26,52 @@ export function kubeFilesystem(
       }
       return r.stdout
     },
+    async readBinaryFile(path, ctx, opts) {
+      const r = await run(`base64 < ${q(path)}`, ctx)
+      if (r.exitCode !== 0) throw new Error(`readBinaryFile failed: ${r.stderr.trim()}`)
+      const bytes = Buffer.from(r.stdout.replace(/\s/g, ""), "base64")
+      const max = opts?.maxBytes
+      if (max !== undefined && Number.isFinite(max) && bytes.length > max)
+        throw new Error(`readBinaryFile ${path}: content exceeds maxBytes (${max}).`)
+      return bytes
+    },
+    async lstat(path, ctx) {
+      const r = await run(`stat -c '%f %s' -- ${q(path)}`, ctx)
+      if (r.exitCode !== 0) throw new Error(`lstat failed: ${r.stderr.trim()}`)
+      const match = /^([a-fA-F0-9]+) ([0-9]+)\s*$/.exec(r.stdout)
+      if (!match) throw new Error("Invalid lstat response")
+      const mode = Number.parseInt(match[1] ?? "", 16)
+      const size = Number(match[2])
+      if (!Number.isSafeInteger(size)) throw new Error("Invalid lstat size")
+      const kind =
+        (mode & 0xf000) === 0xa000
+          ? "symlink"
+          : (mode & 0xf000) === 0x8000
+            ? "file"
+            : (mode & 0xf000) === 0x4000
+              ? "directory"
+              : "other"
+      const metadata = { kind, size, executable: (mode & 0o111) !== 0 } as const
+      if (kind !== "symlink") return metadata
+      const target = await run(`readlink -n -- ${q(path)}`, ctx)
+      if (target.exitCode !== 0) throw new Error(`readlink failed: ${target.stderr.trim()}`)
+      return {
+        ...metadata,
+        target: target.stdout,
+      }
+    },
     async writeFile(path, content, ctx) {
       const r = await run(`mkdir -p "$(dirname ${q(path)})" && cat > ${q(path)}`, ctx, content)
       if (r.exitCode !== 0) throw new Error(`writeFile failed: ${r.stderr.trim()}`)
       return { bytesWritten: Buffer.byteLength(content) }
     },
     async listDir(path, ctx) {
-      const r = await run(`ls -1 ${q(path)}`, ctx)
+      const r = await run(`find ${q(path)} -mindepth 1 -maxdepth 1 -print0`, ctx)
       if (r.exitCode !== 0) throw new Error(`listDir failed: ${r.stderr.trim()}`)
       return r.stdout
-        .split("\n")
-        .map((l) => l.trim())
+        .split("\0")
         .filter(Boolean)
+        .map((entry) => entry.slice(entry.lastIndexOf("/") + 1))
     },
     async realPath(path, ctx) {
       const r = await run(`realpath -m ${q(path)}`, ctx)

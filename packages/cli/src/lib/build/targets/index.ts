@@ -1,5 +1,6 @@
 import type { RouteManifest } from "@b4run/core"
 import type { CommandIo } from "../../output.js"
+import type { WorkspaceBuildArtifact } from "../workspace-artifact.js"
 import { honoTarget } from "./hono.js"
 import { langsmithTarget } from "./langsmith.js"
 import { nodeTarget } from "./node.js"
@@ -13,6 +14,7 @@ import { vercelTarget } from "./vercel.js"
  */
 export interface BuildEmitContext {
   /** Absolute path to the B4.run app root. */
+  readonly workspaceArtifact?: WorkspaceBuildArtifact
   readonly appRoot: string
   /** Absolute path to the build output directory (`<appRoot>/.b4/build`). */
   readonly buildDir: string

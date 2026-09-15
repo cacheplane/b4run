@@ -54,6 +54,7 @@ The root uses Node APIs, Docker process execution, and the Kubernetes client. `/
 
 ```ts api-contract="@b4run/sandbox#.:KubernetesSandboxOptions"
 export interface KubernetesSandboxOptions {
+  readonly scope: string
   readonly image: string
   readonly namespace?: string
   readonly storageClass?: string
@@ -116,14 +117,14 @@ A failed sandbox container creation is tagged `B4_E2001`.
 
 #### Provider identity and reattachment caveat
 
-Provider names sanitize caller-supplied thread IDs and can collide; applications must supply provider-name-safe unique IDs. A running Kubernetes Pod is reattached without applying changed image, environment, resources, or security, and a prior deny policy is not removed by a later allow acquire. Release before changing provider options or policy.
+Both provider factories require a nonblank `scope: string`. Resource names use a stable hash of scope and the exact thread ID; handles retain the logical thread ID. Scope is case-sensitive, is not authorization, and adds no cross-process coordination. Changing scope selects different storage. This is a breaking change from unscoped providers: legacy storage is not automatically reattached, migrated, or deleted. A running Kubernetes Pod is reattached without applying changed image, environment, resources, or security, and a prior deny policy is not removed by a later allow acquire. Release before changing provider options or policy.
 
 ## Examples and related guides
 
 ```ts
 import { dockerSandbox } from "@b4run/sandbox"
 
-const provider = dockerSandbox({ image: "node:24-slim" })
+const provider = dockerSandbox({ scope: "my-app", image: "node:24-slim" })
 const status = await provider.preflight?.()
 if (!status?.ok) throw new Error(status?.detail ?? "Sandbox unavailable")
 ```

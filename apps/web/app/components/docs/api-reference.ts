@@ -698,7 +698,7 @@ export const API_BEHAVIOR_CONTRACTS = [
         file: "packages/sandbox/test/docker-sandbox.unit.test.ts",
         testNames: ["release removes container but not volume; destroy removes both"],
         assertionFingerprint:
-          'expect(runs.some((r) => r[0] === "rm" && r.includes("b4-sbx-abc"))).toBe(true)\nexpect(runs.some((r) => r[0] === "volume" && r[1] === "rm")).toBe(false)\nexpect ( runs . some ( ( r ) => r [ 0 ] === "volume" && r [ 1 ] === "rm" && r . includes ( "b4-sbx-vol-abc" ) ) , ) . toBe ( true )',
+          'expect ( runs . some ( ( r ) => r [ 0 ] === "rm" && r . includes ( "b4-sbx-2b15794eccdd038fd62a47fecd25562bace17167" ) , ) , ) . toBe ( true )\nexpect ( runs . some ( ( r ) => r [ 0 ] === "volume" && r [ 1 ] === "rm" ) ) . toBe ( false )\nexpect ( runs . some ( ( r ) => r [ 0 ] === "volume" && r [ 1 ] === "rm" && r . includes ( "b4-sbx-vol-2b15794eccdd038fd62a47fecd25562bace17167" ) , ) , ) . toBe ( true )',
       },
     ],
   },
@@ -712,7 +712,7 @@ export const API_BEHAVIOR_CONTRACTS = [
         file: "packages/sandbox/test/kube-sandbox.unit.test.ts",
         testNames: ["release deletes the pod but keeps the PVC; destroy removes both"],
         assertionFingerprint:
-          'expect(k.pods.has("b4-sbx-t")).toBe(false)\nexpect(k.pvcs.has("b4-sbx-vol-t")).toBe(true)\nexpect(k.pvcs.has("b4-sbx-vol-t")).toBe(false)',
+          'expect ( k . pods . has ( "b4-sbx-f4d51473b06dae3d6b54cf4e19b525b611857dc2" ) ) . toBe ( false )\nexpect ( k . pvcs . has ( "b4-sbx-vol-f4d51473b06dae3d6b54cf4e19b525b611857dc2" ) ) . toBe ( true )\nexpect ( k . pvcs . has ( "b4-sbx-vol-f4d51473b06dae3d6b54cf4e19b525b611857dc2" ) ) . toBe ( false )',
       },
     ],
   },
@@ -725,7 +725,8 @@ export const API_BEHAVIOR_CONTRACTS = [
         kind: "test-assertion",
         file: "packages/sandbox/test/kube-sandbox.unit.test.ts",
         testNames: ["network:allow with no allowlist emits no NetworkPolicy"],
-        assertionFingerprint: 'expect(k.netpols.has("b4-sbx-net-t")).toBe(false)',
+        assertionFingerprint:
+          'expect ( k . netpols . has ( "b4-sbx-net-f4d51473b06dae3d6b54cf4e19b525b611857dc2" ) ) . toBe ( false )',
       },
     ],
   },
@@ -1055,8 +1056,12 @@ export const API_REQUIRED_CONTRACT_KEYS = [
   "@b4run/testing#.:writeFixtures",
   "@b4run/workspace#./node:LocalExecOptions",
   "@b4run/workspace#./node:LocalFilesystemOptions",
+  "@b4run/workspace#./node:captureWorkspaceSource",
+  "@b4run/workspace#./node:createSourceBundle",
   "@b4run/workspace#./node:localExec",
   "@b4run/workspace#./node:localFilesystem",
+  "@b4run/workspace#./node:readSourceFile",
+  "@b4run/workspace#./node:verifySourceBundle",
   "@b4run/workspace#.:BackendContext",
   "@b4run/workspace#.:ExecBackend",
   "@b4run/workspace#.:FilesystemBackend",
@@ -1065,6 +1070,9 @@ export const API_REQUIRED_CONTRACT_KEYS = [
   "@b4run/workspace#.:SandboxPolicy",
   "@b4run/workspace#.:SandboxProvider",
   "@b4run/workspace#.:SandboxSecurityPolicy",
+  "@b4run/workspace#.:SourceBundle",
+  "@b4run/workspace#.:SourceFileInput",
+  "@b4run/workspace#.:WorkspaceSourceDefinition",
   "@b4run/workspace#.:compose",
 ] as const satisfies readonly ApiContractKey[]
 

@@ -133,7 +133,7 @@ The predicate receives the parsed `args` and a read-only `ctx` (`{ toolName, rou
 
 ## The runtime signature
 
-The full runtime signature accepted by tool discovery is `(input, ctx) => ...`, where `ctx` is `B4ToolContext` from `@b4run/sdk` — carrying `signal`, `middleware?`, and `fs`:
+The full runtime signature accepted by tool discovery is `(input, ctx) => ...`, where `ctx` is `B4ToolContext` from `@b4run/sdk` — carrying `signal`, `threadId?`, `middleware?`, and `fs`:
 
 ```ts title="src/app/(public)/hello/[tenant]/tools/greet.ts"
 import type { B4ToolContext } from "@b4run/sdk"
@@ -154,6 +154,8 @@ export default async (
 ```
 
 The second parameter is optional but recommended for any tool that does network I/O, holds long-running work, needs middleware-derived context, or reads/writes workspace files. See [Middleware](/docs/middleware) for how `defineMiddleware` and `allow(context)` populate `ctx.middleware`, and [Workspace Filesystem](/docs/workspace) for `ctx.fs`.
+
+`ctx.threadId` is the readonly conversation identity supplied by the runtime when available. It is separate from model-supplied tool arguments and may be absent outside a threaded invocation. Tools that require it should explicitly handle that absence. A thread ID is not an authenticated user, an authorization decision, or a globally scoped sandbox resource name; retain the application's access checks and provider isolation policy.
 
 ## Tool descriptions
 

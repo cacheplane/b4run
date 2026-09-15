@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto"
 import type { SandboxHandle, SandboxPolicy, SandboxProvider } from "@b4run/workspace"
 import { sandboxUnavailable } from "../errors.js"
+import { resourceScope } from "../resource-scope.js"
 import { createDefaultKubeClient } from "./default-kube-client.js"
 import {
   KubeAuthorizationReviewError,
@@ -13,35 +13,14 @@ import { kubeExec } from "./kube-exec.js"
 import { kubeFilesystem } from "./kube-filesystem.js"
 
 const ROOT = "/workspace"
-// Linear leading/trailing '-' trim. Avoids anchored `-+`/`^-+` regexes, which are a
-// polynomial-ReDoS pattern (O(n^2) backtracking on adversarial dash runs) when run on
-// an uncontrolled thread id.
-const trimDashes = (s: string): string => {
-  let start = 0
-  let end = s.length
-  while (start < end && s[start] === "-") start++
-  while (end > start && s[end - 1] === "-") end--
-  return s.slice(start, end)
-}
-// DNS-1123 label: lowercase alphanumeric + '-', <=63 chars. Bare truncation to 40
-// chars would collide two thread IDs sharing a 40-char prefix onto one sandbox, so
-// append a stable content hash when (and only when) the cleaned id exceeds the limit
-// — short ids are returned verbatim, keeping existing names churn-free.
-const sanitize = (s: string) => {
-  const clean = trimDashes(s.toLowerCase().replaceAll(/[^a-z0-9-]/g, "-")) || "x"
-  if (clean.length <= 40) return clean
-  const hash = createHash("sha256").update(s).digest("hex").slice(0, 8)
-  return `${trimDashes(clean.slice(0, 31))}-${hash}`
-}
-const podName = (t: string) => `b4-sbx-${sanitize(t)}`
-const pvcName = (t: string) => `b4-sbx-vol-${sanitize(t)}`
-const netpolName = (t: string) => `b4-sbx-net-${sanitize(t)}`
 const permissionLabel = (permission: KubePermission): string =>
   `${permission.verb} ${permission.apiGroup || "core"}/${permission.resource}${
     permission.subresource === undefined ? "" : `/${permission.subresource}`
   }`
 
 export interface KubernetesSandboxOptions {
+  /** Stable application/environment identity. Changing it selects different storage. */
+  readonly scope: string
   readonly image: string
   readonly namespace?: string
   readonly storageClass?: string
@@ -90,11 +69,15 @@ export function resolveSecurity(policy: SandboxPolicy): {
   return { podSecurityContext, containerSecurityContext, readOnly, user }
 }
 
-/** Kubernetes SandboxProvider. Per thread: a keeper Pod `b4-sbx-<t>` (sleep
- * infinity) + a PVC `b4-sbx-vol-<t>` at /workspace. acquire = create-or-reattach;
+/** Kubernetes SandboxProvider. Per thread: a keeper Pod `b4-sbx-<resourceId>` (sleep
+ * infinity) + a PVC `b4-sbx-vol-<resourceId>` at /workspace. acquire = create-or-reattach;
  * release deletes the Pod (keeps the PVC); destroy deletes both. Hardening maps to
  * SecurityContext; fsGroup chowns the PVC (no chown-init); the pod mounts no SA token. */
 export function kubernetesSandbox(opts: KubernetesSandboxOptions): SandboxProvider {
+  const resourceId = resourceScope(opts.scope)
+  const podName = (id: string) => `b4-sbx-${resourceId(id)}`
+  const pvcName = (id: string) => `b4-sbx-vol-${resourceId(id)}`
+  const netpolName = (id: string) => `b4-sbx-net-${resourceId(id)}`
   const ns = opts.namespace ?? "b4-sandboxes"
   const startupTimeoutMs = opts.startupTimeoutMs ?? 60_000
   const client = opts.client ?? createDefaultKubeClient()
@@ -105,7 +88,7 @@ export function kubernetesSandbox(opts: KubernetesSandboxOptions): SandboxProvid
     signal: AbortSignal,
   ): Promise<string> => {
     const name = podName(threadId)
-    const labels = { "app.kubernetes.io/managed-by": "b4", "b4.run/thread": sanitize(threadId) }
+    const labels = { "app.kubernetes.io/managed-by": "b4", "b4.run/thread": resourceId(threadId) }
 
     await client.createNamespacedPvcIfAbsent(ns, {
       name: pvcName(threadId),
@@ -168,7 +151,7 @@ export function kubernetesSandbox(opts: KubernetesSandboxOptions): SandboxProvid
       await client.upsertNamespacedNetworkPolicy(ns, {
         name: netpolName(threadId),
         labels,
-        threadLabelValue: sanitize(threadId),
+        threadLabelValue: resourceId(threadId),
         mode: policy.network.mode,
         ...(policy.network.allowlist ? { allowlist: policy.network.allowlist } : {}),
       })

@@ -340,6 +340,7 @@ export interface B4ToolDefinition {
       // omit it; the cli's prepareRouteExecution wrapper guarantees it at
       // runtime, which is why the author-facing B4ToolContext requires it.
       readonly fs?: WorkspaceFs
+      readonly workspace?: import("@b4run/sdk").WorkspaceContext
       // Live per-call runtime identity, forwarded by the langchain tool-converter
       // from config.configurable. Optional because pre-wrap/legacy invokers omit
       // it. Read by the argument-constraint wrapper to build ConstraintContext.

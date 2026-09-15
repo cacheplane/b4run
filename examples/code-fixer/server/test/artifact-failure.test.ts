@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, it, vi } from "vitest"
-import { runAttempt } from "../src/blueprint/run-attempt.ts"
+import { runAttempt } from "../src/evaluation/run-attempt.ts"
 
 it("returns an accounted failure if the final artifact cannot be written", async () => {
   const output = await mkdtemp(join(tmpdir(), "b4-artifact-failure-"))

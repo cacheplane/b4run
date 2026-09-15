@@ -682,7 +682,7 @@ NETWORK_ID=""
 AIMOCK_ID=""
 APP_ID=""
 TID=""
-SANITIZED_TID=""
+RESOURCE_ID=""
 SBX_NAME=""
 SBX_VOLUME_NAME=""
 SBX_ID=""
@@ -1070,8 +1070,8 @@ adopt_sandbox_claims() {
       echo "CLEANUP OWNERSHIP ERROR: could not read b4.sandbox label from ${ADOPTED_ID}" >&2
       return 1
     fi
-    if [ "$ADOPTED_THREAD_LABEL" != "$SANITIZED_TID" ]; then
-      echo "CLEANUP OWNERSHIP ERROR: sandbox label '${ADOPTED_THREAD_LABEL}' does not equal '${SANITIZED_TID}'" >&2
+    if [ "$ADOPTED_THREAD_LABEL" != "$RESOURCE_ID" ]; then
+      echo "CLEANUP OWNERSHIP ERROR: sandbox label '${ADOPTED_THREAD_LABEL}' does not equal '${RESOURCE_ID}'" >&2
       reject_sandbox_claims
       return 1
     fi
@@ -1250,7 +1250,7 @@ validate_sandbox_claim() {
     reject_sandbox_claims
     return 1
   fi
-  if [ "$LIVE_THREAD_LABEL" != "$SBX_THREAD_LABEL" ] || [ "$LIVE_THREAD_LABEL" != "$SANITIZED_TID" ]; then
+  if [ "$LIVE_THREAD_LABEL" != "$SBX_THREAD_LABEL" ] || [ "$LIVE_THREAD_LABEL" != "$RESOURCE_ID" ]; then
     echo "CLEANUP OWNERSHIP ERROR: sandbox thread label changed; invalidating container and volume claims" >&2
     reject_sandbox_claims
     return 1
@@ -1890,9 +1890,9 @@ if TID=$(printf '%s' "$THREAD_JSON" | jq -r '.thread_id // empty'); then :; else
   fail "could not parse POST /threads response"
 fi
 [ -n "$TID" ] || fail "no thread_id in POST /threads response: $THREAD_JSON"
-SANITIZED_TID=$(printf '%s' "$TID" | sed 's/[^a-zA-Z0-9_.-]/_/g')
-SBX_NAME="${SBX_PREFIX}${SANITIZED_TID}"
-SBX_VOLUME_NAME="${SBX_VOL_PREFIX}${SANITIZED_TID}"
+RESOURCE_ID=$(node --input-type=module -e 'import { createHash } from "node:crypto"; process.stdout.write(createHash("sha256").update(JSON.stringify(["b4-sandbox-scope-v1", "sandbox-smoke", process.argv[1]])).digest("hex").slice(0, 40))' "$TID")
+SBX_NAME="${SBX_PREFIX}${RESOURCE_ID}"
+SBX_VOLUME_NAME="${SBX_VOL_PREFIX}${RESOURCE_ID}"
 echo "==> thread_id=$TID (sandbox=${SBX_NAME}, volume=${SBX_VOLUME_NAME})"
 
 assert_no_sandbox_occupancy

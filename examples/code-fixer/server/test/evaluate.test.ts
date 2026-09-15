@@ -1,6 +1,6 @@
 import type { AgentRunResult } from "@b4run/testing"
 import { expect, it } from "vitest"
-import { behaviorCriteria } from "../src/blueprint/evaluate.ts"
+import { behaviorCriteria } from "../src/evaluation/evaluate.ts"
 
 const run = {
   toolCalls: [

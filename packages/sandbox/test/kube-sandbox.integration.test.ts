@@ -8,6 +8,7 @@ import {
 } from "@kubernetes/client-node"
 import { describe, expect, test } from "vitest"
 import { kubernetesSandbox } from "../src/index.ts"
+import { resourceScope } from "../src/resource-scope.ts"
 import { runProviderConformance } from "../src/testing/index.ts"
 import {
   assertDnsEvidence,
@@ -40,6 +41,7 @@ const EGRESS_CONTROL_URL = enabled
 const ctx = (workspaceRoot: string) => ({ signal: new AbortController().signal, workspaceRoot })
 const make = () =>
   kubernetesSandbox({
+    scope: "sandbox-test",
     image: IMAGE,
     namespace: NS,
     storageClass: STORAGE_CLASS,
@@ -92,9 +94,9 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
       })
       const { core } = liveClients()
       const [pod, pvc] = await Promise.all([
-        core.readNamespacedPod({ name: `b4-sbx-${threadId}`, namespace: NS }),
+        core.readNamespacedPod({ name: `b4-sbx-${resourceId(threadId)}`, namespace: NS }),
         core.readNamespacedPersistentVolumeClaim({
-          name: `b4-sbx-vol-${threadId}`,
+          name: `b4-sbx-vol-${resourceId(threadId)}`,
           namespace: NS,
         }),
       ])
@@ -167,8 +169,8 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
       const policies = await networking.listNamespacedNetworkPolicy({ namespace: NS })
       const perThreadPolicy = policies.items.find(
         (policy) =>
-          policy.metadata?.name === `b4-sbx-net-${threadId}` ||
-          policy.metadata?.labels?.["b4.run/thread"] === threadId,
+          policy.metadata?.name === `b4-sbx-net-${resourceId(threadId)}` ||
+          policy.metadata?.labels?.["b4.run/thread"] === resourceId(threadId),
       )
       expect(perThreadPolicy).toBeUndefined()
 
@@ -221,8 +223,8 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
   test("recreates an externally deleted keeper over the same PVC", async () => {
     const provider = make()
     const threadId = `recreate-${randomUUID().slice(0, 8)}`
-    const podName = `b4-sbx-${threadId}`
-    const pvcName = `b4-sbx-vol-${threadId}`
+    const podName = `b4-sbx-${resourceId(threadId)}`
+    const pvcName = `b4-sbx-vol-${resourceId(threadId)}`
     try {
       const first = await provider.acquire({
         threadId,
@@ -271,7 +273,7 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
   test("updates an existing owned NetworkPolicy on reacquire", async () => {
     const provider = make()
     const threadId = `policy-${randomUUID().slice(0, 8)}`
-    const policyName = `b4-sbx-net-${threadId}`
+    const policyName = `b4-sbx-net-${resourceId(threadId)}`
     try {
       await provider.acquire({
         threadId,
@@ -285,7 +287,7 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
       })
       expect(existing.metadata?.labels).toMatchObject({
         "app.kubernetes.io/managed-by": "b4",
-        "b4.run/thread": threadId,
+        "b4.run/thread": resourceId(threadId),
       })
       expect(existing.metadata?.resourceVersion).toBeTruthy()
       expect(existing.metadata?.uid).toBeTruthy()
@@ -293,7 +295,7 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
       const modified: V1NetworkPolicy = {
         ...existing,
         spec: {
-          podSelector: { matchLabels: { "b4.run/thread": threadId } },
+          podSelector: { matchLabels: { "b4.run/thread": resourceId(threadId) } },
           policyTypes: ["Egress"],
           egress: [],
         },
@@ -316,10 +318,10 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
       expect(updated.metadata?.uid).toBe(existing.metadata?.uid)
       expect(updated.metadata?.labels).toMatchObject({
         "app.kubernetes.io/managed-by": "b4",
-        "b4.run/thread": threadId,
+        "b4.run/thread": resourceId(threadId),
       })
       expect(updated.spec).toEqual({
-        podSelector: { matchLabels: { "b4.run/thread": threadId } },
+        podSelector: { matchLabels: { "b4.run/thread": resourceId(threadId) } },
         policyTypes: ["Egress"],
         egress: [
           {
@@ -342,3 +344,47 @@ describe.skipIf(!enabled)("kubernetesSandbox (real cluster)", { timeout: 240_000
     }
   })
 })
+
+const resourceId = resourceScope("sandbox-test")
+
+test.skipIf(!enabled)(
+  "scoped storage survives provider restart and isolated destruction",
+  async () => {
+    const threadId = randomUUID()
+    const create = (scope: string) =>
+      kubernetesSandbox({ image: IMAGE, namespace: NS, storageClass: STORAGE_CLASS, scope })
+    const scopes = ["scope-restart-one", "scope-restart-two"]
+    const providers = scopes.map(create)
+    const policy = { network: { mode: "deny" as const } }
+    try {
+      for (const [index, provider] of providers.entries()) {
+        const handle = await provider.acquire({
+          threadId,
+          policy,
+          signal: ctx("/workspace").signal,
+        })
+        await handle.filesystem.writeFile(
+          "/workspace/scope.txt",
+          String(index),
+          ctx(handle.workspaceRoot),
+        )
+        await provider.release(threadId)
+      }
+      for (const [index, scope] of scopes.entries()) {
+        const provider = create(scope)
+        const handle = await provider.acquire({
+          threadId,
+          policy,
+          signal: ctx("/workspace").signal,
+        })
+        expect(
+          await handle.filesystem.readFile("/workspace/scope.txt", ctx(handle.workspaceRoot)),
+        ).toBe(String(index))
+        await provider.destroy(threadId)
+      }
+    } finally {
+      await Promise.all(providers.map((provider) => provider.destroy(threadId)))
+    }
+  },
+  120_000,
+)

@@ -11,7 +11,8 @@
       "kubernetesSandbox (real cluster) chart backstop blocks allow-mode sandbox egress without a per-thread policy",
       "kubernetesSandbox (real cluster) workspace persists across release and reattach",
       "kubernetesSandbox (real cluster) recreates an externally deleted keeper over the same PVC",
-      "kubernetesSandbox (real cluster) updates an existing owned NetworkPolicy on reacquire"
+      "kubernetesSandbox (real cluster) updates an existing owned NetworkPolicy on reacquire",
+      "scoped storage survives provider restart and isolated destruction"
     ],
     "provider-after-upgrade": [
       "kubernetesSandbox (real cluster) SandboxProvider conformance: kubernetesSandbox acquire is idempotent per thread and reattaches the workspace",
@@ -24,7 +25,8 @@
       "kubernetesSandbox (real cluster) chart backstop blocks allow-mode sandbox egress without a per-thread policy",
       "kubernetesSandbox (real cluster) workspace persists across release and reattach",
       "kubernetesSandbox (real cluster) recreates an externally deleted keeper over the same PVC",
-      "kubernetesSandbox (real cluster) updates an existing owned NetworkPolicy on reacquire"
+      "kubernetesSandbox (real cluster) updates an existing owned NetworkPolicy on reacquire",
+      "scoped storage survives provider restart and isolated destruction"
     ]
   },
   "probeIds": [

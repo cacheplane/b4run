@@ -2,4 +2,5 @@
 - [ ] Inspect the relevant source and identify the cause
 - [ ] Make a focused source repair
 - [ ] Run the test, check preservation requirements, and explain the verified result
-- [ ] Call exportForReview to request runtime approval
+- [ ] Call prepareReview and inspect the independently verified candidate
+- [ ] Pass that exact candidate to exportForReview for runtime approval

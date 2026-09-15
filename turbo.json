@@ -84,7 +84,12 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/.github/kubernetes-compatibility.json",
         "$TURBO_ROOT$/.github/workflows/ci.yml",
-        "$TURBO_ROOT$/charts/b4-sandbox-infra/values.yaml"
+        "$TURBO_ROOT$/charts/b4-sandbox-infra/values.yaml",
+        "$TURBO_ROOT$/examples/code-fixer/server/fixtures/**",
+        "!$TURBO_ROOT$/examples/code-fixer/server/fixtures/**/node_modules/**",
+        "$TURBO_ROOT$/examples/code-fixer/server/src/blueprint/seeded-provider.ts",
+        "$TURBO_ROOT$/examples/code-fixer/server/src/blueprint/seed-fixture.ts",
+        "$TURBO_ROOT$/examples/code-fixer/server/src/blueprint/fixture-catalog.ts"
       ]
     },
     "@b4run/testing#test": {
@@ -109,6 +114,10 @@
     },
     "@b4run/cli#typecheck": {
       "dependsOn": ["build", "@b4run/testing#build", "@b4run/postgres-storage#build"]
+    },
+    "@b4run/sqlite-storage#test": {
+      "dependsOn": ["build", "^test"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/test/fixtures/workspace-installation-worker.ts"]
     }
   }
 }

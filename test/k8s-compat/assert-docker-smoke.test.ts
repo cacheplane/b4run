@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import { createHash } from "node:crypto"
 import { constants as fsConstants } from "node:fs"
 import type { FileHandle } from "node:fs/promises"
 import {
@@ -26,9 +27,14 @@ const APP_NAME = "b4-smoke-app"
 const AIMOCK_NAME = "b4-smoke-aimock"
 const NETWORK_NAME = "b4-smoke-net"
 const THREAD_ID = "thread:123"
-const SANITIZED_THREAD_ID = "thread_123"
-const SANDBOX_NAME = `b4-sbx-${SANITIZED_THREAD_ID}`
-const SANDBOX_VOLUME = `b4-sbx-vol-${SANITIZED_THREAD_ID}`
+const resourceId = (id: string) =>
+  createHash("sha256")
+    .update(JSON.stringify(["b4-sandbox-scope-v1", "sandbox-smoke", id]))
+    .digest("hex")
+    .slice(0, 40)
+const RESOURCE_ID = resourceId(THREAD_ID)
+const SANDBOX_NAME = `b4-sbx-${RESOURCE_ID}`
+const SANDBOX_VOLUME = `b4-sbx-vol-${RESOURCE_ID}`
 const VALID_IDENTITY = "a".repeat(64)
 const objectId = (character: string): string => character.repeat(64)
 const NETWORK_ID = objectId("1")
@@ -290,7 +296,7 @@ function defaultState(markers: {
       runDelayMs: 0,
       createSandbox: true,
       createVolume: true,
-      sandboxLabel: SANITIZED_THREAD_ID,
+      sandboxLabel: RESOURCE_ID,
       identityLabel: VALID_IDENTITY,
       sandboxUser: "1000:1000",
       sandboxReadonlyRootfs: true,
@@ -347,10 +353,11 @@ const findContainer = (state, target) =>
   Object.entries(state.containers).find(([name, value]) => name === target || value.id === target)
 const findNetwork = (state, target) =>
   Object.entries(state.networks).find(([name, value]) => name === target || value.id === target)
+import { createHash } from "node:crypto"
 const sandboxName = (state) =>
-  "b4-sbx-" + state.options.threadId.replace(/[^a-zA-Z0-9_.-]/g, "_")
+  "b4-sbx-" + createHash("sha256").update(JSON.stringify(["b4-sandbox-scope-v1", "sandbox-smoke", state.options.threadId])).digest("hex").slice(0, 40)
 const sandboxVolume = (state) =>
-  "b4-sbx-vol-" + state.options.threadId.replace(/[^a-zA-Z0-9_.-]/g, "_")
+  "b4-sbx-vol-" + createHash("sha256").update(JSON.stringify(["b4-sandbox-scope-v1", "sandbox-smoke", state.options.threadId])).digest("hex").slice(0, 40)
 const makeVolume = (name, generation = 1) => ({
   CreatedAt: "2026-08-11T00:00:0" + generation + "Z",
   Driver: "local",
@@ -1848,7 +1855,7 @@ describe("Docker smoke ownership", () => {
     "does not adopt a regex-near sandbox container for a dotted thread ID",
     async () => {
       const threadId = "thread.123"
-      const targetName = `b4-sbx-${threadId}`
+      const targetName = `b4-sbx-${resourceId(threadId)}`
       const nearName = "b4-sbx-threadX123"
       const result = await runSmoke({
         configure: (state) => {
@@ -1885,7 +1892,7 @@ describe("Docker smoke ownership", () => {
     "does not adopt a regex-near sandbox volume for a dotted thread ID",
     async () => {
       const threadId = "thread.123"
-      const targetName = `b4-sbx-vol-${threadId}`
+      const targetName = `b4-sbx-vol-${resourceId(threadId)}`
       const nearName = "b4-sbx-vol-threadX123"
       const result = await runSmoke({
         configure: (state) => {
@@ -2352,7 +2359,7 @@ describe("Docker smoke ownership", () => {
 
   test.each([
     ["thread label", "wrong-thread", VALID_IDENTITY],
-    ["identity label", SANITIZED_THREAD_ID, "A".repeat(64)],
+    ["identity label", RESOURCE_ID, "A".repeat(64)],
   ])(
     "rejects an invalid sandbox %s",
     async (_name, sandboxLabel, identityLabel) => {

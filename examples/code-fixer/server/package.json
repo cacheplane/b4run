@@ -12,10 +12,13 @@
     "test:sandbox": "vitest run --config vitest.sandbox.config.ts",
     "check": "node node_modules/@b4run/cli/dist/index.js check",
     "build": "node node_modules/@b4run/cli/dist/index.js build",
-    "run:agent": "node --env-file-if-exists=.env --import tsx scripts/run.ts",
     "eval:live": "node --env-file-if-exists=.env --import tsx scripts/eval.ts",
     "evidence:export": "tsx scripts/export.ts",
-    "verify:consumer": "tsx scripts/consumer.ts"
+    "verify:consumer": "tsx scripts/consumer.ts",
+    "dev": "node node_modules/@b4run/cli/dist/index.js dev",
+    "start": "node .b4/build/server.mjs",
+    "eval": "node node_modules/@b4run/cli/dist/index.js eval",
+    "eval:replay": "node --import tsx scripts/eval.ts --replay --attempts 1"
   },
   "dependencies": {
     "@b4run/cli": "workspace:*",

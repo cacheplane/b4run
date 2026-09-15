@@ -51,6 +51,9 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 | `renderError` | Format a CLI-facing error. |
 | `run` | Run the command program with explicit arguments. |
 | `serveRuntime` | Start the production Node runtime server. |
+| `cleanupWorkspaces` | Remove managed workspaces from an inactive, dedicated app installation with exclusive ownership and retryable deletion. |
+| `withWorkspace` | Run host-authored work in a fresh managed workspace with durable cleanup. |
+| `WithWorkspaceOptions` | Select source, provider, policy, and a private durable state directory. |
 
 ### `@b4run/cli/fetch`
 
@@ -196,6 +199,17 @@ serveRuntime uses an explicit port first, then a numeric PORT value, then 8000. 
 #### Behavior contract `cli.fetch.request-store-lifecycle`
 {/* api-behavior-authorities: [{"kind":"source-ast","file":"packages/cli/src/lib/dev/runtime-fetch-core.ts","selector":"CLOSE_DRAIN_DEADLINE_MS"},{"kind":"test-assertion","file":"packages/cli/test/request-stores.test.ts","testNames":["builds and disposes stores once per request, never reusing them"]},{"kind":"test-assertion","file":"packages/cli/test/request-stores.test.ts","testNames":["disposes only AFTER an SSE body finishes, not when fetch resolves"]},{"kind":"test-assertion","file":"packages/cli/test/request-stores.test.ts","testNames":["close() does not return while a store disposal is still in flight"]},{"kind":"test-assertion","file":"packages/cli/test/runtime-fetch-parity.test.ts","testNames":["close() with an entirely unread SSE body warns after the drain deadline and proceeds"]}] */}
 A requestStores factory creates and disposes stores per request. Disposal waits for an SSE body to finish. close() waits for in-flight disposal while its bounded shutdown drain remains open; after the 30-second default deadline it warns and proceeds.
+
+### Disposable managed execution
+
+`withWorkspace(options, callback)` captures `options.workspace` relative to
+`appRoot`, uses `provider.workspaces`, and invokes the callback with ordinary
+sandbox filesystem/command backends. Its private `stateRoot` retains unfinished
+cleanup across process restarts. One invocation may own each state directory;
+use separate directories for concurrent jobs. Prior unfinished work is destroyed
+before a fresh callback starts. Cleanup is part of completion: failures propagate
+and retained deletion records support retry. This is useful for an independent
+verifier without duplicating provider lifecycle code in an application.
 
 ## Examples and related guides
 

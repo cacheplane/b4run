@@ -106,6 +106,7 @@ import { scenarios } from "@b4run/sdk/testing"
 | `validateModelId` | Check a model ID against curated suggestions. |
 | `B4ToolContext` | Provide context to a B4.run tool. |
 | `WorkspaceFs` | Define the workspace filesystem contract exposed to tools. |
+| `WorkspaceContext` | Supply trusted managed workspace identity, provenance, and permission-bound initial reads. |
 
 ### `@b4run/sdk/pure`
 
@@ -297,6 +298,21 @@ export declare function defineMemory<S extends z.ZodTypeAny>(def: {
 ### Choosing a surface
 
 Application routes normally import the root. Use `/pure` for infrastructure that must avoid runtime dependencies. Use `/testing` in `*.scenario.ts` files; use `@b4run/testing` when a test needs a programmatic harness instead. Its detailed reference lands with the testing package page.
+
+### Trusted initial source
+
+An authored tool's optional `ctx.workspace` is present only for an admitted
+managed workspace. It exposes `id`, `sourceDigest`, immutable `environment`, an
+optional `baselineCommit`, and `readInitialFile(path): Promise<Uint8Array>`.
+Reads use the workspace read permission policy and return independently owned
+initial bytes. The context has no provider handle or lifecycle methods and
+cannot select another thread's source. Use `ctx.fs` for current files.
+
+Managed workspace tools receive `ctx.workspace` with the operation ID, source
+digest, pinned environment, and `readInitialFile(path)`. Initial reads use the
+same permissions as ordinary file reads. `ctx.fs.stat(path)` inspects entry kind,
+size, executable mode, and a symlink's target without following the leaf link;
+custom backends must supply `lstat` to support it.
 
 ## Examples and related guides
 

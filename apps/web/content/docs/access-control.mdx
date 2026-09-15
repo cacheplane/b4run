@@ -50,7 +50,7 @@ export default config({
     allow: { bash: ["ls", "cat"] },
     deny: { bash: ["rm -rf", "sudo"] },
   },
-  sandbox: { provider: dockerSandbox({ image: "node:24-slim" }) }, // what runBash can touch
+  sandbox: { provider: dockerSandbox({ scope: "my-app", image: "node:24-slim" }) }, // what runBash can touch
 })
 ```
 

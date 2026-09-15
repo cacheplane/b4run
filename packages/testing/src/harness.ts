@@ -66,7 +66,7 @@ export interface AgentHarness {
     fixtures?: FixtureSet | ScriptBuilder
   }): Promise<AgentRunResult>
   reset(): void
-  close(): Promise<void>
+  close(options?: { readonly destroyWorkspaces?: boolean }): Promise<void>
   [Symbol.asyncDispose](): Promise<void>
   /** Fixtures captured from the most recent run() (record mode only); re-keyed for replay. */
   getRecordedFixtures(): FixtureSet
@@ -131,6 +131,7 @@ export async function createAgentHarness(options: AgentHarnessOptions): Promise<
 
   const baseUrl = aimock.baseUrl
   let threadId = randomUUID()
+  const ownedThreads = new Set([threadId])
   let closed = false
   let lastRunJournalStart = 0
   let lastRunFixtureStart = 0
@@ -208,6 +209,7 @@ export async function createAgentHarness(options: AgentHarnessOptions): Promise<
     },
     reset() {
       threadId = randomUUID()
+      ownedThreads.add(threadId)
       // Start each scenario from a clean fixture set. Fixtures are registered
       // additively per run() and findFixture is first-match-in-array-order, so
       // without this a loosely-matched fixture from a prior scenario (e.g. a raw
@@ -225,10 +227,17 @@ export async function createAgentHarness(options: AgentHarnessOptions): Promise<
         aimock.getRecordingsSince(lastRunJournalStart, lastRunFixtureStart),
       )
     },
-    async close() {
+    async close(closeOptions) {
       if (closed) return
-      closed = true
+      if (closeOptions?.destroyWorkspaces && sandboxManager) {
+        for (const id of ownedThreads) {
+          await sandboxManager.destroyThread(id)
+          await (await resolveCheckpointer(options.appRoot)).deleteThread(id)
+          sandboxManager.completeDelete(id)
+        }
+      }
       if (sandboxManager) await sandboxManager.releaseAll()
+      closed = true
       await aimock.close()
       // restore env to avoid cross-test bleed
       if (prevBaseUrl === undefined) delete process.env.OPENAI_BASE_URL

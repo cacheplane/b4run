@@ -137,3 +137,9 @@ This is a starter — extend the parts you want and delete the rest:
   `b4.config.ts` once your threads get long.
 - **Throw it away:** delete `src/app/research/` and start from a single
   `index.ts` — the toolchain (`typegen`/`check`/`build`/`test`/`eval`) still works.
+
+When enabling Docker for ordinary development or deployment, set
+`B4_DEMO_DOCKER_SANDBOX=1` and a nonblank `B4_SANDBOX_SCOPE` unique to this
+installation/environment. Keep the scope stable across restarts. The dedicated
+Docker test supplies its own disposable scope; it does not select your app's
+persistent workspace.

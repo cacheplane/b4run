@@ -22,6 +22,39 @@ const filesystem = compose(withFilesystemLogging())(base)
 
 ## Runtime and stability
 
+### Capturing initial source
+
+The Node entry point provides `captureWorkspaceSource`, `createSourceBundle`,
+`verifySourceBundle`, and `readSourceFile` for immutable source bundles.
+
+```ts
+import { captureWorkspaceSource, readSourceFile } from "@b4run/workspace/node"
+
+const source = await captureWorkspaceSource(appRoot, {
+  directory: "fixtures/demo",
+  include: ["index.ts", "package.json"],
+  files: [{ path: "TASK.md", text: "Repair the failing example.\n" }],
+})
+const original = readSourceFile(source, "index.ts")
+```
+
+Paths resolve relative to `appRoot`. `include` is the exact file inventory;
+unexpected files cause capture to fail. `excludeDirectories` can explicitly omit
+existing directory subtrees, such as installed dependencies. Additional entries
+can declare `file` paths relative to `appRoot` instead of inline `text`.
+
+Capture preserves binary bytes and executable flags, rejects symlinks and
+ambiguous paths, and returns a verified digest with immutable content. Limits are
+10,000 distinct inspected filesystem paths (including the app root and ancestor
+directories), 16 MiB per file, and 64 MiB total file content. Source paths
+use a portable ASCII subset with consistent directory casing.
+
+Capture reads a trusted application tree and rejects detected changes during
+reading; it is not an atomic filesystem snapshot. It does not create a sandbox,
+register runtime configuration, or provide workspace lifecycle recovery.
+
+### Supported surfaces
+
 - `@b4run/workspace` is an edge-safe, supported application surface.
 - `@b4run/workspace/node` is a node-only, supported application surface.
 

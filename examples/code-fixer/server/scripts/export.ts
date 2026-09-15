@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { parseArgs } from "node:util"
-import { assertExportable } from "../src/blueprint/evidence.js"
+import { assertExportable } from "../src/evaluation/evidence.js"
 
 const { values } = parseArgs({
   args: process.argv.slice(2).filter((arg) => arg !== "--"),

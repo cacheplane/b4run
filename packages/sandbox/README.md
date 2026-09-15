@@ -16,7 +16,7 @@ pnpm add @b4run/sandbox
 import { dockerSandbox } from "@b4run/sandbox"
 import { fakeSandbox } from "@b4run/sandbox/testing"
 
-const provider = dockerSandbox({ image: "node:24-slim" })
+const provider = dockerSandbox({ scope: "my-app", image: "node:24-slim" })
 const testProvider = fakeSandbox()
 ```
 
@@ -40,3 +40,13 @@ B4.run is pre-1.0, and its public surface can change. All publishable B4.run pac
 ## License
 
 MIT. See the [repository license](https://github.com/cacheplane/b4run/blob/main/LICENSE).
+
+Both providers require a stable application/environment `scope`. Resource names
+hash scope and the exact thread ID; logical thread IDs remain unchanged. Missing
+or blank scopes fail immediately. Scope is not authorization or cross-process
+coordination. Keep it stable across restarts and separate independent deployments.
+
+**Breaking change:** all resource names change from the former unscoped providers.
+Existing storage is not automatically reattached, migrated, or deleted. Export
+required data before upgrading and manage old resources explicitly. Changing scope
+also selects different storage.

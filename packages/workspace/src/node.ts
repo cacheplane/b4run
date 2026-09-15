@@ -10,3 +10,19 @@
 
 export { type LocalExecOptions, localExec } from "./local-exec.js"
 export { type LocalFilesystemOptions, localFilesystem } from "./local-filesystem.js"
+export {
+  captureWorkspaceDefinition,
+  createWorkspaceIntent,
+  verifyCapturedWorkspaceDefinition,
+  verifyCreationStatus,
+  verifyReadyWorkspace,
+  verifyWorkspaceIntent,
+} from "./managed-workspace-node.js"
+export {
+  createSourceBundle,
+  readSourceFile,
+  type SourceBundle,
+  type SourceFileInput,
+  verifySourceBundle,
+} from "./source-bundle.js"
+export { captureWorkspaceSource, type WorkspaceSourceDefinition } from "./source-capture.js"

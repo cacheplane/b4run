@@ -410,512 +410,552 @@ export async function createRuntimeFetchHandler(
   // other half: a runtime with no fallbacks that IS configured for a sandbox
   // was degrading silently too. `capabilityGaps` below draws that line.
   const sandboxManager =
-    options.sandboxManager ?? (await fallbacks?.resolveSandboxManager(options.appRoot))
-
-  // The request-time half of `assertEdgeCapabilities`. One pass at boot, raised
-  // per request (see RuntimeCapabilityError). `hasFilesystemFallback` is what
-  // keeps this off every node path: `runtime-fetch-handler.ts` applies
-  // `nodeBootFallbacks` unconditionally, so `fallbacks` is always set there and
-  // the collector returns empty before reading a single config key.
-  const capabilityGaps = collectRuntimeCapabilityGaps({
-    config: options.config,
-    hasFilesystemFallback: Boolean(fallbacks),
-    hasSandboxManager: Boolean(sandboxManager),
-    routes: options.modules?.routes ?? [],
-  })
-  const capabilityError =
-    capabilityGaps.length > 0
-      ? new RuntimeCapabilityError(formatRuntimeCapabilityViolations(capabilityGaps))
-      : undefined
-  // Lazy, memoized, shared: resolveMemoryStore (and the sqlite it opens) runs
-  // at most once per process, on the FIRST request that actually needs
-  // memory — not unconditionally at boot for apps with no memory routes, and
-  // not once per request for the capability path (execute-route.ts threads
-  // this same thunk down instead of calling resolveMemoryStore itself).
-  //
-  // No cast needed: the config-facing store type is the full MemoryStore
-  // contract (browse/stats/delete/listCandidates included), so the resolved
-  // store satisfies the memory-candidate HTTP routes directly.
-  let memoryStorePromise: Promise<MemoryStore> | undefined
-  const getMemoryStore = (): Promise<MemoryStore> => {
-    // `requireStore`, not `requireBoot`: memoryStore is the one slot with no
-    // `requireStore` call site of its own, and it is reachable on a deployed
-    // worker — the `/memory/candidates*` routes are registered unconditionally.
-    // A plain Error here carries no `.code`, so `fetch`'s catch-all flattened
-    // the documented B4_E5301 into an anonymous 500; the edge docs and
-    // `edge-capabilities.ts` both promise the code, so raise the error that
-    // actually has it.
-    memoryStorePromise ??= options.memoryStore
-      ? options.memoryStore()
-      : (requireStore(fallbacks, "memoryStore").resolveMemoryStore(
-          options.appRoot,
-        ) as Promise<MemoryStore>)
-    return memoryStorePromise
-  }
-
-  // Permissions store: an injected `options.permissionsStore` wins REGARDLESS
-  // of permissionsMode — the caller has taken over resolution entirely (it may
-  // itself be an instance or a per-request factory). Otherwise, per
-  // StartRuntimeServerOptions.permissionsMode: "boot" (production) loads once
-  // here and reuses the instance; the default "per-request" (dev) hands route
-  // execution a factory that re-loads `.b4/permissions.json` each request,
-  // so HITL "Always" grants written mid-process apply immediately — the one
-  // deliberate per-request read kept.
-  const resolvePermissions = (): Promise<PermissionsStore> =>
-    requireBoot(fallbacks, "permissionsStore").resolvePermissionsStore(options.appRoot)
-  const permissionsStore: PermissionsStore | (() => Promise<PermissionsStore>) | undefined =
-    options.permissionsStore ??
-    (bootStoresOptional
-      ? undefined
-      : options.permissionsMode === "boot"
-        ? await resolvePermissions()
-        : resolvePermissions)
+    options.sandboxManager ??
+    (await fallbacks?.resolveSandboxManager(
+      options.appRoot,
+      options.modules ? { built: true, artifact: options.modules.workspace } : {},
+    ))
 
   let sandboxReaper: ReturnType<typeof setInterval> | undefined
-  if (sandboxManager) {
-    sandboxReaper = setInterval(() => {
-      void sandboxManager.reapIdle()
-    }, 60_000)
-    sandboxReaper.unref?.()
-  }
-
-  const state = {
-    acceptingRequests: true,
-    activeRequests: 0,
-    closed: false,
-  }
-  // Shutdown is represented twice, and the split is the whole fix for workerd.
-  //
-  //  • `shutdownReason` is a PLAIN VALUE. Every "are we shutting down?" test
-  //    reads this, so no request has to touch an AbortSignal that belongs to
-  //    another request's I/O context;
-  //  • the signal itself is minted PER REQUEST by `getShutdownSignal` below and
-  //    registered here, so `close()` can still abort all of them at once.
-  //
-  // `shutdownController` survives only as the handler's public handle (nothing
-  // in the request path reads it any more). It stays because it is part of the
-  // exported RuntimeFetchHandler shape; on workerd it is constructed inside the
-  // first request and then never touched again, which is harmless.
-  const shutdownController = new AbortController()
-  let shutdownReason: Error | undefined
-  /** Per-request shutdown sources that may still have listeners attached. */
-  const liveShutdownControllers = new Set<AbortController>()
-
-  // Process-local in-flight run tracking: enables the concurrency gate, the
-  // per-run abort signal, and POST /threads/:id/cancel. Scoped to this handler
-  // (not module-level) so multiple handler instances in one process — which the
-  // (Request) => Response core exists to allow — stay isolated.
-  //
-  // Lives out here rather than inside buildRouteTable because close() drains on
-  // it: a run whose HTTP response has already been sent can still be executing
-  // (a cancelled stream, or an abandoned wait), and that work must finish before
-  // sandboxes are released.
-  const runRegistry = createRunRegistry()
-  const resumeClaims = createPendingResumeClaims()
-
-  // Handler-scoped, same lifetime rule as runRegistry: a live turn's digest
-  // and subscriber set are per-process state, so multiple handler instances in
-  // one process (the (Request) => Response core exists to allow that) stay
-  // isolated from each other.
-  const liveTurnHub = createLiveTurnHub({
-    digestMaxBytes: options.apAttachDigestMaxBytes ?? AP_ATTACH_DIGEST_MAX_BYTES,
-  })
-
-  // Request-scoped store overrides. Keyed on the Request object rather than
-  // carried in AsyncLocalStorage, which would require nodejs_compat on workerd
-  // — the whole point of PR2a was that the bundle needs no such flag. Every
-  // route handler already receives its own `request`, so a WeakMap lookup is
-  // all the scoping this needs, and entries collect with the Request.
-  const perRequest = new WeakMap<Request, RequestLifetime>()
-
-  // Disposals that have started but not finished. close() drains on these as
-  // well, so "close() returned" genuinely implies "every per-request pool is
-  // closed" — an edge host awaiting shutdown has no other signal.
-  const pendingDisposals = new Set<Promise<void>>()
-
-  // Store names already reported by the fail-loud path below, so one
-  // misconfiguration logs once rather than once per request.
-  const loggedMissingStores = new Set<string>()
-  // …and the same for everything else that reaches the catch-all. Keyed by the
-  // message so a repeated misconfiguration logs once, while a genuinely new
-  // failure still gets a line.
-  const loggedFailures = new Set<string>()
-
-  /**
-   * Dispose a request's stores once — and only once BOTH of its lifetimes have
-   * ended.
-   *
-   * Response lifetime is not run lifetime. Three paths keep executing after the
-   * response body settles: an aborted AG-UI stream (whose route unwinds behind
-   * `sourceCleanup`), an abandoned `/runs/wait` (whose 409 is sent while
-   * `invokeResolvedRoute` runs on), and a cancelled AP stream. All three keep
-   * writing checkpoints through the very stores this would tear down. `close()`
-   * already draws exactly this distinction by draining on the run registry as
-   * well as on activeRequests; disposal adopts the same rule.
-   */
-  const maybeSettle = (lifetime: RequestLifetime): void => {
-    if (lifetime.settled || !lifetime.bodySettled || lifetime.pendingRuns > 0) return
-    lifetime.settled = true
-    // Both halves fire under the SAME condition, and that is deliberate: the
-    // request's shutdown signal must stay abortable for exactly as long as its
-    // stores must stay open — until the body has settled and every run it
-    // started has released. Dropping it earlier would leave a detached run that
-    // `close()` can no longer stop, so the drain would sit on it until the
-    // deadline instead of unwinding promptly.
-    if (lifetime.shutdownController) liveShutdownControllers.delete(lifetime.shutdownController)
-    const dispose = lifetime.stores.dispose
-    if (!dispose) return
-    const running = (async () => {
-      try {
-        await dispose()
-      } catch {
-        // Teardown must never turn a served response into a failure.
-      }
-    })()
-    pendingDisposals.add(running)
-    void running.finally(() => pendingDisposals.delete(running))
-  }
-
-  const settleBody = (lifetime: RequestLifetime | undefined): void => {
-    if (!lifetime) return
-    lifetime.bodySettled = true
-    maybeSettle(lifetime)
-  }
-
-  /**
-   * This request's shutdown signal — the one to hand `runRegistry.begin`.
-   *
-   * Memoized on the lifetime so a request that starts several runs composes
-   * them all off one controller, exactly as the single handler-scoped
-   * controller used to. Already-aborted when the handler is closing, which is
-   * what `begin` checks synchronously, so a request that slips past the
-   * `acceptingRequests` gate still gets a dead run rather than a live one.
-   *
-   * A request with no lifetime cannot happen from `fetch` (one is always
-   * installed before dispatch); the fallback keeps this total for any caller
-   * that reaches a route table by another path.
-   */
-  const getShutdownSignal = (request: Request): AbortSignal => {
-    const lifetime = perRequest.get(request)
-    if (!lifetime) {
-      const orphan = new AbortController()
-      if (shutdownReason) orphan.abort(shutdownReason)
-      return orphan.signal
-    }
-    let controller = lifetime.shutdownController
-    if (!controller) {
-      controller = new AbortController()
-      lifetime.shutdownController = controller
-      if (shutdownReason) controller.abort(shutdownReason)
-      else if (!lifetime.settled) liveShutdownControllers.add(controller)
-    }
-    return controller.signal
-  }
-
-  /**
-   * The run registry a request's route work claims its slot from.
-   *
-   * The wrapper counts the slots THIS request holds, so `maybeSettle` can wait
-   * for route work that outlives the response before it disposes the request's
-   * stores or drops its shutdown signal.
-   *
-   * It wraps for every request, not only for requests with stores to dispose:
-   * the shutdown-signal half applies to node callers too, and the counting is
-   * transparent — same handle, same idempotent release, same `activeCount`,
-   * `cancel` and `has` straight through to the shared registry.
-   */
-  const getRunRegistry = (request: Request): RunRegistry => {
-    const lifetime = perRequest.get(request)
-    if (!lifetime) return runRegistry
-    return {
-      activeCount: () => runRegistry.activeCount(),
-      begin: (threadId, shutdownSignal) => {
-        const handle = runRegistry.begin(threadId, shutdownSignal)
-        if (!handle) return undefined
-        lifetime.pendingRuns++
-        let released = false
-        return {
-          get cancelled() {
-            return handle.cancelled
-          },
-          release: () => {
-            handle.release()
-            // Idempotent, exactly like the handle it wraps: callers release
-            // from a finally that a cleanup path may reach twice.
-            if (released) return
-            released = true
-            lifetime.pendingRuns--
-            maybeSettle(lifetime)
-          },
-          signal: handle.signal,
-        }
-      },
-      cancel: (threadId, reason) =>
-        reason === undefined ? runRegistry.cancel(threadId) : runRegistry.cancel(threadId, reason),
-      claim: (threadId) => runRegistry.claim(threadId),
-      has: (threadId) => runRegistry.has(threadId),
-    }
-  }
-
-  const getCheckpointer = (request: Request): BaseCheckpointSaver =>
-    requireStore(perRequest.get(request)?.stores.checkpointer ?? checkpointer, "checkpointer")
-  const getThreadsStore = (request: Request): ThreadsStore =>
-    requireStore(perRequest.get(request)?.stores.threadsStore ?? threadsStore, "threadsStore")
-  const getPermissionsStore = (
-    request: Request,
-  ): PermissionsStore | (() => Promise<PermissionsStore>) =>
-    requireStore(
-      perRequest.get(request)?.stores.permissionsStore ?? permissionsStore,
-      "permissionsStore",
-    )
-  const getMemoryStoreFor = (request: Request): Promise<MemoryStore> => {
-    const override = perRequest.get(request)?.stores.memoryStore
-    // Only the boot path memoizes: a per-request store must not outlive its
-    // request, and re-memoizing it would reintroduce the dead-context hang.
-    return override ? Promise.resolve(override) : getMemoryStore()
-  }
-
-  const apSseHeartbeatIntervalMs = options.apSseHeartbeatIntervalMs ?? AP_SSE_HEARTBEAT_INTERVAL_MS
-  const apAttachMaxViewers = options.apAttachMaxViewers ?? AP_ATTACH_MAX_VIEWERS
-  const routes = buildRouteTable({
-    appRoot: options.appRoot,
-    apAttachMaxViewers,
-    apSseHeartbeatIntervalMs,
-    boot,
-    getCheckpointer,
-    getMemoryStoreFor,
-    getPermissionsStore,
-    getRunRegistry,
-    getThreadsStore,
-    liveTurnHub,
-    middleware,
-    registry,
-    resumeClaims,
-    threadAccess,
-    ...(sandboxManager ? { sandboxManager } : {}),
-    getShutdownSignal,
-    // Boot manifest → route execution derives the subagents descriptor maps
-    // from it with zero entry-file imports.
-    ...(options.modules ? { staticModules: options.modules } : {}),
-  })
-
-  const serveRoutes = async (request: Request): Promise<Response> => {
-    if (!state.acceptingRequests) {
-      return Response.json(createRequestErrorBody("Server is shutting down"), {
-        status: 503,
-      })
-    }
-
-    state.activeRequests++
-    let transferredToStream = false
-    let lifetime: RequestLifetime | undefined
-    try {
-      // Before anything else, including store construction: this app asks for a
-      // feature this runtime cannot serve, so every request fails identically
-      // until the deployment changes. Inside the try so it travels the same
-      // catch-all — logged once, coded, with a docs URL.
-      if (capabilityError) throw capabilityError
-      // Inside the try on purpose: a factory that throws (a pool that cannot
-      // connect) must become a 500 through the handler below, not leak the
-      // in-flight slot and wedge close()'s drain.
-      lifetime = {
-        bodySettled: false,
-        pendingRuns: 0,
-        settled: false,
-        // `{}` for a caller with no per-request stores — every field then falls
-        // through to the boot-resolved instance exactly as before. Installed
-        // UNCONDITIONALLY now because the lifetime also carries this request's
-        // shutdown controller, which every caller needs.
-        stores: options.requestStores ? await options.requestStores(request) : {},
-      }
-      perRequest.set(request, lifetime)
-      const response = await dispatch(routes, request)
-      const body = response.body
-      if (body && isEventStream(response.headers.get("content-type"))) {
-        // The Response exists but its SSE body is still streaming. Hold the
-        // in-flight slot until the stream settles (fully read, canceled, or
-        // errored) so close() cannot release sandboxes mid-stream. The flag
-        // flips only after the tracked Response has been constructed — if
-        // construction throws, the finally below must still decrement.
-        // Disposal chains onto the SAME settle hook, never onto `fetch`
-        // resolving: an SSE turn is still streaming at that point, and ending
-        // a pool mid-stream breaks the tail of every streaming turn. Settling
-        // the body only ARMS disposal — see maybeSettle for the run half.
-        const tracked = new Response(
-          trackStreamSettled(body, () => {
-            state.activeRequests--
-            settleBody(lifetime)
-          }),
-          {
-            headers: response.headers,
-            status: response.status,
-          },
-        )
-        transferredToStream = true
-        return tracked
-      }
-      return response
-    } catch (error) {
-      if (shutdownReason) {
-        return Response.json(
-          createRequestErrorBody("Request canceled during server shutdown", {
-            error: error instanceof Error ? error.message : String(error),
-          }),
-          { status: 503 },
-        )
-      }
-
-      if (error instanceof RuntimeCapabilityError) {
-        // Same posture as MissingStoreError below: a deployment mistake, so the
-        // full report goes to the caller AND to stderr — but only once, however
-        // many requests hit it. Unlike a store, the report already names every
-        // feature and its config key, so there are no extra details to attach.
-        if (!loggedFailures.has(error.message)) {
-          loggedFailures.add(error.message)
-          console.error(`B4.run runtime misconfigured — ${error.message}`)
-        }
-        return Response.json(
-          createExecutionErrorBody(error.message, undefined, { code: error.code }),
-          { status: 500 },
-        )
-      }
-
-      if (error instanceof MissingStoreError) {
-        // A misconfiguration, not a request failure: every request will fail
-        // the same way until the deployment supplies the store. The generic
-        // 500 below would name neither the store nor the cause, so this one
-        // carries the message and logs it — once per store, so a busy edge
-        // host is not flooded with the same line.
-        if (!loggedMissingStores.has(error.store)) {
-          loggedMissingStores.add(error.store)
-          console.error(`B4.run runtime misconfigured — ${error.message}`)
-        }
-        return Response.json(
-          createExecutionErrorBody(error.message, { store: error.store }, { code: error.code }),
-          { status: 500 },
-        )
-      }
-
-      // Everything else. The BODY stays deliberately opaque — it is served to
-      // whoever made the request, and an internal message is not theirs to
-      // read — but the operator gets the real cause on stderr. Without this
-      // line the three failures most likely to greet an edge deploy
-      // (`DATABASE_URL` unset, no Workers env bound to the Request, a store the
-      // generated `stores.mjs` omits) were a bare "Unexpected runtime server
-      // failure" with nothing anywhere saying why. Deduped by message, for the
-      // same reason the MissingStoreError branch above dedupes by store: a
-      // misconfiguration fails every request identically.
-      const code = b4ErrorCodeOf(error)
-      const cause = error instanceof Error ? error.message : String(error)
-      if (!loggedFailures.has(cause)) {
-        loggedFailures.add(cause)
-        console.error(
-          `B4.run runtime failure — ${cause}${code ? ` (${code})` : ""}`,
-          error instanceof Error && error.stack ? `\n${error.stack}` : "",
-        )
-      }
-      return Response.json(
-        createExecutionErrorBody(
-          "Unexpected runtime server failure",
-          undefined,
-          code ? { code } : undefined,
-        ),
-        { status: 500 },
+  try {
+    if (sandboxManager?.managed && options.requestStores)
+      throw new Error(
+        "Managed workspaces require stable boot-owned stores; requestStores is unsupported",
       )
-    } finally {
-      if (!transferredToStream) {
-        state.activeRequests--
-        settleBody(lifetime)
-      }
-    }
-  }
-
-  const close = async (): Promise<void> => {
-    if (state.closed) {
-      return
-    }
-
-    state.acceptingRequests = false
-    state.closed = true
-    shutdownReason = new Error("Runtime server shutting down")
-    // The public handle, plus every request whose work may still be listening.
-    // Draining below is unchanged; aborting here is only what makes in-flight
-    // runs unwind promptly instead of sitting until the deadline.
-    shutdownController.abort(shutdownReason)
-    for (const controller of liveShutdownControllers) controller.abort(shutdownReason)
-    liveShutdownControllers.clear()
-
-    if (sandboxReaper) clearInterval(sandboxReaper)
-
-    // Fan a terminal frame to every hanging attach viewer before draining, so
-    // a shutdown does not leave them waiting on a heartbeat that will never
-    // resolve into a `done`.
-    liveTurnHub.closeAll()
-
-    // Drain in-flight work — bounded: an SSE body nobody ever reads (or a
-    // leaked in-flight slot) must not wedge shutdown forever.
+    await sandboxManager?.reconcileDeletions(async (threadId) => {
+      if (!threadsStore || !checkpointer)
+        throw new Error("Managed deletion recovery requires boot-owned thread stores")
+      if (typeof checkpointer.deleteThread === "function") await checkpointer.deleteThread(threadId)
+      await threadsStore.deleteThread(threadId)
+    })
+    // The request-time half of `assertEdgeCapabilities`. One pass at boot, raised
+    // per request (see RuntimeCapabilityError). `hasFilesystemFallback` is what
+    // keeps this off every node path: `runtime-fetch-handler.ts` applies
+    // `nodeBootFallbacks` unconditionally, so `fallbacks` is always set there and
+    // the collector returns empty before reading a single config key.
+    const capabilityGaps = collectRuntimeCapabilityGaps({
+      config: options.config,
+      hasFilesystemFallback: Boolean(fallbacks),
+      hasSandboxManager: Boolean(sandboxManager),
+      routes: options.modules?.routes ?? [],
+    })
+    const capabilityError =
+      capabilityGaps.length > 0
+        ? new RuntimeCapabilityError(formatRuntimeCapabilityViolations(capabilityGaps))
+        : undefined
+    // Lazy, memoized, shared: resolveMemoryStore (and the sqlite it opens) runs
+    // at most once per process, on the FIRST request that actually needs
+    // memory — not unconditionally at boot for apps with no memory routes, and
+    // not once per request for the capability path (execute-route.ts threads
+    // this same thunk down instead of calling resolveMemoryStore itself).
     //
-    // Both counters matter, and neither implies the other. activeRequests
-    // tracks HTTP responses still being produced. runRegistry tracks route work
-    // that may still be executing AFTER its response was sent: a cancelled run
-    // whose route ignored ctx.signal, or an abandoned /runs/wait that returned
-    // 409 while invokeResolvedRoute kept going. Those return plain JSON, so the
-    // fetch wrapper (which only holds the slot for text/event-stream bodies)
-    // has already decremented — draining on activeRequests alone would release
-    // sandboxes out from under work still using them.
+    // No cast needed: the config-facing store type is the full MemoryStore
+    // contract (browse/stats/delete/listCandidates included), so the resolved
+    // store satisfies the memory-candidate HTTP routes directly.
+    let memoryStorePromise: Promise<MemoryStore> | undefined
+    const getMemoryStore = (): Promise<MemoryStore> => {
+      // `requireStore`, not `requireBoot`: memoryStore is the one slot with no
+      // `requireStore` call site of its own, and it is reachable on a deployed
+      // worker — the `/memory/candidates*` routes are registered unconditionally.
+      // A plain Error here carries no `.code`, so `fetch`'s catch-all flattened
+      // the documented B4_E5301 into an anonymous 500; the edge docs and
+      // `edge-capabilities.ts` both promise the code, so raise the error that
+      // actually has it.
+      memoryStorePromise ??= options.memoryStore
+        ? options.memoryStore()
+        : (requireStore(fallbacks, "memoryStore").resolveMemoryStore(
+            options.appRoot,
+          ) as Promise<MemoryStore>)
+      return memoryStorePromise
+    }
+
+    // Permissions store: an injected `options.permissionsStore` wins REGARDLESS
+    // of permissionsMode — the caller has taken over resolution entirely (it may
+    // itself be an instance or a per-request factory). Otherwise, per
+    // StartRuntimeServerOptions.permissionsMode: "boot" (production) loads once
+    // here and reuses the instance; the default "per-request" (dev) hands route
+    // execution a factory that re-loads `.b4/permissions.json` each request,
+    // so HITL "Always" grants written mid-process apply immediately — the one
+    // deliberate per-request read kept.
+    const resolvePermissions = (): Promise<PermissionsStore> =>
+      requireBoot(fallbacks, "permissionsStore").resolvePermissionsStore(options.appRoot)
+    const permissionsStore: PermissionsStore | (() => Promise<PermissionsStore>) | undefined =
+      options.permissionsStore ??
+      (bootStoresOptional
+        ? undefined
+        : options.permissionsMode === "boot"
+          ? await resolvePermissions()
+          : resolvePermissions)
+
+    if (sandboxManager) {
+      sandboxReaper = setInterval(() => {
+        void sandboxManager
+          .reapIdle()
+          .catch((error) => console.error("Sandbox idle release failed", error))
+      }, 60_000)
+      sandboxReaper.unref?.()
+    }
+
+    const state = {
+      acceptingRequests: true,
+      activeRequests: 0,
+      closed: false,
+    }
+    // Shutdown is represented twice, and the split is the whole fix for workerd.
     //
-    // Per-request store disposals count too: they start only once both of the
-    // above have finished for their request, and a caller that awaits close()
-    // is entitled to assume the pools are actually shut.
-    const drainDeadlineMs = options.drainDeadlineMs ?? CLOSE_DRAIN_DEADLINE_MS
-    await new Promise<void>((resolve) => {
-      const startedAt = Date.now()
-      const check = () => {
-        const activeRuns = runRegistry.activeCount()
-        if (state.activeRequests === 0 && activeRuns === 0 && pendingDisposals.size === 0) {
-          resolve()
-          return
-        }
-        if (Date.now() - startedAt >= drainDeadlineMs) {
-          console.warn(
-            `close(): ${state.activeRequests} request(s), ` +
-              `${pendingDisposals.size} store disposal(s) and ${activeRuns} run(s) still ` +
-              `active after ${Math.round(drainDeadlineMs / 1000)}s — proceeding with shutdown`,
-          )
-          resolve()
-          return
-        }
-        setTimeout(check, 10)
-      }
-      check()
+    //  • `shutdownReason` is a PLAIN VALUE. Every "are we shutting down?" test
+    //    reads this, so no request has to touch an AbortSignal that belongs to
+    //    another request's I/O context;
+    //  • the signal itself is minted PER REQUEST by `getShutdownSignal` below and
+    //    registered here, so `close()` can still abort all of them at once.
+    //
+    // `shutdownController` survives only as the handler's public handle (nothing
+    // in the request path reads it any more). It stays because it is part of the
+    // exported RuntimeFetchHandler shape; on workerd it is constructed inside the
+    // first request and then never touched again, which is harmless.
+    const shutdownController = new AbortController()
+    let shutdownReason: Error | undefined
+    /** Per-request shutdown sources that may still have listeners attached. */
+    const liveShutdownControllers = new Set<AbortController>()
+
+    // Process-local in-flight run tracking: enables the concurrency gate, the
+    // per-run abort signal, and POST /threads/:id/cancel. Scoped to this handler
+    // (not module-level) so multiple handler instances in one process — which the
+    // (Request) => Response core exists to allow — stay isolated.
+    //
+    // Lives out here rather than inside buildRouteTable because close() drains on
+    // it: a run whose HTTP response has already been sent can still be executing
+    // (a cancelled stream, or an abandoned wait), and that work must finish before
+    // sandboxes are released.
+    const runRegistry = createRunRegistry()
+    const resumeClaims = createPendingResumeClaims()
+
+    // Handler-scoped, same lifetime rule as runRegistry: a live turn's digest
+    // and subscriber set are per-process state, so multiple handler instances in
+    // one process (the (Request) => Response core exists to allow that) stay
+    // isolated from each other.
+    const liveTurnHub = createLiveTurnHub({
+      digestMaxBytes: options.apAttachDigestMaxBytes ?? AP_ATTACH_DIGEST_MAX_BYTES,
     })
 
-    // Release sandboxes only after in-flight requests have drained, so tools
-    // executing against a sandbox are never yanked mid-request.
-    if (sandboxManager) await sandboxManager.releaseAll()
-  }
+    // Request-scoped store overrides. Keyed on the Request object rather than
+    // carried in AsyncLocalStorage, which would require nodejs_compat on workerd
+    // — the whole point of PR2a was that the bundle needs no such flag. Every
+    // route handler already receives its own `request`, so a WeakMap lookup is
+    // all the scoping this needs, and entries collect with the Request.
+    const perRequest = new WeakMap<Request, RequestLifetime>()
 
-  // CORS wraps the whole handler rather than living inside it. `serveRoutes`
-  // has eight exit paths — the dispatch result, the tracked SSE response, the
-  // shutdown 503 and five error branches — and a cross-origin caller must be
-  // able to read ALL of them, including the failures. Stamping once here is
-  // the only version of that with no path left uncovered.
-  //
-  // Resolved at boot — see `readCorsConfig` for where the config comes from.
-  // Boot is also where a malformed origin list should fail, so an operator
-  // sees it on startup rather than on the first cross-origin request.
-  const corsPolicy = resolveCorsPolicy(await readCorsConfig(options))
-  const fetch = async (request: Request): Promise<Response> => {
-    // A preflight never reaches the route table: it claims no in-flight slot
-    // and needs no stores, and the router has no OPTIONS route that could
-    // answer it. Returns undefined when CORS is off or this is not a
-    // preflight, and the request proceeds normally.
-    const preflight = corsPreflightResponse(corsPolicy, request)
-    if (preflight !== undefined) return preflight
-    return applyCorsHeaders(corsPolicy, request, await serveRoutes(request))
-  }
+    // Disposals that have started but not finished. close() drains on these as
+    // well, so "close() returned" genuinely implies "every per-request pool is
+    // closed" — an edge host awaiting shutdown has no other signal.
+    const pendingDisposals = new Set<Promise<void>>()
 
-  return { close, fetch, shutdownController, state }
+    // Store names already reported by the fail-loud path below, so one
+    // misconfiguration logs once rather than once per request.
+    const loggedMissingStores = new Set<string>()
+    // …and the same for everything else that reaches the catch-all. Keyed by the
+    // message so a repeated misconfiguration logs once, while a genuinely new
+    // failure still gets a line.
+    const loggedFailures = new Set<string>()
+
+    /**
+     * Dispose a request's stores once — and only once BOTH of its lifetimes have
+     * ended.
+     *
+     * Response lifetime is not run lifetime. Three paths keep executing after the
+     * response body settles: an aborted AG-UI stream (whose route unwinds behind
+     * `sourceCleanup`), an abandoned `/runs/wait` (whose 409 is sent while
+     * `invokeResolvedRoute` runs on), and a cancelled AP stream. All three keep
+     * writing checkpoints through the very stores this would tear down. `close()`
+     * already draws exactly this distinction by draining on the run registry as
+     * well as on activeRequests; disposal adopts the same rule.
+     */
+    const maybeSettle = (lifetime: RequestLifetime): void => {
+      if (lifetime.settled || !lifetime.bodySettled || lifetime.pendingRuns > 0) return
+      lifetime.settled = true
+      // Both halves fire under the SAME condition, and that is deliberate: the
+      // request's shutdown signal must stay abortable for exactly as long as its
+      // stores must stay open — until the body has settled and every run it
+      // started has released. Dropping it earlier would leave a detached run that
+      // `close()` can no longer stop, so the drain would sit on it until the
+      // deadline instead of unwinding promptly.
+      if (lifetime.shutdownController) liveShutdownControllers.delete(lifetime.shutdownController)
+      const dispose = lifetime.stores.dispose
+      if (!dispose) return
+      const running = (async () => {
+        try {
+          await dispose()
+        } catch {
+          // Teardown must never turn a served response into a failure.
+        }
+      })()
+      pendingDisposals.add(running)
+      void running.finally(() => pendingDisposals.delete(running))
+    }
+
+    const settleBody = (lifetime: RequestLifetime | undefined): void => {
+      if (!lifetime) return
+      lifetime.bodySettled = true
+      maybeSettle(lifetime)
+    }
+
+    /**
+     * This request's shutdown signal — the one to hand `runRegistry.begin`.
+     *
+     * Memoized on the lifetime so a request that starts several runs composes
+     * them all off one controller, exactly as the single handler-scoped
+     * controller used to. Already-aborted when the handler is closing, which is
+     * what `begin` checks synchronously, so a request that slips past the
+     * `acceptingRequests` gate still gets a dead run rather than a live one.
+     *
+     * A request with no lifetime cannot happen from `fetch` (one is always
+     * installed before dispatch); the fallback keeps this total for any caller
+     * that reaches a route table by another path.
+     */
+    const getShutdownSignal = (request: Request): AbortSignal => {
+      const lifetime = perRequest.get(request)
+      if (!lifetime) {
+        const orphan = new AbortController()
+        if (shutdownReason) orphan.abort(shutdownReason)
+        return orphan.signal
+      }
+      let controller = lifetime.shutdownController
+      if (!controller) {
+        controller = new AbortController()
+        lifetime.shutdownController = controller
+        if (shutdownReason) controller.abort(shutdownReason)
+        else if (!lifetime.settled) liveShutdownControllers.add(controller)
+      }
+      return controller.signal
+    }
+
+    /**
+     * The run registry a request's route work claims its slot from.
+     *
+     * The wrapper counts the slots THIS request holds, so `maybeSettle` can wait
+     * for route work that outlives the response before it disposes the request's
+     * stores or drops its shutdown signal.
+     *
+     * It wraps for every request, not only for requests with stores to dispose:
+     * the shutdown-signal half applies to node callers too, and the counting is
+     * transparent — same handle, same idempotent release, same `activeCount`,
+     * `cancel` and `has` straight through to the shared registry.
+     */
+    const getRunRegistry = (request: Request): RunRegistry => {
+      const lifetime = perRequest.get(request)
+      if (!lifetime) return runRegistry
+      return {
+        activeCount: () => runRegistry.activeCount(),
+        begin: (threadId, shutdownSignal) => {
+          const handle = runRegistry.begin(threadId, shutdownSignal)
+          if (!handle) return undefined
+          lifetime.pendingRuns++
+          let released = false
+          return {
+            get cancelled() {
+              return handle.cancelled
+            },
+            release: () => {
+              handle.release()
+              // Idempotent, exactly like the handle it wraps: callers release
+              // from a finally that a cleanup path may reach twice.
+              if (released) return
+              released = true
+              lifetime.pendingRuns--
+              maybeSettle(lifetime)
+            },
+            signal: handle.signal,
+          }
+        },
+        cancel: (threadId, reason) =>
+          reason === undefined
+            ? runRegistry.cancel(threadId)
+            : runRegistry.cancel(threadId, reason),
+        claim: (threadId) => runRegistry.claim(threadId),
+        has: (threadId) => runRegistry.has(threadId),
+      }
+    }
+
+    const getCheckpointer = (request: Request): BaseCheckpointSaver =>
+      requireStore(perRequest.get(request)?.stores.checkpointer ?? checkpointer, "checkpointer")
+    const getThreadsStore = (request: Request): ThreadsStore =>
+      requireStore(perRequest.get(request)?.stores.threadsStore ?? threadsStore, "threadsStore")
+    const getPermissionsStore = (
+      request: Request,
+    ): PermissionsStore | (() => Promise<PermissionsStore>) =>
+      requireStore(
+        perRequest.get(request)?.stores.permissionsStore ?? permissionsStore,
+        "permissionsStore",
+      )
+    const getMemoryStoreFor = (request: Request): Promise<MemoryStore> => {
+      const override = perRequest.get(request)?.stores.memoryStore
+      // Only the boot path memoizes: a per-request store must not outlive its
+      // request, and re-memoizing it would reintroduce the dead-context hang.
+      return override ? Promise.resolve(override) : getMemoryStore()
+    }
+
+    const apSseHeartbeatIntervalMs =
+      options.apSseHeartbeatIntervalMs ?? AP_SSE_HEARTBEAT_INTERVAL_MS
+    const apAttachMaxViewers = options.apAttachMaxViewers ?? AP_ATTACH_MAX_VIEWERS
+    const routes = buildRouteTable({
+      appRoot: options.appRoot,
+      apAttachMaxViewers,
+      apSseHeartbeatIntervalMs,
+      boot,
+      getCheckpointer,
+      getMemoryStoreFor,
+      getPermissionsStore,
+      getRunRegistry,
+      getThreadsStore,
+      liveTurnHub,
+      middleware,
+      registry,
+      resumeClaims,
+      threadAccess,
+      ...(sandboxManager ? { sandboxManager } : {}),
+      getShutdownSignal,
+      // Boot manifest → route execution derives the subagents descriptor maps
+      // from it with zero entry-file imports.
+      ...(options.modules ? { staticModules: options.modules } : {}),
+    })
+
+    const serveRoutes = async (request: Request): Promise<Response> => {
+      if (!state.acceptingRequests) {
+        return Response.json(createRequestErrorBody("Server is shutting down"), {
+          status: 503,
+        })
+      }
+
+      state.activeRequests++
+      let transferredToStream = false
+      let lifetime: RequestLifetime | undefined
+      try {
+        // Before anything else, including store construction: this app asks for a
+        // feature this runtime cannot serve, so every request fails identically
+        // until the deployment changes. Inside the try so it travels the same
+        // catch-all — logged once, coded, with a docs URL.
+        if (capabilityError) throw capabilityError
+        // Inside the try on purpose: a factory that throws (a pool that cannot
+        // connect) must become a 500 through the handler below, not leak the
+        // in-flight slot and wedge close()'s drain.
+        lifetime = {
+          bodySettled: false,
+          pendingRuns: 0,
+          settled: false,
+          // `{}` for a caller with no per-request stores — every field then falls
+          // through to the boot-resolved instance exactly as before. Installed
+          // UNCONDITIONALLY now because the lifetime also carries this request's
+          // shutdown controller, which every caller needs.
+          stores: options.requestStores ? await options.requestStores(request) : {},
+        }
+        perRequest.set(request, lifetime)
+        const response = await dispatch(routes, request)
+        const body = response.body
+        if (body && isEventStream(response.headers.get("content-type"))) {
+          // The Response exists but its SSE body is still streaming. Hold the
+          // in-flight slot until the stream settles (fully read, canceled, or
+          // errored) so close() cannot release sandboxes mid-stream. The flag
+          // flips only after the tracked Response has been constructed — if
+          // construction throws, the finally below must still decrement.
+          // Disposal chains onto the SAME settle hook, never onto `fetch`
+          // resolving: an SSE turn is still streaming at that point, and ending
+          // a pool mid-stream breaks the tail of every streaming turn. Settling
+          // the body only ARMS disposal — see maybeSettle for the run half.
+          const tracked = new Response(
+            trackStreamSettled(body, () => {
+              state.activeRequests--
+              settleBody(lifetime)
+            }),
+            {
+              headers: response.headers,
+              status: response.status,
+            },
+          )
+          transferredToStream = true
+          return tracked
+        }
+        return response
+      } catch (error) {
+        if (shutdownReason) {
+          return Response.json(
+            createRequestErrorBody("Request canceled during server shutdown", {
+              error: error instanceof Error ? error.message : String(error),
+            }),
+            { status: 503 },
+          )
+        }
+
+        if (error instanceof RuntimeCapabilityError) {
+          // Same posture as MissingStoreError below: a deployment mistake, so the
+          // full report goes to the caller AND to stderr — but only once, however
+          // many requests hit it. Unlike a store, the report already names every
+          // feature and its config key, so there are no extra details to attach.
+          if (!loggedFailures.has(error.message)) {
+            loggedFailures.add(error.message)
+            console.error(`B4.run runtime misconfigured — ${error.message}`)
+          }
+          return Response.json(
+            createExecutionErrorBody(error.message, undefined, { code: error.code }),
+            { status: 500 },
+          )
+        }
+
+        if (error instanceof MissingStoreError) {
+          // A misconfiguration, not a request failure: every request will fail
+          // the same way until the deployment supplies the store. The generic
+          // 500 below would name neither the store nor the cause, so this one
+          // carries the message and logs it — once per store, so a busy edge
+          // host is not flooded with the same line.
+          if (!loggedMissingStores.has(error.store)) {
+            loggedMissingStores.add(error.store)
+            console.error(`B4.run runtime misconfigured — ${error.message}`)
+          }
+          return Response.json(
+            createExecutionErrorBody(error.message, { store: error.store }, { code: error.code }),
+            { status: 500 },
+          )
+        }
+
+        // Everything else. The BODY stays deliberately opaque — it is served to
+        // whoever made the request, and an internal message is not theirs to
+        // read — but the operator gets the real cause on stderr. Without this
+        // line the three failures most likely to greet an edge deploy
+        // (`DATABASE_URL` unset, no Workers env bound to the Request, a store the
+        // generated `stores.mjs` omits) were a bare "Unexpected runtime server
+        // failure" with nothing anywhere saying why. Deduped by message, for the
+        // same reason the MissingStoreError branch above dedupes by store: a
+        // misconfiguration fails every request identically.
+        const code = b4ErrorCodeOf(error)
+        const cause = error instanceof Error ? error.message : String(error)
+        if (!loggedFailures.has(cause)) {
+          loggedFailures.add(cause)
+          console.error(
+            `B4.run runtime failure — ${cause}${code ? ` (${code})` : ""}`,
+            error instanceof Error && error.stack ? `\n${error.stack}` : "",
+          )
+        }
+        return Response.json(
+          createExecutionErrorBody(
+            "Unexpected runtime server failure",
+            undefined,
+            code ? { code } : undefined,
+          ),
+          { status: 500 },
+        )
+      } finally {
+        if (!transferredToStream) {
+          state.activeRequests--
+          settleBody(lifetime)
+        }
+      }
+    }
+
+    let closing: Promise<void> | undefined
+    const performClose = async (): Promise<void> => {
+      if (state.closed) {
+        return
+      }
+
+      state.acceptingRequests = false
+      shutdownReason = new Error("Runtime server shutting down")
+      // The public handle, plus every request whose work may still be listening.
+      // Draining below is unchanged; aborting here is only what makes in-flight
+      // runs unwind promptly instead of sitting until the deadline.
+      shutdownController.abort(shutdownReason)
+      for (const controller of liveShutdownControllers) controller.abort(shutdownReason)
+      liveShutdownControllers.clear()
+
+      if (sandboxReaper) clearInterval(sandboxReaper)
+
+      // Fan a terminal frame to every hanging attach viewer before draining, so
+      // a shutdown does not leave them waiting on a heartbeat that will never
+      // resolve into a `done`.
+      liveTurnHub.closeAll()
+
+      // Drain in-flight work — bounded: an SSE body nobody ever reads (or a
+      // leaked in-flight slot) must not wedge shutdown forever.
+      //
+      // Both counters matter, and neither implies the other. activeRequests
+      // tracks HTTP responses still being produced. runRegistry tracks route work
+      // that may still be executing AFTER its response was sent: a cancelled run
+      // whose route ignored ctx.signal, or an abandoned /runs/wait that returned
+      // 409 while invokeResolvedRoute kept going. Those return plain JSON, so the
+      // fetch wrapper (which only holds the slot for text/event-stream bodies)
+      // has already decremented — draining on activeRequests alone would release
+      // sandboxes out from under work still using them.
+      //
+      // Per-request store disposals count too: they start only once both of the
+      // above have finished for their request, and a caller that awaits close()
+      // is entitled to assume the pools are actually shut.
+      const drainDeadlineMs = options.drainDeadlineMs ?? CLOSE_DRAIN_DEADLINE_MS
+      await new Promise<void>((resolve) => {
+        const startedAt = Date.now()
+        const check = () => {
+          const activeRuns = runRegistry.activeCount()
+          if (state.activeRequests === 0 && activeRuns === 0 && pendingDisposals.size === 0) {
+            resolve()
+            return
+          }
+          if (Date.now() - startedAt >= drainDeadlineMs) {
+            console.warn(
+              `close(): ${state.activeRequests} request(s), ` +
+                `${pendingDisposals.size} store disposal(s) and ${activeRuns} run(s) still ` +
+                `active after ${Math.round(drainDeadlineMs / 1000)}s — proceeding with shutdown`,
+            )
+            resolve()
+            return
+          }
+          setTimeout(check, 10)
+        }
+        check()
+      })
+
+      // Release sandboxes only after in-flight requests have drained, so tools
+      // executing against a sandbox are never yanked mid-request.
+      if (sandboxManager) await sandboxManager.releaseAll()
+      state.closed = true
+    }
+    const close = (): Promise<void> => {
+      if (state.closed) return Promise.resolve()
+      closing ??= performClose().finally(() => {
+        closing = undefined
+      })
+      return closing
+    }
+
+    // CORS wraps the whole handler rather than living inside it. `serveRoutes`
+    // has eight exit paths — the dispatch result, the tracked SSE response, the
+    // shutdown 503 and five error branches — and a cross-origin caller must be
+    // able to read ALL of them, including the failures. Stamping once here is
+    // the only version of that with no path left uncovered.
+    //
+    // Resolved at boot — see `readCorsConfig` for where the config comes from.
+    // Boot is also where a malformed origin list should fail, so an operator
+    // sees it on startup rather than on the first cross-origin request.
+    const corsPolicy = resolveCorsPolicy(await readCorsConfig(options))
+    const fetch = async (request: Request): Promise<Response> => {
+      // A preflight never reaches the route table: it claims no in-flight slot
+      // and needs no stores, and the router has no OPTIONS route that could
+      // answer it. Returns undefined when CORS is off or this is not a
+      // preflight, and the request proceeds normally.
+      const preflight = corsPreflightResponse(corsPolicy, request)
+      if (preflight !== undefined) return preflight
+      return applyCorsHeaders(corsPolicy, request, await serveRoutes(request))
+    }
+
+    return { close, fetch, shutdownController, state }
+  } catch (error) {
+    if (sandboxReaper) clearInterval(sandboxReaper)
+    try {
+      await sandboxManager?.releaseAll()
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "Runtime boot failed and workspace cleanup remains uncertain",
+      )
+    }
+    throw error
+  }
 }
 
 /**
@@ -1242,6 +1282,7 @@ export function buildRouteTable(ctx: {
             { status: 409 },
           )
         }
+        if (sandboxManager?.managed) await sandboxManager.destroyThread(threadId)
         const checkpointer = getCheckpointer(request)
         // Checkpoints BEFORE the row, and deliberately not the other way round:
         // the two deletes are not atomic, so one of them has to be the one that
@@ -1261,7 +1302,8 @@ export function buildRouteTable(ctx: {
           ).deleteThread(threadId)
         }
         await getThreadsStore(request).deleteThread(threadId)
-        if (sandboxManager) await sandboxManager.destroyThread(threadId)
+        if (sandboxManager?.managed) sandboxManager.completeDelete(threadId)
+        else if (sandboxManager) await sandboxManager.destroyThread(threadId)
         return new Response(null, { status: 204 })
       },
       method: "DELETE",

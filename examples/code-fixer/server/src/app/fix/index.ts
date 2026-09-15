@@ -13,7 +13,9 @@ TASK.md for diagnostics; inspect files rather than inventing other shell command
 dependencies, or files outside the source paths specified in TASK.md.
 Run npm test after the change and verify the task's preservation requirements,
 not just its failing example. Explain what changed and what actually passed.
-Then call exportForReview({}) to request runtime approval. Calling this tool
+Then call prepareReview({}) to independently verify and inspect the exact candidate.
+Call exportForReview({candidate}) with the complete candidate returned by prepareReview
+to request runtime approval. Calling this tool
 pauses BEFORE export and presents the human approval gate. Do not substitute
 a prose confirmation question for the tool call; the runtime owns approval.
 Do not claim success if a command failed or a test was not run.`,

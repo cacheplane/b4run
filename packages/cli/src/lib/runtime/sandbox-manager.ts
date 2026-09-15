@@ -1,4 +1,5 @@
 import type { SandboxHandle, SandboxPolicy, SandboxProvider } from "@b4run/workspace"
+import type { AdmittedWorkspace, ManagedWorkspaceManager } from "./managed-workspace-manager.js"
 
 interface Entry {
   handle?: SandboxHandle
@@ -20,13 +21,17 @@ export class SandboxManager {
   readonly #idleTimeoutMs: number
   readonly #clock: () => number
   readonly #entries = new Map<string, Entry>()
+  readonly #managed: ManagedWorkspaceManager | undefined
+  readonly #uses = new Map<string, number>()
 
   constructor(opts: {
     provider: SandboxProvider
     policy: SandboxPolicy
     idleTimeoutMs: number
     clock?: () => number
+    managed?: ManagedWorkspaceManager
   }) {
+    this.#managed = opts.managed
     this.#provider = opts.provider
     this.#policy = opts.policy
     this.#idleTimeoutMs = opts.idleTimeoutMs
@@ -34,6 +39,7 @@ export class SandboxManager {
   }
 
   async getForThread(threadId: string, signal: AbortSignal): Promise<SandboxHandle> {
+    if (this.#managed) return this.#managed.getForThread(threadId, signal)
     const existing = this.#entries.get(threadId)
     if (existing?.handle) {
       existing.lastUsedAt = this.#clock()
@@ -62,9 +68,10 @@ export class SandboxManager {
   }
 
   async reapIdle(): Promise<void> {
+    if (this.#managed) return this.#managed.reapIdle()
     const cutoff = this.#clock() - this.#idleTimeoutMs
     for (const [threadId, entry] of [...this.#entries]) {
-      if (entry.inUse > 0 || entry.acquiring) continue
+      if (this.#uses.has(threadId) || entry.inUse > 0 || entry.acquiring) continue
       if (entry.lastUsedAt > cutoff) continue
       this.#entries.delete(threadId)
       await this.#provider.release(threadId)
@@ -72,13 +79,46 @@ export class SandboxManager {
   }
 
   async destroyThread(threadId: string): Promise<void> {
+    if (this.#managed) return this.#managed.destroyThread(threadId)
+    if (this.#uses.has(threadId)) throw new Error("Sandbox has active execution")
     this.#entries.delete(threadId)
     await this.#provider.destroy(threadId)
   }
 
   async releaseAll(): Promise<void> {
+    if (this.#managed) return this.#managed.releaseAll()
+    if (this.#uses.size) throw new Error("Cannot release sandboxes while execution is active")
     const ids = [...this.#entries.keys()]
     this.#entries.clear()
     await Promise.all(ids.map((id) => this.#provider.release(id)))
+  }
+  async settle(threadId: string, signal: AbortSignal | undefined): Promise<void> {
+    await this.#managed?.settle(threadId, signal)
+  }
+  get managed(): boolean {
+    return this.#managed !== undefined
+  }
+  getWorkspace(threadId: string): AdmittedWorkspace | undefined {
+    return this.#managed?.getWorkspace(threadId)
+  }
+  async reconcileDeletions(cleanup: (threadId: string) => Promise<void>): Promise<void> {
+    await this.#managed?.reconcileDeletions(cleanup)
+  }
+  completeDelete(threadId: string): void {
+    this.#managed?.completeDelete(threadId)
+  }
+  retain(threadId: string): () => void {
+    if (this.#managed) return this.#managed.retain(threadId)
+    this.#uses.set(threadId, (this.#uses.get(threadId) ?? 0) + 1)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const count = (this.#uses.get(threadId) ?? 1) - 1
+      if (count) this.#uses.set(threadId, count)
+      else this.#uses.delete(threadId)
+      const entry = this.#entries.get(threadId)
+      if (entry) entry.lastUsedAt = this.#clock()
+    }
   }
 }

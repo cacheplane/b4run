@@ -122,7 +122,7 @@ export interface AgentHarness {
     fixtures?: FixtureSet | ScriptBuilder
   }): Promise<AgentRunResult>
   reset(): void
-  close(): Promise<void>
+  close(options?: { readonly destroyWorkspaces?: boolean }): Promise<void>
   [Symbol.asyncDispose](): Promise<void>
   getRecordedFixtures(): FixtureSet
 }

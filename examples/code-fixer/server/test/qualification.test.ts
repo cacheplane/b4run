@@ -1,5 +1,5 @@
 import { expect, it } from "vitest"
-import { assessQualification } from "../src/blueprint/qualify.ts"
+import { assessQualification } from "../src/fixtures/qualify.ts"
 
 it("requires intended baseline failure and both passing repair suites", () => {
   expect(

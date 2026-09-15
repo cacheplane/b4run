@@ -1,17 +1,17 @@
 import { createHash } from "node:crypto"
 import type { SandboxHandle, SandboxPolicy, SandboxProvider } from "@b4run/workspace"
 import { sandboxUnavailable } from "../errors.js"
+import { resourceScope } from "../resource-scope.js"
 import { createDocker, type Docker, type SpawnResult } from "./docker-cli.js"
 import { dockerExec } from "./docker-exec.js"
 import { dockerFilesystem } from "./docker-filesystem.js"
+import { createDockerManagedWorkspaces } from "./managed-workspace.js"
 import { createThreadLifecycleCoordinator } from "./thread-lifecycle.js"
 
 const ROOT = "/workspace"
-const sanitize = (s: string) => s.replaceAll(/[^a-zA-Z0-9_.-]/g, "_")
-const containerName = (threadId: string) => `b4-sbx-${sanitize(threadId)}`
-const volumeName = (threadId: string) => `b4-sbx-vol-${sanitize(threadId)}`
-
 export interface DockerSandboxOptions {
+  /** Stable application/environment identity. Changing it selects different storage. */
+  readonly scope: string
   /** Container image for the sandbox (must include a POSIX shell). */
   readonly image: string
   /** Injected for tests; defaults to the real docker CLI. */
@@ -91,7 +91,7 @@ const isB4CodedError = (error: unknown): error is Error & { readonly code: strin
 
 /**
  * Docker reference SandboxProvider. Per thread: a persistent container
- * `b4-sbx-<threadId>` (sleep infinity) with a named volume mounted at
+ * `b4-sbx-<resourceId>` (sleep infinity) with a named volume mounted at
  * /workspace. acquire() reuses only a keeper owned by this provider lifecycle
  * with a matching persisted identity; otherwise it replaces the keeper while
  * preserving the volume. release() removes the container but KEEPS the volume;
@@ -100,6 +100,9 @@ const isB4CodedError = (error: unknown): error is Error & { readonly code: strin
  * honest-scope note). Host env is never inherited; only policy.env is passed.
  */
 export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
+  const resourceId = resourceScope(opts.scope)
+  const containerName = (id: string) => `b4-sbx-${resourceId(id)}`
+  const volumeName = (id: string) => `b4-sbx-vol-${resourceId(id)}`
   const docker = opts.docker ?? createDocker()
   const lifecycleStates = new Map<string, DockerLifecycleState>()
   const lifecycle = createThreadLifecycleCoordinator()
@@ -223,7 +226,7 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
         "--name",
         name,
         "--label",
-        `b4.sandbox=${sanitize(threadId)}`,
+        `b4.sandbox=${resourceId(threadId)}`,
         "--label",
         `b4.sandbox.identity=${expectedIdentity}`,
         "-v",
@@ -295,6 +298,7 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
 
   return {
     name: "docker",
+    workspaces: createDockerManagedWorkspaces({ scope: opts.scope, image: opts.image, docker }),
     acquire({ threadId, policy, signal }): Promise<SandboxHandle> {
       return lifecycle.runExclusive(threadId, async () => {
         const requestedLaunchConfig = resolveLaunchConfig(policy)

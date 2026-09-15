@@ -1,7 +1,6 @@
 import { fileURLToPath } from "node:url"
 import { createAgentHarness, script } from "@b4run/testing"
 import { expect, it } from "vitest"
-import { attemptContext } from "../src/blueprint/attempt-context.ts"
 
 it("runs the documented nullable diagnostic without another approval pause", async () => {
   const previous = process.env.B4_CODE_FIXER_TASK
@@ -26,8 +25,7 @@ it("runs the documented nullable diagnostic without another approval pause", asy
     expect(content.exitCode).toBe(0)
     expect(JSON.parse(content.stdout).accepted).toEqual([false, true])
   } finally {
-    await h.close()
-    await attemptContext().provider.destroyAll()
+    await h.close({ destroyWorkspaces: true })
     if (previous === undefined) delete process.env.B4_CODE_FIXER_TASK
     else process.env.B4_CODE_FIXER_TASK = previous
   }

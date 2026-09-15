@@ -78,3 +78,9 @@ pnpm --filter @b4-example/research-server memory:approve -- <memory-id>
 
 The tests show both paths: seeding an active memory with `seedMemory`, and
 writing a reviewable candidate through the real `remember` tool.
+
+When enabling Docker for ordinary development or deployment, set
+`B4_DEMO_DOCKER_SANDBOX=1` and a nonblank `B4_SANDBOX_SCOPE` unique to this
+installation/environment. Keep the scope stable across restarts. The dedicated
+Docker test supplies its own disposable scope; it does not select your app's
+persistent workspace.

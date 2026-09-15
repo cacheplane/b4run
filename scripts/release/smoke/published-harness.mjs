@@ -181,13 +181,19 @@ export async function executePublishedHarnessSmoke(
   }
 }
 
+const probeResourceId = (threadId) =>
+  createHash("sha256")
+    .update(JSON.stringify(["b4-sandbox-scope-v1", "published-probe", threadId]))
+    .digest("hex")
+    .slice(0, 40)
+
 export function publishedDockerProbeIdentity(randomUUID = defaultRandomUUID) {
   const token = dockerUuidToken(randomUUID, "Published Docker probe")
   const threadId = `published-uuid-${token}`
   return Object.freeze({
     threadId,
-    containerName: `b4-sbx-${threadId}`,
-    volumeName: `b4-sbx-vol-${threadId}`,
+    containerName: `b4-sbx-${probeResourceId(threadId)}`,
+    volumeName: `b4-sbx-vol-${probeResourceId(threadId)}`,
   })
 }
 
@@ -218,8 +224,8 @@ function assertDockerProbeIdentity(identity) {
     Array.isArray(identity) ||
     Object.keys(identity).sort().join(",") !== "containerName,threadId,volumeName" ||
     !/^published-uuid-[0-9a-f]{32}$/u.test(identity.threadId) ||
-    identity.containerName !== `b4-sbx-${identity.threadId}` ||
-    identity.volumeName !== `b4-sbx-vol-${identity.threadId}`
+    identity.containerName !== `b4-sbx-${probeResourceId(identity.threadId)}` ||
+    identity.volumeName !== `b4-sbx-vol-${probeResourceId(identity.threadId)}`
   ) {
     throw new TypeError("Published Docker probe identity is invalid")
   }

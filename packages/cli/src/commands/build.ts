@@ -1,5 +1,5 @@
-import { mkdir, rm } from "node:fs/promises"
-import { relative, resolve } from "node:path"
+import { mkdir, rm, stat } from "node:fs/promises"
+import { join, relative, resolve } from "node:path"
 import { discoverRoutes } from "@b4run/core/node"
 import type { Command } from "commander"
 import {
@@ -9,7 +9,8 @@ import {
   knownTargetNames,
 } from "../lib/build/targets/index.js"
 import { assertRouteMarkerFileLimits } from "../lib/build/targets/marker-files.js"
-import { loadB4Config } from "../lib/node-config.js"
+import { captureWorkspaceArtifact } from "../lib/build/workspace-artifact.js"
+import { loadOptionalB4Config } from "../lib/node-config.js"
 import { CliError, type CommandIo, writeLine } from "../lib/output.js"
 import { runTypegen } from "../lib/typegen/run-typegen.js"
 
@@ -36,15 +37,8 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
     ...(options.cwd ? { appRoot: options.cwd } : {}),
   })
 
-  let targetNames: readonly string[] = DEFAULT_BUILD_TARGETS
-  try {
-    const loaded = await loadB4Config({ appRoot: manifest.appRoot })
-    if (loaded.config.build?.targets) {
-      targetNames = loaded.config.build.targets
-    }
-  } catch {
-    // No / invalid config — fall back to default targets.
-  }
+  const config = await loadOptionalB4Config(manifest.appRoot)
+  const targetNames: readonly string[] = config?.build?.targets ?? DEFAULT_BUILD_TARGETS
 
   // Validate the ENTIRE target list up front, before emitting anything — an
   // unknown target must fail fast, not after earlier targets already wrote
@@ -68,6 +62,17 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
     await assertRouteMarkerFileLimits({ appRoot: manifest.appRoot, manifest })
   }
 
+  let workspaceArtifact: Awaited<ReturnType<typeof captureWorkspaceArtifact>> | undefined
+  if (config?.sandbox?.workspace) {
+    if (targetNames.some((name) => name !== "node"))
+      throw new CliError('Managed workspaces require build.targets: ["node"]')
+    if (!config.sandbox.provider.workspaces)
+      throw new CliError("Sandbox provider does not support managed workspaces")
+    if (!(await stat(join(manifest.appRoot, "workspace"))).isDirectory())
+      throw new CliError("Managed workspaces require app-root workspace/ capability")
+    workspaceArtifact = await captureWorkspaceArtifact(manifest.appRoot, config.sandbox.workspace)
+  }
+
   // Run typegen as pre-step to produce .b4/routes/<id>/tools.json and .b4/b4.generated.d.ts
   await runTypegen({ appRoot: manifest.appRoot, manifest })
 
@@ -84,6 +89,7 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
     buildDir,
     io,
     manifest,
+    ...(workspaceArtifact ? { workspaceArtifact } : {}),
   }
 
   const emitted: string[] = []

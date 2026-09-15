@@ -74,3 +74,38 @@ test("kubeFilesystem readFile honors maxBytes", async () => {
     /exceeds maxBytes/,
   )
 })
+
+test("kubeFilesystem preserves binary bytes, names, and symlink identity", async () => {
+  const k = await withPod()
+  const bytes = Buffer.from([0, 255, 128, 10])
+  const spy = {
+    ...k,
+    exec: async (_ns: string, _pod: string, argv: readonly string[]) => {
+      const command = argv[2] ?? ""
+      const stdout = command.startsWith("stat ")
+        ? "a1ff 7\n"
+        : command.startsWith("readlink ")
+          ? "../file"
+          : command.startsWith("find ")
+            ? "/workspace/.gitignore\0/workspace/ space \0/workspace/new\nline\0"
+            : bytes.toString("base64")
+      return { stdout, stderr: "", exitCode: 0 }
+    },
+  }
+  const fs = kubeFilesystem(spy, "ns", "p")
+  expect(await fs.readBinaryFile?.("/workspace/binary", ctx("/workspace"))).toEqual(bytes)
+  await expect(
+    fs.readBinaryFile?.("/workspace/binary", ctx("/workspace"), { maxBytes: 3 }),
+  ).rejects.toThrow("maxBytes")
+  expect(await fs.listDir("/workspace", ctx("/workspace"))).toEqual([
+    ".gitignore",
+    " space ",
+    "new\nline",
+  ])
+  expect(await fs.lstat?.("/workspace/link", ctx("/workspace"))).toEqual({
+    kind: "symlink",
+    size: 7,
+    executable: true,
+    target: "../file",
+  })
+})

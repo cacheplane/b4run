@@ -2,6 +2,7 @@ import { snapshotJson } from "./adapter-normalize.mjs"
 import { RELEASE_PAYLOAD_LIMITS } from "./limits.mjs"
 import {
   CANONICAL_RELEASE_PACKAGE_ORDER,
+  HISTORICAL_B4_RELEASE_PACKAGE_ORDER,
   manifestSha256 as releaseManifestSha256,
   validateSealedReleaseManifest,
 } from "./manifest.mjs"
@@ -89,9 +90,21 @@ export function parseNpmEvidence(raw, context) {
     }
   }
 
-  for (let index = 0; index < CANONICAL_RELEASE_PACKAGE_ORDER.length; index += 1) {
+  // A supplied sealed manifest is authoritative for both order and tarball
+  // identity. Hash-only callers retain compatibility with exactly the reviewed
+  // B4 orders; they cannot turn an arbitrary permutation into accepted history.
+  const packageOrder =
+    manifest?.packageOrder ??
+    [CANONICAL_RELEASE_PACKAGE_ORDER, HISTORICAL_B4_RELEASE_PACKAGE_ORDER].find((order) =>
+      value.packages.every((entry, index) => entry?.name === order[index]),
+    )
+  if (packageOrder === undefined) {
+    throw new TypeError("npm evidence package order is not an admitted B4 release order")
+  }
+
+  for (let index = 0; index < packageOrder.length; index += 1) {
     const evidence = value.packages[index]
-    const expectedName = CANONICAL_RELEASE_PACKAGE_ORDER[index]
+    const expectedName = packageOrder[index]
     validatePackageEvidence(evidence, {
       candidate,
       expectedName,
@@ -120,7 +133,9 @@ function parseEvidenceInput(raw) {
     try {
       source = UTF8_DECODER.decode(inputBytes)
     } catch (error) {
-      throw new TypeError("npm evidence bytes are not valid UTF-8", { cause: error })
+      throw new TypeError("npm evidence bytes are not valid UTF-8", {
+        cause: error,
+      })
     }
     try {
       return snapshotJson(JSON.parse(source))
@@ -131,7 +146,9 @@ function parseEvidenceInput(raw) {
   try {
     return snapshotJson(raw)
   } catch (error) {
-    throw new TypeError("npm evidence contains an invalid JSON field", { cause: error })
+    throw new TypeError("npm evidence contains an invalid JSON field", {
+      cause: error,
+    })
   }
 }
 
