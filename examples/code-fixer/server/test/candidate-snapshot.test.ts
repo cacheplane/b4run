@@ -2,18 +2,18 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { B4ToolContext } from "@b4run/sdk"
 import { expect, it } from "vitest"
-import { fixtureManifest, fixturesRoot } from "../src/fixtures/catalog.ts"
+import { projectDirectory, projectManifest } from "../src/project/catalog.ts"
 import { inspectCandidate } from "../src/review/prepare.ts"
 
 async function fixtureContext() {
-  const manifest = fixtureManifest("cli-flags")
+  const manifest = projectManifest("cli-flags")
   const initial: Record<string, string> = {
     "TASK.md": "Repair the fixture",
     ".gitignore": "node_modules/\n",
-    "fixture.json": '{"id":"cli-flags"}',
+    "project.json": '{"id":"cli-flags"}',
   }
   for (const path of [...manifest.allowedSourcePaths, ...manifest.immutablePaths])
-    initial[path] = await readFile(join(fixturesRoot, manifest.id, "project", path), "utf8")
+    initial[path] = await readFile(join(projectDirectory, "project", path), "utf8")
   const current: Record<string, string> = {
     ...initial,
     "src/cli.ts": `${initial["src/cli.ts"]}\n// repair\n`,
@@ -44,7 +44,7 @@ async function fixtureContext() {
         throw new Error("not used")
       },
       async listDir(path = "") {
-        const prefix = path ? `${path}/` : ""
+        const prefix = path && path !== "." ? `${path}/` : ""
         return [
           ...new Set(
             [...Object.keys(current), ...Object.keys(links), ".git/HEAD"]
@@ -82,7 +82,7 @@ it("rejects same-byte source symlinks and redirected dependencies", async () => 
 it("rejects altered fixture identity, tests, added and deleted files", async () => {
   for (const change of [
     (files: Record<string, string>) => {
-      files["fixture.json"] = '{"id":"nullable-inputs"}'
+      files["project.json"] = '{"id":"nullable-inputs"}'
     },
     (files: Record<string, string>) => {
       files["test/cli.test.ts"] = "pass"

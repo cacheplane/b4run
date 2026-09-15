@@ -1,38 +1,42 @@
-# Code-fixer application walkthrough
+# Follow a repair
 
-Start with [the route](./src/app/fix/index.ts). It asks the agent to read the task,
-reproduce the failure, repair permitted source, verify the result, and prepare a
-candidate for approval. Plans, skills, and tools use ordinary route discovery.
+[`src/app/fix/index.ts`](./src/app/fix/index.ts) defines the agent: reproduce,
+repair, verify, and request approval. B4 discovers its tools, plan, skill, and eval
+from the route directory. The route uses the same workspace tools a user would
+use in another B4 application.
 
-[The config](./b4.config.ts) declares a Docker provider and a
-[fixture workspace](./src/fixtures/workspace.ts). The descriptor contains only
-trusted fixture inventory, task text, fixture identity, and the prepared dependency
-link. B4 captures exact source bytes and owns creation, reconnection, and deletion.
-The app does not keep provider handles or process-global baselines.
+[`b4.config.ts`](./b4.config.ts) chooses Docker and declares the
+[project workspace](./src/project/workspace.ts). Its source inventory, task,
+project identity, and dependency link come from the checked-in sample. B4 captures
+those bytes, initializes the workspace, and owns recovery and deletion.
 
-[Candidate inspection](./src/review/prepare.ts) reads the initial fixture identity
-from `ctx.workspace.readInitialFile`. It checks a bounded current inventory using
-permission-bound filesystem methods, compares it with captured source bytes, and
-accepts only the fixture's allowed source paths. Git is convenient for the agent's
-diagnostics; mutable Git metadata is never verification authority.
+[`inspectCandidate`](./src/review/prepare.ts) reads the original source through
+`ctx.workspace.readInitialFile` and the current source through B4's
+`inspectWorkspace(ctx.fs, policy)`. It compares the inventories and permits only
+listed source edits. Initial captured bytes define the baseline; Git is useful
+for diagnostics but cannot replace that authority. Inspection rejects unexpected
+links, executable or binary files, and oversized inventories.
 
-[Independent verification](./src/review/verifier.ts) uses B4's `withWorkspace`
-helper to create a separate disposable workspace from the original captured
-source and immutable Docker image identity. The verifier applies complete
-candidate file contents, runs pristine visible tests, and installs host-only
-independent checks. Exact named assertions and unchanged verification inputs
-are required for success.
+[`verifyChanges`](./src/review/verifier.ts) uses `withWorkspace` to create a fresh
+workspace from the captured source and immutable image identity. It applies the
+candidate, runs visible tests, then installs the independent checks. The
+host-owned check policy requires exact named assertions. Inspection before and
+after each test suite detects persistent source or test changes. These checks
+are a focused repair policy, not a proof of arbitrary code correctness.
 
-[`prepareReview`](./src/app/fix/tools/prepareReview.ts) returns checks, a diff,
-and a complete candidate. The candidate digest binds the initial source digest,
-workspace identity, and source bytes. The agent supplies that same candidate to
-[`exportForReview`](./src/app/fix/tools/exportForReview.ts), which the route marks
-as approval-required. After approval, export rejects a changed workspace,
-re-verifies those exact bytes, and writes a deterministic local outbox receipt.
-Runtime approval owns pausing and resuming; the app supplies review content.
+[`prepareReview`](./src/app/fix/tools/prepareReview.ts) returns the verification,
+a contextual diff, and a candidate. Its digest binds source identity, workspace
+identity, and changed bytes. The agent passes that candidate to
+[`exportForReview`](./src/app/fix/tools/exportForReview.ts). B4 pauses before
+executing the tool and presents the approval request.
 
-[Evaluation support](./src/evaluation/) drives the same route harness. Offline
-replay applies a checked-in historical repair through normal tools, extracts the
-prepared candidate, then requests approval in a second turn. Batch subprocesses,
-deadlines, and evidence files are evaluation concerns. They are not prerequisites
-for `b4 dev` or built Node execution.
+After approval, export re-inspects the workspace, checks that the candidate still
+matches, independently verifies it again, and writes an idempotent local receipt.
+It never turns approval into permission to export a later edit. B4 owns the
+pause/resume lifecycle; this code supplies the review policy and content.
+
+[`repair.eval.ts`](./src/app/fix/evals/repair.eval.ts) uses the same scoring
+functions as the [Docker replay test](./test/agent.integration.test.ts). The live
+eval measures the model; the replay checks wiring using a known repair. Historical
+qualification and batch recording tools live outside the copied application in
+[`test/code-fixer`](../../../test/code-fixer/).

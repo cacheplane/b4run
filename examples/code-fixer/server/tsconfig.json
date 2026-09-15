@@ -1,16 +1,19 @@
 {
-  "extends": "@b4run/config-typescript/node",
+  "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "strict": true,
     "noEmit": true,
-    "rootDir": ".",
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
     "allowImportingTsExtensions": true
   },
-  "include": [
-    "src/**/*.ts",
-    "scripts/**/*.ts",
-    "test/**/*.ts",
-    "vitest.config.ts",
-    "b4.config.ts",
-    "vitest.sandbox.config.ts"
-  ]
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "b4.config.ts", "vitest*.ts"]
 }

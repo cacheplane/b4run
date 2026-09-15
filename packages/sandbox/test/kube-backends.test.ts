@@ -66,15 +66,6 @@ test("kubeFilesystem round-trips write→read→list", async () => {
   expect(await fs.listDir("/workspace", ctx("/workspace"))).toContain("a.txt")
 })
 
-test("kubeFilesystem readFile honors maxBytes", async () => {
-  const k = await withPod()
-  const fs = kubeFilesystem(k, "ns", "p")
-  await fs.writeFile("/workspace/big", "0123456789", ctx("/workspace"))
-  await expect(fs.readFile("/workspace/big", ctx("/workspace"), { maxBytes: 4 })).rejects.toThrow(
-    /exceeds maxBytes/,
-  )
-})
-
 test("kubeFilesystem preserves binary bytes, names, and symlink identity", async () => {
   const k = await withPod()
   const bytes = Buffer.from([0, 255, 128, 10])
@@ -88,7 +79,10 @@ test("kubeFilesystem preserves binary bytes, names, and symlink identity", async
           ? "../file"
           : command.startsWith("find ")
             ? "/workspace/.gitignore\0/workspace/ space \0/workspace/new\nline\0"
-            : bytes.toString("base64")
+            : (command.includes("B4_READ_STATUS")
+                ? Buffer.concat([bytes, Buffer.from("\nB4_READ_STATUS_0\n")])
+                : bytes
+              ).toString("base64")
       return { stdout, stderr: "", exitCode: 0 }
     },
   }

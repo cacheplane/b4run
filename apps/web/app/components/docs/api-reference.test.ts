@@ -110,7 +110,7 @@ const EXPECTED_OPERATED_ARTIFACTS = [
     "@b4run/cli",
     "bin.b4",
     "executable",
-    "./dist/index.js",
+    "./bin/b4.js",
     "detailed",
     "node-only",
     "tooling",

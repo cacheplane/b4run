@@ -86,7 +86,7 @@ Every `packages/*` directory is a pnpm workspace member (verify: `pnpm -r list -
 | `@b4-example/chat-server` / `@b4-example/chat-web` (`examples/chat`) | Foundational agent-harness primitives (filesystem + bash) end-to-end, plus planning, skills, subagents, workspace, and HITL permissions, with a disposable smoke-test web client. |
 | `@b4-example/memory` (`examples/memory/server`) | Long-term memory with a backend-switchable store — zero-setup SQLite by default, Postgres + pgvector via `DATABASE_URL`, hybrid keyword + vector recall via `OPENAI_API_KEY`. |
 | `@b4-example/research-server` / `@b4-example/research-web` (`examples/research`) | The flagship deep-research assistant example — routes, tools, subagents, memory, planning, offloading, HITL permissions, and an optional Docker sandbox. |
-| `@b4-example/code-fixer-server` (`examples/code-fixer/server`) | Runnable developer-agent blueprint — two historical defect fixtures, isolated workspaces, independent patch verification, approval-gated local export, and replay/live evaluations. |
+| `@b4-example/code-fixer-server` (`examples/code-fixer/server`) | Runnable developer agent — one historical CLI defect, isolated workspaces, independent verification, approval-gated local export, and replay/live evals; repository qualification lives in `test/code-fixer`. |
 
 Note: `examples/chat/package.json` and `examples/research/package.json` are
 orchestration-only (`private: true`, one level above `server`/`web`) and are

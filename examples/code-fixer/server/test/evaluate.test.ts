@@ -1,6 +1,7 @@
 import type { AgentRunResult } from "@b4run/testing"
 import { expect, it } from "vitest"
-import { behaviorCriteria } from "../src/evaluation/evaluate.ts"
+import { behaviorCriteria } from "../src/app/fix/evals/scoring.ts"
+import { candidateDigest } from "../src/review/candidate.ts"
 
 const run = {
   toolCalls: [
@@ -57,4 +58,61 @@ it.each([
   }
   expect(behaviorCriteria(changed).reproduced).toBe(false)
   expect(behaviorCriteria(changed).verified).toBe(false)
+})
+
+const candidateContent = {
+  version: 1 as const,
+  workspaceId: "workspace",
+  sourceDigest: "source",
+  changes: { "src/cli.ts": "repaired" },
+}
+const candidate = { ...candidateContent, receiptDigest: candidateDigest(candidateContent) }
+function preparedRun(preparedCandidate: unknown, exportCandidate: unknown) {
+  return {
+    ...run,
+    toolCalls: [
+      ...run.toolCalls,
+      { name: "exportForReview", args: { candidate: exportCandidate } },
+    ],
+    toolResults: [
+      ...run.toolResults,
+      {
+        name: "prepareReview",
+        content: {
+          verification: { visible: { passed: true }, independent: { passed: true } },
+          candidate: preparedCandidate,
+        },
+        isError: false,
+      },
+    ],
+  } as AgentRunResult
+}
+it("requires verified nonempty source and approval of the exact prepared candidate", async () => {
+  const { repairCriteria } = await import("../src/app/fix/evals/scoring.ts")
+  expect(repairCriteria(run)).toMatchObject({
+    visible: false,
+    independent: false,
+    scope: false,
+    approval: false,
+  })
+  expect(repairCriteria(preparedRun(candidate, candidate))).toEqual({
+    reproduced: true,
+    verified: true,
+    approval: true,
+    visible: true,
+    independent: true,
+    scope: true,
+  })
+})
+it("rejects a different, malformed, or tampered approval candidate", async () => {
+  const { repairCriteria } = await import("../src/app/fix/evals/scoring.ts")
+  const otherContent = { ...candidateContent, changes: { "src/cli.ts": "different repair" } }
+  for (const pending of [
+    { ...otherContent, receiptDigest: candidateDigest(otherContent) },
+    { ...otherContent, receiptDigest: candidate.receiptDigest },
+    {},
+    undefined,
+  ])
+    expect(repairCriteria(preparedRun(candidate, pending)).approval).toBe(false)
+  expect(repairCriteria(preparedRun({}, candidate)).approval).toBe(false)
 })

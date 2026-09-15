@@ -1,6 +1,7 @@
 import {
   lstat,
   mkdir as mkdirFs,
+  open,
   readdir,
   readFile,
   readlink,
@@ -33,6 +34,32 @@ export function localFilesystem(opts: LocalFilesystemOptions = {}): FilesystemBa
     }
   }
 
+  async function readBytes(path: string, ctx: BackendContext, limit: number): Promise<Buffer> {
+    ctx.signal.throwIfAborted()
+    if (limit !== Infinity && (!Number.isSafeInteger(limit) || limit < 0)) {
+      throw new Error("Invalid maxBytes limit")
+    }
+    await assertWithinCap(path, limit)
+    if (limit === Infinity) return readFile(path, { signal: ctx.signal })
+    const handle = await open(path, "r")
+    try {
+      const chunks: Buffer[] = []
+      let length = 0
+      for (;;) {
+        ctx.signal.throwIfAborted()
+        const chunk = Buffer.alloc(Math.min(64 * 1024, limit - length + 1))
+        const { bytesRead } = await handle.read(chunk, 0, chunk.length, null)
+        ctx.signal.throwIfAborted()
+        if (bytesRead === 0) return Buffer.concat(chunks, length)
+        length += bytesRead
+        if (length > limit) throw new Error(`File too large: exceeds ${limit} bytes at ${path}`)
+        chunks.push(chunk.subarray(0, bytesRead))
+      }
+    } finally {
+      await handle.close()
+    }
+  }
+
   return {
     async lstat(path) {
       const s = await lstat(path)
@@ -51,20 +78,17 @@ export function localFilesystem(opts: LocalFilesystemOptions = {}): FilesystemBa
     },
     async readFile(
       path: string,
-      _ctx: BackendContext,
+      ctx: BackendContext,
       opts?: { readonly maxBytes?: number },
     ): Promise<string> {
-      await assertWithinCap(path, opts?.maxBytes ?? maxBytes)
-      return await readFile(path, "utf8")
+      return (await readBytes(path, ctx, opts?.maxBytes ?? maxBytes)).toString("utf8")
     },
     async readBinaryFile(
       path: string,
-      _ctx: BackendContext,
+      ctx: BackendContext,
       opts?: { readonly maxBytes?: number },
     ): Promise<Uint8Array> {
-      await assertWithinCap(path, opts?.maxBytes ?? maxBytes)
-      // No encoding arg → Buffer, which satisfies Uint8Array.
-      return await readFile(path)
+      return readBytes(path, ctx, opts?.maxBytes ?? maxBytes)
     },
     async writeFile(
       path: string,

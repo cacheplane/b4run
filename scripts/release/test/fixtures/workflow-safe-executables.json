@@ -513,7 +513,7 @@
         "stepIndex": 8,
         "step": "Prepare isolated code-fixer environment",
         "kind": "run",
-        "value": "pnpm --filter @b4-example/code-fixer-server sandbox:prepare",
+        "value": "pnpm code-fixer:prepare",
         "classification": "safe"
       },
       {
@@ -529,7 +529,7 @@
         "stepIndex": 10,
         "step": "Code-fixer approval and verifier recovery",
         "kind": "run",
-        "value": "pnpm --filter @b4-example/code-fixer-server test:sandbox",
+        "value": "pnpm --filter @b4-example/code-fixer-server test:sandbox\npnpm test:code-fixer:sandbox\n",
         "classification": "safe"
       },
       {
@@ -537,7 +537,7 @@
         "stepIndex": 11,
         "step": "Both historical repair replays",
         "kind": "run",
-        "value": "pnpm --filter @b4-example/code-fixer-server eval:replay",
+        "value": "pnpm code-fixer:replay",
         "classification": "safe"
       },
       {

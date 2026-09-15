@@ -1073,7 +1073,7 @@
               "classification": "safe",
               "descriptor": {
                 "name": "Prepare isolated code-fixer environment",
-                "run": "pnpm --filter @b4-example/code-fixer-server sandbox:prepare"
+                "run": "pnpm code-fixer:prepare"
               }
             },
             {
@@ -1087,14 +1087,14 @@
               "classification": "safe",
               "descriptor": {
                 "name": "Code-fixer approval and verifier recovery",
-                "run": "pnpm --filter @b4-example/code-fixer-server test:sandbox"
+                "run": "pnpm --filter @b4-example/code-fixer-server test:sandbox\npnpm test:code-fixer:sandbox\n"
               }
             },
             {
               "classification": "safe",
               "descriptor": {
                 "name": "Both historical repair replays",
-                "run": "pnpm --filter @b4-example/code-fixer-server eval:replay"
+                "run": "pnpm code-fixer:replay"
               }
             }
           ]

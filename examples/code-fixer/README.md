@@ -1,7 +1,11 @@
-# Code-fixer blueprint
+# Code fixer
 
-A runnable B4 developer agent that repairs two real historical defects in
-controlled repositories. Its readable route, workspace, sandbox, verification
-skill, plan, and approval-gated export form the foundation for the developer
-walkthrough. See [server/README.md](./server/README.md) for commands, code tour,
-replay/live distinctions, verification, and evidence export.
+A runnable B4 developer agent that repairs a historical CLI defect in an isolated
+workspace. Its route, tools, skill, plan, independent verification, and approval
+flow are ordinary application code. See [server/README.md](./server/README.md)
+for setup, a complete API run, code tour, and evals.
+
+Repository-only qualification, the second historical defect, batch attempts,
+and publication evidence live in [test/code-fixer](../../test/code-fixer/).
+The [installation blueprint](./BLUEPRINT.md) remains pinned to its qualified
+published version until the revised app is released and verified.

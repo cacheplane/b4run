@@ -421,7 +421,7 @@ jobs:
         run: pnpm turbo run build --filter=@b4-example/code-fixer-server...
 
       - name: Prepare isolated code-fixer environment
-        run: pnpm --filter @b4-example/code-fixer-server sandbox:prepare
+        run: pnpm code-fixer:prepare
 
       - name: Managed Docker lifecycle and runtime restart
         run: |
@@ -429,10 +429,12 @@ jobs:
           B4_TEST_DOCKER=1 pnpm --filter @b4run/cli test managed-workspace-process
 
       - name: Code-fixer approval and verifier recovery
-        run: pnpm --filter @b4-example/code-fixer-server test:sandbox
+        run: |
+          pnpm --filter @b4-example/code-fixer-server test:sandbox
+          pnpm test:code-fixer:sandbox
 
       - name: Both historical repair replays
-        run: pnpm --filter @b4-example/code-fixer-server eval:replay
+        run: pnpm code-fixer:replay
 
   pgvector-docker:
     needs: metadata_scope

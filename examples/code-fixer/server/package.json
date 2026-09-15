@@ -6,34 +6,30 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc -p . --noEmit",
-    "lint": "biome check --config-path ../../../packages/config-biome/biome.json package.json tsconfig.json b4.config.ts vitest.config.ts vitest.sandbox.config.ts src scripts test",
-    "fixtures:qualify": "tsx scripts/qualify.ts",
+    "lint": "biome check .",
     "sandbox:prepare": "tsx scripts/prepare.ts",
     "test:sandbox": "vitest run --config vitest.sandbox.config.ts",
-    "check": "node node_modules/@b4run/cli/dist/index.js check",
-    "build": "node node_modules/@b4run/cli/dist/index.js build",
-    "eval:live": "node --env-file-if-exists=.env --import tsx scripts/eval.ts",
-    "evidence:export": "tsx scripts/export.ts",
-    "verify:consumer": "tsx scripts/consumer.ts",
-    "dev": "node node_modules/@b4run/cli/dist/index.js dev",
+    "check": "b4 check",
+    "build": "b4 build",
+    "dev": "b4 dev",
     "start": "node .b4/build/server.mjs",
-    "eval": "node node_modules/@b4run/cli/dist/index.js eval",
-    "eval:replay": "node --import tsx scripts/eval.ts --replay --attempts 1"
+    "eval": "b4 eval"
   },
   "dependencies": {
     "@b4run/cli": "workspace:*",
     "@b4run/sdk": "workspace:*",
     "@b4run/sandbox": "workspace:*",
     "@b4run/workspace": "workspace:*",
-    "zod": "4.4.3"
+    "zod": "4.4.3",
+    "diff": "9.0.0"
   },
   "devDependencies": {
-    "@b4run/config-typescript": "workspace:*",
     "@b4run/testing": "workspace:*",
     "@b4run/evals": "workspace:*",
     "@types/node": "26.1.2",
     "typescript": "7.0.2",
     "tsx": "4.23.10",
-    "vitest": "4.1.11"
+    "vitest": "4.1.11",
+    "@biomejs/biome": "2.5.6"
   }
 }

@@ -67,15 +67,21 @@ export function makeManifest(
   return { digest, files: canonical, dependencyTarget }
 }
 
-const defaultRoot = fileURLToPath(
-  new URL("../../../../../examples/code-fixer/server/fixtures/", import.meta.url),
-)
 export async function loadFixtureManifest(
   id: "cli-flags" | "nullable-inputs",
-  root = defaultRoot,
+  root?: string,
 ): Promise<SourceManifest> {
   if (id !== "cli-flags" && id !== "nullable-inputs") throw new Error("Unknown fixture")
-  const base = join(root, id)
+  const base = root
+    ? join(root, id)
+    : fileURLToPath(
+        new URL(
+          id === "cli-flags"
+            ? "../../../../../examples/code-fixer/server/sample/"
+            : "../../../../../test/code-fixer/fixtures/nullable-inputs/",
+          import.meta.url,
+        ),
+      )
   async function regular(path: string): Promise<{ content: string; executable: boolean }> {
     const info = await lstat(path)
     if (!info.isFile()) throw new Error(`Not a regular source file: ${path}`)
