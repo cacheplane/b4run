@@ -337,7 +337,10 @@ async function runObserve(options, runtime) {
   } catch (error) {
     resolutionFailure = safeObservationFailure(error, "CANDIDATE_DISCOVERY_AMBIGUOUS")
     observationDiagnostics = [
-      observationDiagnostic("controller", "candidate-discovery", resolutionFailure.code),
+      {
+        ...observationDiagnostic("controller", "candidate-discovery", resolutionFailure.code),
+        detail: safeDetail(error),
+      },
     ]
     selection = {
       candidate: null,

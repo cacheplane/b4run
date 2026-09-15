@@ -116,8 +116,9 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for observation receipts retaining the sealed publication order.
 // Repinned to require the checked-in CLI launcher in package archives.
 // Repinned for bounded detection reads, verified queued runs, and ordinary-push no-ops.
+// Repinned for bounded, redacted candidate-discovery failure detail.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "d0532b945ede068c61f2eb71af23c90f5251684b5015c31b31efff623fec6607"
+  "d7ac9cfd1e58491b3b52a0bb8db72ffd979b83f0dab490a1df6ea853488308b2"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
