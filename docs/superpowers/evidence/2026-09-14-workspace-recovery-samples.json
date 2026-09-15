@@ -1,0 +1,86 @@
+{
+  "environment": {
+    "host": "Darwin arm64",
+    "hostNode": "v24.20.0",
+    "dockerServer": "27.4.0",
+    "image": "sha256:337e9f68cbb1695833e454feade694371dd93a8fa729c9d3251120c67ad9c6c8"
+  },
+  "samples": [
+    {
+      "fixture": "cli-flags",
+      "digest": "ca2806c1b628f44485c4d5cfffa049fd6d22a3434095b871de82964ac13f29a3",
+      "imageId": "sha256:337e9f68cbb1695833e454feade694371dd93a8fa729c9d3251120c67ad9c6c8",
+      "baseline": "197b8a7a46de98fdfc93cd0ea827702c311e4303",
+      "preparationMs": 1834.3345419999998,
+      "reattachmentMs": 415.4159999999997
+    },
+    {
+      "fixture": "nullable-inputs",
+      "digest": "341a392fb0ae50ae399f9e04010b316dadc0788648cea3faed77c0ec1805e9c1",
+      "imageId": "sha256:337e9f68cbb1695833e454feade694371dd93a8fa729c9d3251120c67ad9c6c8",
+      "baseline": "6b344d53de5963d72ce94647419a3676f86a456f",
+      "preparationMs": 1757.7537500000008,
+      "reattachmentMs": 402.6630839999998
+    },
+    {
+      "fixture": "cli-flags",
+      "pause": "ready",
+      "source": "ca2806c1b628f44485c4d5cfffa049fd6d22a3434095b871de82964ac13f29a3",
+      "imageId": "sha256:337e9f68cbb1695833e454feade694371dd93a8fa729c9d3251120c67ad9c6c8",
+      "baseline": "197b8a7a46de98fdfc93cd0ea827702c311e4303"
+    },
+    {
+      "fixture": "cli-flags",
+      "pause": "copying",
+      "source": "ca2806c1b628f44485c4d5cfffa049fd6d22a3434095b871de82964ac13f29a3",
+      "imageId": "sha256:337e9f68cbb1695833e454feade694371dd93a8fa729c9d3251120c67ad9c6c8",
+      "baseline": "197b8a7a46de98fdfc93cd0ea827702c311e4303"
+    },
+    {
+      "fixture": "cli-flags",
+      "pause": "stopped",
+      "source": "ca2806c1b628f44485c4d5cfffa049fd6d22a3434095b871de82964ac13f29a3",
+      "imageId": "sha256:337e9f68cbb1695833e454feade694371dd93a8fa729c9d3251120c67ad9c6c8",
+      "baseline": "197b8a7a46de98fdfc93cd0ea827702c311e4303"
+    },
+    {
+      "fixture": "cli-flags",
+      "pause": "published",
+      "source": "ca2806c1b628f44485c4d5cfffa049fd6d22a3434095b871de82964ac13f29a3",
+      "imageId": "sha256:337e9f68cbb1695833e454feade694371dd93a8fa729c9d3251120c67ad9c6c8",
+      "baseline": "197b8a7a46de98fdfc93cd0ea827702c311e4303"
+    },
+    {
+      "fixture": "nullable-inputs",
+      "pause": "ready",
+      "source": "341a392fb0ae50ae399f9e04010b316dadc0788648cea3faed77c0ec1805e9c1",
+      "imageId": "sha256:337e9f68cbb1695833e454feade694371dd93a8fa729c9d3251120c67ad9c6c8",
+      "baseline": "6b344d53de5963d72ce94647419a3676f86a456f"
+    },
+    {
+      "fixture": "nullable-inputs",
+      "pause": "copying",
+      "source": "341a392fb0ae50ae399f9e04010b316dadc0788648cea3faed77c0ec1805e9c1",
+      "imageId": "sha256:337e9f68cbb1695833e454feade694371dd93a8fa729c9d3251120c67ad9c6c8",
+      "baseline": "6b344d53de5963d72ce94647419a3676f86a456f"
+    },
+    {
+      "fixture": "nullable-inputs",
+      "pause": "stopped",
+      "source": "341a392fb0ae50ae399f9e04010b316dadc0788648cea3faed77c0ec1805e9c1",
+      "imageId": "sha256:337e9f68cbb1695833e454feade694371dd93a8fa729c9d3251120c67ad9c6c8",
+      "baseline": "6b344d53de5963d72ce94647419a3676f86a456f"
+    },
+    {
+      "fixture": "nullable-inputs",
+      "pause": "published",
+      "source": "341a392fb0ae50ae399f9e04010b316dadc0788648cea3faed77c0ec1805e9c1",
+      "imageId": "sha256:337e9f68cbb1695833e454feade694371dd93a8fa729c9d3251120c67ad9c6c8",
+      "baseline": "6b344d53de5963d72ce94647419a3676f86a456f"
+    }
+  ],
+  "residualResources": {
+    "containers": [],
+    "volumes": []
+  }
+}
