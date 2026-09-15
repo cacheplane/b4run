@@ -103,6 +103,7 @@ export const packages = [
   {
     dir: "packages/cli",
     expectedFiles: [
+      "bin/b4.js",
       "dist/index.js",
       "dist/commands/docs.js",
       "dist/runtime-exports.js",
