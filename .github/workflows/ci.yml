@@ -929,7 +929,7 @@ jobs:
         run: scripts/prime-kind-cache.sh v0.32.0 v1.35.6
 
       - name: Create kind cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
         with:
           version: v0.32.0
           kubectl_version: v1.35.6
@@ -1022,7 +1022,7 @@ jobs:
         run: scripts/prime-kind-cache.sh v0.32.0 v1.35.6
 
       - name: Create kind cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
         with:
           version: v0.32.0
           kubectl_version: v1.35.6
@@ -1235,7 +1235,7 @@ jobs:
         run: scripts/prime-kind-cache.sh v0.32.0 v1.35.6
 
       - name: Create kind cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
         with:
           version: v0.32.0
           kubectl_version: v1.35.6
