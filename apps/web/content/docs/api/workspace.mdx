@@ -2,7 +2,7 @@
 
 ## Use this when
 
-Use this package to implement or wrap filesystem, command, and execution-sandbox backends for a B4.run application. The root owns the portable backend and sandbox contracts, middleware composition, and logging wrappers. Import `/node` only for the local filesystem and shell implementations.
+Use this package to implement or wrap filesystem, command, and execution-sandbox backends for a B4.run application. The root owns the portable backend and sandbox contracts, middleware composition, and logging wrappers. Import `/node` for local filesystem/shell implementations and immutable source capture utilities.
 
 ## Install and import
 
@@ -22,7 +22,7 @@ import { localExec, localFilesystem } from "@b4run/workspace/node"
 | `@b4run/workspace` | edge-safe | dependency-free | application | supported |
 | `@b4run/workspace/node` | node-only | not-claimed | application | supported |
 
-The root's emitted subpath graph has no runtime package or Node built-in dependencies. Its `LocalExecOptions` and `LocalFilesystemOptions` exports are types only. The `/node` factories use Node child-process, filesystem, path, and utility APIs.
+The root's emitted subpath graph has no runtime package or Node built-in dependencies. Its `LocalExecOptions` and `LocalFilesystemOptions` exports are types only. The `/node` implementations use Node child-process, filesystem, path, crypto, and utility APIs.
 
 ## Public exports
 
@@ -31,6 +31,9 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | Export | Responsibility |
 |---|---|
 | `compose` | Compose backend middleware right-to-left. |
+| `SourceBundle` | Describe immutable canonical source content and its digest. |
+| `SourceFileInput` | Supply exact file bytes and executable metadata. |
+| `WorkspaceSourceDefinition` | Declare the source directory, exact inventory, exclusions, and additional files. |
 | `LocalExecOptions` | Configure the local command backend without importing its runtime. |
 | `LocalFilesystemOptions` | Configure the local filesystem backend without importing its runtime. |
 | `SandboxConfig` | Configure provider selection and lifecycle policy. |
@@ -49,7 +52,7 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 
 ### `@b4run/workspace/node`
 
-The `/node` entry independently owns the following four exports. The two option types are also available from the dependency-free root for type-only consumers; the factories are not.
+The `/node` entry owns the exports below. Types are also available from the dependency-free root; runtime functions are available only from `/node`.
 
 | Export | Responsibility |
 |---|---|
@@ -57,6 +60,13 @@ The `/node` entry independently owns the following four exports. The two option 
 | `localExec` | Create the Node shell-command backend. |
 | `LocalFilesystemOptions` | Configure the default file-size limit. |
 | `localFilesystem` | Create the Node filesystem backend. |
+| `SourceBundle` | Describe immutable canonical source content and its digest. |
+| `SourceFileInput` | Supply exact file bytes and executable metadata. |
+| `WorkspaceSourceDefinition` | Declare source files to capture from an application tree. |
+| `createSourceBundle` | Construct a canonical bundle from explicit binary file inputs. |
+| `verifySourceBundle` | Validate bundle shape, encoding, paths, limits, and digest. |
+| `readSourceFile` | Read initial bytes into independently owned memory. |
+| `captureWorkspaceSource` | Capture the declared application source into a verified bundle. |
 
 ## Key contracts
 
@@ -263,6 +273,91 @@ export declare function localFilesystem(opts?: LocalFilesystemOptions): Filesyst
 #### Behavior contract `workspace.filesystem.symlink`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/workspace/test/local-filesystem.test.ts","testNames":["realPath resolves an escaping symlink to the outside real path"]},{"kind":"test-assertion","file":"packages/core/test/capabilities/workspace-fs.test.ts","testNames":["gates a symlink that escapes the workspace (caught, not silently allowed)"]}] */}
 `localFilesystem.realPath` resolves an escaping symlink to its outside real path; Core owns any path-jail enforcement.
+
+### Immutable source bundles
+
+```ts api-contract="@b4run/workspace#.:SourceFileInput"
+export interface SourceFileInput {
+  readonly path: string
+  readonly bytes: Uint8Array
+  readonly executable: boolean
+}
+```
+
+```ts api-contract="@b4run/workspace#.:SourceBundle"
+export interface SourceBundle {
+  readonly version: 1
+  readonly digest: string
+  readonly files: readonly {
+    readonly path: string
+    readonly base64: string
+    readonly executable: boolean
+  }[]
+}
+```
+
+```ts api-contract="@b4run/workspace#.:WorkspaceSourceDefinition"
+export interface WorkspaceSourceDefinition {
+  readonly directory: string
+  readonly include: readonly string[]
+  readonly excludeDirectories?: readonly string[]
+  readonly files?: readonly (
+    | { readonly path: string; readonly file: string }
+    | { readonly path: string; readonly text: string; readonly executable?: boolean }
+  )[]
+}
+```
+
+```ts api-contract="@b4run/workspace#./node:createSourceBundle"
+export declare function createSourceBundle(files: readonly SourceFileInput[]): SourceBundle
+```
+
+```ts api-contract="@b4run/workspace#./node:verifySourceBundle"
+export declare function verifySourceBundle(value: unknown): SourceBundle
+```
+
+```ts api-contract="@b4run/workspace#./node:readSourceFile"
+export declare function readSourceFile(bundle: SourceBundle, path: string): Uint8Array
+```
+
+```ts api-contract="@b4run/workspace#./node:captureWorkspaceSource"
+export declare function captureWorkspaceSource(
+  appRoot: string,
+  definition: WorkspaceSourceDefinition,
+  options?: { readonly signal?: AbortSignal },
+): Promise<SourceBundle>
+```
+
+`createSourceBundle` copies explicit bytes into sorted, frozen file entries and
+computes a versioned SHA256 identity covering paths, content, and executable bits.
+`verifySourceBundle` rejects malformed or noncanonical entries and digest mismatch;
+it returns a new frozen bundle. `readSourceFile` verifies the bundle, rejects a
+missing path, and returns an independently owned byte array.
+
+`captureWorkspaceSource` resolves directory and referenced file paths relative to
+`appRoot`. `directory: "."` selects that root. `include` is an exact inventory of
+regular files relative to the source directory; missing or extra files fail.
+`excludeDirectories` names existing directory subtrees to skip, without following
+symlinks. Additional `files` entries declare destination paths with either a file
+reference relative to `appRoot`, or inline text and an optional executable flag.
+Text preserves BOMs and rejects malformed Unicode; referenced files preserve their
+executable flags. Duplicate destinations, conflicting ancestors, and inconsistent
+directory casing are rejected.
+
+Bundles allow at most 10,000 files, 16 MiB per file, and 64 MiB total content.
+Capture additionally limits distinct inspected filesystem paths to 10,000,
+including the app root, ancestor directories, exclusions, and extra references.
+Paths use an ASCII portability subset, at most 1,024 bytes per path and 255 bytes
+per segment. Traversal, absolute paths, backslashes, device names, leading/trailing
+spaces, consecutive spaces, trailing dots, and case-insensitive collisions fail.
+Leading dotfiles such as `.gitignore` are supported.
+
+Capture rejects symlinks and special files, checks size before allocating file
+buffers, and detects changes through file metadata and inventory rechecks. It
+reads a trusted application tree: these checks are not an atomic snapshot or a
+defense against a hostile host process swapping ancestor directories. Cancellation
+closes open handles and returns no completed bundle. These utilities do not create
+sandboxes or activate managed workspace recovery in runtime configuration.
 
 ### Lifecycle, failure, and trust boundaries
 

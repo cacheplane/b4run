@@ -910,6 +910,10 @@ importers:
         version: 4.4.3
 
   packages/sqlite-storage:
+    dependencies:
+      '@b4run/workspace':
+        specifier: workspace:*
+        version: link:../workspace
     devDependencies:
       '@b4run/config-typescript':
         specifier: workspace:*

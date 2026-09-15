@@ -10,6 +10,8 @@ export type {
   SandboxProvider,
   SandboxSecurityPolicy,
 } from "./sandbox-types.js"
+export type { SourceBundle, SourceFileInput } from "./source-bundle.js"
+export type { WorkspaceSourceDefinition } from "./source-capture.js"
 export type {
   BackendContext,
   ExecBackend,

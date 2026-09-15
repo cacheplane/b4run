@@ -327,8 +327,12 @@ const EXPECTED_REQUIRED_CONTRACT_KEYS = [
   "@b4run/testing#.:writeFixtures",
   "@b4run/workspace#./node:LocalExecOptions",
   "@b4run/workspace#./node:LocalFilesystemOptions",
+  "@b4run/workspace#./node:captureWorkspaceSource",
+  "@b4run/workspace#./node:createSourceBundle",
   "@b4run/workspace#./node:localExec",
   "@b4run/workspace#./node:localFilesystem",
+  "@b4run/workspace#./node:readSourceFile",
+  "@b4run/workspace#./node:verifySourceBundle",
   "@b4run/workspace#.:BackendContext",
   "@b4run/workspace#.:ExecBackend",
   "@b4run/workspace#.:FilesystemBackend",
@@ -337,6 +341,9 @@ const EXPECTED_REQUIRED_CONTRACT_KEYS = [
   "@b4run/workspace#.:SandboxPolicy",
   "@b4run/workspace#.:SandboxProvider",
   "@b4run/workspace#.:SandboxSecurityPolicy",
+  "@b4run/workspace#.:SourceBundle",
+  "@b4run/workspace#.:SourceFileInput",
+  "@b4run/workspace#.:WorkspaceSourceDefinition",
   "@b4run/workspace#.:compose",
 ] as const
 
@@ -1061,7 +1068,7 @@ describe("package catalog", { timeout: 30_000 }, () => {
 
   it("registers every authored high-value signature contract exactly once", () => {
     expect(API_REQUIRED_CONTRACT_KEYS).toEqual(EXPECTED_REQUIRED_CONTRACT_KEYS)
-    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(106)
+    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(113)
     expect(new Set(API_REQUIRED_CONTRACT_KEYS).size).toBe(API_REQUIRED_CONTRACT_KEYS.length)
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/sdk#.:agent")
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/memory#.:MemoryStore")

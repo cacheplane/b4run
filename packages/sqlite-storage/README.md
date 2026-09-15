@@ -25,6 +25,9 @@ export const threadsStore = createThreadsStore({ path: ".b4/threads.sqlite" })
 
 SQLite is a local process-oriented default. Use shared persistence when multiple application instances must observe the same checkpoints or threads.
 
+Workspace source-bundle persistence is currently an internal connection-level
+component. No managed workspace lifecycle store is exported by this package yet.
+
 ## Related
 
 - [SQLite Storage API reference](https://b4.run/docs/api/sqlite-storage) — exact checkpoint and thread-store contracts.

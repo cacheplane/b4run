@@ -10,3 +10,11 @@
 
 export { type LocalExecOptions, localExec } from "./local-exec.js"
 export { type LocalFilesystemOptions, localFilesystem } from "./local-filesystem.js"
+export {
+  createSourceBundle,
+  readSourceFile,
+  type SourceBundle,
+  type SourceFileInput,
+  verifySourceBundle,
+} from "./source-bundle.js"
+export { captureWorkspaceSource, type WorkspaceSourceDefinition } from "./source-capture.js"
