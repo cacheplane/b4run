@@ -49,7 +49,7 @@
   },
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",
-    "@types/node": "26.1.2",
+    "@types/node": "26.5.1",
     "vite": "6.4.3",
     "zod": "4.4.3"
   }
