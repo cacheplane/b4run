@@ -113,7 +113,10 @@ async function materializeAgent(
     readonly subagentResolver?: SubagentResolver
   } = {},
 ): Promise<AgentLike> {
+  // Converted tools capture middleware context, including request-specific
+  // identity and authorization. Never read or seed the shared cache with it.
   const bypassCache =
+    opts.middlewareContext !== undefined ||
     opts.subagentResolver !== undefined ||
     opts.bypassCache === true ||
     (opts.streamTransformers?.length ?? 0) > 0
