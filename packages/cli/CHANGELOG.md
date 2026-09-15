@@ -1,5 +1,21 @@
 # @dawn-ai/cli
 
+## 0.8.35
+
+### Patch Changes
+
+- 89a5958: Ship a checked-in b4 launcher so workspace installations create the command link before the CLI build output exists.
+- Updated dependencies [89a5958]
+  - @b4run/workspace@0.8.35
+  - @b4run/core@0.8.35
+  - @b4run/langchain@0.8.35
+  - @b4run/sqlite-storage@0.8.35
+  - @b4run/memory@0.8.35
+  - @b4run/ag-ui@0.8.35
+  - @b4run/langgraph@0.8.35
+  - @b4run/permissions@0.8.35
+  - @b4run/sdk@0.8.35
+
 ## 0.8.34
 
 ### Patch Changes
