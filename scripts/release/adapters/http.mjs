@@ -114,6 +114,34 @@ async function get(context, request, bodyType) {
       deadline.dispose()
     }
   }
+  // Release downloads opt into fully consuming error/redirect bodies. Only a
+  // bounded read reaching EOF proves settlement; cancellation does not.
+  const boundedDownload = bodyType === "binary" && request.settleDownloadErrors === true
+  if (boundedDownload && ((httpStatus >= 300 && httpStatus < 400) || httpStatus >= 500)) {
+    try {
+      if (declaredLength !== null && !/^(?:0|[1-9][0-9]*)$/u.test(declaredLength)) {
+        safelyCancelBody(responseBody)
+        return transportError(httpStatus, "MALFORMED_RESPONSE")
+      }
+      if (declaredLength !== null && BigInt(declaredLength) > BigInt(maxResponseBytes)) {
+        safelyCancelBody(responseBody)
+        return transportError(httpStatus, "RESPONSE_TOO_LARGE")
+      }
+      const bytes = await readBoundedBody(responseBody, maxResponseBytes, deadline)
+      return httpStatus >= 500
+        ? transportSuccess(httpStatus, responseHeaders, {
+            bodyBytes: bytes.byteLength,
+          })
+        : transportError(httpStatus, "REDIRECT", {
+            headers: responseHeaders,
+            bodyBytes: bytes.byteLength,
+          })
+    } catch (error) {
+      return transportError(httpStatus, bodyReadCode(error, deadline))
+    } finally {
+      deadline.dispose()
+    }
+  }
   if (httpStatus >= 300 && httpStatus < 400) {
     await safelyCancelBody(responseBody)
     deadline.dispose()

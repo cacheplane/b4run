@@ -114,8 +114,9 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for the Paper Relay root introduction and historical demo destination.
 // Repinned for provider-owned workspace dependency ordering and sealed B4 receipt history.
 // Repinned for observation receipts retaining the sealed publication order.
+// Repinned for bounded detection reads, verified queued runs, and ordinary-push no-ops.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "73e8f69a96af306537982585bbab71547a540f85b054dec9a4da5c168295bd1d"
+  "0dc28c04432e7438fe1a0266f5eadb468adabf80e43ec04b0090b3d16e450d2a"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
