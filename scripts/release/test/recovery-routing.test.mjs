@@ -784,5 +784,65 @@ test("release inventory allowance does not enlarge unrelated asset inventory rea
     return { status: "PRESENT", value: [{ name: "notes", metadata: "x".repeat(1024 * 1024) }] }
   }
   await assert.rejects(route(r), /snapshot byte limit/)
-  assert.equal(reads, 1)
+  assert.equal(reads, 4)
+})
+
+test("historical ownership inventory reads use bounded concurrency and drain failures", async () => {
+  for (const fail of [false, true]) {
+    let active = 0
+    let peak = 0
+    let calls = 0
+    const github = {
+      async listReleaseAssets() {
+        const index = calls++
+        active++
+        peak = Math.max(peak, active)
+        await new Promise((resolve) => setTimeout(resolve, index === 0 ? 1 : 10))
+        active--
+        if (fail && index === 0) throw new Error("inventory unavailable")
+        return { status: "PRESENT", value: [] }
+      },
+    }
+    const operation = routing.discoverRecoveryReleaseCandidates({
+      github,
+      releaseRecords: Array.from({ length: 9 }, (_, i) => ({
+        id: i + 1,
+        draft: false,
+        body: "",
+      })),
+    })
+    if (fail) await assert.rejects(operation, /inventory unavailable/)
+    else assert.equal((await operation).size, 0)
+    assert.ok(peak > 1 && peak <= 4, `peak ${peak}`)
+    assert.equal(active, 0)
+    assert.equal(calls, fail ? 4 : 9)
+  }
+})
+
+test("historical recovery ownership order is independent of inventory completion order", async () => {
+  const r = await recoveryRemote()
+  const releases = [1, 2, 3, 4].map((id) => ({
+    id,
+    draft: false,
+    tag_name: "lost",
+    name: "lost",
+    body: renderRecoveryReleaseBody({
+      marker: { ...r.marker, candidate: { ...r.marker.candidate, releaseId: String(id) } },
+      body: "notes",
+    }),
+  }))
+  const finished = []
+  const github = {
+    async listReleaseAssets({ releaseId }) {
+      await new Promise((resolve) => setTimeout(resolve, releaseId === 1 ? 20 : 1))
+      finished.push(releaseId)
+      return { status: "PRESENT", value: [] }
+    },
+  }
+  const result = await routing.discoverRecoveryReleaseCandidates({
+    github,
+    releaseRecords: releases,
+  })
+  assert.notEqual(finished[0], 1)
+  assert.deepEqual([...result.keys()], ["1", "2", "3", "4"])
 })

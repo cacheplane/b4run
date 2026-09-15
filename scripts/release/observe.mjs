@@ -278,6 +278,15 @@ export async function resolveProductionCandidate({
     if (exact.candidate !== null && exact.candidate.commitSha !== invocation.ref) {
       throw new Error("Production candidate identity does not match the exact invocation ref")
     }
+    if (
+      invocation.expectedVersion === null &&
+      exact.candidate === null &&
+      exact.state === "NO_CANDIDATE" &&
+      exact.disposition === "noop" &&
+      exact.conflicts.length === 0 &&
+      (await unchangedReleaseMaintenanceInputs(git, invocation.ref))
+    )
+      return deepFreeze(exact)
     const global = normalizeProductionCandidateSelection(await discoverScheduled())
     if (
       invocation.expectedVersion !== null &&
@@ -324,6 +333,54 @@ export async function resolveProductionCandidate({
     if (recovery !== null) normalized = normalizeProductionCandidateSelection(recovery)
   }
   return deepFreeze(normalized)
+}
+
+// Compare immutable first-parent trees, including modes and deletions. An
+// unavailable or malformed comparison never suppresses global reconciliation.
+async function unchangedReleaseMaintenanceInputs(git, ref) {
+  try {
+    const parent = await git.firstParent(ref)
+    if (!isSha(parent) || parent === ref) return false
+    const trees = await Promise.all([
+      git.listTreeEntries({ ref }),
+      git.listTreeEntries({ ref: parent }),
+    ])
+    const maintenance = trees.map((tree) => {
+      if (typeof tree !== "string" || tree.length === 0 || !tree.endsWith("\0"))
+        throw new Error("Incomplete git tree")
+      const seen = new Set()
+      const entries = []
+      for (const entry of tree.slice(0, -1).split("\0")) {
+        const match =
+          /^(100644|100755|120000|160000) (blob|commit) ([0-9a-f]{40})\t([^\0]+)$/u.exec(entry)
+        if (!match || (match[1] === "160000") !== (match[2] === "commit"))
+          throw new Error("Malformed git tree")
+        const path = match[4]
+        if (
+          path.startsWith("/") ||
+          path.split("/").some((part) => !part || part === "." || part === "..") ||
+          seen.has(path)
+        )
+          throw new Error("Malformed git path")
+        seen.add(path)
+        // Regular prose and pending changeset notes do not steer maintenance.
+        // Executable/symlink Markdown remains an input, including mode changes.
+        if (match[1] === "100644" && /^(?:[^/]+|\.changeset\/[^/]+)\.md$/u.test(path)) continue
+        // Root configuration, dependency manifests, local actions, scripts,
+        // recovery intents and terminal records remain maintenance triggers.
+        if (
+          !path.includes("/") ||
+          /^(?:scripts|\.github|\.changeset|patches)\//u.test(path) ||
+          /(?:^|\/)(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc)$/u.test(path)
+        )
+          entries.push(entry)
+      }
+      return entries.sort().join("\0")
+    })
+    return trees.length === 2 && maintenance[0] === maintenance[1]
+  } catch {
+    return false
+  }
 }
 
 function matchesCurrentVersionNoCandidateInventory(value, expectedVersion) {
@@ -4471,6 +4528,56 @@ async function observeProductionPublicationHistory({
 
   let started = false
   for (const run of runs) {
+    const unstartedFirstAttempt =
+      run.runAttempt === 1 &&
+      run.conclusion === null &&
+      ["queued", "pending", "requested"].includes(run.status)
+    const matchesUnstartedRun = (result) =>
+      result.status === "PRESENT" &&
+      result.value?.id === run.id &&
+      result.value.run_attempt === 1 &&
+      result.value.head_sha === candidate.commitSha &&
+      result.value.path === candidate.publisherWorkflow &&
+      result.value.head_branch === `v${candidate.version}` &&
+      result.value.status === run.status &&
+      result.value.conclusion === null
+    if (unstartedFirstAttempt) {
+      const readRun = () =>
+        observeAdapter(() => github.getActionsRun({ runId: run.id }), {
+          source: "github",
+          operation: "actions-run",
+          payloadKey: "value",
+          diagnostics,
+        })
+      const before = await readRun()
+      const empty = await observeAdapter(
+        () =>
+          github.listActionsRunJobsComplete({ runId: run.id }, { allowEmptyFirstAttempt: true }),
+        {
+          source: "github",
+          operation: "actions-run-jobs-complete",
+          payloadKey: "value",
+          diagnostics,
+        },
+      )
+      const after = await readRun()
+      if (
+        !matchesUnstartedRun(before) ||
+        !matchesUnstartedRun(after) ||
+        empty.status !== "PRESENT" ||
+        !Array.isArray(empty.value)
+      ) {
+        addDiagnostic(
+          diagnostics,
+          "github",
+          "publisher-jobs",
+          "AMBIGUOUS",
+          "PUBLISHER_JOB_HISTORY_INVALID",
+        )
+        return { started: false, ambiguous: true }
+      }
+      if (empty.value.length === 0) continue
+    }
     const jobsResult = await observeAdapter(() => github.listActionsRunJobs({ runId: run.id }), {
       source: "github",
       operation: "actions-run-jobs",

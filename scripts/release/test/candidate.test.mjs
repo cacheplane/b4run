@@ -531,7 +531,10 @@ test("scheduled discovery blocks an unclassifiable controller envelope on an opa
   )
   assert.deepEqual(
     github.calls.filter(([operation]) => operation === "listReleaseAssets"),
-    [["listReleaseAssets", 99]],
+    [
+      ["listReleaseAssets", 99],
+      ["listReleaseAssets", 21],
+    ],
   )
 })
 

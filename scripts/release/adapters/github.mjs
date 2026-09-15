@@ -166,13 +166,17 @@ export function createGitHubReader({
     },
     async listActionsRunJobsComplete(args, options = {}) {
       exactArguments(args, ["runId"])
-      const raw = await readPaginated(recoveryContext(context, options), {
+      const { allowEmptyFirstAttempt = false, ...requestOptions } = options
+      if (typeof allowEmptyFirstAttempt !== "boolean")
+        throw new TypeError("Invalid empty first-attempt option")
+      const raw = await readPaginated(recoveryContext(context, requestOptions), {
         initialUrl: `${base}/actions/runs/${normalizeId(args.runId)}/jobs?filter=all&per_page=100`,
         operation: "actions-run-jobs-complete",
         extract: objectArray("jobs"),
         compare: compareRunAttemptThenId,
         strictTotal: true,
       })
+      if (allowEmptyFirstAttempt && raw.status === "PRESENT" && raw.value.length === 0) return raw
       const normalized = normalizeAllAttemptJobs(raw)
       if (normalized.status !== "PRESENT") return normalized
       for (const job of normalized.value) {
@@ -679,15 +683,40 @@ async function readJson(
 
 async function readBinary(context, { url, operation, maximumBytes, accept }) {
   const budget = createOperationBudget(context, maximumBytes)
-  const firstRequest = remainingRequestBudget(budget)
-  if (firstRequest === null) {
-    return failure("AMBIGUOUS", operation, null, "TIMEOUT")
+  const retryReleaseDownload = operation === "release-asset-download"
+  let retriesRemaining = 2
+  const download = async (downloadUrl, headers) => {
+    while (true) {
+      if (budget.remainingBytes <= 0)
+        return {
+          status: "ERROR",
+          httpStatus: null,
+          code: "RESPONSE_TOO_LARGE",
+        }
+      const request = remainingRequestBudget(budget)
+      if (request === null) return { status: "ERROR", httpStatus: null, code: "TIMEOUT" }
+      const result = await context.http.getBinary({
+        url: downloadUrl,
+        headers,
+        ...request,
+        ...(retryReleaseDownload ? { settleDownloadErrors: true } : {}),
+      })
+      if (Number.isSafeInteger(result.bodyBytes)) budget.remainingBytes -= result.bodyBytes
+      if (
+        !(
+          retryReleaseDownload &&
+          result.status === "HTTP_ERROR" &&
+          result.httpStatus >= 500 &&
+          result.httpStatus <= 599 &&
+          result.headers?.rateLimitRemaining !== "0" &&
+          retriesRemaining > 0
+        )
+      )
+        return result
+      retriesRemaining -= 1
+    }
   }
-  const result = await context.http.getBinary({
-    url,
-    headers: requestHeaders(context.token, accept),
-    ...firstRequest,
-  })
+  const result = await download(url, requestHeaders(context.token, accept))
   if (result.code === "RESPONSE_TOO_LARGE") {
     return failure("ERROR", operation, result.httpStatus, "OPERATION_TOO_LARGE")
   }
@@ -699,15 +728,7 @@ async function readBinary(context, { url, operation, maximumBytes, accept }) {
     if (signedUrl === null) {
       return failure("ERROR", operation, result.httpStatus, "UNSAFE_DOWNLOAD_URL")
     }
-    const secondRequest = remainingRequestBudget(budget)
-    if (secondRequest === null) {
-      return failure("AMBIGUOUS", operation, null, "TIMEOUT")
-    }
-    const downloaded = await context.http.getBinary({
-      url: signedUrl,
-      headers: {},
-      ...secondRequest,
-    })
+    const downloaded = await download(signedUrl, {})
     if (downloaded.code === "RESPONSE_TOO_LARGE") {
       return failure("ERROR", operation, downloaded.httpStatus, "OPERATION_TOO_LARGE")
     }

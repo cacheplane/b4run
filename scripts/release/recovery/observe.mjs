@@ -1425,8 +1425,7 @@ export async function discoverRecoveryReleaseCandidates(input) {
   const releases = snapshotRecoveryData(releaseRecords, RELEASE_INVENTORY_BYTES)
   requireThat(Array.isArray(releases), "release discovery unavailable")
   const context = readerContext({ github })
-  const ownership = new Map()
-  for (const release of releases) {
+  const inspect = async (release) => {
     let assets
     if (release.draft === false) {
       assets = await context.read("listReleaseAssets", {
@@ -1439,8 +1438,7 @@ export async function discoverRecoveryReleaseCandidates(input) {
           final.candidate.releaseId === String(release.id),
           "finalization Release ID differs",
         )
-        ownership.set(String(release.id), final.candidate)
-        continue
+        return [String(release.id), final.candidate]
       }
     }
     let bodyIdentity = null
@@ -1454,8 +1452,7 @@ export async function discoverRecoveryReleaseCandidates(input) {
         bodyIdentity.releaseId === String(release.id),
         "recovery marker Release ID differs",
       )
-      ownership.set(String(release.id), bodyIdentity)
-      continue
+      return [String(release.id), bodyIdentity]
     }
     assets ??= await context.read("listReleaseAssets", {
       releaseId: release.id,
@@ -1475,7 +1472,7 @@ export async function discoverRecoveryReleaseCandidates(input) {
           throw new TypeError("Unsupported recovery/legacy marker blocks routing")
         }
       }
-      continue
+      return null
     }
     const identities = []
     for (const ref of normalizeRecoveryAssetInventory(
@@ -1494,7 +1491,17 @@ export async function discoverRecoveryReleaseCandidates(input) {
     )
     for (const identity of identities)
       same(identity, identities[0], "mixed opaque recovery identities")
-    ownership.set(String(release.id), identities[0])
+    return [String(release.id), identities[0]]
+  }
+  const ownership = new Map()
+  // Small fixed batches preserve input ordering and drain every started read
+  // before exposing failure. Never infer ownership from display or tags alone.
+  for (let offset = 0; offset < releases.length; offset += 4) {
+    const batch = await Promise.allSettled(releases.slice(offset, offset + 4).map(inspect))
+    for (const result of batch) {
+      if (result.status === "rejected") throw result.reason
+      if (result.value !== null) ownership.set(...result.value)
+    }
   }
   return ownership
 }
