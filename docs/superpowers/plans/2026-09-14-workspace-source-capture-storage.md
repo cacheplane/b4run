@@ -1,6 +1,6 @@
 # Workspace Source Capture and Storage Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Capture explicitly declared app files as immutable source bundles and persist/retrieve those bundles in SQLite after the checkout disappears.
 
@@ -70,7 +70,9 @@ a trusted app tree, not an agent-writable directory. No provider runs until a
 successful immutable capture is persisted.
 
 Bound traversal using opendir iteration (not unbounded recursive readdir): at most
-10,000 visited entries including directories, path/segment limits from bundles,
+10,000 unique inspected filesystem paths across the whole capture, including
+appRoot, source/exclusion directories, referenced files and their ancestors (shared
+paths count once), path/segment limits from bundles,
 10,000 resulting files, 16 MiB per file and 64 MiB total. Reject sizes before
 allocating; read at most the verified size plus a one-byte growth probe, never
 unbounded readFile on a mutable file. Check abort before IO and during traversal/
@@ -123,14 +125,14 @@ Files: create source-capture.ts, test/source-capture.test.ts; optionally create
 internal source-validation.ts and update source-bundle.ts to reuse it. Modify
 workspace/src/node.ts for Node exports and workspace/src/index.ts for types only.
 
-- [ ] Add failing capture tests: exact files/BOM/binary/modes, generated text and
+- [x] Add failing capture tests: exact files/BOM/binary/modes, generated text and
   external declared TASK.md, appRoot-relative resolution with changed cwd, strict
   missing/extra inventory, exclusions, traversal, links at every level, special
   files, descriptor conflicts, abort, limits, and detected mutation.
-- [ ] Observe RED with `pnpm --filter @b4run/workspace exec vitest run test/source-capture.test.ts`.
-- [ ] Implement bounded capture; add tests showing snapshot independence after
+- [x] Observe RED with `pnpm --filter @b4run/workspace exec vitest run test/source-capture.test.ts`.
+- [x] Implement bounded capture; add tests showing snapshot independence after
   changing/removing original source, plus descriptor rejection before IO.
-- [ ] Run capture and existing bundle tests, then the workspace package suite,
+- [x] Run capture and existing bundle tests, then the workspace package suite,
   typecheck, and scoped Biome. Report exact results; do not commit other work.
 
 ## Task 2: Source-table implementation
@@ -139,32 +141,70 @@ Files: create sqlite-storage/src/workspace/source-store.ts and
 sqlite-storage/test/workspace-source-store.test.ts; root owns package dependency,
 lockfile, changeset, and documentation edits.
 
-- [ ] Add failing SQLite tests: close/reopen retention, idempotent put, tampered
+- [x] Add failing SQLite tests: close/reopen retention, idempotent put, tampered
   payload/key, invalid inputs, oversized stored record, missing lookup with no
   insert, caller rollback, independent migration namespace, FULL requirement,
   future version refusal, and preserved corrupt rows after duplicate put.
-- [ ] Build before running cross-package consumers: `pnpm build` after root adds
+- [x] Build before running cross-package consumers: `pnpm build` after root adds
   dependency/Node exports and updates the lockfile. Do not consume stale dist.
-- [ ] Observe RED, implement table component with prepared SQL and savepoints,
+- [x] Observe RED, implement table component with prepared SQL and savepoints,
   rerun focused tests, then package suite/typecheck/scoped lint.
 
 ## Task 3: Cross-package verification and review
 
-- [ ] Add an integration test in sqlite-storage that captures a temporary declared
+- [x] Add an integration test in sqlite-storage that captures a temporary declared
   source, saves it, closes the DB, removes the source tree, reopens the DB, and
   reads exact original bytes. Use the supported workspace Node import.
-- [ ] Root updates package READMEs to document the supported source capture
+- [x] Root updates package READMEs to document the supported source capture
   utilities and the internal status of workspace persistence. Add patch changeset
   entries for workspace/sqlite-storage; update pnpm lockfile normally.
-- [ ] Obtain independent spec review, then code-quality review; address findings
+- [x] Obtain independent spec review, then code-quality review; address findings
   with regression tests. Check symlink/TOCTOU claims match actual guarantees.
-- [ ] Run both package suites/typechecks, scoped lint, build-cache check, docs
+- [x] Run both package suites/typechecks, scoped lint, build-cache check, docs
   check, changeset check, and full build. Run full repository validation before
   integrating the completed runtime feature, not as a claim for this partial stage.
-- [ ] Commit reviewed files and record exact results below. Retain pending work
+- [x] Commit reviewed files and record exact results below. Retain pending work
   explicitly: build/config source-artifact integration, durable installation and
   association ownership, providers/runtime, trusted context, and example correction.
 
 ## Results
 
-Pending execution.
+Completed in implementation commit `15adbab1`.
+
+- Capture RED: missing module before implementation. The capture-wide inspection
+  budget regression subsequently failed before its fix (external references could
+  inspect more than 10,000 paths). Exact-boundary and shared-ancestor cases pass.
+- SQLite RED: missing store module before implementation. Canonical stored-JSON
+  regressions produced two failures before rejecting whitespace/duplicate keys.
+- Final workspace suite: **7 files / 163 tests passed**, including 28 capture and
+  96 bundle tests. Final SQLite suite: **6 files / 39 tests passed**, including
+  19 source-store cases. Both package typechecks passed.
+- Cross-package test captured binary source and BOM text, persisted it, closed
+  the database, removed the application tree, and recovered exact bytes after
+  reopening. The source table remains internal; Node capture utilities are exported.
+- API-reference tests: **281 passed, 1 existing skipped** across 2 files. Updated
+  owner tables, checked signatures, required-contract registry and its snapshots.
+- Full repository build and lint passed. Docs completeness, release inventory,
+  build-cache config, whitespace and committed-head changeset checks passed.
+  Offline frozen installation passed with only the intended four-line lockfile
+  dependency addition; unrelated resolver changes were removed.
+- Independent spec and code-quality reviews approved both components and the
+  final public documentation/dependency changes after corrections.
+
+Built-code checks captured and persisted both real code-fixer declarations,
+then closed/reopened the temporary SQLite databases and compared exact bundles:
+
+| Fixture | Files | Decoded bytes | Source digest |
+| --- | --- | --- | --- |
+| cli-flags | 8 | 18,706 | 745a18acbbf656b15fea542f3a545917155d3382400a9a5bd40e0f6fe3eda139 |
+| nullable-inputs | 14 | 46,180 | 333879a1cb8270388ecbde9ec96cfddc28af408e61df5ced829b21d5989d0834 |
+
+Temporary databases were closed and removed. Real fixture sources were not edited.
+These digests use the new binary bundle format and do not replace historical
+prototype/marketing provenance.
+
+Still pending: config/build artifact wiring; installation identity and lifetime
+ownership; association CAS/deletion; provider/runtime integration; trusted tool
+context; code-fixer correction and blueprint distribution. No sandbox/model run,
+full repository CI validation, PR, push, or release was performed for this stage.
+The source-table tests do not qualify runtime ownership or provider recovery.
