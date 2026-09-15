@@ -1,5 +1,12 @@
 # create-dawn-ai-app
 
+## 0.8.32
+
+### Patch Changes
+
+- Updated dependencies [0003db2]
+  - @b4run/devkit@0.8.32
+
 ## 0.8.31
 
 ### Patch Changes
