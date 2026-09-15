@@ -24,7 +24,8 @@ backslashes, controls, malformed Unicode, duplicate paths, and ancestor conflict
 Use NFC-normalized paths and reject input not already NFC; do not silently rename
 files. v1 portable paths use ASCII letters, digits, dot, underscore, hyphen, and
 single spaces within segments; reject leading/trailing segment spaces and trailing dots,
-Windows device-name segments, and case-insensitive collisions. Leading dots are
+Windows device-name segments, and case-insensitive collisions, including inconsistent
+spelling of shared directory prefixes (src/a versus SRC/b). Leading dots are
 valid except the standalone traversal segments `.` and `..`. These restrictions
 are source-bundle portability rules, not thread-ID restrictions.
 

@@ -1,6 +1,6 @@
 # Workspace Source Foundation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Implement and verify an internal, immutable, binary-safe source bundle primitive for the approved managed workspace API.
 
@@ -27,13 +27,13 @@ Design sources: `docs/superpowers/specs/2026-09-14-workspace-implementation-cont
 
 ## Task 1: Canonical construction
 
-- [ ] Add tests importing the new internal source module using `.ts`. Cover order
+- [x] Add tests importing the new internal source module using `.ts`. Cover order
   independence, fixed independently calculated digest vector, exact binary bytes
   (including UTF-8 BOM, NUL, and invalid UTF-8), empty files/source, executable-bit
   identity, and mutation of original input after construction.
-- [ ] Run `pnpm --filter @b4run/workspace exec vitest run test/source-bundle.test.ts`.
+- [x] Run `pnpm --filter @b4run/workspace exec vitest run test/source-bundle.test.ts`.
   Confirm failure is because the new implementation is absent.
-- [ ] Implement this API (internal exports, not package barrel exports):
+- [x] Implement this API (internal exports, not package barrel exports):
 
 ```ts
 interface SourceFileInput {
@@ -60,42 +60,45 @@ function readSourceFile(bundle: SourceBundle, path: string): Uint8Array
   returned plain objects/arrays (no mutable typed arrays retained). Verification
   returns a new canonical frozen bundle after strict shape/base64/digest checks.
   readSourceFile validates bundle integrity and path, fails on missing entry, and
-  returns a fresh decoded byte array. Never coerce malformed fields.
-- [ ] Rerun the focused suite and verify canonical construction cases pass.
+  returns a fresh decoded byte array with independently owned, exactly sized
+  backing memory (never a view of a shared Buffer pool). Never coerce malformed fields.
+- [x] Rerun the focused suite and verify canonical construction cases pass.
 
 ## Task 2: Integrity, portability, and limits
 
-- [ ] Add failing tests for traversal/absolute/backslash/control paths, invalid
+- [x] Add failing tests for traversal/absolute/backslash/control paths, invalid
   Unicode, non-NFC, invalid portable characters, reserved device names, trailing
   dots/spaces, case-insensitive collisions, duplicates, and file/ancestor conflicts
   in either input order. Ancestor comparison is case-insensitive too. Include
-  positive coverage for .gitignore and .config/settings.json.
-- [ ] Add tests for mutated content/digest/mode/path, unknown fields/version,
+  positive coverage for .gitignore and .config/settings.json. Reject inconsistent
+  casing of implicit directory prefixes (src/a versus SRC/b); allow consistently
+  spelled shared directories.
+- [x] Add tests for mutated content/digest/mode/path, unknown fields/version,
   noncanonical or invalid base64, duplicate stored entries, and out-of-order
   stored entries. Serialized input must already be canonical; do not silently
   repair malformed persistence records.
-- [ ] Add bounded-input tests: at most 10,000 entries, 16 MiB per decoded file,
+- [x] Add bounded-input tests: at most 10,000 entries, 16 MiB per decoded file,
   64 MiB total decoded content, 1,024 ASCII bytes per path, and 255 bytes per
   segment. Validate encoded lengths before base64 decoding, and totals before
   creating duplicate buffers. No unbounded JSON parsing API is introduced.
-- [ ] Implement these checks with explicit errors. Do not reject a regular path
+- [x] Implement these checks with explicit errors. Do not reject a regular path
   named node_modules or .git merely because the prototype did; generic bundles
   describe regular files, while baseline/source-link collision policy belongs to
   the subsequent creation-spec validation layer.
-- [ ] Run the focused suite; all new cases must pass. Confirm a changed returned
+- [x] Run the focused suite; all new cases must pass. Confirm a changed returned
   read buffer cannot mutate bundle identity or a subsequent read.
 
 ## Task 3: Review and verification
 
-- [ ] Run `pnpm --filter @b4run/workspace test` and
+- [x] Run `pnpm --filter @b4run/workspace test` and
   `pnpm --filter @b4run/workspace typecheck`.
-- [ ] Run scoped Biome on the two changed TypeScript files using the repository
+- [x] Run scoped Biome on the two changed TypeScript files using the repository
   package's config. Fix only changed files. Run `git diff --check`.
-- [ ] Request independent review of the foundation against the three design
+- [x] Request independent review of the foundation against the three design
   documents, emphasizing malformed persisted input, canonical identity, binary
   preservation, path collisions, and bounded allocations. Address findings with
   regression tests and rerun affected checks.
-- [ ] Record exact results below and commit the source/tests plus updated plan.
+- [x] Record exact results below and commit the source/tests plus updated plan.
   A full repository validation run belongs to the integrated feature; do not
   report this foundation as working workspace lifecycle or a corrected example.
 
@@ -109,4 +112,25 @@ remain separately scoped. Keep the user's code walkthrough before any PR.
 
 ## Results
 
-Pending execution.
+Completed on the existing feature branch. The internal module is not exported
+from a package entry point and is not yet consumed by runtime or application code.
+
+- Implementer observed initial missing-module RED, construction GREEN (3 tests),
+  and subsequent failing portability/integrity cases before implementation.
+- Review regression: inconsistent directory-prefix casing failed before the fix.
+- Review regression: two-byte reads exposed a shared 65,536-byte backing buffer;
+  the new tight-buffer independence test failed before the owned-copy fix.
+- Root independently verified the canonical digest vector with Python SHA256.
+- Final root verification: workspace package suite **6 files / 135 tests passed**,
+  including **96 source-bundle cases**; package typecheck passed.
+- Scoped Biome checked both new TypeScript files without errors or fixes;
+  whitespace check, build-cache configuration check, and docs check passed.
+- Independent spec and code-quality reviews approved after the two fixes.
+- Existing fixture compatibility check: cli-flags declares 8 files / 18,706 bytes;
+  nullable-inputs declares 14 files / 46,180 bytes. This was a host inventory check,
+  not source-capture or provider integration qualification.
+
+No full repository CI, real provider qualification, model calls, public API export,
+application migration, push, or PR occurred in this foundation increment. The
+previous prototype's full validation remains evidence for that earlier revision,
+not for the new integrated feature, which is still pending.
