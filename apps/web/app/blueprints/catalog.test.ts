@@ -6,16 +6,17 @@ describe("shipped blueprint catalog", () => {
     expect(validateBlueprints()).toEqual([])
   })
 
-  it("ships the four exemplars across three categories", () => {
+  it("ships the exemplars and code-fixer agent across four categories", () => {
     const all = loadBlueprints()
     expect(all.map((e) => e.meta.name).sort()).toEqual([
+      "code-fixer",
       "docker",
       "opentelemetry",
       "pgvector",
       "pinecone",
     ])
     expect(new Set(all.map((e) => e.meta.category))).toEqual(
-      new Set(["observability", "retrieval", "deploy"]),
+      new Set(["agents", "observability", "retrieval", "deploy"]),
     )
   })
 
