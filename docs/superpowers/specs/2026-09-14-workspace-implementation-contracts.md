@@ -106,8 +106,14 @@ transaction is claimed across B4, the service, and filesystem mutations.
 
 A separate local admission database holds a lifetime exclusive writer transaction,
 so different workspace-state transactions and concurrent threads remain usable.
-Canonicalize the state location. Missing state with existing admission identity,
-or inconsistent installation identity, fails closed. Guard release occurs only
+Canonicalize the state location. Admission metadata records an initializing or
+ready phase. Valid initializing metadata may resume missing or empty state because
+no runtime has yet been admitted; state identity and all initial schemas commit
+atomically before admission becomes ready. Missing state with ready admission
+metadata, or inconsistent installation identity, fails closed. Every admission
+metadata commit releases the SQLite writer lock: reacquire it and reload metadata
+before any further state mutation or returning an owner. Losing reacquisition
+fails safely; it never grants permission to continue unlocked. Guard release occurs only
 after runtime work settles. Multiple hosts, network-filesystem locking, replicas,
 and silent recovery from whole state-directory loss are unsupported initially.
 Custom database-backed thread/checkpoint stores do not imply those deployments
