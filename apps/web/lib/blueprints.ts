@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import matter from "gray-matter"
 import { WEB_CONTENT_ROOT_ENV, webContentRoot } from "./content-root"
 
-export const ALLOWED_CATEGORIES = ["observability", "retrieval", "deploy"] as const
+export const ALLOWED_CATEGORIES = ["agents", "observability", "retrieval", "deploy"] as const
 export type BlueprintCategory = (typeof ALLOWED_CATEGORIES)[number]
 export type BlueprintSource = "official" | "maintainer" | "community"
 

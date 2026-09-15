@@ -74,11 +74,16 @@ cleanup. See [WALKTHROUGH.md](./WALKTHROUGH.md) for the boundaries. Maintainer
 fixture qualification runs only checked-in historical code; submitted repairs
 always execute in the isolated verifier.
 
-## Blueprint distribution
+## Standalone installation
 
-The `b4 add code-fixer` guide is not yet published. The
-[draft installation guide](../BLUEPRINT.md) describes the intended installation
-and the remaining release checks. Publication requires a verified source revision,
-a compatible published B4 release, and successful standalone qualification.
-Until then, run this checkout using the commands above. This app's passing tests
-do not establish that a registry installation works.
+```sh
+b4 add code-fixer
+```
+
+This prints the [installation blueprint](../BLUEPRINT.md) for your coding agent
+to apply. It uses a qualified source commit and published B4 0.8.32 packages,
+then verifies the installed app with unit tests, deterministic replays and Docker
+approval checks. It defaults to a sibling app when existing sandbox or permission
+settings conflict. Review the proposed files and preserve your existing app settings.
+
+Use the monorepo commands above when contributing to this checkout.
