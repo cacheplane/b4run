@@ -130,6 +130,9 @@ async function* normalizeB4Stream(
       case "chunk":
         yield {
           type: "token",
+          ...("messageId" in chunk && typeof chunk.messageId === "string"
+            ? { messageId: chunk.messageId }
+            : {}),
           data: typeof chunk.data === "string" ? chunk.data : String(chunk.data ?? ""),
         }
         break

@@ -96,6 +96,7 @@ This subpath exposes package metadata as JSON for tooling. It has no TypeScript 
 export interface AgentStreamChunk {
   readonly type: "token" | "tool_call" | "tool_result" | "interrupt" | "done" | (string & {})
   readonly data: unknown
+  readonly messageId?: string
 }
 ```
 
@@ -104,6 +105,13 @@ export interface AgentStreamChunk {
 |---|---|---|---|
 | `readonly type` | `"token" \| "tool_call" \| "tool_result" \| "interrupt" \| "done" \| (string & {})` | yes | Identify the chunk kind. |
 | `readonly data` | `unknown` | yes | Carry the chunk payload. |
+| `readonly messageId` | `string` | no | Identify the source model invocation for text tokens within this stream. |
+
+Text token data remains a string. Non-subagent model text carries `messageId`
+from its model invocation; a `message_end` chunk with `{ messageId }` follows
+that model's text before any same-model tool announcements. Models that emit no
+text produce no completion chunk. This preserves independent text framing for
+concurrent nested models. Invocation identity is not replay deduplication.
 
 ```ts api-contract="@b4run/langchain#.:RetryOptions"
 export interface RetryOptions {

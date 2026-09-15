@@ -132,6 +132,7 @@ describe("capability custom events", () => {
       "has space",
       "chunk",
       "token",
+      "message_end",
       "tool_call",
       "tool_result",
       "interrupt",
@@ -334,7 +335,7 @@ describe("native subagent event projection", () => {
       depth: 2,
     }
     expect(chunks).toEqual([
-      { type: "token", data: "Parent " },
+      { type: "token", data: "Parent ", messageId: "parent-model" },
       { type: "subagent.start", data: childIdentity },
       {
         type: "subagent.message",
@@ -381,7 +382,7 @@ describe("native subagent event projection", () => {
       { type: "done", data: { root: true } },
     ])
     expect(chunks.filter(({ type }) => type === "token")).toEqual([
-      { type: "token", data: "Parent " },
+      { type: "token", data: "Parent ", messageId: "parent-model" },
     ])
     expect(chunks.filter(({ type }) => type === "tool_call")).toHaveLength(1)
     expect(chunks.filter(({ type }) => type === "tool_result")).toHaveLength(1)
@@ -431,7 +432,7 @@ describe("native subagent event projection", () => {
     }
 
     expect(chunks).toEqual([
-      { type: "token", data: "root token" },
+      { type: "token", data: "root token", messageId: "model" },
       { type: "plan_update", data: { todos: ["root"] } },
       { type: "done", data: undefined },
     ])

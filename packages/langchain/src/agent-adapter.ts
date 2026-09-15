@@ -231,9 +231,12 @@ export async function materializeAgentGraph(options: {
   })
 }
 
+/** An agent event; text tokens may identify their originating model invocation. */
 export interface AgentStreamChunk {
   readonly type: "token" | "tool_call" | "tool_result" | "interrupt" | "done" | (string & {})
   readonly data: unknown
+  /** Model invocation identity for text tokens, scoped to this stream. */
+  readonly messageId?: string
 }
 
 interface CapabilityEventPayload {
@@ -275,6 +278,8 @@ interface SubagentToolRunContexts {
 }
 
 interface RootToolProjectionState {
+  /** Model invocations with open text output. */
+  readonly textModelRunIds: Set<string>
   /** Logical/fallback ids whose root tool_call chunk was already emitted this stream. */
   readonly announcedToolCallIds: Set<string>
   /** Root on_tool_start data awaiting resolution at on_tool_end, keyed by execution run id. */
@@ -291,6 +296,7 @@ const CAPABILITY_EVENT_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z0-9][A
 const RESERVED_ROOT_EVENT_NAMES = new Set([
   "chunk",
   "token",
+  "message_end",
   "tool_call",
   "tool_result",
   "interrupt",
@@ -454,13 +460,14 @@ function classifyStreamEvent(
     case "on_chat_model_stream": {
       const content = (event.data.chunk as { content?: unknown })?.content
       if (typeof content !== "string" || content.length === 0) break
+      if (!child) rootTools.textModelRunIds.add(event.run_id)
       return {
         capturesFinalOutput: false,
         child,
         chunks: [
           child
             ? { type: "subagent.message", data: { ...childIdentity(child), chunk: content } }
-            : { type: "token", data: content },
+            : { type: "token", data: content, messageId: event.run_id },
         ],
         finalOutput: undefined,
         interrupts: [],
@@ -483,6 +490,9 @@ function classifyStreamEvent(
       const output = event.data.output as { tool_calls?: unknown } | undefined
       const calls = Array.isArray(output?.tool_calls) ? output.tool_calls : []
       const chunks: AgentStreamChunk[] = []
+      if (rootTools.textModelRunIds.delete(event.run_id)) {
+        chunks.push({ type: "message_end", data: { messageId: event.run_id } })
+      }
       for (const call of calls) {
         if (!isRecord(call)) continue
         const id = typeof call.id === "string" && call.id !== "" ? call.id : undefined
@@ -1035,6 +1045,7 @@ async function* streamFromRunnable(
       emittedInterruptIds = new Set()
       const subagentToolRuns: SubagentToolRunContexts = { contextsByToolRunId: new Map() }
       const rootTools: RootToolProjectionState = {
+        textModelRunIds: new Set(),
         announcedToolCallIds: new Set(),
         heldRootToolStarts: new Map(),
       }
