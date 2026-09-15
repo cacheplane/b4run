@@ -3537,7 +3537,8 @@ function createObservedNpmEvidence({ candidate, manifest, registryPackages, publ
   const entries = new Map(manifest.packages.map((entry) => [entry.name, entry]))
   const observed = new Map(registryPackages.map((pkg) => [pkg.name, pkg]))
   const packages = []
-  for (const name of CANONICAL_RELEASE_PACKAGE_ORDER) {
+  // Receipts reproduce the validated sealed manifest, not today's build topology.
+  for (const name of manifest.packageOrder) {
     const entry = entries.get(name)
     const pkg = observed.get(name)
     if (
