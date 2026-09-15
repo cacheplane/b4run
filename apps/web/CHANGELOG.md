@@ -1,5 +1,11 @@
 # @dawn-ai/web
 
+## 0.0.12
+
+### Patch Changes
+
+- @b4run/sdk@0.8.33
+
 ## 0.0.11
 
 ### Patch Changes

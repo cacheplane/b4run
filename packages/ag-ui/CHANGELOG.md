@@ -1,5 +1,14 @@
 # @dawn-ai/ag-ui
 
+## 0.8.33
+
+### Patch Changes
+
+- a239527: Keep concurrent nested model output in separate AG-UI assistant messages. Carry
+  model invocation identity through runtime tokens and live-turn snapshots, and
+  close each message when its model finishes. Legacy anonymous tokens and raw SSE
+  string payloads remain supported.
+
 ## 0.8.32
 
 ## 0.8.31

@@ -1,5 +1,12 @@
 # @dawn-ai/sandbox
 
+## 0.8.33
+
+### Patch Changes
+
+- @b4run/sdk@0.8.33
+- @b4run/workspace@0.8.33
+
 ## 0.8.32
 
 ### Patch Changes

@@ -1,5 +1,24 @@
 # @dawn-ai/cli
 
+## 0.8.33
+
+### Patch Changes
+
+- a239527: Keep concurrent nested model output in separate AG-UI assistant messages. Carry
+  model invocation identity through runtime tokens and live-turn snapshots, and
+  close each message when its model finishes. Legacy anonymous tokens and raw SSE
+  string payloads remain supported.
+- Updated dependencies [a239527]
+  - @b4run/langchain@0.8.33
+  - @b4run/ag-ui@0.8.33
+  - @b4run/core@0.8.33
+  - @b4run/langgraph@0.8.33
+  - @b4run/memory@0.8.33
+  - @b4run/permissions@0.8.33
+  - @b4run/sdk@0.8.33
+  - @b4run/sqlite-storage@0.8.33
+  - @b4run/workspace@0.8.33
+
 ## 0.8.32
 
 ### Patch Changes
