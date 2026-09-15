@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, join, resolve } from "node:path"
 
@@ -14,6 +14,19 @@ const LANGGRAPH_PACKAGE_ROOT = resolve(import.meta.dirname, "../..")
 const SDK_PACKAGE_ROOT = resolve(import.meta.dirname, "../../../sdk")
 
 export async function createPackedConsumer(): Promise<PackedConsumer> {
+  // Tests share these artifacts with runtime subprocesses. Build once before
+  // the suite; never force-rebuild them while those processes are importing.
+  for (const packageRoot of [SDK_PACKAGE_ROOT, LANGGRAPH_PACKAGE_ROOT]) {
+    try {
+      await access(join(packageRoot, "dist", "index.js"))
+    } catch (cause) {
+      throw new Error(
+        `Missing built ${basename(packageRoot)} artifacts. Run pnpm build from the repository root before testing.`,
+        { cause },
+      )
+    }
+  }
+
   const tempRoot = await mkdtemp(join(tmpdir(), "b4-langgraph-pack-"))
   const consumerDir = join(tempRoot, "consumer")
 
@@ -22,7 +35,6 @@ export async function createPackedConsumer(): Promise<PackedConsumer> {
     JSON.stringify({ name: "pack-root", private: true }),
   )
 
-  await runCommand("pnpm", ["exec", "tsc", "-b", "tsconfig.json", "--force"], SDK_PACKAGE_ROOT)
   const sdkPackOutput = await runCommand(
     "pnpm",
     ["pack", "--pack-destination", tempRoot],
@@ -30,11 +42,6 @@ export async function createPackedConsumer(): Promise<PackedConsumer> {
   )
   const sdkTarballPath = resolveTarballPath(sdkPackOutput.stdout, tempRoot, "@b4run/sdk")
 
-  await runCommand(
-    "pnpm",
-    ["exec", "tsc", "-b", "tsconfig.json", "--force"],
-    LANGGRAPH_PACKAGE_ROOT,
-  )
   const packOutput = await runCommand(
     "pnpm",
     ["pack", "--pack-destination", tempRoot],

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import { afterEach, describe, expect, test } from "vitest"
@@ -91,10 +91,14 @@ async function runCommand(command: string, args: readonly string[], cwd: string)
 
 async function packPackage(packageName: string, outputDir: string) {
   const repoRoot = resolve(import.meta.dirname, "../../..")
-  const buildResult = await runCommand("pnpm", ["--filter", packageName, "build"], repoRoot)
-
-  if (buildResult.code !== 0) {
-    throw new Error(buildResult.stderr || buildResult.stdout || `Failed to build ${packageName}`)
+  // Pack the validated build without mutating dist while other tests import it.
+  try {
+    await access(join(repoRoot, "packages", basename(packageName), "dist", "index.js"))
+  } catch (cause) {
+    throw new Error(
+      `Missing built ${packageName} artifacts. Run pnpm build from the repository root before testing.`,
+      { cause },
+    )
   }
 
   const packResult = await runCommand(
@@ -173,9 +177,9 @@ describe("b4 typegen", () => {
   })
 
   test("runs from an externally installed b4 bin against a custom appDir", {
-    // This builds and packs ten workspace packages, installs them into a clean
+    // This packs ten prebuilt workspace packages, installs them into a clean
     // consumer, and runs two external CLI processes. Leave headroom for the
-    // repository-wide suite running other package builds concurrently.
+    // repository-wide suite running other subprocess tests concurrently.
     timeout: 120_000,
   }, async () => {
     const installerRoot = await mkdtemp(join(tmpdir(), "b4-cli-packed-installer-"))
