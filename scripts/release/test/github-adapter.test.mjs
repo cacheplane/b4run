@@ -1800,3 +1800,211 @@ test("GitHub compares only exact commit SHAs with a bounded single page", async 
   ])
     assert.throws(() => github.compareCommits(args))
 })
+
+for (const signed of [false, true]) {
+  for (const contentType of ["text/html", "application/json"]) {
+    test(`release binary retry consumes settled ${contentType} 503 at signed=${signed}`, async () => {
+      const responses = [
+        new Response("busy", {
+          status: 503,
+          headers: { "content-type": contentType },
+        }),
+        binaryResponse(new Uint8Array([1, 2])),
+      ]
+      if (signed)
+        responses.unshift(redirectResponse("https://release-assets.githubusercontent.com/a?sig=1"))
+      const calls = []
+      const github = createGitHubReader({
+        owner: OWNER,
+        repo: REPO,
+        token: TOKEN,
+        fetchImpl: async (url, init) => {
+          calls.push({ url, init })
+          return responses.shift()
+        },
+      })
+      assert.equal((await github.downloadReleaseAsset({ assetId: 7 })).contentBase64, "AQI=")
+      assert.equal(calls.length, signed ? 3 : 2)
+      if (signed)
+        for (const call of calls.slice(1)) assert.equal(call.init.headers.Authorization, undefined)
+    })
+  }
+}
+test("complete jobs permit explicitly requested empty inventory only with a verified total", async () => {
+  for (const total of [0, 1, undefined]) {
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      fetchImpl: async () =>
+        jsonResponse({
+          ...(total === undefined ? {} : { total_count: total }),
+          jobs: [],
+        }),
+    })
+    const result = await github.listActionsRunJobsComplete(
+      { runId: 7 },
+      { allowEmptyFirstAttempt: true },
+    )
+    assert.equal(result.status === "PRESENT", total === 0)
+  }
+})
+
+test("release binary retries share cumulative bytes across API, redirect and signed hops", async () => {
+  let calls = 0
+  const responses = [
+    new Response("xx", { status: 503 }),
+    new Response("yy", {
+      status: 302,
+      headers: { location: "https://release-assets.githubusercontent.com/a" },
+    }),
+    new Response("zz", { status: 502 }),
+    binaryResponse(new Uint8Array([1, 2, 3])),
+  ]
+  const github = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    maxResponseBytes: 8,
+    fetchImpl: async () => {
+      calls++
+      return responses.shift()
+    },
+  })
+  assert.equal((await github.downloadReleaseAsset({ assetId: 7 })).code, "OPERATION_TOO_LARGE")
+  assert.equal(calls, 4)
+})
+test("release binary retry allowance is shared across API and signed hops", async () => {
+  let calls = 0
+  const responses = [
+    new Response("busy", { status: 503 }),
+    redirectResponse("https://release-assets.githubusercontent.com/a"),
+    new Response("busy", { status: 502 }),
+    new Response("busy", { status: 503 }),
+    binaryResponse(new Uint8Array([1])),
+  ]
+  const github = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    fetchImpl: async () => {
+      calls++
+      return responses.shift()
+    },
+  })
+  assert.equal((await github.downloadReleaseAsset({ assetId: 7 })).code, "SERVER_ERROR")
+  assert.equal(calls, 4)
+})
+for (const [label, response, code] of [
+  [
+    "auth",
+    () =>
+      new Response("denied", {
+        status: 401,
+        headers: { "content-type": "application/octet-stream" },
+      }),
+    "UNAUTHORIZED",
+  ],
+  [
+    "malformed success",
+    () => new Response("{}", { headers: { "content-type": "application/json" } }),
+    "UNEXPECTED_CONTENT_TYPE",
+  ],
+  ["unsafe redirect", () => redirectResponse("https://evil.example/a"), "UNSAFE_DOWNLOAD_URL"],
+  [
+    "network",
+    () => {
+      throw new Error("network")
+    },
+    "NETWORK_ERROR",
+  ],
+  [
+    "abort",
+    () => {
+      throw new DOMException("aborted", "AbortError")
+    },
+    "ABORTED",
+  ],
+  ["oversized error", () => new Response("x".repeat(17), { status: 503 }), "OPERATION_TOO_LARGE"],
+  [
+    "stalled error and nonsettling cancellation",
+    () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array([1]))
+          },
+          cancel() {
+            return new Promise(() => {})
+          },
+        }),
+        { status: 503, headers: { "content-type": "text/html" } },
+      ),
+    "TIMEOUT",
+  ],
+  [
+    "malformed declared length",
+    () =>
+      new Response("busy", {
+        status: 503,
+        headers: { "content-length": "invalid" },
+      }),
+    "MALFORMED_RESPONSE",
+  ],
+]) {
+  test(`release binary download never retries ${label}`, async () => {
+    let calls = 0
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      timeoutMs: 25,
+      maxResponseBytes: 16,
+      fetchImpl: async () => {
+        calls++
+        return response()
+      },
+    })
+    assert.equal((await github.downloadReleaseAsset({ assetId: 7 })).code, code)
+    assert.equal(calls, 1)
+  })
+}
+test("settled release errors retain the original deadline and Actions downloads never retry", async () => {
+  let now = 0
+  let calls = 0
+  const github = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    timeoutMs: 10,
+    now: () => now,
+    fetchImpl: async () => {
+      calls++
+      now = 10
+      return new Response("busy", { status: 503 })
+    },
+  })
+  assert.equal((await github.downloadReleaseAsset({ assetId: 7 })).code, "TIMEOUT")
+  assert.equal(calls, 1)
+  calls = 0
+  const actions = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    fetchImpl: async () => {
+      calls++
+      return new Response("busy", {
+        status: 503,
+        headers: { "content-type": "application/octet-stream" },
+      })
+    },
+  })
+  assert.equal((await actions.downloadActionsArtifact({ artifactId: 7 })).code, "SERVER_ERROR")
+  assert.equal(calls, 1)
+})
+test("default complete and ordinary jobs normalization still reject empty first attempts", async () => {
+  const github = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    fetchImpl: async () => jsonResponse({ total_count: 0, jobs: [] }),
+  })
+  assert.equal(
+    (await github.listActionsRunJobsComplete({ runId: 7 })).code,
+    "ATTEMPT_COVERAGE_INCOMPLETE",
+  )
+  assert.equal((await github.listActionsRunJobs({ runId: 7 })).code, "ATTEMPT_COVERAGE_INCOMPLETE")
+})

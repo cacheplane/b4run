@@ -5443,3 +5443,263 @@ test("the production observer and resolver both require an explicit terminal rec
     /Terminal record ref is invalid/u,
   )
 })
+
+for (const status of ["queued", "pending", "requested"]) {
+  test(`unstarted first publisher attempt accepts complete empty jobs: ${status}`, async () => {
+    const run = {
+      id: 400,
+      run_attempt: 1,
+      head_sha: COMMIT_SHA,
+      path: candidate().publisherWorkflow,
+      head_branch: `v${VERSION}`,
+      status,
+      conclusion: null,
+    }
+    const calls = []
+    const github = githubReader({
+      async listWorkflowRuns({ workflow }) {
+        return present("workflow-runs", workflow === "ci.yml" ? ciRuns() : [run])
+      },
+      async getActionsRun() {
+        calls.push("run")
+        return present("actions-run", run)
+      },
+      async listActionsRunJobsComplete() {
+        calls.push("jobs")
+        return present("actions-run-jobs-complete", [])
+      },
+    })
+    const { observation, diagnostics } = await observeProductionCandidate({
+      terminalRecordRef: "HEAD",
+      candidate: candidate(),
+      inventory: inventory(),
+      marker: MARKER,
+      git: gitReader(),
+      github,
+      npm: npmReader(),
+    })
+    assert.deepEqual(diagnostics, [])
+    assert.equal(observation.registry.publishJobStarted, false)
+    assert.deepEqual(calls, ["run", "jobs", "run"])
+  })
+}
+test("ordinary no-candidate push skips remote arbitration after immutable maintenance tree proof", async () => {
+  let globalCalls = 0
+  const tree = (sha) =>
+    `100644 blob ${sha}\tapps/web/app/page.tsx\0` +
+    `100644 blob ${PARENT_SHA}\tscripts/release/observe.mjs\0`
+  const result = await resolveProductionCandidate({
+    event: { ref: "refs/heads/main", after: COMMIT_SHA },
+    inventory: { read: async () => inventory() },
+    git: {
+      firstParent: async () => PARENT_SHA,
+      listTreeEntries: async ({ ref }) => tree(ref),
+    },
+    github: {},
+    terminalRecordRef: COMMIT_SHA,
+    discovery: {
+      discoverManagedCandidate: async () => noCandidateSelection(),
+      discoverScheduledCandidate: async () => {
+        globalCalls++
+        return noCandidateSelection()
+      },
+    },
+  })
+  assert.deepEqual(result, noCandidateSelection())
+  assert.equal(globalCalls, 0)
+})
+
+for (const [label, change] of [
+  ["started", { status: "in_progress" }],
+  ["retried", { run_attempt: 2 }],
+  ["completed", { status: "completed", conclusion: "success" }],
+  ["wrong id", { id: 401 }],
+  ["wrong SHA", { head_sha: PARENT_SHA }],
+  ["wrong workflow", { path: ".github/workflows/other.yml" }],
+  ["wrong tag", { head_branch: "main" }],
+]) {
+  test(`empty publisher jobs reject fresh run ${label} before or after jobs`, async () => {
+    for (const driftAt of [1, 2]) {
+      const run = {
+        id: 400,
+        run_attempt: 1,
+        head_sha: COMMIT_SHA,
+        path: candidate().publisherWorkflow,
+        head_branch: `v${VERSION}`,
+        status: "pending",
+        conclusion: null,
+      }
+      let reads = 0
+      const github = githubReader({
+        async listWorkflowRuns({ workflow }) {
+          return present("workflow-runs", workflow === "ci.yml" ? ciRuns() : [run])
+        },
+        async getActionsRun() {
+          return present("actions-run", ++reads === driftAt ? { ...run, ...change } : run)
+        },
+        async listActionsRunJobsComplete() {
+          return present("actions-run-jobs-complete", [])
+        },
+      })
+      const { diagnostics } = await observeProductionCandidate({
+        terminalRecordRef: "HEAD",
+        candidate: candidate(),
+        inventory: inventory(),
+        marker: MARKER,
+        git: gitReader(),
+        github,
+        npm: npmReader(),
+      })
+      assert.ok(diagnostics.some((entry) => entry.code === "PUBLISHER_JOB_HISTORY_INVALID"))
+    }
+  })
+}
+for (const mode of ["unavailable", "nonempty", "started", "retried", "completed"]) {
+  test(`empty publisher exception preserves ${mode} history checks`, async () => {
+    const run = {
+      id: 400,
+      run_attempt: mode === "retried" ? 2 : 1,
+      head_sha: COMMIT_SHA,
+      path: candidate().publisherWorkflow,
+      head_branch: `v${VERSION}`,
+      status: mode === "completed" ? "completed" : mode === "started" ? "in_progress" : "pending",
+      conclusion: mode === "completed" ? "success" : null,
+    }
+    const github = githubReader({
+      async listWorkflowRuns({ workflow }) {
+        return present("workflow-runs", workflow === "ci.yml" ? ciRuns() : [run])
+      },
+      async getActionsRun() {
+        return present("actions-run", run)
+      },
+      async listActionsRunJobsComplete() {
+        return mode === "unavailable"
+          ? envelope("ERROR", "actions-run-jobs-complete", 503, "SERVER_ERROR")
+          : present("actions-run-jobs-complete", [publisherJob({ startedAt: null })])
+      },
+      async listActionsRunJobs() {
+        return present(
+          "actions-run-jobs",
+          mode === "nonempty" ? [publisherJob({ startedAt: null })] : [],
+        )
+      },
+    })
+    const { diagnostics } = await observeProductionCandidate({
+      terminalRecordRef: "HEAD",
+      candidate: candidate(),
+      inventory: inventory(),
+      marker: MARKER,
+      git: gitReader(),
+      github,
+      npm: npmReader(),
+    })
+    assert.equal(
+      diagnostics.some((entry) => entry.code === "PUBLISHER_JOB_HISTORY_INVALID"),
+      mode !== "nonempty",
+    )
+  })
+}
+for (const maintenancePath of [
+  "scripts/release/observe.mjs",
+  "scripts/release/terminal-records/x.json",
+  "scripts/release/recovery-adoptions/x.json",
+  "scripts/release/recovery/policy.json",
+  ".github/workflows/release.yml",
+  ".github/actions/install/action.yml",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  ".npmrc",
+  ".changeset/config.json",
+  "packages/core/package.json",
+  "patches/fix.patch",
+]) {
+  test(`maintenance tree changes preserve global arbitration: ${maintenancePath}`, async () => {
+    for (const kind of ["modified", "added", "deleted", "mode"]) {
+      let calls = 0
+      const entry = (sha, mode = "100644") => `${mode} blob ${sha}\t${maintenancePath}\0`
+      const unchanged = `100644 blob ${PARENT_SHA}\tapps/web/app/page.tsx\0`
+      await resolveProductionCandidate({
+        event: { ref: "refs/heads/main", after: COMMIT_SHA },
+        terminalRecordRef: COMMIT_SHA,
+        inventory: { read: async () => inventory() },
+        git: {
+          firstParent: async () => PARENT_SHA,
+          listTreeEntries: async ({ ref }) =>
+            unchanged +
+            (ref === COMMIT_SHA
+              ? kind === "deleted"
+                ? ""
+                : entry(COMMIT_SHA, kind === "mode" ? "100755" : "100644")
+              : kind === "added"
+                ? ""
+                : entry(kind === "mode" ? COMMIT_SHA : PARENT_SHA)),
+        },
+        discovery: {
+          discoverManagedCandidate: async () => noCandidateSelection(),
+          discoverScheduledCandidate: async () => {
+            calls++
+            return noCandidateSelection()
+          },
+        },
+      })
+      assert.equal(calls, 1)
+    }
+  })
+}
+for (const tree of [
+  null,
+  "",
+  "truncated",
+  `100644 blob ${COMMIT_SHA}\t../scripts/release/observe.mjs\0`,
+  `100644 blob ${COMMIT_SHA}\tx\0`.repeat(2),
+]) {
+  test(`unavailable or malformed maintenance proof preserves discovery ${JSON.stringify(tree)}`, async () => {
+    let calls = 0
+    await resolveProductionCandidate({
+      event: { ref: "refs/heads/main", after: COMMIT_SHA },
+      terminalRecordRef: COMMIT_SHA,
+      inventory: { read: async () => inventory() },
+      git: {
+        firstParent: async () => PARENT_SHA,
+        listTreeEntries: async () => tree,
+      },
+      discovery: {
+        discoverManagedCandidate: async () => noCandidateSelection(),
+        discoverScheduledCandidate: async () => {
+          calls++
+          return noCandidateSelection()
+        },
+      },
+    })
+    assert.equal(calls, 1)
+  })
+}
+
+test("ordinary source, regular changeset notes and root prose keep the no-candidate shortcut", async () => {
+  let calls = 0
+  const paths = [
+    "packages/core/src/example.ts",
+    ".changeset/model-message-framing.md",
+    "README.md",
+    "CONTRIBUTING.md",
+  ]
+  const tree = (sha) => paths.map((path) => `100644 blob ${sha}\t${path}\0`).join("")
+  await resolveProductionCandidate({
+    event: { ref: "refs/heads/main", after: COMMIT_SHA },
+    terminalRecordRef: COMMIT_SHA,
+    inventory: { read: async () => inventory() },
+    git: {
+      firstParent: async () => PARENT_SHA,
+      listTreeEntries: async ({ ref }) => tree(ref),
+    },
+    discovery: {
+      discoverManagedCandidate: async () => noCandidateSelection(),
+      discoverScheduledCandidate: async () => {
+        calls++
+        return noCandidateSelection()
+      },
+    },
+  })
+  assert.equal(calls, 0)
+})
