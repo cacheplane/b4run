@@ -2102,10 +2102,10 @@ test("production observation preserves historical B4 receipt order after topolog
     HISTORICAL_B4_RELEASE_PACKAGE_ORDER,
   )
   assert.equal(recovery.npmEvidence.manifestSha256, escrow.marker.manifestSha256)
-  assert.equal(
-    planRelease({ candidate: candidate(), observation, mode: "controller" }).state,
-    "NPM_COMPLETE",
-  )
+  const plan = planRelease({ candidate: candidate(), observation, mode: "controller" })
+  assert.equal(plan.state, "RELEASE_DRAFT_COMPLETE")
+  assert.equal(plan.nextTransition, "run-release-smokes")
+  assert.deepEqual(plan.conflicts, [])
 })
 
 test("production observation rejects a marker whose npm evidence digest does not match public npm", async () => {

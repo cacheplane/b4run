@@ -424,14 +424,18 @@ test("command shim cannot spawn the requested process until the controller opens
     path.resolve("scripts/release/smoke-command-shim.mjs"),
     descriptorPath,
   ])
+  // Observe exit before opening the gate: the workload can finish while the
+  // gate write promise is settling, especially under the full parallel suite.
+  const completion = new Promise((resolvePromise, rejectPromise) => {
+    child.once("error", rejectPromise)
+    child.once("close", (code, signal) => resolvePromise({ code, signal }))
+  })
+  void completion.catch(() => {})
   try {
     await waitForFile(readyPath)
     await assert.rejects(readFile(workloadPath), (error) => error?.code === "ENOENT")
     await writeFile(gatePath, "go\n", { flag: "wx", mode: 0o600 })
-    const exit = await new Promise((resolvePromise, rejectPromise) => {
-      child.once("error", rejectPromise)
-      child.once("close", (code, signal) => resolvePromise({ code, signal }))
-    })
+    const exit = await completion
     assert.deepEqual(exit, { code: 0, signal: null })
     assert.equal(await readFile(workloadPath, "utf8"), "started\n")
   } finally {
