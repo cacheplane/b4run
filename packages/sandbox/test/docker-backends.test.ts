@@ -68,9 +68,11 @@ describe("dockerFilesystem", () => {
     expect(shCmd).toContain(`"$(dirname '/workspace/new dir/deep/a.txt')"`)
   })
 
-  test("listDir parses ls -1 output", async () => {
+  test("listDir parses null-delimited output", async () => {
     const fs = dockerFilesystem(
-      fakeDocker({ exec: async () => ({ stdout: "a\nb\n", stderr: "", exitCode: 0 }) }),
+      fakeDocker({
+        exec: async () => ({ stdout: "/workspace/a\0/workspace/b\0", stderr: "", exitCode: 0 }),
+      }),
       "c1",
     )
     expect(await fs.listDir("/workspace", ctx)).toEqual(["a", "b"])
@@ -532,5 +534,53 @@ describe("dockerExec timeout", () => {
     await expect(
       exec.runCommand({ command: "echo", env: { "BAD KEY;x": "1" } }, ctx),
     ).rejects.toThrow(/Invalid environment variable name/i)
+  })
+})
+
+describe("workspace byte and metadata fidelity", () => {
+  test("reads binary bytes without UTF-8 conversion and enforces byte limits", async () => {
+    const bytes = Buffer.from([0, 255, 254, 10])
+    const fs = dockerFilesystem(
+      fakeDocker({
+        exec: async () => ({ stdout: bytes.toString("base64"), stderr: "", exitCode: 0 }),
+      }),
+      "c1",
+    )
+    expect(await fs.readBinaryFile?.("/workspace/binary", ctx)).toEqual(bytes)
+    await expect(fs.readBinaryFile?.("/workspace/binary", ctx, { maxBytes: 3 })).rejects.toThrow(
+      "maxBytes",
+    )
+  })
+  test("lists dotfiles and preserves leading spaces and embedded newlines", async () => {
+    const fs = dockerFilesystem(
+      fakeDocker({
+        exec: async () => ({
+          stdout: "/workspace/.gitignore\0/workspace/ space \0/workspace/two\nlines\0",
+          stderr: "",
+          exitCode: 0,
+        }),
+      }),
+      "c1",
+    )
+    expect(await fs.listDir("/workspace", ctx)).toEqual([".gitignore", " space ", "two\nlines"])
+  })
+  test("returns symlink identity without following its target", async () => {
+    let calls = 0
+    const fs = dockerFilesystem(
+      fakeDocker({
+        exec: async () => ({
+          stdout: ++calls === 1 ? "a1ff 7\n" : "../file",
+          stderr: "",
+          exitCode: 0,
+        }),
+      }),
+      "c1",
+    )
+    expect(await fs.lstat?.("/workspace/link", ctx)).toEqual({
+      kind: "symlink",
+      size: 7,
+      executable: true,
+      target: "../file",
+    })
   })
 })

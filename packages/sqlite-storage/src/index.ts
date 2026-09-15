@@ -8,3 +8,9 @@ export type {
   ThreadsStoreOptions,
 } from "./threads/index.js"
 export { createThreadsStore } from "./threads/index.js"
+export type {
+  WorkspaceAssociation,
+  WorkspaceAssociationStore,
+} from "./workspace/association-store.js"
+export { openWorkspaceInstallation, type WorkspaceInstallation } from "./workspace/installation.js"
+export type { WorkspaceSourceStore } from "./workspace/source-store.js"

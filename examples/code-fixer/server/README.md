@@ -1,132 +1,84 @@
-# Runnable code-fixer blueprint
+# Code-fixer B4 app
 
-One readable B4 agent repairs two historical defects. The same route uses a real
-workspace, Docker sandbox, verification skill, plan, and approval-gated tool.
-The [homepage](https://b4.run) shows a real recorded CLI repair.
-[Read the code walkthrough](./WALKTHROUGH.md) to follow the boundaries behind it.
+An ordinary B4 agent repairs a controlled historical defect in a Docker workspace.
+The CLI fixture is the default. The nullable-input fixture remains available for
+harder evaluations. Their original source, reference patches, and recordings are
+historical evidence and are not rewritten to describe this implementation.
 
-The CLI fixture reproduces argument forwarding from PR #399. The nullable-input
-fixture runs the real TypeScript compiler → JSON schema → Zod pipeline from
-PR #573 and its refreshed repair tracked in issue #605. Their manifests pin the
-faulty source revisions, extraction notes, dependency locks, and permitted edits.
-These are controlled historical fixtures, not claims about current defects.
+## Run
 
-## Run from the monorepo root
-
-Prerequisites: Node 24, pnpm, Git, and Docker. Docker must be running. Image
-preparation needs network access; agent and verifier containers deny network
-access. Live mode additionally requires an OpenAI API key available to the host.
-The key is never added to the sandbox environment.
+From the monorepo root, install dependencies and build the libraries, then prepare
+the fixture image. Node 24, pnpm, Git, and running Docker are required.
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm build
-pnpm --filter @b4-example/code-fixer-server check
-pnpm --filter @b4-example/code-fixer-server fixtures:qualify -- --task cli-flags
-pnpm --filter @b4-example/code-fixer-server fixtures:qualify -- --task nullable-inputs
 pnpm --filter @b4-example/code-fixer-server sandbox:prepare
+pnpm --filter @b4-example/code-fixer-server check
+pnpm --filter @b4-example/code-fixer-server dev
+```
+
+Provide `OPENAI_API_KEY` in the host environment or the server's local `.env`.
+The key is not passed into containers. Connect your existing B4 client to the
+`/fix` agent and ask it to read TASK.md and repair the defect. The default model
+is `gpt-5-mini`. The app uses ordinary B4 route discovery, workspace tools, plans,
+skills, and runtime approval. No evaluation process is required to run it.
+
+For built Node execution:
+
+```sh
+pnpm --filter @b4-example/code-fixer-server build
+pnpm --filter @b4-example/code-fixer-server start
+```
+
+Set `B4_CODE_FIXER_TASK=nullable-inputs` on the host to select the other fixture
+for new workspaces. Existing threads retain their captured source. The configured
+Docker scope identifies this local application; separate installations need
+separate scopes. Network is denied, dependencies are prepared read-only links,
+and command limits are 1 CPU, 1024 MB, and 120 seconds.
+
+## Review
+
+The agent calls `prepareReview` to return independently verified source changes,
+a readable diff, and the complete candidate. It then passes that exact candidate
+to `exportForReview`. B4 presents the approval gate before export. Denial writes
+nothing; edits while approval is pending require a new candidate and approval.
+
+Approved candidates are checked again in a fresh managed verifier workspace and
+written to `.b4/code-fixer/review-outbox/<digest>.json`. Export is local and
+idempotent. Tests, configuration, dependencies, additional/deleted files,
+symlinks, and oversized changes are rejected. Initial captured bytes—not the
+agent-editable Git directory—define the baseline. Named independent assertions
+remain outside the agent workspace and are installed only into the verifier.
+
+## Evaluation and contributor checks
+
+```sh
 pnpm --filter @b4-example/code-fixer-server test
 pnpm --filter @b4-example/code-fixer-server test:sandbox
-```
-
-Qualification is maintainer tooling: it executes only the checked-in historical
-source and reference patches in temporary directories. Agent-submitted patches
-are executed exclusively in Docker verifier environments.
-
-Run the whole application without a provider call:
-
-```sh
-pnpm --filter @b4-example/code-fixer-server eval:live -- --replay --attempts 1
-```
-
-Replay drives real tools with a scripted historical repair. It tests wiring,
-permissions, execution, verification, and cleanup. It is explicitly labeled
-`replay` and cannot be exported as a successful live recording.
-
-For a real model run, copy `.env.example` to `.env` inside this server directory
-and provide your key locally, or export `OPENAI_API_KEY` in your shell. Never
-commit the key. Run either task:
-
-```sh
-pnpm --filter @b4-example/code-fixer-server run:agent -- --task cli-flags
-pnpm --filter @b4-example/code-fixer-server run:agent -- --task nullable-inputs
-```
-
-The default model is `gpt-5-mini`. Set `B4_CODE_FIXER_MODEL=gpt-5` for the
-final batch used in the live-evaluation report. That six-attempt batch passed
-4/6 full workflows: CLI 3/3 and nullable-inputs 1/3. All 24 attempts across four
-batches are retained, including earlier failures; this is a small historical
-evaluation, not a general reliability guarantee. See the
-[retained evaluation report](../../../docs/superpowers/runbooks/2026-09-13-code-fixer-live-evaluations.md).
-
-An interactive terminal shows the verified source diff and asks before exporting it to the local
-review outbox. Answer `y` to approve once. Any other answer denies export.
-Without a terminal, the run stops at `approval-pending`. No remote publication
-occurs. An unavailable key produces an error; there is no silent replay fallback.
-
-The evaluation command makes three sequential attempts for each fixture:
-
-```sh
+pnpm --filter @b4-example/code-fixer-server eval:replay
 pnpm --filter @b4-example/code-fixer-server eval:live -- --attempts 3
 ```
 
-Each attempt has its own host process and Docker workspace. Limits are 60 agent
-supersteps, 120 seconds per sandbox command, 1 CPU, 1024 MB, and a ten-minute
-parent-enforced deadline. The parent records acquired thread IDs before container
-acquisition and destroys owned resources even if the child times out or is
-cancelled. Evaluations stop before approval and preserve every attempt outcome.
+Replay uses the historical repair with real route tools and independent Docker
+checks. A second scripted turn forwards the candidate returned by the first turn
+to the ordinary approval-gated tool. It makes no paid model calls and is labeled
+replay. Batch evidence remains separate from normal application execution.
+The six criteria are visible tests, independent checks, source scope, failure
+reproduction, post-edit verification, and runtime approval. Historical live
+results continue to describe their recorded revision, not this correction.
 
-The public harness does not expose authoritative billable token usage. Receipts
-record it as unavailable; streamed text fragments are not counted as tokens.
-The planned 100,000-token reporting threshold is checked only when actual usage
-is available; it is not a hard in-flight ceiling.
+Application responsibilities live in `src/fixtures`, `src/review`, and
+`src/evaluation`. B4 owns workspace creation, source capture, reconnection, and
+cleanup. See [WALKTHROUGH.md](./WALKTHROUGH.md) for the boundaries. Maintainer
+fixture qualification runs only checked-in historical code; submitted repairs
+always execute in the isolated verifier.
 
-## What the code demonstrates
+## Blueprint distribution
 
-| File | Responsibility |
-|---|---|
-| `src/app/fix/index.ts` | One short, task-independent agent definition |
-| `src/app/fix/plan.md` | Reproduce → inspect → repair → verify → request export |
-| `src/app/fix/skills/verify-change/SKILL.md` | Reusable verification guidance |
-| `src/app/fix/tools/exportForReview.ts` | Actual approval-gated local export |
-| `b4.config.ts` | Workspace commands and sandbox policy |
-| `src/blueprint/seeded-provider.ts` | A fresh fixture per thread; edits survive reacquisition |
-| `src/blueprint/verifier.ts` | Pristine tests and independent assertion receipts |
-| `src/blueprint/evaluate.ts` | Deterministic B4 eval scorers over real tool observations |
-| `src/blueprint/run-attempt.ts` | Process deadline, outcomes, and owned-resource cleanup |
-
-The agent sees only the faulty target project and TASK.md. Reference repairs and
-independent checks stay outside its workspace. Export compares actual file
-contents against the baseline, permits only source paths in the manifest, and
-rejects changed tests/configuration, added/deleted files, symlinks, and oversized
-patches. It then verifies in a fresh sandbox.
-
-Verifier assertions run outside the process that loads submitted source. Exact
-named test completions are required, and project mutations during verification
-are rejected. Passing demonstrates the checks covered by these fixtures; it does
-not prove arbitrary software correct or replace human patch review.
-
-## Evidence and standalone check
-
-Outputs live under `examples/code-fixer/server/artifacts/code-fixer/` by default.
-Every attempt has a UUID, outcome, captured tool activity, source changes,
-independent receipts, measured durations, model/fixture/image identity, and source
-provenance when available. Known host secrets and home paths are redacted before
-writing results. Batch summaries retain failed attempts alongside successes.
-
-A successful live recording requires a clean committed agent source snapshot:
-
-```sh
-pnpm --filter @b4-example/code-fixer-server evidence:export -- --input artifacts/code-fixer/ATTEMPT/result.json --output artifacts/code-fixer/recording.json
-pnpm --filter @b4-example/code-fixer-server verify:consumer
-```
-
-Export refuses replay, failure, dirty/missing source provenance, incomplete
-verification, and overwriting an existing file. Review a recording before using
-it in public material. Consumer verification copies the app outside the monorepo,
-resolves one published B4 release, installs registry packages without workspace
-links, and runs check/build/typecheck/unit tests plus both Docker replay cases.
-A published API mismatch is reported as incomplete consumer verification.
-
-Current development evidence and remaining completion gates are recorded in
-`docs/superpowers/plans/2026-09-13-code-fixer-blueprint.md` at the repository root.
+The `b4 add code-fixer` guide is not yet published. The
+[draft installation guide](../BLUEPRINT.md) describes the intended installation
+and the remaining release checks. Publication requires a verified source revision,
+a compatible published B4 release, and successful standalone qualification.
+Until then, run this checkout using the commands above. This app's passing tests
+do not establish that a registry installation works.

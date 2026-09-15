@@ -114,6 +114,10 @@
     },
     "@b4run/cli#typecheck": {
       "dependsOn": ["build", "@b4run/testing#build", "@b4run/postgres-storage#build"]
+    },
+    "@b4run/sqlite-storage#test": {
+      "dependsOn": ["build", "^test"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/test/fixtures/workspace-installation-worker.ts"]
     }
   }
 }

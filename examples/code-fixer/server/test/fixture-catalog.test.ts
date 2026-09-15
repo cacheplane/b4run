@@ -7,7 +7,7 @@ import {
   selectFixture,
   validateDependencies,
   validateProject,
-} from "../src/blueprint/fixture-catalog.ts"
+} from "../src/fixtures/catalog.ts"
 
 const valid = {
   id: "cli-flags",

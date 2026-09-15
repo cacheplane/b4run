@@ -1,55 +1,59 @@
 import { randomUUID } from "node:crypto"
 import { readdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
+import { withWorkspace } from "@b4run/cli"
 import { dockerSandbox } from "@b4run/sandbox"
-import { fixturesRoot, loadManifest } from "./fixture-catalog.js"
-import { ownedProvider } from "./owned-provider.js"
+import type { CapturedWorkspaceDefinition } from "@b4run/workspace"
+import { fixtureManifest, fixturesRoot } from "../fixtures/catalog.js"
+import { appRoot, fixtureWorkspace, sandboxImage, sandboxPolicy } from "../fixtures/workspace.js"
 import { collectChanges, snapshot } from "./patch.js"
-import { seedFixture } from "./seed-fixture.js"
 
-export const sandboxPolicy = {
-  network: { mode: "deny" as const },
-  env: { npm_config_cache: "/tmp/npm-cache", npm_config_update_notifier: "false" },
-  resources: { memoryMb: 1024, cpus: 1, timeoutMs: 120_000 },
-}
-export const sandboxImage = "b4-code-fixer:fixture-v1"
+export { sandboxImage, sandboxPolicy } from "../fixtures/workspace.js"
 
 export async function verifyChanges(
   id: string,
   changes: Record<string, string>,
   signal: AbortSignal,
+  initial?: { workspace: CapturedWorkspaceDefinition; image: string; workspaceId: string },
 ) {
-  const manifest = await loadManifest(id)
+  const manifest = fixtureManifest(id)
   for (const path of Object.keys(changes)) {
     if (!manifest.allowedSourcePaths.includes(path))
       throw new Error(`Disallowed patch path: ${path}`)
   }
-  const provider = ownedProvider(dockerSandbox({ scope: "code-fixer", image: sandboxImage }))
-  const threadId = randomUUID()
-  try {
-    const handle = await provider.acquire({ threadId, policy: sandboxPolicy, signal })
-    await seedFixture(id, handle, signal)
-    const ctx = { workspaceRoot: handle.workspaceRoot, signal }
-    for (const [path, content] of Object.entries(changes))
-      await handle.filesystem.writeFile(`${handle.workspaceRoot}/${path}`, content, ctx)
-    const visibleBaseline = await snapshot(handle, signal)
-    const visible = await runChecks(handle, id, "visible", signal)
-    collectChanges(visibleBaseline, await snapshot(handle, signal), [])
-    // Checks are installed only in this verifier, after visible execution.
-    for (const name of await readdir(join(fixturesRoot, id, "checks"))) {
-      await handle.filesystem.writeFile(
-        `${handle.workspaceRoot}/checks/${name}`,
-        await readFile(join(fixturesRoot, id, "checks", name), "utf8"),
-        ctx,
-      )
-    }
-    const independentBaseline = await snapshot(handle, signal)
-    const independent = await runChecks(handle, id, "independent", signal)
-    collectChanges(independentBaseline, await snapshot(handle, signal), [])
-    return { passed: visible.passed && independent.passed, visible, independent }
-  } finally {
-    await provider.destroy(threadId)
-  }
+  return withWorkspace(
+    {
+      appRoot,
+      stateRoot: join(appRoot, ".b4/code-fixer/verifiers", initial?.workspaceId ?? randomUUID()),
+      provider: dockerSandbox({
+        scope: "code-fixer-verifiers",
+        image: initial?.image ?? sandboxImage,
+      }),
+      workspace: initial?.workspace ?? fixtureWorkspace(id),
+      policy: sandboxPolicy,
+      signal,
+    },
+    async (handle) => {
+      const ctx = { workspaceRoot: handle.workspaceRoot, signal }
+      for (const [path, content] of Object.entries(changes))
+        await handle.filesystem.writeFile(`${handle.workspaceRoot}/${path}`, content, ctx)
+      const visibleBaseline = await snapshot(handle, signal)
+      const visible = await runChecks(handle, id, "visible", signal)
+      collectChanges(visibleBaseline, await snapshot(handle, signal), [])
+      // Checks are installed only in this verifier, after visible execution.
+      for (const name of await readdir(join(fixturesRoot, id, "checks"))) {
+        await handle.filesystem.writeFile(
+          `${handle.workspaceRoot}/checks/${name}`,
+          await readFile(join(fixturesRoot, id, "checks", name), "utf8"),
+          ctx,
+        )
+      }
+      const independentBaseline = await snapshot(handle, signal)
+      const independent = await runChecks(handle, id, "independent", signal)
+      collectChanges(independentBaseline, await snapshot(handle, signal), [])
+      return { passed: visible.passed && independent.passed, visible, independent }
+    },
+  )
 }
 
 // Authored fixture assertions, not file-level runner success, define completion.

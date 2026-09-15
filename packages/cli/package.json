@@ -71,6 +71,7 @@
     "@b4run/permissions": "workspace:*",
     "@b4run/sdk": "workspace:*",
     "@b4run/sqlite-storage": "workspace:*",
+    "@b4run/workspace": "workspace:*",
     "commander": "15.0.0",
     "esbuild": "^0.28.1",
     "tsx": "^4.23.5"
@@ -78,7 +79,6 @@
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",
     "@b4run/sandbox": "workspace:*",
-    "@b4run/workspace": "workspace:*",
     "@hono/node-server": "^2.1.0",
     "@langchain/core": "1.2.5",
     "@langchain/langgraph": "1.4.9",

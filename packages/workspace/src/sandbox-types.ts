@@ -5,6 +5,7 @@
  * redirects all of readFile/writeFile/listDir/runBash into the isolated env
  * with no change to the capability. See the execution-sandbox spec.
  */
+import type { ManagedWorkspaceProvider, WorkspaceDefinition } from "./managed-workspace.js"
 import type { ExecBackend, FilesystemBackend } from "./types.js"
 
 export interface SandboxPolicy {
@@ -51,6 +52,7 @@ export interface SandboxHandle {
 }
 
 export interface SandboxProvider {
+  readonly workspaces?: ManagedWorkspaceProvider
   readonly name: string
   /**
    * Create-or-reattach the thread's sandbox. Idempotent per threadId: called at
@@ -76,6 +78,7 @@ export interface SandboxProvider {
 }
 
 export interface SandboxConfig {
+  readonly workspace?: WorkspaceDefinition
   readonly provider: SandboxProvider
   readonly network?: SandboxPolicy["network"]
   readonly env?: SandboxPolicy["env"]

@@ -3,10 +3,10 @@ import { cp, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import { script } from "@b4run/testing"
-import { fixturesRoot, loadManifest } from "./fixture-catalog.js"
+import { fixturesRoot, loadManifest } from "../fixtures/catalog.js"
 
 export const taskInput =
-  "Read TASK.md, reproduce the failure, repair the permitted source, verify the preservation requirements, and call exportForReview to request runtime approval."
+  "Read TASK.md, reproduce the failure, repair the permitted source, verify the preservation requirements, call prepareReview, and then exportForReview with its exact candidate to request runtime approval."
 
 /** Offline wiring test only. Never presented as a model-generated repair. */
 export async function replayFixture(id: string) {
@@ -34,8 +34,8 @@ export async function replayFixture(id: string) {
     }
     return fixture
       .callsTool("runBash", { command: "npm test" })
-      .callsTool("exportForReview", {})
-      .replies("Verified patch exported for review.")
+      .callsTool("prepareReview", {})
+      .replies("Candidate verified and ready for approval.")
   } finally {
     await rm(temporary, { recursive: true, force: true })
   }

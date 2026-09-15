@@ -5,6 +5,7 @@ import { resourceScope } from "../resource-scope.js"
 import { createDocker, type Docker, type SpawnResult } from "./docker-cli.js"
 import { dockerExec } from "./docker-exec.js"
 import { dockerFilesystem } from "./docker-filesystem.js"
+import { createDockerManagedWorkspaces } from "./managed-workspace.js"
 import { createThreadLifecycleCoordinator } from "./thread-lifecycle.js"
 
 const ROOT = "/workspace"
@@ -297,6 +298,7 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
 
   return {
     name: "docker",
+    workspaces: createDockerManagedWorkspaces({ scope: opts.scope, image: opts.image, docker }),
     acquire({ threadId, policy, signal }): Promise<SandboxHandle> {
       return lifecycle.runExclusive(threadId, async () => {
         const requestedLaunchConfig = resolveLaunchConfig(policy)

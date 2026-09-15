@@ -127,8 +127,10 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
       }
     }
 
-    const { errors: sandboxErrors, warnings: sandboxWarnings } =
-      await collectSandboxErrors(loadedConfig)
+    const { errors: sandboxErrors, warnings: sandboxWarnings } = await collectSandboxErrors(
+      loadedConfig,
+      manifest.appRoot,
+    )
     for (const w of sandboxWarnings) console.warn(`⚠ sandbox: ${w}`)
     if (sandboxErrors.length > 0) {
       throw new CliError(`Invalid sandbox config:\n${sandboxErrors.join("\n")}`, 1, {

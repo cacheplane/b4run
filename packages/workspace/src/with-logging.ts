@@ -58,6 +58,7 @@ export function withFilesystemLogging(opts: LoggingOptions = {}): FilesystemMidd
     // Preserve optional capabilities the middleware previously dropped — dropping
     // statFile/removeFile/touchFile silently disabled offload GC behind the logger.
     // These are passthrough-only (not logged); the point of the fix is preservation.
+    if (next.lstat) wrapped.lstat = next.lstat.bind(next)
     if (next.statFile) wrapped.statFile = next.statFile
     if (next.removeFile) wrapped.removeFile = next.removeFile
     if (next.touchFile) wrapped.touchFile = next.touchFile

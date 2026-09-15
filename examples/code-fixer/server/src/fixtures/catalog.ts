@@ -2,6 +2,8 @@ import { readdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { z } from "zod"
+import cliFlags from "../../fixtures/cli-flags/manifest.json" with { type: "json" }
+import nullableInputs from "../../fixtures/nullable-inputs/manifest.json" with { type: "json" }
 
 const fixtureId = z.enum(["cli-flags", "nullable-inputs"])
 const path = z
@@ -41,6 +43,9 @@ export function parseManifest(value: unknown): FixtureManifest {
 }
 export function selectFixture(id: string): z.infer<typeof fixtureId> {
   return fixtureId.parse(id)
+}
+export function fixtureManifest(id: string): FixtureManifest {
+  return parseManifest(selectFixture(id) === "cli-flags" ? cliFlags : nullableInputs)
 }
 export async function loadManifest(id: string): Promise<FixtureManifest> {
   const selected = selectFixture(id)

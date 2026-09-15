@@ -97,6 +97,14 @@ export function createWorkspaceFs(opts: CreateWorkspaceFsOptions): WorkspaceFs {
   }
 
   return {
+    async stat(path) {
+      const fs = backend()
+      if (!fs.lstat)
+        throw new Error(
+          "The configured filesystem backend does not support file inspection (lstat)",
+        )
+      return fs.lstat(await gate("readFile", path), bctx)
+    },
     async readFile(path, readOpts) {
       return backend().readFile(await gate("readFile", path), bctx, readOpts)
     },

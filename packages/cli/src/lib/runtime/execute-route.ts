@@ -30,7 +30,7 @@ import { localExec, localFilesystem } from "@b4run/workspace/node"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { loadMiddleware } from "../dev/middleware-node.js"
 import { loadThreadAccess } from "../dev/thread-access-node.js"
-import { loadB4Config } from "../node-config.js"
+import { loadB4Config, loadOptionalB4Config } from "../node-config.js"
 import {
   __resetDescriptorRouteIndexCacheForTests,
   getCachedDescriptorRouteIndex,
@@ -347,7 +347,7 @@ export const nodeBootFallbacks: RuntimeBootFallbacks = {
   descriptorRouteIndex: getCachedDescriptorRouteIndex,
   discoverRouteManifest: discoverRoutesOncePerAppRoot,
   hasWorkspaceDir,
-  loadConfig: async (appRoot) => (await loadB4Config({ appRoot })).config,
+  loadConfig: loadOptionalB4Config,
   loadMiddleware,
   loadRouteModules: loadPreparedRouteModules,
   loadSubagentDescription,
@@ -515,7 +515,20 @@ export async function executeRoute(options: ExecuteRouteOptions): Promise<Runtim
           overrides: options.toolOverrides,
         }
       : undefined
-  return await executeRouteAtResolvedPath(withNodeFallbacks(resolved), scenarioInvocation)
+  const sandboxManager = await resolveSandboxManager(appRoot)
+  try {
+    return await executeRouteAtResolvedPath(
+      withNodeFallbacks({
+        ...resolved,
+        ...(sandboxManager
+          ? { sandboxManager, threadId: `t-run-${globalThis.crypto.randomUUID()}` }
+          : {}),
+      }),
+      scenarioInvocation,
+    )
+  } finally {
+    await sandboxManager?.releaseAll()
+  }
 }
 
 function resolveRouteFile(options: {

@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
 import { createSourceBundle, readSourceFile } from "@b4run/workspace/node"
 import { afterEach, expect, it } from "vitest"
+import { makeWorkspaceAssociationStore } from "../src/workspace/association-store.ts"
 import { openWorkspaceInstallation } from "../src/workspace/installation.ts"
 import { makeWorkspaceSourceStore } from "../src/workspace/source-store.ts"
 
@@ -45,8 +46,10 @@ function admission(path: string, id: string = randomUUID(), phase = "initializin
 function state(path: string, id: string) {
   edit(path, "state", (db) => {
     db.exec("CREATE TABLE workspace_installation(version INTEGER, installation_id TEXT)")
-    db.prepare("INSERT INTO workspace_installation VALUES (1,?)").run(id)
-    makeWorkspaceSourceStore(db).put(bundle)
+    db.prepare("INSERT INTO workspace_installation VALUES (2,?)").run(id)
+    const sources = makeWorkspaceSourceStore(db)
+    sources.put(bundle)
+    makeWorkspaceAssociationStore(db, sources)
   })
 }
 afterEach(() => {
@@ -110,7 +113,7 @@ it.each([
         db.exec("DROP TABLE workspace_sources; DROP TABLE workspace_source_schema")
       if (mode === "partial-sources") db.exec("DROP TABLE workspace_sources")
       if (mode === "missing-identity") db.exec("DROP TABLE workspace_installation")
-      if (mode === "wrong-version") db.exec("UPDATE workspace_installation SET version=2")
+      if (mode === "wrong-version") db.exec("UPDATE workspace_installation SET version=99")
     })
   }
   expect(() => open(path)).toThrow()
@@ -270,4 +273,25 @@ it("releases admission after state validation failure so repaired state can reop
   expect(() => open(path)).toThrow()
   state(path, id)
   expect(open(path).installationId).toBe(id)
+})
+
+it("owns durable associations and refuses association operations after close", async () => {
+  const { createWorkspaceIntent } = await import("@b4run/workspace/node")
+  const path = root()
+  const owner = open(path)
+  owner.sources.put(bundle)
+  const intent = createWorkspaceIntent({
+    operationId: randomUUID(),
+    installationId: owner.installationId,
+    threadId: "owned-thread",
+    definition: { version: 1, source: bundle, environmentLinks: [] },
+    environment: {
+      binding: { provider: "fake", scope: "local", account: "local" },
+      identity: "env",
+    },
+  })
+  owner.associations.create(intent)
+  owner.close()
+  expect(() => owner.associations.get(intent.threadId)).toThrow(/closed/i)
+  expect(open(path).associations.get(intent.threadId)?.intent).toEqual(intent)
 })

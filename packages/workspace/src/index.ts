@@ -4,6 +4,22 @@ export { compose } from "./compose.js"
 export type { LocalExecOptions } from "./local-exec.js"
 export type { LocalFilesystemOptions } from "./local-filesystem.js"
 export type {
+  CapturedWorkspaceDefinition,
+  CreationStatus,
+  ManagedWorkspaceProvider,
+  ReadyWorkspace,
+  WorkspaceCreateIntent,
+  WorkspaceDefinition,
+  WorkspaceDeletionTarget,
+  WorkspaceEnvironment,
+  WorkspaceLifecycleErrorCode,
+  WorkspaceProvenance,
+  WorkspaceReference,
+  WorkspaceSession,
+  WorkspaceSessionReference,
+} from "./managed-workspace.js"
+export { WorkspaceLifecycleError } from "./managed-workspace.js"
+export type {
   SandboxConfig,
   SandboxHandle,
   SandboxPolicy,

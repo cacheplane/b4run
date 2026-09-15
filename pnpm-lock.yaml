@@ -481,6 +481,9 @@ importers:
       '@b4run/sqlite-storage':
         specifier: workspace:*
         version: link:../sqlite-storage
+      '@b4run/workspace':
+        specifier: workspace:*
+        version: link:../workspace
       commander:
         specifier: 15.0.0
         version: 15.0.0
@@ -497,9 +500,6 @@ importers:
       '@b4run/sandbox':
         specifier: workspace:*
         version: link:../sandbox
-      '@b4run/workspace':
-        specifier: workspace:*
-        version: link:../workspace
       '@hono/node-server':
         specifier: ^2.1.0
         version: 2.1.1(hono@4.13.5)

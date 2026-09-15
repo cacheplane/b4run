@@ -1,5 +1,5 @@
 import { expect, it } from "vitest"
-import { failureStatus, redactEvidence, verdict } from "../src/blueprint/evidence.ts"
+import { failureStatus, redactEvidence, verdict } from "../src/evaluation/evidence.ts"
 
 it("removes known secrets and host paths from nested evidence", () => {
   expect(

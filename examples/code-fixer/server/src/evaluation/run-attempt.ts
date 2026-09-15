@@ -3,11 +3,10 @@ import { randomUUID } from "node:crypto"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { dockerSandbox } from "@b4run/sandbox"
-import { z } from "zod"
+import { selectFixture } from "../fixtures/catalog.js"
+import { cleanupEvaluation } from "./cleanup.js"
 import { redactEvidence } from "./evidence.js"
-import { selectFixture } from "./fixture-catalog.js"
-import { sandboxImage } from "./verifier.js"
+import { isolatedApp } from "./isolated-app.js"
 
 export async function runChild(
   exe: string,
@@ -89,6 +88,7 @@ export async function runAttempt(options: {
   const id = randomUUID()
   const output = resolve(options.outputRoot, id)
   await mkdir(output, { recursive: true })
+  const appRoot = await isolatedApp(join(output, "app"))
   const startedAt = new Date().toISOString()
   await writeFile(
     join(output, "attempt.json"),
@@ -101,6 +101,7 @@ export async function runAttempt(options: {
     ["--import", "tsx", worker],
     {
       B4_CODE_FIXER_TASK: task,
+      B4_CODE_FIXER_APP_ROOT: appRoot,
       B4_CODE_FIXER_MODE: options.mode,
       B4_CODE_FIXER_ATTEMPT_DIR: output,
       B4_CODE_FIXER_INTERACTIVE: options.interactive ? "1" : "0",
@@ -120,16 +121,9 @@ export async function runAttempt(options: {
     receipt.status = child.status
     receipt.passed = false
   }
-  // Child cleanup is best effort. This parent owns the durable acquisition log.
+  // This installation belongs only to the evaluation, including after child termination.
   try {
-    let registered = ""
-    try {
-      registered = await readFile(join(output, "owned-threads.jsonl"), "utf8")
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-    }
-    const provider = dockerSandbox({ scope: "code-fixer", image: sandboxImage })
-    await destroyRegisteredThreads(provider, registered)
+    await cleanupEvaluation(appRoot)
   } catch (error) {
     receipt.cleanupError = String(error)
     receipt.passed = false
@@ -160,21 +154,4 @@ export async function runAttempt(options: {
     console.error(JSON.stringify({ attempt: final }))
   }
   return { output, receipt: final }
-}
-
-export async function destroyRegisteredThreads(
-  provider: { destroy(id: string): Promise<void> },
-  registered: string,
-) {
-  const cleanup = await Promise.allSettled(
-    [...new Set(registered.trim().split("\n").filter(Boolean))].map(async (line) => {
-      await provider.destroy(z.uuid().parse(JSON.parse(line)))
-    }),
-  )
-  const failed = cleanup.filter((result) => result.status === "rejected")
-  if (failed.length)
-    throw new AggregateError(
-      failed.map((result) => result.reason),
-      "Owned sandbox cleanup failed",
-    )
 }

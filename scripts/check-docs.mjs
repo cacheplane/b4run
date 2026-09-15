@@ -3202,6 +3202,7 @@ const expectedB4ConfigSchemaPaths = [
   "sandbox.network.denylist",
   "sandbox.network.mode",
   "sandbox.provider",
+  "sandbox.workspace",
   "sandbox.resources",
   "sandbox.resources.cpus",
   "sandbox.resources.diskGb",

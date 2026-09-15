@@ -2,11 +2,16 @@ import { randomUUID } from "node:crypto"
 import { lstatSync, mkdirSync, realpathSync } from "node:fs"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
+import {
+  makeWorkspaceAssociationStore,
+  type WorkspaceAssociationStore,
+} from "./association-store.js"
 import { makeWorkspaceSourceStore, type WorkspaceSourceStore } from "./source-store.js"
 
-interface WorkspaceInstallation {
+export interface WorkspaceInstallation {
   readonly installationId: string
   readonly sources: WorkspaceSourceStore
+  readonly associations: WorkspaceAssociationStore
   close(): void
 }
 interface Admission {
@@ -54,20 +59,28 @@ function loadAdmission(db: DatabaseSync): Admission {
 function validateState(db: DatabaseSync, id: string): void {
   const names = objects(db)
   if (
-    !["workspace_installation", "workspace_source_schema", "workspace_sources"].every((name) =>
-      names.includes(name),
-    )
+    ![
+      "workspace_installation",
+      "workspace_source_schema",
+      "workspace_sources",
+      "workspace_association_schema",
+      "workspace_associations",
+    ].every((name) => names.includes(name))
   ) {
     throw new Error("Incomplete workspace installation state")
   }
   const rows = db.prepare("SELECT version, installation_id FROM workspace_installation").all()
-  if (rows.length !== 1 || rows[0]?.version !== 1 || rows[0]?.installation_id !== id) {
+  if (rows.length !== 1 || rows[0]?.version !== 2 || rows[0]?.installation_id !== id) {
     throw new Error("Workspace installation state identity or version mismatch")
   }
   const versions = db.prepare("SELECT version FROM workspace_source_schema").all()
   if (versions.length !== 1 || versions[0]?.version !== 1)
     throw new Error("Invalid workspace source schema version")
   db.prepare("SELECT digest, payload FROM workspace_sources LIMIT 0").all()
+  const associationVersions = db.prepare("SELECT version FROM workspace_association_schema").all()
+  if (associationVersions.length !== 1 || associationVersions[0]?.version !== 1)
+    throw new Error("Invalid workspace association schema version")
+  db.prepare("SELECT thread_id,revision,state,payload FROM workspace_associations LIMIT 0").all()
 }
 
 /** Local trusted-host owner. The admission writer transaction lasts until close(). */
@@ -134,8 +147,8 @@ export function openWorkspaceInstallation(appRoot: string): WorkspaceInstallatio
       stateDb.exec("BEGIN IMMEDIATE")
       try {
         stateDb.exec("CREATE TABLE workspace_installation(version INTEGER, installation_id TEXT)")
-        stateDb.prepare("INSERT INTO workspace_installation VALUES (1,?)").run(id)
-        makeWorkspaceSourceStore(stateDb)
+        stateDb.prepare("INSERT INTO workspace_installation VALUES (2,?)").run(id)
+        makeWorkspaceAssociationStore(stateDb, makeWorkspaceSourceStore(stateDb))
         stateDb.exec("COMMIT")
       } catch (error) {
         if (stateDb.isTransaction) stateDb.exec("ROLLBACK")
@@ -144,6 +157,7 @@ export function openWorkspaceInstallation(appRoot: string): WorkspaceInstallatio
     }
     validateState(stateDb, id)
     const sources = makeWorkspaceSourceStore(stateDb)
+    const associations = makeWorkspaceAssociationStore(stateDb, sources)
     if (metadata.phase === "initializing") {
       admissionDb.exec("UPDATE workspace_admission SET phase='ready'; COMMIT; BEGIN IMMEDIATE")
       metadata = loadAdmission(admissionDb)
@@ -164,6 +178,34 @@ export function openWorkspaceInstallation(appRoot: string): WorkspaceInstallatio
         put(bundle) {
           requireOpen()
           sources.put(bundle)
+        },
+      },
+      associations: {
+        list() {
+          requireOpen()
+          return associations.list()
+        },
+        get(threadId) {
+          requireOpen()
+          return associations.get(threadId)
+        },
+        create(intent) {
+          requireOpen()
+          if (intent.installationId !== id)
+            throw new Error("Workspace installation identity mismatch")
+          return associations.create(intent)
+        },
+        markReady(threadId, revision, ready) {
+          requireOpen()
+          return associations.markReady(threadId, revision, ready)
+        },
+        beginDelete(threadId) {
+          requireOpen()
+          return associations.beginDelete(threadId)
+        },
+        completeDelete(threadId, revision) {
+          requireOpen()
+          return associations.completeDelete(threadId, revision)
         },
       },
       close,

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { mkdir, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { parseArgs } from "node:util"
-import { runAttempt } from "../src/blueprint/run-attempt.js"
+import { runAttempt } from "../src/evaluation/run-attempt.js"
 
 const { values } = parseArgs({
   args: process.argv.slice(2).filter((arg) => arg !== "--"),

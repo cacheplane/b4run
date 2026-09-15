@@ -37,6 +37,12 @@ The package uses Node's `node:sqlite` `DatabaseSync` and LangGraph checkpoint co
 | `ThreadsStore` | Define thread create/read/delete/list/update operations. |
 | `ThreadsStoreOptions` | Select the thread database path. |
 | `createThreadsStore` | Open, migrate, and return a thread store. |
+| `openWorkspaceInstallation` | Own a local installation's durable source and association storage. |
+| `WorkspaceInstallation` | Hold installation identity, guarded stores, and close. |
+| `WorkspaceSourceStore` | Persist and retrieve verified source bundles. |
+| `WorkspaceAssociation` | Describe creating, ready, deleting, or deleted state with its revision. |
+| `WorkspaceAssociationStore` | Insert source-backed intents and transition associations by revision. |
+
 
 ## Key contracts
 
@@ -123,6 +129,21 @@ The public SQLite saver and thread store expose no explicit close method.
 Each factory opens and retains a `DatabaseSync` handle. The public surface does not close automatically and provides no cleanup hook, so treat these as process-lifetime stores under the current API. Use separate files—such as `checkpoints.sqlite` and `threads.sqlite`—because both components use a global `schema_version` table and must not share one path.
 
 Saver `list()` orders lexically by checkpoint ID, ignores the `filter` option, and returns lightweight tuples without pending writes. Fetch a specific tuple for full pending-write hydration. Thread status and metadata updates for a missing ID are no-ops; metadata updates shallow-merge.
+
+### Workspace installations
+
+`openWorkspaceInstallation(appRoot)` owns `.b4/workspaces/state.sqlite` and a
+separate admission database. Only one active owner on one local host may manage
+an installation; separate state transactions permit concurrent threads. Close
+the owner after execution and provider cleanup settle. Interrupted initialization
+can resume; missing established state or mismatched identity fails closed.
+Network filesystems, multiple hosts, and whole-state-directory replacement are
+unsupported. The runtime normally owns this connection for the application.
+
+Associations require retained source before insertion. Readiness is validated
+against the intent and uses an expected revision. Deleting state prevents new
+admission and stale readiness publication; deleted rows remain tombstones.
+Cleanup errors retain deletion state so a later attempt can finish it.
 
 ## Examples and related guides
 

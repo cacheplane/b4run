@@ -78,7 +78,7 @@ export function fakeKubeClient(
       files.set(writePath, stdin ?? "")
       return { stdout: "", stderr: "", exitCode: 0 }
     }
-    const lsMatch = script.match(/^ls -1 '(.+)'$/)
+    const lsMatch = script.match(/^find '(.+)' -mindepth 1 -maxdepth 1 -print0$/)
     const lsDir = lsMatch?.[1]
     if (lsDir !== undefined) {
       const dir = lsDir.replace(/\/$/, "")
@@ -91,7 +91,11 @@ export function fakeKubeClient(
             .at(0),
         )
         .filter((name): name is string => name !== undefined)
-      return { stdout: [...new Set(names)].join("\n"), stderr: "", exitCode: 0 }
+      return {
+        stdout: [...new Set(names)].map((name) => `${dir}/${name}\0`).join(""),
+        stderr: "",
+        exitCode: 0,
+      }
     }
     if (script === "true" || script.startsWith("mkdir -p") || script.startsWith("touch"))
       return { stdout: "", stderr: "", exitCode: 0 }

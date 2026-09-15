@@ -11,5 +11,6 @@ Change only the permitted source files. Preserve tests and validation behavior.
 Run the documented tests again and check the task's preservation requirements.
 For validation changes, consider both accepted and rejected inputs with the
 documented diagnostics. Report the commands, actual results, and remaining failures.
-After verification, call exportForReview({}) to request runtime approval. The
+After verification, call prepareReview({}) and inspect its diff and checks.
+Pass the complete returned candidate to exportForReview({candidate}) for approval. The
 runtime pauses before exporting; a prose approval question does not raise that gate.

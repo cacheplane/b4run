@@ -22,6 +22,7 @@ const withLog =
     listDir: (p, c) => next.listDir(p, c),
     realPath: (p, c) => next.realPath(p, c),
     ...(next.readBinaryFile && { readBinaryFile: next.readBinaryFile.bind(next) }),
+    ...(next.lstat && { lstat: next.lstat.bind(next) }),
     ...(next.statFile && { statFile: next.statFile.bind(next) }),
     ...(next.removeFile && { removeFile: next.removeFile.bind(next) }),
     ...(next.touchFile && { touchFile: next.touchFile.bind(next) }),

@@ -1,9 +1,13 @@
+import { stat } from "node:fs/promises"
+import { join } from "node:path"
 import type { B4Config } from "@b4run/core"
 import type { SandboxProvider } from "@b4run/workspace"
+import { captureWorkspaceDefinition } from "@b4run/workspace/node"
 
 /** Validate the b4.config.ts sandbox block + run the provider preflight. */
 export async function collectSandboxErrors(
   config: Pick<B4Config, "sandbox">,
+  appRoot?: string,
 ): Promise<{ readonly errors: readonly string[]; readonly warnings: readonly string[] }> {
   const sandbox = config.sandbox
   if (!sandbox) return { errors: [], warnings: [] }
@@ -20,6 +24,20 @@ export async function collectSandboxErrors(
       `b4.config sandbox.provider must implement acquire/release/destroy (got: ${p?.name ?? "undefined"}).`,
     )
     return { errors, warnings }
+  }
+  if (sandbox.workspace) {
+    if (!p.workspaces) errors.push("Sandbox provider does not support managed workspaces")
+    if (appRoot) {
+      try {
+        if (!(await stat(join(appRoot, "workspace"))).isDirectory())
+          throw new Error("workspace/ must be a directory")
+        await captureWorkspaceDefinition(appRoot, sandbox.workspace)
+      } catch (error) {
+        errors.push(
+          `Invalid managed workspace: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+    }
   }
   if (typeof p.preflight === "function") {
     try {

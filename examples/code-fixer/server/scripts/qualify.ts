@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util"
-import { qualifyFixture } from "../src/blueprint/qualify.js"
+import { qualifyFixture } from "../src/fixtures/qualify.js"
 
 const argv = process.argv.slice(2)
 const { values } = parseArgs({

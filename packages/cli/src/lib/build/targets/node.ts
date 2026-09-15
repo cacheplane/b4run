@@ -35,7 +35,11 @@ const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..")
 // modules.mjs statically imports the app's TypeScript sources, so it can't be
 // a bare static import here — loadStaticModules registers the TS loader first,
 // then imports the manifest through it. Boot performs no route-tree walk.
-const modules = await loadStaticModules(new URL("./modules.mjs", import.meta.url))
+const loadedModules = await loadStaticModules(new URL("./modules.mjs", import.meta.url))
+const workspaceUrl = new URL("./workspace.json", import.meta.url)
+const { readFile, stat } = await import("node:fs/promises")
+if ((await stat(workspaceUrl)).size > 100 * 1024 * 1024) throw new Error("Workspace artifact exceeds size limit")
+const modules = { ...loadedModules, workspace: JSON.parse(await readFile(workspaceUrl, "utf8")) }
 
 await serveRuntime({ appRoot, modules })
 `
@@ -79,8 +83,11 @@ CMD ["node", ".b4/build/server.mjs"]
  */
 export const nodeTarget: BuildTarget = {
   name: "node",
-  async emit({ appRoot, buildDir, io, manifest }: BuildEmitContext) {
+  async emit({ appRoot, buildDir, io, manifest, workspaceArtifact }: BuildEmitContext) {
     const artifacts: string[] = []
+    const workspacePath = join(buildDir, "workspace.json")
+    await writeFile(workspacePath, JSON.stringify(workspaceArtifact ?? null), "utf8")
+    artifacts.push(workspacePath)
 
     // Static module manifest: the runtime's own discovery functions run once
     // here at build time; server.mjs then boots without any route-tree walk.

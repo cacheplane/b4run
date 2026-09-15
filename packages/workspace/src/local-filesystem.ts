@@ -1,7 +1,9 @@
 import {
+  lstat,
   mkdir as mkdirFs,
   readdir,
   readFile,
+  readlink,
   realpath,
   rm,
   stat,
@@ -32,6 +34,21 @@ export function localFilesystem(opts: LocalFilesystemOptions = {}): FilesystemBa
   }
 
   return {
+    async lstat(path) {
+      const s = await lstat(path)
+      return {
+        kind: s.isSymbolicLink()
+          ? "symlink"
+          : s.isFile()
+            ? "file"
+            : s.isDirectory()
+              ? "directory"
+              : "other",
+        size: s.size,
+        executable: (s.mode & 0o111) !== 0,
+        ...(s.isSymbolicLink() ? { target: await readlink(path) } : {}),
+      }
+    },
     async readFile(
       path: string,
       _ctx: BackendContext,

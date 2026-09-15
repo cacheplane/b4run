@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process"
 import { cp, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
-import { fixturesRoot, loadManifest, validateDependencies } from "./fixture-catalog.js"
+import { fixturesRoot, loadManifest, validateDependencies } from "./catalog.js"
 
 interface Result {
   status: number | null

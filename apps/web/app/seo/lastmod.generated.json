@@ -52,9 +52,9 @@
       "recordDigest": "46b7653d72c2d977877526a323453fb51d4b7274f50b506846b14eacb3008950"
     },
     "/docs/api/cli": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "086db0eeb9fe8510a787fd95ddcf1d620d7308f66982ab65e9e211b80e324707",
-      "recordDigest": "d748f40b276fe9b0dbd435e19678d7151be0b6ceb2eb38389f820f8f33768135"
+      "lastModified": "2026-09-15T04:37:01.206Z",
+      "sourceDigest": "4a68dfe2fb9fc1488a782dc0f976df3a99a085eb7c7cb413e3fcd2496e427c09",
+      "recordDigest": "f5b4cdbdb93a876c92c669fff2ed4c3c0adb2b9b5de6f9cd2f6d7155f70ec98c"
     },
     "/docs/api/core": {
       "lastModified": "2026-09-10T06:16:49.655Z",
@@ -107,24 +107,24 @@
       "recordDigest": "8e87fc0c0f127a3223a21d956223792a316b704a5f8cbe1532047b43f9277437"
     },
     "/docs/api/sdk": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "e226a1e2bde2069a09ec040a2d9353ee72dc0aad14af032f7b15c354b2d80ec5",
-      "recordDigest": "cc02678a27cd008a7c7b8ed95d1f75ff6c751ba47e12757e26bcf7aa0e681d9e"
+      "lastModified": "2026-09-15T04:37:01.206Z",
+      "sourceDigest": "2d41511c23b024f89e5955601f3a3343972885f9be13c9b74a565f84cbbff1cc",
+      "recordDigest": "e5182660819fc3e166619d60a211a7d281c4088b2c448aa9cad8aed41e204385"
     },
     "/docs/api/sqlite-storage": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "c434d6d8443657d7f25390c854e95962b8c3213c3d514a05278fd253ef26b9c8",
-      "recordDigest": "ce3ace33f1c578eae82bcbb9e22b0e5f6f6b088a461ba93472716d805191d531"
+      "lastModified": "2026-09-15T04:37:01.206Z",
+      "sourceDigest": "6bc3d9e228f21ebccbfd62ad3807419f5980de9f198952a1b2fe634a090f3fca",
+      "recordDigest": "859ca4af67311ee97c8081c670c69b0f9accafab391454229bcc43c9cab6aa42"
     },
     "/docs/api/testing": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "822aa5efc0cd5f9bf4e87fc800bd63db68ec7a9e621da0bb90189591908d85e9",
-      "recordDigest": "1b001c9c745ea62280d901abec690ad1f1547022c82e0d4defcd07335eb7e540"
+      "lastModified": "2026-09-15T04:35:39.313Z",
+      "sourceDigest": "1e43109c8eb8d42194fec0130cbcff3ab1c864db386ae95cb8182b4c02343bbd",
+      "recordDigest": "ad66d493f383386a3ca66f5c091c81f28f3cc6e4634000f1776ba185b457fd30"
     },
     "/docs/api/workspace": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "4fd8d83ddb551df6a3b2b229f75d24b46b2dba78fc74613777515e8e5258ab5f",
-      "recordDigest": "56a01d3d042ba210e9d96441d05cda64eac65e2a92992b727faee028b3dbb546"
+      "lastModified": "2026-09-15T04:37:01.206Z",
+      "sourceDigest": "317d01d218bb61774ba44126bef1f136e7c7aadd9c43238aa8d8e9b5cace868a",
+      "recordDigest": "0ac91ecc3a885bb2d6fcf3b2d411f33cb1ecac47d54865e7b2e6360de25deef0"
     },
     "/docs/blueprints": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -137,9 +137,9 @@
       "recordDigest": "1596769bc6ce81e0b909ccd403072ae788df0beee54bee026fb25c67becdd04f"
     },
     "/docs/configuration": {
-      "lastModified": "2026-09-14T21:13:45.147Z",
-      "sourceDigest": "df178588f88fed7e2f3d7d9c06db6bb02a497b71207a86ff7f1d7e03c84bb4ea",
-      "recordDigest": "9d39840ab9022e2f12b83e4ba3baf00e05327107307452c410220b2f5b6d9bf5"
+      "lastModified": "2026-09-15T04:35:39.313Z",
+      "sourceDigest": "8eb9ecce6c2d48792e327be9b02d306f814405f55bfc14ccddf36c9e2ed688c9",
+      "recordDigest": "09f29c518fe8300be38cc3b073366baf2132dd8f98b4193fee62daf80d67bb4d"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-07T19:58:55.550Z",

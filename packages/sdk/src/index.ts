@@ -71,4 +71,4 @@ export { defineThreadAccess, deny, permit, THREAD_ACCESS_METADATA_KEY } from "./
 export type { Prettify } from "./types.js"
 export type { ModelIdValidation } from "./validate-model-id.js"
 export { validateModelId } from "./validate-model-id.js"
-export type { B4ToolContext, WorkspaceFs } from "./workspace-fs.js"
+export type { B4ToolContext, WorkspaceContext, WorkspaceFs } from "./workspace-fs.js"

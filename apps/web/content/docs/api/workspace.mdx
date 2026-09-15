@@ -31,6 +31,20 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | Export | Responsibility |
 |---|---|
 | `compose` | Compose backend middleware right-to-left. |
+| `WorkspaceDefinition` | Declare initial source, immutable environment links, and an optional Git baseline. |
+| `CapturedWorkspaceDefinition` | Hold a verified source bundle and canonical creation options. |
+| `WorkspaceEnvironment` | Bind an immutable environment identity to provider, account, and scope. |
+| `WorkspaceCreateIntent` | Persist an operation identity and complete creation digest before provider mutation. |
+| `WorkspaceReference` | Identify provider resources without credentials or executable configuration. |
+| `WorkspaceProvenance` | Record trusted source, environment, baseline, and retention information. |
+| `ReadyWorkspace` | Pair a durable provider reference with verified provenance. |
+| `WorkspaceSessionReference` | Name one compute incarnation of a durable workspace. |
+| `WorkspaceSession` | Expose filesystem and command backends for one admitted incarnation. |
+| `CreationStatus` | Distinguish absent, pending, ready, failed, and unknown creation outcomes. |
+| `WorkspaceDeletionTarget` | Clean up a persisted creation operation, including one with no ready reference. |
+| `ManagedWorkspaceProvider` | Own physical workspace creation, inspection, reconnection, release, and destruction. |
+| `WorkspaceLifecycleErrorCode` | Classify lost, expired, conflicting, unsupported, retryable, and uncertain operations. |
+| `WorkspaceLifecycleError` | Report a typed workspace lifecycle failure. |
 | `SourceBundle` | Describe immutable canonical source content and its digest. |
 | `SourceFileInput` | Supply exact file bytes and executable metadata. |
 | `WorkspaceSourceDefinition` | Declare the source directory, exact inventory, exclusions, and additional files. |
@@ -67,6 +81,12 @@ The `/node` entry owns the exports below. Types are also available from the depe
 | `verifySourceBundle` | Validate bundle shape, encoding, paths, limits, and digest. |
 | `readSourceFile` | Read initial bytes into independently owned memory. |
 | `captureWorkspaceSource` | Capture the declared application source into a verified bundle. |
+| `captureWorkspaceDefinition` | Capture declared source and validate creation options. |
+| `verifyCapturedWorkspaceDefinition` | Validate and freeze a captured definition. |
+| `createWorkspaceIntent` | Create a canonical immutable intent bound to operation and environment. |
+| `verifyWorkspaceIntent` | Validate the persisted intent and digest. |
+| `verifyReadyWorkspace` | Verify provider readiness against its persisted intent. |
+| `verifyCreationStatus` | Validate every provider inspection outcome before acting on it. |
 
 ## Key contracts
 
@@ -85,6 +105,7 @@ export interface BackendContext {
 
 ```ts api-contract="@b4run/workspace#.:FilesystemBackend"
 export interface FilesystemBackend {
+  lstat?(path: string, ctx: BackendContext): Promise<{ readonly kind: "file" | "directory" | "symlink" | "other"; readonly size: number; readonly executable: boolean; readonly target?: string }>
   readFile(
     path: string,
     ctx: BackendContext,
@@ -203,6 +224,7 @@ export interface SandboxHandle {
 
 ```ts api-contract="@b4run/workspace#.:SandboxProvider"
 export interface SandboxProvider {
+  readonly workspaces?: ManagedWorkspaceProvider
   readonly name: string
   acquire(input: {
     readonly threadId: string
@@ -222,10 +244,12 @@ export interface SandboxProvider {
 **Fields: `@b4run/workspace#.:SandboxProvider`**
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `readonly workspaces` | `ManagedWorkspaceProvider` | no | Supply provider-owned durable workspace operations. |
 | `readonly name` | `string` | yes | Identify the provider. |
 
 ```ts api-contract="@b4run/workspace#.:SandboxConfig"
 export interface SandboxConfig {
+  readonly workspace?: WorkspaceDefinition
   readonly provider: SandboxProvider
   readonly network?: SandboxPolicy["network"]
   readonly env?: SandboxPolicy["env"]
@@ -238,6 +262,7 @@ export interface SandboxConfig {
 **Fields: `@b4run/workspace#.:SandboxConfig`**
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `readonly workspace` | `WorkspaceDefinition` | no | Declare the initial managed workspace. |
 | `readonly provider` | `SandboxProvider` | yes | Supply the sandbox provider. |
 | `readonly network` | `SandboxPolicy["network"]` | no | Set the default network policy. |
 | `readonly env` | `SandboxPolicy["env"]` | no | Set the default explicit environment. |
@@ -368,6 +393,30 @@ Backend methods receive absolute paths and a cancellation signal from their call
 Sandbox `release()` and `destroy()` express distinct lifecycle responsibilities, but exact persistence and cleanup behavior belongs to each provider. Security fields express provider-agnostic intent; an unset field does not by itself prove a particular provider's enforcement.
 
 Logging middleware defaults to `console.error`. A custom destination receives `{ method, args }`. Filesystem logging does not serialize binary content and passes through `realPath`, `statFile`, `removeFile`, `touchFile`, and `mkdir`; treat logged paths, command text, working directories, and text write contents as potentially sensitive.
+
+### Managed workspace lifecycle
+
+Declare `sandbox.workspace` with an exact source inventory. `b4 build` captures
+source bytes for the Node target; startup verifies the artifact and retains it
+in the installation store. Existing threads retain their original source and
+provenance across deployment changes. Providers without `workspaces` support
+reject the configuration. The first qualified provider is Docker; managed
+workspace builds require `build: { targets: ["node"] }` and the existing app-root
+`workspace/` capability marker.
+
+Provider creation receives an immutable `SourceBundle`, bounded to 64 MiB of
+original content, and a persisted `WorkspaceCreateIntent`. Readiness must match
+that intent before tools receive a session. An unknown outcome cannot authorize
+a new operation. Release targets a compute incarnation; destroy targets the
+original operation and may run before readiness exists. Missing established
+storage is an explicit failure, never an instruction to reseed.
+
+Environment links point to directories in the pinned immutable environment.
+They cannot overlap source files or generated `.git` metadata. Docker requires
+a Node-capable preparation image, keeps those targets read-only, and supports
+UID/GID 1000 for managed non-root execution. Git baselines use fixed identity
+and time with ambient configuration and hooks disabled. The stored baseline
+commit is provenance; agent-writable `.git` contents are not verification truth.
 
 ## Examples and related guides
 

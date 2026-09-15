@@ -201,7 +201,12 @@ export async function startRuntimeServer(
 
   const server = createServer(listener)
 
-  await listen(server, options.host, options.port)
+  try {
+    await listen(server, options.host, options.port)
+  } catch (error) {
+    await listenerClose()
+    throw error
+  }
 
   const address = server.address()
 
@@ -214,20 +219,20 @@ export async function startRuntimeServer(
   // requested interface.
   const urlHost = toUrlHost(options.host)
 
+  let serverClosed: Promise<void> | undefined
   return {
     close: async () => {
       if (state.closed) {
         return
       }
       // Stop accepting new TCP connections; existing sockets finish below.
-      const serverClosed = new Promise<void>((resolve, reject) => {
+      serverClosed ??= new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))
       })
       // Abort + drain in-flight requests + clear the sandbox reaper + release
       // sandboxes - the single shutdown path shared with the in-process
       // listener. This is the only place that flips state.closed.
-      await listenerClose()
-      await serverClosed
+      await Promise.all([listenerClose(), serverClosed])
     },
     url: `http://${urlHost}:${(address as AddressInfo).port}`,
   }

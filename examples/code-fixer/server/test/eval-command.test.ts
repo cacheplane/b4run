@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { expect, it } from "vitest"
-import { runChild } from "../src/blueprint/run-attempt.ts"
+import { runChild } from "../src/evaluation/run-attempt.ts"
 
 it("returns nonzero while retaining every failed attempt in the batch summary", async () => {
   const output = await mkdtemp(join(tmpdir(), "b4-code-fixer-failed-batch-"))
