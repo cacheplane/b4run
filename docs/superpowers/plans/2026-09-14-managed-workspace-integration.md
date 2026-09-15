@@ -66,6 +66,10 @@ Files: examples/code-fixer/server config, src/app/fix tool(s), ordinary fixture/
 
 ## Task 5: Full integration qualification and PR
 
+Progress/check outcomes after this committed snapshot are tracked in
+https://github.com/cacheplane/b4run/pull/655. The PR is draft while remaining
+local and CI gates run; unchecked items below describe this snapshot.
+
 - [x] Independent final spec/code review; apply fixes with regression tests.
 - [x] Add patch changesets for affected packages; update API contract registries, docs inventories, necessary release pins only if touched.
 - [ ] Run `pnpm ci:validate`, changeset checks, and required real Docker qualification for normal runtime, built Node without source, restart/SIGKILL, concurrent threads, active-run idle handling, interrupted delete, permission/approval-resume and both fixture evals. No paid model calls unless needed; use deterministic replay/model stubs to test actual execution paths.

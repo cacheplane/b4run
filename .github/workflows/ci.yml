@@ -417,6 +417,23 @@ jobs:
       - name: Real-Docker sandbox conformance + e2e
         run: B4_TEST_DOCKER=1 pnpm --filter @b4run/sandbox test docker-sandbox.integration
 
+      - name: Build managed workspace runtime and example
+        run: pnpm turbo run build --filter=@b4-example/code-fixer-server...
+
+      - name: Prepare isolated code-fixer environment
+        run: pnpm --filter @b4-example/code-fixer-server sandbox:prepare
+
+      - name: Managed Docker lifecycle and runtime restart
+        run: |
+          B4_TEST_DOCKER=1 pnpm --filter @b4run/sandbox test managed-workspace
+          B4_TEST_DOCKER=1 pnpm --filter @b4run/cli test managed-workspace-process
+
+      - name: Code-fixer approval and verifier recovery
+        run: pnpm --filter @b4-example/code-fixer-server test:sandbox
+
+      - name: Both historical repair replays
+        run: pnpm --filter @b4-example/code-fixer-server eval:replay
+
   pgvector-docker:
     needs: metadata_scope
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}

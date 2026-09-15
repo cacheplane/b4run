@@ -53,4 +53,16 @@ the replacement acceptance tests exercise the normal runtime and provider APIs.
 
 ## Repository validation and PR
 
-Pending final validation completion and PR URL.
+Draft PR: https://github.com/cacheplane/b4run/pull/655.
+
+At this committed snapshot, the full local source suite passed: 516 files,
+6,254 tests; 20 files / 236 tests deliberately gated. Release integrity (33),
+workflow-scope checks (55), changesets, docs, build, lint, typecheck and cache
+configuration passed. The complete `pnpm ci:validate` sequence is continuing
+through release-controller, packaging and harness gates. The PR description and
+checks record the final outcome after this snapshot.
+
+The initial clean-checkout CI exposed missing executable shims for an unbuilt
+workspace CLI dependency. The example now uses the same direct package entry
+as the other monorepo examples. The Docker CI job also runs managed lifecycle,
+actual process restart, approval/verifier recovery, and both historical replays.

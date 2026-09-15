@@ -10,14 +10,14 @@
     "fixtures:qualify": "tsx scripts/qualify.ts",
     "sandbox:prepare": "tsx scripts/prepare.ts",
     "test:sandbox": "vitest run --config vitest.sandbox.config.ts",
-    "check": "b4 check",
-    "build": "b4 build",
+    "check": "node node_modules/@b4run/cli/dist/index.js check",
+    "build": "node node_modules/@b4run/cli/dist/index.js build",
     "eval:live": "node --env-file-if-exists=.env --import tsx scripts/eval.ts",
     "evidence:export": "tsx scripts/export.ts",
     "verify:consumer": "tsx scripts/consumer.ts",
-    "dev": "b4 dev",
+    "dev": "node node_modules/@b4run/cli/dist/index.js dev",
     "start": "node .b4/build/server.mjs",
-    "eval": "b4 eval",
+    "eval": "node node_modules/@b4run/cli/dist/index.js eval",
     "eval:replay": "node --import tsx scripts/eval.ts --replay --attempts 1"
   },
   "dependencies": {
