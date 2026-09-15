@@ -1,7 +1,7 @@
 {
   "name": "@b4-example/chat-web",
   "private": true,
-  "version": "0.0.10",
+  "version": "0.0.11",
   "type": "module",
   "scripts": {
     "dev": "next dev -p 3000",

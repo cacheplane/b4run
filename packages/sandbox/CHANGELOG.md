@@ -1,5 +1,26 @@
 # @dawn-ai/sandbox
 
+## 0.8.32
+
+### Patch Changes
+
+- 0003db2: Add provider-owned managed workspaces with immutable source capture, durable installation ownership and associations, resumable creation/deletion, and incarnation-scoped compute sessions. Node builds retain verified source artifacts; tools receive permission-bound initial bytes and workspace provenance. Docker implements managed preparation and recovery. Add file metadata and binary reads, disposable workspace execution, and isolated test-harness cleanup. Migrate the code-fixer example to ordinary author tools with independently verified, approval-bound candidate export.
+- 0003db2: Breaking change: Docker and Kubernetes sandbox providers now require a stable
+  application/environment `scope`. All resource names hash scope and thread ID,
+  preventing collisions caused by the previous thread-name normalization. Research
+  scaffolds now supply scope explicitly.
+
+  Existing resources use different names and are not automatically reattached,
+  migrated, or deleted. Export required data before upgrading and manage old
+  resources explicitly. Scope is not authorization or cross-process coordination.
+
+- Updated dependencies [0003db2]
+- Updated dependencies [9e3c42e]
+- Updated dependencies [0003db2]
+- Updated dependencies [0003db2]
+  - @b4run/workspace@0.8.32
+  - @b4run/sdk@0.8.32
+
 ## 0.8.31
 
 ### Patch Changes
