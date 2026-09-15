@@ -9,6 +9,7 @@ import {
   type SubagentResolver,
   streamAgent,
 } from "@b4run/langchain"
+import type { B4Middleware } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch"
 import { AIMessage } from "@langchain/core/messages"
@@ -23,7 +24,7 @@ import {
   StateGraph,
 } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
-import { afterEach, expect, it } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { script } from "../../testing/dist/fixture-builder.js"
 import { handleAgUiRequest } from "../src/lib/dev/agui-handler.js"
@@ -143,6 +144,7 @@ async function setupServer(
 }
 
 interface ControlledServerOptions {
+  readonly middleware?: B4Middleware
   readonly checkpointer?: BaseCheckpointSaver
   readonly streamRoute: typeof streamResolvedRoute
   readonly shutdownSignal?: AbortSignal
@@ -172,7 +174,7 @@ async function setupControlledServer(controlled: ControlledServerOptions): Promi
         controlled.checkpointer ??
         ({ getTuple: async () => undefined } as unknown as BaseCheckpointSaver),
       liveTurnHub: controlled.liveTurnHub ?? createLiveTurnHub(),
-      middleware: undefined,
+      middleware: controlled.middleware,
       registry: {
         appRoot,
         entries: [],
@@ -1082,3 +1084,71 @@ it.each(["failure", "cancellation"])(
     }
   },
 )
+
+it("lets middleware validate detached client context before route execution", async () => {
+  let receivedBody: unknown
+  let receivedInput: unknown
+  let receivedContext: unknown
+  const { port } = await setupControlledServer({
+    middleware: (request) => {
+      const body = request.body as {
+        state: { selectedId: string }
+        extension: { schema: { type: string } }
+        messages: [{ content: string }]
+      }
+      receivedBody = structuredClone(body)
+      if (!body) return { action: "reject", status: 422 }
+      body.messages[0].content = "changed by middleware"
+      return { action: "continue", context: { selectedId: body.state.selectedId } }
+    },
+    streamRoute: async function* (options) {
+      receivedInput = options.input
+      receivedContext = options.middlewareContext
+      yield { type: "done", data: {} }
+    },
+  })
+  const body = {
+    threadId: "body-context",
+    runId: "body-run",
+    state: { selectedId: "record-1" },
+    extension: { schema: { type: "object" } },
+    messages: [{ id: "message-1", role: "user", content: "review selection" }],
+  }
+
+  const { response } = await postRun(port, body)
+
+  expect(response.status).toBe(200)
+  expect(receivedBody).toMatchObject(body)
+  expect(receivedInput).toEqual({ messages: [{ role: "user", content: "review selection" }] })
+  expect(receivedContext).toEqual({ selectedId: "record-1" })
+})
+
+it("does not clone the request envelope when middleware is absent", async () => {
+  const { port } = await setupControlledServer({
+    streamRoute: async function* () {
+      yield { type: "done", data: {} }
+    },
+  })
+  const clone = vi.spyOn(globalThis, "structuredClone")
+  try {
+    const { response } = await postRun(port, {
+      threadId: "no-middleware",
+      runId: "no-middleware-run",
+      messages: [],
+      envelopeProbe: "no-body-copy",
+    })
+
+    expect(response.status).toBe(200)
+    expect(
+      clone.mock.calls.filter(
+        ([value]) =>
+          typeof value === "object" &&
+          value !== null &&
+          "envelopeProbe" in value &&
+          value.envelopeProbe === "no-body-copy",
+      ),
+    ).toHaveLength(0)
+  } finally {
+    clone.mockRestore()
+  }
+})

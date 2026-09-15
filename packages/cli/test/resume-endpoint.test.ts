@@ -465,3 +465,113 @@ async function createConcurrentResumeFixtureApp(pendingWrites: readonly unknown[
     `,
   })
 }
+
+test("resume middleware can reject a decision using the parsed body", async () => {
+  const appRoot = await createCheckpointFixtureApp([
+    [
+      "33a12321-3ec2-56a7-b4d7-0337886c4386",
+      "__interrupt__",
+      { id: "3336d0e0a2d4f198ef9aecd09cd7ac27", value: { interruptId: "perm-1" } },
+    ],
+  ])
+  let receivedBody: unknown
+  const server = await startRuntimeServer({
+    appRoot,
+    middleware: (request) => {
+      if (!request.url.endsWith("/resume")) return { action: "continue" }
+      receivedBody = request.body
+      return { action: "reject", status: 403, body: { error: "Decision not allowed" } }
+    },
+  })
+  servers.push(server)
+  const body = {
+    route: "/noop#graph",
+    resume: [{ interruptId: "perm-1", status: "resolved", payload: "always" }],
+  }
+
+  await seedRoute(server.url, "body-resume")
+
+  const response = await postResume(server.url, "body-resume", body)
+
+  expect(response.status).toBe(403)
+  expect(receivedBody).toEqual(body)
+})
+
+for (const endpoint of ["stream", "wait"]) {
+  test(`AP ${endpoint} middleware receives the complete request envelope`, async () => {
+    const appRoot = await createFixtureApp({
+      "b4.config.ts": "export default {}",
+      "package.json": '{ "type": "module" }',
+      "src/app/noop/index.ts": "export const graph = async () => ({ ok: true });",
+    })
+    let receivedBody: unknown
+    const server = await startRuntimeServer({
+      appRoot,
+      middleware: (request) => {
+        receivedBody = request.body
+        return { action: "reject", status: 403, body: { error: "Rejected" } }
+      },
+    })
+    servers.push(server)
+    const body = { route: "/noop#graph", input: { selectedId: "record-1" } }
+
+    const response = await fetch(
+      new URL(`/threads/body-${endpoint}/runs/${endpoint}`, server.url),
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    )
+
+    expect(response.status).toBe(403)
+    expect(receivedBody).toEqual(body)
+  })
+}
+
+test("GET pending interrupts omits the middleware body", async () => {
+  const appRoot = await createCheckpointFixtureApp([])
+  let hasBody: boolean | undefined
+  const server = await startRuntimeServer({
+    appRoot,
+    middleware: (request) => {
+      if (request.method === "GET") hasBody = Object.hasOwn(request, "body")
+      return { action: "continue" }
+    },
+  })
+  servers.push(server)
+  await seedRoute(server.url, "get-body")
+
+  const response = await fetch(new URL("/threads/get-body/pending_interrupts", server.url))
+
+  expect(response.status).toBe(200)
+  expect(hasBody).toBe(false)
+})
+
+test("AP middleware cannot mutate nested execution input through the body snapshot", async () => {
+  const appRoot = await createFixtureApp({
+    "b4.config.ts": "export default {}",
+    "package.json": '{ "type": "module" }',
+    "src/app/echo/index.ts": "export async function workflow(input) { return input }",
+  })
+  const server = await startRuntimeServer({
+    appRoot,
+    middleware: (request) => {
+      const body = request.body as { input: { nested: { value: string } } }
+      body.input.nested.value = "changed by middleware"
+      return { action: "continue" }
+    },
+  })
+  servers.push(server)
+
+  const response = await fetch(new URL("/threads/body-alias/runs/wait", server.url), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ route: "/echo#workflow", input: { nested: { value: "original" } } }),
+  })
+  const result = await response.text()
+
+  expect(response.status).toBe(200)
+  expect(result).toContain('"value":"original"')
+  expect(result).not.toContain("changed by middleware")
+})

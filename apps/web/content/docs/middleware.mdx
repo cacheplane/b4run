@@ -41,12 +41,26 @@ The argument every middleware receives. All values are pre-parsed:
 
 | Field | Shape | Notes |
 |---|---|---|
+| `body` | `unknown` (optional) | Detached copy of the original parsed JSON envelope on POST execution requests. Absent on GET requests. Client-supplied values must be validated before use. |
 | `headers` | `Readonly<Record<string, string>>` | Lowercase keys (Node convention). Multi-value headers joined with `, `. |
 | `params` | `Readonly<Record<string, string>>` | Dynamic-segment values extracted from the request input, e.g. `{ tenant: "acme" }` for `/hello/[tenant]`. Always `{}` on `/resume` and `/pending_interrupts` — see [Where middleware runs](#where-middleware-runs). |
 | `routeId` | `string` | E.g. `"/hello/[tenant]"`. |
 | `assistantId` | `string` | E.g. `"/hello/[tenant]#agent"`. |
 | `method` | `string` | HTTP method. `"POST"` on every gated endpoint except `/pending_interrupts`, which is a `"GET"`. |
 | `url` | `string` | Path + query, e.g. `"/threads/t-1/runs/wait"`. |
+
+The body retains the protocol envelope: Agent Protocol requests contain `input`
+or `resume`, while AG-UI requests contain fields such as `state`, `context`, and
+`forwardedProps`. Middleware can inspect additional AG-UI fields, but this does
+not make them supported runtime options. Protocol validation and authorization
+still run in their existing order; malformed requests may be rejected before
+middleware runs.
+
+Use this snapshot to validate application context or reject a request. Return
+validated values through `allow(context)` to make them available to tools.
+Editing `req.body` does not rewrite the request's execution input or resume
+decision. The snapshot is request-scoped, not persisted agent state, and its
+contents do not establish caller identity or authorization.
 
 ### `reject(status, body?)`
 

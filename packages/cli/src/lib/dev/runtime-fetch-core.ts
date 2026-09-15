@@ -1756,6 +1756,7 @@ async function handleApStreamRequest(options: {
   // Run middleware
   const requestUrl = new URL(request.url)
   const mwRequest: MiddlewareRequest = {
+    ...(middleware ? { body: structuredClone(body) } : {}),
     assistantId: route.assistantId,
     headers: headersToRecord(request.headers),
     method: request.method,
@@ -2121,6 +2122,7 @@ async function handleApWaitRequest(options: {
   // Run middleware
   const requestUrl = new URL(request.url)
   const mwRequest: MiddlewareRequest = {
+    ...(middleware ? { body: structuredClone(body) } : {}),
     assistantId: route.assistantId,
     headers: headersToRecord(request.headers),
     method: request.method,
@@ -3078,6 +3080,7 @@ async function handleResumeRequest(options: {
 
     const requestUrl = new URL(request.url)
     const mwRequest: MiddlewareRequest = {
+      ...(middleware ? { body: structuredClone(body) } : {}),
       assistantId: route.assistantId,
       headers: headersToRecord(request.headers),
       method: "POST",

@@ -1,4 +1,11 @@
 export interface MiddlewareRequest {
+  /**
+   * Detached snapshot of the original parsed JSON envelope on POST execution
+   * requests. Client-supplied and untrusted, including any protocol extensions;
+   * validate values before returning them through `allow(context)`. Mutating
+   * this snapshot does not rewrite execution input. Absent on GET requests.
+   */
+  readonly body?: unknown
   readonly assistantId: string
   readonly headers: Readonly<Record<string, string>>
   readonly method: string
