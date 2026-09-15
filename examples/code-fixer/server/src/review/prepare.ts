@@ -1,6 +1,7 @@
 import type { B4ToolContext } from "@b4run/sdk"
+import { inspectWorkspace } from "@b4run/workspace"
 import { createSourceBundle } from "@b4run/workspace/node"
-import { fixtureManifest } from "../fixtures/catalog.js"
+import { projectManifest } from "../project/catalog.js"
 import { candidateDigest, type ReviewCandidate } from "./candidate.js"
 import { collectChanges, renderReviewDiff } from "./patch.js"
 import { verifyChanges } from "./verifier.js"
@@ -13,15 +14,12 @@ function decode(bytes: Uint8Array): string {
 /** Snapshot through permission-bound author APIs, using only captured source as authority. */
 export async function inspectCandidate(ctx: B4ToolContext) {
   const workspace = ctx.workspace
-  const metadataReader = ctx.fs.stat?.bind(ctx.fs)
-  if (!workspace || !metadataReader)
-    throw new Error("Managed workspace provenance and file metadata are required")
-  const stat = metadataReader
-  const identity = JSON.parse(decode(await workspace.readInitialFile("fixture.json"))) as {
+  if (!workspace) throw new Error("Managed workspace provenance is required")
+  const identity = JSON.parse(decode(await workspace.readInitialFile("project.json"))) as {
     id?: unknown
   }
-  if (typeof identity.id !== "string") throw new Error("Invalid captured fixture identity")
-  const manifest = fixtureManifest(identity.id)
+  if (typeof identity.id !== "string") throw new Error("Invalid captured project identity")
+  const manifest = projectManifest(identity.id)
   const baseline: Record<string, string> = {}
   const sourceFiles = []
   for (const path of [
@@ -29,46 +27,20 @@ export async function inspectCandidate(ctx: B4ToolContext) {
     ...manifest.immutablePaths,
     "TASK.md",
     ".gitignore",
-    "fixture.json",
+    "project.json",
   ]) {
     const bytes = await workspace.readInitialFile(path)
     baseline[path] = decode(bytes)
     sourceFiles.push({ path, bytes, executable: false })
   }
-  const current: Record<string, string> = {}
-  let entries = 0
-  let bytes = 0
-  async function walk(directory = ""): Promise<void> {
-    for (const name of await ctx.fs.listDir(directory)) {
-      if (!/^[a-zA-Z0-9_.-]+$/.test(name) || name === "." || name === "..")
-        throw new Error("Invalid workspace entry")
-      const path = directory ? `${directory}/${name}` : name
-      if (++entries > 1000) throw new Error("Too many workspace entries")
-      const metadata = await stat(path)
-      if (!directory && name === ".git") {
-        if (metadata.kind !== "directory") throw new Error("Invalid Git directory")
-        continue
-      }
-      if (!directory && name === "node_modules") {
-        if (
-          metadata.kind !== "symlink" ||
-          metadata.target !== `/opt/fixtures/${manifest.id}/node_modules`
-        )
-          throw new Error("Unexpected dependency link")
-        continue
-      }
-      if (metadata.kind === "directory") await walk(path)
-      else {
-        if (metadata.kind !== "file" || metadata.executable)
-          throw new Error(`Not a regular source file: ${path}`)
-        bytes += metadata.size
-        if (bytes > 2 * 1024 * 1024) throw new Error("Workspace snapshot exceeds 2 MiB")
-        const content = await ctx.fs.readBinaryFile(path, { maxBytes: 2 * 1024 * 1024 })
-        current[path] = decode(content)
-      }
-    }
-  }
-  await walk()
+  const { files: current } = await inspectWorkspace(ctx.fs, {
+    signal: ctx.signal,
+    maxEntries: 1000,
+    maxFileBytes: 2 * 1024 * 1024,
+    maxTotalBytes: 2 * 1024 * 1024,
+    excludeRootDirectories: [".git"],
+    expectedRootSymlinks: { node_modules: `/opt/fixtures/${manifest.id}/node_modules` },
+  })
   const changes = collectChanges(baseline, current, manifest.allowedSourcePaths)
   if (!Object.keys(changes).length) throw new Error("No source changes to review")
   const candidateBase = {

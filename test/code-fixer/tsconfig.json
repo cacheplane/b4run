@@ -1,0 +1,16 @@
+{
+  "extends": "../../packages/config-typescript/node.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "../..",
+    "allowImportingTsExtensions": true,
+    "composite": false
+  },
+  "include": [
+    "evaluation/**/*.ts",
+    "scripts/**/*.ts",
+    "test/**/*.ts",
+    "fixtures/*.ts",
+    "vitest*.ts"
+  ]
+}

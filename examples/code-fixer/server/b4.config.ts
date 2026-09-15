@@ -1,8 +1,9 @@
 import { config } from "@b4run/cli"
 import { dockerSandbox } from "@b4run/sandbox"
-import { fixtureWorkspace, sandboxImage, sandboxPolicy } from "./src/fixtures/workspace.js"
+import { configuredProject } from "./src/project/catalog.js"
+import { projectWorkspace, sandboxImage, sandboxPolicy } from "./src/project/workspace.js"
 
-const task = process.env.B4_CODE_FIXER_TASK ?? "cli-flags"
+const task = configuredProject.id
 
 export default config({
   appDir: "src/app",
@@ -10,21 +11,13 @@ export default config({
   sandbox: {
     ...sandboxPolicy,
     provider: dockerSandbox({ scope: "code-fixer-local", image: sandboxImage }),
-    workspace: fixtureWorkspace(task),
+    workspace: projectWorkspace(task),
   },
   permissions: {
     allow: {
       // Prepared dependencies are readable inside the container, never writable.
-      readFile: [
-        "/opt/fixtures/cli-flags/node_modules",
-        "/opt/fixtures/cli-flags/node_modules/",
-        "/opt/fixtures/nullable-inputs/node_modules",
-        "/opt/fixtures/nullable-inputs/node_modules/",
-      ],
-      listDir: [
-        "/opt/fixtures/cli-flags/node_modules",
-        "/opt/fixtures/nullable-inputs/node_modules",
-      ],
+      readFile: [`/opt/fixtures/${task}/node_modules`, `/opt/fixtures/${task}/node_modules/`],
+      listDir: [`/opt/fixtures/${task}/node_modules`],
       bash: [
         "npm test",
         "npm run test",

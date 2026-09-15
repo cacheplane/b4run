@@ -1,4 +1,5 @@
 import type { BackendContext, FilesystemBackend } from "@b4run/workspace"
+import { readSandboxBytes } from "../bounded-read.js"
 import type { KubeClient } from "./kube-client.js"
 
 function q(s: string): string {
@@ -18,22 +19,17 @@ export function kubeFilesystem(
     })
   return {
     async readFile(path, ctx, opts) {
+      if (opts?.maxBytes !== undefined && opts.maxBytes !== Infinity) {
+        return (
+          await readSandboxBytes(path, opts.maxBytes, "readFile", (cmd) => run(cmd, ctx))
+        ).toString("utf8")
+      }
       const r = await run(`cat ${q(path)}`, ctx)
       if (r.exitCode !== 0) throw new Error(`readFile failed: ${r.stderr.trim()}`)
-      const max = opts?.maxBytes
-      if (max !== undefined && Number.isFinite(max) && Buffer.byteLength(r.stdout) > max) {
-        throw new Error(`readFile ${path}: content exceeds maxBytes (${max}).`)
-      }
       return r.stdout
     },
     async readBinaryFile(path, ctx, opts) {
-      const r = await run(`base64 < ${q(path)}`, ctx)
-      if (r.exitCode !== 0) throw new Error(`readBinaryFile failed: ${r.stderr.trim()}`)
-      const bytes = Buffer.from(r.stdout.replace(/\s/g, ""), "base64")
-      const max = opts?.maxBytes
-      if (max !== undefined && Number.isFinite(max) && bytes.length > max)
-        throw new Error(`readBinaryFile ${path}: content exceeds maxBytes (${max}).`)
-      return bytes
+      return readSandboxBytes(path, opts?.maxBytes, "readBinaryFile", (cmd) => run(cmd, ctx))
     },
     async lstat(path, ctx) {
       const r = await run(`stat -c '%f %s' -- ${q(path)}`, ctx)

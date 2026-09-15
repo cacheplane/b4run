@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { B4ToolContext } from "@b4run/sdk"
-import { appRoot } from "../../../fixtures/workspace.js"
+import { appRoot } from "../../../project/workspace.js"
 import { type ReviewCandidate, validateCandidate } from "../../../review/candidate.js"
 import { renderReviewDiff } from "../../../review/patch.js"
 import { inspectCandidate } from "../../../review/prepare.js"

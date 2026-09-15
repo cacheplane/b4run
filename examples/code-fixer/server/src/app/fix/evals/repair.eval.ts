@@ -1,38 +1,13 @@
-import { custom, defineEval, gate } from "@b4run/evals"
-import { behaviorCriteria } from "../../../evaluation/evaluate.js"
-import { taskInput } from "../../../evaluation/replay.js"
+import { defineEval, gate } from "@b4run/evals"
+import { repairScorers } from "./scoring.js"
 
-/** Run with --live; deterministic two-turn replay uses the separate batch command. */
+export const taskInput =
+  "Read TASK.md, reproduce the failure, repair the permitted source, verify the preservation requirements, call prepareReview, and then exportForReview with its exact candidate to request runtime approval."
+
+/** Run with b4 eval --live; test:sandbox also exercises the same gates offline. */
 export default defineEval({
   name: "code-fixer repair workflow",
-  dataset: [{ name: "configured fixture", input: taskInput }],
-  scorers: [
-    ...["reproduced", "verified", "approval"].map((name) =>
-      custom((run) => behaviorCriteria(run)[name as "reproduced" | "verified" | "approval"], {
-        name,
-        threshold: 1,
-      }),
-    ),
-    ...["visible", "independent", "scope"].map((name) =>
-      custom(
-        (run) => {
-          const result = [...run.toolResults]
-            .reverse()
-            .find((entry) => entry.name === "prepareReview" && !entry.isError)
-          if (!result) return false
-          const prepared = (
-            typeof result.content === "string" ? JSON.parse(result.content) : result.content
-          ) as {
-            verification?: { visible?: { passed?: boolean }; independent?: { passed?: boolean } }
-            candidate?: { changes?: Record<string, string> }
-          }
-          return name === "scope"
-            ? Object.keys(prepared.candidate?.changes ?? {}).length > 0
-            : prepared.verification?.[name as "visible" | "independent"]?.passed === true
-        },
-        { name, threshold: 1 },
-      ),
-    ),
-  ],
+  dataset: [{ name: "configured project", input: taskInput }],
+  scorers: repairScorers,
   gate: gate.perScorer(),
 })

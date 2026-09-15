@@ -1,0 +1,13 @@
+{
+  "visible": {
+    "file": "test/nullable.test.ts",
+    "assertions": ["a nullable TypeScript tool accepts null at runtime"]
+  },
+  "independent": {
+    "file": "checks/independent.test.ts",
+    "assertions": [
+      "preserves null alternatives, required fields, and nested inputs",
+      "preserves existing non-nullable and array behavior"
+    ]
+  }
+}

@@ -1,8 +1,11 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import * as fsPromises from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { localFilesystem } from "../src/local-filesystem.js"
+
+vi.mock("node:fs/promises", async (original) => ({ ...(await original<typeof fsPromises>()) }))
 
 function ctx(workspaceRoot: string) {
   return { signal: new AbortController().signal, workspaceRoot }
@@ -160,6 +163,27 @@ describe("localFilesystem", () => {
     await expect(fs.readBinaryFile?.(p, ctx(root))).rejects.toThrow(/too large/) // default cap rejects
     const out = await fs.readBinaryFile?.(p, ctx(root), { maxBytes: Number.POSITIVE_INFINITY })
     expect(out?.length).toBe(100) // override allows
+  })
+
+  it("bounds bytes when a file grows after its size check", async () => {
+    const path = join(root, "growing")
+    writeFileSync(path, "a")
+    const originalStat = fsPromises.stat
+    const spy = vi
+      .spyOn(fsPromises, "stat")
+      .mockImplementation(async (...args: Parameters<typeof originalStat>) => {
+        const result = await originalStat(...args)
+        writeFileSync(path, "a".repeat(100))
+        return result
+      })
+    try {
+      await expect(
+        localFilesystem().readBinaryFile?.(path, ctx(root), { maxBytes: 8 }),
+      ).rejects.toThrow(/too large/)
+      expect(spy).toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it("readBinaryFile on missing file raises ENOENT", async () => {

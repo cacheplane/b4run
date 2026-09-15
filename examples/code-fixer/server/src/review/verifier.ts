@@ -3,12 +3,13 @@ import { readdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { withWorkspace } from "@b4run/cli"
 import { dockerSandbox } from "@b4run/sandbox"
-import type { CapturedWorkspaceDefinition } from "@b4run/workspace"
-import { fixtureManifest, fixturesRoot } from "../fixtures/catalog.js"
-import { appRoot, fixtureWorkspace, sandboxImage, sandboxPolicy } from "../fixtures/workspace.js"
-import { collectChanges, snapshot } from "./patch.js"
+import { type CapturedWorkspaceDefinition, inspectWorkspace } from "@b4run/workspace"
+import { z } from "zod"
+import { projectDirectory, projectManifest } from "../project/catalog.js"
+import { appRoot, projectWorkspace, sandboxImage, sandboxPolicy } from "../project/workspace.js"
+import { collectChanges } from "./patch.js"
 
-export { sandboxImage, sandboxPolicy } from "../fixtures/workspace.js"
+export { sandboxImage, sandboxPolicy } from "../project/workspace.js"
 
 export async function verifyChanges(
   id: string,
@@ -16,11 +17,14 @@ export async function verifyChanges(
   signal: AbortSignal,
   initial?: { workspace: CapturedWorkspaceDefinition; image: string; workspaceId: string },
 ) {
-  const manifest = fixtureManifest(id)
+  const manifest = projectManifest(id)
   for (const path of Object.keys(changes)) {
     if (!manifest.allowedSourcePaths.includes(path))
       throw new Error(`Disallowed patch path: ${path}`)
   }
+  const checks = checksSchema.parse(
+    JSON.parse(await readFile(join(projectDirectory, "checks.json"), "utf8")),
+  )
   return withWorkspace(
     {
       appRoot,
@@ -29,62 +33,57 @@ export async function verifyChanges(
         scope: "code-fixer-verifiers",
         image: initial?.image ?? sandboxImage,
       }),
-      workspace: initial?.workspace ?? fixtureWorkspace(id),
+      workspace: initial?.workspace ?? projectWorkspace(id),
       policy: sandboxPolicy,
       signal,
     },
     async (handle) => {
+      const snapshot = async () =>
+        (
+          await inspectWorkspace(handle, {
+            signal,
+            maxEntries: 1000,
+            maxFileBytes: 2 * 1024 * 1024,
+            maxTotalBytes: 2 * 1024 * 1024,
+            excludeRootDirectories: [".git"],
+            expectedRootSymlinks: { node_modules: `/opt/fixtures/${id}/node_modules` },
+          })
+        ).files
       const ctx = { workspaceRoot: handle.workspaceRoot, signal }
       for (const [path, content] of Object.entries(changes))
         await handle.filesystem.writeFile(`${handle.workspaceRoot}/${path}`, content, ctx)
-      const visibleBaseline = await snapshot(handle, signal)
-      const visible = await runChecks(handle, id, "visible", signal)
-      collectChanges(visibleBaseline, await snapshot(handle, signal), [])
+      const visibleBaseline = await snapshot()
+      const visible = await runChecks(handle, checks.visible, signal)
+      collectChanges(visibleBaseline, await snapshot(), [])
       // Checks are installed only in this verifier, after visible execution.
-      for (const name of await readdir(join(fixturesRoot, id, "checks"))) {
+      for (const name of await readdir(join(projectDirectory, "checks"))) {
         await handle.filesystem.writeFile(
           `${handle.workspaceRoot}/checks/${name}`,
-          await readFile(join(fixturesRoot, id, "checks", name), "utf8"),
+          await readFile(join(projectDirectory, "checks", name), "utf8"),
           ctx,
         )
       }
-      const independentBaseline = await snapshot(handle, signal)
-      const independent = await runChecks(handle, id, "independent", signal)
-      collectChanges(independentBaseline, await snapshot(handle, signal), [])
+      const independentBaseline = await snapshot()
+      const independent = await runChecks(handle, checks.independent, signal)
+      collectChanges(independentBaseline, await snapshot(), [])
       return { passed: visible.passed && independent.passed, visible, independent }
     },
   )
 }
 
-// Authored fixture assertions, not file-level runner success, define completion.
-const expectedChecks: Record<string, { visible: string[]; independent: string[] }> = {
-  "cli-flags": {
-    visible: ["documented dry-run flag reaches the handler"],
-    independent: [
-      "forwards cap and memory-level cwd",
-      "rejects unknown and incomplete arguments",
-      "dry-run preserves memory state and creates no files",
-    ],
-  },
-  "nullable-inputs": {
-    visible: ["a nullable TypeScript tool accepts null at runtime"],
-    independent: [
-      "preserves null alternatives, required fields, and nested inputs",
-      "preserves existing non-nullable and array behavior",
-    ],
-  },
-}
+// Assertion names are host-owned completion policy for the selected sample.
+const suiteSchema = z.object({
+  file: z.string().regex(/^(?:test|checks)\/[a-zA-Z0-9_-]+\.test\.ts$/),
+  assertions: z.array(z.string().min(1)).min(1),
+})
+const checksSchema = z.object({ visible: suiteSchema, independent: suiteSchema })
 
 async function runChecks(
   handle: import("@b4run/workspace").SandboxHandle,
-  id: string,
-  suite: "visible" | "independent",
+  suite: z.infer<typeof suiteSchema>,
   signal: AbortSignal,
 ) {
-  const file =
-    suite === "visible"
-      ? `test/${id === "cli-flags" ? "cli" : "nullable"}.test.ts`
-      : "checks/independent.test.ts"
+  const { file, assertions: expected } = suite
   // The parent runner uses only built-ins. Submitted code runs in a child;
   // its stdout is a test:stdout event and cannot forge a test:pass receipt.
   const program = `
@@ -107,7 +106,6 @@ const {run} = require('node:test');
     events: { type: string; name: string; skip: boolean; todo: boolean; error?: string }[]
     output: string
   }
-  const expected = expectedChecks[id]?.[suite] ?? []
   const passed =
     result.exitCode === 0 &&
     expected.length > 0 &&

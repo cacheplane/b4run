@@ -2,8 +2,9 @@ import { readdir, readFile, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { createAgentHarness, script } from "@b4run/testing"
 import { expect, it } from "vitest"
-import { isolatedApp } from "../src/evaluation/isolated-app.ts"
-import { replayFixture, taskInput } from "../src/evaluation/replay.ts"
+import { repairCriteria } from "../src/app/fix/evals/scoring.ts"
+import { isolatedApp } from "./isolated-app.ts"
+import { replayFixture, taskInput } from "./replay.ts"
 
 it.each(["once", "deny"])(
   "requires actual approval before review export: %s",
@@ -25,6 +26,20 @@ it.each(["once", "deny"])(
           .callsTool("exportForReview", { candidate: payload.candidate })
           .replies("Review request handled."),
       })
+      expect(
+        repairCriteria({
+          ...run,
+          toolCalls: [...first.toolCalls, ...run.toolCalls],
+          toolResults: [...first.toolResults, ...run.toolResults],
+        }),
+      ).toEqual({
+        reproduced: true,
+        verified: true,
+        approval: true,
+        visible: true,
+        independent: true,
+        scope: true,
+      })
       expect(run.interrupts).toHaveLength(1)
       const outbox = join(appRoot, ".b4/code-fixer/review-outbox")
       expect(await readdir(outbox).catch(() => [])).toEqual([])
@@ -38,7 +53,10 @@ it.each(["once", "deny"])(
       const files = await readdir(outbox).catch(() => [])
       if (decision === "once") {
         expect(files).toHaveLength(1)
-        expect(JSON.parse(await readFile(join(outbox, files[0]!), "utf8")).candidate).toEqual(
+        const filename = files[0]
+        expect(filename).toBeDefined()
+        if (!filename) throw new Error("Missing export receipt")
+        expect(JSON.parse(await readFile(join(outbox, filename), "utf8")).candidate).toEqual(
           payload.candidate,
         )
       } else expect(files).toEqual([])

@@ -26,7 +26,13 @@ describe("dockerFilesystem", () => {
 
   test("readFile enforces maxBytes", async () => {
     const fs = dockerFilesystem(
-      fakeDocker({ exec: async () => ({ stdout: "0123456789", stderr: "", exitCode: 0 }) }),
+      fakeDocker({
+        exec: async () => ({
+          stdout: Buffer.from("01234\nB4_READ_STATUS_0\n").toString("base64"),
+          stderr: "",
+          exitCode: 0,
+        }),
+      }),
       "c1",
     )
     await expect(fs.readFile("/workspace/a.txt", ctx, { maxBytes: 4 })).rejects.toThrow(
@@ -542,7 +548,14 @@ describe("workspace byte and metadata fidelity", () => {
     const bytes = Buffer.from([0, 255, 254, 10])
     const fs = dockerFilesystem(
       fakeDocker({
-        exec: async () => ({ stdout: bytes.toString("base64"), stderr: "", exitCode: 0 }),
+        exec: async (_c, cmd) => ({
+          stdout: (cmd.join(" ").includes("B4_READ_STATUS")
+            ? Buffer.concat([bytes, Buffer.from("\nB4_READ_STATUS_0\n")])
+            : bytes
+          ).toString("base64"),
+          stderr: "",
+          exitCode: 0,
+        }),
       }),
       "c1",
     )

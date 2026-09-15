@@ -53,6 +53,49 @@ Capture reads a trusted application tree and rejects detected changes during
 reading; it is not an atomic filesystem snapshot. It does not create a sandbox,
 register runtime configuration, or provide workspace lifecycle recovery.
 
+### Inspecting a text workspace
+
+`inspectWorkspace` accepts the permission-bound `ctx.fs` author handle or a
+`SandboxHandle`. Both use the same bounded traversal and require leaf metadata
+(`stat` / `lstat`) and raw binary reads; missing support fails closed.
+
+```ts
+import { inspectWorkspace } from "@b4run/workspace"
+
+const inventory = await inspectWorkspace(ctx.fs, {
+  signal: ctx.signal,
+  excludeRootDirectories: [".git"],
+  expectedRootSymlinks: { node_modules: "/opt/project/node_modules" },
+})
+// inventory.files: relative path → exact UTF-8 text (including a leading BOM)
+// inventory.symlinks: validated root name → exact readlink target
+```
+
+Defaults are 10,000 entries, 2 MiB per file, and 16 MiB total file bytes;
+`maxEntries`, `maxFileBytes`, and `maxTotalBytes` accept nonnegative safe integers.
+Directories and omitted root entries count toward the entry limit; the workspace
+root itself does not. Limits check both reported sizes and actual returned bytes.
+The result also includes `entries` and `totalBytes`. File and link records have
+null prototypes, so filenames such as `__proto__` remain ordinary keys.
+
+Excluded root names may be absent, but must be directories when present. Expected
+root links are required and must match their exact, unnormalized targets. Their
+targets are never traversed. Nested entries receive no root exclusions. All other
+symlinks, non-file/non-directory entries, executable files, invalid UTF-8 and
+NUL-containing binary data are rejected. Leaf names cannot traverse directories.
+UTF-8 text without NUL is accepted; this is not a file-format classifier.
+
+Pass a signal to check cancellation around every filesystem call; sandbox backends
+also receive it in their `BackendContext`. Author handles retain their existing
+permission policy and cancellation behavior. The helper cannot interrupt an
+author operation already in flight. It uses no shell and no host filesystem APIs.
+
+Inspection is not an atomic snapshot or a new isolation boundary. Metadata,
+listing, and reads use separate backend calls and can race with concurrent writers;
+quiesce writers or revalidate before acting. Exact links validate link identity,
+not the contents of their external targets. Backend reads must honor the supplied
+byte cap to bound allocation before returning data.
+
 ### Supported surfaces
 
 - `@b4run/workspace` is an edge-safe, supported application surface.

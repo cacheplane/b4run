@@ -54,10 +54,18 @@
     "verify:harness:runtime": "node scripts/harness-report.mjs runtime",
     "verify:harness:self-test": "node scripts/harness-report.mjs --self-test",
     "verify:harness:smoke": "node scripts/harness-report.mjs smoke",
-    "typecheck": "turbo run typecheck && tsc -p test/tsconfig.json --noEmit && tsc -p test/security-dependencies/tsconfig.json --noEmit && tsc -p test/k8s-compat/tsconfig.json --noEmit",
+    "typecheck": "turbo run typecheck && tsc -p test/tsconfig.json --noEmit && tsc -p test/security-dependencies/tsconfig.json --noEmit && tsc -p test/k8s-compat/tsconfig.json --noEmit && tsc -p test/code-fixer/tsconfig.json --noEmit",
     "verify:k8s:compat": "pnpm --filter @b4run/sandbox... build && pnpm exec tsx scripts/kubernetes-compat.ts",
     "verify:typescript-tooling-pack": "pnpm test:typescript-tooling-pack-smoke && node scripts/typescript-tooling-pack-smoke.mjs",
-    "release:recover:inspect": "node scripts/release/recovery/cli.mjs inspect"
+    "release:recover:inspect": "node scripts/release/recovery/cli.mjs inspect",
+    "test:code-fixer": "vitest run --config test/code-fixer/vitest.config.ts",
+    "test:code-fixer:sandbox": "vitest run --config test/code-fixer/vitest.sandbox.config.ts",
+    "code-fixer:prepare": "tsx test/code-fixer/scripts/prepare.ts",
+    "code-fixer:qualify": "tsx test/code-fixer/scripts/qualify.ts",
+    "code-fixer:replay": "node --import tsx test/code-fixer/scripts/eval.ts --replay --attempts 1",
+    "code-fixer:live": "node --env-file-if-exists=.env --import tsx test/code-fixer/scripts/eval.ts",
+    "code-fixer:export": "tsx test/code-fixer/scripts/export.ts",
+    "code-fixer:consumer": "tsx test/code-fixer/scripts/consumer.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.6",
@@ -76,6 +84,12 @@
     "typescript": "7.0.2",
     "verdaccio": "^6.9.2",
     "vitest": "4.1.11",
-    "yaml": "2.9.0"
+    "yaml": "2.9.0",
+    "@b4run/cli": "workspace:*",
+    "@b4run/evals": "workspace:*",
+    "@b4run/sandbox": "workspace:*",
+    "@b4run/testing": "workspace:*",
+    "@b4run/workspace": "workspace:*",
+    "zod": "4.4.3"
   }
 }
