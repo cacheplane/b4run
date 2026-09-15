@@ -77,6 +77,7 @@ export async function* toAguiEvents(
   const activityProjector = createB4ActivityProjector(ctx.runId)
   const ledger = createOrchestrationLedger()
   let openMessageId: string | null = null
+  const identifiedMessages = new Map<string, string>()
   const pendingFallbackToolCallIds = new Map<string, string[]>()
   const pendingInterrupts: Interrupt[] = []
 
@@ -89,6 +90,18 @@ export async function* toAguiEvents(
       openMessageId = null
       yield* ledger.onPassthrough(end)
     }
+  }
+
+  function* closeIdentified(sourceId: string): Generator<AguiOutboundEvent> {
+    const messageId = identifiedMessages.get(sourceId)
+    if (messageId === undefined) return
+    identifiedMessages.delete(sourceId)
+    yield* ledger.onPassthrough({ type: EventType.TEXT_MESSAGE_END, messageId })
+  }
+
+  function* flushAllText(): Generator<AguiOutboundEvent> {
+    yield* flushText()
+    for (const sourceId of identifiedMessages.keys()) yield* closeIdentified(sourceId)
   }
 
   yield { type: EventType.RUN_STARTED, threadId: ctx.threadId, runId: ctx.runId }
@@ -121,6 +134,27 @@ export async function* toAguiEvents(
         case "token": {
           const delta = typeof chunk.data === "string" ? chunk.data : ""
           if (delta.length === 0) break
+          const sourceId =
+            "messageId" in chunk &&
+            typeof chunk.messageId === "string" &&
+            chunk.messageId.length > 0
+              ? chunk.messageId
+              : undefined
+          if (sourceId !== undefined) {
+            yield* flushText()
+            let messageId = identifiedMessages.get(sourceId)
+            if (messageId === undefined) {
+              messageId = nextId("message")
+              identifiedMessages.set(sourceId, messageId)
+              yield* ledger.onPassthrough({
+                type: EventType.TEXT_MESSAGE_START,
+                messageId,
+                role: "assistant",
+              })
+            }
+            yield* ledger.onPassthrough({ type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta })
+            break
+          }
           if (openMessageId === null) {
             openMessageId = nextId("message")
             yield* ledger.onPassthrough({
@@ -134,6 +168,18 @@ export async function* toAguiEvents(
             messageId: openMessageId,
             delta,
           })
+          break
+        }
+        case "message_end": {
+          const data = chunk.data
+          if (
+            data &&
+            typeof data === "object" &&
+            "messageId" in data &&
+            typeof data.messageId === "string"
+          ) {
+            yield* closeIdentified(data.messageId)
+          }
           break
         }
         case "tool_call": {
@@ -175,7 +221,7 @@ export async function* toAguiEvents(
           break
         }
         case "interrupt": {
-          yield* flushText()
+          yield* flushAllText()
           const interrupt = toAguiInterrupt(chunk.data)
           if (interrupt === null) {
             yield* ledger.settle()
@@ -194,7 +240,7 @@ export async function* toAguiEvents(
           break
         }
         case "done": {
-          yield* flushText()
+          yield* flushAllText()
           yield* ledger.settle()
           yield {
             type: EventType.RUN_FINISHED,
@@ -215,7 +261,7 @@ export async function* toAguiEvents(
       }
     }
     // Stream ended without an explicit done/interrupt: flush and finish.
-    yield* flushText()
+    yield* flushAllText()
     yield* ledger.settle()
     if (pendingInterrupts.length > 0) {
       yield {
@@ -233,7 +279,7 @@ export async function* toAguiEvents(
       outcome: { type: "success" },
     }
   } catch (err) {
-    yield* flushText()
+    yield* flushAllText()
     yield* ledger.settle()
     yield { type: EventType.RUN_ERROR, message: err instanceof Error ? err.message : String(err) }
   }

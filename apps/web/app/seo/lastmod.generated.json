@@ -72,9 +72,9 @@
       "recordDigest": "61b4434bcf4e2764f80d927edaf4121bc70816e3b531d43922c2ba961352adde"
     },
     "/docs/api/langchain": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "1bf030e5155a8d69d4dfcba3f70d78f7e0290b00873dbd946b284c7c49524dfe",
-      "recordDigest": "eaca2727ee4e01d7d011c466f0eea2c090cc7ea1f9ed436c4ef3dcbf7e27e93a"
+      "lastModified": "2026-09-15T16:04:34.949Z",
+      "sourceDigest": "140279ced1c684cadcd3f02aa16412d979e430d2e48c7cafde478f3a0ff2bbbd",
+      "recordDigest": "c450cfc9a654ace7b067db7799d1362ce805b1e3dc7bf07b3bf5465d6391dc49"
     },
     "/docs/api/langgraph": {
       "lastModified": "2026-09-07T19:58:55.550Z",

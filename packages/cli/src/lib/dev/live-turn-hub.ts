@@ -108,12 +108,19 @@ function mergeSubagent(existing: StreamChunk, incoming: StreamChunk): StreamChun
   } as StreamChunk
 }
 
-/** Coalesce `chunk` into the last digest entry when both are plain `chunk` frames. */
+/** Coalesce adjacent text chunks only when they belong to the same source message. */
 function appendCoalesced(digest: StreamChunk[], chunk: StreamChunk): { added: number } {
   const last = digest[digest.length - 1]
-  if (chunk.type === "chunk" && last && last.type === "chunk") {
+  if (
+    chunk.type === "chunk" &&
+    last &&
+    last.type === "chunk" &&
+    ("messageId" in chunk ? chunk.messageId : undefined) ===
+      ("messageId" in last ? last.messageId : undefined)
+  ) {
     const before = frameBytes(last)
     const merged: StreamChunk = {
+      ...last,
       type: "chunk",
       data: `${String((last as { data?: unknown }).data ?? "")}${String((chunk as { data?: unknown }).data ?? "")}`,
     }

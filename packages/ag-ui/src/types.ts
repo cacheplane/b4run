@@ -10,7 +10,13 @@ export interface RunContext {
  * package to B4.run core.
  */
 export type B4AgentStreamChunk =
-  | { readonly type: "token"; readonly data: string }
+  | {
+      readonly type: "token"
+      readonly data: string
+      /** Source model invocation identity; omitted by legacy producers. */
+      readonly messageId?: string
+    }
+  | { readonly type: "message_end"; readonly data: { readonly messageId: string } }
   | { readonly type: "tool_call"; readonly data: B4ToolCallData }
   | { readonly type: "tool_result"; readonly data: B4ToolResultData }
   | { readonly type: "interrupt"; readonly data: unknown }

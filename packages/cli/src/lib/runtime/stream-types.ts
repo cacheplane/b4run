@@ -1,5 +1,10 @@
 export type StreamChunk =
-  | { readonly type: "chunk"; readonly data: unknown }
+  | {
+      readonly type: "chunk"
+      readonly data: unknown
+      /** Model invocation identity, available to in-process and NDJSON consumers. */
+      readonly messageId?: string
+    }
   | {
       readonly type: "tool_call"
       readonly id?: string
@@ -38,7 +43,8 @@ export function toNdjsonLine(chunk: StreamChunk): string {
  * deep. The double-wrap was a real bug observed in live smoke testing.
  */
 export function toSseEvent(chunk: StreamChunk): string {
-  const payload = isDataOnlyChunk(chunk) ? chunk.data : omitType(chunk)
+  // Raw SSE keeps its legacy string payload even when in-process chunks carry identity.
+  const payload = chunk.type === "chunk" || isDataOnlyChunk(chunk) ? chunk.data : omitType(chunk)
   return `event: ${chunk.type}\ndata: ${JSON.stringify(payload)}\n\n`
 }
 

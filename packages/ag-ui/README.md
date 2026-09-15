@@ -31,6 +31,24 @@ Plan and subagent activity snapshots are translated on the root surface; use the
 
 Built-in orchestration is presented once. A `writeTodos` or `task` call whose activity was emitted produces no `TOOL_CALL_*` events, correlated by the model's tool-call id; every other tool is unchanged. The rule fails open, so the ordinary tool events are preserved whenever the activity cannot be produced. A client that registers no activity renderer therefore sees less for those two tools: activity snapshots are the canonical surface for them.
 
+## Model message framing
+
+Model tokens can include `messageId` alongside their string `data`. A
+`message_end` chunk with `data: { messageId }` ends that source message. The
+translator allocates an AG-UI message ID for each source and routes interleaved
+content independently, including nested model calls inside concurrent tools.
+An empty model produces no text message. Run completion, interruption, and errors
+close any remaining open messages.
+
+Anonymous tokens retain their implicit boundaries at tool events and run end.
+The CLI carries identity through in-process chunks, NDJSON, and live-turn
+snapshots. Raw Agent Protocol SSE retains its existing string `chunk` payload;
+use AG-UI when consuming independently framed model messages.
+
+Message identity does not deduplicate work repeated by graph checkpoint replay.
+Complete generation in a separate tool step before an approval-gated operation
+when the generated response must not repeat on resume.
+
 ## React renderers
 
 `@b4run/ag-ui/react` renders those activity snapshots. The drop-in is one prop:

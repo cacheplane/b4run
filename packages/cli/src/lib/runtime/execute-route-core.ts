@@ -588,7 +588,11 @@ export async function* streamResolvedRoute(
       })) {
         switch (chunk.type) {
           case "token":
-            yield { type: "chunk", data: chunk.data }
+            yield {
+              type: "chunk",
+              data: chunk.data,
+              ...(chunk.messageId !== undefined ? { messageId: chunk.messageId } : {}),
+            }
             break
           case "tool_call": {
             const tc = chunk.data as {
