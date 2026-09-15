@@ -99,7 +99,8 @@ export default defineMiddleware(async (req) => {
 })
 ```
 
-- `MiddlewareRequest`: `{ assistantId, headers, method, params, routeId, url }`.
+- `MiddlewareRequest`: `{ assistantId, body?, headers, method, params, routeId, url }`.
+- `body` is an untrusted, detached parsed JSON envelope on POST execution requests; it is absent on GET requests. Validate values before returning them through `allow(context)`. Editing the snapshot does not rewrite execution input.
 - Return `reject(status, body?)` to short-circuit the request, or `allow(context?)` to continue.
 - The `context` passed to `allow(...)` is forwarded to every tool as `ctx.middleware`.
 

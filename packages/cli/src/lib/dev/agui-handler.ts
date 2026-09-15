@@ -259,7 +259,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // condition the resume claim below takes itself on.
     const resuming = b4Input.resume !== undefined
     const middlewareRequest: MiddlewareRequest = {
-      body: structuredClone(parsedJson),
+      ...(middleware ? { body: structuredClone(parsedJson) } : {}),
       assistantId: route.assistantId,
       headers: headersToRecord(request.headers),
       method: request.method,
