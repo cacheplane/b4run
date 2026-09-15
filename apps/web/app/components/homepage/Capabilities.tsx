@@ -10,7 +10,7 @@ export function Capabilities({ items }: { readonly items: readonly Capability[] 
   if (!current) return null
   return (
     <section className={styles.capabilities} aria-labelledby="capabilities-title">
-      <p className={styles.eyebrow}>Real capabilities. Real TypeScript.</p>
+      <p className={styles.eyebrow}>Qualified example · B4 0.8.32</p>
       <div className={styles.intro}>
         <h2 id="capabilities-title">
           Give it tools.
@@ -18,9 +18,9 @@ export function Capabilities({ items }: { readonly items: readonly Capability[] 
           Keep the controls.
         </h2>
         <p>
-          Files. Execution. Evals. Approval.
+          Declare the workspace. Set sandbox limits.
           <br />
-          Open the code behind each one.
+          B4 owns the lifecycle. Your app owns the repair.
         </p>
       </div>
       <div className={styles.capGrid}>

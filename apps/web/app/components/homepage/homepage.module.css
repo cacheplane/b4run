@@ -126,6 +126,11 @@
   background: var(--dark);
   min-width: 0;
 }
+.agentSource > .eyebrow {
+  color: #c3c6bb;
+  margin: 0;
+  padding: 16px 18px 0;
+}
 .proof {
   grid-column: 2;
   grid-row: 1;

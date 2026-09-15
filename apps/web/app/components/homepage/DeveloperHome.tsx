@@ -8,7 +8,8 @@ const projectFiles = [
   ["fix/index.ts", "The agent."],
   ["fix/plan.md", "The plan."],
   ["fix/skills/verify-change/", "Reusable instructions."],
-  ["fix/tools/exportForReview.ts", "Your tool. Your TypeScript."],
+  ["fix/tools/prepareReview.ts", "Verify the exact candidate."],
+  ["fix/tools/exportForReview.ts", "Export after approval."],
   ["b4.config.ts", "The runtime boundaries."],
 ] as const
 
@@ -35,10 +36,11 @@ export async function DeveloperHome() {
         <div className={styles.lower}>
           <p>
             A real historical bug, recreated in a controlled fixture.
-            <br />A recorded fix. Every line inspectable.
+            <br />
+            Original source above. Qualified example below.
           </p>
           <a href={blueprintUrl} className={styles.cta}>
-            Get the code <span aria-hidden="true">↗</span>
+            Explore the example <span aria-hidden="true">↗</span>
           </a>
         </div>
         <Capabilities items={prepared.capabilities} />
@@ -75,27 +77,29 @@ export async function DeveloperHome() {
               <br />
               Start with this agent. Build your own.
             </p>
-            <a className={styles.cta} href={`${blueprintUrl}#run-from-the-monorepo-root`}>
-              Get the blueprint <span aria-hidden="true">↗</span>
+            <a className={styles.cta} href="/blueprints/code-fixer.md">
+              Open the installation guide <span aria-hidden="true">↗</span>
             </a>
           </div>
           <div>
             <p>
-              After installing dependencies, building the packages, and preparing the fixture image,
-              run from the repository root:
+              With the B4 CLI available, this prints the installation guide for your coding agent to
+              apply:
             </p>
             <pre className={styles.runCommand}>
-              <code>
-                {
-                  "B4_CODE_FIXER_MODEL=gpt-5 \\\npnpm --filter @b4-example/code-fixer-server \\\nrun:agent -- --task cli-flags"
-                }
-              </code>
+              <code>b4 add code-fixer</code>
             </pre>
             <p>
-              Node 24 · pnpm · Docker · OpenAI API key
+              Pinned source. Tested with B4 0.8.32.
               <br />
-              The README covers setup and replay without a model call.
+              Node 24 · Git · Docker. Add an OpenAI API key for live runs.
+              <br />
+              Replay the fixtures without a model call.
             </p>
+            <a href="/docs/cli#b4-add" className={styles.reportLink}>
+              Using the B4 CLI ↗
+            </a>
+            <br />
             <a
               href="https://github.com/cacheplane/b4run/blob/main/examples/code-fixer/server/WALKTHROUGH.md"
               className={styles.reportLink}

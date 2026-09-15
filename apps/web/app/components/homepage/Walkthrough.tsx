@@ -102,6 +102,7 @@ export function Walkthrough(props: WalkthroughProps) {
           )}
         </div>
         <div className={styles.agentSource} data-source={file}>
+          <p className={styles.eyebrow}>Recorded implementation</p>
           <fieldset className={styles.fileTabs} aria-label="Agent source files">
             {files.map((key, i) => (
               <button
