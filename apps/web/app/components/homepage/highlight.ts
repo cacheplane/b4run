@@ -10,7 +10,7 @@ import {
 import type { Capability, DisplayCode, WalkthroughProps } from "./types"
 
 const highlighter = createHighlighter({
-  langs: ["typescript", "markdown", "diff"],
+  langs: ["typescript", "markdown", "diff", "json"],
   themes: [
     {
       name: "paper-relay",

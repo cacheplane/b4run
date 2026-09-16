@@ -5,6 +5,7 @@ export interface DisplayCode {
   readonly url: string
   readonly firstLine: number
   readonly fold?: { readonly start: number; readonly end: number }
+  readonly wrap?: boolean
   readonly linkLabel?: string
 }
 export interface WalkthroughProps {

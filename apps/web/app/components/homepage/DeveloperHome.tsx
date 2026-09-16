@@ -1,20 +1,12 @@
-import { Capabilities } from "./Capabilities"
-import { blueprintUrl, reportUrl } from "./evidence"
+import { reportUrl, sourceUrl } from "./evidence"
 import { prepareHomepage } from "./highlight"
 import styles from "./homepage.module.css"
+import { Narrative } from "./Narrative"
+import { prepareNarrative } from "./narrative-source"
 import { Walkthrough } from "./Walkthrough"
 
-const projectFiles = [
-  ["fix/index.ts", "The agent."],
-  ["fix/plan.md", "The plan."],
-  ["fix/skills/verify-change/", "Reusable instructions."],
-  ["fix/tools/prepareReview.ts", "Verify the exact candidate."],
-  ["fix/tools/exportForReview.ts", "Export after approval."],
-  ["b4.config.ts", "The runtime boundaries."],
-] as const
-
 export async function DeveloperHome() {
-  const prepared = await prepareHomepage()
+  const [prepared, narrative] = await Promise.all([prepareHomepage(), prepareNarrative()])
   return (
     <div className={styles.home}>
       <div className={styles.container}>
@@ -32,36 +24,30 @@ export async function DeveloperHome() {
           </p>
           <span className={styles.dot} aria-hidden="true" />
         </section>
-        <Walkthrough {...prepared.walkthrough} />
-        <div className={styles.lower}>
-          <p>
-            A real historical bug, recreated in a controlled fixture.
-            <br />
-            Original source above. Qualified example below.
+        <Narrative code={narrative} />
+        <details className={styles.recording}>
+          <summary>
+            <span>
+              <span className={styles.eyebrow}>See it in action</span>
+              <strong>Watch the recorded repair.</strong>
+            </span>
+            <span>
+              1m 53s · edited highlights <span aria-hidden="true">＋</span>
+            </span>
+          </summary>
+          <p className={styles.sourceNote}>
+            Historical defect, earlier implementation. Recorded timing applies to this run only.
           </p>
-          <a href={blueprintUrl} className={styles.cta}>
-            Explore the example <span aria-hidden="true">↗</span>
-          </a>
-        </div>
-        <Capabilities items={prepared.capabilities} />
-        <section className={styles.fileStory} aria-labelledby="files-title">
-          <div>
-            <h3 id="files-title">
-              Small files.
-              <br />
-              Clear responsibilities.
-            </h3>
-            <p>Find the behavior. Read it. Change it.</p>
+          <Walkthrough {...prepared.walkthrough} />
+          <div className={styles.lower}>
+            <a href={sourceUrl("README.md")} className={styles.textLink}>
+              Explore the recorded example ↗
+            </a>
+            <a href={reportUrl} className={styles.textLink}>
+              See every attempt, including the failures ↗
+            </a>
           </div>
-          <dl className={styles.fileRows}>
-            {projectFiles.map(([path, meaning]) => (
-              <div key={path}>
-                <dt>{path}</dt>
-                <dd>{meaning}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
+        </details>
         <section className={styles.takeaway} aria-labelledby="run-title">
           <div>
             <p className={styles.eyebrow}>Your next commit starts here</p>
@@ -72,29 +58,22 @@ export async function DeveloperHome() {
               <br />
               Make it yours.
             </h2>
-            <p>
-              Working code. Real fixtures.
-              <br />
-              Start with this agent. Build your own.
-            </p>
+            <p>Start with this agent. Make it yours.</p>
             <a className={styles.cta} href="/blueprints/code-fixer.md">
               Open the installation guide <span aria-hidden="true">↗</span>
             </a>
           </div>
           <div>
-            <p>
-              With the B4 CLI available, this prints the installation guide for your coding agent to
-              apply:
-            </p>
+            <p>The B4 CLI prints the installation guide for your coding agent:</p>
             <pre className={styles.runCommand}>
               <code>b4 add code-fixer</code>
             </pre>
             <p>
-              Pinned source. Tested with B4 0.8.32.
+              Qualified installation · B4 0.8.32 · Earlier source.
               <br />
-              Node 24 · Git · Docker. Add an OpenAI API key for live runs.
+              Node 24 · Git · Docker · API key for live runs.
               <br />
-              Replay the fixtures without a model call.
+              Replay the sample without a model call.
             </p>
             <a href="/docs/cli#b4-add" className={styles.reportLink}>
               Using the B4 CLI ↗
