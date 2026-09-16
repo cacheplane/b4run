@@ -2150,20 +2150,18 @@ describe("http worker client", () => {
     expect(fake.requests[0]?.body).toEqual({ metadata: { factoryWorkOrderId: "wo-1" } })
   })
 
-  it("streams a turn, reads the pending gate, resumes, and cancels with the documented codes", async () => {
+  it("streams the turn, reads the parked gate, resumes, and cancels with the documented codes", async () => {
     const threadId = await client.createThread({})
-    const turnOne = await drain(await client.startRun(threadId, "/fix#agent", "go"))
-    expect(turnOne.map((f) => f.event)).toEqual(["tool_result", "tool_result", "chunk", "done"])
+    expect(await client.cancel(threadId)).toBe("no_run_in_flight")
+    const turn = await drain(await client.startRun(threadId, "/fix#agent", "go"))
+    expect(turn.map((f) => f.event)).toEqual(["tool_result", "tool_result", "interrupt", "done"])
     expect(fake.requests.at(-1)?.body).toEqual({
       route: "/fix#agent",
       input: { messages: [{ role: "user", content: "go" }] },
     })
-    expect(await client.pendingInterrupts(threadId)).toEqual([])
-    expect(await client.cancel(threadId)).toBe("no_run_in_flight")
-
-    await drain(await client.startRun(threadId, "/fix#agent", "export"))
     const pending = await client.pendingInterrupts(threadId)
     expect(pending).toHaveLength(1)
+    expect(pending[0]?.detail.toolName).toBe("exportForReview")
     const resumed = await drain(
       await client.resume(threadId, "/fix#agent", [{ interruptId: pending[0]!.interruptId, payload: "once" }]),
     )
@@ -2172,11 +2170,13 @@ describe("http worker client", () => {
       resume: [{ interruptId: pending[0]!.interruptId, status: "resolved", payload: "once" }],
       route: "/fix#agent",
     })
+    expect(await client.pendingInterrupts(threadId)).toEqual([])
     expect(await client.cancel("nope")).toBe("thread_not_found")
   })
 
   it("surfaces other errors with status and code", async () => {
     const threadId = await client.createThread({})
+    await drain(await client.startRun(threadId, "/fix#agent", "go"))
     await expect(client.resume(threadId, "/fix#agent", [])).rejects.toMatchObject({
       name: "WorkerHttpError",
       status: 409,
