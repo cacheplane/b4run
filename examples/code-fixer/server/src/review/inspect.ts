@@ -3,8 +3,7 @@ import { inspectWorkspace } from "@b4run/workspace"
 import { createSourceBundle } from "@b4run/workspace/node"
 import { projectManifest } from "../project/catalog.js"
 import { candidateDigest, type ReviewCandidate } from "./candidate.js"
-import { collectChanges, renderReviewDiff } from "./patch.js"
-import { verifyChanges } from "./verifier.js"
+import { collectChanges } from "./patch.js"
 
 function decode(bytes: Uint8Array): string {
   if (bytes.includes(0)) throw new Error("Binary workspace files are not supported")
@@ -68,21 +67,5 @@ export async function inspectCandidate(ctx: B4ToolContext) {
         ],
       },
     },
-  }
-}
-export async function prepareReview(ctx: B4ToolContext) {
-  const inspected = await inspectCandidate(ctx)
-  const verification = await verifyChanges(
-    inspected.manifest.id,
-    inspected.candidate.changes,
-    ctx.signal,
-    inspected.initial,
-  )
-  if (!verification.passed) throw new Error("Independent verification failed")
-  return {
-    task: inspected.manifest.id,
-    candidate: inspected.candidate,
-    diff: renderReviewDiff(inspected.baseline, inspected.candidate.changes),
-    verification,
   }
 }

@@ -3,8 +3,8 @@ import { join } from "node:path"
 import type { B4ToolContext } from "@b4run/sdk"
 import { appRoot } from "../../../project/workspace.js"
 import { type ReviewCandidate, validateCandidate } from "../../../review/candidate.js"
+import { inspectCandidate } from "../../../review/inspect.js"
 import { renderReviewDiff } from "../../../review/patch.js"
-import { inspectCandidate } from "../../../review/prepare.js"
 import { verifyChanges } from "../../../review/verifier.js"
 
 /** Export the exact reviewed candidate locally after runtime approval. */

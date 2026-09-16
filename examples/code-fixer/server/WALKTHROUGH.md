@@ -10,7 +10,10 @@ use in another B4 application.
 project identity, and dependency link come from the checked-in sample. B4 captures
 those bytes, initializes the workspace, and owns recovery and deletion.
 
-[`inspectCandidate`](./src/review/prepare.ts) reads the original source through
+[`prepareReview`](./src/app/fix/tools/prepareReview.ts) shows the review sequence directly:
+inspect the candidate, verify it independently, and return its diff and verification.
+
+Its shared [`inspectCandidate`](./src/review/inspect.ts) helper reads the original source through
 `ctx.workspace.readInitialFile` and the current source through B4's
 `inspectWorkspace(ctx.fs, policy)`. It compares the inventories and permits only
 listed source edits. Initial captured bytes define the baseline; Git is useful

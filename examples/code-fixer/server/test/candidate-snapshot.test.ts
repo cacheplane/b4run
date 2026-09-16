@@ -3,7 +3,7 @@ import { join } from "node:path"
 import type { B4ToolContext } from "@b4run/sdk"
 import { expect, it } from "vitest"
 import { projectDirectory, projectManifest } from "../src/project/catalog.ts"
-import { inspectCandidate } from "../src/review/prepare.ts"
+import { inspectCandidate } from "../src/review/inspect.ts"
 
 async function fixtureContext() {
   const manifest = projectManifest("cli-flags")
