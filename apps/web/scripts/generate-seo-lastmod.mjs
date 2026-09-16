@@ -33,6 +33,13 @@ function filesUnder(directory, extension) {
   })
 }
 
+export function homepageSourceFiles(root = appRoot) {
+  return [
+    join(root, "app", "page.tsx"),
+    ...filesUnder(join(root, "app", "components", "homepage"), ".tsx"),
+  ]
+}
+
 function routeForDoc(source) {
   const stem = normalizeRelativePath(relative(join(contentRoot, "docs"), source)).replace(
     /\.mdx$/,
@@ -114,10 +121,9 @@ function manifestContent(asOf, existingContent, check, generationTimestamp) {
   const docs = filesUnder(join(contentRoot, "docs"), ".mdx")
   const posts = filesUnder(join(contentRoot, "blog"), ".mdx").map(readPost)
   const publishedPosts = posts.filter((post) => !post.draft && post.date <= asOf)
-  const landingComponents = filesUnder(join(appRoot, "app", "components", "landing"), ".tsx")
 
   const sourcesByRoute = new Map([
-    ["/", [join(appRoot, "app", "page.tsx"), ...landingComponents]],
+    ["/", homepageSourceFiles()],
     ["/blog", publishedPosts.map((post) => post.source)],
     ...docs.map((source) => [routeForDoc(source), [source]]),
   ])

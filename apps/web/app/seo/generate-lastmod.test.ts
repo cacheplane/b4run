@@ -67,6 +67,14 @@ describe("generate-seo-lastmod", () => {
     )
   })
 
+  it("derives homepage metadata from the current homepage component tree", () => {
+    expect(
+      generatorModule
+        .homepageSourceFiles(appRoot)
+        .map((source: string) => source.slice(appRoot.length + 1)),
+    ).toContain("app/components/homepage/DeveloperHome.tsx")
+  })
+
   it("preserves a generated timestamp when the source digest still matches", () => {
     expect(
       generatorModule.selectLastModified(
