@@ -1452,8 +1452,112 @@ test("the publisher detects artifact mutation after initial verification and dur
   await assert.rejects(access(duringPublish.reportPath))
 })
 
+for (const expires of [false, true]) {
+  test(`the default publisher deadline ${expires ? "aborts verification at sixty minutes" : "allows cumulative propagation beyond twenty-five minutes"}`, async (t) => {
+    const cli = await publisherCliFilesystem(t, "b4-publisher-default-budget-")
+    const fixture = publisherFixture()
+    const clock = virtualPublisherClock()
+    const propagationMs = (expires ? 3 : 2) * 60_000
+    const publishedAt = new Map()
+    const verifiedAt = new Map()
+    const writes = []
+    let pollSignal
+    let activePublishes = 0
+    let maximumPublishes = 0
+    const publishing = runPublisherCli(cli.argv, {
+      ...clock.options,
+      npmReader: fixture.npmReader,
+      createNpmAuditVerifier: stubAuditVerifierFactory({
+        async verifyPackage(request) {
+          if (clock.now() - publishedAt.get(request.entry.name) < propagationMs) {
+            return { status: "pending" }
+          }
+          if (!verifiedAt.has(request.entry.name)) verifiedAt.set(request.entry.name, clock.now())
+          return fixture.inputs.verifyPackage(request)
+        },
+      }),
+      async runNpm(command, args, { signal }) {
+        assert.equal(command, "npm")
+        assert.equal(args[0], "publish")
+        assert.equal(signal.aborted, false)
+        const previous = fixture.publishCalls.at(-1)
+        if (previous !== undefined) assert.ok(verifiedAt.has(previous))
+        activePublishes += 1
+        maximumPublishes = Math.max(maximumPublishes, activePublishes)
+        try {
+          fixture.acceptPublish(args[1])
+          publishedAt.set(fixture.publishCalls.at(-1), clock.now())
+          await Promise.resolve()
+        } finally {
+          activePublishes -= 1
+        }
+      },
+      async poll({ delayMs, signal }) {
+        pollSignal = signal
+        clock.advance(delayMs)
+        if (signal.aborted) return new Promise(() => {})
+      },
+      fileSystem: {
+        ...fsPromises,
+        async writeFile(...args) {
+          writes.push(["writeFile", args[0]])
+          return fsPromises.writeFile(...args)
+        },
+        async appendFile(...args) {
+          writes.push(["appendFile", args[0]])
+          return fsPromises.appendFile(...args)
+        },
+      },
+      log: fixture.inputs.log,
+    })
+    if (expires) {
+      await assert.rejects(publishing, /publisher overall deadline/iu)
+      assert.equal(clock.now(), 60 * 60_000)
+      assert.equal(pollSignal.aborted, true)
+      assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER.slice(0, 20))
+      assert.equal(verifiedAt.size, 19)
+      await new Promise((resolve) => setImmediate(resolve))
+      assert.equal(fixture.publishCalls.length, 20)
+      assert.deepEqual(writes, [])
+      await assert.rejects(access(cli.reportPath), { code: "ENOENT" })
+      await assert.rejects(access(cli.githubOutputPath), { code: "ENOENT" })
+    } else {
+      const result = await publishing
+      assert.equal(result.status, "NPM_COMPLETE")
+      assert.equal(result.complete, true)
+      assert.equal(clock.now(), CANONICAL_RELEASE_PACKAGE_ORDER.length * propagationMs)
+      assert.ok(clock.now() > 25 * 60_000)
+      assert.equal(pollSignal.aborted, false)
+      assert.deepEqual(fixture.publishCalls, CANONICAL_RELEASE_PACKAGE_ORDER)
+      assert.equal(verifiedAt.size, CANONICAL_RELEASE_PACKAGE_ORDER.length)
+      for (const [name, time] of verifiedAt) {
+        assert.equal(time - publishedAt.get(name), propagationMs)
+        assert.ok(time - publishedAt.get(name) < TARBALL_CONVERGENCE_DEADLINE_MS)
+      }
+      assert.deepEqual(
+        await readFile(cli.reportPath),
+        canonicalNpmEvidenceBytes(result, {
+          candidate: CANDIDATE,
+          manifestSha256: manifestSha256(cli.manifest),
+          manifest: cli.manifest,
+        }),
+      )
+      assert.equal(
+        await readFile(cli.githubOutputPath, "utf8"),
+        "complete=true\nstate=NPM_COMPLETE\n",
+      )
+      assert.deepEqual(writes, [
+        ["writeFile", `${cli.reportPath}.tmp-${process.pid}`],
+        ["appendFile", cli.githubOutputPath],
+      ])
+    }
+    assert.equal(maximumPublishes, 1)
+    assert.equal(clock.cancelled(), true)
+  })
+}
+
 test("the production publisher deadline cancels registry reads and poll delays", async (t) => {
-  assert.equal(PUBLISHER_OVERALL_TIMEOUT_MS, 25 * 60_000)
+  assert.equal(PUBLISHER_OVERALL_TIMEOUT_MS, 60 * 60_000)
   const metadataFixture = await publisherCliFilesystem(t, "b4-publisher-deadline-metadata-")
   let metadataSignal
   const metadataDeadline = controlledDeadline()
@@ -2791,6 +2895,38 @@ function stubAuditVerifierFactory({ verifyPackage }) {
     },
     verifyPackage,
   })
+}
+
+function virtualPublisherClock() {
+  let elapsed = 0
+  let timer
+  let cancelled = false
+  const now = () => elapsed
+  return {
+    now,
+    cancelled: () => cancelled,
+    options: {
+      now,
+      scheduleTimeout(callback, delayMs) {
+        assert.equal(timer, undefined)
+        timer = { callback, due: elapsed + delayMs }
+        return timer
+      },
+      cancelTimeout(handle) {
+        assert.equal(handle, timer)
+        cancelled = true
+      },
+    },
+    advance(delayMs) {
+      const target = elapsed + delayMs
+      if (!cancelled && elapsed < timer.due && target >= timer.due) {
+        elapsed = timer.due
+        timer.callback()
+      } else {
+        elapsed = target
+      }
+    },
+  }
 }
 
 function controlledDeadline() {

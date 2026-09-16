@@ -26,6 +26,9 @@ const LIVE_BYTES = await readFile(ROOT + "/.github/workflows/release.yml")
 const PROTECTED_BYTES = await readFile(FIXTURE_ROOT + "/release-workflow-protected.yml")
 const DISABLED_BYTES = await readFile(FIXTURE_ROOT + "/release-workflow-disabled.yml")
 const B4_DISABLED_BYTES = await readFile(FIXTURE_ROOT + "/release-workflow-b4-disabled.yml")
+const B4_BEFORE_PUBLISHER_BUDGET_BYTES = await readFile(
+  FIXTURE_ROOT + "/release-workflow-b4-before-publisher-budget.yml",
+)
 const B4_TAG_ONLY_BYTES = await readFile(FIXTURE_ROOT + "/release-workflow-b4-tag-only.yml")
 const POLICY_BYTES = await readFile(ROOT + "/scripts/release/abandonment-workflow-policy.json")
 const POLICY_SOURCE = JSON.parse(POLICY_BYTES.toString("utf8"))
@@ -55,7 +58,8 @@ test("policy entries are bound to production-canonicalized immutable fixtures", 
     ["disabled-2026-08-28", "disabled", DISABLED_BYTES],
     ["protected-2026-08-28", "protected", PROTECTED_BYTES],
     ["renamed-b4-disabled-2026-09-07", "disabled", B4_TAG_ONLY_BYTES],
-    ["reviewed-b4-postpublication-2026-09-12", "disabled", B4_DISABLED_BYTES],
+    ["reviewed-b4-postpublication-2026-09-12", "disabled", B4_BEFORE_PUBLISHER_BUDGET_BYTES],
+    ["reviewed-b4-publisher-budget-2026-09-16", "disabled", B4_DISABLED_BYTES],
   ]
   assert.equal(loaded.variants.length, expected.length)
   for (const [index, [id, mode, bytes]] of expected.entries()) {
@@ -65,6 +69,20 @@ test("policy entries are bound to production-canonicalized immutable fixtures", 
     assert.equal(loaded.variants[index].canonicalSha256, canonical.canonicalSha256)
     assert.match(canonical.canonicalSha256, /^[0-9a-f]{64}$/u)
   }
+})
+
+test("both publisher budgets classify as disabled and differ only in the publish-npm timeout", () => {
+  assert.equal(
+    classifyReleaseWorkflowAbandonment(B4_BEFORE_PUBLISHER_BUDGET_BYTES, OPTIONS),
+    "disabled",
+  )
+  assert.equal(classifyReleaseWorkflowAbandonment(B4_DISABLED_BYTES, OPTIONS), "disabled")
+  const before = parseFixture(B4_BEFORE_PUBLISHER_BUDGET_BYTES)
+  const current = parseFixture(B4_DISABLED_BYTES)
+  assert.equal(before.jobs["publish-npm"]["timeout-minutes"], 30)
+  assert.equal(current.jobs["publish-npm"]["timeout-minutes"], 65)
+  before.jobs["publish-npm"]["timeout-minutes"] = 65
+  assert.deepEqual(current, before)
 })
 
 test("the disabled fixture contains exactly the approved Task 6 removals", () => {

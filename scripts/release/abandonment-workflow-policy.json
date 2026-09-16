@@ -21,6 +21,11 @@
       "id": "reviewed-b4-postpublication-2026-09-12",
       "mode": "disabled",
       "canonicalSha256": "618d7f422379e18c706eaa34be973faed8c28d317394a71ef7691ed3f5053219"
+    },
+    {
+      "id": "reviewed-b4-publisher-budget-2026-09-16",
+      "mode": "disabled",
+      "canonicalSha256": "cbc8f52cd7a840d239fd6cae2c104273eb338e06ac72a45155d17dfe0746a7c6"
     }
   ]
 }
