@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A durable work-order controller in `examples/software-factory/server` that drives the unchanged `examples/code-fixer/server` over the Agent Protocol, with a two-turn worker protocol, operation-scoped approval, cancel, restart reconciliation, and a two-layer proof.
+**Goal:** A durable work-order controller in `examples/software-factory/server` that drives the unchanged `examples/code-fixer/server` over the Agent Protocol, with operation-scoped approval of an exact candidate, cancel, restart reconciliation, and a fake-worker proof plus one recorded live demonstration.
 
-**Architecture:** Plain Node/TypeScript service (not a b4 app). `node:sqlite` registry holds the closed state machine, an append-only event journal, a two-phase command log keyed by operation key, approvals and deliveries. A small HTTP worker client speaks seven Agent Protocol calls to the code-fixer runtime on loopback. Turn 1 asks the worker to produce and verify a candidate; the operator's `approve <digest>` starts turn 2 and the controller resolves the worker's `exportForReview` gate with the recorded approval. Layer 1 tests run against a scripted fake Agent Protocol server; layer 2 runs the real code-fixer under Docker with `aimock` replay fixtures.
+**Architecture:** Plain Node/TypeScript service (not a b4 app). A `node:sqlite` registry holds the closed state machine, an append-only event journal, a two-phase command log keyed by operation key, approvals and deliveries. A small HTTP worker client speaks seven Agent Protocol calls to the code-fixer runtime on loopback. The worker's single turn produces and verifies a candidate and parks on its own `exportForReview` approval gate; the controller records the candidate digest from the `prepareReview` result frame, and the operator's `approve <digest>` resolves that gate. All invariants run against a scripted fake Agent Protocol server; the real code-fixer is exercised once, live, and recorded. The offline replay layer against the real worker is deferred (spec amendment).
 
-**Tech Stack:** Node 24 (`node:sqlite`, `node:http`, `fetch`, `node:util` `parseArgs`), TypeScript 7.0.2 (`noEmit`, run with `tsx`), zod 4.4.3, vitest 4.1.11, biome 2.5.6, `@b4run/testing` (`createAimock`, `createSubprocessApp`, `script`) in tests only.
+**Tech Stack:** Node 24 (`node:sqlite`, `node:http`, `fetch`, `node:util` `parseArgs`), TypeScript 7.0.2 (`noEmit`, run with `tsx`), zod 4.4.3, vitest 4.1.11, biome 2.5.6. No b4 package dependency at runtime or in tests.
 
-**Spec:** `docs/superpowers/specs/2026-09-16-software-factory-rung0-design.md`. Read it first. Section names below refer to it.
+**Spec:** `docs/superpowers/specs/2026-09-16-software-factory-rung0-design.md`. Read it first, including the amendment.
 
 **Conventions that apply to every task**
 
@@ -16,7 +16,7 @@
 - Package root for all relative paths below: `examples/software-factory/server`. Root-of-repo paths are prefixed `<repo>/`.
 - Source files import siblings with `.js` extensions (code-fixer convention; `tsx` resolves them). Test files import `../src/....ts`.
 - Never run bare `biome check --write` at the repo root. Lint with `pnpm --filter @b4-example/software-factory-server lint`; fix formatting with `pnpm --filter @b4-example/software-factory-server exec biome check --write .` inside the package only.
-- `examples/code-fixer` must have no diff at the end. Check with `git status --short examples/code-fixer` after every task that touches tests near it.
+- `examples/code-fixer` must have no diff at the end. Check with `git status --short examples/code-fixer` before every commit.
 - Commit after every task with the message shown. Every commit message ends with the line `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
 
 ---
@@ -25,36 +25,35 @@
 
 | File | Responsibility |
 |---|---|
-| `package.json`, `tsconfig.json`, `biome.json`, `vitest.config.ts`, `vitest.integration.config.ts` | Workspace member wiring, mirrors code-fixer |
+| `package.json`, `tsconfig.json`, `biome.json`, `vitest.config.ts` | Workspace member wiring, mirrors code-fixer |
 | `src/domain/states.ts` | State union, terminal/active sets, blocked/failure reasons, transition table, `nextState` |
-| `src/domain/work-order.ts` | zod schemas: `WorkOrderRow`, `FactoryEvent`, `CommandIntent`, `CommandOutcome`, `Approval` |
-| `src/worker/wire.ts` | zod schemas for Agent Protocol frames and responses, `isExportGate`, `parsePrepareReviewOutput` |
+| `src/domain/work-order.ts` | zod schemas: `WorkOrderRow`, `FactoryEvent`, `CommandIntent`, `CommandOutcome`, `Approval`, `Delivery` |
+| `src/worker/wire.ts` | zod schemas for Agent Protocol frames and responses, `isExportGate`, `parsePrepareReviewOutput`, `classifyDone` |
 | `src/worker/sse.ts` | `parseSse` over a `ReadableStream`, `parseBlock` |
 | `src/worker/client.ts` | `WorkerClient` interface, `createHttpWorkerClient`, `WorkerHttpError` |
 | `src/worker/outbox.ts` | `receiptPath`, `receiptExists`, `waitForReceipt` |
 | `src/registry/db.ts` | `openRegistry` (WAL, migrations, version guard) |
 | `src/registry/work-orders.ts` | `createWorkOrderStore`: CAS `update`, events, approvals, deliveries, `transaction` |
 | `src/registry/commands.ts` | `createCommandLog`: `begin`/`complete`/`open` two-phase log |
-| `src/prompts.ts` | `TURN_ONE_PROMPTS`, `turnTwoPrompt(digest)` |
+| `src/prompts.ts` | `TASK_PROMPTS` per task id |
 | `src/config.ts` | `loadConfig(env)` for `FACTORY_*` |
 | `src/controller/turns.ts` | `consumeTurn(frames, handlers)` stream consumer |
-| `src/controller/budget.ts` | `startBudgetTicker` |
-| `src/controller/reconcile.ts` | `reconcileWorkOrder(ctx, id)` rules |
-| `src/controller/factory.ts` | `createFactory`: commands, turn 1/2 logic, wiring of budget and reconcile |
+| `src/controller/budget.ts` | `startBudgetTicker`, `activeElapsedMs` |
+| `src/controller/context.ts` | `ControllerContext`, the narrow contract shared with reconciliation |
+| `src/controller/reconcile.ts` | `reconcileAll`, `reconcileWorkOrder` |
+| `src/controller/factory.ts` | `createFactory`: commands, the run observer, wiring of budget and reconcile |
 | `src/http.ts` | `createHttpApi(factory)` on 127.0.0.1 |
 | `src/cli.ts` | `factory` command-line entry |
 | `test/fake-worker.ts` | Scripted Agent Protocol fake over `node:http` |
-| `test/scenarios.ts` | Shared invariant scenarios parameterised by a `ScenarioContext` |
-| `test/*.test.ts` | Layer 1 tests |
-| `test/code-fixer.integration.test.ts` | Layer 2, Docker-gated |
-| `<repo>/vitest.workspace.ts`, `<repo>/.github/workflows/ci.yml`, `<repo>/examples/README.md` | Wiring |
+| `test/*.test.ts` | One file per module plus `factory-*.test.ts` scenario files |
+| `<repo>/vitest.workspace.ts`, `<repo>/examples/README.md`, `<repo>/docs/superpowers/runbooks/` | Wiring and the live ledger |
 
 ---
 
 ### Task 1: Scaffold the workspace member
 
 **Files:**
-- Create: `package.json`, `tsconfig.json`, `biome.json`, `vitest.config.ts`, `vitest.integration.config.ts`, `src/index.ts`, `test/smoke.test.ts`
+- Create: `package.json`, `tsconfig.json`, `biome.json`, `vitest.config.ts`, `src/index.ts`, `test/smoke.test.ts`
 - Modify: `<repo>/vitest.workspace.ts`
 
 - [ ] **Step 1: Create `package.json`**
@@ -67,7 +66,6 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc -p . --noEmit",
     "lint": "biome check .",
     "factory": "tsx src/cli.ts"
@@ -76,7 +74,6 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@b4run/testing": "workspace:*",
     "@biomejs/biome": "2.5.6",
     "@types/node": "26.1.2",
     "tsx": "4.23.10",
@@ -86,7 +83,7 @@
 }
 ```
 
-- [ ] **Step 2: Create `tsconfig.json`** (identical to code-fixer's)
+- [ ] **Step 2: Create `tsconfig.json`**
 
 ```json
 {
@@ -110,7 +107,7 @@
 }
 ```
 
-`DOM` and `DOM.AsyncIterable` are added because the SSE parser types `ReadableStream<Uint8Array>` from `fetch`.
+`DOM` and `DOM.AsyncIterable` are added over code-fixer's config because the SSE parser types `ReadableStream<Uint8Array>` from `fetch`.
 
 - [ ] **Step 3: Create `biome.json`**
 
@@ -128,9 +125,7 @@
 }
 ```
 
-- [ ] **Step 4: Create the two vitest configs**
-
-`vitest.config.ts`:
+- [ ] **Step 4: Create `vitest.config.ts`**
 
 ```ts
 import { defineConfig } from "vitest/config"
@@ -139,25 +134,8 @@ export default defineConfig({
   test: {
     name: "software-factory",
     include: ["test/**/*.test.ts"],
-    exclude: ["test/**/*.integration.test.ts"],
     fileParallelism: false,
     testTimeout: 30_000,
-  },
-})
-```
-
-`vitest.integration.config.ts`:
-
-```ts
-import { defineConfig } from "vitest/config"
-
-export default defineConfig({
-  test: {
-    name: "software-factory-docker",
-    include: ["test/**/*.integration.test.ts"],
-    fileParallelism: false,
-    testTimeout: 300_000,
-    hookTimeout: 300_000,
   },
 })
 ```
@@ -192,7 +170,7 @@ In `<repo>/vitest.workspace.ts`, after the line `"./examples/code-fixer/server/v
 - [ ] **Step 7: Install and run the gates**
 
 ```bash
-cd <repo> && pnpm install --frozen-lockfile=false
+cd <repo> && pnpm install
 pnpm --filter @b4-example/software-factory-server typecheck
 pnpm --filter @b4-example/software-factory-server lint
 pnpm --filter @b4-example/software-factory-server test
@@ -231,15 +209,15 @@ describe("transition table", () => {
   it("follows the happy path", () => {
     expect(nextState("received", "dispatch_committed")).toBe("dispatched")
     expect(nextState("dispatched", "run_started")).toBe("running")
-    expect(nextState("running", "candidate_ready")).toBe("candidate_ready")
-    expect(nextState("candidate_ready", "approve")).toBe("exporting")
+    expect(nextState("running", "candidate_interrupt")).toBe("awaiting_approval")
+    expect(nextState("awaiting_approval", "approve")).toBe("exporting")
     expect(nextState("exporting", "receipt_observed")).toBe("exported")
   })
 
   it("refuses anything not in the table", () => {
     expect(() => nextState("received", "approve")).toThrow(IllegalTransitionError)
     expect(() => nextState("exported", "cancel")).toThrow(IllegalTransitionError)
-    expect(() => nextState("candidate_ready", "run_failed")).toThrow(IllegalTransitionError)
+    expect(() => nextState("awaiting_approval", "run_failed")).toThrow(IllegalTransitionError)
   })
 
   it("allows cancel from every non-terminal state and nowhere else", () => {
@@ -254,8 +232,14 @@ describe("transition table", () => {
     expect(nextState("cancel_requested", "run_ended_after_budget")).toBe("blocked")
   })
 
-  it("lets deny exit candidate_ready and blocked only", () => {
-    expect(nextState("candidate_ready", "deny")).toBe("denied")
+  it("blocks on the three turn-1 hazards", () => {
+    expect(nextState("running", "candidate_interrupt_without_digest")).toBe("blocked")
+    expect(nextState("running", "unexpected_interrupt")).toBe("blocked")
+    expect(nextState("awaiting_approval", "interrupt_vanished")).toBe("blocked")
+  })
+
+  it("lets deny exit awaiting_approval and blocked only", () => {
+    expect(nextState("awaiting_approval", "deny")).toBe("denied")
     expect(nextState("blocked", "deny")).toBe("denied")
     expect(() => nextState("running", "deny")).toThrow(IllegalTransitionError)
   })
@@ -280,7 +264,7 @@ export const STATES = [
   "received",
   "dispatched",
   "running",
-  "candidate_ready",
+  "awaiting_approval",
   "exporting",
   "exported",
   "denied",
@@ -298,14 +282,20 @@ export const TERMINAL_STATES: ReadonlySet<WorkOrderState> = new Set<WorkOrderSta
   "failed",
 ])
 
-/** States that count toward the active-time budget. */
+/** States that count toward the active-time budget. Waiting on a person is not active time. */
 export const ACTIVE_STATES: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
   "dispatched",
   "running",
   "exporting",
 ])
 
-export const BLOCKED_REASONS = ["unexpected_interrupt", "export_unconfirmed", "budget_exhausted"] as const
+export const BLOCKED_REASONS = [
+  "candidate_digest_unknown",
+  "unexpected_interrupt",
+  "export_unconfirmed",
+  "budget_exhausted",
+  "interrupt_vanished",
+] as const
 export type BlockedReason = (typeof BLOCKED_REASONS)[number]
 
 export const FAILURE_REASONS = ["route_error", "ended_without_candidate"] as const
@@ -314,10 +304,11 @@ export type FailureReason = (typeof FAILURE_REASONS)[number]
 export const TRANSITION_EVENTS = [
   "dispatch_committed",
   "run_started",
-  "candidate_ready",
+  "candidate_interrupt",
+  "candidate_interrupt_without_digest",
+  "unexpected_interrupt",
   "run_failed",
   "run_ended_without_candidate",
-  "unexpected_interrupt",
   "approve",
   "deny",
   "receipt_observed",
@@ -326,6 +317,7 @@ export const TRANSITION_EVENTS = [
   "run_ended_after_cancel",
   "run_ended_after_budget",
   "budget_exhausted",
+  "interrupt_vanished",
 ] as const
 export type TransitionEvent = (typeof TRANSITION_EVENTS)[number]
 
@@ -335,15 +327,17 @@ const NON_TERMINAL = STATES.filter((state) => !TERMINAL_STATES.has(state))
 const everyNonTerminalTo = (to: WorkOrderState): Row =>
   Object.fromEntries(NON_TERMINAL.map((from) => [from, to])) as Row
 
+/** One row per legal move (spec: "Transition table"). Anything absent is illegal. */
 const TABLE: Readonly<Record<TransitionEvent, Row>> = {
   dispatch_committed: { received: "dispatched" },
   run_started: { dispatched: "running" },
-  candidate_ready: { dispatched: "candidate_ready", running: "candidate_ready" },
+  candidate_interrupt: { dispatched: "awaiting_approval", running: "awaiting_approval" },
+  candidate_interrupt_without_digest: { dispatched: "blocked", running: "blocked" },
+  unexpected_interrupt: { dispatched: "blocked", running: "blocked" },
   run_failed: { dispatched: "failed", running: "failed" },
   run_ended_without_candidate: { dispatched: "failed", running: "failed" },
-  unexpected_interrupt: { dispatched: "blocked", running: "blocked", exporting: "blocked" },
-  approve: { candidate_ready: "exporting" },
-  deny: { candidate_ready: "denied", blocked: "denied" },
+  approve: { awaiting_approval: "exporting" },
+  deny: { awaiting_approval: "denied", blocked: "denied" },
   receipt_observed: { exporting: "exported" },
   export_unconfirmed: { exporting: "blocked" },
   cancel: everyNonTerminalTo("cancel_requested"),
@@ -354,6 +348,7 @@ const TABLE: Readonly<Record<TransitionEvent, Row>> = {
     running: "cancel_requested",
     exporting: "cancel_requested",
   },
+  interrupt_vanished: { awaiting_approval: "blocked" },
 }
 
 export class IllegalTransitionError extends Error {
@@ -380,7 +375,7 @@ export function isTerminal(state: WorkOrderState): boolean {
 - [ ] **Step 4: Run it**
 
 Run: `pnpm --filter @b4-example/software-factory-server test states`
-Expected: PASS, 6 tests.
+Expected: PASS, 7 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -403,6 +398,7 @@ import { describe, expect, it } from "vitest"
 import { CommandOutcomeSchema, WorkOrderRowSchema } from "../src/domain/work-order.ts"
 import {
   InterruptFrameSchema,
+  classifyDone,
   isExportGate,
   parsePrepareReviewOutput,
 } from "../src/worker/wire.ts"
@@ -410,7 +406,7 @@ import {
 const digest = "a".repeat(64)
 
 describe("work-order schemas", () => {
-  it("accepts a well-formed row and rejects an unknown state", () => {
+  it("accepts a well-formed row and rejects an unknown state or malformed digest", () => {
     const row = {
       id: "wo-1",
       revision: 0,
@@ -418,6 +414,7 @@ describe("work-order schemas", () => {
       taskId: "cli-flags",
       workerRoute: "/fix#agent",
       workerThreadId: null,
+      interruptId: null,
       candidateDigest: null,
       candidateVerified: null,
       blockedReason: null,
@@ -426,7 +423,7 @@ describe("work-order schemas", () => {
       maxActiveMs: 1000,
       activeMs: 0,
       activeStartedAt: null,
-      candidateReadyAt: null,
+      awaitingSince: null,
       createdAt: "2026-09-16T00:00:00.000Z",
       updatedAt: "2026-09-16T00:00:00.000Z",
     }
@@ -465,6 +462,13 @@ describe("wire schemas", () => {
     expect(parsePrepareReviewOutput(JSON.stringify(output)).verification.passed).toBe(true)
     expect(() => parsePrepareReviewOutput({ candidate: {} })).toThrow()
   })
+
+  it("classifies done frames", () => {
+    expect(classifyDone({ output: { error: "boom" } })).toEqual({ error: "boom", cancelled: false })
+    expect(classifyDone({ output: { cancelled: true } })).toEqual({ error: null, cancelled: true })
+    expect(classifyDone({ output: { messages: [] } })).toEqual({ error: null, cancelled: false })
+    expect(classifyDone("garbage")).toEqual({ error: null, cancelled: false })
+  })
 })
 ```
 
@@ -488,6 +492,8 @@ export const WorkOrderRowSchema = z.object({
   taskId: z.string().min(1),
   workerRoute: z.string().min(1),
   workerThreadId: z.string().min(1).nullable(),
+  /** The worker's parked exportForReview gate, recorded when entering awaiting_approval. */
+  interruptId: z.string().min(1).nullable(),
   candidateDigest: z.string().regex(DIGEST_PATTERN).nullable(),
   candidateVerified: z.boolean().nullable(),
   blockedReason: z.enum(BLOCKED_REASONS).nullable(),
@@ -496,7 +502,8 @@ export const WorkOrderRowSchema = z.object({
   maxActiveMs: z.number().int().positive(),
   activeMs: z.number().int().nonnegative(),
   activeStartedAt: z.string().nullable(),
-  candidateReadyAt: z.string().nullable(),
+  /** When the work order entered awaiting_approval; approval expiry is measured from here. */
+  awaitingSince: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })
@@ -530,6 +537,7 @@ export type CommandOutcome = z.infer<typeof CommandOutcomeSchema>
 export const ApprovalSchema = z.object({
   id: z.string().min(1),
   workOrderId: z.string().min(1),
+  interruptId: z.string().min(1),
   candidateDigest: z.string().regex(DIGEST_PATTERN),
   decision: z.enum(["approved", "denied"]),
   decidedBy: z.string().min(1),
@@ -626,7 +634,7 @@ export function classifyDone(data: unknown): { error: string | null; cancelled: 
 - [ ] **Step 5: Run it**
 
 Run: `pnpm --filter @b4-example/software-factory-server test schemas`
-Expected: PASS, 4 tests.
+Expected: PASS, 5 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -636,7 +644,6 @@ git commit -m "feat(software-factory): domain and Agent Protocol wire schemas"
 ```
 
 ---
-
 ### Task 4: Server-Sent Events parser
 
 **Files:**
@@ -762,6 +769,7 @@ git commit -m "feat(software-factory): Server-Sent Events parser"
 
 ---
 
+
 ### Task 5: Registry database and migrations
 
 **Files:**
@@ -802,9 +810,7 @@ describe("openRegistry", () => {
       "sqlite_sequence",
       "work_orders",
     ])
-    const version = registry.db.prepare("SELECT max(version) AS v FROM schema_version").get() as {
-      v: number
-    }
+    const version = registry.db.prepare("SELECT max(version) AS v FROM schema_version").get() as { v: number }
     expect(version.v).toBe(SCHEMA_VERSION)
     registry.close()
   })
@@ -862,6 +868,7 @@ interface Migration {
   readonly up: string
 }
 
+/** Spec: "Registry schema". active_started_at is the open interval the budget ticker measures. */
 const MIGRATIONS: readonly Migration[] = [
   {
     version: 1,
@@ -873,6 +880,7 @@ const MIGRATIONS: readonly Migration[] = [
         task_id TEXT NOT NULL,
         worker_route TEXT NOT NULL,
         worker_thread_id TEXT,
+        interrupt_id TEXT,
         candidate_digest TEXT,
         candidate_verified INTEGER,
         blocked_reason TEXT,
@@ -881,7 +889,7 @@ const MIGRATIONS: readonly Migration[] = [
         max_active_ms INTEGER NOT NULL,
         active_ms INTEGER NOT NULL DEFAULT 0,
         active_started_at TEXT,
-        candidate_ready_at TEXT,
+        awaiting_since TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -904,6 +912,7 @@ const MIGRATIONS: readonly Migration[] = [
       CREATE TABLE approvals (
         id TEXT PRIMARY KEY,
         work_order_id TEXT NOT NULL REFERENCES work_orders(id),
+        interrupt_id TEXT NOT NULL,
         candidate_digest TEXT NOT NULL,
         decision TEXT NOT NULL,
         decided_by TEXT NOT NULL,
@@ -989,6 +998,7 @@ function freshRow(id = "wo-1"): WorkOrderRow {
     taskId: "cli-flags",
     workerRoute: "/fix#agent",
     workerThreadId: null,
+    interruptId: null,
     candidateDigest: null,
     candidateVerified: null,
     blockedReason: null,
@@ -997,7 +1007,7 @@ function freshRow(id = "wo-1"): WorkOrderRow {
     maxActiveMs: 60_000,
     activeMs: 0,
     activeStartedAt: null,
-    candidateReadyAt: null,
+    awaitingSince: null,
     createdAt: at,
     updatedAt: at,
   }
@@ -1030,8 +1040,9 @@ describe("work-order store", () => {
   it("stores booleans and nulls faithfully", () => {
     const s = store()
     s.insert(freshRow())
-    const row = s.update("wo-1", 0, { candidateDigest: digest, candidateVerified: false }, at)
+    const row = s.update("wo-1", 0, { candidateDigest: digest, candidateVerified: false, interruptId: "perm-1" }, at)
     expect(row.candidateVerified).toBe(false)
+    expect(row.interruptId).toBe("perm-1")
     expect(s.update("wo-1", 1, { candidateVerified: null }, at).candidateVerified).toBeNull()
   })
 
@@ -1052,6 +1063,7 @@ describe("work-order store", () => {
     s.recordApproval({
       id: "ap-1",
       workOrderId: "wo-1",
+      interruptId: "perm-1",
       candidateDigest: digest,
       decision: "approved",
       decidedBy: "operator",
@@ -1113,13 +1125,14 @@ export type WorkOrderPatch = Partial<
     WorkOrderRow,
     | "state"
     | "workerThreadId"
+    | "interruptId"
     | "candidateDigest"
     | "candidateVerified"
     | "blockedReason"
     | "failureReason"
     | "activeMs"
     | "activeStartedAt"
-    | "candidateReadyAt"
+    | "awaitingSince"
   >
 >
 
@@ -1145,6 +1158,7 @@ const COLUMNS: Readonly<Record<keyof WorkOrderRow, string>> = {
   taskId: "task_id",
   workerRoute: "worker_route",
   workerThreadId: "worker_thread_id",
+  interruptId: "interrupt_id",
   candidateDigest: "candidate_digest",
   candidateVerified: "candidate_verified",
   blockedReason: "blocked_reason",
@@ -1153,7 +1167,7 @@ const COLUMNS: Readonly<Record<keyof WorkOrderRow, string>> = {
   maxActiveMs: "max_active_ms",
   activeMs: "active_ms",
   activeStartedAt: "active_started_at",
-  candidateReadyAt: "candidate_ready_at",
+  awaitingSince: "awaiting_since",
   createdAt: "created_at",
   updatedAt: "updated_at",
 }
@@ -1183,21 +1197,19 @@ export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
     .map(() => "?")
     .join(", ")})`
 
+  const get = (id: string): WorkOrderRow | null => {
+    const record = db.prepare("SELECT * FROM work_orders WHERE id = ?").get(id) as Record<string, unknown> | undefined
+    return record ? fromSql(record) : null
+  }
+
   return {
     insert(row) {
       WorkOrderRowSchema.parse(row)
       db.prepare(insertSql).run(...keys.map((k) => toSql(k, row[k])))
     },
-    get(id) {
-      const record = db.prepare("SELECT * FROM work_orders WHERE id = ?").get(id) as
-        | Record<string, unknown>
-        | undefined
-      return record ? fromSql(record) : null
-    },
+    get,
     list() {
-      const records = db
-        .prepare("SELECT * FROM work_orders ORDER BY created_at, id")
-        .all() as Record<string, unknown>[]
+      const records = db.prepare("SELECT * FROM work_orders ORDER BY created_at, id").all() as Record<string, unknown>[]
       return records.map(fromSql)
     },
     update(id, expectedRevision, patch, now) {
@@ -1208,7 +1220,7 @@ export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
         .prepare(`UPDATE work_orders SET ${assignments.join(", ")} WHERE id = ? AND revision = ?`)
         .run(...entries.map(([key, value]) => toSql(key, value)), now, id, expectedRevision)
       if (result.changes !== 1) throw new StaleRevisionError(id, expectedRevision)
-      const row = this.get(id)
+      const row = get(id)
       if (!row) throw new Error(`Work order ${id} vanished during update`)
       return row
     },
@@ -1225,22 +1237,17 @@ export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
         .prepare("SELECT seq, work_order_id, type, payload, at FROM events WHERE work_order_id = ? ORDER BY seq")
         .all(workOrderId) as { seq: number; work_order_id: string; type: string; payload: string; at: string }[]
       return records.map((r) =>
-        FactoryEventSchema.parse({
-          seq: r.seq,
-          workOrderId: r.work_order_id,
-          type: r.type,
-          payload: JSON.parse(r.payload),
-          at: r.at,
-        }),
+        FactoryEventSchema.parse({ seq: r.seq, workOrderId: r.work_order_id, type: r.type, payload: JSON.parse(r.payload), at: r.at }),
       )
     },
     recordApproval(approval) {
       ApprovalSchema.parse(approval)
       db.prepare(
-        "INSERT INTO approvals (id, work_order_id, candidate_digest, decision, decided_by, decided_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO approvals (id, work_order_id, interrupt_id, candidate_digest, decision, decided_by, decided_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       ).run(
         approval.id,
         approval.workOrderId,
+        approval.interruptId,
         approval.candidateDigest,
         approval.decision,
         approval.decidedBy,
@@ -1250,12 +1257,13 @@ export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
     },
     approvals(workOrderId) {
       const records = db
-        .prepare("SELECT * FROM approvals WHERE work_order_id = ? ORDER BY decided_at")
+        .prepare("SELECT * FROM approvals WHERE work_order_id = ? ORDER BY decided_at, id")
         .all(workOrderId) as Record<string, string>[]
       return records.map((r) =>
         ApprovalSchema.parse({
           id: r.id,
           workOrderId: r.work_order_id,
+          interruptId: r.interrupt_id,
           candidateDigest: r.candidate_digest,
           decision: r.decision,
           decidedBy: r.decided_by,
@@ -1311,7 +1319,6 @@ git commit -m "feat(software-factory): work-order store with compare-and-swap wr
 ```
 
 ---
-
 ### Task 7: Two-phase command log
 
 **Files:**
@@ -1447,7 +1454,8 @@ git commit -m "feat(software-factory): two-phase command log keyed by operation 
 
 ---
 
-### Task 8: Outbox observation, prompts, and configuration
+
+### Task 8: Outbox observation, the task prompt, and configuration
 
 **Files:**
 - Create: `src/worker/outbox.ts`, `src/prompts.ts`, `src/config.ts`, `test/outbox.test.ts`, `test/config.test.ts`
@@ -1477,9 +1485,7 @@ describe("outbox", () => {
   it("waits for a receipt that appears later and gives up on time", async () => {
     dir = mkdtempSync(join(tmpdir(), "factory-outbox-"))
     setTimeout(() => writeFileSync(receiptPath(dir, digest), "{}"), 60)
-    expect(await waitForReceipt(dir, digest, { timeoutMs: 2_000, intervalMs: 10 })).toBe(
-      receiptPath(dir, digest),
-    )
+    expect(await waitForReceipt(dir, digest, { timeoutMs: 2_000, intervalMs: 10 })).toBe(receiptPath(dir, digest))
     expect(await waitForReceipt(dir, "d".repeat(64), { timeoutMs: 50, intervalMs: 10 })).toBeNull()
   })
 })
@@ -1559,18 +1565,13 @@ export async function waitForReceipt(
 
 - [ ] **Step 5: Implement `src/prompts.ts`**
 
-The turn 1 text must be a constant because `aimock` matches fixtures on the exact user message.
+The text is code-fixer's own evaluation input (`examples/code-fixer/server/src/app/fix/evals/repair.eval.ts`), copied rather than imported so the factory has no module dependency on the example. It is an exported constant so a future replay lane can key fixtures to it (spec amendment).
 
 ```ts
-/** Turn 1 prompt per task id. The worker must stop after prepareReview; the factory asks for export. */
-export const TURN_ONE_PROMPTS: Readonly<Record<string, string>> = {
+/** The single worker turn per task id: produce, verify, and request export approval. */
+export const TASK_PROMPTS: Readonly<Record<string, string>> = {
   "cli-flags":
-    "Read TASK.md, reproduce the failure, repair the permitted source, verify the preservation requirements, and call prepareReview. Do not call exportForReview; the factory will ask for export separately.",
-}
-
-/** Turn 2 prompt. Sent only after the operator approved exactly this digest. */
-export function turnTwoPrompt(digest: string): string {
-  return `Export the verified candidate whose receiptDigest is ${digest} by calling exportForReview with the exact candidate object returned by prepareReview.`
+    "Read TASK.md, reproduce the failure, repair the permitted source, verify the preservation requirements, call prepareReview, and then exportForReview with its exact candidate to request runtime approval.",
 }
 ```
 
@@ -1652,19 +1653,19 @@ Expected: PASS, 4 tests.
 
 ```bash
 git add examples/software-factory/server/src examples/software-factory/server/test
-git commit -m "feat(software-factory): outbox observation, prompt constants, configuration"
+git commit -m "feat(software-factory): outbox observation, task prompt constant, configuration"
 ```
 
 ---
 
 ### Task 9: Scripted fake Agent Protocol worker (test infrastructure)
 
-The fake implements only the seven calls the controller uses, with the status codes and frame shapes from `apps/web/content/docs/dev-server/agent-protocol.mdx`. It is written from that document, not from the controller. Behaviour is chosen by name so tests read clearly.
+The fake implements only the seven calls the controller uses, with the status codes and frame shapes from `apps/web/content/docs/dev-server/agent-protocol.mdx`. It is written from that document, not from the controller. Behaviour is chosen by name so tests read clearly. The worker has one turn: it emits a `prepareReview` result and then parks on the `exportForReview` gate; a resume with `once` writes the receipt, a resume with `deny` does not.
 
 **Files:**
 - Create: `test/fake-worker.ts`, `test/fake-worker.test.ts`
 
-- [ ] **Step 1: Write the failing test** (exercises the fake directly with `fetch`)
+- [ ] **Step 1: Write the failing test**
 
 ```ts
 import { mkdtempSync, readdirSync, rmSync } from "node:fs"
@@ -1688,40 +1689,33 @@ async function sseEvents(response: Response): Promise<string[]> {
     .map((block) => block.split("\n")[0]?.slice("event: ".length) ?? "")
 }
 
+const post = (url: string, body: unknown) =>
+  fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+
 describe("fake worker", () => {
-  it("runs the happy two-turn protocol and writes the receipt on resume once", async () => {
+  it("parks on the export gate and writes the receipt on resume once", async () => {
     dir = mkdtempSync(join(tmpdir(), "fake-worker-"))
     fake = await createFakeWorker({ outboxDir: dir })
-    const created = await fetch(`${fake.baseUrl}/threads`, { method: "POST", body: "{}" })
+    const created = await post(`${fake.baseUrl}/threads`, {})
     const { thread_id } = (await created.json()) as { thread_id: string }
 
-    const turnOne = await fetch(`${fake.baseUrl}/threads/${thread_id}/runs/stream`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ route: "/fix#agent", input: { messages: [{ role: "user", content: "go" }] } }),
+    const run = await post(`${fake.baseUrl}/threads/${thread_id}/runs/stream`, {
+      route: "/fix#agent",
+      input: { messages: [{ role: "user", content: "go" }] },
     })
-    expect(await sseEvents(turnOne)).toEqual(["tool_result", "tool_result", "chunk", "done"])
+    expect(await sseEvents(run)).toEqual(["tool_result", "tool_result", "interrupt", "done"])
 
-    const turnTwo = await fetch(`${fake.baseUrl}/threads/${thread_id}/runs/stream`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ route: "/fix#agent", input: { messages: [{ role: "user", content: "export" }] } }),
-    })
-    expect(await sseEvents(turnTwo)).toEqual(["interrupt", "done"])
-
+    const thread = (await (await fetch(`${fake.baseUrl}/threads/${thread_id}`)).json()) as { status: string }
+    expect(thread.status).toBe("interrupted")
     const pending = (await (await fetch(`${fake.baseUrl}/threads/${thread_id}/pending_interrupts`)).json()) as {
       interrupts: { interruptId: string; kind: string; detail: { toolName: string } }[]
     }
     expect(pending.interrupts).toHaveLength(1)
     expect(pending.interrupts[0]?.detail.toolName).toBe("exportForReview")
 
-    const resumed = await fetch(`${fake.baseUrl}/threads/${thread_id}/resume`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        resume: [{ interruptId: pending.interrupts[0]?.interruptId, status: "resolved", payload: "once" }],
-        route: "/fix#agent",
-      }),
+    const resumed = await post(`${fake.baseUrl}/threads/${thread_id}/resume`, {
+      resume: [{ interruptId: pending.interrupts[0]?.interruptId, status: "resolved", payload: "once" }],
+      route: "/fix#agent",
     })
     expect(resumed.status).toBe(200)
     await resumed.text()
@@ -1733,33 +1727,22 @@ describe("fake worker", () => {
     dir = mkdtempSync(join(tmpdir(), "fake-worker-"))
     fake = await createFakeWorker({ outboxDir: dir })
     expect((await fetch(`${fake.baseUrl}/threads/nope`)).status).toBe(404)
-    const cancel = await fetch(`${fake.baseUrl}/threads/nope/cancel`, { method: "POST" })
-    expect(cancel.status).toBe(404)
-    const created = await fetch(`${fake.baseUrl}/threads`, { method: "POST", body: "{}" })
+    expect((await fetch(`${fake.baseUrl}/threads/nope/cancel`, { method: "POST" })).status).toBe(404)
+    const created = await post(`${fake.baseUrl}/threads`, {})
     const { thread_id } = (await created.json()) as { thread_id: string }
     const idleCancel = await fetch(`${fake.baseUrl}/threads/${thread_id}/cancel`, { method: "POST" })
     expect(idleCancel.status).toBe(409)
-    expect(((await idleCancel.json()) as { error: { details: { code: string } } }).error.details.code).toBe(
-      "no_run_in_flight",
-    )
-    const badResume = await fetch(`${fake.baseUrl}/threads/${thread_id}/resume`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ resume: [], route: "/fix#agent" }),
-    })
+    expect(((await idleCancel.json()) as { error: { details: { code: string } } }).error.details.code).toBe("no_run_in_flight")
+    const badResume = await post(`${fake.baseUrl}/threads/${thread_id}/resume`, { resume: [], route: "/fix#agent" })
     expect(badResume.status).toBe(409)
   })
 
   it("cancels a hanging run in band", async () => {
     dir = mkdtempSync(join(tmpdir(), "fake-worker-"))
-    fake = await createFakeWorker({ outboxDir: dir, turnOne: "hang" })
-    const created = await fetch(`${fake.baseUrl}/threads`, { method: "POST", body: "{}" })
+    fake = await createFakeWorker({ outboxDir: dir, run: "hang" })
+    const created = await post(`${fake.baseUrl}/threads`, {})
     const { thread_id } = (await created.json()) as { thread_id: string }
-    const streamPromise = fetch(`${fake.baseUrl}/threads/${thread_id}/runs/stream`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ route: "/fix#agent", input: {} }),
-    }).then((r) => r.text())
+    const streamPromise = post(`${fake.baseUrl}/threads/${thread_id}/runs/stream`, { route: "/fix#agent", input: {} }).then((r) => r.text())
     await fake.waitForRunStart(thread_id)
     const cancel = await fetch(`${fake.baseUrl}/threads/${thread_id}/cancel`, { method: "POST" })
     expect(cancel.status).toBe(200)
@@ -1782,21 +1765,29 @@ import { type IncomingMessage, type Server, type ServerResponse, createServer } 
 import { join } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 
-export type TurnOneBehaviour =
+/**
+ * happy:                prepareReview result, then the exportForReview gate (parks)
+ * gate_before_prepare:  the gate arrives with no prepareReview result (digest unknown)
+ * route_error:          done with output.error
+ * no_candidate:         done without a candidate or a gate
+ * hang:                 ping comments until cancelled
+ * close_midway:         prepareReview result, then the socket is destroyed; the run parks on the gate 50 ms later
+ * unexpected_interrupt: a `command` kind interrupt instead of the gate
+ */
+export type RunBehaviour =
   | "happy"
+  | "gate_before_prepare"
   | "route_error"
   | "no_candidate"
   | "hang"
   | "close_midway"
   | "unexpected_interrupt"
-  | "premature_export"
-export type TurnTwoBehaviour = "gate" | "route_error" | "hang"
+/** What a resume with payload `once` does. `deny` always ends the turn without a receipt. */
 export type ResumeBehaviour = "receipt" | "no_receipt" | "route_error"
 
 export interface FakeWorkerOptions {
   readonly outboxDir: string
-  readonly turnOne?: TurnOneBehaviour
-  readonly turnTwo?: TurnTwoBehaviour
+  readonly run?: RunBehaviour
   readonly resume?: ResumeBehaviour
   /** Milliseconds between frames; keep small in tests. */
   readonly frameDelayMs?: number
@@ -1811,12 +1802,13 @@ export interface LoggedRequest {
 interface Thread {
   readonly id: string
   status: "idle" | "busy" | "interrupted"
-  turns: number
   runActive: boolean
   resumeActive: boolean
   pending: Record<string, unknown> | null
-  /** Ends a hanging stream with the cancelled `done` frame. */
-  endHang: (() => void) | null
+  /** Ends the live POST stream (hang) with the given terminal frame. */
+  endLive: ((done: unknown) => void) | null
+  /** Reattached GET streams waiting for this run's terminal frame. */
+  waiters: Set<(done: unknown) => void>
 }
 
 export interface FakeWorker {
@@ -1824,7 +1816,7 @@ export interface FakeWorker {
   readonly digest: string
   readonly candidate: Record<string, unknown>
   readonly requests: LoggedRequest[]
-  behaviour: { turnOne: TurnOneBehaviour; turnTwo: TurnTwoBehaviour; resume: ResumeBehaviour }
+  behaviour: { run: RunBehaviour; resume: ResumeBehaviour }
   thread(id: string): Readonly<Thread> | undefined
   waitForRunStart(threadId: string): Promise<void>
   close(): Promise<void>
@@ -1881,11 +1873,7 @@ class Sse {
 export async function createFakeWorker(options: FakeWorkerOptions): Promise<FakeWorker> {
   const threads = new Map<string, Thread>()
   const requests: LoggedRequest[] = []
-  const behaviour = {
-    turnOne: options.turnOne ?? "happy",
-    turnTwo: options.turnTwo ?? "gate",
-    resume: options.resume ?? "receipt",
-  }
+  const behaviour = { run: options.run ?? "happy", resume: options.resume ?? "receipt" }
   const delay = options.frameDelayMs ?? 5
   let counter = 0
   const runStarted = new Map<string, () => void>()
@@ -1900,9 +1888,40 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
       suggestedPattern: "exportForReview",
     },
   })
+  const prepareResult = () => ({
+    id: "call-2",
+    name: "prepareReview",
+    output: JSON.stringify({
+      task: "cli-flags",
+      candidate: CANDIDATE,
+      diff: "--- a/src/cli.ts\n+++ b/src/cli.ts\n",
+      verification: { passed: true },
+    }),
+  })
 
-  async function streamTurnOne(thread: Thread, sse: Sse) {
-    const kind = behaviour.turnOne
+  function notify(thread: Thread, done: unknown) {
+    for (const waiter of thread.waiters) waiter(done)
+    thread.waiters.clear()
+  }
+  /** The turn finished with no pending prompt. */
+  function finishRun(thread: Thread, sse: Sse | null) {
+    thread.runActive = false
+    thread.endLive = null
+    thread.status = "idle"
+    notify(thread, { output: {} })
+    sse?.end()
+  }
+  /** The turn parked on `thread.pending`. */
+  function parkRun(thread: Thread, sse: Sse | null) {
+    thread.runActive = false
+    thread.endLive = null
+    thread.status = "interrupted"
+    notify(thread, { output: {} })
+    sse?.end()
+  }
+
+  async function streamRun(thread: Thread, sse: Sse) {
+    const kind = behaviour.run
     if (kind === "route_error") {
       sse.frame("done", { output: { error: "route exploded" } })
       return finishRun(thread, sse)
@@ -1915,12 +1934,12 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
     if (kind === "hang") {
       sse.comment("ping")
       await new Promise<void>((resolve) => {
-        thread.endHang = () => {
-          sse.frame("done", { output: { cancelled: true } })
+        thread.endLive = (done) => {
+          sse.frame("done", done)
           resolve()
         }
       })
-      return finishRun(thread, sse)
+      return
     }
     if (kind === "unexpected_interrupt") {
       thread.pending = {
@@ -1933,75 +1952,32 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
       sse.frame("done", { output: {} })
       return parkRun(thread, sse)
     }
-    sse.frame("tool_result", { id: "call-1", name: "readFile", output: "TASK.md contents" })
-    await sleep(delay)
-    sse.frame("tool_result", {
-      id: "call-2",
-      name: "prepareReview",
-      output: JSON.stringify({
-        task: "cli-flags",
-        candidate: CANDIDATE,
-        diff: "--- a/src/cli.ts\n+++ b/src/cli.ts\n",
-        verification: { passed: true },
-      }),
-    })
-    if (kind === "close_midway") {
-      sse.destroy()
-      await sleep(50)
-      thread.runActive = false
-      thread.status = "idle"
-      return
-    }
-    await sleep(delay)
-    if (kind === "premature_export") {
+    if (kind === "gate_before_prepare") {
       thread.pending = gateInterrupt()
       sse.frame("interrupt", thread.pending)
       sse.frame("done", { output: {} })
       return parkRun(thread, sse)
     }
-    sse.frame("chunk", "Candidate verified and ready for approval.")
-    sse.frame("done", { output: {} })
-    return finishRun(thread, sse)
-  }
-
-  async function streamTurnTwo(thread: Thread, sse: Sse) {
-    const kind = behaviour.turnTwo
-    if (kind === "route_error") {
-      sse.frame("done", { output: { error: "export turn exploded" } })
-      return finishRun(thread, sse)
+    sse.frame("tool_result", { id: "call-1", name: "readFile", output: "TASK.md contents" })
+    await sleep(delay)
+    sse.frame("tool_result", prepareResult())
+    if (kind === "close_midway") {
+      sse.destroy()
+      await sleep(50)
+      thread.pending = gateInterrupt()
+      return parkRun(thread, null)
     }
-    if (kind === "hang") {
-      sse.comment("ping")
-      await new Promise<void>((resolve) => {
-        thread.endHang = () => {
-          sse.frame("done", { output: { cancelled: true } })
-          resolve()
-        }
-      })
-      return finishRun(thread, sse)
-    }
+    await sleep(delay)
     thread.pending = gateInterrupt()
     sse.frame("interrupt", thread.pending)
     sse.frame("done", { output: {} })
     return parkRun(thread, sse)
   }
 
-  function finishRun(thread: Thread, sse: Sse) {
-    thread.runActive = false
-    thread.endHang = null
-    thread.status = "idle"
-    sse.end()
-  }
-
-  function parkRun(thread: Thread, sse: Sse) {
-    thread.runActive = false
-    thread.status = "interrupted"
-    sse.end()
-  }
-
   async function streamResume(thread: Thread, sse: Sse, payload: string) {
     thread.resumeActive = true
     thread.pending = null
+    thread.status = "busy"
     if (payload === "deny") {
       sse.frame("chunk", "Export was denied; stopping.")
       sse.frame("done", { output: {} })
@@ -2009,10 +1985,7 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
       sse.frame("done", { output: { error: "export failed" } })
     } else {
       if (behaviour.resume === "receipt")
-        writeFileSync(
-          join(options.outboxDir, `${DIGEST}.json`),
-          JSON.stringify({ task: "cli-flags", candidate: CANDIDATE, diff: "" }),
-        )
+        writeFileSync(join(options.outboxDir, `${DIGEST}.json`), JSON.stringify({ task: "cli-flags", candidate: CANDIDATE, diff: "" }))
       sse.frame("tool_result", { id: "call-3", name: "exportForReview", output: "exported" })
       sse.frame("done", { output: {} })
     }
@@ -2029,16 +2002,7 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
 
     if (req.method === "POST" && url.pathname === "/threads") {
       const id = `fake-thread-${++counter}`
-      const thread: Thread = {
-        id,
-        status: "idle",
-        turns: 0,
-        runActive: false,
-        resumeActive: false,
-        pending: null,
-        endHang: null,
-      }
-      threads.set(id, thread)
+      threads.set(id, { id, status: "idle", runActive: false, resumeActive: false, pending: null, endLive: null, waiters: new Set() })
       return json(res, 200, JSON.stringify({ thread_id: id, status: "idle", metadata: (body as { metadata?: unknown })?.metadata ?? {} }))
     }
 
@@ -2046,47 +2010,36 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
     if (!thread) return json(res, 404, errorBody("Thread not found", "thread_not_found"))
     const tail = parts.slice(2).join("/")
 
-    if (req.method === "GET" && tail === "")
-      return json(res, 200, JSON.stringify({ thread_id: thread.id, status: thread.status }))
+    if (req.method === "GET" && tail === "") return json(res, 200, JSON.stringify({ thread_id: thread.id, status: thread.status }))
 
     if (req.method === "GET" && tail === "pending_interrupts")
       return json(res, 200, JSON.stringify({ interrupts: thread.pending ? [thread.pending] : [] }))
 
     if (req.method === "POST" && tail === "runs/stream") {
-      if (thread.runActive || thread.resumeActive) return json(res, 409, errorBody("Run in flight", "run_in_flight"))
+      if (thread.runActive || thread.resumeActive || thread.pending) return json(res, 409, errorBody("Run in flight", "run_in_flight"))
       thread.runActive = true
       thread.status = "busy"
-      thread.turns += 1
       runStarted.get(thread.id)?.()
-      const sse = new Sse(res)
-      if (thread.turns === 1) await streamTurnOne(thread, sse)
-      else await streamTurnTwo(thread, sse)
+      await streamRun(thread, new Sse(res))
       return
     }
 
     if (req.method === "GET" && tail === "runs/stream") {
       const sse = new Sse(res)
-      sse.frame("state", {
-        status: thread.status,
-        live: thread.runActive,
-        interrupts: thread.pending ? [thread.pending] : [],
-      })
+      sse.frame("state", { status: thread.status, live: thread.runActive, interrupts: thread.pending ? [thread.pending] : [] })
       if (!thread.runActive) return sse.end()
       await new Promise<void>((resolve) => {
-        const previous = thread.endHang
-        thread.endHang = () => {
-          previous?.()
-          sse.frame("done", { output: { cancelled: true } })
+        thread.waiters.add((done) => {
+          sse.frame("done", done)
           resolve()
-        }
+        })
       })
       return sse.end()
     }
 
     if (req.method === "POST" && tail === "resume") {
       const request = body as { resume?: { interruptId: string; status: string; payload?: string }[]; route?: string }
-      if (!Array.isArray(request?.resume) || typeof request.route !== "string")
-        return json(res, 400, errorBody("Malformed resume body"))
+      if (!Array.isArray(request?.resume) || typeof request.route !== "string") return json(res, 400, errorBody("Malformed resume body"))
       if (thread.resumeActive) return json(res, 409, errorBody("Resume in progress", "resume_in_progress"))
       if (thread.runActive) return json(res, 409, errorBody("Run in flight", "run_in_flight"))
       const pendingIds = thread.pending ? [thread.pending.interruptId] : []
@@ -2095,16 +2048,18 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
         return json(res, 409, errorBody("Resume set does not match pending interrupts", "interrupt_mismatch"))
       const entry = request.resume[0]
       const payload = entry?.status === "cancelled" ? "deny" : (entry?.payload ?? "deny")
-      const sse = new Sse(res)
-      await streamResume(thread, sse, payload)
+      await streamResume(thread, new Sse(res), payload)
       return
     }
 
     if (req.method === "POST" && tail === "cancel") {
       if (!thread.runActive) return json(res, 409, errorBody("No run in flight", "no_run_in_flight"))
-      thread.endHang?.()
+      const done = { output: { cancelled: true } }
+      thread.endLive?.(done)
       thread.runActive = false
+      thread.endLive = null
       thread.status = "interrupted"
+      notify(thread, done)
       return json(res, 200, JSON.stringify({ thread_id: thread.id, status: "interrupted" }))
     }
 
@@ -2128,7 +2083,10 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
       return new Promise((resolve) => runStarted.set(threadId, resolve))
     },
     async close() {
-      for (const thread of threads.values()) thread.endHang?.()
+      for (const thread of threads.values()) {
+        thread.endLive?.({ output: { cancelled: true } })
+        notify(thread, { output: { cancelled: true } })
+      }
       server.closeAllConnections()
       await new Promise<void>((resolve) => server.close(() => resolve()))
     },
@@ -2149,7 +2107,6 @@ git commit -m "test(software-factory): scripted fake Agent Protocol worker"
 ```
 
 ---
-
 ### Task 10: Worker HTTP client
 
 **Files:**
@@ -2389,6 +2346,7 @@ git commit -m "feat(software-factory): Agent Protocol worker client"
 
 ---
 
+
 ### Task 11: Turn consumer and budget ticker
 
 **Files:**
@@ -2444,7 +2402,12 @@ describe("consumeTurn", () => {
     expect(result.error).toMatch(/socket hang up/)
   })
 
-  it("ignores malformed interrupt frames but records them", async () => {
+  it("treats a stream that ends without done as lost", async () => {
+    const result = await consumeTurn(frames([{ event: "chunk", data: "x" }]), {})
+    expect(result.ended).toBe("lost")
+  })
+
+  it("ignores malformed interrupt frames but counts them", async () => {
     const result = await consumeTurn(frames([{ event: "interrupt", data: { nope: true } }, { event: "done", data: {} }]), {})
     expect(result.interrupts).toEqual([])
     expect(result.malformed).toBe(1)
@@ -2456,7 +2419,7 @@ describe("consumeTurn", () => {
 
 ```ts
 import { describe, expect, it } from "vitest"
-import { startBudgetTicker } from "../src/controller/budget.ts"
+import { activeElapsedMs, startBudgetTicker } from "../src/controller/budget.ts"
 import type { WorkOrderRow } from "../src/domain/work-order.ts"
 import { openRegistry } from "../src/registry/db.ts"
 import { createWorkOrderStore } from "../src/registry/work-orders.ts"
@@ -2469,6 +2432,7 @@ function row(overrides: Partial<WorkOrderRow>): WorkOrderRow {
     taskId: "cli-flags",
     workerRoute: "/fix#agent",
     workerThreadId: "t-1",
+    interruptId: null,
     candidateDigest: null,
     candidateVerified: null,
     blockedReason: null,
@@ -2477,19 +2441,25 @@ function row(overrides: Partial<WorkOrderRow>): WorkOrderRow {
     maxActiveMs: 1_000,
     activeMs: 0,
     activeStartedAt: "2026-09-16T00:00:00.000Z",
-    candidateReadyAt: null,
+    awaitingSince: null,
     createdAt: "2026-09-16T00:00:00.000Z",
     updatedAt: "2026-09-16T00:00:00.000Z",
     ...overrides,
   }
 }
 
-describe("budget ticker", () => {
-  it("fires once for an active work order over its limit and never for inactive ones", async () => {
+describe("budget", () => {
+  it("adds the open interval to banked active time", () => {
+    const nowMs = Date.parse("2026-09-16T00:00:02.000Z")
+    expect(activeElapsedMs(row({ activeMs: 500 }), nowMs)).toBe(2_500)
+    expect(activeElapsedMs(row({ activeMs: 500, activeStartedAt: null }), nowMs)).toBe(500)
+  })
+
+  it("fires once for an active work order over its limit and never for parked ones", async () => {
     const store = createWorkOrderStore(openRegistry(":memory:").db)
     store.insert(row({ id: "over" }))
-    store.insert(row({ id: "under", activeMs: 0, maxActiveMs: 10_000_000 }))
-    store.insert(row({ id: "parked", state: "candidate_ready", activeStartedAt: null, activeMs: 999_999 }))
+    store.insert(row({ id: "under", maxActiveMs: 10_000_000 }))
+    store.insert(row({ id: "parked", state: "awaiting_approval", activeStartedAt: null, activeMs: 999_999 }))
     const fired: string[] = []
     let now = Date.parse("2026-09-16T00:00:02.000Z")
     const ticker = startBudgetTicker({
@@ -2518,12 +2488,7 @@ Expected: FAIL, modules not found.
 - [ ] **Step 4: Implement `src/controller/turns.ts`**
 
 ```ts
-import {
-  type InterruptFrame,
-  InterruptFrameSchema,
-  type StreamFrame,
-  ToolResultFrameSchema,
-} from "../worker/wire.js"
+import { type InterruptFrame, InterruptFrameSchema, type StreamFrame, ToolResultFrameSchema } from "../worker/wire.js"
 
 export interface TurnHandlers {
   onFirstFrame?: () => Promise<void>
@@ -2623,7 +2588,7 @@ export function startBudgetTicker(options: {
 - [ ] **Step 6: Run both**
 
 Run: `pnpm --filter @b4-example/software-factory-server test turns budget`
-Expected: PASS, 4 tests.
+Expected: PASS, 6 tests.
 
 - [ ] **Step 7: Commit**
 
@@ -2634,9 +2599,9 @@ git commit -m "feat(software-factory): turn consumer and active-time budget tick
 
 ---
 
-### Task 12: Factory core: create, dispatch, turn 1
+### Task 12: Factory core: create, dispatch, and the run observer
 
-This task creates `src/controller/context.ts` (the internal contract shared with reconciliation) and `src/controller/factory.ts` with `create`, `dispatch`, the turn 1 observer, reads, `waitFor` and `close`. Tasks 13 to 15 add `approve`/`deny`, `cancel`/budget, and reconciliation to the same file; each shows the full code it adds.
+This task creates `src/controller/context.ts` (the internal contract shared with reconciliation) and `src/controller/factory.ts` with `create`, `dispatch`, the run observer, reads, `waitFor` and `close`. Tasks 13 to 15 add `approve`/`deny`, `cancel`/budget, and reconciliation to the same file; each shows the full code it adds.
 
 **Files:**
 - Create: `src/controller/context.ts`, `src/controller/factory.ts`, `test/factory-dispatch.test.ts`
@@ -2647,7 +2612,7 @@ This task creates `src/controller/context.ts` (the internal contract shared with
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import { type Factory, createFactory } from "../src/controller/factory.ts"
 import { createHttpWorkerClient } from "../src/worker/client.ts"
 import { type FakeWorker, type FakeWorkerOptions, createFakeWorker } from "./fake-worker.ts"
@@ -2666,30 +2631,27 @@ async function boot(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
     outboxDir: join(dir, "outbox"),
   })
 }
-beforeEach(() => {
-  // each test boots with its own behaviour
-})
 afterEach(async () => {
   await factory?.close()
   await fake?.close()
   rmSync(dir, { recursive: true, force: true })
 })
 
-const settled = (state: string) =>
-  ["candidate_ready", "blocked", "failed", "exported", "denied", "cancelled"].includes(state)
+const settled = (state: string) => !["received", "dispatched", "running"].includes(state)
 
 describe("create and dispatch", () => {
-  it("runs turn 1 to candidate_ready and journals the order of events", async () => {
+  it("runs the worker turn to awaiting_approval and journals the order of events", async () => {
     await boot()
     const created = await factory.create({ taskId: "cli-flags" })
     expect(created.state).toBe("received")
     const outcome = await factory.dispatch(created.id)
-    expect(outcome).toEqual({ ok: true, state: "dispatched", message: "Turn 1 dispatched" })
+    expect(outcome).toEqual({ ok: true, state: "dispatched", message: "Dispatched" })
     const row = await factory.waitFor(created.id, (r) => settled(r.state))
-    expect(row.state).toBe("candidate_ready")
+    expect(row.state).toBe("awaiting_approval")
     expect(row.candidateDigest).toBe(fake.digest)
     expect(row.candidateVerified).toBe(true)
-    expect(row.candidateReadyAt).not.toBeNull()
+    expect(row.interruptId).toMatch(/^perm-export-/)
+    expect(row.awaitingSince).not.toBeNull()
     expect(row.activeStartedAt).toBeNull()
     const types = factory.events(created.id).map((e) => `${e.type}:${String(e.payload.event ?? "")}`)
     expect(types).toEqual([
@@ -2698,9 +2660,12 @@ describe("create and dispatch", () => {
       "transition:dispatch_committed",
       "transition:run_started",
       "candidate_observed:",
-      "transition:candidate_ready",
+      "transition:candidate_interrupt",
     ])
-    expect(fake.requests.at(-1)?.body).toMatchObject({ input: { messages: [{ content: expect.stringContaining("Do not call exportForReview") }] } })
+    expect(fake.requests.at(-1)?.body).toMatchObject({
+      route: "/fix#agent",
+      input: { messages: [{ role: "user", content: expect.stringContaining("prepareReview") }] },
+    })
   })
 
   it("is idempotent per operation key and refuses dispatch from the wrong state", async () => {
@@ -2715,7 +2680,7 @@ describe("create and dispatch", () => {
     await factory.waitFor(created.id, (r) => settled(r.state))
     const refused = await factory.dispatch(created.id, "dispatch-2")
     expect(refused.ok).toBe(false)
-    expect(refused.message).toMatch(/Cannot dispatch from candidate_ready/)
+    expect(refused.message).toMatch(/Cannot dispatch from awaiting_approval/)
   })
 
   it("rejects unknown tasks", async () => {
@@ -2724,58 +2689,51 @@ describe("create and dispatch", () => {
   })
 
   it("fails on a route error", async () => {
-    await boot({ turnOne: "route_error" })
+    await boot({ run: "route_error" })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     const row = await factory.waitFor(id, (r) => settled(r.state))
-    expect(row.state).toBe("failed")
-    expect(row.failureReason).toBe("route_error")
+    expect(row).toMatchObject({ state: "failed", failureReason: "route_error" })
   })
 
-  it("fails when the turn ends without a verified candidate", async () => {
-    await boot({ turnOne: "no_candidate" })
+  it("fails when the turn ends without a candidate", async () => {
+    await boot({ run: "no_candidate" })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     const row = await factory.waitFor(id, (r) => settled(r.state))
-    expect(row.state).toBe("failed")
-    expect(row.failureReason).toBe("ended_without_candidate")
+    expect(row).toMatchObject({ state: "failed", failureReason: "ended_without_candidate" })
   })
 
-  it("blocks on an unexpected interrupt kind and never resolves it", async () => {
-    await boot({ turnOne: "unexpected_interrupt" })
+  it("blocks when the gate arrives before any prepareReview result", async () => {
+    await boot({ run: "gate_before_prepare" })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     const row = await factory.waitFor(id, (r) => settled(r.state))
-    expect(row.state).toBe("blocked")
-    expect(row.blockedReason).toBe("unexpected_interrupt")
+    expect(row).toMatchObject({ state: "blocked", blockedReason: "candidate_digest_unknown" })
+    expect(row.interruptId).toMatch(/^perm-export-/)
     expect(fake.requests.some((r) => r.path.endsWith("/resume"))).toBe(false)
   })
 
-  it("denies a premature export gate and still reaches candidate_ready", async () => {
-    await boot({ turnOne: "premature_export" })
+  it("blocks on an unexpected interrupt kind and never resolves it", async () => {
+    await boot({ run: "unexpected_interrupt" })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     const row = await factory.waitFor(id, (r) => settled(r.state))
-    expect(row.state).toBe("candidate_ready")
-    const resumes = fake.requests.filter((r) => r.path.endsWith("/resume"))
-    expect(resumes).toHaveLength(1)
-    expect(resumes[0]?.body).toMatchObject({ resume: [{ payload: "deny" }] })
-    expect(factory.events(id).map((e) => e.type)).toContain("premature_export_denied")
+    expect(row).toMatchObject({ state: "blocked", blockedReason: "unexpected_interrupt" })
+    expect(fake.requests.some((r) => r.path.endsWith("/resume"))).toBe(false)
   })
 
   it("records a lost stream without changing state", async () => {
-    await boot({ turnOne: "close_midway" })
+    await boot({ run: "close_midway" })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     await factory.waitFor(id, () => factory.events(id).some((e) => e.type === "stream_lost"))
-    const row = factory.show(id)
-    expect(row?.state).toBe("running")
-    expect(row?.candidateDigest).toBe(fake.digest)
+    expect(factory.show(id)).toMatchObject({ state: "running", candidateDigest: fake.digest })
   })
 })
 ```
 
-The last test pins the pre-reconciliation behaviour; Task 15 changes its expectation to `candidate_ready`.
+The last test pins the pre-reconciliation behaviour; Task 15 changes its expectation to `awaiting_approval`.
 
 - [ ] **Step 2: Run it**
 
@@ -2792,7 +2750,7 @@ import type { WorkOrderPatch, WorkOrderStore } from "../registry/work-orders.js"
 import type { WorkerClient } from "../worker/client.js"
 import type { StreamFrame } from "../worker/wire.js"
 
-/** What reconciliation and the turn observers need from the factory. Kept narrow on purpose. */
+/** What reconciliation and the run observer need from the factory. Kept narrow on purpose. */
 export interface ControllerContext {
   readonly store: WorkOrderStore
   readonly commands: CommandLog
@@ -2803,16 +2761,16 @@ export interface ControllerContext {
   readonly signal: AbortSignal
   now(): number
   iso(): string
-  require(id: string): WorkOrderRow
+  mustGet(id: string): WorkOrderRow
   recordEvent(id: string, type: string, payload?: Record<string, unknown>): void
   /** Compare-and-swap transition with active-time accounting. Throws on an illegal or stale move. */
   transition(id: string, event: TransitionEvent, patch?: WorkOrderPatch, payload?: Record<string, unknown>): WorkOrderRow
-  /** Observe a turn 1 stream to its end, applying turn 1 rules. */
-  observeTurnOne(id: string, frames: AsyncIterable<StreamFrame>): Promise<void>
-  /** Resolve the pending exportForReview gate with `once`, then wait for the receipt. Ends in exported or blocked. */
-  confirmExport(id: string): Promise<void>
+  /** Observe the worker turn to its end, applying the turn rules. */
+  observeRun(id: string, frames: AsyncIterable<StreamFrame>): Promise<void>
   /** Resolve every pending interrupt on the work order's thread with `deny`. */
   denyPending(id: string): Promise<void>
+  /** Cancel the worker if needed, deny any pending gate, and apply the terminal cancel row. */
+  finishCancel(id: string, cause: "operator" | "budget"): Promise<WorkOrderRow>
   /** Wait until the tracked background run for `id` (if any) has settled. */
   settleRun(id: string, timeoutMs: number): Promise<void>
   /** Track a background run so close() and cancel can wait for it. */
@@ -2827,19 +2785,12 @@ import { createHash, randomUUID } from "node:crypto"
 import { setTimeout as sleep } from "node:timers/promises"
 import { ACTIVE_STATES, type TransitionEvent, nextState } from "../domain/states.js"
 import type { CommandOutcome, FactoryEvent, WorkOrderRow } from "../domain/work-order.js"
-import { TURN_ONE_PROMPTS } from "../prompts.js"
+import { TASK_PROMPTS } from "../prompts.js"
 import { type CommandLog, createCommandLog } from "../registry/commands.js"
 import { openRegistry } from "../registry/db.js"
 import { type WorkOrderPatch, createWorkOrderStore } from "../registry/work-orders.js"
 import type { WorkerClient } from "../worker/client.js"
-import {
-  type InterruptFrame,
-  PREPARE_TOOL,
-  type StreamFrame,
-  classifyDone,
-  isExportGate,
-  parsePrepareReviewOutput,
-} from "../worker/wire.js"
+import { PREPARE_TOOL, type StreamFrame, classifyDone, isExportGate, parsePrepareReviewOutput } from "../worker/wire.js"
 import type { ControllerContext } from "./context.js"
 import { consumeTurn } from "./turns.js"
 
@@ -2848,7 +2799,7 @@ export interface FactoryOptions {
   readonly worker: WorkerClient
   readonly workerRoute: string
   readonly outboxDir: string
-  /** Task id to turn 1 prompt. Defaults to TURN_ONE_PROMPTS. */
+  /** Task id to prompt. Defaults to TASK_PROMPTS. */
   readonly tasks?: Readonly<Record<string, string>>
   readonly approvalTtlMs?: number
   readonly maxActiveMs?: number
@@ -2893,20 +2844,20 @@ export class UnknownWorkOrderError extends Error {
   }
 }
 
-const isTurnOneState = (state: WorkOrderRow["state"]) => state === "dispatched" || state === "running"
+const isRunState = (state: WorkOrderRow["state"]) => state === "dispatched" || state === "running"
 
 export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const registry = openRegistry(options.registryPath)
   const store = createWorkOrderStore(registry.db)
   const commands: CommandLog = createCommandLog(registry.db)
-  const tasks = options.tasks ?? TURN_ONE_PROMPTS
+  const tasks = options.tasks ?? TASK_PROMPTS
   const now = options.now ?? Date.now
   const iso = () => new Date(now()).toISOString()
   const log = options.log ?? (() => {})
   const abort = new AbortController()
   const runs = new Map<string, Promise<void>>()
 
-  const require = (id: string): WorkOrderRow => {
+  const mustGet = (id: string): WorkOrderRow => {
     const row = store.get(id)
     if (!row) throw new UnknownWorkOrderError(id)
     return row
@@ -2924,7 +2875,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     payload: Record<string, unknown> = {},
   ): WorkOrderRow =>
     store.transaction(() => {
-      const row = require(id)
+      const row = mustGet(id)
       const to = nextState(row.state, event)
       const accounting: WorkOrderPatch = {}
       const wasActive = ACTIVE_STATES.has(row.state)
@@ -2962,12 +2913,12 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   }
 
   const denyPending = async (id: string) => {
-    const row = require(id)
+    const row = mustGet(id)
     if (!row.workerThreadId) return
-    const pending = await ctx.worker.pendingInterrupts(row.workerThreadId)
+    const pending = await options.worker.pendingInterrupts(row.workerThreadId)
     if (pending.length === 0) return
     recordEvent(id, "pending_denied", { interruptIds: pending.map((p) => p.interruptId) })
-    const frames = await ctx.worker.resume(
+    const frames = await options.worker.resume(
       row.workerThreadId,
       options.workerRoute,
       pending.map((p) => ({ interruptId: p.interruptId, payload: "deny" as const })),
@@ -2976,93 +2927,89 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     await consumeTurn(frames, {})
   }
 
-  async function observeTurnOne(id: string, frames: AsyncIterable<StreamFrame>): Promise<void> {
-    let stream = frames
-    while (true) {
-      let prematureGate: InterruptFrame | null = null
-      const result = await consumeTurn(stream, {
-        onFirstFrame: async () => {
-          if (require(id).state === "dispatched") transition(id, "run_started")
-        },
-        onToolResult: async (name, output) => {
-          if (name !== PREPARE_TOOL) return
-          const row = require(id)
-          if (!isTurnOneState(row.state)) return
-          try {
-            const parsed = parsePrepareReviewOutput(output)
-            store.update(
-              id,
-              row.revision,
-              { candidateDigest: parsed.candidate.receiptDigest, candidateVerified: parsed.verification.passed },
-              iso(),
-            )
-            recordEvent(id, "candidate_observed", {
-              digest: parsed.candidate.receiptDigest,
-              verified: parsed.verification.passed,
-              candidate: parsed.candidate,
-            })
-          } catch (error) {
-            recordEvent(id, "candidate_unparseable", { error: String(error) })
-          }
-        },
-        onInterrupt: async (frame) => {
-          const row = require(id)
-          if (!isTurnOneState(row.state)) return
-          if (isExportGate(frame)) {
-            prematureGate = frame
-            return
-          }
+  /**
+   * The worker's single turn (spec: "Where the candidate digest comes from" and the
+   * dispatched/running rows of the transition table). Every handler re-reads the row and
+   * acts only while the work order is still in a run state, so a concurrent cancel wins.
+   */
+  async function observeRun(id: string, frames: AsyncIterable<StreamFrame>): Promise<void> {
+    const result = await consumeTurn(frames, {
+      onFirstFrame: async () => {
+        if (mustGet(id).state === "dispatched") transition(id, "run_started")
+      },
+      onToolResult: async (name, output) => {
+        if (name !== PREPARE_TOOL) return
+        const row = mustGet(id)
+        if (!isRunState(row.state)) return
+        try {
+          const parsed = parsePrepareReviewOutput(output)
+          store.update(
+            id,
+            row.revision,
+            { candidateDigest: parsed.candidate.receiptDigest, candidateVerified: parsed.verification.passed },
+            iso(),
+          )
+          recordEvent(id, "candidate_observed", {
+            digest: parsed.candidate.receiptDigest,
+            verified: parsed.verification.passed,
+            candidate: parsed.candidate,
+          })
+        } catch (error) {
+          recordEvent(id, "candidate_unparseable", { error: String(error) })
+        }
+      },
+      onInterrupt: async (frame) => {
+        const row = mustGet(id)
+        if (!isRunState(row.state)) return
+        if (!isExportGate(frame)) {
           transition(
             id,
             "unexpected_interrupt",
-            { blockedReason: "unexpected_interrupt" },
+            { interruptId: frame.interruptId, blockedReason: "unexpected_interrupt" },
             { interruptId: frame.interruptId, kind: frame.kind },
           )
-        },
-        onDone: async (data) => {
-          const row = require(id)
-          if (!isTurnOneState(row.state) || prematureGate) return
-          const { error, cancelled } = classifyDone(data)
-          if (cancelled) return
-          if (error) {
-            transition(id, "run_failed", { failureReason: "route_error" }, { error })
-            return
-          }
-          if (row.candidateVerified === true) transition(id, "candidate_ready", { candidateReadyAt: iso() })
-          else
-            transition(
-              id,
-              "run_ended_without_candidate",
-              { failureReason: "ended_without_candidate" },
-              { verified: row.candidateVerified },
-            )
-        },
-      })
-      if (result.ended === "lost") {
-        recordEvent(id, "stream_lost", { phase: "turn_one", error: result.error ?? null })
-        return
-      }
-      if (!prematureGate) return
-      const gate: InterruptFrame = prematureGate
-      const row = require(id)
-      if (!row.workerThreadId || !isTurnOneState(row.state)) return
-      recordEvent(id, "premature_export_denied", { interruptId: gate.interruptId })
-      try {
-        stream = await ctx.worker.resume(
-          row.workerThreadId,
-          options.workerRoute,
-          [{ interruptId: gate.interruptId, payload: "deny" }],
-          abort.signal,
+          return
+        }
+        if (row.candidateDigest && row.candidateVerified === true) {
+          transition(
+            id,
+            "candidate_interrupt",
+            { interruptId: frame.interruptId, awaitingSince: iso() },
+            { interruptId: frame.interruptId, candidateDigest: row.candidateDigest },
+          )
+          return
+        }
+        transition(
+          id,
+          "candidate_interrupt_without_digest",
+          { interruptId: frame.interruptId, blockedReason: "candidate_digest_unknown" },
+          { interruptId: frame.interruptId, verified: row.candidateVerified },
         )
-      } catch (error) {
-        recordEvent(id, "stream_lost", { phase: "premature_deny", error: String(error) })
-        return
-      }
+      },
+      onDone: async (data) => {
+        const row = mustGet(id)
+        if (!isRunState(row.state)) return
+        const { error, cancelled } = classifyDone(data)
+        if (cancelled) return
+        if (error) {
+          transition(id, "run_failed", { failureReason: "route_error" }, { error })
+          return
+        }
+        transition(
+          id,
+          "run_ended_without_candidate",
+          { failureReason: "ended_without_candidate" },
+          { verified: row.candidateVerified },
+        )
+      },
+    })
+    if (result.ended === "lost") {
+      recordEvent(id, "stream_lost", { phase: "run", error: result.error ?? null })
     }
   }
 
-  async function confirmExport(_id: string): Promise<void> {
-    throw new Error("confirmExport is implemented in Task 13")
+  async function finishCancel(_id: string, _cause: "operator" | "budget"): Promise<WorkOrderRow> {
+    throw new Error("finishCancel is implemented in Task 14")
   }
 
   const ctx: ControllerContext = {
@@ -3075,27 +3022,27 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     signal: abort.signal,
     now,
     iso,
-    require,
+    mustGet,
     recordEvent,
     transition,
-    observeTurnOne,
-    confirmExport,
+    observeRun,
     denyPending,
+    finishCancel: (id, cause) => finishCancel(id, cause),
     settleRun,
     track,
   }
 
-  async function startTurnOne(id: string): Promise<void> {
-    const row = require(id)
+  async function startRun(id: string): Promise<void> {
+    const row = mustGet(id)
     if (!row.workerThreadId) return
     let frames: AsyncIterable<StreamFrame>
     try {
-      frames = await ctx.worker.startRun(row.workerThreadId, options.workerRoute, tasks[row.taskId] ?? "", abort.signal)
+      frames = await options.worker.startRun(row.workerThreadId, options.workerRoute, tasks[row.taskId] ?? "", abort.signal)
     } catch (error) {
-      recordEvent(id, "stream_lost", { phase: "turn_one_start", error: String(error) })
+      recordEvent(id, "stream_lost", { phase: "run_start", error: String(error) })
       return
     }
-    await observeTurnOne(id, frames)
+    await observeRun(id, frames)
   }
 
   const factory: Factory = {
@@ -3106,7 +3053,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         : `wo-${randomUUID()}`
       const key = operationKey ?? `create:${id}`
       const begun = commands.begin(key, id, { command: "create", args: { taskId } }, iso())
-      if (begun.status === "done") return require(id)
+      if (begun.status === "done") return mustGet(id)
       if (begun.status === "in_flight") throw new CommandInFlightError(key)
       const at = iso()
       const row: WorkOrderRow = {
@@ -3116,6 +3063,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         taskId,
         workerRoute: options.workerRoute,
         workerThreadId: null,
+        interruptId: null,
         candidateDigest: null,
         candidateVerified: null,
         blockedReason: null,
@@ -3124,7 +3072,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         maxActiveMs: options.maxActiveMs ?? 1_200_000,
         activeMs: 0,
         activeStartedAt: null,
-        candidateReadyAt: null,
+        awaitingSince: null,
         createdAt: at,
         updatedAt: at,
       }
@@ -3137,23 +3085,22 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     },
 
     async dispatch(id, operationKey) {
-      const row = require(id)
+      const row = mustGet(id)
       const key = operationKey ?? `dispatch:${id}:${row.revision}`
       const begun = commands.begin(key, id, { command: "dispatch", args: {} }, iso())
       if (begun.status === "done") return begun.outcome
       if (begun.status === "in_flight") throw new CommandInFlightError(key)
-      if (row.state !== "received")
-        return finish(key, { ok: false, state: row.state, message: `Cannot dispatch from ${row.state}` })
+      if (row.state !== "received") return finish(key, { ok: false, state: row.state, message: `Cannot dispatch from ${row.state}` })
       let threadId: string
       try {
-        threadId = await ctx.worker.createThread({ factoryWorkOrderId: id })
+        threadId = await options.worker.createThread({ factoryWorkOrderId: id })
       } catch (error) {
         return finish(key, { ok: false, state: row.state, message: `Thread creation failed: ${String(error)}` })
       }
       recordEvent(id, "thread_created", { threadId })
       const dispatched = transition(id, "dispatch_committed", { workerThreadId: threadId })
-      const outcome = finish(key, { ok: true, state: dispatched.state, message: "Turn 1 dispatched" })
-      track(id, startTurnOne(id))
+      const outcome = finish(key, { ok: true, state: dispatched.state, message: "Dispatched" })
+      track(id, startRun(id))
       return outcome
     },
 
@@ -3174,7 +3121,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     async waitFor(id, predicate, timeoutMs = 10_000) {
       const deadline = now() + timeoutMs
       while (true) {
-        const row = require(id)
+        const row = mustGet(id)
         if (predicate(row)) return row
         if (now() >= deadline) throw new Error(`Timed out waiting for ${id}; state is ${row.state}`)
         await sleep(20)
@@ -3192,31 +3139,27 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 }
 ```
 
-The three `throw new Error("... implemented in Task N")` bodies are removed by those tasks; they exist so this task typechecks and its tests run. No other placeholder is allowed to survive Task 15.
+The four `throw new Error("... implemented in Task N")` bodies are replaced by those tasks; they exist so this task typechecks and its tests run. No other placeholder is allowed to survive Task 15.
 
 - [ ] **Step 5: Run it**
 
 Run: `pnpm --filter @b4-example/software-factory-server test factory-dispatch`
 Expected: PASS, 8 tests.
 
-- [ ] **Step 6: Typecheck and lint**
-
-Run: `pnpm --filter @b4-example/software-factory-server typecheck && pnpm --filter @b4-example/software-factory-server lint`
-Expected: both clean. If biome complains about `require` shadowing, rename the local to `mustGet` consistently in this file and in Tasks 13 to 15.
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Typecheck, lint, commit**
 
 ```bash
+pnpm --filter @b4-example/software-factory-server typecheck && pnpm --filter @b4-example/software-factory-server lint
 git add examples/software-factory/server/src/controller examples/software-factory/server/test/factory-dispatch.test.ts
-git commit -m "feat(software-factory): factory core with create, dispatch and turn 1 observer"
+git commit -m "feat(software-factory): factory core with create, dispatch and the run observer"
 ```
 
 ---
 
-### Task 13: Approve, turn 2, export confirmation, deny
+### Task 13: Approve resolves the exact gate; deny
 
 **Files:**
-- Modify: `src/controller/factory.ts` (replace the `confirmExport`, `approve`, `deny` bodies)
+- Modify: `src/controller/factory.ts` (replace the `approve` and `deny` bodies; add `confirmExport`)
 - Create: `test/factory-approve.test.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -3254,25 +3197,25 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-async function ready() {
+async function awaiting() {
   const { id } = await factory.create({ taskId: "cli-flags" })
   await factory.dispatch(id)
-  return factory.waitFor(id, (r) => r.state === "candidate_ready")
+  return factory.waitFor(id, (r) => r.state === "awaiting_approval")
 }
 
 const resumes = () => fake.requests.filter((r) => r.path.endsWith("/resume"))
-const turns = () => fake.requests.filter((r) => r.method === "POST" && r.path.endsWith("/runs/stream"))
 
 describe("approve", () => {
-  it("starts turn 2, resolves the gate with once, and confirms the receipt", async () => {
+  it("resolves the recorded gate with once and confirms the receipt", async () => {
     await boot()
-    const row = await ready()
+    const row = await awaiting()
     const outcome = await factory.approve(row.id, { revision: row.revision, candidateDigest: row.candidateDigest! })
     expect(outcome).toEqual({ ok: true, state: "exported", message: "Exported" })
-    expect(turns()).toHaveLength(2)
-    expect(turns()[1]?.body).toMatchObject({ input: { messages: [{ content: expect.stringContaining(fake.digest) }] } })
     expect(resumes()).toHaveLength(1)
-    expect(resumes()[0]?.body).toMatchObject({ resume: [{ payload: "once" }] })
+    expect(resumes()[0]?.body).toEqual({
+      resume: [{ interruptId: row.interruptId, status: "resolved", payload: "once" }],
+      route: "/fix#agent",
+    })
     expect(readdirSync(join(dir, "outbox"))).toEqual([`${fake.digest}.json`])
     const final = factory.show(row.id)!
     expect(final.state).toBe("exported")
@@ -3282,76 +3225,89 @@ describe("approve", () => {
 
   it("refuses a stale revision, a wrong digest, and an expired candidate without touching the worker", async () => {
     await boot()
-    const row = await ready()
+    const row = await awaiting()
     const before = fake.requests.length
-    const stale = await factory.approve(row.id, { revision: row.revision - 1, candidateDigest: row.candidateDigest! })
-    expect(stale).toMatchObject({ ok: false, message: expect.stringMatching(/revision/) })
-    const wrong = await factory.approve(row.id, { revision: row.revision, candidateDigest: "f".repeat(64) })
-    expect(wrong).toMatchObject({ ok: false, message: expect.stringMatching(/digest/) })
+    expect(await factory.approve(row.id, { revision: row.revision - 1, candidateDigest: row.candidateDigest! })).toMatchObject({
+      ok: false,
+      message: expect.stringMatching(/revision/),
+    })
+    expect(await factory.approve(row.id, { revision: row.revision, candidateDigest: "f".repeat(64) })).toMatchObject({
+      ok: false,
+      message: expect.stringMatching(/digest/),
+    })
     nowMs += 61_000
-    const expired = await factory.approve(row.id, { revision: row.revision, candidateDigest: row.candidateDigest! })
-    expect(expired).toMatchObject({ ok: false, message: expect.stringMatching(/expired/) })
+    expect(await factory.approve(row.id, { revision: row.revision, candidateDigest: row.candidateDigest! })).toMatchObject({
+      ok: false,
+      message: expect.stringMatching(/expired/),
+    })
     expect(fake.requests.length).toBe(before)
-    expect(factory.show(row.id)).toMatchObject({ state: "candidate_ready", revision: row.revision })
+    expect(factory.show(row.id)).toMatchObject({ state: "awaiting_approval", revision: row.revision })
   })
 
   it("is idempotent per operation key", async () => {
     await boot()
-    const row = await ready()
+    const row = await awaiting()
     const input = { revision: row.revision, candidateDigest: row.candidateDigest!, operationKey: "approve-1" }
     const first = await factory.approve(row.id, input)
     const second = await factory.approve(row.id, input)
     expect(second).toEqual(first)
-    expect(turns()).toHaveLength(2)
     expect(resumes()).toHaveLength(1)
   })
 
-  it("blocks with export_unconfirmed when the export turn fails", async () => {
-    await boot({ turnTwo: "route_error" })
-    const row = await ready()
+  it("refuses when the gate is no longer pending on the worker", async () => {
+    await boot()
+    const row = await awaiting()
+    // Something else resolved the worker's prompt behind the factory's back.
+    await fetch(`${fake.baseUrl}/threads/${row.workerThreadId}/resume`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ resume: [{ interruptId: row.interruptId, status: "resolved", payload: "deny" }], route: "/fix#agent" }),
+    }).then((r) => r.text())
     const outcome = await factory.approve(row.id, { revision: row.revision, candidateDigest: row.candidateDigest! })
     expect(outcome).toMatchObject({ ok: false, state: "blocked" })
-    expect(factory.show(row.id)?.blockedReason).toBe("export_unconfirmed")
+    expect(factory.show(row.id)?.blockedReason).toBe("interrupt_vanished")
   })
 
-  it("blocks with export_unconfirmed when no receipt appears", async () => {
-    await boot({ resume: "no_receipt" })
-    const row = await ready()
-    const outcome = await factory.approve(row.id, { revision: row.revision, candidateDigest: row.candidateDigest! })
-    expect(outcome).toMatchObject({ ok: false, state: "blocked" })
-    expect(factory.show(row.id)?.blockedReason).toBe("export_unconfirmed")
+  it("blocks with export_unconfirmed when the resume fails or no receipt appears", async () => {
+    await boot({ resume: "route_error" })
+    const a = await awaiting()
+    expect(await factory.approve(a.id, { revision: a.revision, candidateDigest: a.candidateDigest! })).toMatchObject({ ok: false, state: "blocked" })
+    expect(factory.show(a.id)?.blockedReason).toBe("export_unconfirmed")
+
+    fake.behaviour.resume = "no_receipt"
+    const b = await awaiting()
+    expect(await factory.approve(b.id, { revision: b.revision, candidateDigest: b.candidateDigest! })).toMatchObject({ ok: false, state: "blocked" })
+    expect(factory.show(b.id)?.blockedReason).toBe("export_unconfirmed")
   })
 })
 
 describe("deny", () => {
-  it("denies from candidate_ready without any worker call", async () => {
+  it("denies from awaiting_approval by resolving the gate with deny", async () => {
     await boot()
-    const row = await ready()
-    const before = fake.requests.length
+    const row = await awaiting()
     const outcome = await factory.deny(row.id)
     expect(outcome).toEqual({ ok: true, state: "denied", message: "Denied" })
-    expect(fake.requests.length).toBe(before)
+    expect(resumes()).toHaveLength(1)
+    expect(resumes()[0]?.body).toMatchObject({ resume: [{ interruptId: row.interruptId, payload: "deny" }] })
     expect(readdirSync(join(dir, "outbox"))).toEqual([])
   })
 
-  it("denies from blocked by resolving the pending interrupt with deny", async () => {
-    await boot({ turnOne: "unexpected_interrupt" })
+  it("denies from blocked, resolving whatever is pending", async () => {
+    await boot({ run: "unexpected_interrupt" })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     await factory.waitFor(id, (r) => r.state === "blocked")
-    const outcome = await factory.deny(id)
-    expect(outcome.state).toBe("denied")
+    expect((await factory.deny(id)).state).toBe("denied")
     expect(resumes()).toHaveLength(1)
     expect(resumes()[0]?.body).toMatchObject({ resume: [{ payload: "deny" }] })
   })
 
   it("refuses deny from running", async () => {
-    await boot({ turnOne: "hang" })
+    await boot({ run: "hang" })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     await factory.waitFor(id, (r) => r.state === "running")
-    const outcome = await factory.deny(id)
-    expect(outcome).toMatchObject({ ok: false, message: expect.stringMatching(/Cannot deny from running/) })
+    expect(await factory.deny(id)).toMatchObject({ ok: false, message: expect.stringMatching(/Cannot deny from running/) })
   })
 })
 ```
@@ -3363,81 +3319,53 @@ Expected: FAIL, "approve is implemented in Task 13".
 
 - [ ] **Step 3: Add imports to `src/controller/factory.ts`**
 
-Add to the existing import block:
-
 ```ts
-import { turnTwoPrompt } from "../prompts.js"
 import { receiptPath, waitForReceipt } from "../worker/outbox.js"
 ```
 
-and change the existing `import { TURN_ONE_PROMPTS } from "../prompts.js"` to `import { TURN_ONE_PROMPTS, turnTwoPrompt } from "../prompts.js"` (one import line, not two).
-
-- [ ] **Step 4: Replace `confirmExport` in `src/controller/factory.ts`**
+- [ ] **Step 4: Add `confirmExport` after `observeRun`**
 
 ```ts
   /**
-   * The worker's exportForReview gate is resolved here and in reconciliation only, and only
-   * for an `exporting` work order that already has an approval row for its digest.
+   * Resolve the worker's parked exportForReview gate with `once` and wait for the receipt
+   * named by the approved digest. Called only from approve (after the approval row is
+   * committed) and from reconciliation of an `exporting` work order. Ends in exported or
+   * blocked; never leaves `exporting`.
    */
   async function confirmExport(id: string): Promise<void> {
-    const row = require(id)
-    if (row.state !== "exporting" || !row.workerThreadId || !row.candidateDigest) return
-    const approved = store.approvals(id).some((a) => a.decision === "approved" && a.candidateDigest === row.candidateDigest)
-    if (!approved) {
-      transition(id, "export_unconfirmed", { blockedReason: "export_unconfirmed" }, { reason: "no approval row" })
-      return
-    }
-    const threadId = row.workerThreadId
-    const digest = row.candidateDigest
-
+    const row = mustGet(id)
+    if (row.state !== "exporting" || !row.workerThreadId || !row.candidateDigest || !row.interruptId) return
+    const { workerThreadId: threadId, candidateDigest: digest, interruptId } = row
     const block = (reason: string, extra: Record<string, unknown> = {}) => {
-      if (require(id).state === "exporting")
+      if (mustGet(id).state === "exporting")
         transition(id, "export_unconfirmed", { blockedReason: "export_unconfirmed" }, { reason, ...extra })
     }
 
-    let pending: InterruptFrame[]
+    let frames: AsyncIterable<StreamFrame>
     try {
-      pending = await ctx.worker.pendingInterrupts(threadId)
+      frames = await options.worker.resume(threadId, options.workerRoute, [{ interruptId, payload: "once" }], abort.signal)
     } catch (error) {
-      block("pending_interrupts failed", { error: String(error) })
+      block("resume failed", { error: String(error) })
       return
     }
-    if (pending.length === 1 && pending[0] && isExportGate(pending[0])) {
-      recordEvent(id, "export_gate_resolved", { interruptId: pending[0].interruptId })
-      let frames: AsyncIterable<StreamFrame>
-      try {
-        frames = await ctx.worker.resume(threadId, options.workerRoute, [{ interruptId: pending[0].interruptId, payload: "once" }], abort.signal)
-      } catch (error) {
-        block("resume failed", { error: String(error) })
-        return
-      }
-      let routeError: string | null = null
-      const result = await consumeTurn(frames, {
-        onDone: async (data) => {
-          routeError = classifyDone(data).error
-        },
-      })
-      if (result.ended === "lost") recordEvent(id, "stream_lost", { phase: "export_resume", error: result.error ?? null })
-      if (routeError) {
-        block("resume ended with error", { error: routeError })
-        return
-      }
-    } else if (pending.length > 0) {
-      transition(
-        id,
-        "unexpected_interrupt",
-        { blockedReason: "unexpected_interrupt" },
-        { interruptIds: pending.map((p) => p.interruptId), kinds: pending.map((p) => p.kind) },
-      )
+    recordEvent(id, "export_gate_resolved", { interruptId })
+    let routeError: string | null = null
+    const result = await consumeTurn(frames, {
+      onDone: async (data) => {
+        routeError = classifyDone(data).error
+      },
+    })
+    if (result.ended === "lost") recordEvent(id, "stream_lost", { phase: "export_resume", error: result.error ?? null })
+    if (routeError) {
+      block("resume ended with error", { error: routeError })
       return
     }
-
     const receipt = await waitForReceipt(options.outboxDir, digest, { timeoutMs: ctx.receiptWaitMs, signal: abort.signal })
     if (!receipt) {
       block("receipt not observed", { expected: receiptPath(options.outboxDir, digest) })
       return
     }
-    if (require(id).state !== "exporting") return
+    if (mustGet(id).state !== "exporting") return
     store.transaction(() => {
       store.recordDelivery({ workOrderId: id, candidateDigest: digest, receiptPath: receipt, observedAt: iso() })
       recordEvent(id, "delivery_observed", { receiptPath: receipt })
@@ -3446,68 +3374,53 @@ and change the existing `import { TURN_ONE_PROMPTS } from "../prompts.js"` to `i
   }
 ```
 
-- [ ] **Step 5: Add `runTurnTwo` next to `startTurnOne`**
-
-```ts
-  /** Turn 2: ask the worker to submit the approved candidate, then confirm through the gate and outbox. */
-  async function runTurnTwo(id: string): Promise<void> {
-    const row = require(id)
-    if (!row.workerThreadId || !row.candidateDigest) return
-    let frames: AsyncIterable<StreamFrame>
-    try {
-      frames = await ctx.worker.startRun(row.workerThreadId, options.workerRoute, turnTwoPrompt(row.candidateDigest), abort.signal)
-    } catch (error) {
-      transition(id, "export_unconfirmed", { blockedReason: "export_unconfirmed" }, { reason: "turn 2 start failed", error: String(error) })
-      return
-    }
-    let routeError: string | null = null
-    const result = await consumeTurn(frames, {
-      onDone: async (data) => {
-        routeError = classifyDone(data).error
-      },
-    })
-    if (result.ended === "lost") recordEvent(id, "stream_lost", { phase: "turn_two", error: result.error ?? null })
-    if (routeError) {
-      if (require(id).state === "exporting")
-        transition(id, "export_unconfirmed", { blockedReason: "export_unconfirmed" }, { reason: "turn 2 ended with error", error: routeError })
-      return
-    }
-    await confirmExport(id)
-  }
-```
-
-- [ ] **Step 6: Replace the `approve` and `deny` bodies in the `factory` object**
+- [ ] **Step 5: Replace the `approve` and `deny` bodies in the `factory` object**
 
 ```ts
     async approve(id, { revision, candidateDigest, operationKey }) {
-      const row = require(id)
+      const row = mustGet(id)
       const key = operationKey ?? `approve:${id}:${revision}`
       const begun = commands.begin(key, id, { command: "approve", args: { revision, candidateDigest } }, iso())
       if (begun.status === "done") return begun.outcome
       if (begun.status === "in_flight") throw new CommandInFlightError(key)
-      const refuse = (message: string) => finish(key, { ok: false, state: row.state, message })
-      if (row.state !== "candidate_ready") return refuse(`Cannot approve from ${row.state}`)
+      const refuse = (message: string) => finish(key, { ok: false, state: mustGet(id).state, message })
+      if (row.state !== "awaiting_approval") return refuse(`Cannot approve from ${row.state}`)
       if (row.revision !== revision) return refuse(`Stale revision ${revision}; work order is at ${row.revision}`)
       if (row.candidateDigest !== candidateDigest) return refuse("Candidate digest does not match the recorded candidate")
-      const readyAt = row.candidateReadyAt ? Date.parse(row.candidateReadyAt) : Number.NaN
+      const since = row.awaitingSince ? Date.parse(row.awaitingSince) : Number.NaN
       const ttl = options.approvalTtlMs ?? 900_000
-      if (!Number.isFinite(readyAt) || now() > readyAt + ttl) return refuse("Candidate has expired; deny or cancel it")
+      if (!Number.isFinite(since) || now() > since + ttl) return refuse("Candidate has expired; deny or cancel it")
+      if (!row.workerThreadId || !row.interruptId) return refuse("Work order has no recorded gate")
+
+      // The gate must still be pending on the worker before any authority is recorded.
+      const pending = await options.worker.pendingInterrupts(row.workerThreadId)
+      if (pending.length !== 1 || pending[0]?.interruptId !== row.interruptId) {
+        transition(
+          id,
+          "interrupt_vanished",
+          { blockedReason: "interrupt_vanished" },
+          { expected: row.interruptId, pending: pending.map((p) => p.interruptId) },
+        )
+        return refuse("The worker's approval prompt is no longer pending")
+      }
+
       store.transaction(() => {
         store.recordApproval({
           id: `ap-${randomUUID()}`,
           workOrderId: id,
+          interruptId: row.interruptId as string,
           candidateDigest,
           decision: "approved",
           decidedBy: options.actor ?? "operator",
           decidedAt: iso(),
-          expiresAt: new Date(readyAt + ttl).toISOString(),
+          expiresAt: new Date(since + ttl).toISOString(),
         })
         transition(id, "approve", {}, { candidateDigest, operationKey: key })
       })
-      const run = runTurnTwo(id)
+      const run = confirmExport(id)
       track(id, run)
       await run
-      const final = require(id)
+      const final = mustGet(id)
       return finish(key, {
         ok: final.state === "exported",
         state: final.state,
@@ -3516,18 +3429,23 @@ and change the existing `import { TURN_ONE_PROMPTS } from "../prompts.js"` to `i
     },
 
     async deny(id, operationKey) {
-      const row = require(id)
+      const row = mustGet(id)
       const key = operationKey ?? `deny:${id}:${row.revision}`
       const begun = commands.begin(key, id, { command: "deny", args: {} }, iso())
       if (begun.status === "done") return begun.outcome
       if (begun.status === "in_flight") throw new CommandInFlightError(key)
-      if (row.state !== "candidate_ready" && row.state !== "blocked")
+      if (row.state !== "awaiting_approval" && row.state !== "blocked")
         return finish(key, { ok: false, state: row.state, message: `Cannot deny from ${row.state}` })
-      if (row.state === "blocked") await denyPending(id)
-      if (row.candidateDigest)
+      try {
+        await denyPending(id)
+      } catch (error) {
+        recordEvent(id, "pending_deny_failed", { error: String(error) })
+      }
+      if (row.candidateDigest && row.interruptId)
         store.recordApproval({
           id: `ap-${randomUUID()}`,
           workOrderId: id,
+          interruptId: row.interruptId,
           candidateDigest: row.candidateDigest,
           decision: "denied",
           decidedBy: options.actor ?? "operator",
@@ -3539,17 +3457,17 @@ and change the existing `import { TURN_ONE_PROMPTS } from "../prompts.js"` to `i
     },
 ```
 
-- [ ] **Step 7: Run it**
+- [ ] **Step 6: Run it**
 
 Run: `pnpm --filter @b4-example/software-factory-server test factory-approve factory-dispatch`
 Expected: PASS, 16 tests.
 
-- [ ] **Step 8: Typecheck, lint, commit**
+- [ ] **Step 7: Typecheck, lint, commit**
 
 ```bash
 pnpm --filter @b4-example/software-factory-server typecheck && pnpm --filter @b4-example/software-factory-server lint
 git add examples/software-factory/server/src/controller/factory.ts examples/software-factory/server/test/factory-approve.test.ts
-git commit -m "feat(software-factory): approve starts turn 2 and confirms the exact receipt; deny"
+git commit -m "feat(software-factory): approve resolves the exact recorded gate and confirms the receipt; deny"
 ```
 
 ---
@@ -3557,13 +3475,13 @@ git commit -m "feat(software-factory): approve starts turn 2 and confirms the ex
 ### Task 14: Cancel and budget enforcement
 
 **Files:**
-- Modify: `src/controller/factory.ts` (replace the `cancel` body; wire the budget ticker)
+- Modify: `src/controller/factory.ts` (replace the `finishCancel` and `cancel` bodies; wire the budget ticker)
 - Create: `test/factory-cancel.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -3595,10 +3513,11 @@ afterEach(async () => {
 })
 
 const cancels = () => fake.requests.filter((r) => r.path.endsWith("/cancel"))
+const resumes = () => fake.requests.filter((r) => r.path.endsWith("/resume"))
 
 describe("cancel", () => {
   it("reaches a running worker and ends cancelled only after the run ended", async () => {
-    await boot({ turnOne: "hang" })
+    await boot({ run: "hang" })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     await factory.waitFor(id, (r) => r.state === "running")
@@ -3609,14 +3528,16 @@ describe("cancel", () => {
     expect(events.indexOf("worker_cancel:interrupted")).toBeLessThan(events.indexOf("transition:run_ended_after_cancel"))
   })
 
-  it("cancels a candidate_ready work order without calling the worker", async () => {
+  it("cancels an awaiting_approval work order by denying its gate, and writes nothing", async () => {
     await boot()
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
-    await factory.waitFor(id, (r) => r.state === "candidate_ready")
-    const before = fake.requests.length
+    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
     expect((await factory.cancel(id)).state).toBe("cancelled")
-    expect(fake.requests.length).toBe(before)
+    expect(cancels()).toHaveLength(0)
+    expect(resumes()).toHaveLength(1)
+    expect(resumes()[0]?.body).toMatchObject({ resume: [{ interruptId: row.interruptId, payload: "deny" }] })
+    expect(readdirSync(join(dir, "outbox"))).toEqual([])
   })
 
   it("cancels a received work order that has no thread", async () => {
@@ -3626,32 +3547,18 @@ describe("cancel", () => {
     expect(fake.requests).toHaveLength(0)
   })
 
-  it("denies a pending gate left by a cancelled export", async () => {
-    await boot({ resume: "no_receipt" }, { receiptWaitMs: 60_000 })
-    const { id } = await factory.create({ taskId: "cli-flags" })
-    await factory.dispatch(id)
-    const ready = await factory.waitFor(id, (r) => r.state === "candidate_ready")
-    const approving = factory.approve(id, { revision: ready.revision, candidateDigest: ready.candidateDigest! })
-    await factory.waitFor(id, (r) => r.state === "exporting")
-    await factory.waitFor(id, () => fake.requests.some((r) => r.path.endsWith("/resume")))
-    const outcome = await factory.cancel(id)
-    expect(outcome.state).toBe("cancelled")
-    await expect(approving).resolves.toMatchObject({ ok: false })
-  })
-
   it("refuses cancel on a terminal work order and is idempotent per key", async () => {
     await boot()
     const { id } = await factory.create({ taskId: "cli-flags" })
     const first = await factory.cancel(id, "cancel-1")
     expect(await factory.cancel(id, "cancel-1")).toEqual(first)
-    const refused = await factory.cancel(id, "cancel-2")
-    expect(refused).toMatchObject({ ok: false, message: expect.stringMatching(/terminal/) })
+    expect(await factory.cancel(id, "cancel-2")).toMatchObject({ ok: false, message: expect.stringMatching(/terminal/) })
   })
 })
 
 describe("budget", () => {
   it("cancels an over-budget run and blocks it with budget_exhausted", async () => {
-    await boot({ turnOne: "hang" }, { maxActiveMs: 1_000, budgetTickMs: 10 })
+    await boot({ run: "hang" }, { maxActiveMs: 1_000, budgetTickMs: 10 })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     await factory.waitFor(id, (r) => r.state === "running")
@@ -3664,6 +3571,17 @@ describe("budget", () => {
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(fake.requests.length).toBe(after)
   })
+
+  it("does not count time spent awaiting approval", async () => {
+    await boot({}, { maxActiveMs: 1_000, budgetTickMs: 10 })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    await factory.waitFor(id, (r) => r.state === "awaiting_approval")
+    nowMs += 60_000
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(factory.show(id)?.state).toBe("awaiting_approval")
+    expect(cancels()).toHaveLength(0)
+  })
 })
 ```
 
@@ -3672,7 +3590,7 @@ describe("budget", () => {
 Run: `pnpm --filter @b4-example/software-factory-server test factory-cancel`
 Expected: FAIL, "cancel is implemented in Task 14".
 
-- [ ] **Step 3: Add the import and the cancel helper to `src/controller/factory.ts`**
+- [ ] **Step 3: Add the import and replace `finishCancel` in `src/controller/factory.ts`**
 
 Add to imports:
 
@@ -3680,19 +3598,19 @@ Add to imports:
 import { startBudgetTicker } from "./budget.js"
 ```
 
-Add this function after `runTurnTwo`:
+and add `isTerminal` to the `../domain/states.js` import. Replace the `finishCancel` placeholder with:
 
 ```ts
   /**
-   * Shared by the cancel command and the budget ticker. `cause` decides the terminal
-   * row of the transition table: cancelled, or blocked with budget_exhausted.
+   * Shared by the cancel command, the budget ticker, and reconciliation. Cancels a live run,
+   * denies whatever prompt is still parked, and applies the terminal cancel row for `cause`.
    */
   async function finishCancel(id: string, cause: "operator" | "budget"): Promise<WorkOrderRow> {
-    const row = require(id)
+    const row = mustGet(id)
     if (row.workerThreadId) {
       let result: string
       try {
-        result = await ctx.worker.cancel(row.workerThreadId)
+        result = await options.worker.cancel(row.workerThreadId)
       } catch (error) {
         result = `error: ${String(error)}`
       }
@@ -3716,7 +3634,7 @@ Add this function after `runTurnTwo`:
 
 ```ts
     async cancel(id, operationKey) {
-      const row = require(id)
+      const row = mustGet(id)
       const key = operationKey ?? `cancel:${id}:${row.revision}`
       const begun = commands.begin(key, id, { command: "cancel", args: {} }, iso())
       if (begun.status === "done") return begun.outcome
@@ -3729,8 +3647,6 @@ Add this function after `runTurnTwo`:
     },
 ```
 
-Add `isTerminal` to the `../domain/states.js` import.
-
 - [ ] **Step 5: Wire the budget ticker**
 
 Immediately before `const factory: Factory = {`, add:
@@ -3741,7 +3657,7 @@ Immediately before `const factory: Factory = {`, add:
     now,
     tickMs: options.budgetTickMs ?? 1_000,
     onExhausted: async (id) => {
-      const row = require(id)
+      const row = mustGet(id)
       const key = `budget:${id}:${row.revision}`
       const begun = commands.begin(key, id, { command: "cancel", args: { cause: "budget" } }, iso())
       if (begun.status !== "new") return
@@ -3757,7 +3673,7 @@ Immediately before `const factory: Factory = {`, add:
   })
 ```
 
-and in `close()` add `ticker.stop()` as the first line.
+and make `ticker.stop()` the first line of `close()`.
 
 - [ ] **Step 6: Run it**
 
@@ -3778,7 +3694,7 @@ git commit -m "feat(software-factory): cancel propagation and active-time budget
 
 **Files:**
 - Create: `src/controller/reconcile.ts`, `test/factory-reconcile.test.ts`
-- Modify: `src/controller/context.ts` (add `finishCancel`), `src/controller/factory.ts` (expose it, call reconciliation on boot and on lost streams), `test/fake-worker.ts` (reattach completes when the run ends), `test/factory-dispatch.test.ts` (lost-stream expectation)
+- Modify: `src/controller/factory.ts` (call reconciliation on boot and on a lost stream), `test/factory-dispatch.test.ts` (lost-stream expectation)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3797,7 +3713,6 @@ import { type FakeWorker, type FakeWorkerOptions, createFakeWorker } from "./fak
 let dir: string
 let fake: FakeWorker
 let factory: Factory
-
 const registryPath = () => join(dir, "registry.sqlite")
 const outbox = () => join(dir, "outbox")
 
@@ -3821,25 +3736,23 @@ afterEach(async () => {
   await fake?.close()
   rmSync(dir, { recursive: true, force: true })
 })
-
 /** Simulate a crash: drop the in-memory factory without letting it finish anything. */
-async function crash() {
-  await factory.close()
-}
+const crash = () => factory.close()
+const now = () => new Date().toISOString()
 
 describe("reconciliation", () => {
-  it("leaves candidate_ready alone and approve still works after a restart", async () => {
+  it("restores awaiting_approval from the worker's pending prompt and approve still works", async () => {
     await bootWorker()
     await bootFactory()
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
-    await factory.waitFor(id, (r) => r.state === "candidate_ready")
-    const before = fake.requests.length
+    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
     await crash()
+    const writesBefore = fake.requests.filter((r) => r.method === "POST").length
     await bootFactory()
-    expect(fake.requests.length).toBe(before)
-    const row = factory.show(id)!
-    expect(row.state).toBe("candidate_ready")
+    expect(fake.requests.filter((r) => r.method === "POST").length).toBe(writesBefore)
+    expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(1)
+    expect(factory.show(id)).toMatchObject({ state: "awaiting_approval", revision: row.revision, interruptId: row.interruptId })
     const outcome = await factory.approve(id, { revision: row.revision, candidateDigest: row.candidateDigest! })
     expect(outcome.state).toBe("exported")
   })
@@ -3849,38 +3762,29 @@ describe("reconciliation", () => {
     await bootFactory()
     const { id } = await factory.create({ taskId: "cli-flags" })
     await crash()
-    // Forge the crash window: intent committed, no thread id, no outcome.
     const registry = openRegistry(registryPath())
-    createCommandLog(registry.db).begin("dispatch-crashed", id, { command: "dispatch", args: {} }, new Date().toISOString())
+    createCommandLog(registry.db).begin("dispatch-crashed", id, { command: "dispatch", args: {} }, now())
     registry.close()
     await bootFactory()
     expect(factory.show(id)?.state).toBe("received")
-    const replay = await factory.dispatch(id, "dispatch-crashed")
-    expect(replay).toMatchObject({ ok: false, message: expect.stringMatching(/dispatch again/) })
+    expect(await factory.dispatch(id, "dispatch-crashed")).toMatchObject({ ok: false, message: expect.stringMatching(/dispatch again/) })
     expect(fake.requests.filter((r) => r.path === "/threads")).toHaveLength(0)
   })
 
-  it("resolves a pending export gate from the recorded approval after a restart", async () => {
+  it("blocks with interrupt_vanished when the prompt is gone while awaiting approval", async () => {
     await bootWorker()
     await bootFactory()
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
-    const ready = await factory.waitFor(id, (r) => r.state === "candidate_ready")
-    // Approve, but crash as soon as turn 2 has parked on the gate and before the resume.
-    fake.behaviour.resume = "receipt"
-    const approving = factory.approve(id, { revision: ready.revision, candidateDigest: ready.candidateDigest! })
-    await factory.waitFor(id, () => fake.requests.filter((r) => r.path.endsWith("/pending_interrupts")).length > 0)
+    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
     await crash()
-    await approving.catch(() => undefined)
-    const resumesBefore = fake.requests.filter((r) => r.path.endsWith("/resume")).length
+    await fetch(`${fake.baseUrl}/threads/${row.workerThreadId}/resume`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ resume: [{ interruptId: row.interruptId, status: "resolved", payload: "deny" }], route: "/fix#agent" }),
+    }).then((r) => r.text())
     await bootFactory()
-    const row = await factory.waitFor(id, (r) => r.state === "exported")
-    expect(row.state).toBe("exported")
-    expect(fake.requests.filter((r) => r.path.endsWith("/resume")).length).toBeGreaterThanOrEqual(resumesBefore)
-    expect(readdirSync(outbox())).toEqual([`${fake.digest}.json`])
-    const registry = openRegistry(registryPath())
-    expect(createWorkOrderStore(registry.db).approvals(id).filter((a) => a.decision === "approved")).toHaveLength(1)
-    registry.close()
+    expect(factory.show(id)).toMatchObject({ state: "blocked", blockedReason: "interrupt_vanished" })
   })
 
   it("marks exporting as exported from an existing receipt without a worker write", async () => {
@@ -3888,21 +3792,21 @@ describe("reconciliation", () => {
     await bootFactory()
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
-    const ready = await factory.waitFor(id, (r) => r.state === "candidate_ready")
+    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
     await crash()
-    // Forge: approval recorded and transition to exporting happened, receipt already on disk, no confirmation.
     const registry = openRegistry(registryPath())
     const store = createWorkOrderStore(registry.db)
     store.recordApproval({
       id: "ap-forged",
       workOrderId: id,
-      candidateDigest: ready.candidateDigest!,
+      interruptId: row.interruptId!,
+      candidateDigest: row.candidateDigest!,
       decision: "approved",
       decidedBy: "operator",
-      decidedAt: new Date().toISOString(),
-      expiresAt: new Date().toISOString(),
+      decidedAt: now(),
+      expiresAt: now(),
     })
-    store.update(id, ready.revision, { state: "exporting", activeStartedAt: new Date().toISOString() }, new Date().toISOString())
+    store.update(id, row.revision, { state: "exporting", activeStartedAt: now() }, now())
     registry.close()
     writeFileSync(join(outbox(), `${fake.digest}.json`), "{}")
     const before = fake.requests.filter((r) => r.method === "POST").length
@@ -3911,8 +3815,23 @@ describe("reconciliation", () => {
     expect(fake.requests.filter((r) => r.method === "POST").length).toBe(before)
   })
 
+  it("blocks exporting with export_unconfirmed when no receipt exists", async () => {
+    await bootWorker()
+    await bootFactory()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
+    await crash()
+    const registry = openRegistry(registryPath())
+    createWorkOrderStore(registry.db).update(id, row.revision, { state: "exporting", activeStartedAt: now() }, now())
+    registry.close()
+    await bootFactory()
+    expect(factory.show(id)).toMatchObject({ state: "blocked", blockedReason: "export_unconfirmed" })
+    expect(readdirSync(outbox())).toEqual([])
+  })
+
   it("finishes a cancel that was requested before the crash", async () => {
-    await bootWorker({ turnOne: "hang" })
+    await bootWorker({ run: "hang" })
     await bootFactory()
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
@@ -3920,20 +3839,19 @@ describe("reconciliation", () => {
     await crash()
     const registry = openRegistry(registryPath())
     const store = createWorkOrderStore(registry.db)
-    const row = store.get(id)!
-    store.update(id, row.revision, { state: "cancel_requested" }, new Date().toISOString())
+    store.update(id, store.get(id)!.revision, { state: "cancel_requested" }, now())
     registry.close()
     await bootFactory()
     expect(factory.show(id)?.state).toBe("cancelled")
     expect(fake.requests.filter((r) => r.path.endsWith("/cancel"))).toHaveLength(1)
   })
 
-  it("recovers a lost turn 1 stream by reattaching and reaches candidate_ready", async () => {
-    await bootWorker({ turnOne: "close_midway" })
+  it("recovers a lost stream: the parked prompt is found and the work order awaits approval", async () => {
+    await bootWorker({ run: "close_midway" })
     await bootFactory()
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
-    const row = await factory.waitFor(id, (r) => r.state === "candidate_ready")
+    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
     expect(row.candidateDigest).toBe(fake.digest)
     expect(factory.events(id).map((e) => e.type)).toContain("stream_lost")
   })
@@ -3945,16 +3863,7 @@ describe("reconciliation", () => {
 Run: `pnpm --filter @b4-example/software-factory-server test factory-reconcile`
 Expected: FAIL, module not found.
 
-- [ ] **Step 3: Extend `src/controller/context.ts`**
-
-Add to `ControllerContext`:
-
-```ts
-  /** Cancel the worker if needed, deny any pending gate, and apply the terminal cancel row. */
-  finishCancel(id: string, cause: "operator" | "budget"): Promise<WorkOrderRow>
-```
-
-- [ ] **Step 4: Implement `src/controller/reconcile.ts`**
+- [ ] **Step 3: Implement `src/controller/reconcile.ts`**
 
 ```ts
 import { isTerminal } from "../domain/states.js"
@@ -3964,8 +3873,8 @@ import { isExportGate } from "../worker/wire.js"
 import type { ControllerContext } from "./context.js"
 
 /**
- * Startup reconciliation (spec: "Startup reconciliation"). Never starts turn 1 or turn 2.
- * Open command intents are settled first, then every non-terminal work order is inspected.
+ * Startup reconciliation (spec: "Startup reconciliation"). Never re-dispatches. Open command
+ * intents are settled first, then every non-terminal work order is inspected.
  */
 export async function reconcileAll(ctx: ControllerContext): Promise<void> {
   for (const open of ctx.commands.open()) {
@@ -3984,7 +3893,7 @@ export async function reconcileAll(ctx: ControllerContext): Promise<void> {
       continue
     }
     await reconcileWorkOrder(ctx, row.id)
-    const final = ctx.require(row.id)
+    const final = ctx.mustGet(row.id)
     ctx.commands.complete(open.operationKey, {
       ok: final.state === "exported" || final.state === "cancelled" || final.state === "denied",
       state: final.state,
@@ -3997,11 +3906,13 @@ export async function reconcileAll(ctx: ControllerContext): Promise<void> {
 }
 
 export async function reconcileWorkOrder(ctx: ControllerContext, id: string): Promise<void> {
-  const row = ctx.require(id)
+  const row = ctx.mustGet(id)
   switch (row.state) {
     case "dispatched":
     case "running":
-      return reconcileTurnOne(ctx, row)
+      return reconcileRun(ctx, row)
+    case "awaiting_approval":
+      return reconcileAwaiting(ctx, row)
     case "exporting":
       return reconcileExporting(ctx, row)
     case "cancel_requested":
@@ -4012,7 +3923,8 @@ export async function reconcileWorkOrder(ctx: ControllerContext, id: string): Pr
   }
 }
 
-async function reconcileTurnOne(ctx: ControllerContext, row: WorkOrderRow): Promise<void> {
+/** Rule 2: a run that was in flight when the factory stopped. */
+async function reconcileRun(ctx: ControllerContext, row: WorkOrderRow): Promise<void> {
   const id = row.id
   const fail = (reason: string) =>
     ctx.transition(id, "run_ended_without_candidate", { failureReason: "ended_without_candidate" }, { reconciled: true, reason })
@@ -4028,21 +3940,19 @@ async function reconcileTurnOne(ctx: ControllerContext, row: WorkOrderRow): Prom
   }
   const pending = await ctx.worker.pendingInterrupts(threadId)
   if (pending.length > 0) {
-    if (pending.every(isExportGate)) {
-      ctx.recordEvent(id, "premature_export_denied", { interruptIds: pending.map((p) => p.interruptId), reconciled: true })
-      const frames = await ctx.worker.resume(
-        threadId,
-        ctx.workerRoute,
-        pending.map((p) => ({ interruptId: p.interruptId, payload: "deny" as const })),
-        ctx.signal,
-      )
-      await ctx.observeTurnOne(id, frames)
+    const gate = pending.length === 1 && pending[0] && isExportGate(pending[0]) ? pending[0] : null
+    if (gate && row.candidateDigest && row.candidateVerified === true) {
+      ctx.transition(id, "candidate_interrupt", { interruptId: gate.interruptId, awaitingSince: ctx.iso() }, { reconciled: true, interruptId: gate.interruptId })
+      return
+    }
+    if (gate) {
+      ctx.transition(id, "candidate_interrupt_without_digest", { interruptId: gate.interruptId, blockedReason: "candidate_digest_unknown" }, { reconciled: true })
       return
     }
     ctx.transition(
       id,
       "unexpected_interrupt",
-      { blockedReason: "unexpected_interrupt" },
+      { interruptId: pending[0]?.interruptId ?? null, blockedReason: "unexpected_interrupt" },
       { reconciled: true, interruptIds: pending.map((p) => p.interruptId), kinds: pending.map((p) => p.kind) },
     )
     return
@@ -4050,30 +3960,53 @@ async function reconcileTurnOne(ctx: ControllerContext, row: WorkOrderRow): Prom
   if (thread.status === "busy") {
     ctx.recordEvent(id, "reattached", { threadId })
     const frames = await ctx.worker.reattach(threadId, ctx.signal)
-    ctx.track(id, ctx.observeTurnOne(id, frames))
+    ctx.track(id, ctx.observeRun(id, frames))
     return
   }
-  if (row.candidateVerified === true) ctx.transition(id, "candidate_ready", { candidateReadyAt: ctx.iso() }, { reconciled: true })
-  else fail(`thread ${thread.status} with no verified candidate`)
+  if (row.candidateDigest && (await receiptExists(ctx.outboxDir, row.candidateDigest))) {
+    // Cannot happen without an approval; record it loudly rather than pretend it was exported.
+    ctx.recordEvent(id, "unexpected_receipt", { path: receiptPath(ctx.outboxDir, row.candidateDigest) })
+  }
+  fail(`thread ${thread.status} with no pending prompt`)
 }
 
+/** Rule 5: the prompt the operator is expected to answer must still be there. */
+async function reconcileAwaiting(ctx: ControllerContext, row: WorkOrderRow): Promise<void> {
+  if (!row.workerThreadId || !row.interruptId) {
+    ctx.transition(row.id, "interrupt_vanished", { blockedReason: "interrupt_vanished" }, { reconciled: true, reason: "no gate recorded" })
+    return
+  }
+  const pending = await ctx.worker.pendingInterrupts(row.workerThreadId)
+  if (pending.length === 1 && pending[0]?.interruptId === row.interruptId) {
+    ctx.recordEvent(row.id, "reconciled", { resolution: "gate_still_pending", interruptId: row.interruptId })
+    return
+  }
+  ctx.transition(
+    row.id,
+    "interrupt_vanished",
+    { blockedReason: "interrupt_vanished" },
+    { reconciled: true, expected: row.interruptId, pending: pending.map((p) => p.interruptId) },
+  )
+}
+
+/** Rule 3: an export that was in progress. The receipt decides; nothing is resumed again. */
 async function reconcileExporting(ctx: ControllerContext, row: WorkOrderRow): Promise<void> {
   const id = row.id
   if (row.candidateDigest && (await receiptExists(ctx.outboxDir, row.candidateDigest))) {
     const path = receiptPath(ctx.outboxDir, row.candidateDigest)
+    const digest = row.candidateDigest
     ctx.store.transaction(() => {
-      if (!ctx.store.delivery(id))
-        ctx.store.recordDelivery({ workOrderId: id, candidateDigest: row.candidateDigest as string, receiptPath: path, observedAt: ctx.iso() })
+      if (!ctx.store.delivery(id)) ctx.store.recordDelivery({ workOrderId: id, candidateDigest: digest, receiptPath: path, observedAt: ctx.iso() })
       ctx.recordEvent(id, "delivery_observed", { receiptPath: path, reconciled: true })
       ctx.transition(id, "receipt_observed", {}, { reconciled: true })
     })
     return
   }
-  await ctx.confirmExport(id)
+  ctx.transition(id, "export_unconfirmed", { blockedReason: "export_unconfirmed" }, { reconciled: true, reason: "no receipt after restart" })
 }
 ```
 
-- [ ] **Step 5: Wire it into `src/controller/factory.ts`**
+- [ ] **Step 4: Wire it into `src/controller/factory.ts`**
 
 Add the import:
 
@@ -4081,26 +4014,13 @@ Add the import:
 import { reconcileAll, reconcileWorkOrder } from "./reconcile.js"
 ```
 
-In the `ctx` object literal add `finishCancel,` (the function from Task 14 is declared after `ctx`; move `finishCancel`'s declaration above the `ctx` literal, or convert the literal's entry to `finishCancel: (id, cause) => finishCancel(id, cause),`).
-
-In `observeTurnOne`, replace both `stream_lost` early returns:
+In `observeRun`, replace the lost-stream tail:
 
 ```ts
-      if (result.ended === "lost") {
-        recordEvent(id, "stream_lost", { phase: "turn_one", error: result.error ?? null })
-        await reconcileWorkOrder(ctx, id)
-        return
-      }
-```
-
-and
-
-```ts
-      } catch (error) {
-        recordEvent(id, "stream_lost", { phase: "premature_deny", error: String(error) })
-        await reconcileWorkOrder(ctx, id)
-        return
-      }
+    if (result.ended === "lost") {
+      recordEvent(id, "stream_lost", { phase: "run", error: result.error ?? null })
+      await reconcileWorkOrder(ctx, id)
+    }
 ```
 
 Immediately before `return factory` at the end of `createFactory`, add:
@@ -4109,70 +4029,35 @@ Immediately before `return factory` at the end of `createFactory`, add:
   await reconcileAll(ctx)
 ```
 
-- [ ] **Step 6: Make the fake's reattach complete when the run ends**
-
-In `test/fake-worker.ts`:
-
-Add to the `Thread` interface:
-
-```ts
-  /** Reattached GET streams waiting for this run's terminal `done` frame. */
-  waiters: Set<(done: unknown) => void>
-```
-
-Initialise `waiters: new Set()` where a thread is created. Add a helper next to `finishRun`:
-
-```ts
-  function notify(thread: Thread, done: unknown) {
-    for (const waiter of thread.waiters) waiter(done)
-    thread.waiters.clear()
-  }
-```
-
-Call `notify(thread, { output: {} })` as the first line of both `finishRun` and `parkRun`. In the `close_midway` branch, after `thread.status = "idle"`, add `notify(thread, { output: {} })`. In the cancel handler, before `thread.runActive = false`, add `notify(thread, { output: { cancelled: true } })`.
-
-Replace the `GET runs/stream` handler body with:
-
-```ts
-    if (req.method === "GET" && tail === "runs/stream") {
-      const sse = new Sse(res)
-      sse.frame("state", {
-        status: thread.status,
-        live: thread.runActive,
-        interrupts: thread.pending ? [thread.pending] : [],
-      })
-      if (!thread.runActive) return sse.end()
-      await new Promise<void>((resolve) => {
-        thread.waiters.add((done) => {
-          sse.frame("done", done)
-          resolve()
-        })
-      })
-      return sse.end()
-    }
-```
-
-- [ ] **Step 7: Update the lost-stream expectation from Task 12**
+- [ ] **Step 5: Update the lost-stream expectation from Task 12**
 
 In `test/factory-dispatch.test.ts`, replace the last test with:
 
 ```ts
   it("records a lost stream and recovers through reconciliation", async () => {
-    await boot({ turnOne: "close_midway" })
+    await boot({ run: "close_midway" })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     const row = await factory.waitFor(id, (r) => settled(r.state))
-    expect(row.state).toBe("candidate_ready")
+    expect(row).toMatchObject({ state: "awaiting_approval", candidateDigest: fake.digest })
     expect(factory.events(id).map((e) => e.type)).toContain("stream_lost")
   })
 ```
 
-- [ ] **Step 8: Run everything**
+The fake parks 50 ms after destroying the socket, so reconciliation may first see a live run and reattach; the reattached stream ends when the fake parks, and the observer then finds the gate on the next reconcile pass. If the test is flaky, have `reconcileRun` re-read `pendingInterrupts` once after a reattached stream ends by calling `reconcileWorkOrder` from the tracked promise's completion in `reconcileRun`:
+
+```ts
+    ctx.track(id, ctx.observeRun(id, frames).then(() => (isRunStateStill(ctx, id) ? reconcileWorkOrder(ctx, id) : undefined)))
+```
+
+with `const isRunStateStill = (ctx: ControllerContext, id: string) => ["dispatched", "running"].includes(ctx.mustGet(id).state)` defined in `reconcile.ts`.
+
+- [ ] **Step 6: Run everything**
 
 Run: `pnpm --filter @b4-example/software-factory-server test`
-Expected: PASS, all files green. If the "resolves a pending export gate" test races, the `waitFor` on `pending_interrupts` requests must observe the request *before* the crash; increase `frameDelayMs` on the fake to 20 for that test.
+Expected: all files green.
 
-- [ ] **Step 9: Typecheck, lint, commit**
+- [ ] **Step 7: Typecheck, lint, commit**
 
 ```bash
 pnpm --filter @b4-example/software-factory-server typecheck && pnpm --filter @b4-example/software-factory-server lint
@@ -4181,203 +4066,7 @@ git commit -m "feat(software-factory): startup reconciliation and lost-stream re
 ```
 
 ---
-
-### Task 16: Shared invariant scenarios
-
-The spec requires the same scenarios to run against the fake (layer 1) and the real code-fixer (layer 2). This task extracts them into one module parameterised by a `ScenarioContext`, and runs it against the fake. Task 18 runs it against code-fixer.
-
-**Files:**
-- Create: `test/scenarios.ts`, `test/scenarios-fake.test.ts`
-
-- [ ] **Step 1: Write `test/scenarios.ts`**
-
-```ts
-import { readdirSync } from "node:fs"
-import { expect, it } from "vitest"
-import type { Factory } from "../src/controller/factory.ts"
-
-/** What a worker under test must provide. Layer 1 is the fake; layer 2 is the real code-fixer. */
-export interface ScenarioContext {
-  /** Build (or rebuild, after a simulated crash) a factory over the same registry and worker. */
-  readonly makeFactory: () => Promise<Factory>
-  readonly outboxDir: string
-  readonly taskId: string
-  /** Register whatever the worker needs to answer turn 2 for this candidate. No-op for the fake. */
-  readonly arrangeTurnTwo: (candidate: Record<string, unknown>, digest: string) => Promise<void>
-  /** Upper bound for a whole scenario; the real worker runs Docker. */
-  readonly timeoutMs: number
-}
-
-async function toCandidateReady(factory: Factory, ctx: ScenarioContext) {
-  const { id } = await factory.create({ taskId: ctx.taskId })
-  await factory.dispatch(id)
-  const row = await factory.waitFor(id, (r) => r.state !== "received" && r.state !== "dispatched" && r.state !== "running", ctx.timeoutMs)
-  expect(row.state, JSON.stringify(factory.events(id), null, 2)).toBe("candidate_ready")
-  const observed = factory.events(id).find((e) => e.type === "candidate_observed")
-  expect(observed).toBeDefined()
-  const candidate = observed?.payload.candidate as Record<string, unknown>
-  await ctx.arrangeTurnTwo(candidate, row.candidateDigest as string)
-  return { id, row, candidate }
-}
-
-/** Register the shared scenarios inside the caller's describe block. */
-export function sharedScenarios(setup: () => Promise<ScenarioContext>): void {
-  it("happy path: received to exported with exactly one receipt named by the approved digest", async () => {
-    const ctx = await setup()
-    const factory = await ctx.makeFactory()
-    try {
-      const { id, row } = await toCandidateReady(factory, ctx)
-      const outcome = await factory.approve(id, { revision: row.revision, candidateDigest: row.candidateDigest as string })
-      expect(outcome, JSON.stringify(factory.events(id), null, 2)).toMatchObject({ ok: true, state: "exported" })
-      expect(readdirSync(ctx.outboxDir)).toEqual([`${row.candidateDigest}.json`])
-      const types = factory.events(id).map((e) => e.type)
-      expect(types.indexOf("thread_created")).toBeLessThan(types.findIndex((t, i) => t === "transition" && factory.events(id)[i]?.payload.event === "run_started"))
-    } finally {
-      await factory.close()
-    }
-  })
-
-  it("approve is refused with a stale revision, a wrong digest, or after expiry", async () => {
-    const ctx = await setup()
-    const factory = await ctx.makeFactory()
-    try {
-      const { id, row } = await toCandidateReady(factory, ctx)
-      const digest = row.candidateDigest as string
-      expect((await factory.approve(id, { revision: row.revision + 1, candidateDigest: digest })).ok).toBe(false)
-      expect((await factory.approve(id, { revision: row.revision, candidateDigest: "0".repeat(64) })).ok).toBe(false)
-      expect(factory.show(id)).toMatchObject({ state: "candidate_ready", revision: row.revision })
-      expect(readdirSync(ctx.outboxDir)).toEqual([])
-    } finally {
-      await factory.close()
-    }
-  })
-
-  it("approve twice with one operation key yields one export", async () => {
-    const ctx = await setup()
-    const factory = await ctx.makeFactory()
-    try {
-      const { id, row } = await toCandidateReady(factory, ctx)
-      const input = { revision: row.revision, candidateDigest: row.candidateDigest as string, operationKey: `approve:${id}:shared` }
-      const first = await factory.approve(id, input)
-      const second = await factory.approve(id, input)
-      expect(second).toEqual(first)
-      expect(first.state).toBe("exported")
-      expect(readdirSync(ctx.outboxDir)).toHaveLength(1)
-      expect(factory.events(id).filter((e) => e.type === "export_gate_resolved")).toHaveLength(1)
-    } finally {
-      await factory.close()
-    }
-  })
-
-  it("deny from candidate_ready leaves the outbox empty", async () => {
-    const ctx = await setup()
-    const factory = await ctx.makeFactory()
-    try {
-      const { id } = await toCandidateReady(factory, ctx)
-      expect((await factory.deny(id)).state).toBe("denied")
-      expect(readdirSync(ctx.outboxDir)).toEqual([])
-    } finally {
-      await factory.close()
-    }
-  })
-
-  it("a restart while candidate_ready changes nothing and approve still works", async () => {
-    const ctx = await setup()
-    let factory = await ctx.makeFactory()
-    let id: string
-    let revision: number
-    let digest: string
-    try {
-      const ready = await toCandidateReady(factory, ctx)
-      id = ready.id
-      revision = ready.row.revision
-      digest = ready.row.candidateDigest as string
-    } finally {
-      await factory.close()
-    }
-    factory = await ctx.makeFactory()
-    try {
-      expect(factory.show(id)).toMatchObject({ state: "candidate_ready", revision })
-      const outcome = await factory.approve(id, { revision, candidateDigest: digest })
-      expect(outcome.state).toBe("exported")
-    } finally {
-      await factory.close()
-    }
-  })
-
-  it("cancel while candidate_ready ends cancelled", async () => {
-    const ctx = await setup()
-    const factory = await ctx.makeFactory()
-    try {
-      const { id } = await toCandidateReady(factory, ctx)
-      expect((await factory.cancel(id)).state).toBe("cancelled")
-    } finally {
-      await factory.close()
-    }
-  })
-}
-```
-
-- [ ] **Step 2: Write `test/scenarios-fake.test.ts`**
-
-```ts
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { afterEach, describe } from "vitest"
-import { createFactory } from "../src/controller/factory.ts"
-import { createHttpWorkerClient } from "../src/worker/client.ts"
-import { type FakeWorker, createFakeWorker } from "./fake-worker.ts"
-import { type ScenarioContext, sharedScenarios } from "./scenarios.ts"
-
-const cleanups: (() => Promise<void>)[] = []
-afterEach(async () => {
-  for (const cleanup of cleanups.splice(0)) await cleanup()
-})
-
-describe("shared scenarios against the fake worker (layer 1)", () => {
-  sharedScenarios(async (): Promise<ScenarioContext> => {
-    const dir = mkdtempSync(join(tmpdir(), "scenarios-fake-"))
-    const outboxDir = join(dir, "outbox")
-    mkdirSync(outboxDir)
-    const fake: FakeWorker = await createFakeWorker({ outboxDir })
-    cleanups.push(async () => {
-      await fake.close()
-      rmSync(dir, { recursive: true, force: true })
-    })
-    return {
-      makeFactory: () =>
-        createFactory({
-          registryPath: join(dir, "registry.sqlite"),
-          worker: createHttpWorkerClient(fake.baseUrl),
-          workerRoute: "/fix#agent",
-          outboxDir,
-          receiptWaitMs: 2_000,
-        }),
-      outboxDir,
-      taskId: "cli-flags",
-      arrangeTurnTwo: async () => undefined,
-      timeoutMs: 10_000,
-    }
-  })
-})
-```
-
-- [ ] **Step 3: Run it**
-
-Run: `pnpm --filter @b4-example/software-factory-server test scenarios-fake`
-Expected: PASS, 6 tests.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add examples/software-factory/server/test/scenarios.ts examples/software-factory/server/test/scenarios-fake.test.ts
-git commit -m "test(software-factory): shared invariant scenarios, run against the fake worker"
-```
-
----
-
-### Task 17: CLI and loopback HTTP API
+### Task 16: CLI and loopback HTTP API
 
 **Files:**
 - Create: `src/http.ts`, `src/cli.ts`, `test/http.test.ts`, `test/cli.test.ts`
@@ -4424,7 +4113,7 @@ describe("http api", () => {
     expect(created.status).toBe(201)
     const { id } = (await created.json()) as { id: string }
     expect((await post(`/work-orders/${id}/dispatch`)).status).toBe(200)
-    const ready = await factory.waitFor(id, (r) => r.state === "candidate_ready")
+    const ready = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
 
     const list = (await (await fetch(`${api.baseUrl}/work-orders`)).json()) as { id: string }[]
     expect(list.map((w) => w.id)).toEqual([id])
@@ -4481,7 +4170,7 @@ describe("cli", () => {
     const created = await cli("create", "--task", "cli-flags")
     expect(created.state).toBe("received")
     const dispatched = await cli("dispatch", created.id, "--wait")
-    expect(dispatched.state).toBe("candidate_ready")
+    expect(dispatched.state).toBe("awaiting_approval")
     const approved = await cli("approve", created.id, "--revision", String(dispatched.revision), "--digest", dispatched.candidateDigest)
     expect(approved.state).toBe("exported")
     const list = await cli("list")
@@ -4767,187 +4456,8 @@ git commit -m "feat(software-factory): CLI and loopback HTTP API over the factor
 
 ---
 
-### Task 18: Layer 2, the real code-fixer under Docker, and the CI lane
 
-Boots the unchanged code-fixer with `createSubprocessApp` on a private copy of its app root, feeds it `aimock` replay fixtures, and runs the shared scenarios through the factory. Gated on `B4_TEST_DOCKER=1`; needs the `b4-code-fixer:fixture-v1` image (`pnpm code-fixer:prepare` at the repo root) and the built `@b4run/cli` (`pnpm turbo run build --filter=@b4-example/code-fixer-server...`).
-
-**Files:**
-- Create: `test/code-fixer.integration.test.ts`
-- Modify: `<repo>/.github/workflows/ci.yml` (sandbox-docker job)
-
-- [ ] **Step 1: Write the integration test**
-
-```ts
-import { spawnSync } from "node:child_process"
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { basename, join } from "node:path"
-import { fileURLToPath } from "node:url"
-import { type Aimock, type SubprocessApp, createAimock, createSubprocessApp, script } from "@b4run/testing"
-import { afterEach, beforeAll, describe, expect, it } from "vitest"
-import { createFactory } from "../src/controller/factory.ts"
-import { TURN_ONE_PROMPTS, turnTwoPrompt } from "../src/prompts.ts"
-import { createHttpWorkerClient } from "../src/worker/client.ts"
-import { type ScenarioContext, sharedScenarios } from "./scenarios.ts"
-
-/** Read-only references into the code-fixer example. Files are read; modules are never imported. */
-const CODE_FIXER_ROOT = fileURLToPath(new URL("../../../code-fixer/server/", import.meta.url))
-const SAMPLE = join(CODE_FIXER_ROOT, "sample")
-const IMAGE = "b4-code-fixer:fixture-v1"
-const TASK = "cli-flags"
-
-const enabled = process.env.B4_TEST_DOCKER === "1"
-
-beforeAll(() => {
-  if (!enabled) return
-  const inspect = spawnSync("docker", ["image", "inspect", IMAGE], { encoding: "utf8" })
-  if (inspect.status !== 0)
-    throw new Error(`Image ${IMAGE} is missing. Run \`pnpm code-fixer:prepare\` at the repo root first.`)
-})
-
-/** Same shape as code-fixer's own isolatedApp(): copy author files, share only dependencies. */
-async function isolatedCodeFixer(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "factory-code-fixer-app-"))
-  const include = (path: string) =>
-    !["node_modules", ".b4", "artifacts"].includes(basename(path)) && !basename(path).startsWith(".env")
-  for (const name of await readdir(CODE_FIXER_ROOT)) {
-    if (include(name)) await cp(join(CODE_FIXER_ROOT, name), join(root, name), { recursive: true, filter: include })
-  }
-  await symlink(join(CODE_FIXER_ROOT, "node_modules"), join(root, "node_modules"), "dir")
-  return root
-}
-
-/**
- * Same steps as code-fixer's replayFixture(), keyed to the factory's turn 1 prompt: apply the
- * historical reference.patch to a scratch copy and script the model to write those exact bytes.
- */
-async function turnOneFixtures() {
-  const manifest = JSON.parse(await readFile(join(SAMPLE, "manifest.json"), "utf8")) as { allowedSourcePaths: string[] }
-  const scratch = await mkdtemp(join(tmpdir(), "factory-replay-"))
-  try {
-    await cp(join(SAMPLE, "project"), scratch, { recursive: true, filter: (p) => basename(p) !== "node_modules" })
-    const applied = spawnSync("git", ["apply", join(SAMPLE, "reference.patch")], { cwd: scratch, encoding: "utf8" })
-    if (applied.status !== 0) throw new Error(`reference.patch failed: ${applied.stderr}`)
-    let fixture = script()
-      .user(TURN_ONE_PROMPTS[TASK] as string)
-      .callsTool("readFile", { path: "TASK.md" })
-      .callsTool("runBash", { command: "npm test" })
-    for (const path of manifest.allowedSourcePaths) {
-      fixture = fixture
-        .callsTool("readFile", { path })
-        .callsTool("writeFile", { path, content: await readFile(join(scratch, path), "utf8") })
-    }
-    return fixture
-      .callsTool("runBash", { command: "npm test" })
-      .callsTool("prepareReview", {})
-      .replies("Candidate verified and ready for approval.")
-      .build()
-  } finally {
-    await rm(scratch, { recursive: true, force: true })
-  }
-}
-
-const cleanups: (() => Promise<void>)[] = []
-afterEach(async () => {
-  for (const cleanup of cleanups.splice(0)) await cleanup()
-})
-
-describe.skipIf(!enabled)("shared scenarios against the real code-fixer (layer 2)", () => {
-  sharedScenarios(async (): Promise<ScenarioContext> => {
-    const appRoot = await isolatedCodeFixer()
-    const mock: Aimock = await createAimock({ fixtures: await turnOneFixtures() })
-    const app: SubprocessApp = await createSubprocessApp({
-      appRoot,
-      env: { OPENAI_BASE_URL: mock.baseUrl, OPENAI_API_KEY: "test-not-used" },
-      readyTimeoutMs: 120_000,
-    })
-    const stateDir = await mkdtemp(join(tmpdir(), "factory-state-"))
-    const outboxDir = join(appRoot, ".b4", "code-fixer", "review-outbox")
-    await mkdir(outboxDir, { recursive: true })
-    cleanups.push(async () => {
-      await app.close()
-      await mock.close()
-      await rm(appRoot, { recursive: true, force: true })
-      await rm(stateDir, { recursive: true, force: true })
-    })
-    return {
-      makeFactory: () =>
-        createFactory({
-          registryPath: join(stateDir, "registry.sqlite"),
-          worker: createHttpWorkerClient(app.baseUrl),
-          workerRoute: "/fix#agent",
-          outboxDir,
-          receiptWaitMs: 180_000,
-          approvalTtlMs: 900_000,
-        }),
-      outboxDir,
-      taskId: TASK,
-      arrangeTurnTwo: async (candidate, digest) => {
-        mock.addFixtures(
-          script()
-            .user(turnTwoPrompt(digest))
-            .callsTool("exportForReview", { candidate })
-            .replies("Review request handled.")
-            .build(),
-        )
-      },
-      timeoutMs: 240_000,
-    }
-  })
-
-  it("leaves the code-fixer example untouched", () => {
-    const status = spawnSync("git", ["status", "--short", "--", CODE_FIXER_ROOT], { encoding: "utf8" })
-    expect(status.stdout.trim()).toBe("")
-  })
-})
-```
-
-Notes for the implementer:
-
-- The outbox path mirrors `exportForReview.ts`: `<appRoot>/.b4/code-fixer/review-outbox`. The copy's `.b4` starts empty, so the factory sees only receipts this run produced.
-- `createSubprocessApp` runs `b4 dev` from the copied app root; the code-fixer `workspace/` directory (with `.gitkeep`) is copied along, which `resolve-sandbox` requires.
-- Two turns on one thread with `script().user(...)` groups is exactly what `examples/code-fixer/server/test/agent.integration.test.ts` does; if the second group does not match, compare the request journal (`mock.getRequests()`) against the fixture's `match` and adjust `turnIndex`, not the prompt.
-- Docker verification runs twice (once in `prepareReview`, once in `exportForReview`), so the happy path takes minutes. That is why `timeoutMs` is 240 s and the vitest config allows 300 s.
-
-- [ ] **Step 2: Run it locally**
-
-```bash
-cd <repo> && pnpm turbo run build --filter=@b4-example/code-fixer-server... && pnpm code-fixer:prepare
-B4_TEST_DOCKER=1 pnpm --filter @b4-example/software-factory-server test:integration
-```
-
-Expected: 7 passed. Without `B4_TEST_DOCKER=1` the suite reports skipped.
-
-- [ ] **Step 3: Add the CI step**
-
-In `<repo>/.github/workflows/ci.yml`, in the `sandbox-docker` job, after the step named `Code-fixer approval and verifier recovery` and before `Both historical repair replays`, add:
-
-```yaml
-      - name: Software factory rung 0 against the real code-fixer
-        run: B4_TEST_DOCKER=1 pnpm --filter @b4-example/software-factory-server test:integration
-```
-
-The preceding steps in that job already build the code-fixer example and prepare the image.
-
-- [ ] **Step 4: Confirm the unit lane still runs everything and the example is clean**
-
-```bash
-pnpm --filter @b4-example/software-factory-server test
-git status --short examples/code-fixer
-```
-
-Expected: all unit files pass; the second command prints nothing.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add examples/software-factory/server/test/code-fixer.integration.test.ts .github/workflows/ci.yml
-git commit -m "test(software-factory): drive the real code-fixer through the factory under Docker"
-```
-
----
-
-### Task 19: Documentation, live demonstration procedure, and the full gate
+### Task 17: Documentation, the live demonstration, and the full gate
 
 **Files:**
 - Create: `<repo>/examples/software-factory/README.md`, `<repo>/docs/superpowers/runbooks/software-factory-rung0-live.md`
@@ -4971,9 +4481,8 @@ the rung 0 design is in
   returns the recorded outcome instead of repeating the effect.
 - Workers are ordinary B4 `agent` routes reached over the Agent Protocol on loopback. The
   child thread id is committed before the run starts; cancel is propagated explicitly.
-- Approval is a factory command against an exact candidate digest. Only then does the
-  controller ask the worker to submit that candidate, and it resolves the worker's own
-  `exportForReview` gate with the recorded approval. The receipt must carry the approved digest.
+- Approval is a factory command against an exact candidate digest and the exact worker prompt
+  recorded for it. The receipt the worker writes must carry the approved digest.
 - Restart reconciliation never re-dispatches. It inspects the worker and the outbox and
   records what it concluded.
 
@@ -4982,6 +4491,13 @@ the rung 0 design is in
 No authentication (loopback only; do not expose it). No repair loop, no token budgets, one
 task (`cli-flags`), no UI, and the code-fixer example is used exactly as shipped. Rung 1 moves
 verification into the controller and replaces the shared-host outbox read.
+
+**Deferred: an offline test lane against the real code-fixer.** The testing package's
+`aimock` fixtures are static, while the worker's export call carries a candidate that only
+exists after `prepareReview` runs in the same turn, so that turn cannot be replayed offline.
+All invariants run against a scripted fake Agent Protocol worker (`pnpm test`); the real
+worker is exercised by the recorded live demonstration in
+`docs/superpowers/runbooks/software-factory-rung0-live.md`.
 
 ## Run it
 
@@ -5000,14 +4516,13 @@ Terminal 2, the factory:
     pnpm factory approve <id> --revision <n> --digest <sha256>
     pnpm factory events <id>
 
-`dispatch --wait` returns when the worker has produced a verified candidate. Approve with the
-revision and digest it printed. `pnpm factory serve` exposes the same commands as JSON on
-127.0.0.1.
+`dispatch --wait` returns when the worker has parked on its approval prompt with a verified
+candidate. Approve with the revision and digest it printed, or `deny`. `pnpm factory serve`
+exposes the same commands as JSON on 127.0.0.1.
 
 ## Tests
 
-    pnpm test                      # layer 1: scripted fake Agent Protocol worker
-    B4_TEST_DOCKER=1 pnpm test:integration   # layer 2: the real code-fixer under Docker
+    pnpm test        # every invariant, against the scripted fake worker
 ```
 
 - [ ] **Step 2: Add the row to `examples/README.md`**
@@ -5025,11 +4540,13 @@ After the `research` row in the table, add:
 ```markdown
 # Software factory rung 0: live demonstration
 
-Status: procedure written; results section is filled in by the one recorded live run.
-Spec: ../specs/2026-09-16-software-factory-rung0-design.md, section "Live demonstration".
+Status: procedure written; the results section is filled in by the one recorded live run.
+Spec: ../specs/2026-09-16-software-factory-rung0-design.md, "Live demonstration" and
+success criterion 2.
 
-This is evidence that the controller seam works with a real worker and a real model. It is
-not a benchmark and it says nothing about repair quality beyond one fixture.
+This is evidence that the controller seam works with the real code-fixer and a real model,
+including one factory restart while the work order waited for approval. It is not a benchmark
+and it says nothing about repair quality beyond one fixture.
 
 ## Procedure
 
@@ -5039,9 +4556,14 @@ not a benchmark and it says nothing about repair quality beyond one fixture.
 4. In `examples/software-factory/server`, with `FACTORY_WORKER_URL=http://127.0.0.1:4100`,
    `FACTORY_WORKER_OUTBOX=<code-fixer>/.b4/code-fixer/review-outbox`, `FACTORY_STATE_DIR=$PWD/.factory`:
    `pnpm factory create --task cli-flags`, then `pnpm factory dispatch <id> --wait`.
-5. If the state is `candidate_ready`, `pnpm factory approve <id> --revision <n> --digest <d>`.
-6. `pnpm factory events <id> > events.json`; copy the fields below from it and from the outbox.
-7. Restart nothing, retry nothing. If the run fails or blocks, record that outcome; it is still evidence.
+5. Record the state. If it is `awaiting_approval`, do NOT approve yet.
+6. Restart test: run `pnpm factory show <id>` (each CLI invocation is a fresh factory process,
+   so this is a restart) and record that the state is still `awaiting_approval` with the same
+   revision and interrupt id, and that the event log gained a `reconciled` event with
+   `gate_still_pending`.
+7. `pnpm factory approve <id> --revision <n> --digest <d>`. Record the outcome.
+8. `pnpm factory events <id> > events.json`; copy the fields below from it and from the outbox.
+9. Retry nothing. If the run fails or blocks, record that outcome; it is still evidence.
 
 ## Results
 
@@ -5052,11 +4574,12 @@ not a benchmark and it says nothing about repair quality beyond one fixture.
 | Work order id | |
 | Worker thread id (`thread_created` event) | |
 | Candidate digest (`candidate_observed`) | |
+| Interrupt id (`candidate_interrupt`) | |
+| State after restart (`show`) and `reconciled` event present | |
 | Final state | |
 | Receipt path (`delivery_observed`) | |
 | Receipt filename equals digest | yes / no |
-| Premature export denied? (`premature_export_denied` present) | |
-| Wall-clock from dispatch to candidate_ready | |
+| Wall-clock from dispatch to awaiting_approval | |
 | Wall-clock from approve to exported | |
 | Anything unexpected in the event log | |
 ```
@@ -5084,34 +4607,33 @@ git commit -m "docs(software-factory): rung 0 README, examples index, and live d
 
 - [ ] **Step 7: Finish the branch**
 
-Use the `superpowers:finishing-a-development-branch` skill. The pull request description must list the five success criteria from the spec with evidence for each, and must state explicitly that `examples/code-fixer` is unchanged.
+Use the `superpowers:finishing-a-development-branch` skill. The pull request description must list the five success criteria from the spec with evidence for each, and must state explicitly that `examples/code-fixer` is unchanged and that the offline real-worker lane is deferred.
 
 ---
 
 ## Self-review against the spec
 
-Spec coverage, requirement to task:
-
 | Spec section | Tasks |
 |---|---|
-| Two processes, configuration | 8, 17 |
+| Two processes, configuration | 8, 16 |
 | Worker client, seven calls, never `always` | 10 |
-| Prompts are constants | 8 |
+| Prompt is a constant | 8 |
 | States, transition table, active accounting | 2, 12 |
 | Where the candidate digest comes from | 12 |
 | Commands, operation keys, two-phase | 7, 12, 13, 14 |
-| Startup reconciliation rules 1 to 6 | 15 |
+| Startup reconciliation rules 1 to 5 | 15 |
 | Budgets | 11, 14 |
 | Registry schema | 5, 6 |
 | Layer 1 fake and behaviours | 9 |
-| Layer 2 real code-fixer | 18 |
-| Shared invariants | 16 (shared), 12 to 15 (fake-only) |
-| Live demonstration | 19 |
-| README and operator caveats | 19 |
-| Success criteria 4 and 5 | 19 |
+| Layer 2 offline: deferred | spec amendment, README (17) |
+| Invariants | 12 (happy, digest unknown, unexpected kind, route error, no candidate, lost stream), 13 (stale/wrong/expired, duplicate key, deny, export unconfirmed, gate vanished), 14 (cancel running, cancel awaiting, budget), 15 (restart awaiting, dispatch crash window, exporting with and without receipt, cancel_requested, lost stream) |
+| Live demonstration, with restart | 17 |
+| README and operator caveats | 17 |
+| Success criteria 3, 4, 5 | 17 |
 
 Known deviations, decided here:
 
 - `active_started_at` is an extra column beyond the spec's schema; it is how the budget ticker measures the open interval without a separate timer table.
-- `approve` waits for export confirmation before returning (spec: "returns only when the export has been confirmed or marked unconfirmed"); the CLI therefore blocks for the duration of two Docker verifications in layer 2. This is acceptable for rung 0 and is stated in the README.
-- The fake emits `done` after an `interrupt` frame when a turn parks. If the real runtime is observed not to do this in layer 2, the turn observers already treat the end of the stream as the end of the turn, so no controller change is needed; update the fake to match what was observed.
+- `approve` re-checks that the recorded interrupt is still pending on the worker before recording any authority, and moves to `blocked` with `interrupt_vanished` if it is not. The spec lists `interrupt_vanished` only under reconciliation; applying it at approve time too closes the same hole without a restart.
+- The spec's reconciliation of `exporting` does not resume the gate again; it decides from the receipt alone. This is stricter than re-resolving from a recorded approval and is deliberate: a resume is an external write and the approved bytes are already either on disk or not.
+- The fake emits `done` after an `interrupt` frame when a turn parks. If the live demonstration shows the real runtime does not, the observer already treats the end of the stream as the end of the turn; update the fake to match what was observed and record it in the runbook.
