@@ -67,14 +67,14 @@ const EXPECTED_REPOSITORY = "https://github.com/cacheplane/b4run"
 // metadata/dist-tag lag, explicit audit-pending evidence, and tarball HTTP 404.
 // Pending state changes never restart the clock or the fast polling cadence.
 // Identity, integrity, signature, provenance, and non-404 download failures remain
-// fatal. The 25-minute overall deadline and 30-minute job still bound the run;
+// fatal. The 60-minute overall deadline and 65-minute job still bound the run;
 // this window absorbs temporary propagation lag without republishing accepted bytes.
 // Retain the exported tarball deadline name for existing callers.
 const TARBALL_FAST_POLL_ATTEMPTS = 10
 const TARBALL_SLOW_POLL_DELAY_MS = 10_000
 export const TARBALL_CONVERGENCE_DEADLINE_MS = 10 * 60_000
 
-export const PUBLISHER_OVERALL_TIMEOUT_MS = 25 * 60_000
+export const PUBLISHER_OVERALL_TIMEOUT_MS = 60 * 60_000
 
 export const PUBLISHER_SPARSE_FILES = Object.freeze([
   "scripts/release/adapter-normalize.mjs",

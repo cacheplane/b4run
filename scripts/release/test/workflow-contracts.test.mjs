@@ -21,7 +21,7 @@ import { parse, stringify } from "yaml"
 import { classifyReleaseWorkflowAbandonment } from "../abandonment-reachability.mjs"
 import { ARTIFACT_STORE_SPARSE_FILES } from "../artifact-store.mjs"
 import { readBoundedFixture } from "../fixture-io.mjs"
-import { PUBLISHER_SPARSE_FILES } from "../publisher.mjs"
+import { PUBLISHER_OVERALL_TIMEOUT_MS, PUBLISHER_SPARSE_FILES } from "../publisher.mjs"
 import { REQUIRED_RELEASE_SMOKE_LANES } from "../smoke-result.mjs"
 
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url))
@@ -117,8 +117,9 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned to require the checked-in CLI launcher in package archives.
 // Repinned for bounded detection reads, verified queued runs, and ordinary-push no-ops.
 // Repinned for bounded, redacted candidate-discovery failure detail.
+// Repinned for the sixty-minute publisher budget; all smaller limits remain unchanged.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "d7ac9cfd1e58491b3b52a0bb8db72ffd979b83f0dab490a1df6ea853488308b2"
+  "4517526a46400854676eb700b641a292cb34a70be1670036ffcd9386e60cdac5"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
@@ -1270,6 +1271,13 @@ test("lazy publisher absence during escrow remains protected by the fixed workfl
   assert.equal(escrow.name, undefined)
   assert.equal(publish.name, undefined)
   assert.match(publish.if, /needs\.escrow\.result == 'success'/u)
+})
+
+test("publish-npm gives the sixty-minute publisher five minutes of job headroom", async () => {
+  const { workflow } = await readRequiredWorkflow("release.yml")
+  const publish = requiredJob(workflow, "publish-npm")
+  assert.equal(publish["timeout-minutes"], 65)
+  assert.equal(publish["timeout-minutes"] * 60_000 - PUBLISHER_OVERALL_TIMEOUT_MS, 5 * 60_000)
 })
 
 test("publish-npm is exact-tag, sparse, dependency-free, and schema-bound", async () => {

@@ -575,7 +575,7 @@ jobs:
       contains(fromJSON('["prepare-artifacts","attest-artifacts","escrow-candidate","publish-npm-packages","resume-npm-publish"]'), needs.detect.outputs.next_transition) &&
       (!contains(fromJSON('["prepare-artifacts","attest-artifacts","escrow-candidate"]'), needs.detect.outputs.next_transition) || needs.escrow.result == 'success')
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 65
     permissions:
       actions: read
       attestations: read
