@@ -2884,67 +2884,6 @@ const accuracyContracts = [
     ],
   },
   {
-    file: "apps/web/app/components/landing/KeepTheRuntime.tsx",
-    required: [
-      "Node and Hono targets are B4.run HTTP runtimes",
-      "LangSmith target emits graph",
-      "Agent routes materialize LangGraph graphs",
-      "raw graph and chain exports remain portable",
-    ],
-    forbidden: [
-      "B4 is not a runtime",
-      "B4 compiles to LangGraph constructs",
-      "Routes become nodes",
-    ],
-  },
-  {
-    file: "apps/web/app/components/landing/WhyB4.tsx",
-    required: [
-      "Node and Hono HTTP runtimes",
-      "raw graph and chain exports stay portable",
-      "durable stores",
-    ],
-    forbidden: ["B4 is not a runtime", "persisted state available across child-runtime restarts."],
-  },
-  {
-    file: "apps/web/app/components/landing/FeatureRouting.tsx",
-    required: ["Agent routes materialize as LangGraph graphs", "keep their authored entry form"],
-    forbidden: ["B4 wires it into the graph", "routes compile to plain LangGraph"],
-  },
-  {
-    file: "apps/web/app/components/landing/FeatureDevLoop.tsx",
-    required: [
-      "restarts the child runtime",
-      "parent watcher/session",
-      "child-owned HTTP listener restarts",
-      "default SQLite",
-    ],
-    forbidden: [
-      "parent listener stays up",
-      "Stable parent listener",
-      "persisted thread/checkpoint state remains available",
-      "only schema-incompatible",
-      "First compile in ~400ms",
-      "incremental in tens of ms",
-    ],
-  },
-  {
-    file: "apps/web/app/components/landing/DevLoopAnimation.tsx",
-    required: [
-      "Parent watcher/session keeps the same URL",
-      "Restarting child HTTP runtime",
-      "Child HTTP listener ready",
-      "Default SQLite thread/checkpoint state",
-    ],
-    forbidden: [
-      "Compiled in 412ms",
-      "Graph state preserved across reload",
-      "Updated route /support in 87ms",
-      "updated in 31ms",
-      "compiled in 22ms",
-    ],
-  },
-  {
     file: "apps/web/content/blueprints/deploy/docker.md",
     required: [".b4/build/server.mjs", "node:24-slim"],
     forbidden: ["B4 has no standalone server", "B4's default deploy target"],
@@ -4157,9 +4096,6 @@ for (const filePath of maintainedReadmeFiles) {
 const targetBearingCtaFiles = [
   "apps/web/app/components/HeaderInner.tsx",
   "apps/web/app/components/MobileMenu.tsx",
-  "apps/web/app/components/landing/Hero.tsx",
-  "apps/web/app/components/landing/FinalCta.tsx",
-  "apps/web/app/components/landing/Quickstart.tsx",
 ]
 const canonicalScaffoldCommand = "npm create b4-app@latest my-agent"
 const targetlessScaffoldCommand = /\b(?:npm|pnpm) create b4-app(?!@latest my-agent)\b/

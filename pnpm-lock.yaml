@@ -89,9 +89,6 @@ importers:
 
   apps/web:
     dependencies:
-      '@b4run/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
       '@mdx-js/loader':
         specifier: ^3.1.1
         version: 3.1.1
