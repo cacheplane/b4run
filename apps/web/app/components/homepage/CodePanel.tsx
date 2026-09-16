@@ -24,9 +24,11 @@ export function CodePanel({
     <section className={styles.codePanel} aria-label={code.path}>
       <div className={styles.codeHeading}>
         <span>{code.path}</span>
-        <a href={code.url} target="_blank" rel="noopener noreferrer">
-          {code.linkLabel ?? "Full source"} ↗
-        </a>
+        {code.url && (
+          <a href={code.url} target="_blank" rel="noopener noreferrer">
+            {code.linkLabel ?? "Full source"} ↗
+          </a>
+        )}
       </div>
       {code.fold && (
         <button
@@ -39,7 +41,7 @@ export function CodePanel({
         </button>
       )}
       {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users can scroll long source lines in this named code region. */}
-      <pre className={styles.code} tabIndex={0}>
+      <pre className={`${styles.code} ${code.wrap ? styles.wrapCode : ""}`} tabIndex={0}>
         <code>
           {code.lines.map((html, index) => {
             const line = index + code.firstLine
@@ -74,7 +76,7 @@ export function CodePanel({
         <button type="button" onClick={copySource}>
           Copy source
         </button>
-        <span role="status">{copy || "Exact source. No generated ellipses in copy."}</span>
+        <span role="status">{copy}</span>
       </div>
     </section>
   )
