@@ -6,7 +6,9 @@ import { afterEach, expect, it, vi } from "vitest"
 import { Capabilities } from "./Capabilities"
 import { CodePanel } from "./CodePanel"
 import { DeveloperHome } from "./DeveloperHome"
+import { sourceUrl } from "./evidence"
 import { prepareHomepage } from "./highlight"
+import { prepareNarrative } from "./narrative-source"
 import { Walkthrough } from "./Walkthrough"
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -22,13 +24,33 @@ it("offers the qualified installation guide while labeling the historical record
   const container = document.createElement("div")
   container.innerHTML = renderToString(await DeveloperHome())
   expect(container.textContent).toContain("Recorded implementation")
-  expect(container.textContent).toContain("Qualified example · B4 0.8.32")
+  expect(container.querySelector(`a[href="${sourceUrl("README.md")}"]`)).not.toBeNull()
+  expect(container.textContent).toContain("Qualified installation · B4 0.8.32")
   expect(container.textContent).toContain("b4 add code-fixer")
   expect(container.textContent).toContain("prints the installation guide")
   expect(container.textContent).not.toContain("run:agent")
   expect(container.querySelector('a[href="/blueprints/code-fixer.md"]')).not.toBeNull()
   expect(container.querySelector('a[href="/docs/cli#b4-add"]')).not.toBeNull()
   expect(container.textContent).toContain("fix/tools/prepareReview.ts")
+  const narrative = container.querySelector('[data-narrative="current-example"]')
+  if (!narrative) throw new Error("Narrative is missing")
+  expect(narrative.textContent).not.toContain("1m 53s")
+  expect(narrative?.textContent).not.toContain("Qualified installation")
+  expect([...narrative.querySelectorAll("h2")].map((heading) => heading.textContent)).toEqual([
+    "One project.A working agent.",
+    "This code runs this agent.",
+    "Give it somewhere to work.",
+    "Your functions. Its tools.",
+    "Give it a working method.",
+    "Define what “done” means.",
+    "The next action is your call.",
+    "One request. The whole workflow.",
+  ])
+  const tool = narrative.querySelector("#tools pre code")
+  expect(tool?.textContent).toContain("await inspectCandidate(ctx)")
+  expect(tool?.textContent).toContain("await verifyChanges(")
+  expect(tool?.textContent).toContain("renderReviewDiff(baseline, candidate.changes)")
+  expect(narrative.querySelector("#tools [aria-expanded]")).toBeNull()
   expect(container.textContent).toContain("Recorded run · 1m 53s")
   expect(container.textContent).toContain("Awaiting your approval")
 })
@@ -103,4 +125,38 @@ it("renders source markup as inert text", async () => {
   const html = renderToString(<CodePanel code={code} />)
   expect(html).not.toContain('<script>alert("inert")</script>')
   expect(html).toContain("&lt;")
+})
+
+it("renders and copies the complete review tool with visual wrapping only", async () => {
+  const { tool } = await prepareNarrative()
+  const container = document.createElement("div")
+  document.body.replaceChildren(container)
+  root = createRoot(container)
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } })
+  await act(async () => root?.render(<CodePanel code={tool} />))
+  const rendered = [...container.querySelectorAll("pre code > span")]
+    .map((line) => (line.lastElementChild?.textContent ?? "").trimEnd())
+    .join("\n")
+  expect(rendered.trimEnd()).toBe(tool.raw.trimEnd())
+  expect(container.querySelector("[aria-expanded]")).toBeNull()
+  await act(async () => container.querySelector<HTMLButtonElement>("button")?.click())
+  expect(writeText).toHaveBeenCalledWith(tool.raw)
+})
+
+it("connects the project map to code sections and ends with the execution flow", async () => {
+  const container = document.createElement("div")
+  container.innerHTML = renderToString(await DeveloperHome())
+  const links = [...container.querySelectorAll('nav[aria-label="Explore project files"] a')]
+  expect(links).toHaveLength(10)
+  for (const link of links) {
+    const target = link.getAttribute("href")
+    expect(target?.startsWith("#")).toBe(true)
+    expect(container.querySelector(target ?? "missing")).not.toBeNull()
+  }
+  const execution = container.querySelector('[aria-labelledby="execution-title"]')
+  expect(
+    [...(execution?.querySelectorAll("li strong") ?? [])].map((item) => item.textContent),
+  ).toEqual(["Request", "Repair", "Verify", "Pause", "Approve", "Export"])
+  expect(container.querySelector('nav[aria-label="Follow the example"]')).toBeNull()
 })
