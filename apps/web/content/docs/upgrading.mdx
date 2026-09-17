@@ -247,6 +247,35 @@ The built-in SQLite and pgvector stores already implement all of this, and the
 `runMemoryStoreConformance` kit in `@b4run/testing` covers it — run the kit
 against a custom store to verify the contract.
 
+## The app root must declare `"type": "module"`
+
+`b4 check`, `dev`, `build`, `verify`, `routes`, and `typegen` now fail with
+`B4_E1006` when the app root's `package.json` does not set `"type": "module"`,
+where they used to run. Add the field:
+
+```json
+{
+  "type": "module"
+}
+```
+
+Apps scaffolded by `create-b4-app` already have it. An app that never set it
+was in one of two states, and both are fixed by the same line:
+
+- **Routes exported with `export default agent(...)` were silently dropped.**
+  `b4 check` reported `0 routes discovered` and exited 0, because the route
+  modules were compiled as CommonJS and their default export arrived wrapped in
+  the ESM/CommonJS interop object.
+- **Routes exported as `export const workflow` (or `graph`/`chain`) appeared to
+  work.** Node's CommonJS lexer hoists those into named exports, so discovery
+  found them — but `b4.config.ts` was loaded through the same interop wrapper,
+  so every setting on it was silently ignored and the defaults applied.
+
+A route `index.ts` that exports nothing B4.run recognises is now also an error
+(`B4_E1007`) naming the file, rather than a directory that is skipped in
+silence. If such a directory is not a route, prefix its name with `_` to keep
+it out of route discovery.
+
 ## Related
 
 <RelatedCards items={[

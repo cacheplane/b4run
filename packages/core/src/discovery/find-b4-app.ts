@@ -75,7 +75,9 @@ async function assertB4AppIsEsModule(appRoot: string): Promise<void> {
   let manifest: unknown
 
   try {
-    manifest = JSON.parse(await readFile(packageJsonPath, "utf8"))
+    // Strip a leading BOM: Node's own package.json reader tolerates one, so a
+    // manifest it loads happily must not fail here. `JSON.parse` does not.
+    manifest = JSON.parse((await readFile(packageJsonPath, "utf8")).replace(/^\uFEFF/, ""))
   } catch (cause) {
     const reason = cause instanceof Error ? cause.message : String(cause)
     throw new Error(

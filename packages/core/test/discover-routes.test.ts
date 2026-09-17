@@ -122,6 +122,19 @@ describe("discoverRoutes", () => {
     await expect(discoverRoutes({ appRoot })).rejects.toThrow(/"type": "module"/)
   })
 
+  it("accepts an app root whose package.json carries a UTF-8 BOM, as Node does", async () => {
+    const appRoot = await writeApp(
+      {
+        "src/app/hello/index.ts": `export async function workflow() { return {} }\n`,
+      },
+      { packageJson: `\uFEFF{"type":"module"}\n` },
+    )
+
+    const manifest = await discoverRoutes({ appRoot })
+
+    expect(manifest.routes).toHaveLength(1)
+  })
+
   it("rejects an app root whose package.json is not valid JSON", async () => {
     const appRoot = await writeApp(
       {
