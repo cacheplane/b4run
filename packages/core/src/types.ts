@@ -7,6 +7,79 @@ import type { BuildTargetName } from "./build-targets.js"
 
 export type { RouteKind }
 
+/** One route of a Vercel Build Output `config.json`; `src` is required. */
+export type VercelBuildRoute = Readonly<Record<string, unknown>> & { readonly src: string }
+
+/** `build.vercel` — see {@link B4Config.build}. Paths resolve from the app root. */
+export interface VercelBuildConfig {
+  /**
+   * Name of the runtime function (`functions/<name>.func`). Defaults to
+   * `"index"`, or to `"b4"` once {@link static} is set, because a function
+   * named `index` is also served at `/` and would shadow `static/index.html`.
+   * Combining `"index"` with `static` fails the build.
+   */
+  readonly functionName?: string
+  /** A directory copied verbatim into `static/`, with an optional SPA document. */
+  readonly static?: {
+    readonly dir: string
+    /**
+     * Path inside `dir` served for every path the filesystem and the runtime
+     * do not claim (`{ src: "/(.*)", dest: "/<spaFallback>" }`, last). When
+     * set, the runtime route is scoped to the surfaces the runtime owns
+     * (`/healthz`, `/readyz`, `/agui`, `/threads`, `/memory`) instead of
+     * catching all.
+     */
+    readonly spaFallback?: string
+  }
+  /**
+   * Additional Node functions, each bundled from `entry` with esbuild into
+   * `functions/<name>.func/index.mjs`. Route to one with
+   * `{ src: "/api/(.*)", dest: "/api" }` in {@link routes}.
+   */
+  readonly functions?: Readonly<
+    Record<
+      string,
+      {
+        readonly entry: string
+        /** Vercel Node runtime id. Default `"nodejs24.x"`. */
+        readonly runtime?: string
+        /** Positive integer seconds. */
+        readonly maxDuration?: number
+        readonly supportsResponseStreaming?: boolean
+      }
+    >
+  >
+  /**
+   * Routes placed before the filesystem phase. `b4 build` appends
+   * `{ handle: "filesystem" }`, the runtime route, and the SPA fallback itself;
+   * a `handle` entry here is rejected.
+   */
+  readonly routes?: readonly VercelBuildRoute[]
+  /**
+   * Where the `"vercel"` target publishes its Build Output API tree.
+   * Resolved relative to the app root; defaults to `.vercel/output`, the
+   * directory Vercel deploys from. `b4 build --out-dir <dir>` overrides it
+   * per run. The directory must not contain the app root itself.
+   */
+  readonly outDir?: string
+  /**
+   * Whether `b4 build` reconciles the app-root `vercel.json` with the
+   * target's lifecycle contract (a `buildCommand` that runs `b4 build`
+   * and `fluid: true`): it writes the recommended file when none
+   * exists, warns when an authored file does not establish the
+   * contract, and fails on `fluid: false`.
+   *
+   * Set to `false` for a prebuilt flow (`vercel deploy --prebuilt` from
+   * CI, no Vercel Git integration): Vercel never runs `buildCommand`
+   * there, so the target neither requires nor touches a committed
+   * `vercel.json`. Fluid compute still matters for the deployed
+   * project — keep it enabled in the project settings.
+   *
+   * Defaults to `true`.
+   */
+  readonly reconcileVercelJson?: boolean
+}
+
 export interface B4Config {
   readonly appDir?: string
   readonly backends?: {
@@ -97,34 +170,14 @@ export interface B4Config {
      * type-check instead of failing at `b4 build`.
      */
     readonly targets?: readonly BuildTargetName[]
-    /** Options that only apply to the `"vercel"` target. */
-    readonly vercel?: {
-      /**
-       * Where the `"vercel"` target publishes its Build Output API tree.
-       * Resolved relative to the app root; defaults to `.vercel/output`, the
-       * directory Vercel deploys from. Point it elsewhere when another step
-       * composes the runtime function with static assets or further functions
-       * before deployment. `b4 build --out-dir <dir>` overrides it per run.
-       * The directory must not contain the app root itself.
-       */
-      readonly outDir?: string
-      /**
-       * Whether `b4 build` reconciles the app-root `vercel.json` with the
-       * target's lifecycle contract (a `buildCommand` that runs `b4 build`
-       * and `fluid: true`): it writes the recommended file when none
-       * exists, warns when an authored file does not establish the
-       * contract, and fails on `fluid: false`.
-       *
-       * Set to `false` for a prebuilt flow (`vercel deploy --prebuilt` from
-       * CI, no Vercel Git integration): Vercel never runs `buildCommand`
-       * there, so the target neither requires nor touches a committed
-       * `vercel.json`. Fluid compute still matters for the deployed
-       * project — keep it enabled in the project settings.
-       *
-       * Defaults to `true`.
-       */
-      readonly reconcileVercelJson?: boolean
-    }
+    /**
+     * Shape and options of the `"vercel"` target's Build Output tree. Ignored
+     * unless `"vercel"` is in {@link targets}. With nothing set the output is
+     * the runtime function alone (`functions/index.func`) behind a catch-all
+     * route, published to `.vercel/output`, and the app-root `vercel.json` is
+     * reconciled.
+     */
+    readonly vercel?: VercelBuildConfig
   }
   readonly sandbox?: SandboxConfig
   /**

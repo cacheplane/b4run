@@ -46,7 +46,7 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
   })
 
   const config = await loadOptionalB4Config(manifest.appRoot)
-  const vercelBuildConfig = resolveVercelBuildConfig(config?.build)
+  const vercelBuildConfig = resolveVercelBuildConfig(config?.build, manifest.appRoot)
 
   // The config type only admits known names, but a JS config or a JSON one
   // arrives untyped — so validate the ENTIRE list up front, before emitting

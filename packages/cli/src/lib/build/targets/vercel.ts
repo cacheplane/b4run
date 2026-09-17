@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto"
 import { rm } from "node:fs/promises"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 
 import { build } from "esbuild"
 
 import { CliError, formatErrorMessage, writeLine } from "../../output.js"
 import type { BuildTarget } from "./index.js"
+import { assertVercelBuildPaths, emitVercelFunction, emitVercelStatic } from "./vercel-assets.js"
+import { composeVercelRoutes } from "./vercel-compose.js"
 import { reconcileVercelConfig, resolveVercelBuildConfig } from "./vercel-config.js"
 import { createVercelNodeCompatibilityPlugin } from "./vercel-node-compat.js"
 import {
@@ -62,6 +64,17 @@ export function resolveVercelOutputDir(input: {
 export const vercelTarget: BuildTarget = {
   name: "vercel",
   async emit(ctx) {
+    // One resolver validates the whole of `build.vercel`, and every named path
+    // is checked, before anything is written — so a near-miss config cannot
+    // read as configured while the build goes on to write a tree from it.
+    const { composition, reconcileVercelJson: reconcileRootConfig } = resolveVercelBuildConfig(
+      ctx.buildConfig,
+      ctx.appRoot,
+    )
+    await assertVercelBuildPaths(composition, ctx.appRoot)
+    const { functionName } = composition
+    const functionDirName = `${functionName}.func`
+
     const finalOutput = ctx.vercelOutputDir ?? defaultVercelOutputDir(ctx.appRoot)
     const invocationName = `.b4-vercel-${randomUUID()}`
     // The generated runtime stays inside the app root so its imports resolve
@@ -73,7 +86,7 @@ export const vercelTarget: BuildTarget = {
     const stagingDir = join(dirname(finalOutput), invocationName)
     const stagedOutput = join(stagingDir, "output")
     const invocationDirs = [...new Set([invocationDir, stagingDir])]
-    const functionEntryPath = join(stagedOutput, "functions", "index.func", "index.mjs")
+    const functionEntryPath = join(stagedOutput, "functions", functionDirName, "index.mjs")
     let didFail = false
     let primaryError: unknown
     let cleanupDidFail = false
@@ -103,21 +116,39 @@ export const vercelTarget: BuildTarget = {
         })
       } catch (error) {
         throw new CliError(
-          `Could not bundle the generated Vercel runtime: ${formatErrorMessage(error)}. The Vercel function directory boundary at ${join(finalOutput, "functions", "index.func")} must contain every application, provider, and runtime dependency; install the missing import as a runtime dependency and rebuild.`,
+          `Could not bundle the generated Vercel runtime: ${formatErrorMessage(error)}. The Vercel function directory boundary at ${join(finalOutput, "functions", functionDirName)} must contain every application, provider, and runtime dependency; install the missing import as a runtime dependency and rebuild.`,
           1,
           { cause: error },
         )
       }
 
-      await writeVercelMetadata(stagedOutput)
-      await validateVercelOutput(stagedOutput)
+      const stagedStatic = await emitVercelStatic(composition, stagedOutput)
+      const stagedFunctionFiles: string[] = []
+      for (const fn of composition.functions) {
+        stagedFunctionFiles.push(
+          ...(await emitVercelFunction(fn, {
+            appRoot: ctx.appRoot,
+            outputDir: stagedOutput,
+          })),
+        )
+      }
+
+      await writeVercelMetadata(stagedOutput, {
+        functionName,
+        routes: composeVercelRoutes({
+          functionName,
+          hasStatic: composition.static !== undefined,
+          routes: composition.routes,
+          ...(composition.static?.spaFallback
+            ? { spaFallback: composition.static.spaFallback }
+            : {}),
+        }),
+      })
+      await validateVercelOutput(stagedOutput, { functionName })
       // A prebuilt flow (`vercel deploy --prebuilt`) never runs the root
       // `buildCommand`, so the opt-out leaves `vercel.json` unread, unwritten,
       // and out of the artifact list rather than requiring a file that exists
-      // only to satisfy the reconciler. The resolver that validated the shape
-      // is what decides here, so a near-miss config cannot read as configured
-      // while this keeps reconciling.
-      const { reconcileVercelJson: reconcileRootConfig } = resolveVercelBuildConfig(ctx.buildConfig)
+      // only to satisfy the reconciler.
       const rootConfigArtifacts: string[] = []
       if (reconcileRootConfig) {
         const rootConfig = await reconcileVercelConfig({
@@ -134,10 +165,14 @@ export const vercelTarget: BuildTarget = {
       }
       await publishVercelOutput({ outputDir: finalOutput, stagedOutput })
 
+      const published = (stagedPath: string) =>
+        join(finalOutput, relative(stagedOutput, stagedPath))
       artifacts = [
         join(finalOutput, "config.json"),
-        join(finalOutput, "functions", "index.func", ".vc-config.json"),
-        join(finalOutput, "functions", "index.func", "index.mjs"),
+        join(finalOutput, "functions", functionDirName, ".vc-config.json"),
+        join(finalOutput, "functions", functionDirName, "index.mjs"),
+        ...(stagedStatic ? [published(stagedStatic)] : []),
+        ...stagedFunctionFiles.map(published),
         ...rootConfigArtifacts,
       ]
     } catch (error) {

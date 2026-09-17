@@ -4,6 +4,12 @@ import { dirname, join } from "node:path"
 
 import type { B4Config } from "@b4run/core"
 import { CliError, type CommandIo, formatErrorMessage, writeLine } from "../../output.js"
+import {
+  invalidBuildConfig,
+  type ResolvedVercelBuild,
+  resolveVercelComposition,
+  VERCEL_COMPOSITION_KEYS,
+} from "./vercel-compose.js"
 
 const B4_VERCEL_BUILD_COMMAND = "node node_modules/@b4run/cli/dist/index.js build"
 
@@ -37,11 +43,16 @@ export function setVercelConfigFileOpsForTesting(
 }
 
 /** Every option `build.vercel` accepts. Anything else is an authoring error. */
-const VERCEL_BUILD_OPTION_KEYS: readonly string[] = ["outDir", "reconcileVercelJson"]
+const VERCEL_BUILD_OPTION_KEYS: readonly string[] = [
+  ...VERCEL_COMPOSITION_KEYS,
+  "outDir",
+  "reconcileVercelJson",
+].sort()
 
 /**
- * Validates `build.vercel` and resolves whether the `vercel` target reconciles
- * the app-root `vercel.json`.
+ * Validates the whole of `build.vercel` and resolves it: where the tree is
+ * published, whether the `vercel` target reconciles the app-root `vercel.json`,
+ * and the composed tree the target emits.
  *
  * Reconciliation is ON unless the flag is exactly `false`, so every way of
  * *nearly* turning it off has to be rejected rather than ignored — a config
@@ -56,9 +67,13 @@ const VERCEL_BUILD_OPTION_KEYS: readonly string[] = ["outDir", "reconcileVercelJ
  * boolean it returns, so the validated shape and the honored value cannot
  * diverge.
  */
-export function resolveVercelBuildConfig(build: B4Config["build"] | undefined): {
+export function resolveVercelBuildConfig(
+  build: B4Config["build"] | undefined,
+  appRoot: string,
+): {
   readonly outDir?: string
   readonly reconcileVercelJson: boolean
+  readonly composition: ResolvedVercelBuild
 } {
   const buildRecord = isRecord(build) ? build : undefined
 
@@ -77,7 +92,9 @@ export function resolveVercelBuildConfig(build: B4Config["build"] | undefined): 
   }
 
   const vercel = ownProperty(buildRecord, "vercel")
-  if (vercel === undefined) return { reconcileVercelJson: true }
+  if (vercel === undefined) {
+    return { composition: resolveVercelComposition(undefined, appRoot), reconcileVercelJson: true }
+  }
   if (!isRecord(vercel)) {
     throw invalidBuildConfig(`build.vercel must be an object; received ${JSON.stringify(vercel)}.`)
   }
@@ -115,19 +132,30 @@ export function resolveVercelBuildConfig(build: B4Config["build"] | undefined): 
     )
   }
 
+  // The composition resolver owns the keys that describe the tree; strip the
+  // options that are not part of it so neither half rejects the other's.
+  const {
+    outDir: _outDir,
+    reconcileVercelJson: _flag,
+    ...composed
+  } = vercel as Record<string, unknown>
   return {
+    composition: resolveVercelComposition(
+      Object.keys(composed).length > 0 ? composed : undefined,
+      appRoot,
+    ),
     ...(outDir === undefined ? {} : { outDir }),
     reconcileVercelJson: reconcileVercelJson ?? true,
   }
 }
 
-/** Throw-away form of {@link resolveVercelBuildConfig} for validation-only callers. */
+/**
+ * Throw-away form of {@link resolveVercelBuildConfig} for validation-only
+ * callers. The app root only affects resolved paths, which are discarded here,
+ * so validating the shape does not need the real one.
+ */
 export function assertVercelBuildConfig(build: B4Config["build"] | undefined): void {
-  resolveVercelBuildConfig(build)
-}
-
-function invalidBuildConfig(detail: string): CliError {
-  return new CliError(`Invalid build config:\n${detail}`, 1, { code: "B4_E1003" })
+  resolveVercelBuildConfig(build, ".")
 }
 
 export async function reconcileVercelConfig(input: {

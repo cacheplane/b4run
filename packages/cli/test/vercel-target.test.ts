@@ -14,7 +14,7 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, dirname, join, win32 } from "node:path"
+import { basename, dirname, join, relative, win32 } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { build as buildBundle } from "esbuild"
@@ -22,6 +22,7 @@ import { afterEach, describe, expect, test } from "vitest"
 
 import { runBuildCommand } from "../src/commands/build.js"
 import { setVercelTargetCleanupFileOpsForTesting } from "../src/lib/build/targets/vercel.js"
+import { VERCEL_RUNTIME_ROUTE_SRC } from "../src/lib/build/targets/vercel-compose.js"
 import {
   RECOMMENDED_VERCEL_CONFIG,
   reconcileVercelConfig,
@@ -102,6 +103,35 @@ async function createTargetFixture(files: Readonly<Record<string, string>> = {})
   )
   await linkTargetFixtureDependencies(appRoot)
   return appRoot
+}
+
+async function createComposedTargetFixture(
+  files: Readonly<Record<string, string>> = {},
+): Promise<string> {
+  return createTargetFixture({
+    "b4.config.ts": `export default {
+  build: {
+    targets: ["vercel"],
+    vercel: {
+      static: { dir: "web/dist", spaFallback: "index.html" },
+      functions: {
+        api: { entry: "src/api.ts", maxDuration: 30, supportsResponseStreaming: true },
+      },
+      routes: [{ src: "/api/(.*)", dest: "/api" }],
+    },
+  },
+}
+`,
+    "src/api.ts":
+      'export default function handler(_request: unknown, response: { end(body: string): void }) {\n  response.end("composed-api-marker")\n}\n',
+    "web/dist/assets/app.js": "console.log('app')\n",
+    "web/dist/index.html": "<!doctype html><title>spa</title>\n",
+    ...files,
+  })
+}
+
+function relativeFromCwd(path: string): string {
+  return relative(process.cwd(), path)
 }
 
 async function linkTargetFixtureDependencies(appRoot: string): Promise<void> {
@@ -194,7 +224,10 @@ function isBackupPath(path: string): boolean {
   return path.includes(".b4-vercel-output-backup-")
 }
 
-async function createVercelConfigDirs(): Promise<{ appRoot: string; buildDir: string }> {
+async function createVercelConfigDirs(): Promise<{
+  appRoot: string
+  buildDir: string
+}> {
   const appRoot = await mkdtemp(join(tmpdir(), "b4-vercel-app-"))
   const buildDir = await mkdtemp(join(tmpdir(), "b4-vercel-build-"))
   tempDirs.push(appRoot, buildDir)
@@ -254,6 +287,39 @@ function entryPath(outputDir: string): string {
 async function validOutput(outputDir: string): Promise<void> {
   await writeVercelMetadata(outputDir)
   await writeFile(entryPath(outputDir), 'import "node:fs"\nexport default {}\n', "utf8")
+}
+
+/** A tree the composed target would publish: static SPA, runtime `b4`, extra `api`, user route. */
+async function composedOutput(outputDir: string): Promise<void> {
+  await writeVercelMetadata(outputDir, {
+    functionName: "b4",
+    routes: [
+      { dest: "/api", src: "/api/(.*)" },
+      { handle: "filesystem" },
+      { dest: "/b4", src: VERCEL_RUNTIME_ROUTE_SRC },
+      { dest: "/index.html", src: "/(.*)" },
+    ],
+  })
+  await writeFile(
+    join(outputDir, "functions", "b4.func", "index.mjs"),
+    'import "node:fs"\nexport default {}\n',
+    "utf8",
+  )
+  const apiDir = join(outputDir, "functions", "api.func")
+  await mkdir(apiDir, { recursive: true })
+  await writeFile(
+    join(apiDir, ".vc-config.json"),
+    JSON.stringify({
+      handler: "index.mjs",
+      launcherType: "Nodejs",
+      maxDuration: 30,
+      runtime: "nodejs24.x",
+      supportsResponseStreaming: true,
+    }),
+  )
+  await writeFile(join(apiDir, "index.mjs"), "export default {}\n", "utf8")
+  await mkdir(join(outputDir, "static"), { recursive: true })
+  await writeFile(join(outputDir, "static", "index.html"), "<!doctype html>\n", "utf8")
 }
 
 const ISOLATED_IMPORT_PROBE = `import { readFile } from "node:fs/promises"
@@ -815,6 +881,125 @@ export async function workflow() {
     const bundle = await readFile(entryPath(outputDir), "utf8")
     expect(bundle).not.toContain(appRoot)
     expect(bundle).not.toContain(DATABASE_URL_SENTINEL)
+  })
+
+  test("composes static assets, an extra function, and user routes into one published tree", async () => {
+    const appRoot = await createComposedTargetFixture()
+
+    const { stdout } = await runTargetBuild(appRoot)
+
+    const outputDir = join(appRoot, ".vercel", "output")
+    expect(await listTree(outputDir)).toEqual([
+      "config.json",
+      join("functions", "api.func", ".vc-config.json"),
+      join("functions", "api.func", "index.mjs"),
+      join("functions", "b4.func", ".vc-config.json"),
+      join("functions", "b4.func", "index.mjs"),
+      join("static", "assets", "app.js"),
+      join("static", "index.html"),
+    ])
+    expect(JSON.parse(await readFile(join(outputDir, "config.json"), "utf8"))).toEqual({
+      routes: [
+        { dest: "/api", src: "/api/(.*)" },
+        { handle: "filesystem" },
+        { dest: "/b4", src: VERCEL_RUNTIME_ROUTE_SRC },
+        { dest: "/index.html", src: "/(.*)" },
+      ],
+      version: 3,
+    })
+    await expect(
+      readFile(join(outputDir, "functions", "api.func", ".vc-config.json"), "utf8"),
+    ).resolves.toBe(
+      '{\n  "handler": "index.mjs",\n  "launcherType": "Nodejs",\n  "runtime": "nodejs24.x",\n  "maxDuration": 30,\n  "supportsResponseStreaming": true\n}\n',
+    )
+    await expect(readFile(join(outputDir, "static", "index.html"), "utf8")).resolves.toBe(
+      "<!doctype html><title>spa</title>\n",
+    )
+    expect(await readFile(join(outputDir, "functions", "api.func", "index.mjs"), "utf8")).toContain(
+      "composed-api-marker",
+    )
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).resolves.toBeUndefined()
+    expect(stdout.filter((line) => line.includes("wrote ")).map((line) => line.trimEnd())).toEqual([
+      `  wrote ${relativeFromCwd(join(outputDir, "config.json"))}`,
+      `  wrote ${relativeFromCwd(join(outputDir, "functions", "b4.func", ".vc-config.json"))}`,
+      `  wrote ${relativeFromCwd(join(outputDir, "functions", "b4.func", "index.mjs"))}`,
+      `  wrote ${relativeFromCwd(join(outputDir, "static"))}`,
+      `  wrote ${relativeFromCwd(join(outputDir, "functions", "api.func", ".vc-config.json"))}`,
+      `  wrote ${relativeFromCwd(join(outputDir, "functions", "api.func", "index.mjs"))}`,
+      `  wrote ${relativeFromCwd(join(appRoot, "vercel.json"))}`,
+    ])
+  })
+
+  test("an explicit functionName renames the bare runtime function", async () => {
+    const appRoot = await createTargetFixture({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { functionName: "agent" } } }\n',
+    })
+
+    await runTargetBuild(appRoot)
+
+    const outputDir = join(appRoot, ".vercel", "output")
+    expect(await listTree(outputDir)).toEqual([
+      "config.json",
+      join("functions", "agent.func", ".vc-config.json"),
+      join("functions", "agent.func", "index.mjs"),
+    ])
+    expect(JSON.parse(await readFile(join(outputDir, "config.json"), "utf8"))).toEqual({
+      routes: [{ dest: "/agent", src: "/(.*)" }],
+      version: 3,
+    })
+    await expect(
+      validateVercelOutput(outputDir, { functionName: "agent" }),
+    ).resolves.toBeUndefined()
+  })
+
+  test.each([
+    {
+      config: '{ functionName: "index", static: { dir: "web/dist" } }',
+      expected: "build.vercel.functionName",
+      name: "the index function beside static assets",
+    },
+    {
+      config: '{ static: { dir: "web/missing" } }',
+      expected: `build.vercel.static.dir ${join("web", "missing")}`,
+      name: "a missing static directory",
+    },
+    {
+      config: '{ static: { dir: "web/dist", spaFallback: "app.html" } }',
+      expected: `build.vercel.static.spaFallback ${join("web", "dist", "app.html")}`,
+      name: "a missing SPA fallback document",
+    },
+    {
+      config: '{ functions: { api: { entry: "src/missing.ts" } } }',
+      expected: `build.vercel.functions.api.entry ${join("src", "missing.ts")}`,
+      name: "a missing function entry",
+    },
+  ])("rejects $name before creating .vercel", async ({ config, expected }) => {
+    const appRoot = await createComposedTargetFixture({
+      "b4.config.ts": `export default { build: { targets: ["vercel"], vercel: ${config} } }\n`,
+    })
+
+    const error = await runTargetBuild(appRoot).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(CliError)
+    expect(String(error)).toContain(expected)
+    expect(existsSync(join(appRoot, ".vercel"))).toBe(false)
+  })
+
+  test("an extra function that cannot bundle names the function and preserves prior output", async () => {
+    const appRoot = await createComposedTargetFixture()
+    await runTargetBuild(appRoot)
+    const outputDir = join(appRoot, ".vercel", "output")
+    const before = await listTree(outputDir)
+    await writeFile(join(appRoot, "src", "api.ts"), 'import "missing-package"\nexport default {}\n')
+
+    const error = await runTargetBuild(appRoot).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(CliError)
+    expect(String(error)).toContain('Could not bundle the Vercel function "api"')
+    expect(String(error)).toContain(join("src", "api.ts"))
+    expect(await listTree(outputDir)).toEqual(before)
+    expect(await listTree(join(appRoot, ".vercel"))).toEqual(before.map((p) => join("output", p)))
   })
 
   test("preflights forbidden edge capabilities before creating .vercel", async () => {
@@ -1402,6 +1587,7 @@ describe("Build Output contract", () => {
       handler: "index.mjs",
       launcherType: "Nodejs",
       runtime: "nodejs24.x",
+      supportsResponseStreaming: true,
     })
     expect(metadata).toEqual({
       configPath: join(outputDir, "config.json"),
@@ -1412,9 +1598,11 @@ describe("Build Output contract", () => {
       '{\n  "routes": [\n    {\n      "dest": "/index",\n      "src": "/(.*)"\n    }\n  ],\n  "version": 3\n}\n',
     )
     await expect(readFile(metadata.functionConfigPath, "utf8")).resolves.toBe(
-      '{\n  "handler": "index.mjs",\n  "launcherType": "Nodejs",\n  "runtime": "nodejs24.x"\n}\n',
+      '{\n  "handler": "index.mjs",\n  "launcherType": "Nodejs",\n  "runtime": "nodejs24.x",\n  "supportsResponseStreaming": true\n}\n',
     )
-    await expect(lstat(entryPath(outputDir))).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(lstat(entryPath(outputDir))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
   })
 
   test("accepts a complete self-contained function and in-tree dependency", async () => {
@@ -1485,6 +1673,201 @@ describe("Build Output contract", () => {
     )
 
     await expect(validateVercelOutput(outputDir)).resolves.toBeUndefined()
+  })
+
+  test("writes composed metadata for a renamed runtime function and explicit routes", async () => {
+    const outputDir = await createOutputDir()
+    const routes = [
+      { dest: "/api", src: "/api/(.*)" },
+      { handle: "filesystem" },
+      { dest: "/b4", src: VERCEL_RUNTIME_ROUTE_SRC },
+      { dest: "/index.html", src: "/(.*)" },
+    ]
+
+    const metadata = await writeVercelMetadata(outputDir, {
+      functionName: "b4",
+      routes,
+    })
+
+    expect(metadata).toEqual({
+      configPath: join(outputDir, "config.json"),
+      functionConfigPath: join(outputDir, "functions", "b4.func", ".vc-config.json"),
+      functionDir: join(outputDir, "functions", "b4.func"),
+    })
+    expect(JSON.parse(await readFile(metadata.configPath, "utf8"))).toEqual({
+      routes,
+      version: 3,
+    })
+    await expect(readFile(metadata.functionConfigPath, "utf8")).resolves.toBe(
+      '{\n  "handler": "index.mjs",\n  "launcherType": "Nodejs",\n  "runtime": "nodejs24.x",\n  "supportsResponseStreaming": true\n}\n',
+    )
+  })
+
+  test("accepts a composed tree with static assets, an extra function, and user routes", async () => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).resolves.toBeUndefined()
+  })
+
+  test("rejects a composed tree whose config never routes to the runtime function", async () => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+    await writeFile(
+      join(outputDir, "config.json"),
+      JSON.stringify({ routes: [{ dest: "/api", src: "/(.*)" }], version: 3 }),
+    )
+
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).rejects.toThrow(
+      `${join(outputDir, "config.json")} property "routes" must contain a route with dest "/b4"`,
+    )
+  })
+
+  test("rejects a config without the expected runtime function even when another function is routed", async () => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+
+    await expect(validateVercelOutput(outputDir)).rejects.toThrow(
+      `${join(outputDir, "config.json")} property "routes" must contain a route with dest "/index"`,
+    )
+  })
+
+  test.each([
+    {
+      expected: 'property "routes[0].handle" must be "filesystem"',
+      routes: [{ handle: "miss" }, { dest: "/b4", src: "/(.*)" }],
+      name: "an unknown route phase",
+    },
+    {
+      expected: 'property "routes[1].handle" may appear once',
+      routes: [{ handle: "filesystem" }, { handle: "filesystem" }, { dest: "/b4", src: "/(.*)" }],
+      name: "a repeated filesystem phase",
+    },
+    {
+      expected: 'property "routes[0].dest" must be a string',
+      routes: [{ dest: 1, src: "/(.*)" }],
+      name: "a non-string route destination",
+    },
+    {
+      expected: 'property "routes[0].src" must be a non-empty string',
+      routes: [{ dest: "/b4" }],
+      name: "a route without src",
+    },
+    {
+      expected: 'property "routes" must be a non-empty array',
+      routes: [],
+      name: "an empty route list",
+    },
+  ])("rejects $name in a composed config", async ({ expected, routes }) => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+    await writeFile(join(outputDir, "config.json"), JSON.stringify({ routes, version: 3 }))
+
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).rejects.toThrow(
+      `${join(outputDir, "config.json")} ${expected}`,
+    )
+  })
+
+  test.each([
+    {
+      config: {
+        handler: "index.mjs",
+        launcherType: "Nodejs",
+        runtime: "python3.12",
+      },
+      expected: 'property "runtime" must be a Node runtime',
+      name: "a non-Node runtime",
+    },
+    {
+      config: {
+        handler: "index.mjs",
+        launcherType: "Nodejs",
+        maxDuration: 30,
+        runtime: "nodejs24.x",
+        extra: 1,
+      },
+      expected: 'property "extra" is not allowed',
+      name: "an unknown property",
+    },
+    {
+      config: {
+        handler: "index.mjs",
+        launcherType: "Nodejs",
+        maxDuration: 0,
+        runtime: "nodejs24.x",
+      },
+      expected: 'property "maxDuration" must be a positive integer',
+      name: "a zero maxDuration",
+    },
+    {
+      config: {
+        handler: "index.mjs",
+        launcherType: "Nodejs",
+        runtime: "nodejs24.x",
+        supportsResponseStreaming: "yes",
+      },
+      expected: 'property "supportsResponseStreaming" must be a boolean',
+      name: "a non-boolean streaming flag",
+    },
+    {
+      config: {
+        handler: "main.mjs",
+        launcherType: "Nodejs",
+        runtime: "nodejs24.x",
+      },
+      expected: 'property "handler" must be "index.mjs"',
+      name: "a foreign handler",
+    },
+  ])("rejects an extra function with $name", async ({ config, expected }) => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+    const configPath = join(outputDir, "functions", "api.func", ".vc-config.json")
+    await writeFile(configPath, JSON.stringify(config))
+
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).rejects.toThrow(
+      `${configPath} ${expected}`,
+    )
+  })
+
+  test("rejects an extra function without an entry module", async () => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+    const apiEntry = join(outputDir, "functions", "api.func", "index.mjs")
+    await rm(apiEntry)
+
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).rejects.toThrow(apiEntry)
+  })
+
+  test("rejects an extra function whose dependency escapes its directory", async () => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+    await writeFile(
+      join(outputDir, "functions", "api.func", "index.mjs"),
+      'import runtime from "../b4.func/index.mjs"\nexport { runtime }\n',
+    )
+
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).rejects.toThrow(
+      `Vercel function dependency resolves outside ${join(outputDir, "functions", "api.func")}`,
+    )
+  })
+
+  test("keeps the runtime function config strict in a composed tree", async () => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+    const configPath = join(outputDir, "functions", "b4.func", ".vc-config.json")
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        handler: "index.mjs",
+        launcherType: "Nodejs",
+        maxDuration: 30,
+        runtime: "nodejs24.x",
+      }),
+    )
+
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).rejects.toThrow(
+      `${configPath} property "maxDuration" is not allowed`,
+    )
   })
 
   test.each([
@@ -1763,7 +2146,9 @@ describe("root vercel config", () => {
       created: true,
     })
     await expect(readFile(rootPath, "utf8")).resolves.toBe(recommendedVercelConfig())
-    await expect(readFile(referencePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(referencePath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    })
     await expect(readdir(appRoot)).resolves.toEqual(["vercel.json"])
     expect(stderr).toEqual([])
   })
@@ -1794,10 +2179,14 @@ describe("root vercel config", () => {
       throw new Error("expected broken root symlink to fail")
     } catch (error) {
       expect(error).toBeInstanceOf(CliError)
-      expect(error).toMatchObject({ message: expect.stringContaining(rootPath) })
+      expect(error).toMatchObject({
+        message: expect.stringContaining(rootPath),
+      })
       expect((error as CliError).cause).toBeDefined()
     }
-    await expect(lstat(rootPath)).resolves.toMatchObject({ isSymbolicLink: expect.any(Function) })
+    await expect(lstat(rootPath)).resolves.toMatchObject({
+      isSymbolicLink: expect.any(Function),
+    })
     expect((await lstat(rootPath)).isSymbolicLink()).toBe(true)
     await expect(lstat(externalPath)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(readdir(appRoot)).resolves.toEqual(["vercel.json"])
@@ -1849,7 +2238,9 @@ describe("root vercel config", () => {
       restoreFileOps()
     }
     await expect(readFile(rootPath, "utf8")).resolves.toBe(racedContents)
-    await expect(readFile(referencePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(referencePath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    })
     await expect(readdir(appRoot)).resolves.toEqual(["vercel.json"])
     expect(stderr).toEqual([])
   })
@@ -1944,7 +2335,9 @@ describe("root vercel config", () => {
       created: false,
     })
     await expect(readFile(rootPath, "utf8")).resolves.toBe(contents)
-    await expect(readFile(referencePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(referencePath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    })
     expect(stderr).toEqual([])
   })
 
@@ -1964,7 +2357,9 @@ describe("root vercel config", () => {
       created: false,
     })
     await expect(readFile(rootPath, "utf8")).resolves.toBe(contents)
-    await expect(readFile(referencePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(referencePath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    })
     expect(stderr).toEqual([])
   })
 
@@ -2012,7 +2407,10 @@ describe("root vercel config", () => {
         configurable: true,
         value: "node node_modules/@b4run/cli/dist/index.js build",
       })
-      Object.defineProperty(Object.prototype, "fluid", { configurable: true, value: false })
+      Object.defineProperty(Object.prototype, "fluid", {
+        configurable: true,
+        value: false,
+      })
 
       await expect(reconcileVercelConfig({ appRoot, buildDir, io })).resolves.toEqual({
         artifactPath: referencePath,
@@ -2046,7 +2444,9 @@ describe("root vercel config", () => {
       created: false,
     })
     await expect(readFile(rootPath, "utf8")).resolves.toBe(contents)
-    await expect(readFile(referencePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(referencePath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    })
   })
 
   test.each([
@@ -2077,7 +2477,10 @@ describe("root vercel config", () => {
     ["omitted", { buildCommand: "node node_modules/@b4run/cli/dist/index.js build" }],
     [
       "non-true",
-      { buildCommand: "node node_modules/@b4run/cli/dist/index.js build", fluid: "true" },
+      {
+        buildCommand: "node node_modules/@b4run/cli/dist/index.js build",
+        fluid: "true",
+      },
     ],
   ])("writes a portability warning when fluid is %s", async (_kind, config) => {
     const { appRoot, buildDir } = await createVercelConfigDirs()
@@ -2130,7 +2533,9 @@ describe("root vercel config", () => {
       /supported lifecycle.*fluid: true/i,
     )
     await expect(readFile(rootPath, "utf8")).resolves.toBe(contents)
-    await expect(readFile(referencePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(referencePath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    })
     expect(stderr).toEqual([])
   })
 
@@ -2146,11 +2551,15 @@ describe("root vercel config", () => {
       throw new Error("expected invalid JSON to fail")
     } catch (error) {
       expect(error).toBeInstanceOf(CliError)
-      expect(error).toMatchObject({ message: expect.stringContaining(rootPath) })
+      expect(error).toMatchObject({
+        message: expect.stringContaining(rootPath),
+      })
       expect((error as CliError).cause).toBeInstanceOf(SyntaxError)
     }
     await expect(readFile(rootPath, "utf8")).resolves.toBe(contents)
-    await expect(readFile(referencePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(referencePath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    })
   })
 
   test("still writes a reference for an unproven config when no io is supplied", async () => {

@@ -3088,8 +3088,14 @@ const expectedB4ConfigSchemaPaths = [
   "build",
   "build.targets",
   "build.vercel",
+  "build.vercel.functionName",
+  "build.vercel.functions",
   "build.vercel.outDir",
   "build.vercel.reconcileVercelJson",
+  "build.vercel.routes",
+  "build.vercel.static",
+  "build.vercel.static.dir",
+  "build.vercel.static.spaFallback",
   "checkpointer",
   "env",
   "memory",
@@ -3187,7 +3193,13 @@ const expectedB4ConfigSchemaPaths = [
 ].sort()
 
 const b4ConfigSchemaPaths = collectConfigSchemaPaths({
-  expandInterfaces: ["CorsConfig", "B4Config", "SandboxConfig", "SandboxSecurityPolicy"],
+  expandInterfaces: [
+    "CorsConfig",
+    "B4Config",
+    "SandboxConfig",
+    "SandboxSecurityPolicy",
+    "VercelBuildConfig",
+  ],
   rootInterface: "B4Config",
   sources: [
     readFileSync(resolve(repoRoot, "packages/core/src/types.ts"), "utf8"),

@@ -284,7 +284,19 @@ is compressed and what remains verbatim.
 ```ts
 build?: {
   targets?: readonly BuildTargetName[]
-  vercel?: { outDir?: string; reconcileVercelJson?: boolean }
+  vercel?: {
+    functionName?: string
+    static?: { dir: string; spaFallback?: string }
+    functions?: Readonly<Record<string, {
+      entry: string
+      runtime?: string
+      maxDuration?: number
+      supportsResponseStreaming?: boolean
+    }>>
+    routes?: readonly { src: string; dest?: string; [key: string]: unknown }[]
+    outDir?: string
+    reconcileVercelJson?: boolean
+  }
 }
 ```
 
@@ -297,13 +309,22 @@ the opt-in edge subset. Choose only targets whose runtime can materialize
 the configured capabilities. See [Deployment Options](/docs/deployment) for
 the artifact and compatibility matrix.
 
-`vercel.outDir` is read only by the `"vercel"` target: the directory its
-Build Output tree is published to, resolved relative to the app root. It
-defaults to `.vercel/output`, where Vercel deploys from; point it elsewhere
-when another step composes the runtime function with static assets or further
-functions before deployment. `b4 build --out-dir <dir>` overrides it for one
-run. The directory is replaced wholesale on each build, so one that contains
-the app root is rejected. See [`b4 build`](/docs/cli#b4-build).
+`vercel` describes what the `"vercel"` target publishes beside the runtime
+function: a static directory with an optional SPA document, extra Node
+functions bundled from an `entry`, and routes placed ahead of the filesystem
+phase. Paths resolve from the app root. The runtime function is named `index`
+until `static` is set, when it becomes `b4` so it does not shadow
+`static/index.html`; `functionName` overrides either default, and `"index"`
+beside `static` fails the build. See
+[the `vercel` target](/docs/deployment/edge#the-vercel-target) for the
+published tree and route order.
+
+`vercel.outDir` is the directory the Build Output tree is published to,
+resolved relative to the app root. It defaults to `.vercel/output`, where
+Vercel deploys from; point it elsewhere when a further step composes the tree
+before deployment. `b4 build --out-dir <dir>` overrides it for one run. The
+directory is replaced wholesale on each build, so one that contains the app
+root is rejected.
 
 `vercel.reconcileVercelJson` (default `true`) controls whether the `"vercel"`
 target reconciles the app-root `vercel.json` with its lifecycle contract — a
@@ -313,11 +334,14 @@ Vercel never runs `buildCommand` there, so the target stops requiring, writing,
 or inspecting a committed `vercel.json`. Fluid compute still matters for the
 deployed project; keep it enabled in the Vercel project settings, because the
 build no longer fails on a committed `fluid: false` once reconciliation is off.
-Both `b4 check` and `b4 build` reject a value that is not exactly `true` or
-`false` with `B4_E1003`, including a non-object `vercel`, an unknown key inside
-it, and the flag misplaced directly on `build` — each of those would otherwise
-read as configured while the target kept reconciling. A prebuilt app therefore
-configures `build: { targets: ["vercel"], vercel: { reconcileVercelJson: false } }`.
+
+One resolver validates the whole of `build.vercel`, so both `b4 check` and
+`b4 build` reject every near miss with `B4_E1003` — a non-object `vercel`, an
+unknown key inside it, a `reconcileVercelJson` that is not exactly `true` or
+`false`, and the flag misplaced directly on `build` — rather than reading as
+configured while the target keeps reconciling or writes a tree from a shape it
+never checked. A prebuilt app therefore configures
+`build: { targets: ["vercel"], vercel: { reconcileVercelJson: false } }`.
 
 ### `sandbox`
 
