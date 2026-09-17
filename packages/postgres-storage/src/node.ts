@@ -11,7 +11,7 @@
  * builds its own pool from `connectionString` ends it on `close()`, and a pool
  * passed in stays the caller's.
  */
-import { Pool } from "pg"
+import { Pool, type PoolConfig } from "pg"
 import { type B4PostgresSaver, postgresCheckpointer as baseCheckpointer } from "./checkpointer.js"
 import type { PostgresStoreOptions } from "./options.js"
 import {
@@ -69,13 +69,29 @@ function poolFor(options: NodePostgresStoreOptions): {
   readonly ownsPool: boolean
 } {
   if (options.pool) return { pool: options.pool, ownsPool: options.ownsPool ?? false }
-  const pool = new Pool(
+  const pool = createPostgresPool(
     options.connectionString ? { connectionString: options.connectionString } : {},
   )
+  return { pool, ownsPool: true }
+}
+
+/**
+ * Build the `pg` pool this package builds for itself, with its `'error'`
+ * listener already attached (see `poolFor` for why that listener is not
+ * optional).
+ *
+ * Public so a generated deployment entry — the CLI's Vercel `stores.mjs` —
+ * can open a TCP pool for a non-Neon `DATABASE_URL` through THIS package's
+ * declared `pg` dependency, rather than importing `pg` by a bare specifier the
+ * app itself never declared (which resolves under a hoisting layout and fails
+ * under pnpm's strict one). The caller owns the returned pool and ends it.
+ */
+export function createPostgresPool(config: PoolConfig = {}): Pool {
+  const pool = new Pool(config)
   pool.on("error", (error) => {
     console.warn(`[b4:storage] postgres pool client error (connection dropped): ${String(error)}`)
   })
-  return { pool, ownsPool: true }
+  return pool
 }
 
 /** Build a Postgres-backed LangGraph checkpointer, optionally from a connection string. */

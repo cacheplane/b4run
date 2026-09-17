@@ -25,14 +25,23 @@ later candidate is never a fallback for an earlier one that fails to load — se
 
 ## API
 
-### `defineMiddleware(fn)`
+### `defineMiddleware(middleware)`
 
-Identity helper that types `fn` as `B4Middleware`. Use it for editor inference:
+Type-preserving identity helper. Use it for editor inference. It accepts either
+the handler function shown above or a [lifecycle definition](#lifecycle-hooks):
 
 ```ts
-type B4Middleware = (
+type MiddlewareHandler = (
   req: MiddlewareRequest,
 ) => Promise<MiddlewareResult> | MiddlewareResult
+
+interface MiddlewareDefinition {
+  setup?: (ctx: { readonly appRoot: string }) => Promise<void> | void
+  dispose?: () => Promise<void> | void
+  handle: MiddlewareHandler
+}
+
+type B4Middleware = MiddlewareHandler | MiddlewareDefinition
 ```
 
 ### `MiddlewareRequest`
@@ -104,6 +113,77 @@ export default async (
 </CodeGroup>
 
 Context is per-request — there is no shared state between requests. The `middleware` field is `undefined` if no middleware is defined, or if the middleware called `allow()` without arguments.
+
+## Lifecycle hooks
+
+A middleware that needs a resource which outlives one request, such as a
+database pool or an HTTP client with a keep-alive agent, has two bad options in
+the function form: open it at module scope, where a transient outage becomes a
+[boot failure](#when-middleware-fails-to-load) and nothing ever closes it, or
+hand-write a memoised getter that resets itself on rejection. The object form
+replaces both:
+
+```ts title="src/middleware.ts"
+import { allow, defineMiddleware, reject } from "@b4run/sdk"
+import { Pool } from "pg"
+
+let pool: Pool | undefined
+
+export default defineMiddleware({
+  async setup() {
+    pool = new Pool({ connectionString: process.env.DATABASE_URL })
+    await pool.query("select 1")
+  },
+  async dispose() {
+    await pool?.end()
+  },
+  async handle(req) {
+    const token = req.headers.authorization
+    const session = await pool?.query("select user_id from sessions where token = $1", [token])
+    if (!session?.rowCount) return reject(401, { error: "Unauthorized" })
+    return allow({ userId: session.rows[0].user_id })
+  },
+})
+```
+
+Keep the resource in a module-scope variable. `setup` opens it, `handle` uses
+it, `dispose` releases it.
+
+### `setup(ctx)`
+
+- Runs **at most once per runtime, lazily**: not at import, not at boot, but
+  before the first request the middleware gates. A server whose database is
+  unreachable still starts and reports healthy; the first gated request is
+  what pays for the connection.
+- **Concurrent first requests share one in-flight call.** `handle` never runs
+  before `setup` has completed successfully.
+- **A rejection does not poison the process.** The request that awaited it is
+  rejected with the same opaque `500` as a throwing handler, the cause is
+  logged to stderr once per distinct message, and the memo is cleared so the
+  next request runs `setup` again.
+- `ctx.appRoot` is the absolute path of the app the runtime was booted for. The
+  context deliberately carries no shutdown `AbortSignal`: the fetch core mints
+  signals per request because one shared across requests is not safe on every
+  host, and the same applies here.
+
+### `dispose()`
+
+- Runs **once, from the runtime's shutdown path**, after in-flight requests
+  have drained, so it never ends a pool a request is still using.
+- Runs when there is no `setup`, or after a `setup` that completed
+  successfully. It is **not** invoked for a `setup` that never ran or only ever
+  failed, so it does not have to guard against a resource that was never
+  opened.
+- A rejection is logged to stderr and does not wedge shutdown.
+
+### Which targets call `dispose`
+
+| Target | Shutdown path |
+|---|---|
+| `b4 dev` | The dev child exits on `SIGTERM`/`SIGINT` and on every restart through `server.close()`, which runs `dispose` after the drain. |
+| `b4 start`, generated `server.mjs`, the Docker image | `SIGTERM`/`SIGINT` → `server.close()` → `dispose`. |
+| Hono / edge builds (`app.mjs`) | **Not invoked.** Edge hosts expose no shutdown hook, and a per-isolate pool is the wrong shape on workerd anyway; the generated `stores.mjs` opens one pool per request for that reason. `setup` still runs once per isolate. |
+| `langsmith` | No middleware is materialized. |
 
 ## Single-function model
 
@@ -209,8 +289,9 @@ traffic reaches an ungated server.
 ## Errors thrown from middleware
 
 This is the separate case of a middleware function that loads fine and then
-throws *while handling a request*. That request is rejected with HTTP `500`;
-the server keeps running. Prefer explicit `reject(status, body?)` over throwing
+throws *while handling a request*, or whose `setup` hook rejects. That request
+is rejected with HTTP `500`; the server keeps running, and a failed `setup` is
+retried by the next request. Prefer explicit `reject(status, body?)` over throwing
 — it gives users a meaningful response.
 
 ## Related

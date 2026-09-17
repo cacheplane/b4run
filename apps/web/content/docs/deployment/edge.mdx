@@ -47,7 +47,7 @@ The Hono target writes:
 | `.b4/build/app.mjs` | Hono catch-all around `createRuntimeFetchHandler` |
 | `wrangler.toml` | Scaffold whose `main` is `.b4/build/app.mjs` |
 
-The emitted runtime imports `@b4run/cli`, `@b4run/postgres-storage`, `@neondatabase/serverless`, and `hono`, plus statically discovered model-provider packages. Declare the packages the application bundles. The build prints a notice when the four runtime packages are missing from the app package manifest.
+The emitted runtime imports `@b4run/cli`, `@b4run/postgres-storage`, `@neondatabase/serverless`, and `hono`, plus statically discovered model-provider packages. Declare the packages the application bundles. The build prints a notice when the four runtime packages are missing from the app package manifest. The `vercel` variant of `stores.mjs` additionally imports `@b4run/postgres-storage/node`, which reaches `pg` through that package's own dependency — the app does not declare `pg` itself.
 
 A root `wrangler.toml` is written only when one does not exist. B4.run does not overwrite a marked prior scaffold or a hand-authored root file; when a hand-authored file already exists, the target writes its scaffold to `.b4/build/wrangler.toml` for comparison.
 
@@ -124,6 +124,41 @@ The emitted factory supplies no long-term memory store. Reaching an otherwise om
 The generated Hono stores use the default `public` schema and default `b4` table prefix, producing `public.b4_*` tables with no application namespace. A generated Hono app therefore requires an app-dedicated database. Do not point generated artifacts from separate applications or trust boundaries at the same database.
 
 Sharing a database is supported only with hand-composed request stores that pass a unique `schema` or `tablePrefix` consistently to `postgresCheckpointer`, `createPostgresThreadsStore`, and `createPostgresPermissionsStore`. That composition must still preserve the generated path's workerd constraints: per-request pools and disposal, migration coordination, original-`Request` environment binding, static model-provider imports, serialized runtime config, and permission hydration/policy decisions. Do not edit generated `stores.mjs`; rebuilds replace it.
+
+## Database drivers and `B4_PG_WS_PROXY`
+
+The generated `stores.mjs` reads three values per request, from the host's bindings first and the process environment second:
+
+| Variable | Targets | Meaning |
+|---|---|---|
+| `DATABASE_URL` | `hono`, `vercel` | The Postgres connection string. Required. |
+| `B4_PG_WS_PROXY` | `hono`, `vercel` | A WebSocket-to-Postgres proxy for `@neondatabase/serverless` to dial instead of the database host. Format: `host:port`, optionally prefixed with `ws://` or `wss://` — nothing else. `wss://` keeps TLS on the WebSocket; a bare value or `ws://` turns it off. The driver appends its own `/v1?address=` path, so a value carrying a path, a query, or another scheme such as `http://` is rejected by name before any pool is opened. Empty means unset. |
+| `B4_PG_DRIVER` | `vercel` only | `neon` or `pg`. Overrides the host detection below. `pg` is refused on the `hono` target, where an isolate has no TCP sockets. |
+
+On the `hono` target every request goes through `@neondatabase/serverless`, because a WebSocket pool is the only durable Postgres path proven on workerd. That driver cannot speak plain TCP, so a database that is not Neon — including a local Postgres — is reachable only through a WebSocket proxy such as [`neondatabase/wsproxy`](https://github.com/neondatabase/wsproxy), named in `B4_PG_WS_PROXY`.
+
+The `vercel` target is a Node function with real TCP, so its `stores.mjs` chooses a driver per request:
+
+1. `B4_PG_DRIVER`, when set.
+2. Otherwise `@neondatabase/serverless` when `B4_PG_WS_PROXY` is set — a working proxy setup keeps working.
+3. Otherwise `@neondatabase/serverless` when the `DATABASE_URL` host ends in `.neon.tech`, and a pooled `pg` connection for every other host.
+
+Both pools are opened per request and ended when the request settles, and both run the same cold-start migration pass. Setting `B4_PG_WS_PROXY` together with `B4_PG_DRIVER=pg` is a configuration error, reported by name, rather than one value silently winning.
+
+### Run the Vercel bundle locally
+
+The `pg` fallback is what makes the built function testable offline. Point `DATABASE_URL` at a local Postgres and import the bundle from a small host script, with no proxy in between:
+
+```bash
+DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/app \
+  node --input-type=module -e '
+    const { default: app } = await import("./.vercel/output/functions/b4.func/index.mjs")
+    const response = await app.fetch(new Request("http://localhost/healthz"))
+    console.log(response.status, await response.text())
+  '
+```
+
+To exercise the same WebSocket path a Neon deployment uses, run `neondatabase/wsproxy` in front of the database and set `B4_PG_WS_PROXY=127.0.0.1:<proxy-port>`; the `hono` bundle under `@hono/node-server` needs exactly this, because it has no `pg` path. The repository's own Docker-gated round trips cover both routes.
 
 ## What the edge cannot serve
 

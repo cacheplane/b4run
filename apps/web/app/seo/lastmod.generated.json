@@ -52,14 +52,14 @@
       "recordDigest": "46b7653d72c2d977877526a323453fb51d4b7274f50b506846b14eacb3008950"
     },
     "/docs/api/cli": {
-      "lastModified": "2026-09-15T04:37:01.206Z",
-      "sourceDigest": "4a68dfe2fb9fc1488a782dc0f976df3a99a085eb7c7cb413e3fcd2496e427c09",
-      "recordDigest": "f5b4cdbdb93a876c92c669fff2ed4c3c0adb2b9b5de6f9cd2f6d7155f70ec98c"
+      "lastModified": "2026-09-17T15:45:37.876Z",
+      "sourceDigest": "8632f6116df94eb82c96ca8f718758550d57e1fdd8a740c5dbbf1d415380dab9",
+      "recordDigest": "de3c7087f46186b00f2c8a21562fd89e19c8a707b9c05f623689ed9676378f91"
     },
     "/docs/api/core": {
-      "lastModified": "2026-09-10T06:16:49.655Z",
-      "sourceDigest": "a57bca297cd1ec07f1ae54a0232e57f8f5488546fe943a57f36598d02d3d7dd6",
-      "recordDigest": "7739b3dfc2cb82ca31f3f483a6230336f7ccfa3143efa4e5e9c6cdc81b436418"
+      "lastModified": "2026-09-17T15:45:37.876Z",
+      "sourceDigest": "c4b9171efa71b2a792b2cd0101b92d43761afed4b183e82c6d1d0125bcfb78f4",
+      "recordDigest": "3d6b19fddfca682b11a02e1b8c736250f4982c3832e261bd754e61334678ce43"
     },
     "/docs/api/evals": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -97,9 +97,9 @@
       "recordDigest": "ace28516f5bb87d16a3674cf77837a12f213eb4772fc1922f4be60fae410eca7"
     },
     "/docs/api/postgres-storage": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "b1302f4246f5fc2d121fa051965aeae712dd3e096a0b7ba9c7510699443b495f",
-      "recordDigest": "620cd08a2e2fca5d60db245f338f1d1a9284446e36e9c190299370dc97718196"
+      "lastModified": "2026-09-17T15:43:02.909Z",
+      "sourceDigest": "e7f9ead758325524ced08e247d0a85d5e50dc10afa2a6744543df1aea2a8c7b9",
+      "recordDigest": "b5f0e41a2c4a07f9fdd9dbe5cf60f8da41ebe6c85605923e1436147a794390dd"
     },
     "/docs/api/sandbox": {
       "lastModified": "2026-09-14T21:13:45.147Z",
@@ -107,9 +107,9 @@
       "recordDigest": "8e87fc0c0f127a3223a21d956223792a316b704a5f8cbe1532047b43f9277437"
     },
     "/docs/api/sdk": {
-      "lastModified": "2026-09-15T04:37:01.206Z",
-      "sourceDigest": "2d41511c23b024f89e5955601f3a3343972885f9be13c9b74a565f84cbbff1cc",
-      "recordDigest": "e5182660819fc3e166619d60a211a7d281c4088b2c448aa9cad8aed41e204385"
+      "lastModified": "2026-09-17T05:40:18.718Z",
+      "sourceDigest": "047689cc3c4dd5451de511d9fdf5e2aeae526d11dec8d1b41acabd8d6a8ed6b0",
+      "recordDigest": "abcb89e64641a24307d19bf5ae95a5acffc303da2ca37d44df76bde92bcad906"
     },
     "/docs/api/sqlite-storage": {
       "lastModified": "2026-09-15T04:37:01.206Z",
@@ -132,14 +132,14 @@
       "recordDigest": "854d70653b7e7ae1a80889d317e0b5be8019a970d60e32882b07dd906cd3e951"
     },
     "/docs/cli": {
-      "lastModified": "2026-09-17T15:08:37.337Z",
+      "lastModified": "2026-09-17T16:26:19.709Z",
       "sourceDigest": "f8348a83fb4b7eeeb910e7a8b3fc8fdc42144b215683a4eda5ac8e8e75f9ab46",
-      "recordDigest": "dbab7493fa8079f8435385b97fa4262cd05a4df3045a8aacd23eff8d50f1a699"
+      "recordDigest": "03e817e916ba192748dbbde2f256a59e1f6f44c5011f01dd6ad8b0d513031b06"
     },
     "/docs/configuration": {
-      "lastModified": "2026-09-17T15:08:37.337Z",
-      "sourceDigest": "5a0715dc873a04d406933aa69e995a19bba79cb8c84f3a459f93a9bde83278c7",
-      "recordDigest": "db98510643028497683146470ed1802a79b4f63e905f3492225165c041356088"
+      "lastModified": "2026-09-17T16:26:19.709Z",
+      "sourceDigest": "0ec92b37736a22c288006ccf0bd428ae6ee6745db3a76207990ed3258222a27f",
+      "recordDigest": "ca676d18a77d6ec761e1c531badfebbff698f830023c55375aefedb527558bdf"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -152,9 +152,9 @@
       "recordDigest": "23534e39b998190912837e9ccddd04fb2899838062371ba4100a26b92c88f0f3"
     },
     "/docs/deployment/edge": {
-      "lastModified": "2026-09-10T06:16:49.655Z",
-      "sourceDigest": "58ae52eb8b58c70c3a600feb37ed241e9147f0deb15e82d90e999d853f0c1d25",
-      "recordDigest": "a85d15fa0da6ab3c477b18531c011dfba922d3f273e9a6719582308e43fdae11"
+      "lastModified": "2026-09-17T16:26:19.709Z",
+      "sourceDigest": "8a9efec28938aaaa2ab762f0d76a012ffbe89c3cbe21553a9fba6ae014c5f2cf",
+      "recordDigest": "abf2728b9698899373e1edfd7e642bd561f230507491d95b198c5e88efd891c8"
     },
     "/docs/deployment/kubernetes": {
       "lastModified": "2026-09-08T01:24:31.438Z",
@@ -247,9 +247,9 @@
       "recordDigest": "433703cf2db897bda5d558fad7b137bbaa8c90f77aad4776b0f193ad93d7374c"
     },
     "/docs/middleware": {
-      "lastModified": "2026-09-15T15:01:15.967Z",
-      "sourceDigest": "f5474bf689f9e0e5fbd39b4eefa6e79fbab002b5ea273ef8daf0c913ba3b28a0",
-      "recordDigest": "2ab136185fdf0468217de94604365acb2ccedf16fdefa0b465a2f54c6540a254"
+      "lastModified": "2026-09-17T05:40:18.718Z",
+      "sourceDigest": "f2cd15c07d3bbc242679407dfe1a0afe39397582e21e3570d7c7269ed0bdb503",
+      "recordDigest": "0671a159d13bb23a392c44b873e048828a58301dee3ecb374fb499b364315205"
     },
     "/docs/migrating-from-langgraph": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -392,9 +392,9 @@
       "recordDigest": "e412c909c42b74ed38a4e11f33f3e33904c1013bfab00db4bc5d7d1f5ec0b5f3"
     },
     "/docs/upgrading": {
-      "lastModified": "2026-09-17T15:08:37.337Z",
+      "lastModified": "2026-09-17T16:26:19.709Z",
       "sourceDigest": "babefff6e9bbee9e880ea595f441b9db07e4c9ccfb972913ab7337e49bb9c602",
-      "recordDigest": "be69c1cb0b807d4258b7e37523601802044e938affa550c15cca68ad647e645d"
+      "recordDigest": "481235a3bad8cff1fcffe5b10d68600c108f32cfa8e6f155665a94e7ace3e486"
     },
     "/docs/workspace": {
       "lastModified": "2026-09-07T19:58:55.550Z",
