@@ -142,6 +142,48 @@ describe.skipIf(!enabled)("postgres threads store against real Postgres", () => 
     }
   }, 60_000)
 
+  test("two schemas with one prefix do not see each other's threads, and each owns its tables", async () => {
+    // The per-environment namespace generated deployments select through
+    // B4_PG_SCHEMA: same prefix, different schema, so a preview deployment and
+    // a production deployment of one Vercel project stop sharing public.b4_*.
+    const prefix = freshPrefix()
+    const schemas = [`s_preview_${prefix}`, `s_production_${prefix}`] as const
+    const a = createPostgresThreadsStore({
+      connectionString: url,
+      schema: schemas[0],
+      tablePrefix: prefix,
+    })
+    const b = createPostgresThreadsStore({
+      connectionString: url,
+      schema: schemas[1],
+      tablePrefix: prefix,
+    })
+    const admin = new Pool({ connectionString: url })
+    try {
+      await a.createThread({ thread_id: "t-shared-id", metadata: { env: "preview" } })
+      await b.createThread({ thread_id: "t-shared-id", metadata: { env: "production" } })
+      expect((await a.getThread("t-shared-id"))?.metadata).toEqual({ env: "preview" })
+      expect((await b.getThread("t-shared-id"))?.metadata).toEqual({ env: "production" })
+      expect(await a.listThreads()).toHaveLength(1)
+
+      // The migration created the schema itself and placed the tables in it —
+      // not in `public` with the schema name ignored.
+      const tables = await admin.query<{ table_schema: string; table_name: string }>(
+        `SELECT table_schema, table_name FROM information_schema.tables
+         WHERE table_name = $1 ORDER BY table_schema`,
+        [`${prefix}_threads`],
+      )
+      expect(tables.rows).toEqual([
+        { table_schema: schemas[0], table_name: `${prefix}_threads` },
+        { table_schema: schemas[1], table_name: `${prefix}_threads` },
+      ])
+    } finally {
+      await a.close()
+      await b.close()
+      await admin.end()
+    }
+  }, 60_000)
+
   test("concurrent cold-start threads migrations against a virgin database all succeed", async () => {
     // Separate stores means separate pools and separate memoized ready()s, so
     // only the advisory lock inside runMigrations prevents 23505 here.

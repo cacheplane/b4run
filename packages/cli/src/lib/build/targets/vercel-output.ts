@@ -6,43 +6,11 @@ import { build } from "esbuild"
 
 import { CliError, formatErrorMessage } from "../../output.js"
 
-/**
- * The function directory name `b4 build` emits by default:
- * `.vercel/output/functions/b4.func`, routed from `/(.*)` to `/b4`.
- *
- * Deliberately not `index`: in the Build Output API a function named `index`
- * is also served at `/`, so it shadows a static `index.html` for any app that
- * ships a frontend beside the runtime (cacheplane/b4run#687).
- */
-export const DEFAULT_VERCEL_FUNCTION_NAME = "b4"
-
-const VERCEL_FUNCTION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
+import { DEFAULT_VERCEL_FUNCTION_NAME } from "./vercel-config.js"
 
 export interface VercelOutputOptions {
   /** Function directory name without the `.func` suffix. Defaults to {@link DEFAULT_VERCEL_FUNCTION_NAME}. */
   readonly functionName?: string
-}
-
-/**
- * Resolve and validate the function name from `build.vercel.functionName`.
- * Throws a {@link CliError} when the configured value cannot be a single
- * `functions/<name>.func` path segment.
- */
-export function resolveVercelFunctionName(
-  config:
-    | { readonly build?: { readonly vercel?: { readonly functionName?: unknown } } }
-    | undefined,
-): string {
-  const configured = config?.build?.vercel?.functionName
-  if (configured === undefined) return DEFAULT_VERCEL_FUNCTION_NAME
-  if (typeof configured !== "string" || !VERCEL_FUNCTION_NAME_PATTERN.test(configured)) {
-    throw new CliError(
-      `Invalid build config:\nbuild.vercel.functionName must be a single path segment of letters, digits, "_" or "-" (got ${JSON.stringify(configured)}). It names the emitted .vercel/output/functions/<name>.func directory.`,
-      1,
-      { code: "B4_E1003" },
-    )
-  }
-  return configured
 }
 
 export function vercelBuildOutputConfig(functionName: string) {

@@ -27,8 +27,8 @@ export interface BuildEmitContext {
   readonly manifest: RouteManifest
   /** Command IO for emitting warnings/notices during emit (optional). */
   readonly io?: CommandIo
-  /** The loaded `b4.config.ts`, when the app has one (targets read their own `build.<target>` block). */
-  readonly config?: B4Config
+  /** The loaded `b4.config.ts` `build` section, when the app has one. */
+  readonly buildConfig?: NonNullable<B4Config["build"]>
 }
 
 /**

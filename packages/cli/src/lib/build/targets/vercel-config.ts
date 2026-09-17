@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { link, lstat, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 
+import type { B4Config } from "@b4run/core"
 import { CliError, type CommandIo, formatErrorMessage, writeLine } from "../../output.js"
 
 const B4_VERCEL_BUILD_COMMAND = "node node_modules/@b4run/cli/dist/index.js build"
@@ -33,6 +34,112 @@ export function setVercelConfigFileOpsForTesting(
   return () => {
     fileOps = previousFileOps
   }
+}
+
+/** Every option `build.vercel` accepts. Anything else is an authoring error. */
+const VERCEL_BUILD_OPTION_KEYS: readonly string[] = ["functionName", "reconcileVercelJson"]
+
+/**
+ * A `functions/<name>.func` directory is one path segment, so the name cannot
+ * contain a separator, start with a dot, or be empty.
+ */
+const VERCEL_FUNCTION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
+
+/**
+ * The function directory name the `vercel` target emits by default:
+ * `.vercel/output/functions/b4.func`, routed from `/(.*)` to `/b4`.
+ *
+ * Deliberately not `index`: in the Build Output API a function named `index`
+ * is also served at `/`, where it shadows a static `index.html` for any app
+ * that ships a frontend beside the runtime (#687).
+ */
+export const DEFAULT_VERCEL_FUNCTION_NAME = "b4"
+
+/**
+ * Validates `build.vercel` and resolves whether the `vercel` target reconciles
+ * the app-root `vercel.json`.
+ *
+ * Reconciliation is ON unless the flag is exactly `false`, so every way of
+ * *nearly* turning it off has to be rejected rather than ignored — a config
+ * that reads as configured while the target keeps writing `vercel.json` is the
+ * failure this guards. The type only admits the right shape, but a `b4.config.js`
+ * or a JSON config arrives untyped, and nothing else in the config path applies
+ * a runtime schema. Rejected: a non-boolean flag (`"false"`, `0`), a non-object
+ * `build.vercel` (whose `?.` read would yield `undefined`), an unknown key
+ * inside it (`reconcileVercelJSON`), and the flag misplaced directly on `build`.
+ *
+ * `functionName` is validated the same way and for the same reason: it becomes
+ * a directory name and a route, so a value that cannot be one path segment has
+ * to be rejected rather than written out.
+ *
+ * `b4 check` and `b4 build` both call this, and the emitter consumes the values
+ * it returns, so the validated shape and the honored values cannot diverge.
+ */
+export function resolveVercelBuildConfig(build: B4Config["build"] | undefined): {
+  readonly functionName: string
+  readonly reconcileVercelJson: boolean
+} {
+  const buildRecord = isRecord(build) ? build : undefined
+
+  const misplaced = ownProperty(buildRecord, "reconcileVercelJson")
+  if (misplaced !== undefined) {
+    throw invalidBuildConfig(
+      "reconcileVercelJson belongs under build.vercel, not build directly. Use build: { vercel: { reconcileVercelJson: false } }.",
+    )
+  }
+
+  const vercel = ownProperty(buildRecord, "vercel")
+  if (vercel === undefined) {
+    return { functionName: DEFAULT_VERCEL_FUNCTION_NAME, reconcileVercelJson: true }
+  }
+  if (!isRecord(vercel)) {
+    throw invalidBuildConfig(`build.vercel must be an object; received ${JSON.stringify(vercel)}.`)
+  }
+
+  const unknownKeys = Object.keys(vercel)
+    .filter((key) => !VERCEL_BUILD_OPTION_KEYS.includes(key))
+    .sort()
+  if (unknownKeys.length > 0) {
+    throw invalidBuildConfig(
+      `Unknown build.vercel option(s): ${unknownKeys.join(", ")}. Known options: ${VERCEL_BUILD_OPTION_KEYS.join(", ")}.`,
+    )
+  }
+
+  return {
+    functionName: resolveFunctionName(vercel),
+    reconcileVercelJson: resolveReconcileVercelJson(vercel),
+  }
+}
+
+function resolveFunctionName(vercel: Record<string, unknown>): string {
+  const functionName = ownProperty(vercel, "functionName")
+  if (functionName === undefined) return DEFAULT_VERCEL_FUNCTION_NAME
+  if (typeof functionName !== "string" || !VERCEL_FUNCTION_NAME_PATTERN.test(functionName)) {
+    throw invalidBuildConfig(
+      `build.vercel.functionName must be a single path segment of letters, digits, "_" or "-"; received ${JSON.stringify(functionName)}. It names the emitted .vercel/output/functions/<name>.func directory.`,
+    )
+  }
+  return functionName
+}
+
+function resolveReconcileVercelJson(vercel: Record<string, unknown>): boolean {
+  const reconcileVercelJson = ownProperty(vercel, "reconcileVercelJson")
+  if (reconcileVercelJson === undefined) return true
+  if (typeof reconcileVercelJson !== "boolean") {
+    throw invalidBuildConfig(
+      `build.vercel.reconcileVercelJson must be a boolean; received ${JSON.stringify(reconcileVercelJson)}.`,
+    )
+  }
+  return reconcileVercelJson
+}
+
+/** Throw-away form of {@link resolveVercelBuildConfig} for validation-only callers. */
+export function assertVercelBuildConfig(build: B4Config["build"] | undefined): void {
+  resolveVercelBuildConfig(build)
+}
+
+function invalidBuildConfig(detail: string): CliError {
+  return new CliError(`Invalid build config:\n${detail}`, 1, { code: "B4_E1003" })
 }
 
 export async function reconcileVercelConfig(input: {

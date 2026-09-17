@@ -16,6 +16,7 @@ import {
   EMPTY_RUNTIME_ENV_STUB,
   FAILING_READY_STORAGE_STUB,
   HONO_STUB,
+  NAMING_STORAGE_STUB,
   NO_PROXY_RUNTIME_ENV_STUB,
   writeCliFetchStub,
   writeStubPackage,
@@ -325,7 +326,7 @@ describe("b4 build — hono target", () => {
     // Per-request stores memoize migrations on the INSTANCE, so without this
     // flag every request pays three migration transactions — each taking
     // pg_advisory_xact_lock, which also serializes concurrent requests.
-    expect(stores).toMatch(/^let migrated = false$/m)
+    expect(stores).toMatch(/^const migrated = new Set\(\)$/m)
     expect(stores).toContain("assumeMigrated")
     // That the flag is only set AFTER the migration succeeded is not asserted
     // here: a text assertion on generated code is what let the ordering rot
@@ -1219,6 +1220,171 @@ describe("hono target — bindings on a host that has none", () => {
     })
 
     expect(observed).toEqual({ readyCalls: 6, requestErrors: ["cold start failed"] })
+  })
+
+  test("namespaces each request's stores from B4_PG_SCHEMA and B4_PG_TABLE_PREFIX", async () => {
+    const appRoot = await createFixtureApp()
+    await runBuild(appRoot)
+
+    // Four requests in one isolate: the unconfigured default, a literal schema,
+    // a `$VERCEL_ENV` reference with a prefix, and the default again.
+    const observed = await driveEmittedStores(
+      appRoot,
+      buildDir(appRoot),
+      [
+        {},
+        { B4_PG_SCHEMA: "preview" },
+        { B4_PG_SCHEMA: "$VERCEL_ENV", B4_PG_TABLE_PREFIX: "app", VERCEL_ENV: "production" },
+        {},
+      ],
+      {
+        report: "{ namings, readyCalls }",
+        reportImports: 'import { namings, readyCalls } from "@b4run/postgres-storage"',
+        storageStub: NAMING_STORAGE_STUB,
+      },
+    )
+
+    const trio = (schema: string, tablePrefix: string, assumeMigrated: boolean) =>
+      ["checkpointer", "permissions", "threads"].map((kind) => ({
+        assumeMigrated,
+        kind,
+        schema,
+        tablePrefix,
+      }))
+    expect(observed).toEqual({
+      namings: [
+        // Nothing set: the package defaults, so an existing deployment keeps
+        // its `public.b4_*` tables.
+        ...trio("public", "b4", false),
+        ...trio("preview", "b4", false),
+        // `$NAME` resolves through the same per-request binding lookup as
+        // DATABASE_URL — one setting, a different schema per Vercel environment.
+        ...trio("production", "app", false),
+        // The isolate has migrated `public.b4` already, so this pass is skipped
+        // for it — and only for it.
+        ...trio("public", "b4", true),
+      ],
+      readyCalls: [
+        "checkpointer:public.b4",
+        "permissions:public.b4",
+        "threads:public.b4",
+        "checkpointer:preview.b4",
+        "permissions:preview.b4",
+        "threads:preview.b4",
+        "checkpointer:production.app",
+        "permissions:production.app",
+        "threads:production.app",
+      ],
+    })
+  })
+
+  test("a naming reference resolves through the runtime env when the host passes no bindings", async () => {
+    const appRoot = await createFixtureApp()
+    await runBuild(appRoot)
+
+    // The Vercel case: `process.env` carries both the reference and the
+    // variable it names, and the fetch handler's second argument carries nothing.
+    const observed = await driveEmittedStores(
+      appRoot,
+      buildDir(appRoot),
+      [{ incoming: {}, outgoing: {} }],
+      {
+        cliStub: `export function readRuntimeEnv(name) {
+  return {
+    B4_PG_SCHEMA: "$VERCEL_ENV",
+    DATABASE_URL: "postgres://from-runtime-env/db",
+    VERCEL_ENV: "preview",
+  }[name]
+}
+export const describeConnectionTarget = (url) => url
+export const formatErrorChain = (error) => String(error?.message ?? error)
+`,
+        report: "namings.map((n) => n.schema + '.' + n.tablePrefix)",
+        reportImports: 'import { namings } from "@b4run/postgres-storage"',
+        storageStub: NAMING_STORAGE_STUB,
+      },
+    )
+
+    expect(observed).toEqual(["preview.b4", "preview.b4", "preview.b4"])
+  })
+
+  test("a bad naming binding fails the request by name instead of falling back to public", async () => {
+    const appRoot = await createFixtureApp()
+    await runBuild(appRoot)
+
+    // A mistyped setting silently writing into the shared default schema is
+    // the exact failure the binding exists to prevent, so each of these throws
+    // — before any store is built or any pool opened.
+    const observed = await driveEmittedStores(
+      appRoot,
+      buildDir(appRoot),
+      [
+        { B4_PG_SCHEMA: "Preview" },
+        { B4_PG_SCHEMA: "$B4_ENV" },
+        { B4_PG_TABLE_PREFIX: "$VERCEL_ENV", VERCEL_ENV: "pre-view" },
+        { B4_PG_TABLE_PREFIX: "b4; DROP TABLE x" },
+        // `$` names nothing. Looking it up would report "references , which is
+        // not set" and send the operator hunting for a variable with no name.
+        { B4_PG_SCHEMA: "$" },
+        // What a wrangler.toml typo produces: the name is bound, but to a KV or
+        // Durable Object namespace rather than a var. Calling a string method on
+        // it would throw a TypeError naming no binding at all.
+        { B4_PG_SCHEMA: { getWithMetadata: () => {} } },
+      ],
+      {
+        report: "{ namings, pools: pools.length, requestErrors }",
+        reportImports:
+          'import { namings } from "@b4run/postgres-storage"\nimport { pools } from "@neondatabase/serverless"',
+        storageStub: NAMING_STORAGE_STUB,
+        tolerateRequestFailures: true,
+      },
+    )
+
+    expect(observed).toEqual({
+      namings: [],
+      pools: 0,
+      requestErrors: [
+        'hono target: B4_PG_SCHEMA must resolve to a lowercase SQL identifier (/^[a-z_][a-z0-9_]*$/), got "Preview".',
+        'hono target: B4_PG_SCHEMA is "$B4_ENV", which references B4_ENV, and that variable is not set to a non-empty string here. Set B4_PG_SCHEMA to a literal identifier, or to $NAME for a variable this deployment sets.',
+        'hono target: B4_PG_TABLE_PREFIX must resolve to a lowercase SQL identifier (/^[a-z_][a-z0-9_]*$/), got "pre-view" from $VERCEL_ENV.',
+        'hono target: B4_PG_TABLE_PREFIX must resolve to a lowercase SQL identifier (/^[a-z_][a-z0-9_]*$/), got "b4; DROP TABLE x".',
+        'hono target: B4_PG_SCHEMA is "$", which references an empty variable name. Set B4_PG_SCHEMA to a literal identifier, or to $NAME for a variable this deployment sets.',
+        "hono target: B4_PG_SCHEMA must be a string, got object. On Workers, check that it is a vars entry or a secret rather than another kind of binding.",
+      ],
+    })
+  })
+
+  test("a second database in one isolate still gets its own cold-start migration", async () => {
+    const appRoot = await createFixtureApp()
+    await runBuild(appRoot)
+
+    // The isolate-level memo skips a migration pass already known to have run.
+    // Keyed on the schema and prefix ALONE, request 2 below would be told that
+    // a virgin database had been migrated — because request 1 migrated a
+    // DIFFERENT database under the same `public.b4` — and every query against
+    // it would then fail with `undefined_table` for the life of the isolate.
+    //
+    // This is not a hypothetical host: the generated entry binds env PER
+    // REQUEST specifically so a later request can reach a different database,
+    // and the fallback test above drives exactly that.
+    const observed = await driveEmittedStores(
+      appRoot,
+      buildDir(appRoot),
+      [
+        { DATABASE_URL: "postgres://one/db" },
+        { DATABASE_URL: "postgres://two/db" },
+        { DATABASE_URL: "postgres://one/db" },
+      ],
+      {
+        report: "namings.map((n) => n.assumeMigrated)",
+        reportImports: 'import { namings } from "@b4run/postgres-storage"',
+        storageStub: NAMING_STORAGE_STUB,
+      },
+    )
+
+    // Three stores per request. The second database migrates on its own; the
+    // return to the first one is the pass that may be skipped.
+    expect(observed).toEqual([false, false, false, false, false, false, true, true, true])
   })
 
   test("still names the missing binding when neither source has it", async () => {

@@ -849,6 +849,35 @@ export async function workflow() {
     expect(stdout.join("")).not.toContain("b4.func")
   })
 
+  test("functionName and reconcileVercelJson are honored together", async () => {
+    const appRoot = await createTargetFixture({
+      "b4.config.ts": `export default {
+  build: {
+    targets: ["vercel"],
+    vercel: { functionName: "agent", reconcileVercelJson: false },
+  },
+}
+`,
+    })
+
+    const { stderr, stdout } = await runTargetBuild(appRoot)
+
+    const outputDir = join(appRoot, ".vercel", "output")
+    expect(stderr.join("")).toBe("")
+    expect(await listTree(outputDir)).toEqual([
+      "config.json",
+      join("functions", "agent.func", ".vc-config.json"),
+      join("functions", "agent.func", "index.mjs"),
+    ])
+    expect(existsSync(join(appRoot, "vercel.json"))).toBe(false)
+    const artifactLines = stdout
+      .join("")
+      .split("\n")
+      .filter((line) => line.trim().startsWith("wrote "))
+    expect(artifactLines).toHaveLength(3)
+    expect(artifactLines.join("\n")).not.toContain("vercel.json")
+  })
+
   test.each(["", "index/../escape", "../escape", "a b", ".hidden", 42])(
     "rejects build.vercel.functionName %j before creating .vercel",
     async (functionName) => {
@@ -908,6 +937,67 @@ export async function workflow() {
     expect(await listTree(outputDir)).toEqual(["prior.txt"])
     await expect(readFile(join(outputDir, "prior.txt"), "utf8")).resolves.toBe(priorEntry)
     expect((await readdir(vercelDir)).some((name) => name.startsWith(".b4-vercel-"))).toBe(false)
+  })
+
+  test("reconcileVercelJson: false skips the root vercel.json contract for prebuilt deploys", async () => {
+    const appRoot = await createTargetFixture({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { reconcileVercelJson: false } } }\n',
+    })
+
+    const { stderr, stdout } = await runTargetBuild(appRoot)
+
+    const outputDir = join(appRoot, ".vercel", "output")
+    expect(stderr.join("")).toBe("")
+    expect(await listTree(outputDir)).toEqual([
+      "config.json",
+      join("functions", "b4.func", ".vc-config.json"),
+      join("functions", "b4.func", "index.mjs"),
+    ])
+    expect(existsSync(join(appRoot, "vercel.json"))).toBe(false)
+    expect(existsSync(join(appRoot, ".b4", "build", "vercel.json"))).toBe(false)
+    // No `wrote ... vercel.json` artifact line. The notice itself names the
+    // file it deliberately left alone, so match the artifact lines only.
+    const report = stdout.join("")
+    const artifactLines = report.split("\n").filter((line) => line.trim().startsWith("wrote "))
+    expect(artifactLines).toHaveLength(3)
+    expect(artifactLines.join("\n")).not.toContain("vercel.json")
+    expect(report).toContain("reconcileVercelJson: false")
+  })
+
+  test("reconcileVercelJson: false leaves an authored vercel.json unread and untouched", async () => {
+    // A prebuilt flow never runs buildCommand, so the target must not inspect
+    // the file at all — not even the fluid: false conflict that fails the
+    // reconciled path. The deployed project's Fluid setting is guidance, not
+    // a build-time gate, once reconciliation is off.
+    const authored = '{ "fluid": false }\n'
+    const appRoot = await createTargetFixture({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { reconcileVercelJson: false } } }\n',
+      "vercel.json": authored,
+    })
+
+    const { stderr } = await runTargetBuild(appRoot)
+
+    expect(stderr.join("")).toBe("")
+    await expect(readFile(join(appRoot, "vercel.json"), "utf8")).resolves.toBe(authored)
+    expect(existsSync(join(appRoot, ".b4", "build", "vercel.json"))).toBe(false)
+    expect(existsSync(join(appRoot, ".vercel", "output", "config.json"))).toBe(true)
+  })
+
+  test("reconcileVercelJson: true keeps the reconciled root contract", async () => {
+    const appRoot = await createTargetFixture({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { reconcileVercelJson: true } } }\n',
+    })
+
+    const { stderr, stdout } = await runTargetBuild(appRoot)
+
+    expect(stderr.join("")).toBe("")
+    await expect(readFile(join(appRoot, "vercel.json"), "utf8")).resolves.toBe(
+      EXPECTED_RECOMMENDED_VERCEL_CONFIG_JSON,
+    )
+    expect(stdout.join("")).toContain("vercel.json")
   })
 
   test("reports invocation cleanup failure after publishing valid final output", async () => {

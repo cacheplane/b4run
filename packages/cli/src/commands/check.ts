@@ -12,7 +12,7 @@ import {
 } from "../lib/build/targets/edge-capabilities.js"
 import { knownTargetNames } from "../lib/build/targets/index.js"
 import { assertRouteMarkerFileLimits } from "../lib/build/targets/marker-files.js"
-import { resolveVercelFunctionName } from "../lib/build/targets/vercel-output.js"
+import { assertVercelBuildConfig } from "../lib/build/targets/vercel-config.js"
 import { loadB4Config } from "../lib/node-config.js"
 import { CliError, type CommandIo, formatErrorMessage, writeLine } from "../lib/output.js"
 import { collectDelegationErrors } from "../lib/runtime/collect-delegation-errors.js"
@@ -96,6 +96,9 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
       loadedConfig = {}
     }
 
+    // Rejected target list or not: a mistyped opt-out must not pass check.
+    assertVercelBuildConfig(loadedConfig.build)
+
     // Typed as known names, but a JS config arrives untyped — keep validating.
     const buildTargets: readonly string[] | undefined = loadedConfig.build?.targets
     if (buildTargets) {
@@ -108,11 +111,6 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
           { code: "B4_E1003" },
         )
       }
-
-      // Mirrors the vercel emitter's fail-fast name check, so a bad
-      // `build.vercel.functionName` surfaces from `b4 check` rather than from a
-      // failed build.
-      if (buildTargets.includes("vercel")) resolveVercelFunctionName(loadedConfig)
 
       // The same gate edge targets apply at emit time, mirrored here so a user
       // finds out from `b4 check` rather than from a failed build. An app on
