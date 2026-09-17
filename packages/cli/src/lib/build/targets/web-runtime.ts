@@ -186,6 +186,60 @@ import { Client, Pool, types } from "@neondatabase/serverless"
 const binding = (env, name) => env?.[name] ?? readRuntimeEnv(name)
 
 /**
+ * The one shape a schema or table prefix may take — the same pattern
+ * \`@b4run/postgres-storage\` enforces at construction. Checked HERE as well so
+ * the error names the binding that was set, not the store option it fed.
+ *
+ * Lowercase only: the stores interpolate these unquoted, and Postgres folds an
+ * unquoted identifier to lowercase, so a mixed-case value would never name the
+ * tables it appeared to.
+ */
+const IDENTIFIER_PATTERN = /^[a-z_][a-z0-9_]*$/
+
+/**
+ * Resolve a naming binding to the identifier a store receives.
+ *
+ * Three cases, and the middle one is why this exists:
+ *
+ *  - unset → \`fallback\` (\`public\` / \`b4\`): a deployment that sets nothing keeps
+ *    writing where it always has;
+ *  - \`$NAME\` → the value of binding \`NAME\`, read through the same lookup as
+ *    every other knob. \`B4_PG_SCHEMA=$VERCEL_ENV\` is one setting that puts a
+ *    preview deployment in \`preview\` and a production deployment in
+ *    \`production\`, which is exactly what stops the two sharing one table set
+ *    when they share one database;
+ *  - anything else → a literal identifier.
+ *
+ * A literal that is not an identifier, a reference to an unset binding, or a
+ * reference whose value is not an identifier THROWS. It does not fall back to
+ * the default: a mistyped setting silently writing production data into the
+ * shared default schema is the failure this binding exists to prevent, so the
+ * request fails and says which binding to fix.
+ */
+const namingBinding = (env, name, fallback) => {
+  const raw = binding(env, name)
+  if (raw === undefined || raw === "") return fallback
+  let value = raw
+  if (raw.startsWith("$")) {
+    const source = raw.slice(1)
+    value = binding(env, source)
+    if (value === undefined || value === "") {
+      throw new Error(
+        \`${targetName} target: \${name} references \${source}, which is not set in this deployment's environment. \` +
+          \`Set \${source}, or set \${name} to a literal identifier.\`,
+      )
+    }
+  }
+  if (!IDENTIFIER_PATTERN.test(value)) {
+    throw new Error(
+      \`${targetName} target: \${name} must resolve to a lowercase SQL identifier (\${IDENTIFIER_PATTERN}), \` +
+        \`got \${JSON.stringify(value)}\${raw === value ? "" : \` from \${raw}\`}.\`,
+    )
+  }
+  return value
+}
+
+/**
  * Decode PostgreSQL's canonical hex BYTEA text without the driver's deprecated
  * Buffer constructor. B4.run's checkpoint serializer consumes Uint8Array, so the
  * result retains the driver's byte semantics without a process-global parser
@@ -252,23 +306,27 @@ class B4PgClient extends Client {
 }
 
 /**
- * Whether THIS ISOLATE has already migrated the database it talks to.
+ * Which table namespaces (\`schema.prefix\`) THIS ISOLATE has already migrated.
  *
  * Module scope is safe here in a way a module-scope POOL is not, and the
- * difference is the whole reason this is a boolean: a pool holds sockets bound
- * to the I/O context of the request that opened them, and reusing one across
- * requests hangs on workerd. A boolean holds nothing. Do not "fix" this by
- * hoisting the stores or the pool alongside it.
+ * difference is the whole reason this is a set of strings: a pool holds sockets
+ * bound to the I/O context of the request that opened them, and reusing one
+ * across requests hangs on workerd. A string holds nothing. Do not "fix" this
+ * by hoisting the stores or the pool alongside it.
  *
  * Without it every request would re-run three migration transactions — each
  * taking \`pg_advisory_xact_lock\`, which also SERIALIZES concurrent requests on
  * the same component key — because a store memoizes its migration on the
  * INSTANCE, and instances here are per request.
  *
- * Only set after the migration actually succeeded, so a failed cold start does
- * not convince the next request the schema is there.
+ * Keyed by namespace rather than a single boolean because the schema and prefix
+ * are per-request bindings like DATABASE_URL: a namespace this isolate has not
+ * seen yet still needs its own cold-start pass.
+ *
+ * A key is only added after the migration actually succeeded, so a failed cold
+ * start does not convince the next request the schema is there.
  */
-let migrated = false
+const migrated = new Set()
 
 /**
  * One pool per request, closed on dispose.
@@ -295,6 +353,12 @@ export async function createRequestStores(env) {
       ${databaseUrlError},
     )
   }
+  // Where this request's tables live. Both default to the package's own
+  // defaults, so a deployment that sets neither binding keeps its existing
+  // \`public.b4_*\` tables. Resolved BEFORE the pool exists: a bad setting fails
+  // with nothing to close.
+  const schema = namingBinding(env, "B4_PG_SCHEMA", "public")
+  const tablePrefix = namingBinding(env, "B4_PG_TABLE_PREFIX", "b4")
   // The proxy is a per-request binding exactly like DATABASE_URL, so it is read
   // here and handed to the pool as an option rather than written anywhere shared.
   const pool = new Pool({
@@ -340,12 +404,14 @@ export async function createRequestStores(env) {
     console.warn(\`[b4:${runtimeLogTarget}] postgres pool client error (connection dropped): \${String(error)}\`)
   })
   try {
-    const assumeMigrated = migrated
+    const namespace = \`\${schema}.\${tablePrefix}\`
+    const assumeMigrated = migrated.has(namespace)
+    const naming = { pool, assumeMigrated, schema, tablePrefix }
     const stores = {
-      checkpointer: postgresCheckpointer({ pool, assumeMigrated }),
+      checkpointer: postgresCheckpointer(naming),
       dispose: () => pool.end(),
-      permissionsStore: createPostgresPermissionsStore({ pool, assumeMigrated }),
-      threadsStore: createPostgresThreadsStore({ pool, assumeMigrated }),
+      permissionsStore: createPostgresPermissionsStore(naming),
+      threadsStore: createPostgresThreadsStore(naming),
     }
     if (!assumeMigrated) {
       // The cold-start pass. Concurrent cold starts — across isolates AND
@@ -357,7 +423,7 @@ export async function createRequestStores(env) {
         stores.permissionsStore.ready(),
         stores.threadsStore.ready(),
       ])
-      migrated = true
+      migrated.add(namespace)
     }
     return stores
   } catch (error) {

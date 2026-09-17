@@ -30,6 +30,13 @@ await threadsStore.close()
 await pool.end()
 ```
 
+Every store accepts `schema` (default `public`) and `tablePrefix` (default `b4`), so several
+applications or deployment environments can share one database. Both must be lowercase SQL
+identifiers matching `^[a-z_][a-z0-9_]*$`; the migration pass creates the schema if needed. Pass the
+same values to the checkpointer, threads store and permissions store. Apps built with
+`b4 build` for the `hono` or `vercel` target set these through the `B4_PG_SCHEMA` and
+`B4_PG_TABLE_PREFIX` runtime bindings instead.
+
 ## Runtime and stability
 
 - `@b4run/postgres-storage` is a supported edge-safe application surface that requires an injected structural pool. The tested edge path is local workerd with a Neon WebSocket pool; this is not a claim about every edge host.

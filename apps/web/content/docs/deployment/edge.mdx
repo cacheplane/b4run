@@ -121,9 +121,28 @@ The generated factory runs `ready()` for the checkpointer, thread store, and per
 
 The emitted factory supplies no long-term memory store. Reaching an otherwise omitted required store fails with `B4_E5301` rather than opening local SQLite.
 
-The generated Hono stores use the default `public` schema and default `b4` table prefix, producing `public.b4_*` tables with no application namespace. A generated Hono app therefore requires an app-dedicated database. Do not point generated artifacts from separate applications or trust boundaries at the same database.
+The generated stores use the `public` schema and the `b4` table prefix unless the deployment sets the bindings below, producing `public.b4_*` tables with no application namespace. Do not point generated artifacts from separate applications or trust boundaries at the same database without giving each its own schema or prefix.
 
-Sharing a database is supported only with hand-composed request stores that pass a unique `schema` or `tablePrefix` consistently to `postgresCheckpointer`, `createPostgresThreadsStore`, and `createPostgresPermissionsStore`. That composition must still preserve the generated path's workerd constraints: per-request pools and disposal, migration coordination, original-`Request` environment binding, static model-provider imports, serialized runtime config, and permission hydration/policy decisions. Do not edit generated `stores.mjs`; rebuilds replace it.
+Wiring the stores yourself, with a unique `schema` or `tablePrefix` passed consistently to `postgresCheckpointer`, `createPostgresThreadsStore`, and `createPostgresPermissionsStore`, remains supported. That composition must still preserve the generated path's workerd constraints: per-request pools and disposal, migration coordination, original-`Request` environment binding, static model-provider imports, serialized runtime config, and permission hydration/policy decisions. Do not edit generated `stores.mjs`; rebuilds replace it.
+
+## Namespace preview and production
+
+One database attached to both the preview and production environments of a Vercel project would otherwise share one set of `public.b4_*` tables. The generated `stores.mjs` reads two bindings per request, through the same lookup as `DATABASE_URL`, to choose where that request's tables live:
+
+| Binding | Store option | Default |
+|---|---|---|
+| `B4_PG_SCHEMA` | `schema` | `public` |
+| `B4_PG_TABLE_PREFIX` | `tablePrefix` | `b4` |
+
+Each value is either a lowercase identifier matching `^[a-z_][a-z0-9_]*$` or a `$NAME` reference, which resolves to the value of the variable `NAME` read the same way. The reference form lets one setting serve every environment:
+
+```bash
+B4_PG_SCHEMA=$VERCEL_ENV
+```
+
+A preview deployment then migrates and writes `preview.b4_*`, and a production deployment `production.b4_*`. Vercel sets `VERCEL_ENV` on every deployment; `B4_ENV` or any other variable you set per environment works the same way, on Workers through a binding and on Node or Bun through the environment. The migration pass creates the schema if it does not exist, and an isolate tracks its cold-start migration per schema and prefix.
+
+Leaving both bindings unset keeps the defaults, so an existing deployment continues to use its `public.b4_*` tables. A value that is not an identifier, a reference to an unset variable, or a reference whose value is not an identifier fails the request with an error naming the binding. It does not fall back to `public`: a mistyped setting silently writing production data into the shared default schema is the failure the binding exists to prevent.
 
 ## What the edge cannot serve
 
@@ -167,7 +186,7 @@ wrangler secret put DATABASE_URL
 1. Run `b4 check` and resolve every `B4_E1005` violation.
 2. Inspect `modules.edge.mjs`, `stores.mjs`, `app.mjs`, and the selected `wrangler.toml`.
 3. Declare the emitted runtime dependencies and every discovered model-provider package.
-4. Configure `DATABASE_URL` and model credentials as runtime secrets or bindings.
+4. Configure `DATABASE_URL` and model credentials as runtime secrets or bindings, and `B4_PG_SCHEMA` where preview and production share a database.
 5. Put outer authentication and tenant authorization around all rooted B4.run paths.
 6. Validate permission mode, static policy, hydration, and refresh if using generated stores.
 7. Drive Agent Protocol, AG-UI streaming, cancellation, and request-store disposal on the deployed host.

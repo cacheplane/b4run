@@ -314,7 +314,7 @@ describe("b4 build — hono target", () => {
     // Per-request stores memoize migrations on the INSTANCE, so without this
     // flag every request pays three migration transactions — each taking
     // pg_advisory_xact_lock, which also serializes concurrent requests.
-    expect(stores).toMatch(/^let migrated = false$/m)
+    expect(stores).toMatch(/^const migrated = new Set\(\)$/m)
     expect(stores).toContain("assumeMigrated")
     // That the flag is only set AFTER the migration succeeded is not asserted
     // here: a text assertion on generated code is what let the ordering rot
@@ -1119,6 +1119,31 @@ export const poolTypeParserReport = () => {
 }
 `
 
+  /**
+   * The store trio again, recording the naming each factory was handed and
+   * which namespace each `ready()` migrated — the observables for the
+   * per-environment schema bindings.
+   */
+  const NAMING_STORAGE_STUB = `export const namings = []
+export const readyCalls = []
+const factory = (kind) => (options) => {
+  namings.push({
+    kind,
+    assumeMigrated: options.assumeMigrated,
+    schema: options.schema,
+    tablePrefix: options.tablePrefix,
+  })
+  return {
+    ready: async () => {
+      readyCalls.push(kind + ":" + options.schema + "." + options.tablePrefix)
+    },
+  }
+}
+export const createPostgresPermissionsStore = factory("permissions")
+export const createPostgresThreadsStore = factory("threads")
+export const postgresCheckpointer = factory("checkpointer")
+`
+
   /** A `@b4run/cli/fetch` stub whose runtime env knows nothing. */
   const EMPTY_RUNTIME_ENV_STUB = `export function readRuntimeEnv() {
   return undefined
@@ -1328,6 +1353,120 @@ console.log(JSON.stringify(${options.report ?? "poolConnections()"}))
     })
 
     expect(observed).toEqual({ readyCalls: 6, requestErrors: ["cold start failed"] })
+  })
+
+  test("namespaces each request's stores from B4_PG_SCHEMA and B4_PG_TABLE_PREFIX", async () => {
+    const appRoot = await createFixtureApp()
+    await runBuild(appRoot)
+
+    // Four requests in one isolate: the unconfigured default, a literal schema,
+    // a `$VERCEL_ENV` reference with a prefix, and the default again.
+    const observed = await driveEmittedStores(
+      appRoot,
+      [
+        {},
+        { B4_PG_SCHEMA: "preview" },
+        { B4_PG_SCHEMA: "$VERCEL_ENV", B4_PG_TABLE_PREFIX: "app", VERCEL_ENV: "production" },
+        {},
+      ],
+      {
+        report: "{ namings, readyCalls }",
+        reportImports: 'import { namings, readyCalls } from "@b4run/postgres-storage"',
+        storageStub: NAMING_STORAGE_STUB,
+      },
+    )
+
+    const trio = (schema: string, tablePrefix: string, assumeMigrated: boolean) =>
+      ["checkpointer", "permissions", "threads"].map((kind) => ({
+        assumeMigrated,
+        kind,
+        schema,
+        tablePrefix,
+      }))
+    expect(observed).toEqual({
+      namings: [
+        // Nothing set: the package defaults, so an existing deployment keeps
+        // its `public.b4_*` tables.
+        ...trio("public", "b4", false),
+        ...trio("preview", "b4", false),
+        // `$NAME` resolves through the same per-request binding lookup as
+        // DATABASE_URL — one setting, a different schema per Vercel environment.
+        ...trio("production", "app", false),
+        // The isolate has migrated `public.b4` already, so this pass is skipped
+        // for it — and only for it.
+        ...trio("public", "b4", true),
+      ],
+      readyCalls: [
+        "checkpointer:public.b4",
+        "permissions:public.b4",
+        "threads:public.b4",
+        "checkpointer:preview.b4",
+        "permissions:preview.b4",
+        "threads:preview.b4",
+        "checkpointer:production.app",
+        "permissions:production.app",
+        "threads:production.app",
+      ],
+    })
+  })
+
+  test("a naming reference resolves through the runtime env when the host passes no bindings", async () => {
+    const appRoot = await createFixtureApp()
+    await runBuild(appRoot)
+
+    // The Vercel case: `process.env` carries both the reference and the
+    // variable it names, and the fetch handler's second argument carries nothing.
+    const observed = await driveEmittedStores(appRoot, [{ incoming: {}, outgoing: {} }], {
+      cliStub: `export function readRuntimeEnv(name) {
+  return {
+    B4_PG_SCHEMA: "$VERCEL_ENV",
+    DATABASE_URL: "postgres://from-runtime-env/db",
+    VERCEL_ENV: "preview",
+  }[name]
+}
+`,
+      report: "namings.map((n) => n.schema + '.' + n.tablePrefix)",
+      reportImports: 'import { namings } from "@b4run/postgres-storage"',
+      storageStub: NAMING_STORAGE_STUB,
+    })
+
+    expect(observed).toEqual(["preview.b4", "preview.b4", "preview.b4"])
+  })
+
+  test("a bad naming binding fails the request by name instead of falling back to public", async () => {
+    const appRoot = await createFixtureApp()
+    await runBuild(appRoot)
+
+    // A mistyped setting silently writing into the shared default schema is
+    // the exact failure the binding exists to prevent, so each of these throws
+    // — before any store is built or any pool opened.
+    const observed = await driveEmittedStores(
+      appRoot,
+      [
+        { B4_PG_SCHEMA: "Preview" },
+        { B4_PG_SCHEMA: "$B4_ENV" },
+        { B4_PG_TABLE_PREFIX: "$VERCEL_ENV", VERCEL_ENV: "pre-view" },
+        { B4_PG_TABLE_PREFIX: "b4; DROP TABLE x" },
+      ],
+      {
+        report: "{ namings, pools: pools.length, requestErrors }",
+        reportImports:
+          'import { namings } from "@b4run/postgres-storage"\nimport { pools } from "@neondatabase/serverless"',
+        storageStub: NAMING_STORAGE_STUB,
+        tolerateRequestFailures: true,
+      },
+    )
+
+    expect(observed).toEqual({
+      namings: [],
+      pools: 0,
+      requestErrors: [
+        'hono target: B4_PG_SCHEMA must resolve to a lowercase SQL identifier (/^[a-z_][a-z0-9_]*$/), got "Preview".',
+        "hono target: B4_PG_SCHEMA references B4_ENV, which is not set in this deployment's environment. Set B4_ENV, or set B4_PG_SCHEMA to a literal identifier.",
+        'hono target: B4_PG_TABLE_PREFIX must resolve to a lowercase SQL identifier (/^[a-z_][a-z0-9_]*$/), got "pre-view" from $VERCEL_ENV.',
+        'hono target: B4_PG_TABLE_PREFIX must resolve to a lowercase SQL identifier (/^[a-z_][a-z0-9_]*$/), got "b4; DROP TABLE x".',
+      ],
+    })
   })
 
   test("still names the missing binding when neither source has it", async () => {

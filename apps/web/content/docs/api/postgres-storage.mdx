@@ -40,6 +40,7 @@ The root's edge-safe classification covers its import graph. Local workerd plus 
 | `assertIdentifier` | Reject unsafe SQL identifiers. |
 | `DEFAULT_SCHEMA` | Expose the default schema. |
 | `DEFAULT_TABLE_PREFIX` | Expose the default table prefix. |
+| `IDENTIFIER_PATTERN` | Expose the lowercase identifier pattern `assertIdentifier` enforces. |
 | `SqlClient` | Define the structural SQL client. |
 | `SqlPool` | Define the structural SQL pool. |
 | `SqlResult` | Describe a structural query result. |
@@ -69,6 +70,7 @@ The `/node` entry also re-exports every root export. The repeated rows below est
 | `assertIdentifier` | Re-export identifier validation. |
 | `DEFAULT_SCHEMA` | Re-export the default schema. |
 | `DEFAULT_TABLE_PREFIX` | Re-export the default table prefix. |
+| `IDENTIFIER_PATTERN` | Re-export the identifier pattern. |
 | `SqlClient` | Re-export the SQL client contract. |
 | `SqlPool` | Re-export the SQL pool contract. |
 | `SqlResult` | Re-export the SQL result contract. |
@@ -100,8 +102,8 @@ export interface PostgresStoreOptions {
 | `readonly pool` | `SqlPool` | no | Supply the pool used by every store call. |
 | `readonly ownsPool` | `boolean` | no | End the supplied pool when this store closes. |
 | `readonly assumeMigrated` | `boolean` | no | Skip this instance's migration pass. |
-| `readonly schema` | `string` | no | Select the Postgres schema. |
-| `readonly tablePrefix` | `string` | no | Prefix this application's tables. |
+| `readonly schema` | `string` | no | Select the Postgres schema; must match `IDENTIFIER_PATTERN`. |
+| `readonly tablePrefix` | `string` | no | Prefix this application's tables; must match `IDENTIFIER_PATTERN`. |
 
 Although `pool` is optional in the shared type, root factories fail without one. Use `/node` when `connectionString` or standard `pg` environment defaults should create an owned pool.
 

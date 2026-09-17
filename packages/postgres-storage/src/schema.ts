@@ -1,16 +1,28 @@
 import { withTransaction } from "./internal/tx.js"
 import type { SqlPool } from "./sql.js"
 
+/** The one shape a schema or table prefix may take. Exported so generated wiring can reuse it. */
+export const IDENTIFIER_PATTERN = /^[a-z_][a-z0-9_]*$/
+
 /**
  * Guard SQL identifiers that are interpolated into DDL (Postgres cannot bind
  * them as `$1` placeholders). `prefix`/`schema` come from the store's own
  * config, not untrusted query input, but a malformed config must not produce
  * broken/injected DDL — so reject anything that isn't a plain identifier.
+ *
+ * Lowercase only, deliberately: every identifier here is interpolated
+ * UNQUOTED, and Postgres folds an unquoted identifier to lowercase. A value
+ * like `MySchema` therefore never named the object the caller wrote — the
+ * tables landed in `myschema` — while the advisory-lock key derived from the
+ * original spelling differed from the one `myschema` would take, so two
+ * spellings of one namespace did not serialize their migrations against each
+ * other. Rejecting mixed case makes the configured name and the real name the
+ * same string.
  */
 export function assertIdentifier(name: string, value: string): void {
-  if (!/^[a-z_][a-z0-9_]*$/i.test(value))
+  if (!IDENTIFIER_PATTERN.test(value))
     throw new Error(
-      `postgres-storage: ${name} must be a valid SQL identifier (/^[a-z_][a-z0-9_]*$/i), got ${JSON.stringify(value)}`,
+      `postgres-storage: ${name} must be a lowercase SQL identifier (${IDENTIFIER_PATTERN}), got ${JSON.stringify(value)}`,
     )
 }
 
