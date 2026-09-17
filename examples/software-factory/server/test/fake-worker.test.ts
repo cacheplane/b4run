@@ -84,6 +84,9 @@ describe("fake worker", () => {
       route: "/fix#agent",
     })
     expect(badResume.status).toBe(409)
+    expect(
+      ((await badResume.json()) as { error: { details: { code: string } } }).error.details.code,
+    ).toBe("interrupt_mismatch")
   })
 
   it("cancels a hanging run in band", async () => {

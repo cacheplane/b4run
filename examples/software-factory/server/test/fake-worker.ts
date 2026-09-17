@@ -81,7 +81,11 @@ function json(res: ServerResponse, status: number, body: string) {
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(chunk as Buffer)
+  try {
+    for await (const chunk of req) chunks.push(chunk as Buffer)
+  } catch {
+    return null
+  }
   const text = Buffer.concat(chunks).toString("utf8")
   if (text === "") return null
   try {
@@ -94,6 +98,7 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
 class Sse {
   constructor(private readonly res: ServerResponse) {
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+    res.on("error", () => {})
   }
   frame(event: string, data: unknown) {
     this.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
@@ -120,6 +125,18 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
   const delay = options.frameDelayMs ?? 5
   let counter = 0
   const runStarted = new Map<string, () => void>()
+  const closing = new AbortController()
+
+  /** Sleeps for `ms`, or resolves `true` early if `close()` has fired — the caller must stop writing. */
+  async function sleepOrAbort(ms: number): Promise<boolean> {
+    try {
+      await sleep(ms, undefined, { signal: closing.signal })
+      return false
+    } catch (err) {
+      if (closing.signal.aborted) return true
+      throw err
+    }
+  }
 
   const gateInterrupt = () => ({
     interruptId: `perm-export-${++counter}`,
@@ -203,15 +220,15 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
       return parkRun(thread, sse)
     }
     sse.frame("tool_result", { id: "call-1", name: "readFile", output: "TASK.md contents" })
-    await sleep(delay)
+    if (await sleepOrAbort(delay)) return
     sse.frame("tool_result", prepareResult())
     if (kind === "close_midway") {
       await sse.destroy()
-      await sleep(50)
+      if (await sleepOrAbort(50)) return
       thread.pending = gateInterrupt()
       return parkRun(thread, null)
     }
-    await sleep(delay)
+    if (await sleepOrAbort(delay)) return
     thread.pending = gateInterrupt()
     sse.frame("interrupt", thread.pending)
     sse.frame("done", { output: {} })
@@ -366,6 +383,7 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
       return new Promise((resolve) => runStarted.set(threadId, resolve))
     },
     async close() {
+      closing.abort()
       for (const thread of threads.values()) {
         thread.endLive?.({ output: { cancelled: true } })
         notify(thread, { output: { cancelled: true } })
