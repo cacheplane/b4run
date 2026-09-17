@@ -66,5 +66,9 @@ describe("http api", () => {
     expect(events.some((e) => e.type === "delivery_observed")).toBe(true)
     expect((await fetch(`${api.baseUrl}/work-orders/nope`)).status).toBe(404)
     expect((await post("/work-orders", { taskId: 42 })).status).toBe(400)
+
+    expect((await fetch(`${api.baseUrl}/work-orders/${id}/dispatch`)).status).toBe(405)
+    expect((await post(`/work-orders/${id}/bogus`)).status).toBe(404)
+    expect((await fetch(`${api.baseUrl}/work-orders/`)).status).toBe(200)
   })
 })

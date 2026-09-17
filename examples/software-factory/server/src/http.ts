@@ -1,6 +1,11 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { z } from "zod"
-import { type Factory, UnknownTaskError, UnknownWorkOrderError } from "./controller/factory.js"
+import {
+  CommandInFlightError,
+  type Factory,
+  UnknownTaskError,
+  UnknownWorkOrderError,
+} from "./controller/factory.js"
 import { DIGEST_PATTERN } from "./domain/work-order.js"
 
 export interface HttpApi {
@@ -19,9 +24,23 @@ const ApproveBody = z.object({
   operationKey: z.string().min(1).optional(),
 })
 
+const MAX_BODY_BYTES = 1024 * 1024
+
+class PayloadTooLargeError extends Error {
+  constructor() {
+    super("Body too large")
+    this.name = "PayloadTooLargeError"
+  }
+}
+
 async function readJson(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(chunk as Buffer)
+  let total = 0
+  for await (const chunk of req) {
+    total += (chunk as Buffer).length
+    if (total > MAX_BODY_BYTES) throw new PayloadTooLargeError()
+    chunks.push(chunk as Buffer)
+  }
   const text = Buffer.concat(chunks).toString("utf8")
   return text === "" ? {} : JSON.parse(text)
 }
@@ -83,6 +102,8 @@ export function createHttpApi(factory: Factory): { listen(port: number): Promise
         return send(res, 400, { error: "Invalid body", issues: error.issues })
       if (error instanceof UnknownTaskError) return send(res, 400, { error: error.message })
       if (error instanceof UnknownWorkOrderError) return send(res, 404, { error: error.message })
+      if (error instanceof CommandInFlightError) return send(res, 409, { error: error.message })
+      if (error instanceof PayloadTooLargeError) return send(res, 413, { error: error.message })
       if (error instanceof SyntaxError) return send(res, 400, { error: "Malformed JSON" })
       return send(res, 500, { error: String(error) })
     }
