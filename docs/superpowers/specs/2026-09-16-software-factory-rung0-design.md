@@ -217,7 +217,10 @@ controller own verification.
 ### Commands
 
 Every command takes an `operationKey` (client-supplied, or derived
-deterministically by the CLI as `<command>:<workOrderId>:<revision>`). The
+deterministically by the factory as `<command>:<workOrderId>:<revision>`;
+`approve` also appends the candidate digest, because the command log refuses
+to reuse a key with a different intent and a second approve for the same
+revision with a different digest is a different intent). The
 command layer first looks the key up in `commands`; a hit returns the recorded
 result without touching the worker. A miss commits the intended transition and
 event in one SQLite transaction, then performs the external call, then commits
