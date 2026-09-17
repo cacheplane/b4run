@@ -132,14 +132,14 @@
       "recordDigest": "854d70653b7e7ae1a80889d317e0b5be8019a970d60e32882b07dd906cd3e951"
     },
     "/docs/cli": {
-      "lastModified": "2026-09-17T22:26:47.591Z",
-      "sourceDigest": "f308439e3ba09d47f42c867013a681375759dad3f7c941d4658bf94baa6b621d",
-      "recordDigest": "3660ac1eecbf846a53814cdf690c634a25681a4aaf11c2254015efa346ecc7b8"
+      "lastModified": "2026-09-17T23:17:55.685Z",
+      "sourceDigest": "5e7a70200888697102fc48a91ae40d69efcd1eeb99f6a3aa82515556c75a543d",
+      "recordDigest": "8e20016696757ee46f701d53102dc0e47772f540cfcfe5825922ceac588e59cd"
     },
     "/docs/configuration": {
-      "lastModified": "2026-09-17T22:26:47.591Z",
-      "sourceDigest": "eb0d6e8db3068e7253e78cabf8b75659e817723d4de1235bc6adaf032c064c4e",
-      "recordDigest": "2f55d90c7783849bdf4074762cdac3fa9ffee4959f8c81a6870d7b21290e7466"
+      "lastModified": "2026-09-17T23:17:55.685Z",
+      "sourceDigest": "e6ec9927b535a3736bc983473e8cbef52b9d9904fe028fba383e256dc0f74d63",
+      "recordDigest": "cdc6b1703020ae91f784829cf1223f86ad0223b75b3540b5123853ad36c4c3bc"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -152,9 +152,9 @@
       "recordDigest": "492a240e9a81a14b38aed92966666d59645c5c49ad63d1f35bda2ad47a9d230b"
     },
     "/docs/deployment/edge": {
-      "lastModified": "2026-09-17T22:26:47.591Z",
-      "sourceDigest": "9e1f56c505921d8193d8f8b801e2d6011bb50a58cc8caa8e9362c6c7ab54c3e1",
-      "recordDigest": "1c0aa34c8ecf7779b5f8b0b98645cd45e7471d96ae2da0c3461c662bedf23020"
+      "lastModified": "2026-09-17T23:17:55.685Z",
+      "sourceDigest": "79654640e693ba1d1139401aeb7c9f17a870c81ce6bb90fd14c6173d99252e65",
+      "recordDigest": "12030eec87030de4dc619c4b0b1b395176d7f5c39fc1c0de57654dc763c3c9a0"
     },
     "/docs/deployment/kubernetes": {
       "lastModified": "2026-09-17T16:46:40.190Z",
@@ -172,9 +172,9 @@
       "recordDigest": "1f9c3a2e6e99b9e9f5574e85e93834f35fe4a0f7aee7d1563b754f378da7e54a"
     },
     "/docs/deployment/vercel": {
-      "lastModified": "2026-09-17T22:58:46.614Z",
-      "sourceDigest": "a6c763f5bd74f988a83acb52750f21da694f160ba91c3c2f0fc568e2ebf3a507",
-      "recordDigest": "20408f2f7d5f54f08087d91fc6cc68587a0f25910ea979e43f2ac8ed5a4517ec"
+      "lastModified": "2026-09-17T23:17:55.685Z",
+      "sourceDigest": "4179b6fb1f3452eadf0638dac1061d820f9b94f0e73ed9cbfcc5a4017ee319bc",
+      "recordDigest": "dcd557fd14b0b9ccc9ece3b931296cd0ef8713e22709930f2eb5684718b1c45b"
     },
     "/docs/dev-server": {
       "lastModified": "2026-09-07T19:58:55.550Z",

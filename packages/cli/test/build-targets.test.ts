@@ -130,7 +130,7 @@ describe("b4 build — targets", () => {
 
     expect(stderr.join("")).toBe("")
     expect(existsSync(join(appRoot, ".vercel/output/config.json"))).toBe(true)
-    expect(existsSync(join(appRoot, ".vercel/output/functions/index.func/index.mjs"))).toBe(true)
+    expect(existsSync(join(appRoot, ".vercel/output/functions/b4.func/index.mjs"))).toBe(true)
     expect(existsSync(join(appRoot, ".b4/build/server.mjs"))).toBe(false)
     expect(existsSync(join(appRoot, ".b4/build/langgraph.json"))).toBe(false)
   })
@@ -148,7 +148,7 @@ describe("b4 build — targets", () => {
     expect(existsSync(join(appRoot, ".b4/build/server.mjs"))).toBe(true)
     expect(existsSync(join(appRoot, ".b4/build/langgraph.json"))).toBe(true)
     expect(existsSync(join(appRoot, ".vercel/output/config.json"))).toBe(true)
-    expect(existsSync(join(appRoot, ".vercel/output/functions/index.func/index.mjs"))).toBe(true)
+    expect(existsSync(join(appRoot, ".vercel/output/functions/b4.func/index.mjs"))).toBe(true)
   })
 
   test("langsmith-only target emits no node artifacts", async () => {
@@ -465,7 +465,7 @@ describe("b4 check — build targets", () => {
 
     expect(stderr.join("")).toBe("")
     expect(existsSync(join(appRoot, "dist/vercel/config.json"))).toBe(true)
-    expect(existsSync(join(appRoot, "dist/vercel/functions/index.func/index.mjs"))).toBe(true)
+    expect(existsSync(join(appRoot, "dist/vercel/functions/b4.func/index.mjs"))).toBe(true)
     expect(existsSync(join(appRoot, ".vercel/output"))).toBe(false)
     expect(existsSync(join(appRoot, "vercel.json"))).toBe(false)
   })

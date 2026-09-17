@@ -5,7 +5,6 @@ import {
   composeVercelRoutes,
   DEFAULT_VERCEL_FUNCTION_NAME,
   resolveVercelComposition,
-  STATIC_VERCEL_FUNCTION_NAME,
   VERCEL_RUNTIME_ROUTE_SRC,
 } from "../src/lib/build/targets/vercel-compose.ts"
 import { resolveVercelBuildConfig } from "../src/lib/build/targets/vercel-config.ts"
@@ -14,29 +13,37 @@ import { CliError } from "../src/lib/output.ts"
 const appRoot = join("/", "app")
 
 describe("resolveVercelComposition", () => {
-  test("an absent config resolves to the bare runtime function named index", () => {
+  test("an absent config resolves to the bare runtime function named b4", () => {
     expect(resolveVercelComposition(undefined, appRoot)).toEqual({
       functionName: DEFAULT_VERCEL_FUNCTION_NAME,
       functions: [],
       routes: [],
     })
-    expect(DEFAULT_VERCEL_FUNCTION_NAME).toBe("index")
+    expect(DEFAULT_VERCEL_FUNCTION_NAME).toBe("b4")
   })
 
-  test("a static dir moves the runtime function off the root name", () => {
+  test("the runtime function stays off the root name with no static assets", () => {
+    // The Build Output API serves a function named `index` at `/`, so the name
+    // is off the root whether or not this build emits anything it could shadow.
+    expect(resolveVercelComposition({}, appRoot).functionName).toBe("b4")
+    expect(
+      resolveVercelComposition({ routes: [{ dest: "/b", src: "/a" }] }, appRoot).functionName,
+    ).toBe("b4")
+  })
+
+  test("a static dir keeps the same off-root default", () => {
     const resolved = resolveVercelComposition(
       { static: { dir: "../dist/web", spaFallback: "index.html" } },
       appRoot,
     )
-    expect(resolved.functionName).toBe(STATIC_VERCEL_FUNCTION_NAME)
-    expect(STATIC_VERCEL_FUNCTION_NAME).toBe("b4")
+    expect(resolved.functionName).toBe(DEFAULT_VERCEL_FUNCTION_NAME)
     expect(resolved.static).toEqual({
       dir: join("/", "dist", "web"),
       spaFallback: "index.html",
     })
   })
 
-  test("an explicit functionName wins over both defaults", () => {
+  test("an explicit functionName wins over the default", () => {
     expect(resolveVercelComposition({ functionName: "agent" }, appRoot).functionName).toBe("agent")
     expect(
       resolveVercelComposition({ functionName: "agent", static: { dir: "dist" } }, appRoot)
@@ -221,7 +228,7 @@ describe("resolveVercelBuildConfig (one validated build.vercel)", () => {
     )
 
     expect(resolved.reconcileVercelJson).toBe(false)
-    expect(resolved.composition.functionName).toBe(STATIC_VERCEL_FUNCTION_NAME)
+    expect(resolved.composition.functionName).toBe(DEFAULT_VERCEL_FUNCTION_NAME)
     expect(resolved.composition.static).toEqual({
       dir: join(appRoot, "web", "dist"),
       spaFallback: "index.html",
@@ -234,7 +241,7 @@ describe("resolveVercelBuildConfig (one validated build.vercel)", () => {
     const resolved = resolveVercelBuildConfig({ vercel: { static: { dir: "web/dist" } } }, appRoot)
 
     expect(resolved.reconcileVercelJson).toBe(true)
-    expect(resolved.composition.functionName).toBe(STATIC_VERCEL_FUNCTION_NAME)
+    expect(resolved.composition.functionName).toBe(DEFAULT_VERCEL_FUNCTION_NAME)
   })
 
   test("the flag alone leaves the bare runtime composition", () => {

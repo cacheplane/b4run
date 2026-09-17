@@ -12,7 +12,7 @@ import {
 } from "./vercel-compose.js"
 
 export const VERCEL_BUILD_OUTPUT_CONFIG = {
-  routes: [{ dest: "/index", src: "/(.*)" }],
+  routes: [{ dest: `/${DEFAULT_VERCEL_FUNCTION_NAME}`, src: "/(.*)" }],
   version: 3,
 } as const
 

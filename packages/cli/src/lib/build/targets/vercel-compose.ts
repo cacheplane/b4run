@@ -2,15 +2,23 @@ import { isAbsolute, normalize, resolve, sep } from "node:path"
 
 import { CliError } from "../../output.js"
 
-/** The bare runtime's function name: `functions/index.func`, served at `/`. */
-export const DEFAULT_VERCEL_FUNCTION_NAME = "index"
+/**
+ * The runtime function's name: `functions/b4.func`, routed from `/b4`.
+ *
+ * Deliberately not `index`. The Build Output API also serves a function named
+ * `index` at `/`, so an `index.func` shadows a static `index.html` — the whole
+ * of #687. That is a property of the name, not of whether this particular
+ * build happens to emit static assets, so the name is off the root always
+ * rather than only when `build.vercel.static` is set. `functionName` overrides
+ * it for anyone who needs the old path.
+ */
+export const DEFAULT_VERCEL_FUNCTION_NAME = "b4"
 
 /**
- * The runtime function name once `build.vercel.static` is configured. A
- * function named `index` is also served at `/` by the Build Output API, so it
- * would shadow the static `index.html`; the default moves off the root instead.
+ * The one name the Build Output API also serves at `/`. Rejected beside
+ * `static` because it would shadow the static root.
  */
-export const STATIC_VERCEL_FUNCTION_NAME = "b4"
+export const ROOT_VERCEL_FUNCTION_NAME = "index"
 
 /**
  * The URL surfaces the B4.run runtime owns, used when a SPA fallback needs
@@ -117,13 +125,11 @@ export function resolveVercelComposition(input: unknown, appRoot: string): Resol
 
   const functionName =
     config.functionName === undefined
-      ? staticConfig
-        ? STATIC_VERCEL_FUNCTION_NAME
-        : DEFAULT_VERCEL_FUNCTION_NAME
+      ? DEFAULT_VERCEL_FUNCTION_NAME
       : assertFunctionName(config.functionName, "build.vercel.functionName")
-  if (staticConfig && functionName === DEFAULT_VERCEL_FUNCTION_NAME) {
+  if (staticConfig && functionName === ROOT_VERCEL_FUNCTION_NAME) {
     throw invalidBuildConfig(
-      `build.vercel.functionName "${DEFAULT_VERCEL_FUNCTION_NAME}" cannot be combined with build.vercel.static: a function named "${DEFAULT_VERCEL_FUNCTION_NAME}" is also served at "/" and would shadow the static root. Choose another name (the default with static assets is "${STATIC_VERCEL_FUNCTION_NAME}").`,
+      `build.vercel.functionName "${ROOT_VERCEL_FUNCTION_NAME}" cannot be combined with build.vercel.static: a function named "${ROOT_VERCEL_FUNCTION_NAME}" is also served at "/" and would shadow the static root. Choose another name (the default is "${DEFAULT_VERCEL_FUNCTION_NAME}").`,
     )
   }
   const collision = functions.find((fn) => fn.name === functionName)
