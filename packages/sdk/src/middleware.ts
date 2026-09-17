@@ -27,10 +27,56 @@ export interface RejectResult {
 
 export type MiddlewareResult = ContinueResult | RejectResult
 
-export type B4Middleware = (req: MiddlewareRequest) => Promise<MiddlewareResult> | MiddlewareResult
+/** The per-request decision: the function form of a middleware. */
+export type MiddlewareHandler = (
+  req: MiddlewareRequest,
+) => Promise<MiddlewareResult> | MiddlewareResult
 
-export function defineMiddleware(fn: B4Middleware): B4Middleware {
-  return fn
+/** What `setup` receives. Deliberately small; see `MiddlewareDefinition.setup`. */
+export interface MiddlewareSetupContext {
+  /** Absolute path of the app root the runtime was booted for. */
+  readonly appRoot: string
+}
+
+/**
+ * The lifecycle form of a middleware: a `handle` plus optional `setup` and
+ * `dispose` hooks for resources that outlive one request, such as a database
+ * pool. Keep the resource in a module-scope variable; `setup` opens it and
+ * `dispose` releases it.
+ */
+export interface MiddlewareDefinition {
+  /**
+   * Runs at most once per runtime, lazily, before the first request this
+   * middleware gates. Concurrent first requests share one in-flight call. A
+   * rejection fails only the request that awaited it and is retried by the
+   * next one, so a transient outage never poisons the process. `handle` is
+   * never called before `setup` has succeeded.
+   */
+  readonly setup?: (ctx: MiddlewareSetupContext) => Promise<void> | void
+  /**
+   * Runs once from the runtime's shutdown path (`SIGTERM`/`SIGINT` on the Node
+   * targets), after in-flight requests have drained. Invoked when there is no
+   * `setup`, or after a `setup` that completed successfully; never for a
+   * `setup` that did not run or only ever failed. Edge/Hono builds have no
+   * shutdown hook, so it is not invoked there.
+   */
+  readonly dispose?: () => Promise<void> | void
+  /** The per-request decision. */
+  readonly handle: MiddlewareHandler
+}
+
+/**
+ * A middleware export: either the plain handler function or a
+ * {@link MiddlewareDefinition} with lifecycle hooks.
+ */
+export type B4Middleware = MiddlewareHandler | MiddlewareDefinition
+
+/**
+ * Type-preserving identity: a plain handler stays a handler, a lifecycle
+ * definition stays a definition. Exists for editor inference.
+ */
+export function defineMiddleware<T extends B4Middleware>(middleware: T): T {
+  return middleware
 }
 
 export function reject(status: number, body?: unknown): RejectResult {

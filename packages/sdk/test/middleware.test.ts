@@ -59,3 +59,21 @@ describe("defineMiddleware()", () => {
     expect(middleware).toBe(fn)
   })
 })
+
+describe("defineMiddleware() — lifecycle object form", () => {
+  test("returns the definition as-is with setup, dispose and handle", () => {
+    const definition = {
+      setup: async (_ctx: { readonly appRoot: string }) => undefined,
+      dispose: async () => undefined,
+      handle: (_req: MiddlewareRequest): MiddlewareResult => allow(),
+    }
+
+    const middleware = defineMiddleware(definition)
+    expect(middleware).toBe(definition)
+  })
+
+  test("accepts a definition with only handle", () => {
+    const definition = { handle: () => reject(401) }
+    expect(defineMiddleware(definition)).toBe(definition)
+  })
+})

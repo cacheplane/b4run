@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { MemoryStore } from "@b4run/memory"
 import type { PermissionsStore } from "@b4run/permissions"
-import type { B4Middleware } from "@b4run/sdk"
+import type { MiddlewareHandler } from "@b4run/sdk"
 import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import { MemorySaver } from "@langchain/langgraph"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -235,7 +235,7 @@ describe("createRuntimeFetchHandler — full store/middleware injection", () => 
     await withAimock(subagentScript())
 
     const { store: threadsStore, threads } = memoryThreadsStore()
-    const middleware = vi.fn<B4Middleware>(() => ({ action: "continue" as const }))
+    const middleware = vi.fn<MiddlewareHandler>(() => ({ action: "continue" as const }))
     const memoryStoreThunk = vi.fn(async () => fakeMemoryStore())
 
     const before = spyCounts()

@@ -70,12 +70,15 @@ import { scenarios } from "@b4run/sdk/testing"
 | `MemoryScopeDimension` | Define one typed memory namespace dimension. |
 | `defineMemory` | Declare a typed long-term memory schema. |
 | `ContinueResult` | Continue middleware execution with optional context. |
-| `B4Middleware` | Define the middleware function contract. |
+| `B4Middleware` | Define the middleware export contract: a handler or a lifecycle definition. |
+| `MiddlewareDefinition` | Define middleware with `setup`, `dispose`, and `handle`. |
+| `MiddlewareHandler` | Define the per-request middleware function. |
 | `MiddlewareRequest` | Describe a middleware request. |
+| `MiddlewareSetupContext` | Describe what `setup` receives. |
 | `MiddlewareResult` | Express a middleware decision. |
 | `RejectResult` | Stop middleware execution with a response. |
 | `allow` | Continue middleware execution. |
-| `defineMiddleware` | Preserve types for a middleware function. |
+| `defineMiddleware` | Preserve types for a middleware function or lifecycle definition. |
 | `reject` | Stop middleware execution. |
 | `B4ThreadAccess` | Define one thread-access action handler. |
 | `ThreadAccessAllow` | Express an allow decision, optionally stamping a thread on create. |
@@ -228,8 +231,14 @@ export declare function isB4Agent(value: unknown): value is B4Agent
 
 Middleware returns an explicit continue or reject result. Use `allow(context?)` to continue and `reject(status, body?)` to stop the request.
 
+`defineMiddleware` accepts either the handler function or a lifecycle
+definition with optional `setup(ctx)` and `dispose()` hooks around `handle`.
+`setup` runs once, lazily, before the first gated request and is retried on the
+next request if it rejects; `dispose` runs from the Node runtimes' shutdown
+path. See [Lifecycle hooks](/docs/middleware#lifecycle-hooks).
+
 ```ts api-contract="@b4run/sdk#.:defineMiddleware"
-export declare function defineMiddleware(fn: B4Middleware): B4Middleware
+export declare function defineMiddleware<T extends B4Middleware>(middleware: T): T
 ```
 
 ```ts api-contract="@b4run/sdk#.:allow"
