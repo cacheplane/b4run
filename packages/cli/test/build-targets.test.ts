@@ -23,6 +23,7 @@ async function createFixtureApp(files: Readonly<Record<string, string>>) {
     // Every generated runtime import is declared, so selected targets emit no
     // runtime-dependency warning.
     "package.json": `${JSON.stringify({
+      type: "module",
       dependencies: {
         "@b4run/cli": "workspace:*",
         "@b4run/postgres-storage": "workspace:*",
@@ -232,7 +233,7 @@ describe("b4 build — targets", () => {
 
   test("warns when @b4run/cli is not a runtime dependency", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": '{ "devDependencies": { "@b4run/cli": "workspace:*" } }\n',
+      "package.json": '{ "type": "module", "devDependencies": { "@b4run/cli": "workspace:*" } }\n',
     })
 
     const { stderr } = await runBuild(appRoot)
@@ -241,7 +242,7 @@ describe("b4 build — targets", () => {
 
   test("does not warn when @b4run/cli is a runtime dependency", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": '{ "dependencies": { "@b4run/cli": "workspace:*" } }\n',
+      "package.json": '{ "type": "module", "dependencies": { "@b4run/cli": "workspace:*" } }\n',
     })
 
     const { stderr } = await runBuild(appRoot)
@@ -325,7 +326,7 @@ describe("b4 check — build targets", () => {
   test("vercel dependency notice names the vercel target", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": 'export default { build: { targets: ["vercel"] } };\n',
-      "package.json": '{ "dependencies": { "@b4run/cli": "workspace:*" } }\n',
+      "package.json": '{ "type": "module", "dependencies": { "@b4run/cli": "workspace:*" } }\n',
     })
 
     const stdout: string[] = []

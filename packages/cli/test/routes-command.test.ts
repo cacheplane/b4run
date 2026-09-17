@@ -16,7 +16,7 @@ async function createFixtureApp(files: Readonly<Record<string, string>>) {
   tempDirs.push(appRoot)
 
   const appFiles = {
-    "package.json": "{}\n",
+    "package.json": '{"type":"module"}\n',
     "b4.config.ts": "export default {};\n",
     ...files,
   }

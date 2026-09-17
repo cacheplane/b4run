@@ -122,7 +122,7 @@ describe("POST /threads/:thread_id/resume", () => {
           },
         };
       `,
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/noop/index.ts": "export const graph = async () => ({ ok: true });\n",
     })
     const server = await startRuntimeServer({ appRoot })
@@ -139,7 +139,7 @@ describe("POST /threads/:thread_id/resume", () => {
   test("rejects an invalid resolved payload when no checkpoint exists", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/noop/index.ts": "export const graph = async () => ({ ok: true });\n",
     })
     const server = await startRuntimeServer({ appRoot })
@@ -351,7 +351,7 @@ describe("POST /threads/:thread_id/resume", () => {
   test("returns 404 when no checkpoint exists for the thread", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/noop/index.ts": "export const graph = async () => ({ ok: true });\n",
     })
     const server = await startRuntimeServer({ appRoot })
@@ -437,7 +437,7 @@ async function createCheckpointFixtureApp(pendingWrites: readonly unknown[]) {
         },
       };
     `,
-    "package.json": "{}\n",
+    "package.json": '{"type":"module"}\n',
     "src/app/noop/index.ts": "export const graph = async () => ({ ok: true });\n",
   })
 }
@@ -451,7 +451,7 @@ async function createConcurrentResumeFixtureApp(pendingWrites: readonly unknown[
         },
       };
     `,
-    "package.json": "{}\n",
+    "package.json": '{"type":"module"}\n',
     "src/app/noop/index.ts": `
       export const graph = async () => {
         const gate = globalThis[${JSON.stringify(CONCURRENT_RESUME_GATE)}];

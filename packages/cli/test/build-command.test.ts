@@ -17,7 +17,7 @@ async function createFixtureApp(files: Readonly<Record<string, string>>) {
 
   const appFiles = {
     // @b4run/cli in dependencies → node target emits no runtime-dep warning.
-    "package.json": '{ "dependencies": { "@b4run/cli": "workspace:*" } }\n',
+    "package.json": '{ "type": "module", "dependencies": { "@b4run/cli": "workspace:*" } }\n',
     "b4.config.ts": "export default {};\n",
     ...files,
   }

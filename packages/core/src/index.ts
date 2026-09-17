@@ -65,6 +65,7 @@ export {
   seedB4Config,
 } from "./config.js"
 export { config } from "./config-helper.js"
+export { B4AppError } from "./discovery/b4-app-error.js"
 // DELIBERATELY NOT HERE: `discoverRoutes`, `findB4App`,
 // `assertB4RoutesDir`, `registerTsxLoader`, `extractToolSchemasForRoute` and
 // `extractToolTypesForRoute` ship from "@b4run/core/node". They read the
