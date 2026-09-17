@@ -6,6 +6,55 @@ import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 
 export type { RouteKind }
 
+/** One route of a Vercel Build Output `config.json`; `src` is required. */
+export type VercelBuildRoute = Readonly<Record<string, unknown>> & { readonly src: string }
+
+/** `build.vercel` — see {@link B4Config.build}. Paths resolve from the app root. */
+export interface VercelBuildConfig {
+  /**
+   * Name of the runtime function (`functions/<name>.func`). Defaults to
+   * `"index"`, or to `"b4"` once {@link static} is set, because a function
+   * named `index` is also served at `/` and would shadow `static/index.html`.
+   * Combining `"index"` with `static` fails the build.
+   */
+  readonly functionName?: string
+  /** A directory copied verbatim into `static/`, with an optional SPA document. */
+  readonly static?: {
+    readonly dir: string
+    /**
+     * Path inside `dir` served for every path the filesystem and the runtime
+     * do not claim (`{ src: "/(.*)", dest: "/<spaFallback>" }`, last). When
+     * set, the runtime route is scoped to `/healthz`, `/agui`, `/threads`, and
+     * `/memory` instead of catching all.
+     */
+    readonly spaFallback?: string
+  }
+  /**
+   * Additional Node functions, each bundled from `entry` with esbuild into
+   * `functions/<name>.func/index.mjs`. Route to one with
+   * `{ src: "/api/(.*)", dest: "/api" }` in {@link routes}.
+   */
+  readonly functions?: Readonly<
+    Record<
+      string,
+      {
+        readonly entry: string
+        /** Vercel Node runtime id. Default `"nodejs24.x"`. */
+        readonly runtime?: string
+        /** Positive integer seconds. */
+        readonly maxDuration?: number
+        readonly supportsResponseStreaming?: boolean
+      }
+    >
+  >
+  /**
+   * Routes placed before the filesystem phase. `b4 build` appends
+   * `{ handle: "filesystem" }`, the runtime route, and the SPA fallback itself;
+   * a `handle` entry here is rejected.
+   */
+  readonly routes?: readonly VercelBuildRoute[]
+}
+
 export interface B4Config {
   readonly appDir?: string
   readonly backends?: {
@@ -94,6 +143,13 @@ export interface B4Config {
      * Defaults to `["node", "langsmith"]` when omitted.
      */
     readonly targets?: readonly string[]
+    /**
+     * Shape of the `"vercel"` target's Build Output tree beyond the runtime
+     * function. Ignored unless `"vercel"` is in {@link targets}. With nothing
+     * set the output is the runtime function alone (`functions/index.func`)
+     * behind a catch-all route.
+     */
+    readonly vercel?: VercelBuildConfig
   }
   readonly sandbox?: SandboxConfig
   /**

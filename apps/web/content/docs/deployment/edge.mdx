@@ -162,6 +162,53 @@ For Workers, set the database URL as a secret:
 wrangler secret put DATABASE_URL
 ```
 
+## The `vercel` target
+
+`vercel` emits the same web runtime as `hono`, bundled into one self-contained Vercel [Build Output API v3](https://vercel.com/docs/build-output-api) function, and carries the same capability gate. Select it the same way (`build: { targets: ["node", "vercel"] }`). The build writes:
+
+| Artifact | Purpose |
+|---|---|
+| `.vercel/output/config.json` | Build Output routes, `version: 3` |
+| `.vercel/output/functions/index.func/` | The runtime function: `.vc-config.json` (`nodejs24.x`) and a bundled `index.mjs` |
+| `vercel.json` | Recommended root config (`buildCommand`, `fluid: true`), written only when the app has none |
+
+Everything is composed in a per-invocation staging directory, validated, and swapped into `.vercel/output` with a rename; a failed build leaves the previous output in place. Deploy the tree with `vercel deploy --prebuilt`.
+
+### Static assets, extra functions, and routes
+
+A real app ships a frontend and its own endpoints beside the runtime. Describe them in `build.vercel` and `b4 build` produces the whole deployable tree:
+
+```ts title="b4.config.ts"
+import { config } from "@b4run/cli"
+
+export default config({
+  build: {
+    targets: ["vercel"],
+    vercel: {
+      static: { dir: "../web/dist", spaFallback: "index.html" },
+      functions: {
+        api: { entry: "src/api.ts", maxDuration: 30, supportsResponseStreaming: true },
+      },
+      routes: [{ src: "/api/(.*)", dest: "/api" }],
+    },
+  },
+})
+```
+
+| Key | Effect |
+|---|---|
+| `static.dir` | Copied into `.vercel/output/static/` (symlinks dereferenced). Relative to the app root. |
+| `static.spaFallback` | A file inside `static.dir` served for every path nothing else claims, as the last route. |
+| `functions.<name>` | Bundled with esbuild from `entry` into `functions/<name>.func/index.mjs` with a `.vc-config.json` of `runtime` (default `nodejs24.x`), `maxDuration`, and `supportsResponseStreaming`. Names are one path segment. |
+| `routes` | Placed first, before the filesystem phase. Vercel route keys pass through; a `handle` entry is rejected because the build owns the phases. |
+| `functionName` | Runtime function name. Default `index`, or `b4` once `static` is set. |
+
+The emitted `config.json` routes are ordered: your `routes`, then `{ handle: "filesystem" }`, then the runtime function, then the SPA fallback. Without a SPA fallback the runtime route stays the catch-all `/(.*)`. With one, the runtime is scoped to the surfaces it owns, `/(healthz|agui|threads|memory)(/.*)?`, so every other path reaches the SPA document.
+
+A function named `index` is also served at `/` by the Build Output API, so it would shadow a static `index.html`. That is why the runtime function moves to `b4.func` when `static` is configured; setting `functionName: "index"` beside `static` fails the build. Existing deployments without `static` keep `index.func` and the exact catch-all `config.json` they have today.
+
+Every path in `build.vercel` is checked before `.vercel/` is touched, so a missing directory or entry fails with the offending `build.vercel.*` key. The staged tree is validated as a whole: `config.json` must route to the runtime function, and every `functions/*.func` must be a self-contained Node function whose dependencies resolve inside its own directory.
+
 ## Deploy checklist
 
 1. Run `b4 check` and resolve every `B4_E1005` violation.

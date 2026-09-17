@@ -133,4 +133,6 @@ export type {
   RouteToolSchemas,
   RouteToolTypes,
   StateFieldReducer,
+  VercelBuildConfig,
+  VercelBuildRoute,
 } from "./types.js"

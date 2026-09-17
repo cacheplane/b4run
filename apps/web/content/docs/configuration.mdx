@@ -279,14 +279,38 @@ is compressed and what remains verbatim.
 ### `build`
 
 ```ts
-build?: { targets?: readonly string[] }
+build?: {
+  targets?: readonly string[]
+  vercel?: {
+    functionName?: string
+    static?: { dir: string; spaFallback?: string }
+    functions?: Readonly<Record<string, {
+      entry: string
+      runtime?: string
+      maxDuration?: number
+      supportsResponseStreaming?: boolean
+    }>>
+    routes?: readonly { src: string; dest?: string; [key: string]: unknown }[]
+  }
+}
 ```
 
 Default: `["node", "langsmith"]`. An authored `targets` array replaces that
 list; it does not add to it. Supported values are `"node"`, `"langsmith"`, and
-the opt-in `"hono"` subset. Choose only targets whose runtime can materialize
-the configured capabilities. See [Deployment Options](/docs/deployment) for
-the artifact and compatibility matrix.
+the opt-in `"hono"` and `"vercel"` subsets. Choose only targets whose runtime
+can materialize the configured capabilities. See
+[Deployment Options](/docs/deployment) for the artifact and compatibility
+matrix.
+
+`vercel` describes what the `"vercel"` target publishes beside the runtime
+function: a static directory with an optional SPA document, extra Node
+functions bundled from an `entry`, and routes placed ahead of the filesystem
+phase. Paths resolve from the app root. The runtime function is named `index`
+until `static` is set, when it becomes `b4` so it does not shadow
+`static/index.html`; `functionName` overrides either default, and `"index"`
+beside `static` fails the build. See
+[the `vercel` target](/docs/deployment/edge#the-vercel-target) for the
+published tree and route order.
 
 ### `sandbox`
 
