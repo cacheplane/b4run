@@ -1462,7 +1462,7 @@
         "stepIndex": 1,
         "step": "Initialize CodeQL",
         "kind": "step-uses",
-        "value": "github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938"
+        "value": "github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63"
       },
       {
         "classification": "safe",
@@ -1470,7 +1470,7 @@
         "stepIndex": 2,
         "step": "Perform CodeQL Analysis",
         "kind": "step-uses",
-        "value": "github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938"
+        "value": "github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63"
       }
     ],
     "dependency-security-receipt.yml": [
