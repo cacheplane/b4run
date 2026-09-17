@@ -7,9 +7,20 @@ import {
   type StreamFrame,
 } from "../worker/wire.js"
 import type { ControllerContext } from "./context.js"
+import { reconcileWorkOrder } from "./reconcile.js"
 import { consumeTurn } from "./turns.js"
 
 const isRunState = (state: WorkOrderRow["state"]) => state === "dispatched" || state === "running"
+
+export interface ObserveRunOptions {
+  /**
+   * Set when reconciliation reattached to a run that was already in flight. A reattached
+   * stream carries only the tail of the turn — the gate may have been emitted on the stream
+   * that was lost — so its end is no evidence that the run produced no candidate: the worker
+   * is re-read instead. The number is the reconciliation pass, which bounds that cycle.
+   */
+  readonly reconcileAttempt?: number
+}
 
 /**
  * The worker's single turn (spec: "Where the candidate digest comes from" and the
@@ -20,7 +31,9 @@ export async function observeRun(
   ctx: ControllerContext,
   id: string,
   frames: AsyncIterable<StreamFrame>,
+  options: ObserveRunOptions = {},
 ): Promise<void> {
+  const reattached = options.reconcileAttempt !== undefined
   const result = await consumeTurn(frames, {
     onFirstFrame: async () => {
       // `transition` re-reads the row inside its own transaction, so the state it checks
@@ -99,6 +112,11 @@ export async function observeRun(
         ctx.transition(id, "run_failed", { failureReason: "route_error" }, { error })
         return
       }
+      if (reattached) {
+        // Not a verdict: the reconciliation pass below re-reads the worker.
+        ctx.recordEvent(id, "reattached_turn_ended", { attempt: options.reconcileAttempt })
+        return
+      }
       ctx.transition(
         id,
         "run_ended_without_candidate",
@@ -107,12 +125,18 @@ export async function observeRun(
       )
     },
   })
-  if (result.ended === "lost") {
-    ctx.recordEvent(id, "stream_lost", { phase: "run", error: result.error ?? null })
-  } else if (result.ended === "handler_error") {
-    // A controller fault, not a worker fault: reconciliation must not read it as a lost stream.
+  if (result.ended === "handler_error") {
+    // A controller fault, not a worker fault: reconciliation must not read it as a lost
+    // stream, and must not run on the strength of one.
     ctx.recordEvent(id, "run_observer_error", { phase: "run", error: result.error ?? null })
+    return
   }
+  if (result.ended === "lost")
+    ctx.recordEvent(id, "stream_lost", { phase: "run", error: result.error ?? null })
+  // The worker, not this stream, is the authority on what the run left behind: a lost stream
+  // is reconciled, and so is the end of a stream reconciliation itself reattached.
+  if (result.ended === "lost" || reattached)
+    await reconcileWorkOrder(ctx, id, (options.reconcileAttempt ?? 0) + (reattached ? 1 : 0))
 }
 
 /** Resolve every pending interrupt on the work order's thread with `deny`. */

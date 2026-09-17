@@ -165,11 +165,12 @@ describe("create and dispatch", () => {
     }
   })
 
-  it("records a lost stream without changing state", async () => {
+  it("records a lost stream and recovers through reconciliation", async () => {
     await boot({ run: "close_midway" })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
-    await factory.waitFor(id, () => factory.events(id).some((e) => e.type === "stream_lost"))
-    expect(factory.show(id)).toMatchObject({ state: "running", candidateDigest: fake.digest })
+    const row = await factory.waitFor(id, (r) => settled(r.state))
+    expect(row).toMatchObject({ state: "awaiting_approval", candidateDigest: fake.digest })
+    expect(factory.events(id).map((e) => e.type)).toContain("stream_lost")
   })
 })

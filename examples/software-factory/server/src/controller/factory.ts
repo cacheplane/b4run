@@ -17,6 +17,7 @@ import { receiptPath, waitForReceipt } from "../worker/outbox.js"
 import { classifyDone, type InterruptFrame, type StreamFrame } from "../worker/wire.js"
 import { startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
+import { reconcileAll } from "./reconcile.js"
 import { denyPending, observeRun } from "./run-observer.js"
 import { consumeTurn } from "./turns.js"
 
@@ -293,7 +294,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     mustGet,
     recordEvent,
     transition,
-    observeRun: (id, frames) => observeRun(ctx, id, frames),
+    observeRun: (id, frames, options) => observeRun(ctx, id, frames, options),
     denyPending: (id) => denyPending(ctx, id),
     finishCancel: (id, cause) => finishCancel(id, cause),
     settleRun,
@@ -646,6 +647,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       registry.close()
     },
   }
+
+  // Last: the rules may transition rows and reattach to live runs, so everything they lean
+  // on (the context, the ticker, the command log) must already be assembled.
+  await reconcileAll(ctx)
 
   return factory
 }
