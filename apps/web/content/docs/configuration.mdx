@@ -279,7 +279,10 @@ is compressed and what remains verbatim.
 ### `build`
 
 ```ts
-build?: { targets?: readonly BuildTargetName[] }
+build?: {
+  targets?: readonly BuildTargetName[]
+  vercel?: { reconcileVercelJson?: boolean }
+}
 ```
 
 Default: `["node", "langsmith"]`. An authored `targets` array replaces that
@@ -290,6 +293,20 @@ to type-check instead of failing at `b4 build`. `"hono"` and `"vercel"` are
 the opt-in edge subset. Choose only targets whose runtime can materialize
 the configured capabilities. See [Deployment Options](/docs/deployment) for
 the artifact and compatibility matrix.
+
+`vercel.reconcileVercelJson` (default `true`) controls whether the `"vercel"`
+target reconciles the app-root `vercel.json` with its lifecycle contract — a
+`buildCommand` that runs `b4 build` and `fluid: true`. Set it to `false` for a
+prebuilt flow (`vercel deploy --prebuilt` from CI, no Vercel Git integration):
+Vercel never runs `buildCommand` there, so the target stops requiring, writing,
+or inspecting a committed `vercel.json`. Fluid compute still matters for the
+deployed project; keep it enabled in the Vercel project settings, because the
+build no longer fails on a committed `fluid: false` once reconciliation is off.
+Both `b4 check` and `b4 build` reject a value that is not exactly `true` or
+`false` with `B4_E1003`, including a non-object `vercel`, an unknown key inside
+it, and the flag misplaced directly on `build` — each of those would otherwise
+read as configured while the target kept reconciling. A prebuilt app therefore
+configures `build: { targets: ["vercel"], vercel: { reconcileVercelJson: false } }`.
 
 ### `sandbox`
 
