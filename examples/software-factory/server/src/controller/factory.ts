@@ -7,6 +7,7 @@ import { type CommandLog, createCommandLog } from "../registry/commands.js"
 import { openRegistry } from "../registry/db.js"
 import { createWorkOrderStore, type WorkOrderPatch } from "../registry/work-orders.js"
 import type { WorkerClient } from "../worker/client.js"
+import { receiptPath, waitForReceipt } from "../worker/outbox.js"
 import {
   classifyDone,
   isExportGate,
@@ -238,7 +239,90 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     })
     if (result.ended === "lost") {
       recordEvent(id, "stream_lost", { phase: "run", error: result.error ?? null })
+    } else if (result.ended === "handler_error") {
+      // A controller fault, not a worker fault: reconciliation must not read it as a lost stream.
+      recordEvent(id, "run_observer_error", { phase: "run", error: result.error ?? null })
     }
+  }
+
+  /**
+   * Resolve the worker's parked exportForReview gate with `once` and wait for the receipt
+   * named by the approved digest. Called only from approve (after the approval row is
+   * committed) and from reconciliation of an `exporting` work order. Ends in exported or
+   * blocked; never leaves `exporting`.
+   */
+  async function confirmExport(id: string): Promise<void> {
+    const row = mustGet(id)
+    if (
+      row.state !== "exporting" ||
+      !row.workerThreadId ||
+      !row.candidateDigest ||
+      !row.interruptId
+    )
+      return
+    const { workerThreadId: threadId, candidateDigest: digest, interruptId } = row
+    const block = (reason: string, extra: Record<string, unknown> = {}) => {
+      if (mustGet(id).state === "exporting")
+        transition(
+          id,
+          "export_unconfirmed",
+          { blockedReason: "export_unconfirmed" },
+          { reason, ...extra },
+        )
+    }
+
+    let frames: AsyncIterable<StreamFrame>
+    try {
+      frames = await options.worker.resume(
+        threadId,
+        options.workerRoute,
+        [{ interruptId, payload: "once" }],
+        abort.signal,
+      )
+    } catch (error) {
+      block("resume failed", { error: String(error) })
+      return
+    }
+    recordEvent(id, "export_gate_resolved", { interruptId })
+    let routeError: string | null = null
+    const result = await consumeTurn(frames, {
+      onDone: async (data) => {
+        routeError = classifyDone(data).error
+      },
+    })
+    if (result.ended === "lost")
+      recordEvent(id, "stream_lost", { phase: "export_resume", error: result.error ?? null })
+    else if (result.ended === "handler_error") {
+      recordEvent(id, "run_observer_error", {
+        phase: "export_resume",
+        error: result.error ?? null,
+      })
+      block("observer error", { error: result.error ?? null })
+      return
+    }
+    if (routeError) {
+      block("resume ended with error", { error: routeError })
+      return
+    }
+    const receipt = await waitForReceipt(options.outboxDir, digest, {
+      timeoutMs: ctx.receiptWaitMs,
+      signal: abort.signal,
+    })
+    if (!receipt) {
+      block("receipt not observed", { expected: receiptPath(options.outboxDir, digest) })
+      return
+    }
+    if (mustGet(id).state !== "exporting") return
+    store.transaction(() => {
+      store.recordDelivery({
+        workOrderId: id,
+        candidateDigest: digest,
+        receiptPath: receipt,
+        observedAt: iso(),
+      })
+      recordEvent(id, "delivery_observed", { receiptPath: receipt })
+      transition(id, "receipt_observed")
+    })
   }
 
   async function finishCancel(_id: string, _cause: "operator" | "budget"): Promise<WorkOrderRow> {
@@ -265,7 +349,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     settleRun,
     track,
   }
-  void ctx
 
   async function startRun(id: string): Promise<void> {
     const row = mustGet(id)
@@ -353,11 +436,101 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       return outcome
     },
 
-    async approve() {
-      throw new Error("approve is implemented in Task 13")
+    async approve(id, { revision, candidateDigest, operationKey }) {
+      const row = mustGet(id)
+      // The default key carries the digest as well as the revision: two approvals of the same
+      // revision with different digests are different intents, and one key cannot hold both.
+      const key = operationKey ?? `approve:${id}:${revision}:${candidateDigest}`
+      const begun = commands.begin(
+        key,
+        id,
+        { command: "approve", args: { revision, candidateDigest } },
+        iso(),
+      )
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      const refuse = (message: string) =>
+        finish(key, { ok: false, state: mustGet(id).state, message })
+      if (row.state !== "awaiting_approval") return refuse(`Cannot approve from ${row.state}`)
+      if (row.revision !== revision)
+        return refuse(`Stale revision ${revision}; work order is at ${row.revision}`)
+      if (row.candidateDigest !== candidateDigest)
+        return refuse("Candidate digest does not match the recorded candidate")
+      const since = row.awaitingSince ? Date.parse(row.awaitingSince) : Number.NaN
+      const ttl = options.approvalTtlMs ?? 900_000
+      if (!Number.isFinite(since) || now() > since + ttl)
+        return refuse("Candidate has expired; deny or cancel it")
+      if (!row.workerThreadId || !row.interruptId) return refuse("Work order has no recorded gate")
+
+      // The gate must still be pending on the worker before any authority is recorded.
+      const pending = await options.worker.pendingInterrupts(row.workerThreadId)
+      if (pending.length !== 1 || pending[0]?.interruptId !== row.interruptId) {
+        transition(
+          id,
+          "interrupt_vanished",
+          { blockedReason: "interrupt_vanished" },
+          { expected: row.interruptId, pending: pending.map((p) => p.interruptId) },
+        )
+        return refuse("The worker's approval prompt is no longer pending")
+      }
+
+      store.transaction(() => {
+        store.recordApproval({
+          id: `ap-${randomUUID()}`,
+          workOrderId: id,
+          interruptId: row.interruptId as string,
+          candidateDigest,
+          decision: "approved",
+          decidedBy: options.actor ?? "operator",
+          decidedAt: iso(),
+          expiresAt: new Date(since + ttl).toISOString(),
+        })
+        transition(id, "approve", {}, { candidateDigest, operationKey: key })
+      })
+      const run = confirmExport(id)
+      track(id, run)
+      await run
+      const final = mustGet(id)
+      return finish(key, {
+        ok: final.state === "exported",
+        state: final.state,
+        message:
+          final.state === "exported"
+            ? "Exported"
+            : `Export not confirmed: ${final.blockedReason ?? final.state}`,
+      })
     },
-    async deny() {
-      throw new Error("deny is implemented in Task 13")
+
+    async deny(id, operationKey) {
+      const row = mustGet(id)
+      const key = operationKey ?? `deny:${id}:${row.revision}`
+      const begun = commands.begin(key, id, { command: "deny", args: {} }, iso())
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      if (row.state !== "awaiting_approval" && row.state !== "blocked")
+        return finish(key, {
+          ok: false,
+          state: row.state,
+          message: `Cannot deny from ${row.state}`,
+        })
+      try {
+        await denyPending(id)
+      } catch (error) {
+        recordEvent(id, "pending_deny_failed", { error: String(error) })
+      }
+      if (row.candidateDigest && row.interruptId)
+        store.recordApproval({
+          id: `ap-${randomUUID()}`,
+          workOrderId: id,
+          interruptId: row.interruptId,
+          candidateDigest: row.candidateDigest,
+          decision: "denied",
+          decidedBy: options.actor ?? "operator",
+          decidedAt: iso(),
+          expiresAt: iso(),
+        })
+      const denied = transition(id, "deny", {}, { operationKey: key })
+      return finish(key, { ok: true, state: denied.state, message: "Denied" })
     },
     async cancel() {
       throw new Error("cancel is implemented in Task 14")
