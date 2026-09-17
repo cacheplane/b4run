@@ -1,5 +1,12 @@
 import type { IncomingMessage } from "node:http"
-import type { B4Middleware, MiddlewareRequest, MiddlewareResult } from "@b4run/sdk"
+import type {
+  B4Middleware,
+  MiddlewareDefinition,
+  MiddlewareHandler,
+  MiddlewareRequest,
+  MiddlewareResult,
+  MiddlewareSetupContext,
+} from "@b4run/sdk"
 
 /**
  * Select the middleware function from a module namespace: the `default`
@@ -13,7 +20,90 @@ export function selectMiddlewareExport(mod: unknown): B4Middleware | undefined {
   if (!mod || typeof mod !== "object") return undefined
   const candidate = mod as { readonly default?: unknown; readonly middleware?: unknown }
   const exported = candidate.default ?? candidate.middleware
-  return typeof exported === "function" ? (exported as B4Middleware) : undefined
+  if (typeof exported === "function") return exported as MiddlewareHandler
+  return isMiddlewareDefinition(exported) ? exported : undefined
+}
+
+/** The lifecycle object form: anything with a `handle` function. */
+function isMiddlewareDefinition(value: unknown): value is MiddlewareDefinition {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { readonly handle?: unknown }).handle === "function"
+  )
+}
+
+/** A middleware bound to one runtime: its handler, and the shutdown hook the runtime owns. */
+export interface BoundMiddleware {
+  /**
+   * The per-request handler, with the lazy `setup` folded in. `undefined` when
+   * the app has no middleware. This is the ONLY shape `runMiddleware` accepts,
+   * so a definition cannot reach a request without its `setup`.
+   */
+  readonly handler: MiddlewareHandler | undefined
+  /** Idempotent; see `MiddlewareDefinition.dispose` for when the hook runs. */
+  readonly dispose: () => Promise<void>
+}
+
+const NO_DISPOSE = (): Promise<void> => Promise.resolve()
+
+/**
+ * Bind a middleware export to one runtime. A plain function is returned as
+ * itself. A lifecycle definition becomes a handler that runs `setup` once,
+ * lazily, single-flight, and retries it after a rejection; `dispose` is wired
+ * for the runtime's shutdown path. Pure and edge-safe: the fetch core imports
+ * this module.
+ */
+export function bindMiddleware(
+  middleware: B4Middleware | undefined,
+  ctx: MiddlewareSetupContext,
+): BoundMiddleware {
+  if (!middleware) return { dispose: NO_DISPOSE, handler: undefined }
+  if (typeof middleware === "function") return { dispose: NO_DISPOSE, handler: middleware }
+
+  const { dispose, handle, setup } = middleware
+  /** The single in-flight or completed setup; cleared on rejection so the next request retries. */
+  let setupPromise: Promise<void> | undefined
+  let setupSucceeded = setup === undefined
+  let disposing: Promise<void> | undefined
+
+  const ensureSetup = (): Promise<void> => {
+    if (disposing) return Promise.reject(new Error("Middleware has been disposed"))
+    if (!setup) return Promise.resolve()
+    setupPromise ??= Promise.resolve()
+      .then(() => setup(ctx))
+      .then(
+        () => {
+          setupSucceeded = true
+        },
+        (error: unknown) => {
+          setupPromise = undefined
+          throw error
+        },
+      )
+    return setupPromise
+  }
+
+  const handler: MiddlewareHandler = async (req) => {
+    await ensureSetup()
+    return await handle(req)
+  }
+
+  const performDispose = async (): Promise<void> => {
+    // An in-flight setup may still be opening the resource: wait for it to
+    // settle (a failure means there is nothing to release) before deciding.
+    if (setupPromise) await setupPromise.catch(() => undefined)
+    if (!setupSucceeded || !dispose) return
+    await dispose()
+  }
+
+  return {
+    dispose: () => {
+      disposing ??= performDispose()
+      return disposing
+    },
+    handler,
+  }
 }
 
 /**
@@ -35,7 +125,7 @@ export function middlewareCandidatePaths(appRoot: string): readonly string[] {
  * Run middleware. Returns continue (with optional context) or reject.
  */
 export async function runMiddleware(
-  middleware: B4Middleware | undefined,
+  middleware: MiddlewareHandler | undefined,
   request: MiddlewareRequest,
 ): Promise<MiddlewareResult> {
   if (!middleware) {

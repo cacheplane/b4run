@@ -39,8 +39,11 @@ export { defineMemory } from "./memory.js"
 export type {
   B4Middleware,
   ContinueResult,
+  MiddlewareDefinition,
+  MiddlewareHandler,
   MiddlewareRequest,
   MiddlewareResult,
+  MiddlewareSetupContext,
   RejectResult,
 } from "./middleware.js"
 export { allow, defineMiddleware, reject } from "./middleware.js"

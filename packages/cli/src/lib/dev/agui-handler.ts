@@ -4,7 +4,7 @@ import { type B4AgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@b4run
 import { encodeAgUiSse } from "@b4run/ag-ui/sse"
 import type { MemoryStoreLike } from "@b4run/core"
 import type { PermissionsStore } from "@b4run/permissions"
-import type { B4Middleware, MiddlewareRequest, ThreadAccessPolicy } from "@b4run/sdk"
+import type { MiddlewareHandler, MiddlewareRequest, ThreadAccessPolicy } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { checkpointRoutes } from "../runtime/checkpoint-route-provenance.js"
@@ -45,7 +45,7 @@ export interface AgUiFetchRequestOptions {
    */
   readonly getMemoryStore?: () => Promise<MemoryStoreLike>
   readonly liveTurnHub: LiveTurnHub
-  readonly middleware: B4Middleware | undefined
+  readonly middleware: MiddlewareHandler | undefined
   /**
    * Boot-resolved permissions store (or a per-request factory in dev),
    * forwarded into route execution so no per-request store construction is

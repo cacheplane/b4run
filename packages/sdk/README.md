@@ -67,6 +67,35 @@ import { defineMiddleware } from "@b4run/sdk"
 export default defineMiddleware(() => ({ action: "continue" }))
 ```
 
+Middleware that owns a long-lived resource, such as a database pool, uses the
+lifecycle form. `setup` runs once, lazily, before the first gated request (and
+is retried on the next request if it fails); `dispose` runs when the Node
+runtime shuts down.
+
+```ts
+// src/middleware.ts
+import { allow, defineMiddleware, reject } from "@b4run/sdk"
+import { Pool } from "pg"
+
+let pool: Pool | undefined
+
+export default defineMiddleware({
+  async setup() {
+    pool = new Pool({ connectionString: process.env.DATABASE_URL })
+    await pool.query("select 1")
+  },
+  async dispose() {
+    await pool?.end()
+  },
+  async handle(req) {
+    const session = await pool?.query("select user_id from sessions where token = $1", [
+      req.headers.authorization,
+    ])
+    return session?.rowCount ? allow({ userId: session.rows[0].user_id }) : reject(401)
+  },
+})
+```
+
 ## Runtime and stability
 
 - `@b4run/sdk` is the supported, edge-safe application surface.

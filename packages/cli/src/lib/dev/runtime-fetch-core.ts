@@ -2,7 +2,7 @@ import type { B4Config } from "@b4run/core"
 import { loadB4Config, seedB4Config } from "@b4run/core"
 import type { MemoryStore } from "@b4run/memory"
 import type { PermissionsStore } from "@b4run/permissions"
-import type { B4Middleware, MiddlewareRequest, ThreadAccessPolicy } from "@b4run/sdk"
+import type { MiddlewareHandler, MiddlewareRequest, ThreadAccessPolicy } from "@b4run/sdk"
 import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
 import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
@@ -32,7 +32,7 @@ import {
   handleMemoryListRequest,
   handleMemoryRejectRequest,
 } from "./memory-handler.js"
-import { headersToRecord, runMiddleware } from "./middleware.js"
+import { bindMiddleware, headersToRecord, runMiddleware } from "./middleware.js"
 import { readParkedInterruptIds, readParkedRoute, settleParkedRoute } from "./parked-route.js"
 import {
   type B4ResumeEntry,
@@ -341,12 +341,30 @@ export async function createRuntimeFetchHandler(
   }
   // Caller-supplied instances win over every fallback resolution below —
   // an injected store means the corresponding disk/sqlite path never runs.
-  const middleware =
+  // Bound here, once per runtime: a lifecycle definition (`setup`/`dispose`)
+  // becomes a plain handler with its lazy `setup` folded in, and its `dispose`
+  // is what `close()` below drives. Nothing past this line sees the definition.
+  const boundMiddleware = bindMiddleware(
     options.middleware ??
-    options.modules?.middleware ??
-    // Middleware is optional by contract, so a runtime with no filesystem
-    // fallback resolves "none" rather than failing the boot.
-    (await fallbacks?.loadMiddleware(options.appRoot))
+      options.modules?.middleware ??
+      // Middleware is optional by contract, so a runtime with no filesystem
+      // fallback resolves "none" rather than failing the boot.
+      (await fallbacks?.loadMiddleware(options.appRoot)),
+    { appRoot: options.appRoot },
+  )
+  const middleware = boundMiddleware.handler
+  // After the request drain, so a `dispose` never ends a pool a request is
+  // still using. A rejection is the operator's to see, not a reason to wedge
+  // shutdown: the process is exiting either way.
+  const disposeMiddleware = async (): Promise<void> => {
+    try {
+      await boundMiddleware.dispose()
+    } catch (error) {
+      console.error(
+        `B4.run: middleware dispose() failed — ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
   // BEFORE the resolution below, because the resolution cannot tell the
   // difference this catches: a stale manifest resolves to `undefined` exactly
   // like an app that never had a policy. `in`, not truthiness — a key present
@@ -913,6 +931,7 @@ export async function createRuntimeFetchHandler(
       // Release sandboxes only after in-flight requests have drained, so tools
       // executing against a sandbox are never yanked mid-request.
       if (sandboxManager) await sandboxManager.releaseAll()
+      await disposeMiddleware()
       state.closed = true
     }
     const close = (): Promise<void> => {
@@ -946,6 +965,10 @@ export async function createRuntimeFetchHandler(
     return { close, fetch, shutdownController, state }
   } catch (error) {
     if (sandboxReaper) clearInterval(sandboxReaper)
+    // `setup` is lazy, so nothing it opens can be open yet; this is for a
+    // middleware whose `dispose` releases something the module opened at
+    // import time, so a failed boot does not leave the process pinned on it.
+    await disposeMiddleware()
     try {
       await sandboxManager?.releaseAll()
     } catch (cleanupError) {
@@ -1074,7 +1097,7 @@ export function buildRouteTable(ctx: {
   readonly getRunRegistry: (request: Request) => RunRegistry
   readonly getThreadsStore: (request: Request) => ThreadsStore
   readonly liveTurnHub: LiveTurnHub
-  readonly middleware: B4Middleware | undefined
+  readonly middleware: MiddlewareHandler | undefined
   readonly registry: RuntimeRegistry
   /**
    * The boot-resolved policy. `buildRouteTable` runs before any request exists,
@@ -1694,7 +1717,7 @@ async function handleApStreamRequest(options: {
   readonly checkpointer: BaseCheckpointSaver
   readonly getMemoryStore: () => Promise<MemoryStore>
   readonly liveTurnHub: LiveTurnHub
-  readonly middleware: B4Middleware | undefined
+  readonly middleware: MiddlewareHandler | undefined
   readonly permissionsStore: PermissionsStore | (() => Promise<PermissionsStore>)
   readonly registry: RuntimeRegistry
   readonly request: Request
@@ -2062,7 +2085,7 @@ async function handleApWaitRequest(options: {
   readonly boot: RouteBoot
   readonly checkpointer: BaseCheckpointSaver
   readonly getMemoryStore: () => Promise<MemoryStore>
-  readonly middleware: B4Middleware | undefined
+  readonly middleware: MiddlewareHandler | undefined
   readonly permissionsStore: PermissionsStore | (() => Promise<PermissionsStore>)
   readonly registry: RuntimeRegistry
   readonly request: Request
@@ -2435,7 +2458,7 @@ async function handleApWaitRequest(options: {
 
 async function handleApPendingInterruptsRequest(options: {
   readonly checkpointer: BaseCheckpointSaver
-  readonly middleware: B4Middleware | undefined
+  readonly middleware: MiddlewareHandler | undefined
   readonly registry: RuntimeRegistry
   readonly request: Request
   readonly threadAccess: ThreadAccessPolicy | undefined
@@ -2673,7 +2696,7 @@ async function handleApAttachRequest(options: {
   readonly apSseHeartbeatIntervalMs: number
   readonly checkpointer: BaseCheckpointSaver
   readonly liveTurnHub: LiveTurnHub
-  readonly middleware: B4Middleware | undefined
+  readonly middleware: MiddlewareHandler | undefined
   readonly registry: RuntimeRegistry
   readonly request: Request
   readonly threadAccess: ThreadAccessPolicy | undefined
@@ -2923,7 +2946,7 @@ async function handleResumeRequest(options: {
   readonly checkpointer: BaseCheckpointSaver
   readonly getMemoryStore: () => Promise<MemoryStore>
   readonly liveTurnHub: LiveTurnHub
-  readonly middleware: B4Middleware | undefined
+  readonly middleware: MiddlewareHandler | undefined
   readonly permissionsStore: PermissionsStore | (() => Promise<PermissionsStore>)
   readonly registry: RuntimeRegistry
   readonly resumeClaims: PendingResumeClaims

@@ -33,11 +33,13 @@ export async function loadStaticModules(manifestUrl: URL | string): Promise<B4St
   }
   // Middleware is optional, and `undefined` is legitimate (the emitted
   // `normalizeMiddlewareModule(...)` returns undefined for a middleware file
-  // with no usable export) — but any other non-function value is corruption.
+  // with no usable export) — but anything else must be one of the two shapes
+  // `selectMiddlewareExport` produces: the handler function, or a lifecycle
+  // definition with a `handle` function. Any other value is corruption.
   const middleware = (manifest as { readonly middleware?: unknown }).middleware
-  if (middleware !== undefined && typeof middleware !== "function") {
+  if (middleware !== undefined && !isMiddlewareShape(middleware)) {
     throw new Error(
-      `Static module manifest at ${href} has a non-function middleware entry — re-run \`b4 build\`.`,
+      `Static module manifest at ${href} has a malformed middleware entry — re-run \`b4 build\`.`,
     )
   }
   // Thread access is optional, and `undefined` is legitimate (an app with no
@@ -87,5 +89,14 @@ function isStaticRouteModuleLike(entry: unknown): entry is StaticRouteModule {
     typeof candidate.module === "object" &&
     candidate.module !== null &&
     Array.isArray(candidate.tools)
+  )
+}
+
+function isMiddlewareShape(value: unknown): boolean {
+  if (typeof value === "function") return true
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { readonly handle?: unknown }).handle === "function"
   )
 }
