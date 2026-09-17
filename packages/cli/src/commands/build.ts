@@ -10,8 +10,8 @@ import {
   knownTargetNames,
 } from "../lib/build/targets/index.js"
 import { assertRouteMarkerFileLimits } from "../lib/build/targets/marker-files.js"
-import { resolveVercelBuildConfig } from "../lib/build/targets/vercel-config.js"
 import { resolveVercelOutputDir } from "../lib/build/targets/vercel.js"
+import { resolveVercelBuildConfig } from "../lib/build/targets/vercel-config.js"
 import { captureWorkspaceArtifact } from "../lib/build/workspace-artifact.js"
 import { loadOptionalB4Config } from "../lib/node-config.js"
 import { CliError, type CommandIo, writeLine } from "../lib/output.js"

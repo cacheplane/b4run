@@ -72,7 +72,7 @@ export function resolveVercelBuildConfig(build: B4Config["build"] | undefined): 
   const misplacedOutDir = ownProperty(buildRecord, "outDir")
   if (misplacedOutDir !== undefined) {
     throw invalidBuildConfig(
-      "outDir belongs under build.vercel, not build directly. Use build: { vercel: { outDir: \"dist/vercel\" } }.",
+      'outDir belongs under build.vercel, not build directly. Use build: { vercel: { outDir: "dist/vercel" } }.',
     )
   }
 
