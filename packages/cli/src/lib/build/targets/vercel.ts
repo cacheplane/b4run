@@ -8,7 +8,13 @@ import { CliError, formatErrorMessage } from "../../output.js"
 import type { BuildTarget } from "./index.js"
 import { reconcileVercelConfig } from "./vercel-config.js"
 import { createVercelNodeCompatibilityPlugin } from "./vercel-node-compat.js"
-import { publishVercelOutput, validateVercelOutput, writeVercelMetadata } from "./vercel-output.js"
+import {
+  publishVercelOutput,
+  resolveVercelFunctionName,
+  validateVercelOutput,
+  vercelFunctionDir,
+  writeVercelMetadata,
+} from "./vercel-output.js"
 import { emitWebRuntimeArtifacts } from "./web-runtime.js"
 
 interface VercelTargetCleanupFileOps {
@@ -32,12 +38,15 @@ export function setVercelTargetCleanupFileOpsForTesting(
 export const vercelTarget: BuildTarget = {
   name: "vercel",
   async emit(ctx) {
+    // Resolved before any filesystem work so a bad name fails fast.
+    const functionName = resolveVercelFunctionName(ctx.config)
     const vercelDir = join(ctx.appRoot, ".vercel")
     const invocationDir = join(vercelDir, `.b4-vercel-${randomUUID()}`)
     const runtimeDir = join(invocationDir, "runtime")
     const stagedOutput = join(invocationDir, "output")
     const finalOutput = join(vercelDir, "output")
-    const functionEntryPath = join(stagedOutput, "functions", "index.func", "index.mjs")
+    const finalFunctionDir = vercelFunctionDir(finalOutput, functionName)
+    const functionEntryPath = join(vercelFunctionDir(stagedOutput, functionName), "index.mjs")
     let didFail = false
     let primaryError: unknown
     let cleanupDidFail = false
@@ -66,14 +75,14 @@ export const vercelTarget: BuildTarget = {
         })
       } catch (error) {
         throw new CliError(
-          `Could not bundle the generated Vercel runtime: ${formatErrorMessage(error)}. The Vercel function directory boundary at ${join(finalOutput, "functions", "index.func")} must contain every application, provider, and runtime dependency; install the missing import as a runtime dependency and rebuild.`,
+          `Could not bundle the generated Vercel runtime: ${formatErrorMessage(error)}. The Vercel function directory boundary at ${finalFunctionDir} must contain every application, provider, and runtime dependency; install the missing import as a runtime dependency and rebuild.`,
           1,
           { cause: error },
         )
       }
 
-      await writeVercelMetadata(stagedOutput)
-      await validateVercelOutput(stagedOutput)
+      await writeVercelMetadata(stagedOutput, { functionName })
+      await validateVercelOutput(stagedOutput, { functionName })
       const rootConfig = await reconcileVercelConfig({
         appRoot: ctx.appRoot,
         buildDir: ctx.buildDir,
@@ -83,8 +92,8 @@ export const vercelTarget: BuildTarget = {
 
       artifacts = [
         join(finalOutput, "config.json"),
-        join(finalOutput, "functions", "index.func", ".vc-config.json"),
-        join(finalOutput, "functions", "index.func", "index.mjs"),
+        join(finalFunctionDir, ".vc-config.json"),
+        join(finalFunctionDir, "index.mjs"),
         rootConfig.artifactPath,
       ]
     } catch (error) {

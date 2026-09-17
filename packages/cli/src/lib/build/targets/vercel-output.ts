@@ -6,10 +6,54 @@ import { build } from "esbuild"
 
 import { CliError, formatErrorMessage } from "../../output.js"
 
-export const VERCEL_BUILD_OUTPUT_CONFIG = {
-  routes: [{ dest: "/index", src: "/(.*)" }],
-  version: 3,
-} as const
+/**
+ * The function directory name `b4 build` emits by default:
+ * `.vercel/output/functions/b4.func`, routed from `/(.*)` to `/b4`.
+ *
+ * Deliberately not `index`: in the Build Output API a function named `index`
+ * is also served at `/`, so it shadows a static `index.html` for any app that
+ * ships a frontend beside the runtime (cacheplane/b4run#687).
+ */
+export const DEFAULT_VERCEL_FUNCTION_NAME = "b4"
+
+const VERCEL_FUNCTION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
+
+export interface VercelOutputOptions {
+  /** Function directory name without the `.func` suffix. Defaults to {@link DEFAULT_VERCEL_FUNCTION_NAME}. */
+  readonly functionName?: string
+}
+
+/**
+ * Resolve and validate the function name from `build.vercel.functionName`.
+ * Throws a {@link CliError} when the configured value cannot be a single
+ * `functions/<name>.func` path segment.
+ */
+export function resolveVercelFunctionName(
+  config:
+    | { readonly build?: { readonly vercel?: { readonly functionName?: unknown } } }
+    | undefined,
+): string {
+  const configured = config?.build?.vercel?.functionName
+  if (configured === undefined) return DEFAULT_VERCEL_FUNCTION_NAME
+  if (typeof configured !== "string" || !VERCEL_FUNCTION_NAME_PATTERN.test(configured)) {
+    throw new CliError(
+      `Invalid build config:\nbuild.vercel.functionName must be a single path segment of letters, digits, "_" or "-" (got ${JSON.stringify(configured)}). It names the emitted .vercel/output/functions/<name>.func directory.`,
+      1,
+      { code: "B4_E1003" },
+    )
+  }
+  return configured
+}
+
+export function vercelBuildOutputConfig(functionName: string) {
+  return {
+    routes: [{ dest: `/${functionName}`, src: "/(.*)" }],
+    version: 3,
+  } as const
+}
+
+/** The `config.json` written for the default function name. */
+export const VERCEL_BUILD_OUTPUT_CONFIG = vercelBuildOutputConfig(DEFAULT_VERCEL_FUNCTION_NAME)
 
 export const VERCEL_FUNCTION_CONFIG = {
   handler: "index.mjs",
@@ -19,31 +63,43 @@ export const VERCEL_FUNCTION_CONFIG = {
 
 type PathOperations = Pick<typeof import("node:path"), "isAbsolute" | "relative" | "sep">
 
-export async function writeVercelMetadata(outputDir: string): Promise<{
+export function vercelFunctionDir(outputDir: string, functionName: string): string {
+  return join(outputDir, "functions", `${functionName}.func`)
+}
+
+export async function writeVercelMetadata(
+  outputDir: string,
+  options: VercelOutputOptions = {},
+): Promise<{
   readonly configPath: string
   readonly functionConfigPath: string
   readonly functionDir: string
 }> {
+  const functionName = options.functionName ?? DEFAULT_VERCEL_FUNCTION_NAME
   const configPath = join(outputDir, "config.json")
-  const functionDir = join(outputDir, "functions", "index.func")
+  const functionDir = vercelFunctionDir(outputDir, functionName)
   const functionConfigPath = join(functionDir, ".vc-config.json")
 
   await mkdir(functionDir, { recursive: true })
   await Promise.all([
-    writeFile(configPath, stringifyJson(VERCEL_BUILD_OUTPUT_CONFIG), "utf8"),
+    writeFile(configPath, stringifyJson(vercelBuildOutputConfig(functionName)), "utf8"),
     writeFile(functionConfigPath, stringifyJson(VERCEL_FUNCTION_CONFIG), "utf8"),
   ])
 
   return { configPath, functionConfigPath, functionDir }
 }
 
-export async function validateVercelOutput(outputDir: string): Promise<void> {
+export async function validateVercelOutput(
+  outputDir: string,
+  options: VercelOutputOptions = {},
+): Promise<void> {
+  const functionName = options.functionName ?? DEFAULT_VERCEL_FUNCTION_NAME
   const configPath = join(outputDir, "config.json")
-  const functionDir = join(outputDir, "functions", "index.func")
+  const functionDir = vercelFunctionDir(outputDir, functionName)
   const functionConfigPath = join(functionDir, ".vc-config.json")
   const entryPath = join(functionDir, "index.mjs")
 
-  validateBuildOutputConfig(await readJson(configPath), configPath)
+  validateBuildOutputConfig(await readJson(configPath), configPath, functionName)
   validateFunctionConfig(await readJson(functionConfigPath), functionConfigPath)
 
   const functionDirStats = await lstatOrThrow(
@@ -146,10 +202,11 @@ async function readJson(path: string): Promise<unknown> {
   }
 }
 
-function validateBuildOutputConfig(value: unknown, configPath: string): void {
+function validateBuildOutputConfig(value: unknown, configPath: string, functionName: string): void {
+  const expected = vercelBuildOutputConfig(functionName)
   const config = asRecord(value, configPath)
   validateExactProperties(config, ["routes", "version"], configPath)
-  if (config.version !== VERCEL_BUILD_OUTPUT_CONFIG.version) {
+  if (config.version !== expected.version) {
     throw new Error(`${configPath} property "version" must be 3`)
   }
   if (!Array.isArray(config.routes) || config.routes.length !== 1) {
@@ -158,11 +215,13 @@ function validateBuildOutputConfig(value: unknown, configPath: string): void {
 
   const route = asRecord(config.routes[0], `${configPath} property "routes[0]"`)
   validateExactProperties(route, ["src", "dest"], configPath, "routes[0].")
-  if (route.src !== VERCEL_BUILD_OUTPUT_CONFIG.routes[0].src) {
+  if (route.src !== expected.routes[0].src) {
     throw new Error(`${configPath} property "routes[0].src" must be "/(.*)"`)
   }
-  if (route.dest !== VERCEL_BUILD_OUTPUT_CONFIG.routes[0].dest) {
-    throw new Error(`${configPath} property "routes[0].dest" must be "/index"`)
+  if (route.dest !== expected.routes[0].dest) {
+    throw new Error(
+      `${configPath} property "routes[0].dest" must be ${JSON.stringify(expected.routes[0].dest)}`,
+    )
   }
 }
 

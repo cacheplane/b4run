@@ -104,6 +104,19 @@ export default agent({
     expect(result.stderr).toContain("https://b4.run/docs/deployment")
   })
 
+  test("invalid build.vercel.functionName → [B4_E1003] with docs link", async () => {
+    const appRoot = await createFixtureApp({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { functionName: "../escape" } } };\n',
+    })
+    const result = await invoke(["check", "--cwd", appRoot])
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("Invalid build config")
+    expect(result.stderr).toContain("build.vercel.functionName")
+    expect(result.stderr).toContain("[B4_E1003]")
+    expect(result.stderr).toContain("https://b4.run/docs/deployment")
+  })
+
   test("invalid sandbox config → [B4_E1002] with docs link", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": 'export default { sandbox: { provider: { name: "bad" } } };\n',

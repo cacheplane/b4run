@@ -94,6 +94,19 @@ export interface B4Config {
      * Defaults to `["node", "langsmith"]` when omitted.
      */
     readonly targets?: readonly string[]
+    /** Options for the `"vercel"` target. */
+    readonly vercel?: {
+      /**
+       * Name of the emitted Build Output API function, without the `.func`
+       * suffix: `b4 build` writes `.vercel/output/functions/<name>.func` and
+       * routes `/(.*)` to `/<name>`. One path segment of letters, digits,
+       * `_` or `-`.
+       *
+       * Defaults to `"b4"`. Avoid `"index"`: Vercel also serves a function of
+       * that name at `/`, where it shadows a static `index.html`.
+       */
+      readonly functionName?: string
+    }
   }
   readonly sandbox?: SandboxConfig
   /**

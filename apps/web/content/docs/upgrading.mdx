@@ -85,6 +85,18 @@ normally. An empty `toolOutput: {}` expresses no intent and is not gated.
 **Node deployments are unaffected** — the gate is specific to the `hono` build
 target, and the matching runtime check (below) cannot fire on Node at all.
 
+## The `vercel` target's function is now `b4.func`, not `index.func`
+
+`b4 build` with the `vercel` target used to emit
+`.vercel/output/functions/index.func` with `config.json` routing `/(.*)` to
+`/index`. In the Build Output API a function named `index` is also served at
+`/`, so it shadowed a static `index.html` for any app shipping a frontend
+beside the runtime. The function is now `functions/b4.func` and the route
+points at `/b4`. Anything that reads the output tree by path — a deploy
+script, an assembler that copies the function, a CI check — must use the new
+name. `build.vercel.functionName` picks a different one, and setting it to
+`"index"` restores the old layout exactly. See [`b4 build`](/docs/cli#b4-build).
+
 ## Skills, `plan.md`, and route `memory.md` now work on edge targets
 
 The `hono` and `vercel` targets used to fail the build when a route shipped

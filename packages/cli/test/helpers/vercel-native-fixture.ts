@@ -5710,8 +5710,8 @@ const NATIVE_REMOTE_BUILD_SIGNATURE = [
   "3 route(s) compiled",
   "targets: vercel",
   "wrote .vercel/output/config.json",
-  "wrote .vercel/output/functions/index.func/.vc-config.json",
-  "wrote .vercel/output/functions/index.func/index.mjs",
+  "wrote .vercel/output/functions/b4.func/.vc-config.json",
+  "wrote .vercel/output/functions/b4.func/index.mjs",
   "wrote vercel.json",
 ] as const
 
@@ -5933,7 +5933,7 @@ export async function prepareNativeFixtureDeployment<
     } catch {
       throw new Error("native Vercel prebuilt output validation failed")
     }
-    const indexPath = join(outputRoot, "functions", "index.func", "index.mjs")
+    const indexPath = join(outputRoot, "functions", "b4.func", "index.mjs")
     const indexStats = await lstat(indexPath).catch(() => {
       throw new Error("native Vercel prebuilt index bundle is missing")
     })

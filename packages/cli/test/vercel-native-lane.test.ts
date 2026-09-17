@@ -6396,8 +6396,8 @@ describe("native orchestration and evidence closure", () => {
     "3 route(s) compiled",
     "targets: vercel",
     "wrote .vercel/output/config.json",
-    "wrote .vercel/output/functions/index.func/.vc-config.json",
-    "wrote .vercel/output/functions/index.func/index.mjs",
+    "wrote .vercel/output/functions/b4.func/.vc-config.json",
+    "wrote .vercel/output/functions/b4.func/index.mjs",
     "wrote vercel.json",
   ] as const
   const sourceDeployCommand = {
@@ -6508,12 +6508,12 @@ describe("native orchestration and evidence closure", () => {
         protectedValues,
         runBuildChild: async (request) => {
           buildRequests.push(request)
-          await mkdir(join(prebuilt.root, ".vercel", "output", "functions", "index.func"), {
+          await mkdir(join(prebuilt.root, ".vercel", "output", "functions", "b4.func"), {
             recursive: true,
           })
           await writeFile(join(prebuilt.root, ".vercel", "output", "config.json"), "{}\n", "utf8")
           await writeFile(
-            join(prebuilt.root, ".vercel", "output", "functions", "index.func", "index.mjs"),
+            join(prebuilt.root, ".vercel", "output", "functions", "b4.func", "index.mjs"),
             "export default { fetch() {} }\n",
             "utf8",
           )
@@ -6600,11 +6600,11 @@ describe("native orchestration and evidence closure", () => {
         projectId: "prj_Test456",
         protectedValues,
         runBuildChild: async () => {
-          await mkdir(join(unsafePrebuilt.root, ".vercel", "output", "functions", "index.func"), {
+          await mkdir(join(unsafePrebuilt.root, ".vercel", "output", "functions", "b4.func"), {
             recursive: true,
           })
           await writeFile(
-            join(unsafePrebuilt.root, ".vercel", "output", "functions", "index.func", "index.mjs"),
+            join(unsafePrebuilt.root, ".vercel", "output", "functions", "b4.func", "index.mjs"),
             `export const leaked = ${JSON.stringify(protectedValues[3])}\n`,
             "utf8",
           )
@@ -7102,12 +7102,12 @@ describe("native orchestration and evidence closure", () => {
           expect(kind).toBe("prebuilt")
           expect(request.env).not.toHaveProperty("DATABASE_URL")
           expect(request.env).not.toHaveProperty("VERCEL_TOKEN")
-          await mkdir(join(fixture.root, ".vercel", "output", "functions", "index.func"), {
+          await mkdir(join(fixture.root, ".vercel", "output", "functions", "b4.func"), {
             recursive: true,
           })
           await writeFile(join(fixture.root, ".vercel", "output", "config.json"), "{}\n", "utf8")
           await writeFile(
-            join(fixture.root, ".vercel", "output", "functions", "index.func", "index.mjs"),
+            join(fixture.root, ".vercel", "output", "functions", "b4.func", "index.mjs"),
             "export default { fetch() {} }\n",
             "utf8",
           )
@@ -7620,10 +7620,10 @@ describe("native orchestration and evidence closure", () => {
           },
           runBuildChild: async () => {
             const output = join(fixture.root, ".vercel", "output")
-            await mkdir(join(output, "functions", "index.func"), { recursive: true })
+            await mkdir(join(output, "functions", "b4.func"), { recursive: true })
             await writeFile(join(output, "config.json"), "{}\n")
             await writeFile(
-              join(output, "functions", "index.func", "index.mjs"),
+              join(output, "functions", "b4.func", "index.mjs"),
               "export default {}\n",
             )
             return { exitCode: 0, stderr: "", stdout: "" }
@@ -8648,7 +8648,7 @@ describe("native orchestration and evidence closure", () => {
           }
         },
         runVercelChild: async (request) => {
-          const output = join(request.cwd, ".vercel", "output", "functions", "index.func")
+          const output = join(request.cwd, ".vercel", "output", "functions", "b4.func")
           await mkdir(output, { recursive: true })
           await writeFile(join(request.cwd, ".vercel", "output", "config.json"), "{}\n", "utf8")
           await writeFile(join(output, "index.mjs"), "export default {}\n", "utf8")
