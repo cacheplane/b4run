@@ -12,6 +12,11 @@ import { setTimeout as sleep } from "node:timers/promises"
  * hang:                 one chunk frame, then ping comments until cancelled
  * close_midway:         prepareReview result, then the socket is destroyed; the run parks on the gate 50 ms later
  * unexpected_interrupt: a `command` kind interrupt instead of the gate
+ * reattach_ends_busy:   prepareReview result, then the socket is destroyed and the turn never
+ *                       ends: the thread keeps reporting `busy`, and a reattached GET stream
+ *                       ends without a terminal frame instead of waiting for one. The only
+ *                       shape in which a reattachment can end while the run is still live,
+ *                       which is what the controller's reattach bound is for.
  */
 export type RunBehaviour =
   | "happy"
@@ -20,6 +25,7 @@ export type RunBehaviour =
   | "no_candidate"
   | "hang"
   | "close_midway"
+  | "reattach_ends_busy"
   | "unexpected_interrupt"
 /** What a resume with payload `once` does. `deny` always ends the turn without a receipt. */
 export type ResumeBehaviour = "receipt" | "no_receipt" | "route_error"
@@ -234,6 +240,11 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
       thread.pending = gateInterrupt()
       return parkRun(thread, null)
     }
+    if (kind === "reattach_ends_busy") {
+      // Nothing clears runActive or status: the turn stays live for as long as the worker does.
+      await sse.destroy()
+      return
+    }
     if (await sleepOrAbort(delay)) return
     thread.pending = gateInterrupt()
     sse.frame("interrupt", thread.pending)
@@ -319,7 +330,8 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
         live: thread.runActive,
         interrupts: thread.pending ? [thread.pending] : [],
       })
-      if (!thread.runActive) return sse.end()
+      // `reattach_ends_busy` ends the reattached stream although the run is still live.
+      if (!thread.runActive || behaviour.run === "reattach_ends_busy") return sse.end()
       await new Promise<void>((resolve) => {
         thread.waiters.add((done) => {
           sse.frame("done", done)

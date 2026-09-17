@@ -20,27 +20,35 @@ export async function reconcileAll(ctx: ControllerContext): Promise<void> {
   // cancel_requested row.
   const handled = new Set<string>()
   for (const open of ctx.commands.open()) {
-    const row = ctx.store.get(open.workOrderId)
-    if (!row) {
-      ctx.commands.complete(open.operationKey, {
-        ok: false,
-        message: "Work order missing at reconciliation",
-      })
-      continue
-    }
-    if (open.intent.command === "dispatch" && row.state === "received" && !row.workerThreadId) {
+    // Guarded like the walk below: one row the worker or the log cannot answer for must not
+    // stop the factory from booting.
+    try {
+      const row = ctx.store.get(open.workOrderId)
+      if (!row) {
+        ctx.commands.complete(open.operationKey, {
+          ok: false,
+          message: "Work order missing at reconciliation",
+        })
+        continue
+      }
       handled.add(row.id)
-      await settleIncompleteDispatch(ctx, row.id, open.operationKey)
-      continue
+      if (open.intent.command === "dispatch" && row.state === "received" && !row.workerThreadId) {
+        await settleIncompleteDispatch(ctx, row.id, open.operationKey)
+        continue
+      }
+      await safeReconcile(ctx, row.id)
+      const final = ctx.mustGet(row.id)
+      ctx.commands.complete(open.operationKey, {
+        ok: settledOk(final),
+        state: final.state,
+        message: `Reconciled after restart; work order is ${final.state}`,
+      })
+    } catch (error) {
+      journal(ctx, open.workOrderId, "reconcile_failed", {
+        operationKey: open.operationKey,
+        error: String(error),
+      })
     }
-    handled.add(row.id)
-    await safeReconcile(ctx, row.id)
-    const final = ctx.mustGet(row.id)
-    ctx.commands.complete(open.operationKey, {
-      ok: final.state === "exported" || final.state === "cancelled" || final.state === "denied",
-      state: final.state,
-      message: `Reconciled after restart; work order is ${final.state}`,
-    })
   }
   for (const row of ctx.store.list()) {
     if (!isTerminal(row.state) && !handled.has(row.id)) await safeReconcile(ctx, row.id)
@@ -91,6 +99,29 @@ async function settleIncompleteDispatch(
   await safeReconcile(ctx, id)
 }
 
+/**
+ * Did reconciliation settle this work order? A budget cancel's terminal row is `blocked`
+ * with `budget_exhausted` — the limit was applied, so the command did what it was for.
+ */
+function settledOk(row: WorkOrderRow): boolean {
+  if (row.state === "blocked") return row.blockedReason === "budget_exhausted"
+  return row.state === "exported" || row.state === "cancelled" || row.state === "denied"
+}
+
+/** Journal a reconciliation note that must never itself abort the walk. */
+function journal(
+  ctx: ControllerContext,
+  id: string,
+  type: string,
+  payload: Record<string, unknown>,
+): void {
+  try {
+    ctx.recordEvent(id, type, payload)
+  } catch {
+    // The row is gone (so the event has nothing to hang off) or the registry is closed.
+  }
+}
+
 /** The thread id `dispatch` journalled before it crashed, if it got that far. */
 function journalledThreadId(ctx: ControllerContext, id: string): string | null {
   for (const event of ctx.store.events(id).reverse()) {
@@ -105,7 +136,7 @@ async function safeReconcile(ctx: ControllerContext, id: string, attempt = 0): P
   try {
     await reconcileWorkOrder(ctx, id, attempt)
   } catch (error) {
-    ctx.recordEvent(id, "reconcile_failed", { attempt, error: String(error) })
+    journal(ctx, id, "reconcile_failed", { attempt, error: String(error) })
   }
 }
 
@@ -214,7 +245,9 @@ async function reconcileRun(
       return
     }
     ctx.recordEvent(id, "reattached", { threadId })
-    ctx.track(id, ctx.observeRun(id, frames, { reconcileAttempt: attempt + 1 }))
+    // The reattached observer carries this pass's number; the pass it opens when the stream
+    // ends is the one that increments it.
+    ctx.track(id, ctx.observeRun(id, frames, { reconcileAttempt: attempt }))
     return
   }
   if (row.candidateDigest && (await receiptExists(ctx.outboxDir, row.candidateDigest))) {

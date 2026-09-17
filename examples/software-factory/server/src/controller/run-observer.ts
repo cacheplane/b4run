@@ -135,8 +135,10 @@ export async function observeRun(
     ctx.recordEvent(id, "stream_lost", { phase: "run", error: result.error ?? null })
   // The worker, not this stream, is the authority on what the run left behind: a lost stream
   // is reconciled, and so is the end of a stream reconciliation itself reattached.
+  // One increment per pass: a lost stream opens pass 0 (which may reattach), and the end of
+  // a reattached stream opens the pass after the one that reattached.
   if (result.ended === "lost" || reattached)
-    await reconcileWorkOrder(ctx, id, (options.reconcileAttempt ?? 0) + (reattached ? 1 : 0))
+    await reconcileWorkOrder(ctx, id, reattached ? (options.reconcileAttempt ?? 0) + 1 : 0)
 }
 
 /** Resolve every pending interrupt on the work order's thread with `deny`. */

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -244,6 +245,65 @@ describe("reconciliation", () => {
     await bootFactory()
     expect(factory.show(id)?.state).toBe("cancelled")
     expect(fake.requests.filter((r) => r.path.endsWith("/cancel"))).toHaveLength(1)
+  })
+
+  it("re-inserts a work order whose create key was spent before the row landed", async () => {
+    await bootWorker()
+    // Forged directly: the crash window is between the command log and the insert, so the
+    // key carries an outcome for a work order that does not exist.
+    const id = `wo-${createHash("sha256").update("create-1").digest("hex").slice(0, 16)}`
+    const registry = openRegistry(registryPath())
+    const commands = createCommandLog(registry.db)
+    commands.begin("create-1", id, { command: "create", args: { taskId: "cli-flags" } }, now())
+    commands.complete("create-1", { ok: true, state: "received", message: "Created" })
+    registry.close()
+    await bootFactory()
+    const row = await factory.create({ taskId: "cli-flags", operationKey: "create-1" })
+    expect(row).toMatchObject({ id, state: "received" })
+    expect(factory.show(id)).toMatchObject({ id, state: "received" })
+    // And still idempotent afterwards: the second call reads the row, not a second insert.
+    expect((await factory.create({ taskId: "cli-flags", operationKey: "create-1" })).id).toBe(id)
+    expect(factory.list()).toHaveLength(1)
+  })
+
+  it("finishes a budget cancel as blocked rather than cancelled", async () => {
+    await bootWorker({ run: "hang" })
+    await bootFactory()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    await factory.waitFor(id, (r) => r.state === "running")
+    await crash()
+    // The shape the budget ticker leaves behind when it dies mid-cancel.
+    const registry = openRegistry(registryPath())
+    const store = createWorkOrderStore(registry.db)
+    store.update(
+      id,
+      store.get(id)?.revision ?? 0,
+      { state: "cancel_requested", blockedReason: "budget_exhausted" },
+      now(),
+    )
+    registry.close()
+    await bootFactory()
+    expect(factory.show(id)).toMatchObject({
+      state: "blocked",
+      blockedReason: "budget_exhausted",
+    })
+    expect(fake.requests.filter((r) => r.path.endsWith("/cancel"))).toHaveLength(1)
+  })
+
+  it("reattaches at most once when the run stays live after the reattached stream ends", async () => {
+    await bootWorker({ run: "reattach_ends_busy" })
+    await bootFactory()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    await factory.waitFor(id, () => factory.events(id).some((e) => e.type === "run_still_live"))
+    expect(factory.events(id).filter((e) => e.type === "reattached")).toHaveLength(1)
+    expect(factory.events(id).filter((e) => e.type === "run_still_live")).toHaveLength(1)
+    expect(
+      fake.requests.filter((r) => r.method === "GET" && r.path.endsWith("/runs/stream")),
+    ).toHaveLength(1)
+    // The bound stops the cycle; it does not invent a verdict the worker never gave.
+    expect(factory.show(id)?.state).toBe("running")
   })
 
   // The fake parks 50 ms after destroying the socket, so the reconciliation the lost stream

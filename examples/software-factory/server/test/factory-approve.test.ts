@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/controller/factory.ts"
 import type { WorkOrderRow } from "../src/domain/work-order.ts"
 import { createHttpWorkerClient } from "../src/worker/client.ts"
@@ -10,7 +10,8 @@ import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fak
 let dir: string
 let fake: FakeWorker
 let factory: Factory
-let nowMs = Date.parse("2026-09-16T10:00:00.000Z")
+const BASE_MS = Date.parse("2026-09-16T10:00:00.000Z")
+let nowMs = BASE_MS
 
 async function boot(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
   dir = mkdtempSync(join(tmpdir(), "factory-approve-"))
@@ -27,6 +28,10 @@ async function boot(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
     now: () => nowMs,
   })
 }
+// The clock is shared state a test may have advanced: every test starts from the same now.
+beforeEach(() => {
+  nowMs = BASE_MS
+})
 afterEach(async () => {
   await factory?.close()
   await fake?.close()

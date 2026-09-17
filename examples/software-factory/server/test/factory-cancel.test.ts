@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory, type FactoryOptions } from "../src/controller/factory.ts"
 import type { CommandOutcome } from "../src/domain/work-order.ts"
 import { createHttpWorkerClient } from "../src/worker/client.ts"
@@ -10,7 +10,8 @@ import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fak
 let dir: string
 let fake: FakeWorker
 let factory: Factory
-let nowMs = Date.parse("2026-09-16T10:00:00.000Z")
+const BASE_MS = Date.parse("2026-09-16T10:00:00.000Z")
+let nowMs = BASE_MS
 
 async function boot(
   worker: Omit<FakeWorkerOptions, "outboxDir"> = {},
@@ -29,6 +30,10 @@ async function boot(
     ...overrides,
   })
 }
+// The clock is shared state a test may have advanced: every test starts from the same now.
+beforeEach(() => {
+  nowMs = BASE_MS
+})
 afterEach(async () => {
   await factory?.close()
   await fake?.close()
@@ -50,9 +55,12 @@ describe("cancel", () => {
     const events = factory
       .events(id)
       .map((e) => `${e.type}:${String(e.payload.event ?? e.payload.result ?? "")}`)
-    expect(events.indexOf("worker_cancel:interrupted")).toBeLessThan(
-      events.indexOf("transition:run_ended_after_cancel"),
-    )
+    const cancelled = events.indexOf("worker_cancel:interrupted")
+    const ended = events.indexOf("transition:run_ended_after_cancel")
+    // Both present, and in that order: indexOf's -1 would satisfy a bare `toBeLessThan`.
+    expect(cancelled).toBeGreaterThanOrEqual(0)
+    expect(ended).toBeGreaterThanOrEqual(0)
+    expect(cancelled).toBeLessThan(ended)
     // The observer journals the worker's cancelled turn even though the cancel command,
     // not the observer, is what settles the row.
     expect(events).toContain("run_cancelled_observed:")
@@ -176,6 +184,27 @@ describe("cancel", () => {
       await revived.close()
       await replacement.close()
     }
+  })
+
+  it("does not strand a key when a dispatch races a cancel", async () => {
+    await boot()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    const settled = await Promise.allSettled([
+      factory.dispatch(id, "dispatch-1"),
+      factory.cancel(id, "cancel-1"),
+    ])
+    expect(settled.map((r) => r.status)).toEqual(["fulfilled", "fulfilled"])
+    const outcomes = settled.map((r) => (r as PromiseFulfilledResult<CommandOutcome>).value)
+    expect(outcomes.filter((o) => o.ok)).toHaveLength(1)
+    // The thread the losing dispatch created is journalled and ended rather than leaked.
+    if (!outcomes[0]?.ok) {
+      expect(outcomes[0]?.message).toBe("Work order changed state while dispatching")
+      const orphaned = factory.events(id).find((e) => e.type === "thread_orphaned")
+      expect(orphaned?.payload.threadId).toEqual(expect.any(String))
+      expect(cancels()).toHaveLength(1)
+    }
+    expect(await factory.dispatch(id, "dispatch-1")).toEqual(outcomes[0])
+    expect(await factory.cancel(id, "cancel-1")).toEqual(outcomes[1])
   })
 
   it("closes within its timeout even while a run is hanging", async () => {

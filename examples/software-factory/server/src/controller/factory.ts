@@ -15,7 +15,7 @@ import { createWorkOrderStore, type WorkOrderPatch } from "../registry/work-orde
 import type { CancelResult, WorkerClient } from "../worker/client.js"
 import { receiptPath, waitForReceipt } from "../worker/outbox.js"
 import { classifyDone, type InterruptFrame, type StreamFrame } from "../worker/wire.js"
-import { startBudgetTicker } from "./budget.js"
+import { type BudgetTicker, startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
 import { reconcileAll } from "./reconcile.js"
 import { denyPending, observeRun } from "./run-observer.js"
@@ -31,6 +31,8 @@ export interface FactoryOptions {
   readonly approvalTtlMs?: number
   readonly maxActiveMs?: number
   readonly receiptWaitMs?: number
+  /** How long a cancel waits for the cancelled run's observer to settle. Default 10s. */
+  readonly cancelSettleMs?: number
   readonly budgetTickMs?: number
   /** How long close() waits for tracked runs to settle after aborting them. */
   readonly closeTimeoutMs?: number
@@ -91,6 +93,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const abort = new AbortController()
   const runs = new Map<string, Promise<void>>()
   let closed = false
+  /** Started only once reconciliation has run, so no tick can race the boot rules. */
+  let ticker: BudgetTicker | null = null
 
   /** Sleep that resolves (rather than rejecting) when close() aborts. */
   const quietSleep = (ms: number) => sleep(ms, undefined, { signal: abort.signal }).catch(() => {})
@@ -137,7 +141,14 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
   const track = (id: string, run: Promise<void>) => {
     const tracked: Promise<void> = run
-      .catch((error) => recordEvent(id, "run_observer_error", { error: String(error) }))
+      .catch((error) => {
+        try {
+          recordEvent(id, "run_observer_error", { error: String(error) })
+        } catch {
+          // close() gave up on this run and took the registry with it: there is nothing left
+          // to journal the fault on, and throwing here would be an unhandled rejection.
+        }
+      })
       .finally(() => {
         if (runs.get(id) === tracked) runs.delete(id)
       })
@@ -156,9 +167,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
   /**
    * Resolve the worker's parked exportForReview gate with `once` and wait for the receipt
-   * named by the approved digest. Called only from approve (after the approval row is
-   * committed) and from reconciliation of an `exporting` work order. Ends in exported or
-   * blocked; never leaves `exporting`.
+   * named by the approved digest. Called only from approve, after the approval row is
+   * committed. Ends in exported or blocked; never leaves `exporting`. Reconciliation does
+   * not call this: an interrupted export is settled by its receipt, never resumed again.
    */
   async function confirmExport(id: string): Promise<void> {
     const row = mustGet(id)
@@ -282,7 +293,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           return mustGet(id)
         }
         recordEvent(id, "worker_cancel", { result })
-        await settleRun(id, 10_000)
+        await settleRun(id, options.cancelSettleMs ?? 10_000)
       }
       if (liveness !== "missing" && result !== "thread_not_found") {
         try {
@@ -351,66 +362,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     await observeRun(ctx, id, frames)
   }
 
-  // The budget is enforced on active time only (dispatched/running/exporting), so a work order
-  // parked on a person never expires. One command key per (id, revision) keeps the ticker's
-  // cancel out of the command log's way when an operator cancel is already recorded.
-  const ticker = startBudgetTicker({
-    store,
-    now,
-    tickMs: options.budgetTickMs ?? 1_000,
-    // The ticker has no caller to reject to: anything escaping this callback would surface as
-    // an unhandled rejection and leave its key in flight forever. So the whole body is
-    // guarded — the row read, the command log, the transition and the worker calls — and a
-    // tick that raced close() stops before it can touch a closing registry.
-    onExhausted: async (id) => {
-      if (closed) return
-      let key: string | null = null
-      try {
-        const row = mustGet(id)
-        key = `budget:${id}:${row.revision}`
-        const begun = commands.begin(
-          key,
-          id,
-          { command: "cancel", args: { cause: "budget" } },
-          iso(),
-        )
-        if (begun.status !== "new") return
-        try {
-          transition(
-            id,
-            "budget_exhausted",
-            { blockedReason: "budget_exhausted" },
-            { maxActiveMs: row.maxActiveMs },
-          )
-        } catch (error) {
-          commands.complete(key, { ok: false, message: `Budget cancel skipped: ${String(error)}` })
-          return
-        }
-        // As in cancel: the row is the outcome, and an unconfirmed cancel is not a cancel.
-        const final = await finishCancel(id, "budget")
-        const ok = final.state === "blocked" && final.blockedReason === "budget_exhausted"
-        commands.complete(key, {
-          ok,
-          state: final.state,
-          message: ok
-            ? "Budget exhausted"
-            : `Budget cancel not confirmed; work order is ${final.state}`,
-        })
-      } catch (error) {
-        try {
-          recordEvent(id, "budget_cancel_failed", { error: String(error) })
-          if (key)
-            commands.complete(key, {
-              ok: false,
-              message: `Budget cancel failed: ${String(error)}`,
-            })
-        } catch {
-          // close() took the registry with it; there is nothing left to journal this on.
-        }
-      }
-    },
-  })
-
   const factory: Factory = {
     async create({ taskId, operationKey }) {
       if (!(taskId in tasks)) throw new UnknownTaskError(taskId)
@@ -421,8 +372,14 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         : `wo-${randomUUID().replace(/-/g, "").slice(0, 16)}`
       const key = operationKey ?? `create:${id}`
       const begun = commands.begin(key, id, { command: "create", args: { taskId } }, iso())
-      if (begun.status === "done") return mustGet(id)
       if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      // A spent key with no row is a crash between the command log and the insert. The id is
+      // derived from the key, so re-running the insert is idempotent rather than a second work
+      // order — and throwing here would leave that key permanently unusable.
+      if (begun.status === "done") {
+        const existing = store.get(id)
+        if (existing) return existing
+      }
       const at = iso()
       const row: WorkOrderRow = {
         id,
@@ -447,7 +404,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       store.transaction(() => {
         store.insert(row)
         recordEvent(id, "created", { taskId })
-        commands.complete(key, { ok: true, state: "received", message: "Created" })
+        // Only a fresh key has an outcome left to record; a replayed one already has its own.
+        if (begun.status === "new")
+          commands.complete(key, { ok: true, state: "received", message: "Created" })
       })
       return row
     },
@@ -486,7 +445,25 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // Journalled before the transition so a crash in between still leaves the thread id in
       // the event log: reconciliation can adopt the orphan thread instead of leaking it.
       recordEvent(id, "thread_created", { threadId })
-      const dispatched = transition(id, "dispatch_committed", { workerThreadId: threadId })
+      let dispatched: WorkOrderRow
+      try {
+        dispatched = transition(id, "dispatch_committed", { workerThreadId: threadId })
+      } catch (error) {
+        // A cancel moved the row while the worker was creating the thread. The row cannot hold
+        // the thread now, so end it here rather than leak a thread nothing observes.
+        if (!(error instanceof IllegalTransitionError)) throw error
+        recordEvent(id, "thread_orphaned", { threadId })
+        try {
+          await options.worker.cancel(threadId)
+        } catch (cancelError) {
+          recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
+        }
+        return finish(key, {
+          ok: false,
+          state: mustGet(id).state,
+          message: "Work order changed state while dispatching",
+        })
+      }
       const outcome = finish(key, { ok: true, state: dispatched.state, message: "Dispatched" })
       track(id, startRun(id))
       return outcome
@@ -562,10 +539,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         if (!(error instanceof IllegalTransitionError)) throw error
         return refuse("Work order changed state while approving")
       }
-      const run = confirmExport(id)
-      track(id, run)
+      // Not tracked: it is awaited right here, so this command's caller is what close() waits
+      // on, and a fault is journalled once — below — rather than twice.
       try {
-        await run
+        await confirmExport(id)
       } catch (error) {
         // confirmExport blocks the row itself for every failure it anticipates; anything that
         // still escapes must not escape this command and strand its key.
@@ -692,7 +669,14 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         })
       // Recorded before any worker call: a crash in between leaves cancel_requested, which is
       // exactly what reconciliation knows how to finish.
-      transition(id, "cancel", {}, { operationKey: key })
+      try {
+        transition(id, "cancel", {}, { operationKey: key })
+      } catch (error) {
+        // Something settled the row between the state checks above and here.
+        if (!(error instanceof IllegalTransitionError)) throw error
+        const current = mustGet(id).state
+        return finish(key, { ok: false, state: current, message: `Cannot cancel from ${current}` })
+      }
       let final: WorkOrderRow
       try {
         final = await finishCancel(id, "operator")
@@ -736,7 +720,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     async close() {
       if (closed) return
       closed = true
-      ticker.stop()
+      ticker?.stop()
       abort.abort()
       // Bounded: a run whose stream ignores the abort must not hold the process open.
       await Promise.race([
@@ -747,9 +731,79 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     },
   }
 
-  // Last: the rules may transition rows and reattach to live runs, so everything they lean
-  // on (the context, the ticker, the command log) must already be assembled.
-  await reconcileAll(ctx)
+  // Reconciliation first, the ticker second: the boot rules need only `finishCancel`, and a
+  // tick landing mid-walk would race them for the same rows. A boot that throws owns its own
+  // cleanup, since nothing is returned for anyone else to close.
+  try {
+    await reconcileAll(ctx)
+
+    // The budget is enforced on active time only (dispatched/running/exporting), so a work order
+    // parked on a person never expires. One command key per (id, revision) keeps the ticker's
+    // cancel out of the command log's way when an operator cancel is already recorded.
+    ticker = startBudgetTicker({
+      store,
+      now,
+      tickMs: options.budgetTickMs ?? 1_000,
+      // The ticker has no caller to reject to: anything escaping this callback would surface as
+      // an unhandled rejection and leave its key in flight forever. So the whole body is
+      // guarded — the row read, the command log, the transition and the worker calls — and a
+      // tick that raced close() stops before it can touch a closing registry.
+      onExhausted: async (id) => {
+        if (closed) return
+        let key: string | null = null
+        try {
+          const row = mustGet(id)
+          key = `budget:${id}:${row.revision}`
+          const begun = commands.begin(
+            key,
+            id,
+            { command: "cancel", args: { cause: "budget" } },
+            iso(),
+          )
+          if (begun.status !== "new") return
+          try {
+            transition(
+              id,
+              "budget_exhausted",
+              { blockedReason: "budget_exhausted" },
+              { maxActiveMs: row.maxActiveMs },
+            )
+          } catch (error) {
+            commands.complete(key, {
+              ok: false,
+              message: `Budget cancel skipped: ${String(error)}`,
+            })
+            return
+          }
+          // As in cancel: the row is the outcome, and an unconfirmed cancel is not a cancel.
+          const final = await finishCancel(id, "budget")
+          const ok = final.state === "blocked" && final.blockedReason === "budget_exhausted"
+          commands.complete(key, {
+            ok,
+            state: final.state,
+            message: ok
+              ? "Budget exhausted"
+              : `Budget cancel not confirmed; work order is ${final.state}`,
+          })
+        } catch (error) {
+          try {
+            recordEvent(id, "budget_cancel_failed", { error: String(error) })
+            if (key)
+              commands.complete(key, {
+                ok: false,
+                message: `Budget cancel failed: ${String(error)}`,
+              })
+          } catch {
+            // close() took the registry with it; there is nothing left to journal this on.
+          }
+        }
+      },
+    })
+  } catch (error) {
+    ticker?.stop()
+    registry.close()
+    throw error
+  }
 
   return factory
 }
