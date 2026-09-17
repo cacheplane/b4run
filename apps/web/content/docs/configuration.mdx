@@ -279,14 +279,23 @@ is compressed and what remains verbatim.
 ### `build`
 
 ```ts
-build?: { targets?: readonly string[] }
+build?: {
+  targets?: readonly string[]
+  vercel?: { functionName?: string }
+}
 ```
 
 Default: `["node", "langsmith"]`. An authored `targets` array replaces that
 list; it does not add to it. Supported values are `"node"`, `"langsmith"`, and
-the opt-in `"hono"` subset. Choose only targets whose runtime can materialize
-the configured capabilities. See [Deployment Options](/docs/deployment) for
-the artifact and compatibility matrix.
+the opt-in `"hono"` and `"vercel"` subsets. Choose only targets whose runtime
+can materialize the configured capabilities. See [Deployment
+Options](/docs/deployment) for the artifact and compatibility matrix.
+
+`vercel.functionName` names the function the `"vercel"` target emits
+(`.vercel/output/functions/<name>.func`, routed from `/(.*)` to `/<name>`).
+Default: `"b4"`. One path segment of letters, digits, `_` or `-`; `b4 check`
+rejects anything else. Avoid `"index"`, which Vercel also serves at `/`, where
+it shadows a static `index.html`. See [`b4 build`](/docs/cli#b4-build).
 
 ### `sandbox`
 

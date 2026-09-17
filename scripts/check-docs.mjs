@@ -3084,6 +3084,8 @@ const expectedB4ConfigSchemaPaths = [
   "backends.filesystem",
   "build",
   "build.targets",
+  "build.vercel",
+  "build.vercel.functionName",
   "checkpointer",
   "env",
   "memory",
