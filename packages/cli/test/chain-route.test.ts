@@ -16,7 +16,7 @@ describe("chain route execution", () => {
   test("executes a chain route with invoke", async () => {
     appRoot = await mkdtemp(join(tmpdir(), "b4-chain-"))
     await mkdir(join(appRoot, "src", "app", "hello"), { recursive: true })
-    await writeFile(join(appRoot, "package.json"), "{}\n")
+    await writeFile(join(appRoot, "package.json"), '{"type":"module"}\n')
     await writeFile(join(appRoot, "b4.config.ts"), "export default {}")
     await writeFile(
       join(appRoot, "src", "app", "hello", "index.ts"),
@@ -47,7 +47,7 @@ export const chain = {
   test("fails with clear error when chain entry has no invoke", async () => {
     appRoot = await mkdtemp(join(tmpdir(), "b4-chain-"))
     await mkdir(join(appRoot, "src", "app", "broken"), { recursive: true })
-    await writeFile(join(appRoot, "package.json"), "{}\n")
+    await writeFile(join(appRoot, "package.json"), '{"type":"module"}\n')
     await writeFile(join(appRoot, "b4.config.ts"), "export default {}")
     await writeFile(
       join(appRoot, "src", "app", "broken", "index.ts"),

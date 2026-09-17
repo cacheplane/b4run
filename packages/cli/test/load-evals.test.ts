@@ -11,7 +11,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", ".
 
 async function makeApp(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "b4-evals-"))
-  await writeFile(join(root, "package.json"), "{}\n")
+  await writeFile(join(root, "package.json"), '{"type":"module"}\n')
   await writeFile(join(root, "b4.config.ts"), "export default {}\n")
 
   // Make `@b4run/evals` resolvable from the temp app by symlinking the

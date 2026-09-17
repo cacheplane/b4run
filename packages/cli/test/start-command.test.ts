@@ -20,7 +20,7 @@ describe("b4 start", () => {
   test("boots the production runtime, serves healthz, and logs the bound url", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 
@@ -42,7 +42,7 @@ describe("b4 start", () => {
   test("registers idempotent SIGTERM/SIGINT handlers and removes them after close", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 
@@ -78,7 +78,7 @@ describe("b4 start", () => {
   test("accepts --port 0 as a kernel-assigned ephemeral port", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 
