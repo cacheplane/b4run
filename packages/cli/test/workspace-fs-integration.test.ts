@@ -28,7 +28,7 @@ afterEach(async () => {
 describe("ctx.fs end-to-end", () => {
   test("workflow entry and route tool share the sandboxed workspace handle", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/(public)/notes/index.ts": `import type { RuntimeContext } from "@b4run/sdk"
 export const workflow = async (
@@ -75,7 +75,7 @@ export default async (input: { readonly name: string }, ctx: B4ToolContext) => {
 
   test("tool ctx.fs reads escaping the workspace fail closed in non-interactive mode", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/(public)/leaky/index.ts": `import type { RuntimeContext } from "@b4run/sdk"
 export const workflow = async (

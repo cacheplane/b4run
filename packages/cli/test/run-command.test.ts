@@ -21,7 +21,7 @@ afterEach(async () => {
 describe("b4 run", () => {
   test("streamResolvedRoute rejects when route preparation fails", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/invalid/index.ts": `import { agent } from "@b4run/sdk"
 export default agent({
@@ -65,7 +65,7 @@ export default agent({
 
   test("executes local agent routes with a generated one-shot thread id", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/hello/[tenant]/index.ts": `import { agent } from "@b4run/sdk"
 export default agent({
@@ -115,7 +115,7 @@ export default agent({
 
   test("streamResolvedRoute preserves upstream tool invocation ids", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/hello/[tenant]/index.ts": `import { agent } from "@b4run/sdk"
 export default agent({
@@ -186,7 +186,7 @@ export default agent({
 
   test("executes the route directory's index.ts and exposes shared and route-local tools through ctx.tools", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/tools/greet.ts": `export default {
   name: "greet",
@@ -244,7 +244,7 @@ export const workflow = async (
 
   test("resolves route pathname to its entry file", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const workflow = async (state: { tenant: string }) => ({ tenant: state.tenant, source: "direct-index" });\n`,
     })
@@ -274,7 +274,7 @@ export const workflow = async (
 
   test("prefers route-local tools over shared tools with the same name", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/tools/greet.ts": `export default {
   name: "greet",
@@ -320,7 +320,7 @@ export const workflow = async (
 
   test("executes a graph route when graph is exported as a function", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async (state: { tenant: string }) => ({ tenant: state.tenant, greeting: \`Hello, \${state.tenant}!\` });\n`,
     })
@@ -350,7 +350,7 @@ export const workflow = async (
 
   test("executes a graph route exposed as an object with .invoke", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = {
   invoke: async (state: { tenant: string }) => ({ tenant: state.tenant, source: "graph-object" }),
@@ -383,7 +383,7 @@ export const workflow = async (
 
   test("fails when an index.ts exports both workflow and graph", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const workflow = async () => ({ ok: true })
 export const graph = async () => ({ ok: true })
@@ -414,7 +414,7 @@ export const graph = async () => ({ ok: true })
 
   test("returns route not found when pathname does not match any route", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/page.tsx": "export default function Page() { return null; }\n",
     })
@@ -441,7 +441,7 @@ export const graph = async () => ({ ok: true })
 
   test("normalizes route identity from a configured custom appDir", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": 'const appDir = "src/custom-app";\nexport default { appDir };\n',
       "src/custom-app/docs/index.ts": `export const workflow = async (state: { tenant: string }) => ({ tenant: state.tenant, greeting: \`Hello, \${state.tenant}!\` });\n`,
     })
@@ -471,7 +471,7 @@ export const graph = async () => ({ ok: true })
 
   test("normalizes grouped route directories to canonical route ids", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/(public)/hello/[tenant]/index.ts": `export const graph = async (state: { tenant: string }) => ({ tenant: state.tenant, greeting: \`Hello, \${state.tenant}!\` });\n`,
     })
@@ -544,7 +544,7 @@ export const graph = async () => ({ ok: true })
 
   test("returns a route resolution failure as JSON when the target does not exist", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/page.tsx": "export default {};\n",
     })
@@ -571,7 +571,7 @@ export const graph = async () => ({ ok: true })
 
   test("returns modeled execution failures as JSON with exit 1", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async (state: { tenant: string }) => { throw new Error(\`Graph exploded for \${state.tenant}\`); };\n`,
     })
@@ -600,7 +600,7 @@ export const graph = async () => ({ ok: true })
 
   test("uses stderr-only exit 2 failures for malformed JSON input", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts":
         "export const graph = async (state: { tenant: string }) => ({ tenant: state.tenant });\n",
@@ -617,7 +617,7 @@ export const graph = async () => ({ ok: true })
 
   test("executes a route over --url and returns the same normalized shape as in-process", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async (state: { tenant: string }) => ({ tenant: state.tenant, greeting: \`Hello, \${state.tenant}!\` });\n`,
     })
@@ -653,7 +653,7 @@ export const graph = async () => ({ ok: true })
 
   test("marks --url executions with executionSource server", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const workflow = async (state: { tenant: string }) => ({ tenant: state.tenant, greeting: \`Hello, \${state.tenant}!\` });\n`,
     })
@@ -682,7 +682,7 @@ export const graph = async () => ({ ok: true })
 
   test("sends a mode-qualified assistant_id to /runs/wait", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const workflow = async (state: { tenant: string }) => ({ tenant: state.tenant });\n`,
     })
@@ -713,7 +713,7 @@ export const graph = async () => ({ ok: true })
 
   test("preserves base path prefixes when targeting a running server", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async (state: { tenant: string }) => ({ tenant: state.tenant, greeting: \`Hello, \${state.tenant}!\` });\n`,
     })
@@ -765,7 +765,7 @@ export const graph = async () => ({ ok: true })
 
   test("times out stalled server transport with a bounded failure", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
     })
     const server = await startHangingAgentServer()
@@ -798,7 +798,7 @@ export const graph = async () => ({ ok: true })
 
   test("normalizes non-200 server responses to server_transport_error", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async (state: { tenant: string }) => ({ tenant: state.tenant });\n`,
     })
@@ -838,7 +838,7 @@ export const graph = async () => ({ ok: true })
 
   test("normalizes malformed server payloads to transport errors", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async (state: { tenant: string }) => ({ tenant: state.tenant });\n`,
     })
@@ -876,7 +876,7 @@ export const graph = async () => ({ ok: true })
 
   test("treats non-200 request failures as transport failures", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "b4.config.ts": "export default {};\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ tenant: "ok" });\n`,
     })

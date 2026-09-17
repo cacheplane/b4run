@@ -19,7 +19,7 @@ async function createFixtureApp(files: Readonly<Record<string, string>>) {
   tempDirs.push(appRoot)
 
   const appFiles = {
-    "package.json": "{}\n",
+    "package.json": '{"type":"module"}\n',
     "b4.config.ts": "export default {};\n",
     ...files,
   }
@@ -132,7 +132,7 @@ describe("b4 verify", () => {
   test("returns a nonzero exit code with a stable error prefix for invalid apps", async () => {
     const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-verify-invalid-"))
     tempDirs.push(appRoot)
-    await writeFile(join(appRoot, "package.json"), "{}\n")
+    await writeFile(join(appRoot, "package.json"), '{"type":"module"}\n')
     await writeFile(join(appRoot, "b4.config.ts"), "export default {};\n")
 
     const result = await invoke(["verify", "--cwd", appRoot])
@@ -145,7 +145,7 @@ describe("b4 verify", () => {
   test("prints a normalized failure payload in json mode", async () => {
     const appRoot = await mkdtemp(join(tmpdir(), "b4-cli-verify-invalid-json-"))
     tempDirs.push(appRoot)
-    await writeFile(join(appRoot, "package.json"), "{}\n")
+    await writeFile(join(appRoot, "package.json"), '{"type":"module"}\n')
     await writeFile(join(appRoot, "b4.config.ts"), "export default {};\n")
 
     const result = await invoke(["verify", "--cwd", appRoot, "--json"])

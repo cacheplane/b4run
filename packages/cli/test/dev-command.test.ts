@@ -22,7 +22,7 @@ describe("b4 dev runtime server", () => {
   test("returns healthz ready", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 
@@ -38,7 +38,7 @@ describe("b4 dev runtime server", () => {
   test("executes graph routes by mode-qualified assistant_id", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async (input: { tenant: string }) => ({ mode: "graph", tenant: input.tenant });\n`,
     })
 
@@ -63,7 +63,7 @@ describe("b4 dev runtime server", () => {
   test("rejects unknown route as not found", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 
@@ -92,7 +92,7 @@ describe("b4 dev runtime server", () => {
   test("rejects malformed request bodies and unknown assistant ids", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 
@@ -125,7 +125,7 @@ describe("b4 dev runtime server", () => {
   test("returns execution_error for actual route exceptions", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => { throw new Error("boom"); };\n`,
     })
 
@@ -154,7 +154,7 @@ describe("b4 dev runtime server", () => {
   test("returns a classified shutdown failure for an in-flight route", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `
         export const graph = async (_input: unknown, context?: { signal?: AbortSignal }) => {
           await new Promise((resolve, reject) => {
@@ -211,7 +211,7 @@ describe("b4 dev lifecycle", () => {
     const pidPath = join(tmpdir(), `b4-dev-child-pid-${Date.now()}.txt`)
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 
@@ -244,7 +244,7 @@ describe("b4 dev lifecycle", () => {
     // it; any child stdout would do.
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
       "src/thread-access.ts": `export default { fallback: () => ({ decision: "allow" }) };\n`,
     })
@@ -263,7 +263,7 @@ describe("b4 dev lifecycle", () => {
   }, async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async (input: { tenant: string }) => ({ tenant: input.tenant, greeting: \`Hello, \${input.tenant}!\` });\n`,
     })
     const routeDir = join(appRoot, "src/app/support/[tenant]")
@@ -295,7 +295,7 @@ describe("b4 dev lifecycle", () => {
   }, async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ version: "v1" });\n`,
     })
     const routePath = join(appRoot, "src/app/support/[tenant]/index.ts")
@@ -341,7 +341,7 @@ describe("b4 dev lifecycle", () => {
   }, async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ version: "v1" });\n`,
     })
     const routePath = join(appRoot, "src/app/support/[tenant]/index.ts")
@@ -396,7 +396,7 @@ describe("b4 dev lifecycle", () => {
   }, async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ version: "v1" });\n`,
     })
     const routePath = join(appRoot, "src/app/support/[tenant]/index.ts")
@@ -439,7 +439,7 @@ describe("b4 dev lifecycle", () => {
     const markerPath = join(tmpdir(), `b4-dev-cancel-${Date.now()}.txt`)
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `
         import { writeFile } from "node:fs/promises";
 
@@ -498,7 +498,7 @@ describe("b4 dev lifecycle", () => {
   }, async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ version: "healthy" });\n`,
     })
     const configPath = join(appRoot, "b4.config.ts")
@@ -541,7 +541,7 @@ describe("b4 dev lifecycle", () => {
     const markerPath = join(tmpdir(), `b4-failing-restart-${process.pid}-${Date.now()}.txt`)
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ version: "healthy" });\n`,
       "src/thread-access.ts": `export default { fallback: () => ({ decision: "allow" }) };\n`,
     })
@@ -596,7 +596,7 @@ describe("b4 dev lifecycle", () => {
   }, async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": 'const appDir = "../outside";\nexport default { appDir };\n',
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ version: "healthy" });\n`,
     })
     // Ensure the configured appDir target (one level above appRoot) actually
@@ -619,7 +619,7 @@ describe("b4 dev lifecycle", () => {
   }, async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ version: "healthy" });\n`,
     })
     const routePath = join(appRoot, "src/app/support/[tenant]/index.ts")
@@ -675,7 +675,7 @@ describe("b4 dev lifecycle", () => {
     const markerPath = join(tmpdir(), `b4-dev-stuck-${Date.now()}.txt`)
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `
         import { writeFile } from "node:fs/promises";
 
@@ -731,7 +731,7 @@ describe("b4 dev lifecycle", () => {
   }, async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "custom.env": "B4_CUSTOM_ENV_VAR=from-custom\n",
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })

@@ -114,7 +114,7 @@ async function fixtureApp(options: FixtureOptions): Promise<{
       : ""
 
   await writeFiles(appRoot, {
-    "package.json": "{}\n",
+    "package.json": '{"type":"module"}\n',
     "b4.config.ts": "export default {}\n",
     "src/app/coordinator/index.ts": `${childImport}import { agent } from "@b4run/sdk"
 export default agent({
