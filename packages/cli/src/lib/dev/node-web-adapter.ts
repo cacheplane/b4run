@@ -58,6 +58,12 @@ export function toWebRequest(req: IncomingMessage, res?: ServerResponse): Reques
   } as RequestInit & { duplex?: "half" })
 }
 
+/**
+ * Statuses Node itself refuses to frame a body for. An explicit
+ * `content-length` on these would reach the wire, so they are left alone.
+ */
+const STATUSES_WITHOUT_BODY = new Set([204, 205, 304])
+
 /** Pipe a Web `Response` into a Node response, streaming the body incrementally. */
 export async function writeNodeResponse(res: ServerResponse, response: Response): Promise<void> {
   const headers: Record<string, string | string[]> = {}
@@ -71,6 +77,19 @@ export async function writeNodeResponse(res: ServerResponse, response: Response)
   if (setCookie.length > 0) headers["set-cookie"] = setCookie
 
   if (!response.body) {
+    // `writeHead` commits the headers before Node can see that the body is
+    // empty, so without this it picks `Transfer-Encoding: chunked` — while the
+    // pre-refactor `res.end(payload)` framed an empty payload as
+    // `Content-Length: 0`. Set it explicitly to keep the JSON-framing
+    // invariant below true for body-less replies too (a middleware
+    // `reject(401)` with no body is one).
+    //
+    // Guarded on the status: Node forwards an explicit `content-length` even
+    // on 204/205/304, where the old path never sent one and RFC 7230 3.3.2
+    // forbids it. Those statuses keep Node's own suppression.
+    if (!STATUSES_WITHOUT_BODY.has(response.status) && response.status >= 200) {
+      headers["content-length"] = "0"
+    }
     res.writeHead(response.status, headers)
     res.end()
     return

@@ -158,6 +158,37 @@ function recordingRes(): RecordedRes {
 }
 
 describe("writeNodeResponse JSON framing", () => {
+  test("frames a body-less JSON reply with content-length: 0, not chunked", async () => {
+    // A middleware `reject(401)` with no body. The pre-refactor path did
+    // `res.end(JSON.stringify(undefined))`, which Node framed as
+    // `Content-Length: 0`; `writeHead` + bare `end()` would pick chunked.
+    const recorded = recordingRes()
+    await writeNodeResponse(
+      recorded.res,
+      new Response(null, { headers: { "content-type": "application/json" }, status: 401 }),
+    )
+
+    expect(recorded.status()).toBe(401)
+    expect(recorded.headers()["content-length"]).toBe("0")
+    const headerNames = Object.keys(recorded.headers()).map((name) => name.toLowerCase())
+    expect(headerNames).not.toContain("transfer-encoding")
+    expect(recorded.body()).toBe("")
+  })
+
+  test("leaves content-length off the statuses Node refuses to frame a body for", async () => {
+    // Node forwards an explicit content-length even here, and the old path
+    // never sent one — 204/304 must not carry it (RFC 7230 3.3.2).
+    for (const status of [204, 205, 304]) {
+      const recorded = recordingRes()
+      await writeNodeResponse(
+        recorded.res,
+        new Response(null, { headers: { "content-type": "application/json" }, status }),
+      )
+      const headerNames = Object.keys(recorded.headers()).map((name) => name.toLowerCase())
+      expect(`${status}:${headerNames.includes("content-length")}`).toBe(`${status}:false`)
+    }
+  })
+
   test("sends JSON responses with content-length framing, not chunked", async () => {
     const recorded = recordingRes()
     await writeNodeResponse(recorded.res, Response.json({ ok: true }))
