@@ -16,10 +16,21 @@ export const VERCEL_BUILD_OUTPUT_CONFIG = {
   version: 3,
 } as const
 
+/**
+ * The runtime function's Vercel config.
+ *
+ * `supportsResponseStreaming` is not optional for this function: the runtime
+ * answers `/agui/:routeId` and `/threads/:id/runs/stream` with
+ * `text/event-stream`, and without the flag Vercel's Node launcher buffers the
+ * whole body, so a browser receives nothing until the run finishes rather than
+ * tokens as they are produced. It is a fact about what the runtime serves, not
+ * a deployment preference, so it is fixed here rather than configurable.
+ */
 export const VERCEL_FUNCTION_CONFIG = {
   handler: "index.mjs",
   launcherType: "Nodejs",
   runtime: "nodejs24.x",
+  supportsResponseStreaming: true,
 } as const
 
 type PathOperations = Pick<typeof import("node:path"), "isAbsolute" | "relative" | "sep">

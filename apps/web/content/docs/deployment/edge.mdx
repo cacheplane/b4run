@@ -223,7 +223,7 @@ wrangler secret put DATABASE_URL
 | Artifact | Purpose |
 |---|---|
 | `.vercel/output/config.json` | Build Output routes, `version: 3` |
-| `.vercel/output/functions/index.func/` | The runtime function: `.vc-config.json` (`nodejs24.x`) and a bundled `index.mjs` |
+| `.vercel/output/functions/index.func/` | The runtime function: `.vc-config.json` (`nodejs24.x`, `supportsResponseStreaming: true`) and a bundled `index.mjs` |
 | `vercel.json` | Recommended root config (`buildCommand`, `fluid: true`), written only when the app has none |
 
 Everything is composed in a per-invocation staging directory, validated, and swapped into `.vercel/output` with a rename; a failed build leaves the previous output in place. Deploy the tree with `vercel deploy --prebuilt`.
@@ -260,6 +260,8 @@ export default config({
 The emitted `config.json` routes are ordered: your `routes`, then `{ handle: "filesystem" }`, then the runtime function, then the SPA fallback. Without a SPA fallback the runtime route stays the catch-all `/(.*)`. With one, the runtime is scoped to the surfaces it owns, `/(healthz|readyz|agui|threads|memory)(/.*)?`, so every other path reaches the SPA document.
 
 A function named `index` is also served at `/` by the Build Output API, so it would shadow a static `index.html`. That is why the runtime function moves to `b4.func` when `static` is configured; setting `functionName: "index"` beside `static` fails the build. Existing deployments without `static` keep `index.func` and the exact catch-all `config.json` they have today.
+
+The runtime function always declares `supportsResponseStreaming: true`. It answers `/agui/:routeId` and `/threads/:id/runs/stream` with `text/event-stream`, and without that flag Vercel's Node launcher buffers the whole response, so a browser would receive nothing until the run finished instead of tokens as they are produced. This is not configurable, because it follows from what the runtime serves rather than from how you deploy it.
 
 Every path in `build.vercel` is checked before `.vercel/` is touched, so a missing directory or entry fails with the offending `build.vercel.*` key. The staged tree is validated as a whole: `config.json` must route to the runtime function, and every `functions/*.func` must be a self-contained Node function whose dependencies resolve inside its own directory.
 

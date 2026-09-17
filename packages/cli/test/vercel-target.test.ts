@@ -1587,6 +1587,7 @@ describe("Build Output contract", () => {
       handler: "index.mjs",
       launcherType: "Nodejs",
       runtime: "nodejs24.x",
+      supportsResponseStreaming: true,
     })
     expect(metadata).toEqual({
       configPath: join(outputDir, "config.json"),
@@ -1597,7 +1598,7 @@ describe("Build Output contract", () => {
       '{\n  "routes": [\n    {\n      "dest": "/index",\n      "src": "/(.*)"\n    }\n  ],\n  "version": 3\n}\n',
     )
     await expect(readFile(metadata.functionConfigPath, "utf8")).resolves.toBe(
-      '{\n  "handler": "index.mjs",\n  "launcherType": "Nodejs",\n  "runtime": "nodejs24.x"\n}\n',
+      '{\n  "handler": "index.mjs",\n  "launcherType": "Nodejs",\n  "runtime": "nodejs24.x",\n  "supportsResponseStreaming": true\n}\n',
     )
     await expect(lstat(entryPath(outputDir))).rejects.toMatchObject({
       code: "ENOENT",
@@ -1698,7 +1699,7 @@ describe("Build Output contract", () => {
       version: 3,
     })
     await expect(readFile(metadata.functionConfigPath, "utf8")).resolves.toBe(
-      '{\n  "handler": "index.mjs",\n  "launcherType": "Nodejs",\n  "runtime": "nodejs24.x"\n}\n',
+      '{\n  "handler": "index.mjs",\n  "launcherType": "Nodejs",\n  "runtime": "nodejs24.x",\n  "supportsResponseStreaming": true\n}\n',
     )
   })
 

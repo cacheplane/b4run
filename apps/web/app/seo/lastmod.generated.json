@@ -152,9 +152,9 @@
       "recordDigest": "6a914f36d2a0d0a7662908a6be9d530abb43a4bd58fa8ba3fd95e8995137b34c"
     },
     "/docs/deployment/edge": {
-      "lastModified": "2026-09-17T20:20:20.455Z",
-      "sourceDigest": "02a8464ceacf10310bb6cf09850a95c8e11c3c0ffa8ac61e0411b1cc308e4d83",
-      "recordDigest": "8b41b0fbcf8dafead3ff0d1d897c61a1df17f82fc1222f5211d600a53e6de292"
+      "lastModified": "2026-09-17T20:25:54.474Z",
+      "sourceDigest": "b013eaa039f005243daaf3451d43e1c425d3f9529767ac1dfbffff4b7c6cf3ae",
+      "recordDigest": "49ce2c3fc88efceb16eb42f27ebc9480b5609e2da3265a602b326afed5132c1a"
     },
     "/docs/deployment/kubernetes": {
       "lastModified": "2026-09-17T16:46:40.190Z",

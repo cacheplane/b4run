@@ -7,4 +7,6 @@ Let `build.vercel` describe the whole Vercel Build Output tree: a `static` direc
 
 Under a SPA fallback the runtime route is scoped to the surfaces the runtime owns — `/healthz`, `/readyz`, `/agui`, `/threads`, `/memory` — so every other path reaches the SPA document. A surface missing from that list would serve HTML with a 200 instead of reaching the runtime, so the composed route is covered by a test per surface.
 
+The runtime function now declares `supportsResponseStreaming: true`. It serves SSE on `/agui/:routeId` and `/threads/:id/runs/stream`, and without the flag Vercel's Node launcher buffers the response, so a deployed frontend received nothing until a run finished. Extra functions could already opt in; the function that always streams could not.
+
 These keys join `reconcileVercelJson` in one validated `build.vercel`: a single resolver owns the shape, so `b4 check` and `b4 build` reject an unknown key or a malformed value the same way for every option, and the composed tree is only built from a shape that was checked.
