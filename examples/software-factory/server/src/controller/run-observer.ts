@@ -84,14 +84,17 @@ export async function observeRun(
       )
     },
     onDone: async (data) => {
-      const row = ctx.mustGet(id)
-      if (!isRunState(row.state)) return
       const { error, cancelled } = classifyDone(data)
       // A cancelled turn is settled by the cancel command, not here; journal that we saw it.
+      // Checked before the run-state guard on purpose: by the time this frame arrives the
+      // cancel command has already moved the row to cancel_requested, so behind the guard
+      // the journal line would never be written.
       if (cancelled) {
         ctx.recordEvent(id, "run_cancelled_observed", {})
         return
       }
+      const row = ctx.mustGet(id)
+      if (!isRunState(row.state)) return
       if (error) {
         ctx.transition(id, "run_failed", { failureReason: "route_error" }, { error })
         return

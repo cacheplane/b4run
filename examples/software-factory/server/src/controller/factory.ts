@@ -1,6 +1,12 @@
 import { createHash, randomUUID } from "node:crypto"
 import { setTimeout as sleep } from "node:timers/promises"
-import { ACTIVE_STATES, nextState, type TransitionEvent } from "../domain/states.js"
+import {
+  ACTIVE_STATES,
+  IllegalTransitionError,
+  isTerminal,
+  nextState,
+  type TransitionEvent,
+} from "../domain/states.js"
 import type { CommandOutcome, FactoryEvent, WorkOrderRow } from "../domain/work-order.js"
 import { TASK_PROMPTS } from "../prompts.js"
 import { type CommandLog, createCommandLog } from "../registry/commands.js"
@@ -9,6 +15,7 @@ import { createWorkOrderStore, type WorkOrderPatch } from "../registry/work-orde
 import type { WorkerClient } from "../worker/client.js"
 import { receiptPath, waitForReceipt } from "../worker/outbox.js"
 import { classifyDone, type StreamFrame } from "../worker/wire.js"
+import { startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
 import { denyPending, observeRun } from "./run-observer.js"
 import { consumeTurn } from "./turns.js"
@@ -226,8 +233,50 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     })
   }
 
-  async function finishCancel(_id: string, _cause: "operator" | "budget"): Promise<WorkOrderRow> {
-    throw new Error("finishCancel is implemented in Task 14")
+  /**
+   * Is there a turn on `threadId` for the cancel to interrupt? The worker is the authority,
+   * not the controller's in-memory `runs` map: after a restart that map is empty, and while a
+   * run is draining its last frames the map still holds a promise for a turn that has parked.
+   * An unreadable status is treated as live — cancelling a parked thread is a tolerated 409,
+   * whereas skipping the cancel of a live one leaks a run.
+   */
+  async function turnIsLive(id: string, threadId: string): Promise<boolean> {
+    try {
+      return (await options.worker.getThread(threadId))?.status === "busy"
+    } catch (error) {
+      recordEvent(id, "thread_status_unknown", { error: String(error) })
+      return true
+    }
+  }
+
+  /**
+   * Shared by the cancel command, the budget ticker, and reconciliation. Cancels a live run,
+   * denies whatever prompt is still parked, and applies the terminal cancel row for `cause`.
+   */
+  async function finishCancel(id: string, cause: "operator" | "budget"): Promise<WorkOrderRow> {
+    const row = mustGet(id)
+    if (row.workerThreadId) {
+      let result: string | null = null
+      if (await turnIsLive(id, row.workerThreadId)) {
+        try {
+          result = await options.worker.cancel(row.workerThreadId)
+        } catch (error) {
+          result = `error: ${String(error)}`
+        }
+        recordEvent(id, "worker_cancel", { result })
+        await settleRun(id, 10_000)
+      }
+      if (result !== "thread_not_found") {
+        try {
+          await denyPending(ctx, id)
+        } catch (error) {
+          recordEvent(id, "pending_deny_failed", { error: String(error) })
+        }
+      }
+    }
+    return cause === "budget"
+      ? transition(id, "run_ended_after_budget", { blockedReason: "budget_exhausted" })
+      : transition(id, "run_ended_after_cancel")
   }
 
   // Assembled here so Tasks 14 and 15 (cancel, reconciliation) receive it unchanged.
@@ -274,6 +323,41 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     }
     await observeRun(ctx, id, frames)
   }
+
+  // The budget is enforced on active time only (dispatched/running/exporting), so a work order
+  // parked on a person never expires. One command key per (id, revision) keeps the ticker's
+  // cancel out of the command log's way when an operator cancel is already recorded.
+  const ticker = startBudgetTicker({
+    store,
+    now,
+    tickMs: options.budgetTickMs ?? 1_000,
+    onExhausted: async (id) => {
+      const row = mustGet(id)
+      const key = `budget:${id}:${row.revision}`
+      const begun = commands.begin(key, id, { command: "cancel", args: { cause: "budget" } }, iso())
+      if (begun.status !== "new") return
+      try {
+        transition(
+          id,
+          "budget_exhausted",
+          { blockedReason: "budget_exhausted" },
+          { maxActiveMs: row.maxActiveMs },
+        )
+      } catch (error) {
+        commands.complete(key, { ok: false, message: `Budget cancel skipped: ${String(error)}` })
+        return
+      }
+      try {
+        const final = await finishCancel(id, "budget")
+        commands.complete(key, { ok: true, state: final.state, message: "Budget exhausted" })
+      } catch (error) {
+        // The ticker has no caller to reject to: an escaping error here would surface as an
+        // unhandled rejection and leave this key in flight forever.
+        recordEvent(id, "budget_cancel_failed", { error: String(error) })
+        commands.complete(key, { ok: false, message: `Budget cancel failed: ${String(error)}` })
+      }
+    },
+  })
 
   const factory: Factory = {
     async create({ taskId, operationKey }) {
@@ -384,6 +468,11 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
       // The gate must still be pending on the worker before any authority is recorded.
       const pending = await options.worker.pendingInterrupts(row.workerThreadId)
+      // Re-read after the await: a cancel (operator or budget) may have moved the row while
+      // this approve was talking to the worker, and neither `interrupt_vanished` nor `approve`
+      // is a legal move from where it left it.
+      if (mustGet(id).state !== "awaiting_approval")
+        return refuse("Work order changed state while approving")
       if (pending.length !== 1 || pending[0]?.interruptId !== row.interruptId) {
         transition(
           id,
@@ -394,19 +483,27 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         return refuse("The worker's approval prompt is no longer pending")
       }
 
-      store.transaction(() => {
-        store.recordApproval({
-          id: `ap-${randomUUID()}`,
-          workOrderId: id,
-          interruptId: row.interruptId as string,
-          candidateDigest,
-          decision: "approved",
-          decidedBy: options.actor ?? "operator",
-          decidedAt: iso(),
-          expiresAt: new Date(since + ttl).toISOString(),
+      try {
+        store.transaction(() => {
+          store.recordApproval({
+            id: `ap-${randomUUID()}`,
+            workOrderId: id,
+            interruptId: row.interruptId as string,
+            candidateDigest,
+            decision: "approved",
+            decidedBy: options.actor ?? "operator",
+            decidedAt: iso(),
+            expiresAt: new Date(since + ttl).toISOString(),
+          })
+          transition(id, "approve", {}, { candidateDigest, operationKey: key })
         })
-        transition(id, "approve", {}, { candidateDigest, operationKey: key })
-      })
+      } catch (error) {
+        // A cancel (operator or budget) moved the row while this approve awaited the worker.
+        // The transaction rolled the authority record back; refuse rather than leave the
+        // command key in flight, which would need a restart to reconcile.
+        if (!(error instanceof IllegalTransitionError)) throw error
+        return refuse("Work order changed state while approving")
+      }
       const run = confirmExport(id)
       track(id, run)
       await run
@@ -452,8 +549,29 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       const denied = transition(id, "deny", {}, { operationKey: key })
       return finish(key, { ok: true, state: denied.state, message: "Denied" })
     },
-    async cancel() {
-      throw new Error("cancel is implemented in Task 14")
+    async cancel(id, operationKey) {
+      const row = mustGet(id)
+      const key = operationKey ?? `cancel:${id}:${row.revision}`
+      const begun = commands.begin(key, id, { command: "cancel", args: {} }, iso())
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      if (isTerminal(row.state))
+        return finish(key, {
+          ok: false,
+          state: row.state,
+          message: `Work order is terminal (${row.state})`,
+        })
+      if (row.state === "cancel_requested")
+        return finish(key, {
+          ok: false,
+          state: row.state,
+          message: "Cancel already in progress",
+        })
+      // Recorded before any worker call: a crash in between leaves cancel_requested, which is
+      // exactly what reconciliation knows how to finish.
+      transition(id, "cancel", {}, { operationKey: key })
+      const final = await finishCancel(id, "operator")
+      return finish(key, { ok: true, state: final.state, message: "Cancelled" })
     },
 
     show: (id) => store.get(id),
@@ -475,6 +593,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     async close() {
       if (closed) return
       closed = true
+      ticker.stop()
       abort.abort()
       // Bounded: a run whose stream ignores the abort must not hold the process open.
       await Promise.race([
