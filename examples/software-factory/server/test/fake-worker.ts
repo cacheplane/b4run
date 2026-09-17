@@ -104,7 +104,11 @@ class Sse {
   end() {
     this.res.end()
   }
-  destroy() {
+  /** Cut the socket, but only once the frames already written have reached it. */
+  async destroy() {
+    await new Promise<void>((resolve) => {
+      this.res.write(": flush\n\n", () => resolve())
+    })
     this.res.destroy()
   }
 }
@@ -202,7 +206,7 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
     await sleep(delay)
     sse.frame("tool_result", prepareResult())
     if (kind === "close_midway") {
-      sse.destroy()
+      await sse.destroy()
       await sleep(50)
       thread.pending = gateInterrupt()
       return parkRun(thread, null)

@@ -54,6 +54,11 @@ export interface WorkOrderStore {
   approvals(workOrderId: string): Approval[]
   recordDelivery(delivery: Delivery): void
   delivery(workOrderId: string): Delivery | null
+  /**
+   * Run `fn` inside a transaction. Reentrant: only the outermost call issues
+   * BEGIN/COMMIT/ROLLBACK, so a nested call joins the enclosing transaction and a
+   * throw anywhere inside rolls the whole thing back.
+   */
   transaction<T>(fn: () => T): T
 }
 
@@ -100,6 +105,8 @@ function fromSql(record: Record<string, unknown>): WorkOrderRow {
 }
 
 export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
+  /** Open transaction depth: only depth 0 -> 1 issues BEGIN, and only it commits. */
+  let depth = 0
   const keys = Object.keys(COLUMNS) as (keyof WorkOrderRow)[]
   const insertSql = `INSERT INTO work_orders (${keys.map((k) => COLUMNS[k]).join(", ")}) VALUES (${keys
     .map(() => "?")
@@ -223,7 +230,16 @@ export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
         : null
     },
     transaction(fn) {
+      if (depth > 0) {
+        depth += 1
+        try {
+          return fn()
+        } finally {
+          depth -= 1
+        }
+      }
       db.exec("BEGIN")
+      depth = 1
       try {
         const result = fn()
         db.exec("COMMIT")
@@ -231,6 +247,8 @@ export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
       } catch (error) {
         db.exec("ROLLBACK")
         throw error
+      } finally {
+        depth = 0
       }
     },
   }

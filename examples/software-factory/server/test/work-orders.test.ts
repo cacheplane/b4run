@@ -101,6 +101,36 @@ describe("work-order store", () => {
     expect(s.delivery("wo-1")?.receiptPath).toBe("/x")
   })
 
+  it("is reentrant: a nested transaction commits once with the outermost", () => {
+    const s = store()
+    s.insert(freshRow())
+    s.transaction(() => {
+      s.appendEvent("wo-1", "outer", {}, at)
+      s.transaction(() => {
+        s.appendEvent("wo-1", "inner", {}, at)
+      })
+    })
+    expect(s.events("wo-1").map((e) => e.type)).toEqual(["outer", "inner"])
+  })
+
+  it("is reentrant: a throw inside a nested transaction rolls everything back", () => {
+    const s = store()
+    s.insert(freshRow())
+    expect(() =>
+      s.transaction(() => {
+        s.appendEvent("wo-1", "outer", {}, at)
+        s.transaction(() => {
+          s.appendEvent("wo-1", "inner", {}, at)
+          throw new Error("boom")
+        })
+      }),
+    ).toThrow("boom")
+    expect(s.events("wo-1")).toEqual([])
+    // The failed transaction must not leave the connection inside a transaction.
+    s.transaction(() => s.appendEvent("wo-1", "after", {}, at))
+    expect(s.events("wo-1").map((e) => e.type)).toEqual(["after"])
+  })
+
   it("rolls a transaction back on error", () => {
     const s = store()
     s.insert(freshRow())
