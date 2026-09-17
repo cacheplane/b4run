@@ -213,6 +213,16 @@ substitute for the other or optional release cleanup.
   `scripts/check-docs.mjs` for the exact patterns.
 - **Always run commands from the repo root.** Turbo and workspace-package
   resolution assume it.
+- **Editing web content means regenerating the SEO manifest.** Any change under
+  `apps/web/content/` — including the API reference pages a package change
+  moves — restages `apps/web/app/seo/lastmod.generated.json`. Regenerate it in
+  the same commit with `pnpm --dir apps/web seo:lastmod`, or
+  `app/seo/generate-lastmod.test.ts` reds `source-validate` and therefore the
+  required `validate` check. `scripts/check-docs.mjs` does not cover it. The
+  same command is the whole resolution when the manifest conflicts on a merge
+  or rebase: it is marked `-merge` in `.gitattributes`, so git leaves valid
+  JSON on one side rather than writing conflict markers into generated content,
+  and regenerating on top of that is always the correct answer.
 - **Every final-workflow-reachable release script is content-pinned.** The
   audited SHA256 and exact command line for each repository script reachable
   from the final release-owner workflows are recorded in
