@@ -95,7 +95,6 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
     buildDir,
     io,
     manifest,
-    ...(config ? { config } : {}),
     ...(workspaceArtifact ? { workspaceArtifact } : {}),
     ...(config?.build ? { buildConfig: config.build } : {}),
   }
