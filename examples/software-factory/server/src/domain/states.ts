@@ -27,6 +27,7 @@ export const ACTIVE_STATES: ReadonlySet<WorkOrderState> = new Set<WorkOrderState
   "exporting",
 ])
 
+/** Reasons are attached by the controller (later tasks), not by nextState. */
 export const BLOCKED_REASONS = [
   "candidate_digest_unknown",
   "unexpected_interrupt",

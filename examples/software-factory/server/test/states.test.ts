@@ -52,4 +52,32 @@ describe("transition table", () => {
     expect(isTerminal("blocked")).toBe(false)
     expect([...ACTIVE_STATES].sort()).toEqual(["dispatched", "exporting", "running"])
   })
+
+  it("fails the run from dispatched or running", () => {
+    expect(nextState("dispatched", "run_failed")).toBe("failed")
+    expect(nextState("running", "run_failed")).toBe("failed")
+  })
+
+  it("fails when the run ends without a candidate, from dispatched or running", () => {
+    expect(nextState("dispatched", "run_ended_without_candidate")).toBe("failed")
+    expect(nextState("running", "run_ended_without_candidate")).toBe("failed")
+  })
+
+  it("blocks on an unconfirmed export", () => {
+    expect(nextState("exporting", "export_unconfirmed")).toBe("blocked")
+  })
+
+  it("moves to cancel_requested on budget exhaustion from active states only", () => {
+    expect(nextState("dispatched", "budget_exhausted")).toBe("cancel_requested")
+    expect(nextState("running", "budget_exhausted")).toBe("cancel_requested")
+    expect(nextState("exporting", "budget_exhausted")).toBe("cancel_requested")
+    expect(() => nextState("awaiting_approval", "budget_exhausted")).toThrow(IllegalTransitionError)
+    expect(() => nextState("blocked", "budget_exhausted")).toThrow(IllegalTransitionError)
+  })
+
+  it("raises a candidate interrupt from dispatched", () => {
+    expect(nextState("dispatched", "candidate_interrupt")).toBe("awaiting_approval")
+    expect(nextState("dispatched", "candidate_interrupt_without_digest")).toBe("blocked")
+    expect(nextState("dispatched", "unexpected_interrupt")).toBe("blocked")
+  })
 })
