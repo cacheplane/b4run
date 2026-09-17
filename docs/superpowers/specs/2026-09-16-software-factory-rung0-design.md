@@ -293,6 +293,7 @@ create table work_orders (
   candidate_digest text,
   candidate_verified integer,
   blocked_reason text,
+  failure_reason text,
   max_candidate_attempts integer not null,
   max_active_ms integer not null,
   active_ms integer not null default 0,
@@ -338,6 +339,13 @@ create table deliveries (
 ```
 
 `payload`, `intent` and `outcome` are JSON text validated with zod on read.
+The implementation adds `active_started_at` to `work_orders` (the open active
+interval the budget ticker measures) and `interrupt_id` to `approvals`, and
+declares `references work_orders(id)` on `approvals.work_order_id` and
+`deliveries.work_order_id` as well as on `events`; `commands.work_order_id` is
+deliberately unreferenced so a command intent can be recorded before its work
+order exists. `failure_reason` records why a work order is `failed`, mirroring
+`blocked_reason`.
 Schema changes ship with a migration and a version row; the factory refuses to
 open a registry written by a newer schema.
 
