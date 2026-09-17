@@ -29,6 +29,12 @@ export interface BuildEmitContext {
   readonly io?: CommandIo
   /** The loaded `b4.config.ts` `build` section, when the app has one. */
   readonly buildConfig?: NonNullable<B4Config["build"]>
+  /**
+   * Absolute directory the `vercel` target publishes to, already resolved
+   * against the app root from `--out-dir` or `build.vercel.outDir`. Absent
+   * means the default `<appRoot>/.vercel/output`.
+   */
+  readonly vercelOutputDir?: string
 }
 
 /**

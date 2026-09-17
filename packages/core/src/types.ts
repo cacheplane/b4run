@@ -97,10 +97,17 @@ export interface B4Config {
      * type-check instead of failing at `b4 build`.
      */
     readonly targets?: readonly BuildTargetName[]
-    /**
-     * Options that only apply to the `"vercel"` target.
-     */
+    /** Options that only apply to the `"vercel"` target. */
     readonly vercel?: {
+      /**
+       * Where the `"vercel"` target publishes its Build Output API tree.
+       * Resolved relative to the app root; defaults to `.vercel/output`, the
+       * directory Vercel deploys from. Point it elsewhere when another step
+       * composes the runtime function with static assets or further functions
+       * before deployment. `b4 build --out-dir <dir>` overrides it per run.
+       * The directory must not contain the app root itself.
+       */
+      readonly outDir?: string
       /**
        * Whether `b4 build` reconciles the app-root `vercel.json` with the
        * target's lifecycle contract (a `buildCommand` that runs `b4 build`
