@@ -177,6 +177,8 @@ DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/app \
   '
 ```
 
+That path is the bare-build one. The runtime function is `index.func` only until `build.vercel.static` is configured, when it becomes `b4.func` — or whatever `functionName` names it — so an app shipping a SPA imports `./.vercel/output/functions/b4.func/index.mjs` instead. `build.vercel.outDir` moves the whole tree, so adjust the leading path too.
+
 To exercise the same WebSocket path a Neon deployment uses, run `neondatabase/wsproxy` in front of the database and set `B4_PG_WS_PROXY=127.0.0.1:<proxy-port>`; the `hono` bundle under `@hono/node-server` needs exactly this, because it has no `pg` path. The repository's own Docker-gated round trips cover both routes.
 
 ## What the edge cannot serve

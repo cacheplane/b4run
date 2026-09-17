@@ -9,4 +9,6 @@ Under a SPA fallback the runtime route is scoped to the surfaces the runtime own
 
 The runtime function now declares `supportsResponseStreaming: true`. It serves SSE on `/agui/:routeId` and `/threads/:id/runs/stream`, and without the flag Vercel's Node launcher buffers the response, so a deployed frontend received nothing until a run finished. Extra functions could already opt in; the function that always streams could not.
 
+Every `build.vercel` rejection now carries the `B4_E1003` code and its docs link, so a malformed `static.dir` reports the same way as an unknown option rather than printing a bare line.
+
 These keys join `reconcileVercelJson` in one validated `build.vercel`: a single resolver owns the shape, so `b4 check` and `b4 build` reject an unknown key or a malformed value the same way for every option, and the composed tree is only built from a shape that was checked.

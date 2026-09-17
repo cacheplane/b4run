@@ -5,6 +5,7 @@ import { dirname, join } from "node:path"
 import type { B4Config } from "@b4run/core"
 import { CliError, type CommandIo, formatErrorMessage, writeLine } from "../../output.js"
 import {
+  invalidBuildConfig,
   type ResolvedVercelBuild,
   resolveVercelComposition,
   VERCEL_COMPOSITION_KEYS,
@@ -155,10 +156,6 @@ export function resolveVercelBuildConfig(
  */
 export function assertVercelBuildConfig(build: B4Config["build"] | undefined): void {
   resolveVercelBuildConfig(build, ".")
-}
-
-function invalidBuildConfig(detail: string): CliError {
-  return new CliError(`Invalid build config:\n${detail}`, 1, { code: "B4_E1003" })
 }
 
 export async function reconcileVercelConfig(input: {

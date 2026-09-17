@@ -44,6 +44,18 @@ export const VERCEL_ROUTE_KEYS: readonly string[] = [
   "middlewareRawSrc",
 ]
 
+/**
+ * Every `build.vercel` rejection, coded and linked the same way.
+ *
+ * `b4 check` renders the code and docs link from `CliError`, and
+ * `check-error-codes.test.ts` asserts that shape for build-config errors — a
+ * bare `CliError` here would print an uncoded line for a `build.vercel` key
+ * while its siblings print the coded form.
+ */
+export function invalidBuildConfig(detail: string): CliError {
+  return new CliError(`Invalid build config:\n${detail}`, 1, { code: "B4_E1003" })
+}
+
 const FUNCTION_NAME_PATTERN = /^[A-Za-z0-9_-]+$/
 const FUNCTION_RUNTIME_PATTERN = /^nodejs\d+\.x$/
 
@@ -110,13 +122,13 @@ export function resolveVercelComposition(input: unknown, appRoot: string): Resol
         : DEFAULT_VERCEL_FUNCTION_NAME
       : assertFunctionName(config.functionName, "build.vercel.functionName")
   if (staticConfig && functionName === DEFAULT_VERCEL_FUNCTION_NAME) {
-    throw new CliError(
+    throw invalidBuildConfig(
       `build.vercel.functionName "${DEFAULT_VERCEL_FUNCTION_NAME}" cannot be combined with build.vercel.static: a function named "${DEFAULT_VERCEL_FUNCTION_NAME}" is also served at "/" and would shadow the static root. Choose another name (the default with static assets is "${STATIC_VERCEL_FUNCTION_NAME}").`,
     )
   }
   const collision = functions.find((fn) => fn.name === functionName)
   if (collision) {
-    throw new CliError(
+    throw invalidBuildConfig(
       `build.vercel.functions.${collision.name} collides with the runtime function name "${functionName}"; rename the function or set build.vercel.functionName.`,
     )
   }
@@ -164,7 +176,7 @@ function resolveStatic(value: unknown, appRoot: string): ResolvedVercelBuild["st
     normalized === ".." ||
     normalized.startsWith(`..${sep}`)
   ) {
-    throw new CliError(
+    throw invalidBuildConfig(
       `build.vercel.static.spaFallback must be a path inside build.vercel.static.dir, got ${JSON.stringify(spaFallback)}`,
     )
   }
@@ -187,7 +199,7 @@ function resolveFunctions(value: unknown, appRoot: string): ResolvedVercelFuncti
         ? DEFAULT_VERCEL_FUNCTION_RUNTIME
         : assertNonEmptyString(fn.runtime, `${location}.runtime`)
     if (!FUNCTION_RUNTIME_PATTERN.test(runtime)) {
-      throw new CliError(
+      throw invalidBuildConfig(
         `${location}.runtime must be a Node runtime such as "${DEFAULT_VERCEL_FUNCTION_RUNTIME}", got ${JSON.stringify(runtime)}`,
       )
     }
@@ -197,13 +209,15 @@ function resolveFunctions(value: unknown, appRoot: string): ResolvedVercelFuncti
         !Number.isInteger(fn.maxDuration) ||
         fn.maxDuration < 1)
     ) {
-      throw new CliError(`${location}.maxDuration must be a positive integer number of seconds`)
+      throw invalidBuildConfig(
+        `${location}.maxDuration must be a positive integer number of seconds`,
+      )
     }
     if (
       fn.supportsResponseStreaming !== undefined &&
       typeof fn.supportsResponseStreaming !== "boolean"
     ) {
-      throw new CliError(`${location}.supportsResponseStreaming must be a boolean`)
+      throw invalidBuildConfig(`${location}.supportsResponseStreaming must be a boolean`)
     }
     return {
       entry: resolve(appRoot, entry),
@@ -219,12 +233,12 @@ function resolveFunctions(value: unknown, appRoot: string): ResolvedVercelFuncti
 
 function resolveRoutes(value: unknown): VercelRoute[] {
   if (value === undefined) return []
-  if (!Array.isArray(value)) throw new CliError("build.vercel.routes must be an array")
+  if (!Array.isArray(value)) throw invalidBuildConfig("build.vercel.routes must be an array")
   return value.map((route, index) => {
     const location = `build.vercel.routes[${index}]`
     const record = asRecord(route, location)
     if ("handle" in record) {
-      throw new CliError(
+      throw invalidBuildConfig(
         `${location}.handle is not allowed: b4 build owns the route phases and inserts { handle: "filesystem" } itself`,
       )
     }
@@ -237,7 +251,7 @@ function resolveRoutes(value: unknown): VercelRoute[] {
 function assertFunctionName(value: unknown, location: string): string {
   const name = assertNonEmptyString(value, location)
   if (!FUNCTION_NAME_PATTERN.test(name)) {
-    throw new CliError(
+    throw invalidBuildConfig(
       `${location} must match ${FUNCTION_NAME_PATTERN} (one path segment), got ${JSON.stringify(name)}`,
     )
   }
@@ -246,7 +260,7 @@ function assertFunctionName(value: unknown, location: string): string {
 
 function assertNonEmptyString(value: unknown, location: string): string {
   if (typeof value !== "string" || value.length === 0) {
-    throw new CliError(`${location} must be a non-empty string`)
+    throw invalidBuildConfig(`${location} must be a non-empty string`)
   }
   return value
 }
@@ -257,13 +271,14 @@ function assertKnownKeys(
   location: string,
 ): void {
   for (const key of Object.keys(record)) {
-    if (!allowed.includes(key)) throw new CliError(`${location}.${key} is not a known property`)
+    if (!allowed.includes(key))
+      throw invalidBuildConfig(`${location}.${key} is not a known property`)
   }
 }
 
 function asRecord(value: unknown, location: string): Readonly<Record<string, unknown>> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new CliError(`${location} must be an object`)
+    throw invalidBuildConfig(`${location} must be an object`)
   }
   return value as Readonly<Record<string, unknown>>
 }
