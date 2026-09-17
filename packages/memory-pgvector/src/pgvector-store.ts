@@ -50,9 +50,9 @@ export function pgvectorMemoryStore(opts: {
   dimensions: number
   /** HNSW index/search tuning; all fields defaulted. */
   index?: { m?: number; efConstruction?: number; efSearch?: number }
-  /** Postgres schema to place tables in. */
+  /** Postgres schema to place tables in; must match `IDENTIFIER_PATTERN`. */
   schema?: string
-  /** Table name prefix (isolates multiple stores in one database). */
+  /** Table name prefix (isolates multiple stores in one database); must match `IDENTIFIER_PATTERN`. */
   tablePrefix?: string
   /** Recall ranking tuning; all fields defaulted. See @b4run/memory score.ts. */
   recall?: RecallRankingOptions
