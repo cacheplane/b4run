@@ -12,7 +12,7 @@ import { TASK_PROMPTS } from "../prompts.js"
 import { type CommandLog, createCommandLog } from "../registry/commands.js"
 import { openRegistry } from "../registry/db.js"
 import { createWorkOrderStore, type WorkOrderPatch } from "../registry/work-orders.js"
-import type { WorkerClient } from "../worker/client.js"
+import type { CancelResult, WorkerClient } from "../worker/client.js"
 import { receiptPath, waitForReceipt } from "../worker/outbox.js"
 import { classifyDone, type InterruptFrame, type StreamFrame } from "../worker/wire.js"
 import { startBudgetTicker } from "./budget.js"
@@ -235,49 +235,75 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   }
 
   /**
-   * Is there a turn on `threadId` for the cancel to interrupt? The worker is the authority,
-   * not the controller's in-memory `runs` map: after a restart that map is empty, and while a
-   * run is draining its last frames the map still holds a promise for a turn that has parked.
-   * An unreadable status is treated as live — cancelling a parked thread is a tolerated 409,
-   * whereas skipping the cancel of a live one leaks a run.
+   * Is there a turn on `threadId` for the cancel to interrupt, and is the thread there at
+   * all? The worker is the authority, not the controller's in-memory `runs` map: after a
+   * restart that map is empty, and while a run is draining its last frames the map still
+   * holds a promise for a turn that has parked. An unreadable status is treated as live —
+   * cancelling a parked thread is a tolerated 409, whereas skipping the cancel of a live one
+   * leaks a run. A 404 (`missing`) is different: there is nothing to cancel and nothing to
+   * deny on a thread the worker does not have.
    */
-  async function turnIsLive(id: string, threadId: string): Promise<boolean> {
+  async function threadLiveness(
+    id: string,
+    threadId: string,
+  ): Promise<"live" | "ended" | "missing" | "unknown"> {
     try {
-      return (await options.worker.getThread(threadId))?.status === "busy"
+      const thread = await options.worker.getThread(threadId)
+      if (!thread) return "missing"
+      return thread.status === "busy" ? "live" : "ended"
     } catch (error) {
       recordEvent(id, "thread_status_unknown", { error: String(error) })
-      return true
+      return "unknown"
     }
   }
 
   /**
    * Shared by the cancel command, the budget ticker, and reconciliation. Cancels a live run,
    * denies whatever prompt is still parked, and applies the terminal cancel row for `cause`.
+   *
+   * Nothing reaches a terminal cancel row without evidence: an undelivered cancel or an
+   * undelivered denial leaves the work order in `cancel_requested` and returns it unchanged,
+   * which is exactly the state reconciliation knows how to finish on the next boot. Callers
+   * read the returned row — never the fact that this function was called — as the outcome.
    */
   async function finishCancel(id: string, cause: "operator" | "budget"): Promise<WorkOrderRow> {
     const row = mustGet(id)
     if (row.workerThreadId) {
-      let result: string | null = null
-      if (await turnIsLive(id, row.workerThreadId)) {
+      const threadId = row.workerThreadId
+      const liveness = await threadLiveness(id, threadId)
+      let result: CancelResult | null = null
+      if (liveness === "live" || liveness === "unknown") {
         try {
-          result = await options.worker.cancel(row.workerThreadId)
+          result = await options.worker.cancel(threadId)
         } catch (error) {
-          result = `error: ${String(error)}`
+          // The turn may well still be running: a row reading `cancelled` here would be a
+          // claim the worker never confirmed.
+          recordEvent(id, "worker_cancel_failed", { error: String(error) })
+          return mustGet(id)
         }
         recordEvent(id, "worker_cancel", { result })
         await settleRun(id, 10_000)
       }
-      if (result !== "thread_not_found") {
+      if (liveness !== "missing" && result !== "thread_not_found") {
         try {
           await denyPending(ctx, id)
         } catch (error) {
+          // A prompt still parked on the worker is a turn still waiting on us.
           recordEvent(id, "pending_deny_failed", { error: String(error) })
+          return mustGet(id)
         }
       }
     }
-    return cause === "budget"
-      ? transition(id, "run_ended_after_budget", { blockedReason: "budget_exhausted" })
-      : transition(id, "run_ended_after_cancel")
+    try {
+      return cause === "budget"
+        ? transition(id, "run_ended_after_budget", { blockedReason: "budget_exhausted" })
+        : transition(id, "run_ended_after_cancel")
+    } catch (error) {
+      // Something else settled the row while this cancel was talking to the worker.
+      if (!(error instanceof IllegalTransitionError)) throw error
+      recordEvent(id, "cancel_transition_skipped", { cause, error: String(error) })
+      return mustGet(id)
+    }
   }
 
   // Assembled here so Tasks 14 and 15 (cancel, reconciliation) receive it unchanged.
@@ -332,30 +358,55 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     store,
     now,
     tickMs: options.budgetTickMs ?? 1_000,
+    // The ticker has no caller to reject to: anything escaping this callback would surface as
+    // an unhandled rejection and leave its key in flight forever. So the whole body is
+    // guarded — the row read, the command log, the transition and the worker calls — and a
+    // tick that raced close() stops before it can touch a closing registry.
     onExhausted: async (id) => {
-      const row = mustGet(id)
-      const key = `budget:${id}:${row.revision}`
-      const begun = commands.begin(key, id, { command: "cancel", args: { cause: "budget" } }, iso())
-      if (begun.status !== "new") return
+      if (closed) return
+      let key: string | null = null
       try {
-        transition(
+        const row = mustGet(id)
+        key = `budget:${id}:${row.revision}`
+        const begun = commands.begin(
+          key,
           id,
-          "budget_exhausted",
-          { blockedReason: "budget_exhausted" },
-          { maxActiveMs: row.maxActiveMs },
+          { command: "cancel", args: { cause: "budget" } },
+          iso(),
         )
-      } catch (error) {
-        commands.complete(key, { ok: false, message: `Budget cancel skipped: ${String(error)}` })
-        return
-      }
-      try {
+        if (begun.status !== "new") return
+        try {
+          transition(
+            id,
+            "budget_exhausted",
+            { blockedReason: "budget_exhausted" },
+            { maxActiveMs: row.maxActiveMs },
+          )
+        } catch (error) {
+          commands.complete(key, { ok: false, message: `Budget cancel skipped: ${String(error)}` })
+          return
+        }
+        // As in cancel: the row is the outcome, and an unconfirmed cancel is not a cancel.
         const final = await finishCancel(id, "budget")
-        commands.complete(key, { ok: true, state: final.state, message: "Budget exhausted" })
+        const ok = final.state === "blocked" && final.blockedReason === "budget_exhausted"
+        commands.complete(key, {
+          ok,
+          state: final.state,
+          message: ok
+            ? "Budget exhausted"
+            : `Budget cancel not confirmed; work order is ${final.state}`,
+        })
       } catch (error) {
-        // The ticker has no caller to reject to: an escaping error here would surface as an
-        // unhandled rejection and leave this key in flight forever.
-        recordEvent(id, "budget_cancel_failed", { error: String(error) })
-        commands.complete(key, { ok: false, message: `Budget cancel failed: ${String(error)}` })
+        try {
+          recordEvent(id, "budget_cancel_failed", { error: String(error) })
+          if (key)
+            commands.complete(key, {
+              ok: false,
+              message: `Budget cancel failed: ${String(error)}`,
+            })
+        } catch {
+          // close() took the registry with it; there is nothing left to journal this on.
+        }
       }
     },
   })
@@ -468,7 +519,13 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       if (!row.workerThreadId || !row.interruptId) return refuse("Work order has no recorded gate")
 
       // The gate must still be pending on the worker before any authority is recorded.
-      const pending = await options.worker.pendingInterrupts(row.workerThreadId)
+      let pending: InterruptFrame[]
+      try {
+        pending = await options.worker.pendingInterrupts(row.workerThreadId)
+      } catch (error) {
+        // Unreadable is not vanished: refuse, and leave the row where the operator left it.
+        return refuse(`Worker unreachable while approving: ${String(error)}`)
+      }
       // Re-read after the await: a cancel (operator or budget) may have moved the row while
       // this approve was talking to the worker, and neither `interrupt_vanished` nor `approve`
       // is a legal move from where it left it.
@@ -507,7 +564,14 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       }
       const run = confirmExport(id)
       track(id, run)
-      await run
+      try {
+        await run
+      } catch (error) {
+        // confirmExport blocks the row itself for every failure it anticipates; anything that
+        // still escapes must not escape this command and strand its key.
+        recordEvent(id, "export_observer_error", { error: String(error) })
+        return refuse(`Export not confirmed: ${String(error)}`)
+      }
       const final = mustGet(id)
       return finish(key, {
         ok: final.state === "exported",
@@ -541,6 +605,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         recordEvent(id, "pending_deny_failed", { error: String(error) })
         return refuse(`Deny could not be delivered to the worker: ${String(error)}`)
       }
+      // Re-read after the await: a cancel (operator or budget) may have moved the row while
+      // this deny was reading the worker, and neither `interrupt_vanished` nor `deny` is a
+      // legal move from where it left it.
+      if (mustGet(id).state !== row.state) return refuse("Work order changed state while denying")
       if (row.state === "awaiting_approval") {
         // Mirrors approve: the recorded gate, and only it, may be denied.
         if (pending.length !== 1 || pending[0]?.interruptId !== row.interruptId) {
@@ -575,22 +643,33 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         return refuse(`Deny could not be delivered to the worker: ${String(error)}`)
       }
 
+      // The resume was another await: the row may have moved again while the worker was
+      // hearing the denial.
+      if (mustGet(id).state !== row.state) return refuse("Work order changed state while denying")
+
       // One unit, as in approve: a denied authority row without the transition (or the other
       // way round) would leave reconciliation guessing which of the two is the truth.
-      const denied = store.transaction(() => {
-        if (row.candidateDigest && row.interruptId)
-          store.recordApproval({
-            id: `ap-${randomUUID()}`,
-            workOrderId: id,
-            interruptId: row.interruptId,
-            candidateDigest: row.candidateDigest,
-            decision: "denied",
-            decidedBy: options.actor ?? "operator",
-            decidedAt: iso(),
-            expiresAt: iso(),
-          })
-        return transition(id, "deny", {}, { operationKey: key })
-      })
+      let denied: WorkOrderRow
+      try {
+        denied = store.transaction(() => {
+          if (row.candidateDigest && row.interruptId)
+            store.recordApproval({
+              id: `ap-${randomUUID()}`,
+              workOrderId: id,
+              interruptId: row.interruptId,
+              candidateDigest: row.candidateDigest,
+              decision: "denied",
+              decidedBy: options.actor ?? "operator",
+              decidedAt: iso(),
+              expiresAt: iso(),
+            })
+          return transition(id, "deny", {}, { operationKey: key })
+        })
+      } catch (error) {
+        // The transaction rolled the denied authority row back with it.
+        if (!(error instanceof IllegalTransitionError)) throw error
+        return refuse("Work order changed state while denying")
+      }
       return finish(key, { ok: true, state: denied.state, message: "Denied" })
     },
     async cancel(id, operationKey) {
@@ -614,8 +693,28 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // Recorded before any worker call: a crash in between leaves cancel_requested, which is
       // exactly what reconciliation knows how to finish.
       transition(id, "cancel", {}, { operationKey: key })
-      const final = await finishCancel(id, "operator")
-      return finish(key, { ok: true, state: final.state, message: "Cancelled" })
+      let final: WorkOrderRow
+      try {
+        final = await finishCancel(id, "operator")
+      } catch (error) {
+        return finish(key, {
+          ok: false,
+          state: mustGet(id).state,
+          message: `Cancel failed: ${String(error)}`,
+        })
+      }
+      // The row, not the call, is the outcome: an unconfirmed cancel is still cancel_requested,
+      // and reconciliation finishes it on the next boot.
+      if (final.state === "cancelled")
+        return finish(key, { ok: true, state: final.state, message: "Cancelled" })
+      return finish(key, {
+        ok: false,
+        state: final.state,
+        message:
+          final.state === "cancel_requested"
+            ? "Cancel not confirmed; the worker was unreachable. Reconciliation will finish it on restart"
+            : `Cancel did not complete; work order is ${final.state}`,
+      })
     },
 
     show: (id) => store.get(id),

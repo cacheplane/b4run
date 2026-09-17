@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory, type FactoryOptions } from "../src/controller/factory.ts"
+import type { CommandOutcome } from "../src/domain/work-order.ts"
 import { createHttpWorkerClient } from "../src/worker/client.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 
@@ -117,6 +118,64 @@ describe("cancel", () => {
       /changed state while approving|Cannot approve from|terminal/,
     )
     expect(["exported", "cancelled"]).toContain(factory.show(id)?.state)
+  })
+
+  it("lets a deny race a cancel without stranding a command", async () => {
+    await boot()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    await factory.waitFor(id, (r) => r.state === "awaiting_approval")
+    const settled = await Promise.allSettled([
+      factory.deny(id, "deny-1"),
+      factory.cancel(id, "cancel-1"),
+    ])
+    // Both commands answer: the loser says why rather than rejecting or leaving its key open.
+    expect(settled.map((r) => r.status)).toEqual(["fulfilled", "fulfilled"])
+    const outcomes = settled.map((r) => (r as PromiseFulfilledResult<CommandOutcome>).value)
+    expect(outcomes.filter((o) => o.ok)).toHaveLength(1)
+    expect(outcomes.find((o) => !o.ok)?.message).toMatch(
+      /changed state while denying|Cannot deny from|terminal|no longer pending/,
+    )
+    expect(["denied", "cancelled"]).toContain(factory.show(id)?.state)
+    // Replaying either key reads its recorded outcome; neither is in flight for a restart.
+    expect(await factory.deny(id, "deny-1")).toEqual(outcomes[0])
+    expect(await factory.cancel(id, "cancel-1")).toEqual(outcomes[1])
+  })
+
+  it("refuses an unconfirmed cancel and lets reconciliation finish it", async () => {
+    await boot({ run: "hang" })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    await factory.waitFor(id, (r) => r.state === "running")
+    // The worker is gone before the cancel is even attempted: nothing may record `cancelled`.
+    await fake.close()
+    const outcome = await factory.cancel(id, "cancel-1")
+    expect(outcome).toMatchObject({
+      ok: false,
+      state: "cancel_requested",
+      message: expect.stringMatching(/Cancel not confirmed/),
+    })
+    expect(factory.show(id)?.state).toBe("cancel_requested")
+    await factory.close()
+
+    // A fresh factory over the same registry, against a worker that has never heard of the
+    // thread: the 404 is the evidence that the run is over, and there is no prompt to deny.
+    const replacement = await createFakeWorker({ outboxDir: join(dir, "outbox") })
+    const revived = await createFactory({
+      registryPath: join(dir, "registry.sqlite"),
+      worker: createHttpWorkerClient(replacement.baseUrl),
+      workerRoute: "/fix#agent",
+      outboxDir: join(dir, "outbox"),
+      now: () => nowMs,
+    })
+    try {
+      expect(revived.show(id)?.state).toBe("cancelled")
+      expect(replacement.requests.filter((r) => r.path.endsWith("/resume"))).toHaveLength(0)
+      expect(replacement.requests.filter((r) => r.path.endsWith("/cancel"))).toHaveLength(0)
+    } finally {
+      await revived.close()
+      await replacement.close()
+    }
   })
 
   it("closes within its timeout even while a run is hanging", async () => {
