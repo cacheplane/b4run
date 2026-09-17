@@ -48,15 +48,17 @@ describe("http worker client", () => {
     })
     const pending = await client.pendingInterrupts(threadId)
     expect(pending).toHaveLength(1)
-    expect(pending[0]?.detail.toolName).toBe("exportForReview")
+    const gate = pending[0]
+    if (!gate) throw new Error("expected a pending interrupt")
+    expect(gate.detail.toolName).toBe("exportForReview")
     const resumed = await drain(
       await client.resume(threadId, "/fix#agent", [
-        { interruptId: pending[0]!.interruptId, payload: "once" },
+        { interruptId: gate.interruptId, payload: "once" },
       ]),
     )
     expect(resumed.at(-1)?.event).toBe("done")
     expect(fake.requests.at(-1)?.body).toEqual({
-      resume: [{ interruptId: pending[0]!.interruptId, status: "resolved", payload: "once" }],
+      resume: [{ interruptId: gate.interruptId, status: "resolved", payload: "once" }],
       route: "/fix#agent",
     })
     expect(await client.pendingInterrupts(threadId)).toEqual([])
@@ -71,5 +73,46 @@ describe("http worker client", () => {
       status: 409,
       code: "interrupt_mismatch",
     } satisfies Partial<WorkerHttpError>)
+  })
+
+  it("cancels a live run", async () => {
+    const hangDir = mkdtempSync(join(tmpdir(), "worker-client-hang-"))
+    const hangFake = await createFakeWorker({ outboxDir: hangDir, run: "hang" })
+    const hangClient = createHttpWorkerClient(hangFake.baseUrl)
+    try {
+      const threadId = await hangClient.createThread({})
+      const framesPromise = drain(await hangClient.startRun(threadId, "/fix#agent", "go"))
+      await hangFake.waitForRunStart(threadId)
+      expect(await hangClient.cancel(threadId)).toBe("interrupted")
+      await framesPromise
+    } finally {
+      await hangFake.close()
+      rmSync(hangDir, { recursive: true, force: true })
+    }
+  })
+
+  it("reattaches to a live run and observes its terminal frame", async () => {
+    const hangDir = mkdtempSync(join(tmpdir(), "worker-client-reattach-"))
+    const hangFake = await createFakeWorker({ outboxDir: hangDir, run: "hang" })
+    const hangClient = createHttpWorkerClient(hangFake.baseUrl)
+    try {
+      const threadId = await hangClient.createThread({})
+      const framesPromise = drain(await hangClient.startRun(threadId, "/fix#agent", "go"))
+      await hangFake.waitForRunStart(threadId)
+      const reattached = await hangClient.reattach(threadId)
+      const iterator = reattached[Symbol.asyncIterator]()
+      const first = await iterator.next()
+      expect(first.done).toBe(false)
+      expect(first.value?.event).toBe("state")
+      expect(await hangClient.cancel(threadId)).toBe("interrupted")
+      const rest: unknown[] = []
+      for (let next = await iterator.next(); !next.done; next = await iterator.next())
+        rest.push(next.value)
+      expect(rest.at(-1)).toMatchObject({ event: "done" })
+      await framesPromise
+    } finally {
+      await hangFake.close()
+      rmSync(hangDir, { recursive: true, force: true })
+    }
   })
 })

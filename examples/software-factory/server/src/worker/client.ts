@@ -38,6 +38,7 @@ export interface WorkerClient {
   getThread(threadId: string): Promise<{ threadId: string; status: string } | null>
 }
 
+/** A non-2xx HTTP response from the worker. Transport failures (fetch rejecting) propagate as the underlying error, not this type. */
 export class WorkerHttpError extends Error {
   constructor(
     readonly status: number,
@@ -73,10 +74,9 @@ export function createHttpWorkerClient(
     `${base}/threads/${encodeURIComponent(threadId)}${tail}`
 
   async function jsonRequest(url: string, init: RequestInit): Promise<Response> {
-    const response = await fetchImpl(url, {
-      ...init,
-      headers: { "content-type": "application/json", ...(init.headers ?? {}) },
-    })
+    const headers = new Headers(init.headers)
+    if (!headers.has("content-type")) headers.set("content-type", "application/json")
+    const response = await fetchImpl(url, { ...init, headers })
     if (!response.ok) throw await toError(response)
     return response
   }
