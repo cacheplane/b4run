@@ -8,6 +8,7 @@ import * as generatorModule from "../../scripts/generate-seo-lastmod.mjs"
 
 const testDirectory = dirname(fileURLToPath(import.meta.url))
 const appRoot = resolve(testDirectory, "..", "..")
+const repoRoot = resolve(appRoot, "..", "..")
 const generator = join(appRoot, "scripts", "generate-seo-lastmod.mjs")
 const generatedManifest = join(appRoot, "app", "seo", "lastmod.generated.json")
 const temporaryDirectories: string[] = []
@@ -23,11 +24,22 @@ afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true })
 })
 
+/**
+ * Why every `--check` assertion carries the child's own output: a stale
+ * manifest is the single most common way this file fails, the generator
+ * already prints the exact command that fixes it, and asserting on the exit
+ * code alone threw that message away. CI showed "expected 1 to be +0" and
+ * nothing else, which says neither what is wrong nor what to run (#710).
+ */
+const checkFailure = (result: { readonly stderr: string; readonly stdout: string }): string =>
+  [result.stderr, result.stdout].filter(Boolean).join("\n").trim() ||
+  "the generator exited non-zero and printed nothing"
+
 describe("generate-seo-lastmod", () => {
   it("runs a freshness check using today's production visibility", () => {
     const result = runGenerator("--check")
 
-    expect(result.status).toBe(0)
+    expect(result.status, checkFailure(result)).toBe(0)
   })
 
   it("checks an unchanged manifest without consulting Git history", () => {
@@ -37,7 +49,24 @@ describe("generate-seo-lastmod", () => {
       env: { ...process.env, PATH: "" },
     })
 
-    expect(result.status).toBe(0)
+    expect(result.status, checkFailure(result)).toBe(0)
+  })
+
+  it("keeps the manifest unmergeable so a conflict leaves regenerable JSON", () => {
+    // The guard for `.gitattributes`. Git writes conflict markers into a file
+    // it tries to merge, and markers inside the manifest make it unparseable —
+    // so the generator cannot run, and the one command that resolves the
+    // conflict is blocked until someone hand-edits generated content. `-merge`
+    // keeps one clean side in the worktree instead. Asserted through
+    // `check-attr`, which reads whatever a real clone would apply.
+    const attribute = spawnSync(
+      "git",
+      ["check-attr", "merge", "--", "apps/web/app/seo/lastmod.generated.json"],
+      { cwd: repoRoot, encoding: "utf8" },
+    )
+
+    expect(attribute.status, attribute.stderr).toBe(0)
+    expect(attribute.stdout.trim()).toMatch(/merge: unset$/)
   })
 
   it("generates timestamps for new content state without consulting Git history", () => {
