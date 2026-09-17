@@ -1,7 +1,14 @@
 import { withTransaction } from "./internal/tx.js"
 import type { SqlPool } from "./sql.js"
 
-/** The one shape a schema or table prefix may take. Exported so generated wiring can reuse it. */
+/**
+ * The one shape a schema or table prefix may take. Exported so generated wiring
+ * can reuse it.
+ *
+ * `@b4run/memory-pgvector` keeps a deliberate copy of this, for the same reason
+ * and enforcing the same rule — it interpolates unquoted too, but depends on
+ * `@b4run/memory` rather than on this package. Change one, change the other.
+ */
 export const IDENTIFIER_PATTERN = /^[a-z_][a-z0-9_]*$/
 
 /**

@@ -18,7 +18,12 @@ import {
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../../../..")
 const CHECK_DOCS_PATH = join(REPO_ROOT, "scripts/check-docs.mjs")
-const DETAILED_API_REFERENCE_TIMEOUT_MS = 60_000
+// The detailed analysis re-parses every package's public surface in a child
+// process. It takes ~80s on a developer laptop, so the old 60s budget failed
+// with ETIMEDOUT while reporting zero analysis failures — a red test that said
+// nothing about the docs. Sized for headroom on a loaded machine rather than
+// close to the observed time; a genuine hang still ends, just later.
+const DETAILED_API_REFERENCE_TIMEOUT_MS = 180_000
 const SEO_TITLES_BY_PATH = Object.fromEntries(
   Object.entries(STATIC_SEO_PAGES).map(([path, page]) => [path, page.title]),
 )

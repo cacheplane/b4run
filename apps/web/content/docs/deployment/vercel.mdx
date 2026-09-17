@@ -33,6 +33,8 @@ Declare the packages the emitted function imports. The build prints a notice whe
 npm install @b4run/postgres-storage @neondatabase/serverless hono
 ```
 
+The generated stores also import `@b4run/postgres-storage/node`, which reaches `pg` through that package's own dependency, so the app never declares `pg` itself.
+
 Then validate and build:
 
 ```bash
@@ -57,6 +59,8 @@ The target writes one Build Output API tree at `.vercel/output/` and reconciles 
 The function directory is the whole deployable. `b4 build` bundles the generated runtime with esbuild for `node24`, then verifies that every non-builtin import resolves inside `index.func`, that no symlink escapes it, and that the bundle contains no `node:module` loader or non-literal dynamic import. A dependency that cannot be bundled fails the build with the missing specifier; install it as a runtime dependency and rebuild.
 
 The output is published atomically. The tree is staged under `.vercel/.b4-vercel-<uuid>/`, validated, then renamed over `.vercel/output`; a prior output is backed up first and restored if publication fails. Nothing else under `.vercel/` (for example the `project.json` that `vercel link` writes) is touched.
+
+`.vercel/output` is where Vercel deploys from, so that is the default. `build.vercel.outDir` in `b4.config.ts`, or `b4 build --out-dir <dir>` for one run, publishes the tree somewhere else instead; the flag wins over the config value. The path resolves relative to the app root, a directory that would contain the app root is rejected before anything is written, and `--out-dir` is an error when `vercel` is not a configured target. Point it at a staging directory when a later step composes the function with static assets before deploying.
 
 Unlike the Hono target, the intermediate `modules.edge.mjs`, `stores.mjs`, and `app.mjs` are not left in `.b4/build/`. They are bundled into `index.mjs` and the staging directory is removed. Inspect the bundle itself.
 
@@ -141,15 +145,20 @@ The emitted tree is a single function named `index` behind a catch-all route, wh
 - In the Build Output API a function named `index` is served at `/`, so it shadows a static `index.html`. [cacheplane/b4run#687](https://github.com/cacheplane/b4run/issues/687) proposes a non-root default name and a `functionName` option.
 - The target emits no `static/` directory, no additional functions, and no routes beyond the catch-all. [cacheplane/b4run#679](https://github.com/cacheplane/b4run/issues/679) proposes `build.vercel.static`, `functions`, and `routes` so `b4 build` alone describes the whole tree.
 
-Both are open. Today, composing a frontend means post-processing the published tree in your own build step, after `b4 build` and before `vercel deploy --prebuilt`:
+Both are open, so composing a frontend still means assembling the tree in your own build step, after `b4 build` and before `vercel deploy --prebuilt`. Two things make that assembly supported rather than a workaround:
 
-1. Copy `.vercel/output/functions/index.func` to a non-root name such as `agent.func` (the `.vc-config.json` inside needs no change).
-2. Place the built frontend under `.vercel/output/static/`.
-3. Rewrite `.vercel/output/config.json` so the B4.run paths (`/healthz`, `/readyz`, `/threads/*`, `/agui/*`, `/memory/*`) route to `/agent` and everything else falls through to static files with a SPA fallback.
+- `build.vercel.outDir` publishes the runtime tree to a staging directory, so your assembler copies out of it into the real `.vercel/output` instead of editing the directory Vercel deploys from.
+- The output validator checks that `config.json` is version 3 and contains a route whose `dest` is `/index`, not that it matches the catch-all the build wrote. Extra routes and extra top-level keys are accepted, so a composed config still validates.
 
-Keep the B4.run function rooted from its own point of view: the runtime owns `/healthz`, `/readyz`, `/threads`, `/agui`, and `/memory` and does not accept a base path, so route by path prefix in `config.json` rather than rewriting the request path. Alternatively, deploy the agent as its own Vercel project and point the frontend at its origin; `server.cors` in `b4.config.ts` controls cross-origin access.
+A typical assembly:
 
-A hand-assembled tree is outside what `b4 build` validates. The structural checks above run only on the tree the target itself emits.
+1. Copy the staged `functions/index.func` to a non-root name such as `agent.func`. The `.vc-config.json` inside needs no change.
+2. Place the built frontend under `static/`.
+3. Write a `config.json` routing the B4.run paths (`/healthz`, `/readyz`, `/threads/*`, `/agui/*`, `/memory/*`) to `/agent`, with everything else falling through to static files and a SPA fallback.
+
+Keep the B4.run function rooted from its own point of view: the runtime owns `/healthz`, `/readyz`, `/threads`, `/agui`, and `/memory` and does not accept a base path, so route by path prefix rather than rewriting the request path. Alternatively, deploy the agent as its own Vercel project and point the frontend at its origin; `server.cors` in `b4.config.ts` controls cross-origin access.
+
+The validator runs on the tree the target stages, not on whatever your assembler produces afterwards. Renaming the function to `agent.func` also moves it off `dest: "/index"`, so a final composed `config.json` is yours to get right.
 
 ## Prebuilt CI flow
 

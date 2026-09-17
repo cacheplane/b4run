@@ -87,9 +87,9 @@
       "recordDigest": "636f91af715b3ef6a2f14705d0f4a8513d161264315d779f132a05cd66f436b2"
     },
     "/docs/api/memory-pgvector": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "79dbba527acc42b4e167ed9fa984d7041efc4596730e89eb04112a8ad856cd29",
-      "recordDigest": "4fa8a00dc13f4924c87bf37ee6a5ae5e068c9fe73ceb471e95638ef1144a7fc5"
+      "lastModified": "2026-09-17T18:07:51.766Z",
+      "sourceDigest": "4177ba14c7b9d1b87b8f838a5bb1688f7558dfe59113b5d8e9ac1de8edec39a8",
+      "recordDigest": "ca9b760901db21fc22b7cf9523897e7c744910faad2a0043036e260cec0d7ca4"
     },
     "/docs/api/permissions": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -132,14 +132,14 @@
       "recordDigest": "854d70653b7e7ae1a80889d317e0b5be8019a970d60e32882b07dd906cd3e951"
     },
     "/docs/cli": {
-      "lastModified": "2026-09-17T17:51:59.451Z",
-      "sourceDigest": "34a8a53f569036461cd310eb7f7e11f767da60d1ffb7e3d5b27c55775f0d1d77",
-      "recordDigest": "9f7b3b74ad67bc9160e4a03385b0b9f83816c41523aa0afcbf0d34dfb66a3f03"
+      "lastModified": "2026-09-17T19:57:48.506Z",
+      "sourceDigest": "0dec14e946a8f0046a0ffb6d312fb7773a2d4c6e8a875c08b11d64c1075c1a24",
+      "recordDigest": "7dea9368cf1c8d4a385db352999dc5aaef1c80efb2a1d6f341431b3c20e79882"
     },
     "/docs/configuration": {
-      "lastModified": "2026-09-17T16:17:25.776Z",
-      "sourceDigest": "88b6b5086302c0831ca7685f74b0822a6e065f395162d000f09f2696be55bc0f",
-      "recordDigest": "9c9e321c425495c365f4f2aa1e2a0113f27c00f2bd280da6c0b913b2918fc50c"
+      "lastModified": "2026-09-17T17:27:58.700Z",
+      "sourceDigest": "1edad7b3baace306f955b48d3ea1811aa5783ace9b9d8de5b9e0a341e6aa2fa5",
+      "recordDigest": "0992044277b5f01a832196e7b14bd99f9855c18c054b5a176cfd682838919ee7"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -147,9 +147,9 @@
       "recordDigest": "158e8971078d2b87d31c59b2dd44627ab1a5b5d122cdfa099b9170cd7a8f34af"
     },
     "/docs/deployment": {
-      "lastModified": "2026-09-17T17:51:59.451Z",
+      "lastModified": "2026-09-17T19:57:48.506Z",
       "sourceDigest": "fa6d953b3d418d866cf1634774860f1836094ead575d2d7f06791f7c464faaf2",
-      "recordDigest": "48c28f7ebe5041ac0cdb0e708228b581e5cd4a61445b58138cf20d67c9203925"
+      "recordDigest": "e4e4a8ac6e8c18ba37b9a71fe7757b6bfdc1b1520d85347fe8a5db4d07409b66"
     },
     "/docs/deployment/edge": {
       "lastModified": "2026-09-17T16:20:43.193Z",
@@ -172,9 +172,9 @@
       "recordDigest": "1f9c3a2e6e99b9e9f5574e85e93834f35fe4a0f7aee7d1563b754f378da7e54a"
     },
     "/docs/deployment/vercel": {
-      "lastModified": "2026-09-17T17:51:59.451Z",
-      "sourceDigest": "39d21e8883f91e7d50c84cc93e7ecc6eaf2ae1d0c127e74b28ffeb868b680206",
-      "recordDigest": "4cf60ed5d132343dd6119d9cb74cb7f14c74af0b4510086f12a97650542c4b5f"
+      "lastModified": "2026-09-17T19:57:48.506Z",
+      "sourceDigest": "4081b8022a7de67a148fa5e7468b4951d515f574b078df2ad26f3a09224e30b7",
+      "recordDigest": "586aa9d7268141624388cba1ef4a575f73e21ceea05418c607f1673da4cf835f"
     },
     "/docs/dev-server": {
       "lastModified": "2026-09-07T19:58:55.550Z",
