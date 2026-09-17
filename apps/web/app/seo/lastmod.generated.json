@@ -132,14 +132,14 @@
       "recordDigest": "854d70653b7e7ae1a80889d317e0b5be8019a970d60e32882b07dd906cd3e951"
     },
     "/docs/cli": {
-      "lastModified": "2026-09-10T06:58:06.160Z",
-      "sourceDigest": "0be13f594e871cc94e6ee0d71f04a4e79045b8346106f8a43f56660bd44a4d58",
-      "recordDigest": "1596769bc6ce81e0b909ccd403072ae788df0beee54bee026fb25c67becdd04f"
+      "lastModified": "2026-09-17T16:17:25.776Z",
+      "sourceDigest": "3e1ea49309f157f01e1a126bd7984f1255510b34a24abec0125faebe5e95f911",
+      "recordDigest": "baf61da754f77e59f48ce0b1ba99de75b7c14a2b76a98e29d1f3b800b266485c"
     },
     "/docs/configuration": {
-      "lastModified": "2026-09-17T15:45:37.876Z",
-      "sourceDigest": "715fdc265a2feb90ee0cdaaf2ebcc53eb6d2aac62df506289ff182742d25b5fe",
-      "recordDigest": "3108fab53a3247a226a30b57350bc76b847c633a0d5d34a97f2d19760b12ee7f"
+      "lastModified": "2026-09-17T16:17:25.776Z",
+      "sourceDigest": "88b6b5086302c0831ca7685f74b0822a6e065f395162d000f09f2696be55bc0f",
+      "recordDigest": "9c9e321c425495c365f4f2aa1e2a0113f27c00f2bd280da6c0b913b2918fc50c"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-07T19:58:55.550Z",

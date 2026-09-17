@@ -36,21 +36,70 @@ export function setVercelConfigFileOpsForTesting(
   }
 }
 
+/** Every option `build.vercel` accepts. Anything else is an authoring error. */
+const VERCEL_BUILD_OPTION_KEYS: readonly string[] = ["reconcileVercelJson"]
+
 /**
- * Rejects a mistyped `build.vercel.reconcileVercelJson`. The emitter reads the
- * flag with `!== false`, so `"false"` or `0` would silently keep reconciliation
- * ON; both `b4 check` and `b4 build` call this so the prebuilt opt-out cannot
- * look configured while doing nothing.
+ * Validates `build.vercel` and resolves whether the `vercel` target reconciles
+ * the app-root `vercel.json`.
+ *
+ * Reconciliation is ON unless the flag is exactly `false`, so every way of
+ * *nearly* turning it off has to be rejected rather than ignored — a config
+ * that reads as configured while the target keeps writing `vercel.json` is the
+ * failure this guards. The type only admits the right shape, but a `b4.config.js`
+ * or a JSON config arrives untyped, and nothing else in the config path applies
+ * a runtime schema. Rejected: a non-boolean flag (`"false"`, `0`), a non-object
+ * `build.vercel` (whose `?.` read would yield `undefined`), an unknown key
+ * inside it (`reconcileVercelJSON`), and the flag misplaced directly on `build`.
+ *
+ * `b4 check` and `b4 build` both call this, and the emitter consumes the
+ * boolean it returns, so the validated shape and the honored value cannot
+ * diverge.
  */
-export function assertVercelBuildConfig(build: B4Config["build"] | undefined): void {
-  const reconcileVercelJson = build?.vercel?.reconcileVercelJson
-  if (reconcileVercelJson !== undefined && typeof reconcileVercelJson !== "boolean") {
-    throw new CliError(
-      `Invalid build config:\nbuild.vercel.reconcileVercelJson must be a boolean; received ${JSON.stringify(reconcileVercelJson)}.`,
-      1,
-      { code: "B4_E1003" },
+export function resolveVercelBuildConfig(build: B4Config["build"] | undefined): {
+  readonly reconcileVercelJson: boolean
+} {
+  const buildRecord = isRecord(build) ? build : undefined
+
+  const misplaced = ownProperty(buildRecord, "reconcileVercelJson")
+  if (misplaced !== undefined) {
+    throw invalidBuildConfig(
+      "reconcileVercelJson belongs under build.vercel, not build directly. Use build: { vercel: { reconcileVercelJson: false } }.",
     )
   }
+
+  const vercel = ownProperty(buildRecord, "vercel")
+  if (vercel === undefined) return { reconcileVercelJson: true }
+  if (!isRecord(vercel)) {
+    throw invalidBuildConfig(`build.vercel must be an object; received ${JSON.stringify(vercel)}.`)
+  }
+
+  const unknownKeys = Object.keys(vercel)
+    .filter((key) => !VERCEL_BUILD_OPTION_KEYS.includes(key))
+    .sort()
+  if (unknownKeys.length > 0) {
+    throw invalidBuildConfig(
+      `Unknown build.vercel option(s): ${unknownKeys.join(", ")}. Known options: ${VERCEL_BUILD_OPTION_KEYS.join(", ")}.`,
+    )
+  }
+
+  const reconcileVercelJson = ownProperty(vercel, "reconcileVercelJson")
+  if (reconcileVercelJson === undefined) return { reconcileVercelJson: true }
+  if (typeof reconcileVercelJson !== "boolean") {
+    throw invalidBuildConfig(
+      `build.vercel.reconcileVercelJson must be a boolean; received ${JSON.stringify(reconcileVercelJson)}.`,
+    )
+  }
+  return { reconcileVercelJson }
+}
+
+/** Throw-away form of {@link resolveVercelBuildConfig} for validation-only callers. */
+export function assertVercelBuildConfig(build: B4Config["build"] | undefined): void {
+  resolveVercelBuildConfig(build)
+}
+
+function invalidBuildConfig(detail: string): CliError {
+  return new CliError(`Invalid build config:\n${detail}`, 1, { code: "B4_E1003" })
 }
 
 export async function reconcileVercelConfig(input: {

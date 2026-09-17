@@ -887,8 +887,12 @@ export async function workflow() {
     ])
     expect(existsSync(join(appRoot, "vercel.json"))).toBe(false)
     expect(existsSync(join(appRoot, ".b4", "build", "vercel.json"))).toBe(false)
+    // No `wrote ... vercel.json` artifact line. The notice itself names the
+    // file it deliberately left alone, so match the artifact lines only.
     const report = stdout.join("")
-    expect(report).not.toContain("vercel.json")
+    const artifactLines = report.split("\n").filter((line) => line.trim().startsWith("wrote "))
+    expect(artifactLines).toHaveLength(3)
+    expect(artifactLines.join("\n")).not.toContain("vercel.json")
     expect(report).toContain("reconcileVercelJson: false")
   })
 
