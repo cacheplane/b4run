@@ -57,9 +57,9 @@
       "recordDigest": "de3c7087f46186b00f2c8a21562fd89e19c8a707b9c05f623689ed9676378f91"
     },
     "/docs/api/core": {
-      "lastModified": "2026-09-17T16:40:24.109Z",
-      "sourceDigest": "25bdd2567fe855af0e7592e3318c9f1434bdada2d63fe9a6aa023934fb774232",
-      "recordDigest": "453ea11614f9d19aa0423d96271be64a304a0d4b45f21bf7c20b61b2f014fbd3"
+      "lastModified": "2026-09-17T15:45:37.876Z",
+      "sourceDigest": "c4b9171efa71b2a792b2cd0101b92d43761afed4b183e82c6d1d0125bcfb78f4",
+      "recordDigest": "3d6b19fddfca682b11a02e1b8c736250f4982c3832e261bd754e61334678ce43"
     },
     "/docs/api/evals": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -97,9 +97,9 @@
       "recordDigest": "ace28516f5bb87d16a3674cf77837a12f213eb4772fc1922f4be60fae410eca7"
     },
     "/docs/api/postgres-storage": {
-      "lastModified": "2026-09-17T15:43:02.909Z",
-      "sourceDigest": "e7f9ead758325524ced08e247d0a85d5e50dc10afa2a6744543df1aea2a8c7b9",
-      "recordDigest": "b5f0e41a2c4a07f9fdd9dbe5cf60f8da41ebe6c85605923e1436147a794390dd"
+      "lastModified": "2026-09-17T16:18:37.341Z",
+      "sourceDigest": "512d771228fe43a1ce26ed3d7f19ca51dd6c8352641a1b6c6f340914e4be1123",
+      "recordDigest": "2f659eb0f8861a431fa5868b87b2d81ce202637c36a6baa32979c3b75df3d1bb"
     },
     "/docs/api/sandbox": {
       "lastModified": "2026-09-14T21:13:45.147Z",
@@ -132,14 +132,14 @@
       "recordDigest": "854d70653b7e7ae1a80889d317e0b5be8019a970d60e32882b07dd906cd3e951"
     },
     "/docs/cli": {
-      "lastModified": "2026-09-17T16:40:24.109Z",
-      "sourceDigest": "c2f1fbd7611cff56220a9ca8009d98ca108ff96594f1399338c9048196852e79",
-      "recordDigest": "c1d0cc1eb83c224e56b9779f6c09feccfedfccbaf71fb5dabd44449a73695a45"
+      "lastModified": "2026-09-17T16:17:25.776Z",
+      "sourceDigest": "3e1ea49309f157f01e1a126bd7984f1255510b34a24abec0125faebe5e95f911",
+      "recordDigest": "baf61da754f77e59f48ce0b1ba99de75b7c14a2b76a98e29d1f3b800b266485c"
     },
     "/docs/configuration": {
-      "lastModified": "2026-09-17T16:40:24.109Z",
-      "sourceDigest": "ddc9d9420971246ae9013c29b896973314cd99ec62279c23e7da3510537b13d4",
-      "recordDigest": "cd8b1989d66827ff4a7004eded4dd2e02014e0fb69ad018b2bf0f982006c878d"
+      "lastModified": "2026-09-17T16:17:25.776Z",
+      "sourceDigest": "88b6b5086302c0831ca7685f74b0822a6e065f395162d000f09f2696be55bc0f",
+      "recordDigest": "9c9e321c425495c365f4f2aa1e2a0113f27c00f2bd280da6c0b913b2918fc50c"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -147,14 +147,14 @@
       "recordDigest": "158e8971078d2b87d31c59b2dd44627ab1a5b5d122cdfa099b9170cd7a8f34af"
     },
     "/docs/deployment": {
-      "lastModified": "2026-09-17T16:40:24.109Z",
-      "sourceDigest": "4ccb9ce38fb11e327d3a320efb25f5cd213ba6e4c8804936a02c4ccd63233ae3",
-      "recordDigest": "2f9e2745cf1c6506f3a9b5bc742f282789748c570f2740ad238f6c881110789f"
+      "lastModified": "2026-09-10T06:16:49.655Z",
+      "sourceDigest": "997bc97bef7e96e37406a72a7443d33b3255ccf03715ef4cb4b8b0550026e4ad",
+      "recordDigest": "23534e39b998190912837e9ccddd04fb2899838062371ba4100a26b92c88f0f3"
     },
     "/docs/deployment/edge": {
-      "lastModified": "2026-09-17T16:40:24.109Z",
-      "sourceDigest": "f895e18809bae97a408fd9f55b1f38e082416e68b21e963d8b0c28cfd6996cca",
-      "recordDigest": "05b7712362b2d84a0cd34dcb38e0425c00baf3b3f1a989c7563e69073ad76d89"
+      "lastModified": "2026-09-17T16:20:43.193Z",
+      "sourceDigest": "0f0cb7f3d60ff824de27f9d543a901d7859e6dc169f7356dd8c6066a282d3cfe",
+      "recordDigest": "87c0ce96817f75450bc3fbfec9a9fa96541064af9dbc2286bb84f7332a7db054"
     },
     "/docs/deployment/kubernetes": {
       "lastModified": "2026-09-08T01:24:31.438Z",
@@ -267,9 +267,9 @@
       "recordDigest": "0ed23cc7ee6ba49b37c9f389ed3961656dae18d8d680ec1ddde875fc4cddcb62"
     },
     "/docs/persistence": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "dc6383b8b7800c5d417474a30a60c58d9a1524d67f091daf7781cb1366d1afc2",
-      "recordDigest": "e937e39b4cf0ae0002e401bb5754c541c0c7ba6bca9be8db895a7fc405adfd15"
+      "lastModified": "2026-09-17T16:18:37.341Z",
+      "sourceDigest": "cbc9f3740a57c4c7f27d5ad90234f192c2c57bf5d4539826e22ab398e93f1749",
+      "recordDigest": "e72ba4a2f23322eb7616a28497496104549edf28f810684238700771d6af0030"
     },
     "/docs/planning": {
       "lastModified": "2026-09-07T19:58:55.550Z",
