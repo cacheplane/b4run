@@ -130,6 +130,42 @@ describe("readiness: GET /readyz", () => {
     expect(logged[0]).not.toContain("s3cret")
   })
 
+  it("names the host behind an ErrorEvent instead of reporting [object ErrorEvent]", async () => {
+    // `@neondatabase/serverless` rejects a failed WebSocket connect with the
+    // socket's ErrorEvent — not an Error, with the real cause on `.error` and
+    // `String(event)` equal to "[object ErrorEvent]" (#689). That is the single
+    // most likely thing `/readyz` has to report, so it must not be the one
+    // failure the probe cannot name.
+    class ErrorEvent {
+      readonly type = "error"
+      constructor(
+        readonly message: string,
+        readonly error: unknown,
+      ) {}
+    }
+    const socketError = Object.assign(
+      new Error("connect ECONNREFUSED postgres://app:s3cret@10.0.0.7:5432/b4"),
+      { code: "ECONNREFUSED" },
+    )
+    const handler = await edgeHandler(() => {
+      throw new ErrorEvent("WebSocket connection failed", socketError)
+    })
+
+    const response = await handler.fetch(new Request("http://x/readyz"))
+
+    expect(response.status).toBe(503)
+    const body = (await response.json()) as ReadinessBody
+    const check = body.checks.requestStores
+    if (check?.status !== "failed") throw new Error("unreachable")
+    expect(check.error).not.toContain("[object")
+    expect(check.error).toContain("ErrorEvent: WebSocket connection failed")
+    expect(check.error).toContain("caused by: connect ECONNREFUSED")
+    expect(check.error).toContain("(ECONNREFUSED)")
+    // Redaction runs over the whole rendered chain, not just a top-level message.
+    expect(check.error).toContain("postgres://***@10.0.0.7:5432/b4")
+    expect(JSON.stringify(body)).not.toContain("s3cret")
+  })
+
   it("names the one store that fails and still reports the others", async () => {
     const handler = await edgeHandler(() => {
       const stores = healthyStores()

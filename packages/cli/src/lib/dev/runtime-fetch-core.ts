@@ -261,9 +261,22 @@ export function redactCredentials(message: string): string {
   return message.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, "$1***@")
 }
 
+/**
+ * Rendered through `formatErrorChain`, for the same reason the catch-all uses
+ * it: the Postgres drivers reject with a DOM `ErrorEvent`, which is not an
+ * `Error` and whose `String()` is `[object ErrorEvent]` — so the one failure
+ * `/readyz` exists to name would arrive with no name at all. The chain also
+ * carries the root cause's own code, which a single message would drop.
+ *
+ * Then redacted, and that order matters: the chain is built from driver
+ * messages, and a driver that could not connect frequently quotes the whole
+ * connection string back. The catch-all only logs its chain to stderr; this one
+ * goes into a response body, so it is redacted before it is served.
+ */
 function describeReadinessFailure(error: unknown): Extract<ReadinessCheck, { status: "failed" }> {
-  const raw = error instanceof Error ? error.message : String(error)
-  const message = redactCredentials(raw).slice(0, READINESS_ERROR_MAX_CHARS)
+  const message = redactCredentials(formatErrorChain(error)).slice(0, READINESS_ERROR_MAX_CHARS)
+  // `b4ErrorCodeOf`, not the chain's own `code`: this field is the registry
+  // code an operator can look up, and the registry is what validates it.
   const code = b4ErrorCodeOf(error)
   return { error: message, status: "failed", ...(code ? { code } : {}) }
 }
