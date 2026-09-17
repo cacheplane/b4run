@@ -9,7 +9,7 @@ The emitted function is tested three ways: the Build Output API tree is inspecte
 Before selecting the target, confirm all of these:
 
 - the app does not need sandbox, workspace, shell, route long-term memory, or tool-output offloading;
-- request-scoped WebSocket Postgres through `@neondatabase/serverless` fits the database environment;
+- a request-scoped Postgres pool, opened and disposed per request, fits the database environment;
 - every authored route, tool, state module, middleware module, and transitive dependency bundles into a single self-contained function directory;
 - the operator will test the deployed project boundary rather than infer it from a green build.
 
@@ -91,7 +91,7 @@ There is no opt-out yet. A prebuilt-only project never runs `buildCommand`, but 
 
 The function builds its checkpointer, thread store, and permission store per request from `DATABASE_URL`, read through `process.env` at invocation time. A missing value fails the request with a message naming the variable; nothing is baked into the bundle at build time, so the same artifact deploys to preview and production with different databases.
 
-The easiest wiring is the [Neon integration on the Vercel Marketplace](https://vercel.com/marketplace/neon), also reachable from the project's **Storage** tab. Installing it creates a Neon account if you have none, provisions a Neon project and adds `DATABASE_URL` (the pooled connection string) plus `DATABASE_URL_UNPOOLED` and the `PG*` components to the selected environments. The generated stores read only `DATABASE_URL`. Any Postgres reachable over Neon's WebSocket protocol also works; set the variable under **Settings → Environment Variables** and redeploy, because runtime variables are captured per deployment.
+The easiest wiring is the [Neon integration on the Vercel Marketplace](https://vercel.com/marketplace/neon), also reachable from the project's **Storage** tab. Installing it creates a Neon account if you have none, provisions a Neon project and adds `DATABASE_URL` (the pooled connection string) plus `DATABASE_URL_UNPOOLED` and the `PG*` components to the selected environments. The generated stores read only `DATABASE_URL`. Any other Postgres works too, over a pooled `pg` connection chosen automatically for a non-Neon host; set the variable under **Settings → Environment Variables** and redeploy, because runtime variables are captured per deployment.
 
 Model-provider keys and base URLs (`OPENAI_API_KEY`, `OPENAI_BASE_URL`, and so on) are read the same way. Do not put secret literals in `b4.config.ts`; the JSON-representable part of that file is inlined into the bundle.
 
@@ -168,39 +168,29 @@ The runtime serves `GET /healthz` and responds `200 {"status":"ready"}`. On this
 
 ## Test the bundle locally
 
-The function is a default-exported Web Fetch API handler, so it runs under plain Node 24 with no Vercel emulator. The catch is the database driver: the bundle talks Postgres over Neon's WebSocket protocol, which a local Postgres does not speak, so local execution needs the `wsproxy` WebSocket-to-TCP bridge in front of it. [cacheplane/b4run#690](https://github.com/cacheplane/b4run/issues/690) tracks a proxy-free `pg` fallback; until then:
+The function is a default-exported Web Fetch API handler, so it runs under plain Node 24 with no Vercel emulator and no WebSocket proxy. The generated stores pick a driver per request: a `.neon.tech` host uses `@neondatabase/serverless`, and every other host, including a local Postgres, gets a pooled `pg` connection. Point `DATABASE_URL` at a local database and import the bundle:
 
 ```bash
-docker network create b4-local
-docker run -d --name b4-pg --network b4-local -e POSTGRES_PASSWORD=b4 postgres:16-alpine
-docker run -d --name b4-wsproxy --network b4-local -p 5433:80 -e ALLOW_ADDR_REGEX='.*' ghcr.io/neondatabase/wsproxy
+DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/app \
+  node --input-type=module -e '
+    const entry = "./.vercel/output/functions/index.func/index.mjs"
+    const { default: app } = await import(entry)
+    const health = await app.fetch(new Request("http://localhost/healthz"))
+    console.log(health.status, await health.text())
+    const created = await app.fetch(new Request("http://localhost/threads", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }))
+    console.log(created.status, await created.text())
+  '
 ```
 
-Then drive the handler from inside the function directory, with the proxy address as a bare `host:port`:
+`B4_PG_DRIVER` set to `neon` or `pg` overrides that detection. To rehearse the WebSocket path a Neon deployment actually uses, put [`neondatabase/wsproxy`](https://github.com/neondatabase/wsproxy) in front of the database and set `B4_PG_WS_PROXY`, which accepts `host:port` optionally prefixed with `ws://` or `wss://`. Only `wss://` keeps TLS on the socket. A value carrying a path, a query, or any other scheme is rejected by name before a pool opens, because the driver appends its own `/v1?address=` path. Setting `B4_PG_WS_PROXY` alongside `B4_PG_DRIVER=pg` is a configuration error rather than one value quietly winning.
 
-```bash
-cd .vercel/output/functions/index.func
-DATABASE_URL='postgres://postgres:b4@b4-pg:5432/postgres' \
-B4_PG_WS_PROXY='127.0.0.1:5433' \
-node --input-type=module -e '
-  const { default: app } = await import("./index.mjs")
-  const health = await app.fetch(new Request("http://localhost/healthz"))
-  console.log(health.status, await health.text())
-  const created = await app.fetch(new Request("http://localhost/threads", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: "{}",
-  }))
-  console.log(created.status, await created.text())
-'
-```
+Two details of the proxy setup are still easy to get wrong when you use it: the proxy must be reachable at the address you name, and `DATABASE_URL` must name the Postgres host as the proxy sees it, not as your shell sees it. The proxy dials the database; the function only dials the proxy.
 
-Two details of this setup are easy to get wrong:
-
-- `B4_PG_WS_PROXY` is `host:port` with **no scheme**. The driver prefixes `ws://` itself and appends `/v1?address=<pg-host>:<pg-port>`; a value such as `ws://127.0.0.1:5433` fails with a connection error that does not mention the format.
-- `DATABASE_URL` names the Postgres host as the proxy sees it (`b4-pg` on the Docker network above), not as your shell sees it. The proxy dials the database; the function only dials the proxy.
-
-Setting `B4_PG_WS_PROXY` also disables TLS on that request's pool (`useSecureWebSocket = false`). It is applied per request and per pool, never to the process-wide driver configuration, so a stray value cannot leak into another request's connection. Do not set it on a deployed project.
+[Database drivers and `B4_PG_WS_PROXY`](/docs/deployment/edge#database-drivers-and-b4_pg_ws_proxy) documents the full selection order and the `hono` differences, and `selectPostgresDriver` and `normalizeWsProxy` are exported from `@b4run/cli/fetch` for hand-composed store factories.
 
 The same handler also mounts in a Node HTTP server with `@hono/node-server`'s `serve({ fetch: app.fetch })` when you want to point a real client at it.
 

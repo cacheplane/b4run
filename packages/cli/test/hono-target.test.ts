@@ -10,6 +10,16 @@ import { runCheckCommand } from "../src/commands/check.js"
 import { buildTargets, DEFAULT_BUILD_TARGETS } from "../src/lib/build/targets/index.js"
 import { emitWebRuntimeArtifacts } from "../src/lib/build/targets/web-runtime.js"
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-core.js"
+import {
+  CLI_FETCH_STUB,
+  driveEmittedStores,
+  EMPTY_RUNTIME_ENV_STUB,
+  FAILING_READY_STORAGE_STUB,
+  HONO_STUB,
+  NO_PROXY_RUNTIME_ENV_STUB,
+  writeCliFetchStub,
+  writeStubPackage,
+} from "./helpers/emitted-stores.js"
 
 const tempDirs: string[] = []
 
@@ -79,7 +89,8 @@ async function runBuild(appRoot: string) {
   return { artifactPaths, artifacts: artifactPaths.map((path) => basename(path)), stderr, stdout }
 }
 
-const buildFile = (appRoot: string, name: string) => join(appRoot, ".b4", "build", name)
+const buildDir = (appRoot: string) => join(appRoot, ".b4", "build")
+const buildFile = (appRoot: string, name: string) => join(buildDir(appRoot), name)
 const readBuildFile = (appRoot: string, name: string) => readFile(buildFile(appRoot, name), "utf8")
 
 /**
@@ -330,6 +341,14 @@ describe("b4 build — hono target", () => {
     await runBuild(appRoot)
 
     expect(await readBuildFile(appRoot, "stores.mjs")).toContain("DATABASE_URL is not set")
+    // A refused or unreachable database used to reach the log as
+    // "[object ErrorEvent]" with no host (#689): the factory names the store
+    // kind and the credential-free target, and renders the cause chain.
+    const stores = await readBuildFile(appRoot, "stores.mjs")
+    expect(stores).toContain("postgres store initialisation failed against")
+    expect(stores).toContain("describeConnectionTarget(databaseUrl)")
+    expect(stores).toContain("formatErrorChain(error)")
+    expect(stores).not.toContain("String(error)")
     // The other half: a Request that never passed through the catch-all has no
     // env bound, and `?? {}` turned that into the same silent empty pool.
     expect(await readBuildFile(appRoot, "app.mjs")).toContain("no Workers env is bound")
@@ -930,7 +949,7 @@ export function createRequestStores(env) {
 `,
     )
     await writeStubPackage(appRoot, "hono", HONO_STUB)
-    await writeStubPackage(appRoot, "@b4run/cli", CLI_FETCH_STUB, { "./fetch": "./index.mjs" })
+    await writeCliFetchStub(appRoot, CLI_FETCH_STUB)
 
     const observed = await driveEmittedApp(appRoot, [
       "postgres://one/db",
@@ -957,7 +976,7 @@ export function createRequestStores(env) {
 `,
     )
     await writeStubPackage(appRoot, "hono", HONO_STUB)
-    await writeStubPackage(appRoot, "@b4run/cli", CLI_FETCH_STUB, { "./fetch": "./index.mjs" })
+    await writeCliFetchStub(appRoot, CLI_FETCH_STUB)
 
     const seeded = await driveEmittedApp(
       appRoot,
@@ -990,7 +1009,7 @@ export function createRequestStores(env) {
 `,
     )
     await writeStubPackage(appRoot, "hono", HONO_STUB)
-    await writeStubPackage(appRoot, "@b4run/cli", CLI_FETCH_STUB, { "./fetch": "./index.mjs" })
+    await writeCliFetchStub(appRoot, CLI_FETCH_STUB)
 
     // Only Workers hands the fetch handler a bindings object. `@hono/node-server`
     // — which the round-trip test boots this same entry under — passes
@@ -1006,184 +1025,6 @@ export function createRequestStores(env) {
 })
 
 describe("hono target — bindings on a host that has none", () => {
-  /**
-   * Stubs for what the emitted `stores.mjs` imports, so the REAL emitted file
-   * can be executed and asked where it got its connection string.
-   */
-  const POSTGRES_STORAGE_STUB = `const store = { ready: async () => {} }
-export const createPostgresPermissionsStore = () => store
-export const createPostgresThreadsStore = () => store
-export const postgresCheckpointer = () => store
-`
-
-  /**
-   * The same store trio, but whose FIRST `ready()` rejects — a failed cold
-   * start. Counts every call so a later request's migration pass is visible.
-   */
-  const FAILING_READY_STORAGE_STUB = `export const readyCalls = []
-let failNext = true
-const store = {
-  ready: async () => {
-    readyCalls.push(1)
-    if (!failNext) return
-    failNext = false
-    throw new Error("cold start failed")
-  },
-}
-export const createPostgresPermissionsStore = () => store
-export const createPostgresThreadsStore = () => store
-export const postgresCheckpointer = () => store
-`
-
-  /**
-   * `@neondatabase/serverless`, stubbed at the four seams the emitted stores.mjs
-   * actually uses.
-   *
-   * `Client` carries the driver's REAL per-instance defaults (TLS on), and
-   * `Pool` reproduces the ordering that makes the per-instance override work at
-   * all: the real Pool overwrites `this.Client` with its own class inside its
-   * constructor, and stores.mjs assigns over it afterwards. Clients are built
-   * lazily here exactly as the real Pool builds them — `new this.Client(this.options)`
-   * — which is why the pools, not the clients, are what gets recorded.
-   *
-   * `on` is here because the real Pool is an EventEmitter (the driver vendors
-   * pg-pool and the `events` polyfill) and stores.mjs registers an 'error'
-   * listener on it. A double without it would fail the emitted code for a
-   * reason the real driver never would.
-   */
-  const NEON_STUB = `export class Client {
-  constructor(config) {
-    this.config = config
-    this.neonConfig = { pipelineConnect: "password", pipelineTLS: false, useSecureWebSocket: true }
-  }
-}
-/** Every pool built, in order. */
-export const pools = []
-export const defaultTypeParserCalls = []
-export const types = {
-  getTypeParser(id, format = "text") {
-    defaultTypeParserCalls.push([id, format])
-    return (value) => "default:" + id + ":" + format + ":" + value
-  },
-}
-export class Pool {
-  constructor(options) {
-    this.options = options
-    this.Client = Client
-    /** Events stores.mjs subscribed to, so a test can assert the 'error' listener exists. */
-    this.handlers = {}
-    pools.push(this)
-  }
-  on(event, listener) {
-    ;(this.handlers[event] ??= []).push(listener)
-    return this
-  }
-  end() {
-    return Promise.resolve()
-  }
-}
-/** The events each pool has a listener for, in order. */
-export const poolHandlers = () => pools.map((pool) => Object.keys(pool.handlers))
-/** What the real Pool does when it opens a connection, per pool, in order. */
-export const poolConnections = () =>
-  pools.map((pool) => {
-    const client = new pool.Client(pool.options)
-    return {
-      connectionString: pool.options.connectionString ?? null,
-      useSecureWebSocket: client.neonConfig.useSecureWebSocket,
-      wsProxy: client.neonConfig.wsProxy?.("b4-pg", 5432) ?? null,
-    }
-  })
-export const poolTypeParserReport = () => {
-  const customTypes = pools[0]?.options.types
-  const byteaParser = customTypes?.getTypeParser(17, "text")
-  const bytea = byteaParser("\\\\x0001ff")
-  const invalidBytea = ["\\\\x0", "\\\\xgg", "legacy-bytea"].map((value) => {
-    try {
-      byteaParser(value)
-      return "accepted"
-    } catch {
-      return "rejected"
-    }
-  })
-  return {
-    binaryBytea: customTypes?.getTypeParser(17, "binary")("raw"),
-    bytea: Array.from(bytea),
-    byteaConstructor: bytea.constructor.name,
-    defaultTypeParserCalls,
-    distinctPoolTypeObjects:
-      new Set(pools.map((pool) => pool.options.types)).size === pools.length,
-    integer: customTypes?.getTypeParser(23, "text")("42"),
-    invalidBytea,
-  }
-}
-`
-
-  /** A `@b4run/cli/fetch` stub whose runtime env knows nothing. */
-  const EMPTY_RUNTIME_ENV_STUB = `export function readRuntimeEnv() {
-  return undefined
-}
-`
-
-  /**
-   * A `@b4run/cli/fetch` stub that supplies DATABASE_URL but NOT the wsproxy
-   * knob — so a request's proxy setting can only have come from its own env.
-   */
-  const NO_PROXY_RUNTIME_ENV_STUB = `export function readRuntimeEnv(name) {
-  return { DATABASE_URL: "postgres://from-runtime-env/db" }[name]
-}
-`
-
-  async function driveEmittedStores(
-    appRoot: string,
-    envs: readonly unknown[],
-    options: {
-      readonly cliStub?: string
-      /** Expression printed after the last request. */
-      readonly report?: string
-      readonly reportImports?: string
-      readonly storageStub?: string
-      /** Keep going (and record the message) when a request throws. */
-      readonly tolerateRequestFailures?: boolean
-    } = {},
-  ): Promise<unknown> {
-    await writeStubPackage(
-      appRoot,
-      "@b4run/postgres-storage",
-      options.storageStub ?? POSTGRES_STORAGE_STUB,
-    )
-    await writeStubPackage(appRoot, "@neondatabase/serverless", NEON_STUB)
-    await writeStubPackage(appRoot, "@b4run/cli", options.cliStub ?? CLI_FETCH_STUB, {
-      "./fetch": "./index.mjs",
-    })
-
-    const driverPath = buildFile(appRoot, "drive-stores.test.mjs")
-    await writeFile(
-      driverPath,
-      `import { poolConnections } from "@neondatabase/serverless"
-${options.reportImports ?? ""}
-
-import { createRequestStores } from "./stores.mjs"
-
-const requestErrors = []
-for (const env of ${JSON.stringify(envs)}) {
-  try {
-    const stores = await createRequestStores(env)
-    await stores.dispose()
-  } catch (error) {
-    if (!${options.tolerateRequestFailures ? "true" : "false"}) throw error
-    requestErrors.push(String(error?.message ?? error))
-  }
-}
-console.log(JSON.stringify(${options.report ?? "poolConnections()"}))
-`,
-    )
-    const { execFile } = await import("node:child_process")
-    const { promisify } = await import("node:util")
-    const { stdout } = await promisify(execFile)(process.execPath, [driverPath], { cwd: appRoot })
-    return JSON.parse(stdout.trim()) as unknown
-  }
-
   test("falls back to the runtime env when the host passes no bindings", async () => {
     const appRoot = await createFixtureApp()
     await runBuild(appRoot)
@@ -1192,7 +1033,7 @@ console.log(JSON.stringify(${options.report ?? "poolConnections()"}))
     // actually takes: a Workers bindings object; `@hono/node-server`'s
     // `{ incoming, outgoing }` (Node handles, no bindings in them at all);
     // and nothing.
-    const observed = await driveEmittedStores(appRoot, [
+    const observed = await driveEmittedStores(appRoot, buildDir(appRoot), [
       { DATABASE_URL: "postgres://from-binding/db" },
       { incoming: {}, outgoing: {} },
       undefined,
@@ -1246,7 +1087,7 @@ console.log(JSON.stringify(${options.report ?? "poolConnections()"}))
     // Asserted by RUNNING the emitted file rather than grepping it, for the
     // reason recorded on the `assumeMigrated` test: a text match on generated
     // code can be satisfied by a doc comment.
-    const observed = await driveEmittedStores(appRoot, [{}, {}], {
+    const observed = await driveEmittedStores(appRoot, buildDir(appRoot), [{}, {}], {
       report: "poolHandlers()",
       reportImports: `import { poolHandlers } from "@neondatabase/serverless"`,
     })
@@ -1260,7 +1101,7 @@ console.log(JSON.stringify(${options.report ?? "poolConnections()"}))
     const appRoot = await createFixtureApp()
     await runBuild(appRoot)
 
-    const observed = await driveEmittedStores(appRoot, [{}, {}], {
+    const observed = await driveEmittedStores(appRoot, buildDir(appRoot), [{}, {}], {
       report: "poolTypeParserReport()",
       reportImports: 'import { poolTypeParserReport } from "@neondatabase/serverless"',
     })
@@ -1289,9 +1130,14 @@ console.log(JSON.stringify(${options.report ?? "poolConnections()"}))
     // talking plaintext through the previous request's proxy. That binding ships
     // in every generated stores.mjs, so setting it by accident (or by copying
     // the CI lane's config) would silently drop TLS to a production database.
-    const observed = await driveEmittedStores(appRoot, [{ B4_PG_WS_PROXY: "proxy:8080" }, {}], {
-      cliStub: NO_PROXY_RUNTIME_ENV_STUB,
-    })
+    const observed = await driveEmittedStores(
+      appRoot,
+      buildDir(appRoot),
+      [{ B4_PG_WS_PROXY: "proxy:8080" }, {}],
+      {
+        cliStub: NO_PROXY_RUNTIME_ENV_STUB,
+      },
+    )
 
     expect(observed).toEqual([
       {
@@ -1309,6 +1155,51 @@ console.log(JSON.stringify(${options.report ?? "poolConnections()"}))
     ])
   })
 
+  test("B4_PG_WS_PROXY accepts a ws:// or wss:// prefix and rejects any other scheme", async () => {
+    const appRoot = await createFixtureApp()
+    await runBuild(appRoot)
+
+    // The driver wants a bare host:port and prefixes the scheme itself, so a
+    // value written the way a URL is usually written (`ws://…`) used to fail
+    // deep inside it with a message naming neither the variable nor the
+    // format. Both spellings now reach the driver as the same address; `wss://`
+    // keeps TLS on; anything else is refused up front, by name.
+    const observed = await driveEmittedStores(
+      appRoot,
+      buildDir(appRoot),
+      [
+        { B4_PG_WS_PROXY: "ws://proxy:8080" },
+        { B4_PG_WS_PROXY: "wss://proxy.example.com:443" },
+        { B4_PG_WS_PROXY: "http://proxy:8080" },
+      ],
+      {
+        cliStub: NO_PROXY_RUNTIME_ENV_STUB,
+        report: "{ connections: poolConnections(), requestErrors }",
+        tolerateRequestFailures: true,
+      },
+    )
+
+    expect(observed).toEqual({
+      connections: [
+        {
+          connectionString: "postgres://from-runtime-env/db",
+          useSecureWebSocket: false,
+          wsProxy: "proxy:8080/v1?address=b4-pg:5432",
+        },
+        {
+          connectionString: "postgres://from-runtime-env/db",
+          useSecureWebSocket: true,
+          wsProxy: "proxy.example.com:443/v1?address=b4-pg:5432",
+        },
+      ],
+      requestErrors: [
+        expect.stringMatching(
+          /B4_PG_WS_PROXY must be host:port, optionally prefixed with ws:\/\/ or wss:\/\/.*"http:\/\/proxy:8080"/,
+        ),
+      ],
+    })
+  })
+
   test("a failed cold start leaves the next request to retry the migration", async () => {
     const appRoot = await createFixtureApp()
     await runBuild(appRoot)
@@ -1320,7 +1211,7 @@ console.log(JSON.stringify(${options.report ?? "poolConnections()"}))
     //
     // Three `ready()` calls per cold-start pass (threads, permissions,
     // checkpointer), so a retried pass is six and a skipped one is three.
-    const observed = await driveEmittedStores(appRoot, [{}, {}], {
+    const observed = await driveEmittedStores(appRoot, buildDir(appRoot), [{}, {}], {
       report: "{ readyCalls: readyCalls.length, requestErrors }",
       reportImports: 'import { readyCalls } from "@b4run/postgres-storage"',
       storageStub: FAILING_READY_STORAGE_STUB,
@@ -1338,79 +1229,10 @@ console.log(JSON.stringify(${options.report ?? "poolConnections()"}))
     // unconfigured deploy. The fallback must not turn a named error into a
     // driver-level connection failure with no hint of which binding is missing.
     await expect(
-      driveEmittedStores(appRoot, [{}], { cliStub: EMPTY_RUNTIME_ENV_STUB }),
+      driveEmittedStores(appRoot, buildDir(appRoot), [{}], { cliStub: EMPTY_RUNTIME_ENV_STUB }),
     ).rejects.toThrow(/DATABASE_URL is not set/)
   })
 })
-
-/**
- * A minimal `hono` stub with the shape the emitted entry uses. Mirrors real
- * Hono: `app.fetch(request, env, ctx)` is the Workers entry signature, `c.env`
- * is that per-invocation env, and `c.req.raw` is the incoming Request.
- */
-const HONO_STUB = `export class Hono {
-  #handler
-  all(_pattern, handler) {
-    this.#handler = handler
-  }
-  fetch = (request, env, executionCtx) => {
-    return this.#handler({ env, executionCtx, req: { raw: request } })
-  }
-}
-`
-
-/**
- * A `@b4run/cli/fetch` stub that records what the generated entry passes.
- * `requestStores` is invoked with the same Request the handler received —
- * the contract pinned by the identity test above.
- */
-const CLI_FETCH_STUB = `export async function createRuntimeFetchHandler(options) {
-  return {
-    close: async () => {},
-    fetch: async (request) => {
-      const stores = await options.requestStores(request)
-      await stores.dispose?.()
-      return new Response("ok")
-    },
-  }
-}
-export function seedModelImporter() {}
-/** Every seeding call, in order — the observable for a once-per-isolate seam. */
-export const seededEnvs = []
-export function seedRuntimeEnv(env) {
-  seededEnvs.push(env)
-}
-/**
- * Stands in for the real seam, whose own precedence (process.env first, seeded
- * map second) is @b4run/core's tested contract. What the emitted stores.mjs
- * has to get right — and what this records — is that it CONSULTS the seam at
- * all when a binding is absent, and uses what comes back.
- */
-export function readRuntimeEnv(name) {
-  return { DATABASE_URL: "postgres://from-runtime-env/db", B4_PG_WS_PROXY: "proxy:8080" }[name]
-}
-`
-
-async function writeStubPackage(
-  appRoot: string,
-  name: string,
-  source: string,
-  exportsMap?: Record<string, string>,
-): Promise<void> {
-  const dir = join(appRoot, "node_modules", ...name.split("/"))
-  await mkdir(dir, { recursive: true })
-  await writeFile(
-    join(dir, "package.json"),
-    `${JSON.stringify({
-      exports: exportsMap ?? { ".": "./index.mjs" },
-      name,
-      type: "module",
-      version: "0.0.0",
-    })}\n`,
-  )
-  await writeFile(join(dir, "index.mjs"), source)
-}
-
 /**
  * Import the emitted `app.mjs` in a plain Node child process and drive one
  * request per supplied `DATABASE_URL`, returning what the store factory saw.

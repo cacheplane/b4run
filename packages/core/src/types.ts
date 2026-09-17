@@ -3,6 +3,7 @@ import type { ModelProviderId, RouteKind } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { ExecBackend, FilesystemBackend, SandboxConfig } from "@b4run/workspace"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
+import type { BuildTargetName } from "./build-targets.js"
 
 export type { RouteKind }
 
@@ -91,9 +92,11 @@ export interface B4Config {
      *   subset of B4.run as `"hono"` (no sandbox, no workspace tooling) and
      *   requires durable stores to be configured.
      *
-     * Defaults to `["node", "langsmith"]` when omitted.
+     * Defaults to `["node", "langsmith"]` when omitted. Only the names in
+     * {@link BUILD_TARGET_NAMES} are accepted, so a misspelling fails to
+     * type-check instead of failing at `b4 build`.
      */
-    readonly targets?: readonly string[]
+    readonly targets?: readonly BuildTargetName[]
   }
   readonly sandbox?: SandboxConfig
   /**

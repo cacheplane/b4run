@@ -95,9 +95,10 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
       loadedConfig = {}
     }
 
-    const buildTargets = loadedConfig.build?.targets
+    // Typed as known names, but a JS config arrives untyped — keep validating.
+    const buildTargets: readonly string[] | undefined = loadedConfig.build?.targets
     if (buildTargets) {
-      const known = knownTargetNames()
+      const known: readonly string[] = knownTargetNames()
       const unknown = buildTargets.filter((name) => !known.includes(name))
       if (unknown.length > 0) {
         throw new CliError(
