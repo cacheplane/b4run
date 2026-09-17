@@ -61,9 +61,11 @@ helm upgrade b4-app oci://ghcr.io/cacheplane/charts/b4-app \
 
 ## Health probes
 
-The chart sends startup, readiness, and liveness HTTP probes to `healthPath`, which defaults to `/healthz`. B4.run's response is process **liveness**, not dependency readiness: it does not query the model, Postgres, or the sandbox provider.
+The chart sends startup, readiness, and liveness HTTP probes to `healthPath`, which defaults to `/healthz`. B4.run's response there is process **liveness**, not dependency readiness: it touches no store and does not query the model, Postgres, or the sandbox provider.
 
-Some store construction happens while the runtime is assembled, so a boot failure can prevent the listener from starting. In fetch/Hono compositions, a request-store factory runs before route dispatch and can even fail a health request. Neither behavior turns `/healthz` into an active dependency test. Add a separately owned dependency-readiness check if rollout safety requires one.
+The runtime also serves `GET /readyz`, which probes the durable stores (threads, checkpointer, permissions) and answers `503` naming each failing dependency. Point `healthPath` at `/readyz` only if you want every probe, liveness included, to fail when the database is unreachable — the chart uses one path for all three. Neither probe covers the model or sandbox provider; add a separately owned check if rollout safety requires one.
+
+Some store construction happens while the Node runtime is assembled, so a boot failure can prevent the listener from starting at all; that is a startup failure, not a `/healthz` verdict.
 
 ## Environment and secrets
 

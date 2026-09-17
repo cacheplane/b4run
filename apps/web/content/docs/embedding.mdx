@@ -117,7 +117,7 @@ The edge fetch entry has no filesystem fallback: it cannot discover routes, load
 
 Embedding changes who owns the listener, not the API layout. The handler dispatches rooted paths:
 
-- `/healthz` for liveness;
+- `/healthz` for liveness (never builds request stores) and `/readyz` for dependency readiness (builds them and probes each durable store — see [Production Topology](/docs/production-topology));
 - `/threads` and `/threads/:thread_id/...` for Agent Protocol management and execution;
 - `/agui/:routeId` for AG-UI;
 - `/memory/candidates...` for memory candidate management.
@@ -211,7 +211,7 @@ Place blanket authentication and tenant authorization in the owning server or pr
 
 Test the assembled host, not only the bare handler:
 
-1. Verify unauthenticated requests fail for `/healthz`, `/threads`, `/agui`, and `/memory` surfaces according to your outer policy.
+1. Verify unauthenticated requests fail for `/healthz`, `/readyz`, `/threads`, `/agui`, and `/memory` surfaces according to your outer policy.
 2. Create a thread, run a route, read state, and confirm cross-tenant access is rejected.
 3. Exercise an Agent Protocol viewer disconnect and explicit cancellation through the real proxy.
 4. Exercise AG-UI disconnect behavior and unbuffered SSE delivery.

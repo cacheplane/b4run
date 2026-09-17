@@ -20,7 +20,7 @@ describe("serveRuntime", () => {
   test("boots the runtime server and serves healthz", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 
@@ -44,7 +44,7 @@ describe("serveRuntime", () => {
     // must boot without writing anything under .b4 (typegen would EROFS).
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 
@@ -68,7 +68,7 @@ describe("serveRuntime", () => {
   test("does not register process signal handlers when installSignalHandlers is omitted", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 
@@ -85,7 +85,7 @@ describe("serveRuntime", () => {
   test("registers idempotent signal handlers and removes them after close() when opted in", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 

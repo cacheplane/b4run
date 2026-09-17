@@ -79,6 +79,7 @@ async function createTargetFixture(files: Readonly<Record<string, string>> = {})
   const appFiles = {
     "b4.config.ts": 'export default { build: { targets: ["vercel"] } }\n',
     "package.json": `${JSON.stringify({
+      type: "module",
       dependencies: {
         "@b4run/cli": "workspace:*",
         "@b4run/postgres-storage": "workspace:*",

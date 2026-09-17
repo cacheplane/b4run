@@ -145,9 +145,9 @@ Both are open. Today, composing a frontend means post-processing the published t
 
 1. Copy `.vercel/output/functions/index.func` to a non-root name such as `agent.func` (the `.vc-config.json` inside needs no change).
 2. Place the built frontend under `.vercel/output/static/`.
-3. Rewrite `.vercel/output/config.json` so the B4.run paths (`/healthz`, `/threads/*`, `/agui/*`, `/memory/*`) route to `/agent` and everything else falls through to static files with a SPA fallback.
+3. Rewrite `.vercel/output/config.json` so the B4.run paths (`/healthz`, `/readyz`, `/threads/*`, `/agui/*`, `/memory/*`) route to `/agent` and everything else falls through to static files with a SPA fallback.
 
-Keep the B4.run function rooted from its own point of view: the runtime owns `/healthz`, `/threads`, `/agui`, and `/memory` and does not accept a base path, so route by path prefix in `config.json` rather than rewriting the request path. Alternatively, deploy the agent as its own Vercel project and point the frontend at its origin; `server.cors` in `b4.config.ts` controls cross-origin access.
+Keep the B4.run function rooted from its own point of view: the runtime owns `/healthz`, `/readyz`, `/threads`, `/agui`, and `/memory` and does not accept a base path, so route by path prefix in `config.json` rather than rewriting the request path. Alternatively, deploy the agent as its own Vercel project and point the frontend at its origin; `server.cors` in `b4.config.ts` controls cross-origin access.
 
 A hand-assembled tree is outside what `b4 build` validates. The structural checks above run only on the tree the target itself emits.
 
@@ -191,11 +191,13 @@ Drop `--target production` to create a preview deployment instead. The B4.run re
 
 A Git-connected project is the alternative: push a branch, and Vercel runs the committed `buildCommand` on a clean checkout. Neither `.b4/` nor `.vercel/output/` is committed in that flow.
 
-## `/healthz`
+## `/healthz` and `/readyz`
 
-The runtime serves `GET /healthz` and responds `200 {"status":"ready"}`. On this target that response means more than a booted bundle: the generated entry builds the request's stores before dispatching any path, so a `/healthz` request opens a Postgres pool from `DATABASE_URL`, and the first request served by a function instance also runs the store migrations under an advisory lock. A missing or unreachable `DATABASE_URL` therefore surfaces on `/healthz` as a `500` with the store factory's error, not as a green probe that fails later.
+`GET /healthz` is pure liveness. It builds no stores and answers `200 {"status":"ready"}` whenever the function serves HTTP, so a deployment with `DATABASE_URL` unset or a database that is unreachable still answers `200`. On this target that is the point: the function is up, and the database is a separate question.
 
-`/healthz` does not touch a model provider. Use it as a deploy smoke check for routing and the database path, and drive a real run to check provider credentials.
+`GET /readyz` answers that question. It builds the request's stores and makes a real query against each of threads, checkpointer, and permissions, running lazy migrations on the way. It answers `200 {"status":"ready","checks":{…}}` when all three respond, or `503 {"status":"not_ready","checks":{…}}` naming each failing dependency. A `DATABASE_URL` missing from the Vercel project shows up as a failing `requestStores`, because the per-request factory itself threw.
+
+So `/readyz` is the endpoint to hit after a deploy, and the one to watch when a deployment serves traffic but every run fails. Two caveats carry over from [Production Topology](/docs/production-topology#health-and-readiness): it does not probe the model provider or the memory store, and unlike every other endpoint it reports the real cause, so hostnames, ports, database names, and driver error codes appear in the body even though connection-string credentials are redacted. Neither probe is gated by middleware or thread access, so keep both behind the same outer access controls as the rest of the service.
 
 ## Test the bundle locally
 
@@ -206,8 +208,8 @@ DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/app \
   node --input-type=module -e '
     const entry = "./.vercel/output/functions/index.func/index.mjs"
     const { default: app } = await import(entry)
-    const health = await app.fetch(new Request("http://localhost/healthz"))
-    console.log(health.status, await health.text())
+    const ready = await app.fetch(new Request("http://localhost/readyz"))
+    console.log(ready.status, await ready.text())
     const created = await app.fetch(new Request("http://localhost/threads", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -233,7 +235,7 @@ The same handler also mounts in a Node HTTP server with `@hono/node-server`'s `s
 4. Set `DATABASE_URL` and provider credentials in the project's environment variables for each deployment environment, plus `B4_PG_SCHEMA` when preview and production share a database.
 5. Set the project's default function max duration to cover your longest streamed run.
 6. Put outer authentication and tenant authorization around every rooted B4.run path.
-7. Deploy, then drive `POST /threads`, a streamed run, and a second request in the same instance against the deployment URL.
+7. Deploy, then check `GET /readyz` and drive `POST /threads`, a streamed run, and a second request in the same instance against the deployment URL.
 
 <RelatedCards
   items={[

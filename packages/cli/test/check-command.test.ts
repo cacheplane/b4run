@@ -4,6 +4,8 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { afterEach, describe, expect, test } from "vitest"
 
+const SDK_PATH = resolve(import.meta.dirname, "../../sdk")
+
 import { run } from "../src/index.js"
 
 const tempDirs: string[] = []
@@ -169,6 +171,88 @@ export const graph = { invoke: async () => ({}) }
     expect(result.stdout).toContain("1 routes discovered")
     expect(result.stdout).toContain("- /hello (workflow)")
     expect(result.stdout).not.toContain("/empty")
+  })
+
+  test('fails with B4_E1006 when the app root package.json lacks "type": "module"', async () => {
+    const appRoot = await createFixtureApp({
+      "package.json": '{"name":"no-type"}\n',
+      "src/app/hello/index.ts": `export async function workflow() { return {} }
+`,
+    })
+
+    const result = await invoke(["check", "--cwd", appRoot])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).not.toContain("routes discovered")
+    expect(result.stderr).toContain("Validation failed")
+    expect(result.stderr).toContain(join(appRoot, "package.json"))
+    expect(result.stderr).toContain('"type": "module"')
+    expect(result.stderr).toContain("[B4_E1006]")
+    expect(result.stderr).toContain("https://b4.run/docs/cli#b4-check")
+  })
+
+  test("fails with B4_E1007 naming the file when a route index.ts has no recognisable export", async () => {
+    const appRoot = await createFixtureApp({
+      "src/app/hello/index.ts": `export async function workflow() { return {} }
+`,
+      "src/app/util/index.ts": "export const helper = 1\n",
+    })
+
+    const result = await invoke(["check", "--cwd", appRoot])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).not.toContain("routes discovered")
+    expect(result.stderr).toContain("Validation failed")
+    expect(result.stderr).toContain(join(appRoot, "src/app/util/index.ts"))
+    expect(result.stderr).toContain("helper")
+    expect(result.stderr).toContain("[B4_E1007]")
+    expect(result.stderr).toContain("https://b4.run/docs/cli#b4-check")
+  })
+
+  // Issue #685. Under vitest the route import goes through vite-node, which
+  // compiles TypeScript regardless of package.json "type", so the CommonJS
+  // interop shape the tsx loader produces is only reachable from the built CLI.
+  test("built b4 check diagnoses CommonJS route modules instead of reporting 0 routes", {
+    timeout: 30_000,
+  }, async () => {
+    const builtCli = await cliExecutable()
+    const agentRoute = `import { agent } from "@b4run/sdk"
+export default agent({ model: "gpt-5-mini" } as any)
+`
+
+    // The issue's repro: app root without "type": "module".
+    const noType = await createFixtureApp({
+      "package.json": '{"name":"issue-685"}\n',
+      "src/app/assistant/index.ts": agentRoute,
+    })
+    await mkdir(join(noType, "node_modules/@b4run"), { recursive: true })
+    await symlink(SDK_PATH, join(noType, "node_modules/@b4run/sdk"))
+
+    const noTypeResult = await executeCli(builtCli, ["check", "--cwd", noType])
+
+    expect(noTypeResult.code).toBe(1)
+    expect(noTypeResult.stdout).not.toContain("routes discovered")
+    expect(noTypeResult.stderr).toContain('"type": "module"')
+    expect(noTypeResult.stderr).toContain("[B4_E1006]")
+
+    // A nested package.json flips only that route's module format, so the app
+    // root check passes and the route-level diagnosis must name the cause.
+    const nested = await createFixtureApp({
+      "src/app/assistant/index.ts": agentRoute,
+      "src/app/assistant/package.json": '{"name":"nested"}\n',
+    })
+    await mkdir(join(nested, "node_modules/@b4run"), { recursive: true })
+    await symlink(SDK_PATH, join(nested, "node_modules/@b4run/sdk"))
+
+    const nestedResult = await executeCli(builtCli, ["check", "--cwd", nested])
+
+    expect(nestedResult.code).toBe(1)
+    expect(nestedResult.stdout).not.toContain("routes discovered")
+    expect(nestedResult.stderr).toContain(join(nested, "src/app/assistant/index.ts"))
+    expect(nestedResult.stderr).toContain("CommonJS")
+    expect(nestedResult.stderr).toContain(join(nested, "src/app/assistant/package.json"))
+    expect(nestedResult.stderr).toContain('"type": "module"')
+    expect(nestedResult.stderr).toContain("[B4_E1007]")
   })
 
   test("returns a nonzero exit code and a stable error prefix for invalid apps", async () => {

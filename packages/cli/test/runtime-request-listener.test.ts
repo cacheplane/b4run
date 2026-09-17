@@ -14,7 +14,7 @@ afterEach(async () => {
 it("builds a request listener without binding a port", async () => {
   const appRoot = await createFixtureApp({
     "b4.config.ts": "export default {};\n",
-    "package.json": "{}\n",
+    "package.json": '{"type":"module"}\n',
     "src/app/noop/index.ts": "export const graph = async () => ({ ok: true });\n",
   })
   const { listener, close } = await createRuntimeRequestListener({ appRoot })
