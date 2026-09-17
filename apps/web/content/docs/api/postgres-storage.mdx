@@ -59,6 +59,7 @@ The `/node` entry also re-exports every root export. The repeated rows below est
 |---|---|
 | `NodePostgresStoreOptions` | Add connection-string convenience. |
 | `NodePostgresPermissionsStoreOptions` | Add connection-string convenience for permissions. |
+| `createPostgresPool` | Build the `pg` pool this entry builds for itself, with its idle-client `'error'` listener attached; the caller owns and ends it. |
 | `PostgresCheckpointerOptions` | Re-export root checkpointer options. |
 | `B4PostgresSaver` | Re-export the saver class. |
 | `postgresCheckpointer` | Create a Node checkpointer. |

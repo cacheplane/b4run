@@ -63,6 +63,19 @@ export type {
   BootResolvedInstances,
   RuntimeBootFallbacks,
 } from "./lib/runtime/execute-route-core.js"
+/**
+ * The per-request driver decision the emitted `stores.mjs` makes — which of
+ * `@neondatabase/serverless` or node `pg` talks to DATABASE_URL, and what a
+ * `B4_PG_WS_PROXY` value means. Pure, so it adds no `node:` edge to this graph.
+ */
+export {
+  normalizeWsProxy,
+  type PostgresDriver,
+  type PostgresDriverSelection,
+  type SelectPostgresDriverInput,
+  selectPostgresDriver,
+  type WsProxyTarget,
+} from "./lib/runtime/postgres-driver.js"
 export {
   type B4StaticModules,
   buildStaticRouteModule,

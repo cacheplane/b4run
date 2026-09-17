@@ -78,11 +78,17 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 | `formatErrorChain` | Render a thrown value and its cause chain as operator-readable log lines. |
 | `normalizeMiddlewareModule` | Normalize generated middleware exports. |
 | `normalizeThreadAccessModule` | Normalize generated thread-access policy exports. |
+| `normalizeWsProxy` | Normalize a `B4_PG_WS_PROXY` value (`host:port`, `ws://`, or `wss://`) into the address and TLS flag the neon driver needs. |
+| `PostgresDriver` | Name the Postgres driver a generated store factory opens (`neon` or `pg`). |
+| `PostgresDriverSelection` | Describe the driver decision and optional proxy target for one request. |
 | `readRuntimeEnv` | Re-export [`@b4run/core` environment lookup](/docs/api/core#b4runcore). |
 | `seedB4Config` | Re-export [`@b4run/core` static configuration seeding](/docs/api/core#b4runcore). |
 | `seedModelImporter` | Re-export the `@b4run/langchain` static importer seam; its deep reference is deferred. |
 | `seedRuntimeEnv` | Re-export [`@b4run/core` environment seeding](/docs/api/core#b4runcore). |
+| `selectPostgresDriver` | Decide per request which driver talks to `DATABASE_URL` on the `hono` or `vercel` target; see [Edge and Hono](/docs/deployment/edge#database-drivers-and-b4_pg_ws_proxy). |
+| `SelectPostgresDriverInput` | Supply `DATABASE_URL`, `B4_PG_DRIVER`, `B4_PG_WS_PROXY`, and the target to `selectPostgresDriver`. |
 | `serializeError` | Read the message, code and nested cause off any thrown value, including an `ErrorEvent`. |
+| `WsProxyTarget` | Carry a normalized proxy address and whether the WebSocket stays secure. |
 
 ### `@b4run/cli/runtime`
 
