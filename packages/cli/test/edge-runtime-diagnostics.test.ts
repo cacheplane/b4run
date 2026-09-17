@@ -114,6 +114,56 @@ describe("edge runtime diagnostics", () => {
     expect(second.status).toBe(500)
     expect(errors.filter((line) => line.includes("DATABASE_URL"))).toHaveLength(1)
   }, 120_000)
+
+  it("names the host and code behind an ErrorEvent instead of logging [object ErrorEvent]", async () => {
+    // `@neondatabase/serverless` rejects a failed WebSocket connect with the
+    // socket's ErrorEvent — not an Error. It has no stack and no `cause`; the
+    // wrapped Error with the refused host and its code sits on `.error`, and
+    // `String(event)` is "[object ErrorEvent]". That is all the log used to
+    // say (#689). Node has no ErrorEvent global, so this mirrors the shape.
+    const appRoot = await chatFixtureApp()
+    const modules = await buildStaticModulesForFixture(appRoot)
+    const errors = captureConsoleError()
+
+    class ErrorEvent {
+      readonly type = "error"
+      constructor(
+        readonly message: string,
+        readonly error: unknown,
+      ) {}
+    }
+    const socketError = Object.assign(new Error("connect ECONNREFUSED 10.0.0.7:5432"), {
+      code: "ECONNREFUSED",
+    })
+    const handler = await createRuntimeFetchHandler({
+      appRoot,
+      config: {},
+      modules,
+      requestStores: async () => {
+        throw new ErrorEvent("WebSocket connection failed", socketError)
+      },
+    })
+    cleanup.push(() => handler.close())
+
+    const response = await handler.fetch(
+      new Request("http://localhost/threads", { method: "POST" }),
+    )
+    expect(response.status).toBe(500)
+    const body = (await response.json()) as { error: { message: string } }
+    expect(body.error.message).toBe("Unexpected runtime server failure")
+    expect(JSON.stringify(body)).not.toContain("ECONNREFUSED")
+
+    const log = errors.join("\n")
+    expect(log).not.toContain("[object")
+    expect(log).toContain("ErrorEvent: WebSocket connection failed")
+    expect(log).toContain("caused by: connect ECONNREFUSED 10.0.0.7:5432 (ECONNREFUSED)")
+    // The wrapped Error's stack is the only one there is, so it is the one printed.
+    expect(log).toContain("at ")
+
+    // Still once per cause.
+    await handler.fetch(new Request("http://localhost/threads", { method: "POST" }))
+    expect(errors.filter((line) => line.includes("ECONNREFUSED"))).toHaveLength(1)
+  }, 120_000)
 })
 
 // ---------------------------------------------------------------------------

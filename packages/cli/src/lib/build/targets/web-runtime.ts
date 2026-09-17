@@ -161,7 +161,7 @@ const STORES_ENTRY = (targetName: WebRuntimeEmitOptions["targetName"]): string =
 // when it settles. Wired into the runtime through \`requestStores\`, which
 // disposes this only after the response body AND any run that outlived it have
 // finished — never mid-stream.
-import { readRuntimeEnv } from "@b4run/cli/fetch"
+import { describeConnectionTarget, formatErrorChain, readRuntimeEnv } from "@b4run/cli/fetch"
 import {
   createPostgresPermissionsStore,
   createPostgresThreadsStore,
@@ -271,6 +271,15 @@ class B4PgClient extends Client {
 let migrated = false
 
 /**
+ * Connection targets whose initialisation failure this isolate has already
+ * reported — host and database only, never the credentials. A misconfigured or
+ * unreachable database fails every request identically, and the runtime's own
+ * catch-all already logs the cause once; this line adds what that one cannot
+ * know — which store kind, against which host — and is deduped the same way.
+ */
+const reportedInitialisationTargets = new Set()
+
+/**
  * One pool per request, closed on dispose.
  *
  * NOT module scope: an idle WebSocket returned to a module-scope pool belongs to
@@ -337,7 +346,7 @@ export async function createRequestStores(env) {
   // whitelists 'error' specifically so registering it does not disable
   // fetch-mode querying — the one listener it is safe to add.
   pool.on("error", (error) => {
-    console.warn(\`[b4:${runtimeLogTarget}] postgres pool client error (connection dropped): \${String(error)}\`)
+    console.warn(\`[b4:${runtimeLogTarget}] postgres pool client error (connection dropped): \${formatErrorChain(error)}\`)
   })
   try {
     const assumeMigrated = migrated
@@ -363,6 +372,17 @@ export async function createRequestStores(env) {
   } catch (error) {
     // Nothing was handed back, so nothing else will close this pool.
     void pool.end().catch(() => {})
+    // Name the store kind and the sanitised target once. The runtime's catch-all
+    // renders the same error, but it cannot say WHICH database refused — and a
+    // driver-level failure (a refused WebSocket, an ENOTFOUND host) says nothing
+    // about the deployment it belongs to (#689).
+    const target = describeConnectionTarget(databaseUrl)
+    if (!reportedInitialisationTargets.has(target)) {
+      reportedInitialisationTargets.add(target)
+      console.error(
+        \`[b4:${runtimeLogTarget}] postgres store initialisation failed against \${target} — \${formatErrorChain(error)}\`,
+      )
+    }
     throw error
   }
 }
