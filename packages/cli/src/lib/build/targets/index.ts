@@ -1,4 +1,9 @@
-import { BUILD_TARGET_NAMES, type BuildTargetName, type RouteManifest } from "@b4run/core"
+import {
+  type B4Config,
+  BUILD_TARGET_NAMES,
+  type BuildTargetName,
+  type RouteManifest,
+} from "@b4run/core"
 import type { CommandIo } from "../../output.js"
 import type { WorkspaceBuildArtifact } from "../workspace-artifact.js"
 import { honoTarget } from "./hono.js"
@@ -22,6 +27,8 @@ export interface BuildEmitContext {
   readonly manifest: RouteManifest
   /** Command IO for emitting warnings/notices during emit (optional). */
   readonly io?: CommandIo
+  /** The loaded `b4.config.ts` `build` section, when the app has one. */
+  readonly buildConfig?: NonNullable<B4Config["build"]>
 }
 
 /**

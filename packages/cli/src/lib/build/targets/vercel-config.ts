@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { link, lstat, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 
+import type { B4Config } from "@b4run/core"
 import { CliError, type CommandIo, formatErrorMessage, writeLine } from "../../output.js"
 
 const B4_VERCEL_BUILD_COMMAND = "node node_modules/@b4run/cli/dist/index.js build"
@@ -32,6 +33,23 @@ export function setVercelConfigFileOpsForTesting(
   fileOps = { ...fileOps, ...overrides }
   return () => {
     fileOps = previousFileOps
+  }
+}
+
+/**
+ * Rejects a mistyped `build.vercel.reconcileVercelJson`. The emitter reads the
+ * flag with `!== false`, so `"false"` or `0` would silently keep reconciliation
+ * ON; both `b4 check` and `b4 build` call this so the prebuilt opt-out cannot
+ * look configured while doing nothing.
+ */
+export function assertVercelBuildConfig(build: B4Config["build"] | undefined): void {
+  const reconcileVercelJson = build?.vercel?.reconcileVercelJson
+  if (reconcileVercelJson !== undefined && typeof reconcileVercelJson !== "boolean") {
+    throw new CliError(
+      `Invalid build config:\nbuild.vercel.reconcileVercelJson must be a boolean; received ${JSON.stringify(reconcileVercelJson)}.`,
+      1,
+      { code: "B4_E1003" },
+    )
   }
 }
 

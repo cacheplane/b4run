@@ -267,6 +267,20 @@ describe("b4 build — targets", () => {
     expect(existsSync(join(appRoot, ".b4/build/server.mjs"))).toBe(false)
   })
 
+  test("non-boolean vercel reconcileVercelJson fails the build before emitting anything", async () => {
+    const appRoot = await createFixtureApp({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { reconcileVercelJson: "false" } } };\n',
+    })
+
+    const error = await runBuild(appRoot).catch((caught: unknown) => caught)
+
+    expect(error).toMatchObject({ code: "B4_E1003" })
+    expect(String(error)).toMatch(/reconcileVercelJson.*boolean/s)
+    expect(existsSync(join(appRoot, ".vercel"))).toBe(false)
+    expect(existsSync(join(appRoot, "vercel.json"))).toBe(false)
+  })
+
   test("empty targets list warns and emits nothing", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default { build: { targets: [] } };\n",
@@ -325,6 +339,48 @@ describe("b4 check — build targets", () => {
     const notice = stdout.join("")
     expect(notice).toContain('The "vercel" target')
     expect(notice).not.toContain('The "hono" target')
+  })
+
+  test("vercel reconcileVercelJson opt-out passes check without a committed vercel.json", async () => {
+    const appRoot = await createFixtureApp({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { reconcileVercelJson: false } } };\n',
+    })
+
+    expect(existsSync(join(appRoot, "vercel.json"))).toBe(false)
+    await expect(
+      runCheckCommand({ cwd: appRoot }, { stderr: () => {}, stdout: () => {} }),
+    ).resolves.toBeUndefined()
+    expect(existsSync(join(appRoot, "vercel.json"))).toBe(false)
+  })
+
+  test("non-boolean vercel reconcileVercelJson fails check as an invalid build config", async () => {
+    const appRoot = await createFixtureApp({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { reconcileVercelJson: "no" } } };\n',
+    })
+
+    const error = await runCheckCommand(
+      { cwd: appRoot },
+      { stderr: () => {}, stdout: () => {} },
+    ).catch((caught: unknown) => caught)
+
+    expect(error).toMatchObject({ code: "B4_E1003" })
+    expect(String(error)).toMatch(/Invalid build config.*reconcileVercelJson.*boolean/is)
+  })
+
+  test("vercel reconcileVercelJson shape is validated even when vercel is not a target", async () => {
+    const appRoot = await createFixtureApp({
+      "b4.config.ts":
+        'export default { build: { targets: ["node"], vercel: { reconcileVercelJson: "no" } } };\n',
+    })
+
+    const error = await runCheckCommand(
+      { cwd: appRoot },
+      { stderr: () => {}, stdout: () => {} },
+    ).catch((caught: unknown) => caught)
+
+    expect(error).toMatchObject({ code: "B4_E1003" })
   })
 
   test("vercel target mirrors edge capability validation", async () => {

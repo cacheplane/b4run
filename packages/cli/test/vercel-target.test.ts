@@ -870,6 +870,63 @@ export async function workflow() {
     expect((await readdir(vercelDir)).some((name) => name.startsWith(".b4-vercel-"))).toBe(false)
   })
 
+  test("reconcileVercelJson: false skips the root vercel.json contract for prebuilt deploys", async () => {
+    const appRoot = await createTargetFixture({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { reconcileVercelJson: false } } }\n',
+    })
+
+    const { stderr, stdout } = await runTargetBuild(appRoot)
+
+    const outputDir = join(appRoot, ".vercel", "output")
+    expect(stderr.join("")).toBe("")
+    expect(await listTree(outputDir)).toEqual([
+      "config.json",
+      join("functions", "index.func", ".vc-config.json"),
+      join("functions", "index.func", "index.mjs"),
+    ])
+    expect(existsSync(join(appRoot, "vercel.json"))).toBe(false)
+    expect(existsSync(join(appRoot, ".b4", "build", "vercel.json"))).toBe(false)
+    const report = stdout.join("")
+    expect(report).not.toContain("vercel.json")
+    expect(report).toContain("reconcileVercelJson: false")
+  })
+
+  test("reconcileVercelJson: false leaves an authored vercel.json unread and untouched", async () => {
+    // A prebuilt flow never runs buildCommand, so the target must not inspect
+    // the file at all — not even the fluid: false conflict that fails the
+    // reconciled path. The deployed project's Fluid setting is guidance, not
+    // a build-time gate, once reconciliation is off.
+    const authored = '{ "fluid": false }\n'
+    const appRoot = await createTargetFixture({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { reconcileVercelJson: false } } }\n',
+      "vercel.json": authored,
+    })
+
+    const { stderr } = await runTargetBuild(appRoot)
+
+    expect(stderr.join("")).toBe("")
+    await expect(readFile(join(appRoot, "vercel.json"), "utf8")).resolves.toBe(authored)
+    expect(existsSync(join(appRoot, ".b4", "build", "vercel.json"))).toBe(false)
+    expect(existsSync(join(appRoot, ".vercel", "output", "config.json"))).toBe(true)
+  })
+
+  test("reconcileVercelJson: true keeps the reconciled root contract", async () => {
+    const appRoot = await createTargetFixture({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { reconcileVercelJson: true } } }\n',
+    })
+
+    const { stderr, stdout } = await runTargetBuild(appRoot)
+
+    expect(stderr.join("")).toBe("")
+    await expect(readFile(join(appRoot, "vercel.json"), "utf8")).resolves.toBe(
+      EXPECTED_RECOMMENDED_VERCEL_CONFIG_JSON,
+    )
+    expect(stdout.join("")).toContain("vercel.json")
+  })
+
   test("reports invocation cleanup failure after publishing valid final output", async () => {
     const appRoot = await createTargetFixture()
     const vercelDir = join(appRoot, ".vercel")

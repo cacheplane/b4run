@@ -97,6 +97,27 @@ export interface B4Config {
      * type-check instead of failing at `b4 build`.
      */
     readonly targets?: readonly BuildTargetName[]
+    /**
+     * Options that only apply to the `"vercel"` target.
+     */
+    readonly vercel?: {
+      /**
+       * Whether `b4 build` reconciles the app-root `vercel.json` with the
+       * target's lifecycle contract (a `buildCommand` that runs `b4 build`
+       * and `fluid: true`): it writes the recommended file when none
+       * exists, warns when an authored file does not establish the
+       * contract, and fails on `fluid: false`.
+       *
+       * Set to `false` for a prebuilt flow (`vercel deploy --prebuilt` from
+       * CI, no Vercel Git integration): Vercel never runs `buildCommand`
+       * there, so the target neither requires nor touches a committed
+       * `vercel.json`. Fluid compute still matters for the deployed
+       * project — keep it enabled in the project settings.
+       *
+       * Defaults to `true`.
+       */
+      readonly reconcileVercelJson?: boolean
+    }
   }
   readonly sandbox?: SandboxConfig
   /**
