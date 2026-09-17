@@ -3089,6 +3089,7 @@ const expectedB4ConfigSchemaPaths = [
   "build.targets",
   "build.vercel",
   "build.vercel.functionName",
+  "build.vercel.outDir",
   "build.vercel.reconcileVercelJson",
   "checkpointer",
   "env",

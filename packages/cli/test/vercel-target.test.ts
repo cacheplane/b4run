@@ -129,11 +129,14 @@ async function linkPgTargetFixtureDependency(appRoot: string): Promise<void> {
   )
 }
 
-async function runTargetBuild(appRoot: string): Promise<{ stderr: string[]; stdout: string[] }> {
+async function runTargetBuild(
+  appRoot: string,
+  options: { readonly outDir?: string } = {},
+): Promise<{ stderr: string[]; stdout: string[] }> {
   const stdout: string[] = []
   const stderr: string[] = []
   await runBuildCommand(
-    { clean: true, cwd: appRoot },
+    { clean: true, cwd: appRoot, ...options },
     {
       stderr: (message) => stderr.push(message),
       stdout: (message) => stdout.push(message),
@@ -156,16 +159,18 @@ async function listTree(root: string): Promise<string[]> {
 }
 
 async function createPublicationFixture(): Promise<{
+  outputDir: string
   stagedOutput: string
   vercelDir: string
 }> {
   const appRoot = await mkdtemp(join(tmpdir(), "b4-vercel-publish-"))
   tempDirs.push(appRoot)
   const vercelDir = join(appRoot, ".vercel")
+  const outputDir = join(vercelDir, "output")
   const stagedOutput = join(vercelDir, ".b4-vercel-invocation", "output")
   await validOutput(stagedOutput)
   await seedUnrelatedVercelFiles(vercelDir)
-  return { stagedOutput, vercelDir }
+  return { outputDir, stagedOutput, vercelDir }
 }
 
 async function seedUnrelatedVercelFiles(vercelDir: string): Promise<void> {
@@ -825,75 +830,6 @@ export async function workflow() {
     expect(existsSync(join(appRoot, ".vercel"))).toBe(false)
   })
 
-  test("build.vercel.functionName renames the function directory and its route", async () => {
-    const appRoot = await createTargetFixture({
-      "b4.config.ts": `export default {
-  build: { targets: ["vercel"], vercel: { functionName: "agent" } },
-}
-`,
-    })
-
-    const { stderr, stdout } = await runTargetBuild(appRoot)
-
-    const outputDir = join(appRoot, ".vercel", "output")
-    expect(stderr.join("")).toBe("")
-    expect(await listTree(outputDir)).toEqual([
-      "config.json",
-      join("functions", "agent.func", ".vc-config.json"),
-      join("functions", "agent.func", "index.mjs"),
-    ])
-    expect(JSON.parse(await readFile(join(outputDir, "config.json"), "utf8"))).toEqual({
-      routes: [{ dest: "/agent", src: "/(.*)" }],
-      version: 3,
-    })
-    expect(stdout.join("")).toContain(join("functions", "agent.func", "index.mjs"))
-    expect(stdout.join("")).not.toContain("b4.func")
-  })
-
-  test("functionName and reconcileVercelJson are honored together", async () => {
-    const appRoot = await createTargetFixture({
-      "b4.config.ts": `export default {
-  build: {
-    targets: ["vercel"],
-    vercel: { functionName: "agent", reconcileVercelJson: false },
-  },
-}
-`,
-    })
-
-    const { stderr, stdout } = await runTargetBuild(appRoot)
-
-    const outputDir = join(appRoot, ".vercel", "output")
-    expect(stderr.join("")).toBe("")
-    expect(await listTree(outputDir)).toEqual([
-      "config.json",
-      join("functions", "agent.func", ".vc-config.json"),
-      join("functions", "agent.func", "index.mjs"),
-    ])
-    expect(existsSync(join(appRoot, "vercel.json"))).toBe(false)
-    const artifactLines = stdout
-      .join("")
-      .split("\n")
-      .filter((line) => line.trim().startsWith("wrote "))
-    expect(artifactLines).toHaveLength(3)
-    expect(artifactLines.join("\n")).not.toContain("vercel.json")
-  })
-
-  test.each(["", "index/../escape", "../escape", "a b", ".hidden", 42])(
-    "rejects build.vercel.functionName %j before creating .vercel",
-    async (functionName) => {
-      const appRoot = await createTargetFixture({
-        "b4.config.ts": `export default {
-  build: { targets: ["vercel"], vercel: { functionName: ${JSON.stringify(functionName)} } },
-}
-`,
-      })
-
-      await expect(runTargetBuild(appRoot)).rejects.toThrow(/build\.vercel\.functionName/)
-      expect(existsSync(join(appRoot, ".vercel"))).toBe(false)
-    },
-  )
-
   test("bundle resolution failure preserves prior output and unrelated Vercel files", async () => {
     const appRoot = await createTargetFixture({
       "src/app/probe/index.ts": `export async function workflow() {
@@ -939,6 +875,69 @@ export async function workflow() {
     await expect(readFile(join(outputDir, "prior.txt"), "utf8")).resolves.toBe(priorEntry)
     expect((await readdir(vercelDir)).some((name) => name.startsWith(".b4-vercel-"))).toBe(false)
   })
+
+  test("build.vercel.functionName renames the function directory and its route", async () => {
+    const appRoot = await createTargetFixture({
+      "b4.config.ts": `export default {
+  build: { targets: ["vercel"], vercel: { functionName: "agent" } },
+}
+`,
+    })
+
+    const { stderr, stdout } = await runTargetBuild(appRoot)
+
+    const outputDir = join(appRoot, ".vercel", "output")
+    expect(stderr.join("")).toBe("")
+    expect(await listTree(outputDir)).toEqual([
+      "config.json",
+      join("functions", "agent.func", ".vc-config.json"),
+      join("functions", "agent.func", "index.mjs"),
+    ])
+    expect(JSON.parse(await readFile(join(outputDir, "config.json"), "utf8"))).toEqual({
+      routes: [{ dest: "/agent", src: "/(.*)" }],
+      version: 3,
+    })
+    expect(stdout.join("")).toContain(join("functions", "agent.func", "index.mjs"))
+    expect(stdout.join("")).not.toContain("b4.func")
+  })
+
+  test("functionName composes with the other build.vercel options", async () => {
+    const appRoot = await createTargetFixture({
+      "b4.config.ts": `export default {
+  build: {
+    targets: ["vercel"],
+    vercel: { functionName: "agent", outDir: "dist/vercel", reconcileVercelJson: false },
+  },
+}
+`,
+    })
+
+    const { stderr } = await runTargetBuild(appRoot)
+
+    expect(stderr.join("")).toBe("")
+    expect(await listTree(join(appRoot, "dist", "vercel"))).toEqual([
+      "config.json",
+      join("functions", "agent.func", ".vc-config.json"),
+      join("functions", "agent.func", "index.mjs"),
+    ])
+    expect(existsSync(join(appRoot, ".vercel", "output"))).toBe(false)
+    expect(existsSync(join(appRoot, "vercel.json"))).toBe(false)
+  })
+
+  test.each(["", "index/../escape", "../escape", "a b", ".hidden", 42])(
+    "rejects build.vercel.functionName %j before creating any output",
+    async (functionName) => {
+      const appRoot = await createTargetFixture({
+        "b4.config.ts": `export default {
+  build: { targets: ["vercel"], vercel: { functionName: ${JSON.stringify(functionName)} } },
+}
+`,
+      })
+
+      await expect(runTargetBuild(appRoot)).rejects.toThrow(/build\.vercel\.functionName/)
+      expect(existsSync(join(appRoot, ".vercel"))).toBe(false)
+    },
+  )
 
   test("reconcileVercelJson: false skips the root vercel.json contract for prebuilt deploys", async () => {
     const appRoot = await createTargetFixture({
@@ -1106,6 +1105,101 @@ export async function workflow() {
     expect(selectedLoaders(nodeBundle)).toEqual(["default-model-importer.js"])
     expect(selectedLoaders(staticBundle)).toEqual(["static-model-importer.js"])
   })
+})
+
+describe("Vercel output directory override", () => {
+  const finalTree = [
+    "config.json",
+    join("functions", "b4.func", ".vc-config.json"),
+    join("functions", "b4.func", "index.mjs"),
+  ]
+
+  test("build.vercel.outDir publishes the tree relative to the app root", async () => {
+    const appRoot = await createTargetFixture({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { outDir: "dist/vercel" } } }\n',
+    })
+
+    const { stderr, stdout } = await runTargetBuild(appRoot)
+
+    const outputDir = join(appRoot, "dist", "vercel")
+    expect(stderr.join("")).toBe("")
+    expect(await listTree(outputDir)).toEqual(finalTree)
+    expect(await readdir(join(appRoot, "dist"))).toEqual(["vercel"])
+    expect(existsSync(join(appRoot, ".vercel", "output"))).toBe(false)
+    const report = stdout.join("")
+    for (const finalPath of finalTree) expect(report).toContain(join("dist", "vercel", finalPath))
+    expect(report).not.toContain(join(".vercel", "output"))
+    expect(report).not.toContain(".b4-vercel-")
+    await expect(validateVercelOutput(outputDir)).resolves.toBeUndefined()
+  })
+
+  test("--out-dir wins over build.vercel.outDir and replaces the prior output there", async () => {
+    const appRoot = await createTargetFixture({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { outDir: "dist/from-config" } } }\n',
+    })
+    const outputDir = join(appRoot, "dist", "from-flag")
+    await mkdir(outputDir, { recursive: true })
+    await writeFile(join(outputDir, "stale.txt"), "stale bytes\n")
+
+    const { stderr } = await runTargetBuild(appRoot, { outDir: "dist/from-flag" })
+
+    expect(stderr.join("")).toBe("")
+    expect(await listTree(outputDir)).toEqual(finalTree)
+    expect(await readdir(join(appRoot, "dist"))).toEqual(["from-flag"])
+    expect(existsSync(join(appRoot, ".vercel", "output"))).toBe(false)
+    await expect(validateVercelOutput(outputDir)).resolves.toBeUndefined()
+  })
+
+  test("publishes to a directory outside the app root and leaves no staging behind", async () => {
+    const appRoot = await createTargetFixture()
+    const outsideRoot = await mkdtemp(join(tmpdir(), "b4-vercel-outside-"))
+    tempDirs.push(outsideRoot)
+    const outputDir = join(outsideRoot, "out")
+
+    const { stderr } = await runTargetBuild(appRoot, { outDir: outputDir })
+
+    expect(stderr.join("")).toBe("")
+    expect(await listTree(outputDir)).toEqual(finalTree)
+    expect(existsSync(join(appRoot, ".vercel", "output"))).toBe(false)
+    expect(await readdir(outsideRoot)).toEqual(["out"])
+    expect((await readdir(join(appRoot, ".vercel"))).some((name) => name.startsWith(".b4-"))).toBe(
+      false,
+    )
+    await expect(validateVercelOutput(outputDir)).resolves.toBeUndefined()
+  })
+
+  test("rejects --out-dir when the vercel target is not configured", async () => {
+    const appRoot = await createTargetFixture({
+      "b4.config.ts": 'export default { build: { targets: ["langsmith"] } }\n',
+    })
+
+    const error = await runTargetBuild(appRoot, { outDir: "dist/vercel" }).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(CliError)
+    expect(String(error)).toMatch(/--out-dir.*"vercel"/s)
+    expect(existsSync(join(appRoot, "dist"))).toBe(false)
+    expect(existsSync(join(appRoot, ".b4", "build"))).toBe(false)
+  })
+
+  test.each([".", "..", "app root"])(
+    "rejects an output directory (%s) that contains the app root",
+    async (outDir) => {
+      const appRoot = await createTargetFixture()
+
+      const error = await runTargetBuild(appRoot, {
+        outDir: outDir === "app root" ? appRoot : outDir,
+      }).catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(CliError)
+      expect(String(error)).toMatch(/output directory.*app root/s)
+      expect(existsSync(join(appRoot, ".b4", "build"))).toBe(false)
+      expect(existsSync(join(appRoot, ".vercel"))).toBe(false)
+    },
+  )
 })
 
 describe("transactional Vercel output publication", () => {
@@ -1324,7 +1418,7 @@ describe("transactional Vercel output publication", () => {
     try {
       await publishVercelOutput({
         stagedOutput: secondStagedOutput,
-        vercelDir: first.vercelDir,
+        outputDir: first.outputDir,
         fileOps: {
           rename: async (source, destination) => {
             if (source === outputDir) secondBackup = String(destination)
@@ -1372,9 +1466,9 @@ describe("Build Output contract", () => {
     await expect(
       validateVercelOutput(outputDir, { functionName: "agent" }),
     ).resolves.toBeUndefined()
-    // The default validator must not accept an output built for another name.
+    // The default validator must not accept a tree built for another name.
     await expect(validateVercelOutput(outputDir)).rejects.toThrow(
-      `${join(outputDir, "config.json")} property "routes[0].dest" must be "/b4"`,
+      `${join(outputDir, "config.json")} property "routes" must contain a route with dest "/b4"`,
     )
   })
 
@@ -1440,6 +1534,31 @@ describe("Build Output contract", () => {
     },
   )
 
+  test("accepts a composed config.json that still routes to the runtime function", async () => {
+    const outputDir = await createOutputDir()
+    await validOutput(outputDir)
+    await writeFile(
+      join(outputDir, "config.json"),
+      `${JSON.stringify(
+        {
+          images: { domains: [], sizes: [640] },
+          overrides: { "index.html": { contentType: "text/html; charset=utf-8" } },
+          routes: [
+            { src: "/api/(.*)", dest: "/api" },
+            { handle: "filesystem" },
+            { src: "/(agui|threads)(/.*)?", dest: "/b4", check: true },
+            { src: "/(.*)", dest: "/index.html" },
+          ],
+          version: 3,
+        },
+        null,
+        2,
+      )}\n`,
+    )
+
+    await expect(validateVercelOutput(outputDir)).resolves.toBeUndefined()
+  })
+
   test("accepts an embedded data module bundled by esbuild", async () => {
     const outputDir = await createOutputDir()
     await validOutput(outputDir)
@@ -1487,32 +1606,42 @@ describe("Build Output contract", () => {
     },
     {
       expected: (outputDir: string) =>
-        `${join(outputDir, "config.json")} property "routes[0].dest"`,
+        `${join(outputDir, "config.json")} property "routes" must contain a route with dest "/b4"`,
       mutate: async (outputDir: string) =>
         writeFile(
           join(outputDir, "config.json"),
           '{\n  "routes": [{ "src": "/(.*)", "dest": "/wrong" }],\n  "version": 3\n}\n',
         ),
-      name: "wrong route destination",
-    },
-    {
-      expected: (outputDir: string) => `${join(outputDir, "config.json")} property "extra"`,
-      mutate: async (outputDir: string) =>
-        writeFile(
-          join(outputDir, "config.json"),
-          '{\n  "routes": [{ "src": "/(.*)", "dest": "/b4" }],\n  "version": 3,\n  "extra": true\n}\n',
-        ),
-      name: "extra root config property",
+      name: "missing runtime route",
     },
     {
       expected: (outputDir: string) =>
-        `${join(outputDir, "config.json")} property "routes[0].extra"`,
+        `${join(outputDir, "config.json")} property "routes" must contain a route with dest "/b4"`,
       mutate: async (outputDir: string) =>
         writeFile(
           join(outputDir, "config.json"),
-          '{\n  "routes": [{ "src": "/(.*)", "dest": "/b4", "extra": true }],\n  "version": 3\n}\n',
+          '{\n  "routes": [{ "handle": "filesystem" }],\n  "version": 3\n}\n',
         ),
-      name: "extra route property",
+      name: "routes without any function destination",
+    },
+    {
+      expected: (outputDir: string) =>
+        `${join(outputDir, "config.json")} property "routes" must be an array`,
+      mutate: async (outputDir: string) =>
+        writeFile(
+          join(outputDir, "config.json"),
+          '{\n  "routes": { "src": "/(.*)", "dest": "/b4" },\n  "version": 3\n}\n',
+        ),
+      name: "routes that is not an array",
+    },
+    {
+      expected: (outputDir: string) => `${join(outputDir, "config.json")} property "routes[1]"`,
+      mutate: async (outputDir: string) =>
+        writeFile(
+          join(outputDir, "config.json"),
+          '{\n  "routes": [{ "src": "/(.*)", "dest": "/b4" }, "/b4"],\n  "version": 3\n}\n',
+        ),
+      name: "route entry that is not an object",
     },
     {
       expected: (outputDir: string) => `${functionConfigPath(outputDir)} property "extra"`,

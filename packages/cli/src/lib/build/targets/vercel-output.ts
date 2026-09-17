@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises"
 import { isBuiltin } from "node:module"
-import { isAbsolute, join, relative, sep } from "node:path"
+import { dirname, isAbsolute, join, relative, sep } from "node:path"
 import { build } from "esbuild"
 
 import { CliError, formatErrorMessage } from "../../output.js"
@@ -13,6 +13,7 @@ export interface VercelOutputOptions {
   readonly functionName?: string
 }
 
+/** The catch-all `config.json` `b4 build` writes for a given function name. */
 export function vercelBuildOutputConfig(functionName: string) {
   return {
     routes: [{ dest: `/${functionName}`, src: "/(.*)" }],
@@ -23,6 +24,11 @@ export function vercelBuildOutputConfig(functionName: string) {
 /** The `config.json` written for the default function name. */
 export const VERCEL_BUILD_OUTPUT_CONFIG = vercelBuildOutputConfig(DEFAULT_VERCEL_FUNCTION_NAME)
 
+/** The `functions/<name>.func` directory inside a Build Output tree. */
+export function vercelFunctionDir(outputDir: string, functionName: string): string {
+  return join(outputDir, "functions", `${functionName}.func`)
+}
+
 export const VERCEL_FUNCTION_CONFIG = {
   handler: "index.mjs",
   launcherType: "Nodejs",
@@ -30,10 +36,6 @@ export const VERCEL_FUNCTION_CONFIG = {
 } as const
 
 type PathOperations = Pick<typeof import("node:path"), "isAbsolute" | "relative" | "sep">
-
-export function vercelFunctionDir(outputDir: string, functionName: string): string {
-  return join(outputDir, "functions", `${functionName}.func`)
-}
 
 export async function writeVercelMetadata(
   outputDir: string,
@@ -91,15 +93,18 @@ export async function validateVercelOutput(
   await validateRuntimeDependencies(entryPath, functionDir, realFunctionDir)
 }
 
-/** Atomically replace `.vercel/output` with one fully validated staged tree. */
+/**
+ * Atomically replace `outputDir` (`.vercel/output` by default) with one fully
+ * validated staged tree. The prior output is parked beside it during the swap.
+ */
 export async function publishVercelOutput(input: {
+  readonly outputDir: string
   readonly stagedOutput: string
-  readonly vercelDir: string
   readonly fileOps?: Pick<typeof import("node:fs/promises"), "rename" | "rm">
 }): Promise<void> {
   const fileOps = input.fileOps ?? { rename, rm }
-  const outputDir = join(input.vercelDir, "output")
-  const backupPath = join(input.vercelDir, `.b4-vercel-output-backup-${randomUUID()}`)
+  const outputDir = input.outputDir
+  const backupPath = join(dirname(outputDir), `.b4-vercel-output-backup-${randomUUID()}`)
   let backupCreated = false
 
   try {
@@ -170,25 +175,28 @@ async function readJson(path: string): Promise<unknown> {
   }
 }
 
+/**
+ * The Build Output config may be composed after `b4 build` (static assets,
+ * further functions, their routes), so this asserts the parts the runtime
+ * function depends on rather than the exact catch-all `b4 build` writes: a
+ * version-3 config whose route list still reaches the runtime function.
+ */
 function validateBuildOutputConfig(value: unknown, configPath: string, functionName: string): void {
-  const expected = vercelBuildOutputConfig(functionName)
   const config = asRecord(value, configPath)
-  validateExactProperties(config, ["routes", "version"], configPath)
-  if (config.version !== expected.version) {
+  if (config.version !== 3) {
     throw new Error(`${configPath} property "version" must be 3`)
   }
-  if (!Array.isArray(config.routes) || config.routes.length !== 1) {
-    throw new Error(`${configPath} property "routes" must contain exactly one catch-all route`)
+  if (!Array.isArray(config.routes)) {
+    throw new Error(`${configPath} property "routes" must be an array`)
   }
 
-  const route = asRecord(config.routes[0], `${configPath} property "routes[0]"`)
-  validateExactProperties(route, ["src", "dest"], configPath, "routes[0].")
-  if (route.src !== expected.routes[0].src) {
-    throw new Error(`${configPath} property "routes[0].src" must be "/(.*)"`)
-  }
-  if (route.dest !== expected.routes[0].dest) {
+  const runtimeDest = `/${functionName}`
+  const routes = config.routes.map((route, index) =>
+    asRecord(route, `${configPath} property "routes[${index}]"`),
+  )
+  if (!routes.some((route) => route.dest === runtimeDest)) {
     throw new Error(
-      `${configPath} property "routes[0].dest" must be ${JSON.stringify(expected.routes[0].dest)}`,
+      `${configPath} property "routes" must contain a route with dest ${JSON.stringify(runtimeDest)} so requests reach the runtime function`,
     )
   }
 }

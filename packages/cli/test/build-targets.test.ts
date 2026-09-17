@@ -407,6 +407,69 @@ describe("b4 check — build targets", () => {
     expect(existsSync(join(appRoot, ".vercel"))).toBe(false)
   })
 
+  test.for([
+    [
+      "a non-string outDir",
+      '{ targets: ["vercel"], vercel: { outDir: 3 } }',
+      /build\.vercel\.outDir must be a string/,
+    ],
+    [
+      "a blank outDir that would resolve to the app root",
+      '{ targets: ["vercel"], vercel: { outDir: "   " } }',
+      /build\.vercel\.outDir must not be empty/,
+    ],
+    [
+      "outDir misplaced directly on build",
+      '{ targets: ["vercel"], outDir: "dist/vercel" }',
+      /outDir belongs under build\.vercel/,
+    ],
+  ] as const)(
+    "check rejects %s rather than publishing somewhere unintended",
+    async ([, buildConfig, expected]) => {
+      const appRoot = await createFixtureApp({
+        "b4.config.ts": `export default { build: ${buildConfig} };\n`,
+      })
+
+      const error = await runCheckCommand(
+        { cwd: appRoot },
+        { stderr: () => {}, stdout: () => {} },
+      ).catch((caught: unknown) => caught)
+
+      expect(error).toMatchObject({ code: "B4_E1003" })
+      expect(String(error)).toMatch(expected)
+    },
+  )
+
+  test("build rejects an invalid outDir before writing any output", async () => {
+    const appRoot = await createFixtureApp({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { outDir: "" } } };\n',
+    })
+
+    const error = await runBuild(appRoot).catch((caught: unknown) => caught)
+
+    expect(error).toMatchObject({ code: "B4_E1003" })
+    expect(existsSync(join(appRoot, ".vercel"))).toBe(false)
+    expect(existsSync(join(appRoot, "vercel.json"))).toBe(false)
+  })
+
+  test("outDir and reconcileVercelJson are honored together", async () => {
+    const appRoot = await createFixtureApp({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { outDir: "dist/vercel", reconcileVercelJson: false } } };\n',
+      "src/app/(public)/hello/[tenant]/index.ts":
+        "export async function workflow() { return { ok: true } }\n",
+    })
+
+    const { stderr } = await runBuild(appRoot)
+
+    expect(stderr.join("")).toBe("")
+    expect(existsSync(join(appRoot, "dist/vercel/config.json"))).toBe(true)
+    expect(existsSync(join(appRoot, "dist/vercel/functions/b4.func/index.mjs"))).toBe(true)
+    expect(existsSync(join(appRoot, ".vercel/output"))).toBe(false)
+    expect(existsSync(join(appRoot, "vercel.json"))).toBe(false)
+  })
+
   test("non-boolean vercel reconcileVercelJson fails check as an invalid build config", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts":
