@@ -132,14 +132,14 @@
       "recordDigest": "854d70653b7e7ae1a80889d317e0b5be8019a970d60e32882b07dd906cd3e951"
     },
     "/docs/cli": {
-      "lastModified": "2026-09-10T06:58:06.160Z",
-      "sourceDigest": "0be13f594e871cc94e6ee0d71f04a4e79045b8346106f8a43f56660bd44a4d58",
-      "recordDigest": "1596769bc6ce81e0b909ccd403072ae788df0beee54bee026fb25c67becdd04f"
+      "lastModified": "2026-09-17T15:08:37.337Z",
+      "sourceDigest": "f8348a83fb4b7eeeb910e7a8b3fc8fdc42144b215683a4eda5ac8e8e75f9ab46",
+      "recordDigest": "dbab7493fa8079f8435385b97fa4262cd05a4df3045a8aacd23eff8d50f1a699"
     },
     "/docs/configuration": {
-      "lastModified": "2026-09-15T04:35:39.313Z",
-      "sourceDigest": "8eb9ecce6c2d48792e327be9b02d306f814405f55bfc14ccddf36c9e2ed688c9",
-      "recordDigest": "09f29c518fe8300be38cc3b073366baf2132dd8f98b4193fee62daf80d67bb4d"
+      "lastModified": "2026-09-17T15:08:37.337Z",
+      "sourceDigest": "5a0715dc873a04d406933aa69e995a19bba79cb8c84f3a459f93a9bde83278c7",
+      "recordDigest": "db98510643028497683146470ed1802a79b4f63e905f3492225165c041356088"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -392,9 +392,9 @@
       "recordDigest": "e412c909c42b74ed38a4e11f33f3e33904c1013bfab00db4bc5d7d1f5ec0b5f3"
     },
     "/docs/upgrading": {
-      "lastModified": "2026-09-10T06:16:49.655Z",
-      "sourceDigest": "34bf05eee2c15f01efc5500e692094a3cdb33d9ff407d946f8621092cb1da675",
-      "recordDigest": "32de3eb9092aa7063e5a83488110de723f8f04fe1bbc195b2a027719fb961a98"
+      "lastModified": "2026-09-17T15:08:37.337Z",
+      "sourceDigest": "babefff6e9bbee9e880ea595f441b9db07e4c9ccfb972913ab7337e49bb9c602",
+      "recordDigest": "be69c1cb0b807d4258b7e37523601802044e938affa550c15cca68ad647e645d"
     },
     "/docs/workspace": {
       "lastModified": "2026-09-07T19:58:55.550Z",
