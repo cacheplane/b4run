@@ -90,6 +90,15 @@ describe("statusResponse", () => {
     }
   })
 
+  // `null` is valid JSON and `reject(401, null)` is a body-carrying reject —
+  // it must not be swallowed by the undefined branch (i.e. the check stays
+  // `===`, not `==`).
+  test("an explicit null body is sent as JSON null, not dropped", async () => {
+    const response = statusResponse(401, null)
+    expect(response.status).toBe(401)
+    expect(await response.text()).toBe("null")
+  })
+
   test("an omitted body on a null-body status stays body-less", () => {
     for (const status of [204, 205, 304]) {
       const response = statusResponse(status, undefined)
