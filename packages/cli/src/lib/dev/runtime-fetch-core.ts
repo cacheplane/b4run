@@ -2630,7 +2630,16 @@ async function handleApWaitRequest(options: {
     // /runs/wait turn that parks still reads "idle" here. Clients detect that
     // case via GET /threads/:id/pending_interrupts.
     await threadsStore.updateStatus(threadId, "idle").catch(() => undefined)
-    return Response.json(result.output, { status: 200 })
+    // `result.output` is literally the route's return value, so a route that
+    // returns nothing lands here as `undefined` — which `Response.json` throws
+    // on, turning a fine run into a 500 while `/runs/stream` reports the same
+    // run as done (#714). JSON has no `undefined`, so send `null`.
+    //
+    // Not the pre-#373 empty body: `normalizeServerResult`, B4's own client for
+    // this endpoint, parses every 200 body and would read `""` as a malformed
+    // payload — trading the 500 for a transport error. `??` leaves falsy
+    // outputs (`0`, `false`, `""`) alone.
+    return Response.json(result.output ?? null, { status: 200 })
   } finally {
     if (settleAfterRouteUnwinds && resultPromise) {
       // The route outlived this response. Its park — if it parks at all — may
