@@ -43,8 +43,31 @@ const APP_ID = objectId("3")
 const SANDBOX_ID = objectId("4")
 const FOREIGN_CONTAINER_ID = objectId("f")
 const FOREIGN_NETWORK_ID = objectId("e")
-const RUN_WATCHDOG_MS = 15_000
+/**
+ * Kills a WEDGED smoke script. Deliberately not a performance budget.
+ *
+ * Every simulated `docker`/`curl` call in these scenarios boots a fresh Node
+ * process, so a run's wall-clock cost tracks how contended process creation is
+ * on the host, not how much work the script did. The slowest scenario's own
+ * run window measures about 10s on an idle machine; at the previous 15s this
+ * left roughly 1.5x headroom, and a full repository suite spawning processes
+ * on every core erases that. Issue #535's intermittent failures were this
+ * watchdog firing on runs that were healthy but merely slow.
+ *
+ * Sized for a wedge instead: comfortably above any legitimate run, still
+ * bounding a hung script to a minute. `RUN_WATCHDOG_HEADROOM_FACTOR` below is
+ * what keeps this honest as the scenarios evolve.
+ */
+const RUN_WATCHDOG_MS = 60_000
 const TEST_TIMEOUT_MS = RUN_WATCHDOG_MS + 5_000
+/**
+ * How much of the watchdog the slowest legitimate run may consume. The
+ * watchdog is a WEDGE detector, not a performance gate, so a run that merely
+ * got slow must not trip it. Asserted by the guard at the bottom of this file.
+ */
+const RUN_WATCHDOG_HEADROOM_FACTOR = 2
+/** Widest `runSmoke` elapsed this file has observed, for the headroom guard. */
+let slowestObservedRunMs = 0
 const SIMULATED_LOADED_DISPATCH_MS = 600
 const ROUTINE_FAKE_COMMAND_TIMEOUT_MS = 2_000
 const INTENTIONAL_FAKE_COMMAND_TIMEOUT_MS = ROUTINE_FAKE_COMMAND_TIMEOUT_MS
@@ -1485,9 +1508,10 @@ async function runSmoke(options: SmokeFixtureOptions = {}): Promise<SmokeResult>
   if (watchdogFired) {
     const tail = transcript.slice(-12)
     throw new Error(
-      `Smoke script exceeded its ten-second watchdog after ${transcript.length} fake commands\nlast commands: ${JSON.stringify(tail)}\nstderr: ${Buffer.concat(stderrChunks).toString("utf8")}`,
+      `Smoke script exceeded its ${Math.round(RUN_WATCHDOG_MS / 1000)}-second watchdog after ${transcript.length} fake commands\nlast commands: ${JSON.stringify(tail)}\nstderr: ${Buffer.concat(stderrChunks).toString("utf8")}`,
     )
   }
+  slowestObservedRunMs = Math.max(slowestObservedRunMs, Date.now() - startedAt)
   return {
     ...outcome,
     stdout: Buffer.concat(stdoutChunks).toString("utf8"),
@@ -3280,5 +3304,28 @@ describe("bounded supervisor protocol", () => {
       expect(result.code).toBe(result.owner === "normal" ? 23 : 124)
       expectNoPostReapSignal(result)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The guard that would have caught issue #535. Every scenario above is driven
+// by fake `docker`/`curl` commands that each boot a fresh Node process, so a
+// run's wall-clock cost tracks how contended process creation is on the host.
+// When the whole repository suite runs, that contention is real, and a
+// watchdog sized just above the idle cost of the slowest scenario fires on
+// perfectly healthy runs.
+//
+// Declared last on purpose: it reads what the scenarios above actually
+// measured rather than a number someone wrote down once.
+// ---------------------------------------------------------------------------
+
+describe("run watchdog sizing", () => {
+  test("leaves the slowest observed run well inside the watchdog", () => {
+    if (slowestObservedRunMs === 0) return
+    expect(
+      RUN_WATCHDOG_MS,
+      `slowest observed run was ${slowestObservedRunMs}ms; the watchdog must stay a wedge ` +
+        "detector with real headroom, not a performance gate that ordinary load can trip",
+    ).toBeGreaterThanOrEqual(slowestObservedRunMs * RUN_WATCHDOG_HEADROOM_FACTOR)
   })
 })

@@ -319,7 +319,7 @@ export const DOCS_SEO_ENTRIES = [
     path: "/docs/deployment",
     title: "Deployment Options",
     description:
-      "Compare B4.run's Node, LangSmith, and Hono deployment targets, their artifacts and capability boundaries, and the required validation workflow.",
+      "Compare B4.run's Node, LangSmith, Hono, and Vercel deployment targets, their artifacts and capability boundaries, and the required validation workflow.",
     sourcePath: "apps/web/content/docs/deployment.mdx",
   },
   {
@@ -349,6 +349,13 @@ export const DOCS_SEO_ENTRIES = [
     description:
       "Learn when B4.run's Hono edge target fits, what it emits, which capabilities it rejects, and how to validate request-scoped deployment.",
     sourcePath: "apps/web/content/docs/deployment/edge.mdx",
+  },
+  {
+    path: "/docs/deployment/vercel",
+    title: "Vercel",
+    description:
+      "Deploy B4.run to Vercel's Node 24 Fluid runtime: enable the target, read the Build Output tree, reconcile vercel.json, wire Neon, and deploy prebuilt.",
+    sourcePath: "apps/web/content/docs/deployment/vercel.mdx",
   },
   {
     path: "/docs/sandbox",

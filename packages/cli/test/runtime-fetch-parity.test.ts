@@ -76,6 +76,54 @@ describe("statusResponse", () => {
     expect(response.headers.get("content-type")).toContain("application/json")
   })
 
+  // `reject(status)` with no body is a documented SDK call (see the middleware
+  // docs), and `Response.json(undefined)` throws — which used to land in the
+  // catch below and answer 500 instead of the status the app asked for.
+  test("an omitted body keeps the requested status with an empty JSON body", async () => {
+    for (const status of [400, 401, 403, 418, 500]) {
+      const response = statusResponse(status, undefined)
+      expect(response.status).toBe(status)
+      // Old `sendJson` did `res.end(JSON.stringify(undefined))` — an empty
+      // payload under a JSON content-type. Same bytes here.
+      expect(response.headers.get("content-type")).toBe("application/json")
+      expect(await response.text()).toBe("")
+    }
+  })
+
+  // `null` is valid JSON and `reject(401, null)` is a body-carrying reject —
+  // it must not be swallowed by the undefined branch (i.e. the check stays
+  // `===`, not `==`).
+  test("an explicit null body is sent as JSON null, not dropped", async () => {
+    const response = statusResponse(401, null)
+    expect(response.status).toBe(401)
+    expect(await response.text()).toBe("null")
+  })
+
+  test("an omitted body on a null-body status stays body-less", () => {
+    for (const status of [204, 205, 304]) {
+      const response = statusResponse(status, undefined)
+      expect(response.status).toBe(status)
+      expect(response.body).toBeNull()
+      expect(response.headers.get("content-type")).toBe("application/json")
+    }
+  })
+
+  test("an omitted body on an inexpressible status still becomes the standard 500", async () => {
+    const response = statusResponse(700, undefined)
+    expect(response.status).toBe(500)
+    const body = (await response.json()) as { error: { kind: string } }
+    expect(body.error.kind).toBe("execution_error")
+  })
+
+  test("a body that cannot be serialized becomes the standard 500", async () => {
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    const response = statusResponse(401, circular)
+    expect(response.status).toBe(500)
+    const body = (await response.json()) as { error: { kind: string } }
+    expect(body.error.kind).toBe("execution_error")
+  })
+
   test("statuses a Response cannot express become the standard 500", async () => {
     for (const status of [99, 150, 700, 1000]) {
       const response = statusResponse(status, { error: "x" })

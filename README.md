@@ -201,7 +201,8 @@ npm start
 Choose and validate the deployment boundary that matches your application:
 [Node](https://b4.run/docs/deployment/node),
 [LangSmith](https://b4.run/docs/deployment/langsmith),
-[edge targets](https://b4.run/docs/deployment/edge), or
+[edge targets](https://b4.run/docs/deployment/edge),
+[Vercel](https://b4.run/docs/deployment/vercel), or
 [Kubernetes](https://b4.run/docs/deployment/kubernetes). B4.run emits the
 artifacts; it does not provision infrastructure, host the application, or
 manage its secrets.
