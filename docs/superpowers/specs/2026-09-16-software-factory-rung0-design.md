@@ -204,10 +204,7 @@ Every transition increments `revision`. Writes are compare-and-swap on
 The interrupt cannot carry it. The controller watches the run stream for the
 `tool_result` frame of `prepareReview`, parses its JSON content, and records
 `candidate.receiptDigest` in the registry as `candidate_digest` together with
-the `verification.passed` boolean and the event sequence. When the
-`exportForReview` interrupt arrives, the controller also checks that
-`detail.argsPreview` begins with a JSON object whose first key is `candidate`;
-this is a sanity check, not the binding.
+the `verification.passed` boolean and the event sequence.
 
 The binding is the receipt filename. Code-fixer names its receipt by the
 candidate digest and re-verifies before writing it, so `exported` is only
