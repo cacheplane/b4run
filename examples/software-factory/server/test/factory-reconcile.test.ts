@@ -133,6 +133,30 @@ describe("reconciliation", () => {
     expect(threadPosts()).toBe(threadsBefore)
   })
 
+  it("reattaches to a live run once even when the row also has an open command intent", async () => {
+    await bootWorker({ run: "hang" })
+    await bootFactory()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    await factory.waitFor(id, (r) => r.state === "running")
+    await crash()
+    // An open intent puts this row through the command loop as well as the work-order walk.
+    const registry = openRegistry(registryPath())
+    createCommandLog(registry.db).begin(
+      "cancel-crashed",
+      id,
+      { command: "cancel", args: {} },
+      now(),
+    )
+    registry.close()
+    await bootFactory()
+    const reattaches = fake.requests.filter(
+      (r) => r.method === "GET" && r.path.endsWith("/runs/stream"),
+    )
+    expect(reattaches).toHaveLength(1)
+    expect(factory.events(id).filter((e) => e.type === "reattached")).toHaveLength(1)
+  })
+
   it("blocks with interrupt_vanished when the prompt is gone while awaiting approval", async () => {
     await bootWorker()
     await bootFactory()

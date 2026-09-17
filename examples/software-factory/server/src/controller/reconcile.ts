@@ -14,6 +14,11 @@ const isRunState = (state: WorkOrderRow["state"]) => state === "dispatched" || s
  * run inside `safeReconcile`: a failure is journalled and the walk continues.
  */
 export async function reconcileAll(ctx: ControllerContext): Promise<void> {
+  // Loop 1 already applied the rules to these: a second pass at attempt 0 would reattach to a
+  // live run twice (the first observer is then evicted from the runs map and no longer awaited
+  // by close or settleRun) and would send a second cancel round trip to an unconfirmed
+  // cancel_requested row.
+  const handled = new Set<string>()
   for (const open of ctx.commands.open()) {
     const row = ctx.store.get(open.workOrderId)
     if (!row) {
@@ -24,9 +29,11 @@ export async function reconcileAll(ctx: ControllerContext): Promise<void> {
       continue
     }
     if (open.intent.command === "dispatch" && row.state === "received" && !row.workerThreadId) {
+      handled.add(row.id)
       await settleIncompleteDispatch(ctx, row.id, open.operationKey)
       continue
     }
+    handled.add(row.id)
     await safeReconcile(ctx, row.id)
     const final = ctx.mustGet(row.id)
     ctx.commands.complete(open.operationKey, {
@@ -36,7 +43,7 @@ export async function reconcileAll(ctx: ControllerContext): Promise<void> {
     })
   }
   for (const row of ctx.store.list()) {
-    if (!isTerminal(row.state)) await safeReconcile(ctx, row.id)
+    if (!isTerminal(row.state) && !handled.has(row.id)) await safeReconcile(ctx, row.id)
   }
 }
 
@@ -63,8 +70,10 @@ async function settleIncompleteDispatch(
   // Adopting the orphan is the only way not to leak it: a second dispatch would create a
   // second thread and leave this one running unobserved.
   try {
-    ctx.recordEvent(id, "reconciled", { operationKey, resolution: "thread_adopted", threadId })
     ctx.transition(id, "dispatch_committed", { workerThreadId: threadId }, { reconciled: true })
+    // Journalled only once the row actually holds the thread: an adoption line above a
+    // rolled-back transition would read as an adoption that never happened.
+    ctx.recordEvent(id, "reconciled", { operationKey, resolution: "thread_adopted", threadId })
   } catch (error) {
     ctx.commands.complete(operationKey, {
       ok: false,
