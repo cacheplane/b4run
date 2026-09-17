@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import type { RouteManifest, RouteToolTypes } from "@b4run/core"
-import { renderB4Types } from "@b4run/core"
+import { B4AppError, renderB4Types } from "@b4run/core"
 import { discoverRoutes, extractToolTypesForRoute, findB4App } from "@b4run/core/node"
 import type { B4ErrorCode } from "@b4run/sdk"
 import type { SandboxProvider } from "@b4run/workspace"
@@ -56,6 +56,8 @@ interface VerifyDepsCheckResult {
 
 interface VerifyFailedCheckResult {
   readonly error: {
+    /** Present when the thrown error carried a registry code (a `B4AppError`). */
+    readonly code?: B4ErrorCode
     readonly message: string
   }
   readonly name: "app" | "deps" | "routes" | "typegen"
@@ -310,6 +312,9 @@ function createVerifyFailureResult(
     ...checks,
     {
       error: {
+        // Discovery throws plain `Error`s for the cases the registry has no
+        // entry for; only a `B4AppError` carries a code to forward.
+        ...(error instanceof B4AppError ? { code: error.code } : {}),
         message,
       },
       name,
@@ -356,15 +361,20 @@ function runtimeFailureMessage(runtime: RuntimeCheckResult): string {
 
 /**
  * The B4_E code for a failed verify result, when the failure is
- * attributable to a registered code. Only the runtime check currently
- * carries codes; a stale Node takes priority over an unreachable sandbox
- * daemon since it is reported first in `runtimeFailureMessage`.
+ * attributable to a registered code. The runtime check carries its codes on
+ * its sub-checks — a stale Node takes priority over an unreachable sandbox
+ * daemon since it is reported first in `runtimeFailureMessage`. Every other
+ * phase carries the code the thrown `B4AppError` supplied, or none.
  */
 function getFailureCode(result: VerifyFailureResult): B4ErrorCode | undefined {
   const failedCheck = [...result.checks].reverse().find((check) => check.status === FAILED_STATUS)
 
   if (failedCheck?.name === "runtime") {
     return failedCheck.node.code ?? failedCheck.docker?.code
+  }
+  // Only VerifyFailedCheckResult carries an `error` field.
+  if (failedCheck && "error" in failedCheck) {
+    return failedCheck.error.code
   }
   return undefined
 }

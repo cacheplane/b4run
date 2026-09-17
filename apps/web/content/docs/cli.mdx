@@ -55,7 +55,7 @@ b4 verify --json
 
 Flags:
 - `--cwd <path>` — operate on a different app root.
-- `--json` — emit a structured report (`{ status, appRoot, checks, counts }`) instead of human-readable text.
+- `--json` — emit a structured report (`{ status, appRoot, checks, counts }`) instead of human-readable text. A failed check carries `error.message`, plus `error.code` when the failure has an [error-code](/docs/errors) entry (for example `B4_E1006` for an app root that is not an ES module). The same code is rendered as the `[B4_Exxxx] See <docs>` footer in text mode.
 - `--env-file <path>` — path to a `.env` file (overrides `b4.config.ts` `env` and the default `./.env`).
 
 The `deps` check covers missing packages and missing env vars (advisory). It is **provider-aware**: it derives the API-key env var from the providers your routes actually use — an Anthropic-only app is checked for `ANTHROPIC_API_KEY`, an OpenAI app for `OPENAI_API_KEY`, a multi-provider app for the union, and a local Ollama app for none. A missing key is a warning, not a failure (the key may come from the runtime environment).

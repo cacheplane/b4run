@@ -114,6 +114,59 @@ describe("b4 verify", () => {
     }
   })
 
+  test('renders B4_E1006 when the app root package.json lacks "type": "module"', async () => {
+    const appRoot = await createFixtureApp({
+      "package.json": '{"name":"no-type"}\n',
+      "src/app/hello/index.ts": "export async function workflow() { return {} }\n",
+    })
+
+    const result = await invoke(["verify", "--cwd", appRoot])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toMatch(/^Verify failed:/)
+    expect(result.stderr).toContain("[B4_E1006]")
+    expect(result.stderr).toContain("https://b4.run/docs/cli#b4-check")
+  })
+
+  test("exposes B4_E1006 on the app check in json mode when the app root is not an ES module", async () => {
+    const appRoot = await createFixtureApp({
+      "package.json": '{"name":"no-type"}\n',
+      "src/app/hello/index.ts": "export async function workflow() { return {} }\n",
+    })
+
+    const result = await invoke(["verify", "--cwd", appRoot, "--json"])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toBe("")
+    const parsed = JSON.parse(result.stdout)
+    const appCheck = parsed.checks.find((check: { name: string }) => check.name === "app")
+    expect(appCheck.status).toBe("failed")
+    expect(appCheck.error.code).toBe("B4_E1006")
+  })
+
+  test("renders B4_E1007 when a route entry has no recognisable export", async () => {
+    const appRoot = await createFixtureApp({
+      "src/app/hello/index.ts": "export async function workflow() { return {} }\n",
+      "src/app/util/index.ts": "export const helper = 1\n",
+    })
+
+    const result = await invoke(["verify", "--cwd", appRoot])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toMatch(/^Verify failed:/)
+    expect(result.stderr).toContain("[B4_E1007]")
+  })
+
+  test("omits the code when the failing check carries no registry code", async () => {
+    const appRoot = contractFixtureRoot("invalid-config")
+
+    const result = await invoke(["verify", "--cwd", appRoot, "--json"])
+
+    expect(result.exitCode).toBe(1)
+    const parsed = JSON.parse(result.stdout)
+    expect(parsed.checks[0].error).toEqual({ message: "defineConfig is not defined" })
+  })
+
   test("resolves the B4.run app root from a child directory via --cwd", async () => {
     const appRoot = await createFixtureApp({
       "src/app/hello/index.ts": "export async function workflow() { return {} }\n",
