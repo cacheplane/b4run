@@ -25,4 +25,18 @@ describe("outbox", () => {
     )
     expect(await waitForReceipt(dir, "d".repeat(64), { timeoutMs: 50, intervalMs: 10 })).toBeNull()
   })
+
+  it("wakes on abort instead of waiting for the next poll", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-outbox-"))
+    const controller = new AbortController()
+    setTimeout(() => controller.abort(), 20)
+    const start = Date.now()
+    const result = await waitForReceipt(dir, digest, {
+      timeoutMs: 5_000,
+      intervalMs: 1_000,
+      signal: controller.signal,
+    })
+    expect(result).toBeNull()
+    expect(Date.now() - start).toBeLessThan(200)
+  })
 })
