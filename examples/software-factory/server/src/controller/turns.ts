@@ -13,16 +13,16 @@ export interface TurnHandlers {
 }
 
 export interface TurnResult {
-  readonly ended: "done" | "lost"
+  readonly ended: "done" | "lost" | "handler_error"
   readonly interrupts: InterruptFrame[]
   readonly error?: string
   readonly malformed?: number
 }
 
 /**
- * Drive one Server-Sent Events turn to its end. Both handler errors and transport
- * errors surface as `ended: "lost"` (with `error` set) so the caller can reconcile
- * instead of guessing; nothing thrown here propagates to the caller.
+ * Drive one Server-Sent Events turn to its end. Transport errors and a stream that
+ * ends without done surface as `ended: "lost"`; a throwing handler surfaces as
+ * `ended: "handler_error"`; nothing propagates.
  */
 export async function consumeTurn(
   frames: AsyncIterable<StreamFrame>,
@@ -32,11 +32,15 @@ export async function consumeTurn(
   let malformed = 0
   let first = true
   let sawDone = false
+  let phase: "transport" | "handler" = "transport"
   try {
     for await (const frame of frames) {
+      phase = "transport"
       if (first) {
         first = false
+        phase = "handler"
         await handlers.onFirstFrame?.()
+        phase = "transport"
       }
       if (frame.event === "tool_result") {
         const parsed = ToolResultFrameSchema.safeParse(frame.data)
@@ -44,7 +48,9 @@ export async function consumeTurn(
           malformed += 1
           continue
         }
+        phase = "handler"
         await handlers.onToolResult?.(parsed.data.name, parsed.data.output)
+        phase = "transport"
       } else if (frame.event === "interrupt") {
         const parsed = InterruptFrameSchema.safeParse(frame.data)
         if (!parsed.success) {
@@ -52,13 +58,24 @@ export async function consumeTurn(
           continue
         }
         interrupts.push(parsed.data)
+        phase = "handler"
         await handlers.onInterrupt?.(parsed.data)
+        phase = "transport"
       } else if (frame.event === "done") {
         sawDone = true
+        phase = "handler"
         await handlers.onDone?.(frame.data)
+        phase = "transport"
       }
     }
   } catch (error) {
+    if (phase === "handler")
+      return {
+        ended: "handler_error",
+        interrupts,
+        error: String(error),
+        ...(malformed ? { malformed } : {}),
+      }
     return { ended: "lost", interrupts, error: String(error), ...(malformed ? { malformed } : {}) }
   }
   if (!sawDone)

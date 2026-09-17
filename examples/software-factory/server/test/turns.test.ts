@@ -73,4 +73,37 @@ describe("consumeTurn", () => {
     expect(result.interrupts).toEqual([])
     expect(result.malformed).toBe(1)
   })
+
+  it("ignores malformed tool_result frames but counts them", async () => {
+    const result = await consumeTurn(
+      frames([
+        { event: "tool_result", data: { nope: true } },
+        { event: "done", data: {} },
+      ]),
+      {},
+    )
+    expect(result.ended).toBe("done")
+    expect(result.malformed).toBe(1)
+  })
+
+  it("reports handler_error when a handler throws, without consuming further frames", async () => {
+    const seen: string[] = []
+    const result = await consumeTurn(
+      frames([
+        { event: "tool_result", data: { name: "prepareReview", output: "{}" } },
+        { event: "chunk", data: "text" },
+        { event: "done", data: {} },
+      ]),
+      {
+        onFirstFrame: async () => void seen.push("first"),
+        onToolResult: async () => {
+          throw new Error("handler exploded")
+        },
+        onDone: async () => void seen.push("done"),
+      },
+    )
+    expect(seen).toEqual(["first"])
+    expect(result.ended).toBe("handler_error")
+    expect(result.error).toMatch(/handler exploded/)
+  })
 })
