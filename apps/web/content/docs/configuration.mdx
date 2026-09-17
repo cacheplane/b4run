@@ -312,10 +312,10 @@ the artifact and compatibility matrix.
 `vercel` describes what the `"vercel"` target publishes beside the runtime
 function: a static directory with an optional SPA document, extra Node
 functions bundled from an `entry`, and routes placed ahead of the filesystem
-phase. Paths resolve from the app root. The runtime function is named `index`
-until `static` is set, when it becomes `b4` so it does not shadow
-`static/index.html`; `functionName` overrides either default, and `"index"`
-beside `static` fails the build. See
+phase. Paths resolve from the app root. The runtime function is named `b4`,
+never `index`: the Build Output API also serves a function named `index` at
+`/`, where it would shadow a static `index.html`. `functionName` overrides the
+default, and `"index"` beside `static` fails the build. See
 [the `vercel` target](/docs/deployment/edge#the-vercel-target) for the
 published tree and route order.
 

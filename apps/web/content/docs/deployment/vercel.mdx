@@ -51,14 +51,14 @@ The target writes one Build Output API tree at `.vercel/output/` and reconciles 
 
 | Artifact | Purpose |
 |---|---|
-| `.vercel/output/config.json` | Build Output API `version: 3` with a single catch-all route, `{ "src": "/(.*)", "dest": "/index" }`, sending every path to the function |
-| `.vercel/output/functions/index.func/.vc-config.json` | Node function metadata: `handler: "index.mjs"`, `launcherType: "Nodejs"`, `runtime: "nodejs24.x"`, `supportsResponseStreaming: true` |
-| `.vercel/output/functions/index.func/index.mjs` | The bundled function: a Hono catch-all around `createRuntimeFetchHandler`, with the static route manifest, the per-request Postgres store factory, every model-provider package, and the app's serialized config inlined |
+| `.vercel/output/config.json` | Build Output API `version: 3` with a single catch-all route, `{ "src": "/(.*)", "dest": "/b4" }`, sending every path to the function |
+| `.vercel/output/functions/b4.func/.vc-config.json` | Node function metadata: `handler: "index.mjs"`, `launcherType: "Nodejs"`, `runtime: "nodejs24.x"`, `supportsResponseStreaming: true` |
+| `.vercel/output/functions/b4.func/index.mjs` | The bundled function: a Hono catch-all around `createRuntimeFetchHandler`, with the static route manifest, the per-request Postgres store factory, every model-provider package, and the app's serialized config inlined |
 | `vercel.json` | Root project configuration, created when missing; an existing file is never modified, and a reference copy goes to `.b4/build/vercel.json` only when the existing file lacks a required contract. Absent entirely when reconciliation is [turned off](#opt-out-for-a-prebuilt-only-project) |
 
-[`build.vercel`](#compose-with-a-frontend) adds to that tree: a `static/` directory, a `functions/<name>.func/` per declared function, and the routes that order them. The runtime function is then named `b4.func` rather than `index.func`, so the paths below move with it.
+[`build.vercel`](#compose-with-a-frontend) adds to that tree: a `static/` directory, a `functions/<name>.func/` per declared function, and the routes that order them. The runtime function keeps the same `b4.func` name it has in a bare build.
 
-The function directory is the whole deployable. `b4 build` bundles the generated runtime with esbuild for `node24`, then verifies that every non-builtin import resolves inside `index.func`, that no symlink escapes it, and that the bundle contains no `node:module` loader or non-literal dynamic import. A dependency that cannot be bundled fails the build with the missing specifier; install it as a runtime dependency and rebuild.
+The function directory is the whole deployable. `b4 build` bundles the generated runtime with esbuild for `node24`, then verifies that every non-builtin import resolves inside `b4.func`, that no symlink escapes it, and that the bundle contains no `node:module` loader or non-literal dynamic import. A dependency that cannot be bundled fails the build with the missing specifier; install it as a runtime dependency and rebuild.
 
 The output is published atomically. The tree is staged under `.vercel/.b4-vercel-<uuid>/`, validated, then renamed over `.vercel/output`; a prior output is backed up first and restored if publication fails. Nothing else under `.vercel/` (for example the `project.json` that `vercel link` writes) is touched.
 
@@ -165,7 +165,7 @@ That build publishes `static/` from `static.dir`, a `functions/<name>.func/` for
 
 Two details matter for a frontend.
 
-- **The runtime function moves off the root name.** In the Build Output API a function named `index` is also served at `/`, so it would shadow `static/index.html`. Once `static` is configured the runtime function is named `b4.func` instead, and `functionName` overrides that; `functionName: "index"` together with `static` fails the build rather than publishing a tree whose root is shadowed. A bare build with no `static` keeps `index.func` and today's exact catch-all.
+- **The runtime function sits off the root name.** In the Build Output API a function named `index` is also served at `/`, so it would shadow `static/index.html`. The runtime function is named `b4.func` in every build, and `functionName` overrides that; `functionName: "index"` together with `static` fails the build rather than publishing a tree whose root is shadowed.
 - **The runtime keeps its own rooted paths.** With a SPA fallback the runtime route is scoped to the surfaces it owns — `/healthz`, `/readyz`, `/threads`, `/agui`, `/memory` — and every other path falls through to the fallback document. The runtime does not accept a base path, so compose by path prefix rather than rewriting the request path.
 
 `b4 build` validates the composed tree before publishing it: `config.json` must be version 3 and still route to the runtime function, each route must be a shape the Build Output API accepts, and every `functions/*.func` must be a self-contained Node function whose dependencies resolve inside its own directory. Every path `build.vercel` names is checked before `.vercel/` is touched, so a missing `static.dir` or function `entry` fails with the offending `build.vercel.*` key rather than a half-written tree.
@@ -234,7 +234,7 @@ The function is a default-exported Web Fetch API handler, so it runs under plain
 ```bash
 DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/app \
   node --input-type=module -e '
-    const entry = "./.vercel/output/functions/index.func/index.mjs"
+    const entry = "./.vercel/output/functions/b4.func/index.mjs"
     const { default: app } = await import(entry)
     const ready = await app.fetch(new Request("http://localhost/readyz"))
     console.log(ready.status, await ready.text())

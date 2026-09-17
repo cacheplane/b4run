@@ -171,13 +171,13 @@ The `pg` fallback is what makes the built function testable offline. Point `DATA
 ```bash
 DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/app \
   node --input-type=module -e '
-    const { default: app } = await import("./.vercel/output/functions/index.func/index.mjs")
+    const { default: app } = await import("./.vercel/output/functions/b4.func/index.mjs")
     const response = await app.fetch(new Request("http://localhost/readyz"))
     console.log(response.status, await response.text())
   '
 ```
 
-That import path is the bare-build one. The runtime function is `index.func` only until `build.vercel.static` is configured, when it becomes `b4.func` — or whatever `functionName` names it — so an app shipping a SPA imports `./.vercel/output/functions/b4.func/index.mjs` instead. `build.vercel.outDir` moves the whole tree, so adjust the leading path too.
+The runtime function is `b4.func` for every build, or whatever `functionName` names it. `build.vercel.outDir` moves the whole tree, so adjust the leading path when you set it.
 
 A reachable database answers `200` and names each store it probed:
 
@@ -239,7 +239,7 @@ wrangler secret put DATABASE_URL
 | Artifact | Purpose |
 |---|---|
 | `.vercel/output/config.json` | Build Output routes, `version: 3` |
-| `.vercel/output/functions/index.func/` | The runtime function: `.vc-config.json` (`nodejs24.x`, `supportsResponseStreaming: true`) and a bundled `index.mjs` |
+| `.vercel/output/functions/b4.func/` | The runtime function: `.vc-config.json` (`nodejs24.x`, `supportsResponseStreaming: true`) and a bundled `index.mjs` |
 | `vercel.json` | Recommended root config (`buildCommand`, `fluid: true`), written only when the app has none |
 
 Everything is composed in a per-invocation staging directory, validated, and swapped into `.vercel/output` with a rename; a failed build leaves the previous output in place. Deploy the tree with `vercel deploy --prebuilt`.
@@ -271,11 +271,11 @@ export default config({
 | `static.spaFallback` | A file inside `static.dir` served for every path nothing else claims, as the last route. |
 | `functions.<name>` | Bundled with esbuild from `entry` into `functions/<name>.func/index.mjs` with a `.vc-config.json` of `runtime` (default `nodejs24.x`), `maxDuration`, and `supportsResponseStreaming`. Names are one path segment. |
 | `routes` | Placed first, before the filesystem phase. Vercel route keys pass through; a `handle` entry is rejected because the build owns the phases. |
-| `functionName` | Runtime function name. Default `index`, or `b4` once `static` is set. |
+| `functionName` | Runtime function name. Default `b4`. |
 
 The emitted `config.json` routes are ordered: your `routes`, then `{ handle: "filesystem" }`, then the runtime function, then the SPA fallback. Without a SPA fallback the runtime route stays the catch-all `/(.*)`. With one, the runtime is scoped to the surfaces it owns, `/(healthz|readyz|agui|threads|memory)(/.*)?`, so every other path reaches the SPA document.
 
-A function named `index` is also served at `/` by the Build Output API, so it would shadow a static `index.html`. That is why the runtime function moves to `b4.func` when `static` is configured; setting `functionName: "index"` beside `static` fails the build. Existing deployments without `static` keep `index.func` and the exact catch-all `config.json` they have today.
+A function named `index` is also served at `/` by the Build Output API, so it would shadow a static `index.html`. The runtime function is therefore named `b4.func` and routed from `/b4`, whether or not this build emits static assets: the hazard is a property of the name, not of what a given build happens to contain, and a deployment that grows a frontend later should not have to change its function name to get one. Setting `functionName: "index"` beside `static` fails the build.
 
 The runtime function always declares `supportsResponseStreaming: true`. It answers `/agui/:routeId` and `/threads/:id/runs/stream` with `text/event-stream`, and without that flag Vercel's Node launcher buffers the whole response, so a browser would receive nothing until the run finished instead of tokens as they are produced. This is not configurable, because it follows from what the runtime serves rather than from how you deploy it.
 
