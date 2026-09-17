@@ -5,6 +5,11 @@ import { isAbsolute, join, relative, sep } from "node:path"
 import { build } from "esbuild"
 
 import { CliError, formatErrorMessage } from "../../output.js"
+import {
+  composeVercelRoutes,
+  DEFAULT_VERCEL_FUNCTION_NAME,
+  VERCEL_ROUTE_KEYS,
+} from "./vercel-compose.js"
 
 export const VERCEL_BUILD_OUTPUT_CONFIG = {
   routes: [{ dest: "/index", src: "/(.*)" }],
@@ -19,33 +24,66 @@ export const VERCEL_FUNCTION_CONFIG = {
 
 type PathOperations = Pick<typeof import("node:path"), "isAbsolute" | "relative" | "sep">
 
-export async function writeVercelMetadata(outputDir: string): Promise<{
+export interface VercelMetadataOptions {
+  /** Runtime function name; `functions/<name>.func`. Default `index`. */
+  readonly functionName?: string
+  /** Complete `config.json` route list. Default: the runtime catch-all. */
+  readonly routes?: readonly Readonly<Record<string, unknown>>[]
+}
+
+export async function writeVercelMetadata(
+  outputDir: string,
+  options: VercelMetadataOptions = {},
+): Promise<{
   readonly configPath: string
   readonly functionConfigPath: string
   readonly functionDir: string
 }> {
+  const functionName = options.functionName ?? DEFAULT_VERCEL_FUNCTION_NAME
+  const routes = options.routes ?? composeVercelRoutes({ functionName, routes: [] })
   const configPath = join(outputDir, "config.json")
-  const functionDir = join(outputDir, "functions", "index.func")
+  const functionDir = join(outputDir, "functions", `${functionName}.func`)
   const functionConfigPath = join(functionDir, ".vc-config.json")
 
   await mkdir(functionDir, { recursive: true })
   await Promise.all([
-    writeFile(configPath, stringifyJson(VERCEL_BUILD_OUTPUT_CONFIG), "utf8"),
+    writeFile(configPath, stringifyJson({ routes, version: 3 }), "utf8"),
     writeFile(functionConfigPath, stringifyJson(VERCEL_FUNCTION_CONFIG), "utf8"),
   ])
 
   return { configPath, functionConfigPath, functionDir }
 }
 
-export async function validateVercelOutput(outputDir: string): Promise<void> {
+/**
+ * Validate a Build Output tree. `config.json` must route to the runtime
+ * function; the runtime function's config is exact; every other
+ * `functions/*.func` must be a self-contained Node function.
+ */
+export async function validateVercelOutput(
+  outputDir: string,
+  options: { readonly functionName?: string } = {},
+): Promise<void> {
+  const functionName = options.functionName ?? DEFAULT_VERCEL_FUNCTION_NAME
   const configPath = join(outputDir, "config.json")
-  const functionDir = join(outputDir, "functions", "index.func")
+  const functionsDir = join(outputDir, "functions")
+  const functionDir = join(functionsDir, `${functionName}.func`)
   const functionConfigPath = join(functionDir, ".vc-config.json")
-  const entryPath = join(functionDir, "index.mjs")
 
-  validateBuildOutputConfig(await readJson(configPath), configPath)
+  validateBuildOutputConfig(await readJson(configPath), configPath, functionName)
   validateFunctionConfig(await readJson(functionConfigPath), functionConfigPath)
+  await validateFunctionDirectory(functionDir)
 
+  for (const entry of await readdir(functionsDir, { withFileTypes: true })) {
+    if (!entry.name.endsWith(".func") || entry.name === `${functionName}.func`) continue
+    const extraDir = join(functionsDir, entry.name)
+    const extraConfigPath = join(extraDir, ".vc-config.json")
+    validateExtraFunctionConfig(await readJson(extraConfigPath), extraConfigPath)
+    await validateFunctionDirectory(extraDir)
+  }
+}
+
+async function validateFunctionDirectory(functionDir: string): Promise<void> {
+  const entryPath = join(functionDir, "index.mjs")
   const functionDirStats = await lstatOrThrow(
     functionDir,
     `Vercel function directory is missing: ${functionDir}`,
@@ -146,23 +184,50 @@ async function readJson(path: string): Promise<unknown> {
   }
 }
 
-function validateBuildOutputConfig(value: unknown, configPath: string): void {
+function validateBuildOutputConfig(
+  value: unknown,
+  configPath: string,
+  functionName: string,
+): void {
   const config = asRecord(value, configPath)
   validateExactProperties(config, ["routes", "version"], configPath)
   if (config.version !== VERCEL_BUILD_OUTPUT_CONFIG.version) {
     throw new Error(`${configPath} property "version" must be 3`)
   }
-  if (!Array.isArray(config.routes) || config.routes.length !== 1) {
-    throw new Error(`${configPath} property "routes" must contain exactly one catch-all route`)
+  if (!Array.isArray(config.routes) || config.routes.length === 0) {
+    throw new Error(`${configPath} property "routes" must be a non-empty array`)
   }
 
-  const route = asRecord(config.routes[0], `${configPath} property "routes[0]"`)
-  validateExactProperties(route, ["src", "dest"], configPath, "routes[0].")
-  if (route.src !== VERCEL_BUILD_OUTPUT_CONFIG.routes[0].src) {
-    throw new Error(`${configPath} property "routes[0].src" must be "/(.*)"`)
-  }
-  if (route.dest !== VERCEL_BUILD_OUTPUT_CONFIG.routes[0].dest) {
-    throw new Error(`${configPath} property "routes[0].dest" must be "/index"`)
+  const runtimeDest = `/${functionName}`
+  let sawFilesystemPhase = false
+  let sawRuntimeRoute = false
+  config.routes.forEach((entry, index) => {
+    const prefix = `routes[${index}].`
+    const route = asRecord(entry, `${configPath} property "routes[${index}]"`)
+    if ("handle" in route) {
+      validateExactProperties(route, ["handle"], configPath, prefix)
+      if (route.handle !== "filesystem") {
+        throw new Error(`${configPath} property "${prefix}handle" must be "filesystem"`)
+      }
+      if (sawFilesystemPhase) {
+        throw new Error(`${configPath} property "${prefix}handle" may appear once`)
+      }
+      sawFilesystemPhase = true
+      return
+    }
+    validateExactProperties(route, VERCEL_ROUTE_KEYS, configPath, prefix)
+    if (typeof route.src !== "string" || route.src.length === 0) {
+      throw new Error(`${configPath} property "${prefix}src" must be a non-empty string`)
+    }
+    if (route.dest !== undefined && typeof route.dest !== "string") {
+      throw new Error(`${configPath} property "${prefix}dest" must be a string`)
+    }
+    if (route.dest === runtimeDest) sawRuntimeRoute = true
+  })
+  if (!sawRuntimeRoute) {
+    throw new Error(
+      `${configPath} property "routes" must include a route with dest ${JSON.stringify(runtimeDest)}`,
+    )
   }
 }
 
@@ -173,6 +238,44 @@ function validateFunctionConfig(value: unknown, configPath: string): void {
     if (config[property] !== expected) {
       throw new Error(`${configPath} property "${property}" must be ${JSON.stringify(expected)}`)
     }
+  }
+}
+
+const EXTRA_FUNCTION_RUNTIME = /^nodejs\d+\.x$/
+
+function validateExtraFunctionConfig(value: unknown, configPath: string): void {
+  const config = asRecord(value, configPath)
+  validateExactProperties(
+    config,
+    ["handler", "launcherType", "runtime", "maxDuration", "supportsResponseStreaming"],
+    configPath,
+  )
+  if (config.handler !== VERCEL_FUNCTION_CONFIG.handler) {
+    throw new Error(`${configPath} property "handler" must be "${VERCEL_FUNCTION_CONFIG.handler}"`)
+  }
+  if (config.launcherType !== VERCEL_FUNCTION_CONFIG.launcherType) {
+    throw new Error(
+      `${configPath} property "launcherType" must be "${VERCEL_FUNCTION_CONFIG.launcherType}"`,
+    )
+  }
+  if (typeof config.runtime !== "string" || !EXTRA_FUNCTION_RUNTIME.test(config.runtime)) {
+    throw new Error(
+      `${configPath} property "runtime" must be a Node runtime such as "${VERCEL_FUNCTION_CONFIG.runtime}"`,
+    )
+  }
+  if (
+    config.maxDuration !== undefined &&
+    (typeof config.maxDuration !== "number" ||
+      !Number.isInteger(config.maxDuration) ||
+      config.maxDuration < 1)
+  ) {
+    throw new Error(`${configPath} property "maxDuration" must be a positive integer`)
+  }
+  if (
+    config.supportsResponseStreaming !== undefined &&
+    typeof config.supportsResponseStreaming !== "boolean"
+  ) {
+    throw new Error(`${configPath} property "supportsResponseStreaming" must be a boolean`)
   }
 }
 

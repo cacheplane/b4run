@@ -250,6 +250,39 @@ async function validOutput(outputDir: string): Promise<void> {
   await writeFile(entryPath(outputDir), 'import "node:fs"\nexport default {}\n', "utf8")
 }
 
+/** A tree the composed target would publish: static SPA, runtime `b4`, extra `api`, user route. */
+async function composedOutput(outputDir: string): Promise<void> {
+  await writeVercelMetadata(outputDir, {
+    functionName: "b4",
+    routes: [
+      { dest: "/api", src: "/api/(.*)" },
+      { handle: "filesystem" },
+      { dest: "/b4", src: "/(healthz|agui|threads|memory)(/.*)?" },
+      { dest: "/index.html", src: "/(.*)" },
+    ],
+  })
+  await writeFile(
+    join(outputDir, "functions", "b4.func", "index.mjs"),
+    'import "node:fs"\nexport default {}\n',
+    "utf8",
+  )
+  const apiDir = join(outputDir, "functions", "api.func")
+  await mkdir(apiDir, { recursive: true })
+  await writeFile(
+    join(apiDir, ".vc-config.json"),
+    JSON.stringify({
+      handler: "index.mjs",
+      launcherType: "Nodejs",
+      maxDuration: 30,
+      runtime: "nodejs24.x",
+      supportsResponseStreaming: true,
+    }),
+  )
+  await writeFile(join(apiDir, "index.mjs"), "export default {}\n", "utf8")
+  await mkdir(join(outputDir, "static"), { recursive: true })
+  await writeFile(join(outputDir, "static", "index.html"), "<!doctype html>\n", "utf8")
+}
+
 const ISOLATED_IMPORT_PROBE = `import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -1259,6 +1292,166 @@ describe("Build Output contract", () => {
     await expect(validateVercelOutput(outputDir)).resolves.toBeUndefined()
   })
 
+  test("writes composed metadata for a renamed runtime function and explicit routes", async () => {
+    const outputDir = await createOutputDir()
+    const routes = [
+      { dest: "/api", src: "/api/(.*)" },
+      { handle: "filesystem" },
+      { dest: "/b4", src: "/(healthz|agui|threads|memory)(/.*)?" },
+      { dest: "/index.html", src: "/(.*)" },
+    ]
+
+    const metadata = await writeVercelMetadata(outputDir, { functionName: "b4", routes })
+
+    expect(metadata).toEqual({
+      configPath: join(outputDir, "config.json"),
+      functionConfigPath: join(outputDir, "functions", "b4.func", ".vc-config.json"),
+      functionDir: join(outputDir, "functions", "b4.func"),
+    })
+    expect(JSON.parse(await readFile(metadata.configPath, "utf8"))).toEqual({ routes, version: 3 })
+    await expect(readFile(metadata.functionConfigPath, "utf8")).resolves.toBe(
+      '{\n  "handler": "index.mjs",\n  "launcherType": "Nodejs",\n  "runtime": "nodejs24.x"\n}\n',
+    )
+  })
+
+  test("accepts a composed tree with static assets, an extra function, and user routes", async () => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).resolves.toBeUndefined()
+  })
+
+  test("rejects a composed tree whose config never routes to the runtime function", async () => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+    await writeFile(
+      join(outputDir, "config.json"),
+      JSON.stringify({ routes: [{ dest: "/api", src: "/(.*)" }], version: 3 }),
+    )
+
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).rejects.toThrow(
+      `${join(outputDir, "config.json")} property "routes" must include a route with dest "/b4"`,
+    )
+  })
+
+  test("rejects a config without the expected runtime function even when another function is routed", async () => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+
+    await expect(validateVercelOutput(outputDir)).rejects.toThrow(
+      `${join(outputDir, "config.json")} property "routes" must include a route with dest "/index"`,
+    )
+  })
+
+  test.each([
+    {
+      expected: 'property "routes[0].handle" must be "filesystem"',
+      routes: [{ handle: "miss" }, { dest: "/b4", src: "/(.*)" }],
+      name: "an unknown route phase",
+    },
+    {
+      expected: 'property "routes[1].handle" may appear once',
+      routes: [{ handle: "filesystem" }, { handle: "filesystem" }, { dest: "/b4", src: "/(.*)" }],
+      name: "a repeated filesystem phase",
+    },
+    {
+      expected: 'property "routes[0].dest" must be a string',
+      routes: [{ dest: 1, src: "/(.*)" }],
+      name: "a non-string route destination",
+    },
+    {
+      expected: 'property "routes[0].src" must be a non-empty string',
+      routes: [{ dest: "/b4" }],
+      name: "a route without src",
+    },
+    {
+      expected: 'property "routes" must be a non-empty array',
+      routes: [],
+      name: "an empty route list",
+    },
+  ])("rejects $name in a composed config", async ({ expected, routes }) => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+    await writeFile(join(outputDir, "config.json"), JSON.stringify({ routes, version: 3 }))
+
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).rejects.toThrow(
+      `${join(outputDir, "config.json")} ${expected}`,
+    )
+  })
+
+  test.each([
+    {
+      config: { handler: "index.mjs", launcherType: "Nodejs", runtime: "python3.12" },
+      expected: 'property "runtime" must be a Node runtime',
+      name: "a non-Node runtime",
+    },
+    {
+      config: { handler: "index.mjs", launcherType: "Nodejs", maxDuration: 30, runtime: "nodejs24.x", extra: 1 },
+      expected: 'property "extra" is not allowed',
+      name: "an unknown property",
+    },
+    {
+      config: { handler: "index.mjs", launcherType: "Nodejs", maxDuration: 0, runtime: "nodejs24.x" },
+      expected: 'property "maxDuration" must be a positive integer',
+      name: "a zero maxDuration",
+    },
+    {
+      config: { handler: "index.mjs", launcherType: "Nodejs", runtime: "nodejs24.x", supportsResponseStreaming: "yes" },
+      expected: 'property "supportsResponseStreaming" must be a boolean',
+      name: "a non-boolean streaming flag",
+    },
+    {
+      config: { handler: "main.mjs", launcherType: "Nodejs", runtime: "nodejs24.x" },
+      expected: 'property "handler" must be "index.mjs"',
+      name: "a foreign handler",
+    },
+  ])("rejects an extra function with $name", async ({ config, expected }) => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+    const configPath = join(outputDir, "functions", "api.func", ".vc-config.json")
+    await writeFile(configPath, JSON.stringify(config))
+
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).rejects.toThrow(
+      `${configPath} ${expected}`,
+    )
+  })
+
+  test("rejects an extra function without an entry module", async () => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+    const apiEntry = join(outputDir, "functions", "api.func", "index.mjs")
+    await rm(apiEntry)
+
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).rejects.toThrow(apiEntry)
+  })
+
+  test("rejects an extra function whose dependency escapes its directory", async () => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+    await writeFile(
+      join(outputDir, "functions", "api.func", "index.mjs"),
+      'import runtime from "../b4.func/index.mjs"\nexport { runtime }\n',
+    )
+
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).rejects.toThrow(
+      `Vercel function dependency resolves outside ${join(outputDir, "functions", "api.func")}`,
+    )
+  })
+
+  test("keeps the runtime function config strict in a composed tree", async () => {
+    const outputDir = await createOutputDir()
+    await composedOutput(outputDir)
+    const configPath = join(outputDir, "functions", "b4.func", ".vc-config.json")
+    await writeFile(
+      configPath,
+      JSON.stringify({ handler: "index.mjs", launcherType: "Nodejs", maxDuration: 30, runtime: "nodejs24.x" }),
+    )
+
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).rejects.toThrow(
+      `${configPath} property "maxDuration" is not allowed`,
+    )
+  })
+
   test.each([
     {
       expected: (outputDir: string) => join(outputDir, "config.json"),
@@ -1295,7 +1488,7 @@ describe("Build Output contract", () => {
     },
     {
       expected: (outputDir: string) =>
-        `${join(outputDir, "config.json")} property "routes[0].dest"`,
+        `${join(outputDir, "config.json")} property "routes" must include a route with dest "/index"`,
       mutate: async (outputDir: string) =>
         writeFile(
           join(outputDir, "config.json"),
