@@ -169,7 +169,10 @@ cancel routing. An HPA changes replica count and a PodDisruptionBudget limits
 disruption; neither supplies that B4.run coordination.
 
 `/healthz` is a process probe, not dependency readiness. It does not query the
-configured Postgres database, model provider, or sandbox provider.
+configured Postgres database, model provider, or sandbox provider. The runtime
+also serves `/readyz`, which probes the durable stores and answers `503` naming
+the failing one; `healthPath` applies to all three probes, so pointing it at
+`/readyz` makes liveness fail with the database too.
 
 The chart keeps a conservative `replicaCount: 1` default and does not enforce
 the coordination requirements. Autoscaling values can render more replicas,

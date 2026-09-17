@@ -220,11 +220,12 @@ and a request needs both to pass. An app with no policy file is gated by
 middleware alone, exactly as before.
 
 The endpoints middleware does **not** see are `/healthz` (a liveness probe),
-thread create, read and delete, `GET /threads/:id/state`,
-`POST /threads/:id/cancel`, and the memory-candidate endpoints. Of those, every
-thread endpoint is on the thread-access policy — so "no middleware" no longer
-means "ungated". `/healthz` and the memory-candidate endpoints have no gate of
-either kind; put an outer boundary around them.
+`/readyz` (a readiness probe), thread create, read and delete,
+`GET /threads/:id/state`, `POST /threads/:id/cancel`, and the memory-candidate
+endpoints. Of those, every thread endpoint is on the thread-access policy — so
+"no middleware" no longer means "ungated". The two probes and the
+memory-candidate endpoints have no gate of either kind; put an outer boundary
+around them.
 
 Two of the five resolve their route identity from the thread itself, so their
 thread-access check runs **before** middleware and answers first: `/resume` and

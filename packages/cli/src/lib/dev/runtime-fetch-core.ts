@@ -218,6 +218,81 @@ export interface RouteMatcher {
   readonly method: string
   readonly pattern: RegExp
   readonly handle: RouteHandler
+  /**
+   * What this route needs from the per-request store seam, when it is not the
+   * default of "every store, built before dispatch":
+   *
+   * - `"liveness"` — none. `/healthz` answers whether the process serves HTTP,
+   *   so the store factory must not run for it: on the vercel target that
+   *   factory reaches for `DATABASE_URL`, and a deployment missing it looked
+   *   completely down instead of "up, not ready" (#688).
+   * - `"readiness"` — every store, but a factory that throws is REPORTED by the
+   *   route rather than turned into the catch-all 500, because naming the
+   *   failing dependency is the whole point of `/readyz`.
+   */
+  readonly probe?: "liveness" | "readiness"
+}
+
+/**
+ * One store's readiness verdict. `error` is the redacted failure message —
+ * see `redactCredentials` — and `code` the registry code when the error
+ * carried one (a store the edge factory omitted reports `B4_E5301`).
+ */
+export type ReadinessCheck =
+  | { readonly status: "ok" }
+  | { readonly status: "failed"; readonly error: string; readonly code?: string }
+
+export interface ReadinessReport {
+  readonly status: "ready" | "not_ready"
+  readonly checks: Record<string, ReadinessCheck>
+}
+
+/** Longest failure message `/readyz` will echo back; a driver stack is not a probe result. */
+const READINESS_ERROR_MAX_CHARS = 500
+
+/**
+ * Strip the userinfo out of every URL in a message: a driver that fails to
+ * connect frequently quotes the connection string it was given, and a probe
+ * body is served to whoever asked. `postgres://app:s3cret@db/b4` becomes
+ * `postgres://***@db/b4` — the host stays, because "which database" is the
+ * useful half.
+ */
+export function redactCredentials(message: string): string {
+  return message.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, "$1***@")
+}
+
+/**
+ * Rendered through `formatErrorChain`, for the same reason the catch-all uses
+ * it: the Postgres drivers reject with a DOM `ErrorEvent`, which is not an
+ * `Error` and whose `String()` is `[object ErrorEvent]` — so the one failure
+ * `/readyz` exists to name would arrive with no name at all. The chain also
+ * carries the root cause's own code, which a single message would drop.
+ *
+ * Then redacted, and that order matters: the chain is built from driver
+ * messages, and a driver that could not connect frequently quotes the whole
+ * connection string back. The catch-all only logs its chain to stderr; this one
+ * goes into a response body, so it is redacted before it is served.
+ */
+function describeReadinessFailure(error: unknown): Extract<ReadinessCheck, { status: "failed" }> {
+  const message = redactCredentials(formatErrorChain(error)).slice(0, READINESS_ERROR_MAX_CHARS)
+  // `b4ErrorCodeOf`, not the chain's own `code`: this field is the registry
+  // code an operator can look up, and the registry is what validates it.
+  const code = b4ErrorCodeOf(error)
+  return { error: message, status: "failed", ...(code ? { code } : {}) }
+}
+
+/**
+ * Thread id no thread will ever carry, so each store probe is a real query
+ * against the real schema that reads nothing back. Stores that migrate lazily
+ * (the Postgres trio) run their migration on the way, which is what makes a
+ * fresh database report ready only once its schema exists.
+ */
+const READINESS_PROBE_THREAD_ID = "b4-readyz-probe"
+
+/** A store that can migrate exposes `ready()`; the probe awaits it when present. */
+async function awaitReady(store: unknown): Promise<void> {
+  const ready = (store as { ready?: unknown }).ready
+  if (typeof ready === "function") await (ready as () => Promise<void>).call(store)
 }
 
 /**
@@ -227,6 +302,11 @@ export interface RouteMatcher {
  */
 interface RequestLifetime {
   readonly stores: RequestStores
+  /**
+   * Why `stores` is empty when the factory was supposed to fill it — set only
+   * for a readiness probe, which reports the failure instead of raising it.
+   */
+  readonly storesError?: unknown
   /** The response, including a streaming body, has fully settled. */
   bodySettled: boolean
   /** Run slots this request claimed that have not been released yet. */
@@ -713,10 +793,72 @@ export async function createRuntimeFetchHandler(
       return override ? Promise.resolve(override) : getMemoryStore()
     }
 
+    /**
+     * `/readyz`'s body: one verdict per durable store this request resolves,
+     * each a real query against the real schema (see `READINESS_PROBE_THREAD_ID`).
+     *
+     * Every failure is reported, none raised — a probe that 500s on the first
+     * bad store cannot name the second. The memory store is deliberately not
+     * probed: it is lazily resolved and optional, and probing it would build it
+     * for an app that never configured memory.
+     *
+     * Logged to stderr once per distinct cause, the way the catch-all logs a
+     * misconfiguration: the operator gets the reason, and a probe firing every
+     * few seconds does not flood the log with it.
+     */
+    const probeReadiness = async (request: Request): Promise<ReadinessReport> => {
+      const checks: Record<string, ReadinessCheck> = {}
+      const lifetime = perRequest.get(request)
+      const record = (name: string, error: unknown): void => {
+        const check = describeReadinessFailure(error)
+        checks[name] = check
+        const line = `readiness check ${name} failed — ${check.error}`
+        if (!loggedFailures.has(line)) {
+          loggedFailures.add(line)
+          console.error(`B4.run runtime not ready — ${line}`)
+        }
+      }
+      if (lifetime && "storesError" in lifetime) {
+        record("requestStores", lifetime.storesError)
+        return { checks, status: "not_ready" }
+      }
+      const probes: Record<string, () => Promise<void>> = {
+        checkpointer: async () => {
+          const checkpointer = getCheckpointer(request)
+          await awaitReady(checkpointer)
+          await checkpointer.getTuple({
+            configurable: { thread_id: READINESS_PROBE_THREAD_ID },
+          })
+        },
+        permissionsStore: async () => {
+          const resolved = getPermissionsStore(request)
+          const store = typeof resolved === "function" ? await resolved() : resolved
+          await awaitReady(store)
+          await store.load()
+        },
+        threadsStore: async () => {
+          const store = getThreadsStore(request)
+          await awaitReady(store)
+          await store.getThread(READINESS_PROBE_THREAD_ID)
+        },
+      }
+      for (const [name, probe] of Object.entries(probes)) {
+        try {
+          await probe()
+          checks[name] = { status: "ok" }
+        } catch (error) {
+          record(name, error)
+        }
+      }
+      const ready = Object.values(checks).every((check) => check.status === "ok")
+      return { checks, status: ready ? "ready" : "not_ready" }
+    }
+
     const apSseHeartbeatIntervalMs =
       options.apSseHeartbeatIntervalMs ?? AP_SSE_HEARTBEAT_INTERVAL_MS
     const apAttachMaxViewers = options.apAttachMaxViewers ?? AP_ATTACH_MAX_VIEWERS
     const routes = buildRouteTable({
+      probeReadiness,
       appRoot: options.appRoot,
       apAttachMaxViewers,
       apSseHeartbeatIntervalMs,
@@ -754,21 +896,43 @@ export async function createRuntimeFetchHandler(
         // until the deployment changes. Inside the try so it travels the same
         // catch-all — logged once, coded, with a docs URL.
         if (capabilityError) throw capabilityError
+        // Matched BEFORE the stores are built, because the two probes are the
+        // only routes that decide for themselves what to do with the factory —
+        // see `RouteMatcher.probe`.
+        const matched = matchRoute(routes, request)
+        const probe = matched?.route.probe
         // Inside the try on purpose: a factory that throws (a pool that cannot
         // connect) must become a 500 through the handler below, not leak the
         // in-flight slot and wedge close()'s drain.
+        //
+        // `{}` for a caller with no per-request stores — every field then falls
+        // through to the boot-resolved instance exactly as before. Installed
+        // UNCONDITIONALLY because the lifetime also carries this request's
+        // shutdown controller, which every caller needs.
+        let stores: RequestStores = {}
+        let storesError: unknown
+        if (options.requestStores && probe !== "liveness") {
+          if (probe === "readiness") {
+            try {
+              stores = await options.requestStores(request)
+            } catch (error) {
+              // `/readyz` answers 503 naming the factory, not a bare 500: the
+              // factory's message is what says WHICH binding is missing.
+              storesError = error
+            }
+          } else {
+            stores = await options.requestStores(request)
+          }
+        }
         lifetime = {
           bodySettled: false,
           pendingRuns: 0,
           settled: false,
-          // `{}` for a caller with no per-request stores — every field then falls
-          // through to the boot-resolved instance exactly as before. Installed
-          // UNCONDITIONALLY now because the lifetime also carries this request's
-          // shutdown controller, which every caller needs.
-          stores: options.requestStores ? await options.requestStores(request) : {},
+          stores,
+          ...(storesError !== undefined ? { storesError } : {}),
         }
         perRequest.set(request, lifetime)
-        const response = await dispatch(routes, request)
+        const response = await dispatch(routes, request, matched)
         const body = response.body
         if (body && isEventStream(response.headers.get("content-type"))) {
           // The Response exists but its SSE body is still streaming. Hold the
@@ -1121,10 +1285,13 @@ export function buildRouteTable(ctx: {
    * `request` and forward the result exactly as they forwarded the old one.
    */
   readonly getShutdownSignal: (request: Request) => AbortSignal
+  /** `/readyz`'s verdict for this request — built where the store accessors live. */
+  readonly probeReadiness: (request: Request) => Promise<ReadinessReport>
   readonly staticModules?: B4StaticModules
 }): RouteMatcher[] {
   const {
     appRoot,
+    probeReadiness,
     apAttachMaxViewers,
     apSseHeartbeatIntervalMs,
     boot,
@@ -1150,12 +1317,34 @@ export function buildRouteTable(ctx: {
 
   return [
     // ------------------------------------------------------------------
-    // GET /healthz
+    // GET /healthz — liveness: the process serves HTTP. Touches no store.
+    // The body is `{ status: "ready" }` for compatibility with every harness
+    // and Dockerfile HEALTHCHECK that already reads it; it says nothing about
+    // dependencies — that is /readyz below.
     // ------------------------------------------------------------------
     {
       handle: async () => Response.json({ status: "ready" }, { status: 200 }),
       method: "GET",
       pattern: /^\/healthz(?:\?.*)?$/,
+      probe: "liveness",
+    },
+
+    // ------------------------------------------------------------------
+    // GET /readyz — readiness: every durable store answers a real query.
+    // 200 `{ status: "ready", checks }` or 503 `{ status: "not_ready", checks }`,
+    // each failing check named, with credentials redacted from its message.
+    // ------------------------------------------------------------------
+    {
+      handle: async (request) => {
+        const report = await probeReadiness(request)
+        return Response.json(report, {
+          headers: { "cache-control": "no-store" },
+          status: report.status === "ready" ? 200 : 503,
+        })
+      },
+      method: "GET",
+      pattern: /^\/readyz(?:\?.*)?$/,
+      probe: "readiness",
     },
 
     // ------------------------------------------------------------------
@@ -1687,7 +1876,13 @@ async function readCorsConfig(options: {
 // Dispatcher
 // ---------------------------------------------------------------------------
 
-async function dispatch(routes: RouteMatcher[], request: Request): Promise<Response> {
+interface MatchedRoute {
+  readonly route: RouteMatcher
+  readonly params: Record<string, string>
+}
+
+/** The first route whose method and pattern match, with its named captures decoded. */
+function matchRoute(routes: RouteMatcher[], request: Request): MatchedRoute | undefined {
   const method = request.method
   const pathname = new URL(request.url).pathname
 
@@ -1706,9 +1901,18 @@ async function dispatch(routes: RouteMatcher[], request: Request): Promise<Respo
       }
     }
 
-    return await route.handle(request, params)
+    return { params, route }
   }
 
+  return undefined
+}
+
+async function dispatch(
+  routes: RouteMatcher[],
+  request: Request,
+  matched: MatchedRoute | undefined = matchRoute(routes, request),
+): Promise<Response> {
+  if (matched) return await matched.route.handle(request, matched.params)
   return Response.json(createRequestErrorBody("Not found"), { status: 404 })
 }
 

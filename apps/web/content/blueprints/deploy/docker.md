@@ -170,7 +170,13 @@ In another terminal, smoke-test the generated health endpoint:
 curl --fail http://127.0.0.1:8000/healthz
 ```
 
-Then exercise one application route through Agent Protocol or AG-UI to validate model credentials, stores, and route wiring—not only process health.
+`/healthz` is liveness only. To confirm the container can reach its stores, probe readiness as well; a `503` names the failing dependency in its `checks` object:
+
+```bash
+curl --fail http://127.0.0.1:8000/readyz
+```
+
+Then exercise one application route through Agent Protocol or AG-UI to validate model credentials and route wiring—neither probe covers the model provider.
 
 ## Replica and persistence limits
 
@@ -187,4 +193,4 @@ Mount durable storage or configure external stores when thread state must surviv
 3. Let the generated marker decide placement: B4.run refreshes its marked root Dockerfile and preserves an unmarked user file by emitting `.b4/build/Dockerfile`.
 4. Confirm `.b4/build` and `package-lock.json` remain in the build context.
 5. Rebuild using the actual emitted path; confirm the build uses `npm ci` rather than its fallback.
-6. Repeat the loopback-only `/healthz` and route smoke tests, then verify the production proxy authentication and network restrictions.
+6. Repeat the loopback-only `/healthz`, `/readyz`, and route smoke tests, then verify the production proxy authentication and network restrictions.
