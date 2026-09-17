@@ -20,8 +20,9 @@ export interface TurnResult {
 }
 
 /**
- * Drive one Server-Sent Events turn to its end. Handler errors propagate; transport
- * errors are reported as `ended: "lost"` so the caller can reconcile instead of guessing.
+ * Drive one Server-Sent Events turn to its end. Both handler errors and transport
+ * errors surface as `ended: "lost"` (with `error` set) so the caller can reconcile
+ * instead of guessing; nothing thrown here propagates to the caller.
  */
 export async function consumeTurn(
   frames: AsyncIterable<StreamFrame>,
