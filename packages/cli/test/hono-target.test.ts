@@ -330,6 +330,14 @@ describe("b4 build — hono target", () => {
     await runBuild(appRoot)
 
     expect(await readBuildFile(appRoot, "stores.mjs")).toContain("DATABASE_URL is not set")
+    // A refused or unreachable database used to reach the log as
+    // "[object ErrorEvent]" with no host (#689): the factory names the store
+    // kind and the credential-free target, and renders the cause chain.
+    const stores = await readBuildFile(appRoot, "stores.mjs")
+    expect(stores).toContain("postgres store initialisation failed against")
+    expect(stores).toContain("describeConnectionTarget(databaseUrl)")
+    expect(stores).toContain("formatErrorChain(error)")
+    expect(stores).not.toContain("String(error)")
     // The other half: a Request that never passed through the catch-all has no
     // env bound, and `?? {}` turned that into the same silent empty pool.
     expect(await readBuildFile(appRoot, "app.mjs")).toContain("no Workers env is bound")
@@ -1123,6 +1131,9 @@ export const poolTypeParserReport = () => {
   const EMPTY_RUNTIME_ENV_STUB = `export function readRuntimeEnv() {
   return undefined
 }
+/** The reporting helpers the emitted stores.mjs imports; pass-through here. */
+export const describeConnectionTarget = (url) => url
+export const formatErrorChain = (error) => String(error?.message ?? error)
 `
 
   /**
@@ -1132,6 +1143,9 @@ export const poolTypeParserReport = () => {
   const NO_PROXY_RUNTIME_ENV_STUB = `export function readRuntimeEnv(name) {
   return { DATABASE_URL: "postgres://from-runtime-env/db" }[name]
 }
+/** The reporting helpers the emitted stores.mjs imports; pass-through here. */
+export const describeConnectionTarget = (url) => url
+export const formatErrorChain = (error) => String(error?.message ?? error)
 `
 
   async function driveEmittedStores(
@@ -1375,6 +1389,9 @@ const CLI_FETCH_STUB = `export async function createRuntimeFetchHandler(options)
   }
 }
 export function seedModelImporter() {}
+/** The reporting helpers the emitted stores.mjs imports; pass-through here. */
+export const describeConnectionTarget = (url) => url
+export const formatErrorChain = (error) => String(error?.message ?? error)
 /** Every seeding call, in order — the observable for a once-per-isolate seam. */
 export const seededEnvs = []
 export function seedRuntimeEnv(env) {

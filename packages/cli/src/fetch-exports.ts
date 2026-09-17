@@ -40,6 +40,20 @@ export { type RuntimeEnv, readRuntimeEnv, seedB4Config, seedRuntimeEnv } from "@
  * `@b4run/langchain`.
  */
 export { seedModelImporter } from "@b4run/langchain"
+/**
+ * Operator-facing error reporting, exported so the emitted `stores.mjs` logs a
+ * store initialisation failure the way the runtime does: the message, the
+ * driver code and the wrapped cause of an `ErrorEvent` (never
+ * "[object ErrorEvent]"), against a connection target with its credentials and
+ * query string stripped.
+ */
+export {
+  describeConnectionTarget,
+  errorStackOf,
+  formatErrorChain,
+  type SerializedError,
+  serializeError,
+} from "./lib/dev/runtime-error-report.js"
 export {
   createRuntimeFetchHandler,
   type RuntimeFetchHandler,

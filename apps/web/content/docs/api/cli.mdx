@@ -65,6 +65,7 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 | `RuntimeBootFallbacks` | Define optional runtime boot fallbacks. |
 | `RuntimeEnv` | Re-export the [`@b4run/core` runtime environment type](/docs/api/core#b4runcore). |
 | `RuntimeFetchHandler` | Handle a web-standard runtime request. |
+| `SerializedError` | Describe one serialized error and its cause chain. |
 | `StartRuntimeServerOptions` | Share runtime assembly inputs. |
 | `StaticRouteModule` | Describe one materialized route module. |
 | `StaticRouteModuleInput` | Describe a generated route-module input. |
@@ -72,12 +73,16 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 | `StreamChunk` | Represent one runtime stream chunk. |
 | `buildStaticRouteModule` | Build one route module without filesystem discovery. |
 | `createRuntimeFetchHandler` | Assemble a web-standard request handler. |
+| `describeConnectionTarget` | Reduce a connection string to its scheme, host, port and database for logging. |
+| `errorStackOf` | Find the first stack trace in a thrown value's cause chain. |
+| `formatErrorChain` | Render a thrown value and its cause chain as operator-readable log lines. |
 | `normalizeMiddlewareModule` | Normalize generated middleware exports. |
 | `normalizeThreadAccessModule` | Normalize generated thread-access policy exports. |
 | `readRuntimeEnv` | Re-export [`@b4run/core` environment lookup](/docs/api/core#b4runcore). |
 | `seedB4Config` | Re-export [`@b4run/core` static configuration seeding](/docs/api/core#b4runcore). |
 | `seedModelImporter` | Re-export the `@b4run/langchain` static importer seam; its deep reference is deferred. |
 | `seedRuntimeEnv` | Re-export [`@b4run/core` environment seeding](/docs/api/core#b4runcore). |
+| `serializeError` | Read the message, code and nested cause off any thrown value, including an `ErrorEvent`. |
 
 ### `@b4run/cli/runtime`
 
