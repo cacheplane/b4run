@@ -95,6 +95,24 @@ describe("discoverRoutes", () => {
     expect((error as Error).message).toMatch(/prefix .*"_"/)
   })
 
+  it("names every unrecognised route entry in one error", async () => {
+    const appRoot = await writeApp({
+      "src/app/other/index.ts": `export const unrelated = 2\n`,
+      "src/app/util/index.ts": `export const helper = 1\n`,
+    })
+
+    const error = await discoverRoutes({ appRoot }).catch((cause: unknown) => cause)
+
+    expect(error).toBeInstanceOf(B4AppError)
+    expect((error as B4AppError).code).toBe("B4_E1007")
+    const message = (error as Error).message
+    expect(message).toContain("2 route entries have no recognisable export")
+    expect(message).toContain(join(appRoot, "src/app/other/index.ts"))
+    expect(message).toContain("unrelated")
+    expect(message).toContain(join(appRoot, "src/app/util/index.ts"))
+    expect(message).toContain("helper")
+  })
+
   it('rejects an app root whose package.json lacks "type": "module"', async () => {
     const appRoot = await writeApp(
       {
