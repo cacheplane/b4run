@@ -200,6 +200,17 @@ substitute for the other or optional release cleanup.
   a stale or skewed `dist/` (from a branch switch or a per-package filtered
   build) produces false negatives in ad-hoc scripts. Run `pnpm build` first;
   see `CONTRIBUTING.md`'s "Build before running anything against `dist/`".
+- **The SEO lastmod manifest regenerates on main, not in your PR.**
+  `apps/web/app/seo/lastmod.generated.json` records when each route's content
+  last changed, and it stays committed because it is the only store of that
+  history and is imported statically by the sitemap. Do NOT run
+  `pnpm --dir apps/web seo:lastmod` for an ordinary content edit — the
+  `SEO lastmod` workflow regenerates and commits it after your change reaches
+  main, and a PR that regenerates it conflicts with every other docs PR inside
+  a generated file. The one case you must regenerate is adding or removing a
+  page: a route the manifest has never seen has no timestamp, and
+  `requireValidLastModified` throws during the build, so
+  `pnpm --dir apps/web seo:lastmod:routes` fails the PR until you do.
 - **Banned doc phrases.** `scripts/check-docs.mjs` greps `README.md`,
   `CONTRIBUTING.md`, `CONTRIBUTORS.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`,
   `apps/web/app`, `apps/web/content`, `docs/` (excluding

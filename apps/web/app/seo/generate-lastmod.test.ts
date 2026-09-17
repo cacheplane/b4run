@@ -36,20 +36,51 @@ const checkFailure = (result: { readonly stderr: string; readonly stdout: string
   "the generator exited non-zero and printed nothing"
 
 describe("generate-seo-lastmod", () => {
-  it("runs a freshness check using today's production visibility", () => {
-    const result = runGenerator("--check")
+  // The committed manifest is regenerated on main by .github/workflows/seo-lastmod.yml,
+  // not by whoever edits a page, so these assert the generator's own round trip
+  // rather than that the checked-in file is currently up to date. Asserting the
+  // latter made every docs branch regenerate a shared artifact and conflict with
+  // every other docs branch inside it.
+  it("accepts a manifest it just generated from today's production visibility", () => {
+    const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-"))
+    temporaryDirectories.push(directory)
+    const output = join(directory, "lastmod.generated.json")
+
+    expect(runGenerator("--output", output).status).toBe(0)
+    expect(runGenerator("--check", "--output", output).status).toBe(0)
+  })
+
+  it("checks an unchanged manifest without consulting Git history", () => {
+    const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-"))
+    temporaryDirectories.push(directory)
+    const output = join(directory, "lastmod.generated.json")
+    const withoutGit = { ...process.env, PATH: "" }
+
+    expect(
+      spawnSync(process.execPath, [generator, "--output", output], {
+        cwd: appRoot,
+        encoding: "utf8",
+        env: withoutGit,
+      }).status,
+    ).toBe(0)
+
+    const result = spawnSync(process.execPath, [generator, "--check", "--output", output], {
+      cwd: appRoot,
+      encoding: "utf8",
+      env: withoutGit,
+    })
 
     expect(result.status, checkFailure(result)).toBe(0)
   })
 
-  it("checks an unchanged manifest without consulting Git history", () => {
-    const result = spawnSync(process.execPath, [generator, "--check"], {
-      cwd: appRoot,
-      encoding: "utf8",
-      env: { ...process.env, PATH: "" },
-    })
+  it("covers every route the site renders", () => {
+    // The gate a pull request still has to satisfy. Timestamps drift harmlessly
+    // and are corrected on main; a missing route has no timestamp at all and
+    // makes requireValidLastModified throw during the build.
+    const result = runGenerator("--check-routes")
 
-    expect(result.status, checkFailure(result)).toBe(0)
+    expect(result.stderr).toBe("")
+    expect(result.status).toBe(0)
   })
 
   it("keeps the manifest unmergeable so a conflict leaves regenerable JSON", () => {
@@ -67,6 +98,79 @@ describe("generate-seo-lastmod", () => {
 
     expect(attribute.status, attribute.stderr).toBe(0)
     expect(attribute.stdout.trim()).toMatch(/merge: unset$/)
+  })
+
+  it("reports a route the manifest has never seen", () => {
+    const manifest = JSON.parse(readFileSync(generatedManifest, "utf8"))
+    const [droppedRoute] = Object.keys(manifest.routes).filter((route) =>
+      route.startsWith("/docs/"),
+    )
+    expect(droppedRoute).toBeDefined()
+    delete manifest.routes[droppedRoute as string]
+
+    const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-"))
+    temporaryDirectories.push(directory)
+    const incomplete = join(directory, "lastmod.generated.json")
+    writeFileSync(incomplete, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const result = runGenerator("--check-routes", "--output", incomplete)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain("missing routes")
+    expect(result.stderr).toContain(droppedRoute as string)
+    expect(result.stderr).toContain("pnpm --dir apps/web seo:lastmod")
+  })
+
+  it("reports a route the manifest still covers after removal", () => {
+    const manifest = JSON.parse(readFileSync(generatedManifest, "utf8"))
+    manifest.routes["/docs/removed-page"] = {
+      lastModified: "2026-01-01T00:00:00.000Z",
+      sourceDigest: "0".repeat(64),
+      recordDigest: "0".repeat(64),
+    }
+
+    const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-"))
+    temporaryDirectories.push(directory)
+    const stale = join(directory, "lastmod.generated.json")
+    writeFileSync(stale, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const result = runGenerator("--check-routes", "--output", stale)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain("removed routes")
+    expect(result.stderr).toContain("/docs/removed-page")
+  })
+
+  it("tolerates a timestamp that main has not refreshed yet", () => {
+    // The whole point of moving regeneration to main: an edited page whose
+    // timestamp is still the old one must not fail a pull request.
+    const manifest = JSON.parse(readFileSync(generatedManifest, "utf8"))
+    const [route] = Object.keys(manifest.routes)
+    manifest.routes[route as string].sourceDigest = "1".repeat(64)
+
+    const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-"))
+    temporaryDirectories.push(directory)
+    const drifted = join(directory, "lastmod.generated.json")
+    writeFileSync(drifted, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    expect(runGenerator("--check-routes", "--output", drifted).status).toBe(0)
+  })
+
+  it("preserves a timestamp while the sources behind a route are unchanged", () => {
+    const directory = mkdtempSync(join(tmpdir(), "b4-lastmod-"))
+    temporaryDirectories.push(directory)
+    const output = join(directory, "lastmod.generated.json")
+
+    expect(runGenerator("--output", output).status).toBe(0)
+    const first = JSON.parse(readFileSync(output, "utf8"))
+
+    expect(runGenerator("--output", output).status).toBe(0)
+    const second = JSON.parse(readFileSync(output, "utf8"))
+
+    // This is the property that forces the manifest to stay committed: the
+    // file is the only record of when a route last changed, so a regeneration
+    // over an existing manifest must carry its timestamps forward unchanged.
+    expect(second).toEqual(first)
   })
 
   it("generates timestamps for new content state without consulting Git history", () => {
