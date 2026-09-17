@@ -22,6 +22,7 @@ import { afterEach, describe, expect, test } from "vitest"
 
 import { runBuildCommand } from "../src/commands/build.js"
 import { setVercelTargetCleanupFileOpsForTesting } from "../src/lib/build/targets/vercel.js"
+import { VERCEL_RUNTIME_ROUTE_SRC } from "../src/lib/build/targets/vercel-compose.js"
 import {
   RECOMMENDED_VERCEL_CONFIG,
   reconcileVercelConfig,
@@ -290,7 +291,7 @@ async function composedOutput(outputDir: string): Promise<void> {
     routes: [
       { dest: "/api", src: "/api/(.*)" },
       { handle: "filesystem" },
-      { dest: "/b4", src: "/(healthz|agui|threads|memory)(/.*)?" },
+      { dest: "/b4", src: VERCEL_RUNTIME_ROUTE_SRC },
       { dest: "/index.html", src: "/(.*)" },
     ],
   })
@@ -896,7 +897,7 @@ export async function workflow() {
       routes: [
         { dest: "/api", src: "/api/(.*)" },
         { handle: "filesystem" },
-        { dest: "/b4", src: "/(healthz|agui|threads|memory)(/.*)?" },
+        { dest: "/b4", src: VERCEL_RUNTIME_ROUTE_SRC },
         { dest: "/index.html", src: "/(.*)" },
       ],
       version: 3,
@@ -1553,7 +1554,7 @@ describe("Build Output contract", () => {
     const routes = [
       { dest: "/api", src: "/api/(.*)" },
       { handle: "filesystem" },
-      { dest: "/b4", src: "/(healthz|agui|threads|memory)(/.*)?" },
+      { dest: "/b4", src: VERCEL_RUNTIME_ROUTE_SRC },
       { dest: "/index.html", src: "/(.*)" },
     ]
 
