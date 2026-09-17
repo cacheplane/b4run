@@ -247,7 +247,7 @@ DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/app \
   '
 ```
 
-That path is the bare build's. A build that configures `build.vercel.static` names the runtime function `b4.func`, so read the entry from `functions/b4.func/index.mjs` instead, or from whatever `functionName` set.
+That entry path holds for every build, since the runtime function is always `b4.func` — unless `functionName` renames it, or `build.vercel.outDir` moves the tree, in which case adjust the name or the leading path to match.
 
 `B4_PG_DRIVER` set to `neon` or `pg` overrides that detection. To rehearse the WebSocket path a Neon deployment actually uses, put [`neondatabase/wsproxy`](https://github.com/neondatabase/wsproxy) in front of the database and set `B4_PG_WS_PROXY`, which accepts `host:port` optionally prefixed with `ws://` or `wss://`. Only `wss://` keeps TLS on the socket. A value carrying a path, a query, or any other scheme is rejected by name before a pool opens, because the driver appends its own `/v1?address=` path. Setting `B4_PG_WS_PROXY` alongside `B4_PG_DRIVER=pg` is a configuration error rather than one value quietly winning.
 
