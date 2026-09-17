@@ -132,14 +132,14 @@
       "recordDigest": "854d70653b7e7ae1a80889d317e0b5be8019a970d60e32882b07dd906cd3e951"
     },
     "/docs/cli": {
-      "lastModified": "2026-09-17T20:03:55.120Z",
-      "sourceDigest": "8e6d18d52d1f38addabfbba06b58bb5fd4b152302514ab10c74ae4c1df035fe3",
-      "recordDigest": "80ce61f6ac7d6812a966f381a11d7d867fe91c8a4596d4901a523701ecde40bb"
+      "lastModified": "2026-09-17T20:19:16.967Z",
+      "sourceDigest": "85caac7750e067e8f3a31d488e1a4489ce8c107bd0ef1a8167ed76dbea0c9ac7",
+      "recordDigest": "e64246ee6ae521fad8746e4debd8f0d9c99dfbdda2ecedbeda7b1b26bece50bb"
     },
     "/docs/configuration": {
-      "lastModified": "2026-09-17T20:03:55.120Z",
+      "lastModified": "2026-09-17T20:19:16.967Z",
       "sourceDigest": "85df6fc6a7c52dd5e4b822c01c0eec1245d3ab07093d68eba66da2e64a953cd9",
-      "recordDigest": "1dfad7a3f5a24d670a0aa550cb7ce26b6a36f7e4796dfdca8791c956750bb472"
+      "recordDigest": "73d82f425119e809991239a8d8913702a09da1751b2a35075b7977c7275293c4"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -152,9 +152,9 @@
       "recordDigest": "23534e39b998190912837e9ccddd04fb2899838062371ba4100a26b92c88f0f3"
     },
     "/docs/deployment/edge": {
-      "lastModified": "2026-09-17T20:03:55.120Z",
+      "lastModified": "2026-09-17T20:19:16.967Z",
       "sourceDigest": "6d5b71f73d96d98e0892f426eb4b6954678e7678e4d0c2a634c987421d536b9a",
-      "recordDigest": "a5672a765057b2d4727545bc8fb87a6b8e6b8b638297037c5c60887463c1cb96"
+      "recordDigest": "5577df6dbf66ff6c66df93cda1111ef958f8bd218a77d5a00dacaafedd5dfbdc"
     },
     "/docs/deployment/kubernetes": {
       "lastModified": "2026-09-17T16:46:40.190Z",
@@ -392,9 +392,9 @@
       "recordDigest": "e412c909c42b74ed38a4e11f33f3e33904c1013bfab00db4bc5d7d1f5ec0b5f3"
     },
     "/docs/upgrading": {
-      "lastModified": "2026-09-17T20:03:55.120Z",
+      "lastModified": "2026-09-17T20:19:16.967Z",
       "sourceDigest": "5b5f397089c44293532646692a0352e9a38a4c10633d6e39d6b9419d8c6750d3",
-      "recordDigest": "b1e6ae1e44a6f898cb63ae97cd1df3c667a0d5ae488afb05c3166db77a3904ce"
+      "recordDigest": "5107a3b0e1b28ba0801b70a65ba3ba0263766c37425c31d5e89467f85f2445d9"
     },
     "/docs/workspace": {
       "lastModified": "2026-09-07T19:58:55.550Z",

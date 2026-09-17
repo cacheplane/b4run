@@ -25,8 +25,16 @@ export async function discoverRoutes(options: DiscoverRoutesOptions = {}): Promi
 
 async function collectRouteDefinitions(routesDir: string): Promise<RouteDefinition[]> {
   const discovered: RouteDefinition[] = []
+  const unrecognised: UnrecognisedRouteEntry[] = []
 
-  await walkRouteTree(routesDir, routesDir, discovered)
+  await walkRouteTree(routesDir, routesDir, discovered, unrecognised)
+
+  // Batched the way `b4 check`'s other app-wide gates are (the edge-capability
+  // report, the marker-file limits): every miswired route entry is named in one
+  // run, instead of the user fixing one and re-running to meet the next.
+  if (unrecognised.length > 0) {
+    throw new B4AppError(explainUnrecognisedRouteEntries(unrecognised), "B4_E1007")
+  }
 
   return discovered
 }
@@ -35,11 +43,16 @@ async function walkRouteTree(
   routesDir: string,
   currentDir: string,
   discovered: RouteDefinition[],
+  unrecognised: UnrecognisedRouteEntry[],
 ): Promise<void> {
-  const routeEntry = await readRouteEntry(routesDir, currentDir)
+  const scan = await readRouteEntry(routesDir, currentDir)
 
-  if (routeEntry) {
-    discovered.push(routeEntry)
+  if (scan.route) {
+    discovered.push(scan.route)
+  }
+
+  if (scan.unrecognised) {
+    unrecognised.push(scan.unrecognised)
   }
 
   const entries = (await readdir(currentDir, { withFileTypes: true })).sort((left, right) =>
@@ -51,24 +64,39 @@ async function walkRouteTree(
       continue
     }
 
-    await walkRouteTree(routesDir, join(currentDir, entry.name), discovered)
+    await walkRouteTree(routesDir, join(currentDir, entry.name), discovered, unrecognised)
   }
 }
 
-async function readRouteEntry(
-  routesDir: string,
-  routeDir: string,
-): Promise<RouteDefinition | null> {
+/**
+ * One route entry whose exports B4.run cannot classify, held rather than thrown
+ * so the walk finishes and every offending entry can be reported together.
+ */
+interface UnrecognisedRouteEntry {
+  readonly indexFile: string
+  readonly routeExports: RouteExports
+  readonly nearestPackageJson: string | undefined
+}
+
+/** What one directory contributed to the walk: a route, a defect, or neither. */
+interface RouteEntryScan {
+  readonly route?: RouteDefinition
+  readonly unrecognised?: UnrecognisedRouteEntry
+}
+
+const NO_ROUTE_ENTRY: RouteEntryScan = {}
+
+async function readRouteEntry(routesDir: string, routeDir: string): Promise<RouteEntryScan> {
   const entries = await readdir(routeDir, { withFileTypes: true }).catch(() => null)
 
   if (!entries) {
-    return null
+    return NO_ROUTE_ENTRY
   }
 
   const hasIndex = entries.some((entry) => entry.isFile() && entry.name === INDEX_FILE)
 
   if (!hasIndex) {
-    return null
+    return NO_ROUTE_ENTRY
   }
 
   const indexFile = resolve(routeDir, INDEX_FILE)
@@ -79,15 +107,15 @@ async function readRouteEntry(
     // A directory under the routes dir with an index.ts is a route by
     // construction; one whose module exports nothing B4.run recognises is a
     // defect to name, not a directory to skip (#685: the CommonJS interop shape
-    // used to be dropped here and reported as "0 routes discovered").
-    throw new B4AppError(
-      explainUnrecognisedRouteExports(
+    // used to be dropped here and reported as "0 routes discovered"). Recorded
+    // instead of thrown so one run names every offending entry.
+    return {
+      unrecognised: {
         indexFile,
         routeExports,
-        await findNearestPackageJson(routeDir),
-      ),
-      "B4_E1007",
-    )
+        nearestPackageJson: await findNearestPackageJson(routeDir),
+      },
+    }
   }
 
   const routeSegments = relative(routesDir, routeDir)
@@ -96,12 +124,14 @@ async function readRouteEntry(
     .filter((segment) => !isRouteGroupSegment(segment))
 
   return {
-    id: toPathname(routeSegments),
-    pathname: toPathname(routeSegments),
-    kind,
-    entryFile: indexFile,
-    routeDir,
-    segments: toRouteSegments(routeSegments),
+    route: {
+      id: toPathname(routeSegments),
+      pathname: toPathname(routeSegments),
+      kind,
+      entryFile: indexFile,
+      routeDir,
+      segments: toRouteSegments(routeSegments),
+    },
   }
 }
 
@@ -181,6 +211,29 @@ export function explainUnrecognisedRouteExports(
   }
 
   return `${lead}\nIf this directory is not a route, prefix its name with "_" to keep it out of route discovery.`
+}
+
+/**
+ * The B4_E1007 message for every unrecognised route entry one walk found. A
+ * single entry keeps its own message verbatim; several are bulleted with their
+ * per-entry explanations indented underneath, in walk order (sorted, so the
+ * listing is stable).
+ */
+function explainUnrecognisedRouteEntries(entries: readonly UnrecognisedRouteEntry[]): string {
+  const explanations = entries.map((entry) =>
+    explainUnrecognisedRouteExports(entry.indexFile, entry.routeExports, entry.nearestPackageJson),
+  )
+
+  const [only] = explanations
+
+  if (explanations.length === 1 && only !== undefined) {
+    return only
+  }
+
+  return [
+    `${explanations.length} route entries have no recognisable export:`,
+    ...explanations.map((explanation) => `  • ${explanation.split("\n").join("\n    ")}`),
+  ].join("\n")
 }
 
 function looksLikeCommonJsInterop(routeExports: object): boolean {
