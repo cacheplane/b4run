@@ -79,10 +79,12 @@ export async function workflow(state: OrchestratorState, _ctx: RuntimeContext) {
     throw new Error(`dispatch failed: ${res.status}`)
   }
 
+  // `null` when the remote route returned nothing, so narrow before reading a
+  // property — `?.` guards the property, not the object it hangs off.
   const remoteState = (await res.json()) as {
     readonly messages?: readonly { readonly content?: unknown }[]
-  }
-  const lastMessage = remoteState.messages?.at(-1)
+  } | null
+  const lastMessage = remoteState?.messages?.at(-1)
   const summary = typeof lastMessage?.content === "string" ? lastMessage.content : ""
   return { ...state, summary }
 }

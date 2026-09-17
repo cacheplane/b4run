@@ -2639,7 +2639,25 @@ async function handleApWaitRequest(options: {
     // this endpoint, parses every 200 body and would read `""` as a malformed
     // payload — trading the 500 for a transport error. `??` leaves falsy
     // outputs (`0`, `false`, `""`) alone.
-    return Response.json(result.output ?? null, { status: 200 })
+    //
+    // `undefined` is not the only value `JSON.stringify` refuses, and
+    // `result.output` is `unknown`: a route can return a circular object or a
+    // BigInt just as easily. Those reached the outer catch as the same opaque
+    // "Unexpected runtime server failure" this fix exists to remove, so name
+    // the cause and the route instead of letting the run look like a crash.
+    try {
+      return Response.json(result.output ?? null, { status: 200 })
+    } catch (error) {
+      return Response.json(
+        createExecutionErrorBody(
+          `Route ${route.routeId} completed, but its output could not be serialized as JSON: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          { routeId: route.routeId },
+        ),
+        { status: 500 },
+      )
+    }
   } finally {
     if (settleAfterRouteUnwinds && resultPromise) {
       // The route outlived this response. Its park — if it parks at all — may

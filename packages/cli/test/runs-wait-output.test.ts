@@ -44,6 +44,11 @@ async function fixtureApp(routes: Record<string, string>): Promise<string> {
   return appRoot
 }
 
+/**
+ * `drainDeadlineMs` keeps `handler.close()` from waiting out the 30s default
+ * when a failing assertion leaves an SSE body unconsumed — a failure here
+ * should report in milliseconds, not stall the suite.
+ */
 function waitRequest(threadId: string, route: string): Request {
   return new Request(`http://localhost/threads/${threadId}/runs/wait`, {
     body: JSON.stringify({ input: {}, route }),
@@ -57,7 +62,7 @@ describe("runs/wait output serialization", () => {
     const appRoot = await fixtureApp({
       "src/app/silent/index.ts": "export const workflow = async () => undefined\n",
     })
-    const handler = await createRuntimeFetchHandler({ appRoot })
+    const handler = await createRuntimeFetchHandler({ appRoot, drainDeadlineMs: 250 })
     cleanup.push(() => handler.close())
 
     const response = await handler.fetch(waitRequest("th-silent", "/silent#workflow"))
@@ -71,7 +76,7 @@ describe("runs/wait output serialization", () => {
     const appRoot = await fixtureApp({
       "src/app/silent/index.ts": "export const workflow = async () => undefined\n",
     })
-    const handler = await createRuntimeFetchHandler({ appRoot })
+    const handler = await createRuntimeFetchHandler({ appRoot, drainDeadlineMs: 250 })
     cleanup.push(() => handler.close())
 
     const response = await handler.fetch(waitRequest("th-silent-client", "/silent#workflow"))
@@ -97,7 +102,7 @@ describe("runs/wait output serialization", () => {
     const appRoot = await fixtureApp({
       "src/app/silent/index.ts": "export const workflow = async () => undefined\n",
     })
-    const handler = await createRuntimeFetchHandler({ appRoot })
+    const handler = await createRuntimeFetchHandler({ appRoot, drainDeadlineMs: 250 })
     cleanup.push(() => handler.close())
 
     const streamed = await handler.fetch(
@@ -111,8 +116,23 @@ describe("runs/wait output serialization", () => {
 
     expect(streamed.status).toBe(200)
     expect(waited.status).toBe(200)
-    // Stream reports the run as done; wait no longer contradicts it.
-    expect(await streamed.text()).toContain("done")
+
+    // Assert the parsed terminal frame, not just that "done" appears in the
+    // text: a route that THROWS also streams a done frame (carrying
+    // `output.error`), so a substring check would pass for a failed run and
+    // prove nothing about agreement.
+    const frames = (await streamed.text())
+      .split("\n")
+      .filter((line) => line.startsWith("data: "))
+      .map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>)
+    const done = frames.at(-1) ?? {}
+
+    expect(done).not.toHaveProperty("error")
+    // Both call it a success with no output. They spell it differently — the
+    // stream drops the key that `JSON.stringify` cannot represent, the body
+    // says `null` — but neither reports a failure any more.
+    expect(done.output ?? null).toBeNull()
+    expect(await waited.text()).toBe("null")
   })
 
   it("does not flatten falsy outputs into null", async () => {
@@ -121,7 +141,7 @@ describe("runs/wait output serialization", () => {
       "src/app/no/index.ts": "export const workflow = async () => false\n",
       "src/app/empty/index.ts": 'export const workflow = async () => ""\n',
     })
-    const handler = await createRuntimeFetchHandler({ appRoot })
+    const handler = await createRuntimeFetchHandler({ appRoot, drainDeadlineMs: 250 })
     cleanup.push(() => handler.close())
 
     for (const [route, expected] of [
@@ -135,11 +155,43 @@ describe("runs/wait output serialization", () => {
     }
   })
 
+  // The same user-visible symptom as #714 — a run that executed fine reported
+  // as an opaque "Unexpected runtime server failure" — is reachable for any
+  // output `JSON.stringify` refuses, not just `undefined`. Name it instead.
+  it("names the route when the output cannot be serialized", async () => {
+    const appRoot = await fixtureApp({
+      "src/app/circular/index.ts": [
+        "export const workflow = async () => {",
+        "  const out: Record<string, unknown> = {}",
+        "  out.self = out",
+        "  return out",
+        "}",
+        "",
+      ].join("\n"),
+      "src/app/bigint/index.ts": "export const workflow = async () => ({ n: 1n })\n",
+    })
+    const handler = await createRuntimeFetchHandler({ appRoot, drainDeadlineMs: 250 })
+    cleanup.push(() => handler.close())
+
+    for (const route of ["/circular#workflow", "/bigint#workflow"]) {
+      const response = await handler.fetch(waitRequest(`th-${route.slice(1, 4)}`, route))
+      const body = (await response.json()) as {
+        error: { kind: string; message: string; details?: Record<string, unknown> }
+      }
+      expect(`${route}:${response.status}`).toBe(`${route}:500`)
+      expect(body.error.kind).toBe("execution_error")
+      // Actionable: says the output is at fault and which route produced it,
+      // rather than the catch-all the outer handler used to emit.
+      expect(`${route}:${body.error.message}`).not.toContain("Unexpected runtime server failure")
+      expect(body.error.message).toContain("could not be serialized")
+    }
+  })
+
   it("still carries an ordinary object output unchanged", async () => {
     const appRoot = await fixtureApp({
       "src/app/echo/index.ts": "export const workflow = async () => ({ ok: true, n: 1 })\n",
     })
-    const handler = await createRuntimeFetchHandler({ appRoot })
+    const handler = await createRuntimeFetchHandler({ appRoot, drainDeadlineMs: 250 })
     cleanup.push(() => handler.close())
 
     const response = await handler.fetch(waitRequest("th-echo", "/echo#workflow"))
