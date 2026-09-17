@@ -109,6 +109,27 @@ describe("create and dispatch", () => {
     expect(row).toMatchObject({ state: "blocked", blockedReason: "candidate_digest_unknown" })
     expect(row.interruptId).toMatch(/^perm-export-/)
     expect(fake.requests.some((r) => r.path.endsWith("/resume"))).toBe(false)
+
+    // The row is blocked (not awaiting_approval), so approve must refuse without touching the
+    // worker at all -- there is no recorded candidate digest for it to check against.
+    const requestsBeforeApprove = fake.requests.length
+    const approved = await factory.approve(id, {
+      revision: row.revision,
+      candidateDigest: "0".repeat(64),
+    })
+    expect(approved.ok).toBe(false)
+    expect(approved.message).toMatch(/Cannot approve from blocked/)
+    expect(fake.requests).toHaveLength(requestsBeforeApprove)
+
+    // The gate itself is still pending on the worker even though no digest was ever recorded,
+    // so deny -- unlike approve -- has something real to resolve.
+    const denied = await factory.deny(id)
+    expect(denied.state).toBe("denied")
+    const resumeRequests = fake.requests.filter((r) => r.path.endsWith("/resume"))
+    expect(resumeRequests).toHaveLength(1)
+    expect(resumeRequests[0]?.body).toMatchObject({
+      resume: [expect.objectContaining({ payload: "deny" })],
+    })
   })
 
   it("blocks on an unexpected interrupt kind and never resolves it", async () => {
