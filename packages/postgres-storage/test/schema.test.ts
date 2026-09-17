@@ -3,6 +3,7 @@ import {
   assertIdentifier,
   DEFAULT_SCHEMA,
   DEFAULT_TABLE_PREFIX,
+  IDENTIFIER_PATTERN,
   postgresCheckpointer,
 } from "../src/index.js"
 import { qualify } from "../src/schema.js"
@@ -12,8 +13,18 @@ describe("assertIdentifier", () => {
     expect(() => assertIdentifier("tablePrefix", "b4")).not.toThrow()
     expect(() => assertIdentifier("schema", "public")).not.toThrow()
     expect(() => assertIdentifier("tablePrefix", "_ckpt_v2")).not.toThrow()
-    expect(() => assertIdentifier("schema", "MySchema")).not.toThrow()
     expect(() => assertIdentifier("tablePrefix", "t_9")).not.toThrow()
+    expect(() => assertIdentifier("schema", "production")).not.toThrow()
+  })
+  it("rejects mixed case, which unquoted DDL would silently fold to lowercase", () => {
+    // `MySchema` interpolated unquoted creates `myschema`, so the configured
+    // name and the real name would differ — and so would the advisory-lock key.
+    expect(() => assertIdentifier("schema", "MySchema")).toThrow(/lowercase/)
+    expect(() => assertIdentifier("tablePrefix", "B4")).toThrow(/tablePrefix/)
+  })
+  it("exposes the pattern it enforces, for wiring that validates before construction", () => {
+    expect(IDENTIFIER_PATTERN.source).toBe("^[a-z_][a-z0-9_]*$")
+    expect(IDENTIFIER_PATTERN.flags).toBe("")
   })
   it("rejects identifiers with unsafe characters", () => {
     expect(() => assertIdentifier("tablePrefix", "bad-name")).toThrow(/tablePrefix/)

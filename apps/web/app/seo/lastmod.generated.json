@@ -97,9 +97,9 @@
       "recordDigest": "ace28516f5bb87d16a3674cf77837a12f213eb4772fc1922f4be60fae410eca7"
     },
     "/docs/api/postgres-storage": {
-      "lastModified": "2026-09-17T15:43:02.909Z",
-      "sourceDigest": "e7f9ead758325524ced08e247d0a85d5e50dc10afa2a6744543df1aea2a8c7b9",
-      "recordDigest": "b5f0e41a2c4a07f9fdd9dbe5cf60f8da41ebe6c85605923e1436147a794390dd"
+      "lastModified": "2026-09-17T16:18:37.341Z",
+      "sourceDigest": "512d771228fe43a1ce26ed3d7f19ca51dd6c8352641a1b6c6f340914e4be1123",
+      "recordDigest": "2f659eb0f8861a431fa5868b87b2d81ce202637c36a6baa32979c3b75df3d1bb"
     },
     "/docs/api/sandbox": {
       "lastModified": "2026-09-14T21:13:45.147Z",
@@ -152,9 +152,9 @@
       "recordDigest": "23534e39b998190912837e9ccddd04fb2899838062371ba4100a26b92c88f0f3"
     },
     "/docs/deployment/edge": {
-      "lastModified": "2026-09-17T15:43:02.909Z",
-      "sourceDigest": "44a8eff894722a9c5d760d7b3c57c53f6328949ea9b6e23ec613922ee3a6a746",
-      "recordDigest": "aa3a1908b46100626ce2ac0b1cdc83911a798582ae807e549ef92dc0b70980b6"
+      "lastModified": "2026-09-17T16:20:43.193Z",
+      "sourceDigest": "0f0cb7f3d60ff824de27f9d543a901d7859e6dc169f7356dd8c6066a282d3cfe",
+      "recordDigest": "87c0ce96817f75450bc3fbfec9a9fa96541064af9dbc2286bb84f7332a7db054"
     },
     "/docs/deployment/kubernetes": {
       "lastModified": "2026-09-08T01:24:31.438Z",
@@ -267,9 +267,9 @@
       "recordDigest": "0ed23cc7ee6ba49b37c9f389ed3961656dae18d8d680ec1ddde875fc4cddcb62"
     },
     "/docs/persistence": {
-      "lastModified": "2026-09-07T19:58:55.550Z",
-      "sourceDigest": "dc6383b8b7800c5d417474a30a60c58d9a1524d67f091daf7781cb1366d1afc2",
-      "recordDigest": "e937e39b4cf0ae0002e401bb5754c541c0c7ba6bca9be8db895a7fc405adfd15"
+      "lastModified": "2026-09-17T16:18:37.341Z",
+      "sourceDigest": "cbc9f3740a57c4c7f27d5ad90234f192c2c57bf5d4539826e22ab398e93f1749",
+      "recordDigest": "e72ba4a2f23322eb7616a28497496104549edf28f810684238700771d6af0030"
     },
     "/docs/planning": {
       "lastModified": "2026-09-07T19:58:55.550Z",
