@@ -172,9 +172,9 @@
       "recordDigest": "1f9c3a2e6e99b9e9f5574e85e93834f35fe4a0f7aee7d1563b754f378da7e54a"
     },
     "/docs/deployment/vercel": {
-      "lastModified": "2026-09-17T22:26:47.591Z",
-      "sourceDigest": "08d61461e307b15b7460c718d8a9edbf77b7b7e3630dbc2333f90b4f1237bed4",
-      "recordDigest": "5e90f107f2dffd446994a2ce12c2ef28b3cab3956a14f08ca7359c0ad2e18804"
+      "lastModified": "2026-09-17T22:58:46.614Z",
+      "sourceDigest": "a6c763f5bd74f988a83acb52750f21da694f160ba91c3c2f0fc568e2ebf3a507",
+      "recordDigest": "20408f2f7d5f54f08087d91fc6cc68587a0f25910ea979e43f2ac8ed5a4517ec"
     },
     "/docs/dev-server": {
       "lastModified": "2026-09-07T19:58:55.550Z",
