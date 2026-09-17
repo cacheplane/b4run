@@ -109,7 +109,7 @@ app.route("/", b4App)
 export default app
 ```
 
-Keep `app.route("/", b4App)` exact. The generated environment lookup is keyed by the original `Request`; Hono's request-rebuilding mount helper breaks that identity. A prefixed route also does not create an arbitrary B4.run base path. The runtime owns rooted `/healthz`, `/threads`, `/agui`, and `/memory` surfaces.
+Keep `app.route("/", b4App)` exact. The generated environment lookup is keyed by the original `Request`; Hono's request-rebuilding mount helper breaks that identity. A prefixed route also does not create an arbitrary B4.run base path. The runtime owns rooted `/healthz`, `/readyz`, `/threads`, `/agui`, and `/memory` surfaces.
 
 ## Why the stores are per-request
 
@@ -172,12 +172,26 @@ The `pg` fallback is what makes the built function testable offline. Point `DATA
 DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/app \
   node --input-type=module -e '
     const { default: app } = await import("./.vercel/output/functions/index.func/index.mjs")
-    const response = await app.fetch(new Request("http://localhost/healthz"))
+    const response = await app.fetch(new Request("http://localhost/readyz"))
     console.log(response.status, await response.text())
   '
 ```
 
-That path is the bare-build one. The runtime function is `index.func` only until `build.vercel.static` is configured, when it becomes `b4.func` — or whatever `functionName` names it — so an app shipping a SPA imports `./.vercel/output/functions/b4.func/index.mjs` instead. `build.vercel.outDir` moves the whole tree, so adjust the leading path too.
+That import path is the bare-build one. The runtime function is `index.func` only until `build.vercel.static` is configured, when it becomes `b4.func` — or whatever `functionName` names it — so an app shipping a SPA imports `./.vercel/output/functions/b4.func/index.mjs` instead. `build.vercel.outDir` moves the whole tree, so adjust the leading path too.
+
+A reachable database answers `200` and names each store it probed:
+
+```json
+{"checks":{"checkpointer":{"status":"ok"},"permissionsStore":{"status":"ok"},"threadsStore":{"status":"ok"}},"status":"ready"}
+```
+
+An unreachable one answers `503` and names the failure, with the connection string's credentials redacted:
+
+```json
+{"checks":{"requestStores":{"error":"connect ECONNREFUSED 127.0.0.1:5432 (ECONNREFUSED)","status":"failed"}},"status":"not_ready"}
+```
+
+Use `/readyz` rather than `/healthz` for this check. `/healthz` is process liveness: it never builds the request's stores, so it answers `200` whether or not `DATABASE_URL` resolves, and it would report success against a database that is not there.
 
 To exercise the same WebSocket path a Neon deployment uses, run `neondatabase/wsproxy` in front of the database and set `B4_PG_WS_PROXY=127.0.0.1:<proxy-port>`; the `hono` bundle under `@hono/node-server` needs exactly this, because it has no `pg` path. The repository's own Docker-gated round trips cover both routes.
 
