@@ -65,6 +65,21 @@ describe("B4_ERRORS registry", () => {
     expect(errorDocsUrl("B4_E5003")).toBe("https://b4.run/docs/subagents#dispatch-failures")
   })
 
+  it("registers the app-root module check and the route-entry export check in the config band", () => {
+    expect(B4_ERRORS.B4_E1006).toEqual({
+      code: "B4_E1006",
+      title: "App root package.json is not an ES module",
+      docsPath: "/docs/cli#b4-check",
+    })
+    expect(B4_ERRORS.B4_E1007).toEqual({
+      code: "B4_E1007",
+      title: "Route entry has no recognisable export",
+      docsPath: "/docs/cli#b4-check",
+    })
+    expect(errorDocsUrl("B4_E1006")).toBe("https://b4.run/docs/cli#b4-check")
+    expect(errorDocsUrl("B4_E1007")).toBe("https://b4.run/docs/cli#b4-check")
+  })
+
   it("registers the thread access load failure in the permissions band", () => {
     expect(B4_ERRORS.B4_E3003).toEqual({
       code: "B4_E3003",

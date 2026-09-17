@@ -53,6 +53,16 @@ export const B4_ERRORS = {
     title: "Feature unsupported by the build target or runtime",
     docsPath: "/docs/deployment",
   },
+  B4_E1006: {
+    code: "B4_E1006",
+    title: "App root package.json is not an ES module",
+    docsPath: "/docs/cli#b4-check",
+  },
+  B4_E1007: {
+    code: "B4_E1007",
+    title: "Route entry has no recognisable export",
+    docsPath: "/docs/cli#b4-check",
+  },
   B4_E2001: {
     code: "B4_E2001",
     title: "Sandbox unavailable",

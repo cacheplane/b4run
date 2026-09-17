@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import type { B4Config, RouteManifest } from "@b4run/core"
+import { B4AppError, type B4Config, type RouteManifest } from "@b4run/core"
 import { discoverRoutes } from "@b4run/core/node"
 import type { Command } from "commander"
 import {
@@ -148,7 +148,14 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
     })
   } catch (error) {
     if (error instanceof CliError) throw error
-    throw new CliError(`Validation failed: ${formatErrorMessage(error)}`)
+    // Discovery errors that carry a registry code (app root not an ES module,
+    // route entry with no recognisable export) keep it so the `[B4_Exxxx]`
+    // footer renders; everything else stays a plain validation failure.
+    throw new CliError(
+      `Validation failed: ${formatErrorMessage(error)}`,
+      1,
+      error instanceof B4AppError ? { code: error.code } : {},
+    )
   }
 }
 

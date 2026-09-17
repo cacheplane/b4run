@@ -42,6 +42,7 @@ async function createFixtureApp(files: Readonly<Record<string, string>> = {}) {
     // builds with a genuinely silent stderr — the dependency notice is exercised
     // by the cases that deliberately drop them.
     "package.json": `${JSON.stringify({
+      type: "module",
       dependencies: {
         "@b4run/cli": "workspace:*",
         "@b4run/postgres-storage": "workspace:*",
@@ -264,7 +265,7 @@ describe("b4 build — hono target", () => {
 
   test("worker name starts with a letter, as Cloudflare requires", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": '{ "name": "123-app" }\n',
+      "package.json": '{ "name": "123-app", "type": "module" }\n',
     })
 
     await runBuild(appRoot)
@@ -832,7 +833,8 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
 
   test("names the runtime packages the emitted entry imports but the app lacks", async () => {
     const appRoot = await createFixtureApp({
-      "package.json": '{ "name": "hono-fixture", "dependencies": { "@b4run/cli": "*" } }\n',
+      "package.json":
+        '{ "name": "hono-fixture", "type": "module", "dependencies": { "@b4run/cli": "*" } }\n',
     })
 
     // stderr, matching the node target's own runtime-dependency ⚠. stdout is the
@@ -862,6 +864,7 @@ export default defineMemory({ schema: z.object({ fact: z.string() }) })
     // one as missing would be a false alarm.
     const appRoot = await createFixtureApp({
       "package.json": `${JSON.stringify({
+        type: "module",
         dependencies: { "@b4run/cli": "*" },
         devDependencies: {
           "@b4run/postgres-storage": "*",

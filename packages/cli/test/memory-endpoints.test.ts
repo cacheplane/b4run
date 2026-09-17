@@ -194,7 +194,7 @@ async function createFixtureApp(): Promise<string> {
   tempDirs.push(appRoot)
   const files: Readonly<Record<string, string>> = {
     "b4.config.ts": "export default {};\n",
-    "package.json": "{}\n",
+    "package.json": '{"type":"module"}\n',
     "src/app/noop/index.ts": "export const graph = async () => ({ ok: true });\n",
   }
   await Promise.all(

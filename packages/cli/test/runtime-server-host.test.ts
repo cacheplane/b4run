@@ -18,7 +18,7 @@ describe("startRuntimeServer host binding", () => {
   test("binds an explicit 127.0.0.1 host and reports a dialable url", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 
@@ -31,7 +31,7 @@ describe("startRuntimeServer host binding", () => {
   test("binds 0.0.0.0 but still reports a dialable 127.0.0.1 url", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 
@@ -48,7 +48,7 @@ describe("startRuntimeServer host binding", () => {
   test("brackets an IPv6 loopback host in the reported url", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 
@@ -64,7 +64,7 @@ describe("startRuntimeServer host binding", () => {
   test("maps the IPv6 wildcard :: to a dialable [::1] url", async () => {
     const appRoot = await createFixtureApp({
       "b4.config.ts": "export default {};\n",
-      "package.json": "{}\n",
+      "package.json": '{"type":"module"}\n',
       "src/app/support/[tenant]/index.ts": `export const graph = async () => ({ ok: true });\n`,
     })
 

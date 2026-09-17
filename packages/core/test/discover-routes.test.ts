@@ -4,6 +4,8 @@ import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
+import { B4AppError } from "../src/discovery/b4-app-error.ts"
+import { explainUnrecognisedRouteExports } from "../src/discovery/discover-routes.ts"
 import { discoverRoutes } from "../src/node.js"
 
 const SDK_PATH = resolve(fileURLToPath(import.meta.url), "../../../sdk")
@@ -18,10 +20,17 @@ afterEach(async () => {
   await rm(workspaceRoot, { recursive: true, force: true })
 })
 
-async function writeApp(files: Readonly<Record<string, string>>): Promise<string> {
+async function writeApp(
+  files: Readonly<Record<string, string>>,
+  options: { readonly packageJson?: string } = {},
+): Promise<string> {
   const appRoot = workspaceRoot
 
-  await writeFile(join(appRoot, "package.json"), `{}\n`, "utf8")
+  await writeFile(
+    join(appRoot, "package.json"),
+    options.packageJson ?? `{"type":"module"}\n`,
+    "utf8",
+  )
   await writeFile(join(appRoot, "b4.config.ts"), `export default { appDir: "src/app" }\n`, "utf8")
 
   // Symlink @b4run/sdk so fixture files can import it
@@ -72,14 +81,56 @@ describe("discoverRoutes", () => {
     )
   })
 
-  it("skips index.ts that exports neither", async () => {
+  it("throws naming the file when index.ts has no recognisable export", async () => {
     const appRoot = await writeApp({
       "src/app/util/index.ts": `export const helper = 1\n`,
     })
 
-    const manifest = await discoverRoutes({ appRoot })
+    const error = await discoverRoutes({ appRoot }).catch((cause: unknown) => cause)
 
-    expect(manifest.routes).toHaveLength(0)
+    expect(error).toBeInstanceOf(B4AppError)
+    expect((error as B4AppError).code).toBe("B4_E1007")
+    expect((error as Error).message).toContain(join(appRoot, "src/app/util/index.ts"))
+    expect((error as Error).message).toContain("helper")
+    expect((error as Error).message).toMatch(/prefix .*"_"/)
+  })
+
+  it('rejects an app root whose package.json lacks "type": "module"', async () => {
+    const appRoot = await writeApp(
+      {
+        "src/app/hello/index.ts": `export async function workflow() { return {} }\n`,
+      },
+      { packageJson: `{"name":"no-type"}\n` },
+    )
+
+    const error = await discoverRoutes({ appRoot }).catch((cause: unknown) => cause)
+
+    expect(error).toBeInstanceOf(B4AppError)
+    expect((error as B4AppError).code).toBe("B4_E1006")
+    expect((error as Error).message).toContain(join(appRoot, "package.json"))
+    expect((error as Error).message).toContain('"type": "module"')
+  })
+
+  it('rejects an app root whose package.json sets "type": "commonjs"', async () => {
+    const appRoot = await writeApp(
+      {
+        "src/app/hello/index.ts": `export async function workflow() { return {} }\n`,
+      },
+      { packageJson: `{"type":"commonjs"}\n` },
+    )
+
+    await expect(discoverRoutes({ appRoot })).rejects.toThrow(/"type": "module"/)
+  })
+
+  it("rejects an app root whose package.json is not valid JSON", async () => {
+    const appRoot = await writeApp(
+      {
+        "src/app/hello/index.ts": `export async function workflow() { return {} }\n`,
+      },
+      { packageJson: `{ not json\n` },
+    )
+
+    await expect(discoverRoutes({ appRoot })).rejects.toThrow(/package\.json is not valid JSON/)
   })
 
   it("strips route groups from pathnames", async () => {
@@ -138,5 +189,51 @@ describe("discoverRoutes", () => {
       pathname: "/hello",
       kind: "agent",
     })
+  })
+})
+
+describe("explainUnrecognisedRouteExports", () => {
+  const indexFile = "/app/src/app/assistant/index.ts"
+
+  it("names the CommonJS interop shape and the nearest package.json as the likely cause", () => {
+    const message = explainUnrecognisedRouteExports(
+      indexFile,
+      {
+        default: { __esModule: true, default: {} },
+        "module.exports": { __esModule: true, default: {} },
+      },
+      "/app/src/app/assistant/package.json",
+    )
+
+    expect(message).toContain(indexFile)
+    expect(message).toContain("CommonJS")
+    expect(message).toContain("/app/src/app/assistant/package.json")
+    expect(message).toContain('"type": "module"')
+  })
+
+  it("detects the interop shape from the module.exports key alone", () => {
+    const message = explainUnrecognisedRouteExports(
+      indexFile,
+      { default: 1, "module.exports": 1 },
+      undefined,
+    )
+
+    expect(message).toContain("CommonJS")
+    expect(message).toContain('"type": "module"')
+  })
+
+  it("lists the exports it found and the private-segment escape hatch otherwise", () => {
+    const message = explainUnrecognisedRouteExports(indexFile, { helper: 1, other: 2 }, undefined)
+
+    expect(message).toContain(indexFile)
+    expect(message).toContain("helper, other")
+    expect(message).not.toContain("CommonJS")
+    expect(message).toMatch(/prefix .*"_"/)
+  })
+
+  it("says so when the module has no exports at all", () => {
+    const message = explainUnrecognisedRouteExports(indexFile, {}, undefined)
+
+    expect(message).toContain("no exports")
   })
 })
