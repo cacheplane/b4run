@@ -312,10 +312,13 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
       if (thread.resumeActive)
         return json(res, 409, errorBody("Resume in progress", "resume_in_progress"))
       if (thread.runActive) return json(res, 409, errorBody("Run in flight", "run_in_flight"))
-      if (!thread.pending) return json(res, 409, errorBody("No run in flight", "no_run_in_flight"))
       const pendingIds = thread.pending ? [thread.pending.interruptId as string] : []
       const givenIds = request.resume.map((r) => r.interruptId)
-      if (pendingIds.length !== givenIds.length || pendingIds.some((id) => !givenIds.includes(id)))
+      if (
+        !thread.pending ||
+        pendingIds.length !== givenIds.length ||
+        pendingIds.some((id) => !givenIds.includes(id))
+      )
         return json(
           res,
           409,
