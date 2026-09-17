@@ -43,9 +43,12 @@ AG-UI is ephemeral. Disconnecting or cancelling its response aborts the request'
 
 ## Health and readiness
 
-`GET /healthz` returns a successful liveness response from the route table. That does not prove that Postgres, model providers, sandbox infrastructure, or every configured backend can serve a turn.
+The runtime serves two probes on every target (Node, Hono, Vercel), and they answer different questions:
 
-The fetch runtime calls `requestStores` before route dispatch, so a fetch/Hono host may initialize request-scoped stores even for `/healthz`. Treat that as an implementation detail, not a comprehensive dependency probe. Add an application-owned readiness check for the dependencies and migrations your rollout requires, and keep it behind the same outer access controls as the rest of the service.
+- `GET /healthz` is **liveness**: the process is up and serving HTTP. It touches no store and never calls a per-request store factory, so a deployment with `DATABASE_URL` unset or a database that is unreachable still answers `200 {"status":"ready"}`. That does not prove that Postgres, model providers, sandbox infrastructure, or every configured backend can serve a turn.
+- `GET /readyz` is **readiness**: the request's durable stores (threads, checkpointer, permissions) each answer a real query against their schema, running lazy migrations on the way. It answers `200 {"status":"ready","checks":{...}}` when every store answers, or `503 {"status":"not_ready","checks":{...}}` naming each failing dependency — `requestStores` when the per-request factory itself threw (for example `DATABASE_URL` missing on Vercel), otherwise the store by name. Failure messages have connection-string credentials redacted and the cause is logged to stderr once per distinct failure.
+
+`/readyz` does not probe the model provider, the sandbox provider, or the memory store. Add an application-owned check for anything beyond the durable stores your rollout requires, and keep both probes behind the same outer access controls as the rest of the service: neither is gated by middleware or thread access.
 
 ## Shutdown and rollouts
 

@@ -46,7 +46,9 @@ containerPort: 8000
 # /healthz, matching both b4 build's node-target server (serveRuntime) and
 # its Dockerfile HEALTHCHECK. It is the common liveness/readiness/startup probe
 # path, but B4.run's response is process liveness and does not validate model,
-# database, or sandbox dependencies.
+# database, or sandbox dependencies. The runtime also serves /readyz, which
+# probes the durable stores (503 names the failing one); it applies to all
+# three probes if set here, so liveness would then fail with the database.
 healthPath: /healthz
 
 probes:

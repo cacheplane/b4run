@@ -215,13 +215,14 @@ async function startWorkerd(
     if (Date.now() > deadline) {
       throw new Error(`wrangler never became ready in ${WRANGLER_READY_TIMEOUT_MS}ms:\n${output}`)
     }
-    // `/healthz` and not the log line: "Ready on …" is printed before the
+    // `/readyz` and not the log line: "Ready on …" is printed before the
     // worker has necessarily linked, and a link failure (a stray `node:`
     // import) surfaces as a 500 rather than a missing line. A 200 here means
     // the bundle loaded AND the per-request store factory reached Postgres
-    // through the proxy — the two things most likely to be broken.
+    // through the proxy — the two things most likely to be broken. (`/healthz`
+    // would prove only the first: it is liveness and never builds stores.)
     try {
-      const response = await fetch(`${origin}/healthz`)
+      const response = await fetch(`${origin}/readyz`)
       if (response.ok) break
     } catch {
       // Not listening yet.

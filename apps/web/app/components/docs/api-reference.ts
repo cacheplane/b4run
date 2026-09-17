@@ -164,7 +164,7 @@ export const API_BEHAVIOR_CONTRACTS = [
         file: "packages/cli/test/request-stores.test.ts",
         testNames: ["builds and disposes stores once per request, never reusing them"],
         assertionFingerprint:
-          'expect((await handler.fetch(new Request("http://x/healthz"))).status).toBe(200)\nexpect((await handler.fetch(new Request("http://x/healthz"))).status).toBe(200)\nexpect(built).toEqual([1, 2])\nexpect(disposed).toEqual([1, 2])',
+          'expect((await handler.fetch(new Request("http://x/readyz"))).status).toBe(200)\nexpect((await handler.fetch(new Request("http://x/readyz"))).status).toBe(200)\nexpect(built).toEqual([1, 2])\nexpect(disposed).toEqual([1, 2])',
       },
       {
         kind: "test-assertion",
@@ -178,7 +178,7 @@ export const API_BEHAVIOR_CONTRACTS = [
         file: "packages/cli/test/request-stores.test.ts",
         testNames: ["close() does not return while a store disposal is still in flight"],
         assertionFingerprint:
-          'expect((await handler.fetch(new Request("http://x/healthz"))).status).toBe(200)\nexpect(events).toEqual(["dispose:start"])\nexpect(closed).toBe(false)\nexpect(events).toEqual(["dispose:start", "dispose:end", "close:returned"])',
+          'expect((await handler.fetch(new Request("http://x/readyz"))).status).toBe(200)\nexpect(events).toEqual(["dispose:start"])\nexpect(closed).toBe(false)\nexpect(events).toEqual(["dispose:start", "dispose:end", "close:returned"])',
       },
       {
         kind: "test-assertion",

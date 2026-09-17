@@ -920,8 +920,10 @@ describe("hono target — per-request env binding", () => {
         return {}
       },
     })
-    const first = new Request("http://x/healthz")
-    const second = new Request("http://x/healthz")
+    // `/readyz`: the one probe that DOES build stores. `/healthz` is liveness
+    // and never calls the factory (#688).
+    const first = new Request("http://x/readyz")
+    const second = new Request("http://x/readyz")
     await handler.fetch(first)
     await handler.fetch(second)
     await handler.close()
@@ -1425,7 +1427,8 @@ async function driveEmittedApp(
 ${report.imports}
 
 for (const databaseUrl of ${JSON.stringify(databaseUrls)}) {
-  await app.fetch(new Request("http://x/healthz"), ${report.envExpression ?? "{ DATABASE_URL: databaseUrl }"})
+  // /readyz builds the request's stores; /healthz is liveness and never does.
+  await app.fetch(new Request("http://x/readyz"), ${report.envExpression ?? "{ DATABASE_URL: databaseUrl }"})
 }
 console.log(JSON.stringify(${report.expression}))
 `,

@@ -61,6 +61,7 @@ const DEFERRED: readonly string[] = []
  */
 const EXEMPT: readonly string[] = [
   routeKey("GET", /^\/healthz(?:\?.*)?$/),
+  routeKey("GET", /^\/readyz(?:\?.*)?$/),
   routeKey("GET", /^\/memory\/candidates(?:\?.*)?$/),
   routeKey("POST", /^\/memory\/candidates\/(?<id>[^/?#]+)\/approve(?:\?.*)?$/),
   routeKey("POST", /^\/memory\/candidates\/(?<id>[^/?#]+)\/reject(?:\?.*)?$/),
@@ -72,13 +73,14 @@ const routes = buildRouteTable({} as unknown as Parameters<typeof buildRouteTabl
 const actual = routes.map((route) => `${route.method} ${route.pattern.source}`)
 
 describe("route-table coverage", () => {
-  it("has 15 entries on this branch", () => {
-    // 15: 14 as of PR #443/pending_interrupts, plus this branch's
-    // `GET /threads/:thread_id/runs/stream` attach endpoint. It is CLASSIFIED
-    // (see GATED) rather than counted, which is the whole point of this pair
-    // of assertions: bumping the number without adding the route to a list
-    // would let a new thread endpoint ship ungated and silent.
-    expect(actual).toHaveLength(15)
+  it("has 16 entries on this branch", () => {
+    // 16: 14 as of PR #443/pending_interrupts, plus the
+    // `GET /threads/:thread_id/runs/stream` attach endpoint, plus the
+    // `GET /readyz` readiness probe (#688). Each is CLASSIFIED (see GATED /
+    // EXEMPT) rather than counted, which is the whole point of this pair of
+    // assertions: bumping the number without adding the route to a list would
+    // let a new thread endpoint ship ungated and silent.
+    expect(actual).toHaveLength(16)
   })
 
   it("classifies every route as gated, deferred or exempt", () => {

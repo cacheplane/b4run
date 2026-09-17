@@ -64,8 +64,10 @@ describe("per-request stores", () => {
     })
     cleanup.push(() => handler.close())
 
-    expect((await handler.fetch(new Request("http://x/healthz"))).status).toBe(200)
-    expect((await handler.fetch(new Request("http://x/healthz"))).status).toBe(200)
+    // `/readyz`, not `/healthz`: liveness deliberately never builds stores
+    // (#688), so the cheapest route that does is the readiness probe.
+    expect((await handler.fetch(new Request("http://x/readyz"))).status).toBe(200)
+    expect((await handler.fetch(new Request("http://x/readyz"))).status).toBe(200)
 
     expect(built).toEqual([1, 2])
     expect(disposed).toEqual([1, 2])
@@ -224,7 +226,7 @@ describe("per-request stores", () => {
       }),
     })
 
-    expect((await handler.fetch(new Request("http://x/healthz"))).status).toBe(200)
+    expect((await handler.fetch(new Request("http://x/readyz"))).status).toBe(200)
     expect(events).toEqual(["dispose:start"])
 
     let closed = false
