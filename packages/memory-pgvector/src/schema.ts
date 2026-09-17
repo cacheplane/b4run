@@ -12,15 +12,31 @@ export function vectorColumnDef(dimensions: number): { type: string; ops: string
 }
 
 /**
+ * The one shape a schema or table prefix may take.
+ *
+ * Deliberately identical to `@b4run/postgres-storage`'s `IDENTIFIER_PATTERN`.
+ * The two packages keep separate copies because this one depends on
+ * `@b4run/memory`, not on the agent-state stores, and a dependency edge purely
+ * to share four lines would drag that package's LangGraph peers in with it.
+ * Change one, change the other.
+ */
+export const IDENTIFIER_PATTERN = /^[a-z_][a-z0-9_]*$/
+
+/**
  * Guard SQL identifiers that are interpolated into DDL (they can't be bound as
  * $1 placeholders in Postgres). `prefix`/`schema` come from the store's own
  * config, not untrusted query input, but a malformed config must not produce
  * broken/injected DDL — so reject anything that isn't a plain identifier.
+ *
+ * Lowercase only: `initSchema` below interpolates these UNQUOTED, and Postgres
+ * folds an unquoted identifier to lowercase. A value like `MySchema` therefore
+ * created `myschema` and never named the object the caller wrote — so the
+ * configured name and the real name are now required to be the same string.
  */
 export function assertIdentifier(name: string, value: string): void {
-  if (!/^[a-z_][a-z0-9_]*$/i.test(value))
+  if (!IDENTIFIER_PATTERN.test(value))
     throw new Error(
-      `pgvector: ${name} must be a valid SQL identifier (/^[a-z_][a-z0-9_]*$/i), got ${JSON.stringify(value)}`,
+      `pgvector: ${name} must be a lowercase SQL identifier (${IDENTIFIER_PATTERN}), got ${JSON.stringify(value)}`,
     )
 }
 
