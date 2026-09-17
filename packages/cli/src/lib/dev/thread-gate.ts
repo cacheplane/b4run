@@ -128,9 +128,10 @@ function toThreadSubject(thread: Thread): ThreadSubject {
  * is noise.
  *
  * Every branch supplies a literal body, and the guard is on
- * `result.body !== undefined` rather than on key presence, because
- * `Response.json(undefined)` throws and `statusResponse` would turn that into a
- * 500. A deny must never be able to 500.
+ * `result.body !== undefined` rather than on key presence, so a policy that
+ * omits the body still gets one of the literals below rather than an empty
+ * payload. (`statusResponse` handles an undefined body correctly on its own —
+ * empty JSON at the requested status — but a deny deserves a named reason.)
  */
 function denyResponse(
   action: ThreadAction,
