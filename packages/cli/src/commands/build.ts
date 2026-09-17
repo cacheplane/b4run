@@ -10,7 +10,8 @@ import {
   knownTargetNames,
 } from "../lib/build/targets/index.js"
 import { assertRouteMarkerFileLimits } from "../lib/build/targets/marker-files.js"
-import { assertVercelBuildConfig } from "../lib/build/targets/vercel-config.js"
+import { resolveVercelOutputDir } from "../lib/build/targets/vercel.js"
+import { resolveVercelBuildConfig } from "../lib/build/targets/vercel-config.js"
 import { captureWorkspaceArtifact } from "../lib/build/workspace-artifact.js"
 import { loadOptionalB4Config } from "../lib/node-config.js"
 import { CliError, type CommandIo, writeLine } from "../lib/output.js"
@@ -19,6 +20,7 @@ import { runTypegen } from "../lib/typegen/run-typegen.js"
 interface BuildOptions {
   readonly clean?: boolean
   readonly cwd?: string
+  readonly outDir?: string
 }
 
 export function registerBuildCommand(program: Command, io: CommandIo): void {
@@ -29,6 +31,10 @@ export function registerBuildCommand(program: Command, io: CommandIo): void {
     )
     .option("--clean", "Remove .b4/build/ before generating")
     .option("--cwd <path>", "Path to the B4.run app root")
+    .option(
+      "--out-dir <dir>",
+      "Where the vercel target publishes its Build Output tree, relative to the app root (default: .vercel/output; overrides build.vercel.outDir)",
+    )
     .action(async (options: BuildOptions) => {
       await runBuildCommand(options, io)
     })
@@ -40,7 +46,7 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
   })
 
   const config = await loadOptionalB4Config(manifest.appRoot)
-  assertVercelBuildConfig(config?.build)
+  const vercelBuildConfig = resolveVercelBuildConfig(config?.build, manifest.appRoot)
 
   // The config type only admits known names, but a JS config or a JSON one
   // arrives untyped — so validate the ENTIRE list up front, before emitting
@@ -56,6 +62,22 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
     }
     targetNames.push(name)
   }
+
+  if (options.outDir !== undefined && !targetNames.includes("vercel")) {
+    throw new CliError(
+      `--out-dir only applies to the "vercel" build target, which is not configured. Add "vercel" to build.targets in b4.config.ts or drop the flag.`,
+    )
+  }
+  const vercelOutputDir = targetNames.includes("vercel")
+    ? resolveVercelOutputDir({
+        appRoot: manifest.appRoot,
+        ...(options.outDir !== undefined
+          ? { outDir: options.outDir, source: "--out-dir" as const }
+          : vercelBuildConfig.outDir !== undefined
+            ? { outDir: vercelBuildConfig.outDir, source: "build.vercel.outDir" as const }
+            : {}),
+      })
+    : undefined
 
   if (targetNames.length === 0) {
     writeLine(io.stderr, "no build targets configured; nothing emitted")
@@ -95,6 +117,7 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
     buildDir,
     io,
     manifest,
+    ...(vercelOutputDir ? { vercelOutputDir } : {}),
     ...(workspaceArtifact ? { workspaceArtifact } : {}),
     ...(config?.build ? { buildConfig: config.build } : {}),
   }

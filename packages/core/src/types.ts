@@ -56,6 +56,13 @@ export interface VercelBuildConfig {
    */
   readonly routes?: readonly VercelBuildRoute[]
   /**
+   * Where the `"vercel"` target publishes its Build Output API tree.
+   * Resolved relative to the app root; defaults to `.vercel/output`, the
+   * directory Vercel deploys from. `b4 build --out-dir <dir>` overrides it
+   * per run. The directory must not contain the app root itself.
+   */
+  readonly outDir?: string
+  /**
    * Whether `b4 build` reconciles the app-root `vercel.json` with the
    * target's lifecycle contract (a `buildCommand` that runs `b4 build`
    * and `fluid: true`): it writes the recommended file when none
@@ -167,7 +174,8 @@ export interface B4Config {
      * Shape and options of the `"vercel"` target's Build Output tree. Ignored
      * unless `"vercel"` is in {@link targets}. With nothing set the output is
      * the runtime function alone (`functions/index.func`) behind a catch-all
-     * route, and the app-root `vercel.json` is reconciled.
+     * route, published to `.vercel/output`, and the app-root `vercel.json` is
+     * reconciled.
      */
     readonly vercel?: VercelBuildConfig
   }

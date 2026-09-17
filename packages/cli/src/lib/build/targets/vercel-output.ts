@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises"
 import { isBuiltin } from "node:module"
-import { isAbsolute, join, relative, sep } from "node:path"
+import { dirname, isAbsolute, join, relative, sep } from "node:path"
 import { build } from "esbuild"
 
 import { CliError, formatErrorMessage } from "../../output.js"
@@ -105,15 +105,18 @@ async function validateFunctionDirectory(functionDir: string): Promise<void> {
   await validateRuntimeDependencies(entryPath, functionDir, realFunctionDir)
 }
 
-/** Atomically replace `.vercel/output` with one fully validated staged tree. */
+/**
+ * Atomically replace `outputDir` (`.vercel/output` by default) with one fully
+ * validated staged tree. The prior output is parked beside it during the swap.
+ */
 export async function publishVercelOutput(input: {
+  readonly outputDir: string
   readonly stagedOutput: string
-  readonly vercelDir: string
   readonly fileOps?: Pick<typeof import("node:fs/promises"), "rename" | "rm">
 }): Promise<void> {
   const fileOps = input.fileOps ?? { rename, rm }
-  const outputDir = join(input.vercelDir, "output")
-  const backupPath = join(input.vercelDir, `.b4-vercel-output-backup-${randomUUID()}`)
+  const outputDir = input.outputDir
+  const backupPath = join(dirname(outputDir), `.b4-vercel-output-backup-${randomUUID()}`)
   let backupCreated = false
 
   try {
@@ -184,13 +187,22 @@ async function readJson(path: string): Promise<unknown> {
   }
 }
 
+/**
+ * The Build Output config may be composed by the build itself (static assets,
+ * further functions, their routes) or after it, so this asserts the parts the
+ * runtime function depends on rather than the exact catch-all a bare build
+ * writes: a version-3 config whose route list still reaches the runtime
+ * function, with route shapes the Build Output API accepts.
+ */
 function validateBuildOutputConfig(value: unknown, configPath: string, functionName: string): void {
   const config = asRecord(value, configPath)
-  validateExactProperties(config, ["routes", "version"], configPath)
   if (config.version !== VERCEL_BUILD_OUTPUT_CONFIG.version) {
     throw new Error(`${configPath} property "version" must be 3`)
   }
-  if (!Array.isArray(config.routes) || config.routes.length === 0) {
+  if (!Array.isArray(config.routes)) {
+    throw new Error(`${configPath} property "routes" must be an array`)
+  }
+  if (config.routes.length === 0) {
     throw new Error(`${configPath} property "routes" must be a non-empty array`)
   }
 
@@ -222,7 +234,7 @@ function validateBuildOutputConfig(value: unknown, configPath: string, functionN
   })
   if (!sawRuntimeRoute) {
     throw new Error(
-      `${configPath} property "routes" must include a route with dest ${JSON.stringify(runtimeDest)}`,
+      `${configPath} property "routes" must contain a route with dest ${JSON.stringify(runtimeDest)} so requests reach the runtime function`,
     )
   }
 }

@@ -44,12 +44,14 @@ export function setVercelConfigFileOpsForTesting(
 /** Every option `build.vercel` accepts. Anything else is an authoring error. */
 const VERCEL_BUILD_OPTION_KEYS: readonly string[] = [
   ...VERCEL_COMPOSITION_KEYS,
+  "outDir",
   "reconcileVercelJson",
 ].sort()
 
 /**
- * Validates `build.vercel` and resolves whether the `vercel` target reconciles
- * the app-root `vercel.json`.
+ * Validates the whole of `build.vercel` and resolves it: where the tree is
+ * published, whether the `vercel` target reconciles the app-root `vercel.json`,
+ * and the composed tree the target emits.
  *
  * Reconciliation is ON unless the flag is exactly `false`, so every way of
  * *nearly* turning it off has to be rejected rather than ignored — a config
@@ -68,6 +70,7 @@ export function resolveVercelBuildConfig(
   build: B4Config["build"] | undefined,
   appRoot: string,
 ): {
+  readonly outDir?: string
   readonly reconcileVercelJson: boolean
   readonly composition: ResolvedVercelBuild
 } {
@@ -77,6 +80,13 @@ export function resolveVercelBuildConfig(
   if (misplaced !== undefined) {
     throw invalidBuildConfig(
       "reconcileVercelJson belongs under build.vercel, not build directly. Use build: { vercel: { reconcileVercelJson: false } }.",
+    )
+  }
+
+  const misplacedOutDir = ownProperty(buildRecord, "outDir")
+  if (misplacedOutDir !== undefined) {
+    throw invalidBuildConfig(
+      'outDir belongs under build.vercel, not build directly. Use build: { vercel: { outDir: "dist/vercel" } }.',
     )
   }
 
@@ -97,6 +107,23 @@ export function resolveVercelBuildConfig(
     )
   }
 
+  // An empty or blank `outDir` would resolve to the app root itself, which
+  // publication then replaces wholesale — reject it here rather than let the
+  // path resolver report a directory the author never typed.
+  const outDirValue = ownProperty(vercel, "outDir")
+  let outDir: string | undefined
+  if (outDirValue !== undefined) {
+    if (typeof outDirValue !== "string") {
+      throw invalidBuildConfig(
+        `build.vercel.outDir must be a string; received ${JSON.stringify(outDirValue)}.`,
+      )
+    }
+    if (outDirValue.trim() === "") {
+      throw invalidBuildConfig("build.vercel.outDir must not be empty.")
+    }
+    outDir = outDirValue
+  }
+
   const reconcileVercelJson = ownProperty(vercel, "reconcileVercelJson")
   if (reconcileVercelJson !== undefined && typeof reconcileVercelJson !== "boolean") {
     throw invalidBuildConfig(
@@ -105,13 +132,18 @@ export function resolveVercelBuildConfig(
   }
 
   // The composition resolver owns the keys that describe the tree; strip the
-  // one option that is not part of it so neither half rejects the other's.
-  const { reconcileVercelJson: _flag, ...composed } = vercel as Record<string, unknown>
+  // options that are not part of it so neither half rejects the other's.
+  const {
+    outDir: _outDir,
+    reconcileVercelJson: _flag,
+    ...composed
+  } = vercel as Record<string, unknown>
   return {
     composition: resolveVercelComposition(
       Object.keys(composed).length > 0 ? composed : undefined,
       appRoot,
     ),
+    ...(outDir === undefined ? {} : { outDir }),
     reconcileVercelJson: reconcileVercelJson ?? true,
   }
 }

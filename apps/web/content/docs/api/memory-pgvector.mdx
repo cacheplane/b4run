@@ -31,6 +31,7 @@ The store uses `pg`, initializes the pgvector extension and its tables lazily, a
 | `PgvectorMemoryStore` | Extend `MemoryStore` with pool lifecycle. |
 | `pgvectorMemoryStore` | Create a Postgres and pgvector memory store. |
 | `assertIdentifier` | Reject unsafe SQL identifiers. |
+| `IDENTIFIER_PATTERN` | Expose the lowercase identifier pattern `assertIdentifier` enforces. |
 | `initSchema` | Initialize pgvector storage schema. |
 | `vectorColumnDef` | Select vector storage and operator class by dimensions. |
 
@@ -56,9 +57,9 @@ export declare function pgvectorMemoryStore(opts: {
   dimensions: number
   /** HNSW index/search tuning; all fields defaulted. */
   index?: { m?: number; efConstruction?: number; efSearch?: number }
-  /** Postgres schema to place tables in. */
+  /** Postgres schema to place tables in; must match `IDENTIFIER_PATTERN`. */
   schema?: string
-  /** Table name prefix (isolates multiple stores in one database). */
+  /** Table name prefix (isolates multiple stores in one database); must match `IDENTIFIER_PATTERN`. */
   tablePrefix?: string
   /** Recall ranking tuning; all fields defaulted. See @b4run/memory score.ts. */
   recall?: RecallRankingOptions
@@ -83,7 +84,7 @@ The store rejects invalid dimensions at construction: 1–2000 use vector cosine
 
 Initialization is memoized per store instance. `CREATE IF NOT EXISTS` does not migrate an existing vector dimension or HNSW tuning, so treat those as schema decisions. Dimensions up to 2,000 use `vector`; dimensions up to 4,000 use `halfvec`; larger or non-positive dimensions fail during construction.
 
-Both `queryEmbedding` and `embedderId` are required to activate hybrid retrieval. Keyword and vector candidates are fused in application code. `schema` and `tablePrefix` organize tables; they are not tenant authorization boundaries. Stored memory is plaintext unless your database and infrastructure provide encryption.
+Both `queryEmbedding` and `embedderId` are required to activate hybrid retrieval. Keyword and vector candidates are fused in application code. `schema` and `tablePrefix` organize tables; they are not tenant authorization boundaries. Both are interpolated unquoted, so both must be lowercase identifiers matching `IDENTIFIER_PATTERN`; a mixed-case value is rejected at construction rather than silently folded to lowercase by Postgres. Stored memory is plaintext unless your database and infrastructure provide encryption.
 
 ## Examples and related guides
 

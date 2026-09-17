@@ -159,11 +159,14 @@ async function linkPgTargetFixtureDependency(appRoot: string): Promise<void> {
   )
 }
 
-async function runTargetBuild(appRoot: string): Promise<{ stderr: string[]; stdout: string[] }> {
+async function runTargetBuild(
+  appRoot: string,
+  options: { readonly outDir?: string } = {},
+): Promise<{ stderr: string[]; stdout: string[] }> {
   const stdout: string[] = []
   const stderr: string[] = []
   await runBuildCommand(
-    { clean: true, cwd: appRoot },
+    { clean: true, cwd: appRoot, ...options },
     {
       stderr: (message) => stderr.push(message),
       stdout: (message) => stdout.push(message),
@@ -186,16 +189,18 @@ async function listTree(root: string): Promise<string[]> {
 }
 
 async function createPublicationFixture(): Promise<{
+  outputDir: string
   stagedOutput: string
   vercelDir: string
 }> {
   const appRoot = await mkdtemp(join(tmpdir(), "b4-vercel-publish-"))
   tempDirs.push(appRoot)
   const vercelDir = join(appRoot, ".vercel")
+  const outputDir = join(vercelDir, "output")
   const stagedOutput = join(vercelDir, ".b4-vercel-invocation", "output")
   await validOutput(stagedOutput)
   await seedUnrelatedVercelFiles(vercelDir)
-  return { stagedOutput, vercelDir }
+  return { outputDir, stagedOutput, vercelDir }
 }
 
 async function seedUnrelatedVercelFiles(vercelDir: string): Promise<void> {
@@ -1224,6 +1229,101 @@ export async function workflow() {
   })
 })
 
+describe("Vercel output directory override", () => {
+  const finalTree = [
+    "config.json",
+    join("functions", "index.func", ".vc-config.json"),
+    join("functions", "index.func", "index.mjs"),
+  ]
+
+  test("build.vercel.outDir publishes the tree relative to the app root", async () => {
+    const appRoot = await createTargetFixture({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { outDir: "dist/vercel" } } }\n',
+    })
+
+    const { stderr, stdout } = await runTargetBuild(appRoot)
+
+    const outputDir = join(appRoot, "dist", "vercel")
+    expect(stderr.join("")).toBe("")
+    expect(await listTree(outputDir)).toEqual(finalTree)
+    expect(await readdir(join(appRoot, "dist"))).toEqual(["vercel"])
+    expect(existsSync(join(appRoot, ".vercel", "output"))).toBe(false)
+    const report = stdout.join("")
+    for (const finalPath of finalTree) expect(report).toContain(join("dist", "vercel", finalPath))
+    expect(report).not.toContain(join(".vercel", "output"))
+    expect(report).not.toContain(".b4-vercel-")
+    await expect(validateVercelOutput(outputDir)).resolves.toBeUndefined()
+  })
+
+  test("--out-dir wins over build.vercel.outDir and replaces the prior output there", async () => {
+    const appRoot = await createTargetFixture({
+      "b4.config.ts":
+        'export default { build: { targets: ["vercel"], vercel: { outDir: "dist/from-config" } } }\n',
+    })
+    const outputDir = join(appRoot, "dist", "from-flag")
+    await mkdir(outputDir, { recursive: true })
+    await writeFile(join(outputDir, "stale.txt"), "stale bytes\n")
+
+    const { stderr } = await runTargetBuild(appRoot, { outDir: "dist/from-flag" })
+
+    expect(stderr.join("")).toBe("")
+    expect(await listTree(outputDir)).toEqual(finalTree)
+    expect(await readdir(join(appRoot, "dist"))).toEqual(["from-flag"])
+    expect(existsSync(join(appRoot, ".vercel", "output"))).toBe(false)
+    await expect(validateVercelOutput(outputDir)).resolves.toBeUndefined()
+  })
+
+  test("publishes to a directory outside the app root and leaves no staging behind", async () => {
+    const appRoot = await createTargetFixture()
+    const outsideRoot = await mkdtemp(join(tmpdir(), "b4-vercel-outside-"))
+    tempDirs.push(outsideRoot)
+    const outputDir = join(outsideRoot, "out")
+
+    const { stderr } = await runTargetBuild(appRoot, { outDir: outputDir })
+
+    expect(stderr.join("")).toBe("")
+    expect(await listTree(outputDir)).toEqual(finalTree)
+    expect(existsSync(join(appRoot, ".vercel", "output"))).toBe(false)
+    expect(await readdir(outsideRoot)).toEqual(["out"])
+    expect((await readdir(join(appRoot, ".vercel"))).some((name) => name.startsWith(".b4-"))).toBe(
+      false,
+    )
+    await expect(validateVercelOutput(outputDir)).resolves.toBeUndefined()
+  })
+
+  test("rejects --out-dir when the vercel target is not configured", async () => {
+    const appRoot = await createTargetFixture({
+      "b4.config.ts": 'export default { build: { targets: ["langsmith"] } }\n',
+    })
+
+    const error = await runTargetBuild(appRoot, { outDir: "dist/vercel" }).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(CliError)
+    expect(String(error)).toMatch(/--out-dir.*"vercel"/s)
+    expect(existsSync(join(appRoot, "dist"))).toBe(false)
+    expect(existsSync(join(appRoot, ".b4", "build"))).toBe(false)
+  })
+
+  test.each([".", "..", "app root"])(
+    "rejects an output directory (%s) that contains the app root",
+    async (outDir) => {
+      const appRoot = await createTargetFixture()
+
+      const error = await runTargetBuild(appRoot, {
+        outDir: outDir === "app root" ? appRoot : outDir,
+      }).catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(CliError)
+      expect(String(error)).toMatch(/output directory.*app root/s)
+      expect(existsSync(join(appRoot, ".b4", "build"))).toBe(false)
+      expect(existsSync(join(appRoot, ".vercel"))).toBe(false)
+    },
+  )
+})
+
 describe("transactional Vercel output publication", () => {
   test("publishes the first output when no prior output exists", async () => {
     const fixture = await createPublicationFixture()
@@ -1440,7 +1540,7 @@ describe("transactional Vercel output publication", () => {
     try {
       await publishVercelOutput({
         stagedOutput: secondStagedOutput,
-        vercelDir: first.vercelDir,
+        outputDir: first.outputDir,
         fileOps: {
           rename: async (source, destination) => {
             if (source === outputDir) secondBackup = String(destination)
@@ -1538,6 +1638,31 @@ describe("Build Output contract", () => {
     },
   )
 
+  test("accepts a composed config.json that still routes to the runtime function", async () => {
+    const outputDir = await createOutputDir()
+    await validOutput(outputDir)
+    await writeFile(
+      join(outputDir, "config.json"),
+      `${JSON.stringify(
+        {
+          images: { domains: [], sizes: [640] },
+          overrides: { "index.html": { contentType: "text/html; charset=utf-8" } },
+          routes: [
+            { src: "/api/(.*)", dest: "/api" },
+            { handle: "filesystem" },
+            { src: "/(agui|threads)(/.*)?", dest: "/index", check: true },
+            { src: "/(.*)", dest: "/index.html" },
+          ],
+          version: 3,
+        },
+        null,
+        2,
+      )}\n`,
+    )
+
+    await expect(validateVercelOutput(outputDir)).resolves.toBeUndefined()
+  })
+
   test("accepts an embedded data module bundled by esbuild", async () => {
     const outputDir = await createOutputDir()
     await validOutput(outputDir)
@@ -1593,7 +1718,7 @@ describe("Build Output contract", () => {
     )
 
     await expect(validateVercelOutput(outputDir, { functionName: "b4" })).rejects.toThrow(
-      `${join(outputDir, "config.json")} property "routes" must include a route with dest "/b4"`,
+      `${join(outputDir, "config.json")} property "routes" must contain a route with dest "/b4"`,
     )
   })
 
@@ -1602,7 +1727,7 @@ describe("Build Output contract", () => {
     await composedOutput(outputDir)
 
     await expect(validateVercelOutput(outputDir)).rejects.toThrow(
-      `${join(outputDir, "config.json")} property "routes" must include a route with dest "/index"`,
+      `${join(outputDir, "config.json")} property "routes" must contain a route with dest "/index"`,
     )
   })
 
@@ -1780,32 +1905,42 @@ describe("Build Output contract", () => {
     },
     {
       expected: (outputDir: string) =>
-        `${join(outputDir, "config.json")} property "routes" must include a route with dest "/index"`,
+        `${join(outputDir, "config.json")} property "routes" must contain a route with dest "/index"`,
       mutate: async (outputDir: string) =>
         writeFile(
           join(outputDir, "config.json"),
           '{\n  "routes": [{ "src": "/(.*)", "dest": "/wrong" }],\n  "version": 3\n}\n',
         ),
-      name: "wrong route destination",
-    },
-    {
-      expected: (outputDir: string) => `${join(outputDir, "config.json")} property "extra"`,
-      mutate: async (outputDir: string) =>
-        writeFile(
-          join(outputDir, "config.json"),
-          '{\n  "routes": [{ "src": "/(.*)", "dest": "/index" }],\n  "version": 3,\n  "extra": true\n}\n',
-        ),
-      name: "extra root config property",
+      name: "missing runtime route",
     },
     {
       expected: (outputDir: string) =>
-        `${join(outputDir, "config.json")} property "routes[0].extra"`,
+        `${join(outputDir, "config.json")} property "routes" must contain a route with dest "/index"`,
       mutate: async (outputDir: string) =>
         writeFile(
           join(outputDir, "config.json"),
-          '{\n  "routes": [{ "src": "/(.*)", "dest": "/index", "extra": true }],\n  "version": 3\n}\n',
+          '{\n  "routes": [{ "handle": "filesystem" }],\n  "version": 3\n}\n',
         ),
-      name: "extra route property",
+      name: "routes without any function destination",
+    },
+    {
+      expected: (outputDir: string) =>
+        `${join(outputDir, "config.json")} property "routes" must be an array`,
+      mutate: async (outputDir: string) =>
+        writeFile(
+          join(outputDir, "config.json"),
+          '{\n  "routes": { "src": "/(.*)", "dest": "/index" },\n  "version": 3\n}\n',
+        ),
+      name: "routes that is not an array",
+    },
+    {
+      expected: (outputDir: string) => `${join(outputDir, "config.json")} property "routes[1]"`,
+      mutate: async (outputDir: string) =>
+        writeFile(
+          join(outputDir, "config.json"),
+          '{\n  "routes": [{ "src": "/(.*)", "dest": "/index" }, "/index"],\n  "version": 3\n}\n',
+        ),
+      name: "route entry that is not an object",
     },
     {
       expected: (outputDir: string) => `${functionConfigPath(outputDir)} property "extra"`,

@@ -59,7 +59,10 @@ export default config({
     // summarize: async ({ messages, model, previousSummary, signal }) => "...",
   },
 
-  build: { targets: ["node", "langsmith"] },
+  build: {
+    targets: ["node", "langsmith"],
+    // vercel: { outDir: "dist/vercel" }, // where the "vercel" target publishes (default .vercel/output)
+  },
 
   // Cross-origin access. Omit and the runtime sends no `Access-Control-*`
   // header at all, so a browser on another origin cannot call it — the
@@ -291,6 +294,7 @@ build?: {
       supportsResponseStreaming?: boolean
     }>>
     routes?: readonly { src: string; dest?: string; [key: string]: unknown }[]
+    outDir?: string
     reconcileVercelJson?: boolean
   }
 }
@@ -314,6 +318,13 @@ until `static` is set, when it becomes `b4` so it does not shadow
 beside `static` fails the build. See
 [the `vercel` target](/docs/deployment/edge#the-vercel-target) for the
 published tree and route order.
+
+`vercel.outDir` is the directory the Build Output tree is published to,
+resolved relative to the app root. It defaults to `.vercel/output`, where
+Vercel deploys from; point it elsewhere when a further step composes the tree
+before deployment. `b4 build --out-dir <dir>` overrides it for one run. The
+directory is replaced wholesale on each build, so one that contains the app
+root is rejected.
 
 `vercel.reconcileVercelJson` (default `true`) controls whether the `"vercel"`
 target reconciles the app-root `vercel.json` with its lifecycle contract — a
