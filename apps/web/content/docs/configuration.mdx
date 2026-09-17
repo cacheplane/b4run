@@ -284,7 +284,7 @@ build?: { targets?: readonly string[] }
 
 Default: `["node", "langsmith"]`. An authored `targets` array replaces that
 list; it does not add to it. Supported values are `"node"`, `"langsmith"`, and
-the opt-in `"hono"` subset. Choose only targets whose runtime can materialize
+the opt-in `"hono"` and `"vercel"` subsets. Choose only targets whose runtime can materialize
 the configured capabilities. See [Deployment Options](/docs/deployment) for
 the artifact and compatibility matrix.
 

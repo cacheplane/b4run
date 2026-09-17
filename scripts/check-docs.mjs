@@ -4212,6 +4212,7 @@ const expectedNavDocEntries = [
   { label: "Kubernetes", href: "/docs/deployment/kubernetes" },
   { label: "LangSmith", href: "/docs/deployment/langsmith" },
   { label: "Edge and Hono", href: "/docs/deployment/edge" },
+  { label: "Vercel", href: "/docs/deployment/vercel" },
   { label: "Execution Sandbox", href: "/docs/sandbox" },
   { label: "Kubernetes Sandbox", href: "/docs/sandbox/kubernetes" },
   { label: "Recipes Overview", href: "/docs/recipes" },
@@ -4320,9 +4321,9 @@ if (apiReferenceRegistry) {
     ...navDocEntries.slice(apiHubIndex + 1),
   ]
   const expectedAllDocsPageCount = navDocEntries.length + API_REFERENCE_PAGES.length
-  if (navDocEntries.length !== 59 || expectedAllDocsPages.length !== expectedAllDocsPageCount) {
+  if (navDocEntries.length !== 60 || expectedAllDocsPages.length !== expectedAllDocsPageCount) {
     failures.push(
-      `Docs page registries must retain 59 journey pages plus every registered API reference leaf; received ${navDocEntries.length} journey pages, ${API_REFERENCE_PAGES.length} reference leaves, and ${expectedAllDocsPages.length} total pages`,
+      `Docs page registries must retain 60 journey pages plus every registered API reference leaf; received ${navDocEntries.length} journey pages, ${API_REFERENCE_PAGES.length} reference leaves, and ${expectedAllDocsPages.length} total pages`,
     )
   }
   const navModule = await tsImport(pathToFileURL(docsNavPath).href, import.meta.url).catch(
