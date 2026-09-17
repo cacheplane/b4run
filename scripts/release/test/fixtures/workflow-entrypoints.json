@@ -7,7 +7,11 @@
         "name": "Auto Approve",
         "on": {
           "pull_request": {
-            "types": ["opened", "reopened", "ready_for_review"]
+            "types": [
+              "opened",
+              "reopened",
+              "ready_for_review"
+            ]
           }
         },
         "permissions": {
@@ -50,7 +54,9 @@
         "on": {
           "pull_request": null,
           "push": {
-            "branches": ["main"]
+            "branches": [
+              "main"
+            ]
           }
         },
         "permissions": {
@@ -184,7 +190,7 @@
             {
               "classification": "safe",
               "descriptor": {
-                "name": "Helm lint (strict) — b4-sandbox-infra",
+                "name": "Helm lint (strict) \u2014 b4-sandbox-infra",
                 "run": "helm lint --strict charts/b4-sandbox-infra"
               }
             },
@@ -198,49 +204,49 @@
             {
               "classification": "safe",
               "descriptor": {
-                "name": "Render assertions — b4-sandbox-infra",
+                "name": "Render assertions \u2014 b4-sandbox-infra",
                 "run": "sh charts/b4-sandbox-infra/test/render.sh"
               }
             },
             {
               "classification": "safe",
               "descriptor": {
-                "name": "kubeconform (default values) — b4-sandbox-infra",
+                "name": "kubeconform (default values) \u2014 b4-sandbox-infra",
                 "run": "helm template test charts/b4-sandbox-infra \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
               }
             },
             {
               "classification": "safe",
               "descriptor": {
-                "name": "kubeconform (restricted PSS, reaper disabled) — b4-sandbox-infra",
+                "name": "kubeconform (restricted PSS, reaper disabled) \u2014 b4-sandbox-infra",
                 "run": "helm template test charts/b4-sandbox-infra \\\n  --set podSecurityStandard.enforce=restricted \\\n  --set reaper.enabled=false \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
               }
             },
             {
               "classification": "safe",
               "descriptor": {
-                "name": "Helm lint (strict) — b4-app",
+                "name": "Helm lint (strict) \u2014 b4-app",
                 "run": "helm lint --strict charts/b4-app"
               }
             },
             {
               "classification": "safe",
               "descriptor": {
-                "name": "Render assertions — b4-app",
+                "name": "Render assertions \u2014 b4-app",
                 "run": "sh charts/b4-app/test/render.sh"
               }
             },
             {
               "classification": "safe",
               "descriptor": {
-                "name": "kubeconform (default values) — b4-app",
+                "name": "kubeconform (default values) \u2014 b4-app",
                 "run": "helm template test charts/b4-app --set image.repository=example/app \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
               }
             },
             {
               "classification": "safe",
               "descriptor": {
-                "name": "kubeconform (full override) — b4-app",
+                "name": "kubeconform (full override) \u2014 b4-app",
                 "run": "helm template test charts/b4-app \\\n  --set image.repository=example/app \\\n  --set ingress.enabled=true \\\n  --set ingress.host=app.example.com \\\n  --set autoscaling.enabled=true \\\n  --set podDisruptionBudget.enabled=true \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
               }
             }
@@ -448,7 +454,7 @@
               "classification": "safe",
               "descriptor": {
                 "name": "Assert the workerd lane did not skip",
-                "run": "node -e '\n  const fs = require(\"node:fs\")\n  const path = process.argv[1]\n  if (!fs.existsSync(path)) {\n    throw new Error(\"no vitest report at \" + path + \" — the lane produced no run at all.\")\n  }\n  const report = JSON.parse(fs.readFileSync(path, \"utf8\"))\n  const passed = report.numPassedTests ?? 0\n  const skipped = report.numPendingTests ?? 0\n  if (passed === 0 || skipped > 0) {\n    throw new Error(\n      \"the workerd lane reported \" + passed + \" passed and \" + skipped + \" skipped. \" +\n        \"This job is the only place B4_TEST_WORKERD=1 is set, so a skip here means the \" +\n        \"merge gate ran nothing while still exiting 0. Check that the flag name in \" +\n        \"packages/cli/test/workerd-lane.test.ts still matches the one this job exports.\",\n    )\n  }\n  console.log(\"workerd lane ran: \" + passed + \" passed, 0 skipped.\")\n' \"${{ runner.temp }}/workerd-lane-report.json\"\n"
+                "run": "node -e '\n  const fs = require(\"node:fs\")\n  const path = process.argv[1]\n  if (!fs.existsSync(path)) {\n    throw new Error(\"no vitest report at \" + path + \" \u2014 the lane produced no run at all.\")\n  }\n  const report = JSON.parse(fs.readFileSync(path, \"utf8\"))\n  const passed = report.numPassedTests ?? 0\n  const skipped = report.numPendingTests ?? 0\n  if (passed === 0 || skipped > 0) {\n    throw new Error(\n      \"the workerd lane reported \" + passed + \" passed and \" + skipped + \" skipped. \" +\n        \"This job is the only place B4_TEST_WORKERD=1 is set, so a skip here means the \" +\n        \"merge gate ran nothing while still exiting 0. Check that the flag name in \" +\n        \"packages/cli/test/workerd-lane.test.ts still matches the one this job exports.\",\n    )\n  }\n  console.log(\"workerd lane ran: \" + passed + \" passed, 0 skipped.\")\n' \"${{ runner.temp }}/workerd-lane-report.json\"\n"
               }
             }
           ]
@@ -1855,7 +1861,12 @@
         "name": "Claude Review",
         "on": {
           "pull_request": {
-            "types": ["opened", "synchronize", "reopened", "ready_for_review"]
+            "types": [
+              "opened",
+              "synchronize",
+              "reopened",
+              "ready_for_review"
+            ]
           }
         },
         "permissions": {
@@ -1894,8 +1905,8 @@
                   "REVIEW_MODEL": "claude-sonnet-4-6"
                 },
                 "id": "preflight",
-                "name": "Preflight — Anthropic credentials and model",
-                "run": "set -uo pipefail\nif [ -z \"${ANTHROPIC_API_KEY}\" ]; then\n  echo \"::warning::ANTHROPIC_API_KEY is unavailable (fork PR — secrets are not exposed to fork \\`pull_request\\` runs). Skipping review.\"\n  echo \"skip=true\" >> \"$GITHUB_OUTPUT\"\n  exit 0\nfi\necho \"skip=false\" >> \"$GITHUB_OUTPUT\"\n\n# Keep the key out of argv (and therefore out of the process list) by\n# passing it through a 0600 curl config file rather than -H.\nrc=\"$(mktemp)\"; body=\"$(mktemp)\"\ntrap 'rm -f \"$rc\" \"$body\"' EXIT\nprintf 'header = \"x-api-key: %s\"\\n' \"${ANTHROPIC_API_KEY}\" > \"$rc\"\n\ncode=\"$(curl -sS -o \"$body\" -w '%{http_code}' \\\n  --config \"$rc\" \\\n  -H 'anthropic-version: 2023-06-01' \\\n  -H 'content-type: application/json' \\\n  -d \"{\\\"model\\\":\\\"${REVIEW_MODEL}\\\",\\\"max_tokens\\\":1,\\\"messages\\\":[{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"ping\\\"}]}\" \\\n  https://api.anthropic.com/v1/messages)\" || {\n    echo \"::warning::Preflight request could not be sent; continuing and letting the review step report.\"\n    exit 0\n  }\n\ncase \"$code\" in\n  200)\n    echo \"Anthropic API reachable; key valid; model ${REVIEW_MODEL} available.\"\n    ;;\n  429|5??)\n    echo \"::warning::Preflight got HTTP ${code} (rate limit / transient). Key looks valid; continuing.\"\n    ;;\n  *)\n    echo \"::error::Anthropic preflight failed with HTTP ${code} for model ${REVIEW_MODEL} — the review agent cannot run.\"\n    jq -r '.error | \"\\(.type): \\(.message)\"' < \"$body\" 2>/dev/null || head -c 500 \"$body\"\n    echo\n    echo \"401 => rotate ANTHROPIC_API_KEY. 400 mentioning credit balance => top up the Anthropic org. 404 => REVIEW_MODEL is no longer available to this org.\"\n    exit 1\n    ;;\nesac\n"
+                "name": "Preflight \u2014 Anthropic credentials and model",
+                "run": "set -uo pipefail\nif [ -z \"${ANTHROPIC_API_KEY}\" ]; then\n  echo \"::warning::ANTHROPIC_API_KEY is unavailable (fork PR \u2014 secrets are not exposed to fork \\`pull_request\\` runs). Skipping review.\"\n  echo \"skip=true\" >> \"$GITHUB_OUTPUT\"\n  exit 0\nfi\necho \"skip=false\" >> \"$GITHUB_OUTPUT\"\n\n# Keep the key out of argv (and therefore out of the process list) by\n# passing it through a 0600 curl config file rather than -H.\nrc=\"$(mktemp)\"; body=\"$(mktemp)\"\ntrap 'rm -f \"$rc\" \"$body\"' EXIT\nprintf 'header = \"x-api-key: %s\"\\n' \"${ANTHROPIC_API_KEY}\" > \"$rc\"\n\ncode=\"$(curl -sS -o \"$body\" -w '%{http_code}' \\\n  --config \"$rc\" \\\n  -H 'anthropic-version: 2023-06-01' \\\n  -H 'content-type: application/json' \\\n  -d \"{\\\"model\\\":\\\"${REVIEW_MODEL}\\\",\\\"max_tokens\\\":1,\\\"messages\\\":[{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"ping\\\"}]}\" \\\n  https://api.anthropic.com/v1/messages)\" || {\n    echo \"::warning::Preflight request could not be sent; continuing and letting the review step report.\"\n    exit 0\n  }\n\ncase \"$code\" in\n  200)\n    echo \"Anthropic API reachable; key valid; model ${REVIEW_MODEL} available.\"\n    ;;\n  429|5??)\n    echo \"::warning::Preflight got HTTP ${code} (rate limit / transient). Key looks valid; continuing.\"\n    ;;\n  *)\n    echo \"::error::Anthropic preflight failed with HTTP ${code} for model ${REVIEW_MODEL} \u2014 the review agent cannot run.\"\n    jq -r '.error | \"\\(.type): \\(.message)\"' < \"$body\" 2>/dev/null || head -c 500 \"$body\"\n    echo\n    echo \"401 => rotate ANTHROPIC_API_KEY. 400 mentioning credit balance => top up the Anthropic org. 404 => REVIEW_MODEL is no longer available to this org.\"\n    exit 1\n    ;;\nesac\n"
               }
             },
             {
@@ -1922,7 +1933,7 @@
                 },
                 "if": "always() && steps.claude.conclusion != 'skipped'",
                 "name": "Verify the review actually ran",
-                "run": "set -uo pipefail\nif [ -z \"${EXECUTION_FILE}\" ] || [ ! -f \"${EXECUTION_FILE}\" ]; then\n  echo \"::error::No Claude execution log was produced — the review agent never reported a result.\"\n  exit 1\nfi\n\nresult=\"$(jq -c '[.[] | select(.type == \"result\")] | last // empty' \"${EXECUTION_FILE}\")\"\nif [ -z \"${result}\" ]; then\n  echo \"::error::Claude execution log contains no result message — the agent did not finish.\"\n  exit 1\nfi\n\nis_error=\"$(jq -r '.is_error // false' <<<\"${result}\")\"\nsubtype=\"$(jq -r '.subtype // \"unknown\"' <<<\"${result}\")\"\nif [ \"${is_error}\" = \"true\" ] || [ \"${subtype}\" != \"success\" ]; then\n  echo \"::error::Claude review failed (subtype=${subtype}, is_error=${is_error}). No review was posted.\"\n  echo \"--- agent error detail (truncated) ---\"\n  jq -r '.result // .error // \"no detail in result message\"' <<<\"${result}\" | head -c 2000\n  echo\n  exit 1\nfi\n\nturns=\"$(jq -r '.num_turns // 0' <<<\"${result}\")\"\ncost=\"$(jq -r '.total_cost_usd // 0' <<<\"${result}\")\"\necho \"Review completed: ${turns} turn(s), \\$${cost}.\"\n"
+                "run": "set -uo pipefail\nif [ -z \"${EXECUTION_FILE}\" ] || [ ! -f \"${EXECUTION_FILE}\" ]; then\n  echo \"::error::No Claude execution log was produced \u2014 the review agent never reported a result.\"\n  exit 1\nfi\n\nresult=\"$(jq -c '[.[] | select(.type == \"result\")] | last // empty' \"${EXECUTION_FILE}\")\"\nif [ -z \"${result}\" ]; then\n  echo \"::error::Claude execution log contains no result message \u2014 the agent did not finish.\"\n  exit 1\nfi\n\nis_error=\"$(jq -r '.is_error // false' <<<\"${result}\")\"\nsubtype=\"$(jq -r '.subtype // \"unknown\"' <<<\"${result}\")\"\nif [ \"${is_error}\" = \"true\" ] || [ \"${subtype}\" != \"success\" ]; then\n  echo \"::error::Claude review failed (subtype=${subtype}, is_error=${is_error}). No review was posted.\"\n  echo \"--- agent error detail (truncated) ---\"\n  jq -r '.result // .error // \"no detail in result message\"' <<<\"${result}\" | head -c 2000\n  echo\n  exit 1\nfi\n\nturns=\"$(jq -r '.num_turns // 0' <<<\"${result}\")\"\ncost=\"$(jq -r '.total_cost_usd // 0' <<<\"${result}\")\"\necho \"Review completed: ${turns} turn(s), \\$${cost}.\"\n"
               }
             }
           ]
@@ -1935,10 +1946,14 @@
         "name": "CodeQL",
         "on": {
           "pull_request": {
-            "branches": ["main"]
+            "branches": [
+              "main"
+            ]
           },
           "push": {
-            "branches": ["main"]
+            "branches": [
+              "main"
+            ]
           },
           "schedule": [
             {
@@ -2314,7 +2329,10 @@
           "descriptor": {
             "if": "always()",
             "name": "kubernetes-compat",
-            "needs": ["scope", "compat"],
+            "needs": [
+              "scope",
+              "compat"
+            ],
             "runs-on": "ubuntu-latest",
             "timeout-minutes": 5
           },
@@ -2406,8 +2424,13 @@
         "name": "Publish Chart",
         "on": {
           "push": {
-            "branches": ["main"],
-            "paths": ["charts/b4-sandbox-infra/**", "charts/b4-app/**"]
+            "branches": [
+              "main"
+            ],
+            "paths": [
+              "charts/b4-sandbox-infra/**",
+              "charts/b4-app/**"
+            ]
           }
         },
         "permissions": {
@@ -2423,7 +2446,10 @@
             "runs-on": "ubuntu-latest",
             "strategy": {
               "matrix": {
-                "chart": ["b4-sandbox-infra", "b4-app"]
+                "chart": [
+                  "b4-sandbox-infra",
+                  "b4-app"
+                ]
               }
             },
             "timeout-minutes": 10
@@ -3043,7 +3069,9 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success'",
             "name": "recovery-adopt",
-            "needs": ["recovery-admit"],
+            "needs": [
+              "recovery-admit"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -3147,7 +3175,11 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.audit == 'true' && (needs.recovery-admit.outputs.dispatch == 'false' || needs.recovery-dispatch-audit.result == 'success')",
             "name": "recovery-audit-evidence",
-            "needs": ["recovery-admit", "recovery-adopt", "recovery-dispatch-audit"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt",
+              "recovery-dispatch-audit"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -3251,7 +3283,11 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.dispatch == 'true' && (needs.recovery-admit.outputs.evidence == 'false' || needs.recovery-evidence.result == 'success')",
             "name": "recovery-dispatch-audit",
-            "needs": ["recovery-admit", "recovery-adopt", "recovery-evidence"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt",
+              "recovery-evidence"
+            ],
             "permissions": {
               "actions": "write",
               "attestations": "read",
@@ -3467,7 +3503,11 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.finalize == 'true' && (needs.recovery-admit.outputs.audit == 'false' || needs.recovery-audit-evidence.result == 'success')",
             "name": "recovery-finalize",
-            "needs": ["recovery-admit", "recovery-adopt", "recovery-audit-evidence"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt",
+              "recovery-audit-evidence"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -3572,7 +3612,10 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.smoke == 'true'",
             "name": "recovery-metadata",
-            "needs": ["recovery-admit", "recovery-adopt"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -3702,7 +3745,11 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.publish == 'true' && (needs.recovery-admit.outputs.finalize == 'false' || needs.recovery-finalize.result == 'success')",
             "name": "recovery-publish",
-            "needs": ["recovery-admit", "recovery-adopt", "recovery-finalize"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt",
+              "recovery-finalize"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -3807,7 +3854,10 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.smoke == 'true'",
             "name": "recovery-published-harness",
-            "needs": ["recovery-admit", "recovery-adopt"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -4055,7 +4105,10 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.smoke == 'true'",
             "name": "recovery-runtime-targets",
-            "needs": ["recovery-admit", "recovery-adopt"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -4185,7 +4238,10 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.smoke == 'true'",
             "name": "recovery-scaffold",
-            "needs": ["recovery-admit", "recovery-adopt"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -4315,7 +4371,10 @@
           "descriptor": {
             "if": "always() && needs.recovery-admit.result == 'success' && needs.recovery-adopt.result == 'success' && needs.recovery-admit.outputs.smoke == 'true'",
             "name": "recovery-storage",
-            "needs": ["recovery-admit", "recovery-adopt"],
+            "needs": [
+              "recovery-admit",
+              "recovery-adopt"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -4455,7 +4514,9 @@
         "name": "Release",
         "on": {
           "push": {
-            "branches": ["main"]
+            "branches": [
+              "main"
+            ]
           },
           "schedule": [
             {
@@ -4478,7 +4539,9 @@
               "operation": {
                 "default": "reconcile",
                 "description": "Reconcile this candidate",
-                "options": ["reconcile"],
+                "options": [
+                  "reconcile"
+                ],
                 "required": true,
                 "type": "choice"
               },
@@ -4500,7 +4563,11 @@
           "id": "attest",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\"]'), needs.detect.outputs.next_transition)",
-            "needs": ["detect", "hydrate", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "tag"
+            ],
             "outputs": {
               "attestation_artifact_id": "${{ steps.evidence.outputs.artifact-id }}"
             },
@@ -4595,7 +4662,12 @@
           "id": "correlate-audit",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && ((github.ref == format('refs/tags/v{0}', inputs.version) &&\n  github.sha == needs.detect.outputs.candidate_sha &&\n  inputs.version == needs.detect.outputs.candidate_version &&\n  inputs.commitSha == needs.detect.outputs.candidate_sha &&\n  inputs.operation == 'reconcile') ||\n (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&\n  needs.detect.outputs.executor_sha == github.sha)) &&\ncontains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\",\"dispatch-release-audit\",\"complete-release-audit\"]'), needs.detect.outputs.next_transition) && (needs.detect.outputs.next_transition == 'complete-release-audit' || needs.record-audit-dispatch.result == 'success')",
-            "needs": ["detect", "hydrate", "record-audit-dispatch", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "record-audit-dispatch",
+              "tag"
+            ],
             "outputs": {
               "audit_artifact_id": "${{ steps.audit-result.outputs.artifact-id }}"
             },
@@ -4832,7 +4904,12 @@
           "id": "dispatch-audit",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && ((github.ref == format('refs/tags/v{0}', inputs.version) &&\n  github.sha == needs.detect.outputs.candidate_sha &&\n  inputs.version == needs.detect.outputs.candidate_version &&\n  inputs.commitSha == needs.detect.outputs.candidate_sha &&\n  inputs.operation == 'reconcile') ||\n (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&\n  needs.detect.outputs.executor_sha == github.sha)) &&\ncontains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\",\"dispatch-release-audit\"]'), needs.detect.outputs.next_transition) && (needs.detect.outputs.next_transition == 'dispatch-release-audit' || needs.reconcile-smokes.result == 'success')",
-            "needs": ["detect", "hydrate", "reconcile-smokes", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "reconcile-smokes",
+              "tag"
+            ],
             "outputs": {
               "dispatch_artifact_id": "${{ steps.receipt.outputs.artifact-id }}"
             },
@@ -4896,7 +4973,12 @@
           "id": "escrow",
           "descriptor": {
             "if": "always() && needs.attest.result == 'success' && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\"]'), needs.detect.outputs.next_transition)",
-            "needs": ["attest", "detect", "hydrate", "tag"],
+            "needs": [
+              "attest",
+              "detect",
+              "hydrate",
+              "tag"
+            ],
             "permissions": {
               "actions": "read",
               "attestations": "read",
@@ -4966,7 +5048,11 @@
           "id": "hydrate",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && ((github.ref == format('refs/tags/v{0}', inputs.version) &&\n  github.sha == needs.detect.outputs.candidate_sha &&\n  inputs.version == needs.detect.outputs.candidate_version &&\n  inputs.commitSha == needs.detect.outputs.candidate_sha &&\n  inputs.operation == 'reconcile') ||\n (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&\n  needs.detect.outputs.executor_sha == github.sha)) &&\ncontains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\",\"dispatch-release-audit\",\"complete-release-audit\",\"publish-github-release\"]'), needs.detect.outputs.next_transition) && (needs.detect.outputs.next_transition != 'prepare-artifacts' || needs.prepare.result == 'success')",
-            "needs": ["detect", "prepare", "tag"],
+            "needs": [
+              "detect",
+              "prepare",
+              "tag"
+            ],
             "outputs": {
               "artifact_id": "${{ steps.runtime.outputs.artifact-id }}",
               "manifest_sha256": "${{ steps.identity.outputs.manifest_sha256 }}"
@@ -5120,7 +5206,10 @@
           "id": "prepare",
           "descriptor": {
             "if": "needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && needs.detect.outputs.next_transition == 'prepare-artifacts'",
-            "needs": ["detect", "tag"],
+            "needs": [
+              "detect",
+              "tag"
+            ],
             "outputs": {
               "handoff_artifact_id": "${{ steps.handoff.outputs.artifact-id }}",
               "manifest_sha256": "${{ steps.identity.outputs.manifest_sha256 }}",
@@ -5249,7 +5338,12 @@
           "id": "publish-npm",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\"]'), needs.detect.outputs.next_transition) && (!contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\"]'), needs.detect.outputs.next_transition) || needs.escrow.result == 'success')",
-            "needs": ["detect", "escrow", "hydrate", "tag"],
+            "needs": [
+              "detect",
+              "escrow",
+              "hydrate",
+              "tag"
+            ],
             "outputs": {
               "npm_artifact_id": "${{ steps.npm.outputs.artifact-id }}"
             },
@@ -5340,7 +5434,12 @@
           "id": "publish-release",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && ((github.ref == format('refs/tags/v{0}', inputs.version) &&\n  github.sha == needs.detect.outputs.candidate_sha &&\n  inputs.version == needs.detect.outputs.candidate_version &&\n  inputs.commitSha == needs.detect.outputs.candidate_sha &&\n  inputs.operation == 'reconcile') ||\n (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&\n  needs.detect.outputs.executor_sha == github.sha)) &&\ncontains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\",\"dispatch-release-audit\",\"complete-release-audit\",\"publish-github-release\"]'), needs.detect.outputs.next_transition) && (needs.detect.outputs.next_transition == 'publish-github-release' || needs.correlate-audit.result == 'success')",
-            "needs": ["correlate-audit", "detect", "hydrate", "tag"],
+            "needs": [
+              "correlate-audit",
+              "detect",
+              "hydrate",
+              "tag"
+            ],
             "permissions": {
               "actions": "read",
               "contents": "write"
@@ -5418,7 +5517,12 @@
           "id": "reconcile-npm",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && github.ref == format('refs/tags/v{0}', inputs.version) && github.sha == needs.detect.outputs.candidate_sha && inputs.version == needs.detect.outputs.candidate_version && inputs.commitSha == needs.detect.outputs.candidate_sha && inputs.operation == 'reconcile' && contains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\"]'), needs.detect.outputs.next_transition) && (needs.detect.outputs.next_transition == 'reconcile-npm-evidence' || needs.publish-npm.result == 'success')",
-            "needs": ["detect", "hydrate", "publish-npm", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "publish-npm",
+              "tag"
+            ],
             "permissions": {
               "actions": "read",
               "contents": "write"
@@ -5606,7 +5710,12 @@
           "id": "record-audit-dispatch",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.dispatch-audit.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && ((github.ref == format('refs/tags/v{0}', inputs.version) &&\n  github.sha == needs.detect.outputs.candidate_sha &&\n  inputs.version == needs.detect.outputs.candidate_version &&\n  inputs.commitSha == needs.detect.outputs.candidate_sha &&\n  inputs.operation == 'reconcile') ||\n (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&\n  needs.detect.outputs.executor_sha == github.sha)) &&\ncontains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\",\"dispatch-release-audit\"]'), needs.detect.outputs.next_transition)",
-            "needs": ["detect", "dispatch-audit", "hydrate", "tag"],
+            "needs": [
+              "detect",
+              "dispatch-audit",
+              "hydrate",
+              "tag"
+            ],
             "outputs": {
               "dispatch_artifact_id": "${{ needs.dispatch-audit.outputs.dispatch_artifact_id }}"
             },
@@ -5678,7 +5787,12 @@
           "id": "smoke-metadata",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && ((github.ref == format('refs/tags/v{0}', inputs.version) &&\n  github.sha == needs.detect.outputs.candidate_sha &&\n  inputs.version == needs.detect.outputs.candidate_version &&\n  inputs.commitSha == needs.detect.outputs.candidate_sha &&\n  inputs.operation == 'reconcile') ||\n (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&\n  needs.detect.outputs.executor_sha == github.sha)) &&\ncontains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) && (contains(fromJSON('[\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) || needs.reconcile-npm.result == 'success')",
-            "needs": ["detect", "hydrate", "reconcile-npm", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "reconcile-npm",
+              "tag"
+            ],
             "outputs": {
               "artifact_id": "${{ steps.result.outputs.artifact-id }}"
             },
@@ -5762,7 +5876,12 @@
           "id": "smoke-published-harness",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && ((github.ref == format('refs/tags/v{0}', inputs.version) &&\n  github.sha == needs.detect.outputs.candidate_sha &&\n  inputs.version == needs.detect.outputs.candidate_version &&\n  inputs.commitSha == needs.detect.outputs.candidate_sha &&\n  inputs.operation == 'reconcile') ||\n (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&\n  needs.detect.outputs.executor_sha == github.sha)) &&\ncontains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) && (contains(fromJSON('[\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) || needs.reconcile-npm.result == 'success')",
-            "needs": ["detect", "hydrate", "reconcile-npm", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "reconcile-npm",
+              "tag"
+            ],
             "outputs": {
               "artifact_id": "${{ steps.result.outputs.artifact-id }}"
             },
@@ -5843,7 +5962,12 @@
           "id": "smoke-runtime-targets",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && ((github.ref == format('refs/tags/v{0}', inputs.version) &&\n  github.sha == needs.detect.outputs.candidate_sha &&\n  inputs.version == needs.detect.outputs.candidate_version &&\n  inputs.commitSha == needs.detect.outputs.candidate_sha &&\n  inputs.operation == 'reconcile') ||\n (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&\n  needs.detect.outputs.executor_sha == github.sha)) &&\ncontains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) && (contains(fromJSON('[\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) || needs.reconcile-npm.result == 'success')",
-            "needs": ["detect", "hydrate", "reconcile-npm", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "reconcile-npm",
+              "tag"
+            ],
             "outputs": {
               "artifact_id": "${{ steps.result.outputs.artifact-id }}"
             },
@@ -5924,7 +6048,12 @@
           "id": "smoke-scaffold",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && ((github.ref == format('refs/tags/v{0}', inputs.version) &&\n  github.sha == needs.detect.outputs.candidate_sha &&\n  inputs.version == needs.detect.outputs.candidate_version &&\n  inputs.commitSha == needs.detect.outputs.candidate_sha &&\n  inputs.operation == 'reconcile') ||\n (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&\n  needs.detect.outputs.executor_sha == github.sha)) &&\ncontains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) && (contains(fromJSON('[\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) || needs.reconcile-npm.result == 'success')",
-            "needs": ["detect", "hydrate", "reconcile-npm", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "reconcile-npm",
+              "tag"
+            ],
             "outputs": {
               "artifact_id": "${{ steps.result.outputs.artifact-id }}"
             },
@@ -6005,7 +6134,12 @@
           "id": "smoke-storage",
           "descriptor": {
             "if": "always() && needs.detect.result == 'success' && needs.hydrate.result == 'success' && needs.tag.result == 'success' && needs.tag.outputs.continue == 'true' && ((github.ref == format('refs/tags/v{0}', inputs.version) &&\n  github.sha == needs.detect.outputs.candidate_sha &&\n  inputs.version == needs.detect.outputs.candidate_version &&\n  inputs.commitSha == needs.detect.outputs.candidate_sha &&\n  inputs.operation == 'reconcile') ||\n (github.ref == 'refs/heads/main' && needs.detect.outputs.executor_sha != '' &&\n  needs.detect.outputs.executor_sha == github.sha)) &&\ncontains(fromJSON('[\"prepare-artifacts\",\"attest-artifacts\",\"escrow-candidate\",\"publish-npm-packages\",\"resume-npm-publish\",\"reconcile-npm-evidence\",\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) && (contains(fromJSON('[\"run-release-smokes\",\"reconcile-smoke-evidence\"]'), needs.detect.outputs.next_transition) || needs.reconcile-npm.result == 'success')",
-            "needs": ["detect", "hydrate", "reconcile-npm", "tag"],
+            "needs": [
+              "detect",
+              "hydrate",
+              "reconcile-npm",
+              "tag"
+            ],
             "outputs": {
               "artifact_id": "${{ steps.result.outputs.artifact-id }}"
             },
@@ -6164,7 +6298,9 @@
         "on": {
           "branch_protection_rule": null,
           "push": {
-            "branches": ["main"]
+            "branches": [
+              "main"
+            ]
           },
           "schedule": [
             {
@@ -6234,7 +6370,9 @@
         "name": "Version Packages",
         "on": {
           "push": {
-            "branches": ["main"]
+            "branches": [
+              "main"
+            ]
           }
         },
         "permissions": {
@@ -6306,6 +6444,103 @@
                   "title": "Version Packages",
                   "version": "pnpm run version"
                 }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "seo-lastmod.yml": {
+      "classification": "safe",
+      "descriptor": {
+        "concurrency": {
+          "cancel-in-progress": false,
+          "group": "seo-lastmod-main"
+        },
+        "name": "SEO lastmod",
+        "on": {
+          "push": {
+            "branches": [
+              "main"
+            ],
+            "paths": [
+              "apps/web/content/**",
+              "apps/web/app/page.tsx",
+              "apps/web/app/components/homepage/**"
+            ]
+          }
+        },
+        "permissions": {
+          "contents": "read"
+        }
+      },
+      "jobs": [
+        {
+          "classification": "safe",
+          "descriptor": {
+            "name": "regenerate",
+            "permissions": {
+              "contents": "write"
+            },
+            "runs-on": "ubuntu-latest",
+            "timeout-minutes": 10
+          },
+          "id": "regenerate",
+          "steps": [
+            {
+              "classification": "safe",
+              "descriptor": {
+                "name": "Checkout",
+                "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "with": {
+                  "persist-credentials": false
+                }
+              }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
+                "name": "Setup pnpm",
+                "uses": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+                "with": {
+                  "version": "10.33.0"
+                }
+              }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
+                "name": "Setup Node.js",
+                "uses": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+                "with": {
+                  "cache": "pnpm",
+                  "node-version": "24.17.0"
+                }
+              }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
+                "name": "Install dependencies",
+                "run": "pnpm install --frozen-lockfile"
+              }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
+                "name": "Regenerate the manifest",
+                "run": "pnpm --dir apps/web seo:lastmod"
+              }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
+                "env": {
+                  "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
+                  "MANIFEST": "apps/web/app/seo/lastmod.generated.json"
+                },
+                "name": "Commit and push when it changed",
+                "run": "set -eu\nif git diff --quiet -- \"$MANIFEST\"; then\n  echo \"Manifest already current; nothing to push.\"\n  exit 0\nfi\n\n# Fail loudly if the run dirtied anything else: this job is only\n# ever allowed to move one generated file.\nUNEXPECTED=\"$(git diff --name-only -- . \":(exclude)$MANIFEST\")\"\nif [ -n \"$UNEXPECTED\" ]; then\n  echo \"::error::Refusing to push: unexpected changes outside the manifest:\"\n  echo \"$UNEXPECTED\"\n  exit 1\nfi\n\ngit config user.name \"github-actions[bot]\"\ngit config user.email \"41898282+github-actions[bot]@users.noreply.github.com\"\ngit add -- \"$MANIFEST\"\ngit commit -m \"chore(web): regenerate SEO lastmod manifest [skip ci]\"\n\nREMOTE=\"https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git\"\n# A push that lost a race must not be retried blindly onto whatever\n# landed meanwhile: rebase this one-file commit and try again, and\n# give up rather than force anything.\nfor attempt in 1 2 3; do\n  if git push \"$REMOTE\" \"HEAD:${GITHUB_REF_NAME}\"; then\n    echo \"Pushed the regenerated manifest.\"\n    exit 0\n  fi\n  echo \"Push rejected (attempt ${attempt}); rebasing onto the current branch tip.\"\n  git fetch \"$REMOTE\" \"${GITHUB_REF_NAME}\"\n  git rebase FETCH_HEAD || {\n    echo \"::error::Rebase failed; leaving main untouched.\"\n    exit 1\n  }\ndone\n\necho \"::error::Could not push the regenerated manifest after 3 attempts.\"\nexit 1\n"
               }
             }
           ]
