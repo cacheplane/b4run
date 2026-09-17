@@ -186,7 +186,7 @@ describe("composeVercelRoutes", () => {
       { dest: "/b4", src: VERCEL_RUNTIME_ROUTE_SRC },
       { dest: "/index.html", src: "/(.*)" },
     ])
-    expect(VERCEL_RUNTIME_ROUTE_SRC).toBe("/(healthz|agui|threads|memory)(/.*)?")
+    expect(VERCEL_RUNTIME_ROUTE_SRC).toBe("/(healthz|readyz|agui|threads|memory)(/.*)?")
   })
 
   test("a bare runtime with only a static dir still gets the filesystem phase", () => {
@@ -284,4 +284,31 @@ describe("resolveVercelBuildConfig (one validated build.vercel)", () => {
       ),
     ).toThrow(/build\.vercel\.functionName/)
   })
+})
+
+describe("the scoped runtime route covers every B4.run surface", () => {
+  const runtimeRoute = new RegExp(`^${VERCEL_RUNTIME_ROUTE_SRC}$`)
+
+  // Every rooted surface the runtime fetch handler answers. A new one added to
+  // the runtime without being added here would silently fall through to the
+  // SPA document on a Vercel deployment that configures a fallback.
+  test.each([
+    "/healthz",
+    "/readyz",
+    "/threads",
+    "/threads/abc",
+    "/threads/abc/runs/stream",
+    "/agui/route-id",
+    "/memory/candidates",
+    "/memory/candidates/id/approve",
+  ])("routes %s to the runtime function", (path) => {
+    expect(runtimeRoute.test(path)).toBe(true)
+  })
+
+  test.each(["/", "/index.html", "/assets/app.js", "/about"])(
+    "leaves %s for the filesystem and the SPA fallback",
+    (path) => {
+      expect(runtimeRoute.test(path)).toBe(false)
+    },
+  )
 })

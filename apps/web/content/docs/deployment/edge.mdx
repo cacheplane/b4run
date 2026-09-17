@@ -257,7 +257,7 @@ export default config({
 | `routes` | Placed first, before the filesystem phase. Vercel route keys pass through; a `handle` entry is rejected because the build owns the phases. |
 | `functionName` | Runtime function name. Default `index`, or `b4` once `static` is set. |
 
-The emitted `config.json` routes are ordered: your `routes`, then `{ handle: "filesystem" }`, then the runtime function, then the SPA fallback. Without a SPA fallback the runtime route stays the catch-all `/(.*)`. With one, the runtime is scoped to the surfaces it owns, `/(healthz|agui|threads|memory)(/.*)?`, so every other path reaches the SPA document.
+The emitted `config.json` routes are ordered: your `routes`, then `{ handle: "filesystem" }`, then the runtime function, then the SPA fallback. Without a SPA fallback the runtime route stays the catch-all `/(.*)`. With one, the runtime is scoped to the surfaces it owns, `/(healthz|readyz|agui|threads|memory)(/.*)?`, so every other path reaches the SPA document.
 
 A function named `index` is also served at `/` by the Build Output API, so it would shadow a static `index.html`. That is why the runtime function moves to `b4.func` when `static` is configured; setting `functionName: "index"` beside `static` fails the build. Existing deployments without `static` keep `index.func` and the exact catch-all `config.json` they have today.
 

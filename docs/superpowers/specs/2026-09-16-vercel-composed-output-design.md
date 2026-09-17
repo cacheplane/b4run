@@ -90,7 +90,7 @@ in that key order.
 
 `<runtime src>` is `/(.*)` (today's catch-all) unless `spaFallback` is set, in
 which case the runtime is scoped to the surfaces it owns,
-`/(healthz|agui|threads|memory)(/.*)?`, so every other path falls through to
+`/(healthz|readyz|agui|threads|memory)(/.*)?`, so every other path falls through to
 the SPA. With no `build.vercel` the config is byte-for-byte today's
 `{ routes: [{ dest: "/index", src: "/(.*)" }], version: 3 }`.
 

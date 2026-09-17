@@ -12,8 +12,16 @@ export const DEFAULT_VERCEL_FUNCTION_NAME = "index"
  */
 export const STATIC_VERCEL_FUNCTION_NAME = "b4"
 
-/** The URL surfaces the B4.run runtime owns; used when a SPA fallback needs the rest. */
-export const VERCEL_RUNTIME_ROUTE_SRC = "/(healthz|agui|threads|memory)(/.*)?"
+/**
+ * The URL surfaces the B4.run runtime owns, used when a SPA fallback needs
+ * every other path.
+ *
+ * Keep this in step with the rooted routes the runtime fetch handler answers
+ * (`runtime-fetch-core.ts`): a surface missing here does not 404 on a Vercel
+ * deployment that configures a fallback — it quietly serves the SPA document
+ * instead, so a probe or an API call gets HTML and a 200.
+ */
+export const VERCEL_RUNTIME_ROUTE_SRC = "/(healthz|readyz|agui|threads|memory)(/.*)?"
 
 export const DEFAULT_VERCEL_FUNCTION_RUNTIME = "nodejs24.x"
 

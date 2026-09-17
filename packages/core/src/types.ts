@@ -25,8 +25,9 @@ export interface VercelBuildConfig {
     /**
      * Path inside `dir` served for every path the filesystem and the runtime
      * do not claim (`{ src: "/(.*)", dest: "/<spaFallback>" }`, last). When
-     * set, the runtime route is scoped to `/healthz`, `/agui`, `/threads`, and
-     * `/memory` instead of catching all.
+     * set, the runtime route is scoped to the surfaces the runtime owns
+     * (`/healthz`, `/readyz`, `/agui`, `/threads`, `/memory`) instead of
+     * catching all.
      */
     readonly spaFallback?: string
   }
