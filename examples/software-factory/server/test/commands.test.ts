@@ -38,4 +38,19 @@ describe("command log", () => {
     log.complete("k1", { ok: true, message: "x" })
     expect(() => log.complete("k1", { ok: false, message: "y" })).toThrow()
   })
+
+  it("refuses to reuse an operation key with a different intent", () => {
+    const log = createCommandLog(openRegistry(":memory:").db)
+    log.begin("k", "wo-1", { command: "approve", args: { revision: 1 } }, at)
+    expect(() => log.begin("k", "wo-1", { command: "approve", args: { revision: 2 } }, at)).toThrow(
+      /different intent/,
+    )
+  })
+
+  it("orders open intents with the same `at` by insertion order", () => {
+    const log = createCommandLog(openRegistry(":memory:").db)
+    log.begin("k1", "wo-1", intent, at)
+    log.begin("k2", "wo-2", { command: "approve", args: { revision: 3 } }, at)
+    expect(log.open().map((c) => c.operationKey)).toEqual(["k1", "k2"])
+  })
 })
