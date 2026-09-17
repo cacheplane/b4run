@@ -105,7 +105,11 @@ export function createHttpApi(factory: Factory): { listen(port: number): Promise
       if (error instanceof CommandInFlightError) return send(res, 409, { error: error.message })
       if (error instanceof PayloadTooLargeError) return send(res, 413, { error: error.message })
       if (error instanceof SyntaxError) return send(res, 400, { error: "Malformed JSON" })
-      return send(res, 500, { error: String(error) })
+      // An unexpected fault is a factory bug, not operator input: the detail (and any stack
+      // it carries) goes to the operator's log, never into the response body.
+      process.stderr.write(`factory http: unhandled error on ${req.method} ${req.url}\n`)
+      if (error instanceof Error && error.stack) process.stderr.write(`${error.stack}\n`)
+      return send(res, 500, { error: "Internal factory error; see the server log" })
     }
   })
   return {
