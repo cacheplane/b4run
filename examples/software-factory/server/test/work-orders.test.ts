@@ -131,6 +131,35 @@ describe("work-order store", () => {
     expect(s.events("wo-1").map((e) => e.type)).toEqual(["after"])
   })
 
+  it("rolls back only the inner savepoint when the outer catches the throw", () => {
+    const s = store()
+    s.insert(freshRow())
+    s.transaction(() => {
+      s.appendEvent("wo-1", "outer-before", {}, at)
+      expect(() =>
+        s.transaction(() => {
+          s.appendEvent("wo-1", "inner", {}, at)
+          throw new Error("inner boom")
+        }),
+      ).toThrow("inner boom")
+      s.appendEvent("wo-1", "outer-after", {}, at)
+    })
+    expect(s.events("wo-1").map((e) => e.type)).toEqual(["outer-before", "outer-after"])
+  })
+
+  it("shares nesting depth between two stores over one connection", () => {
+    const db = openRegistry(":memory:").db
+    const a = createWorkOrderStore(db)
+    const b = createWorkOrderStore(db)
+    a.insert(freshRow())
+    // `b` must recognise that `a` already owns the outermost transaction and nest instead.
+    a.transaction(() => {
+      b.transaction(() => b.appendEvent("wo-1", "from-b", {}, at))
+      a.appendEvent("wo-1", "from-a", {}, at)
+    })
+    expect(a.events("wo-1").map((e) => e.type)).toEqual(["from-b", "from-a"])
+  })
+
   it("rolls a transaction back on error", () => {
     const s = store()
     s.insert(freshRow())

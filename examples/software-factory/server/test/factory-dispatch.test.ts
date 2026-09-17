@@ -23,7 +23,11 @@ async function boot(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
 afterEach(async () => {
   await factory?.close()
   await fake?.close()
-  rmSync(dir, { recursive: true, force: true })
+  if (dir) rmSync(dir, { recursive: true, force: true })
+  // Cleared so a boot() that throws cannot hand the next test the previous test's worker.
+  dir = undefined as unknown as string
+  fake = undefined as unknown as FakeWorker
+  factory = undefined as unknown as Factory
 })
 
 const settled = (state: string) => !["received", "dispatched", "running"].includes(state)
@@ -114,6 +118,51 @@ describe("create and dispatch", () => {
     const row = await factory.waitFor(id, (r) => settled(r.state))
     expect(row).toMatchObject({ state: "blocked", blockedReason: "unexpected_interrupt" })
     expect(fake.requests.some((r) => r.path.endsWith("/resume"))).toBe(false)
+  })
+
+  it("accumulates active time when the run leaves a run state", async () => {
+    // A clock that advances on every read: active time is then strictly positive by
+    // construction, so this exercises the accumulate branch rather than asserting >= 0.
+    let clock = Date.parse("2026-09-16T10:00:00.000Z")
+    dir = mkdtempSync(join(tmpdir(), "factory-dispatch-"))
+    fake = await createFakeWorker({ outboxDir: join(dir, "outbox") })
+    factory = await createFactory({
+      registryPath: join(dir, "registry.sqlite"),
+      worker: createHttpWorkerClient(fake.baseUrl),
+      workerRoute: "/fix#agent",
+      outboxDir: join(dir, "outbox"),
+      now: () => (clock += 1_000),
+    })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
+    expect(row.activeMs).toBeGreaterThan(0)
+    expect(row.activeStartedAt).toBeNull()
+  })
+
+  it("refuses to dispatch a task with no prompt instead of sending an empty one", async () => {
+    await boot()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    // create validates the task id, so a prompt table that lost the task between create and
+    // dispatch is the only way to reach the guard — which is exactly the upgrade case.
+    const starved = await createFactory({
+      registryPath: join(dir, "registry.sqlite"),
+      worker: createHttpWorkerClient(fake.baseUrl),
+      workerRoute: "/fix#agent",
+      outboxDir: join(dir, "outbox"),
+      tasks: { other: "something else" },
+    })
+    try {
+      expect(await starved.dispatch(id)).toMatchObject({
+        ok: false,
+        state: "received",
+        message: "Unknown task cli-flags",
+      })
+      expect(starved.show(id)?.state).toBe("received")
+      expect(fake.requests.some((r) => r.path === "/threads")).toBe(false)
+    } finally {
+      await starved.close()
+    }
   })
 
   it("records a lost stream without changing state", async () => {

@@ -8,14 +8,9 @@ import { openRegistry } from "../registry/db.js"
 import { createWorkOrderStore, type WorkOrderPatch } from "../registry/work-orders.js"
 import type { WorkerClient } from "../worker/client.js"
 import { receiptPath, waitForReceipt } from "../worker/outbox.js"
-import {
-  classifyDone,
-  isExportGate,
-  PREPARE_TOOL,
-  parsePrepareReviewOutput,
-  type StreamFrame,
-} from "../worker/wire.js"
+import { classifyDone, type StreamFrame } from "../worker/wire.js"
 import type { ControllerContext } from "./context.js"
+import { denyPending, observeRun } from "./run-observer.js"
 import { consumeTurn } from "./turns.js"
 
 export interface FactoryOptions {
@@ -29,6 +24,8 @@ export interface FactoryOptions {
   readonly maxActiveMs?: number
   readonly receiptWaitMs?: number
   readonly budgetTickMs?: number
+  /** How long close() waits for tracked runs to settle after aborting them. */
+  readonly closeTimeoutMs?: number
   readonly now?: () => number
   readonly actor?: string
   readonly log?: (event: string, payload: Record<string, unknown>) => void
@@ -75,8 +72,6 @@ export class UnknownWorkOrderError extends Error {
   }
 }
 
-const isRunState = (state: WorkOrderRow["state"]) => state === "dispatched" || state === "running"
-
 export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const registry = openRegistry(options.registryPath)
   const store = createWorkOrderStore(registry.db)
@@ -87,6 +82,10 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const log = options.log ?? (() => {})
   const abort = new AbortController()
   const runs = new Map<string, Promise<void>>()
+  let closed = false
+
+  /** Sleep that resolves (rather than rejecting) when close() aborts. */
+  const quietSleep = (ms: number) => sleep(ms, undefined, { signal: abort.signal }).catch(() => {})
 
   const mustGet = (id: string): WorkOrderRow => {
     const row = store.get(id)
@@ -118,7 +117,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       } else if (!wasActive && willBeActive) {
         accounting.activeStartedAt = iso()
       }
-      const updated = store.update(id, row.revision, { ...accounting, ...patch, state: to }, iso())
+      const updated = store.update(id, row.revision, { ...patch, ...accounting, state: to }, iso())
       recordEvent(id, "transition", { event, from: row.state, to, ...payload })
       return updated
     })
@@ -137,112 +136,14 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     runs.set(id, tracked)
   }
 
+  /**
+   * Waiting is wall-clock work, not domain time: an injected `now` (tests, replay) must not
+   * be able to freeze or fast-forward it. An abort means stop waiting, not fail.
+   */
   const settleRun = async (id: string, timeoutMs: number) => {
     const run = runs.get(id)
     if (!run) return
-    await Promise.race([run, sleep(timeoutMs)])
-  }
-
-  const denyPending = async (id: string) => {
-    const row = mustGet(id)
-    if (!row.workerThreadId) return
-    const pending = await options.worker.pendingInterrupts(row.workerThreadId)
-    if (pending.length === 0) return
-    recordEvent(id, "pending_denied", { interruptIds: pending.map((p) => p.interruptId) })
-    const frames = await options.worker.resume(
-      row.workerThreadId,
-      options.workerRoute,
-      pending.map((p) => ({ interruptId: p.interruptId, payload: "deny" as const })),
-      abort.signal,
-    )
-    await consumeTurn(frames, {})
-  }
-
-  /**
-   * The worker's single turn (spec: "Where the candidate digest comes from" and the
-   * dispatched/running rows of the transition table). Every handler re-reads the row and
-   * acts only while the work order is still in a run state, so a concurrent cancel wins.
-   */
-  async function observeRun(id: string, frames: AsyncIterable<StreamFrame>): Promise<void> {
-    const result = await consumeTurn(frames, {
-      onFirstFrame: async () => {
-        if (mustGet(id).state === "dispatched") transition(id, "run_started")
-      },
-      onToolResult: async (name, output) => {
-        if (name !== PREPARE_TOOL) return
-        const row = mustGet(id)
-        if (!isRunState(row.state)) return
-        try {
-          const parsed = parsePrepareReviewOutput(output)
-          store.update(
-            id,
-            row.revision,
-            {
-              candidateDigest: parsed.candidate.receiptDigest,
-              candidateVerified: parsed.verification.passed,
-            },
-            iso(),
-          )
-          recordEvent(id, "candidate_observed", {
-            digest: parsed.candidate.receiptDigest,
-            verified: parsed.verification.passed,
-            candidate: parsed.candidate,
-          })
-        } catch (error) {
-          recordEvent(id, "candidate_unparseable", { error: String(error) })
-        }
-      },
-      onInterrupt: async (frame) => {
-        const row = mustGet(id)
-        if (!isRunState(row.state)) return
-        if (!isExportGate(frame)) {
-          transition(
-            id,
-            "unexpected_interrupt",
-            { interruptId: frame.interruptId, blockedReason: "unexpected_interrupt" },
-            { interruptId: frame.interruptId, kind: frame.kind },
-          )
-          return
-        }
-        if (row.candidateDigest && row.candidateVerified === true) {
-          transition(
-            id,
-            "candidate_interrupt",
-            { interruptId: frame.interruptId, awaitingSince: iso() },
-            { interruptId: frame.interruptId, candidateDigest: row.candidateDigest },
-          )
-          return
-        }
-        transition(
-          id,
-          "candidate_interrupt_without_digest",
-          { interruptId: frame.interruptId, blockedReason: "candidate_digest_unknown" },
-          { interruptId: frame.interruptId, verified: row.candidateVerified },
-        )
-      },
-      onDone: async (data) => {
-        const row = mustGet(id)
-        if (!isRunState(row.state)) return
-        const { error, cancelled } = classifyDone(data)
-        if (cancelled) return
-        if (error) {
-          transition(id, "run_failed", { failureReason: "route_error" }, { error })
-          return
-        }
-        transition(
-          id,
-          "run_ended_without_candidate",
-          { failureReason: "ended_without_candidate" },
-          { verified: row.candidateVerified },
-        )
-      },
-    })
-    if (result.ended === "lost") {
-      recordEvent(id, "stream_lost", { phase: "run", error: result.error ?? null })
-    } else if (result.ended === "handler_error") {
-      // A controller fault, not a worker fault: reconciliation must not read it as a lost stream.
-      recordEvent(id, "run_observer_error", { phase: "run", error: result.error ?? null })
-    }
+    await Promise.race([run, quietSleep(timeoutMs)])
   }
 
   /**
@@ -343,8 +244,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     mustGet,
     recordEvent,
     transition,
-    observeRun,
-    denyPending,
+    observeRun: (id, frames) => observeRun(ctx, id, frames),
+    denyPending: (id) => denyPending(ctx, id),
     finishCancel: (id, cause) => finishCancel(id, cause),
     settleRun,
     track,
@@ -353,27 +254,35 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   async function startRun(id: string): Promise<void> {
     const row = mustGet(id)
     if (!row.workerThreadId) return
+    // dispatch already refused an unknown task; re-checked here so this never sends an empty prompt.
+    const prompt = tasks[row.taskId]
+    if (prompt === undefined) {
+      recordEvent(id, "prompt_missing", { taskId: row.taskId })
+      return
+    }
     let frames: AsyncIterable<StreamFrame>
     try {
       frames = await options.worker.startRun(
         row.workerThreadId,
         options.workerRoute,
-        tasks[row.taskId] ?? "",
+        prompt,
         abort.signal,
       )
     } catch (error) {
       recordEvent(id, "stream_lost", { phase: "run_start", error: String(error) })
       return
     }
-    await observeRun(id, frames)
+    await observeRun(ctx, id, frames)
   }
 
   const factory: Factory = {
     async create({ taskId, operationKey }) {
       if (!(taskId in tasks)) throw new UnknownTaskError(taskId)
+      // A caller-supplied operationKey is also the work-order address: the same key always
+      // names the same id, which is what makes create idempotent across a crash.
       const id = operationKey
         ? `wo-${createHash("sha256").update(operationKey).digest("hex").slice(0, 16)}`
-        : `wo-${randomUUID()}`
+        : `wo-${randomUUID().replace(/-/g, "").slice(0, 16)}`
       const key = operationKey ?? `create:${id}`
       const begun = commands.begin(key, id, { command: "create", args: { taskId } }, iso())
       if (begun.status === "done") return mustGet(id)
@@ -419,6 +328,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           state: row.state,
           message: `Cannot dispatch from ${row.state}`,
         })
+      const prompt = tasks[row.taskId]
+      // Refuse rather than send an empty prompt: a worker asked to fix nothing still burns a
+      // thread and a run, and the resulting turn would fail in a way that looks like the worker.
+      if (prompt === undefined)
+        return finish(key, {
+          ok: false,
+          state: row.state,
+          message: `Unknown task ${row.taskId}`,
+        })
       let threadId: string
       try {
         threadId = await options.worker.createThread({ factoryWorkOrderId: id })
@@ -429,6 +347,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           message: `Thread creation failed: ${String(error)}`,
         })
       }
+      // Journalled before the transition so a crash in between still leaves the thread id in
+      // the event log: reconciliation can adopt the orphan thread instead of leaking it.
       recordEvent(id, "thread_created", { threadId })
       const dispatched = transition(id, "dispatch_committed", { workerThreadId: threadId })
       const outcome = finish(key, { ok: true, state: dispatched.state, message: "Dispatched" })
@@ -514,7 +434,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           message: `Cannot deny from ${row.state}`,
         })
       try {
-        await denyPending(id)
+        await ctx.denyPending(id)
       } catch (error) {
         recordEvent(id, "pending_deny_failed", { error: String(error) })
       }
@@ -541,18 +461,26 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     events: (id) => store.events(id),
 
     async waitFor(id, predicate, timeoutMs = 10_000) {
-      const deadline = now() + timeoutMs
+      // Wall clock, for the same reason as settleRun: a frozen injected `now` would spin here.
+      const deadline = Date.now() + timeoutMs
       while (true) {
         const row = mustGet(id)
         if (predicate(row)) return row
-        if (now() >= deadline) throw new Error(`Timed out waiting for ${id}; state is ${row.state}`)
-        await sleep(20)
+        if (Date.now() >= deadline || abort.signal.aborted)
+          throw new Error(`Timed out waiting for ${id}; state is ${row.state}`)
+        await quietSleep(20)
       }
     },
 
     async close() {
+      if (closed) return
+      closed = true
       abort.abort()
-      await Promise.allSettled([...runs.values()])
+      // Bounded: a run whose stream ignores the abort must not hold the process open.
+      await Promise.race([
+        Promise.allSettled([...runs.values()]),
+        sleep(options.closeTimeoutMs ?? 10_000),
+      ])
       registry.close()
     },
   }

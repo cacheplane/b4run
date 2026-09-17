@@ -9,7 +9,7 @@ import { setTimeout as sleep } from "node:timers/promises"
  * gate_before_prepare:  the gate arrives with no prepareReview result (digest unknown)
  * route_error:          done with output.error
  * no_candidate:         done without a candidate or a gate
- * hang:                 ping comments until cancelled
+ * hang:                 one chunk frame, then ping comments until cancelled
  * close_midway:         prepareReview result, then the socket is destroyed; the run parks on the gate 50 ms later
  * unexpected_interrupt: a `command` kind interrupt instead of the gate
  */
@@ -114,6 +114,9 @@ class Sse {
     await new Promise<void>((resolve) => {
       this.res.write(": flush\n\n", () => resolve())
     })
+    // The write callback means "handed to the socket", not "read by the client": yield once
+    // more so the frames already written are not lost with the connection.
+    await new Promise<void>((resolve) => setImmediate(resolve))
     this.res.destroy()
   }
 }
@@ -192,6 +195,9 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
       return finishRun(thread, sse)
     }
     if (kind === "hang") {
+      // A real frame, not just a comment: the SSE parser drops comments, so a comment-only
+      // hang would never let the controller observe the run as started.
+      sse.frame("chunk", "working")
       sse.comment("ping")
       await new Promise<void>((resolve) => {
         thread.endLive = (done) => {

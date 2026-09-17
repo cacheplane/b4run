@@ -55,9 +55,12 @@ export interface WorkOrderStore {
   recordDelivery(delivery: Delivery): void
   delivery(workOrderId: string): Delivery | null
   /**
-   * Run `fn` inside a transaction. Reentrant: only the outermost call issues
-   * BEGIN/COMMIT/ROLLBACK, so a nested call joins the enclosing transaction and a
-   * throw anywhere inside rolls the whole thing back.
+   * Run `fn` inside a transaction. Reentrant, and the nesting depth is tracked per database
+   * connection, so two stores over one `DatabaseSync` share it. The outermost call issues
+   * BEGIN/COMMIT/ROLLBACK; a nested call issues `SAVEPOINT sp<depth>` and releases it on
+   * success, and on a throw issues `ROLLBACK TO sp<depth>` then `RELEASE sp<depth>` and
+   * rethrows. So an inner throw the caller catches discards only the inner writes, while a
+   * throw that escapes the outermost call rolls the whole thing back.
    */
   transaction<T>(fn: () => T): T
 }
@@ -104,9 +107,23 @@ function fromSql(record: Record<string, unknown>): WorkOrderRow {
   return WorkOrderRowSchema.parse(raw)
 }
 
+/**
+ * Open transaction depth per connection, not per store: nesting is a property of the
+ * `DatabaseSync` handle, so two stores over one connection must agree on who owns the
+ * outermost BEGIN. Keyed weakly so a closed database can still be collected.
+ */
+const DEPTHS = new WeakMap<DatabaseSync, { depth: number }>()
+
+const depthOf = (db: DatabaseSync): { depth: number } => {
+  const existing = DEPTHS.get(db)
+  if (existing) return existing
+  const fresh = { depth: 0 }
+  DEPTHS.set(db, fresh)
+  return fresh
+}
+
 export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
-  /** Open transaction depth: only depth 0 -> 1 issues BEGIN, and only it commits. */
-  let depth = 0
+  const open = depthOf(db)
   const keys = Object.keys(COLUMNS) as (keyof WorkOrderRow)[]
   const insertSql = `INSERT INTO work_orders (${keys.map((k) => COLUMNS[k]).join(", ")}) VALUES (${keys
     .map(() => "?")
@@ -230,16 +247,24 @@ export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
         : null
     },
     transaction(fn) {
-      if (depth > 0) {
-        depth += 1
+      if (open.depth > 0) {
+        const name = `sp${open.depth}`
+        db.exec(`SAVEPOINT ${name}`)
+        open.depth += 1
         try {
-          return fn()
+          const result = fn()
+          db.exec(`RELEASE ${name}`)
+          return result
+        } catch (error) {
+          db.exec(`ROLLBACK TO ${name}`)
+          db.exec(`RELEASE ${name}`)
+          throw error
         } finally {
-          depth -= 1
+          open.depth -= 1
         }
       }
       db.exec("BEGIN")
-      depth = 1
+      open.depth = 1
       try {
         const result = fn()
         db.exec("COMMIT")
@@ -248,7 +273,7 @@ export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
         db.exec("ROLLBACK")
         throw error
       } finally {
-        depth = 0
+        open.depth = 0
       }
     },
   }

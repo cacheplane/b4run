@@ -174,8 +174,7 @@ describe("deny", () => {
   })
 
   it("refuses deny from running", async () => {
-    // `close_midway` reaches running and stays there; `hang` emits no frame, so it never leaves dispatched.
-    await boot({ run: "close_midway" })
+    await boot({ run: "hang" })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     await factory.waitFor(id, (r) => r.state === "running")
