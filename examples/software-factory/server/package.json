@@ -1,0 +1,22 @@
+{
+  "name": "@b4-example/software-factory-server",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p . --noEmit",
+    "lint": "biome check .",
+    "factory": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.6",
+    "@types/node": "26.1.2",
+    "tsx": "4.23.10",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  }
+}
