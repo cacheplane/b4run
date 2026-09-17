@@ -10,6 +10,7 @@ import {
   knownTargetNames,
 } from "../lib/build/targets/index.js"
 import { assertRouteMarkerFileLimits } from "../lib/build/targets/marker-files.js"
+import { assertVercelBuildConfig } from "../lib/build/targets/vercel-config.js"
 import { captureWorkspaceArtifact } from "../lib/build/workspace-artifact.js"
 import { loadOptionalB4Config } from "../lib/node-config.js"
 import { CliError, type CommandIo, writeLine } from "../lib/output.js"
@@ -39,6 +40,8 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
   })
 
   const config = await loadOptionalB4Config(manifest.appRoot)
+  assertVercelBuildConfig(config?.build)
+
   // The config type only admits known names, but a JS config or a JSON one
   // arrives untyped — so validate the ENTIRE list up front, before emitting
   // anything: an unknown target must fail fast, not after earlier targets
@@ -92,8 +95,8 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
     buildDir,
     io,
     manifest,
-    ...(config ? { config } : {}),
     ...(workspaceArtifact ? { workspaceArtifact } : {}),
+    ...(config?.build ? { buildConfig: config.build } : {}),
   }
 
   const emitted: string[] = []

@@ -1,20 +1,21 @@
 import { join } from "node:path"
+import type { B4Config } from "@b4run/core"
 import { describe, expect, test } from "vitest"
-
 import {
   composeVercelRoutes,
   DEFAULT_VERCEL_FUNCTION_NAME,
-  resolveVercelBuildConfig,
+  resolveVercelComposition,
   STATIC_VERCEL_FUNCTION_NAME,
   VERCEL_RUNTIME_ROUTE_SRC,
 } from "../src/lib/build/targets/vercel-compose.ts"
+import { resolveVercelBuildConfig } from "../src/lib/build/targets/vercel-config.ts"
 import { CliError } from "../src/lib/output.ts"
 
 const appRoot = join("/", "app")
 
-describe("resolveVercelBuildConfig", () => {
+describe("resolveVercelComposition", () => {
   test("an absent config resolves to the bare runtime function named index", () => {
-    expect(resolveVercelBuildConfig(undefined, appRoot)).toEqual({
+    expect(resolveVercelComposition(undefined, appRoot)).toEqual({
       functionName: DEFAULT_VERCEL_FUNCTION_NAME,
       functions: [],
       routes: [],
@@ -23,7 +24,7 @@ describe("resolveVercelBuildConfig", () => {
   })
 
   test("a static dir moves the runtime function off the root name", () => {
-    const resolved = resolveVercelBuildConfig(
+    const resolved = resolveVercelComposition(
       { static: { dir: "../dist/web", spaFallback: "index.html" } },
       appRoot,
     )
@@ -36,15 +37,15 @@ describe("resolveVercelBuildConfig", () => {
   })
 
   test("an explicit functionName wins over both defaults", () => {
-    expect(resolveVercelBuildConfig({ functionName: "agent" }, appRoot).functionName).toBe("agent")
+    expect(resolveVercelComposition({ functionName: "agent" }, appRoot).functionName).toBe("agent")
     expect(
-      resolveVercelBuildConfig({ functionName: "agent", static: { dir: "dist" } }, appRoot)
+      resolveVercelComposition({ functionName: "agent", static: { dir: "dist" } }, appRoot)
         .functionName,
     ).toBe("agent")
   })
 
   test("resolves extra functions relative to the app root with the node24 runtime default", () => {
-    const resolved = resolveVercelBuildConfig(
+    const resolved = resolveVercelComposition(
       {
         functions: {
           api: { entry: "src/api.ts", maxDuration: 30 },
@@ -78,7 +79,7 @@ describe("resolveVercelBuildConfig", () => {
       { dest: "/api", src: "/api/(.*)" },
       { headers: { "x-a": "1" }, src: "/x" },
     ]
-    expect(resolveVercelBuildConfig({ routes }, appRoot).routes).toEqual(routes)
+    expect(resolveVercelComposition({ routes }, appRoot).routes).toEqual(routes)
   })
 
   test.each([
@@ -147,8 +148,8 @@ describe("resolveVercelBuildConfig", () => {
     { config: { unknown: true }, expected: "build.vercel.unknown" },
     { config: [], expected: "build.vercel" },
   ])("rejects $expected", ({ config, expected }) => {
-    expect(() => resolveVercelBuildConfig(config, appRoot)).toThrow(CliError)
-    expect(() => resolveVercelBuildConfig(config, appRoot)).toThrow(expected)
+    expect(() => resolveVercelComposition(config, appRoot)).toThrow(CliError)
+    expect(() => resolveVercelComposition(config, appRoot)).toThrow(expected)
   })
 })
 
@@ -193,5 +194,94 @@ describe("composeVercelRoutes", () => {
       { handle: "filesystem" },
       { dest: "/b4", src: "/(.*)" },
     ])
+  })
+})
+
+/**
+ * A `b4.config.js` or a JSON config arrives with no compiler behind it, so the
+ * runtime rejections below are reached with shapes the typed config forbids.
+ */
+function untypedBuild(build: unknown): B4Config["build"] {
+  return build as B4Config["build"]
+}
+
+describe("resolveVercelBuildConfig (one validated build.vercel)", () => {
+  test("returns the reconciliation flag and the composition together", () => {
+    const resolved = resolveVercelBuildConfig(
+      {
+        targets: ["vercel"],
+        vercel: {
+          functions: { api: { entry: "src/api.ts" } },
+          reconcileVercelJson: false,
+          routes: [{ dest: "/api", src: "/api/(.*)" }],
+          static: { dir: "web/dist", spaFallback: "index.html" },
+        },
+      },
+      appRoot,
+    )
+
+    expect(resolved.reconcileVercelJson).toBe(false)
+    expect(resolved.composition.functionName).toBe(STATIC_VERCEL_FUNCTION_NAME)
+    expect(resolved.composition.static).toEqual({
+      dir: join(appRoot, "web", "dist"),
+      spaFallback: "index.html",
+    })
+    expect(resolved.composition.functions).toHaveLength(1)
+    expect(resolved.composition.routes).toEqual([{ dest: "/api", src: "/api/(.*)" }])
+  })
+
+  test("composition keys alone leave reconciliation on", () => {
+    const resolved = resolveVercelBuildConfig({ vercel: { static: { dir: "web/dist" } } }, appRoot)
+
+    expect(resolved.reconcileVercelJson).toBe(true)
+    expect(resolved.composition.functionName).toBe(STATIC_VERCEL_FUNCTION_NAME)
+  })
+
+  test("the flag alone leaves the bare runtime composition", () => {
+    const resolved = resolveVercelBuildConfig({ vercel: { reconcileVercelJson: false } }, appRoot)
+
+    expect(resolved.reconcileVercelJson).toBe(false)
+    expect(resolved.composition).toEqual({
+      functionName: DEFAULT_VERCEL_FUNCTION_NAME,
+      functions: [],
+      routes: [],
+    })
+  })
+
+  test("an absent build section is the default on both axes", () => {
+    const resolved = resolveVercelBuildConfig(undefined, appRoot)
+
+    expect(resolved.reconcileVercelJson).toBe(true)
+    expect(resolved.composition.functionName).toBe(DEFAULT_VERCEL_FUNCTION_NAME)
+  })
+
+  test("an unknown option names every known option, composition keys included", () => {
+    expect(() =>
+      resolveVercelBuildConfig(untypedBuild({ vercel: { reconcileVercelJSON: false } }), appRoot),
+    ).toThrow(/Unknown build\.vercel option\(s\): reconcileVercelJSON/)
+    expect(() =>
+      resolveVercelBuildConfig(untypedBuild({ vercel: { reconcileVercelJSON: false } }), appRoot),
+    ).toThrow(/functionName.*functions.*reconcileVercelJson.*routes.*static/)
+  })
+
+  test("a misplaced flag directly on build is still rejected", () => {
+    expect(() =>
+      resolveVercelBuildConfig(untypedBuild({ reconcileVercelJson: false }), appRoot),
+    ).toThrow(/belongs under build\.vercel/)
+  })
+
+  test("a non-boolean flag is still rejected", () => {
+    expect(() =>
+      resolveVercelBuildConfig(untypedBuild({ vercel: { reconcileVercelJson: "false" } }), appRoot),
+    ).toThrow(/reconcileVercelJson must be a boolean/)
+  })
+
+  test("a composition error surfaces through the same entry point", () => {
+    expect(() =>
+      resolveVercelBuildConfig(
+        { vercel: { functionName: "index", static: { dir: "web/dist" } } },
+        appRoot,
+      ),
+    ).toThrow(/build\.vercel\.functionName/)
   })
 })

@@ -4,11 +4,11 @@ import { join, relative } from "node:path"
 
 import { build } from "esbuild"
 
-import { CliError, formatErrorMessage } from "../../output.js"
+import { CliError, formatErrorMessage, writeLine } from "../../output.js"
 import type { BuildTarget } from "./index.js"
 import { assertVercelBuildPaths, emitVercelFunction, emitVercelStatic } from "./vercel-assets.js"
-import { composeVercelRoutes, resolveVercelBuildConfig } from "./vercel-compose.js"
-import { reconcileVercelConfig } from "./vercel-config.js"
+import { composeVercelRoutes } from "./vercel-compose.js"
+import { reconcileVercelConfig, resolveVercelBuildConfig } from "./vercel-config.js"
 import { createVercelNodeCompatibilityPlugin } from "./vercel-node-compat.js"
 import { publishVercelOutput, validateVercelOutput, writeVercelMetadata } from "./vercel-output.js"
 import { emitWebRuntimeArtifacts } from "./web-runtime.js"
@@ -34,8 +34,13 @@ export function setVercelTargetCleanupFileOpsForTesting(
 export const vercelTarget: BuildTarget = {
   name: "vercel",
   async emit(ctx) {
-    // Config shape and every named path are checked before `.vercel/` exists.
-    const composition = resolveVercelBuildConfig(ctx.config?.build?.vercel, ctx.appRoot)
+    // One resolver validates the whole of `build.vercel`, and every named path
+    // is checked, before `.vercel/` exists — so a near-miss config cannot read
+    // as configured while the build goes on to write a tree from it.
+    const { composition, reconcileVercelJson: reconcileRootConfig } = resolveVercelBuildConfig(
+      ctx.buildConfig,
+      ctx.appRoot,
+    )
     await assertVercelBuildPaths(composition, ctx.appRoot)
     const { functionName } = composition
 
@@ -103,11 +108,24 @@ export const vercelTarget: BuildTarget = {
         }),
       })
       await validateVercelOutput(stagedOutput, { functionName })
-      const rootConfig = await reconcileVercelConfig({
-        appRoot: ctx.appRoot,
-        buildDir: ctx.buildDir,
-        ...(ctx.io ? { io: ctx.io } : {}),
-      })
+      // A prebuilt flow (`vercel deploy --prebuilt`) never runs the root
+      // `buildCommand`, so the opt-out leaves `vercel.json` unread, unwritten,
+      // and out of the artifact list rather than requiring a file that exists
+      // only to satisfy the reconciler.
+      const rootConfigArtifacts: string[] = []
+      if (reconcileRootConfig) {
+        const rootConfig = await reconcileVercelConfig({
+          appRoot: ctx.appRoot,
+          buildDir: ctx.buildDir,
+          ...(ctx.io ? { io: ctx.io } : {}),
+        })
+        rootConfigArtifacts.push(rootConfig.artifactPath)
+      } else if (ctx.io) {
+        writeLine(
+          ctx.io.stdout,
+          "vercel: root config reconciliation is off (build.vercel.reconcileVercelJson: false); vercel.json was not created, read, or modified. A prebuilt deploy runs no buildCommand at all; enable Fluid compute in the Vercel project settings, which this build no longer checks.",
+        )
+      }
       await publishVercelOutput({ stagedOutput, vercelDir })
 
       const published = (stagedPath: string) =>
@@ -118,7 +136,7 @@ export const vercelTarget: BuildTarget = {
         join(finalOutput, "functions", functionDirName, "index.mjs"),
         ...(stagedStatic ? [published(stagedStatic)] : []),
         ...stagedFunctionFiles.map(published),
-        rootConfig.artifactPath,
+        ...rootConfigArtifacts,
       ]
     } catch (error) {
       didFail = true

@@ -64,12 +64,23 @@ export interface ResolvedVercelBuild {
   readonly routes: readonly VercelRoute[]
 }
 
+/** The `build.vercel` keys that describe the composed tree. */
+export const VERCEL_COMPOSITION_KEYS: readonly string[] = [
+  "functionName",
+  "static",
+  "functions",
+  "routes",
+]
+
 /**
- * Validate `build.vercel` and resolve its paths against the app root. Pure:
+ * Resolve the composed-tree half of `build.vercel` against the app root. Pure:
  * existence of `static.dir`, `spaFallback`, and each `entry` is checked by the
  * target when it composes the tree, not here.
+ *
+ * Callers reach this through `resolveVercelBuildConfig`, which owns the shape
+ * of `build.vercel` as a whole — including the keys this function ignores.
  */
-export function resolveVercelBuildConfig(input: unknown, appRoot: string): ResolvedVercelBuild {
+export function resolveVercelComposition(input: unknown, appRoot: string): ResolvedVercelBuild {
   if (input === undefined) {
     return {
       functionName: DEFAULT_VERCEL_FUNCTION_NAME,
@@ -78,7 +89,7 @@ export function resolveVercelBuildConfig(input: unknown, appRoot: string): Resol
     }
   }
   const config = asRecord(input, "build.vercel")
-  assertKnownKeys(config, ["functionName", "static", "functions", "routes"], "build.vercel")
+  assertKnownKeys(config, VERCEL_COMPOSITION_KEYS, "build.vercel")
 
   const staticConfig = resolveStatic(config.static, appRoot)
   const functions = resolveFunctions(config.functions, appRoot)

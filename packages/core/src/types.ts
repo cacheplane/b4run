@@ -54,6 +54,22 @@ export interface VercelBuildConfig {
    * a `handle` entry here is rejected.
    */
   readonly routes?: readonly VercelBuildRoute[]
+  /**
+   * Whether `b4 build` reconciles the app-root `vercel.json` with the
+   * target's lifecycle contract (a `buildCommand` that runs `b4 build`
+   * and `fluid: true`): it writes the recommended file when none
+   * exists, warns when an authored file does not establish the
+   * contract, and fails on `fluid: false`.
+   *
+   * Set to `false` for a prebuilt flow (`vercel deploy --prebuilt` from
+   * CI, no Vercel Git integration): Vercel never runs `buildCommand`
+   * there, so the target neither requires nor touches a committed
+   * `vercel.json`. Fluid compute still matters for the deployed
+   * project — keep it enabled in the project settings.
+   *
+   * Defaults to `true`.
+   */
+  readonly reconcileVercelJson?: boolean
 }
 
 export interface B4Config {
@@ -147,10 +163,10 @@ export interface B4Config {
      */
     readonly targets?: readonly BuildTargetName[]
     /**
-     * Shape of the `"vercel"` target's Build Output tree beyond the runtime
-     * function. Ignored unless `"vercel"` is in {@link targets}. With nothing
-     * set the output is the runtime function alone (`functions/index.func`)
-     * behind a catch-all route.
+     * Shape and options of the `"vercel"` target's Build Output tree. Ignored
+     * unless `"vercel"` is in {@link targets}. With nothing set the output is
+     * the runtime function alone (`functions/index.func`) behind a catch-all
+     * route, and the app-root `vercel.json` is reconciled.
      */
     readonly vercel?: VercelBuildConfig
   }

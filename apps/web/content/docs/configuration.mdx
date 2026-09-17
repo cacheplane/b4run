@@ -291,6 +291,7 @@ build?: {
       supportsResponseStreaming?: boolean
     }>>
     routes?: readonly { src: string; dest?: string; [key: string]: unknown }[]
+    reconcileVercelJson?: boolean
   }
 }
 ```
@@ -313,6 +314,23 @@ until `static` is set, when it becomes `b4` so it does not shadow
 beside `static` fails the build. See
 [the `vercel` target](/docs/deployment/edge#the-vercel-target) for the
 published tree and route order.
+
+`vercel.reconcileVercelJson` (default `true`) controls whether the `"vercel"`
+target reconciles the app-root `vercel.json` with its lifecycle contract — a
+`buildCommand` that runs `b4 build` and `fluid: true`. Set it to `false` for a
+prebuilt flow (`vercel deploy --prebuilt` from CI, no Vercel Git integration):
+Vercel never runs `buildCommand` there, so the target stops requiring, writing,
+or inspecting a committed `vercel.json`. Fluid compute still matters for the
+deployed project; keep it enabled in the Vercel project settings, because the
+build no longer fails on a committed `fluid: false` once reconciliation is off.
+
+One resolver validates the whole of `build.vercel`, so both `b4 check` and
+`b4 build` reject every near miss with `B4_E1003` — a non-object `vercel`, an
+unknown key inside it, a `reconcileVercelJson` that is not exactly `true` or
+`false`, and the flag misplaced directly on `build` — rather than reading as
+configured while the target keeps reconciling or writes a tree from a shape it
+never checked. A prebuilt app therefore configures
+`build: { targets: ["vercel"], vercel: { reconcileVercelJson: false } }`.
 
 ### `sandbox`
 

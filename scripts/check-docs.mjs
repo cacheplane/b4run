@@ -3087,6 +3087,7 @@ const expectedB4ConfigSchemaPaths = [
   "build.vercel",
   "build.vercel.functionName",
   "build.vercel.functions",
+  "build.vercel.reconcileVercelJson",
   "build.vercel.routes",
   "build.vercel.static",
   "build.vercel.static.dir",
