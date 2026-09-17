@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises"
 import { isBuiltin } from "node:module"
-import { isAbsolute, join, relative, sep } from "node:path"
+import { dirname, isAbsolute, join, relative, sep } from "node:path"
 import { build } from "esbuild"
 
 import { CliError, formatErrorMessage } from "../../output.js"
@@ -67,15 +67,18 @@ export async function validateVercelOutput(outputDir: string): Promise<void> {
   await validateRuntimeDependencies(entryPath, functionDir, realFunctionDir)
 }
 
-/** Atomically replace `.vercel/output` with one fully validated staged tree. */
+/**
+ * Atomically replace `outputDir` (`.vercel/output` by default) with one fully
+ * validated staged tree. The prior output is parked beside it during the swap.
+ */
 export async function publishVercelOutput(input: {
+  readonly outputDir: string
   readonly stagedOutput: string
-  readonly vercelDir: string
   readonly fileOps?: Pick<typeof import("node:fs/promises"), "rename" | "rm">
 }): Promise<void> {
   const fileOps = input.fileOps ?? { rename, rm }
-  const outputDir = join(input.vercelDir, "output")
-  const backupPath = join(input.vercelDir, `.b4-vercel-output-backup-${randomUUID()}`)
+  const outputDir = input.outputDir
+  const backupPath = join(dirname(outputDir), `.b4-vercel-output-backup-${randomUUID()}`)
   let backupCreated = false
 
   try {
@@ -146,23 +149,29 @@ async function readJson(path: string): Promise<unknown> {
   }
 }
 
+/**
+ * The Build Output config may be composed after `b4 build` (static assets,
+ * further functions, their routes), so this asserts the parts the runtime
+ * function depends on rather than the exact catch-all `b4 build` writes: a
+ * version-3 config whose route list still reaches `/index`.
+ */
 function validateBuildOutputConfig(value: unknown, configPath: string): void {
   const config = asRecord(value, configPath)
-  validateExactProperties(config, ["routes", "version"], configPath)
   if (config.version !== VERCEL_BUILD_OUTPUT_CONFIG.version) {
     throw new Error(`${configPath} property "version" must be 3`)
   }
-  if (!Array.isArray(config.routes) || config.routes.length !== 1) {
-    throw new Error(`${configPath} property "routes" must contain exactly one catch-all route`)
+  if (!Array.isArray(config.routes)) {
+    throw new Error(`${configPath} property "routes" must be an array`)
   }
 
-  const route = asRecord(config.routes[0], `${configPath} property "routes[0]"`)
-  validateExactProperties(route, ["src", "dest"], configPath, "routes[0].")
-  if (route.src !== VERCEL_BUILD_OUTPUT_CONFIG.routes[0].src) {
-    throw new Error(`${configPath} property "routes[0].src" must be "/(.*)"`)
-  }
-  if (route.dest !== VERCEL_BUILD_OUTPUT_CONFIG.routes[0].dest) {
-    throw new Error(`${configPath} property "routes[0].dest" must be "/index"`)
+  const runtimeDest = VERCEL_BUILD_OUTPUT_CONFIG.routes[0].dest
+  const routes = config.routes.map((route, index) =>
+    asRecord(route, `${configPath} property "routes[${index}]"`),
+  )
+  if (!routes.some((route) => route.dest === runtimeDest)) {
+    throw new Error(
+      `${configPath} property "routes" must contain a route with dest ${JSON.stringify(runtimeDest)} so requests reach the runtime function`,
+    )
   }
 }
 

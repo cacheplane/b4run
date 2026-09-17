@@ -59,7 +59,10 @@ export default config({
     // summarize: async ({ messages, model, previousSummary, signal }) => "...",
   },
 
-  build: { targets: ["node", "langsmith"] },
+  build: {
+    targets: ["node", "langsmith"],
+    // vercel: { outDir: "dist/vercel" }, // where the "vercel" target publishes (default .vercel/output)
+  },
 
   // Cross-origin access. Omit and the runtime sends no `Access-Control-*`
   // header at all, so a browser on another origin cannot call it — the
@@ -281,7 +284,7 @@ is compressed and what remains verbatim.
 ```ts
 build?: {
   targets?: readonly BuildTargetName[]
-  vercel?: { reconcileVercelJson?: boolean }
+  vercel?: { outDir?: string; reconcileVercelJson?: boolean }
 }
 ```
 
@@ -293,6 +296,14 @@ to type-check instead of failing at `b4 build`. `"hono"` and `"vercel"` are
 the opt-in edge subset. Choose only targets whose runtime can materialize
 the configured capabilities. See [Deployment Options](/docs/deployment) for
 the artifact and compatibility matrix.
+
+`vercel.outDir` is read only by the `"vercel"` target: the directory its
+Build Output tree is published to, resolved relative to the app root. It
+defaults to `.vercel/output`, where Vercel deploys from; point it elsewhere
+when another step composes the runtime function with static assets or further
+functions before deployment. `b4 build --out-dir <dir>` overrides it for one
+run. The directory is replaced wholesale on each build, so one that contains
+the app root is rejected. See [`b4 build`](/docs/cli#b4-build).
 
 `vercel.reconcileVercelJson` (default `true`) controls whether the `"vercel"`
 target reconciles the app-root `vercel.json` with its lifecycle contract — a

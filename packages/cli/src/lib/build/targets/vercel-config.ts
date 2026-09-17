@@ -37,7 +37,7 @@ export function setVercelConfigFileOpsForTesting(
 }
 
 /** Every option `build.vercel` accepts. Anything else is an authoring error. */
-const VERCEL_BUILD_OPTION_KEYS: readonly string[] = ["reconcileVercelJson"]
+const VERCEL_BUILD_OPTION_KEYS: readonly string[] = ["outDir", "reconcileVercelJson"]
 
 /**
  * Validates `build.vercel` and resolves whether the `vercel` target reconciles
@@ -57,6 +57,7 @@ const VERCEL_BUILD_OPTION_KEYS: readonly string[] = ["reconcileVercelJson"]
  * diverge.
  */
 export function resolveVercelBuildConfig(build: B4Config["build"] | undefined): {
+  readonly outDir?: string
   readonly reconcileVercelJson: boolean
 } {
   const buildRecord = isRecord(build) ? build : undefined
@@ -65,6 +66,13 @@ export function resolveVercelBuildConfig(build: B4Config["build"] | undefined): 
   if (misplaced !== undefined) {
     throw invalidBuildConfig(
       "reconcileVercelJson belongs under build.vercel, not build directly. Use build: { vercel: { reconcileVercelJson: false } }.",
+    )
+  }
+
+  const misplacedOutDir = ownProperty(buildRecord, "outDir")
+  if (misplacedOutDir !== undefined) {
+    throw invalidBuildConfig(
+      "outDir belongs under build.vercel, not build directly. Use build: { vercel: { outDir: \"dist/vercel\" } }.",
     )
   }
 
@@ -83,14 +91,34 @@ export function resolveVercelBuildConfig(build: B4Config["build"] | undefined): 
     )
   }
 
+  // An empty or blank `outDir` would resolve to the app root itself, which
+  // publication then replaces wholesale — reject it here rather than let the
+  // path resolver report a directory the author never typed.
+  const outDirValue = ownProperty(vercel, "outDir")
+  let outDir: string | undefined
+  if (outDirValue !== undefined) {
+    if (typeof outDirValue !== "string") {
+      throw invalidBuildConfig(
+        `build.vercel.outDir must be a string; received ${JSON.stringify(outDirValue)}.`,
+      )
+    }
+    if (outDirValue.trim() === "") {
+      throw invalidBuildConfig("build.vercel.outDir must not be empty.")
+    }
+    outDir = outDirValue
+  }
+
   const reconcileVercelJson = ownProperty(vercel, "reconcileVercelJson")
-  if (reconcileVercelJson === undefined) return { reconcileVercelJson: true }
-  if (typeof reconcileVercelJson !== "boolean") {
+  if (reconcileVercelJson !== undefined && typeof reconcileVercelJson !== "boolean") {
     throw invalidBuildConfig(
       `build.vercel.reconcileVercelJson must be a boolean; received ${JSON.stringify(reconcileVercelJson)}.`,
     )
   }
-  return { reconcileVercelJson }
+
+  return {
+    ...(outDir === undefined ? {} : { outDir }),
+    reconcileVercelJson: reconcileVercelJson ?? true,
+  }
 }
 
 /** Throw-away form of {@link resolveVercelBuildConfig} for validation-only callers. */
