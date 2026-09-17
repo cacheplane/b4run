@@ -134,7 +134,11 @@ export interface StartRuntimeServerOptions {
    * The factory owns cleanup of a PARTIAL allocation: `dispose` is only ever
    * called on a `RequestStores` this returned, so a factory that opens a pool
    * and then throws must close it itself — the runtime has nothing to dispose
-   * in that case and will answer the request with a 500.
+   * in that case and will answer the request with a 500 (or, for `GET /readyz`,
+   * a 503 that names the factory as the failing dependency).
+   *
+   * Never called for `GET /healthz`: that route is process liveness and must
+   * answer even when the database this factory would reach is unreachable.
    */
   readonly requestStores?: (request: Request) => RequestStores | Promise<RequestStores>
 }
