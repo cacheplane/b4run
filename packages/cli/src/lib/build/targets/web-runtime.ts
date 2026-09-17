@@ -157,6 +157,12 @@ const STORES_ENTRY = (targetName: WebRuntimeEmitOptions["targetName"]): string =
         "or, on a host that passes no bindings (Node, Bun), set it in the environment."`
       : `"vercel target: DATABASE_URL is not set in the Vercel runtime environment, so no store can be built. " +
         "Add DATABASE_URL to this Vercel project's Environment Variables for the deployment environment, then redeploy."`
+  // Kept target-specific for the same reason `databaseUrlError` is: the Vercel
+  // bundle must carry no Workers/Wrangler vocabulary, which a test pins.
+  const nonStringNamingHint =
+    targetName === "hono"
+      ? `"On Workers, check that it is a vars entry or a secret rather than another kind of binding."`
+      : `"Check that it is set to a plain string in this Vercel project's Environment Variables."`
   const requestWithArticle = targetName === "hono" ? "an edge request" : "a Vercel function request"
   const runtimeLogTarget = targetName === "hono" ? "edge" : "vercel"
   // Only the Vercel variant can open a TCP `pg` pool: `@b4run/postgres-storage/node`
@@ -238,6 +244,95 @@ ${pgPoolImport}
 const binding = (env, name) => env?.[name] ?? readRuntimeEnv(name)
 
 /**
+ * The one shape a schema or table prefix may take — the same pattern
+ * \`@b4run/postgres-storage\` enforces at construction. Checked HERE as well so
+ * the error names the binding that was set, not the store option it fed.
+ *
+ * Lowercase only: the stores interpolate these unquoted, and Postgres folds an
+ * unquoted identifier to lowercase, so a mixed-case value would never name the
+ * tables it appeared to.
+ */
+const IDENTIFIER_PATTERN = /^[a-z_][a-z0-9_]*$/
+
+/**
+ * Resolve a naming binding to the identifier a store receives.
+ *
+ * Three cases, and the middle one is why this exists:
+ *
+ *  - unset → \`fallback\` (\`public\` / \`b4\`): a deployment that sets nothing keeps
+ *    writing where it always has;
+ *  - \`$NAME\` → the value of binding \`NAME\`, read through the same lookup as
+ *    every other knob. \`B4_PG_SCHEMA=$VERCEL_ENV\` is one setting that puts a
+ *    preview deployment in \`preview\` and a production deployment in
+ *    \`production\`, which is exactly what stops the two sharing one table set
+ *    when they share one database;
+ *  - anything else → a literal identifier.
+ *
+ * A literal that is not an identifier, a reference to an unset binding, or a
+ * reference whose value is not an identifier THROWS. It does not fall back to
+ * the default: a mistyped setting silently writing production data into the
+ * shared default schema is the failure this binding exists to prevent, so the
+ * request fails and says which binding to fix.
+ */
+const namingBinding = (env, name, fallback) => {
+  const raw = binding(env, name)
+  if (raw === undefined || raw === "") return fallback
+  // A binding is not necessarily a string. A host can bind this name to
+  // something else entirely — a namespace handle rather than a plain value,
+  // from one typo in a deployment config — and calling a string method on that
+  // would throw a TypeError naming no binding at all, defeating the whole point
+  // of the errors below.
+  if (typeof raw !== "string") {
+    throw new Error(
+      \`${targetName} target: \${name} must be a string, got \${typeof raw}. \` +
+        ${nonStringNamingHint},
+    )
+  }
+  let value = raw
+  if (raw.startsWith("$")) {
+    const source = raw.slice(1)
+    // \`$\` alone names nothing, so it is never looked up — otherwise the error
+    // would read "references , which is not set".
+    const resolved = source === "" ? undefined : binding(env, source)
+    if (typeof resolved !== "string" || resolved === "") {
+      throw new Error(
+        \`${targetName} target: \${name} is \${JSON.stringify(raw)}, which references \` +
+          \`\${source === "" ? "an empty variable name" : source + ", and that variable is not set to a non-empty string here"}. \` +
+          \`Set \${name} to a literal identifier, or to $NAME for a variable this deployment sets.\`,
+      )
+    }
+    value = resolved
+  }
+  if (!IDENTIFIER_PATTERN.test(value)) {
+    throw new Error(
+      \`${targetName} target: \${name} must resolve to a lowercase SQL identifier (\${IDENTIFIER_PATTERN}), \` +
+        \`got \${JSON.stringify(value)}\${raw === value ? "" : \` from \${raw}\`}.\`,
+    )
+  }
+  // The validated string, not the original binding: the two differ for a
+  // reference, and only this one has been checked.
+  return value
+}
+
+/**
+ * FNV-1a over the connection string, so a memo key can identify WHICH database
+ * without holding its password for the life of the isolate.
+ *
+ * 32 bits, so two distinct connection strings in one isolate could in principle
+ * collide. That is not a silent-corruption risk: a collision skips a migration
+ * pass that was needed, and the first query then fails loudly with
+ * \`undefined_table\` rather than reading or writing the wrong data.
+ */
+const hashDatabase = (value) => {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(36)
+}
+
+/**
  * Decode PostgreSQL's canonical hex BYTEA text without the driver's deprecated
  * Buffer constructor. B4.run's checkpoint serializer consumes Uint8Array, so the
  * result retains the driver's byte semantics without a process-global parser
@@ -306,23 +401,34 @@ class B4PgClient extends Client {
 }
 
 /**
- * Whether THIS ISOLATE has already migrated the database it talks to.
+ * Which table namespaces THIS ISOLATE has already migrated, keyed by database
+ * as well as by \`schema.prefix\`.
  *
  * Module scope is safe here in a way a module-scope POOL is not, and the
- * difference is the whole reason this is a boolean: a pool holds sockets bound
- * to the I/O context of the request that opened them, and reusing one across
- * requests hangs on workerd. A boolean holds nothing. Do not "fix" this by
- * hoisting the stores or the pool alongside it.
+ * difference is the whole reason this is a set of strings: a pool holds sockets
+ * bound to the I/O context of the request that opened them, and reusing one
+ * across requests hangs on workerd. A string holds nothing. Do not "fix" this
+ * by hoisting the stores or the pool alongside it.
  *
  * Without it every request would re-run three migration transactions — each
  * taking \`pg_advisory_xact_lock\`, which also SERIALIZES concurrent requests on
  * the same component key — because a store memoizes its migration on the
  * INSTANCE, and instances here are per request.
  *
- * Only set after the migration actually succeeded, so a failed cold start does
- * not convince the next request the schema is there.
+ * Keyed rather than a single boolean because all three inputs are per-request
+ * bindings: a namespace this isolate has not seen yet still needs its own
+ * cold-start pass. DATABASE_URL is part of the key for exactly the same reason
+ * the schema is — the entry beside this one binds env PER REQUEST precisely so
+ * a later request can reach a different database, and a boolean (or a key on
+ * the namespace alone) would tell request 2 that a virgin database had already
+ * been migrated because request 1 migrated a different one under the same
+ * schema and prefix. Every query would then fail with \`undefined_table\` for
+ * the life of the isolate.
+ *
+ * A key is only added after the migration actually succeeded, so a failed cold
+ * start does not convince the next request the schema is there.
  */
-let migrated = false
+const migrated = new Set()
 
 /**
  * Connection targets whose initialisation failure this isolate has already
@@ -411,6 +517,12 @@ export async function createRequestStores(env) {
       ${databaseUrlError},
     )
   }
+  // Where this request's tables live. Both default to the package's own
+  // defaults, so a deployment that sets neither binding keeps its existing
+  // \`public.b4_*\` tables. Resolved BEFORE any pool is opened, so a bad setting
+  // fails with nothing to close.
+  const schema = namingBinding(env, "B4_PG_SCHEMA", "public")
+  const tablePrefix = namingBinding(env, "B4_PG_TABLE_PREFIX", "b4")
   // Which driver talks to this DATABASE_URL, and through what: decided from THIS
   // request's bindings, so a value one request carried cannot leak into the next
   // (the same rule B4PgClient above exists for). A malformed B4_PG_WS_PROXY or
@@ -423,12 +535,14 @@ export async function createRequestStores(env) {
   })
   const pool = ${openPool}
   try {
-    const assumeMigrated = migrated
+    const namespace = \`\${hashDatabase(databaseUrl)}:\${schema}.\${tablePrefix}\`
+    const assumeMigrated = migrated.has(namespace)
+    const naming = { pool, assumeMigrated, schema, tablePrefix }
     const stores = {
-      checkpointer: postgresCheckpointer({ pool, assumeMigrated }),
+      checkpointer: postgresCheckpointer(naming),
       dispose: () => pool.end(),
-      permissionsStore: createPostgresPermissionsStore({ pool, assumeMigrated }),
-      threadsStore: createPostgresThreadsStore({ pool, assumeMigrated }),
+      permissionsStore: createPostgresPermissionsStore(naming),
+      threadsStore: createPostgresThreadsStore(naming),
     }
     if (!assumeMigrated) {
       // The cold-start pass. Concurrent cold starts — across isolates AND
@@ -440,7 +554,7 @@ export async function createRequestStores(env) {
         stores.permissionsStore.ready(),
         stores.threadsStore.ready(),
       ])
-      migrated = true
+      migrated.add(namespace)
     }
     return stores
   } catch (error) {

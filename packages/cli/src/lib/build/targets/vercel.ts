@@ -4,9 +4,9 @@ import { join } from "node:path"
 
 import { build } from "esbuild"
 
-import { CliError, formatErrorMessage } from "../../output.js"
+import { CliError, formatErrorMessage, writeLine } from "../../output.js"
 import type { BuildTarget } from "./index.js"
-import { reconcileVercelConfig } from "./vercel-config.js"
+import { reconcileVercelConfig, resolveVercelBuildConfig } from "./vercel-config.js"
 import { createVercelNodeCompatibilityPlugin } from "./vercel-node-compat.js"
 import { publishVercelOutput, validateVercelOutput, writeVercelMetadata } from "./vercel-output.js"
 import { emitWebRuntimeArtifacts } from "./web-runtime.js"
@@ -74,18 +74,34 @@ export const vercelTarget: BuildTarget = {
 
       await writeVercelMetadata(stagedOutput)
       await validateVercelOutput(stagedOutput)
-      const rootConfig = await reconcileVercelConfig({
-        appRoot: ctx.appRoot,
-        buildDir: ctx.buildDir,
-        ...(ctx.io ? { io: ctx.io } : {}),
-      })
+      // A prebuilt flow (`vercel deploy --prebuilt`) never runs the root
+      // `buildCommand`, so the opt-out leaves `vercel.json` unread, unwritten,
+      // and out of the artifact list rather than requiring a file that exists
+      // only to satisfy the reconciler. The resolver that validated the shape
+      // is what decides here, so a near-miss config cannot read as configured
+      // while this keeps reconciling.
+      const { reconcileVercelJson: reconcileRootConfig } = resolveVercelBuildConfig(ctx.buildConfig)
+      const rootConfigArtifacts: string[] = []
+      if (reconcileRootConfig) {
+        const rootConfig = await reconcileVercelConfig({
+          appRoot: ctx.appRoot,
+          buildDir: ctx.buildDir,
+          ...(ctx.io ? { io: ctx.io } : {}),
+        })
+        rootConfigArtifacts.push(rootConfig.artifactPath)
+      } else if (ctx.io) {
+        writeLine(
+          ctx.io.stdout,
+          "vercel: root config reconciliation is off (build.vercel.reconcileVercelJson: false); vercel.json was not created, read, or modified. A prebuilt deploy runs no buildCommand at all; enable Fluid compute in the Vercel project settings, which this build no longer checks.",
+        )
+      }
       await publishVercelOutput({ stagedOutput, vercelDir })
 
       artifacts = [
         join(finalOutput, "config.json"),
         join(finalOutput, "functions", "index.func", ".vc-config.json"),
         join(finalOutput, "functions", "index.func", "index.mjs"),
-        rootConfig.artifactPath,
+        ...rootConfigArtifacts,
       ]
     } catch (error) {
       didFail = true

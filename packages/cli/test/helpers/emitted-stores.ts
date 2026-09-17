@@ -47,6 +47,31 @@ export const postgresCheckpointer = () => store
  * test can see which driver a request ended up on; `end()` resolves so
  * `dispose()` works.
  */
+/**
+ * The store trio again, recording the naming each factory was handed and which
+ * namespace each `ready()` migrated — the observables for the per-environment
+ * schema bindings.
+ */
+export const NAMING_STORAGE_STUB = `export const namings = []
+export const readyCalls = []
+const factory = (kind) => (options) => {
+  namings.push({
+    kind,
+    assumeMigrated: options.assumeMigrated,
+    schema: options.schema,
+    tablePrefix: options.tablePrefix,
+  })
+  return {
+    ready: async () => {
+      readyCalls.push(kind + ":" + options.schema + "." + options.tablePrefix)
+    },
+  }
+}
+export const createPostgresPermissionsStore = factory("permissions")
+export const createPostgresThreadsStore = factory("threads")
+export const postgresCheckpointer = factory("checkpointer")
+`
+
 export const POSTGRES_STORAGE_NODE_STUB = `export const pgPools = []
 export function createPostgresPool(config) {
   const pool = {

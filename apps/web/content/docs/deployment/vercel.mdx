@@ -52,7 +52,7 @@ The target writes one Build Output API tree at `.vercel/output/` and reconciles 
 | `.vercel/output/config.json` | Build Output API `version: 3` with a single catch-all route, `{ "src": "/(.*)", "dest": "/index" }`, sending every path to the function |
 | `.vercel/output/functions/index.func/.vc-config.json` | Node function metadata: `handler: "index.mjs"`, `launcherType: "Nodejs"`, `runtime: "nodejs24.x"` |
 | `.vercel/output/functions/index.func/index.mjs` | The bundled function: a Hono catch-all around `createRuntimeFetchHandler`, with the static route manifest, the per-request Postgres store factory, every model-provider package, and the app's serialized config inlined |
-| `vercel.json` | Root project configuration, created when missing; an existing file is never modified, and a reference copy goes to `.b4/build/vercel.json` only when the existing file lacks a required contract |
+| `vercel.json` | Root project configuration, created when missing; an existing file is never modified, and a reference copy goes to `.b4/build/vercel.json` only when the existing file lacks a required contract. Absent entirely when reconciliation is [turned off](#opt-out-for-a-prebuilt-only-project) |
 
 The function directory is the whole deployable. `b4 build` bundles the generated runtime with esbuild for `node24`, then verifies that every non-builtin import resolves inside `index.func`, that no symlink escapes it, and that the bundle contains no `node:module` loader or non-literal dynamic import. A dependency that cannot be bundled fails the build with the missing specifier; install it as a runtime dependency and rebuild.
 
@@ -62,7 +62,7 @@ Unlike the Hono target, the intermediate `modules.edge.mjs`, `stores.mjs`, and `
 
 ## `vercel.json` reconciliation
 
-The target requires two settings in the root `vercel.json`:
+Unless you [turn it off](#opt-out-for-a-prebuilt-only-project), the target requires two settings in the root `vercel.json`:
 
 ```json title="vercel.json"
 {
@@ -85,7 +85,26 @@ Reconciliation rules, as implemented:
 
 Extra settings in the root file are preserved and remain authoritative.
 
-There is no opt-out yet. A prebuilt-only project never runs `buildCommand`, but the reconciler still expects it; [cacheplane/b4run#681](https://github.com/cacheplane/b4run/issues/681) proposes an opt-out for exactly that case. Until it lands, commit the recommended file as written. The unused `buildCommand` is harmless under `--prebuilt`, and `fluid: true` is still wanted.
+### Opt out for a prebuilt-only project
+
+A prebuilt flow never runs `buildCommand`, so requiring a file that exists only to satisfy the reconciler is noise. Turn reconciliation off:
+
+```ts title="b4.config.ts"
+import { config } from "@b4run/cli"
+
+export default config({
+  build: {
+    targets: ["vercel"],
+    vercel: { reconcileVercelJson: false },
+  },
+})
+```
+
+`b4 build` then neither requires, writes, reads, nor inspects `vercel.json`, drops it from the artifact list, and no longer fails on a committed `fluid: false`. The build prints a line saying reconciliation is off.
+
+Reconciliation stays on unless the flag is exactly `false`, and every near miss fails with `B4_E1003` rather than quietly reconciling anyway: a non-boolean value, a non-object `build.vercel`, an unknown key inside `build.vercel`, or `reconcileVercelJson` placed directly on `build` instead of under `build.vercel`.
+
+Fluid compute is still the concurrency model this function is built for. With the flag off, nothing checks it from source, so enable it in the Vercel project settings.
 
 ## `DATABASE_URL` and Neon
 
@@ -95,7 +114,19 @@ The easiest wiring is the [Neon integration on the Vercel Marketplace](https://v
 
 Model-provider keys and base URLs (`OPENAI_API_KEY`, `OPENAI_BASE_URL`, and so on) are read the same way. Do not put secret literals in `b4.config.ts`; the JSON-representable part of that file is inlined into the bundle.
 
-The generated stores use the default `public` schema and `b4` table prefix, so one deployed app requires an app-dedicated database. Sharing a database across apps needs hand-composed stores with a distinct `schema` or `tablePrefix`; see [Why the stores are per-request](/docs/deployment/edge#why-the-stores-are-per-request). The first request in each function instance runs the store migrations under a Postgres advisory lock; later requests in that instance skip them.
+The first request in each function instance runs the store migrations under a Postgres advisory lock; later requests in that instance skip them.
+
+### Keep preview and production apart
+
+With no further configuration the stores use the `public` schema and the `b4` table prefix, so every deployment of the project writes the same `public.b4_*` tables. On Vercel that means preview deployments share production's threads and checkpoints, which is rarely what you want from one `DATABASE_URL`.
+
+`B4_PG_SCHEMA` takes a lowercase identifier or a `$NAME` reference to another variable, so one project environment variable separates them:
+
+```bash
+B4_PG_SCHEMA=$VERCEL_ENV
+```
+
+Vercel sets `VERCEL_ENV` on every deployment, so previews migrate and write `preview.b4_*` while production gets `production.b4_*`. `B4_PG_TABLE_PREFIX` works the same way for the table prefix. The migration pass creates the schema when it is missing, and each instance tracks its cold-start migration per database, schema, and prefix. An unset value keeps `public.b4_*`, and a malformed one fails the request by name instead of silently falling back to `public`. See [Namespace preview and production](/docs/deployment/edge#namespace-preview-and-production) for the full table.
 
 ## `maxDuration` and streaming
 
@@ -198,8 +229,8 @@ The same handler also mounts in a Node HTTP server with `@hono/node-server`'s `s
 
 1. Run `b4 check` and resolve every `B4_E1005` violation.
 2. Declare `@b4run/cli`, `@b4run/postgres-storage`, `@neondatabase/serverless`, `hono`, and every model-provider package in `dependencies`.
-3. Commit `vercel.json` with the `buildCommand` and `fluid: true` contracts.
-4. Set `DATABASE_URL` and provider credentials in the project's environment variables for each deployment environment.
+3. Commit `vercel.json` with the `buildCommand` and `fluid: true` contracts, or set `build.vercel.reconcileVercelJson: false` and enable Fluid in the project settings.
+4. Set `DATABASE_URL` and provider credentials in the project's environment variables for each deployment environment, plus `B4_PG_SCHEMA` when preview and production share a database.
 5. Set the project's default function max duration to cover your longest streamed run.
 6. Put outer authentication and tenant authorization around every rooted B4.run path.
 7. Deploy, then drive `POST /threads`, a streamed run, and a second request in the same instance against the deployment URL.

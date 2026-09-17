@@ -9,7 +9,7 @@ import {
   type SubagentResolver,
   streamAgent,
 } from "@b4run/langchain"
-import type { B4Middleware } from "@b4run/sdk"
+import type { MiddlewareHandler } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch"
 import { AIMessage } from "@langchain/core/messages"
@@ -144,7 +144,7 @@ async function setupServer(
 }
 
 interface ControlledServerOptions {
-  readonly middleware?: B4Middleware
+  readonly middleware?: MiddlewareHandler
   readonly checkpointer?: BaseCheckpointSaver
   readonly streamRoute: typeof streamResolvedRoute
   readonly shutdownSignal?: AbortSignal

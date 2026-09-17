@@ -24,6 +24,7 @@ import { afterEach, describe, expect, test, vi } from "vitest"
 
 import { runBuildCommand } from "../src/commands/build.js"
 import { validateVercelOutput } from "../src/lib/build/targets/vercel-output.js"
+import { bindMiddleware } from "../src/lib/dev/middleware.js"
 import { loadMiddleware } from "../src/lib/dev/middleware-node.js"
 
 import {
@@ -9847,8 +9848,9 @@ describe("model-free native fixture", () => {
 
     const middleware = await loadMiddleware(appRoot)
     expect(middleware).toBeTypeOf("function")
+    const { handler } = bindMiddleware(middleware, { appRoot })
     const runMiddleware = async (headers: Headers, routeId = "/release") =>
-      await middleware?.({
+      await handler?.({
         assistantId: `${routeId}#graph`,
         headers: Object.fromEntries(headers),
         method: "POST",

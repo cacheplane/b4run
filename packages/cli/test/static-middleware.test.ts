@@ -355,6 +355,23 @@ describe("loadStaticModules — middleware validation", () => {
     )
   })
 
+  it("accepts a lifecycle definition entry (object with a handle function)", async () => {
+    const manifestPath = await writeManifest(
+      'export default { middleware: { setup() {}, dispose() {}, handle: () => ({ action: "continue" }) }, routes: [] }\n',
+    )
+    const modules = await loadStaticModules(pathToFileURL(manifestPath))
+    expect(typeof modules.middleware).toBe("object")
+  })
+
+  it("rejects an object entry without a handle function", async () => {
+    const manifestPath = await writeManifest(
+      "export default { middleware: { setup() {} }, routes: [] }\n",
+    )
+    await expect(loadStaticModules(pathToFileURL(manifestPath))).rejects.toThrow(
+      /middleware.*re-run `b4 build`/s,
+    )
+  })
+
   it("accepts an explicitly-undefined middleware entry", async () => {
     const manifestPath = await writeManifest(
       "export default { middleware: undefined, routes: [] }\n",
