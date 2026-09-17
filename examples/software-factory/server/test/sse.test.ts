@@ -40,4 +40,36 @@ describe("parseSse", () => {
     expect(parseBlock("data: hello")).toEqual({ event: "message", data: "hello" })
     expect(parseBlock(": only a comment")).toBeNull()
   })
+
+  it("parses blocks delimited by CRLF, including one split mid-delimiter across chunks", async () => {
+    const frames = await collect(
+      streamOf('event: a\r\ndata: "one"\r\n\r', '\nevent: b\r\ndata: "two"\r\n\r\n'),
+    )
+    expect(frames).toEqual([
+      { event: "a", data: "one" },
+      { event: "b", data: "two" },
+    ])
+  })
+
+  it("cancels the source stream when the consumer stops early", async () => {
+    let cancelled = false
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("event: first\ndata: 1\n\n"))
+        controller.enqueue(encoder.encode("event: second\ndata: 2\n\n"))
+        controller.close()
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+
+    for await (const frame of parseSse(stream)) {
+      expect(frame).toEqual({ event: "first", data: 1 })
+      break
+    }
+
+    expect(cancelled).toBe(true)
+  })
 })

@@ -25,16 +25,33 @@ export function parseBlock(block: string): StreamFrame | null {
   return { event, data }
 }
 
+/**
+ * Normalise line endings to `\n`, holding back a trailing lone `\r` so a
+ * `\r\n` delimiter split across two chunks still normalises correctly once
+ * the rest of the delimiter arrives in the next chunk.
+ */
+function normalizeTail(buffer: string): string {
+  if (buffer.endsWith("\r")) {
+    return `${buffer.slice(0, -1).replace(/\r\n/g, "\n").replace(/\r/g, "\n")}\r`
+  }
+  return buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+}
+
 /** Consume a `text/event-stream` body frame by frame. Ends when the body ends. */
 export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerator<StreamFrame> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ""
+  let streamEnded = false
   try {
     while (true) {
       const { done, value } = await reader.read()
-      if (done) break
+      if (done) {
+        streamEnded = true
+        break
+      }
       buffer += decoder.decode(value, { stream: true })
+      buffer = normalizeTail(buffer)
       let boundary = buffer.indexOf("\n\n")
       while (boundary !== -1) {
         const frame = parseBlock(buffer.slice(0, boundary))
@@ -43,9 +60,16 @@ export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerato
         boundary = buffer.indexOf("\n\n")
       }
     }
-    const tail = parseBlock(buffer)
+    const tail = parseBlock(buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n"))
     if (tail) yield tail
   } finally {
+    if (!streamEnded) {
+      try {
+        await reader.cancel()
+      } catch {
+        // ignore: the consumer is walking away, not the parser's problem
+      }
+    }
     reader.releaseLock()
   }
 }
