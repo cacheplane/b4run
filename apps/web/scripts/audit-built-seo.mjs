@@ -10,7 +10,7 @@ const scriptDirectory = dirname(scriptFile)
 const appRoot = resolve(scriptDirectory, "..")
 const productionOrigin = "https://b4.run"
 const currentInventoryDate = "2026-08-26"
-const currentInventoryCount = 83
+const currentInventoryCount = 84
 const approvedRobotsAgents = [
   "*",
   "GPTBot",
@@ -319,8 +319,8 @@ function sourceDocsInventory() {
   const records = journey.flatMap((record) =>
     record.path === "/docs/api" ? [record, ...api] : [record],
   )
-  if (records.length !== 75)
-    throw new Error(`Expected 75 ALL_DOCS_PAGES source entries; found ${records.length}`)
+  if (records.length !== 76)
+    throw new Error(`Expected 76 ALL_DOCS_PAGES source entries; found ${records.length}`)
   if (new Set(records.map((record) => record.path)).size !== records.length) {
     throw new Error("Duplicate docs path in independent source inventory")
   }

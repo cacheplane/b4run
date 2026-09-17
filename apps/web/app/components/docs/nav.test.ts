@@ -107,6 +107,7 @@ const FOUNDATION_DOCS_NAV = [
       { label: "Kubernetes", href: "/docs/deployment/kubernetes" },
       { label: "LangSmith", href: "/docs/deployment/langsmith" },
       { label: "Edge and Hono", href: "/docs/deployment/edge" },
+      { label: "Vercel", href: "/docs/deployment/vercel" },
       { label: "Execution Sandbox", href: "/docs/sandbox" },
       { label: "Kubernetes Sandbox", href: "/docs/sandbox/kubernetes" },
     ],
@@ -425,19 +426,19 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
     expect(DOCS_NAV).toEqual(FOUNDATION_DOCS_NAV)
   })
 
-  it("pins the exact 59-page reading order", () => {
+  it("pins the exact 60-page reading order", () => {
     const expectedPages = (FOUNDATION_DOCS_NAV as readonly DocsNavSection[]).flatMap(
       (section) => section.items,
     )
 
-    expect(expectedPages).toHaveLength(59)
+    expect(expectedPages).toHaveLength(60)
     expect(DOCS_PAGES).toEqual(expectedPages)
   })
 
   it("adds sixteen hidden API leaves immediately after the hub", () => {
-    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(59)
-    expect(DOCS_PAGES).toHaveLength(59)
-    expect(ALL_DOCS_PAGES).toHaveLength(75)
+    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(60)
+    expect(DOCS_PAGES).toHaveLength(60)
+    expect(ALL_DOCS_PAGES).toHaveLength(76)
 
     const hubIndex = ALL_DOCS_PAGES.findIndex(({ href }) => href === "/docs/api")
     expect(ALL_DOCS_PAGES.slice(hubIndex + 1, hubIndex + 17)).toEqual(API_REFERENCE_PAGES)

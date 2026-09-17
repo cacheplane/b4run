@@ -83,6 +83,7 @@ export const DOCS_NAV = [
       { label: "Kubernetes", href: "/docs/deployment/kubernetes" },
       { label: "LangSmith", href: "/docs/deployment/langsmith" },
       { label: "Edge and Hono", href: "/docs/deployment/edge" },
+      { label: "Vercel", href: "/docs/deployment/vercel" },
       { label: "Execution Sandbox", href: "/docs/sandbox" },
       { label: "Kubernetes Sandbox", href: "/docs/sandbox/kubernetes" },
     ],

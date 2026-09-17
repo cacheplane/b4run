@@ -1299,7 +1299,7 @@ describe("validateRootReadme", () => {
     for (const command of ["npm run dev:server", "npm run dev:web", "npm run build", "npm start"]) {
       assert.match(currentSource, new RegExp(command.replaceAll(" ", "\\s+")))
     }
-    for (const deployment of ["node", "langsmith", "edge", "kubernetes"]) {
+    for (const deployment of ["node", "langsmith", "edge", "vercel", "kubernetes"]) {
       assert.match(currentSource, new RegExp(`/docs/deployment/${deployment}`))
     }
   })

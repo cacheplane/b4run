@@ -1,6 +1,6 @@
 # Deployment Options
 
-Choose the **Node target** unless a named platform constraint determines otherwise. Choose LangSmith when that platform must own the LangGraph deployment envelope. Choose Hono only when a web-standard edge runtime is required and the application fits its explicit capability gate.
+Choose the **Node target** unless a named platform constraint determines otherwise. Choose LangSmith when that platform must own the LangGraph deployment envelope. Choose Hono only when a web-standard edge runtime is required and the application fits its explicit capability gate. Choose Vercel when the same capability subset is acceptable and Vercel's Node 24 Fluid runtime is the named host.
 
 ## Choose a target
 
@@ -9,8 +9,9 @@ Choose the **Node target** unless a named platform constraint determines otherwi
 | Node | `.b4/build/server.mjs` and a generated `Dockerfile` | B4.run HTTP runtime: Agent Protocol and AG-UI | B4.run HTTP middleware is included | Local defaults or injected/shared stores | Filesystem features and a configured execution sandbox are available | Node 24+ | Local runtime and container tests; validate your deployed proxy, stores, and model path |
 | LangSmith | `.b4/build/langgraph.json` and one entry per route | Platform-owned LangGraph entries, not the B4.run HTTP server | B4.run HTTP middleware is absent | Platform/runtime-owned | No B4.run sandbox manager or HTTP filesystem surface | Generated config currently says Node 22 while B4.run requires Node 24+ | Validate authentication and execution on the target platform |
 | Hono | `.b4/build/modules.edge.mjs`, `stores.mjs`, `app.mjs`, and `wrangler.toml` | Web-standard B4.run HTTP runtime: Agent Protocol and AG-UI | Included when discovered at build time | Generated request-scoped Postgres stores, or hand-composed stores | Filesystem, shell, workspace, long-term memory, and sandbox surfaces are gated | No Node runtime requirement for the emitted worker | Local workerd and Node round trips are not proof of a live provider deployment |
+| Vercel | `.vercel/output/` Build Output API tree (one bundled `index.func` Node function) and a reconciled `vercel.json` | Web-standard B4.run HTTP runtime on Vercel's Node 24 Fluid runtime: Agent Protocol and AG-UI | Included when discovered at build time | Generated request-scoped Postgres stores over `DATABASE_URL` | Same gate as Hono | Vercel `nodejs24.x` function runtime | A gated CI lane deploys real previews; your project's auth, regions, and provider path remain yours to validate |
 
-Node and LangSmith are the defaults. Hono is opt-in. Specifying build targets replaces the defaults; it does not add to them:
+Node and LangSmith are the defaults. Hono and Vercel are opt-in. Specifying build targets replaces the defaults; it does not add to them:
 
 ```ts title="b4.config.ts"
 import { config } from "@b4run/cli"
@@ -40,6 +41,7 @@ b4 verify
     { href: "/docs/deployment/kubernetes", title: "Kubernetes", description: "Install a built Node image with the b4-app chart." },
     { href: "/docs/deployment/langsmith", title: "LangSmith", description: "Deploy generated LangGraph entries with platform-owned authentication." },
     { href: "/docs/deployment/edge", title: "Edge and Hono", description: "Assess the edge capability gate and compose the fetch runtime." },
+    { href: "/docs/deployment/vercel", title: "Vercel", description: "Emit a Build Output API function and deploy it prebuilt from CI." },
   ]}
 />
 
