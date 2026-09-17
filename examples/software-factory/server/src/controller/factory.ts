@@ -14,7 +14,7 @@ import { openRegistry } from "../registry/db.js"
 import { createWorkOrderStore, type WorkOrderPatch } from "../registry/work-orders.js"
 import type { WorkerClient } from "../worker/client.js"
 import { receiptPath, waitForReceipt } from "../worker/outbox.js"
-import { classifyDone, type StreamFrame } from "../worker/wire.js"
+import { classifyDone, type InterruptFrame, type StreamFrame } from "../worker/wire.js"
 import { startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
 import { denyPending, observeRun } from "./run-observer.js"
@@ -524,29 +524,72 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       const begun = commands.begin(key, id, { command: "deny", args: {} }, iso())
       if (begun.status === "done") return begun.outcome
       if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      const refuse = (message: string) =>
+        finish(key, { ok: false, state: mustGet(id).state, message })
       if (row.state !== "awaiting_approval" && row.state !== "blocked")
-        return finish(key, {
-          ok: false,
-          state: row.state,
-          message: `Cannot deny from ${row.state}`,
-        })
+        return refuse(`Cannot deny from ${row.state}`)
+
+      // A denial is the resolution of a prompt the worker is actually holding: read what is
+      // pending before any write, so nothing reaches `denied` on the strength of the row alone.
+      let pending: InterruptFrame[]
       try {
-        await ctx.denyPending(id)
+        pending = row.workerThreadId
+          ? await options.worker.pendingInterrupts(row.workerThreadId)
+          : []
       } catch (error) {
         recordEvent(id, "pending_deny_failed", { error: String(error) })
+        return refuse(`Deny could not be delivered to the worker: ${String(error)}`)
       }
-      if (row.candidateDigest && row.interruptId)
-        store.recordApproval({
-          id: `ap-${randomUUID()}`,
-          workOrderId: id,
-          interruptId: row.interruptId,
-          candidateDigest: row.candidateDigest,
-          decision: "denied",
-          decidedBy: options.actor ?? "operator",
-          decidedAt: iso(),
-          expiresAt: iso(),
-        })
-      const denied = transition(id, "deny", {}, { operationKey: key })
+      if (row.state === "awaiting_approval") {
+        // Mirrors approve: the recorded gate, and only it, may be denied.
+        if (pending.length !== 1 || pending[0]?.interruptId !== row.interruptId) {
+          transition(
+            id,
+            "interrupt_vanished",
+            { blockedReason: "interrupt_vanished" },
+            { expected: row.interruptId, pending: pending.map((p) => p.interruptId) },
+          )
+          return refuse("The worker's approval prompt is no longer pending")
+        }
+      } else if (pending.length === 0) {
+        // A blocked work order with nothing parked (export_unconfirmed, say) has no prompt to
+        // deny; denying it would fake a decision the worker never heard.
+        return refuse("Nothing is pending to deny; cancel the work order instead")
+      }
+
+      const threadId = row.workerThreadId as string
+      try {
+        recordEvent(id, "pending_denied", { interruptIds: pending.map((p) => p.interruptId) })
+        const frames = await options.worker.resume(
+          threadId,
+          options.workerRoute,
+          pending.map((p) => ({ interruptId: p.interruptId, payload: "deny" as const })),
+          abort.signal,
+        )
+        await consumeTurn(frames, {})
+      } catch (error) {
+        // Undelivered: the row keeps its state so the operator can retry or cancel, rather
+        // than reading `denied` for a denial the worker never received.
+        recordEvent(id, "pending_deny_failed", { error: String(error) })
+        return refuse(`Deny could not be delivered to the worker: ${String(error)}`)
+      }
+
+      // One unit, as in approve: a denied authority row without the transition (or the other
+      // way round) would leave reconciliation guessing which of the two is the truth.
+      const denied = store.transaction(() => {
+        if (row.candidateDigest && row.interruptId)
+          store.recordApproval({
+            id: `ap-${randomUUID()}`,
+            workOrderId: id,
+            interruptId: row.interruptId,
+            candidateDigest: row.candidateDigest,
+            decision: "denied",
+            decidedBy: options.actor ?? "operator",
+            decidedAt: iso(),
+            expiresAt: iso(),
+          })
+        return transition(id, "deny", {}, { operationKey: key })
+      })
       return finish(key, { ok: true, state: denied.state, message: "Denied" })
     },
     async cancel(id, operationKey) {

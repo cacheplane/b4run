@@ -173,6 +173,47 @@ describe("deny", () => {
     expect(resumes()[0]?.body).toMatchObject({ resume: [{ payload: "deny" }] })
   })
 
+  it("blocks rather than denies when the gate was resolved behind the factory's back", async () => {
+    await boot()
+    const row = await awaiting()
+    await fetch(`${fake.baseUrl}/threads/${row.workerThreadId}/resume`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        resume: [{ interruptId: row.interruptId, status: "resolved", payload: "deny" }],
+        route: "/fix#agent",
+      }),
+    }).then((r) => r.text())
+    const before = resumes().length
+    expect(await factory.deny(row.id)).toMatchObject({
+      ok: false,
+      state: "blocked",
+      message: "The worker's approval prompt is no longer pending",
+    })
+    expect(factory.show(row.id)?.blockedReason).toBe("interrupt_vanished")
+    expect(resumes()).toHaveLength(before)
+  })
+
+  it("refuses deny on a blocked work order with nothing pending", async () => {
+    await boot({ resume: "route_error" })
+    const row = await awaiting()
+    await factory.approve(row.id, { revision: row.revision, candidateDigest: row.candidateDigest })
+    const blocked = await factory.waitFor(row.id, (r) => r.state === "blocked")
+    expect(blocked.blockedReason).toBe("export_unconfirmed")
+    const before = resumes().length
+    expect(await factory.deny(row.id)).toMatchObject({
+      ok: false,
+      state: "blocked",
+      message: "Nothing is pending to deny; cancel the work order instead",
+    })
+    expect(factory.show(row.id)).toMatchObject({
+      state: "blocked",
+      blockedReason: "export_unconfirmed",
+      revision: blocked.revision,
+    })
+    expect(resumes()).toHaveLength(before)
+  })
+
   it("refuses deny from running", async () => {
     await boot({ run: "hang" })
     const { id } = await factory.create({ taskId: "cli-flags" })
