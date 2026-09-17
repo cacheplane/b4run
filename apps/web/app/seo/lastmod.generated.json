@@ -57,9 +57,9 @@
       "recordDigest": "f5b4cdbdb93a876c92c669fff2ed4c3c0adb2b9b5de6f9cd2f6d7155f70ec98c"
     },
     "/docs/api/core": {
-      "lastModified": "2026-09-10T06:16:49.655Z",
-      "sourceDigest": "a57bca297cd1ec07f1ae54a0232e57f8f5488546fe943a57f36598d02d3d7dd6",
-      "recordDigest": "7739b3dfc2cb82ca31f3f483a6230336f7ccfa3143efa4e5e9c6cdc81b436418"
+      "lastModified": "2026-09-17T05:30:36.643Z",
+      "sourceDigest": "b49c29f0cbaad20dd8bde5bf668911dafbaa63f705e62c1f0fdb49343e790ff8",
+      "recordDigest": "e3f5f873ba077145054b9ded00bcd949fdb47b81dc8888a7a509c29816810a03"
     },
     "/docs/api/evals": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -132,14 +132,14 @@
       "recordDigest": "854d70653b7e7ae1a80889d317e0b5be8019a970d60e32882b07dd906cd3e951"
     },
     "/docs/cli": {
-      "lastModified": "2026-09-10T06:58:06.160Z",
-      "sourceDigest": "0be13f594e871cc94e6ee0d71f04a4e79045b8346106f8a43f56660bd44a4d58",
-      "recordDigest": "1596769bc6ce81e0b909ccd403072ae788df0beee54bee026fb25c67becdd04f"
+      "lastModified": "2026-09-17T05:30:36.643Z",
+      "sourceDigest": "9cd33374b605d7378526aaaf5ac10c76e27bc9635d697a12bbb38f343a251779",
+      "recordDigest": "57732810d12dae18a8d25b5d3b434e5ea8db84d6ee9a29e013b4b83224e6be7c"
     },
     "/docs/configuration": {
-      "lastModified": "2026-09-15T04:35:39.313Z",
-      "sourceDigest": "8eb9ecce6c2d48792e327be9b02d306f814405f55bfc14ccddf36c9e2ed688c9",
-      "recordDigest": "09f29c518fe8300be38cc3b073366baf2132dd8f98b4193fee62daf80d67bb4d"
+      "lastModified": "2026-09-17T05:30:36.643Z",
+      "sourceDigest": "d83b5089f95dbcd5ee2c54a9bdb657481b2d2aa7e7f022ceb70bc042fb0c81de",
+      "recordDigest": "1ff7f6bce0712a5c349c2d15840ab8fb6ed128dcceecdcf27d55abf08db77f9e"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -147,14 +147,14 @@
       "recordDigest": "158e8971078d2b87d31c59b2dd44627ab1a5b5d122cdfa099b9170cd7a8f34af"
     },
     "/docs/deployment": {
-      "lastModified": "2026-09-10T06:16:49.655Z",
-      "sourceDigest": "997bc97bef7e96e37406a72a7443d33b3255ccf03715ef4cb4b8b0550026e4ad",
-      "recordDigest": "23534e39b998190912837e9ccddd04fb2899838062371ba4100a26b92c88f0f3"
+      "lastModified": "2026-09-17T05:30:36.643Z",
+      "sourceDigest": "4ccb9ce38fb11e327d3a320efb25f5cd213ba6e4c8804936a02c4ccd63233ae3",
+      "recordDigest": "e5a7fc9d20cb5c4030944635de615c765b76e0f0461a100ec0127b115fbd6819"
     },
     "/docs/deployment/edge": {
-      "lastModified": "2026-09-10T06:16:49.655Z",
-      "sourceDigest": "58ae52eb8b58c70c3a600feb37ed241e9147f0deb15e82d90e999d853f0c1d25",
-      "recordDigest": "a85d15fa0da6ab3c477b18531c011dfba922d3f273e9a6719582308e43fdae11"
+      "lastModified": "2026-09-17T05:30:36.643Z",
+      "sourceDigest": "95b7447008f780b92a79247cba9ee4ac49660e71bdd8a3b84a1aa7d1ccc28a61",
+      "recordDigest": "c3d80732b1fb87b6fba7f753f8ddb0f1532f456be913f6d338f02af5271d3437"
     },
     "/docs/deployment/kubernetes": {
       "lastModified": "2026-09-08T01:24:31.438Z",

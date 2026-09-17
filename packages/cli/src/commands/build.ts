@@ -1,123 +1,110 @@
-import { mkdir, rm, stat } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
-import { discoverRoutes } from "@b4run/core/node";
-import type { Command } from "commander";
+import { mkdir, rm, stat } from "node:fs/promises"
+import { join, relative, resolve } from "node:path"
+import { discoverRoutes } from "@b4run/core/node"
+import type { Command } from "commander"
 import {
-	type BuildEmitContext,
-	buildTargets,
-	DEFAULT_BUILD_TARGETS,
-	knownTargetNames,
-} from "../lib/build/targets/index.js";
-import { assertRouteMarkerFileLimits } from "../lib/build/targets/marker-files.js";
-import { captureWorkspaceArtifact } from "../lib/build/workspace-artifact.js";
-import { loadOptionalB4Config } from "../lib/node-config.js";
-import { CliError, type CommandIo, writeLine } from "../lib/output.js";
-import { runTypegen } from "../lib/typegen/run-typegen.js";
+  type BuildEmitContext,
+  buildTargets,
+  DEFAULT_BUILD_TARGETS,
+  knownTargetNames,
+} from "../lib/build/targets/index.js"
+import { assertRouteMarkerFileLimits } from "../lib/build/targets/marker-files.js"
+import { captureWorkspaceArtifact } from "../lib/build/workspace-artifact.js"
+import { loadOptionalB4Config } from "../lib/node-config.js"
+import { CliError, type CommandIo, writeLine } from "../lib/output.js"
+import { runTypegen } from "../lib/typegen/run-typegen.js"
 
 interface BuildOptions {
-	readonly clean?: boolean;
-	readonly cwd?: string;
+  readonly clean?: boolean
+  readonly cwd?: string
 }
 
 export function registerBuildCommand(program: Command, io: CommandIo): void {
-	program
-		.command("build")
-		.description(
-			"Generate deployment artifacts (node + langsmith by default; hono + vercel opt-in via build.targets)",
-		)
-		.option("--clean", "Remove .b4/build/ before generating")
-		.option("--cwd <path>", "Path to the B4.run app root")
-		.action(async (options: BuildOptions) => {
-			await runBuildCommand(options, io);
-		});
+  program
+    .command("build")
+    .description(
+      "Generate deployment artifacts (node + langsmith by default; hono + vercel opt-in via build.targets)",
+    )
+    .option("--clean", "Remove .b4/build/ before generating")
+    .option("--cwd <path>", "Path to the B4.run app root")
+    .action(async (options: BuildOptions) => {
+      await runBuildCommand(options, io)
+    })
 }
 
-export async function runBuildCommand(
-	options: BuildOptions,
-	io: CommandIo,
-): Promise<void> {
-	const manifest = await discoverRoutes({
-		...(options.cwd ? { appRoot: options.cwd } : {}),
-	});
+export async function runBuildCommand(options: BuildOptions, io: CommandIo): Promise<void> {
+  const manifest = await discoverRoutes({
+    ...(options.cwd ? { appRoot: options.cwd } : {}),
+  })
 
-	const config = await loadOptionalB4Config(manifest.appRoot);
-	const targetNames: readonly string[] =
-		config?.build?.targets ?? DEFAULT_BUILD_TARGETS;
+  const config = await loadOptionalB4Config(manifest.appRoot)
+  const targetNames: readonly string[] = config?.build?.targets ?? DEFAULT_BUILD_TARGETS
 
-	// Validate the ENTIRE target list up front, before emitting anything — an
-	// unknown target must fail fast, not after earlier targets already wrote
-	// files to disk.
-	for (const name of targetNames) {
-		if (!buildTargets[name]) {
-			throw new CliError(
-				`Unknown build target "${name}". Known targets: ${knownTargetNames().join(", ")}.`,
-			);
-		}
-	}
+  // Validate the ENTIRE target list up front, before emitting anything — an
+  // unknown target must fail fast, not after earlier targets already wrote
+  // files to disk.
+  for (const name of targetNames) {
+    if (!buildTargets[name]) {
+      throw new CliError(
+        `Unknown build target "${name}". Known targets: ${knownTargetNames().join(", ")}.`,
+      )
+    }
+  }
 
-	if (targetNames.length === 0) {
-		writeLine(io.stderr, "no build targets configured; nothing emitted");
-		return;
-	}
+  if (targetNames.length === 0) {
+    writeLine(io.stderr, "no build targets configured; nothing emitted")
+    return
+  }
 
-	// Validate all bundled markers before typegen, cleaning prior output, or any
-	// target emission: an earlier node target must not leave a partial build.
-	if (targetNames.some((name) => name === "hono" || name === "vercel")) {
-		await assertRouteMarkerFileLimits({ appRoot: manifest.appRoot, manifest });
-	}
+  // Validate all bundled markers before typegen, cleaning prior output, or any
+  // target emission: an earlier node target must not leave a partial build.
+  if (targetNames.some((name) => name === "hono" || name === "vercel")) {
+    await assertRouteMarkerFileLimits({ appRoot: manifest.appRoot, manifest })
+  }
 
-	let workspaceArtifact:
-		| Awaited<ReturnType<typeof captureWorkspaceArtifact>>
-		| undefined;
-	if (config?.sandbox?.workspace) {
-		if (targetNames.some((name) => name !== "node"))
-			throw new CliError('Managed workspaces require build.targets: ["node"]');
-		if (!config.sandbox.provider.workspaces)
-			throw new CliError(
-				"Sandbox provider does not support managed workspaces",
-			);
-		if (!(await stat(join(manifest.appRoot, "workspace"))).isDirectory())
-			throw new CliError(
-				"Managed workspaces require app-root workspace/ capability",
-			);
-		workspaceArtifact = await captureWorkspaceArtifact(
-			manifest.appRoot,
-			config.sandbox.workspace,
-		);
-	}
+  let workspaceArtifact: Awaited<ReturnType<typeof captureWorkspaceArtifact>> | undefined
+  if (config?.sandbox?.workspace) {
+    if (targetNames.some((name) => name !== "node"))
+      throw new CliError('Managed workspaces require build.targets: ["node"]')
+    if (!config.sandbox.provider.workspaces)
+      throw new CliError("Sandbox provider does not support managed workspaces")
+    if (!(await stat(join(manifest.appRoot, "workspace"))).isDirectory())
+      throw new CliError("Managed workspaces require app-root workspace/ capability")
+    workspaceArtifact = await captureWorkspaceArtifact(manifest.appRoot, config.sandbox.workspace)
+  }
 
-	// Run typegen as pre-step to produce .b4/routes/<id>/tools.json and .b4/b4.generated.d.ts
-	await runTypegen({ appRoot: manifest.appRoot, manifest });
+  // Run typegen as pre-step to produce .b4/routes/<id>/tools.json and .b4/b4.generated.d.ts
+  await runTypegen({ appRoot: manifest.appRoot, manifest })
 
-	const buildDir = resolve(manifest.appRoot, ".b4", "build");
+  const buildDir = resolve(manifest.appRoot, ".b4", "build")
 
-	if (options.clean) {
-		await rm(buildDir, { recursive: true, force: true });
-	}
+  if (options.clean) {
+    await rm(buildDir, { recursive: true, force: true })
+  }
 
-	await mkdir(buildDir, { recursive: true });
+  await mkdir(buildDir, { recursive: true })
 
-	const ctx: BuildEmitContext = {
-		appRoot: manifest.appRoot,
-		buildDir,
-		io,
-		manifest,
-		...(config ? { config } : {}),
-		...(workspaceArtifact ? { workspaceArtifact } : {}),
-	};
+  const ctx: BuildEmitContext = {
+    appRoot: manifest.appRoot,
+    buildDir,
+    io,
+    manifest,
+    ...(config ? { config } : {}),
+    ...(workspaceArtifact ? { workspaceArtifact } : {}),
+  }
 
-	const emitted: string[] = [];
-	for (const name of targetNames) {
-		// Presence guaranteed by the up-front validation above.
-		const target = buildTargets[name] as (typeof buildTargets)[string];
-		const { artifacts } = await target.emit(ctx);
-		emitted.push(...artifacts);
-	}
+  const emitted: string[] = []
+  for (const name of targetNames) {
+    // Presence guaranteed by the up-front validation above.
+    const target = buildTargets[name] as (typeof buildTargets)[string]
+    const { artifacts } = await target.emit(ctx)
+    emitted.push(...artifacts)
+  }
 
-	writeLine(io.stdout, `Build complete: ${relative(process.cwd(), buildDir)}`);
-	writeLine(io.stdout, `  ${manifest.routes.length} route(s) compiled`);
-	writeLine(io.stdout, `  targets: ${targetNames.join(", ")}`);
-	for (const artifact of emitted) {
-		writeLine(io.stdout, `  wrote ${relative(process.cwd(), artifact)}`);
-	}
+  writeLine(io.stdout, `Build complete: ${relative(process.cwd(), buildDir)}`)
+  writeLine(io.stdout, `  ${manifest.routes.length} route(s) compiled`)
+  writeLine(io.stdout, `  targets: ${targetNames.join(", ")}`)
+  for (const artifact of emitted) {
+    writeLine(io.stdout, `  wrote ${relative(process.cwd(), artifact)}`)
+  }
 }
