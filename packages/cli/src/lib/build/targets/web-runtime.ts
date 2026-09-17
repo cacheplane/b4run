@@ -152,6 +152,12 @@ const STORES_ENTRY = (targetName: WebRuntimeEmitOptions["targetName"]): string =
         "or, on a host that passes no bindings (Node, Bun), set it in the environment."`
       : `"vercel target: DATABASE_URL is not set in the Vercel runtime environment, so no store can be built. " +
         "Add DATABASE_URL to this Vercel project's Environment Variables for the deployment environment, then redeploy."`
+  // Kept target-specific for the same reason `databaseUrlError` is: the Vercel
+  // bundle must carry no Workers/Wrangler vocabulary, which a test pins.
+  const nonStringNamingHint =
+    targetName === "hono"
+      ? `"On Workers, check that it is a vars entry or a secret rather than another kind of binding."`
+      : `"Check that it is set to a plain string in this Vercel project's Environment Variables."`
   const requestWithArticle = targetName === "hono" ? "an edge request" : "a Vercel function request"
   const runtimeLogTarget = targetName === "hono" ? "edge" : "vercel"
 
@@ -219,16 +225,31 @@ const IDENTIFIER_PATTERN = /^[a-z_][a-z0-9_]*$/
 const namingBinding = (env, name, fallback) => {
   const raw = binding(env, name)
   if (raw === undefined || raw === "") return fallback
+  // A binding is not necessarily a string. A host can bind this name to
+  // something else entirely — a namespace handle rather than a plain value,
+  // from one typo in a deployment config — and calling a string method on that
+  // would throw a TypeError naming no binding at all, defeating the whole point
+  // of the errors below.
+  if (typeof raw !== "string") {
+    throw new Error(
+      \`${targetName} target: \${name} must be a string, got \${typeof raw}. \` +
+        ${nonStringNamingHint},
+    )
+  }
   let value = raw
   if (raw.startsWith("$")) {
     const source = raw.slice(1)
-    value = binding(env, source)
-    if (value === undefined || value === "") {
+    // \`$\` alone names nothing, so it is never looked up — otherwise the error
+    // would read "references , which is not set".
+    const resolved = source === "" ? undefined : binding(env, source)
+    if (typeof resolved !== "string" || resolved === "") {
       throw new Error(
-        \`${targetName} target: \${name} references \${source}, which is not set in this deployment's environment. \` +
-          \`Set \${source}, or set \${name} to a literal identifier.\`,
+        \`${targetName} target: \${name} is \${JSON.stringify(raw)}, which references \` +
+          \`\${source === "" ? "an empty variable name" : source + ", and that variable is not set to a non-empty string here"}. \` +
+          \`Set \${name} to a literal identifier, or to $NAME for a variable this deployment sets.\`,
       )
     }
+    value = resolved
   }
   if (!IDENTIFIER_PATTERN.test(value)) {
     throw new Error(
@@ -236,7 +257,27 @@ const namingBinding = (env, name, fallback) => {
         \`got \${JSON.stringify(value)}\${raw === value ? "" : \` from \${raw}\`}.\`,
     )
   }
+  // The validated string, not the original binding: the two differ for a
+  // reference, and only this one has been checked.
   return value
+}
+
+/**
+ * FNV-1a over the connection string, so a memo key can identify WHICH database
+ * without holding its password for the life of the isolate.
+ *
+ * 32 bits, so two distinct connection strings in one isolate could in principle
+ * collide. That is not a silent-corruption risk: a collision skips a migration
+ * pass that was needed, and the first query then fails loudly with
+ * \`undefined_table\` rather than reading or writing the wrong data.
+ */
+const hashDatabase = (value) => {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(36)
 }
 
 /**
@@ -306,7 +347,8 @@ class B4PgClient extends Client {
 }
 
 /**
- * Which table namespaces (\`schema.prefix\`) THIS ISOLATE has already migrated.
+ * Which table namespaces THIS ISOLATE has already migrated, keyed by database
+ * as well as by \`schema.prefix\`.
  *
  * Module scope is safe here in a way a module-scope POOL is not, and the
  * difference is the whole reason this is a set of strings: a pool holds sockets
@@ -319,9 +361,15 @@ class B4PgClient extends Client {
  * the same component key — because a store memoizes its migration on the
  * INSTANCE, and instances here are per request.
  *
- * Keyed by namespace rather than a single boolean because the schema and prefix
- * are per-request bindings like DATABASE_URL: a namespace this isolate has not
- * seen yet still needs its own cold-start pass.
+ * Keyed rather than a single boolean because all three inputs are per-request
+ * bindings: a namespace this isolate has not seen yet still needs its own
+ * cold-start pass. DATABASE_URL is part of the key for exactly the same reason
+ * the schema is — the entry beside this one binds env PER REQUEST precisely so
+ * a later request can reach a different database, and a boolean (or a key on
+ * the namespace alone) would tell request 2 that a virgin database had already
+ * been migrated because request 1 migrated a different one under the same
+ * schema and prefix. Every query would then fail with \`undefined_table\` for
+ * the life of the isolate.
  *
  * A key is only added after the migration actually succeeded, so a failed cold
  * start does not convince the next request the schema is there.
@@ -404,7 +452,7 @@ export async function createRequestStores(env) {
     console.warn(\`[b4:${runtimeLogTarget}] postgres pool client error (connection dropped): \${String(error)}\`)
   })
   try {
-    const namespace = \`\${schema}.\${tablePrefix}\`
+    const namespace = \`\${hashDatabase(databaseUrl)}:\${schema}.\${tablePrefix}\`
     const assumeMigrated = migrated.has(namespace)
     const naming = { pool, assumeMigrated, schema, tablePrefix }
     const stores = {

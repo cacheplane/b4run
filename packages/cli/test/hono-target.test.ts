@@ -1447,6 +1447,13 @@ console.log(JSON.stringify(${options.report ?? "poolConnections()"}))
         { B4_PG_SCHEMA: "$B4_ENV" },
         { B4_PG_TABLE_PREFIX: "$VERCEL_ENV", VERCEL_ENV: "pre-view" },
         { B4_PG_TABLE_PREFIX: "b4; DROP TABLE x" },
+        // `$` names nothing. Looking it up would report "references , which is
+        // not set" and send the operator hunting for a variable with no name.
+        { B4_PG_SCHEMA: "$" },
+        // What a wrangler.toml typo produces: the name is bound, but to a KV or
+        // Durable Object namespace rather than a var. Calling a string method on
+        // it would throw a TypeError naming no binding at all.
+        { B4_PG_SCHEMA: { getWithMetadata: () => {} } },
       ],
       {
         report: "{ namings, pools: pools.length, requestErrors }",
@@ -1462,11 +1469,45 @@ console.log(JSON.stringify(${options.report ?? "poolConnections()"}))
       pools: 0,
       requestErrors: [
         'hono target: B4_PG_SCHEMA must resolve to a lowercase SQL identifier (/^[a-z_][a-z0-9_]*$/), got "Preview".',
-        "hono target: B4_PG_SCHEMA references B4_ENV, which is not set in this deployment's environment. Set B4_ENV, or set B4_PG_SCHEMA to a literal identifier.",
+        'hono target: B4_PG_SCHEMA is "$B4_ENV", which references B4_ENV, and that variable is not set to a non-empty string here. Set B4_PG_SCHEMA to a literal identifier, or to $NAME for a variable this deployment sets.',
         'hono target: B4_PG_TABLE_PREFIX must resolve to a lowercase SQL identifier (/^[a-z_][a-z0-9_]*$/), got "pre-view" from $VERCEL_ENV.',
         'hono target: B4_PG_TABLE_PREFIX must resolve to a lowercase SQL identifier (/^[a-z_][a-z0-9_]*$/), got "b4; DROP TABLE x".',
+        'hono target: B4_PG_SCHEMA is "$", which references an empty variable name. Set B4_PG_SCHEMA to a literal identifier, or to $NAME for a variable this deployment sets.',
+        "hono target: B4_PG_SCHEMA must be a string, got object. On Workers, check that it is a vars entry or a secret rather than another kind of binding.",
       ],
     })
+  })
+
+  test("a second database in one isolate still gets its own cold-start migration", async () => {
+    const appRoot = await createFixtureApp()
+    await runBuild(appRoot)
+
+    // The isolate-level memo skips a migration pass already known to have run.
+    // Keyed on the schema and prefix ALONE, request 2 below would be told that
+    // a virgin database had been migrated — because request 1 migrated a
+    // DIFFERENT database under the same `public.b4` — and every query against
+    // it would then fail with `undefined_table` for the life of the isolate.
+    //
+    // This is not a hypothetical host: the generated entry binds env PER
+    // REQUEST specifically so a later request can reach a different database,
+    // and the fallback test above drives exactly that.
+    const observed = await driveEmittedStores(
+      appRoot,
+      [
+        { DATABASE_URL: "postgres://one/db" },
+        { DATABASE_URL: "postgres://two/db" },
+        { DATABASE_URL: "postgres://one/db" },
+      ],
+      {
+        report: "namings.map((n) => n.assumeMigrated)",
+        reportImports: 'import { namings } from "@b4run/postgres-storage"',
+        storageStub: NAMING_STORAGE_STUB,
+      },
+    )
+
+    // Three stores per request. The second database migrates on its own; the
+    // return to the first one is the pass that may be skipped.
+    expect(observed).toEqual([false, false, false, false, false, false, true, true, true])
   })
 
   test("still names the missing binding when neither source has it", async () => {
