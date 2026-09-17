@@ -1,4 +1,9 @@
-import type { B4Config, RouteManifest } from "@b4run/core"
+import {
+  type B4Config,
+  BUILD_TARGET_NAMES,
+  type BuildTargetName,
+  type RouteManifest,
+} from "@b4run/core"
 import type { CommandIo } from "../../output.js"
 import type { WorkspaceBuildArtifact } from "../workspace-artifact.js"
 import { honoTarget } from "./hono.js"
@@ -33,17 +38,24 @@ export interface BuildEmitContext {
  */
 export interface BuildTarget {
   /** Unique target name, referenced from `config.build.targets`. */
-  readonly name: string
+  readonly name: BuildTargetName
   /** Emit this target's artifacts. Returns the absolute paths written. */
   emit(ctx: BuildEmitContext): Promise<{ readonly artifacts: string[] }>
 }
 
-/** Registry of known build targets, keyed by name. */
-export const buildTargets: Readonly<Record<string, BuildTarget>> = {
-  [nodeTarget.name]: nodeTarget,
-  [langsmithTarget.name]: langsmithTarget,
-  [honoTarget.name]: honoTarget,
-  [vercelTarget.name]: vercelTarget,
+/**
+ * Registry of known build targets, keyed by name.
+ *
+ * Typed as a `Record` over the union `@b4run/core` derives from
+ * `BUILD_TARGET_NAMES`, so a target added here without a matching name in
+ * core (or the reverse) is a compile error — the config type and the registry
+ * cannot drift apart.
+ */
+export const buildTargets: Readonly<Record<BuildTargetName, BuildTarget>> = {
+  node: nodeTarget,
+  langsmith: langsmithTarget,
+  hono: honoTarget,
+  vercel: vercelTarget,
 }
 
 /**
@@ -54,9 +66,9 @@ export const buildTargets: Readonly<Record<string, BuildTarget>> = {
  * configured, so they are opt-in via `build: { targets: [...] }` rather than
  * something every `b4 build` starts emitting.
  */
-export const DEFAULT_BUILD_TARGETS: readonly string[] = ["node", "langsmith"]
+export const DEFAULT_BUILD_TARGETS: readonly BuildTargetName[] = ["node", "langsmith"]
 
 /** All known target names (for validation / error messages). */
-export function knownTargetNames(): string[] {
-  return Object.keys(buildTargets)
+export function knownTargetNames(): readonly BuildTargetName[] {
+  return BUILD_TARGET_NAMES
 }

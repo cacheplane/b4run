@@ -42,6 +42,9 @@ Importing `/node` registers the disk-backed `b4.config.ts` loader. The root rema
 | `createSkillsMarker` | Create the skills capability marker. |
 | `createSubagentsMarker` | Create the subagents capability marker. |
 | `createWorkspaceMarker` | Create the workspace capability marker. |
+| `BuildTargetName` | Name the known `b4 build` targets as a union (`"node" | "langsmith" | "hono" | "vercel"`); types `build.targets`. |
+| `BUILD_TARGET_NAMES` | List the known `b4 build` target names; the tuple `BuildTargetName` is derived from. |
+| `isBuildTargetName` | Narrow an untyped string to a known `b4 build` target name. |
 | `BUILT_IN_TOOL_NAMES` | List built-in capability tool names. |
 | `MemorySupersedeDetail` | Describe a gated memory supersede. |
 | `SubagentGateRequest` | Describe a gated subagent operation. |

@@ -44,6 +44,7 @@ import {
 } from "./pending-interrupts.js"
 import { extractRouteParams } from "./request-context.js"
 import { createRunRegistry, type RunRegistry } from "./run-registry.js"
+import { errorStackOf, formatErrorChain } from "./runtime-error-report.js"
 import {
   createRuntimeRegistryFromManifest,
   createStaticRuntimeRegistry,
@@ -825,14 +826,19 @@ export async function createRuntimeFetchHandler(
         // failure" with nothing anywhere saying why. Deduped by message, for the
         // same reason the MissingStoreError branch above dedupes by store: a
         // misconfiguration fails every request identically.
+        //
+        // Rendered through `formatErrorChain`, not `String(error)`: the Postgres
+        // driver rejects a failed WebSocket connect with an `ErrorEvent`, which
+        // stringifies to "[object ErrorEvent]" and hides the refused host, the
+        // code and the wrapped Error on properties a template literal never
+        // reads (#689). The chain carries every link's code, so the registry
+        // code needs no separate suffix here.
         const code = b4ErrorCodeOf(error)
-        const cause = error instanceof Error ? error.message : String(error)
+        const cause = formatErrorChain(error)
         if (!loggedFailures.has(cause)) {
           loggedFailures.add(cause)
-          console.error(
-            `B4.run runtime failure — ${cause}${code ? ` (${code})` : ""}`,
-            error instanceof Error && error.stack ? `\n${error.stack}` : "",
-          )
+          const stack = errorStackOf(error)
+          console.error(`B4.run runtime failure — ${cause}`, stack ? `\n${stack}` : "")
         }
         return Response.json(
           createExecutionErrorBody(

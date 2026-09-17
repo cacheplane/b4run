@@ -1,5 +1,6 @@
 import { mkdir, rm, stat } from "node:fs/promises"
 import { join, relative, resolve } from "node:path"
+import { type BuildTargetName, isBuildTargetName } from "@b4run/core"
 import { discoverRoutes } from "@b4run/core/node"
 import type { Command } from "commander"
 import {
@@ -38,17 +39,19 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
   })
 
   const config = await loadOptionalB4Config(manifest.appRoot)
-  const targetNames: readonly string[] = config?.build?.targets ?? DEFAULT_BUILD_TARGETS
-
-  // Validate the ENTIRE target list up front, before emitting anything — an
-  // unknown target must fail fast, not after earlier targets already wrote
-  // files to disk.
-  for (const name of targetNames) {
-    if (!buildTargets[name]) {
+  // The config type only admits known names, but a JS config or a JSON one
+  // arrives untyped — so validate the ENTIRE list up front, before emitting
+  // anything: an unknown target must fail fast, not after earlier targets
+  // already wrote files to disk.
+  const configuredTargets: readonly string[] = config?.build?.targets ?? DEFAULT_BUILD_TARGETS
+  const targetNames: BuildTargetName[] = []
+  for (const name of configuredTargets) {
+    if (!isBuildTargetName(name)) {
       throw new CliError(
         `Unknown build target "${name}". Known targets: ${knownTargetNames().join(", ")}.`,
       )
     }
+    targetNames.push(name)
   }
 
   if (targetNames.length === 0) {
@@ -95,9 +98,7 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
 
   const emitted: string[] = []
   for (const name of targetNames) {
-    // Presence guaranteed by the up-front validation above.
-    const target = buildTargets[name] as (typeof buildTargets)[string]
-    const { artifacts } = await target.emit(ctx)
+    const { artifacts } = await buildTargets[name].emit(ctx)
     emitted.push(...artifacts)
   }
 

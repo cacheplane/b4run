@@ -796,6 +796,47 @@ export async function workflow() {
     300_000,
   )
 
+  isolatedRoundTrip(
+    "streams Agent Protocol requests against plain Postgres with no WebSocket proxy",
+    async () => {
+      // cacheplane/b4run#690: the bundle used to be untestable locally without
+      // a wsproxy in front of Postgres, because `@neondatabase/serverless`
+      // cannot speak TCP. The DATABASE_URL here is the host-mapped container
+      // address — not a Neon host — and no B4_PG_WS_PROXY is set, so the
+      // emitted factory must open a pooled `pg` connection straight to it.
+      if (!docker.available) throw requireDockerFailure(docker)
+      const containers = await startEdgeContainers()
+      try {
+        await ensureLinkedDistsFresh()
+        const appRoot = await createTargetFixture()
+        await runTargetBuild(appRoot)
+        const copiedFunctionDir = await copyFunctionOutsideApp(appRoot)
+
+        const { stderr, stdout } = await runIsolatedNode(copiedFunctionDir, ISOLATED_STREAM_PROBE, {
+          DATABASE_URL: containers.postgres.getConnectionUri(),
+        })
+        const receipt = JSON.parse(stdout.trim().split("\n").at(-1) ?? "") as {
+          chunks?: number
+        }
+
+        expect(stderr).toBe("")
+        expect(receipt).toMatchObject({
+          createStatus: 200,
+          eof: true,
+          parentReadBlocked: true,
+          streamStatus: 200,
+          subsequentStatus: 200,
+        })
+        expect(receipt.chunks).toBeGreaterThan(0)
+        // The pg path really reached this database: the run left its thread behind.
+        expect(containers.log()).toContain("b4_threads")
+      } finally {
+        await containers.stop()
+      }
+    },
+    300_000,
+  )
+
   test("publishes the exact final tree and reports only final artifacts", async () => {
     const appRoot = await createTargetFixture()
     const priorDatabaseUrl = process.env.DATABASE_URL

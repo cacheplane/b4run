@@ -280,7 +280,7 @@ is compressed and what remains verbatim.
 
 ```ts
 build?: {
-  targets?: readonly string[]
+  targets?: readonly BuildTargetName[]
   vercel?: {
     functionName?: string
     static?: { dir: string; spaFallback?: string }
@@ -296,11 +296,13 @@ build?: {
 ```
 
 Default: `["node", "langsmith"]`. An authored `targets` array replaces that
-list; it does not add to it. Supported values are `"node"`, `"langsmith"`, and
-the opt-in `"hono"` and `"vercel"` subsets. Choose only targets whose runtime
-can materialize the configured capabilities. See
-[Deployment Options](/docs/deployment) for the artifact and compatibility
-matrix.
+list; it does not add to it. `BuildTargetName` is the union `"node" |
+"langsmith" | "hono" | "vercel"`, exported from `@b4run/core` alongside the
+`BUILD_TARGET_NAMES` tuple it is derived from, so a misspelled target fails
+to type-check instead of failing at `b4 build`. `"hono"` and `"vercel"` are
+the opt-in edge subset. Choose only targets whose runtime can materialize
+the configured capabilities. See [Deployment Options](/docs/deployment) for
+the artifact and compatibility matrix.
 
 `vercel` describes what the `"vercel"` target publishes beside the runtime
 function: a static directory with an optional SPA document, extra Node
