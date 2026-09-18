@@ -2824,7 +2824,10 @@ it("blocks a verifying row whose candidate can no longer be reproduced", async (
   reader.forget(dispatched.workerThreadId as string)
   await bootFactory({ verdict: "pass" })
   const settled = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
-  expect(settled.blockedReason).toBe("baseline_mismatch")
+  // The phase's own unreadable-workspace path decides this: nothing is known about the
+  // builder's work once its workspace is gone. `baseline_mismatch` is a statement about the
+  // builder deleting a baseline file, and no assembly happened here to make it.
+  expect(settled.blockedReason).toBe("verification_inconclusive")
 })
 ```
 
@@ -2842,21 +2845,36 @@ Add the case to the switch, before `default`:
 ```ts
 /**
  * Rule 7: a work order interrupted mid-verification. Verification has no durable
- * external effect, so the phase is simply run again from the recorded candidate
- * and the controller's own baseline. A candidate that can no longer be reproduced
- * is blocked rather than guessed at.
+ * external effect, so the phase is simply run again from the controller's own
+ * baseline and the builder's workspace.
+ *
+ * `runVerification` does not throw on a workspace it cannot read: it journals
+ * `workspace_unreadable` and transitions to `inconclusive` itself, which is the
+ * honest verdict for a reaped sandbox — nothing is known about the candidate.
+ * Reconciliation adds no probe read of its own. What it does add is a
+ * post-condition: the phase can also return without deciding (a row with no
+ * worker thread returns at its first line), and a row left in `verifying` is
+ * stranded for every later boot to rediscover. The check is against the row, so
+ * it covers any future early exit as well as today's.
  */
 async function reconcileVerifying(ctx: ControllerContext, row: WorkOrderRow): Promise<void> {
   ctx.recordEvent(row.id, "reconciled", { resolution: "reverify", state: row.state })
+  const settleUndecided = (reason: string) => {
+    if (ctx.mustGet(row.id).state !== "verifying") return
+    ctx.recordEvent(row.id, "verification_undecided", { reason })
+    ctx.transition(row.id, "receipt_inconclusive", { blockedReason: "verification_inconclusive" }, {
+      reconciled: true,
+      reason,
+    })
+  }
   try {
     await ctx.runVerification(row.id)
   } catch (error) {
     ctx.recordEvent(row.id, "reconcile_failed", { phase: "verifying", error: String(error) })
-    if (ctx.mustGet(row.id).state === "verifying")
-      ctx.transition(row.id, "assembly_rejected", { blockedReason: "baseline_mismatch" }, {
-        reason: "the builder workspace could not be read after restart",
-      })
+    settleUndecided("the verifying phase could not be completed after restart")
+    return
   }
+  settleUndecided("the verifying phase returned without deciding after restart")
 }
 ```
 

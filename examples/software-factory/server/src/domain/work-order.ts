@@ -10,7 +10,7 @@ export const WorkOrderRowSchema = z.object({
   taskId: z.string().min(1),
   workerRoute: z.string().min(1),
   workerThreadId: z.string().min(1).nullable(),
-  /** The worker's parked exportForReview gate, recorded when entering awaiting_approval. */
+  /** Set only when an unexpected interrupt is found parked on the thread; rung 1 has no gate. */
   interruptId: z.string().min(1).nullable(),
   candidateDigest: z.string().regex(DIGEST_PATTERN).nullable(),
   candidateVerified: z.boolean().nullable(),

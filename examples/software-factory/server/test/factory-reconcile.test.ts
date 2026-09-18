@@ -3,7 +3,11 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
+import type { ControllerContext } from "../src/controller/context.ts"
 import { createFactory, type Factory, type FactoryOptions } from "../src/controller/factory.ts"
+import { reconcileWorkOrder } from "../src/controller/reconcile.ts"
+import { nextState, type TransitionEvent } from "../src/domain/states.ts"
+import type { WorkOrderRow } from "../src/domain/work-order.ts"
 import { createCommandLog } from "../src/registry/commands.ts"
 import { openRegistry } from "../src/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/registry/work-orders.ts"
@@ -64,7 +68,9 @@ async function bootFactory(overrides: Partial<FactoryOptions> = {}) {
 afterEach(async () => {
   await factory?.close()
   await fake?.close()
-  rmSync(dir, { recursive: true, force: true })
+  // A test that needs no worker and no factory (the controller rules exercised directly
+  // against a stub context) never makes a directory to remove.
+  if (dir) rmSync(dir, { recursive: true, force: true })
   dir = undefined as unknown as string
   fake = undefined as unknown as FakeWorker
   factory = undefined as unknown as Factory
@@ -150,8 +156,59 @@ describe("reconciliation", () => {
 
     await bootFactory()
     const settled = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
-    expect(settled.blockedReason).toBe("baseline_mismatch")
+    // Nothing is known about the builder's work once its workspace is gone, which is what
+    // `inconclusive` says. `baseline_mismatch` would assert an assembly that never happened.
+    expect(settled.blockedReason).toBe("verification_inconclusive")
+    expect(factory.events(id).map((e) => e.type)).toContain("workspace_unreadable")
     expect(runPosts()).toBe(1)
+    // The phase reads the workspace itself: reconciliation adds no second read of its own.
+    expect(reader.reads.filter((t) => t === threadId)).toHaveLength(2)
+  })
+
+  it("blocks a verifying work order with no worker thread instead of stranding it", async () => {
+    await bootWorker({ run: "edits_only" })
+    await bootFactory()
+    const { id } = await awaiting()
+    await crash()
+    // The verifying phase returns without deciding when there is no thread to read, and a
+    // row it leaves in `verifying` would be rediscovered, untouched, by every later boot.
+    forceRow(id, { state: "verifying", bundleDigest: null, workerThreadId: null })
+
+    await bootFactory()
+    const settled = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
+    expect(settled.blockedReason).toBe("verification_inconclusive")
+    expect(factory.events(id).map((e) => e.type)).toContain("verification_undecided")
+    expect(runPosts()).toBe(1)
+  })
+
+  it("blocks a verifying work order when the phase returns without deciding at all", async () => {
+    // Any future early return from the verifying phase looks like this one: the phase came
+    // back and the row it was handed is still `verifying`. The post-condition is about the
+    // row, not about today's single cause, so the phase here simply decides nothing.
+    let row = {
+      id: "wo-undecided",
+      state: "verifying",
+      workerThreadId: "th-1",
+      blockedReason: null,
+    } as unknown as WorkOrderRow
+    const seen: string[] = []
+    const ctx = {
+      signal: new AbortController().signal,
+      mustGet: () => row,
+      recordEvent: (_id: string, type: string) => {
+        seen.push(type)
+      },
+      transition: (_id: string, event: TransitionEvent, patch: Partial<WorkOrderRow> = {}) => {
+        seen.push(event)
+        row = { ...row, ...patch, state: nextState(row.state, event) }
+        return row
+      },
+      runVerification: async () => {},
+    } as unknown as ControllerContext
+
+    await reconcileWorkOrder(ctx, row.id)
+    expect(row).toMatchObject({ state: "blocked", blockedReason: "verification_inconclusive" })
+    expect(seen).toEqual(["reconciled", "verification_undecided", "receipt_inconclusive"])
   })
 
   it("marks a dispatch that died before committing a thread as failed and keeps the work order received", async () => {
@@ -216,6 +273,54 @@ describe("reconciliation", () => {
       message: expect.stringMatching(/Adopted thread/),
     })
     expect(threadPosts()).toBe(threadsBefore)
+  })
+
+  it("fails a run found with no thread recorded", async () => {
+    await bootWorker({ run: "hang" })
+    await bootFactory()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    await factory.waitFor(id, (r) => r.state === "running")
+    await crash()
+    // There is no workspace to read and no turn to wait for: the row names no thread at all.
+    forceRow(id, { workerThreadId: null })
+    await bootFactory()
+    const settled = await factory.waitFor(id, (r) => r.state === "failed", 20_000)
+    expect(settled.failureReason).toBe("ended_without_candidate")
+    expect(
+      factory.events(id).find((e) => e.payload.event === "turn_ended_without_changes")?.payload,
+    ).toMatchObject({
+      from: "running",
+      to: "failed",
+      reconciled: true,
+      reason: "no thread recorded",
+    })
+    // Nothing was asked of the worker about a thread the row cannot name.
+    expect(threadPosts()).toBe(1)
+  })
+
+  it("fails a run whose thread the worker no longer knows", async () => {
+    await bootWorker({ run: "hang" })
+    await bootFactory()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    await factory.waitFor(id, (r) => r.state === "running")
+    await crash()
+    // The thread is gone from the worker, so the row is left in a run state naming one that
+    // cannot be asked anything — no workspace behind it and no turn still to end.
+    forceRow(id, { state: "dispatched", workerThreadId: "th-forgotten" })
+    await bootFactory()
+    const settled = await factory.waitFor(id, (r) => r.state === "failed", 20_000)
+    expect(settled.failureReason).toBe("ended_without_candidate")
+    expect(
+      factory.events(id).find((e) => e.payload.event === "turn_ended_without_changes")?.payload,
+    ).toMatchObject({
+      from: "dispatched",
+      to: "failed",
+      reconciled: true,
+      reason: "thread not found on worker",
+    })
+    expect(runPosts()).toBe(1)
   })
 
   it("reattaches to a live run once even when the row also has an open command intent", async () => {

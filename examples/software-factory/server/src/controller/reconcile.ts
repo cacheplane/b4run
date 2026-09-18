@@ -260,44 +260,46 @@ async function reconcileVerifying(ctx: ControllerContext, row: WorkOrderRow): Pr
 /**
  * Run the verifying phase again after a restart.
  *
- * The phase can only be run again while the builder's workspace is still there. A workspace
- * that has been reaped is a candidate that can never be reproduced, and no later boot will
- * change that, so it is blocked outright rather than left to be guessed at — or retried for
- * ever — as `inconclusive`. The probe read is what tells the two apart, and it is made here
- * rather than inside the phase because only reconciliation knows the sandbox has had a
- * lifetime in which to disappear.
+ * The phase reads the builder's workspace itself and already has an answer for a workspace
+ * that is no longer there — `workspace_unreadable`, journalled, then `inconclusive`, which
+ * is what "the controller knows nothing about this candidate" means. Reconciliation does not
+ * probe the workspace first: a second read costs another sandbox attach and workspace walk
+ * per reconciled row, and the two reads can disagree. Nor could a probe honestly call a
+ * vanished workspace `baseline_mismatch`, which is a statement about the builder deleting a
+ * baseline file — nothing is known about the builder's work when the workspace is gone.
+ *
+ * What reconciliation does insist on is that the phase decide. `runVerification` returns
+ * without a transition on any early exit (today: a row with no worker thread), and a
+ * `verifying` row nobody moved is stranded for every later boot to rediscover. So the
+ * post-condition below is checked against the row, not against any one cause: if the phase
+ * came back and the row is still `verifying`, that is recorded and settled here.
  */
 async function reverify(ctx: ControllerContext, id: string): Promise<void> {
-  const row = ctx.mustGet(id)
-  if (row.state !== "verifying") return
-  if (row.workerThreadId) {
-    try {
-      await ctx.workspaceReader.read(row.workerThreadId, ctx.signal)
-    } catch (error) {
-      ctx.recordEvent(id, "workspace_unreadable", { phase: "reconcile", error: String(error) })
-      if (ctx.mustGet(id).state === "verifying")
-        ctx.transition(
-          id,
-          "assembly_rejected",
-          { blockedReason: "baseline_mismatch" },
-          { reconciled: true, reason: "the builder workspace could not be read after restart" },
-        )
-      return
-    }
-    if (ctx.mustGet(id).state !== "verifying") return
-  }
+  if (ctx.mustGet(id).state !== "verifying") return
   try {
     await ctx.runVerification(id)
   } catch (error) {
     ctx.recordEvent(id, "reconcile_failed", { phase: "verifying", error: String(error) })
-    if (ctx.mustGet(id).state === "verifying")
-      ctx.transition(
-        id,
-        "receipt_inconclusive",
-        { blockedReason: "verification_inconclusive" },
-        { reconciled: true, reason: "the verifying phase could not be completed after restart" },
-      )
+    settleUndecided(ctx, id, "the verifying phase could not be completed after restart")
+    return
   }
+  settleUndecided(ctx, id, "the verifying phase returned without deciding after restart")
+}
+
+/**
+ * The verifying phase's post-condition: a row it left in `verifying` is one it declined to
+ * decide. Nothing is known about the candidate, which is what `inconclusive` means, and the
+ * reason says which of the two ways the phase came back.
+ */
+function settleUndecided(ctx: ControllerContext, id: string, reason: string): void {
+  if (ctx.mustGet(id).state !== "verifying") return
+  ctx.recordEvent(id, "verification_undecided", { reason })
+  ctx.transition(
+    id,
+    "receipt_inconclusive",
+    { blockedReason: "verification_inconclusive" },
+    { reconciled: true, reason },
+  )
 }
 
 /**

@@ -231,8 +231,14 @@ the gate. `verifying` is an active state for budget accounting.
 
 Cancel, budget and reconciliation otherwise keep rung 0's shape. Reconciliation
 gains one rule: a work order found in `verifying` has no durable external effect to adopt,
-so it is re-verified from the recorded candidate rather than resumed, and a
-candidate that can no longer be reproduced is `blocked`.
+so it is re-verified from the controller's own baseline and the builder's workspace rather
+than resumed. Reconciliation does not read the workspace itself to decide first: the phase
+reads it anyway, and a workspace that is no longer there is `blocked`
+(`verification_inconclusive`) by the phase's own unreadable-workspace path — nothing is known
+about the builder's work, which is not the same claim as `baseline_mismatch`. What
+reconciliation does require is that the phase decide: a row it returns still in `verifying`
+is journalled `verification_undecided` and blocked `verification_inconclusive`, so no early
+exit can strand a row for every later boot to rediscover.
 
 ## Registry additions
 
@@ -340,7 +346,9 @@ framework surface; nothing else does.
 | Candidate changes after the bundle is frozen | The old approval cannot export the new bytes | 1 |
 | Policy or environment changes after freezing | Approval invalid; a new bundle is required | 1 |
 | Approve twice, or retry any command with one key | Recorded outcome returned; one export | 1 |
-| Restart in `verifying` | Re-verified from the recorded candidate, never resumed | 1 |
+| Restart in `verifying` | Re-verified from the controller's baseline, never resumed | 1 |
+| Restart in `verifying` with the builder's workspace reaped | Blocked `verification_inconclusive` | 1 |
+| The verifying phase returns without deciding | Blocked `verification_inconclusive`; never left in `verifying` | 1 |
 | Restart in `exporting` | Receipt decides; approved bytes exported exactly once | 1 |
 | Candidate attempts path traversal or network access | Denied at the real isolation boundary | 3 |
 | Budget exhausted during verification | Cancelled, blocked `budget_exhausted`, no further work | 1 |
