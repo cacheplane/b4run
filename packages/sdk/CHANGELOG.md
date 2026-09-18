@@ -1,5 +1,13 @@
 # @dawn-ai/sdk
 
+## 0.8.35
+
+### Patch Changes
+
+- 814f4f9: `b4 check` no longer reports a clean `0 routes discovered` for an app whose `package.json` lacks `"type": "module"`. Route discovery now fails with `B4_E1006` naming the app root's `package.json`, and a route `index.ts` with no recognisable export fails with `B4_E1007` naming the file, the exports it found, and, when the module was loaded as CommonJS, the nested `package.json` that caused it — listing every unrecognised route entry in the app in one error rather than one per run. Closes #685.
+- c9a4d87: Add optional `setup(ctx)` and `dispose()` lifecycle hooks to `defineMiddleware`. The object form `defineMiddleware({ setup, dispose, handle })` runs `setup` once, lazily, before the first gated request, shares one in-flight call across concurrent first requests, and retries it on the next request if it rejects, so a transient outage never poisons the process. `dispose` runs from the Node runtimes' shutdown path after in-flight requests drain. The function form is unchanged.
+- 80aa142: Route discovery reports every route `index.ts` that exports more than one of `agent`, `workflow`, `graph`, or `chain` in a single run, as the new `B4_E1008`, naming each file and the kinds it exported. The message used to omit the file path and threw from inside the route walk, so an app with several of these surfaced them one per run.
+
 ## 0.8.34
 
 ## 0.8.33

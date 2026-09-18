@@ -1,5 +1,11 @@
 # @dawn-ai/evals
 
+## 0.8.35
+
+### Patch Changes
+
+- @b4run/testing@0.8.35
+
 ## 0.8.34
 
 ### Patch Changes

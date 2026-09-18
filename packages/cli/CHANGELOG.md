@@ -1,5 +1,71 @@
 # @dawn-ai/cli
 
+## 0.8.35
+
+### Patch Changes
+
+- 814f4f9: `b4 check` no longer reports a clean `0 routes discovered` for an app whose `package.json` lacks `"type": "module"`. Route discovery now fails with `B4_E1006` naming the app root's `package.json`, and a route `index.ts` with no recognisable export fails with `B4_E1007` naming the file, the exports it found, and, when the module was loaded as CommonJS, the nested `package.json` that caused it — listing every unrecognised route entry in the app in one error rather than one per run. Closes #685.
+- 89a5958: Ship a checked-in b4 launcher so workspace installations create the command link before the CLI build output exists.
+- f20ba3b: `GET /healthz` is now a pure liveness probe: it never builds per-request stores, so a `vercel` or `hono` deployment with `DATABASE_URL` unset or its database unreachable answers 200 instead of 500. Dependency readiness moved to the new `GET /readyz`, which probes the threads, checkpointer and permissions stores and answers 503 naming each failing dependency, with connection-string credentials redacted (#688).
+- c9a4d87: Add optional `setup(ctx)` and `dispose()` lifecycle hooks to `defineMiddleware`. The object form `defineMiddleware({ setup, dispose, handle })` runs `setup` once, lazily, before the first gated request, shares one in-flight call across concurrent first requests, and retries it on the next request if it rejects, so a transient outage never poisons the process. `dispose` runs from the Node runtimes' shutdown path after in-flight requests drain. The function form is unchanged.
+- 4b1b398: A middleware `reject(status)` that omits the body now answers with that status instead of a 500. The runtime built the reply with `Response.json(body)`, which throws when `body` is `undefined`, so the documented body-omitted form of `reject` reached the caller as `500 Unexpected runtime server failure` — turning an intended 401 or 403 into a server error on the AG-UI and Agent Protocol run endpoints. A body-less reject now sends an empty payload under the JSON content-type at the requested status; rejects that do supply a body are unchanged.
+
+  On the Node targets, body-less replies are now framed with `Content-Length: 0` rather than `Transfer-Encoding: chunked`, restoring how the pre-`fetch`-core server framed them and extending the adapter's existing content-length rule for JSON to cover empty payloads. The statuses that forbid a body (204, 205, 304) keep Node's own suppression and send no `Content-Length`.
+
+- 03be72b: Namespace generated Postgres stores per deployment environment. The `hono` and `vercel` targets' `stores.mjs` now reads `B4_PG_SCHEMA` and `B4_PG_TABLE_PREFIX` per request, each a lowercase identifier or a `$NAME` reference to another variable, so `B4_PG_SCHEMA=$VERCEL_ENV` keeps a Vercel project's preview and production deployments in separate schemas of one database. Unset bindings keep `public.b4_*`. A bad value fails the request by name instead of falling back to `public`. Behavior change in `@b4run/postgres-storage`: `schema` and `tablePrefix` must now be lowercase. A mixed-case value previously passed validation and was folded to lowercase by unquoted DDL, so it never named the tables it appeared to, and its advisory-lock key differed from the lowercase spelling of the same tables. Such a value now throws at construction. Pass the lowercase spelling the database was already using. The enforced pattern is exported as `IDENTIFIER_PATTERN`.
+- b090ad4: A route that returns nothing no longer makes `POST /threads/:id/runs/wait` answer 500. The endpoint serialized the route's return value with `Response.json`, which throws on `undefined`, so a run that had actually succeeded came back as `Unexpected runtime server failure` while `POST /threads/:id/runs/stream` reported the same run as done. Such a run now answers 200 with the body `null`, so callers that read a property off the parsed body should narrow it first. Falsy outputs (`0`, `false`, `""`) are unaffected.
+
+  `null` rather than the empty body the pre-`fetch`-core server sent: B4's own client for this endpoint parses every 200 body, and an empty one reads as a malformed payload, which would trade the 500 for a transport error.
+
+  `undefined` was not the only value `JSON.stringify` refuses, and a route's output is unconstrained. A circular object or a BigInt hit the same catch and produced the same opaque failure; the endpoint now answers 500 with a message naming the route and the serialization error instead. All five build targets share this code path (#714).
+
+- 5a38599: Log the real cause of a store failure. A Postgres connection the WebSocket driver could not open used to reach the runtime log as `[object ErrorEvent]`; the runtime now renders the message, code and nested cause chain of whatever was thrown, and the generated `stores.mjs` reports a store initialisation failure once with the store kind and a credential-free connection target. `@b4run/cli/fetch` exports the `serializeError`, `formatErrorChain`, `errorStackOf` and `describeConnectionTarget` helpers behind it.
+- 12726b4: Type `build.targets` in `config()` as the union of known build target names (`"node" | "langsmith" | "hono" | "vercel"`, exported as `BuildTargetName`) instead of `readonly string[]`, so a misspelled target such as `"vercell"` fails to type-check rather than at `b4 build`. The union is derived from the new `BUILD_TARGET_NAMES` tuple in `@b4run/core`, and the CLI's target registry is typed over it, so the two cannot drift. Untyped configs are still validated at build and check time with the same error message.
+- 0aa4d42: Let `build.vercel` describe the whole Vercel Build Output tree: a `static` directory with an optional SPA fallback, extra Node `functions` bundled from an entry with `runtime`/`maxDuration`/`supportsResponseStreaming`, and `routes` ordered ahead of the filesystem phase, the runtime function, and the SPA fallback. The runtime function is named `b4.func` once static assets are configured (or whatever `functionName` says) so it no longer shadows `static/index.html`; a bare runtime build still emits `index.func` behind the same catch-all. `validateVercelOutput` accepts the composed tree while keeping the runtime function config exact.
+
+  Under a SPA fallback the runtime route is scoped to the surfaces the runtime owns — `/healthz`, `/readyz`, `/agui`, `/threads`, `/memory` — so every other path reaches the SPA document. A surface missing from that list would serve HTML with a 200 instead of reaching the runtime, so the composed route is covered by a test per surface.
+
+  The runtime function now declares `supportsResponseStreaming: true`. It serves SSE on `/agui/:routeId` and `/threads/:id/runs/stream`, and without the flag Vercel's Node launcher buffers the response, so a deployed frontend received nothing until a run finished. Extra functions could already opt in; the function that always streams could not.
+
+  Every `build.vercel` rejection now carries the `B4_E1003` code and its docs link, so a malformed `static.dir` reports the same way as an unknown option rather than printing a bare line.
+
+  These keys join `reconcileVercelJson` in one validated `build.vercel`: a single resolver owns the shape, so `b4 check` and `b4 build` reject an unknown key or a malformed value the same way for every option, and the composed tree is only built from a shape that was checked.
+
+- 1456422: Name the Vercel runtime function `b4.func` in every build. It was `index.func` unless `build.vercel.static` was configured, but the Build Output API also serves a function named `index` at `/`, where it shadows a static `index.html`. That hazard belongs to the name rather than to whether a particular build emits static assets, so the name is off the root always and an app that grows a frontend later does not have to rename its function to get one.
+
+  `.vercel/output/functions/b4.func/` replaces `.vercel/output/functions/index.func/`, and `config.json` routes to `/b4`. Anything reading the published tree by path, such as a local smoke script importing the bundle, follows the new path. `build.vercel.functionName: "index"` restores the old layout for a build with no static assets.
+
+- 0429cec: Let the `vercel` target's generated stores reach a plain Postgres without a WebSocket proxy, and document `B4_PG_WS_PROXY`.
+
+  - The Vercel `stores.mjs` now selects a driver per request: `@neondatabase/serverless` for a `*.neon.tech` host or when `B4_PG_WS_PROXY` is set, and a pooled `pg` connection (through the new `createPostgresPool` export of `@b4run/postgres-storage/node`) for every other host, so the built bundle runs against a local database with no proxy. `B4_PG_DRIVER=neon|pg` overrides the detection; `pg` is refused on the `hono` target.
+  - `B4_PG_WS_PROXY` accepts `host:port`, `ws://host:port`, or `wss://host:port` (the last keeps TLS on) on both targets, and any other scheme, path, or query is rejected with a message naming the variable and the accepted forms instead of failing inside the driver.
+  - `normalizeWsProxy` and `selectPostgresDriver` are exported from `@b4run/cli/fetch` for hand-composed store factories.
+
+- acfc786: Let the `vercel` build target publish somewhere other than `.vercel/output`: `b4 build --out-dir <dir>` or `build.vercel.outDir` in `b4.config.ts`, resolved relative to the app root, with the flag taking precedence. A directory that contains the app root is rejected before anything is written, and `--out-dir` is an error when `"vercel"` is not a configured target.
+
+  Relax the Vercel output validator so a composed Build Output tree still validates: `config.json` must be version 3 and contain a route whose `dest` is `/index`, rather than matching the exact catch-all the build writes. Extra routes and top-level keys added after the build are accepted.
+
+- 10a6cbb: Add `build.vercel.reconcileVercelJson` so a prebuilt Vercel flow (`vercel deploy --prebuilt`, no Vercel Git integration) can opt the `vercel` target out of `vercel.json` reconciliation. With it set to `false`, `b4 build` neither requires, writes, nor inspects a committed `vercel.json` whose `buildCommand` would never run, and no longer fails on a committed `fluid: false`. Because reconciliation stays on unless the flag is exactly `false`, `b4 check` and `b4 build` reject every near miss with `B4_E1003` — a non-boolean value, a non-object `build.vercel`, an unknown key inside it, or the flag misplaced directly on `build` — rather than reading as configured while still reconciling. Fluid compute guidance is unchanged for the deployed project.
+- 3f32ad8: `b4 verify` now renders the registry error code for every phase, not just `runtime`. An app root whose `package.json` lacks `"type": "module"` fails with `[B4_E1006]` and a route entry with no recognisable export fails with `[B4_E1007]` — the same codes `b4 check` reports for those apps. The `--json` payload carries the code too: a failed check's `error` object gains an optional `code` field, present only when the underlying failure has a registry entry.
+- Updated dependencies [89a5958]
+- Updated dependencies [814f4f9]
+- Updated dependencies [c9a4d87]
+- Updated dependencies [80aa142]
+- Updated dependencies [12726b4]
+- Updated dependencies [0aa4d42]
+- Updated dependencies [765e6e1]
+- Updated dependencies [acfc786]
+- Updated dependencies [10a6cbb]
+  - @b4run/workspace@0.8.35
+  - @b4run/sdk@0.8.35
+  - @b4run/core@0.8.35
+  - @b4run/langchain@0.8.35
+  - @b4run/sqlite-storage@0.8.35
+  - @b4run/langgraph@0.8.35
+  - @b4run/permissions@0.8.35
+  - @b4run/memory@0.8.35
+  - @b4run/ag-ui@0.8.35
+
 ## 0.8.34
 
 ### Patch Changes

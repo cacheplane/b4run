@@ -1,5 +1,37 @@
 # @dawn-ai/core
 
+## 0.8.35
+
+### Patch Changes
+
+- 814f4f9: `b4 check` no longer reports a clean `0 routes discovered` for an app whose `package.json` lacks `"type": "module"`. Route discovery now fails with `B4_E1006` naming the app root's `package.json`, and a route `index.ts` with no recognisable export fails with `B4_E1007` naming the file, the exports it found, and, when the module was loaded as CommonJS, the nested `package.json` that caused it — listing every unrecognised route entry in the app in one error rather than one per run. Closes #685.
+- 80aa142: Route discovery reports every route `index.ts` that exports more than one of `agent`, `workflow`, `graph`, or `chain` in a single run, as the new `B4_E1008`, naming each file and the kinds it exported. The message used to omit the file path and threw from inside the route walk, so an app with several of these surfaced them one per run.
+- 12726b4: Type `build.targets` in `config()` as the union of known build target names (`"node" | "langsmith" | "hono" | "vercel"`, exported as `BuildTargetName`) instead of `readonly string[]`, so a misspelled target such as `"vercell"` fails to type-check rather than at `b4 build`. The union is derived from the new `BUILD_TARGET_NAMES` tuple in `@b4run/core`, and the CLI's target registry is typed over it, so the two cannot drift. Untyped configs are still validated at build and check time with the same error message.
+- 0aa4d42: Let `build.vercel` describe the whole Vercel Build Output tree: a `static` directory with an optional SPA fallback, extra Node `functions` bundled from an entry with `runtime`/`maxDuration`/`supportsResponseStreaming`, and `routes` ordered ahead of the filesystem phase, the runtime function, and the SPA fallback. The runtime function is named `b4.func` once static assets are configured (or whatever `functionName` says) so it no longer shadows `static/index.html`; a bare runtime build still emits `index.func` behind the same catch-all. `validateVercelOutput` accepts the composed tree while keeping the runtime function config exact.
+
+  Under a SPA fallback the runtime route is scoped to the surfaces the runtime owns — `/healthz`, `/readyz`, `/agui`, `/threads`, `/memory` — so every other path reaches the SPA document. A surface missing from that list would serve HTML with a 200 instead of reaching the runtime, so the composed route is covered by a test per surface.
+
+  The runtime function now declares `supportsResponseStreaming: true`. It serves SSE on `/agui/:routeId` and `/threads/:id/runs/stream`, and without the flag Vercel's Node launcher buffers the response, so a deployed frontend received nothing until a run finished. Extra functions could already opt in; the function that always streams could not.
+
+  Every `build.vercel` rejection now carries the `B4_E1003` code and its docs link, so a malformed `static.dir` reports the same way as an unknown option rather than printing a bare line.
+
+  These keys join `reconcileVercelJson` in one validated `build.vercel`: a single resolver owns the shape, so `b4 check` and `b4 build` reject an unknown key or a malformed value the same way for every option, and the composed tree is only built from a shape that was checked.
+
+- 765e6e1: Correct the `build.vercel` type documentation for the unconditional runtime function name. `functionName` documented its old conditional default, and `build.vercel` described a bare build as emitting `functions/index.func`. Both now say `b4`, matching what the target emits.
+- acfc786: Let the `vercel` build target publish somewhere other than `.vercel/output`: `b4 build --out-dir <dir>` or `build.vercel.outDir` in `b4.config.ts`, resolved relative to the app root, with the flag taking precedence. A directory that contains the app root is rejected before anything is written, and `--out-dir` is an error when `"vercel"` is not a configured target.
+
+  Relax the Vercel output validator so a composed Build Output tree still validates: `config.json` must be version 3 and contain a route whose `dest` is `/index`, rather than matching the exact catch-all the build writes. Extra routes and top-level keys added after the build are accepted.
+
+- 10a6cbb: Add `build.vercel.reconcileVercelJson` so a prebuilt Vercel flow (`vercel deploy --prebuilt`, no Vercel Git integration) can opt the `vercel` target out of `vercel.json` reconciliation. With it set to `false`, `b4 build` neither requires, writes, nor inspects a committed `vercel.json` whose `buildCommand` would never run, and no longer fails on a committed `fluid: false`. Because reconciliation stays on unless the flag is exactly `false`, `b4 check` and `b4 build` reject every near miss with `B4_E1003` — a non-boolean value, a non-object `build.vercel`, an unknown key inside it, or the flag misplaced directly on `build` — rather than reading as configured while still reconciling. Fluid compute guidance is unchanged for the deployed project.
+- Updated dependencies [89a5958]
+- Updated dependencies [814f4f9]
+- Updated dependencies [c9a4d87]
+- Updated dependencies [80aa142]
+  - @b4run/workspace@0.8.35
+  - @b4run/sdk@0.8.35
+  - @b4run/sqlite-storage@0.8.35
+  - @b4run/permissions@0.8.35
+
 ## 0.8.34
 
 ### Patch Changes

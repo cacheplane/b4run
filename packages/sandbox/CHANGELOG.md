@@ -1,5 +1,20 @@
 # @dawn-ai/sandbox
 
+## 0.8.35
+
+### Patch Changes
+
+- 89a5958: Add bounded text workspace inspection for author filesystem handles and sandbox handles, with strict UTF-8, executable and symlink checks, exact expected dependency links, and cancellation support.
+
+  Bound built-in filesystem reads before collecting content so a growing file cannot bypass an explicit byte limit.
+
+- Updated dependencies [89a5958]
+- Updated dependencies [814f4f9]
+- Updated dependencies [c9a4d87]
+- Updated dependencies [80aa142]
+  - @b4run/workspace@0.8.35
+  - @b4run/sdk@0.8.35
+
 ## 0.8.34
 
 ### Patch Changes

@@ -1,5 +1,21 @@
 # @dawn-ai/postgres-storage
 
+## 0.8.35
+
+### Patch Changes
+
+- abec88d: Fix the first request to a freshly provisioned schema failing with `23505` on `pg_namespace_nspname_index`. The checkpointer, threads store and permissions store each take an advisory lock keyed on schema, table prefix and component, deliberately so they version independently. The schema is the one object all three share, so creating it under those three different locks left them racing on `CREATE SCHEMA IF NOT EXISTS`, which is no more concurrency-safe than `CREATE TABLE IF NOT EXISTS`: the loser raised a duplicate-key error instead of a no-op, and the partly-created schema meant only a second run succeeded.
+
+  Schema creation now takes a lock keyed on the schema alone, in its own short transaction, so the shared DDL is serialized while the per-component migrations still run independently. This is the cold start after a deploy to a new environment, which is what `B4_PG_SCHEMA` exists for.
+
+- 03be72b: Namespace generated Postgres stores per deployment environment. The `hono` and `vercel` targets' `stores.mjs` now reads `B4_PG_SCHEMA` and `B4_PG_TABLE_PREFIX` per request, each a lowercase identifier or a `$NAME` reference to another variable, so `B4_PG_SCHEMA=$VERCEL_ENV` keeps a Vercel project's preview and production deployments in separate schemas of one database. Unset bindings keep `public.b4_*`. A bad value fails the request by name instead of falling back to `public`. Behavior change in `@b4run/postgres-storage`: `schema` and `tablePrefix` must now be lowercase. A mixed-case value previously passed validation and was folded to lowercase by unquoted DDL, so it never named the tables it appeared to, and its advisory-lock key differed from the lowercase spelling of the same tables. Such a value now throws at construction. Pass the lowercase spelling the database was already using. The enforced pattern is exported as `IDENTIFIER_PATTERN`.
+- 0429cec: Let the `vercel` target's generated stores reach a plain Postgres without a WebSocket proxy, and document `B4_PG_WS_PROXY`.
+
+  - The Vercel `stores.mjs` now selects a driver per request: `@neondatabase/serverless` for a `*.neon.tech` host or when `B4_PG_WS_PROXY` is set, and a pooled `pg` connection (through the new `createPostgresPool` export of `@b4run/postgres-storage/node`) for every other host, so the built bundle runs against a local database with no proxy. `B4_PG_DRIVER=neon|pg` overrides the detection; `pg` is refused on the `hono` target.
+  - `B4_PG_WS_PROXY` accepts `host:port`, `ws://host:port`, or `wss://host:port` (the last keeps TLS on) on both targets, and any other scheme, path, or query is rejected with a message naming the variable and the accepted forms instead of failing inside the driver.
+  - `normalizeWsProxy` and `selectPostgresDriver` are exported from `@b4run/cli/fetch` for hand-composed store factories.
+  - @b4run/permissions@0.8.35
+
 ## 0.8.34
 
 ### Patch Changes
