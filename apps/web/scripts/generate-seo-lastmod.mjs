@@ -117,7 +117,7 @@ export function selectLastModified(
     : currentLastModified
 }
 
-function manifestContent(asOf, existingContent, check, generationTimestamp) {
+function sourcesByRouteFor(asOf) {
   const docs = filesUnder(join(contentRoot, "docs"), ".mdx")
   const posts = filesUnder(join(contentRoot, "blog"), ".mdx").map(readPost)
   const publishedPosts = posts.filter((post) => !post.draft && post.date <= asOf)
@@ -135,6 +135,11 @@ function manifestContent(asOf, existingContent, check, generationTimestamp) {
     )
   }
 
+  return sourcesByRoute
+}
+
+function manifestContent(asOf, existingContent, check, generationTimestamp) {
+  const sourcesByRoute = sourcesByRouteFor(asOf)
   const existingEntries = existingManifestEntries(existingContent)
   const entries = []
   const sortedRoutes = [...sourcesByRoute.entries()].sort(([left], [right]) =>
@@ -177,6 +182,7 @@ function asOfDate(value) {
 function optionsFor(argv) {
   let asOf = new Date().toISOString().slice(0, 10)
   let check = false
+  let checkRoutes = false
   let outputFile = defaultOutputFile
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -188,6 +194,8 @@ function optionsFor(argv) {
       index += 1
     } else if (argument === "--check") {
       check = true
+    } else if (argument === "--check-routes") {
+      checkRoutes = true
     } else if (argument === "--output") {
       const value = argv[index + 1]
       if (value === undefined) throw new Error("--output requires a path")
@@ -198,17 +206,52 @@ function optionsFor(argv) {
     }
   }
 
-  return { asOf, check, outputFile }
+  return { asOf, check, checkRoutes, outputFile }
+}
+
+/**
+ * Routes the manifest covers but should not, or should cover but does not.
+ *
+ * This is the half of freshness a pull request still has to own. A stale
+ * timestamp is harmless and gets corrected on main, but a route the manifest
+ * has never seen has no timestamp at all, and `requireValidLastModified`
+ * throws on it — so adding or removing a page without regenerating breaks the
+ * site build rather than just dating it wrong.
+ */
+export function routeCoverageDrift(asOf, existingContent) {
+  const expected = [...sourcesByRouteFor(asOf).keys()].sort(compareCodePoints)
+  const covered = [...existingManifestEntries(existingContent).keys()].sort(compareCodePoints)
+  const coveredSet = new Set(covered)
+  const expectedSet = new Set(expected)
+
+  return {
+    missing: expected.filter((route) => !coveredSet.has(route)),
+    unexpected: covered.filter((route) => !expectedSet.has(route)),
+  }
 }
 
 function main(argv) {
-  const { asOf, check, outputFile } = optionsFor(argv)
+  const { asOf, check, checkRoutes, outputFile } = optionsFor(argv)
   let existing = ""
   try {
     existing = readFileSync(outputFile, "utf8")
   } catch {
     // A missing manifest has no timestamps to preserve.
   }
+
+  if (checkRoutes) {
+    const { missing, unexpected } = routeCoverageDrift(asOf, existing)
+    if (missing.length > 0 || unexpected.length > 0) {
+      if (missing.length > 0) console.error(`SEO manifest is missing routes: ${missing.join(", ")}`)
+      if (unexpected.length > 0) {
+        console.error(`SEO manifest covers removed routes: ${unexpected.join(", ")}`)
+      }
+      console.error("Regenerate with pnpm --dir apps/web seo:lastmod")
+      process.exitCode = 1
+    }
+    return
+  }
+
   const content = manifestContent(asOf, existing, check, new Date().toISOString())
 
   if (check) {

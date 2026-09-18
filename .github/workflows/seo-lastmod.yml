@@ -1,0 +1,122 @@
+name: SEO lastmod
+
+# Keeps apps/web/app/seo/lastmod.generated.json current on main, so that
+# regenerating it is never a pull request author's job.
+#
+# WHY THE FILE IS STILL COMMITTED. The manifest is the only record of when
+# each route's content last changed: the generator preserves an entry's
+# timestamp while its source digest matches and stamps "now" when it does
+# not. Nothing else stores that history — the generator never consults Git,
+# deliberately, so that a shallow deploy checkout produces the same output as
+# a full clone. It is also imported statically by apps/web/app/seo/lastmod.ts,
+# so it has to exist on disk for typecheck and next build. Generating it from
+# scratch during a build would therefore stamp every route with the build's
+# own clock and destroy the signal it exists to carry.
+#
+# WHAT THIS BUYS. Pull requests no longer touch the file at all, so two
+# branches that both edit docs stop conflicting inside a generated artifact,
+# and a merge no longer lands a manifest whose timestamps are whenever the
+# author happened to run the script. The timestamp now reflects when the
+# content reached main, which is the date the sitemap is claiming.
+#
+# LOOP SAFETY. The push trigger is scoped to the content this manifest is
+# derived from. This job's own commit touches only the manifest, which is not
+# in that path list, so it cannot retrigger itself.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - apps/web/content/**
+      - apps/web/app/page.tsx
+      - apps/web/app/components/homepage/**
+
+permissions:
+  contents: read
+
+concurrency:
+  # Serialize against itself: two runs regenerating and pushing the same file
+  # would race. Never cancel in progress — a cancelled run leaves main with a
+  # stale manifest and no scheduled successor.
+  group: seo-lastmod-main
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    name: regenerate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Push with this job's own token rather than the checkout's
+          # persisted credentials, so the push and the rebase below use one
+          # explicit remote.
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10.33.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.17.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate the manifest
+        run: pnpm --dir apps/web seo:lastmod
+
+      - name: Commit and push when it changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MANIFEST: apps/web/app/seo/lastmod.generated.json
+        run: |
+          set -eu
+          if git diff --quiet -- "$MANIFEST"; then
+            echo "Manifest already current; nothing to push."
+            exit 0
+          fi
+
+          # Fail loudly if the run dirtied anything else: this job is only
+          # ever allowed to move one generated file.
+          UNEXPECTED="$(git diff --name-only -- . ":(exclude)$MANIFEST")"
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::Refusing to push: unexpected changes outside the manifest:"
+            echo "$UNEXPECTED"
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "$MANIFEST"
+          git commit -m "chore(web): regenerate SEO lastmod manifest [skip ci]"
+
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # A push that lost a race must not be retried blindly onto whatever
+          # landed meanwhile: rebase this one-file commit and try again, and
+          # give up rather than force anything.
+          for attempt in 1 2 3; do
+            if git push "$REMOTE" "HEAD:${GITHUB_REF_NAME}"; then
+              echo "Pushed the regenerated manifest."
+              exit 0
+            fi
+            echo "Push rejected (attempt ${attempt}); rebasing onto the current branch tip."
+            git fetch "$REMOTE" "${GITHUB_REF_NAME}"
+            git rebase FETCH_HEAD || {
+              echo "::error::Rebase failed; leaving main untouched."
+              exit 1
+            }
+          done
+
+          echo "::error::Could not push the regenerated manifest after 3 attempts."
+          exit 1

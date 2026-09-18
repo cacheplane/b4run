@@ -698,7 +698,7 @@
         "stepIndex": 6,
         "step": "Assert the workerd lane did not skip",
         "kind": "run",
-        "value": "node -e '\n  const fs = require(\"node:fs\")\n  const path = process.argv[1]\n  if (!fs.existsSync(path)) {\n    throw new Error(\"no vitest report at \" + path + \" — the lane produced no run at all.\")\n  }\n  const report = JSON.parse(fs.readFileSync(path, \"utf8\"))\n  const passed = report.numPassedTests ?? 0\n  const skipped = report.numPendingTests ?? 0\n  if (passed === 0 || skipped > 0) {\n    throw new Error(\n      \"the workerd lane reported \" + passed + \" passed and \" + skipped + \" skipped. \" +\n        \"This job is the only place B4_TEST_WORKERD=1 is set, so a skip here means the \" +\n        \"merge gate ran nothing while still exiting 0. Check that the flag name in \" +\n        \"packages/cli/test/workerd-lane.test.ts still matches the one this job exports.\",\n    )\n  }\n  console.log(\"workerd lane ran: \" + passed + \" passed, 0 skipped.\")\n' \"${{ runner.temp }}/workerd-lane-report.json\"\n"
+        "value": "node -e '\n  const fs = require(\"node:fs\")\n  const path = process.argv[1]\n  if (!fs.existsSync(path)) {\n    throw new Error(\"no vitest report at \" + path + \" \u2014 the lane produced no run at all.\")\n  }\n  const report = JSON.parse(fs.readFileSync(path, \"utf8\"))\n  const passed = report.numPassedTests ?? 0\n  const skipped = report.numPendingTests ?? 0\n  if (passed === 0 || skipped > 0) {\n    throw new Error(\n      \"the workerd lane reported \" + passed + \" passed and \" + skipped + \" skipped. \" +\n        \"This job is the only place B4_TEST_WORKERD=1 is set, so a skip here means the \" +\n        \"merge gate ran nothing while still exiting 0. Check that the flag name in \" +\n        \"packages/cli/test/workerd-lane.test.ts still matches the one this job exports.\",\n    )\n  }\n  console.log(\"workerd lane ran: \" + passed + \" passed, 0 skipped.\")\n' \"${{ runner.temp }}/workerd-lane-report.json\"\n"
       },
       {
         "classification": "safe",
@@ -952,7 +952,7 @@
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 3,
-        "step": "Helm lint (strict) — b4-sandbox-infra",
+        "step": "Helm lint (strict) \u2014 b4-sandbox-infra",
         "kind": "run",
         "value": "helm lint --strict charts/b4-sandbox-infra"
       },
@@ -968,7 +968,7 @@
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 5,
-        "step": "Render assertions — b4-sandbox-infra",
+        "step": "Render assertions \u2014 b4-sandbox-infra",
         "kind": "run",
         "value": "sh charts/b4-sandbox-infra/test/render.sh"
       },
@@ -976,7 +976,7 @@
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 6,
-        "step": "kubeconform (default values) — b4-sandbox-infra",
+        "step": "kubeconform (default values) \u2014 b4-sandbox-infra",
         "kind": "run",
         "value": "helm template test charts/b4-sandbox-infra \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
       },
@@ -984,7 +984,7 @@
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 7,
-        "step": "kubeconform (restricted PSS, reaper disabled) — b4-sandbox-infra",
+        "step": "kubeconform (restricted PSS, reaper disabled) \u2014 b4-sandbox-infra",
         "kind": "run",
         "value": "helm template test charts/b4-sandbox-infra \\\n  --set podSecurityStandard.enforce=restricted \\\n  --set reaper.enabled=false \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
       },
@@ -992,7 +992,7 @@
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 8,
-        "step": "Helm lint (strict) — b4-app",
+        "step": "Helm lint (strict) \u2014 b4-app",
         "kind": "run",
         "value": "helm lint --strict charts/b4-app"
       },
@@ -1000,7 +1000,7 @@
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 9,
-        "step": "Render assertions — b4-app",
+        "step": "Render assertions \u2014 b4-app",
         "kind": "run",
         "value": "sh charts/b4-app/test/render.sh"
       },
@@ -1008,7 +1008,7 @@
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 10,
-        "step": "kubeconform (default values) — b4-app",
+        "step": "kubeconform (default values) \u2014 b4-app",
         "kind": "run",
         "value": "helm template test charts/b4-app --set image.repository=example/app \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
       },
@@ -1016,7 +1016,7 @@
         "classification": "safe",
         "job": "chart-validate",
         "stepIndex": 11,
-        "step": "kubeconform (full override) — b4-app",
+        "step": "kubeconform (full override) \u2014 b4-app",
         "kind": "run",
         "value": "helm template test charts/b4-app \\\n  --set image.repository=example/app \\\n  --set ingress.enabled=true \\\n  --set ingress.host=app.example.com \\\n  --set autoscaling.enabled=true \\\n  --set podDisruptionBudget.enabled=true \\\n  | kubeconform -strict -summary -ignore-missing-schemas\n"
       },
@@ -1426,9 +1426,9 @@
         "classification": "safe",
         "job": "review",
         "stepIndex": 1,
-        "step": "Preflight — Anthropic credentials and model",
+        "step": "Preflight \u2014 Anthropic credentials and model",
         "kind": "run",
-        "value": "set -uo pipefail\nif [ -z \"${ANTHROPIC_API_KEY}\" ]; then\n  echo \"::warning::ANTHROPIC_API_KEY is unavailable (fork PR — secrets are not exposed to fork \\`pull_request\\` runs). Skipping review.\"\n  echo \"skip=true\" >> \"$GITHUB_OUTPUT\"\n  exit 0\nfi\necho \"skip=false\" >> \"$GITHUB_OUTPUT\"\n\n# Keep the key out of argv (and therefore out of the process list) by\n# passing it through a 0600 curl config file rather than -H.\nrc=\"$(mktemp)\"; body=\"$(mktemp)\"\ntrap 'rm -f \"$rc\" \"$body\"' EXIT\nprintf 'header = \"x-api-key: %s\"\\n' \"${ANTHROPIC_API_KEY}\" > \"$rc\"\n\ncode=\"$(curl -sS -o \"$body\" -w '%{http_code}' \\\n  --config \"$rc\" \\\n  -H 'anthropic-version: 2023-06-01' \\\n  -H 'content-type: application/json' \\\n  -d \"{\\\"model\\\":\\\"${REVIEW_MODEL}\\\",\\\"max_tokens\\\":1,\\\"messages\\\":[{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"ping\\\"}]}\" \\\n  https://api.anthropic.com/v1/messages)\" || {\n    echo \"::warning::Preflight request could not be sent; continuing and letting the review step report.\"\n    exit 0\n  }\n\ncase \"$code\" in\n  200)\n    echo \"Anthropic API reachable; key valid; model ${REVIEW_MODEL} available.\"\n    ;;\n  429|5??)\n    echo \"::warning::Preflight got HTTP ${code} (rate limit / transient). Key looks valid; continuing.\"\n    ;;\n  *)\n    echo \"::error::Anthropic preflight failed with HTTP ${code} for model ${REVIEW_MODEL} — the review agent cannot run.\"\n    jq -r '.error | \"\\(.type): \\(.message)\"' < \"$body\" 2>/dev/null || head -c 500 \"$body\"\n    echo\n    echo \"401 => rotate ANTHROPIC_API_KEY. 400 mentioning credit balance => top up the Anthropic org. 404 => REVIEW_MODEL is no longer available to this org.\"\n    exit 1\n    ;;\nesac\n"
+        "value": "set -uo pipefail\nif [ -z \"${ANTHROPIC_API_KEY}\" ]; then\n  echo \"::warning::ANTHROPIC_API_KEY is unavailable (fork PR \u2014 secrets are not exposed to fork \\`pull_request\\` runs). Skipping review.\"\n  echo \"skip=true\" >> \"$GITHUB_OUTPUT\"\n  exit 0\nfi\necho \"skip=false\" >> \"$GITHUB_OUTPUT\"\n\n# Keep the key out of argv (and therefore out of the process list) by\n# passing it through a 0600 curl config file rather than -H.\nrc=\"$(mktemp)\"; body=\"$(mktemp)\"\ntrap 'rm -f \"$rc\" \"$body\"' EXIT\nprintf 'header = \"x-api-key: %s\"\\n' \"${ANTHROPIC_API_KEY}\" > \"$rc\"\n\ncode=\"$(curl -sS -o \"$body\" -w '%{http_code}' \\\n  --config \"$rc\" \\\n  -H 'anthropic-version: 2023-06-01' \\\n  -H 'content-type: application/json' \\\n  -d \"{\\\"model\\\":\\\"${REVIEW_MODEL}\\\",\\\"max_tokens\\\":1,\\\"messages\\\":[{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"ping\\\"}]}\" \\\n  https://api.anthropic.com/v1/messages)\" || {\n    echo \"::warning::Preflight request could not be sent; continuing and letting the review step report.\"\n    exit 0\n  }\n\ncase \"$code\" in\n  200)\n    echo \"Anthropic API reachable; key valid; model ${REVIEW_MODEL} available.\"\n    ;;\n  429|5??)\n    echo \"::warning::Preflight got HTTP ${code} (rate limit / transient). Key looks valid; continuing.\"\n    ;;\n  *)\n    echo \"::error::Anthropic preflight failed with HTTP ${code} for model ${REVIEW_MODEL} \u2014 the review agent cannot run.\"\n    jq -r '.error | \"\\(.type): \\(.message)\"' < \"$body\" 2>/dev/null || head -c 500 \"$body\"\n    echo\n    echo \"401 => rotate ANTHROPIC_API_KEY. 400 mentioning credit balance => top up the Anthropic org. 404 => REVIEW_MODEL is no longer available to this org.\"\n    exit 1\n    ;;\nesac\n"
       },
       {
         "classification": "safe",
@@ -1444,7 +1444,7 @@
         "stepIndex": 3,
         "step": "Verify the review actually ran",
         "kind": "run",
-        "value": "set -uo pipefail\nif [ -z \"${EXECUTION_FILE}\" ] || [ ! -f \"${EXECUTION_FILE}\" ]; then\n  echo \"::error::No Claude execution log was produced — the review agent never reported a result.\"\n  exit 1\nfi\n\nresult=\"$(jq -c '[.[] | select(.type == \"result\")] | last // empty' \"${EXECUTION_FILE}\")\"\nif [ -z \"${result}\" ]; then\n  echo \"::error::Claude execution log contains no result message — the agent did not finish.\"\n  exit 1\nfi\n\nis_error=\"$(jq -r '.is_error // false' <<<\"${result}\")\"\nsubtype=\"$(jq -r '.subtype // \"unknown\"' <<<\"${result}\")\"\nif [ \"${is_error}\" = \"true\" ] || [ \"${subtype}\" != \"success\" ]; then\n  echo \"::error::Claude review failed (subtype=${subtype}, is_error=${is_error}). No review was posted.\"\n  echo \"--- agent error detail (truncated) ---\"\n  jq -r '.result // .error // \"no detail in result message\"' <<<\"${result}\" | head -c 2000\n  echo\n  exit 1\nfi\n\nturns=\"$(jq -r '.num_turns // 0' <<<\"${result}\")\"\ncost=\"$(jq -r '.total_cost_usd // 0' <<<\"${result}\")\"\necho \"Review completed: ${turns} turn(s), \\$${cost}.\"\n"
+        "value": "set -uo pipefail\nif [ -z \"${EXECUTION_FILE}\" ] || [ ! -f \"${EXECUTION_FILE}\" ]; then\n  echo \"::error::No Claude execution log was produced \u2014 the review agent never reported a result.\"\n  exit 1\nfi\n\nresult=\"$(jq -c '[.[] | select(.type == \"result\")] | last // empty' \"${EXECUTION_FILE}\")\"\nif [ -z \"${result}\" ]; then\n  echo \"::error::Claude execution log contains no result message \u2014 the agent did not finish.\"\n  exit 1\nfi\n\nis_error=\"$(jq -r '.is_error // false' <<<\"${result}\")\"\nsubtype=\"$(jq -r '.subtype // \"unknown\"' <<<\"${result}\")\"\nif [ \"${is_error}\" = \"true\" ] || [ \"${subtype}\" != \"success\" ]; then\n  echo \"::error::Claude review failed (subtype=${subtype}, is_error=${is_error}). No review was posted.\"\n  echo \"--- agent error detail (truncated) ---\"\n  jq -r '.result // .error // \"no detail in result message\"' <<<\"${result}\" | head -c 2000\n  echo\n  exit 1\nfi\n\nturns=\"$(jq -r '.num_turns // 0' <<<\"${result}\")\"\ncost=\"$(jq -r '.total_cost_usd // 0' <<<\"${result}\")\"\necho \"Review completed: ${turns} turn(s), \\$${cost}.\"\n"
       }
     ],
     "codeql.yml": [
@@ -3889,6 +3889,56 @@
         "step": "Open or update Version Packages pull request",
         "kind": "step-uses",
         "value": "changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d"
+      }
+    ],
+    "seo-lastmod.yml": [
+      {
+        "classification": "safe",
+        "job": "regenerate",
+        "stepIndex": 0,
+        "step": "Checkout",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "regenerate",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+      },
+      {
+        "classification": "safe",
+        "job": "regenerate",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "regenerate",
+        "stepIndex": 3,
+        "step": "Install dependencies",
+        "kind": "run",
+        "value": "pnpm install --frozen-lockfile"
+      },
+      {
+        "classification": "safe",
+        "job": "regenerate",
+        "stepIndex": 4,
+        "step": "Regenerate the manifest",
+        "kind": "run",
+        "value": "pnpm --dir apps/web seo:lastmod"
+      },
+      {
+        "classification": "safe",
+        "job": "regenerate",
+        "stepIndex": 5,
+        "step": "Commit and push when it changed",
+        "kind": "run",
+        "value": "set -eu\nif git diff --quiet -- \"$MANIFEST\"; then\n  echo \"Manifest already current; nothing to push.\"\n  exit 0\nfi\n\n# Fail loudly if the run dirtied anything else: this job is only\n# ever allowed to move one generated file.\nUNEXPECTED=\"$(git diff --name-only -- . \":(exclude)$MANIFEST\")\"\nif [ -n \"$UNEXPECTED\" ]; then\n  echo \"::error::Refusing to push: unexpected changes outside the manifest:\"\n  echo \"$UNEXPECTED\"\n  exit 1\nfi\n\ngit config user.name \"github-actions[bot]\"\ngit config user.email \"41898282+github-actions[bot]@users.noreply.github.com\"\ngit add -- \"$MANIFEST\"\ngit commit -m \"chore(web): regenerate SEO lastmod manifest [skip ci]\"\n\nREMOTE=\"https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git\"\n# A push that lost a race must not be retried blindly onto whatever\n# landed meanwhile: rebase this one-file commit and try again, and\n# give up rather than force anything.\nfor attempt in 1 2 3; do\n  if git push \"$REMOTE\" \"HEAD:${GITHUB_REF_NAME}\"; then\n    echo \"Pushed the regenerated manifest.\"\n    exit 0\n  fi\n  echo \"Push rejected (attempt ${attempt}); rebasing onto the current branch tip.\"\n  git fetch \"$REMOTE\" \"${GITHUB_REF_NAME}\"\n  git rebase FETCH_HEAD || {\n    echo \"::error::Rebase failed; leaving main untouched.\"\n    exit 1\n  }\ndone\n\necho \"::error::Could not push the regenerated manifest after 3 attempts.\"\nexit 1\n"
       }
     ]
   }

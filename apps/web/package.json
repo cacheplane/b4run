@@ -10,6 +10,7 @@
     "seo:audit-built": "node scripts/audit-built-seo.mjs",
     "seo:lastmod": "node scripts/generate-seo-lastmod.mjs",
     "seo:lastmod:check": "node scripts/generate-seo-lastmod.mjs --check",
+    "seo:lastmod:routes": "node scripts/generate-seo-lastmod.mjs --check-routes",
     "test": "vitest --run --config vitest.config.ts",
     "typecheck": "tsc --noEmit"
   },
