@@ -76,8 +76,14 @@ describe("B4_ERRORS registry", () => {
       title: "Route entry has no recognisable export",
       docsPath: "/docs/cli#b4-check",
     })
+    expect(B4_ERRORS.B4_E1008).toEqual({
+      code: "B4_E1008",
+      title: "Route entry exports more than one route kind",
+      docsPath: "/docs/cli#b4-check",
+    })
     expect(errorDocsUrl("B4_E1006")).toBe("https://b4.run/docs/cli#b4-check")
     expect(errorDocsUrl("B4_E1007")).toBe("https://b4.run/docs/cli#b4-check")
+    expect(errorDocsUrl("B4_E1008")).toBe("https://b4.run/docs/cli#b4-check")
   })
 
   it("registers the thread access load failure in the permissions band", () => {

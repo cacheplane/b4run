@@ -63,6 +63,11 @@ export const B4_ERRORS = {
     title: "Route entry has no recognisable export",
     docsPath: "/docs/cli#b4-check",
   },
+  B4_E1008: {
+    code: "B4_E1008",
+    title: "Route entry exports more than one route kind",
+    docsPath: "/docs/cli#b4-check",
+  },
   B4_E2001: {
     code: "B4_E2001",
     title: "Sandbox unavailable",
