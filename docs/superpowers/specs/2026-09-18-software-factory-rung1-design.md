@@ -315,20 +315,43 @@ cancel and reconciliation as rung 0 did, and adds the adversarial cases that are
 rung 1's point. Assembly, the digest and the bundle are exercised for real here,
 because they are pure functions over bytes and need no container.
 
-### Layer 2: the real builder under static fixtures, always on
+### Layer 2: the real builder under static fixtures, Docker-gated
 
 The factory's own builder route driven in process by static model fixtures that
-script file writes, with the scripted verifier standing in for the container.
-This is the offline lane rung 0 had to defer, and it is buildable now precisely
-because the builder only edits files. It needs a copied application root, the
-way code-fixer's own harness tests do, because the harness runs typegen against
-whatever root it is given.
+script file writes, with the scripted verifier standing in for the controller's
+own container. This is the offline lane rung 0 had to defer, and it is buildable
+now precisely because the builder only edits files. It needs a copied
+application root, the way code-fixer's own harness tests do, because the harness
+runs typegen against whatever root it is given.
+
+**Corrected during implementation: this layer is Docker-gated, not always on.**
+The design said "always on" because the *model* is scripted, and that is true —
+but scripting the model does not remove the container. `b4.config.ts` configures
+`dockerSandbox`, and `createAgentHarness` runs the real route, so the run
+acquires a real workspace before the first fixture is consumed. There is no way
+to keep the real builder in the lane and take the container out of it: the point
+of the layer is that the permission config, the tool loop and `runBash` are all
+real, and `runBash` is exactly the thing that needs a container. `fakeSandbox`
+cannot substitute (see "Dependency, and what it does not block"). It therefore
+lives in `vitest.sandbox.config.ts` alongside layer 3 and fails rather than
+skips when Docker is absent, the way code-fixer's own harness test does.
+
+The consequence for the next rung: **layer 1 is the only always-on layer.** An
+invariant that must be enforced on every push has to be asserted in layer 1,
+whatever else also asserts it.
 
 ### Layer 3: real containers, Docker-gated
 
 The controller's real verifier in a real container, behind the same environment
-gate the repository already uses for Docker suites. This layer waits on the
-framework surface; nothing else does.
+gate the repository already uses for Docker suites. The verifier half of this
+layer runs today. The end-to-end half — controller reads the builder's workspace,
+assembles, verifies, freezes, exports — waits on the framework surface; nothing
+else does.
+
+Both Docker-gated projects run under `vitest.sandbox.config.ts`
+(`pnpm --filter @b4-example/software-factory-server test:sandbox`), wired into
+CI's `sandbox-docker` job after the step that builds `b4-code-fixer:fixture-v1`,
+because that is the image both the builder and the verifier run.
 
 ### Invariants
 
@@ -407,8 +430,10 @@ examples/software-factory/server/
 
 ## Success criteria
 
-1. Layer 1 and layer 2 pass in CI on every push.
-2. Layer 3 passes under the Docker gate once the framework surface lands.
+1. Layer 1 passes in CI on every push; layers 2 and 3 pass under the Docker gate
+   (corrected: layer 2 needs a container too — see "Layer 2").
+2. Layer 3's end-to-end path passes under the Docker gate once the framework
+   surface lands. Its verifier half passes today.
 3. A candidate that passes the visible suite and fails the independent checks
    cannot reach `awaiting_approval`, demonstrated in both layer 1 and layer 3.
 4. Only the exact approved bytes export, and a candidate that changes after

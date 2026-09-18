@@ -1079,6 +1079,13 @@
             {
               "classification": "safe",
               "descriptor": {
+                "name": "Software factory controller-owned verification",
+                "run": "pnpm turbo run build --filter=@b4-example/software-factory-server^...\npnpm --filter @b4-example/software-factory-server test:sandbox\n"
+              }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
                 "name": "Managed Docker lifecycle and runtime restart",
                 "run": "B4_TEST_DOCKER=1 pnpm --filter @b4run/sandbox test managed-workspace\nB4_TEST_DOCKER=1 pnpm --filter @b4run/cli test managed-workspace-process\n"
               }
