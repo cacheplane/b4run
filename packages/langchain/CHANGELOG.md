@@ -1,5 +1,14 @@
 # @dawn-ai/langchain
 
+## 0.8.36
+
+### Patch Changes
+
+- Updated dependencies [6d16bb1]
+  - @b4run/core@0.8.36
+  - @b4run/sdk@0.8.36
+  - @b4run/workspace@0.8.36
+
 ## 0.8.35
 
 ### Patch Changes
