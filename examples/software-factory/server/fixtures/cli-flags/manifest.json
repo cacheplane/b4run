@@ -1,0 +1,17 @@
+{
+  "id": "cli-flags",
+  "version": 1,
+  "sourcePr": "https://github.com/cacheplane/b4run/pull/399",
+  "sourceCommit": "c6b08a9c6fee9d6559187f56528ca612d20c4093",
+  "extractionNotes": "Commander registration extracted from PR399 parent; reduced handler validates observable argument forwarding without storage/model calls. CLI name is fixture. Source registration retains the missing positional/pass-through options. Commander pinned to current compatible 15.0.0; behavior qualification checks this reduction. Exact faulty baseline is sourceCommit; reference repair is 7088072b6181e7da8b84faba35a623e444f40c94.",
+  "allowedSourcePaths": ["src/cli.ts"],
+  "immutablePaths": [
+    "LICENSE",
+    "package-lock.json",
+    "package.json",
+    "src/memory.ts",
+    "test/cli.test.ts"
+  ],
+  "command": ["npm", "test"],
+  "failurePattern": "unknown option"
+}
