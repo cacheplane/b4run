@@ -5,11 +5,11 @@
 #
 # Why this exists
 # ---------------
-# helm/kind-action's `kind.sh` downloads both binaries (and their checksums)
-# with `curl -sSLo` and *no* `--fail`. When the upstream host answers with a
-# 429, a 5xx, or a CDN error page, curl writes that HTML body into the
-# checksum file and still exits 0. The follow-up `sha256sum -c` then receives
-# garbage stdin and dies with
+# Through v1.14.0, helm/kind-action's `kind.sh` downloaded both binaries (and
+# their checksums) with `curl -sSLo` and *no* `--fail`. When the upstream host
+# answered with a 429, a 5xx, or a CDN error page, curl wrote that HTML body
+# into the checksum file and still exited 0. The follow-up `sha256sum -c` then
+# received garbage stdin and died with
 #
 #     sha256sum: 'standard input': no properly formatted checksum lines found
 #
