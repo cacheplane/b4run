@@ -5705,6 +5705,14 @@ export function parseNativeVercelBuildLogTranscript(options: {
   return { events, readyState: "READY" }
 }
 
+/**
+ * The one marker in {@link NATIVE_REMOTE_BUILD_SIGNATURE} a legitimate build
+ * may never emit: `build.vercel.reconcileVercelJson: false` makes the target
+ * report no root config at all, so the expected signature follows that flag
+ * rather than demanding the marker unconditionally.
+ */
+const RECONCILED_ROOT_CONFIG_MARKER = "wrote vercel.json"
+
 const NATIVE_REMOTE_BUILD_SIGNATURE = [
   "Build complete: .b4/build",
   "3 route(s) compiled",
@@ -5725,6 +5733,14 @@ export function parseNativeBuildProvenance(options: {
   readonly kind: "prebuilt" | "source"
   readonly localOutputValidated: boolean
   readonly protectedValues?: readonly string[]
+  /**
+   * Whether the observed build reconciles the root `vercel.json`. Defaults to
+   * `true`, matching the target's default. Pass `false` for a fixture that sets
+   * `build.vercel.reconcileVercelJson: false`: the root-config marker must then
+   * be ABSENT, because reconciliation that happened anyway means the opt-out
+   * never reached the builder.
+   */
+  readonly reconcilesVercelJson?: boolean
   readonly sourceTree: {
     readonly b4Absent: boolean
     readonly nodeModulesAbsent: boolean
@@ -5792,16 +5808,32 @@ export function parseNativeBuildProvenance(options: {
     inspectBuildLogs: logs,
   })
   const prebuiltFlagCount = deployCommand.prebuiltFlagCount as 0 | 1
+  // The prebuilt branch asserts the ABSENCE of every build marker, so it keeps
+  // the full list regardless of the reconciliation flag.
   const signature = new Set<string>(NATIVE_REMOTE_BUILD_SIGNATURE)
-  const signatureIndexes = NATIVE_REMOTE_BUILD_SIGNATURE.map((expected) =>
+  const reconcilesVercelJson = options.reconcilesVercelJson !== false
+  const expectedSignature: readonly string[] = reconcilesVercelJson
+    ? NATIVE_REMOTE_BUILD_SIGNATURE
+    : NATIVE_REMOTE_BUILD_SIGNATURE.filter((marker) => marker !== RECONCILED_ROOT_CONFIG_MARKER)
+  const signatureIndexes = expectedSignature.map((expected) =>
     eventTexts.flatMap((text, index) => (text === expected ? [index] : [])),
   )
-  const exactOrderedSignature =
-    signatureIndexes.every((indexes) => indexes.length === 1) &&
-    signatureIndexes.every(
-      (indexes, index) =>
-        index === 0 || (signatureIndexes[index - 1]?.[0] as number) < (indexes[0] as number),
-    )
+  // Named problems, not one opaque boolean: a signature mismatch in this lane
+  // is otherwise a slow thing to debug from "provenance is incomplete" alone.
+  const signatureProblems = expectedSignature.flatMap((marker, index) => {
+    const occurrences = signatureIndexes[index] ?? []
+    if (occurrences.length === 0) return [`missing marker: ${marker}`]
+    if (occurrences.length > 1) return [`duplicated marker: ${marker}`]
+    const previous = signatureIndexes[index - 1]?.[0]
+    if (index > 0 && previous !== undefined && previous >= (occurrences[0] as number)) {
+      return [`out-of-order marker: ${marker}`]
+    }
+    return []
+  })
+  if (!reconcilesVercelJson && eventTexts.includes(RECONCILED_ROOT_CONFIG_MARKER)) {
+    signatureProblems.push(`unexpected marker: ${RECONCILED_ROOT_CONFIG_MARKER}`)
+  }
+  const exactOrderedSignature = signatureProblems.length === 0
 
   if (options.kind === "source") {
     if (
@@ -5812,7 +5844,11 @@ export function parseNativeBuildProvenance(options: {
       options.sourceTree.prebuiltOutputAbsent !== true ||
       !exactOrderedSignature
     ) {
-      throw new Error("native Vercel source build provenance is incomplete")
+      throw new Error(
+        `native Vercel source build provenance is incomplete${
+          signatureProblems.length > 0 ? `: ${signatureProblems.join("; ")}` : ""
+        }`,
+      )
     }
     return { cleanSource: true, prebuiltOutputAbsent: true, remoteBuildObserved: true }
   }
