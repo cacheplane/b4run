@@ -125,8 +125,20 @@ describe("cancel", () => {
     const parked = new Promise<void>((resolve) => {
       release = resolve
     })
+    // Announced as well as parked. Waiting for the row to reach `verifying` is NOT enough
+    // to know the phase is inside the verifier: the transition happens first, and the
+    // baseline capture, the workspace read and the assembly all follow it, each with a
+    // `state !== "verifying"` guard that returns early on a cancelled row. Under load the
+    // cancel below can land in one of those windows, the verifier is then never called,
+    // `release()` frees nothing and the wait for `receipt_issued` times out — a false red
+    // over the controller behaving correctly.
+    let entered = () => {}
+    const entry = new Promise<void>((resolve) => {
+      entered = resolve
+    })
     const verifier: Verifier = {
       async verify(input, signal) {
+        entered()
         await parked
         return inner.verify(input, signal)
       },
@@ -138,6 +150,7 @@ describe("cancel", () => {
       const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
       reader.set(dispatched.workerThreadId as string, repaired())
       await factory.waitFor(id, (r) => r.state === "verifying", 20_000)
+      await entry
 
       const outcome = await factory.cancel(id)
       expect(outcome).toEqual({ ok: true, state: "cancelled", message: "Cancelled" })
