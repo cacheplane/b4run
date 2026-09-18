@@ -50,17 +50,10 @@ export interface FactoryOptions {
     signal: AbortSignal,
   ): Promise<{ readonly digest: string; readonly files: ReadonlyMap<string, string> }>
   readonly maxChangedBytes?: number
-  /** Rung 0's receipt outbox; read only by the export rules Task 13 replaces. */
-  readonly outboxDir?: string
   /** Task id to prompt. Defaults to TASK_PROMPTS. */
   readonly tasks?: Readonly<Record<string, string>>
   readonly approvalTtlMs?: number
   readonly maxActiveMs?: number
-  /**
-   * Rung 0's receipt wait. Unread since the controller writes the export itself; kept so the
-   * rung 0 callers Task 14 rewrites still compile.
-   */
-  readonly receiptWaitMs?: number
   /** How long a cancel waits for the cancelled run's observer to settle. Default 10s. */
   readonly cancelSettleMs?: number
   readonly budgetTickMs?: number
@@ -275,7 +268,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     }
   }
 
-  // Assembled here so Tasks 14 and 15 (cancel, reconciliation) receive it unchanged.
+  // The narrow view the run observer, the verifying phase and reconciliation share.
   const ctx: ControllerContext = {
     store,
     commands,
@@ -287,7 +280,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     workerRoute: options.workerRoute,
     exportDir: options.exportDir,
     maxChangedBytes: options.maxChangedBytes ?? 256 * 1024,
-    outboxDir: options.outboxDir ?? "",
     signal: abort.signal,
     now,
     iso,

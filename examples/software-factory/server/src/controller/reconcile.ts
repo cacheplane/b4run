@@ -1,7 +1,8 @@
+import { access } from "node:fs/promises"
+import { join } from "node:path"
 import { isTerminal } from "../domain/states.js"
 import type { WorkOrderRow } from "../domain/work-order.js"
-import { receiptExists, receiptPath } from "../worker/outbox.js"
-import { isExportGate, type StreamFrame } from "../worker/wire.js"
+import type { StreamFrame } from "../worker/wire.js"
 import type { ControllerContext } from "./context.js"
 
 const isRunState = (state: WorkOrderRow["state"]) => state === "dispatched" || state === "running"
@@ -158,13 +159,17 @@ export async function reconcileWorkOrder(
     case "dispatched":
     case "running":
       return reconcileRun(ctx, row, attempt)
-    case "awaiting_approval":
-      return reconcileAwaiting(ctx, row)
+    case "verifying":
+      return reconcileVerifying(ctx, row)
     case "exporting":
       return reconcileExporting(ctx, row)
     case "cancel_requested":
       await ctx.finishCancel(id, row.blockedReason === "budget_exhausted" ? "budget" : "operator")
       return
+    // `awaiting_approval` has no rule: rung 1's gate is the controller's own frozen bundle,
+    // recorded in the registry, and there is nothing parked on the worker to go missing. The
+    // row is already everything the operator needs to decide, and `approve` re-verifies before
+    // it writes, so a restart is not an event in its life at all.
     default:
       return
   }
@@ -180,7 +185,7 @@ async function reconcileRun(
   const fail = (reason: string) =>
     ctx.transition(
       id,
-      "run_ended_without_candidate",
+      "turn_ended_without_changes",
       { failureReason: "ended_without_candidate" },
       { reconciled: true, reason },
     )
@@ -194,31 +199,15 @@ async function reconcileRun(
   // the moves below is legal from where it left it.
   if (!isRunState(ctx.mustGet(id).state)) return
   if (!thread) {
+    // No workspace to read and no turn to wait for: there is nothing left to judge.
     fail("thread not found on worker")
     return
   }
   const pending = await ctx.worker.pendingInterrupts(threadId)
   if (!isRunState(ctx.mustGet(id).state)) return
   if (pending.length > 0) {
-    const gate = pending.length === 1 && pending[0] && isExportGate(pending[0]) ? pending[0] : null
-    if (gate && row.candidateDigest && row.candidateVerified === true) {
-      ctx.transition(
-        id,
-        "candidate_interrupt",
-        { interruptId: gate.interruptId, awaitingSince: ctx.iso() },
-        { reconciled: true, interruptId: gate.interruptId },
-      )
-      return
-    }
-    if (gate) {
-      ctx.transition(
-        id,
-        "candidate_interrupt_without_digest",
-        { interruptId: gate.interruptId, blockedReason: "candidate_digest_unknown" },
-        { reconciled: true },
-      )
-      return
-    }
+    // Rung 1's builder route has no gate to park on, so any prompt is an unexpected one —
+    // the same judgement the run observer makes, made again from the worker's own list.
     ctx.transition(
       id,
       "unexpected_interrupt",
@@ -250,56 +239,84 @@ async function reconcileRun(
     ctx.track(id, ctx.observeRun(id, frames, { reconcileAttempt: attempt }))
     return
   }
-  if (row.candidateDigest && (await receiptExists(ctx.outboxDir, row.candidateDigest))) {
-    // Cannot happen without an approval; record it loudly rather than pretend it was exported.
-    ctx.recordEvent(id, "unexpected_receipt", {
-      path: receiptPath(ctx.outboxDir, row.candidateDigest),
-    })
-  }
-  if (!isRunState(ctx.mustGet(id).state)) return
-  fail(`thread ${thread.status} with no pending prompt`)
+  // The turn is over with nothing parked, so it left a workspace behind — exactly what the
+  // end of a stream means when the controller is watching one. Whether that workspace holds
+  // a candidate is the verifying phase's judgement, not this rule's.
+  ctx.transition(id, "turn_ended_with_workspace", {}, { reconciled: true, status: thread.status })
+  await reverify(ctx, id)
 }
 
-/** Rule 5: the prompt the operator is expected to answer must still be there. */
-async function reconcileAwaiting(ctx: ControllerContext, row: WorkOrderRow): Promise<void> {
-  if (!row.workerThreadId || !row.interruptId) {
-    ctx.transition(
-      row.id,
-      "interrupt_vanished",
-      { blockedReason: "interrupt_vanished" },
-      { reconciled: true, reason: "no gate recorded" },
-    )
-    return
-  }
-  const pending = await ctx.worker.pendingInterrupts(row.workerThreadId)
-  if (ctx.mustGet(row.id).state !== "awaiting_approval") return
-  if (pending.length === 1 && pending[0]?.interruptId === row.interruptId) {
-    ctx.recordEvent(row.id, "reconciled", {
-      resolution: "gate_still_pending",
-      interruptId: row.interruptId,
-    })
-    return
-  }
-  ctx.transition(
-    row.id,
-    "interrupt_vanished",
-    { blockedReason: "interrupt_vanished" },
-    { reconciled: true, expected: row.interruptId, pending: pending.map((p) => p.interruptId) },
-  )
+/**
+ * Rule 7: a work order interrupted mid-verification. Verification has no durable external
+ * effect — no bytes leave the controller until an approval is bound to a frozen bundle — so
+ * the phase is never resumed and never re-dispatched: it is simply run again from the
+ * controller's own baseline and the builder's workspace.
+ */
+async function reconcileVerifying(ctx: ControllerContext, row: WorkOrderRow): Promise<void> {
+  ctx.recordEvent(row.id, "reconciled", { resolution: "reverify", state: row.state })
+  await reverify(ctx, row.id)
 }
 
-/** Rule 3: an export that was in progress. The receipt decides; nothing is resumed again. */
+/**
+ * Run the verifying phase again after a restart.
+ *
+ * The phase can only be run again while the builder's workspace is still there. A workspace
+ * that has been reaped is a candidate that can never be reproduced, and no later boot will
+ * change that, so it is blocked outright rather than left to be guessed at — or retried for
+ * ever — as `inconclusive`. The probe read is what tells the two apart, and it is made here
+ * rather than inside the phase because only reconciliation knows the sandbox has had a
+ * lifetime in which to disappear.
+ */
+async function reverify(ctx: ControllerContext, id: string): Promise<void> {
+  const row = ctx.mustGet(id)
+  if (row.state !== "verifying") return
+  if (row.workerThreadId) {
+    try {
+      await ctx.workspaceReader.read(row.workerThreadId, ctx.signal)
+    } catch (error) {
+      ctx.recordEvent(id, "workspace_unreadable", { phase: "reconcile", error: String(error) })
+      if (ctx.mustGet(id).state === "verifying")
+        ctx.transition(
+          id,
+          "assembly_rejected",
+          { blockedReason: "baseline_mismatch" },
+          { reconciled: true, reason: "the builder workspace could not be read after restart" },
+        )
+      return
+    }
+    if (ctx.mustGet(id).state !== "verifying") return
+  }
+  try {
+    await ctx.runVerification(id)
+  } catch (error) {
+    ctx.recordEvent(id, "reconcile_failed", { phase: "verifying", error: String(error) })
+    if (ctx.mustGet(id).state === "verifying")
+      ctx.transition(
+        id,
+        "receipt_inconclusive",
+        { blockedReason: "verification_inconclusive" },
+        { reconciled: true, reason: "the verifying phase could not be completed after restart" },
+      )
+  }
+}
+
+/**
+ * Rule 3: an export that was in progress. In rung 1 the controller writes the approved bytes
+ * itself, named by the bundle digest it approved, so its own export directory — not a receipt
+ * some worker was trusted to leave behind — is what says whether the write happened. Nothing
+ * is resumed: the bytes are either there or they are not.
+ */
 async function reconcileExporting(ctx: ControllerContext, row: WorkOrderRow): Promise<void> {
   const id = row.id
-  if (row.candidateDigest && (await receiptExists(ctx.outboxDir, row.candidateDigest))) {
-    const path = receiptPath(ctx.outboxDir, row.candidateDigest)
-    const digest = row.candidateDigest
+  const bundle = row.bundleDigest ? ctx.evidence.bundle(row.bundleDigest) : null
+  const path = bundle ? join(ctx.exportDir, `${bundle.digest}.json`) : null
+  if (bundle && path && (await exists(path))) {
     if (ctx.mustGet(id).state !== "exporting") return
     ctx.store.transaction(() => {
       if (!ctx.store.delivery(id))
         ctx.store.recordDelivery({
           workOrderId: id,
-          candidateDigest: digest,
+          candidateDigest: bundle.candidateDigest,
           receiptPath: path,
           observedAt: ctx.iso(),
         })
@@ -313,6 +330,18 @@ async function reconcileExporting(ctx: ControllerContext, row: WorkOrderRow): Pr
     id,
     "export_unconfirmed",
     { blockedReason: "export_unconfirmed" },
-    { reconciled: true, reason: "no receipt after restart" },
+    {
+      reconciled: true,
+      reason: bundle ? "no exported bytes after restart" : "no frozen bundle to export",
+    },
   )
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path)
+    return true
+  } catch {
+    return false
+  }
 }

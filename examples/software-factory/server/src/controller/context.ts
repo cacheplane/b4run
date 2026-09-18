@@ -22,11 +22,6 @@ export interface ControllerContext {
   readonly workerRoute: string
   readonly exportDir: string
   readonly maxChangedBytes: number
-  /**
-   * Rung 0's receipt outbox. Still read by the rung 0 export rules in `reconcile.ts`, which
-   * Task 13 replaces along with the outbox itself.
-   */
-  readonly outboxDir: string
   readonly signal: AbortSignal
   now(): number
   iso(): string

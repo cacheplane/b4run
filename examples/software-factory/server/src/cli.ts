@@ -48,10 +48,8 @@ async function main(argv: string[]): Promise<number> {
     registryPath: config.registryPath,
     worker: createHttpWorkerClient(config.workerUrl),
     workerRoute: config.workerRoute,
-    outboxDir: config.outboxDir,
     approvalTtlMs: config.approvalTtlMs,
     maxActiveMs: config.maxActiveMs,
-    receiptWaitMs: config.receiptWaitMs,
   })
   const needId = () => {
     if (!id) throw new Error(`${command} requires a work order id`)

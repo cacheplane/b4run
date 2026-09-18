@@ -3,29 +3,58 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory, type FactoryOptions } from "../src/controller/factory.ts"
-import type { CommandOutcome } from "../src/domain/work-order.ts"
+import type { CommandOutcome, WorkOrderRow } from "../src/domain/work-order.ts"
+import type { Verifier } from "../src/verification/verifier.ts"
 import { createHttpWorkerClient } from "../src/worker/client.ts"
+import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
+import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 let dir: string
 let fake: FakeWorker
 let factory: Factory
+let reader: FakeWorkspaceReader
 const BASE_MS = Date.parse("2026-09-16T10:00:00.000Z")
 let nowMs = BASE_MS
+
+const REPAIRED = "export const fixed = true\n"
+
+/** The baseline the controller captures, injected so this layer needs no container. */
+const captureRepairable = async () => ({
+  digest: "a".repeat(64),
+  files: new Map([
+    ["src/cli.ts", "broken\n"],
+    ["test/cli.test.ts", "spec\n"],
+    ["TASK.md", "task\n"],
+  ]),
+})
+/** What the builder is deemed to have left behind: a repair and two untouched files. */
+const repaired = () => ({
+  "src/cli.ts": REPAIRED,
+  "test/cli.test.ts": "spec\n",
+  "TASK.md": "task\n",
+})
+
+const out = () => join(dir, "out")
 
 async function boot(
   worker: Omit<FakeWorkerOptions, "outboxDir"> = {},
   overrides: Partial<FactoryOptions> = {},
 ) {
   dir = mkdtempSync(join(tmpdir(), "factory-cancel-"))
-  // Both the worker's receipt write and readdirSync need the directory to exist.
-  mkdirSync(join(dir, "outbox"), { recursive: true })
-  fake = await createFakeWorker({ outboxDir: join(dir, "outbox"), ...worker })
+  // readdirSync asserts on this directory before anything is written to it.
+  mkdirSync(out(), { recursive: true })
+  fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only", ...worker })
+  reader = createFakeWorkspaceReader({})
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
     worker: createHttpWorkerClient(fake.baseUrl),
-    workerRoute: "/fix#agent",
-    outboxDir: join(dir, "outbox"),
+    workerRoute: "/build#agent",
+    exportDir: out(),
+    artifactsDir: join(dir, "artifacts"),
+    verifier: createFakeVerifier({ verdict: "pass" }),
+    workspaceReader: reader,
+    captureBaseline: captureRepairable,
     now: () => nowMs,
     ...overrides,
   })
@@ -42,6 +71,17 @@ afterEach(async () => {
 
 const cancels = () => fake.requests.filter((r) => r.path.endsWith("/cancel"))
 const resumes = () => fake.requests.filter((r) => r.path.endsWith("/resume"))
+
+/** Drive a work order through the verifying phase to the frozen bundle. */
+async function awaiting(): Promise<WorkOrderRow & { bundleDigest: string }> {
+  const { id } = await factory.create({ taskId: "cli-flags" })
+  await factory.dispatch(id)
+  const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+  reader.set(dispatched.workerThreadId as string, repaired())
+  const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval", 20_000)
+  if (row.bundleDigest === null) throw new Error(`${id} reached the gate with no frozen bundle`)
+  return row as WorkOrderRow & { bundleDigest: string }
+}
 
 describe("cancel", () => {
   it("reaches a running worker and ends cancelled only after the run ended", async () => {
@@ -66,18 +106,61 @@ describe("cancel", () => {
     expect(events).toContain("run_cancelled_observed:")
   })
 
-  it("cancels an awaiting_approval work order by denying its gate, and writes nothing", async () => {
+  it("cancels an awaiting_approval work order without asking the worker for anything", async () => {
     await boot()
-    const { id } = await factory.create({ taskId: "cli-flags" })
-    await factory.dispatch(id)
-    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
-    expect((await factory.cancel(id)).state).toBe("cancelled")
+    const row = await awaiting()
+    expect((await factory.cancel(row.id)).state).toBe("cancelled")
+    // The turn is long over and rung 1 parks no gate on the worker: there is nothing to
+    // cancel and nothing to deny, and the approved bytes were never written.
     expect(cancels()).toHaveLength(0)
-    expect(resumes()).toHaveLength(1)
-    expect(resumes()[0]?.body).toMatchObject({
-      resume: [{ interruptId: row.interruptId, payload: "deny" }],
+    expect(resumes()).toHaveLength(0)
+    expect(readdirSync(out())).toEqual([])
+  })
+
+  it("cancels a work order that is still being verified, and freezes no bundle", async () => {
+    // A verifier that parks inside the phase: the only way to hold a row in `verifying`
+    // long enough to cancel it deterministically.
+    const inner = createFakeVerifier({ verdict: "pass" })
+    let release = () => {}
+    const parked = new Promise<void>((resolve) => {
+      release = resolve
     })
-    expect(readdirSync(join(dir, "outbox"))).toEqual([])
+    const verifier: Verifier = {
+      async verify(input, signal) {
+        await parked
+        return inner.verify(input, signal)
+      },
+    }
+    await boot({}, { verifier })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    try {
+      await factory.dispatch(id)
+      const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+      reader.set(dispatched.workerThreadId as string, repaired())
+      await factory.waitFor(id, (r) => r.state === "verifying", 20_000)
+
+      const outcome = await factory.cancel(id)
+      expect(outcome).toEqual({ ok: true, state: "cancelled", message: "Cancelled" })
+      const events = factory.events(id).map((e) => `${e.type}:${String(e.payload.event ?? "")}`)
+      const requested = events.indexOf("transition:cancel")
+      const ended = events.indexOf("transition:run_ended_after_cancel")
+      expect(requested).toBeGreaterThanOrEqual(0)
+      expect(ended).toBeGreaterThan(requested)
+      // The turn had already ended, so there was no run to interrupt.
+      expect(cancels()).toHaveLength(0)
+    } finally {
+      release()
+    }
+    // The phase runs to its end against a cancelled row and freezes nothing: a bundle is an
+    // offer of consent, and there is no longer anyone to offer it to.
+    await factory.waitFor(
+      id,
+      () => factory.events(id).some((e) => e.type === "receipt_issued"),
+      20_000,
+    )
+    expect(factory.show(id)).toMatchObject({ state: "cancelled", bundleDigest: null })
+    expect(factory.events(id).map((e) => e.type)).not.toContain("bundle_frozen")
+    expect(readdirSync(out())).toEqual([])
   })
 
   it("cancels a received work order that has no thread", async () => {
@@ -100,42 +183,36 @@ describe("cancel", () => {
 
   it("refuses an approve that arrives after the work order was cancelled", async () => {
     await boot()
-    const { id } = await factory.create({ taskId: "cli-flags" })
-    await factory.dispatch(id)
-    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
-    await factory.cancel(id)
-    const outcome = await factory.approve(id, {
+    const row = await awaiting()
+    await factory.cancel(row.id)
+    const outcome = await factory.approve(row.id, {
       revision: row.revision,
-      candidateDigest: fake.digest,
+      bundleDigest: row.bundleDigest,
     })
     expect(outcome).toMatchObject({ ok: false, message: "Cannot approve from cancelled" })
   })
 
   it("lets an approve race a cancel without stranding a command", async () => {
     await boot()
-    const { id } = await factory.create({ taskId: "cli-flags" })
-    await factory.dispatch(id)
-    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
+    const row = await awaiting()
     const [approved, cancelled] = await Promise.all([
-      factory.approve(id, { revision: row.revision, candidateDigest: fake.digest }),
-      factory.cancel(id),
+      factory.approve(row.id, { revision: row.revision, bundleDigest: row.bundleDigest }),
+      factory.cancel(row.id),
     ])
     expect([approved.ok, cancelled.ok].filter(Boolean)).toHaveLength(1)
     // Whichever lost says so in its outcome; neither is left in flight for a restart to find.
     expect((approved.ok ? cancelled : approved).message).toMatch(
       /changed state while approving|Cannot approve from|terminal/,
     )
-    expect(["exported", "cancelled"]).toContain(factory.show(id)?.state)
+    expect(["exported", "cancelled"]).toContain(factory.show(row.id)?.state)
   })
 
   it("lets a deny race a cancel without stranding a command", async () => {
     await boot()
-    const { id } = await factory.create({ taskId: "cli-flags" })
-    await factory.dispatch(id)
-    await factory.waitFor(id, (r) => r.state === "awaiting_approval")
+    const row = await awaiting()
     const settled = await Promise.allSettled([
-      factory.deny(id, "deny-1"),
-      factory.cancel(id, "cancel-1"),
+      factory.deny(row.id, "deny-1"),
+      factory.cancel(row.id, "cancel-1"),
     ])
     // Both commands answer: the loser says why rather than rejecting or leaving its key open.
     expect(settled.map((r) => r.status)).toEqual(["fulfilled", "fulfilled"])
@@ -144,10 +221,10 @@ describe("cancel", () => {
     expect(outcomes.find((o) => !o.ok)?.message).toMatch(
       /changed state while denying|Cannot deny from|terminal|no longer pending/,
     )
-    expect(["denied", "cancelled"]).toContain(factory.show(id)?.state)
+    expect(["denied", "cancelled"]).toContain(factory.show(row.id)?.state)
     // Replaying either key reads its recorded outcome; neither is in flight for a restart.
-    expect(await factory.deny(id, "deny-1")).toEqual(outcomes[0])
-    expect(await factory.cancel(id, "cancel-1")).toEqual(outcomes[1])
+    expect(await factory.deny(row.id, "deny-1")).toEqual(outcomes[0])
+    expect(await factory.cancel(row.id, "cancel-1")).toEqual(outcomes[1])
   })
 
   it("refuses an unconfirmed cancel and lets reconciliation finish it", async () => {
@@ -168,12 +245,16 @@ describe("cancel", () => {
 
     // A fresh factory over the same registry, against a worker that has never heard of the
     // thread: the 404 is the evidence that the run is over, and there is no prompt to deny.
-    const replacement = await createFakeWorker({ outboxDir: join(dir, "outbox") })
+    const replacement = await createFakeWorker({ outboxDir: join(dir, "unused") })
     const revived = await createFactory({
       registryPath: join(dir, "registry.sqlite"),
       worker: createHttpWorkerClient(replacement.baseUrl),
-      workerRoute: "/fix#agent",
-      outboxDir: join(dir, "outbox"),
+      workerRoute: "/build#agent",
+      exportDir: out(),
+      artifactsDir: join(dir, "artifacts"),
+      verifier: createFakeVerifier({ verdict: "pass" }),
+      workspaceReader: reader,
+      captureBaseline: captureRepairable,
       now: () => nowMs,
     })
     try {
@@ -236,12 +317,10 @@ describe("budget", () => {
 
   it("does not count time spent awaiting approval", async () => {
     await boot({}, { maxActiveMs: 1_000, budgetTickMs: 10 })
-    const { id } = await factory.create({ taskId: "cli-flags" })
-    await factory.dispatch(id)
-    await factory.waitFor(id, (r) => r.state === "awaiting_approval")
+    const row = await awaiting()
     nowMs += 60_000
     await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(factory.show(id)?.state).toBe("awaiting_approval")
+    expect(factory.show(row.id)?.state).toBe("awaiting_approval")
     expect(cancels()).toHaveLength(0)
   })
 })

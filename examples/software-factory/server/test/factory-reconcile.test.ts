@@ -6,29 +6,57 @@ import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory, type FactoryOptions } from "../src/controller/factory.ts"
 import { createCommandLog } from "../src/registry/commands.ts"
 import { openRegistry } from "../src/registry/db.ts"
-import { createWorkOrderStore } from "../src/registry/work-orders.ts"
+import { createWorkOrderStore, type WorkOrderPatch } from "../src/registry/work-orders.ts"
 import { createHttpWorkerClient } from "../src/worker/client.ts"
+import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
+import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 let dir: string
 let fake: FakeWorker
 let factory: Factory
+let reader: FakeWorkspaceReader
 const registryPath = () => join(dir, "registry.sqlite")
-const outbox = () => join(dir, "outbox")
+const out = () => join(dir, "out")
+
+const REPAIRED = "export const fixed = true\n"
+
+/** The baseline the controller captures, injected so this layer needs no container. */
+const captureRepairable = async () => ({
+  digest: "a".repeat(64),
+  files: new Map([
+    ["src/cli.ts", "broken\n"],
+    ["test/cli.test.ts", "spec\n"],
+    ["TASK.md", "task\n"],
+  ]),
+})
+/** What the builder is deemed to have left behind: a repair and two untouched files. */
+const repaired = () => ({
+  "src/cli.ts": REPAIRED,
+  "test/cli.test.ts": "spec\n",
+  "TASK.md": "task\n",
+})
+/** A workspace identical to the baseline: the thread exists but produced nothing. */
+const untouched = () => ({ ...repaired(), "src/cli.ts": "broken\n" })
 
 async function bootWorker(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
   dir = mkdtempSync(join(tmpdir(), "factory-reconcile-"))
-  // The worker writes its receipt here; both it and readdirSync need the directory to exist.
-  mkdirSync(outbox(), { recursive: true })
-  fake = await createFakeWorker({ outboxDir: outbox(), ...options })
+  // readdirSync asserts on this directory before anything is written to it.
+  mkdirSync(out(), { recursive: true })
+  fake = await createFakeWorker({ outboxDir: join(dir, "unused"), ...options })
+  // The reader outlives each factory, exactly as the builder's sandbox outlives a restart.
+  reader = createFakeWorkspaceReader({})
 }
 async function bootFactory(overrides: Partial<FactoryOptions> = {}) {
   factory = await createFactory({
     registryPath: registryPath(),
     worker: createHttpWorkerClient(fake.baseUrl),
-    workerRoute: "/fix#agent",
-    outboxDir: outbox(),
-    receiptWaitMs: 500,
+    workerRoute: "/build#agent",
+    exportDir: out(),
+    artifactsDir: join(dir, "artifacts"),
+    verifier: createFakeVerifier({ verdict: "pass" }),
+    workspaceReader: reader,
+    captureBaseline: captureRepairable,
     ...overrides,
   })
   return factory
@@ -40,35 +68,90 @@ afterEach(async () => {
   dir = undefined as unknown as string
   fake = undefined as unknown as FakeWorker
   factory = undefined as unknown as Factory
+  reader = undefined as unknown as FakeWorkspaceReader
 })
 /** Simulate a crash: drop the in-memory factory without letting it finish anything. */
 const crash = () => factory.close()
 const now = () => new Date().toISOString()
 const posts = () => fake.requests.filter((r) => r.method === "POST").length
 const threadPosts = () => fake.requests.filter((r) => r.path === "/threads").length
+const runPosts = () =>
+  fake.requests.filter((r) => r.method === "POST" && r.path.endsWith("/runs/stream")).length
 
+/** Drive a work order through the verifying phase to the frozen bundle. */
+async function awaiting(files: Readonly<Record<string, string>> = repaired()) {
+  const { id } = await factory.create({ taskId: "cli-flags" })
+  await factory.dispatch(id)
+  const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+  reader.set(dispatched.workerThreadId as string, files)
+  const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval", 20_000)
+  return { id, row, threadId: dispatched.workerThreadId as string }
+}
+
+/** Rewrite the row directly, the way a crash mid-phase would leave it. */
+function forceRow(id: string, patch: WorkOrderPatch): void {
+  const registry = openRegistry(registryPath())
+  const rows = createWorkOrderStore(registry.db)
+  const row = rows.get(id)
+  if (!row) throw new Error(`no work order ${id}`)
+  rows.update(id, row.revision, patch, now())
+  registry.close()
+}
 describe("reconciliation", () => {
-  it("restores awaiting_approval from the worker's pending prompt and approve still works", async () => {
-    await bootWorker()
+  it("leaves awaiting_approval untouched across a restart and approve still works", async () => {
+    await bootWorker({ run: "edits_only" })
     await bootFactory()
-    const { id } = await factory.create({ taskId: "cli-flags" })
-    await factory.dispatch(id)
-    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
+    const { id, row } = await awaiting()
     await crash()
     const writesBefore = posts()
     await bootFactory()
+    // Rung 1's gate is the controller's own frozen bundle: there is nothing to ask the
+    // worker about, so reconciliation asks it nothing.
     expect(posts()).toBe(writesBefore)
     expect(threadPosts()).toBe(1)
     expect(factory.show(id)).toMatchObject({
       state: "awaiting_approval",
       revision: row.revision,
-      interruptId: row.interruptId,
+      bundleDigest: row.bundleDigest,
+      candidateDigest: row.candidateDigest,
     })
     const outcome = await factory.approve(id, {
       revision: row.revision,
-      candidateDigest: row.candidateDigest as string,
+      bundleDigest: row.bundleDigest as string,
     })
     expect(outcome.state).toBe("exported")
+  })
+
+  it("re-verifies a work order found in verifying rather than resuming it", async () => {
+    await bootWorker({ run: "edits_only" })
+    await bootFactory()
+    const { id } = await awaiting()
+    await crash()
+    forceRow(id, { state: "verifying", bundleDigest: null })
+
+    await bootFactory()
+    const settled = await factory.waitFor(id, (r) => r.state === "awaiting_approval", 20_000)
+    expect(settled.bundleDigest).toMatch(/^[a-f0-9]{64}$/)
+    expect(factory.events(id).filter((e) => e.type === "reconciled").length).toBeGreaterThan(0)
+    // Verification has no durable external effect, so it is run again — never resumed, and
+    // never re-dispatched: the worker is asked for no second run.
+    expect(runPosts()).toBe(1)
+    expect(readdirSync(out())).toEqual([])
+  })
+
+  it("blocks a verifying work order whose candidate can no longer be reproduced", async () => {
+    await bootWorker({ run: "edits_only" })
+    await bootFactory()
+    const { id, threadId } = await awaiting()
+    await crash()
+    forceRow(id, { state: "verifying", bundleDigest: null })
+    // The builder's workspace is gone, as it would be after a sandbox reap.
+    reader.forget(threadId)
+
+    await bootFactory()
+    const settled = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
+    expect(settled.blockedReason).toBe("baseline_mismatch")
+    expect(runPosts()).toBe(1)
   })
 
   it("marks a dispatch that died before committing a thread as failed and keeps the work order received", async () => {
@@ -115,6 +198,8 @@ describe("reconciliation", () => {
     )
     createWorkOrderStore(registry.db).appendEvent(id, "thread_created", { threadId }, now())
     registry.close()
+    // The adopted thread never ran, so its workspace is still the baseline.
+    reader.set(threadId, untouched())
     const threadsBefore = threadPosts()
     await bootFactory()
     expect(threadPosts()).toBe(threadsBefore)
@@ -122,11 +207,10 @@ describe("reconciliation", () => {
     expect(
       factory.events(id).find((e) => e.payload.resolution === "thread_adopted")?.payload,
     ).toMatchObject({ threadId })
-    // The adopted thread never ran, so the run rules settle it rather than leaving it dispatched.
-    expect(factory.show(id)).toMatchObject({
-      state: "failed",
-      failureReason: "ended_without_candidate",
-    })
+    // The controller cannot tell a thread that never ran from one that did: it reads the
+    // workspace and finds nothing changed, which is what settles the row.
+    const settledRow = await factory.waitFor(id, (r) => r.state === "failed", 20_000)
+    expect(settledRow.failureReason).toBe("ended_without_candidate")
     expect(await factory.dispatch(id, "dispatch-orphan")).toMatchObject({
       ok: true,
       message: expect.stringMatching(/Adopted thread/),
@@ -158,77 +242,50 @@ describe("reconciliation", () => {
     expect(factory.events(id).filter((e) => e.type === "reattached")).toHaveLength(1)
   })
 
-  it("blocks with interrupt_vanished when the prompt is gone while awaiting approval", async () => {
-    await bootWorker()
+  it("marks exporting as exported from the bytes it already wrote", async () => {
+    await bootWorker({ run: "edits_only" })
     await bootFactory()
-    const { id } = await factory.create({ taskId: "cli-flags" })
-    await factory.dispatch(id)
-    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
-    await crash()
-    await fetch(`${fake.baseUrl}/threads/${row.workerThreadId}/resume`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        resume: [{ interruptId: row.interruptId, status: "resolved", payload: "deny" }],
-        route: "/fix#agent",
-      }),
-    }).then((r) => r.text())
-    await bootFactory()
-    expect(factory.show(id)).toMatchObject({
-      state: "blocked",
-      blockedReason: "interrupt_vanished",
-    })
-  })
-
-  it("marks exporting as exported from an existing receipt without a worker write", async () => {
-    await bootWorker()
-    await bootFactory()
-    const { id } = await factory.create({ taskId: "cli-flags" })
-    await factory.dispatch(id)
-    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
+    const { id, row } = await awaiting()
     await crash()
     const registry = openRegistry(registryPath())
-    const store = createWorkOrderStore(registry.db)
-    store.recordApproval({
+    const rows = createWorkOrderStore(registry.db)
+    rows.recordApproval({
       id: "ap-forged",
       workOrderId: id,
-      interruptId: row.interruptId as string,
+      bundleDigest: row.bundleDigest as string,
       candidateDigest: row.candidateDigest as string,
       decision: "approved",
       decidedBy: "operator",
       decidedAt: now(),
       expiresAt: now(),
     })
-    store.update(id, row.revision, { state: "exporting", activeStartedAt: now() }, now())
+    rows.update(id, row.revision, { state: "exporting", activeStartedAt: now() }, now())
     registry.close()
-    writeFileSync(join(outbox(), `${fake.digest}.json`), "{}")
+    // The write the crashed export had already made: named by the bundle digest, by the
+    // controller itself.
+    writeFileSync(join(out(), `${row.bundleDigest}.json`), "{}")
     const before = posts()
     await bootFactory()
     expect(factory.show(id)?.state).toBe("exported")
+    expect(factory.events(id).map((e) => e.type)).toContain("delivery_observed")
+    // The worker has no part in an export: nothing was asked of it.
     expect(posts()).toBe(before)
   })
 
-  it("blocks exporting with export_unconfirmed when no receipt exists", async () => {
-    await bootWorker()
+  it("blocks exporting with export_unconfirmed when no bytes were written", async () => {
+    await bootWorker({ run: "edits_only" })
     await bootFactory()
-    const { id } = await factory.create({ taskId: "cli-flags" })
-    await factory.dispatch(id)
-    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
+    const { id, row } = await awaiting()
     await crash()
-    const registry = openRegistry(registryPath())
-    createWorkOrderStore(registry.db).update(
-      id,
-      row.revision,
-      { state: "exporting", activeStartedAt: now() },
-      now(),
-    )
-    registry.close()
+    forceRow(id, { state: "exporting", activeStartedAt: now() })
+    expect(row.bundleDigest).toMatch(/^[a-f0-9]{64}$/)
     await bootFactory()
     expect(factory.show(id)).toMatchObject({
       state: "blocked",
       blockedReason: "export_unconfirmed",
     })
-    expect(readdirSync(outbox())).toEqual([])
+    // Reconciliation never writes the approved bytes itself: only an approval may do that.
+    expect(readdirSync(out())).toEqual([])
   })
 
   it("finishes a cancel that was requested before the crash", async () => {
@@ -238,10 +295,7 @@ describe("reconciliation", () => {
     await factory.dispatch(id)
     await factory.waitFor(id, (r) => r.state === "running")
     await crash()
-    const registry = openRegistry(registryPath())
-    const store = createWorkOrderStore(registry.db)
-    store.update(id, store.get(id)?.revision ?? 0, { state: "cancel_requested" }, now())
-    registry.close()
+    forceRow(id, { state: "cancel_requested" })
     await bootFactory()
     expect(factory.show(id)?.state).toBe("cancelled")
     expect(fake.requests.filter((r) => r.path.endsWith("/cancel"))).toHaveLength(1)
@@ -274,15 +328,7 @@ describe("reconciliation", () => {
     await factory.waitFor(id, (r) => r.state === "running")
     await crash()
     // The shape the budget ticker leaves behind when it dies mid-cancel.
-    const registry = openRegistry(registryPath())
-    const store = createWorkOrderStore(registry.db)
-    store.update(
-      id,
-      store.get(id)?.revision ?? 0,
-      { state: "cancel_requested", blockedReason: "budget_exhausted" },
-      now(),
-    )
-    registry.close()
+    forceRow(id, { state: "cancel_requested", blockedReason: "budget_exhausted" })
     await bootFactory()
     expect(factory.show(id)).toMatchObject({
       state: "blocked",
@@ -306,18 +352,22 @@ describe("reconciliation", () => {
     expect(factory.show(id)?.state).toBe("running")
   })
 
-  // The fake parks 50 ms after destroying the socket, so the reconciliation the lost stream
-  // triggers normally sees a live run, reattaches, and finds the gate on the pass that follows
-  // the reattached stream (stream_lost, reattached, reattached_turn_ended, then the gate). On a
-  // machine slow enough for the park to land first, the same pass finds the gate directly.
-  // Either way the work order ends up awaiting approval on the digest the lost stream carried.
-  it("recovers a lost stream: the parked prompt is found and the work order awaits approval", async () => {
-    await bootWorker({ run: "close_midway" })
+  // The fake ends the turn 50 ms after destroying the socket, so the reconciliation the lost
+  // stream triggers normally sees a live run, reattaches, and finds the turn over on the pass
+  // that follows the reattached stream. On a machine slow enough for the turn to end first,
+  // the same pass finds it over directly. Either way the work order is judged on the workspace
+  // the turn left behind, which is the only thing the lost stream could not carry away.
+  it("recovers a lost stream: the workspace is read and the work order awaits approval", async () => {
+    await bootWorker({ run: "edits_only_close_midway" })
     await bootFactory()
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
-    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
-    expect(row.candidateDigest).toBe(fake.digest)
+    const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+    reader.set(dispatched.workerThreadId as string, repaired())
+    const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval", 20_000)
+    expect(row.candidateDigest).toMatch(/^[a-f0-9]{64}$/)
+    expect(row.bundleDigest).toMatch(/^[a-f0-9]{64}$/)
     expect(factory.events(id).map((e) => e.type)).toContain("stream_lost")
+    expect(runPosts()).toBe(1)
   })
 })

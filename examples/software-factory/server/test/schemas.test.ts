@@ -7,14 +7,7 @@ import {
   ReceiptSchema,
   WorkOrderRowSchema,
 } from "../src/domain/work-order.ts"
-import {
-  classifyDone,
-  InterruptFrameSchema,
-  isExportGate,
-  parsePrepareReviewOutput,
-} from "../src/worker/wire.ts"
-
-const digest = "a".repeat(64)
+import { classifyDone, InterruptFrameSchema } from "../src/worker/wire.ts"
 
 function validRow() {
   return {
@@ -55,35 +48,15 @@ describe("work-order schemas", () => {
 })
 
 describe("wire schemas", () => {
-  it("recognises the exportForReview gate and nothing else", () => {
-    const gate = InterruptFrameSchema.parse({
+  it("parses an interrupt frame and rejects one with no id", () => {
+    const frame = InterruptFrameSchema.parse({
       interruptId: "perm-1",
-      type: "permission-request",
-      kind: "tool",
-      detail: {
-        toolName: "exportForReview",
-        argsPreview: "{}",
-        suggestedPattern: "exportForReview",
-      },
-    })
-    expect(isExportGate(gate)).toBe(true)
-    const other = InterruptFrameSchema.parse({
-      interruptId: "perm-2",
       type: "permission-request",
       kind: "command",
       detail: { command: "rm", suggestedPattern: "rm" },
     })
-    expect(isExportGate(other)).toBe(false)
-  })
-
-  it("parses prepareReview output given as an object or a JSON string", () => {
-    const output = {
-      candidate: { receiptDigest: digest, changes: {} },
-      verification: { passed: true },
-    }
-    expect(parsePrepareReviewOutput(output).candidate.receiptDigest).toBe(digest)
-    expect(parsePrepareReviewOutput(JSON.stringify(output)).verification.passed).toBe(true)
-    expect(() => parsePrepareReviewOutput({ candidate: {} })).toThrow()
+    expect(frame.kind).toBe("command")
+    expect(() => InterruptFrameSchema.parse({ ...frame, interruptId: "" })).toThrow()
   })
 
   it("classifies done frames", () => {

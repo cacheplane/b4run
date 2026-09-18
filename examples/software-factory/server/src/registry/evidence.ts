@@ -36,7 +36,7 @@ export function createEvidenceStore(db: DatabaseSync): EvidenceStore {
           policyDigest: row.policy_digest,
           environmentIdentity: row.environment_identity,
           verdict: row.verdict,
-          checks: JSON.parse(row.checks),
+          checks: JSON.parse(String(row.checks)),
           issuedAt: row.issued_at,
         })
       : null
@@ -135,7 +135,7 @@ export function createEvidenceStore(db: DatabaseSync): EvidenceStore {
             workOrderId: row.work_order_id,
             candidateDigest: row.candidate_digest,
             receiptId: row.receipt_id,
-            payload: JSON.parse(row.payload),
+            payload: JSON.parse(String(row.payload)),
             frozenAt: row.frozen_at,
           })
         : null

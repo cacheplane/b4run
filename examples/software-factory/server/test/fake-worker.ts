@@ -26,6 +26,7 @@ export type RunBehaviour =
   | "route_error"
   | "no_candidate"
   | "edits_only"
+  | "edits_only_close_midway"
   | "hang"
   | "close_midway"
   | "reattach_ends_busy"
@@ -211,6 +212,14 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
       sse.frame("chunk", "Repair written.")
       sse.frame("done", { output: {} })
       return finishRun(thread, sse)
+    }
+    if (kind === "edits_only_close_midway") {
+      sse.frame("tool_result", { id: "call-1", name: "readFile", output: "TASK.md contents" })
+      sse.frame("tool_result", { id: "call-2", name: "writeFile", output: "written" })
+      await sse.destroy()
+      if (await sleepOrAbort(50)) return
+      // No SSE to end: the turn finishes on a connection the controller no longer holds.
+      return finishRun(thread, null)
     }
     if (kind === "hang") {
       // A real frame, not just a comment: the SSE parser drops comments, so a comment-only

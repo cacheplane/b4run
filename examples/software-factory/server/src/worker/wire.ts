@@ -1,5 +1,4 @@
 import { z } from "zod"
-import { DIGEST_PATTERN } from "../domain/work-order.js"
 
 /** One Server-Sent Event as the runtime emits it: `event:` name and parsed `data:`. */
 export interface StreamFrame {
@@ -38,25 +37,6 @@ export const ErrorBodySchema = z.looseObject({
     details: z.record(z.string(), z.unknown()).optional(),
   }),
 })
-
-export const PrepareReviewOutputSchema = z.looseObject({
-  candidate: z.looseObject({ receiptDigest: z.string().regex(DIGEST_PATTERN) }),
-  verification: z.looseObject({ passed: z.boolean() }),
-})
-export type PrepareReviewOutput = z.infer<typeof PrepareReviewOutputSchema>
-
-export const EXPORT_TOOL = "exportForReview"
-export const PREPARE_TOOL = "prepareReview"
-
-export function isExportGate(frame: InterruptFrame): boolean {
-  return frame.kind === "tool" && frame.detail.toolName === EXPORT_TOOL
-}
-
-/** Tool results arrive as the tool's return value or as a JSON string of it. */
-export function parsePrepareReviewOutput(output: unknown): PrepareReviewOutput {
-  const value = typeof output === "string" ? JSON.parse(output) : output
-  return PrepareReviewOutputSchema.parse(value)
-}
 
 /** Read `output.error` / `output.cancelled` from a `done` frame without trusting its shape. */
 export function classifyDone(data: unknown): { error: string | null; cancelled: boolean } {

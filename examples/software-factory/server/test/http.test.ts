@@ -27,7 +27,6 @@ describe("http api", () => {
       registryPath: join(dir, "registry.sqlite"),
       worker: createHttpWorkerClient(fake.baseUrl),
       workerRoute: "/fix#agent",
-      outboxDir: join(dir, "outbox"),
       receiptWaitMs: 2_000,
     })
     api = await createHttpApi(factory).listen(0)
