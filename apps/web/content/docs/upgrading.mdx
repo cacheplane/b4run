@@ -64,6 +64,55 @@ For example, change `import { discoverRoutes } from "@b4run/core"` to `import { 
 
 Pin exact versions (no `^` or `~` ranges) for `@b4run/*` packages until the project reaches 1.0 — a floating range means an unreviewed minor bump can land in CI or production without the deliberate read-the-notes step above.
 
+## The `vercel` target's function is now `b4.func`
+
+`b4 build` with the `vercel` target publishes its runtime function at
+`functions/b4.func/` and routes `/(.*)` to `/b4`. It was `functions/index.func/`
+routed to `/index`, except in a build that configured `build.vercel.static`,
+which already used `b4`.
+
+The reason is the Build Output API's own routing: a function named `index` is
+also served at `/`, where it shadows a static `index.html`. That hazard belongs
+to the name, not to whether a particular build happens to emit static assets, so
+the name is off the root in every build. An app that grows a frontend later no
+longer has to rename its function to get one.
+
+Nothing inside the function changes, and nothing that goes through the CLI
+notices. What breaks is anything that reads the published tree by path:
+
+- a deploy script that copies or inspects `functions/index.func`
+- an external assembler that composes the tree after the build
+- CI that imports the built entry for a smoke check
+- a hand-written `config.json`, or an assertion, naming the `/index` route
+
+**Migrating depends on whether you ship static assets**, and this is the part
+worth reading twice:
+
+```ts
+// No static assets: you can keep the old published path indefinitely.
+export default config({
+  build: { targets: ["vercel"], vercel: { functionName: "index" } },
+})
+```
+
+```ts
+// With build.vercel.static: this FAILS the build, by design. A function named
+// "index" would shadow the static root, so the build refuses it and names the
+// conflict. Update whatever reads the tree instead.
+export default config({
+  build: {
+    targets: ["vercel"],
+    vercel: { functionName: "index", static: { dir: "../dist/react" } },
+  },
+})
+```
+
+So an app composing a frontend with the runtime has no opt-out, and the path
+move is mandatory for it. An app deploying only the runtime can pin the old name
+and migrate on its own schedule. Either way `functionName` accepts one path
+segment of letters, digits, `_` or `-`, and `b4 check` rejects anything else
+before the build writes.
+
 ## `toolOutput` is now gated off the `hono` target
 
 If your app configures `toolOutput` **and** names `"hono"` in `build.targets`,
