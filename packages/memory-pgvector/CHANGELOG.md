@@ -1,5 +1,16 @@
 # @dawn-ai/memory-pgvector
 
+## 0.8.35
+
+### Patch Changes
+
+- ebe6921: Behavior change: `@b4run/memory-pgvector` now requires `schema` and `tablePrefix` to be lowercase. Both are interpolated into DDL unquoted, and Postgres folds an unquoted identifier to lowercase, so a value like `MySchema` created `myschema` and never named the tables the store then queried. Such a value now throws at construction. Pass the lowercase spelling the database was already using. The enforced pattern is exported as `IDENTIFIER_PATTERN`, matching `@b4run/postgres-storage`.
+- 026395a: Make `initSchema` safe to run from several cold starts at once. Every statement it issues uses `IF NOT EXISTS`, which makes each one idempotent but not concurrency-safe: two sessions running the same statement race on the catalog and the loser raises `23505` instead of a no-op, on `pg_extension` for the extension, `pg_namespace` for the schema, `pg_type` for a table and `pg_class` for an index. A serverless deploy scaling from zero cold-starts several isolates that all initialize the same database, and the store's in-process memoization covers one process only.
+
+  The pass now runs in one transaction holding an advisory lock keyed on the schema and table prefix it builds, so concurrent callers queue and each one after the first no-ops through work that is already done. This is the same defect `@b4run/postgres-storage` carried as issue #709.
+
+  - @b4run/memory@0.8.35
+
 ## 0.8.34
 
 ### Patch Changes
