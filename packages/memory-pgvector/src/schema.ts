@@ -40,7 +40,35 @@ export function assertIdentifier(name: string, value: string): void {
     )
 }
 
-/** Idempotent schema init. Safe to call repeatedly (IF NOT EXISTS everywhere). */
+/** Namespaces B4.run's advisory locks away from any the host application takes. */
+const ADVISORY_LOCK_CLASS = 0x4441574e
+
+/** FNV-1a 32-bit, coerced to the signed int4 `pg_advisory_xact_lock` accepts. */
+function advisoryLockId(key: string): number {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < key.length; i++) {
+    hash ^= key.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return hash | 0
+}
+
+/**
+ * Idempotent, concurrency-safe schema init.
+ *
+ * `IF NOT EXISTS` makes each statement idempotent but NOT safe to run
+ * concurrently: two sessions executing the same one race on the catalog and the
+ * loser raises 23505 rather than a no-op — `pg_extension` for the extension,
+ * `pg_namespace` for the schema, `pg_type` for a table, `pg_class` for an
+ * index. A serverless deploy scaling 0→N cold-starts N isolates that all run
+ * this against an uninitialized database, and the memoization in
+ * `pgvector-store.ts` covers one process only.
+ *
+ * So the whole pass runs in ONE transaction holding `pg_advisory_xact_lock`
+ * keyed on the schema and prefix it builds: concurrent callers queue, and every
+ * one after the first finds the work done and no-ops through it.
+ * `@b4run/postgres-storage` carried the same defect as issue #709.
+ */
 export async function initSchema(
   client: PoolClient,
   opts: { prefix: string; schema: string; dimensions: number; m: number; efConstruction: number },
@@ -51,40 +79,56 @@ export async function initSchema(
   const t = `${schema}.${prefix}_memories`
   const tk = `${schema}.${prefix}_tokens`
   const { type, ops } = vectorColumnDef(dimensions)
-  await client.query("CREATE EXTENSION IF NOT EXISTS vector")
-  await client.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
-  await client.query(`CREATE TABLE IF NOT EXISTS ${t} (
-    id text PRIMARY KEY, kind text NOT NULL, namespace text NOT NULL, content text NOT NULL,
-    data jsonb NOT NULL, source jsonb NOT NULL, confidence real NOT NULL, tags jsonb NOT NULL,
-    status text NOT NULL, supersedes jsonb, created_at text NOT NULL, updated_at text NOT NULL,
-    effective_at text, expires_at text, embedding ${type}, embedding_model text)`)
-  await client.query(`CREATE TABLE IF NOT EXISTS ${tk} (
-    memory_id text NOT NULL REFERENCES ${t}(id) ON DELETE CASCADE, token text NOT NULL)`)
-  await client.query(
-    `CREATE INDEX IF NOT EXISTS ${prefix}_ns_status_updated ON ${t} (namespace, status, updated_at DESC)`,
-  )
-  // Equality filter for kind-scoped windows; COALESCE(effective_at, created_at)
-  // ordering is intentionally unindexed at this scale.
-  await client.query(
-    `CREATE INDEX IF NOT EXISTS ${prefix}_ns_kind_effective ON ${t} (namespace, kind, effective_at DESC)`,
-  )
-  // The global browse order + keyset seek. `id COLLATE "C"` matches SQLite's BINARY
-  // tie-break; `updated_at` is deliberately UNCOLLATED so the store's ORDER BY (also
-  // uncollated) keeps matching it. That rests on every stored updated_at being the
-  // same fixed-width ISO form — MemoryRecord types it as a bare string and nothing
-  // enforces it, and mixed widths make glibc collation and byte order disagree,
-  // silently splitting the two backends' order.
-  await client.query(
-    `CREATE INDEX IF NOT EXISTS ${prefix}_updated_id ON ${t} (updated_at DESC, id COLLATE "C" ASC)`,
-  )
-  // browse()'s namespace clauses are C-collated on both sides — `= $1` and the
-  // half-open `>= $1 AND < $2` — and the default-collation composite above cannot
-  // serve either. stats() and prune() still match with `left(namespace, n) = $1` and
-  // get nothing from this index.
-  await client.query(`CREATE INDEX IF NOT EXISTS ${prefix}_ns_c ON ${t} (namespace COLLATE "C")`)
-  await client.query(`CREATE INDEX IF NOT EXISTS ${prefix}_tok ON ${tk} (token)`)
-  await client.query(`CREATE INDEX IF NOT EXISTS ${prefix}_tok_mem ON ${tk} (memory_id)`)
-  await client.query(
-    `CREATE INDEX IF NOT EXISTS ${prefix}_hnsw ON ${t} USING hnsw (embedding ${ops}) WITH (m = ${m}, ef_construction = ${efConstruction})`,
-  )
+
+  await client.query("BEGIN")
+  try {
+    await client.query("SELECT pg_advisory_xact_lock($1, $2)", [
+      ADVISORY_LOCK_CLASS,
+      advisoryLockId(`pgvector:${schema}.${prefix}`),
+    ])
+    await client.query("CREATE EXTENSION IF NOT EXISTS vector")
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+    await client.query(`CREATE TABLE IF NOT EXISTS ${t} (
+      id text PRIMARY KEY, kind text NOT NULL, namespace text NOT NULL, content text NOT NULL,
+      data jsonb NOT NULL, source jsonb NOT NULL, confidence real NOT NULL, tags jsonb NOT NULL,
+      status text NOT NULL, supersedes jsonb, created_at text NOT NULL, updated_at text NOT NULL,
+      effective_at text, expires_at text, embedding ${type}, embedding_model text)`)
+    await client.query(`CREATE TABLE IF NOT EXISTS ${tk} (
+      memory_id text NOT NULL REFERENCES ${t}(id) ON DELETE CASCADE, token text NOT NULL)`)
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS ${prefix}_ns_status_updated ON ${t} (namespace, status, updated_at DESC)`,
+    )
+    // Equality filter for kind-scoped windows; COALESCE(effective_at, created_at)
+    // ordering is intentionally unindexed at this scale.
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS ${prefix}_ns_kind_effective ON ${t} (namespace, kind, effective_at DESC)`,
+    )
+    // The global browse order + keyset seek. `id COLLATE "C"` matches SQLite's BINARY
+    // tie-break; `updated_at` is deliberately UNCOLLATED so the store's ORDER BY (also
+    // uncollated) keeps matching it. That rests on every stored updated_at being the
+    // same fixed-width ISO form — MemoryRecord types it as a bare string and nothing
+    // enforces it, and mixed widths make glibc collation and byte order disagree,
+    // silently splitting the two backends' order.
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS ${prefix}_updated_id ON ${t} (updated_at DESC, id COLLATE "C" ASC)`,
+    )
+    // browse()'s namespace clauses are C-collated on both sides — `= $1` and the
+    // half-open `>= $1 AND < $2` — and the default-collation composite above cannot
+    // serve either. stats() and prune() still match with `left(namespace, n) = $1` and
+    // get nothing from this index.
+    await client.query(`CREATE INDEX IF NOT EXISTS ${prefix}_ns_c ON ${t} (namespace COLLATE "C")`)
+    await client.query(`CREATE INDEX IF NOT EXISTS ${prefix}_tok ON ${tk} (token)`)
+    await client.query(`CREATE INDEX IF NOT EXISTS ${prefix}_tok_mem ON ${tk} (memory_id)`)
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS ${prefix}_hnsw ON ${t} USING hnsw (embedding ${ops}) WITH (m = ${m}, ef_construction = ${efConstruction})`,
+    )
+    await client.query("COMMIT")
+  } catch (error) {
+    // Leave the caller a usable connection rather than one stuck in an aborted
+    // transaction, and never let the rollback's own failure mask the cause.
+    try {
+      await client.query("ROLLBACK")
+    } catch {}
+    throw error
+  }
 }
