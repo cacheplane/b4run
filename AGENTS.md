@@ -209,8 +209,11 @@ substitute for the other or optional release cleanup.
   main, and a PR that regenerates it conflicts with every other docs PR inside
   a generated file. The one case you must regenerate is adding or removing a
   page: a route the manifest has never seen has no timestamp, and
-  `requireValidLastModified` throws during the build, so
-  `pnpm --dir apps/web seo:lastmod:routes` fails the PR until you do. If the
+  `requireValidLastModified` throws during the build. That gate is a test, not
+  a CI step: the web suite's route-coverage case (`covers every route the site
+  renders`, in `apps/web/app/seo/generate-lastmod.test.ts`) reds
+  `source-validate` until you regenerate, and
+  `pnpm --dir apps/web seo:lastmod:routes` reproduces it locally. If the
   manifest ever does conflict on a merge or rebase, it is marked `-merge` in
   `.gitattributes`, so git leaves valid JSON on one side instead of writing
   conflict markers into generated content — regenerate on top of that rather
