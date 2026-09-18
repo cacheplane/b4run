@@ -2,7 +2,7 @@
   "$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!**/.factory", "!node_modules"]
+    "includes": ["**", "!**/.factory", "!fixtures", "!node_modules"]
   },
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
   "javascript": { "formatter": { "quoteStyle": "double", "semicolons": "asNeeded" } },

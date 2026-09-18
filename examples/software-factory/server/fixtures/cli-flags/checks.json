@@ -1,7 +1,9 @@
 {
   "visible": {
     "file": "test/cli.test.ts",
-    "assertions": ["documented dry-run flag reaches the handler"]
+    "assertions": [
+      "documented dry-run flag reaches the handler"
+    ]
   },
   "independent": {
     "file": "checks/independent.test.ts",
