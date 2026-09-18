@@ -1,5 +1,5 @@
 import type { WorkspaceFs } from "@b4run/sdk"
-import type { SandboxHandle } from "./sandbox-types.js"
+import type { WorkspaceReadSource } from "./sandbox-types.js"
 
 export interface InspectWorkspaceOptions {
   readonly signal?: AbortSignal
@@ -32,7 +32,7 @@ interface Reader {
   read(path: string, maxBytes: number): Promise<Uint8Array>
 }
 
-function reader(source: WorkspaceFs | SandboxHandle, signal: AbortSignal): Reader {
+function reader(source: WorkspaceFs | WorkspaceReadSource, signal: AbortSignal): Reader {
   if ("filesystem" in source) {
     const fs = source.filesystem
     const stat = fs.lstat?.bind(fs)
@@ -89,7 +89,7 @@ function limit(value: number, name: string): number {
  * callers must quiesce writers or revalidate before acting on the inventory.
  */
 export async function inspectWorkspace(
-  source: WorkspaceFs | SandboxHandle,
+  source: WorkspaceFs | WorkspaceReadSource,
   options: InspectWorkspaceOptions = {},
 ): Promise<WorkspaceInspection> {
   const signal = options.signal ?? new AbortController().signal

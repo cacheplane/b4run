@@ -3,6 +3,7 @@ import { existsSync } from "node:fs"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { inspectWorkspace, withWorkspaceReader } from "@b4run/workspace"
 import { describe, expect, test } from "vitest"
 import { createDocker, type Docker, type SpawnResult } from "../src/docker/docker-cli.ts"
 import { dockerSandbox } from "../src/index.ts"
@@ -425,6 +426,128 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
     } finally {
       await p.destroy(threadId)
     }
+  })
+
+  // The non-disturbance proof. A second, trusted process reads a thread's
+  // workspace while the worker's keeper is live, and the keeper must come out
+  // the other side byte-for-byte the same container.
+  describe("openWorkspaceReader", () => {
+    const readerScope = "sandbox-test"
+    const keeperFor = (threadId: string) => `b4-sbx-${resourceScope(readerScope)(threadId)}`
+    const containerId = async (docker: Docker, name: string) =>
+      (await docker.run(["inspect", "--format", "{{.Id}}", name])).stdout.trim()
+
+    test("reads a live thread's workspace without disturbing its keeper", {
+      timeout: 180_000,
+    }, async () => {
+      const docker = createDocker()
+      const p = dockerSandbox({ scope: readerScope, image: IMAGE })
+      const threadId = `read-${randomUUID()}`
+      const keeper = keeperFor(threadId)
+      try {
+        const h = await p.acquire({ threadId, policy: policyDeny, signal: ctx("/").signal })
+        await h.filesystem.writeFile(
+          `${h.workspaceRoot}/produced.txt`,
+          "worker output\n",
+          ctx(h.workspaceRoot),
+        )
+        const before = await containerId(docker, keeper)
+        expect(before).not.toBe("")
+
+        // A second provider instance — exactly the shape a separate process
+        // has: it knows the scope and the thread id and nothing else.
+        const reader = dockerSandbox({ scope: readerScope, image: IMAGE })
+        const inspection = await withWorkspaceReader(
+          reader,
+          { threadId, signal: ctx("/").signal },
+          (r) => inspectWorkspace(r),
+        )
+        expect(inspection.files["produced.txt"]).toBe("worker output\n")
+
+        // Same container, still running, still usable.
+        expect(await containerId(docker, keeper)).toBe(before)
+        const running = await docker.run(["ps", "-q", "--filter", `name=^${keeper}$`])
+        expect(running.stdout.trim()).not.toBe("")
+        expect((await h.exec.runCommand({ command: "true" }, ctx(h.workspaceRoot))).exitCode).toBe(
+          0,
+        )
+        await h.filesystem.writeFile(
+          `${h.workspaceRoot}/after.txt`,
+          "still writable\n",
+          ctx(h.workspaceRoot),
+        )
+        expect(
+          await h.filesystem.readFile(`${h.workspaceRoot}/after.txt`, ctx(h.workspaceRoot)),
+        ).toBe("still writable\n")
+
+        // No reader container survives the read.
+        const strays = await docker.run([
+          "ps",
+          "-aq",
+          "--filter",
+          `label=b4.sandbox.reader=${resourceScope(readerScope)(threadId)}`,
+        ])
+        expect(strays.stdout.trim()).toBe("")
+      } finally {
+        await p.destroy(threadId)
+      }
+    })
+
+    test("the workspace mount rejects writes at the kernel, and reads survive release", {
+      timeout: 180_000,
+    }, async () => {
+      const docker = createDocker()
+      const p = dockerSandbox({ scope: readerScope, image: IMAGE })
+      const threadId = `read-ro-${randomUUID()}`
+      const volume = `b4-sbx-vol-${resourceScope(readerScope)(threadId)}`
+      try {
+        const h = await p.acquire({ threadId, policy: policyDeny, signal: ctx("/").signal })
+        await h.filesystem.writeFile(
+          `${h.workspaceRoot}/kept.txt`,
+          "durable\n",
+          ctx(h.workspaceRoot),
+        )
+
+        // The mount the reader uses is read-only to the kernel, not by policy.
+        const write = await docker.run([
+          "run",
+          "--rm",
+          "-v",
+          `${volume}:/workspace:ro`,
+          IMAGE,
+          "sh",
+          "-c",
+          "echo mutated > /workspace/kept.txt",
+        ])
+        expect(write.exitCode).not.toBe(0)
+        expect(`${write.stderr}${write.stdout}`.toLowerCase()).toContain("read-only")
+
+        // The case `docker exec` into the keeper could never serve: compute
+        // dropped, volume retained.
+        await p.release(threadId)
+        const gone = await docker.run(["ps", "-aq", "--filter", `name=^${keeperFor(threadId)}$`])
+        expect(gone.stdout.trim()).toBe("")
+
+        const inspection = await withWorkspaceReader(
+          dockerSandbox({ scope: readerScope, image: IMAGE }),
+          { threadId, signal: ctx("/").signal },
+          (r) => inspectWorkspace(r),
+        )
+        expect(inspection.files["kept.txt"]).toBe("durable\n")
+      } finally {
+        await p.destroy(threadId)
+      }
+    })
+
+    test("a destroyed thread has no workspace to read", { timeout: 120_000 }, async () => {
+      const p = dockerSandbox({ scope: readerScope, image: IMAGE })
+      const threadId = `read-gone-${randomUUID()}`
+      await p.acquire({ threadId, policy: policyDeny, signal: ctx("/").signal })
+      await p.destroy(threadId)
+      await expect(
+        withWorkspaceReader(p, { threadId, signal: ctx("/").signal }, async () => undefined),
+      ).rejects.toMatchObject({ code: "B4_E2001" })
+    })
   })
 })
 

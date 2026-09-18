@@ -51,6 +51,57 @@ export interface SandboxHandle {
   readonly workspaceRoot: string
 }
 
+/**
+ * The read-only projection of a workspace filesystem. `lstat`, `readBinaryFile`
+ * and `statFile` are REQUIRED here, unlike on `FilesystemBackend`: a surface
+ * built for inspection has no reason to omit the metadata inspection needs, so
+ * `inspectWorkspace` can never fail against one for a missing capability.
+ */
+export type ReadOnlyFilesystemBackend = Readonly<
+  Pick<
+    Required<FilesystemBackend>,
+    "lstat" | "readFile" | "readBinaryFile" | "listDir" | "statFile"
+  >
+>
+
+/**
+ * The minimum a workspace inspector consumes. `SandboxHandle` satisfies it, and
+ * so does a read-only reader that has no `exec` backend at all.
+ */
+export interface WorkspaceReadSource {
+  readonly filesystem: Pick<FilesystemBackend, "lstat" | "readBinaryFile" | "listDir">
+  /** Absolute path of the workspace root INSIDE the sandbox, e.g. "/workspace". */
+  readonly workspaceRoot: string
+}
+
+export interface OpenWorkspaceReaderInput {
+  readonly threadId: string
+  readonly signal: AbortSignal
+  /**
+   * Identity the reader runs as, in the same vocabulary as
+   * `SandboxSecurityPolicy.runAsNonRoot`. Defaults to the provider's secure
+   * default (uid/gid 1000:1000 on Docker), which is the owner of a workspace
+   * produced under the default policy. Mirror the thread's own policy when it
+   * relaxed that default, or restrictive modes on root-owned files are
+   * unreadable.
+   */
+  readonly runAsNonRoot?: SandboxSecurityPolicy["runAsNonRoot"]
+}
+
+/**
+ * A read-only view of one thread's workspace storage, independent of that
+ * thread's live sandbox. Carries no `exec` backend and no write operations:
+ * there is no API here through which a caller can express a mutation.
+ *
+ * Close it. `withWorkspaceReader` does that for you.
+ */
+export interface SandboxWorkspaceReader extends WorkspaceReadSource {
+  readonly threadId: string
+  readonly filesystem: ReadOnlyFilesystemBackend
+  /** Release reader-side resources. Idempotent. Never touches the thread's sandbox. */
+  close(): Promise<void>
+}
+
 export interface SandboxProvider {
   readonly workspaces?: ManagedWorkspaceProvider
   readonly name: string
@@ -69,6 +120,27 @@ export interface SandboxProvider {
   release(threadId: string): Promise<void>
   /** Destroy the sandbox AND its workspace volume (thread delete). */
   destroy(threadId: string): Promise<void>
+  /**
+   * OPTIONAL capability: open a read-only view of one thread's workspace
+   * storage for a trusted, co-located host process — after the thread's turn
+   * ends, while it sits idle between turns, or after `release()` dropped its
+   * compute and kept the volume.
+   *
+   * Presence of this method IS the capability probe. Providers whose storage
+   * cannot be attached twice (a ReadWriteOnce PVC, say) must omit it rather
+   * than ship an implementation that works only by accident of scheduling.
+   *
+   * An implementation MUST NOT create, replace, start, stop or otherwise
+   * disturb the thread's sandbox, MUST make writes impossible rather than
+   * merely undocumented, and MUST reject rather than return an empty view when
+   * the thread has no workspace storage — "produced nothing" and "does not
+   * exist" are different facts to a verifier.
+   *
+   * This is NOT an authorization boundary. The caller already holds the
+   * provider, and naming a thread id is not a claim of ownership. Gate access
+   * to the calling process, not here.
+   */
+  openWorkspaceReader?(input: OpenWorkspaceReaderInput): Promise<SandboxWorkspaceReader>
   /** Optional availability probe surfaced by `b4 check`. `warnings` are non-fatal notes (e.g. best-effort enforcement). */
   preflight?(): Promise<{
     readonly ok: boolean

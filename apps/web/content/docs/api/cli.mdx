@@ -2,7 +2,7 @@
 
 ## Use this when
 
-Most application developers use the `b4` command to develop, test, build, and serve an app. Import the package root only to embed the Node server. Use `/fetch` when an edge adapter supplies generated modules and the durable stores its routes need; it may also supply an already-constructed configuration, while omitted configuration uses runtime defaults. `/runtime` is low-level tooling; `/testing` is a deprecated compatibility alias.
+Most application developers use the `b4` command to develop, test, build, and serve an app. Import the package root only to embed the Node server. Use `/fetch` when an edge adapter supplies generated modules and the durable stores its routes need; it may also supply an already-constructed configuration, while omitted configuration uses runtime defaults. `/runtime` is low-level tooling; `/workspace` is the managed-workspace lifecycle without the command program, for a host process that owns its own executions; `/testing` is a deprecated compatibility alias.
 
 ## Install and import
 
@@ -32,6 +32,7 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 | `@b4run/cli/fetch` | edge-safe | not-claimed | integration | supported |
 | `@b4run/cli/runtime` | node-only | not-claimed | tooling | low-level |
 | `@b4run/cli/testing` | node-only | not-claimed | testing | supported |
+| `@b4run/cli/workspace` | node-only | not-claimed | tooling | low-level |
 | `bin:b4` | node-only | n/a | tooling | supported |
 
 ## Public exports
@@ -149,6 +150,18 @@ These exports exist for framework tooling and test harnesses. Application code s
 | `expectOutput` | Deprecated alias of `@b4run/sdk/testing` `expectOutput`. |
 
 New scenario files should import these aliases from [`@b4run/sdk/testing`](/docs/api/sdk#b4runsdktesting).
+
+### `@b4run/cli/workspace`
+
+| Export | Responsibility |
+|---|---|
+| `WithWorkspaceOptions` | Select source, provider, policy, and a private durable state directory. |
+| `cleanupWorkspaces` | Remove managed workspaces from an inactive, dedicated app installation with exclusive ownership and retryable deletion. |
+| `withWorkspace` | Run host-authored work in a fresh managed workspace with durable cleanup. |
+
+The package root exports the same three. This subpath exists so a host process
+can own workspace lifecycle without importing the command program that the root
+entry is.
 
 ### `bin:b4`
 

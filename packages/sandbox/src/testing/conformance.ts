@@ -1,4 +1,5 @@
 import type { SandboxProvider } from "@b4run/workspace"
+import { inspectWorkspace, withWorkspaceReader } from "@b4run/workspace"
 import { expect, test } from "vitest"
 
 const ctx = (workspaceRoot: string) => ({ signal: new AbortController().signal, workspaceRoot })
@@ -98,6 +99,80 @@ export function runProviderConformance(opts: {
         const a = await p.acquire({ threadId: "t", policy, signal: ctx("/").signal })
         const r = await a.exec.runCommand({ command: "true" }, ctx(a.workspaceRoot))
         expect(typeof r.exitCode).toBe("number")
+      })
+    })
+
+    /**
+     * Capability-conditional: `openWorkspaceReader` is optional, and a provider
+     * whose storage cannot be attached twice is expected to omit it. The probe
+     * happens INSIDE the test body on purpose — a provider constructed at
+     * collection time would run even inside a skipped suite, and the gated
+     * cluster providers cannot be constructed without their infrastructure.
+     */
+    const readerTest = (name: string, body: (provider: SandboxProvider) => Promise<void>): void => {
+      test(name, async (testContext) => {
+        const provider = opts.makeProvider()
+        if (typeof provider.openWorkspaceReader !== "function") {
+          testContext.skip()
+          return
+        }
+        await body(provider)
+      })
+    }
+
+    readerTest("a workspace reader sees what the thread produced", async (p) => {
+      await runProviderConformanceCase(p, ["t"], async () => {
+        const a = await p.acquire({ threadId: "t", policy, signal: ctx("/").signal })
+        await a.filesystem.writeFile(`${a.workspaceRoot}/produced.txt`, "out", ctx(a.workspaceRoot))
+        const inspection = await withWorkspaceReader(
+          p,
+          { threadId: "t", signal: ctx("/").signal },
+          (r) => inspectWorkspace(r),
+        )
+        expect(inspection.files["produced.txt"]).toBe("out")
+      })
+    })
+
+    readerTest("a workspace reader exposes no write and no exec surface", async (p) => {
+      await runProviderConformanceCase(p, ["t"], async () => {
+        await p.acquire({ threadId: "t", policy, signal: ctx("/").signal })
+        await withWorkspaceReader(p, { threadId: "t", signal: ctx("/").signal }, async (r) => {
+          const surface = r as unknown as Record<string, unknown>
+          for (const member of ["writeFile", "mkdir", "removeFile", "touchFile"]) {
+            expect(surface.filesystem).not.toHaveProperty(member)
+          }
+          expect(surface).not.toHaveProperty("exec")
+        })
+      })
+    })
+
+    readerTest("opening a reader for a thread with no workspace storage rejects", async (p) => {
+      await runProviderConformanceCase(p, ["t"], async () => {
+        await p.acquire({ threadId: "t", policy, signal: ctx("/").signal })
+        await p.destroy("t")
+        await expect(
+          withWorkspaceReader(p, { threadId: "t", signal: ctx("/").signal }, async () => undefined),
+        ).rejects.toThrow()
+      })
+    })
+
+    readerTest("reading a workspace leaves the thread's sandbox usable", async (p) => {
+      await runProviderConformanceCase(p, ["t"], async () => {
+        const a = await p.acquire({ threadId: "t", policy, signal: ctx("/").signal })
+        await a.filesystem.writeFile(`${a.workspaceRoot}/before`, "1", ctx(a.workspaceRoot))
+        await withWorkspaceReader(p, { threadId: "t", signal: ctx("/").signal }, (r) =>
+          inspectWorkspace(r),
+        )
+        // The same handle the worker holds: still reads, still writes, still execs.
+        expect(await a.filesystem.readFile(`${a.workspaceRoot}/before`, ctx(a.workspaceRoot))).toBe(
+          "1",
+        )
+        await a.filesystem.writeFile(`${a.workspaceRoot}/after`, "2", ctx(a.workspaceRoot))
+        expect(await a.filesystem.readFile(`${a.workspaceRoot}/after`, ctx(a.workspaceRoot))).toBe(
+          "2",
+        )
+        const r = await a.exec.runCommand({ command: "true" }, ctx(a.workspaceRoot))
+        expect(r.exitCode).toBe(0)
       })
     })
   })

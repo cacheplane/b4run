@@ -144,6 +144,60 @@ See [Kubernetes deployment](/docs/deployment/kubernetes) for app settings and [K
 
 A subagent runs under its parent's conversation thread. The coordinator and all of its subagents therefore resolve to the same sandbox and workspace rather than receiving one sandbox each.
 
+## Reading a thread's workspace from another process
+
+A trusted process that is not the runtime — a controller that dispatched work to
+an agent and now has to check what came back — can read a thread's workspace
+without going anywhere near that thread's live sandbox.
+
+```ts
+import { dockerSandbox } from "@b4run/sandbox"
+import { inspectWorkspace, withWorkspaceReader } from "@b4run/workspace"
+
+// The same scope and image the worker runtime uses.
+const provider = dockerSandbox({ scope: "my-app", image: "node:24-slim" })
+
+const produced = await withWorkspaceReader(provider, { threadId, signal }, (reader) =>
+  inspectWorkspace(reader, {
+    excludeRootDirectories: [".git"],
+    maxTotalBytes: 2 * 1024 * 1024,
+  }),
+)
+```
+
+`withWorkspaceReader` opens the reader, hands it to the callback, and closes it
+whatever happens. Use `provider.openWorkspaceReader()` directly only if you have
+somewhere better to put the `close()`.
+
+A reader is safe while a worker is mid-thread or idle between turns. It does not
+call `acquire()`, so it never replaces the worker's compute, and it reads the
+thread's workspace storage through a separate, ephemeral, networkless container
+that mounts it read-only. Writes fail at the kernel, not at a policy check, and
+the reader object exposes no write method and no shell: there is no API on it
+through which a mutation can be expressed.
+
+Reading is a capability, not a guarantee. `openWorkspaceReader` is optional on
+`SandboxProvider`; check for it, or let `withWorkspaceReader` raise. `dockerSandbox`
+implements it. `kubernetesSandbox` does not — its per-thread storage is a
+`ReadWriteOnce` PersistentVolumeClaim, which a second Pod cannot mount unless it
+happens to land on the same node, and a capability that works by accident of
+scheduling is worse than a missing one.
+
+Two things to know before you use it:
+
+- **It is not an authorization boundary.** It is a host-side API for a caller you
+  already trust — one that holds the provider, and with it the container runtime.
+  Naming a thread id is not a claim of ownership. Gate access to the calling
+  process. It is not a tool an agent can call and not an HTTP endpoint, and no
+  route, permission, or thread-access policy is consulted.
+- **The reader runs as uid/gid `1000:1000` by default**, matching the owner of a
+  workspace produced under the default security policy. A thread that set
+  `security.runAsNonRoot: false` produced root-owned files; pass the same value
+  as `runAsNonRoot` on the input so the reader can read restrictive modes.
+
+An inspection is not an atomic snapshot. Quiesce the writer — read after the
+turn ends — or revalidate before acting on the inventory.
+
 ## Custom providers
 
 Implement `SandboxProvider` to integrate a microVM, cloud sandbox, or another isolation backend:
@@ -165,10 +219,13 @@ export interface SandboxProvider {
     readonly detail?: string
     readonly warnings?: readonly string[]
   }>
+  openWorkspaceReader?(input: OpenWorkspaceReaderInput): Promise<SandboxWorkspaceReader>
 }
 ```
 
 `acquire()` must be idempotent for a thread. `release()` drops warm compute while retaining workspace data; `destroy()` removes both. `preflight()` can fail a configuration before runtime or return `warnings` when a provider cannot prove a requested control.
+
+`openWorkspaceReader()` is optional. Implement it only if your backend can attach a thread's workspace storage a second time; omit it otherwise. An implementation must not create, replace, start, or stop the thread's sandbox, must make writes impossible rather than merely undocumented, and must reject rather than return an empty view when the thread has no workspace storage — "produced nothing" and "does not exist" are different answers to a verifier.
 
 Validate the implementation with the shared conformance suite:
 
@@ -184,7 +241,7 @@ runProviderConformance({
 })
 ```
 
-The suite checks acquire/reattach idempotency, per-thread isolation, release-versus-destroy storage semantics, and numeric command exit codes.
+The suite checks acquire/reattach idempotency, per-thread isolation, release-versus-destroy storage semantics, and numeric command exit codes. If the provider implements `openWorkspaceReader`, it also checks that a reader sees what the thread produced, exposes no write or shell surface, rejects a thread with no storage, and leaves the thread's sandbox readable, writable, and executable afterwards. Providers without the capability skip that block.
 
 ## Testing your agent
 

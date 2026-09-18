@@ -34,7 +34,7 @@ The root uses Node APIs, Docker process execution, and the Kubernetes client. `/
 | `SandboxConfig` | Re-export the portable application sandbox configuration from Workspace. |
 | `SandboxHandle` | Re-export the portable acquired-handle contract from Workspace. |
 | `SandboxPolicy` | Re-export portable network, environment, resource, and security intent from Workspace. |
-| `SandboxProvider` | Re-export the portable provider lifecycle contract from Workspace. |
+| `SandboxProvider` | Re-export the portable provider lifecycle contract from Workspace, including the optional workspace read capability. |
 | `DockerSandboxOptions` | Configure the Docker image and optional injected Docker seam. |
 | `dockerSandbox` | Create the Docker provider. |
 | `KubeClient` | Describe the public Kubernetes client seam; helper request shapes remain implementation details. |
@@ -114,6 +114,14 @@ The absence of a provider-created policy does not promise unrestricted egress: c
 #### Behavior contract `sandbox.error.create`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/sandbox/test/sandbox-error-code.test.ts","testNames":["a failed container creation throws an error tagged B4_E2001"]}] */}
 A failed sandbox container creation is tagged `B4_E2001`.
+
+#### Workspace read capability
+
+`dockerSandbox` implements the optional `openWorkspaceReader` member of `SandboxProvider`. It mounts the thread's existing workspace volume read-only into a separate, ephemeral, networkless container and reads through that container, so the thread's keeper is never inspected, started, stopped, or replaced. Writes fail at the kernel. It reads a thread whose compute was already released, and rejects with `B4_E2001` when the thread has no workspace storage. The reader runs as uid/gid `1000:1000` unless the input says otherwise.
+
+`kubernetesSandbox` omits the member: a `ReadWriteOnce` PersistentVolumeClaim cannot be mounted by a second Pod unless it lands on the same node.
+
+`fakeSandbox` implements it in memory, so `runProviderConformance` exercises the capability block in ordinary CI.
 
 #### Provider identity and reattachment caveat
 
