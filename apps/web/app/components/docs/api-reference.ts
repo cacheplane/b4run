@@ -463,7 +463,7 @@ export const API_BEHAVIOR_CONTRACTS = [
           "still migrates — under the advisory lock — when unset",
         ],
         assertionFingerprint:
-          'expect(sql).toEqual([])\nexpect(sql[0]).toBe("BEGIN")\nexpect(sql[1]).toContain("pg_advisory_xact_lock")\nexpect(sql.at(-1)).toBe("COMMIT")',
+          'expect(sql).toEqual([])\nexpect(componentBegin).toBeGreaterThanOrEqual(0)\nexpect(sql[componentBegin + 1]).toContain("pg_advisory_xact_lock")\nexpect(sql.at(-1)).toBe("COMMIT")',
       },
     ],
   },

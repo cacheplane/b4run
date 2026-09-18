@@ -75,8 +75,12 @@ describe("assumeMigrated", () => {
     for (const make of factories) {
       const { pool, sql } = recordingPool()
       await make(pool).ready()
-      expect(sql[0]).toBe("BEGIN")
-      expect(sql[1]).toContain("pg_advisory_xact_lock")
+      // Asserted on the LAST transaction rather than the first statement: a
+      // recording pool reports no schema, so the shared-schema guard opens a
+      // transaction of its own ahead of the component's migration pass.
+      const componentBegin = sql.lastIndexOf("BEGIN")
+      expect(componentBegin).toBeGreaterThanOrEqual(0)
+      expect(sql[componentBegin + 1]).toContain("pg_advisory_xact_lock")
       expect(sql.at(-1)).toBe("COMMIT")
     }
   })
