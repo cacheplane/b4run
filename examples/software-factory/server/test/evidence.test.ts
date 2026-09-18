@@ -95,4 +95,42 @@ describe("evidence store", () => {
     evidence.recordCandidate(candidate)
     expect(evidence.candidate(candidate.digest)).toEqual(candidate)
   })
+
+  it("recording an identical receipt twice under the same id is a no-op", () => {
+    const { evidence } = stores()
+    const receipt = {
+      id: "rc-1",
+      workOrderId: "wo-1",
+      candidateDigest: "a".repeat(64),
+      verifierIdentity: "docker:sha256:abc",
+      policyDigest: "d".repeat(64),
+      environmentIdentity: "sha256:abc",
+      verdict: "pass" as const,
+      checks: [{ id: "visible", acceptanceIds: ["one"], verdict: "pass" as const, evidence: [] }],
+      issuedAt: at,
+    }
+    evidence.recordReceipt(receipt)
+    evidence.recordReceipt(receipt)
+    expect(evidence.receipt(receipt.id)).toEqual(receipt)
+  })
+
+  it("refuses a different receipt reusing the same id, and leaves the stored one unchanged", () => {
+    const { evidence } = stores()
+    const receipt = {
+      id: "rc-1",
+      workOrderId: "wo-1",
+      candidateDigest: "a".repeat(64),
+      verifierIdentity: "docker:sha256:abc",
+      policyDigest: "d".repeat(64),
+      environmentIdentity: "sha256:abc",
+      verdict: "pass" as const,
+      checks: [{ id: "visible", acceptanceIds: ["one"], verdict: "pass" as const, evidence: [] }],
+      issuedAt: at,
+    }
+    evidence.recordReceipt(receipt)
+
+    const conflicting = { ...receipt, verdict: "fail" as const }
+    expect(() => evidence.recordReceipt(conflicting)).toThrow(/rc-1/)
+    expect(evidence.receipt(receipt.id)).toEqual(receipt)
+  })
 })

@@ -23,7 +23,28 @@ export interface EvidenceStore {
  * is what makes the verifying phase safe to replay after a restart.
  */
 export function createEvidenceStore(db: DatabaseSync): EvidenceStore {
+  const getReceipt = (id: string): Receipt | null => {
+    const row = db.prepare("SELECT * FROM receipts WHERE id = ?").get(id) as
+      | Record<string, string>
+      | undefined
+    return row
+      ? ReceiptSchema.parse({
+          id: row.id,
+          workOrderId: row.work_order_id,
+          candidateDigest: row.candidate_digest,
+          verifierIdentity: row.verifier_identity,
+          policyDigest: row.policy_digest,
+          environmentIdentity: row.environment_identity,
+          verdict: row.verdict,
+          checks: JSON.parse(row.checks),
+          issuedAt: row.issued_at,
+        })
+      : null
+  }
+
   return {
+    // `digest` is a hash over the record's own content, so "same key, different
+    // content" cannot happen without a sha256 collision: INSERT OR IGNORE is safe.
     recordCandidate(candidate) {
       CandidateSchema.parse(candidate)
       db.prepare(
@@ -56,10 +77,19 @@ export function createEvidenceStore(db: DatabaseSync): EvidenceStore {
           })
         : null
     },
+    // `id` is caller-supplied, not derived from the content, so a second call
+    // reusing an id with a different verdict or checks is a genuine conflict,
+    // not a hash collision: it must be detected rather than silently ignored,
+    // because the verdict is the one thing this store cannot get wrong.
     recordReceipt(receipt) {
-      ReceiptSchema.parse(receipt)
+      const parsed = ReceiptSchema.parse(receipt)
+      const existing = getReceipt(parsed.id)
+      if (existing) {
+        if (JSON.stringify(existing) === JSON.stringify(parsed)) return
+        throw new Error(`Recorded receipt ${parsed.id} differs from the one already stored`)
+      }
       db.prepare(
-        `INSERT OR IGNORE INTO receipts
+        `INSERT INTO receipts
          (id, work_order_id, candidate_digest, verifier_identity, policy_digest,
           environment_identity, verdict, checks, issued_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -76,23 +106,10 @@ export function createEvidenceStore(db: DatabaseSync): EvidenceStore {
       )
     },
     receipt(id) {
-      const row = db.prepare("SELECT * FROM receipts WHERE id = ?").get(id) as
-        | Record<string, string>
-        | undefined
-      return row
-        ? ReceiptSchema.parse({
-            id: row.id,
-            workOrderId: row.work_order_id,
-            candidateDigest: row.candidate_digest,
-            verifierIdentity: row.verifier_identity,
-            policyDigest: row.policy_digest,
-            environmentIdentity: row.environment_identity,
-            verdict: row.verdict,
-            checks: JSON.parse(row.checks),
-            issuedAt: row.issued_at,
-          })
-        : null
+      return getReceipt(id)
     },
+    // `digest` is a hash over the record's own content, so "same key, different
+    // content" cannot happen without a sha256 collision: INSERT OR IGNORE is safe.
     recordBundle(bundle) {
       BundleSchema.parse(bundle)
       db.prepare(

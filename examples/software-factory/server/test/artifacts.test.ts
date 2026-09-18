@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -36,5 +37,18 @@ describe("artifact store", () => {
   it("reports a missing artifact clearly", async () => {
     const s = store()
     await expect(s.read("a".repeat(64))).rejects.toThrow(/not found/i)
+  })
+
+  it("recovers from a stale partial file left by a crash", async () => {
+    const s = store()
+    const content = "recovered in full\n"
+    const digest = createHash("sha256").update(content).digest("hex")
+    mkdirSync(join(dir, "artifacts"), { recursive: true })
+    writeFileSync(s.pathFor(digest), "trunc", "utf8")
+
+    const ref = await s.put(content)
+
+    expect(ref.digest).toBe(digest)
+    expect(await s.read(digest)).toBe(content)
   })
 })

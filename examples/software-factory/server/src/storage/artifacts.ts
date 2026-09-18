@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { createHash, randomUUID } from "node:crypto"
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { DIGEST_PATTERN } from "../domain/work-order.js"
 
@@ -33,11 +33,19 @@ export function createArtifactStore(directory: string): ArtifactStore {
       const digest = createHash("sha256").update(content).digest("hex")
       const bytes = Buffer.byteLength(content)
       await mkdir(directory, { recursive: true })
+      const finalPath = pathFor(digest)
+      // Write to a sibling temp file and rename onto the final path: rename is
+      // atomic on POSIX, so a crash mid-write never leaves a truncated file under
+      // the digest. This also self-heals a stale partial file left by an earlier
+      // crash, since a fresh put() of the same content renames the correct bytes
+      // over it.
+      const tmpPath = join(directory, `.${digest}.${randomUUID()}.tmp`)
       try {
-        await writeFile(pathFor(digest), content, { flag: "wx" })
+        await writeFile(tmpPath, content)
+        await rename(tmpPath, finalPath)
       } catch (error) {
-        // Identical content under an identical name: the write already happened.
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+        await rm(tmpPath, { force: true })
+        throw error
       }
       return { digest, bytes }
     },
