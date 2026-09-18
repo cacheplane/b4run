@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { bundleDigest, candidateDigest, canon } from "../src/domain/digest.ts"
+import {
+  bundleDigest,
+  candidateDigest,
+  canon,
+  DigestInputError,
+  policyDigest,
+} from "../src/domain/digest.ts"
 
 const changes = { "src/b.ts": "two\n", "src/a.ts": "one\n" }
 const baseline = "a".repeat(64)
@@ -72,6 +78,50 @@ describe("bundleDigest", () => {
     // A candidate digest must never be mistakable for a bundle digest.
     expect(bundleDigest(input)).not.toBe(
       candidateDigest({ workspaceId: input.repositoryId, baselineDigest: baseline, changes: {} }),
+    )
+  })
+})
+
+describe("canon rejects input it cannot hash injectively", () => {
+  it("throws on an object with an undefined value, naming the path", () => {
+    expect(() => canon({ checks: { visible: { file: undefined } } })).toThrow(DigestInputError)
+    expect(() => canon({ checks: { visible: { file: undefined } } })).toThrow(
+      /checks\.visible\.file/,
+    )
+  })
+
+  it("throws on a function value", () => {
+    expect(() => canon({ a: () => 1 })).toThrow(DigestInputError)
+  })
+
+  it("throws on NaN", () => {
+    expect(() => canon({ a: Number.NaN })).toThrow(DigestInputError)
+    expect(() => canon(Number.POSITIVE_INFINITY)).toThrow(DigestInputError)
+    expect(() => canon(Number.NEGATIVE_INFINITY)).toThrow(DigestInputError)
+  })
+
+  it("throws on a lone surrogate", () => {
+    expect(() => canon("\uD800")).toThrow(DigestInputError)
+    expect(() => canon("\uDC00")).toThrow(DigestInputError)
+    expect(() => canon("𐀀")).not.toThrow()
+  })
+
+  it("still accepts null and nested arrays", () => {
+    expect(() => canon({ a: null, b: [1, [2, null], 3] })).not.toThrow()
+    expect(canon({ a: null })).toBe('{"a":null}')
+  })
+
+  it("makes two policies differing only by an undefined-valued key both throw, instead of colliding", () => {
+    const base = {
+      allowedSourcePaths: ["src/a.ts"],
+      immutablePaths: [] as string[],
+    }
+    expect(() => policyDigest({ ...base, checks: { visible: { assertion: "ok" } } })).not.toThrow()
+    expect(() =>
+      policyDigest({ ...base, checks: { visible: { assertion: "ok", extra: undefined } } }),
+    ).toThrow(DigestInputError)
+    expect(() => policyDigest({ ...base, checks: { visible: { assertion: undefined } } })).toThrow(
+      DigestInputError,
     )
   })
 })

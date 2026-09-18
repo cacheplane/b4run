@@ -1,24 +1,68 @@
 import { createHash } from "node:crypto"
 
+/** Thrown when a value cannot be hashed injectively by {@link canon}. */
+export class DigestInputError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "DigestInputError"
+  }
+}
+
+// A lone surrogate (a lead not followed by a trail, or a trail with no lead)
+// has no valid UTF-8 encoding. Node's default utf8 string encoding silently
+// replaces it with U+FFFD, so two distinct strings differing only in which
+// lone surrogate they contain would otherwise hash identically.
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+
 /**
  * Canonical JSON: objects are re-serialized with their keys in sorted order, at
  * every depth, so two processes that assembled the same value from different
  * code paths produce the same bytes. Arrays keep their order, because every
  * array this module hashes is sorted by its caller on a stated key.
+ *
+ * Contract: `canon` is injective over the values it accepts — two distinct
+ * accepted values never produce the same output. `null` is accepted and
+ * meaningful. Anything `canon` cannot represent faithfully (`undefined`,
+ * functions, symbols, bigints, `NaN`/`Infinity`/`-Infinity`, and strings
+ * containing a lone surrogate) is rejected with a {@link DigestInputError}
+ * naming the offending path, rather than silently coerced or dropped the way
+ * `JSON.stringify` would.
  */
 export function canon(value: unknown): string {
-  return JSON.stringify(sortDeep(value))
+  return JSON.stringify(sortDeep(value, ""))
 }
 
-function sortDeep(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortDeep)
-  if (value === null || typeof value !== "object") return value
-  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
-    a < b ? -1 : 1,
-  )
-  const out: Record<string, unknown> = {}
-  for (const [key, inner] of entries) out[key] = sortDeep(inner)
-  return out
+function sortDeep(value: unknown, path: string): unknown {
+  const at = path || "<root>"
+  if (value === undefined) throw new DigestInputError(`Cannot hash undefined at "${at}"`)
+  if (typeof value === "function") throw new DigestInputError(`Cannot hash a function at "${at}"`)
+  if (typeof value === "symbol") throw new DigestInputError(`Cannot hash a symbol at "${at}"`)
+  if (typeof value === "bigint") throw new DigestInputError(`Cannot hash a bigint at "${at}"`)
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new DigestInputError(`Cannot hash non-finite number ${value} at "${at}"`)
+    }
+    return value
+  }
+  if (typeof value === "string") {
+    if (LONE_SURROGATE.test(value)) {
+      throw new DigestInputError(`Cannot hash a string containing a lone surrogate at "${at}"`)
+    }
+    return value
+  }
+  if (Array.isArray(value)) {
+    return value.map((item, index) => sortDeep(item, path ? `${path}[${index}]` : `[${index}]`))
+  }
+  if (value === null) return null
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+      a < b ? -1 : 1,
+    )
+    const out: Record<string, unknown> = {}
+    for (const [key, inner] of entries) out[key] = sortDeep(inner, path ? `${path}.${key}` : key)
+    return out
+  }
+  return value
 }
 
 const digest = (domain: string, value: unknown): string =>
@@ -68,9 +112,14 @@ export function specificationDigest(taskText: string, acceptanceIds: readonly st
   return digest("b4-factory-spec-v1", { taskText, acceptanceIds: [...acceptanceIds].sort() })
 }
 
-/** Digest of the completion policy: the checks and the inventory the builder may touch. */
+/**
+ * Digest of the completion policy: the checks and the inventory the builder
+ * may touch. `checks` must be a plain object; `canon` validates its contents
+ * (see {@link DigestInputError}) so two policies that differ only by an
+ * unrepresentable value — e.g. an `undefined` field — cannot collide.
+ */
 export function policyDigest(input: {
-  readonly checks: unknown
+  readonly checks: Readonly<Record<string, unknown>>
   readonly allowedSourcePaths: readonly string[]
   readonly immutablePaths: readonly string[]
 }): string {
