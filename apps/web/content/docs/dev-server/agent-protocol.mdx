@@ -39,7 +39,7 @@ such as `/research#agent`.
 | `DELETE /threads/:thread_id` | — | `204`; deletes thread metadata, supported checkpoints, and its sandbox sequentially |
 | `GET /threads/:thread_id/state` | — | `200 { config, created_at, metadata, next, parent_config, values }`; `404` without a checkpoint |
 | `GET /threads/:thread_id/pending_interrupts` | — | `200 { "interrupts": [...] }`; `404` `thread_not_found`; `409` `thread_route_unknown` without a usable route identity |
-| `POST /threads/:thread_id/runs/wait` | `{ "route": "<routeId>#<kind>", "input": { ... } }` | `200` final state JSON |
+| `POST /threads/:thread_id/runs/wait` | `{ "route": "<routeId>#<kind>", "input": { ... } }` | `200` final state JSON, or `null` when the route returned nothing; `500` naming the route when its output is not JSON-serializable |
 | `POST /threads/:thread_id/runs/stream` | Same run body | `200 text/event-stream` |
 | `GET /threads/:thread_id/runs/stream` | — | `200 text/event-stream` (reattach); `404` `thread_not_found`; `409` `thread_route_unknown` without a usable route identity |
 | `POST /threads/:thread_id/resume` | Exact `{ "resume": [...], "route": "<routeId>#<kind>" }` body | `200 text/event-stream` continuation |
