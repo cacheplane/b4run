@@ -17,8 +17,32 @@ export async function runVerification(ctx: ControllerContext, id: string): Promi
   if (row.state !== "verifying" || !row.workerThreadId) return
   const policy = loadPolicy(row.taskId)
 
-  const baseline = await ctx.captureBaseline(row.taskId, ctx.signal)
-  const observed = await ctx.workspaceReader.read(row.workerThreadId, ctx.signal)
+  /**
+   * A read the controller could not make is not a verdict about the candidate: it is the
+   * controller admitting it does not know. Recorded as `inconclusive`, like a harness that
+   * could not run, rather than escaping the phase and leaving the row in `verifying` with
+   * nothing journalled to say why.
+   */
+  const unreadable = (type: string, error: unknown): void => {
+    ctx.recordEvent(id, type, { error: String(error) })
+    if (ctx.mustGet(id).state === "verifying")
+      ctx.transition(id, "receipt_inconclusive", { blockedReason: "verification_inconclusive" })
+  }
+
+  let baseline: Awaited<ReturnType<typeof ctx.captureBaseline>>
+  try {
+    baseline = await ctx.captureBaseline(row.taskId, ctx.signal)
+  } catch (error) {
+    unreadable("baseline_unavailable", error)
+    return
+  }
+  let observed: ReadonlyMap<string, string>
+  try {
+    observed = await ctx.workspaceReader.read(row.workerThreadId, ctx.signal)
+  } catch (error) {
+    unreadable("workspace_unreadable", error)
+    return
+  }
   // Both reads were awaits: a cancel may have moved the row, and none of the moves
   // below is legal from where it left it.
   if (ctx.mustGet(id).state !== "verifying") return
@@ -111,11 +135,15 @@ export async function runVerification(ctx: ControllerContext, id: string): Promi
     return
   }
 
-  ctx.evidence.recordReceipt(receipt)
-  ctx.recordEvent(id, "receipt_issued", {
-    id: receipt.id,
-    verdict: receipt.verdict,
-    verifierIdentity: receipt.verifierIdentity,
+  // One unit, as for the candidate and the bundle: a receipt row with no journal line
+  // would leave reconciliation guessing which of the two is the truth.
+  ctx.store.transaction(() => {
+    ctx.evidence.recordReceipt(receipt)
+    ctx.recordEvent(id, "receipt_issued", {
+      id: receipt.id,
+      verdict: receipt.verdict,
+      verifierIdentity: receipt.verifierIdentity,
+    })
   })
 
   if (ctx.mustGet(id).state !== "verifying") return

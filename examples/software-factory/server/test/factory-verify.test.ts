@@ -14,7 +14,22 @@ let factory: Factory
 
 const REPAIRED = "export const fixed = true\n"
 
-async function boot(script: Parameters<typeof createFakeVerifier>[0]) {
+type CaptureBaseline = Parameters<typeof createFactory>[0]["captureBaseline"]
+
+/** The baseline the controller captures, injected so this layer needs no container. */
+const captureRepairable: CaptureBaseline = async () => ({
+  digest: "a".repeat(64),
+  files: new Map([
+    ["src/cli.ts", "broken\n"],
+    ["test/cli.test.ts", "spec\n"],
+    ["TASK.md", "task\n"],
+  ]),
+})
+
+async function boot(
+  script: Parameters<typeof createFakeVerifier>[0],
+  captureBaseline: CaptureBaseline = captureRepairable,
+) {
   dir = mkdtempSync(join(tmpdir(), "factory-verify-"))
   mkdirSync(join(dir, "out"), { recursive: true })
   fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
@@ -28,15 +43,7 @@ async function boot(script: Parameters<typeof createFakeVerifier>[0]) {
     artifactsDir: join(dir, "artifacts"),
     verifier,
     workspaceReader: reader,
-    // The baseline the controller captures, injected so this layer needs no container.
-    captureBaseline: async () => ({
-      digest: "a".repeat(64),
-      files: new Map([
-        ["src/cli.ts", "broken\n"],
-        ["test/cli.test.ts", "spec\n"],
-        ["TASK.md", "task\n"],
-      ]),
-    }),
+    captureBaseline,
   })
   return { verifier, reader }
 }
@@ -137,6 +144,35 @@ describe("the verifying phase", () => {
     const row = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
     expect(row.blockedReason).toBe("verification_inconclusive")
     expect(factory.events(id).map((e) => e.type)).toContain("verifier_unavailable")
+  })
+
+  it("blocks when the builder's workspace cannot be read", async () => {
+    // The reader is scripted with no threads at all, so the read rejects.
+    await boot({ verdict: "pass" })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const row = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
+    expect(row.blockedReason).toBe("verification_inconclusive")
+    expect(factory.events(id).map((e) => e.type)).toContain("workspace_unreadable")
+    // Nothing was assembled and nothing was verified: the controller never saw any bytes.
+    expect(row.candidateDigest).toBeNull()
+    expect(factory.evidence(id)).toEqual({ candidate: null, receipt: null, bundle: null })
+  })
+
+  it("blocks when the controller cannot capture its own baseline", async () => {
+    const { reader, verifier } = await boot({ verdict: "pass" }, async () => {
+      throw new Error("baseline container unavailable")
+    })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+    reader.set(dispatched.workerThreadId as string, repaired())
+    const row = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
+    expect(row.blockedReason).toBe("verification_inconclusive")
+    expect(factory.events(id).map((e) => e.type)).toContain("baseline_unavailable")
+    expect(row.candidateDigest).toBeNull()
+    expect(verifier.verified).toEqual([])
+    expect(factory.evidence(id)).toEqual({ candidate: null, receipt: null, bundle: null })
   })
 
   it("stores the candidate, receipt and bundle as evidence", async () => {
