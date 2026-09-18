@@ -64,11 +64,34 @@ describe("shared schema creation", () => {
     expect(sql.filter((text) => text.startsWith("CREATE SCHEMA")).length).toBe(1)
   })
 
-  it("keeps the component lock distinct from the schema lock", async () => {
-    const { pool, sql } = recordingPool()
-    await runMigrations(pool, [], { schema: "preview", prefix: "b4", component: "threads" })
-    const first = sql.filter((text) => text.includes("pg_advisory_xact_lock"))
-    expect(first.length).toBe(2)
+  it("costs no lock and no DDL when the schema already exists", async () => {
+    // What keeps a cold start at one advisory lock per component, which
+    // `hono-node-roundtrip.test.ts` pins: the default `public` schema always
+    // exists, so the guard must not add a lock to every deployment that has
+    // one already.
+    const sql: string[] = []
+    const client: SqlClient = {
+      query: async <R>(text: string) => {
+        sql.push(text)
+        return { rows: [] as R[] }
+      },
+      release: () => {},
+    }
+    const pool: SqlPool = {
+      connect: async () => client,
+      end: async () => {},
+      query: async <R>(text: string) => {
+        sql.push(text)
+        // Answer the catalog probe as a database with the schema would.
+        const rows = text.includes("pg_namespace") ? ([{ ok: 1 }] as R[]) : ([] as R[])
+        return { rows }
+      },
+    }
+
+    await runMigrations(pool, [], { schema: "public", prefix: "b4", component: "threads" })
+
+    expect(sql.filter((text) => text.includes("pg_advisory_xact_lock")).length).toBe(1)
+    expect(sql.filter((text) => text.startsWith("CREATE SCHEMA")).length).toBe(0)
   })
 })
 

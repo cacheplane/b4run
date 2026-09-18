@@ -108,6 +108,17 @@ function advisoryLockId(key: string): number {
  * schema, never a wrong one.
  */
 async function ensureSchema(pool: SqlPool, schema: string): Promise<void> {
+  // Fast path: read the catalog first. The schema almost always exists — the
+  // default `public` always does — and a schema that exists needs no lock, no
+  // transaction, and no DDL. This keeps a cold start at one advisory lock per
+  // component, which is what it cost before this guard existed.
+  //
+  // The check is an optimization and NOT the correctness mechanism. Two cold
+  // starts can both read "missing" and both proceed; the lock below is what
+  // makes the DDL safe, and `IF NOT EXISTS` under it makes the loser a no-op.
+  const existing = await pool.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schema])
+  if (existing.rows.length > 0) return
+
   await withTransaction(pool, async (client) => {
     await client.query("SELECT pg_advisory_xact_lock($1, $2)", [
       ADVISORY_LOCK_CLASS,
