@@ -14,9 +14,9 @@ export type VercelBuildRoute = Readonly<Record<string, unknown>> & { readonly sr
 export interface VercelBuildConfig {
   /**
    * Name of the runtime function (`functions/<name>.func`). Defaults to
-   * `"index"`, or to `"b4"` once {@link static} is set, because a function
-   * named `index` is also served at `/` and would shadow `static/index.html`.
-   * Combining `"index"` with `static` fails the build.
+   * `"b4"`, never `"index"`: a function named `index` is also served at `/`,
+   * where it would shadow `static/index.html`. Combining `"index"` with
+   * {@link static} fails the build.
    */
   readonly functionName?: string
   /** A directory copied verbatim into `static/`, with an optional SPA document. */
@@ -173,7 +173,7 @@ export interface B4Config {
     /**
      * Shape and options of the `"vercel"` target's Build Output tree. Ignored
      * unless `"vercel"` is in {@link targets}. With nothing set the output is
-     * the runtime function alone (`functions/index.func`) behind a catch-all
+     * the runtime function alone (`functions/b4.func`) behind a catch-all
      * route, published to `.vercel/output`, and the app-root `vercel.json` is
      * reconciled.
      */
