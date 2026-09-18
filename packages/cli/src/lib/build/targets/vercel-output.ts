@@ -38,6 +38,11 @@ type PathOperations = Pick<typeof import("node:path"), "isAbsolute" | "relative"
 export interface VercelMetadataOptions {
   /** Runtime function name; `functions/<name>.func`. Default `index`. */
   readonly functionName?: string
+  /**
+   * `maxDuration` for the runtime function, in seconds. Omitted leaves the
+   * property off `.vc-config.json`, where Vercel applies the plan's default.
+   */
+  readonly maxDuration?: number
   /** Complete `config.json` route list. Default: the runtime catch-all. */
   readonly routes?: readonly Readonly<Record<string, unknown>>[]
 }
@@ -56,10 +61,15 @@ export async function writeVercelMetadata(
   const functionDir = join(outputDir, "functions", `${functionName}.func`)
   const functionConfigPath = join(functionDir, ".vc-config.json")
 
+  const functionConfig = {
+    ...VERCEL_FUNCTION_CONFIG,
+    ...(options.maxDuration !== undefined ? { maxDuration: options.maxDuration } : {}),
+  }
+
   await mkdir(functionDir, { recursive: true })
   await Promise.all([
     writeFile(configPath, stringifyJson({ routes, version: 3 }), "utf8"),
-    writeFile(functionConfigPath, stringifyJson(VERCEL_FUNCTION_CONFIG), "utf8"),
+    writeFile(functionConfigPath, stringifyJson(functionConfig), "utf8"),
   ])
 
   return { configPath, functionConfigPath, functionDir }
@@ -72,7 +82,7 @@ export async function writeVercelMetadata(
  */
 export async function validateVercelOutput(
   outputDir: string,
-  options: { readonly functionName?: string } = {},
+  options: { readonly functionName?: string; readonly maxDuration?: number } = {},
 ): Promise<void> {
   const functionName = options.functionName ?? DEFAULT_VERCEL_FUNCTION_NAME
   const configPath = join(outputDir, "config.json")
@@ -81,7 +91,11 @@ export async function validateVercelOutput(
   const functionConfigPath = join(functionDir, ".vc-config.json")
 
   validateBuildOutputConfig(await readJson(configPath), configPath, functionName)
-  validateFunctionConfig(await readJson(functionConfigPath), functionConfigPath)
+  validateFunctionConfig(
+    await readJson(functionConfigPath),
+    functionConfigPath,
+    options.maxDuration,
+  )
   await validateFunctionDirectory(functionDir)
 
   for (const entry of await readdir(functionsDir, { withFileTypes: true })) {
@@ -250,13 +264,24 @@ function validateBuildOutputConfig(value: unknown, configPath: string, functionN
   }
 }
 
-function validateFunctionConfig(value: unknown, configPath: string): void {
+function validateFunctionConfig(value: unknown, configPath: string, maxDuration?: number): void {
   const config = asRecord(value, configPath)
-  validateExactProperties(config, Object.keys(VERCEL_FUNCTION_CONFIG), configPath)
+  // The fixed properties stay exact. `maxDuration` is the one property the app
+  // chooses, so it is allowed only when configured, and then must be that value:
+  // a tree whose duration disagrees with the config it was built from is not one
+  // this build wrote.
+  validateExactProperties(
+    config,
+    [...Object.keys(VERCEL_FUNCTION_CONFIG), ...(maxDuration === undefined ? [] : ["maxDuration"])],
+    configPath,
+  )
   for (const [property, expected] of Object.entries(VERCEL_FUNCTION_CONFIG)) {
     if (config[property] !== expected) {
       throw new Error(`${configPath} property "${property}" must be ${JSON.stringify(expected)}`)
     }
+  }
+  if (maxDuration !== undefined && config.maxDuration !== maxDuration) {
+    throw new Error(`${configPath} property "maxDuration" must be ${JSON.stringify(maxDuration)}`)
   }
 }
 
