@@ -24,11 +24,22 @@ export function freezeBundle(input: FreezeBundleInput): Bundle {
   if (input.receipt.candidateDigest !== input.candidateDigest)
     throw new Error("Receipt is for a different candidate than the one being frozen")
 
-  const evidence = input.receipt.checks
-    .flatMap((check) => check.evidence)
+  const evidenceById = new Map<string, string>()
+  for (const check of input.receipt.checks) {
+    for (const item of check.evidence) {
+      const existing = evidenceById.get(item.id)
+      if (existing !== undefined && existing !== item.digest) {
+        throw new Error(`Receipt reports conflicting evidence for "${item.id}"`)
+      }
+      evidenceById.set(item.id, item.digest)
+    }
+  }
+  const evidence = [...evidenceById.entries()]
+    .map(([id, digest]) => ({ id, digest }))
     .sort((a, b) => (a.id < b.id ? -1 : 1))
 
   const payload = {
+    workOrderId: input.workOrderId,
     repositoryId: input.repositoryId,
     baselineDigest: input.baselineDigest,
     specificationDigest: input.specificationDigest,

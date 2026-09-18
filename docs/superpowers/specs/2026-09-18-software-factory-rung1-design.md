@@ -150,7 +150,7 @@ candidateDigest = sha256("b4-factory-candidate-v1" || canon({
 }))
 
 bundleDigest = sha256("b4-factory-bundle-v1" || canon({
-  repositoryId, baselineDigest, specificationDigest, policyDigest,
+  workOrderId, repositoryId, baselineDigest, specificationDigest, policyDigest,
   environmentIdentity, candidateDigest, evidence: sorted by id,
   operation, destinationId
 }))
@@ -160,6 +160,7 @@ Each input is defined, so nothing in the bundle is a placeholder:
 
 | Input | What it is in rung 1 |
 |---|---|
+| `workOrderId` | Binds the bundle to the work order whose approval it authorizes. Without it, two work orders that produce identical bundles (exactly what a retried task does) collide on this digest, and the evidence disagrees about which work order was delivered |
 | `repositoryId` | The fixture's task id, which names the target the factory is allowed to work on |
 | `baselineDigest` | The source-bundle digest of the controller's own capture |
 | `specificationDigest` | Digest of the fixture's `task.md` plus the sorted acceptance ids |

@@ -58,6 +58,18 @@ describe("freezeBundle", () => {
     expect(bundle.receiptId).toBe("rc-1")
     expect(bundle.payload.environmentIdentity).toBe("sha256:abc")
     expect(bundle.payload.operation).toBe("export-local")
+    expect(bundle.payload.workOrderId).toBe("wo-1")
+  })
+
+  it("moves the digest when only the work order differs, with identical bytes", () => {
+    const one = freezeBundle(base)
+    const two = freezeBundle({
+      ...base,
+      workOrderId: "wo-2",
+      receipt: { ...receipt, workOrderId: "wo-2" },
+    })
+    expect(two.digest).not.toBe(one.digest)
+    expect(two.payload.workOrderId).toBe("wo-2")
   })
 
   it("carries the evidence the receipt referenced, sorted", () => {
@@ -85,5 +97,21 @@ describe("freezeBundle", () => {
 
   it("refuses a receipt for a different candidate", () => {
     expect(() => freezeBundle({ ...base, candidateDigest: "9".repeat(64) })).toThrow(/candidate/)
+  })
+
+  it("refuses conflicting evidence reported under the same id", () => {
+    const conflicting = {
+      ...receipt,
+      checks: [
+        ...receipt.checks,
+        {
+          id: "extra",
+          acceptanceIds: ["three"],
+          verdict: "pass" as const,
+          evidence: [{ id: "independent-output", digest: "9".repeat(64) }],
+        },
+      ],
+    }
+    expect(() => freezeBundle({ ...base, receipt: conflicting })).toThrow(/conflicting evidence/)
   })
 })

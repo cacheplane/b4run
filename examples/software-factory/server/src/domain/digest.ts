@@ -103,6 +103,8 @@ export function candidateDigest(input: CandidateDigestInput): string {
 }
 
 export interface BundleDigestInput {
+  /** The work order whose approval this bundle authorizes. */
+  readonly workOrderId: string
   readonly repositoryId: string
   readonly baselineDigest: string
   readonly specificationDigest: string
@@ -117,7 +119,10 @@ export interface BundleDigestInput {
 /**
  * Identity of everything approval authorizes. A policy or environment change
  * moves this digest even when the candidate bytes are identical, which is what
- * makes consent specific rather than approximate.
+ * makes consent specific rather than approximate. `workOrderId` is included for
+ * the same reason: two work orders can produce byte-identical bundles (exactly
+ * what a retried task does), and without it they would collide on this digest
+ * even though the records must agree about which work order was delivered.
  */
 export function bundleDigest(input: BundleDigestInput): string {
   return digest("b4-factory-bundle-v1", {
