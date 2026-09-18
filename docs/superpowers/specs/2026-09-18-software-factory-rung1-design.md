@@ -78,6 +78,25 @@ starts immediately and only the Docker-gated layer waits on the framework PR.
 If that surface lands with a different shape, this interface is the only file
 that changes.
 
+The verifier needs the same treatment, for a reason worth recording. The
+framework's `fakeSandbox` cannot stand in for a real container here: it exposes
+no managed-workspace member, so `withWorkspace` refuses it, and no leaf
+metadata, so `inspectWorkspace` throws. There is therefore no in-memory way to
+exercise the real verification path, and pretending otherwise would mean a test
+suite that proves nothing. So verification sits behind its own interface too:
+
+```ts
+export interface Verifier {
+  verify(input: VerifyInput, signal: AbortSignal): Promise<VerificationReceipt>
+}
+```
+
+Layers 1 and 2 drive a scripted fake verifier whose verdicts the test chooses,
+which is what lets them assert the controller's *response* to every verdict.
+Layer 3 drives the real one in a real container, which is what proves the
+verdicts themselves are earned. The headline invariant is asserted in both, and
+only layer 3 can claim the verdict was real.
+
 ## What moves into the controller
 
 In the order a work order meets them.
@@ -283,17 +302,20 @@ from its workspace rather than merely excluded.
 
 ### Layer 1: fake worker and fake sandbox, always on
 
-Rung 0's scripted Agent Protocol fake, plus `fakeSandbox` for the verifier and
-the fake `WorkspaceReader`. Covers the state machine, command idempotency,
-budget, cancel and reconciliation as rung 0 did, and adds the adversarial cases
-that are rung 1's point.
+Rung 0's scripted Agent Protocol fake, plus the fake `WorkspaceReader` and the
+scripted `Verifier`. Covers the state machine, command idempotency, budget,
+cancel and reconciliation as rung 0 did, and adds the adversarial cases that are
+rung 1's point. Assembly, the digest and the bundle are exercised for real here,
+because they are pure functions over bytes and need no container.
 
 ### Layer 2: the real builder under static fixtures, always on
 
 The factory's own builder route driven in process by static model fixtures that
-script file writes, with verification against `fakeSandbox`. This is the offline
-lane rung 0 had to defer, and it is buildable now precisely because the builder
-only edits files.
+script file writes, with the scripted verifier standing in for the container.
+This is the offline lane rung 0 had to defer, and it is buildable now precisely
+because the builder only edits files. It needs a copied application root, the
+way code-fixer's own harness tests do, because the harness runs typegen against
+whatever root it is given.
 
 ### Layer 3: real containers, Docker-gated
 
