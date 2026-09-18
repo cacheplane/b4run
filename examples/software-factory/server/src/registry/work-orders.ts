@@ -29,6 +29,7 @@ export type WorkOrderPatch = Partial<
     | "interruptId"
     | "candidateDigest"
     | "candidateVerified"
+    | "bundleDigest"
     | "blockedReason"
     | "failureReason"
     | "activeMs"
@@ -75,6 +76,7 @@ const COLUMNS: Readonly<Record<keyof WorkOrderRow, string>> = {
   interruptId: "interrupt_id",
   candidateDigest: "candidate_digest",
   candidateVerified: "candidate_verified",
+  bundleDigest: "bundle_digest",
   blockedReason: "blocked_reason",
   failureReason: "failure_reason",
   maxCandidateAttempts: "max_candidate_attempts",
@@ -193,11 +195,11 @@ export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
     recordApproval(approval) {
       ApprovalSchema.parse(approval)
       db.prepare(
-        "INSERT INTO approvals (id, work_order_id, interrupt_id, candidate_digest, decision, decided_by, decided_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO approvals (id, work_order_id, bundle_digest, candidate_digest, decision, decided_by, decided_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       ).run(
         approval.id,
         approval.workOrderId,
-        approval.interruptId,
+        approval.bundleDigest,
         approval.candidateDigest,
         approval.decision,
         approval.decidedBy,
@@ -213,7 +215,7 @@ export function createWorkOrderStore(db: DatabaseSync): WorkOrderStore {
         ApprovalSchema.parse({
           id: r.id,
           workOrderId: r.work_order_id,
-          interruptId: r.interrupt_id,
+          bundleDigest: r.bundle_digest,
           candidateDigest: r.candidate_digest,
           decision: r.decision,
           decidedBy: r.decided_by,

@@ -14,6 +14,8 @@ export const WorkOrderRowSchema = z.object({
   interruptId: z.string().min(1).nullable(),
   candidateDigest: z.string().regex(DIGEST_PATTERN).nullable(),
   candidateVerified: z.boolean().nullable(),
+  /** Set when the controller freezes a review bundle; what approval binds to. */
+  bundleDigest: z.string().regex(DIGEST_PATTERN).nullable(),
   blockedReason: z.enum(BLOCKED_REASONS).nullable(),
   failureReason: z.enum(FAILURE_REASONS).nullable(),
   maxCandidateAttempts: z.number().int().positive(),
@@ -55,7 +57,7 @@ export type CommandOutcome = z.infer<typeof CommandOutcomeSchema>
 export const ApprovalSchema = z.object({
   id: z.string().min(1),
   workOrderId: z.string().min(1),
-  interruptId: z.string().min(1),
+  bundleDigest: z.string().regex(DIGEST_PATTERN),
   candidateDigest: z.string().regex(DIGEST_PATTERN),
   decision: z.enum(["approved", "denied"]),
   decidedBy: z.string().min(1),
@@ -71,3 +73,48 @@ export const DeliverySchema = z.object({
   observedAt: z.string(),
 })
 export type Delivery = z.infer<typeof DeliverySchema>
+
+export const VERDICTS = ["pass", "fail", "inconclusive"] as const
+export type Verdict = (typeof VERDICTS)[number]
+
+export const CandidateSchema = z.object({
+  digest: z.string().regex(DIGEST_PATTERN),
+  workOrderId: z.string().min(1),
+  baselineDigest: z.string().regex(DIGEST_PATTERN),
+  changedPaths: z.array(z.string().min(1)).min(1),
+  bytes: z.number().int().nonnegative(),
+  artifactDigest: z.string().regex(DIGEST_PATTERN),
+  assembledAt: z.string(),
+})
+export type Candidate = z.infer<typeof CandidateSchema>
+
+export const CheckResultSchema = z.object({
+  id: z.string().min(1),
+  acceptanceIds: z.array(z.string().min(1)),
+  verdict: z.enum(VERDICTS),
+  evidence: z.array(z.object({ id: z.string().min(1), digest: z.string().regex(DIGEST_PATTERN) })),
+})
+
+export const ReceiptSchema = z.object({
+  id: z.string().min(1),
+  workOrderId: z.string().min(1),
+  candidateDigest: z.string().regex(DIGEST_PATTERN),
+  /** Assigned by the harness that ran the checks, never by a worker. */
+  verifierIdentity: z.string().min(1),
+  policyDigest: z.string().regex(DIGEST_PATTERN),
+  environmentIdentity: z.string().min(1),
+  verdict: z.enum(VERDICTS),
+  checks: z.array(CheckResultSchema),
+  issuedAt: z.string(),
+})
+export type Receipt = z.infer<typeof ReceiptSchema>
+
+export const BundleSchema = z.object({
+  digest: z.string().regex(DIGEST_PATTERN),
+  workOrderId: z.string().min(1),
+  candidateDigest: z.string().regex(DIGEST_PATTERN),
+  receiptId: z.string().min(1),
+  payload: z.record(z.string(), z.unknown()),
+  frozenAt: z.string(),
+})
+export type Bundle = z.infer<typeof BundleSchema>

@@ -17,6 +17,7 @@ function freshRow(id = "wo-1"): WorkOrderRow {
     interruptId: null,
     candidateDigest: null,
     candidateVerified: null,
+    bundleDigest: null,
     blockedReason: null,
     failureReason: null,
     maxCandidateAttempts: 1,
@@ -84,7 +85,7 @@ describe("work-order store", () => {
     s.recordApproval({
       id: "ap-1",
       workOrderId: "wo-1",
-      interruptId: "perm-1",
+      bundleDigest: digest,
       candidateDigest: digest,
       decision: "approved",
       decidedBy: "operator",
@@ -170,5 +171,23 @@ describe("work-order store", () => {
       }),
     ).toThrow("boom")
     expect(s.events("wo-1")).toEqual([])
+  })
+
+  it("round-trips the bundle digest and a bundle-bound approval", () => {
+    const s = store()
+    s.insert(freshRow())
+    const digest = "a".repeat(64)
+    expect(s.update("wo-1", 0, { bundleDigest: digest }, at).bundleDigest).toBe(digest)
+    s.recordApproval({
+      id: "ap-1",
+      workOrderId: "wo-1",
+      bundleDigest: digest,
+      candidateDigest: "b".repeat(64),
+      decision: "approved",
+      decidedBy: "operator",
+      decidedAt: at,
+      expiresAt: at,
+    })
+    expect(s.approvals("wo-1")[0]?.bundleDigest).toBe(digest)
   })
 })

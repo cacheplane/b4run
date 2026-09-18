@@ -23,9 +23,12 @@ describe("openRegistry", () => {
       .all() as { name: string }[]
     expect(tables.map((t) => t.name)).toEqual([
       "approvals",
+      "bundles",
+      "candidates",
       "commands",
       "deliveries",
       "events",
+      "receipts",
       "schema_version",
       "sqlite_sequence",
       "work_orders",
@@ -44,11 +47,41 @@ describe("openRegistry", () => {
     const rows = registry.db.prepare("SELECT count(*) AS n FROM schema_version").get() as {
       n: number
     }
-    expect(rows.n).toBe(1)
+    expect(rows.n).toBe(2)
     registry.close()
   })
 
   it("refuses a registry written by a newer schema", () => {
+    const path = tempPath()
+    openRegistry(path).close()
+    const db = new DatabaseSync(path)
+    db.prepare("INSERT INTO schema_version(version) VALUES (?)").run(SCHEMA_VERSION + 1)
+    db.close()
+    expect(() => openRegistry(path)).toThrow(RegistryVersionError)
+  })
+})
+
+describe("migration 2", () => {
+  it("creates the evidence tables and the approval binding", () => {
+    const registry = openRegistry(tempPath())
+    const tables = registry.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+      .all() as { name: string }[]
+    for (const name of ["candidates", "receipts", "bundles"])
+      expect(tables.map((t) => t.name)).toContain(name)
+    const cols = registry.db.prepare("SELECT name FROM pragma_table_info('approvals')").all() as {
+      name: string
+    }[]
+    expect(cols.map((c) => c.name)).toContain("bundle_digest")
+    const wo = registry.db.prepare("SELECT name FROM pragma_table_info('work_orders')").all() as {
+      name: string
+    }[]
+    expect(wo.map((c) => c.name)).toContain("bundle_digest")
+    expect(SCHEMA_VERSION).toBe(2)
+    registry.close()
+  })
+
+  it("still refuses a newer schema", () => {
     const path = tempPath()
     openRegistry(path).close()
     const db = new DatabaseSync(path)
