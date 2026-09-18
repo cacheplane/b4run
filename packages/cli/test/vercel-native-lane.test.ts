@@ -7019,6 +7019,81 @@ describe("native orchestration and evidence closure", () => {
     }
   })
 
+  test("ties the reconciled root-config marker to whether the build reconciles vercel.json", () => {
+    // `wrote vercel.json` is the ONE marker in the signature that a build may
+    // legitimately never emit: with `build.vercel.reconcileVercelJson: false`
+    // the target reports no root config at all. The expected signature has to
+    // follow that flag in both directions, or a prebuilt-only fixture fails
+    // this parser for doing exactly what it was configured to do.
+    const withoutRootConfig = parseNativeVercelBuildLogTranscript({
+      deploymentId: "dpl_Source1",
+      stderr: buildTranscript("dpl_Source1", sourceBuildPayloads.slice(0, -1)),
+      stdout: "",
+    })
+    const provenance = {
+      deployCommand: sourceDeployCommand,
+      kind: "source" as const,
+      localOutputValidated: false,
+      sourceTree: { b4Absent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
+    }
+
+    expect(() =>
+      parseNativeBuildProvenance({ ...provenance, inspectBuildLogs: withoutRootConfig }),
+    ).toThrow(/missing marker: wrote vercel\.json/)
+    expect(
+      parseNativeBuildProvenance({
+        ...provenance,
+        inspectBuildLogs: withoutRootConfig,
+        reconcilesVercelJson: false,
+      }),
+    ).toEqual({ cleanSource: true, prebuiltOutputAbsent: true, remoteBuildObserved: true })
+
+    // The flag is an assertion, not a relaxation: reconciliation that happens
+    // anyway means the opt-out did not reach the remote builder.
+    expect(() =>
+      parseNativeBuildProvenance({
+        ...provenance,
+        inspectBuildLogs: parseNativeVercelBuildLogTranscript({
+          deploymentId: "dpl_Source1",
+          stderr: buildTranscript("dpl_Source1", sourceBuildPayloads),
+          stdout: "",
+        }),
+        reconcilesVercelJson: false,
+      }),
+    ).toThrow(/unexpected marker: wrote vercel\.json/)
+  })
+
+  test("names the marker that broke the source build signature", () => {
+    const functionEntryMarker = "wrote .vercel/output/functions/b4.func/index.mjs"
+    const cases = [
+      [
+        sourceBuildPayloads.filter((payload) => payload !== functionEntryMarker),
+        new RegExp(`missing marker: ${functionEntryMarker.replaceAll(".", "\\.")}`),
+      ],
+      [[...sourceBuildPayloads, functionEntryMarker], /duplicated marker: /],
+      [
+        ["targets: vercel", "Build complete: .b4/build", ...sourceBuildPayloads.slice(1)],
+        /duplicated marker: |out-of-order marker: /,
+      ],
+    ] as const
+
+    for (const [payloads, expected] of cases) {
+      expect(() =>
+        parseNativeBuildProvenance({
+          deployCommand: sourceDeployCommand,
+          inspectBuildLogs: parseNativeVercelBuildLogTranscript({
+            deploymentId: "dpl_Source1",
+            stderr: buildTranscript("dpl_Source1", payloads),
+            stdout: "",
+          }),
+          kind: "source",
+          localOutputValidated: false,
+          sourceTree: { b4Absent: true, nodeModulesAbsent: true, prebuiltOutputAbsent: true },
+        }),
+      ).toThrow(expected)
+    }
+  })
+
   test("composes each deployment only from preparation, deploy, inspect, black-box, and reconciliation seams", async () => {
     const order: string[] = []
     const execute = async (kind: "prebuilt" | "source") => {
