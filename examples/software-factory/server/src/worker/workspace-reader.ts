@@ -81,9 +81,27 @@ export function createHandleWorkspaceReader(
 export function createThreadWorkspaceReader(): WorkspaceReader {
   return {
     async read(threadId) {
-      throw new Error(
-        `Reading thread ${threadId}'s workspace needs the framework's read-only thread-workspace surface, which is not available in this build`,
-      )
+      throw new Error(`Cannot read thread ${threadId}'s workspace: ${THREAD_WORKSPACE_READER_GAP}`)
     },
   }
 }
+
+/**
+ * Why {@link createThreadWorkspaceReader} cannot read anything yet, in one line an
+ * operator can act on.
+ *
+ * It exists so the absence is announced rather than discovered: a controller built
+ * on the real reader reaches `verifying`, fails the read, journals
+ * `workspace_unreadable` and settles every work order as
+ * `verification_inconclusive`. That is the correct behaviour, but on its own it
+ * looks like a flaky verifier. The command line prints this at startup so the
+ * cause is known before the first dispatch, not inferred from the journal after
+ * it.
+ *
+ * Delete this together with the placeholder when pull request #731 lands.
+ */
+export const THREAD_WORKSPACE_READER_GAP =
+  "the framework's read-only thread-workspace surface (SandboxProvider.openWorkspaceReader) " +
+  "is not in this build; it is proposed in pull request #731 and still open. Until it merges " +
+  "the controller cannot obtain candidate bytes, so every work order settles as " +
+  "verification_inconclusive with a workspace_unreadable event."

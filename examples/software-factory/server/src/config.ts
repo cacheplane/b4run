@@ -15,29 +15,40 @@ const positiveInt = (name: string) =>
       return parsed
     })
 
+/**
+ * The environment the controller reads. Unknown keys are stripped rather than
+ * rejected, which is how rung 0's `FACTORY_WORKER_OUTBOX` and
+ * `FACTORY_RECEIPT_WAIT_MS` stop mattering without breaking an environment that
+ * still sets them: the trust transfer they existed for is gone, so they name
+ * nothing, but an operator's old service file keeps starting.
+ */
 const EnvSchema = z.object({
   FACTORY_WORKER_URL: z
     .string({ message: "FACTORY_WORKER_URL is required" })
     .url()
     .refine((value) => /^https?:/.test(value), { message: "FACTORY_WORKER_URL must be http(s)" }),
-  FACTORY_WORKER_ROUTE: z.string().min(1).default("/fix#agent"),
-  FACTORY_WORKER_OUTBOX: z.string({ message: "FACTORY_WORKER_OUTBOX is required" }).min(1),
+  FACTORY_WORKER_ROUTE: z.string().min(1).default("/build#agent"),
   FACTORY_STATE_DIR: z.string({ message: "FACTORY_STATE_DIR is required" }).min(1),
+  FACTORY_EXPORT_DIR: z.string().min(1).optional(),
+  FACTORY_ARTIFACTS_DIR: z.string().min(1).optional(),
   FACTORY_APPROVAL_TTL_MS: positiveInt("FACTORY_APPROVAL_TTL_MS"),
   FACTORY_MAX_ACTIVE_MS: positiveInt("FACTORY_MAX_ACTIVE_MS"),
-  FACTORY_RECEIPT_WAIT_MS: positiveInt("FACTORY_RECEIPT_WAIT_MS"),
+  FACTORY_MAX_CHANGED_BYTES: positiveInt("FACTORY_MAX_CHANGED_BYTES"),
   FACTORY_HTTP_PORT: positiveInt("FACTORY_HTTP_PORT"),
 })
 
 export interface FactoryConfig {
   readonly workerUrl: string
   readonly workerRoute: string
-  readonly outboxDir: string
   readonly stateDir: string
   readonly registryPath: string
+  /** Where the approved bytes are written, and the bundle's destination identity. */
+  readonly exportDir: string
+  /** Content-addressed evidence store for candidate bytes and check output. */
+  readonly artifactsDir: string
   readonly approvalTtlMs: number
   readonly maxActiveMs: number
-  readonly receiptWaitMs: number
+  readonly maxChangedBytes: number
   readonly httpPort: number
 }
 
@@ -51,12 +62,13 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
   return {
     workerUrl: e.FACTORY_WORKER_URL.replace(/\/$/, ""),
     workerRoute: e.FACTORY_WORKER_ROUTE,
-    outboxDir: e.FACTORY_WORKER_OUTBOX,
     stateDir: e.FACTORY_STATE_DIR,
     registryPath: join(e.FACTORY_STATE_DIR, "registry.sqlite"),
+    exportDir: e.FACTORY_EXPORT_DIR ?? join(e.FACTORY_STATE_DIR, "exports"),
+    artifactsDir: e.FACTORY_ARTIFACTS_DIR ?? join(e.FACTORY_STATE_DIR, "artifacts"),
     approvalTtlMs: e.FACTORY_APPROVAL_TTL_MS ?? 900_000,
     maxActiveMs: e.FACTORY_MAX_ACTIVE_MS ?? 1_200_000,
-    receiptWaitMs: e.FACTORY_RECEIPT_WAIT_MS ?? 180_000,
+    maxChangedBytes: e.FACTORY_MAX_CHANGED_BYTES ?? 1024 * 1024,
     httpPort: e.FACTORY_HTTP_PORT ?? 4300,
   }
 }

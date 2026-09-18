@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
 import { fixtureWorkspace, sandboxPolicy } from "../src/fixtures/workspace.ts"
+import {
+  createThreadWorkspaceReader,
+  THREAD_WORKSPACE_READER_GAP,
+} from "../src/worker/workspace-reader.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 describe("fixture workspace definition", () => {
@@ -31,5 +35,20 @@ describe("fake workspace reader", () => {
     const reader = createFakeWorkspaceReader({ "t-1": {} })
     await reader.read("t-1", AbortSignal.timeout(1_000))
     expect(reader.reads).toEqual(["t-1"])
+  })
+})
+
+describe("the real thread workspace reader", () => {
+  it("refuses honestly, in terms an operator can act on", async () => {
+    const reader = createThreadWorkspaceReader()
+    // The placeholder never invents bytes. It names the surface it needs, where that
+    // surface is being added, and what the controller will do meanwhile, so a shelf of
+    // verification_inconclusive work orders has a stated cause rather than a suspicion.
+    await expect(reader.read("t-1", AbortSignal.timeout(1_000))).rejects.toThrow(/t-1/)
+    await expect(reader.read("t-1", AbortSignal.timeout(1_000))).rejects.toThrow(
+      /openWorkspaceReader/,
+    )
+    expect(THREAD_WORKSPACE_READER_GAP).toMatch(/#731/)
+    expect(THREAD_WORKSPACE_READER_GAP).toMatch(/verification_inconclusive/)
   })
 })

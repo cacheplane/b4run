@@ -51,6 +51,7 @@ describe("candidateDigest", () => {
 
 describe("bundleDigest", () => {
   const input = {
+    workOrderId: "wo-2026-09-18-0001",
     repositoryId: "cli-flags",
     baselineDigest: baseline,
     specificationDigest: "c".repeat(64),
