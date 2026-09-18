@@ -77,7 +77,9 @@ const TABLE: Readonly<Record<TransitionEvent, Row>> = {
   dispatch_committed: { received: "dispatched" },
   run_started: { dispatched: "running" },
   turn_ended_with_workspace: { dispatched: "verifying", running: "verifying" },
-  turn_ended_without_changes: { dispatched: "failed", running: "failed" },
+  // Only the verifying phase can know the builder changed nothing: it is the diff against
+  // the controller's own baseline that says so, not the end of the stream.
+  turn_ended_without_changes: { dispatched: "failed", running: "failed", verifying: "failed" },
   unexpected_interrupt: { dispatched: "blocked", running: "blocked", verifying: "blocked" },
   run_failed: { dispatched: "failed", running: "failed" },
   assembly_rejected: { verifying: "blocked" },

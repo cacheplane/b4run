@@ -1,11 +1,5 @@
 import type { WorkOrderRow } from "../domain/work-order.js"
-import {
-  classifyDone,
-  isExportGate,
-  PREPARE_TOOL,
-  parsePrepareReviewOutput,
-  type StreamFrame,
-} from "../worker/wire.js"
+import { classifyDone, type StreamFrame } from "../worker/wire.js"
 import type { ControllerContext } from "./context.js"
 import { reconcileWorkOrder } from "./reconcile.js"
 import { consumeTurn } from "./turns.js"
@@ -40,60 +34,15 @@ export async function observeRun(
       // is the state it writes from: no read-then-write race with a concurrent command.
       if (ctx.mustGet(id).state === "dispatched") ctx.transition(id, "run_started")
     },
-    onToolResult: async (name, output) => {
-      if (name !== PREPARE_TOOL) return
-      // Read, write and journal as one unit: a half-applied candidate (digest stored with no
-      // event, or an event with no digest) would leave reconciliation guessing.
-      ctx.store.transaction(() => {
-        const row = ctx.mustGet(id)
-        if (!isRunState(row.state)) return
-        try {
-          const parsed = parsePrepareReviewOutput(output)
-          ctx.store.update(
-            id,
-            row.revision,
-            {
-              candidateDigest: parsed.candidate.receiptDigest,
-              candidateVerified: parsed.verification.passed,
-            },
-            ctx.iso(),
-          )
-          ctx.recordEvent(id, "candidate_observed", {
-            digest: parsed.candidate.receiptDigest,
-            verified: parsed.verification.passed,
-            candidate: parsed.candidate,
-          })
-        } catch (error) {
-          ctx.recordEvent(id, "candidate_unparseable", { error: String(error) })
-        }
-      })
-    },
     onInterrupt: async (frame) => {
-      const row = ctx.mustGet(id)
-      if (!isRunState(row.state)) return
-      if (!isExportGate(frame)) {
-        ctx.transition(
-          id,
-          "unexpected_interrupt",
-          { interruptId: frame.interruptId, blockedReason: "unexpected_interrupt" },
-          { interruptId: frame.interruptId, kind: frame.kind },
-        )
-        return
-      }
-      if (row.candidateDigest && row.candidateVerified === true) {
-        ctx.transition(
-          id,
-          "candidate_interrupt",
-          { interruptId: frame.interruptId, awaitingSince: ctx.iso() },
-          { interruptId: frame.interruptId, candidateDigest: row.candidateDigest },
-        )
-        return
-      }
+      // Rung 1's builder route has no gate to park on: the controller decides what the turn
+      // was worth after it ends. Any prompt reaching here is therefore unexpected.
+      if (!isRunState(ctx.mustGet(id).state)) return
       ctx.transition(
         id,
-        "candidate_interrupt_without_digest",
-        { interruptId: frame.interruptId, blockedReason: "candidate_digest_unknown" },
-        { interruptId: frame.interruptId, verified: row.candidateVerified },
+        "unexpected_interrupt",
+        { interruptId: frame.interruptId, blockedReason: "unexpected_interrupt" },
+        { interruptId: frame.interruptId, kind: frame.kind },
       )
     },
     onDone: async (data) => {
@@ -117,12 +66,9 @@ export async function observeRun(
         ctx.recordEvent(id, "reattached_turn_ended", { attempt: options.reconcileAttempt })
         return
       }
-      ctx.transition(
-        id,
-        "run_ended_without_candidate",
-        { failureReason: "ended_without_candidate" },
-        { verified: row.candidateVerified },
-      )
+      // Not a verdict either: the turn left a workspace behind, and the verifying phase —
+      // not this stream, and not anything the builder said on it — decides what it contains.
+      ctx.transition(id, "turn_ended_with_workspace")
     },
   })
   if (result.ended === "handler_error") {

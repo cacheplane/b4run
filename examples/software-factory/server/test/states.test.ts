@@ -86,6 +86,9 @@ describe("rung 1 lifecycle", () => {
 
   it("fails a turn that produced nothing", () => {
     expect(nextState("running", "turn_ended_without_changes")).toBe("failed")
+    // The verifying phase is the only thing that can reach this verdict in rung 1: it is
+    // the diff against the controller's baseline, not the stream, that finds no changes.
+    expect(nextState("verifying", "turn_ended_without_changes")).toBe("failed")
   })
 
   it("admits exactly one way out of verifying per outcome", () => {

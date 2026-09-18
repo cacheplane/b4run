@@ -7,25 +7,50 @@ import {
   nextState,
   type TransitionEvent,
 } from "../domain/states.js"
-import type { CommandOutcome, FactoryEvent, WorkOrderRow } from "../domain/work-order.js"
+import type {
+  Bundle,
+  Candidate,
+  CommandOutcome,
+  FactoryEvent,
+  Receipt,
+  WorkOrderRow,
+} from "../domain/work-order.js"
 import { TASK_PROMPTS } from "../prompts.js"
 import { type CommandLog, createCommandLog } from "../registry/commands.js"
 import { openRegistry } from "../registry/db.js"
+import { createEvidenceStore, type EvidenceStore } from "../registry/evidence.js"
 import { createWorkOrderStore, type WorkOrderPatch } from "../registry/work-orders.js"
+import { type ArtifactStore, createArtifactStore } from "../storage/artifacts.js"
+import type { Verifier } from "../verification/verifier.js"
 import type { CancelResult, WorkerClient } from "../worker/client.js"
 import { receiptPath, waitForReceipt } from "../worker/outbox.js"
 import { classifyDone, type InterruptFrame, type StreamFrame } from "../worker/wire.js"
+import type { WorkspaceReader } from "../worker/workspace-reader.js"
 import { type BudgetTicker, startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
 import { reconcileAll } from "./reconcile.js"
 import { denyPending, observeRun } from "./run-observer.js"
 import { consumeTurn } from "./turns.js"
+import { runVerification } from "./verify.js"
 
 export interface FactoryOptions {
   readonly registryPath: string
   readonly worker: WorkerClient
   readonly workerRoute: string
-  readonly outboxDir: string
+  /** Where the approved bytes are written, and the bundle's destination identity. */
+  readonly exportDir: string
+  /** Content-addressed evidence store for candidate and check output. */
+  readonly artifactsDir: string
+  readonly verifier: Verifier
+  readonly workspaceReader: WorkspaceReader
+  /** The controller's own baseline for a task. Injected so tests need no container. */
+  captureBaseline(
+    taskId: string,
+    signal: AbortSignal,
+  ): Promise<{ readonly digest: string; readonly files: ReadonlyMap<string, string> }>
+  readonly maxChangedBytes?: number
+  /** Rung 0's receipt outbox; read only by the export rules Task 13 replaces. */
+  readonly outboxDir?: string
   /** Task id to prompt. Defaults to TASK_PROMPTS. */
   readonly tasks?: Readonly<Record<string, string>>
   readonly approvalTtlMs?: number
@@ -53,6 +78,12 @@ export interface Factory {
   show(id: string): WorkOrderRow | null
   list(): WorkOrderRow[]
   events(id: string): FactoryEvent[]
+  /** The frozen evidence behind the row: what an approver is asked to consent to. */
+  evidence(id: string): {
+    candidate: Candidate | null
+    receipt: Receipt | null
+    bundle: Bundle | null
+  }
   waitFor(
     id: string,
     predicate: (row: WorkOrderRow) => boolean,
@@ -86,6 +117,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const registry = openRegistry(options.registryPath)
   const store = createWorkOrderStore(registry.db)
   const commands: CommandLog = createCommandLog(registry.db)
+  const evidenceStore: EvidenceStore = createEvidenceStore(registry.db)
+  const artifacts: ArtifactStore = createArtifactStore(options.artifactsDir)
   const tasks = options.tasks ?? TASK_PROMPTS
   const now = options.now ?? Date.now
   const iso = () => new Date(now()).toISOString()
@@ -224,12 +257,12 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       block("resume ended with error", { error: routeError })
       return
     }
-    const receipt = await waitForReceipt(options.outboxDir, digest, {
-      timeoutMs: ctx.receiptWaitMs,
+    const receipt = await waitForReceipt(options.outboxDir ?? "", digest, {
+      timeoutMs: options.receiptWaitMs ?? 180_000,
       signal: abort.signal,
     })
     if (!receipt) {
-      block("receipt not observed", { expected: receiptPath(options.outboxDir, digest) })
+      block("receipt not observed", { expected: receiptPath(options.outboxDir ?? "", digest) })
       return
     }
     if (mustGet(id).state !== "exporting") return
@@ -321,17 +354,24 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const ctx: ControllerContext = {
     store,
     commands,
+    evidence: evidenceStore,
+    artifacts,
+    verifier: options.verifier,
+    workspaceReader: options.workspaceReader,
     worker: options.worker,
     workerRoute: options.workerRoute,
-    outboxDir: options.outboxDir,
-    receiptWaitMs: options.receiptWaitMs ?? 180_000,
+    exportDir: options.exportDir,
+    maxChangedBytes: options.maxChangedBytes ?? 256 * 1024,
+    outboxDir: options.outboxDir ?? "",
     signal: abort.signal,
     now,
     iso,
     mustGet,
     recordEvent,
     transition,
-    observeRun: (id, frames, options) => observeRun(ctx, id, frames, options),
+    observeRun: (id, frames, observeOptions) => observeRun(ctx, id, frames, observeOptions),
+    captureBaseline: (taskId, signal) => options.captureBaseline(taskId, signal),
+    runVerification: (id) => runVerification(ctx, id),
     denyPending: (id) => denyPending(ctx, id),
     finishCancel: (id, cause) => finishCancel(id, cause),
     settleRun,
@@ -360,6 +400,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       return
     }
     await observeRun(ctx, id, frames)
+    // The turn is over; what it left behind is now the controller's to judge.
+    if (mustGet(id).state === "verifying") await runVerification(ctx, id)
   }
 
   const factory: Factory = {
@@ -391,6 +433,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         interruptId: null,
         candidateDigest: null,
         candidateVerified: null,
+        bundleDigest: null,
         blockedReason: null,
         failureReason: null,
         maxCandidateAttempts: 1,
@@ -704,6 +747,14 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     show: (id) => store.get(id),
     list: () => store.list(),
     events: (id) => store.events(id),
+
+    evidence(id) {
+      const row = mustGet(id)
+      const candidate = row.candidateDigest ? evidenceStore.candidate(row.candidateDigest) : null
+      const bundle = row.bundleDigest ? evidenceStore.bundle(row.bundleDigest) : null
+      const receipt = bundle ? evidenceStore.receipt(bundle.receiptId) : null
+      return { candidate, receipt, bundle }
+    },
 
     async waitFor(id, predicate, timeoutMs = 10_000) {
       // Wall clock, for the same reason as settleRun: a frozen injected `now` would spin here.

@@ -9,6 +9,8 @@ import { setTimeout as sleep } from "node:timers/promises"
  * gate_before_prepare:  the gate arrives with no prepareReview result (digest unknown)
  * route_error:          done with output.error
  * no_candidate:         done without a candidate or a gate
+ * edits_only:           emits two tool_result frames for writeFile and then a clean done, with
+ *                       no interrupt and no candidate claim
  * hang:                 one chunk frame, then ping comments until cancelled
  * close_midway:         prepareReview result, then the socket is destroyed; the run parks on the gate 50 ms later
  * unexpected_interrupt: a `command` kind interrupt instead of the gate
@@ -23,6 +25,7 @@ export type RunBehaviour =
   | "gate_before_prepare"
   | "route_error"
   | "no_candidate"
+  | "edits_only"
   | "hang"
   | "close_midway"
   | "reattach_ends_busy"
@@ -197,6 +200,15 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
     }
     if (kind === "no_candidate") {
       sse.frame("chunk", "I could not repair it.")
+      sse.frame("done", { output: {} })
+      return finishRun(thread, sse)
+    }
+    if (kind === "edits_only") {
+      sse.frame("tool_result", { id: "call-1", name: "readFile", output: "TASK.md contents" })
+      if (await sleepOrAbort(delay)) return
+      sse.frame("tool_result", { id: "call-2", name: "writeFile", output: "written" })
+      if (await sleepOrAbort(delay)) return
+      sse.frame("chunk", "Repair written.")
       sse.frame("done", { output: {} })
       return finishRun(thread, sse)
     }
