@@ -210,7 +210,11 @@ substitute for the other or optional release cleanup.
   a generated file. The one case you must regenerate is adding or removing a
   page: a route the manifest has never seen has no timestamp, and
   `requireValidLastModified` throws during the build, so
-  `pnpm --dir apps/web seo:lastmod:routes` fails the PR until you do.
+  `pnpm --dir apps/web seo:lastmod:routes` fails the PR until you do. If the
+  manifest ever does conflict on a merge or rebase, it is marked `-merge` in
+  `.gitattributes`, so git leaves valid JSON on one side instead of writing
+  conflict markers into generated content — regenerate on top of that rather
+  than hand-editing it.
 - **Banned doc phrases.** `scripts/check-docs.mjs` greps `README.md`,
   `CONTRIBUTING.md`, `CONTRIBUTORS.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`,
   `apps/web/app`, `apps/web/content`, `docs/` (excluding
@@ -224,16 +228,6 @@ substitute for the other or optional release cleanup.
   `scripts/check-docs.mjs` for the exact patterns.
 - **Always run commands from the repo root.** Turbo and workspace-package
   resolution assume it.
-- **Editing web content means regenerating the SEO manifest.** Any change under
-  `apps/web/content/` — including the API reference pages a package change
-  moves — restages `apps/web/app/seo/lastmod.generated.json`. Regenerate it in
-  the same commit with `pnpm --dir apps/web seo:lastmod`, or
-  `app/seo/generate-lastmod.test.ts` reds `source-validate` and therefore the
-  required `validate` check. `scripts/check-docs.mjs` does not cover it. The
-  same command is the whole resolution when the manifest conflicts on a merge
-  or rebase: it is marked `-merge` in `.gitattributes`, so git leaves valid
-  JSON on one side rather than writing conflict markers into generated content,
-  and regenerating on top of that is always the correct answer.
 - **Every final-workflow-reachable release script is content-pinned.** The
   audited SHA256 and exact command line for each repository script reachable
   from the final release-owner workflows are recorded in
