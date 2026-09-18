@@ -87,6 +87,7 @@ const FOUNDATION_DOCS_NAV = [
     label: "Operate",
     items: [
       { label: "Persistence and Tenancy", href: "/docs/persistence" },
+      { label: "Application Document Store", href: "/docs/document-store" },
       { label: "Production Topology", href: "/docs/production-topology" },
       { label: "Security Architecture", href: "/docs/security-architecture" },
       { label: "Access Control", href: "/docs/access-control" },
@@ -431,14 +432,14 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
       (section) => section.items,
     )
 
-    expect(expectedPages).toHaveLength(60)
+    expect(expectedPages).toHaveLength(61)
     expect(DOCS_PAGES).toEqual(expectedPages)
   })
 
   it("adds sixteen hidden API leaves immediately after the hub", () => {
-    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(60)
-    expect(DOCS_PAGES).toHaveLength(60)
-    expect(ALL_DOCS_PAGES).toHaveLength(76)
+    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(61)
+    expect(DOCS_PAGES).toHaveLength(61)
+    expect(ALL_DOCS_PAGES).toHaveLength(77)
 
     const hubIndex = ALL_DOCS_PAGES.findIndex(({ href }) => href === "/docs/api")
     expect(ALL_DOCS_PAGES.slice(hubIndex + 1, hubIndex + 17)).toEqual(API_REFERENCE_PAGES)

@@ -4,7 +4,7 @@
 
 # @b4run/postgres-storage
 
-Supported Postgres persistence for B4.run checkpoints, Agent Protocol threads, and permission grants across application instances.
+Supported Postgres persistence for B4.run checkpoints, Agent Protocol threads, permission grants, and application-owned documents across application instances.
 
 **Use this when:** You are replacing B4.run's local durable stores with shared Postgres persistence.
 
@@ -29,6 +29,26 @@ await threadsStore.ready()
 await threadsStore.close()
 await pool.end()
 ```
+
+## Application documents
+
+The same package also stores state your *application* owns, as versioned JSON documents written
+with compare-and-swap:
+
+```ts
+import { documentStoreFromEnv } from "@b4run/postgres-storage/node"
+
+const sessions = await documentStoreFromEnv<Session>({ name: "sessions" })
+
+const key = await sessions.create(initial)
+const doc = await sessions.load(key)
+await sessions.commit(key, doc.version, next) // throws ConflictError when stale
+```
+
+`documentStoreFromEnv` uses Postgres when `DATABASE_URL` is set and process memory when it is not,
+so an application runs with no infrastructure and deploys with no code change. The contract and the
+in-memory implementation live in [`@b4run/sdk`](https://www.npmjs.com/package/@b4run/sdk); see the
+[Application Document Store guide](https://b4.run/docs/document-store).
 
 Every store accepts `schema` (default `public`) and `tablePrefix` (default `b4`), so several
 applications or deployment environments can share one database. Both must be lowercase SQL

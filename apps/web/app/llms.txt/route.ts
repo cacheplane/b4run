@@ -124,6 +124,7 @@ function buildLlmsTxt(): string {
       "- [Embed the Runtime](https://b4.run/docs/embedding) — host B4.run inside an existing server.",
       "- [Fixtures and Recording](https://b4.run/docs/testing-agents/fixtures) — replay deterministic fixtures or record local model calls.",
       "- [Persistence and Tenancy](https://b4.run/docs/persistence) — choose durable stores and tenant boundaries.",
+      "- [Application Document Store](https://b4.run/docs/document-store) — persist application-owned state with versioned compare-and-swap writes.",
       "- [Production Topology](https://b4.run/docs/production-topology) — place runtimes, stores, proxies, and workers.",
       "- [Security Architecture](https://b4.run/docs/security-architecture) — review trust boundaries before exposure.",
       "- [Deployment Options](https://b4.run/docs/deployment) — select Node and Docker, Kubernetes, LangSmith, or edge deployment.",

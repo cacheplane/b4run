@@ -246,6 +246,13 @@ export const DOCS_SEO_ENTRIES = [
     sourcePath: "apps/web/content/docs/persistence.mdx",
   },
   {
+    path: "/docs/document-store",
+    title: "Application Document Store",
+    description:
+      "Persist application-owned state in B4.run with versioned JSONB documents, compare-and-swap writes, caller or generated keys, and Postgres or memory.",
+    sourcePath: "apps/web/content/docs/document-store.mdx",
+  },
+  {
     path: "/docs/production-topology",
     title: "Production Topology",
     description:

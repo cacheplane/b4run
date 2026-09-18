@@ -1,5 +1,9 @@
 export type { PostgresCheckpointerOptions } from "./checkpointer.js"
 export { B4PostgresSaver, postgresCheckpointer } from "./checkpointer.js"
+export type { PostgresDocumentStore, PostgresDocumentStoreOptions } from "./documents.js"
+export { createPostgresDocumentStore } from "./documents.js"
+export type { ResolvedNaming } from "./naming.js"
+export { namingFromEnv } from "./naming.js"
 export type { PostgresStoreOptions } from "./options.js"
 export type {
   PostgresPermissionsStore,

@@ -18,6 +18,8 @@ export type {
 } from "./agent.js"
 export { agent, isB4Agent } from "./agent.js"
 export type { BackendAdapter } from "./backend-adapter.js"
+export type { Document, DocumentStore } from "./document-store.js"
+export { ConflictError, createMemoryDocumentStore } from "./document-store.js"
 export type { B4ErrorCode, B4ErrorDescriptor } from "./errors.js"
 export { B4_ERRORS, describeError, errorDocsUrl } from "./errors.js"
 export type {

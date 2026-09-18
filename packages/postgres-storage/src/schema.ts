@@ -220,6 +220,65 @@ export const PERMISSIONS_MIGRATIONS: readonly Migration[] = [
 ]
 
 /**
+ * One table for every application document store, keyed `(store_name,
+ * doc_key)`. A table per named store was the alternative and is worse on two
+ * counts: the store name would have to be a SQL identifier interpolated into
+ * DDL, and an app that quite reasonably names a store `threads` would collide
+ * with B4.run's own `<prefix>_threads`. Here the name is a bound parameter, so
+ * it can be any string and can never name one of our tables.
+ *
+ * `doc_key` is `text` so it holds both a generated uuid and a caller-supplied
+ * id (a thread id, say) with one column type. `version` is the compare-and-swap
+ * guard: every write states the version it expects and the statement's row
+ * count reports whether it matched.
+ *
+ * ── Why this is a numbered migration and not `CREATE TABLE IF NOT EXISTS` ──
+ *
+ * `CREATE TABLE IF NOT EXISTS` never ALTERS a table that already exists. It is
+ * therefore not a schema definition, it is a first-boot side effect, and the
+ * moment new code changes the statement the two diverge silently: fresh
+ * databases get the new shape, every older database keeps the old one, and
+ * nothing anywhere reports the difference.
+ *
+ * That is not hypothetical. The hashbrown invoicing example — the first
+ * consumer of this store, and where it was extracted from — declared
+ * `id uuid DEFAULT gen_random_uuid()` in new code. It passed every test,
+ * because tests run against a database created by that same statement. Against
+ * a database created before it, the column had no default, and the insert that
+ * had stopped supplying an id wrote NULL.
+ *
+ * So this store takes the other branch of the issue's choice and ships real
+ * migrations, reusing the runner the other three stores already use
+ * ({@link runMigrations}: forward-only, versioned, under
+ * `pg_advisory_xact_lock`). Two rules make that hold:
+ *
+ *  1. A SHIPPED migration is frozen. Never edit the `up` of a version that has
+ *     been released — a database that already recorded it will never re-run it.
+ *     Change the shape by APPENDING `{ version: 2, up: … }` with `ALTER TABLE`.
+ *     `test/documents-ddl.test.ts` pins version 1's exact text so this fails
+ *     loudly instead of quietly.
+ *  2. No column default is load-bearing. Every INSERT in `documents.ts` names
+ *     every column and supplies every value, so the DDL's defaults (there are
+ *     none, deliberately) can never be the difference between two databases.
+ */
+export const DOCUMENTS_MIGRATIONS: readonly Migration[] = [
+  {
+    version: 1,
+    up: (naming) => `
+      CREATE TABLE IF NOT EXISTS ${qualify(naming, "documents")} (
+        store_name text NOT NULL,
+        doc_key text NOT NULL,
+        version integer NOT NULL,
+        value jsonb NOT NULL,
+        created_at text NOT NULL,
+        updated_at text NOT NULL,
+        PRIMARY KEY (store_name, doc_key)
+      );
+    `,
+  },
+]
+
+/**
  * Checkpoint and metadata are BYTEA, not jsonb. B4.run serializes both with
  * LangGraph's `JsonPlusSerializer` and stores the resulting bytes opaquely,
  * exactly as the SQLite saver stores a BLOB. jsonb cannot hold a NUL byte

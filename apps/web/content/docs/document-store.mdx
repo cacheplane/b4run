@@ -1,0 +1,135 @@
+# Application Document Store
+
+B4.run persists what it owns — checkpoints, threads, permission grants. It does not persist what your application owns. The document store fills that gap with one primitive: a JSON document, versioned, written with compare-and-swap, backed by Postgres when there is a database and by process memory when there is not.
+
+It is the same driver choice and the same `B4_PG_SCHEMA` / `B4_PG_TABLE_PREFIX` namespacing B4.run already applies to [its own stores](/docs/persistence), so an application's state separates per environment the way its threads do.
+
+## Use this when
+
+Use it for state an agent application computes and must not lose: a review session, a draft, a per-thread binding, an approval that two browser tabs can reach at once. Do not use it as a general database — there is no query language, no index you can add, and no relation between documents. One key, one value, one version.
+
+Typed long-term memory is a different tool with a different shape; see [Long-term Memory](/docs/memory/long-term).
+
+## The contract
+
+```ts
+import { createMemoryDocumentStore } from "@b4run/sdk"
+
+interface Session {
+  generation: number
+  approved: string[]
+}
+
+const sessions = createMemoryDocumentStore<Session>()
+
+const key = await sessions.create({ generation: 1, approved: [] })
+const doc = await sessions.load(key) // { version: 0, value: { … } } | undefined
+await sessions.commit(key, doc.version, { ...doc.value, generation: 2 })
+await sessions.delete(key)
+```
+
+| Method | Behavior |
+|---|---|
+| `create(value)` | Insert under a freshly generated key, at version 0. Returns the key. |
+| `load(key)` | `{ version, value }`, or `undefined` when there is no such document. |
+| `commit(key, version, value)` | Replace the document only if it is still at `version`; the stored version goes up by one. |
+| `commit(key, null, value)` | Insert under a caller-supplied key; fails if anything is already there. |
+| `delete(key)` | Remove the document. No-op when there is none. |
+
+Values must survive a JSON round trip — they are stored as JSONB. A `Date`, `Map`, or class instance does not come back as itself, and the store makes no attempt to revive one.
+
+## Compare-and-swap, not last write wins
+
+Every write states the version it expects. If the document has moved on, the write is rejected with a `ConflictError` and nothing changes:
+
+```ts
+import { ConflictError } from "@b4run/sdk"
+
+async function approve(key: string, id: string) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const doc = await sessions.load(key)
+    if (!doc) throw new Error("no such session")
+    try {
+      await sessions.commit(key, doc.version, {
+        ...doc.value,
+        approved: [...doc.value.approved, id],
+      })
+      return
+    } catch (error) {
+      if (!(error instanceof ConflictError)) throw error
+      // Someone else committed first. Re-read and re-apply.
+    }
+  }
+  throw new Error("too much contention")
+}
+```
+
+Two tabs approving the same proposal is the case this exists for. With last-write-wins, the second write silently erases the first. Here the second write loses, and the caller decides what to do — which is nearly always "read again and re-apply", because the two changes were never in conflict, only the writes were.
+
+`ConflictError` carries the `key` and the `expectedVersion` that was quoted. It is exported from `@b4run/sdk`, so `instanceof` works regardless of which backend produced it.
+
+## Claiming a key exactly once
+
+`commit(key, null, value)` inserts under a key you already have — a thread id, an order number, an external id — and fails if the row exists. Across instances, exactly one caller wins:
+
+```ts
+try {
+  await threadBindings.commit(threadId, null, { sessionId, routeId })
+} catch (error) {
+  if (!(error instanceof ConflictError)) throw error
+  const existing = await threadBindings.load(threadId)
+  // Someone else bound this thread first; use theirs.
+}
+```
+
+A check-then-insert cannot do this. Two instances both see "absent" and both proceed; the database's own uniqueness is what settles it.
+
+## Choosing a backend
+
+```ts
+import { documentStoreFromEnv } from "@b4run/postgres-storage/node"
+
+const sessions = await documentStoreFromEnv<Session>({ name: "sessions" })
+```
+
+Postgres when `DATABASE_URL` is set, process memory when it is not — the same decision B4.run makes for its own stores, so an application clones and runs with no infrastructure and deploys with no code change. Stores are memoized per process and per `name`, sharing one pool; a failed cold start is not memoized, so a database that comes back later is picked up rather than replaced by a cached error. Call `closeDocumentStoresFromEnv()` on shutdown.
+
+To wire a pool yourself — sharing one with the checkpointer and threads stores, as [edge deployments](/docs/deployment/edge) must:
+
+```ts
+import { createPostgresDocumentStore } from "@b4run/postgres-storage"
+
+const sessions = createPostgresDocumentStore<Session>({ pool, name: "sessions" })
+await sessions.ready()
+```
+
+<Callout type="warn" title="The in-memory store is not durable">
+  `createMemoryDocumentStore` enforces compare-and-swap and deep-copies values in and out, and it answers the same conformance suite as the Postgres store — so code developed against it behaves the same once there is a database. What it does not do is survive a restart or coordinate two processes. Anything that must outlive the process needs `DATABASE_URL`.
+</Callout>
+
+## Where the rows live
+
+All document stores in one database share a single `<prefix>_documents` table, keyed by `(store_name, doc_key)`. The store `name` is a bound parameter, never a SQL identifier, so it may be any string and can never collide with a B4.run table — an application is free to call a store `threads`.
+
+`schema` and `tablePrefix` behave exactly as they do for the other Postgres stores, and `documentStoreFromEnv` reads `B4_PG_SCHEMA` and `B4_PG_TABLE_PREFIX`, each a lowercase identifier or a `$NAME` reference to another environment variable. `B4_PG_SCHEMA=$VERCEL_ENV` keeps a project's preview and production documents in separate schemas of one database. See [Namespace preview and production](/docs/deployment/edge#namespace-preview-and-production).
+
+A shared schema is an organizational boundary, not an authorization one. The store does not know who a caller is; authorize every read and write against application-owned ownership records, as described in [Persistence and Tenancy](/docs/persistence).
+
+## Schema changes
+
+The table is created by a numbered, forward-only migration under an advisory lock, the same runner the checkpointer, threads, and permissions stores use. Two rules keep that honest, and they matter to anyone extending the store:
+
+1. **A shipped migration is frozen.** A database that already recorded version 1 will never run it again, so editing it gives new databases a shape older ones will never have — silently. Express a change as a new numbered migration with `ALTER TABLE`.
+2. **No column default is load-bearing.** Every insert names every column and supplies every value, so a default can never be the difference between a fresh database and an old one.
+
+`CREATE TABLE IF NOT EXISTS` on its own cannot offer either guarantee: it never alters a table that already exists, which makes it a first-boot side effect rather than a schema definition.
+
+## Related
+
+<RelatedCards items={[
+  { href: "/docs/persistence", title: "Persistence and Tenancy", subtitle: "what B4.run stores, and who owns it" },
+  { href: "/docs/state", title: "State", subtitle: "route state and checkpoint behavior" },
+  { href: "/docs/memory/long-term", title: "Long-term Memory", subtitle: "typed records, namespaces, and retention" },
+  { href: "/docs/deployment/edge", title: "Edge and Hono", subtitle: "per-request pools and namespaced schemas" },
+  { href: "/docs/api/postgres-storage", title: "@b4run/postgres-storage", subtitle: "the Postgres backend's full surface" },
+]} />

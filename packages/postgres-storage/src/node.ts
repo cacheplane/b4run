@@ -11,8 +11,15 @@
  * builds its own pool from `connectionString` ends it on `close()`, and a pool
  * passed in stays the caller's.
  */
+import { createMemoryDocumentStore, type DocumentStore } from "@b4run/sdk"
 import { Pool, type PoolConfig } from "pg"
 import { type B4PostgresSaver, postgresCheckpointer as baseCheckpointer } from "./checkpointer.js"
+import {
+  createPostgresDocumentStore as baseCreateDocumentStore,
+  type PostgresDocumentStore,
+  type PostgresDocumentStoreOptions,
+} from "./documents.js"
+import { namingFromEnv } from "./naming.js"
 import type { PostgresStoreOptions } from "./options.js"
 import {
   createPostgresPermissionsStore as baseCreatePermissionsStore,
@@ -111,6 +118,120 @@ export function createPostgresPermissionsStore(
   options: NodePostgresPermissionsStoreOptions = {},
 ): PostgresPermissionsStore {
   return baseCreatePermissionsStore({ ...options, ...poolFor(options) })
+}
+
+/** Document-store options plus the connection string this entry can act on. */
+export interface NodePostgresDocumentStoreOptions extends PostgresDocumentStoreOptions {
+  /** Postgres connection string; used to build an owned pool when `pool` is absent. */
+  readonly connectionString?: string
+}
+
+/** Build a Postgres-backed application document store, optionally from a connection string. */
+export function createPostgresDocumentStore<T>(
+  options: NodePostgresDocumentStoreOptions,
+): PostgresDocumentStore<T> {
+  return baseCreateDocumentStore<T>({ ...options, ...poolFor(options) })
+}
+
+/**
+ * The pool `documentStoreFromEnv` shares, and the naming it resolved.
+ *
+ * Module scope, so N named stores in one process open ONE pool and migrate
+ * once, rather than one pool per collection — which is how an app with a
+ * handful of stores quietly exhausts a managed Postgres connection cap. The
+ * `/node` entry is Node-only by construction, so a module-scope pool is safe
+ * here in a way it is not on workerd (see `createRequestStores` in the
+ * generated edge runtime, which is per-request for exactly that reason).
+ */
+let backend:
+  | Promise<{ readonly pool: Pool; readonly schema: string; readonly tablePrefix: string }>
+  | undefined
+
+/** Named stores handed out so far, so two calls for one name share an instance. */
+const stores = new Map<string, Promise<DocumentStore<unknown>>>()
+
+/**
+ * A document store chosen from the environment: Postgres when `DATABASE_URL`
+ * is set, process memory when it is not.
+ *
+ * This is the decision B4.run already makes for its own stores, applied to an
+ * application's. It is what lets an example clone-and-run with no
+ * infrastructure and deploy with no code change, and what lets its tests run
+ * without a database while the SAME contract is verified against Postgres in
+ * CI.
+ *
+ * Memoized per process and per `name`, and the memo is DROPPED when a cold
+ * start fails — otherwise the first boot's connection error is cached and
+ * every later call replays it forever, long after the database came back.
+ *
+ * `B4_PG_SCHEMA` / `B4_PG_TABLE_PREFIX` apply, exactly as they do to B4.run's
+ * own tables; see {@link namingFromEnv}.
+ */
+export function documentStoreFromEnv<T>(options: {
+  readonly name: string
+}): Promise<DocumentStore<T>> {
+  const { name } = options
+  const existing = stores.get(name)
+  if (existing) return existing as Promise<DocumentStore<T>>
+
+  const opened = (async (): Promise<DocumentStore<unknown>> => {
+    const connectionString = process.env["DATABASE_URL"]
+    if (!connectionString) return createMemoryDocumentStore()
+    backend ??= (async () => {
+      // Resolved before the pool is opened, so a malformed binding fails by
+      // name with nothing to close.
+      const { schema, tablePrefix } = namingFromEnv(process.env)
+      const pool = new Pool({ connectionString })
+      pool.on("error", (error) => {
+        console.warn(
+          `[b4:storage] postgres pool client error (connection dropped): ${String(error)}`,
+        )
+      })
+      return { pool, schema, tablePrefix }
+    })()
+    // Captured so the rollback below can tell "the backend I used" from "a
+    // backend some later call has since opened", and never discard the latter.
+    const opening = backend
+    try {
+      const { pool, schema, tablePrefix } = await opening
+      const store = baseCreateDocumentStore<unknown>({ name, pool, schema, tablePrefix })
+      // Migrate eagerly, so a misconfigured database fails at startup rather
+      // than inside whichever request happens to touch the store first.
+      await store.ready()
+      return store
+    } catch (error) {
+      // The POOL has to go too, not just this name's memo. `new Pool` connects
+      // nothing, so the failure surfaces here, on the first query — leaving the
+      // pool memoized would pin every later call to a connection string that is
+      // already known not to work, which is precisely the state a retry exists
+      // to escape.
+      if (backend === opening) {
+        backend = undefined
+        void opening.then(({ pool }) => pool.end()).catch(() => {})
+      }
+      throw error
+    }
+  })().catch((error: unknown) => {
+    stores.delete(name)
+    throw error
+  })
+
+  stores.set(name, opened)
+  return opened as Promise<DocumentStore<T>>
+}
+
+/**
+ * End the shared pool and forget every memoized store.
+ *
+ * For process shutdown and for tests, which otherwise leave a module-scope
+ * pool holding the event loop open. A later `documentStoreFromEnv` starts
+ * clean, so this is safe to call more than once.
+ */
+export async function closeDocumentStoresFromEnv(): Promise<void> {
+  const opened = backend
+  backend = undefined
+  stores.clear()
+  if (opened) await (await opened).pool.end()
 }
 
 export * from "./index.js"
