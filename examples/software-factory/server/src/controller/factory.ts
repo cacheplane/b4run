@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
 import { setTimeout as sleep } from "node:timers/promises"
+import { exportApproved } from "../delivery/export.js"
 import {
   ACTIVE_STATES,
   IllegalTransitionError,
@@ -21,10 +22,10 @@ import { openRegistry } from "../registry/db.js"
 import { createEvidenceStore, type EvidenceStore } from "../registry/evidence.js"
 import { createWorkOrderStore, type WorkOrderPatch } from "../registry/work-orders.js"
 import { type ArtifactStore, createArtifactStore } from "../storage/artifacts.js"
+import { loadPolicy } from "../verification/policy.js"
 import type { Verifier } from "../verification/verifier.js"
 import type { CancelResult, WorkerClient } from "../worker/client.js"
-import { receiptPath, waitForReceipt } from "../worker/outbox.js"
-import { classifyDone, type InterruptFrame, type StreamFrame } from "../worker/wire.js"
+import type { InterruptFrame, StreamFrame } from "../worker/wire.js"
 import type { WorkspaceReader } from "../worker/workspace-reader.js"
 import { type BudgetTicker, startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
@@ -55,6 +56,10 @@ export interface FactoryOptions {
   readonly tasks?: Readonly<Record<string, string>>
   readonly approvalTtlMs?: number
   readonly maxActiveMs?: number
+  /**
+   * Rung 0's receipt wait. Unread since the controller writes the export itself; kept so the
+   * rung 0 callers Task 14 rewrites still compile.
+   */
   readonly receiptWaitMs?: number
   /** How long a cancel waits for the cancelled run's observer to settle. Default 10s. */
   readonly cancelSettleMs?: number
@@ -71,7 +76,7 @@ export interface Factory {
   dispatch(id: string, operationKey?: string): Promise<CommandOutcome>
   approve(
     id: string,
-    input: { revision: number; candidateDigest: string; operationKey?: string },
+    input: { revision: number; bundleDigest: string; operationKey?: string },
   ): Promise<CommandOutcome>
   deny(id: string, operationKey?: string): Promise<CommandOutcome>
   cancel(id: string, operationKey?: string): Promise<CommandOutcome>
@@ -196,86 +201,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     const run = runs.get(id)
     if (!run) return
     await Promise.race([run, quietSleep(timeoutMs)])
-  }
-
-  /**
-   * Resolve the worker's parked exportForReview gate with `once` and wait for the receipt
-   * named by the approved digest. Called only from approve, after the approval row is
-   * committed. Ends in exported or blocked; never leaves `exporting`. Reconciliation does
-   * not call this: an interrupted export is settled by its receipt, never resumed again.
-   */
-  async function confirmExport(id: string): Promise<void> {
-    const row = mustGet(id)
-    if (
-      row.state !== "exporting" ||
-      !row.workerThreadId ||
-      !row.candidateDigest ||
-      !row.interruptId
-    )
-      return
-    const { workerThreadId: threadId, candidateDigest: digest, interruptId } = row
-    const block = (reason: string, extra: Record<string, unknown> = {}) => {
-      if (mustGet(id).state === "exporting")
-        transition(
-          id,
-          "export_unconfirmed",
-          { blockedReason: "export_unconfirmed" },
-          { reason, ...extra },
-        )
-    }
-
-    let frames: AsyncIterable<StreamFrame>
-    try {
-      frames = await options.worker.resume(
-        threadId,
-        options.workerRoute,
-        [{ interruptId, payload: "once" }],
-        abort.signal,
-      )
-    } catch (error) {
-      block("resume failed", { error: String(error) })
-      return
-    }
-    recordEvent(id, "export_gate_resolved", { interruptId })
-    let routeError: string | null = null
-    const result = await consumeTurn(frames, {
-      onDone: async (data) => {
-        routeError = classifyDone(data).error
-      },
-    })
-    if (result.ended === "lost")
-      recordEvent(id, "stream_lost", { phase: "export_resume", error: result.error ?? null })
-    else if (result.ended === "handler_error") {
-      recordEvent(id, "run_observer_error", {
-        phase: "export_resume",
-        error: result.error ?? null,
-      })
-      block("observer error", { error: result.error ?? null })
-      return
-    }
-    if (routeError) {
-      block("resume ended with error", { error: routeError })
-      return
-    }
-    const receipt = await waitForReceipt(options.outboxDir ?? "", digest, {
-      timeoutMs: options.receiptWaitMs ?? 180_000,
-      signal: abort.signal,
-    })
-    if (!receipt) {
-      block("receipt not observed", { expected: receiptPath(options.outboxDir ?? "", digest) })
-      return
-    }
-    if (mustGet(id).state !== "exporting") return
-    store.transaction(() => {
-      store.recordDelivery({
-        workOrderId: id,
-        candidateDigest: digest,
-        receiptPath: receipt,
-        observedAt: iso(),
-      })
-      recordEvent(id, "delivery_observed", { receiptPath: receipt })
-      transition(id, "receipt_observed")
-    })
   }
 
   /**
@@ -512,15 +437,16 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       return outcome
     },
 
-    async approve(id, { revision, candidateDigest, operationKey }) {
+    async approve(id, { revision, bundleDigest, operationKey }) {
       const row = mustGet(id)
-      // The default key carries the digest as well as the revision: two approvals of the same
-      // revision with different digests are different intents, and one key cannot hold both.
-      const key = operationKey ?? `approve:${id}:${revision}:${candidateDigest}`
+      // The default key carries the bundle digest as well as the revision: two approvals of
+      // the same revision naming different bundles are different intents, and one key cannot
+      // hold both.
+      const key = operationKey ?? `approve:${id}:${revision}:${bundleDigest}`
       const begun = commands.begin(
         key,
         id,
-        { command: "approve", args: { revision, candidateDigest } },
+        { command: "approve", args: { revision, bundleDigest } },
         iso(),
       )
       if (begun.status === "done") return begun.outcome
@@ -530,68 +456,122 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       if (row.state !== "awaiting_approval") return refuse(`Cannot approve from ${row.state}`)
       if (row.revision !== revision)
         return refuse(`Stale revision ${revision}; work order is at ${row.revision}`)
-      if (row.candidateDigest !== candidateDigest)
-        return refuse("Candidate digest does not match the recorded candidate")
+      // Consent names the frozen bundle, not the bytes: the bundle digest covers the policy
+      // and the environment the verifier ran in, so a change to either invalidates it even
+      // when the candidate bytes are identical.
+      if (row.bundleDigest !== bundleDigest)
+        return refuse("Bundle digest does not match the frozen review bundle")
       const since = row.awaitingSince ? Date.parse(row.awaitingSince) : Number.NaN
       const ttl = options.approvalTtlMs ?? 900_000
       if (!Number.isFinite(since) || now() > since + ttl)
-        return refuse("Candidate has expired; deny or cancel it")
-      if (!row.workerThreadId || !row.interruptId) return refuse("Work order has no recorded gate")
+        return refuse("Review bundle has expired; deny or cancel it")
 
-      // The gate must still be pending on the worker before any authority is recorded.
-      let pending: InterruptFrame[]
+      const bundle = evidenceStore.bundle(bundleDigest)
+      if (!bundle) return refuse("Frozen bundle is missing from the registry")
+      const candidate = evidenceStore.candidate(bundle.candidateDigest)
+      if (!candidate) return refuse("Assembled candidate is missing from the registry")
+
+      // Re-verify the same bytes under the same policy before writing anything. Nothing below
+      // this point may run if the re-verification did not pass: the export is the one thing
+      // the controller cannot take back.
+      let changes: Record<string, string>
       try {
-        pending = await options.worker.pendingInterrupts(row.workerThreadId)
+        changes = JSON.parse(await artifacts.read(candidate.artifactDigest)) as Record<
+          string,
+          string
+        >
       } catch (error) {
-        // Unreadable is not vanished: refuse, and leave the row where the operator left it.
-        return refuse(`Worker unreachable while approving: ${String(error)}`)
+        recordEvent(id, "candidate_unreadable", { error: String(error) })
+        return refuse(`Approved bytes could not be read: ${String(error)}`)
       }
-      // Re-read after the await: a cancel (operator or budget) may have moved the row while
-      // this approve was talking to the worker, and neither `interrupt_vanished` nor `approve`
-      // is a legal move from where it left it.
-      if (mustGet(id).state !== "awaiting_approval")
-        return refuse("Work order changed state while approving")
-      if (pending.length !== 1 || pending[0]?.interruptId !== row.interruptId) {
-        transition(
-          id,
-          "interrupt_vanished",
-          { blockedReason: "interrupt_vanished" },
-          { expected: row.interruptId, pending: pending.map((p) => p.interruptId) },
+      // A policy that will not load is a refusal, not an escape: an exception here would
+      // leave this command's key in flight and need a restart to reconcile.
+      let policy: ReturnType<typeof loadPolicy>
+      try {
+        policy = loadPolicy(row.taskId)
+      } catch (error) {
+        recordEvent(id, "policy_unavailable", { phase: "export", error: String(error) })
+        return refuse(`Verification policy could not be loaded: ${String(error)}`)
+      }
+      let receipt: Receipt
+      try {
+        receipt = await ctx.verifier.verify(
+          {
+            workOrderId: id,
+            taskId: row.taskId,
+            candidateDigest: candidate.digest,
+            changes,
+            policyDigest: policy.policyDigest,
+          },
+          abort.signal,
         )
-        return refuse("The worker's approval prompt is no longer pending")
+      } catch (error) {
+        recordEvent(id, "verifier_unavailable", { phase: "export", error: String(error) })
+        return refuse(`Re-verification could not run: ${String(error)}`)
       }
+      // One unit, as in the verifying phase: a receipt row with no journal line would leave
+      // an auditor unable to say which of the two is the truth.
+      const rejected = receipt.verdict !== "pass" || receipt.candidateDigest !== candidate.digest
+      store.transaction(() => {
+        evidenceStore.recordReceipt(receipt)
+        recordEvent(id, rejected ? "reverification_rejected" : "reverified", {
+          verdict: receipt.verdict,
+          receiptId: receipt.id,
+        })
+      })
+      if (rejected) return refuse(`Re-verification did not pass: ${receipt.verdict}`)
 
+      // The verify above was an await: a cancel (operator or budget) may have moved the row,
+      // and `approve` is not a legal move from where it left it.
       try {
         store.transaction(() => {
           store.recordApproval({
             id: `ap-${randomUUID()}`,
             workOrderId: id,
-            interruptId: row.interruptId as string,
-            candidateDigest,
+            bundleDigest,
+            candidateDigest: candidate.digest,
             decision: "approved",
             decidedBy: options.actor ?? "operator",
             decidedAt: iso(),
             expiresAt: new Date(since + ttl).toISOString(),
           })
-          transition(id, "approve", {}, { candidateDigest, operationKey: key })
+          transition(id, "approve", {}, { bundleDigest, operationKey: key })
         })
       } catch (error) {
-        // A cancel (operator or budget) moved the row while this approve awaited the worker.
-        // The transaction rolled the authority record back; refuse rather than leave the
-        // command key in flight, which would need a restart to reconcile.
+        // The transaction rolled the authority record back with the transition.
         if (!(error instanceof IllegalTransitionError)) throw error
         return refuse("Work order changed state while approving")
       }
-      // Not tracked: it is awaited right here, so this command's caller is what close() waits
-      // on, and a fault is journalled once — below — rather than twice.
+
+      let path: string
       try {
-        await confirmExport(id)
+        path = await exportApproved({ directory: options.exportDir, bundle, changes })
       } catch (error) {
-        // confirmExport blocks the row itself for every failure it anticipates; anything that
-        // still escapes must not escape this command and strand its key.
-        recordEvent(id, "export_observer_error", { error: String(error) })
-        return refuse(`Export not confirmed: ${String(error)}`)
+        recordEvent(id, "export_failed", { error: String(error) })
+        if (mustGet(id).state === "exporting")
+          transition(id, "export_unconfirmed", { blockedReason: "export_unconfirmed" })
+        return finish(key, {
+          ok: false,
+          state: mustGet(id).state,
+          message: `Export failed: ${String(error)}`,
+        })
       }
+
+      // The write was an await too, and a cancel may have landed while it ran. The bytes are
+      // on disk either way, so the delivery is journalled either way — a row that reads
+      // `cancelled` over a delivery that happened is the truth, and hiding the delivery
+      // would not be. Only the transition is conditional, because `receipt_observed` is
+      // illegal from anywhere a cancel could have moved the row to.
+      store.transaction(() => {
+        store.recordDelivery({
+          workOrderId: id,
+          candidateDigest: candidate.digest,
+          receiptPath: path,
+          observedAt: iso(),
+        })
+        recordEvent(id, "delivery_written", { receiptPath: path })
+        if (mustGet(id).state === "exporting") transition(id, "receipt_observed")
+      })
       const final = mustGet(id)
       return finish(key, {
         ok: final.state === "exported",
@@ -599,7 +579,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         message:
           final.state === "exported"
             ? "Exported"
-            : `Export not confirmed: ${final.blockedReason ?? final.state}`,
+            : "Exported, but the work order changed state while the bytes were being written",
       })
     },
 
@@ -614,69 +594,58 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       if (row.state !== "awaiting_approval" && row.state !== "blocked")
         return refuse(`Cannot deny from ${row.state}`)
 
-      // A denial is the resolution of a prompt the worker is actually holding: read what is
-      // pending before any write, so nothing reaches `denied` on the strength of the row alone.
-      let pending: InterruptFrame[]
-      try {
-        pending = row.workerThreadId
-          ? await options.worker.pendingInterrupts(row.workerThreadId)
-          : []
-      } catch (error) {
-        recordEvent(id, "pending_deny_failed", { error: String(error) })
-        return refuse(`Deny could not be delivered to the worker: ${String(error)}`)
-      }
-      // Re-read after the await: a cancel (operator or budget) may have moved the row while
-      // this deny was reading the worker, and neither `interrupt_vanished` nor `deny` is a
-      // legal move from where it left it.
-      if (mustGet(id).state !== row.state) return refuse("Work order changed state while denying")
-      if (row.state === "awaiting_approval") {
-        // Mirrors approve: the recorded gate, and only it, may be denied.
-        if (pending.length !== 1 || pending[0]?.interruptId !== row.interruptId) {
-          transition(
-            id,
-            "interrupt_vanished",
-            { blockedReason: "interrupt_vanished" },
-            { expected: row.interruptId, pending: pending.map((p) => p.interruptId) },
-          )
-          return refuse("The worker's approval prompt is no longer pending")
+      // From `awaiting_approval` there is nothing parked on the worker: rung 1's builder route
+      // has no gate, and the review the operator is denying is the controller's own frozen
+      // bundle. Only a `blocked` row can be holding a prompt, and it is an unexpected one.
+      if (row.state === "blocked") {
+        let pending: InterruptFrame[]
+        try {
+          pending = row.workerThreadId
+            ? await options.worker.pendingInterrupts(row.workerThreadId)
+            : []
+        } catch (error) {
+          recordEvent(id, "pending_deny_failed", { error: String(error) })
+          return refuse(`Deny could not be delivered to the worker: ${String(error)}`)
         }
-      } else if (pending.length === 0) {
-        // A blocked work order with nothing parked (export_unconfirmed, say) has no prompt to
-        // deny; denying it would fake a decision the worker never heard.
-        return refuse("Nothing is pending to deny; cancel the work order instead")
-      }
+        // Re-read after the await: a cancel (operator or budget) may have moved the row while
+        // this deny was reading the worker, and `deny` is not legal from where it left it.
+        if (mustGet(id).state !== row.state) return refuse("Work order changed state while denying")
+        if (pending.length === 0)
+          // A blocked work order with nothing parked (verification_failed, say) has no prompt
+          // to deny; denying it would fake a decision the worker never heard.
+          return refuse("Nothing is pending to deny; cancel the work order instead")
 
-      const threadId = row.workerThreadId as string
-      try {
-        recordEvent(id, "pending_denied", { interruptIds: pending.map((p) => p.interruptId) })
-        const frames = await options.worker.resume(
-          threadId,
-          options.workerRoute,
-          pending.map((p) => ({ interruptId: p.interruptId, payload: "deny" as const })),
-          abort.signal,
-        )
-        await consumeTurn(frames, {})
-      } catch (error) {
-        // Undelivered: the row keeps its state so the operator can retry or cancel, rather
-        // than reading `denied` for a denial the worker never received.
-        recordEvent(id, "pending_deny_failed", { error: String(error) })
-        return refuse(`Deny could not be delivered to the worker: ${String(error)}`)
+        const threadId = row.workerThreadId as string
+        try {
+          recordEvent(id, "pending_denied", { interruptIds: pending.map((p) => p.interruptId) })
+          const frames = await options.worker.resume(
+            threadId,
+            options.workerRoute,
+            pending.map((p) => ({ interruptId: p.interruptId, payload: "deny" as const })),
+            abort.signal,
+          )
+          await consumeTurn(frames, {})
+        } catch (error) {
+          // Undelivered: the row keeps its state so the operator can retry or cancel, rather
+          // than reading `denied` for a denial the worker never received.
+          recordEvent(id, "pending_deny_failed", { error: String(error) })
+          return refuse(`Deny could not be delivered to the worker: ${String(error)}`)
+        }
+        // The resume was another await: the row may have moved again while the worker was
+        // hearing the denial.
+        if (mustGet(id).state !== row.state) return refuse("Work order changed state while denying")
       }
-
-      // The resume was another await: the row may have moved again while the worker was
-      // hearing the denial.
-      if (mustGet(id).state !== row.state) return refuse("Work order changed state while denying")
 
       // One unit, as in approve: a denied authority row without the transition (or the other
       // way round) would leave reconciliation guessing which of the two is the truth.
       let denied: WorkOrderRow
       try {
         denied = store.transaction(() => {
-          if (row.candidateDigest && row.interruptId)
+          if (row.bundleDigest && row.candidateDigest)
             store.recordApproval({
               id: `ap-${randomUUID()}`,
               workOrderId: id,
-              interruptId: row.interruptId,
+              bundleDigest: row.bundleDigest,
               candidateDigest: row.candidateDigest,
               decision: "denied",
               decidedBy: options.actor ?? "operator",

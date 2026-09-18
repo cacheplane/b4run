@@ -1,11 +1,13 @@
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/controller/factory.ts"
 import type { WorkOrderRow } from "../src/domain/work-order.ts"
 import { createHttpWorkerClient } from "../src/worker/client.ts"
+import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
+import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 let dir: string
 let fake: FakeWorker
@@ -13,21 +15,56 @@ let factory: Factory
 const BASE_MS = Date.parse("2026-09-16T10:00:00.000Z")
 let nowMs = BASE_MS
 
-async function boot(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
+const REPAIRED = "export const fixed = true\n"
+
+/** The baseline the controller captures, injected so this layer needs no container. */
+const captureRepairable = async () => ({
+  digest: "a".repeat(64),
+  files: new Map([
+    ["src/cli.ts", "broken\n"],
+    ["test/cli.test.ts", "spec\n"],
+    ["TASK.md", "task\n"],
+  ]),
+})
+
+/** What the builder is deemed to have left behind: a repair and two untouched files. */
+const repaired = () => ({
+  "src/cli.ts": REPAIRED,
+  "test/cli.test.ts": "spec\n",
+  "TASK.md": "task\n",
+})
+
+const out = () => join(dir, "out")
+
+async function boot(
+  script: Parameters<typeof createFakeVerifier>[0] = { verdict: "pass" },
+  workerOptions: Omit<FakeWorkerOptions, "outboxDir"> = {},
+): Promise<{ verifier: FakeVerifier; reader: FakeWorkspaceReader }> {
   dir = mkdtempSync(join(tmpdir(), "factory-approve-"))
-  // The worker writes its receipt here; both it and readdirSync need the directory to exist.
-  mkdirSync(join(dir, "outbox"), { recursive: true })
-  fake = await createFakeWorker({ outboxDir: join(dir, "outbox"), ...options })
+  // readdirSync asserts on this directory before anything is written to it.
+  mkdirSync(out(), { recursive: true })
+  fake = await createFakeWorker({
+    outboxDir: join(dir, "unused"),
+    run: "edits_only",
+    ...workerOptions,
+  })
+  const verifier = createFakeVerifier(script)
+  const reader = createFakeWorkspaceReader({})
   factory = await createFactory({
     registryPath: join(dir, "registry.sqlite"),
     worker: createHttpWorkerClient(fake.baseUrl),
-    workerRoute: "/fix#agent",
-    outboxDir: join(dir, "outbox"),
+    workerRoute: "/build#agent",
+    exportDir: out(),
+    artifactsDir: join(dir, "artifacts"),
+    verifier,
+    workspaceReader: reader,
+    captureBaseline: captureRepairable,
     approvalTtlMs: 60_000,
-    receiptWaitMs: 2_000,
     now: () => nowMs,
   })
+  return { verifier, reader }
 }
+
 // The clock is shared state a test may have advanced: every test starts from the same now.
 beforeEach(() => {
   nowMs = BASE_MS
@@ -38,189 +75,191 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-/** Dispatch a work order and wait for the gate, with the observed digest narrowed to a string. */
-async function awaiting(): Promise<WorkOrderRow & { candidateDigest: string }> {
+/**
+ * Drive a work order through the verifying phase to the frozen bundle, with the bundle
+ * digest narrowed to a string.
+ */
+async function awaiting(
+  reader: FakeWorkspaceReader,
+  files: Readonly<Record<string, string>> = repaired(),
+): Promise<WorkOrderRow & { bundleDigest: string; candidateDigest: string }> {
   const { id } = await factory.create({ taskId: "cli-flags" })
   await factory.dispatch(id)
-  const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval")
-  if (row.candidateDigest === null) throw new Error(`${id} reached the gate with no candidate`)
-  return row as WorkOrderRow & { candidateDigest: string }
+  const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+  reader.set(dispatched.workerThreadId as string, files)
+  const row = await factory.waitFor(id, (r) => r.state === "awaiting_approval", 20_000)
+  if (row.bundleDigest === null || row.candidateDigest === null)
+    throw new Error(`${id} reached the gate with no frozen bundle`)
+  return row as WorkOrderRow & { bundleDigest: string; candidateDigest: string }
 }
 
 const resumes = () => fake.requests.filter((r) => r.path.endsWith("/resume"))
 
 describe("approve", () => {
-  it("resolves the recorded gate with once and confirms the receipt", async () => {
-    await boot()
-    const row = await awaiting()
+  it("exports exactly the approved bytes, named by the bundle digest", async () => {
+    const { reader } = await boot()
+    const row = await awaiting(reader)
     const outcome = await factory.approve(row.id, {
       revision: row.revision,
-      candidateDigest: row.candidateDigest,
+      bundleDigest: row.bundleDigest,
     })
-    expect(outcome).toEqual({ ok: true, state: "exported", message: "Exported" })
-    expect(resumes()).toHaveLength(1)
-    expect(resumes()[0]?.body).toEqual({
-      resume: [{ interruptId: row.interruptId, status: "resolved", payload: "once" }],
-      route: "/fix#agent",
-    })
-    expect(readdirSync(join(dir, "outbox"))).toEqual([`${fake.digest}.json`])
+    expect(outcome).toMatchObject({ ok: true, state: "exported" })
+    expect(readdirSync(out())).toEqual([`${row.bundleDigest}.json`])
+    const written = JSON.parse(readFileSync(join(out(), `${row.bundleDigest}.json`), "utf8"))
+    expect(written.changes).toEqual({ "src/cli.ts": REPAIRED })
+    expect(written.bundle.digest).toBe(row.bundleDigest)
     expect(factory.show(row.id)).toMatchObject({ state: "exported", activeStartedAt: null })
-    expect(factory.events(row.id).map((e) => e.type)).toContain("delivery_observed")
+    expect(factory.events(row.id).map((e) => e.type)).toContain("delivery_written")
+    // Nothing was asked of the worker: the controller wrote the bytes itself.
+    expect(resumes()).toHaveLength(0)
   })
 
-  it("refuses a stale revision, a wrong digest, and an expired candidate without touching the worker", async () => {
-    await boot()
-    const row = await awaiting()
-    const before = fake.requests.length
+  it("refuses a stale revision, a wrong bundle digest, and an expired bundle, touching nothing", async () => {
+    const { reader, verifier } = await boot()
+    const row = await awaiting(reader)
+    const verifiedBefore = verifier.verified.length
     expect(
-      await factory.approve(row.id, {
-        revision: row.revision - 1,
-        candidateDigest: row.candidateDigest,
-      }),
-    ).toMatchObject({
-      ok: false,
-      message: expect.stringMatching(/revision/),
-    })
+      await factory.approve(row.id, { revision: row.revision - 1, bundleDigest: row.bundleDigest }),
+    ).toMatchObject({ ok: false, message: expect.stringMatching(/revision/) })
     expect(
-      await factory.approve(row.id, { revision: row.revision, candidateDigest: "f".repeat(64) }),
-    ).toMatchObject({
-      ok: false,
-      message: expect.stringMatching(/digest/),
-    })
+      await factory.approve(row.id, { revision: row.revision, bundleDigest: "f".repeat(64) }),
+    ).toMatchObject({ ok: false, message: expect.stringMatching(/Bundle digest/) })
     nowMs += 61_000
     expect(
-      await factory.approve(row.id, {
-        revision: row.revision,
-        candidateDigest: row.candidateDigest,
-      }),
-    ).toMatchObject({
-      ok: false,
-      message: expect.stringMatching(/expired/),
-    })
-    expect(fake.requests.length).toBe(before)
+      await factory.approve(row.id, { revision: row.revision, bundleDigest: row.bundleDigest }),
+    ).toMatchObject({ ok: false, message: expect.stringMatching(/expired/) })
+    // No re-verification was attempted and nothing was written.
+    expect(verifier.verified).toHaveLength(verifiedBefore)
+    expect(readdirSync(out())).toEqual([])
     expect(factory.show(row.id)).toMatchObject({
       state: "awaiting_approval",
       revision: row.revision,
     })
   })
 
-  it("is idempotent per operation key", async () => {
-    await boot()
-    const row = await awaiting()
+  it("re-verifies before writing and refuses when re-verification does not pass", async () => {
+    const { reader, verifier } = await boot({ verdict: "pass" })
+    const row = await awaiting(reader)
+    // The policy or the environment moved under the frozen bundle: the same bytes no longer
+    // earn the verdict the operator was shown.
+    verifier.script = { verdict: "fail" }
+    const outcome = await factory.approve(row.id, {
+      revision: row.revision,
+      bundleDigest: row.bundleDigest,
+    })
+    expect(outcome.ok).toBe(false)
+    expect(outcome.message).toMatch(/Re-verification did not pass/)
+    expect(readdirSync(out())).toEqual([])
+    expect(factory.events(row.id).map((e) => e.type)).toContain("reverification_rejected")
+    // The refusal leaves the review where it was, so the operator can deny or cancel it.
+    expect(factory.show(row.id)).toMatchObject({
+      state: "awaiting_approval",
+      revision: row.revision,
+    })
+  })
+
+  it("refuses without writing when the re-verification harness cannot run", async () => {
+    const { reader, verifier } = await boot({ verdict: "pass" })
+    const row = await awaiting(reader)
+    verifier.script = { throws: "docker unavailable" }
+    expect(
+      await factory.approve(row.id, { revision: row.revision, bundleDigest: row.bundleDigest }),
+    ).toMatchObject({ ok: false, message: expect.stringMatching(/Re-verification could not run/) })
+    expect(readdirSync(out())).toEqual([])
+    expect(factory.show(row.id)?.state).toBe("awaiting_approval")
+  })
+
+  it("is idempotent per operation key, and exports once", async () => {
+    const { reader } = await boot()
+    const row = await awaiting(reader)
     const input = {
       revision: row.revision,
-      candidateDigest: row.candidateDigest,
+      bundleDigest: row.bundleDigest,
       operationKey: "approve-1",
     }
     const first = await factory.approve(row.id, input)
     const second = await factory.approve(row.id, input)
     expect(second).toEqual(first)
-    expect(resumes()).toHaveLength(1)
+    expect(readdirSync(out())).toEqual([`${row.bundleDigest}.json`])
   })
 
-  it("refuses when the gate is no longer pending on the worker", async () => {
-    await boot()
-    const row = await awaiting()
-    // Something else resolved the worker's prompt behind the factory's back.
-    await fetch(`${fake.baseUrl}/threads/${row.workerThreadId}/resume`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        resume: [{ interruptId: row.interruptId, status: "resolved", payload: "deny" }],
-        route: "/fix#agent",
-      }),
-    }).then((r) => r.text())
+  it("blocks with export_unconfirmed when the same bundle was exported with other content", async () => {
+    const { reader } = await boot()
+    const row = await awaiting(reader)
+    // A receipt already on disk under this bundle digest, with different bytes: overwriting it
+    // would deliver something the operator never approved.
+    writeFileSync(join(out(), `${row.bundleDigest}.json`), "{}\n")
     const outcome = await factory.approve(row.id, {
       revision: row.revision,
-      candidateDigest: row.candidateDigest,
+      bundleDigest: row.bundleDigest,
     })
     expect(outcome).toMatchObject({ ok: false, state: "blocked" })
-    expect(factory.show(row.id)?.blockedReason).toBe("interrupt_vanished")
+    expect(outcome.message).toMatch(/Export failed/)
+    expect(factory.show(row.id)?.blockedReason).toBe("export_unconfirmed")
+    expect(readFileSync(join(out(), `${row.bundleDigest}.json`), "utf8")).toBe("{}\n")
+    expect(factory.events(row.id).map((e) => e.type)).toContain("export_failed")
   })
 
-  it("blocks with export_unconfirmed when the resume fails or no receipt appears", async () => {
-    await boot({ resume: "route_error" })
-    const a = await awaiting()
+  it("refuses to approve from a state that is not awaiting_approval", async () => {
+    const { reader } = await boot({ verdict: "fail" })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+    reader.set(dispatched.workerThreadId as string, repaired())
+    const row = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
     expect(
-      await factory.approve(a.id, { revision: a.revision, candidateDigest: a.candidateDigest }),
-    ).toMatchObject({ ok: false, state: "blocked" })
-    expect(factory.show(a.id)?.blockedReason).toBe("export_unconfirmed")
-
-    fake.behaviour.resume = "no_receipt"
-    const b = await awaiting()
-    expect(
-      await factory.approve(b.id, { revision: b.revision, candidateDigest: b.candidateDigest }),
-    ).toMatchObject({ ok: false, state: "blocked" })
-    expect(factory.show(b.id)?.blockedReason).toBe("export_unconfirmed")
+      await factory.approve(id, { revision: row.revision, bundleDigest: "a".repeat(64) }),
+    ).toMatchObject({ ok: false, message: expect.stringMatching(/Cannot approve from blocked/) })
+    expect(readdirSync(out())).toEqual([])
   })
 })
 
 describe("deny", () => {
-  it("denies from awaiting_approval by resolving the gate with deny", async () => {
-    await boot()
-    const row = await awaiting()
+  it("denies from awaiting_approval without asking the worker for anything", async () => {
+    const { reader } = await boot()
+    const row = await awaiting(reader)
     const outcome = await factory.deny(row.id)
     expect(outcome).toEqual({ ok: true, state: "denied", message: "Denied" })
-    expect(resumes()).toHaveLength(1)
-    expect(resumes()[0]?.body).toMatchObject({
-      resume: [{ interruptId: row.interruptId, payload: "deny" }],
-    })
-    expect(readdirSync(join(dir, "outbox"))).toEqual([])
+    // Rung 1's builder route parks on no gate: there is nothing on the worker to resolve.
+    expect(resumes()).toHaveLength(0)
+    expect(readdirSync(out())).toEqual([])
   })
 
   it("denies from blocked, resolving whatever is pending", async () => {
-    await boot({ run: "unexpected_interrupt" })
+    const { reader } = await boot({ verdict: "pass" }, { run: "unexpected_interrupt" })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
+    const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+    reader.set(dispatched.workerThreadId as string, repaired())
     await factory.waitFor(id, (r) => r.state === "blocked")
     expect((await factory.deny(id)).state).toBe("denied")
     expect(resumes()).toHaveLength(1)
     expect(resumes()[0]?.body).toMatchObject({ resume: [{ payload: "deny" }] })
   })
 
-  it("blocks rather than denies when the gate was resolved behind the factory's back", async () => {
-    await boot()
-    const row = await awaiting()
-    await fetch(`${fake.baseUrl}/threads/${row.workerThreadId}/resume`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        resume: [{ interruptId: row.interruptId, status: "resolved", payload: "deny" }],
-        route: "/fix#agent",
-      }),
-    }).then((r) => r.text())
-    const before = resumes().length
-    expect(await factory.deny(row.id)).toMatchObject({
-      ok: false,
-      state: "blocked",
-      message: "The worker's approval prompt is no longer pending",
-    })
-    expect(factory.show(row.id)?.blockedReason).toBe("interrupt_vanished")
-    expect(resumes()).toHaveLength(before)
-  })
-
   it("refuses deny on a blocked work order with nothing pending", async () => {
-    await boot({ resume: "route_error" })
-    const row = await awaiting()
-    await factory.approve(row.id, { revision: row.revision, candidateDigest: row.candidateDigest })
-    const blocked = await factory.waitFor(row.id, (r) => r.state === "blocked")
-    expect(blocked.blockedReason).toBe("export_unconfirmed")
-    const before = resumes().length
-    expect(await factory.deny(row.id)).toMatchObject({
+    const { reader } = await boot({ verdict: "fail" })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+    reader.set(dispatched.workerThreadId as string, repaired())
+    const blocked = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
+    expect(blocked.blockedReason).toBe("verification_failed")
+    expect(await factory.deny(id)).toMatchObject({
       ok: false,
       state: "blocked",
       message: "Nothing is pending to deny; cancel the work order instead",
     })
-    expect(factory.show(row.id)).toMatchObject({
+    expect(factory.show(id)).toMatchObject({
       state: "blocked",
-      blockedReason: "export_unconfirmed",
+      blockedReason: "verification_failed",
       revision: blocked.revision,
     })
-    expect(resumes()).toHaveLength(before)
+    expect(resumes()).toHaveLength(0)
   })
 
   it("refuses deny from running", async () => {
-    await boot({ run: "hang" })
+    await boot({ verdict: "pass" }, { run: "hang" })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     await factory.waitFor(id, (r) => r.state === "running")
