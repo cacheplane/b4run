@@ -274,6 +274,9 @@ describe("b4 verify", () => {
         },
         {
           error: {
+            // Route discovery now batches this defect under its own registry
+            // code, so `verify` carries it through to the JSON error.
+            code: "B4_E1008",
             message: expect.stringContaining(
               `must export exactly one of "agent", "workflow", "graph", or "chain"`,
             ),

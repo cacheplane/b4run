@@ -71,14 +71,52 @@ describe("discoverRoutes", () => {
     expect(manifest.routes[0]?.kind).toBe("graph")
   })
 
-  it("throws when index.ts exports both workflow and graph", async () => {
+  it("throws B4_E1008 naming the file when index.ts exports both workflow and graph", async () => {
     const appRoot = await writeApp({
       "src/app/hello/index.ts": `export async function workflow() { return {} }\nexport const graph = { invoke: async () => ({}) }\n`,
     })
 
-    await expect(discoverRoutes({ appRoot })).rejects.toThrow(
-      /Route index\.ts must export exactly one of "agent", "workflow", "graph", or "chain"/,
-    )
+    const error = await discoverRoutes({ appRoot }).catch((cause: unknown) => cause)
+
+    expect(error).toBeInstanceOf(B4AppError)
+    expect((error as B4AppError).code).toBe("B4_E1008")
+    const message = (error as Error).message
+    expect(message).toContain(join(appRoot, "src/app/hello/index.ts"))
+    // The runtime's boundary-error classifier matches on this wording.
+    expect(message).toContain(`must export exactly one of "agent", "workflow", "graph", or "chain"`)
+    expect(message).toContain("found: workflow, graph")
+  })
+
+  it("names every multi-kind route entry in one error", async () => {
+    const appRoot = await writeApp({
+      "src/app/first/index.ts": `export async function workflow() { return {} }\nexport const graph = { invoke: async () => ({}) }\n`,
+      "src/app/second/index.ts": `export const chain = { invoke: async () => ({}) }\nexport const agent = { invoke: async () => ({}) }\n`,
+    })
+
+    const error = await discoverRoutes({ appRoot }).catch((cause: unknown) => cause)
+
+    expect((error as B4AppError).code).toBe("B4_E1008")
+    const message = (error as Error).message
+    expect(message).toContain("2 route entries export more than one route kind")
+    expect(message).toContain(join(appRoot, "src/app/first/index.ts"))
+    expect(message).toContain("found: workflow, graph")
+    expect(message).toContain(join(appRoot, "src/app/second/index.ts"))
+    expect(message).toContain("found: agent, chain")
+  })
+
+  it("reports unrecognised entries first and says how many multi-kind entries wait", async () => {
+    const appRoot = await writeApp({
+      "src/app/bad/index.ts": `export async function workflow() { return {} }\nexport const graph = { invoke: async () => ({}) }\n`,
+      "src/app/util/index.ts": `export const helper = 1\n`,
+    })
+
+    const error = await discoverRoutes({ appRoot }).catch((cause: unknown) => cause)
+
+    expect((error as B4AppError).code).toBe("B4_E1007")
+    const message = (error as Error).message
+    expect(message).toContain(join(appRoot, "src/app/util/index.ts"))
+    expect(message).toContain("1 route entry exports more than one route kind")
+    expect(message).toContain("B4_E1008")
   })
 
   it("throws naming the file when index.ts has no recognisable export", async () => {

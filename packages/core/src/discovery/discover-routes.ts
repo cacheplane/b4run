@@ -26,14 +26,27 @@ export async function discoverRoutes(options: DiscoverRoutesOptions = {}): Promi
 async function collectRouteDefinitions(routesDir: string): Promise<RouteDefinition[]> {
   const discovered: RouteDefinition[] = []
   const unrecognised: UnrecognisedRouteEntry[] = []
+  const multiKind: MultiKindRouteEntry[] = []
 
-  await walkRouteTree(routesDir, routesDir, discovered, unrecognised)
+  await walkRouteTree(routesDir, routesDir, discovered, unrecognised, multiKind)
 
   // Batched the way `b4 check`'s other app-wide gates are (the edge-capability
   // report, the marker-file limits): every miswired route entry is named in one
   // run, instead of the user fixing one and re-running to meet the next.
+  //
+  // The two defects carry different codes, so they cannot share one error. When
+  // an app has both, the unrecognised entries are reported first and the message
+  // says how many multi-kind entries are queued behind them, so the second round
+  // is never a surprise.
   if (unrecognised.length > 0) {
-    throw new B4AppError(explainUnrecognisedRouteEntries(unrecognised), "B4_E1007")
+    throw new B4AppError(
+      explainUnrecognisedRouteEntries(unrecognised, multiKind.length),
+      "B4_E1007",
+    )
+  }
+
+  if (multiKind.length > 0) {
+    throw new B4AppError(explainMultiKindRouteEntries(multiKind), "B4_E1008")
   }
 
   return discovered
@@ -44,6 +57,7 @@ async function walkRouteTree(
   currentDir: string,
   discovered: RouteDefinition[],
   unrecognised: UnrecognisedRouteEntry[],
+  multiKind: MultiKindRouteEntry[],
 ): Promise<void> {
   const scan = await readRouteEntry(routesDir, currentDir)
 
@@ -55,6 +69,10 @@ async function walkRouteTree(
     unrecognised.push(scan.unrecognised)
   }
 
+  if (scan.multiKind) {
+    multiKind.push(scan.multiKind)
+  }
+
   const entries = (await readdir(currentDir, { withFileTypes: true })).sort((left, right) =>
     left.name.localeCompare(right.name),
   )
@@ -64,7 +82,13 @@ async function walkRouteTree(
       continue
     }
 
-    await walkRouteTree(routesDir, join(currentDir, entry.name), discovered, unrecognised)
+    await walkRouteTree(
+      routesDir,
+      join(currentDir, entry.name),
+      discovered,
+      unrecognised,
+      multiKind,
+    )
   }
 }
 
@@ -78,10 +102,21 @@ interface UnrecognisedRouteEntry {
   readonly nearestPackageJson: string | undefined
 }
 
+/**
+ * One route entry that exports more than one route kind, held rather than thrown
+ * for the same reason as `UnrecognisedRouteEntry`.
+ */
+interface MultiKindRouteEntry {
+  readonly indexFile: string
+  /** The route kinds the module exported, in the order the message lists them. */
+  readonly kinds: readonly RouteKind[]
+}
+
 /** What one directory contributed to the walk: a route, a defect, or neither. */
 interface RouteEntryScan {
   readonly route?: RouteDefinition
   readonly unrecognised?: UnrecognisedRouteEntry
+  readonly multiKind?: MultiKindRouteEntry
 }
 
 const NO_ROUTE_ENTRY: RouteEntryScan = {}
@@ -101,9 +136,13 @@ async function readRouteEntry(routesDir: string, routeDir: string): Promise<Rout
 
   const indexFile = resolve(routeDir, INDEX_FILE)
   const routeExports = await loadRouteExports(indexFile)
-  const kind = inferRouteKind(routeExports)
+  const classification = classifyRouteExports(routeExports)
 
-  if (!kind) {
+  if (classification.outcome === "multiple") {
+    return { multiKind: { indexFile, kinds: classification.kinds } }
+  }
+
+  if (classification.outcome === "unrecognised") {
     // A directory under the routes dir with an index.ts is a route by
     // construction; one whose module exports nothing B4.run recognises is a
     // defect to name, not a directory to skip (#685: the CommonJS interop shape
@@ -127,7 +166,7 @@ async function readRouteEntry(routesDir: string, routeDir: string): Promise<Rout
     route: {
       id: toPathname(routeSegments),
       pathname: toPathname(routeSegments),
-      kind,
+      kind: classification.kind,
       entryFile: indexFile,
       routeDir,
       segments: toRouteSegments(routeSegments),
@@ -135,46 +174,41 @@ async function readRouteEntry(routesDir: string, routeDir: string): Promise<Rout
   }
 }
 
-function inferRouteKind(routeExports: RouteExports): RouteKind | null {
+/**
+ * What a route module's exports say it is. Returns instead of throwing on the
+ * multi-kind defect so the walk can collect every offending entry — the throw
+ * belongs to `collectRouteDefinitions`, which sees the whole app.
+ */
+type RouteExportsClassification =
+  | { readonly outcome: "kind"; readonly kind: RouteKind }
+  | { readonly outcome: "multiple"; readonly kinds: readonly RouteKind[] }
+  | { readonly outcome: "unrecognised" }
+
+/** Declaration order, so a message lists the kinds the way the docs name them. */
+const ROUTE_KINDS = ["agent", "workflow", "graph", "chain"] as const satisfies readonly RouteKind[]
+
+function classifyRouteExports(routeExports: RouteExports): RouteExportsClassification {
   // Check default export for B4Agent descriptor (preferred path)
   if ("default" in routeExports && isB4Agent(routeExports.default)) {
-    return "agent"
+    return { outcome: "kind", kind: "agent" }
   }
 
-  const hasAgent = "agent" in routeExports && routeExports.agent !== undefined
-  const hasChain = "chain" in routeExports && routeExports.chain !== undefined
-  const hasGraph = "graph" in routeExports && routeExports.graph !== undefined
-  const hasWorkflow = "workflow" in routeExports && routeExports.workflow !== undefined
+  const exported = ROUTE_KINDS.filter(
+    (kind) => kind in routeExports && routeExports[kind] !== undefined,
+  )
 
-  const count = [hasAgent, hasChain, hasGraph, hasWorkflow].filter(Boolean).length
-
-  if (count > 1) {
-    throw new Error(
-      `Route index.ts must export exactly one of "agent", "workflow", "graph", or "chain"`,
-    )
+  if (exported.length > 1) {
+    return { outcome: "multiple", kinds: exported }
   }
 
-  if (hasAgent) {
-    return "agent"
-  }
+  const [only] = exported
 
-  if (hasChain) {
-    return "chain"
-  }
-
-  if (hasGraph) {
-    return "graph"
-  }
-
-  if (hasWorkflow) {
-    return "workflow"
-  }
-
-  return null
+  return only ? { outcome: "kind", kind: only } : { outcome: "unrecognised" }
 }
 
-const RECOGNISED_EXPORTS =
-  'a default export of `agent(...)`, or exactly one of "agent", "workflow", "graph", or "chain"'
+const RECOGNISED_KINDS = 'exactly one of "agent", "workflow", "graph", or "chain"'
+
+const RECOGNISED_EXPORTS = `a default export of \`agent(...)\`, or ${RECOGNISED_KINDS}`
 
 /**
  * The message for a route `index.ts` whose exports B4.run cannot classify.
@@ -219,9 +253,51 @@ export function explainUnrecognisedRouteExports(
  * per-entry explanations indented underneath, in walk order (sorted, so the
  * listing is stable).
  */
-function explainUnrecognisedRouteEntries(entries: readonly UnrecognisedRouteEntry[]): string {
+function explainUnrecognisedRouteEntries(
+  entries: readonly UnrecognisedRouteEntry[],
+  queuedMultiKindCount: number,
+): string {
   const explanations = entries.map((entry) =>
     explainUnrecognisedRouteExports(entry.indexFile, entry.routeExports, entry.nearestPackageJson),
+  )
+
+  const [only] = explanations
+  const body =
+    explanations.length === 1 && only !== undefined
+      ? only
+      : [
+          `${explanations.length} route entries have no recognisable export:`,
+          ...explanations.map((explanation) => bullet(explanation)),
+        ].join("\n")
+
+  if (queuedMultiKindCount === 0) {
+    return body
+  }
+
+  // B4_E1008 is a different code and cannot ride along in this error, so say it
+  // is waiting rather than letting the next run look like a new problem.
+  const subject =
+    queuedMultiKindCount === 1
+      ? "1 route entry exports"
+      : `${queuedMultiKindCount} route entries export`
+  return (
+    `${body}\n` +
+    `Also: ${subject} more than one route kind, ` +
+    "reported as B4_E1008 once the above are fixed."
+  )
+}
+
+/**
+ * The B4_E1008 message for every route entry that exported more than one route
+ * kind. Shaped like the B4_E1007 message: a single entry stands alone, several
+ * are bulleted. Keeps the wording `must export exactly one of ...`, which the
+ * runtime's boundary-error classifier and several CLI tests match on.
+ */
+function explainMultiKindRouteEntries(entries: readonly MultiKindRouteEntry[]): string {
+  const explanations = entries.map(
+    (entry) =>
+      `Route entry ${entry.indexFile} must export ${RECOGNISED_KINDS} (found: ${entry.kinds.join(", ")}).\n` +
+      "Keep the one this route should run and remove the others, or move them into separate route directories.",
   )
 
   const [only] = explanations
@@ -231,9 +307,14 @@ function explainUnrecognisedRouteEntries(entries: readonly UnrecognisedRouteEntr
   }
 
   return [
-    `${explanations.length} route entries have no recognisable export:`,
-    ...explanations.map((explanation) => `  • ${explanation.split("\n").join("\n    ")}`),
+    `${explanations.length} route entries export more than one route kind:`,
+    ...explanations.map((explanation) => bullet(explanation)),
   ].join("\n")
+}
+
+/** One listing entry: `• ` on the first line, continuation lines indented under it. */
+function bullet(explanation: string): string {
+  return `  • ${explanation.split("\n").join("\n    ")}`
 }
 
 function looksLikeCommonJsInterop(routeExports: object): boolean {
