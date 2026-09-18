@@ -52,9 +52,8 @@ reversed knowingly.
 ### D1 — Mechanism: a separate read-only container over the same storage
 
 The Docker implementation starts a **fresh, ephemeral container** with the
-thread's existing workspace volume bind-mounted read-only
-(`-v <vol>:/workspace:ro`) and reads through `docker exec` **into that reader
-container**. It touches the keeper container's name in exactly zero Docker
+thread's workspace attached read-only and reads through `docker exec` **into that
+reader container**. It touches the keeper container's name in exactly zero Docker
 commands.
 
 Rejected: `docker exec` into the keeper. It would require a live keeper, so it
@@ -66,12 +65,41 @@ Rejected: one ephemeral container per filesystem call (`docker run --rm ... sh -
 <op>`). No lifecycle to leak, but `inspectWorkspace` issues two or more execs per
 file, and a container start per operation turns a modest workspace into minutes.
 
+### D1a — The workspace is a read-only BIND of the volume's backing directory, not a named-volume mount
+
+The obvious spelling, `-v <volume>:/workspace:ro`, is wrong, and a review of the
+first implementation caught it. **A named-volume mount creates a missing
+volume.** Measured on Docker 27.4.0:
+
+```
+$ docker volume inspect absent-vol      # exit 1, does not exist
+$ docker run --rm -v absent-vol:/workspace:ro alpine true   # exit 0
+$ docker volume inspect absent-vol      # exit 0 — it exists now
+```
+
+So a reader racing a `destroy()` would *resurrect* the thread's workspace as an
+empty volume, and the next `acquire()` — which reattaches when
+`docker volume inspect` succeeds — would hand the worker an **empty** workspace
+instead of building a fresh one. The reader would also return a successful empty
+inventory, violating D8.
+
+Docker has no flag that makes a named mount refuse a missing volume, so the
+implementation reads the volume's `Mountpoint` and attaches
+`--mount type=bind,source=<mountpoint>,target=/workspace,readonly`. A bind mount
+**refuses** a missing source (`bind source path does not exist`) and creates
+nothing, so "the workspace is gone" stays gone and stays an error.
+
+Cost: this depends on the volume having a host-visible backing path, which is
+true of the `local` driver the provider always uses (it passes no `--driver`). A
+volume whose `Mountpoint` is empty or not absolute is rejected with a clear
+message rather than silently falling back to the resurrecting form.
+
 ### D2 — Read-only is enforced by the kernel, not by a doc comment
 
 Three independent layers, in order of authority:
 
-1. The workspace mount is `:ro`. A write fails with `EROFS` from the kernel. This
-   is the guarantee.
+1. The workspace mount is `readonly`. A write fails with `EROFS` from the kernel.
+   This is the guarantee.
 2. The returned type exposes no write methods and **no `exec`**. There is no API
    through which a caller can even express a mutation.
 3. The reader container itself is hardened beyond the keeper's defaults:
@@ -101,6 +129,13 @@ interface WorkspaceReadSource {
 existing call site changes, nothing that compiled stops compiling. The
 discriminant `"filesystem" in source` is unchanged.
 
+Known cost, accepted: the *accepted-shape floor* drops. `lstat`, `readBinaryFile`
+and `listDir` are optional on `FilesystemBackend`, so
+`inspectWorkspace({ filesystem: {}, workspaceRoot: "/x" })` now type-checks where
+the old `SandboxHandle` member would have rejected it. The runtime guards that
+throw for missing metadata are unchanged and tested, so the failure is loud;
+tightening the floor would mean refusing a legitimate `SandboxHandle`.
+
 The reader's `filesystem` type makes `lstat`, `readBinaryFile` and `statFile`
 **required** rather than optional, so `inspectWorkspace` can never fail against a
 reader for a missing capability — the failure mode the optional members exist to
@@ -111,7 +146,8 @@ describe does not apply to a surface built for inspection.
 `workspaces?: ManagedWorkspaceProvider` already establishes the
 provider-optional-capability precedent, but managed workspaces are a cluster of
 operations. This is one operation, so it is one optional method. Presence is the
-capability probe: `typeof provider.openWorkspaceReader === "function"`.
+capability probe: `typeof provider.openWorkspaceReader === "function"`. Note that
+the *conformance kit* does not probe — see D5a.
 
 ### D5 — Kubernetes deliberately does not implement it
 
@@ -119,8 +155,29 @@ capability probe: `typeof provider.openWorkspaceReader === "function"`.
 storage is a `ReadWriteOnce` PVC, which a second pod cannot mount unless it lands
 on the same node. An implementation that works only by accident of scheduling is
 worse than an honest absence, so the capability stays absent there and the docs
-say so. The conformance kit skips the block when the capability is absent, so
-Kubernetes conformance keeps passing unchanged.
+say so.
+
+### D5a — The conformance kit takes a DECLARED capability; it never skips
+
+The first implementation probed the provider inside the test body and called
+`testContext.skip()` when the capability was absent. That broke the Kubernetes
+compatibility harness, which refuses a provider suite with any non-zero
+skipped/pending/todo count (`scripts/kubernetes-compat/report.ts`,
+`assertProviderAccounting`) and separately requires the observed test names to
+match `test/k8s-compat/expected-tests.json` exactly. Both assertions exist so a
+silent skip cannot stand in for a contract nobody checked — which is precisely
+what my skip was.
+
+So `runProviderConformance` takes `workspaceReads?: boolean`. Declaring it
+registers the reader block; omitting it registers none of it. Either way the kit
+registers one ordinary, always-running test — "declares its workspace read
+capability honestly" — that asserts the declaration matches the provider, so a
+declaration cannot lie. No test is ever skipped, and a capability-absent provider
+gains exactly one pinned test name.
+
+Probing at collection time instead is not an option: the gated cluster providers
+cannot be constructed without their infrastructure, and a nested `describe` body
+still executes inside a skipped suite.
 
 ### D6 — Reader identity defaults to the hardened workspace owner (1000:1000)
 
@@ -140,13 +197,39 @@ defaults to the same secure default the provider applies.
 
 ### D7 — Explicit `close()`, plus a scoped helper so callers cannot leak
 
-The reader container is real state. `close()` removes it, is idempotent, and
-never throws for an already-gone container. The container is created with `--rm`
-and labelled `b4.sandbox.reader=<resourceId>` so a stray is findable.
+The reader container is real state. `close()` removes it and treats an
+already-gone container as success, but it **reports** any other removal failure
+instead of swallowing it: a reader that cannot be removed is a leak the caller
+needs to hear about. `closed` therefore flips only after a successful removal, so
+a failed close can be retried — and the first implementation got this wrong, with
+a `.catch(() => {})` that made the helper's close-failure path dead code for the
+real provider while the fake reader in the unit tests exercised it happily.
 
-`withWorkspaceReader(provider, input, fn)` ships in `@b4run/workspace` and closes
-in a `finally`, aggregating a body failure with a close failure rather than
-losing either. That is the form the docs lead with.
+Every read refuses after close, so a use-after-close names the mistake instead of
+surfacing an opaque Docker "no such container".
+
+The container is created with `--rm` and labelled
+`b4.sandbox.reader=<resourceId>` so a stray is findable.
+
+`destroy()` deliberately does NOT reap readers, and this was tried and reverted.
+The reap was written to fix a predicted failure — a live reader making
+`docker volume rm` fail "volume is in use", a failure `destroy()` discards — and
+measurement showed the failure does not exist: a bind mount does not reference
+the volume by name, so a reader never blocks `volume rm`. With no bug to fix, the
+reap's remaining value was hygiene, and its cost was two extra Docker calls on
+every `destroy()`. That cost was not theoretical: it reproducibly (3/3, against
+3/3 passing without it) broke an unrelated code-fixer test that races an artifact
+write against a dead `DOCKER_HOST`, because the added calls shift that race.
+Perturbing a hot lifecycle path to buy tidiness is the wrong trade, so `destroy()`
+is unchanged.
+
+Residual, accepted and listed as an open question: a reader whose owner never
+calls `close()` keeps running after the thread is destroyed, holding the unlinked
+directory's inodes. The label is how an operator finds it.
+
+`withWorkspaceReader(provider, input, fn)` ships in `@b4run/workspace` and always
+closes, aggregating a body failure with a close failure rather than losing
+either. That is the form the docs lead with.
 
 ### D8 — A missing workspace is a coded error, not an empty reader
 
@@ -212,9 +295,23 @@ Proven, not asserted, at two levels:
   is running. Then assert: the keeper's container id is unchanged, the keeper is
   still running, `exec.runCommand` still returns exit 0, the original handle can
   still read and write, the reader container is gone after `close()`, and a write
-  into the same volume through a `:ro` mount fails. Plus the case `docker exec`
+  through the same read-only bind fails at the kernel. Plus the case `docker exec`
   into the keeper could never serve: read the workspace after `release()`, when
   the keeper is gone and only the volume remains.
+
+Every one of these was falsified before being trusted: reverting the fix under
+test reds the test. Two did NOT fail when first falsified, and both were
+rewritten rather than kept:
+
+- The "destroyed thread has no workspace" test passes even with the resurrecting
+  named-volume mount restored, because `open` inspects the volume first and never
+  reaches the run. The resurrection is only reachable in the race, which no test
+  can schedule, so the guard is the mount FORM pinned by the unit test — and that
+  one does red on revert.
+- A destroy test asserted the volume was removed while a reader was open. It
+  passes with or without a reader reap, which is what revealed that the leak it
+  was written for does not exist (see D7). The reap and the test were both
+  dropped.
 
 ## Surface
 

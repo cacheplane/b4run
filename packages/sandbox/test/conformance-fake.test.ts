@@ -5,4 +5,5 @@ runProviderConformance({
   name: "fakeSandbox",
   makeProvider: () => fakeSandbox(),
   describe,
+  workspaceReads: true,
 })

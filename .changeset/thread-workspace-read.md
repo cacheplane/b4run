@@ -12,15 +12,23 @@ exports `withWorkspaceReader` plus the `SandboxWorkspaceReader`,
 contracts. `inspectWorkspace` now accepts any `WorkspaceReadSource`, so a reader
 works wherever a `SandboxHandle` did.
 
-`dockerSandbox` implements the capability by mounting the thread's existing
-workspace volume read-only into a separate, ephemeral, networkless container: the
-thread's keeper container is never inspected, started, stopped or replaced, and
-writes fail at the kernel rather than at a policy check. It also reads a thread
-whose compute was already released. `kubernetesSandbox` omits the capability
-because a `ReadWriteOnce` claim cannot be mounted by a second Pod unless it lands
-on the same node. `fakeSandbox` implements it in memory and gained the `lstat`,
-`readBinaryFile` and `statFile` members the Docker backend already had, so
-`runProviderConformance` covers the new capability-conditional block in ordinary CI.
+`dockerSandbox` implements the capability by attaching the thread's existing
+workspace into a separate, ephemeral, networkless container as a read-only bind
+of the volume's backing directory: the thread's keeper container is never
+inspected, started, stopped or replaced, and writes fail at the kernel rather
+than at a policy check. It also reads a thread whose compute was already
+released. A named-volume mount is deliberately avoided because it would create a
+missing volume, so a reader racing a thread delete would resurrect that thread's
+workspace as an empty volume. A `close()` that cannot remove its container
+reports the failure instead of swallowing it, and reads after close are refused
+with a clear error.
+
+`kubernetesSandbox` omits the capability because a `ReadWriteOnce` claim cannot
+be mounted by a second Pod unless it lands on the same node. `fakeSandbox`
+implements it in memory and gained the `lstat`, `readBinaryFile` and `statFile`
+members the Docker backend already had. `runProviderConformance` takes a
+`workspaceReads` declaration and verifies it, so the contract is covered without
+skipping a test for providers that omit the capability.
 
 This is a host-side API for an already-trusted caller. It is not an authorization
 boundary, not a model tool, and not an HTTP endpoint.

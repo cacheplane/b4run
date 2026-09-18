@@ -171,10 +171,11 @@ somewhere better to put the `close()`.
 
 A reader is safe while a worker is mid-thread or idle between turns. It does not
 call `acquire()`, so it never replaces the worker's compute, and it reads the
-thread's workspace storage through a separate, ephemeral, networkless container
-that mounts it read-only. Writes fail at the kernel, not at a policy check, and
-the reader object exposes no write method and no shell: there is no API on it
-through which a mutation can be expressed.
+thread's workspace through a separate, ephemeral, networkless container that
+attaches the workspace read-only. Writes fail at the kernel, not at a policy
+check, and the reader object exposes no write method and no shell: there is no
+API on it through which a mutation can be expressed. Reads after `close()` are
+refused rather than surfacing a confusing container error.
 
 Reading is a capability, not a guarantee. `openWorkspaceReader` is optional on
 `SandboxProvider`; check for it, or let `withWorkspaceReader` raise. `dockerSandbox`
@@ -199,9 +200,16 @@ An inspection is not an atomic snapshot. Quiesce the writer — read after the
 turn ends — or revalidate before acting on the inventory.
 
 Docker readers are labelled `b4.sandbox.reader=<resource id>` and are removed on
-`close()`, including when the open itself fails. If a host process is killed
-outright while a reader is live, that label is how an operator finds the
-leftover: `docker ps -aq --filter label=b4.sandbox.reader`.
+`close()`, including when the open itself fails. A `close()` that cannot remove
+the container raises rather than reporting success, and can be retried. Deleting
+a thread does not remove its readers, and a reader that is never closed outlives
+the thread, so the label is how an operator finds a leftover:
+`docker ps -aq --filter label=b4.sandbox.reader`.
+
+Reading needs a workspace volume with a host-visible backing path, which the
+default local volume driver provides. A volume that reports none is rejected
+rather than read — a named-volume mount would have silently recreated a deleted
+workspace instead of failing.
 
 ## Custom providers
 

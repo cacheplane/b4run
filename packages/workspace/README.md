@@ -85,6 +85,7 @@ root links are required and must match their exact, unnormalized targets. Their
 targets are never traversed. Nested entries receive no root exclusions. All other
 symlinks, non-file/non-directory entries, executable files, invalid UTF-8 and
 NUL-containing binary data are rejected. Leaf names cannot traverse directories.
+UTF-8 text without NUL is accepted; this is not a file-format classifier.
 
 ### Reading another thread's workspace
 
@@ -97,7 +98,6 @@ omits it makes `withWorkspaceReader` raise rather than silently return nothing.
 
 This is a host-side API for an already-trusted caller. It is not an authorization
 boundary, not a tool an agent can call, and not an HTTP surface.
-UTF-8 text without NUL is accepted; this is not a file-format classifier.
 
 Pass a signal to check cancellation around every filesystem call; sandbox backends
 also receive it in their `BackendContext`. Author handles retain their existing

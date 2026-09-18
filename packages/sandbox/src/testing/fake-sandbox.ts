@@ -59,9 +59,16 @@ export function fakeSandbox(opts: { readonly exec?: ExecFn } = {}): SandboxProvi
     return [...names].sort()
   }
 
-  // The read half matches dockerFilesystem's real capability set (lstat,
-  // readBinaryFile, statFile) so the fake cannot be LESS capable than the
-  // provider it stands in for — `inspectWorkspace` works against both.
+  // The read half offers the same MEMBERS as dockerFilesystem (lstat,
+  // readBinaryFile, statFile), so `inspectWorkspace` works against both instead
+  // of failing the fake for a missing capability.
+  //
+  // It is not equivalent in behaviour, and two gaps matter when choosing what to
+  // prove here rather than in the Docker lane: this volume models no symlinks
+  // (`kind` is only "file" or "directory", `target` is never set, so
+  // `expectedRootSymlinks` cannot be exercised) and `executable` is always
+  // false. `listDir` on a missing path also answers `[]` where Docker's `find`
+  // fails. Assert those against real Docker.
   const makeReads = (vol: FakeVolume): ReadOnlyFilesystemBackend =>
     Object.freeze({
       async readFile(

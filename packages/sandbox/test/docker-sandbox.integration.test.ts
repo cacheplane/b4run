@@ -77,6 +77,7 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
     name: "dockerSandbox",
     makeProvider: () => dockerSandbox({ scope: "sandbox-test", image: IMAGE }),
     describe,
+    workspaceReads: true,
   })
 
   test("network deny blocks egress (curl/wget fails inside)", { timeout: 120_000 }, async () => {
@@ -509,11 +510,15 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
         )
 
         // The mount the reader uses is read-only to the kernel, not by policy.
+        const mountpoint = (
+          await docker.run(["volume", "inspect", "--format", "{{.Mountpoint}}", volume])
+        ).stdout.trim()
+        expect(mountpoint).not.toBe("")
         const write = await docker.run([
           "run",
           "--rm",
-          "-v",
-          `${volume}:/workspace:ro`,
+          "--mount",
+          `type=bind,source=${mountpoint},target=/workspace,readonly`,
           IMAGE,
           "sh",
           "-c",
@@ -540,13 +545,27 @@ describe.skipIf(!enabled)("dockerSandbox (real Docker)", { timeout: 120_000 }, (
     })
 
     test("a destroyed thread has no workspace to read", { timeout: 120_000 }, async () => {
+      const docker = createDocker()
       const p = dockerSandbox({ scope: readerScope, image: IMAGE })
       const threadId = `read-gone-${randomUUID()}`
+      const volume = `b4-sbx-vol-${resourceScope(readerScope)(threadId)}`
       await p.acquire({ threadId, policy: policyDeny, signal: ctx("/").signal })
       await p.destroy(threadId)
       await expect(
         withWorkspaceReader(p, { threadId, signal: ctx("/").signal }, async () => undefined),
       ).rejects.toMatchObject({ code: "B4_E2001" })
+
+      // A failed open must leave no workspace behind. This covers the ordered
+      // path only — the volume is already gone when `open` inspects it, so no
+      // container is ever started. The dangerous case is the RACE (volume
+      // present at inspect, destroyed before the run), which a named-volume
+      // mount would resurrect and which no test can schedule deterministically.
+      // What actually guards that is the mount FORM, pinned by the unit test
+      // "mounts the thread volume read-only into a hardened, networkless
+      // container": `--mount type=bind` cannot create anything, `-v name:...`
+      // can. Reverting the form reds that unit test, not this one.
+      const revived = await docker.run(["volume", "inspect", volume])
+      expect(revived.exitCode).not.toBe(0)
     })
   })
 })

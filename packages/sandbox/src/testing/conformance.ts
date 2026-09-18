@@ -51,6 +51,12 @@ export function runProviderConformance(opts: {
   readonly name: string
   readonly makeProvider: () => SandboxProvider
   readonly describe: (name: string, fn: () => void) => void
+  /**
+   * Declare the optional `openWorkspaceReader` capability. `true` registers the
+   * workspace-read contract; omitted asserts the provider genuinely does not
+   * implement it. Either way no test is skipped.
+   */
+  readonly workspaceReads?: boolean
 }): void {
   opts.describe(`SandboxProvider conformance: ${opts.name}`, () => {
     test("acquire is idempotent per thread and reattaches the workspace", async () => {
@@ -103,21 +109,31 @@ export function runProviderConformance(opts: {
     })
 
     /**
-     * Capability-conditional: `openWorkspaceReader` is optional, and a provider
-     * whose storage cannot be attached twice is expected to omit it. The probe
-     * happens INSIDE the test body on purpose — a provider constructed at
-     * collection time would run even inside a skipped suite, and the gated
-     * cluster providers cannot be constructed without their infrastructure.
+     * `openWorkspaceReader` is optional — a provider whose storage cannot be
+     * attached twice is expected to omit it — so the caller DECLARES it via
+     * `workspaceReads` and the kit verifies the declaration.
+     *
+     * Declaring rather than probing is deliberate, twice over. Probing at
+     * collection time would construct a provider even inside a skipped suite,
+     * which the gated cluster providers cannot survive. Probing inside a test
+     * body and skipping would emit a skipped/pending test, and the Kubernetes
+     * compatibility harness refuses those outright
+     * (`scripts/kubernetes-compat/report.ts`) precisely so a silent skip cannot
+     * stand in for a contract nobody checked. So: no skips, and the honesty
+     * test below closes the gap a bare declaration would open.
      */
+    test("declares its workspace read capability honestly", async () => {
+      const p = opts.makeProvider()
+      if (opts.workspaceReads === true) {
+        expect(typeof p.openWorkspaceReader).toBe("function")
+      } else {
+        expect(p.openWorkspaceReader).toBeUndefined()
+      }
+    })
+
     const readerTest = (name: string, body: (provider: SandboxProvider) => Promise<void>): void => {
-      test(name, async (testContext) => {
-        const provider = opts.makeProvider()
-        if (typeof provider.openWorkspaceReader !== "function") {
-          testContext.skip()
-          return
-        }
-        await body(provider)
-      })
+      if (opts.workspaceReads !== true) return
+      test(name, () => body(opts.makeProvider()))
     }
 
     readerTest("a workspace reader sees what the thread produced", async (p) => {

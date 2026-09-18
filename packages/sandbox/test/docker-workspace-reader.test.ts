@@ -8,6 +8,7 @@ const THREAD = "abc"
 const RESOURCE_ID = "2b15794eccdd038fd62a47fecd25562bace17167"
 const KEEPER = `b4-sbx-${RESOURCE_ID}`
 const VOLUME = `b4-sbx-vol-${RESOURCE_ID}`
+const MOUNTPOINT = `/var/lib/docker/volumes/${VOLUME}/_data`
 
 const signal = () => new AbortController().signal
 
@@ -22,6 +23,9 @@ function recordingDocker(
     readonly volumeExitCode?: number
     readonly createExitCode?: number
     readonly createThrows?: Error
+    readonly mountpoint?: string
+    readonly removeExitCode?: number
+    readonly removeStderr?: string
   } = {},
 ): Recorder {
   const runs: string[][] = []
@@ -30,13 +34,24 @@ function recordingDocker(
     run: async (args) => {
       runs.push([...args])
       if (args[0] === "volume" && args[1] === "inspect") {
-        return { stdout: "[]", stderr: "", exitCode: overrides.volumeExitCode ?? 0 }
+        return {
+          stdout: overrides.mountpoint ?? MOUNTPOINT,
+          stderr: "",
+          exitCode: overrides.volumeExitCode ?? 0,
+        }
       }
       if (args[0] === "ps") return { stdout: "", stderr: "", exitCode: 0 }
       if (args[0] === "run") {
         if (overrides.createThrows) throw overrides.createThrows
         if (overrides.createExitCode !== undefined) {
           return { stdout: "", stderr: "no such image", exitCode: overrides.createExitCode }
+        }
+      }
+      if (args[0] === "rm" && overrides.removeExitCode !== undefined) {
+        return {
+          stdout: "",
+          stderr: overrides.removeStderr ?? "device or resource busy",
+          exitCode: overrides.removeExitCode,
         }
       }
       return { stdout: "ok", stderr: "", exitCode: 0 }
@@ -76,7 +91,11 @@ describe("dockerSandbox.openWorkspaceReader (unit, no daemon)", () => {
     await p.openWorkspaceReader?.({ threadId: THREAD, signal: signal() })
     const joined = (readerRun(runs) ?? []).join(" ")
 
-    expect(joined).toContain(`${VOLUME}:/workspace:ro`)
+    expect(joined).toContain(`--mount type=bind,source=${MOUNTPOINT},target=/workspace,readonly`)
+    // A named-volume mount would CREATE the volume if it had just been
+    // destroyed, resurrecting the thread's workspace as an empty one.
+    expect(joined).not.toContain(`${VOLUME}:/workspace`)
+    expect(readerRun(runs)).not.toContain("-v")
     expect(joined).toContain("--network none")
     expect(joined).toContain("--cap-drop ALL")
     expect(joined).toContain("--security-opt no-new-privileges")
@@ -171,6 +190,57 @@ describe("dockerSandbox.openWorkspaceReader (unit, no daemon)", () => {
       "readFile",
       "statFile",
     ])
+  })
+
+  test("a volume with no readable host path rejects instead of being recreated", async () => {
+    const { docker, runs } = recordingDocker({ mountpoint: "" })
+    const p = dockerSandbox({ scope: SCOPE, image: "node:22-slim", docker })
+    await expect(
+      p.openWorkspaceReader?.({ threadId: THREAD, signal: signal() }),
+    ).rejects.toMatchObject({ code: "B4_E2001" })
+    expect(runs.some((r) => r[0] === "run")).toBe(false)
+
+    const remote = recordingDocker({ mountpoint: "nfs://elsewhere" })
+    const pRemote = dockerSandbox({ scope: SCOPE, image: "node:22-slim", docker: remote.docker })
+    await expect(
+      pRemote.openWorkspaceReader?.({ threadId: THREAD, signal: signal() }),
+    ).rejects.toThrow(/no readable host path/)
+    expect(remote.runs.some((r) => r[0] === "run")).toBe(false)
+  })
+
+  test("reads after close name the mistake instead of surfacing a docker error", async () => {
+    const { docker } = recordingDocker()
+    const p = dockerSandbox({ scope: SCOPE, image: "node:22-slim", docker })
+    const reader = await p.openWorkspaceReader?.({ threadId: THREAD, signal: signal() })
+    if (!reader) throw new Error("expected a reader")
+    await reader.close()
+    const ctx = { signal: signal(), workspaceRoot: "/workspace" }
+    await expect(reader.filesystem.listDir("/workspace", ctx)).rejects.toThrow(/is closed/)
+    await expect(reader.filesystem.readFile("/workspace/a", ctx)).rejects.toThrow(/is closed/)
+    await expect(reader.filesystem.lstat("/workspace/a", ctx)).rejects.toThrow(/is closed/)
+  })
+
+  test("a close that cannot remove the reader reports it and stays retryable", async () => {
+    const { docker, runs } = recordingDocker({ removeExitCode: 1 })
+    const p = dockerSandbox({ scope: SCOPE, image: "node:22-slim", docker })
+    const reader = await p.openWorkspaceReader?.({ threadId: THREAD, signal: signal() })
+    if (!reader) throw new Error("expected a reader")
+    // A reader that cannot be removed is a leak the caller must hear about.
+    await expect(reader.close()).rejects.toMatchObject({ code: "B4_E2001" })
+    // Not latched closed: a retry tries the removal again.
+    await expect(reader.close()).rejects.toThrow(/could not remove the workspace reader/)
+    expect(runs.filter((r) => r[0] === "rm")).toHaveLength(2)
+  })
+
+  test("a close whose container is already gone succeeds", async () => {
+    const { docker } = recordingDocker({
+      removeExitCode: 1,
+      removeStderr: "Error: No such container: b4-sbx-rdr-x",
+    })
+    const p = dockerSandbox({ scope: SCOPE, image: "node:22-slim", docker })
+    const reader = await p.openWorkspaceReader?.({ threadId: THREAD, signal: signal() })
+    if (!reader) throw new Error("expected a reader")
+    await expect(reader.close()).resolves.toBeUndefined()
   })
 
   test("a failed create reaps the container the caller never received", async () => {
