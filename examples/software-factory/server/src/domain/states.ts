@@ -32,8 +32,15 @@ export const ACTIVE_STATES: ReadonlySet<WorkOrderState> = new Set<WorkOrderState
 /** Reasons are attached by the controller (later tasks), not by nextState. */
 export const BLOCKED_REASONS = [
   "unexpected_interrupt",
-  "baseline_mismatch",
+  // The builder wrote where it may not: outside its inventory, over an immutable path, past
+  // the byte cap, or by adding or removing a path at all.
   "scope_violation",
+  // The builder wrote bytes the controller cannot represent — a NUL byte or a lone
+  // surrogate. Distinct from `scope_violation`: the path was allowed, the content was not,
+  // and conflating the two tells an operator to look in the wrong place. There is no
+  // `baseline_mismatch`: rung 1 never asks the builder for a source digest to disagree with,
+  // it diffs against its own captured baseline, so every assembly refusal is one of these two.
+  "encoding_violation",
   "verification_failed",
   "verification_inconclusive",
   "export_unconfirmed",

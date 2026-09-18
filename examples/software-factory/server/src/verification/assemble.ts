@@ -2,7 +2,10 @@ import { candidateDigest, DigestInputError } from "../domain/digest.js"
 
 export type AssemblyRule = "inventory" | "immutable" | "added" | "removed" | "cap" | "encoding"
 
-/** A refusal the controller records as `scope_violation`, with the rule that fired. */
+/**
+ * A refusal, with the rule that fired. The controller records `encoding` as
+ * `encoding_violation` and every other rule as `scope_violation`.
+ */
 export class AssemblyRejectedError extends Error {
   constructor(
     readonly rule: AssemblyRule,
@@ -63,8 +66,9 @@ export function assembleCandidate(input: {
     // Content the controller cannot represent is rejected as `encoding` from two
     // places: a NUL byte is checked directly here, and anything else the digest
     // cannot hash injectively (e.g. a lone surrogate) is caught below when the
-    // digest is computed. Both surface as the same rule so the controller
-    // records one reason regardless of which check caught it.
+    // digest is computed. Both surface as the same rule, and the controller
+    // records it as `encoding_violation` rather than as a scope violation: the
+    // path was allowed, the bytes were not.
     if (after.includes("\0"))
       throw new AssemblyRejectedError("encoding", `Candidate wrote a NUL byte in ${path}`)
     changes[path] = after

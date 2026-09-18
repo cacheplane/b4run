@@ -21,6 +21,7 @@ import { type CommandLog, createCommandLog } from "../registry/commands.js"
 import { openRegistry } from "../registry/db.js"
 import { createEvidenceStore, type EvidenceStore } from "../registry/evidence.js"
 import { createWorkOrderStore, type WorkOrderPatch } from "../registry/work-orders.js"
+import { BundlePayloadSchema } from "../review/bundle.js"
 import { type ArtifactStore, createArtifactStore } from "../storage/artifacts.js"
 import { loadPolicy } from "../verification/policy.js"
 import type { Verifier } from "../verification/verifier.js"
@@ -487,6 +488,49 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         recordEvent(id, "policy_unavailable", { phase: "export", error: String(error) })
         return refuse(`Verification policy could not be loaded: ${String(error)}`)
       }
+      // Consent named a whole claim, not the diff: the frozen payload asserts the policy,
+      // the specification, the baseline and the environment the passing verdict was earned
+      // under. Without comparing them, a changed checks fixture or a changed sandbox image
+      // would simply be re-verified under its NEW self and pass, and the export would go out
+      // under a bundle asserting the old one. The spec's invariant and the README both say a
+      // policy or environment change invalidates consent; this is where that is enforced.
+      const parsed = BundlePayloadSchema.safeParse(bundle.payload)
+      if (!parsed.success) {
+        recordEvent(id, "bundle_unreadable", { error: String(parsed.error) })
+        return refuse("Frozen bundle payload could not be read; freeze a new bundle")
+      }
+      const frozen = parsed.data
+      /** A refusal, not a throw: an exception here would strand this command's key. */
+      const invalidated = (field: string, was: string, current: string) => {
+        recordEvent(id, "bundle_invalidated", { field, frozen: was, current })
+        return refuse(`${field} changed since the bundle was frozen; freeze a new bundle`)
+      }
+      if (frozen.policyDigest !== policy.policyDigest)
+        return invalidated("Verification policy", frozen.policyDigest, policy.policyDigest)
+      if (frozen.specificationDigest !== policy.specificationDigest)
+        return invalidated(
+          "Task specification",
+          frozen.specificationDigest,
+          policy.specificationDigest,
+        )
+      if (frozen.candidateDigest !== candidate.digest)
+        return invalidated("Candidate", frozen.candidateDigest, candidate.digest)
+      if (frozen.destinationId !== options.exportDir)
+        return invalidated("Export destination", frozen.destinationId, options.exportDir)
+      // The baseline is re-captured rather than read back from the candidate record: the
+      // record is frozen evidence and would agree with the bundle by construction, whereas
+      // the question is whether the fixture the candidate was diffed against is still the
+      // one on disk.
+      let baselineDigest: string
+      try {
+        baselineDigest = (await options.captureBaseline(row.taskId, abort.signal)).digest
+      } catch (error) {
+        recordEvent(id, "baseline_unavailable", { phase: "export", error: String(error) })
+        return refuse(`Baseline could not be captured: ${String(error)}`)
+      }
+      if (frozen.baselineDigest !== baselineDigest)
+        return invalidated("Baseline", frozen.baselineDigest, baselineDigest)
+
       let receipt: Receipt
       try {
         receipt = await ctx.verifier.verify(
@@ -524,6 +568,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         return refuse(`Re-verification receipt could not be recorded: ${String(error)}`)
       }
       if (rejected) return refuse(`Re-verification did not pass: ${receipt.verdict}`)
+      // The environment identity is the verifier's own claim about what it ran in, so it can
+      // only be compared once the re-verification has issued a receipt. A pass earned in a
+      // different environment is not the pass this bundle froze.
+      if (receipt.environmentIdentity !== frozen.environmentIdentity)
+        return invalidated(
+          "Verifier environment",
+          frozen.environmentIdentity,
+          receipt.environmentIdentity,
+        )
 
       // The verify above was an await: a cancel (operator or budget) may have moved the row,
       // and `approve` is not a legal move from where it left it.

@@ -79,8 +79,14 @@ What that means, exactly:
   this on stderr at startup on every command, so the cause is known before the first dispatch
   rather than inferred from the journal afterwards.
 - **What changes when #731 lands.** `createThreadWorkspaceReader` becomes
-  `createHandleWorkspaceReader` over the new surface — one function in
-  `src/worker/workspace-reader.ts`, which already exists and is tested. Nothing else moves.
+  `createHandleWorkspaceReader` over the new surface — one function body in
+  `src/worker/workspace-reader.ts`, which already exists and is tested. Nothing else moves,
+  and that is enforced rather than hoped for: both functions take the same required
+  `WorkspaceInspectionOptions` provider, every read names the task as well as the thread, and
+  the command line already passes `workspaceInspectionOptions`. Those options are not
+  cosmetic — the workspace has a git baseline and a `node_modules` symlink, so a reader built
+  without `excludeRootDirectories` and `expectedRootSymlinks` throws on the symlink or reports
+  the git directory as added paths, which is a `scope_violation` on every run.
   Two workarounds were considered and rejected as worse than an honest absence: acquiring the
   builder's sandbox from the controller process would *replace* its container, and deriving
   the volume name from `resourceScope` is unexported addressing, not an ownership check.
@@ -127,7 +133,7 @@ on 127.0.0.1.
 | `FACTORY_MAX_ACTIVE_MS` | no | Default 1200000; waiting on a person is not active time |
 | `FACTORY_MAX_CHANGED_BYTES` | no | Default 1048576; exceeding it is a `scope_violation`, never a truncation |
 | `FACTORY_HTTP_PORT` | no | Default 4300, for `serve` |
-| `FACTORY_SANDBOX_IMAGE` | no | Default `b4-code-fixer:fixture-v1`, run by both the builder and the verifier |
+| `FACTORY_SANDBOX_IMAGE` | no | Default `b4-code-fixer:fixture-v1`, run by both the builder and the verifier. **Setting it rewrites the environment identity every bundle binds**: the verifier records this value verbatim, so a bundle frozen under one value is invalidated at approval under another (which is the intended behaviour), but the value is a mutable tag. The spec requires the bundle to bind a **pinned image digest**, and rung 1 does not meet that: two different images can carry the same tag, and consent cannot tell them apart. Resolving the tag to a digest needs a Docker call on a path that must not make one, so the honest value is recorded rather than a fabricated pin. |
 | `FACTORY_TASK_ID` | no | Which fixture `b4.config.ts` configures the builder for; default `cli-flags` |
 | `FACTORY_BUILDER_MODEL` | no | Default `gpt-5-mini`, read by the builder route |
 

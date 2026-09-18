@@ -157,7 +157,7 @@ describe("reconciliation", () => {
     await bootFactory()
     const settled = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
     // Nothing is known about the builder's work once its workspace is gone, which is what
-    // `inconclusive` says. `baseline_mismatch` would assert an assembly that never happened.
+    // `inconclusive` says. `scope_violation` would assert an assembly that never happened.
     expect(settled.blockedReason).toBe("verification_inconclusive")
     expect(factory.events(id).map((e) => e.type)).toContain("workspace_unreadable")
     expect(runPosts()).toBe(1)

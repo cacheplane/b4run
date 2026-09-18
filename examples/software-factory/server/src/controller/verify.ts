@@ -61,7 +61,7 @@ async function verifyCandidate(
   }
   let observed: ReadonlyMap<string, string>
   try {
-    observed = await ctx.workspaceReader.read(threadId, ctx.signal)
+    observed = await ctx.workspaceReader.read({ threadId, taskId: row.taskId }, ctx.signal)
   } catch (error) {
     unreadable("workspace_unreadable", error)
     return
@@ -85,10 +85,16 @@ async function verifyCandidate(
     })
   } catch (error) {
     if (!(error instanceof AssemblyRejectedError)) throw error
+    // `encoding` is the one rule that is not about scope: the path was allowed and the
+    // content is what the controller cannot represent. Every other rule — inventory,
+    // immutable, added, removed, cap — is the builder writing where it may not, which is
+    // what the spec's invariant table calls a `scope_violation`. Nothing here can be a
+    // baseline mismatch: the controller diffs against its own captured baseline and never
+    // reads a source digest the builder claims.
     ctx.transition(
       id,
       "assembly_rejected",
-      { blockedReason: error.rule === "removed" ? "baseline_mismatch" : "scope_violation" },
+      { blockedReason: error.rule === "encoding" ? "encoding_violation" : "scope_violation" },
       { rule: error.rule, detail: error.message },
     )
     return

@@ -18,9 +18,14 @@ let nowMs = BASE_MS
 
 const REPAIRED = "export const fixed = true\n"
 
-/** The baseline the controller captures, injected so this layer needs no container. */
+/**
+ * The baseline the controller captures, injected so this layer needs no container. The
+ * digest is a variable so a test can make the fixture on disk change between freezing a
+ * bundle and approving it, which is one of the two ways consent is invalidated.
+ */
+let baselineDigest = "a".repeat(64)
 const captureRepairable = async () => ({
-  digest: "a".repeat(64),
+  digest: baselineDigest,
   files: new Map([
     ["src/cli.ts", "broken\n"],
     ["test/cli.test.ts", "spec\n"],
@@ -69,6 +74,7 @@ async function boot(
 // The clock is shared state a test may have advanced: every test starts from the same now.
 beforeEach(() => {
   nowMs = BASE_MS
+  baselineDigest = "a".repeat(64)
 })
 afterEach(async () => {
   await factory?.close()
@@ -280,6 +286,90 @@ describe("approve", () => {
     expect(
       await factory.approve(id, { revision: row.revision, bundleDigest: "a".repeat(64) }),
     ).toMatchObject({ ok: false, message: expect.stringMatching(/Cannot approve from blocked/) })
+    expect(readdirSync(out())).toEqual([])
+  })
+})
+
+/**
+ * The invariant the spec and the README both state in bold: a policy or environment change
+ * invalidates consent even when the candidate bytes are byte-identical. The frozen payload
+ * was write-only before this — nothing read `bundle.payload` — so `approve` re-verified
+ * under whatever policy and image were current and exported under a bundle asserting the
+ * old ones.
+ */
+describe("approve enforces what the frozen bundle asserts", () => {
+  it("refuses when the verifier reports a different environment than the bundle bound", async () => {
+    const { reader, verifier } = await boot()
+    const row = await awaiting(reader)
+    // The same bytes, the same policy, a different image: the pass is earned somewhere the
+    // approver never consented to.
+    verifier.script = { ...verifier.script, environmentIdentity: "fake:other-image" }
+    const outcome = await factory.approve(row.id, {
+      revision: row.revision,
+      bundleDigest: row.bundleDigest,
+    })
+    expect(outcome).toMatchObject({
+      ok: false,
+      state: "awaiting_approval",
+      message: expect.stringMatching(/Verifier environment changed/),
+    })
+    expect(readdirSync(out())).toEqual([])
+    expect(factory.events(row.id).map((e) => e.type)).toContain("bundle_invalidated")
+  })
+
+  it("refuses when the controller's baseline has moved since the bundle was frozen", async () => {
+    const { reader } = await boot()
+    const row = await awaiting(reader)
+    baselineDigest = "b".repeat(64)
+    expect(
+      await factory.approve(row.id, { revision: row.revision, bundleDigest: row.bundleDigest }),
+    ).toMatchObject({
+      ok: false,
+      state: "awaiting_approval",
+      message: expect.stringMatching(/Baseline changed/),
+    })
+    expect(readdirSync(out())).toEqual([])
+  })
+
+  it("refuses when the bundle's policy digest is not the policy on disk", async () => {
+    const { reader, verifier } = await boot()
+    const row = await awaiting(reader)
+    const verifiedBefore = verifier.verified.length
+    // The bundle is edited rather than the fixture: the comparison is the same one either
+    // way, and a test must not rewrite a checks fixture the rest of the suite reads.
+    const db = new DatabaseSync(join(dir, "registry.sqlite"))
+    const stored = db.prepare("SELECT payload FROM bundles WHERE digest = ?").get(row.bundleDigest)
+    const payload = JSON.parse(String((stored as { payload: string }).payload))
+    payload.policyDigest = "0".repeat(64)
+    db.prepare("UPDATE bundles SET payload = ? WHERE digest = ?").run(
+      JSON.stringify(payload),
+      row.bundleDigest,
+    )
+    db.close()
+    expect(
+      await factory.approve(row.id, { revision: row.revision, bundleDigest: row.bundleDigest }),
+    ).toMatchObject({
+      ok: false,
+      message: expect.stringMatching(/Verification policy changed/),
+    })
+    // Refused before anything ran: a re-verification under the new policy is exactly the
+    // thing that must not happen.
+    expect(verifier.verified).toHaveLength(verifiedBefore)
+    expect(readdirSync(out())).toEqual([])
+  })
+
+  it("refuses a bundle payload it cannot read at all", async () => {
+    const { reader } = await boot()
+    const row = await awaiting(reader)
+    const db = new DatabaseSync(join(dir, "registry.sqlite"))
+    db.prepare("UPDATE bundles SET payload = ? WHERE digest = ?").run(
+      JSON.stringify({ operation: "export-local" }),
+      row.bundleDigest,
+    )
+    db.close()
+    expect(
+      await factory.approve(row.id, { revision: row.revision, bundleDigest: row.bundleDigest }),
+    ).toMatchObject({ ok: false, message: expect.stringMatching(/could not be read/) })
     expect(readdirSync(out())).toEqual([])
   })
 })

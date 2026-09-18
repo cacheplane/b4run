@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { loadFixture } from "../src/fixtures/catalog.ts"
+import { freezeBundle } from "../src/review/bundle.ts"
 import { createArtifactStore } from "../src/storage/artifacts.ts"
 import { createDockerVerifier } from "../src/verification/docker-verifier.ts"
 import { loadPolicy } from "../src/verification/policy.ts"
@@ -44,6 +45,25 @@ describe("the real verifier", () => {
     expect(receipt.verifierIdentity).toMatch(/^docker:/)
     expect(receipt.candidateDigest).toBe("a".repeat(64))
     expect(receipt.checks.map((c) => c.id)).toEqual(["visible", "independent"])
+    // Evidence is named per check, not per kind: two checks reporting one `output` id with
+    // two digests is exactly what `freezeBundle` refuses, so a receipt the controller cannot
+    // freeze is a receipt this lane must not call passing.
+    expect(receipt.checks.flatMap((c) => c.evidence.map((e) => e.id))).toEqual([
+      "visible/output",
+      "independent/output",
+    ])
+    const bundle = freezeBundle({
+      workOrderId: "wo-1",
+      repositoryId: "cli-flags",
+      baselineDigest: "f".repeat(64),
+      specificationDigest: policy.specificationDigest,
+      policyDigest: policy.policyDigest,
+      candidateDigest: receipt.candidateDigest,
+      receipt,
+      destinationId: "/out",
+      frozenAt: new Date().toISOString(),
+    })
+    expect(bundle.payload.evidence).toHaveLength(2)
   }, 300_000)
 
   it("fails a candidate that satisfies the visible suite and not the independent checks", async () => {

@@ -265,8 +265,8 @@ async function reconcileVerifying(ctx: ControllerContext, row: WorkOrderRow): Pr
  * is what "the controller knows nothing about this candidate" means. Reconciliation does not
  * probe the workspace first: a second read costs another sandbox attach and workspace walk
  * per reconciled row, and the two reads can disagree. Nor could a probe honestly call a
- * vanished workspace `baseline_mismatch`, which is a statement about the builder deleting a
- * baseline file — nothing is known about the builder's work when the workspace is gone.
+ * vanished workspace a `scope_violation`, which is a statement about what the builder wrote —
+ * nothing is known about the builder's work when the workspace is gone.
  *
  * What reconciliation does insist on is that the phase decide. `runVerification` returns
  * without a transition on any early exit (today: a row with no worker thread), and a

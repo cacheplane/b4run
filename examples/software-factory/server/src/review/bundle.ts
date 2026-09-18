@@ -1,5 +1,29 @@
+import { z } from "zod"
 import { bundleDigest } from "../domain/digest.js"
 import type { Bundle, Receipt } from "../domain/work-order.js"
+import { DIGEST_PATTERN } from "../domain/work-order.js"
+
+/**
+ * What the frozen payload asserts, as a shape something can read back.
+ *
+ * A bundle is stored as an opaque record, which is how the payload came to be write-only:
+ * nothing read it, so nothing noticed that `approve` re-verified under whatever policy and
+ * environment happened to be current rather than the ones consent was given for. Approval
+ * parses the payload with this and compares field by field.
+ */
+export const BundlePayloadSchema = z.object({
+  workOrderId: z.string().min(1),
+  repositoryId: z.string().min(1),
+  baselineDigest: z.string().regex(DIGEST_PATTERN),
+  specificationDigest: z.string().regex(DIGEST_PATTERN),
+  policyDigest: z.string().regex(DIGEST_PATTERN),
+  environmentIdentity: z.string().min(1),
+  candidateDigest: z.string().regex(DIGEST_PATTERN),
+  evidence: z.array(z.object({ id: z.string().min(1), digest: z.string().regex(DIGEST_PATTERN) })),
+  operation: z.literal("export-local"),
+  destinationId: z.string().min(1),
+})
+export type BundlePayload = z.infer<typeof BundlePayloadSchema>
 
 export interface FreezeBundleInput {
   readonly workOrderId: string

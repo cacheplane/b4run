@@ -6,7 +6,12 @@ import { dockerSandbox } from "@b4run/sandbox"
 import { inspectWorkspace } from "@b4run/workspace"
 import type { Receipt } from "../domain/work-order.js"
 import { appRoot, loadFixture } from "../fixtures/catalog.js"
-import { fixtureWorkspace, sandboxImage, sandboxPolicy } from "../fixtures/workspace.js"
+import {
+  fixtureWorkspace,
+  sandboxImage,
+  sandboxPolicy,
+  workspaceInspectionOptions,
+} from "../fixtures/workspace.js"
 import type { ArtifactStore } from "../storage/artifacts.js"
 import { runSuite, type SuiteResult } from "./checks-runner.js"
 import { type Verifier, type VerifyInput, worstVerdict } from "./verifier.js"
@@ -96,10 +101,10 @@ export function createDockerVerifier(
                   maxEntries: 1000,
                   maxFileBytes: 2 * 1024 * 1024,
                   maxTotalBytes: 2 * 1024 * 1024,
-                  excludeRootDirectories: [".git"],
-                  expectedRootSymlinks: {
-                    node_modules: `/opt/fixtures/${input.taskId}/node_modules`,
-                  },
+                  // The same options the thread reader is given, from the same derivation:
+                  // the git directory and the dependency symlink are properties of the
+                  // workspace definition, not of this verifier.
+                  ...workspaceInspectionOptions(input.taskId),
                 })
               ).files
 
@@ -146,7 +151,11 @@ export function createDockerVerifier(
               acceptanceIds: [],
               verdict: "inconclusive",
               evidence: [
-                await put(artifacts, `verification exceeded its ${deadlineMs}ms deadline`),
+                await put(
+                  artifacts,
+                  "deadline",
+                  `verification exceeded its ${deadlineMs}ms deadline`,
+                ),
               ],
             },
           ],
@@ -167,6 +176,7 @@ export function createDockerVerifier(
               evidence: [
                 await put(
                   artifacts,
+                  outcome.tampered,
                   `a suite mutated the workspace during ${outcome.tampered}\n${outcome.visible.output}`,
                 ),
               ],
@@ -180,20 +190,18 @@ export function createDockerVerifier(
       return {
         ...base(),
         verdict: worstVerdict([outcome.visible.verdict, independent.verdict]),
-        checks: [
-          {
-            id: "visible",
-            acceptanceIds: fixture.checks.visible.assertions,
+        checks: suiteChecks({
+          visible: {
             verdict: outcome.visible.verdict,
-            evidence: [await put(artifacts, outcome.visible.output)],
+            acceptanceIds: fixture.checks.visible.assertions,
+            outputDigest: (await put(artifacts, "visible", outcome.visible.output)).digest,
           },
-          {
-            id: "independent",
-            acceptanceIds: fixture.checks.independent.assertions,
+          independent: {
             verdict: independent.verdict,
-            evidence: [await put(artifacts, independent.output)],
+            acceptanceIds: fixture.checks.independent.assertions,
+            outputDigest: (await put(artifacts, "independent", independent.output)).digest,
           },
-        ],
+        }),
       }
     },
   }
@@ -211,7 +219,55 @@ const changed = (
 const sorted = (files: Readonly<Record<string, string>>): [string, string][] =>
   Object.entries(files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 
-async function put(artifacts: ArtifactStore, content: string) {
+/**
+ * Store one check's output and name the reference after the check that produced it.
+ *
+ * The id must be unique per check, not per kind of artifact: `freezeBundle` folds the
+ * receipt's evidence into one set keyed by id and refuses a receipt that names the same id
+ * with two digests. A shared `"output"` id therefore made every real passing receipt
+ * unfreezable — two checks, two outputs, one id — and the failure surfaced only as
+ * `verification_inconclusive` from the phase's backstop.
+ */
+async function put(artifacts: ArtifactStore, checkId: string, content: string) {
   const ref = await artifacts.put(content === "" ? "(no output)\n" : content)
-  return { id: "output", digest: ref.digest }
+  return evidenceRef(checkId, ref.digest)
+}
+
+/** The one place an evidence id is formed, so every check's reference is distinct by shape. */
+export function evidenceRef(checkId: string, digest: string): { id: string; digest: string } {
+  return { id: `${checkId}/output`, digest }
+}
+
+/**
+ * The checks a passing or failing run of both suites reports, in the receipt's own order.
+ *
+ * Exported because it is the shape `freezeBundle` has to accept: a test that builds a
+ * receipt by hand proves nothing about the receipt this verifier emits, and the Docker lane
+ * is not always on. Layer 1 calls this and freezes the result.
+ */
+export function suiteChecks(input: {
+  readonly visible: SuiteEvidence
+  readonly independent: SuiteEvidence
+}): Receipt["checks"] {
+  return [
+    {
+      id: "visible",
+      acceptanceIds: [...input.visible.acceptanceIds],
+      verdict: input.visible.verdict,
+      evidence: [evidenceRef("visible", input.visible.outputDigest)],
+    },
+    {
+      id: "independent",
+      acceptanceIds: [...input.independent.acceptanceIds],
+      verdict: input.independent.verdict,
+      evidence: [evidenceRef("independent", input.independent.outputDigest)],
+    },
+  ]
+}
+
+/** One suite's contribution to a receipt: its verdict, what it graded, and its output. */
+export interface SuiteEvidence {
+  readonly verdict: Receipt["verdict"]
+  readonly acceptanceIds: readonly string[]
+  readonly outputDigest: string
 }

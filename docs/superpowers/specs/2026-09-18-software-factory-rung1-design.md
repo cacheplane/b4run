@@ -104,8 +104,10 @@ In the order a work order meets them.
 1. **Baseline authority.** The controller captures its own fixture directory with
    the framework's own capture, and the source-bundle digest it gets back is what
    this document calls the **baseline digest**. It never asks the builder for a
-   baseline. A builder workspace whose own recorded source digest differs from it
-   is a `baseline_mismatch`, not a negotiation.
+   baseline, and it never reads one the builder declares: there is no
+   builder-supplied source digest for the controller to disagree with, so rung 1
+   has no `baseline_mismatch` reason. Every divergence is found by the diff below
+   and reported as what the builder actually did.
 2. **Candidate assembly.** After the turn ends, read the builder's workspace,
    diff against the captured baseline, and enforce the policy: only paths in the
    allowed inventory may differ, no path may be added or removed, and the total
@@ -193,8 +195,15 @@ controller's own receipt passed, and the row now carries the bundle digest rathe
 than a worker interrupt id. `deny` from there is a pure record with no worker
 round trip.
 
-Added blocked reasons: `baseline_mismatch`, `scope_violation`,
+Added blocked reasons: `scope_violation`, `encoding_violation`,
 `verification_failed`, `verification_inconclusive`.
+
+`scope_violation` is the builder writing where it may not: outside its inventory,
+over an immutable path, past the byte cap, or adding or removing a path at all.
+`encoding_violation` is the builder writing bytes the controller cannot represent
+— a NUL byte or a lone surrogate — in a path it was allowed to write. The path was
+legitimate and the content was not, which is a different thing for an operator to
+go and look at.
 
 Removed blocked reasons: `candidate_digest_unknown` and `interrupt_vanished`,
 both of which existed only because the gate did. `unexpected_interrupt` stays,
@@ -220,7 +229,7 @@ table stands unaltered.
 | `running` | `turn_ended_with_workspace` | `verifying` |
 | `running` | `turn_ended_without_changes` | `failed` (`ended_without_candidate`) |
 | `verifying` | `receipt_passed` (bundle frozen in the same transaction) | `awaiting_approval` |
-| `verifying` | `assembly_rejected` | `blocked` (`baseline_mismatch` or `scope_violation`) |
+| `verifying` | `assembly_rejected` | `blocked` (`scope_violation` or `encoding_violation`) |
 | `verifying` | `receipt_failed` | `blocked` (`verification_failed`) |
 | `verifying` | `receipt_inconclusive` | `blocked` (`verification_inconclusive`) |
 | `awaiting_approval` | `approve` (bundle digest matches) | `exporting` |
@@ -235,7 +244,7 @@ so it is re-verified from the controller's own baseline and the builder's worksp
 than resumed. Reconciliation does not read the workspace itself to decide first: the phase
 reads it anyway, and a workspace that is no longer there is `blocked`
 (`verification_inconclusive`) by the phase's own unreadable-workspace path — nothing is known
-about the builder's work, which is not the same claim as `baseline_mismatch`. What
+about the builder's work, which is not the same claim as `scope_violation`. What
 reconciliation does require is that the phase decide: a row it returns still in `verifying`
 is journalled `verification_undecided` and blocked `verification_inconclusive`, so no early
 exit can strand a row for every later boot to rediscover.
@@ -362,7 +371,7 @@ because that is the image both the builder and the verifier run.
 | Builder edits a test or a check | Rejected by the snapshot comparison; no pass receipt | 1, 3 |
 | Builder writes outside the allowed inventory | Blocked `scope_violation` before any container starts | 1, 2 |
 | Builder adds or removes a path | Blocked `scope_violation` | 1 |
-| Builder's workspace reports a different source digest | Blocked `baseline_mismatch` | 1 |
+| Builder writes bytes the controller cannot represent | Blocked `encoding_violation`, distinct from a scope violation | 1 |
 | Changed bytes exceed the cap | Blocked `scope_violation`, never truncated | 1 |
 | A check is skipped, todo, or missing from the expected set | Not a pass | 1, 3 |
 | A dependency is unavailable or a suite times out | `inconclusive`, blocks advancement, distinct from failure | 1, 3 |

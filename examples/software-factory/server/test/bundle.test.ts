@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterEach, describe, expect, it } from "vitest"
+import type { Receipt } from "../src/domain/work-order.ts"
 import { freezeBundle } from "../src/review/bundle.ts"
+import { createArtifactStore } from "../src/storage/artifacts.ts"
+import { suiteChecks } from "../src/verification/docker-verifier.ts"
 import { loadPolicy } from "../src/verification/policy.ts"
 
 const receipt = {
@@ -113,5 +119,75 @@ describe("freezeBundle", () => {
       ],
     }
     expect(() => freezeBundle({ ...base, receipt: conflicting })).toThrow(/conflicting evidence/)
+  })
+})
+
+/**
+ * The join the two modules never had. `freezeBundle` was only ever handed receipts a test
+ * wrote by hand, or the fake verifier's evidence-free ones, so nothing noticed that the real
+ * verifier named every check's evidence `output`: two checks, two digests, one id, which
+ * `freezeBundle` refuses. Every real passing run therefore ended in the verifying phase's
+ * backstop as `verification_inconclusive`. This freezes a receipt whose checks are built by
+ * the verifier's own helper, over two genuinely different artifacts.
+ */
+describe("freezing a receipt shaped as the real verifier emits one", () => {
+  const directories: string[] = []
+  afterEach(() => {
+    for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true })
+  })
+
+  it("freezes a passing two-suite receipt and carries both suites' evidence", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "factory-bundle-"))
+    directories.push(dir)
+    const artifacts = createArtifactStore(join(dir, "artifacts"))
+    const policy = loadPolicy("cli-flags")
+    // Two suites, two different outputs, therefore two different digests: exactly the
+    // condition a shared evidence id turns into a refusal.
+    const visible = await artifacts.put("visible suite output\n")
+    const independent = await artifacts.put("independent suite output\n")
+    expect(visible.digest).not.toBe(independent.digest)
+
+    const real: Receipt = {
+      id: "rc-real-1",
+      workOrderId: "wo-1",
+      candidateDigest: "a".repeat(64),
+      verifierIdentity: "docker:b4-code-fixer:fixture-v1",
+      policyDigest: policy.policyDigest,
+      environmentIdentity: "b4-code-fixer:fixture-v1",
+      verdict: "pass",
+      checks: suiteChecks({
+        visible: {
+          verdict: "pass",
+          acceptanceIds: policy.checks.visible.assertions,
+          outputDigest: visible.digest,
+        },
+        independent: {
+          verdict: "pass",
+          acceptanceIds: policy.checks.independent.assertions,
+          outputDigest: independent.digest,
+        },
+      }),
+      issuedAt: "2026-09-18T00:00:00.000Z",
+    }
+
+    const bundle = freezeBundle({
+      workOrderId: "wo-1",
+      repositoryId: "cli-flags",
+      baselineDigest: "d".repeat(64),
+      specificationDigest: policy.specificationDigest,
+      policyDigest: policy.policyDigest,
+      candidateDigest: real.candidateDigest,
+      receipt: real,
+      destinationId: "/out",
+      frozenAt: "2026-09-18T00:00:01.000Z",
+    })
+
+    expect(bundle.payload.evidence).toEqual([
+      { id: "independent/output", digest: independent.digest },
+      { id: "visible/output", digest: visible.digest },
+    ])
+    // Both suites' output is reachable from the bundle: an approver can read what each check
+    // actually printed, not just that two checks ran.
+    expect(await artifacts.read(independent.digest)).toBe("independent suite output\n")
   })
 })

@@ -23,10 +23,10 @@ export function createFakeWorkspaceReader(
     forget(threadId) {
       state.delete(threadId)
     },
-    async read(threadId) {
-      reads.push(threadId)
-      const files = state.get(threadId)
-      if (!files) throw new Error(`Fake workspace reader has no thread ${threadId}`)
+    async read(target) {
+      reads.push(target.threadId)
+      const files = state.get(target.threadId)
+      if (!files) throw new Error(`Fake workspace reader has no thread ${target.threadId}`)
       return new Map(Object.entries(files))
     },
   }

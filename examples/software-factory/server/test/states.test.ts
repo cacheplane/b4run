@@ -120,12 +120,19 @@ describe("rung 1 lifecycle", () => {
 
   it("names the four ways the controller can refuse", () => {
     for (const reason of [
-      "baseline_mismatch",
       "scope_violation",
+      "encoding_violation",
       "verification_failed",
       "verification_inconclusive",
     ])
       expect(BLOCKED_REASONS).toContain(reason)
+  })
+
+  it("has no reason for a check rung 1 does not make", () => {
+    // `baseline_mismatch` named a builder-declared source digest disagreeing with the
+    // controller's. Nothing on this rung asks the builder for one, so no code path could
+    // ever produce the reason and a row could never carry it honestly.
+    expect(BLOCKED_REASONS).not.toContain("baseline_mismatch")
   })
 
   it("still blocks on an unexpected interrupt from the builder", () => {

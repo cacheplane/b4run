@@ -8,18 +8,40 @@ import { inspectWorkspace } from "@b4run/workspace"
  * workspace and must never disturb a live sandbox.
  */
 export interface WorkspaceReader {
-  read(threadId: string, signal: AbortSignal): Promise<ReadonlyMap<string, string>>
+  read(target: WorkspaceTarget, signal: AbortSignal): Promise<ReadonlyMap<string, string>>
 }
 
+/**
+ * Which workspace to read. The task id travels with the thread id because inspection is not
+ * task-agnostic: the workspace definition puts a symlink in the root whose target names the
+ * task, and a reader that does not know the task cannot state the target it expects.
+ */
+export interface WorkspaceTarget {
+  readonly threadId: string
+  readonly taskId: string
+}
+
+/**
+ * How to inspect one task's workspace.
+ *
+ * The two structural options are REQUIRED, not optional with an absent default. Every
+ * workspace this controller reads has a git baseline and a dependency symlink, so a reader
+ * built without them either throws on the symlink or reports the git directory as added
+ * paths — a scope violation on every single run. An option that is silently absent is the
+ * kind of default that makes a swap-in look like it worked.
+ */
 export interface HandleReaderOptions {
   /** Root leaf names whose subtrees may be absent, e.g. the git directory. */
-  readonly excludeRootDirectories?: readonly string[]
+  readonly excludeRootDirectories: readonly string[]
   /** Required root symlinks and their exact targets, e.g. the dependency link. */
-  readonly expectedRootSymlinks?: Readonly<Record<string, string>>
+  readonly expectedRootSymlinks: Readonly<Record<string, string>>
   readonly maxEntries?: number
   readonly maxFileBytes?: number
   readonly maxTotalBytes?: number
 }
+
+/** Inspection options for a task, supplied by whoever knows the workspace definitions. */
+export type WorkspaceInspectionOptions = (taskId: string) => HandleReaderOptions
 
 /**
  * Adapter over whatever the framework's read-only thread-workspace surface hands
@@ -29,29 +51,28 @@ export interface HandleReaderOptions {
  */
 export function createHandleWorkspaceReader(
   attach: (
-    threadId: string,
+    target: WorkspaceTarget,
     signal: AbortSignal,
   ) => Promise<{
     readonly handle: SandboxHandle
     readonly release: () => Promise<void>
   }>,
-  options: HandleReaderOptions = {},
+  optionsFor: WorkspaceInspectionOptions,
 ): WorkspaceReader {
   return {
-    async read(threadId, signal) {
-      const { handle, release } = await attach(threadId, signal)
+    async read(target, signal) {
+      // Resolved before anything is attached: a task whose inspection options cannot be
+      // derived is a refusal that costs no container.
+      const options = optionsFor(target.taskId)
+      const { handle, release } = await attach(target, signal)
       try {
         const inspection = await inspectWorkspace(handle, {
           signal,
           maxEntries: options.maxEntries ?? 10_000,
           maxFileBytes: options.maxFileBytes ?? 2 * 1024 * 1024,
           maxTotalBytes: options.maxTotalBytes ?? 16 * 1024 * 1024,
-          ...(options.excludeRootDirectories
-            ? { excludeRootDirectories: options.excludeRootDirectories }
-            : {}),
-          ...(options.expectedRootSymlinks
-            ? { expectedRootSymlinks: options.expectedRootSymlinks }
-            : {}),
+          excludeRootDirectories: options.excludeRootDirectories,
+          expectedRootSymlinks: options.expectedRootSymlinks,
         })
         return new Map(Object.entries(inspection.files))
       } finally {
@@ -73,15 +94,31 @@ export function createHandleWorkspaceReader(
  * within one provider lifecycle — and deriving the volume name depends on
  * `resourceScope`, which is unexported addressing and not an ownership check.
  *
- * Only the Docker-gated lane needs this; every other layer uses the fake. When
- * the surface lands, this becomes `createHandleWorkspaceReader` over
- * `withWorkspaceReader(provider, { threadId, signal }, ...)` and this comment goes
- * away.
+ * Only the Docker-gated lane needs this; every other layer uses the fake. When the surface
+ * lands, the body below becomes
+ *
+ *     return createHandleWorkspaceReader(
+ *       async (target, signal) => withWorkspaceReader(provider, { threadId: target.threadId, signal }),
+ *       optionsFor,
+ *     )
+ *
+ * and this comment goes away. `optionsFor` is required here, although the placeholder can
+ * only refuse, for exactly that reason: the inspection options the replacement must carry
+ * are already at the call site, so the swap is one function body rather than a silent loss
+ * of `excludeRootDirectories` and `expectedRootSymlinks` — which would throw on the
+ * dependency symlink, or report the git directory as added paths, on every run.
  */
-export function createThreadWorkspaceReader(): WorkspaceReader {
+export function createThreadWorkspaceReader(
+  optionsFor: WorkspaceInspectionOptions,
+): WorkspaceReader {
+  // Called for its refusal, not its result: an unknown task is worth refusing on here too,
+  // and it keeps this function's contract identical to the one that replaces it.
   return {
-    async read(threadId) {
-      throw new Error(`Cannot read thread ${threadId}'s workspace: ${THREAD_WORKSPACE_READER_GAP}`)
+    async read(target) {
+      optionsFor(target.taskId)
+      throw new Error(
+        `Cannot read thread ${target.threadId}'s workspace: ${THREAD_WORKSPACE_READER_GAP}`,
+      )
     },
   }
 }

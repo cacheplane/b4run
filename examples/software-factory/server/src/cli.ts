@@ -2,6 +2,7 @@ import { parseArgs } from "node:util"
 import { loadConfig } from "./config.js"
 import { createFactory, type Factory } from "./controller/factory.js"
 import { ACTIVE_STATES } from "./domain/states.js"
+import { workspaceInspectionOptions } from "./fixtures/workspace.js"
 import { createHttpApi } from "./http.js"
 import { createArtifactStore } from "./storage/artifacts.js"
 import { captureFixtureBaseline } from "./verification/baseline.js"
@@ -71,7 +72,7 @@ async function main(argv: string[]): Promise<number> {
     maxActiveMs: config.maxActiveMs,
     maxChangedBytes: config.maxChangedBytes,
     verifier: createDockerVerifier(createArtifactStore(config.artifactsDir)),
-    workspaceReader: createThreadWorkspaceReader(),
+    workspaceReader: createThreadWorkspaceReader(workspaceInspectionOptions),
     captureBaseline: captureFixtureBaseline,
   })
   const needId = () => {

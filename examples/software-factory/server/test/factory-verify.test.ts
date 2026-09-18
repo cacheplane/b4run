@@ -128,6 +128,42 @@ describe("the verifying phase", () => {
     expect(verifier.verified).toEqual([])
   })
 
+  it("blocks a removed path as a scope violation, not as a baseline mismatch", async () => {
+    // The spec's own invariant table puts "builder adds or removes a path" under
+    // `scope_violation`. `baseline_mismatch` meant something else entirely — a workspace
+    // whose own recorded source digest disagrees with the controller's — and rung 1 makes
+    // no such check, so the reason cannot be reported honestly.
+    const { reader, verifier } = await boot({ verdict: "pass" })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+    const { "TASK.md": _gone, ...withoutTask } = repaired()
+    reader.set(dispatched.workerThreadId as string, withoutTask)
+    const row = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
+    expect(row.blockedReason).toBe("scope_violation")
+    expect(verifier.verified).toEqual([])
+  })
+
+  it("blocks unrepresentable content as an encoding violation of its own", async () => {
+    // A NUL byte in an allowed path is not the builder writing where it may not: the path
+    // was in its inventory. Reporting it as `scope_violation` sends an operator looking for
+    // a stray write that never happened.
+    const { reader, verifier } = await boot({ verdict: "pass" })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+    reader.set(dispatched.workerThreadId as string, {
+      ...repaired(),
+      "src/cli.ts": "export const fixed = true\u0000\n",
+    })
+    const row = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
+    expect(row.blockedReason).toBe("encoding_violation")
+    expect(verifier.verified).toEqual([])
+    expect(
+      factory.events(id).find((e) => e.type === "transition" && e.payload.rule === "encoding"),
+    ).toBeDefined()
+  })
+
   it("fails when the builder changed nothing", async () => {
     const { reader } = await boot({ verdict: "pass" })
     const { id } = await factory.create({ taskId: "cli-flags" })

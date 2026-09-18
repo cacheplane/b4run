@@ -1,5 +1,6 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import type { Verdict } from "../src/domain/work-order.ts"
+import { suiteChecks } from "../src/verification/docker-verifier.ts"
 import { type Verifier, type VerifyInput, worstVerdict } from "../src/verification/verifier.ts"
 
 export interface FakeVerifierScript {
@@ -11,6 +12,11 @@ export interface FakeVerifierScript {
   readonly throws?: string
   /** Fixed receipt id, for tests that need two receipts to collide in the registry. */
   readonly receiptId?: string
+  /**
+   * The environment the receipt claims it ran in. Mutable between calls so a test can make
+   * a re-verification report a different environment than the frozen bundle bound.
+   */
+  readonly environmentIdentity?: string
 }
 
 export interface FakeVerifier extends Verifier {
@@ -42,15 +48,34 @@ export function createFakeVerifier(script: FakeVerifierScript): FakeVerifier {
         candidateDigest: input.candidateDigest,
         verifierIdentity: `fake:${fake.script.verdict ?? worstVerdict([visible, independent])}`,
         policyDigest: input.policyDigest,
-        environmentIdentity: "fake:none",
+        environmentIdentity: fake.script.environmentIdentity ?? "fake:none",
         verdict: fake.script.verdict ?? worstVerdict([visible, independent]),
-        checks: [
-          { id: "visible", acceptanceIds: ["visible"], verdict: visible, evidence: [] },
-          { id: "independent", acceptanceIds: ["independent"], verdict: independent, evidence: [] },
-        ],
+        // Built by the real verifier's own helper, so the fake cannot be weaker than the
+        // thing it stands in for: distinct evidence ids per check, which is what
+        // `freezeBundle` requires and what an empty evidence array used to hide.
+        checks: suiteChecks({
+          visible: {
+            verdict: visible,
+            acceptanceIds: ["visible"],
+            outputDigest: outputDigest(input.candidateDigest, "visible", visible),
+          },
+          independent: {
+            verdict: independent,
+            acceptanceIds: ["independent"],
+            outputDigest: outputDigest(input.candidateDigest, "independent", independent),
+          },
+        }),
         issuedAt: new Date().toISOString(),
       }
     },
   }
   return fake
 }
+
+/**
+ * A stand-in for the digest of a suite's output. Content-addressed like the real one — the
+ * same candidate and suite always yield the same digest, and two suites never share one —
+ * so a receipt the fake issues twice is byte-identical, which the receipt registry requires.
+ */
+const outputDigest = (candidateDigest: string, checkId: string, verdict: Verdict): string =>
+  createHash("sha256").update(`${candidateDigest}:${checkId}:${verdict}`).digest("hex")
