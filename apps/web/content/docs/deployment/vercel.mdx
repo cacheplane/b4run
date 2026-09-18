@@ -142,7 +142,7 @@ Streaming needs no extra configuration, but it is not free either. Agent Protoco
 
 ## Compose with a frontend
 
-A bare build emits a single function named `index` behind a catch-all route, which is the right shape for a standalone agent service and the wrong shape for an app that also ships a SPA or its own API routes. `build.vercel` describes the rest of the tree, so `b4 build` alone produces the whole deployable:
+A bare build emits one function behind a catch-all route and nothing else: no static assets, no second function, no routes of your own. That is the right shape for a standalone agent service and too little for an app that also ships a SPA or its own API routes. `build.vercel` describes the rest of the tree, so `b4 build` alone produces the whole deployable:
 
 ```ts title="b4.config.ts"
 import { config } from "@b4run/cli"
