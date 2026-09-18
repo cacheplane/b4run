@@ -14,7 +14,7 @@ const checkoutAction = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b
 const nodeSetupAction = "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
 const pnpmSetupAction = "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
 const helmSetupAction = "azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310"
-const kindAction = "helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc"
+const kindAction = "helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2"
 const uploadArtifactAction = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 const fullActionPin = /^[^@\s]+@[0-9a-f]{40}$/
 

@@ -916,12 +916,18 @@ jobs:
           B4_REQUIRE_HELM: "1"
         run: pnpm exec vitest --run --config test/k8s-compat/vitest.config.ts chart-rbac
 
-      # helm/kind-action installs kind and kubectl with `curl -sSLo` and no
-      # `--fail`, so a transient upstream 429/5xx writes the error page into
-      # the checksum file and the step dies with "no properly formatted
-      # checksum lines found". Priming RUNNER_TOOL_CACHE with verified
-      # binaries makes the action's `[[ ! -x ... ]]` guards skip both
-      # downloads entirely.
+      # Priming RUNNER_TOOL_CACHE with verified binaries makes the action's
+      # `[[ ! -x ... ]]` guards skip both downloads entirely.
+      #
+      # Through v1.14.0 this was the only mitigation: the action fetched kind,
+      # kubectl and their checksums with a bare `curl -sSLo`, so a transient
+      # upstream 429/5xx wrote the error page into the checksum file and the
+      # step died with "no properly formatted checksum lines found". v1.15.0
+      # wraps those fetches in `curl -sSL --retry 5 --retry-all-errors
+      # --retry-delay 5` and checks the exit status, which retries exactly that
+      # class of failure. Priming stays because skipping a download beats
+      # retrying one, and it keeps these lanes independent of upstream
+      # availability entirely.
       #
       # The versions here must match the `version:` and `kubectl_version:`
       # inputs on the step below. If any of them ever drift, this step primes
@@ -931,7 +937,7 @@ jobs:
         run: scripts/prime-kind-cache.sh v0.32.0 v1.35.6
 
       - name: Create kind cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
         with:
           version: v0.32.0
           kubectl_version: v1.35.6
@@ -1018,13 +1024,13 @@ jobs:
         run: pnpm exec vitest --run --config test/k8s-compat/vitest.config.ts chart-rbac
 
       # See the sandbox-k8s lane: primes the tool cache so the action skips its
-      # own no-`--fail` kind and kubectl downloads. Keep these versions and
+      # own kind and kubectl downloads. Keep these versions and
       # the `version:`/`kubectl_version:` inputs below in lockstep.
       - name: Prime kind tool cache
         run: scripts/prime-kind-cache.sh v0.32.0 v1.35.6
 
       - name: Create kind cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
         with:
           version: v0.32.0
           kubectl_version: v1.35.6
@@ -1231,13 +1237,13 @@ jobs:
           version: v4.2.3
 
       # See the sandbox-k8s lane: primes the tool cache so the action skips its
-      # own no-`--fail` kind and kubectl downloads. Keep these versions and
+      # own kind and kubectl downloads. Keep these versions and
       # the `version:`/`kubectl_version:` inputs below in lockstep.
       - name: Prime kind tool cache
         run: scripts/prime-kind-cache.sh v0.32.0 v1.35.6
 
       - name: Create kind cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
         with:
           version: v0.32.0
           kubectl_version: v1.35.6
