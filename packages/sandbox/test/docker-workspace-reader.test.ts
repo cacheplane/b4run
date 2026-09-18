@@ -17,7 +17,13 @@ interface Recorder {
   readonly execs: { container: string; command: string[] }[]
 }
 
-function recordingDocker(overrides: { readonly volumeExitCode?: number } = {}): Recorder {
+function recordingDocker(
+  overrides: {
+    readonly volumeExitCode?: number
+    readonly createExitCode?: number
+    readonly createThrows?: Error
+  } = {},
+): Recorder {
   const runs: string[][] = []
   const execs: { container: string; command: string[] }[] = []
   const docker: Docker = {
@@ -27,6 +33,12 @@ function recordingDocker(overrides: { readonly volumeExitCode?: number } = {}): 
         return { stdout: "[]", stderr: "", exitCode: overrides.volumeExitCode ?? 0 }
       }
       if (args[0] === "ps") return { stdout: "", stderr: "", exitCode: 0 }
+      if (args[0] === "run") {
+        if (overrides.createThrows) throw overrides.createThrows
+        if (overrides.createExitCode !== undefined) {
+          return { stdout: "", stderr: "no such image", exitCode: overrides.createExitCode }
+        }
+      }
       return { stdout: "ok", stderr: "", exitCode: 0 }
     },
     exec: async (container, command) => {
@@ -159,6 +171,27 @@ describe("dockerSandbox.openWorkspaceReader (unit, no daemon)", () => {
       "readFile",
       "statFile",
     ])
+  })
+
+  test("a failed create reaps the container the caller never received", async () => {
+    const failed = recordingDocker({ createExitCode: 125 })
+    const pFailed = dockerSandbox({ scope: SCOPE, image: "node:22-slim", docker: failed.docker })
+    await expect(
+      pFailed.openWorkspaceReader?.({ threadId: THREAD, signal: signal() }),
+    ).rejects.toMatchObject({ code: "B4_E2001" })
+    const name = (readerRun(failed.runs) ?? [])[
+      (readerRun(failed.runs) ?? []).indexOf("--name") + 1
+    ] as string
+    expect(failed.runs.filter((r) => r[0] === "rm")).toEqual([["rm", "-f", name]])
+
+    // A cancelled `docker run -d` may still have created the container.
+    const thrown = new Error("aborted")
+    const aborted = recordingDocker({ createThrows: thrown })
+    const pAborted = dockerSandbox({ scope: SCOPE, image: "node:22-slim", docker: aborted.docker })
+    await expect(
+      pAborted.openWorkspaceReader?.({ threadId: THREAD, signal: signal() }),
+    ).rejects.toBe(thrown)
+    expect(aborted.runs.filter((r) => r[0] === "rm")).toHaveLength(1)
   })
 
   test("an already-aborted signal rejects before any docker command", async () => {

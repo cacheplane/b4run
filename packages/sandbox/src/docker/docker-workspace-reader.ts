@@ -80,38 +80,48 @@ export async function openDockerWorkspaceReader(
 
   const user = resolveReaderUser(input.runAsNonRoot)
   const container = `b4-sbx-rdr-${resourceId}-${randomUUID().replaceAll("-", "").slice(0, 8)}`
-  const created = await docker.run(
-    [
-      "run",
-      "-d",
-      "--rm",
-      "--name",
-      container,
-      "--label",
-      `b4.sandbox.reader=${resourceId}`,
-      "-v",
-      `${volume}:${ROOT}:ro`,
-      "--network",
-      "none",
-      "--cap-drop",
-      "ALL",
-      "--security-opt",
-      "no-new-privileges",
-      "--pids-limit",
-      String(READER_PIDS_LIMIT),
-      "--read-only",
-      "--tmpfs",
-      "/tmp",
-      "--tmpfs",
-      "/run",
-      ...(user !== null ? ["--user", `${user.uid}:${user.gid}`] : []),
-      image,
-      "sleep",
-      "infinity",
-    ],
-    { signal },
-  )
+  // A cancelled `run -d` kills the docker CLI, not necessarily the container it
+  // already asked for. Reap it on the throwing path so an abort mid-open cannot
+  // strand a reader the caller never received a `close()` for.
+  const remove = () => docker.run(["rm", "-f", container]).catch(() => {})
+  const created = await docker
+    .run(
+      [
+        "run",
+        "-d",
+        "--rm",
+        "--name",
+        container,
+        "--label",
+        `b4.sandbox.reader=${resourceId}`,
+        "-v",
+        `${volume}:${ROOT}:ro`,
+        "--network",
+        "none",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--pids-limit",
+        String(READER_PIDS_LIMIT),
+        "--read-only",
+        "--tmpfs",
+        "/tmp",
+        "--tmpfs",
+        "/run",
+        ...(user !== null ? ["--user", `${user.uid}:${user.gid}`] : []),
+        image,
+        "sleep",
+        "infinity",
+      ],
+      { signal },
+    )
+    .catch(async (error: unknown) => {
+      await remove()
+      throw error
+    })
   if (created.exitCode !== 0) {
+    await remove()
     throw sandboxUnavailable(
       `Sandbox unavailable: could not open a workspace reader for thread "${threadId}": ${created.stderr.trim() || "unknown error"}. Run \`b4 check\`.`,
     )

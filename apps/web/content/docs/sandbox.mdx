@@ -198,6 +198,11 @@ Two things to know before you use it:
 An inspection is not an atomic snapshot. Quiesce the writer — read after the
 turn ends — or revalidate before acting on the inventory.
 
+Docker readers are labelled `b4.sandbox.reader=<resource id>` and are removed on
+`close()`, including when the open itself fails. If a host process is killed
+outright while a reader is live, that label is how an operator finds the
+leftover: `docker ps -aq --filter label=b4.sandbox.reader`.
+
 ## Custom providers
 
 Implement `SandboxProvider` to integrate a microVM, cloud sandbox, or another isolation backend:
