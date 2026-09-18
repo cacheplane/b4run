@@ -662,8 +662,11 @@ describe("attach checkpoint provenance across routes", () => {
                 messages: [],
                 tools: [],
                 context: [],
+                // `state` alone: the runtime rejects a non-empty client
+                // `forwardedProps` on a route that did not opt in, and this
+                // one only ever needed the same two paths `state` carries.
                 state: { startedFile, releaseFile },
-                forwardedProps: { startedFile, releaseFile },
+                forwardedProps: {},
               }),
             })
       publicRequest.headers.set("x-pause", "yes")

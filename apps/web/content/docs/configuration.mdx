@@ -519,8 +519,14 @@ server?: {
     exposeHeaders?: readonly string[]
     maxAgeSeconds?: number
   }
+  agui?: {
+    clientTools?: readonly string[]
+    clientForwardedProps?: readonly string[]
+  }
 }
 ```
+
+#### `server.cors`
 
 By default there's no `server.cors`, which means **no `Access-Control-*` header
 on any response**. A browser on another origin can't call `/agui/*`,
@@ -562,6 +568,26 @@ sees the real 404 rather than an opaque CORS failure.
 CORS controls which origins a browser lets read a response. It's not
 authentication, and it doesn't decide who may call the server. Pair it with
 [`defineThreadAccess`](/docs/thread-access).
+
+#### `server.agui`
+
+Which client-supplied AG-UI envelope fields `POST /agui/:routeId` honors, per
+route. Both lists are empty unless set, and empty means the runtime **rejects**
+a non-empty `tools` or `forwardedProps` with a `422` rather than ignoring it —
+see [envelope validation](/docs/ag-ui#envelope-validation).
+
+```ts
+server: { agui: { clientTools: ["/chat"] } }
+```
+
+Entries are route ids as they appear in the route tree (`"/chat"`,
+`"/support/billing"`), matched exactly. `clientTools` and
+`clientForwardedProps` are independent: opening one does not open the other,
+and a route that is not named stays closed even when a sibling is open.
+
+An empty `tools: []` or `forwardedProps: {}` — what an AG-UI client sends when
+it has nothing to add — is accepted with or without the opt-in, so the default
+costs an ordinary client nothing.
 
 
 ## Postgres backend

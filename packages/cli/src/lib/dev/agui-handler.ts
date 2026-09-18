@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import { RunAgentInputSchema } from "@ag-ui/core"
 import { type B4AgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
 import { encodeAgUiSse } from "@b4run/ag-ui/sse"
-import type { MemoryStoreLike } from "@b4run/core"
+import type { B4Config, MemoryStoreLike } from "@b4run/core"
 import type { PermissionsStore } from "@b4run/permissions"
 import type {
   MiddlewareAfterHook,
@@ -36,6 +36,7 @@ import {
 } from "./pending-interrupts.js"
 import { extractRouteParams } from "./request-context.js"
 import { readResponseFormat, rejectResponseSchema } from "./response-schema.js"
+import { resolveRunEnvelopePolicy, validateRunEnvelope } from "./run-envelope.js"
 import type { RunRegistry } from "./run-registry.js"
 import type { RuntimeRegistry } from "./runtime-registry-core.js"
 import { createRequestErrorBody } from "./server-errors.js"
@@ -50,6 +51,13 @@ export interface AgUiFetchRequestOptions {
   /** Boot state (supplied config + node fallbacks) forwarded to route execution. */
   readonly boot?: Pick<BootResolvedInstances, "bootFallbacks" | "config">
   readonly checkpointer: BaseCheckpointSaver
+  /**
+   * The boot-resolved `b4.config.ts`, read here only for `server.agui` — which
+   * routes opted in to client-supplied `tools` / `forwardedProps`. Optional so
+   * direct callers (tests) keep their existing behavior; absent means the
+   * closed default, which is the safe one.
+   */
+  readonly config?: B4Config
   /**
    * Lazy, memoized, boot-built thunk for the shared memory store, forwarded
    * into route execution so the memory capability reuses the same store the
@@ -199,6 +207,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     appRoot,
     boot,
     checkpointer,
+    config,
     getMemoryStore,
     liveTurnHub,
     middleware,
@@ -270,6 +279,29 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     const route = registry.lookup(routeKey)
     if (!route) {
       return Response.json(createRequestErrorBody(`Unknown route: ${routeKey}`), { status: 404 })
+    }
+
+    // BEFORE route middleware and BEFORE the thread-access gate, and in that
+    // order on purpose. The envelope check needs no I/O, takes no claim, reads
+    // no thread row and discloses nothing about one — it judges only what this
+    // caller sent about itself. Running it first means an app's middleware is
+    // never handed an envelope the runtime has already decided not to honor,
+    // and a thread-access policy is never asked to authorize (or stamp a new
+    // row for) a request that is about to be rejected anyway. It cannot leak
+    // thread existence, because it never looks.
+    const envelopeRejection = validateRunEnvelope(
+      parsedJson,
+      resolveRunEnvelopePolicy(config ?? boot?.config, route.routeId),
+    )
+    if (envelopeRejection) {
+      return Response.json(
+        createRequestErrorBody(
+          envelopeRejection.message,
+          { code: envelopeRejection.code },
+          { code: "B4_E5401" },
+        ),
+        { status: envelopeRejection.status },
+      )
     }
 
     // The client's response schema (Hashbrown's `hashbrown.responseSchema`),
