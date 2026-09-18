@@ -86,7 +86,37 @@ function advisoryLockId(key: string): number {
  * `component` gives each store its own migrations table and its own lock, so
  * the three stores in this package version independently and do not serialize
  * against each other.
+ *
+ * The schema itself is the one object they DO share, so it cannot be created
+ * under a per-component lock: three components hold three different locks and
+ * race each other on `CREATE SCHEMA IF NOT EXISTS`, which is no more
+ * concurrency-safe than the `CREATE TABLE IF NOT EXISTS` above and fails the
+ * loser with 23505 on `pg_namespace`. {@link ensureSchema} takes a lock keyed
+ * on the schema alone, in its own short transaction, so the shared DDL is
+ * serialized without making the three stores serialize for the whole of their
+ * migrations.
  */
+/**
+ * Create the schema every component in it shares, under a lock keyed on the
+ * schema alone.
+ *
+ * Kept to its own transaction rather than folded into the caller's: holding a
+ * schema-wide lock for the length of a migration pass would serialize all
+ * three stores against each other, which is exactly what the per-component
+ * lock exists to avoid. Committing the schema separately is safe because
+ * creating it is idempotent and additive — a later failure leaves an empty
+ * schema, never a wrong one.
+ */
+async function ensureSchema(pool: SqlPool, schema: string): Promise<void> {
+  await withTransaction(pool, async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock($1, $2)", [
+      ADVISORY_LOCK_CLASS,
+      advisoryLockId(`schema:${schema}`),
+    ])
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+  })
+}
+
 export async function runMigrations(
   pool: SqlPool,
   migrations: readonly Migration[],
@@ -100,12 +130,13 @@ export async function runMigrations(
   const versions = qualify(naming, `${component}_migrations`)
   const sorted = [...migrations].sort((a, b) => a.version - b.version)
 
+  await ensureSchema(pool, schema)
+
   await withTransaction(pool, async (client) => {
     await client.query("SELECT pg_advisory_xact_lock($1, $2)", [
       ADVISORY_LOCK_CLASS,
       advisoryLockId(`${schema}.${prefix}.${component}`),
     ])
-    await client.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
     await client.query(`CREATE TABLE IF NOT EXISTS ${versions} (version integer PRIMARY KEY)`)
     const res = await client.query<{ v: number | null }>(
       `SELECT max(version) AS v FROM ${versions}`,
