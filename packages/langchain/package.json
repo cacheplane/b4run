@@ -58,7 +58,7 @@
     "@b4run/workspace": "workspace:*",
     "@langchain/langgraph": "^1.4.9",
     "@langchain/openai": "^1.5.5",
-    "gpt-tokenizer": "^3.4.0"
+    "gpt-tokenizer": "^4.0.0"
   },
   "peerDependencies": {
     "@langchain/core": "^1.1.47",
