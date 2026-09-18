@@ -124,4 +124,33 @@ describe("canon rejects input it cannot hash injectively", () => {
       DigestInputError,
     )
   })
+
+  it("throws on non-plain objects instead of silently canoning to {}", () => {
+    const first = () => canon({ when: new Date("2024-01-01T00:00:00.000Z") })
+    const second = () => canon({ when: new Date("2024-06-01T00:00:00.000Z") })
+    expect(first).toThrow(DigestInputError)
+    expect(second).toThrow(DigestInputError)
+  })
+
+  it("throws on a Map", () => {
+    expect(() => canon({ m: new Map([["a", 1]]) })).toThrow(DigestInputError)
+  })
+
+  it("still accepts a plain object", () => {
+    expect(() => canon({ a: { b: [1, 2, { c: 3 }] } })).not.toThrow()
+  })
+
+  it("throws on a __proto__ key, naming it, even when JSON.parse produced it as an own property", () => {
+    const parsed = JSON.parse('{"a":1,"__proto__":{"b":2}}')
+    // JSON.parse gives "__proto__" as a genuine own property; object-literal
+    // syntax would not. Confirm the fixture actually exercises that.
+    expect(Object.getOwnPropertyNames(parsed)).toContain("__proto__")
+    expect(() => canon(parsed)).toThrow(DigestInputError)
+    expect(() => canon(parsed)).toThrow(/__proto__/)
+  })
+
+  it("produces an unchanged digest for a legitimate nested structure", () => {
+    const value = { a: 1, b: { c: [3, 2, 1], d: null }, e: "text" }
+    expect(canon(value)).toBe('{"a":1,"b":{"c":[3,2,1],"d":null},"e":"text"}')
+  })
 })

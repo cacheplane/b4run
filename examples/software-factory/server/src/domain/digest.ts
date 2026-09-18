@@ -23,10 +23,14 @@ const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[
  * Contract: `canon` is injective over the values it accepts — two distinct
  * accepted values never produce the same output. `null` is accepted and
  * meaningful. Anything `canon` cannot represent faithfully (`undefined`,
- * functions, symbols, bigints, `NaN`/`Infinity`/`-Infinity`, and strings
- * containing a lone surrogate) is rejected with a {@link DigestInputError}
- * naming the offending path, rather than silently coerced or dropped the way
- * `JSON.stringify` would.
+ * functions, symbols, bigints, `NaN`/`Infinity`/`-Infinity`, strings
+ * containing a lone surrogate, non-plain objects, and a literal `__proto__`
+ * key) is rejected with a {@link DigestInputError} naming the offending path,
+ * rather than silently coerced or dropped the way `JSON.stringify` would.
+ * `canon` hashes own-enumerable-property structure only: a `Date`, `Map`,
+ * `Set`, `RegExp`, or any other object whose state does not live in own
+ * enumerable properties is rejected rather than serialized, and any `toJSON`
+ * method it defines is deliberately ignored.
  */
 export function canon(value: unknown): string {
   return JSON.stringify(sortDeep(value, ""))
@@ -55,11 +59,26 @@ function sortDeep(value: unknown, path: string): unknown {
   }
   if (value === null) return null
   if (typeof value === "object") {
+    const proto = Object.getPrototypeOf(value)
+    if (proto !== Object.prototype && proto !== null) {
+      const name = (value as { constructor?: { name?: string } }).constructor?.name ?? "unknown"
+      throw new DigestInputError(`Cannot hash a non-plain object (${name}) at "${at}"`)
+    }
     const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
       a < b ? -1 : 1,
     )
-    const out: Record<string, unknown> = {}
-    for (const [key, inner] of entries) out[key] = sortDeep(inner, path ? `${path}.${key}` : key)
+    // Object.create(null) so assigning to a "__proto__" key (which JSON.parse
+    // can legitimately produce as an own property) stores an ordinary data
+    // property instead of invoking the Object.prototype setter and silently
+    // mutating this accumulator's own prototype.
+    const out: Record<string, unknown> = Object.create(null)
+    for (const [key, inner] of entries) {
+      const keyPath = path ? `${path}.${key}` : key
+      if (key === "__proto__") {
+        throw new DigestInputError(`Cannot hash a "__proto__" key at "${keyPath}"`)
+      }
+      out[key] = sortDeep(inner, keyPath)
+    }
     return out
   }
   return value
