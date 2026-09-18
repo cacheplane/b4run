@@ -108,8 +108,11 @@ export default config({
 ```
 
 So an app composing a frontend with the runtime has no opt-out, and the path
-move is mandatory for it. An app deploying only the runtime can pin the old name
-and migrate on its own schedule. Either way `functionName` accepts one path
+move is mandatory for it. That refusal is deliberate rather than an oversight:
+an explicit `index` shadows the static root exactly as the old default did, so
+honouring it as an escape hatch would reintroduce the original bug in the one
+configuration where it does the most damage. An app deploying only the runtime
+can pin the old name and migrate on its own schedule. Either way `functionName` accepts one path
 segment of letters, digits, `_` or `-`, and `b4 check` rejects anything else
 before the build writes.
 
