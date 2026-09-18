@@ -51,6 +51,12 @@ describe("resolveVercelComposition", () => {
     ).toBe("agent")
   })
 
+  test("carries a runtime maxDuration and leaves it absent when unset", () => {
+    expect(resolveVercelComposition({ maxDuration: 300 }, appRoot).maxDuration).toBe(300)
+    expect(resolveVercelComposition({}, appRoot).maxDuration).toBeUndefined()
+    expect(resolveVercelComposition(undefined, appRoot).maxDuration).toBeUndefined()
+  })
+
   test("resolves extra functions relative to the app root with the node24 runtime default", () => {
     const resolved = resolveVercelComposition(
       {
@@ -108,6 +114,9 @@ describe("resolveVercelComposition", () => {
       config: { functions: { api: {} } },
       expected: "build.vercel.functions.api.entry",
     },
+    { config: { maxDuration: 0 }, expected: "build.vercel.maxDuration" },
+    { config: { maxDuration: 1.5 }, expected: "build.vercel.maxDuration" },
+    { config: { maxDuration: "300" }, expected: "build.vercel.maxDuration" },
     {
       config: { functions: { api: { entry: "x.ts", maxDuration: 0 } } },
       expected: "build.vercel.functions.api.maxDuration",

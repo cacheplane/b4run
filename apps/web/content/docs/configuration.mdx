@@ -286,6 +286,7 @@ build?: {
   targets?: readonly BuildTargetName[]
   vercel?: {
     functionName?: string
+    maxDuration?: number
     static?: { dir: string; spaFallback?: string }
     functions?: Readonly<Record<string, {
       entry: string
@@ -318,6 +319,13 @@ never `index`: the Build Output API also serves a function named `index` at
 default, and `"index"` beside `static` fails the build. See
 [the `vercel` target](/docs/deployment/edge#the-vercel-target) for the
 published tree and route order.
+
+`vercel.maxDuration` is the runtime function's `maxDuration` in seconds, a
+positive integer. Omit it and the property stays off `.vc-config.json`, where
+Vercel applies the project default. The runtime function is the one that runs
+the agent, so it is the one a long tool-using run outgrows; a function under
+`vercel.functions` sets its own. `validateVercelOutput` requires the published
+value to be exactly the configured one.
 
 `vercel.outDir` is the directory the Build Output tree is published to,
 resolved relative to the app root. It defaults to `.vercel/output`, where

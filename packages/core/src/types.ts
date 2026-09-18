@@ -19,6 +19,13 @@ export interface VercelBuildConfig {
    * {@link static} fails the build.
    */
   readonly functionName?: string
+  /**
+   * `maxDuration` for the runtime function, in positive integer seconds.
+   * Omitted leaves the property off `.vc-config.json` and Vercel applies the
+   * project default. The runtime function runs the agent, so it is the one a
+   * long tool-using run outgrows; composed {@link functions} set their own.
+   */
+  readonly maxDuration?: number
   /** A directory copied verbatim into `static/`, with an optional SPA document. */
   readonly static?: {
     readonly dir: string

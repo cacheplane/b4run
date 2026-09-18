@@ -82,6 +82,11 @@ export interface ResolvedVercelFunction {
 
 export interface ResolvedVercelBuild {
   readonly functionName: string
+  /**
+   * `maxDuration` for the runtime function, in seconds. Absent leaves the
+   * property off `.vc-config.json`, where Vercel applies the plan's default.
+   */
+  readonly maxDuration?: number
   readonly static?: {
     /** Absolute path to the directory copied into `static/`. */
     readonly dir: string
@@ -95,6 +100,7 @@ export interface ResolvedVercelBuild {
 /** The `build.vercel` keys that describe the composed tree. */
 export const VERCEL_COMPOSITION_KEYS: readonly string[] = [
   "functionName",
+  "maxDuration",
   "static",
   "functions",
   "routes",
@@ -123,6 +129,7 @@ export function resolveVercelComposition(input: unknown, appRoot: string): Resol
   const functions = resolveFunctions(config.functions, appRoot)
   const routes = resolveRoutes(config.routes)
 
+  const maxDuration = assertMaxDuration(config.maxDuration, "build.vercel.maxDuration")
   const functionName =
     config.functionName === undefined
       ? DEFAULT_VERCEL_FUNCTION_NAME
@@ -141,6 +148,7 @@ export function resolveVercelComposition(input: unknown, appRoot: string): Resol
 
   return {
     functionName,
+    ...(maxDuration !== undefined ? { maxDuration } : {}),
     ...(staticConfig ? { static: staticConfig } : {}),
     functions,
     routes,
@@ -209,16 +217,7 @@ function resolveFunctions(value: unknown, appRoot: string): ResolvedVercelFuncti
         `${location}.runtime must be a Node runtime such as "${DEFAULT_VERCEL_FUNCTION_RUNTIME}", got ${JSON.stringify(runtime)}`,
       )
     }
-    if (
-      fn.maxDuration !== undefined &&
-      (typeof fn.maxDuration !== "number" ||
-        !Number.isInteger(fn.maxDuration) ||
-        fn.maxDuration < 1)
-    ) {
-      throw invalidBuildConfig(
-        `${location}.maxDuration must be a positive integer number of seconds`,
-      )
-    }
+    const maxDuration = assertMaxDuration(fn.maxDuration, `${location}.maxDuration`)
     if (
       fn.supportsResponseStreaming !== undefined &&
       typeof fn.supportsResponseStreaming !== "boolean"
@@ -227,7 +226,7 @@ function resolveFunctions(value: unknown, appRoot: string): ResolvedVercelFuncti
     }
     return {
       entry: resolve(appRoot, entry),
-      ...(fn.maxDuration !== undefined ? { maxDuration: fn.maxDuration } : {}),
+      ...(maxDuration !== undefined ? { maxDuration } : {}),
       name,
       runtime,
       ...(fn.supportsResponseStreaming !== undefined
@@ -252,6 +251,19 @@ function resolveRoutes(value: unknown): VercelRoute[] {
     const src = assertNonEmptyString(record.src, `${location}.src`)
     return { ...record, src }
   })
+}
+
+/**
+ * `maxDuration` in seconds, for the runtime function and for each composed
+ * function. Vercel rejects a non-integer or non-positive duration at deploy
+ * time; catching it here names the offending key instead.
+ */
+function assertMaxDuration(value: unknown, location: string): number | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    throw invalidBuildConfig(`${location} must be a positive integer number of seconds`)
+  }
+  return value
 }
 
 function assertFunctionName(value: unknown, location: string): string {

@@ -135,6 +135,7 @@ export const vercelTarget: BuildTarget = {
 
       await writeVercelMetadata(stagedOutput, {
         functionName,
+        ...(composition.maxDuration === undefined ? {} : { maxDuration: composition.maxDuration }),
         routes: composeVercelRoutes({
           functionName,
           hasStatic: composition.static !== undefined,
@@ -144,7 +145,10 @@ export const vercelTarget: BuildTarget = {
             : {}),
         }),
       })
-      await validateVercelOutput(stagedOutput, { functionName })
+      await validateVercelOutput(stagedOutput, {
+        functionName,
+        ...(composition.maxDuration === undefined ? {} : { maxDuration: composition.maxDuration }),
+      })
       // A prebuilt flow (`vercel deploy --prebuilt`) never runs the root
       // `buildCommand`, so the opt-out leaves `vercel.json` unread, unwritten,
       // and out of the artifact list rather than requiring a file that exists

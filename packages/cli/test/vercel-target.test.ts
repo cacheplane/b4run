@@ -883,6 +883,36 @@ export async function workflow() {
     expect(bundle).not.toContain(DATABASE_URL_SENTINEL)
   })
 
+  test("writes build.vercel.maxDuration onto the runtime function", async () => {
+    const appRoot = await createComposedTargetFixture({
+      "b4.config.ts": `export default {
+  build: {
+    targets: ["vercel"],
+    vercel: {
+      maxDuration: 300,
+      static: { dir: "web/dist", spaFallback: "index.html" },
+    },
+  },
+}
+`,
+    })
+
+    await runTargetBuild(appRoot)
+
+    const outputDir = join(appRoot, ".vercel", "output")
+    await expect(readFile(functionConfigPath(outputDir), "utf8")).resolves.toBe(
+      '{\n  "handler": "index.mjs",\n  "launcherType": "Nodejs",\n  "runtime": "nodejs24.x",\n  "supportsResponseStreaming": true,\n  "maxDuration": 300\n}\n',
+    )
+    await expect(
+      validateVercelOutput(outputDir, { functionName: "b4", maxDuration: 300 }),
+    ).resolves.toBeUndefined()
+    // The published duration is checked against the configured one, so a tree
+    // built with a duration does not validate as one built without.
+    await expect(validateVercelOutput(outputDir, { functionName: "b4" })).rejects.toThrow(
+      /maxDuration/,
+    )
+  })
+
   test("composes static assets, an extra function, and user routes into one published tree", async () => {
     const appRoot = await createComposedTargetFixture()
 
