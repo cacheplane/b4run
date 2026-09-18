@@ -12,6 +12,10 @@ Rung 0 asked the worker whether it had succeeded. Rung 1 stops asking.
 
 ## What it proves
 
+Read "The dependency that is not met yet" below before treating any of this as end-to-end:
+the design is complete and each claim below is enforced by tests, but the one seam that joins
+the builder to the controller is not in this build.
+
 - **The controller owns the verdict.** It captures the baseline itself, reads the builder's
   workspace itself, diffs and digests the candidate itself, runs the checks in *its own*
   container with a separate sandbox scope and a freshly captured workspace, and issues its own
@@ -51,8 +55,8 @@ No authentication (loopback only; do not expose it). No repair loop, no token bu
 task (`cli-flags`), no UI, and one export target (the local filesystem). Verification proves a
 focused repair policy, not arbitrary program correctness, and the receipt says so.
 
-**Both example directories are used as shipped.** `examples/code-fixer` is untouched by this
-rung; the factory only borrows its fixture image.
+**`examples/code-fixer` is untouched by this rung.** The factory borrows its fixture image and
+nothing else; rung 0 drove code-fixer as its worker, and rung 1 does not.
 
 ## The dependency that is not met yet
 
@@ -83,7 +87,7 @@ What that means, exactly:
 
 ## Run it
 
-Both lanes need Docker and the fixture image, because the app configures a sandbox:
+The builder and the verifier both run in the fixture image, so this needs Docker:
 
     pnpm --filter @b4-example/code-fixer-server sandbox:prepare   # builds b4-code-fixer:fixture-v1
 
