@@ -60,3 +60,30 @@ export function createHandleWorkspaceReader(
     },
   }
 }
+
+/**
+ * The real reader, over the framework's read-only thread-workspace surface.
+ *
+ * That surface is `SandboxProvider.openWorkspaceReader`, proposed in pull request
+ * #731 and still open: it is not in this branch's `@b4run/workspace` or
+ * `@b4run/sandbox`, so there is nothing here to adapt yet. Until it lands this
+ * throws with a clear message rather than reaching into internals, because both
+ * workarounds are worse than an honest absence. Acquiring the builder's sandbox
+ * from this process would REPLACE its container — `acquire` is idempotent only
+ * within one provider lifecycle — and deriving the volume name depends on
+ * `resourceScope`, which is unexported addressing and not an ownership check.
+ *
+ * Only the Docker-gated lane needs this; every other layer uses the fake. When
+ * the surface lands, this becomes `createHandleWorkspaceReader` over
+ * `withWorkspaceReader(provider, { threadId, signal }, ...)` and this comment goes
+ * away.
+ */
+export function createThreadWorkspaceReader(): WorkspaceReader {
+  return {
+    async read(threadId) {
+      throw new Error(
+        `Reading thread ${threadId}'s workspace needs the framework's read-only thread-workspace surface, which is not available in this build`,
+      )
+    },
+  }
+}
