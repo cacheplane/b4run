@@ -466,6 +466,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // Re-verify the same bytes under the same policy before writing anything. Nothing below
       // this point may run if the re-verification did not pass: the export is the one thing
       // the controller cannot take back.
+      // `artifacts.read` re-hashes the bytes against the digest it was asked for, so what is
+      // parsed here is the candidate the receipt was issued over and nothing else.
       let changes: Record<string, string>
       try {
         changes = JSON.parse(await artifacts.read(candidate.artifactDigest)) as Record<
@@ -504,13 +506,23 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // One unit, as in the verifying phase: a receipt row with no journal line would leave
       // an auditor unable to say which of the two is the truth.
       const rejected = receipt.verdict !== "pass" || receipt.candidateDigest !== candidate.digest
-      store.transaction(() => {
-        evidenceStore.recordReceipt(receipt)
-        recordEvent(id, rejected ? "reverification_rejected" : "reverified", {
-          verdict: receipt.verdict,
-          receiptId: receipt.id,
+      try {
+        store.transaction(() => {
+          evidenceStore.recordReceipt(receipt)
+          recordEvent(id, rejected ? "reverification_rejected" : "reverified", {
+            verdict: receipt.verdict,
+            receiptId: receipt.id,
+          })
         })
-      })
+      } catch (error) {
+        // A write that will not land (a receipt id already stored with a different verdict, a
+        // full disk) is a refusal, not an escape: an exception here would leave this command's
+        // key in flight forever, which no restart can reconcile because the key is only ever
+        // completed by the command that owns it. Nothing was written to the export directory,
+        // so refusing leaves the review exactly where the operator found it.
+        recordEvent(id, "receipt_unrecorded", { phase: "export", error: String(error) })
+        return refuse(`Re-verification receipt could not be recorded: ${String(error)}`)
+      }
       if (rejected) return refuse(`Re-verification did not pass: ${receipt.verdict}`)
 
       // The verify above was an await: a cancel (operator or budget) may have moved the row,
@@ -554,16 +566,32 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       // `cancelled` over a delivery that happened is the truth, and hiding the delivery
       // would not be. Only the transition is conditional, because `receipt_observed` is
       // illegal from anywhere a cancel could have moved the row to.
-      store.transaction(() => {
-        store.recordDelivery({
-          workOrderId: id,
-          candidateDigest: candidate.digest,
-          receiptPath: path,
-          observedAt: iso(),
+      try {
+        store.transaction(() => {
+          store.recordDelivery({
+            workOrderId: id,
+            candidateDigest: candidate.digest,
+            receiptPath: path,
+            observedAt: iso(),
+          })
+          recordEvent(id, "delivery_written", { receiptPath: path })
+          if (mustGet(id).state === "exporting") transition(id, "receipt_observed")
         })
-        recordEvent(id, "delivery_written", { receiptPath: path })
-        if (mustGet(id).state === "exporting") transition(id, "receipt_observed")
-      })
+      } catch (error) {
+        // The bytes are on disk and this write did not land, which is the one thing worth
+        // saying out loud. Letting it escape would say it by leaving the operation key in
+        // flight forever, and the operator would be told nothing at all.
+        try {
+          recordEvent(id, "delivery_unrecorded", { receiptPath: path, error: String(error) })
+        } catch {
+          // The registry is the thing that just failed; there may be nowhere left to journal.
+        }
+        return finish(key, {
+          ok: false,
+          state: mustGet(id).state,
+          message: `Exported to ${path}, but the delivery could not be recorded: ${String(error)}`,
+        })
+      }
       const final = mustGet(id)
       return finish(key, {
         ok: final.state === "exported",

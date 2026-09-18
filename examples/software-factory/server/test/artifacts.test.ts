@@ -39,6 +39,21 @@ describe("artifact store", () => {
     await expect(s.read("a".repeat(64))).rejects.toThrow(/not found/i)
   })
 
+  it("refuses bytes that do not hash to the digest they were asked for", async () => {
+    const s = store()
+    const ref = await s.put("approved bytes\n")
+    // The name is the promise: whatever replaced the file, it is not what was put there.
+    writeFileSync(s.pathFor(ref.digest), "smuggled bytes\n", "utf8")
+    await expect(s.read(ref.digest)).rejects.toThrow(/does not hash to its name/i)
+  })
+
+  it("refuses a truncated artifact rather than returning half of it", async () => {
+    const s = store()
+    const ref = await s.put("a long enough body to truncate\n")
+    writeFileSync(s.pathFor(ref.digest), "a long enough", "utf8")
+    await expect(s.read(ref.digest)).rejects.toThrow(/does not hash to its name/i)
+  })
+
   it("recovers from a stale partial file left by a crash", async () => {
     const s = store()
     const content = "recovered in full\n"

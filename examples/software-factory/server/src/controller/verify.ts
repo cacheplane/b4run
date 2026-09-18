@@ -1,3 +1,4 @@
+import type { WorkOrderRow } from "../domain/work-order.js"
 import { freezeBundle } from "../review/bundle.js"
 import { AssemblyRejectedError, assembleCandidate } from "../verification/assemble.js"
 import { loadPolicy } from "../verification/policy.js"
@@ -15,6 +16,28 @@ import type { ControllerContext } from "./context.js"
 export async function runVerification(ctx: ControllerContext, id: string): Promise<void> {
   const row = ctx.mustGet(id)
   if (row.state !== "verifying" || !row.workerThreadId) return
+  try {
+    await verifyCandidate(ctx, id, row)
+  } catch (error) {
+    // The backstop. The specific faults below (`baseline_unavailable`, `workspace_unreadable`,
+    // `verifier_unavailable`) each journal what they know and return; this catches everything
+    // else — a failed artifact write, a policy that will not load, a registry constraint, a
+    // bug. Without it the throw escapes into `track()`, which records `run_observer_error`
+    // and leaves the row in `verifying` with no transition: recoverable only by a restart,
+    // and in-process a hang. Whatever the fault was, the controller does not know anything
+    // about the candidate, which is what `inconclusive` means.
+    ctx.recordEvent(id, "verification_phase_error", { error: String(error) })
+    if (ctx.mustGet(id).state === "verifying")
+      ctx.transition(id, "receipt_inconclusive", { blockedReason: "verification_inconclusive" })
+  }
+}
+
+async function verifyCandidate(
+  ctx: ControllerContext,
+  id: string,
+  row: WorkOrderRow,
+): Promise<void> {
+  const threadId = row.workerThreadId as string
   const policy = loadPolicy(row.taskId)
 
   /**
@@ -38,7 +61,7 @@ export async function runVerification(ctx: ControllerContext, id: string): Promi
   }
   let observed: ReadonlyMap<string, string>
   try {
-    observed = await ctx.workspaceReader.read(row.workerThreadId, ctx.signal)
+    observed = await ctx.workspaceReader.read(threadId, ctx.signal)
   } catch (error) {
     unreadable("workspace_unreadable", error)
     return

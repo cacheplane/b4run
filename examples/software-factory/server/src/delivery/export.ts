@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { link, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { Bundle } from "../domain/work-order.js"
 
@@ -18,13 +19,22 @@ export async function exportApproved(input: ExportInput): Promise<string> {
   const path = join(input.directory, `${input.bundle.digest}.json`)
   const body = `${JSON.stringify({ bundle: input.bundle, changes: input.changes }, null, 2)}\n`
   await mkdir(input.directory, { recursive: true })
+  // Write the whole body to a sibling temp file first, then publish it under the digest with
+  // `link`, which is atomic and fails with EEXIST when the name is taken. That is both
+  // halves of the guarantee at once: the final name never appears holding half a receipt
+  // (a torn write leaves only the temp file, which the retry replaces), and two exports
+  // racing under one digest still cannot both believe they created it. `rename` would be
+  // atomic too, but it overwrites, and this file is the one thing the controller cannot
+  // take back.
+  const tmpPath = join(input.directory, `.${input.bundle.digest}.${randomUUID()}.tmp`)
   try {
-    // `wx` is the whole guard: an exclusive create is atomic, so two exports racing
-    // under one digest cannot both believe they created the file.
-    await writeFile(path, body, { flag: "wx" })
+    await writeFile(tmpPath, body)
+    await link(tmpPath, path)
     return path
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+  } finally {
+    await rm(tmpPath, { force: true })
   }
   const existing = await readFile(path, "utf8")
   if (existing !== body)

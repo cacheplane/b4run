@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/controller/factory.ts"
 import type { WorkOrderRow } from "../src/domain/work-order.ts"
@@ -198,6 +199,75 @@ describe("approve", () => {
     expect(factory.show(row.id)?.blockedReason).toBe("export_unconfirmed")
     expect(readFileSync(join(out(), `${row.bundleDigest}.json`), "utf8")).toBe("{}\n")
     expect(factory.events(row.id).map((e) => e.type)).toContain("export_failed")
+  })
+
+  it("refuses, rather than stranding the operation key, when the receipt cannot be recorded", async () => {
+    // Both receipts carry one id, so the re-verification's differing verdict collides with
+    // the receipt already stored by the verifying phase: a synchronous throw out of the
+    // registry write, in a command that owns an operation key.
+    const { reader, verifier } = await boot({ verdict: "pass", receiptId: "rc-fixed" })
+    const row = await awaiting(reader)
+    verifier.script = { verdict: "fail", receiptId: "rc-fixed" }
+    const input = {
+      revision: row.revision,
+      bundleDigest: row.bundleDigest,
+      operationKey: "approve-collide",
+    }
+    const outcome = await factory.approve(row.id, input)
+    expect(outcome).toMatchObject({ ok: false, state: "awaiting_approval" })
+    expect(outcome.message).toMatch(/receipt could not be recorded/i)
+    expect(readdirSync(out())).toEqual([])
+    expect(factory.events(row.id).map((e) => e.type)).toContain("receipt_unrecorded")
+    // The key was completed, so the same key replays the refusal instead of throwing
+    // CommandInFlightError forever.
+    expect(await factory.approve(row.id, input)).toEqual(outcome)
+  })
+
+  it("refuses, rather than stranding the operation key, when the delivery cannot be recorded", async () => {
+    const { reader } = await boot()
+    const row = await awaiting(reader)
+    // A delivery row already under this work order id: the registry write after the bytes
+    // land violates the deliveries primary key.
+    const planted = new DatabaseSync(join(dir, "registry.sqlite"))
+    planted.exec(
+      `INSERT INTO deliveries (work_order_id, candidate_digest, receipt_path, observed_at)
+       VALUES ('${row.id}', '${row.candidateDigest}', '/elsewhere.json', '2026-09-16T10:00:00.000Z')`,
+    )
+    planted.close()
+    const input = {
+      revision: row.revision,
+      bundleDigest: row.bundleDigest,
+      operationKey: "approve-delivery",
+    }
+    const outcome = await factory.approve(row.id, input)
+    expect(outcome.ok).toBe(false)
+    expect(outcome.message).toMatch(/delivery could not be recorded/i)
+    // The bytes are on disk, and the journal says the record of them is missing.
+    expect(readdirSync(out())).toEqual([`${row.bundleDigest}.json`])
+    expect(factory.events(row.id).map((e) => e.type)).toContain("delivery_unrecorded")
+    expect(await factory.approve(row.id, input)).toEqual(outcome)
+  })
+
+  it("refuses when the stored candidate bytes no longer hash to their digest", async () => {
+    const { reader, verifier } = await boot()
+    const row = await awaiting(reader)
+    const artifactDigest = factory.evidence(row.id).candidate?.artifactDigest as string
+    // The bytes under the digest were replaced with other changes. The receipt digest guard
+    // cannot see this: a verifier that echoes its input agrees with whatever it is handed.
+    writeFileSync(
+      join(dir, "artifacts", `${artifactDigest}.txt`),
+      JSON.stringify({ "src/cli.ts": "smuggled\n" }, null, 2),
+    )
+    const verifiedBefore = verifier.verified.length
+    const outcome = await factory.approve(row.id, {
+      revision: row.revision,
+      bundleDigest: row.bundleDigest,
+    })
+    expect(outcome.ok).toBe(false)
+    expect(outcome.message).toMatch(/could not be read/i)
+    expect(verifier.verified).toHaveLength(verifiedBefore)
+    expect(readdirSync(out())).toEqual([])
+    expect(factory.events(row.id).map((e) => e.type)).toContain("candidate_unreadable")
   })
 
   it("refuses to approve from a state that is not awaiting_approval", async () => {

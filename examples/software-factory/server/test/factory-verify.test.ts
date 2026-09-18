@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -29,9 +29,12 @@ const captureRepairable: CaptureBaseline = async () => ({
 async function boot(
   script: Parameters<typeof createFakeVerifier>[0],
   captureBaseline: CaptureBaseline = captureRepairable,
+  /** Called with the temp directory before the factory opens, to break something in it. */
+  sabotage: (dir: string) => void = () => {},
 ) {
   dir = mkdtempSync(join(tmpdir(), "factory-verify-"))
   mkdirSync(join(dir, "out"), { recursive: true })
+  sabotage(dir)
   fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
   const verifier = createFakeVerifier(script)
   const reader = createFakeWorkspaceReader({})
@@ -173,6 +176,29 @@ describe("the verifying phase", () => {
     expect(row.candidateDigest).toBeNull()
     expect(verifier.verified).toEqual([])
     expect(factory.evidence(id)).toEqual({ candidate: null, receipt: null, bundle: null })
+  })
+
+  it("blocks rather than stranding the row when the phase throws where nothing expects it", async () => {
+    // A file where the artifacts directory should be: `artifacts.put` cannot even mkdir, so
+    // the write of the assembled candidate throws in a place with no handler of its own.
+    // Nothing about that throw is a verdict on the candidate, and leaving the row in
+    // `verifying` would hang it until a restart.
+    const { reader, verifier } = await boot({ verdict: "pass" }, captureRepairable, (base) =>
+      writeFileSync(join(base, "artifacts"), "not a directory\n"),
+    )
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+    reader.set(dispatched.workerThreadId as string, repaired())
+    const row = await factory.waitFor(id, (r) => r.state === "blocked", 20_000)
+    expect(row.blockedReason).toBe("verification_inconclusive")
+    const types = factory.events(id).map((e) => e.type)
+    expect(types).toContain("verification_phase_error")
+    expect(types).not.toContain("run_observer_error")
+    // The candidate was never stored, and the verifier was never asked about bytes the
+    // controller could not keep.
+    expect(factory.evidence(id)).toEqual({ candidate: null, receipt: null, bundle: null })
+    expect(verifier.verified).toEqual([])
   })
 
   it("stores the candidate, receipt and bundle as evidence", async () => {

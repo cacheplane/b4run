@@ -50,13 +50,22 @@ export function createArtifactStore(directory: string): ArtifactStore {
       return { digest, bytes }
     },
     async read(digest) {
+      let content: string
       try {
-        return await readFile(pathFor(digest), "utf8")
+        content = await readFile(pathFor(digest), "utf8")
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT")
           throw new Error(`Artifact not found: ${digest}`)
         throw error
       }
+      // The digest is the name, so re-hashing is what makes the name a promise rather than a
+      // label: a truncated, edited or swapped file is caught here instead of being parsed as
+      // the approved bytes. It belongs in the store rather than at any one call site because
+      // the guarantee is the store's own — every reader gets it, and no reader can forget it.
+      const actual = createHash("sha256").update(content).digest("hex")
+      if (actual !== digest)
+        throw new Error(`Artifact ${digest} does not hash to its name (found ${actual})`)
+      return content
     },
   }
 }

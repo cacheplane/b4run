@@ -9,6 +9,8 @@ export interface FakeVerifierScript {
   readonly independent?: Verdict
   /** When set, `verify` rejects with this message instead of issuing a receipt. */
   readonly throws?: string
+  /** Fixed receipt id, for tests that need two receipts to collide in the registry. */
+  readonly receiptId?: string
 }
 
 export interface FakeVerifier extends Verifier {
@@ -35,7 +37,7 @@ export function createFakeVerifier(script: FakeVerifierScript): FakeVerifier {
       const visible = fake.script.visible ?? fake.script.verdict ?? "pass"
       const independent = fake.script.independent ?? fake.script.verdict ?? "pass"
       return {
-        id: `rc-${randomUUID()}`,
+        id: fake.script.receiptId ?? `rc-${randomUUID()}`,
         workOrderId: input.workOrderId,
         candidateDigest: input.candidateDigest,
         verifierIdentity: `fake:${fake.script.verdict ?? worstVerdict([visible, independent])}`,
