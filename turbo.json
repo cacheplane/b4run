@@ -56,6 +56,13 @@
         "!$TURBO_ROOT$/examples/*/**/*.tsbuildinfo"
       ]
     },
+    "@b4-example/software-factory-server#test": {
+      "dependsOn": ["build", "^test"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/examples/software-factory/README.md"
+      ]
+    },
     "@b4run/core#test": {
       "dependsOn": ["build", "^test"],
       "inputs": [
