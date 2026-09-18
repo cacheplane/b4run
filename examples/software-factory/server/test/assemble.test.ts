@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { DigestInputError } from "../src/domain/digest.ts"
 import { AssemblyRejectedError, assembleCandidate } from "../src/verification/assemble.ts"
 
 const baseline = new Map([
@@ -72,6 +73,29 @@ describe("assembleCandidate", () => {
     expect(() =>
       assembleCandidate({ baseline, observed: observed({ "src/cli.ts": "nul\0byte\n" }), policy }),
     ).toThrow(/NUL/)
+
+    let caught: unknown
+    try {
+      assembleCandidate({ baseline, observed: observed({ "src/cli.ts": "nul\0byte\n" }), policy })
+      throw new Error("expected a rejection")
+    } catch (error) {
+      caught = error
+    }
+    expect((caught as AssemblyRejectedError).rule).toBe("encoding")
+  })
+
+  it("rejects a lone surrogate as an encoding rejection, not a raw DigestInputError", () => {
+    const loneSurrogate = "\uD800"
+    let caught: unknown
+    try {
+      assembleCandidate({ baseline, observed: observed({ "src/cli.ts": loneSurrogate }), policy })
+      throw new Error("expected a rejection")
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(AssemblyRejectedError)
+    expect((caught as AssemblyRejectedError).rule).toBe("encoding")
+    expect((caught as AssemblyRejectedError).cause).toBeInstanceOf(DigestInputError)
   })
 
   it("names the violated rule on the error so the controller can record a reason", () => {

@@ -1,4 +1,4 @@
-import { candidateDigest } from "../domain/digest.js"
+import { candidateDigest, DigestInputError } from "../domain/digest.js"
 
 export type AssemblyRule = "inventory" | "immutable" | "added" | "removed" | "cap" | "encoding"
 
@@ -7,8 +7,9 @@ export class AssemblyRejectedError extends Error {
   constructor(
     readonly rule: AssemblyRule,
     message: string,
+    options?: ErrorOptions,
   ) {
-    super(message)
+    super(message, options)
     this.name = "AssemblyRejectedError"
   }
 }
@@ -59,6 +60,11 @@ export function assembleCandidate(input: {
       throw new AssemblyRejectedError("immutable", `Candidate changed an immutable path: ${path}`)
     if (!allowed.has(path))
       throw new AssemblyRejectedError("inventory", `Path is not in the allowed inventory: ${path}`)
+    // Content the controller cannot represent is rejected as `encoding` from two
+    // places: a NUL byte is checked directly here, and anything else the digest
+    // cannot hash injectively (e.g. a lone surrogate) is caught below when the
+    // digest is computed. Both surface as the same rule so the controller
+    // records one reason regardless of which check caught it.
     if (after.includes("\0"))
       throw new AssemblyRejectedError("encoding", `Candidate wrote a NUL byte in ${path}`)
     changes[path] = after
@@ -71,12 +77,26 @@ export function assembleCandidate(input: {
       `Candidate exceeds the byte cap: ${bytes} > ${policy.maxChangedBytes}`,
     )
 
-  return {
-    digest: candidateDigest({
+  let digest: string
+  try {
+    digest = candidateDigest({
       workspaceId: policy.workspaceId,
       baselineDigest: policy.baselineDigest,
       changes,
-    }),
+    })
+  } catch (error) {
+    if (error instanceof DigestInputError) {
+      throw new AssemblyRejectedError(
+        "encoding",
+        `Candidate contains content the controller cannot represent: ${error.message}`,
+        { cause: error },
+      )
+    }
+    throw error
+  }
+
+  return {
+    digest,
     changes,
     changedPaths: Object.keys(changes),
     bytes,
