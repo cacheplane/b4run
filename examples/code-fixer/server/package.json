@@ -20,16 +20,16 @@
     "@b4run/sdk": "workspace:*",
     "@b4run/sandbox": "workspace:*",
     "@b4run/workspace": "workspace:*",
-    "zod": "4.4.3",
+    "zod": "4.6.5",
     "diff": "9.0.0"
   },
   "devDependencies": {
     "@b4run/testing": "workspace:*",
     "@b4run/evals": "workspace:*",
-    "@types/node": "26.1.2",
+    "@types/node": "26.6.1",
     "typescript": "7.0.2",
-    "tsx": "4.23.10",
+    "tsx": "4.23.13",
     "vitest": "4.1.11",
-    "@biomejs/biome": "2.5.6"
+    "@biomejs/biome": "2.5.13"
   }
 }
