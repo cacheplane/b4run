@@ -55,7 +55,7 @@
   },
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",
-    "@types/node": "26.1.2",
-    "yaml": "2.9.0"
+    "@types/node": "26.6.1",
+    "yaml": "2.9.1"
   }
 }

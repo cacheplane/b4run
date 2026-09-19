@@ -45,6 +45,6 @@
   },
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",
-    "@types/node": "26.1.2"
+    "@types/node": "26.6.1"
   }
 }
