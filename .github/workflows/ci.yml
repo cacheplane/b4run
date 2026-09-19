@@ -423,6 +423,17 @@ jobs:
       - name: Prepare isolated code-fixer environment
         run: pnpm code-fixer:prepare
 
+      - name: Software factory controller-owned verification
+        # The software-factory example's builder and verifier both run in
+        # `b4-code-fixer:fixture-v1`, the image the previous step builds, and its
+        # fixture is the same `cli-flags` project baked into that image's
+        # /opt/fixtures. The dependency build is the factory's own closure
+        # (`^...` excludes the example, whose `build` is `b4 build`), which is
+        # already warm from the code-fixer build above.
+        run: |
+          pnpm turbo run build --filter=@b4-example/software-factory-server^...
+          pnpm --filter @b4-example/software-factory-server test:sandbox
+
       - name: Managed Docker lifecycle and runtime restart
         run: |
           B4_TEST_DOCKER=1 pnpm --filter @b4run/sandbox test managed-workspace

@@ -519,6 +519,14 @@
       {
         "job": "sandbox-docker",
         "stepIndex": 9,
+        "step": "Software factory controller-owned verification",
+        "kind": "run",
+        "value": "pnpm turbo run build --filter=@b4-example/software-factory-server^...\npnpm --filter @b4-example/software-factory-server test:sandbox\n",
+        "classification": "safe"
+      },
+      {
+        "job": "sandbox-docker",
+        "stepIndex": 10,
         "step": "Managed Docker lifecycle and runtime restart",
         "kind": "run",
         "value": "B4_TEST_DOCKER=1 pnpm --filter @b4run/sandbox test managed-workspace\nB4_TEST_DOCKER=1 pnpm --filter @b4run/cli test managed-workspace-process\n",
@@ -526,7 +534,7 @@
       },
       {
         "job": "sandbox-docker",
-        "stepIndex": 10,
+        "stepIndex": 11,
         "step": "Code-fixer approval and verifier recovery",
         "kind": "run",
         "value": "pnpm --filter @b4-example/code-fixer-server test:sandbox\npnpm test:code-fixer:sandbox\n",
@@ -534,7 +542,7 @@
       },
       {
         "job": "sandbox-docker",
-        "stepIndex": 11,
+        "stepIndex": 12,
         "step": "Both historical repair replays",
         "kind": "run",
         "value": "pnpm code-fixer:replay",

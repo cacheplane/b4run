@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
 export interface Registry {
   readonly db: DatabaseSync
@@ -80,6 +80,51 @@ const MIGRATIONS: readonly Migration[] = [
         receipt_path TEXT NOT NULL,
         observed_at TEXT NOT NULL
       );
+    `,
+  },
+  {
+    // `approvals.bundle_digest` is added nullable because SQLite cannot add a NOT NULL column
+    // without a default. The zod ApprovalSchema is what enforces its presence on write; no
+    // rung 0 rows exist in a registry that has never been released.
+    version: 2,
+    up: `
+      ALTER TABLE work_orders ADD COLUMN bundle_digest TEXT;
+      ALTER TABLE approvals ADD COLUMN bundle_digest TEXT;
+      -- The rung 0 interrupt coupling is gone: approvals now bind to a bundle digest, and
+      -- interrupt_id was NOT NULL, so it must be dropped rather than left dead and blocking
+      -- every insert.
+      ALTER TABLE approvals DROP COLUMN interrupt_id;
+      CREATE TABLE candidates (
+        digest TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id),
+        baseline_digest TEXT NOT NULL,
+        changed_paths TEXT NOT NULL,
+        bytes INTEGER NOT NULL,
+        artifact_digest TEXT NOT NULL,
+        assembled_at TEXT NOT NULL
+      );
+      CREATE INDEX candidates_by_work_order ON candidates(work_order_id);
+      CREATE TABLE receipts (
+        id TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id),
+        candidate_digest TEXT NOT NULL,
+        verifier_identity TEXT NOT NULL,
+        policy_digest TEXT NOT NULL,
+        environment_identity TEXT NOT NULL,
+        verdict TEXT NOT NULL,
+        checks TEXT NOT NULL,
+        issued_at TEXT NOT NULL
+      );
+      CREATE INDEX receipts_by_work_order ON receipts(work_order_id);
+      CREATE TABLE bundles (
+        digest TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id),
+        candidate_digest TEXT NOT NULL,
+        receipt_id TEXT NOT NULL REFERENCES receipts(id),
+        payload TEXT NOT NULL,
+        frozen_at TEXT NOT NULL
+      );
+      CREATE INDEX bundles_by_work_order ON bundles(work_order_id);
     `,
   },
 ]

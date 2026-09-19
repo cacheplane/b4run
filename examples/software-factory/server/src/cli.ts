@@ -1,24 +1,35 @@
 import { parseArgs } from "node:util"
 import { loadConfig } from "./config.js"
 import { createFactory, type Factory } from "./controller/factory.js"
+import { ACTIVE_STATES } from "./domain/states.js"
+import { workspaceInspectionOptions } from "./fixtures/workspace.js"
 import { createHttpApi } from "./http.js"
+import { createArtifactStore } from "./storage/artifacts.js"
+import { captureFixtureBaseline } from "./verification/baseline.js"
+import { createDockerVerifier } from "./verification/docker-verifier.js"
 import { createHttpWorkerClient } from "./worker/client.js"
+import {
+  createThreadWorkspaceReader,
+  THREAD_WORKSPACE_READER_GAP,
+} from "./worker/workspace-reader.js"
 
 const USAGE = `factory <command> [options]
 
   create   --task <id> [--key <operationKey>]
   dispatch <workOrderId> [--wait] [--key <operationKey>]
-  approve  <workOrderId> --revision <n> --digest <sha256> [--key <operationKey>]
+  approve  <workOrderId> --revision <n> --bundle <sha256> [--key <operationKey>]
   deny     <workOrderId> [--key <operationKey>]
   cancel   <workOrderId> [--key <operationKey>]
   show     <workOrderId>
   events   <workOrderId>
+  evidence <workOrderId>
   list
   serve    [--port <n>]
 
-Environment: FACTORY_WORKER_URL, FACTORY_WORKER_OUTBOX, FACTORY_STATE_DIR (required);
-FACTORY_WORKER_ROUTE, FACTORY_APPROVAL_TTL_MS, FACTORY_MAX_ACTIVE_MS, FACTORY_RECEIPT_WAIT_MS, FACTORY_HTTP_PORT.
-Output is JSON. Exit code 1 when a command is refused.`
+Environment: FACTORY_WORKER_URL, FACTORY_STATE_DIR (required);
+FACTORY_WORKER_ROUTE, FACTORY_EXPORT_DIR, FACTORY_ARTIFACTS_DIR, FACTORY_APPROVAL_TTL_MS,
+FACTORY_MAX_ACTIVE_MS, FACTORY_MAX_CHANGED_BYTES, FACTORY_HTTP_PORT.
+Output is JSON on stdout; diagnostics go to stderr. Exit code 1 when a command is refused.`
 
 function print(value: unknown) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
@@ -32,7 +43,7 @@ async function main(argv: string[]): Promise<number> {
       task: { type: "string" },
       key: { type: "string" },
       revision: { type: "string" },
-      digest: { type: "string" },
+      bundle: { type: "string" },
       port: { type: "string" },
       wait: { type: "boolean", default: false },
       help: { type: "boolean", default: false },
@@ -44,14 +55,25 @@ async function main(argv: string[]): Promise<number> {
     return command ? 0 : 1
   }
   const config = loadConfig(process.env)
+  // Announced before anything is dispatched, not discovered afterwards in the journal.
+  // Stderr, so the JSON contract on stdout is untouched, and on every command rather than
+  // only on `dispatch`: a `show` of a work order blocked by this gap needs the same
+  // explanation as the dispatch that blocked it. Delete with the placeholder (#731).
+  process.stderr.write(
+    `factory: candidate bytes are unavailable — ${THREAD_WORKSPACE_READER_GAP}\n`,
+  )
   const factory: Factory = await createFactory({
     registryPath: config.registryPath,
     worker: createHttpWorkerClient(config.workerUrl),
     workerRoute: config.workerRoute,
-    outboxDir: config.outboxDir,
+    exportDir: config.exportDir,
+    artifactsDir: config.artifactsDir,
     approvalTtlMs: config.approvalTtlMs,
     maxActiveMs: config.maxActiveMs,
-    receiptWaitMs: config.receiptWaitMs,
+    maxChangedBytes: config.maxChangedBytes,
+    verifier: createDockerVerifier(createArtifactStore(config.artifactsDir)),
+    workspaceReader: createThreadWorkspaceReader(workspaceInspectionOptions),
+    captureBaseline: captureFixtureBaseline,
   })
   const needId = () => {
     if (!id) throw new Error(`${command} requires a work order id`)
@@ -79,7 +101,10 @@ async function main(argv: string[]): Promise<number> {
           print(
             await factory.waitFor(
               needId(),
-              (r) => !["dispatched", "running"].includes(r.state),
+              // Every state that still owes the operator work, not just the two the
+              // worker drives: `verifying` is the controller's own phase and a wait that
+              // stopped there would report a work order that is still moving.
+              (r) => !ACTIVE_STATES.has(r.state),
               config.maxActiveMs + 60_000,
             ),
           )
@@ -87,11 +112,11 @@ async function main(argv: string[]): Promise<number> {
         return 0
       }
       case "approve": {
-        if (!values.revision || !values.digest)
-          throw new Error("approve requires --revision and --digest")
+        if (!values.revision || !values.bundle)
+          throw new Error("approve requires --revision and --bundle")
         const outcome = await factory.approve(needId(), {
           revision: Number(values.revision),
-          candidateDigest: values.digest,
+          bundleDigest: values.bundle,
           ...(values.key ? { operationKey: values.key } : {}),
         })
         print({ ...outcome, ...factory.show(needId()) })
@@ -114,6 +139,9 @@ async function main(argv: string[]): Promise<number> {
       }
       case "events":
         print(factory.events(needId()))
+        return 0
+      case "evidence":
+        print(factory.evidence(needId()))
         return 0
       case "list":
         print(factory.list())

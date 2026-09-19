@@ -5,14 +5,24 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
+    "test:sandbox": "vitest run --config vitest.sandbox.config.ts",
     "typecheck": "tsc -p . --noEmit",
     "lint": "biome check .",
-    "factory": "tsx src/cli.ts"
+    "factory": "tsx src/cli.ts",
+    "check": "b4 check",
+    "build": "b4 build",
+    "dev": "b4 dev"
   },
   "dependencies": {
+    "@b4run/cli": "workspace:*",
+    "@b4run/sandbox": "workspace:*",
+    "@b4run/sdk": "workspace:*",
+    "@b4run/workspace": "workspace:*",
+    "diff": "9.0.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@b4run/testing": "workspace:*",
     "@biomejs/biome": "2.5.6",
     "@types/node": "26.1.2",
     "tsx": "4.23.10",

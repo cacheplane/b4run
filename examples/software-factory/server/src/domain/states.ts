@@ -2,6 +2,7 @@ export const STATES = [
   "received",
   "dispatched",
   "running",
+  "verifying",
   "awaiting_approval",
   "exporting",
   "exported",
@@ -24,16 +25,26 @@ export const TERMINAL_STATES: ReadonlySet<WorkOrderState> = new Set<WorkOrderSta
 export const ACTIVE_STATES: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
   "dispatched",
   "running",
+  "verifying",
   "exporting",
 ])
 
 /** Reasons are attached by the controller (later tasks), not by nextState. */
 export const BLOCKED_REASONS = [
-  "candidate_digest_unknown",
   "unexpected_interrupt",
+  // The builder wrote where it may not: outside its inventory, over an immutable path, past
+  // the byte cap, or by adding or removing a path at all.
+  "scope_violation",
+  // The builder wrote bytes the controller cannot represent — a NUL byte or a lone
+  // surrogate. Distinct from `scope_violation`: the path was allowed, the content was not,
+  // and conflating the two tells an operator to look in the wrong place. There is no
+  // `baseline_mismatch`: rung 1 never asks the builder for a source digest to disagree with,
+  // it diffs against its own captured baseline, so every assembly refusal is one of these two.
+  "encoding_violation",
+  "verification_failed",
+  "verification_inconclusive",
   "export_unconfirmed",
   "budget_exhausted",
-  "interrupt_vanished",
 ] as const
 export type BlockedReason = (typeof BLOCKED_REASONS)[number]
 
@@ -43,11 +54,14 @@ export type FailureReason = (typeof FAILURE_REASONS)[number]
 export const TRANSITION_EVENTS = [
   "dispatch_committed",
   "run_started",
-  "candidate_interrupt",
-  "candidate_interrupt_without_digest",
+  "turn_ended_with_workspace",
+  "turn_ended_without_changes",
   "unexpected_interrupt",
   "run_failed",
-  "run_ended_without_candidate",
+  "assembly_rejected",
+  "receipt_passed",
+  "receipt_failed",
+  "receipt_inconclusive",
   "approve",
   "deny",
   "receipt_observed",
@@ -56,7 +70,6 @@ export const TRANSITION_EVENTS = [
   "run_ended_after_cancel",
   "run_ended_after_budget",
   "budget_exhausted",
-  "interrupt_vanished",
 ] as const
 export type TransitionEvent = (typeof TRANSITION_EVENTS)[number]
 
@@ -70,11 +83,16 @@ const everyNonTerminalTo = (to: WorkOrderState): Row =>
 const TABLE: Readonly<Record<TransitionEvent, Row>> = {
   dispatch_committed: { received: "dispatched" },
   run_started: { dispatched: "running" },
-  candidate_interrupt: { dispatched: "awaiting_approval", running: "awaiting_approval" },
-  candidate_interrupt_without_digest: { dispatched: "blocked", running: "blocked" },
-  unexpected_interrupt: { dispatched: "blocked", running: "blocked" },
+  turn_ended_with_workspace: { dispatched: "verifying", running: "verifying" },
+  // Only the verifying phase can know the builder changed nothing: it is the diff against
+  // the controller's own baseline that says so, not the end of the stream.
+  turn_ended_without_changes: { dispatched: "failed", running: "failed", verifying: "failed" },
+  unexpected_interrupt: { dispatched: "blocked", running: "blocked", verifying: "blocked" },
   run_failed: { dispatched: "failed", running: "failed" },
-  run_ended_without_candidate: { dispatched: "failed", running: "failed" },
+  assembly_rejected: { verifying: "blocked" },
+  receipt_passed: { verifying: "awaiting_approval" },
+  receipt_failed: { verifying: "blocked" },
+  receipt_inconclusive: { verifying: "blocked" },
   approve: { awaiting_approval: "exporting" },
   deny: { awaiting_approval: "denied", blocked: "denied" },
   receipt_observed: { exporting: "exported" },
@@ -85,9 +103,9 @@ const TABLE: Readonly<Record<TransitionEvent, Row>> = {
   budget_exhausted: {
     dispatched: "cancel_requested",
     running: "cancel_requested",
+    verifying: "cancel_requested",
     exporting: "cancel_requested",
   },
-  interrupt_vanished: { awaiting_approval: "blocked" },
 }
 
 export class IllegalTransitionError extends Error {

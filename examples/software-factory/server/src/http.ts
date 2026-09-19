@@ -18,11 +18,20 @@ const CreateBody = z.object({
   operationKey: z.string().min(1).optional(),
 })
 const KeyBody = z.object({ operationKey: z.string().min(1).optional() }).default({})
-const ApproveBody = z.object({
-  revision: z.number().int().nonnegative(),
-  candidateDigest: z.string().regex(DIGEST_PATTERN),
-  operationKey: z.string().min(1).optional(),
-})
+/**
+ * Approval names the frozen bundle, never the candidate bytes alone: the bundle is
+ * what binds those bytes to the policy, the environment and the receipt that were in
+ * force when consent was asked for. `strict` so rung 0's `candidateDigest` is a 400
+ * rather than a silently dropped field that would approve a different thing than the
+ * caller named.
+ */
+const ApproveBody = z
+  .object({
+    revision: z.number().int().nonnegative(),
+    bundleDigest: z.string().regex(DIGEST_PATTERN),
+    operationKey: z.string().min(1).optional(),
+  })
+  .strict()
 
 const MAX_BODY_BYTES = 1024 * 1024
 
@@ -74,9 +83,11 @@ export function createHttpApi(factory: Factory): { listen(port: number): Promise
         const row = factory.show(id)
         return row ? send(res, 200, row) : send(res, 404, { error: "Unknown work order" })
       }
-      if (req.method === "GET" && action === "events") {
+      if (action === "events" || action === "evidence") {
+        // Read-only: a write to either is a method error, not an unknown route.
+        if (req.method !== "GET") return send(res, 405, { error: "Method not allowed" })
         if (!factory.show(id)) return send(res, 404, { error: "Unknown work order" })
-        return send(res, 200, factory.events(id))
+        return send(res, 200, action === "events" ? factory.events(id) : factory.evidence(id))
       }
       if (req.method !== "POST") return send(res, 405, { error: "Method not allowed" })
       const body = await readJson(req)
@@ -84,10 +95,10 @@ export function createHttpApi(factory: Factory): { listen(port: number): Promise
       if (action === "dispatch")
         outcome = await factory.dispatch(id, KeyBody.parse(body).operationKey)
       else if (action === "approve") {
-        const { revision, candidateDigest, operationKey } = ApproveBody.parse(body)
+        const { revision, bundleDigest, operationKey } = ApproveBody.parse(body)
         outcome = await factory.approve(id, {
           revision,
-          candidateDigest,
+          bundleDigest,
           ...(operationKey ? { operationKey } : {}),
         })
       } else if (action === "deny")

@@ -15,6 +15,7 @@ function row(overrides: Partial<WorkOrderRow>): WorkOrderRow {
     interruptId: null,
     candidateDigest: null,
     candidateVerified: null,
+    bundleDigest: null,
     blockedReason: null,
     failureReason: null,
     maxCandidateAttempts: 1,

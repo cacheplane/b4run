@@ -1,0 +1,69 @@
+import { createHash } from "node:crypto"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterEach, describe, expect, it } from "vitest"
+import { createArtifactStore } from "../src/storage/artifacts.ts"
+
+let dir: string
+afterEach(() => rmSync(dir, { recursive: true, force: true }))
+const store = () => {
+  dir = mkdtempSync(join(tmpdir(), "factory-artifacts-"))
+  return createArtifactStore(join(dir, "artifacts"))
+}
+
+describe("artifact store", () => {
+  it("is content addressed and returns the digest", async () => {
+    const s = store()
+    const ref = await s.put("hello\n")
+    expect(ref.digest).toMatch(/^[a-f0-9]{64}$/)
+    expect(ref.bytes).toBe(6)
+    expect(await s.read(ref.digest)).toBe("hello\n")
+  })
+
+  it("is idempotent for identical content and never rewrites", async () => {
+    const s = store()
+    const one = await s.put("same\n")
+    const two = await s.put("same\n")
+    expect(two.digest).toBe(one.digest)
+    expect(readFileSync(s.pathFor(one.digest), "utf8")).toBe("same\n")
+  })
+
+  it("refuses a digest that is not a sha256 hex string", async () => {
+    const s = store()
+    await expect(s.read("../escape")).rejects.toThrow(/digest/i)
+  })
+
+  it("reports a missing artifact clearly", async () => {
+    const s = store()
+    await expect(s.read("a".repeat(64))).rejects.toThrow(/not found/i)
+  })
+
+  it("refuses bytes that do not hash to the digest they were asked for", async () => {
+    const s = store()
+    const ref = await s.put("approved bytes\n")
+    // The name is the promise: whatever replaced the file, it is not what was put there.
+    writeFileSync(s.pathFor(ref.digest), "smuggled bytes\n", "utf8")
+    await expect(s.read(ref.digest)).rejects.toThrow(/does not hash to its name/i)
+  })
+
+  it("refuses a truncated artifact rather than returning half of it", async () => {
+    const s = store()
+    const ref = await s.put("a long enough body to truncate\n")
+    writeFileSync(s.pathFor(ref.digest), "a long enough", "utf8")
+    await expect(s.read(ref.digest)).rejects.toThrow(/does not hash to its name/i)
+  })
+
+  it("recovers from a stale partial file left by a crash", async () => {
+    const s = store()
+    const content = "recovered in full\n"
+    const digest = createHash("sha256").update(content).digest("hex")
+    mkdirSync(join(dir, "artifacts"), { recursive: true })
+    writeFileSync(s.pathFor(digest), "trunc", "utf8")
+
+    const ref = await s.put(content)
+
+    expect(ref.digest).toBe(digest)
+    expect(await s.read(digest)).toBe(content)
+  })
+})
