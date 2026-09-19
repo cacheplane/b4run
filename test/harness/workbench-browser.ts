@@ -51,8 +51,65 @@ const DEFAULT_JOURNEY: WorkbenchBrowserJourney = {
   restoreWorkbenchThread,
 }
 
-/** The key the Workbench persists its thread list under (AppShell / thread-source.ts). */
+/**
+ * The key the Workbench persists its thread list under, and the title
+ * truncation `touch()` applies before writing a title — see
+ * packages/devkit/templates/app-research/web/app/lib/thread-source.ts
+ * (STORAGE_KEY, MAX_TITLE_LENGTH ~ line 115). Nothing imports that file (it
+ * ships inside the scaffolded app, not this repo's dependency graph), so keep
+ * both constants and the normalisation rule in step with it by hand.
+ */
 const THREADS_STORAGE_KEY = "b4.workbench.threads"
+const MAX_THREAD_TITLE_LENGTH = 80
+
+export type PersistedThreadIdResult =
+  | { readonly threadId: string }
+  | { readonly threadId: undefined; readonly reason: string; readonly titles: readonly string[] }
+
+/**
+ * Pure classification of the Workbench's persisted thread list against the
+ * expected (already-normalised) title. Kept separate from the `page.evaluate`
+ * call so it has its own unit tests without a browser: `raw` is whatever
+ * `localStorage.getItem(THREADS_STORAGE_KEY)` returned, read by a thin,
+ * separately-tested inline callback (see `readPersistedThreadId`).
+ */
+export function findPersistedThreadId(
+  raw: string | null,
+  expectedTitle: string,
+): PersistedThreadIdResult {
+  if (raw === null) {
+    return { threadId: undefined, reason: "storage key absent", titles: [] }
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return { threadId: undefined, reason: "storage value is not valid JSON", titles: [] }
+  }
+  if (!Array.isArray(parsed)) {
+    return { threadId: undefined, reason: "storage value is not an array", titles: [] }
+  }
+  const titles: string[] = []
+  let matched: Record<string, unknown> | undefined
+  for (const entry of parsed) {
+    if (typeof entry !== "object" || entry === null) continue
+    const title = (entry as { title?: unknown }).title
+    if (typeof title === "string") titles.push(title)
+    if (title === expectedTitle) matched = entry as Record<string, unknown>
+  }
+  if (matched === undefined) {
+    return {
+      threadId: undefined,
+      reason: `no thread found with that title; stored titles: ${JSON.stringify(titles)}`,
+      titles,
+    }
+  }
+  const id = matched.id
+  if (typeof id !== "string") {
+    return { threadId: undefined, reason: "entry has no string id", titles }
+  }
+  return { threadId: id }
+}
 
 export async function runWorkbenchBrowserJourney(
   options: WorkbenchBrowserOptions,
@@ -71,10 +128,15 @@ export async function runWorkbenchBrowserJourney(
       await page.getByRole("button", { name: "Send", exact: true }).click()
       await journey.waitForWorkbenchRunCompletion(page)
 
-      const threadId = await readPersistedThreadId(page, options.prompt)
-      if (threadId === undefined) {
-        throw new Error("Workbench did not persist the active thread id")
+      const expectedTitle = options.prompt.trim().slice(0, MAX_THREAD_TITLE_LENGTH)
+      const raw = await readPersistedThreadsRaw(page)
+      const found = findPersistedThreadId(raw, expectedTitle)
+      if (found.threadId === undefined) {
+        throw new Error(
+          `Workbench did not persist the active thread id for "${expectedTitle}"; ${found.reason}`,
+        )
       }
+      const threadId = found.threadId
       await journey.restoreWorkbenchThread(page, {
         workbenchUrl: options.webUrl,
         threadId,
@@ -83,12 +145,19 @@ export async function runWorkbenchBrowserJourney(
         answer: options.answer,
       })
       if (errors.length > 0) {
-        throw new Error(`Workbench console errors during the browser gate:\n${errors.join("\n")}`)
+        throw new Error("Workbench console errors during the browser gate")
       }
       return { threadId }
     } catch (error) {
       // Best effort: the rendered state is the one thing the transcript cannot show.
       await page.screenshot({ path: options.screenshotPath, fullPage: true }).catch(() => undefined)
+      if (errors.length > 0) {
+        const originalMessage = error instanceof Error ? error.message : String(error)
+        throw new Error(
+          `${originalMessage}\nWorkbench console errors before the failure:\n${errors.join("\n")}`,
+          { cause: error },
+        )
+      }
       throw error
     }
   } finally {
@@ -108,20 +177,14 @@ function collectPageErrors(page: Page): string[] {
   return errors
 }
 
-async function readPersistedThreadId(page: Page, prompt: string): Promise<string | undefined> {
-  return page.evaluate(
-    ({ key, title }) => {
-      const raw = localStorage.getItem(key)
-      const threads: unknown = raw === null ? [] : JSON.parse(raw)
-      if (!Array.isArray(threads)) return undefined
-      const thread = threads.find(
-        (entry) =>
-          typeof entry === "object" &&
-          entry !== null &&
-          (entry as { title?: unknown }).title === title,
-      ) as { id?: unknown } | undefined
-      return typeof thread?.id === "string" ? thread.id : undefined
-    },
-    { key: THREADS_STORAGE_KEY, title: prompt },
-  )
+/**
+ * Reads the raw persisted-threads JSON out of the browser. The callback is a
+ * thin, self-contained wrapper around `localStorage.getItem`: Playwright
+ * serialises it into the page, so it cannot close over module-scope symbols
+ * like `THREADS_STORAGE_KEY` — the key travels in as an argument instead. All
+ * the actual parsing/matching logic lives in `findPersistedThreadId`, on the
+ * Node side, where it is unit-testable.
+ */
+async function readPersistedThreadsRaw(page: Page): Promise<string | null> {
+  return page.evaluate((args) => localStorage.getItem(args.key), { key: THREADS_STORAGE_KEY })
 }
