@@ -222,23 +222,40 @@ function safeMessage(value: unknown): string {
   }
 }
 
+const FLATTEN_CAUSE_MAX_DEPTH = 8
+
 /**
  * Vitest's JSON reporter serialises `message` but not `cause`, so an error
  * wrapped for its file paths would reach CI with the real failure stripped.
  * Flattens the chain (and an AggregateError's branches) into text.
  */
 function flattenCause(error: unknown, depth = 0): string[] {
-  if (error === null || error === undefined || depth >= 8) return []
+  if (error === null || error === undefined) return []
+  if (depth >= FLATTEN_CAUSE_MAX_DEPTH) {
+    return [`caused by: <chain truncated at depth ${FLATTEN_CAUSE_MAX_DEPTH}>`]
+  }
   // A primitive cause (`cause: "plain string"`) is worth reporting, but it has
   // no `cause` of its own to walk, so it terminates the chain here.
   const lines: string[] = [`caused by: ${safeMessage(error)}`]
   if (typeof error !== "object") return lines
   if (error instanceof AggregateError) {
-    for (const branch of error.errors) {
+    let branches: unknown[] = []
+    try {
+      branches = Array.from(error.errors)
+    } catch {
+      branches = []
+    }
+    for (const branch of branches) {
       lines.push(`  - ${safeMessage(branch)}`)
     }
   }
-  lines.push(...flattenCause((error as { cause?: unknown }).cause, depth + 1))
+  let cause: unknown
+  try {
+    cause = (error as { cause?: unknown }).cause
+  } catch {
+    cause = undefined
+  }
+  lines.push(...flattenCause(cause, depth + 1))
   return lines
 }
 
@@ -1159,10 +1176,33 @@ describe("flattenCause", () => {
     ])
   })
 
-  test("stops walking a cyclic chain", () => {
+  test("marks a truncated cause chain instead of silently stopping", () => {
     const cyclic: { cause?: unknown; message: string } = { message: "loop" }
     cyclic.cause = cyclic
-    expect(flattenCause(cyclic)).toHaveLength(8)
+    const lines = flattenCause(cyclic)
+    expect(lines).toHaveLength(9)
+    expect(lines[8]).toBe(`caused by: <chain truncated at depth ${FLATTEN_CAUSE_MAX_DEPTH}>`)
+  })
+
+  test("guards a throwing cause getter instead of letting it escape", () => {
+    const error = new Error("outer")
+    Object.defineProperty(error, "cause", {
+      get() {
+        throw new Error("cause getter exploded")
+      },
+    })
+    expect(flattenCause(error)).toEqual(["caused by: outer"])
+  })
+
+  test("guards a throwing errors getter on an AggregateError-like object", () => {
+    const hostile = Object.create(AggregateError.prototype) as AggregateError
+    Object.defineProperty(hostile, "message", { value: "all failed" })
+    Object.defineProperty(hostile, "errors", {
+      get() {
+        throw new Error("errors getter exploded")
+      },
+    })
+    expect(flattenCause(hostile)).toEqual(["caused by: all failed"])
   })
 })
 
