@@ -33,6 +33,11 @@ The root's edge-safe classification covers its import graph. Local workerd plus 
 | `PostgresCheckpointerOptions` | Configure the checkpointer. |
 | `B4PostgresSaver` | Implement LangGraph checkpoint persistence. |
 | `postgresCheckpointer` | Create a Postgres checkpointer. |
+| `PostgresDocumentStore` | Define a durable application document store. |
+| `PostgresDocumentStoreOptions` | Configure document storage and name the collection. |
+| `createPostgresDocumentStore` | Create an application document store. |
+| `ResolvedNaming` | Describe a schema and table prefix resolved from the environment. |
+| `namingFromEnv` | Resolve `B4_PG_SCHEMA` and `B4_PG_TABLE_PREFIX` from a supplied environment object, including `$NAME` references. |
 | `PostgresStoreOptions` | Configure shared connection and table naming. |
 | `PostgresPermissionsStore` | Define the durable permissions store. |
 | `PostgresPermissionsStoreOptions` | Configure permissions storage and policy. |
@@ -61,6 +66,14 @@ The `/node` entry also re-exports every root export. The repeated rows below est
 | `NodePostgresStoreOptions` | Add connection-string convenience. |
 | `NodePostgresPermissionsStoreOptions` | Add connection-string convenience for permissions. |
 | `createPostgresPool` | Build the `pg` pool this entry builds for itself, with its idle-client `'error'` listener attached; the caller owns and ends it. |
+| `NodePostgresDocumentStoreOptions` | Add connection-string convenience for documents. |
+| `createPostgresDocumentStore` | Create a Node document store. |
+| `documentStoreFromEnv` | Choose Postgres or process memory from `DATABASE_URL`, memoized per process and per name. |
+| `closeDocumentStoresFromEnv` | End the shared pool and forget every memoized store. |
+| `PostgresDocumentStore` | Re-export the document store type. |
+| `PostgresDocumentStoreOptions` | Re-export document store options. |
+| `ResolvedNaming` | Re-export the resolved naming type. |
+| `namingFromEnv` | Re-export environment naming resolution. |
 | `PostgresCheckpointerOptions` | Re-export root checkpointer options. |
 | `B4PostgresSaver` | Re-export the saver class. |
 | `postgresCheckpointer` | Create a Node checkpointer. |

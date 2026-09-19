@@ -1,5 +1,6 @@
 export { type Aimock, createAimock } from "./aimock-runner.js"
 export { runCheckpointerConformance } from "./checkpointer-conformance.js"
+export { runDocumentStoreConformance } from "./document-store-conformance.js"
 export { fakeEmbedder } from "./fake-embedder.js"
 export {
   type AimockFixture,

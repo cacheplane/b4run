@@ -279,14 +279,14 @@ describe("production SEO inventory", () => {
     expect(before.map(({ path }) => path)).not.toContain("/blog/draft-inventory-post")
     expect(before.map(({ path }) => path)).not.toContain("/blog/tags/typescript")
     expect(before.map(({ path }) => path)).not.toContain("/blog/tags/patterns")
-    expect(before).toHaveLength(83)
+    expect(before).toHaveLength(84)
     expectNormalizedDescriptions(before)
     for (const pages of [publicationDate, after]) {
       expect(pages.map(({ path }) => path)).toContain("/blog/scheduled-inventory-post")
       expect(pages.map(({ path }) => path)).not.toContain("/blog/draft-inventory-post")
       expect(pages.map(({ path }) => path)).toContain("/blog/tags/typescript")
       expect(pages.map(({ path }) => path)).not.toContain("/blog/tags/patterns")
-      expect(pages).toHaveLength(85)
+      expect(pages).toHaveLength(86)
       expectNormalizedDescriptions(pages)
     }
   })
@@ -330,7 +330,7 @@ describe("production SEO inventory", () => {
     }
   })
 
-  it("builds one normalized route-kind union for the current 84 indexable routes", () => {
+  it("builds one normalized route-kind union for the current 85 indexable routes", () => {
     const buildSeoPageInventory = Reflect.get(seoResolvers, "buildSeoPageInventory")
     expect(buildSeoPageInventory).toBeTypeOf("function")
     if (typeof buildSeoPageInventory !== "function") return
@@ -351,17 +351,17 @@ describe("production SEO inventory", () => {
       "/blog/tags/agents",
       "/blog/tags/typescript",
     ])
-    expect(pages).toHaveLength(84)
+    expect(pages).toHaveLength(85)
     expect(pages.map(({ routeKind }) => routeKind)).toEqual([
       "home",
       "blog-index",
-      ...Array.from({ length: 76 }, () => "docs"),
+      ...Array.from({ length: 77 }, () => "docs"),
       ...Array.from({ length: 3 }, () => "blog-post"),
       ...Array.from({ length: 3 }, () => "blog-tag"),
     ])
   })
 
-  it("keeps all 84 production descriptions normalized and globally unique", () => {
+  it("keeps all 85 production descriptions normalized and globally unique", () => {
     const buildSeoPageInventory = Reflect.get(seoResolvers, "buildSeoPageInventory")
     expect(buildSeoPageInventory).toBeTypeOf("function")
     if (typeof buildSeoPageInventory !== "function") return
@@ -370,7 +370,7 @@ describe("production SEO inventory", () => {
       readonly path: string
       readonly description: string
     }[]
-    expect(pages).toHaveLength(84)
+    expect(pages).toHaveLength(85)
     expectNormalizedDescriptions(pages)
   })
 })
@@ -730,11 +730,11 @@ describe("static SEO pages", () => {
     expect(resolveStaticSeoPage("/docs/not-registered")).toBeUndefined()
   })
 
-  it("registers exactly the 76 authored docs routes without the redirect", () => {
+  it("registers exactly the 77 authored docs routes without the redirect", () => {
     const expectedHrefs = ALL_DOCS_PAGES.map(({ href }) => href).sort()
     const registeredHrefs = Object.keys(DOCS_SEO_PAGES).sort()
 
-    expect(expectedHrefs).toHaveLength(76)
+    expect(expectedHrefs).toHaveLength(77)
     expect(registeredHrefs).toEqual(expectedHrefs)
     expect(registeredHrefs).not.toContain("/docs")
   })
@@ -767,7 +767,7 @@ describe("static SEO pages", () => {
   it("uses one unique, normalized, query-answering description per docs route", () => {
     const descriptions = Object.values(DOCS_SEO_PAGES).map((page) => page.description)
 
-    expect(descriptions).toHaveLength(76)
+    expect(descriptions).toHaveLength(77)
     expect(new Set(descriptions).size).toBe(descriptions.length)
     for (const description of descriptions) {
       expect(description).toBe(description.trim())

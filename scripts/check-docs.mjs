@@ -4228,6 +4228,7 @@ const expectedNavDocEntries = [
   { label: "Fixtures and Recording", href: "/docs/testing-agents/fixtures" },
   { label: "Evals", href: "/docs/evals" },
   { label: "Persistence and Tenancy", href: "/docs/persistence" },
+  { label: "Application Document Store", href: "/docs/document-store" },
   { label: "Production Topology", href: "/docs/production-topology" },
   { label: "Security Architecture", href: "/docs/security-architecture" },
   { label: "Access Control", href: "/docs/access-control" },
@@ -4352,9 +4353,9 @@ if (apiReferenceRegistry) {
     ...navDocEntries.slice(apiHubIndex + 1),
   ]
   const expectedAllDocsPageCount = navDocEntries.length + API_REFERENCE_PAGES.length
-  if (navDocEntries.length !== 60 || expectedAllDocsPages.length !== expectedAllDocsPageCount) {
+  if (navDocEntries.length !== 61 || expectedAllDocsPages.length !== expectedAllDocsPageCount) {
     failures.push(
-      `Docs page registries must retain 60 journey pages plus every registered API reference leaf; received ${navDocEntries.length} journey pages, ${API_REFERENCE_PAGES.length} reference leaves, and ${expectedAllDocsPages.length} total pages`,
+      `Docs page registries must retain 61 journey pages plus every registered API reference leaf; received ${navDocEntries.length} journey pages, ${API_REFERENCE_PAGES.length} reference leaves, and ${expectedAllDocsPages.length} total pages`,
     )
   }
   const navModule = await tsImport(pathToFileURL(docsNavPath).href, import.meta.url).catch(

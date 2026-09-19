@@ -51,6 +51,10 @@ import { scenarios } from "@b4run/sdk/testing"
 | `agent` | Declare an agent route. |
 | `isB4Agent` | Test whether a value is an authored B4.run agent. |
 | `BackendAdapter` | Define a route backend adapter contract. |
+| `Document` | Describe a stored document and the version a write must quote. |
+| `DocumentStore` | Define the backend-neutral application document store contract. |
+| `ConflictError` | Signal that a compare-and-swap write lost the race. |
+| `createMemoryDocumentStore` | Create a process-local document store with the same semantics as the Postgres one. |
 | `B4ErrorCode` | Name a registered B4.run error. |
 | `B4ErrorDescriptor` | Describe a registered B4.run error. |
 | `B4_ERRORS` | Read the error descriptor registry. |

@@ -63,6 +63,7 @@ export const DOCS_NAV = [
     label: "Operate",
     items: [
       { label: "Persistence and Tenancy", href: "/docs/persistence" },
+      { label: "Application Document Store", href: "/docs/document-store" },
       { label: "Production Topology", href: "/docs/production-topology" },
       { label: "Security Architecture", href: "/docs/security-architecture" },
       { label: "Access Control", href: "/docs/access-control" },

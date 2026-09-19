@@ -8,6 +8,7 @@ const EXPECTED_MAP_LINKS = [
   ["Agent Protocol", "/docs/dev-server/agent-protocol"],
   ["Fixtures and Recording", "/docs/testing-agents/fixtures"],
   ["Persistence and Tenancy", "/docs/persistence"],
+  ["Application Document Store", "/docs/document-store"],
   ["Production Topology", "/docs/production-topology"],
   ["Security Architecture", "/docs/security-architecture"],
   ["Deployment Options", "/docs/deployment"],
