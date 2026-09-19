@@ -1,7 +1,10 @@
 import { config } from "@b4run/cli"
-import { dockerSandbox } from "@b4run/sandbox"
 import { loadFixture } from "./src/fixtures/catalog.js"
-import { fixtureWorkspace, sandboxImage, sandboxPolicy } from "./src/fixtures/workspace.js"
+import {
+  builderSandboxProvider,
+  fixtureWorkspace,
+  sandboxPolicy,
+} from "./src/fixtures/workspace.js"
 
 const task = process.env.FACTORY_TASK_ID ?? "cli-flags"
 const { manifest } = loadFixture(task)
@@ -11,7 +14,9 @@ export default config({
   build: { targets: ["node"] },
   sandbox: {
     ...sandboxPolicy,
-    provider: dockerSandbox({ scope: "software-factory-builder", image: sandboxImage }),
+    // Same constructor the controller's workspace reader uses, so the scope and image that
+    // address this thread's workspace volume are one declaration, not two.
+    provider: builderSandboxProvider(),
     workspace: fixtureWorkspace(task),
   },
   toolOutput: {

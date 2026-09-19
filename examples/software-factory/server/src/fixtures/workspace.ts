@@ -1,5 +1,6 @@
-import type { SandboxPolicy, WorkspaceDefinition } from "@b4run/workspace"
-import type { HandleReaderOptions } from "../worker/workspace-reader.js"
+import { dockerSandbox } from "@b4run/sandbox"
+import type { SandboxPolicy, SandboxProvider, WorkspaceDefinition } from "@b4run/workspace"
+import type { WorkspaceReadOptions } from "../worker/workspace-reader.js"
 import { loadFixture } from "./catalog.js"
 
 /**
@@ -22,6 +23,20 @@ export const sandboxPolicy: SandboxPolicy = {
   network: { mode: "deny" },
   env: { npm_config_cache: "/tmp/npm-cache", npm_config_update_notifier: "false" },
   resources: { memoryMb: 1024, cpus: 1, timeoutMs: 120_000 },
+}
+
+/**
+ * Storage identity for the builder's sandboxes. Both the builder's own configuration and the
+ * controller's reader construct a provider from this, in different processes: the scope and
+ * the image are what address a thread's workspace volume, so a reader built with either of
+ * them different would open a different (or no) workspace. One constructor, so they cannot
+ * drift apart.
+ */
+export const builderSandboxScope = "software-factory-builder"
+
+/** The builder's sandbox provider. Construct one per process; it holds no shared state. */
+export function builderSandboxProvider(): SandboxProvider {
+  return dockerSandbox({ scope: builderSandboxScope, image: sandboxImage })
 }
 
 /**
@@ -49,13 +64,14 @@ export function fixtureWorkspace(id: string): WorkspaceDefinition {
  * How a workspace built from {@link fixtureWorkspace} must be inspected, derived from the
  * definition itself rather than restated by each caller.
  *
- * Both entries are consequences of the definition and not preferences: `baseline: "git"`
+ * All three entries are consequences of the definition and the policy, not preferences:
+ * `baseline: "git"`
  * puts a `.git` directory in the workspace that is not part of the capture, and
  * `environmentLinks` puts a symlink in the root that inspection refuses to walk unless it is
  * told the exact target to expect. The verifier and the thread reader share this so they
  * cannot drift apart, and so whoever swaps in the real reader cannot omit them.
  */
-export function workspaceInspectionOptions(taskId: string): HandleReaderOptions {
+export function workspaceInspectionOptions(taskId: string): WorkspaceReadOptions {
   const definition = fixtureWorkspace(taskId)
   const expectedRootSymlinks: Record<string, string> = {}
   for (const link of definition.environmentLinks ?? [])
@@ -63,5 +79,11 @@ export function workspaceInspectionOptions(taskId: string): HandleReaderOptions 
   return {
     excludeRootDirectories: definition.baseline === "git" ? [".git"] : [],
     expectedRootSymlinks,
+    // Mirrors the builder's own policy rather than trusting the reader's default to keep
+    // matching it: relax `security.runAsNonRoot` for the builder and its files change
+    // owner, and a reader still running as the secure default cannot read them.
+    ...(sandboxPolicy.security?.runAsNonRoot === undefined
+      ? {}
+      : { runAsNonRoot: sandboxPolicy.security.runAsNonRoot }),
   }
 }

@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs"
+import { fakeSandbox } from "@b4run/sandbox/testing"
+import type { SandboxProvider } from "@b4run/workspace"
 import { describe, expect, it } from "vitest"
 import {
   fixtureWorkspace,
@@ -7,9 +9,8 @@ import {
   workspaceInspectionOptions,
 } from "../src/fixtures/workspace.ts"
 import {
-  createHandleWorkspaceReader,
   createThreadWorkspaceReader,
-  THREAD_WORKSPACE_READER_GAP,
+  type WorkspaceReadOptions,
 } from "../src/worker/workspace-reader.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
@@ -68,29 +69,86 @@ describe("fake workspace reader", () => {
   })
 })
 
+/**
+ * What can be proven without Docker. `fakeSandbox` implements `openWorkspaceReader`, so the
+ * wiring — capability probe, options pass-through, close — is exercised in the default lane;
+ * what it cannot model is symlinks, which is why `expectedRootSymlinks` is proven positively
+ * only against real Docker (see `end-to-end.integration.test.ts`) and here only by the
+ * refusal it produces when the link it names is absent.
+ */
 describe("the real thread workspace reader", () => {
-  it("refuses honestly, in terms an operator can act on", async () => {
-    const reader = createThreadWorkspaceReader(workspaceInspectionOptions)
-    // The placeholder never invents bytes. It names the surface it needs, where that
-    // surface is being added, and what the controller will do meanwhile, so a shelf of
-    // verification_inconclusive work orders has a stated cause rather than a suspicion.
-    await expect(reader.read(target("t-1"), AbortSignal.timeout(1_000))).rejects.toThrow(/t-1/)
-    await expect(reader.read(target("t-1"), AbortSignal.timeout(1_000))).rejects.toThrow(
-      /openWorkspaceReader/,
+  /** Options shaped like the fixture's, minus the symlink the in-memory volume cannot hold. */
+  const fakeOptions = (): WorkspaceReadOptions => ({
+    excludeRootDirectories: [".git"],
+    expectedRootSymlinks: {},
+  })
+
+  /** A provider whose thread `t-1` holds a workspace with a git directory in its root. */
+  const withThread = async (): Promise<SandboxProvider> => {
+    const provider = fakeSandbox()
+    const handle = await provider.acquire({
+      threadId: "t-1",
+      policy: { network: { mode: "deny" } },
+      signal: AbortSignal.timeout(1_000),
+    })
+    const ctx = { workspaceRoot: handle.workspaceRoot, signal: AbortSignal.timeout(1_000) }
+    await handle.filesystem.writeFile("/workspace/src/cli.ts", "fixed\n", ctx)
+    await handle.filesystem.writeFile("/workspace/.git/HEAD", "ref: refs/heads/main\n", ctx)
+    // The builder's compute is gone; the workspace storage is not. That is the state the
+    // controller reads in, so it is the state this test reads in.
+    await provider.release("t-1")
+    return provider
+  }
+
+  it("reads the thread's own bytes", async () => {
+    const reader = createThreadWorkspaceReader(await withThread(), fakeOptions)
+    expect(await reader.read(target("t-1"), AbortSignal.timeout(5_000))).toEqual(
+      new Map([["src/cli.ts", "fixed\n"]]),
     )
-    expect(THREAD_WORKSPACE_READER_GAP).toMatch(/#731/)
-    expect(THREAD_WORKSPACE_READER_GAP).toMatch(/verification_inconclusive/)
+  })
+
+  it("carries excludeRootDirectories through, so the git baseline is not a candidate change", async () => {
+    const provider = await withThread()
+    const kept = createThreadWorkspaceReader(provider, () => ({
+      excludeRootDirectories: [],
+      expectedRootSymlinks: {},
+    }))
+    // Without the option the git directory arrives as added paths — a scope violation on
+    // every run — which is what proves the option is not quietly dropped.
+    expect([...(await kept.read(target("t-1"), AbortSignal.timeout(5_000))).keys()]).toContain(
+      ".git/HEAD",
+    )
+  })
+
+  it("carries expectedRootSymlinks through, and refuses when the link it names is absent", async () => {
+    const reader = createThreadWorkspaceReader(await withThread(), workspaceInspectionOptions)
+    await expect(reader.read(target("t-1"), AbortSignal.timeout(5_000))).rejects.toThrow(
+      /Missing expected root symlink: node_modules/,
+    )
+  })
+
+  it("refuses a thread with no workspace storage rather than reporting an empty one", async () => {
+    const reader = createThreadWorkspaceReader(await withThread(), fakeOptions)
+    // "Produced nothing" and "never existed" are different facts to a verifier: the first is
+    // a candidate with no changes, the second is the controller not knowing.
+    await expect(reader.read(target("t-2"), AbortSignal.timeout(5_000))).rejects.toThrow(/t-2/)
+  })
+
+  it("refuses a provider without the capability, naming it", async () => {
+    const { openWorkspaceReader: _omitted, ...withoutCapability } = await withThread()
+    const reader = createThreadWorkspaceReader(withoutCapability, fakeOptions)
+    await expect(reader.read(target("t-1"), AbortSignal.timeout(5_000))).rejects.toThrow(
+      /does not support reading a thread workspace/,
+    )
   })
 })
 
 /**
- * The swap-in promise the README makes: when pull request #731 lands,
- * `createThreadWorkspaceReader` becomes `createHandleWorkspaceReader` over the new surface
- * and NOTHING else moves. That was not true while the two structural inspection options
- * defaulted to absent and the command line supplied neither: the replacement would have
- * thrown on the dependency symlink, or reported the git directory as added paths, which is
- * a scope violation on every run. Both readers now require the same options provider, and
- * the options are derived from the workspace definition rather than restated.
+ * The two structural inspection options are required rather than defaulted-absent: the
+ * workspace has a git baseline and a dependency symlink, so a reader without them throws on
+ * the symlink or reports the git directory as added paths — a scope violation on every run.
+ * They are derived from the workspace definition rather than restated by each caller, and
+ * the reader identity is derived from the builder's own sandbox policy for the same reason.
  */
 describe("inspection options travel with the reader", () => {
   it("derives the git exclusion and the dependency symlink from the workspace definition", () => {
@@ -113,30 +171,29 @@ describe("inspection options travel with the reader", () => {
     expect(readme).toMatch(/WorkspaceInspectionOptions/)
   })
 
-  it("refuses an unknown task before it attaches to anything", async () => {
-    const reader = createThreadWorkspaceReader(workspaceInspectionOptions)
-    await expect(
-      reader.read(target("t-1", "no-such-task"), AbortSignal.timeout(1_000)),
-    ).rejects.toThrow(/Unknown fixture/)
+  it("mirrors the builder's sandbox policy identity, so the reader can read what the builder wrote", () => {
+    const options = workspaceInspectionOptions("cli-flags")
+    expect(options.runAsNonRoot).toBe(sandboxPolicy.security?.runAsNonRoot)
   })
 
-  it("resolves the options before attaching, so both readers refuse the same way", async () => {
-    let attached = false
-    const asked: string[] = []
-    const reader = createHandleWorkspaceReader(
-      async () => {
-        attached = true
-        throw new Error("attach must not be reached")
+  it("refuses an unknown task before it opens anything", async () => {
+    let opened = false
+    const provider = fakeSandbox()
+    const reader = createThreadWorkspaceReader(
+      {
+        ...provider,
+        openWorkspaceReader(input) {
+          opened = true
+          return (provider.openWorkspaceReader as NonNullable<typeof provider.openWorkspaceReader>)(
+            input,
+          )
+        },
       },
-      (taskId) => {
-        asked.push(taskId)
-        return workspaceInspectionOptions(taskId)
-      },
+      workspaceInspectionOptions,
     )
     await expect(
       reader.read(target("t-1", "no-such-task"), AbortSignal.timeout(1_000)),
     ).rejects.toThrow(/Unknown fixture/)
-    expect(asked).toEqual(["no-such-task"])
-    expect(attached).toBe(false)
+    expect(opened).toBe(false)
   })
 })

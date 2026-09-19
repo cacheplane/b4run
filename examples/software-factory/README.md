@@ -12,9 +12,9 @@ Rung 0 asked the worker whether it had succeeded. Rung 1 stops asking.
 
 ## What it proves
 
-Read "The dependency that is not met yet" below before treating any of this as end-to-end:
-the design is complete and each claim below is enforced by tests, but the one seam that joins
-the builder to the controller is not in this build.
+Read "What is joined, and what is not" below before treating any of this as end-to-end: the
+controller really does read a thread's workspace and turn those bytes into a verdict, a
+bundle and an export, but the bytes in that lane are not yet the *builder's* own.
 
 - **The controller owns the verdict.** It captures the baseline itself, reads the builder's
   workspace itself, diffs and digests the candidate itself, runs the checks in *its own*
@@ -58,38 +58,44 @@ focused repair policy, not arbitrary program correctness, and the receipt says s
 **`examples/code-fixer` is untouched by this rung.** The factory borrows its fixture image and
 nothing else; rung 0 drove code-fixer as its worker, and rung 1 does not.
 
-## The dependency that is not met yet
+## What is joined, and what is not
 
-The controller needs a supported way for a trusted co-located process to read a builder
-thread's workspace without disturbing it. That surface is
-`SandboxProvider.openWorkspaceReader`, **proposed in pull request #731 and still open**. It is
-not in this build.
+The controller reads a thread's workspace through
+`SandboxProvider.openWorkspaceReader` (framework pull request #731, merged). The reader is
+real: `src/worker/workspace-reader.ts` opens a read-only view of the thread's workspace
+volume in a separate, networkless container, inspects it, and closes it — the thread's own
+sandbox is never acquired, started, stopped or replaced, and the reader carries no exec
+backend and no write operation, so a mutation cannot be expressed.
 
-What that means, exactly:
-
-- **Works today.** Everything the controller does with bytes it already has: assembly,
-  digests, the policy, bundle freezing, approval binding, export, the whole state machine and
-  reconciliation — all of it against a scripted `WorkspaceReader` in tests. The *real*
-  verifier also works today, in a real container, against candidate bytes a test hands it:
-  that is what earns the independent-checks and self-repair invariants.
-- **Inconclusive as a result.** The end-to-end path — builder runs, controller reads *its*
-  workspace, verifies, freezes, exports — is not exercised anywhere. Run the command line
-  against a real builder and every work order settles as `verification_inconclusive` with a
-  `workspace_unreadable` event, because `createThreadWorkspaceReader` throws. The CLI prints
-  this on stderr at startup on every command, so the cause is known before the first dispatch
-  rather than inferred from the journal afterwards.
-- **What changes when #731 lands.** `createThreadWorkspaceReader` becomes
-  `createHandleWorkspaceReader` over the new surface — one function body in
-  `src/worker/workspace-reader.ts`, which already exists and is tested. Nothing else moves,
-  and that is enforced rather than hoped for: both functions take the same required
-  `WorkspaceInspectionOptions` provider, every read names the task as well as the thread, and
-  the command line already passes `workspaceInspectionOptions`. Those options are not
-  cosmetic — the workspace has a git baseline and a `node_modules` symlink, so a reader built
-  without `excludeRootDirectories` and `expectedRootSymlinks` throws on the symlink or reports
-  the git directory as added paths, which is a `scope_violation` on every run.
-  Two workarounds were considered and rejected as worse than an honest absence: acquiring the
-  builder's sandbox from the controller process would *replace* its container, and deriving
-  the volume name from `resourceScope` is unexported addressing, not an ownership check.
+- **Joined, and proven in `test/end-to-end.integration.test.ts` (Docker-gated).** Bytes that
+  exist only inside a real thread's workspace volume are read out by the controller, diffed
+  against the baseline it captured itself, assembled and digested, verified in its own
+  container with its own copy of the independent checks, frozen into a bundle, approved and
+  exported under the bundle's own name. The two structural inspection options are exercised
+  against real Docker in that lane rather than merely passed: the git baseline is excluded
+  (while `.gitignore` survives) and the `node_modules` environment link is validated against
+  its exact target instead of walked into.
+- **Not joined: the builder's own workspace.** `b4.config.ts` gives the builder a workspace
+  *definition*, which makes its threads **managed workspaces**. Their bytes live in a
+  managed-workspace volume named by an intent hash, not in the provider storage that
+  `openWorkspaceReader` addresses by thread id, so a read of a builder thread fails with
+  "no workspace storage for thread …" on a workspace that demonstrably exists. The
+  thread-workspace-read design put a managed-workspace-aware variant out of scope; this
+  controller is the consumer that needs it. The end-to-end lane therefore places the bytes
+  through the sandbox handle, and a second test in the same file pins the gap by running the
+  real builder and asserting the refusal, so it fails the day the surface covers managed
+  workspaces. **Running the command line against a real builder still settles every work
+  order as `verification_inconclusive` with a `workspace_unreadable` event.**
+- **What rests on a fake elsewhere.** Layer 1 scripts the worker, the reader and the
+  verifier. The end-to-end lane keeps only the Agent Protocol worker fake — pointed at the
+  thread whose workspace the controller reads — and the builder-side test scripts the model,
+  as layer 2 does; the route, tools, permission config and container there are real.
+- **What the inspection options are.** They are not cosmetic: `WorkspaceInspectionOptions`
+  supplies `excludeRootDirectories` and `expectedRootSymlinks` for every read, derived from
+  the workspace definition rather than restated, plus the builder's own `runAsNonRoot`
+  identity so the reader can read what the builder wrote. A reader without them throws on the
+  dependency symlink or reports the git directory as added paths — a `scope_violation` on
+  every run.
 
 ## Run it
 

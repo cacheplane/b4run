@@ -23,12 +23,13 @@ afterEach(async () => {
 
 /**
  * The command line builds the real adapters, so these tests exercise exactly what an
- * operator gets. The real `WorkspaceReader` is still a placeholder — the framework's
- * read-only thread-workspace surface is unmerged (pull request #731) — so the verifying
- * phase cannot read candidate bytes and every work order settles as
- * `verification_inconclusive`. That is the honest outcome, and the tests below assert it
- * rather than papering over it: what the command line owes an operator is that the cause
- * is legible before the first dispatch, not that the outcome is green.
+ * operator gets — including the real workspace reader, over a real sandbox provider. The
+ * worker here is a fake whose threads never had a sandbox at all, so the read fails with
+ * "no workspace storage for this thread" and the work order settles as
+ * `verification_inconclusive` with a `workspace_unreadable` event. That is the point of the
+ * assertion: an absent workspace is the controller admitting it does not know, never a
+ * verdict, and never an empty candidate. The joined path against a real builder's real
+ * workspace is the Docker-gated `end-to-end.integration.test.ts`.
  */
 async function boot() {
   dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
@@ -58,7 +59,8 @@ describe("cli", () => {
     expect(created.state).toBe("received")
 
     const { json: settled } = await cli("dispatch", created.id, "--wait")
-    // No byte channel, so no candidate: the controller says it does not know.
+    // The fake worker's thread has no workspace storage, so the reader refuses rather than
+    // reporting an empty workspace: the controller says it does not know.
     expect(settled.state).toBe("blocked")
     expect(settled.blockedReason).toBe("verification_inconclusive")
     expect(settled.bundleDigest).toBeNull()
@@ -74,14 +76,6 @@ describe("cli", () => {
 
     const { json: evidence } = await cli("evidence", created.id)
     expect(evidence).toEqual({ candidate: null, receipt: null, bundle: null })
-  }, 60_000)
-
-  it("names the missing byte channel, and the pull request that supplies it, at startup", async () => {
-    const cli = await boot()
-    const { stderr } = await cli("list")
-    expect(stderr).toMatch(/openWorkspaceReader/)
-    expect(stderr).toMatch(/#731/)
-    expect(stderr).toMatch(/verification_inconclusive/)
   }, 60_000)
 
   it("exits non-zero on a refused command", async () => {
