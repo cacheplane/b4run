@@ -36,6 +36,12 @@ export type ResumeBehaviour = "receipt" | "no_receipt" | "route_error"
 
 export interface FakeWorkerOptions {
   readonly outboxDir: string
+  /**
+   * Id for the FIRST thread this worker creates, instead of an invented one. Only the
+   * end-to-end lane needs it: there the thread already exists, with a real workspace a real
+   * builder filled, and the controller has to be pointed at that one.
+   */
+  readonly threadId?: string
   readonly run?: RunBehaviour
   readonly resume?: ResumeBehaviour
   /** Milliseconds between frames; keep small in tests. */
@@ -138,6 +144,8 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
   const delay = options.frameDelayMs ?? 5
   let counter = 0
   const runStarted = new Map<string, () => void>()
+  /** Consumed by the first POST /threads; every later thread gets an invented id. */
+  let assignedThreadId = options.threadId
   const closing = new AbortController()
 
   /** Sleeps for `ms`, or resolves `true` early if `close()` has fired — the caller must stop writing. */
@@ -303,7 +311,8 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
     const parts = url.pathname.split("/").filter(Boolean)
 
     if (req.method === "POST" && url.pathname === "/threads") {
-      const id = `fake-thread-${++counter}`
+      const id = assignedThreadId ?? `fake-thread-${++counter}`
+      assignedThreadId = undefined
       threads.set(id, {
         id,
         status: "idle",

@@ -1,13 +1,13 @@
-import { spawnSync } from "node:child_process"
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, join } from "node:path"
+import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { loadFixture } from "../src/fixtures/catalog.ts"
 import { freezeBundle } from "../src/review/bundle.ts"
 import { createArtifactStore } from "../src/storage/artifacts.ts"
 import { createDockerVerifier } from "../src/verification/docker-verifier.ts"
 import { loadPolicy } from "../src/verification/policy.ts"
+import { applyReference } from "./reference-repair.ts"
 
 const fixture = loadFixture("cli-flags")
 const policy = loadPolicy("cli-flags")
@@ -133,26 +133,6 @@ describe("the real verifier", () => {
     ).rejects.toThrow()
   }, 300_000)
 })
-
-/** Apply `fixtures/cli-flags/reference.patch` to a throwaway copy and read the result. */
-async function applyReference(): Promise<string> {
-  const temporary = await mkdtemp(join(tmpdir(), "factory-reference-"))
-  try {
-    await cp(join(fixture.directory, "project"), temporary, {
-      recursive: true,
-      filter: (path) => basename(path) !== "node_modules",
-    })
-    const applied = spawnSync("git", ["apply", join(fixture.directory, "reference.patch")], {
-      cwd: temporary,
-      encoding: "utf8",
-      timeout: 10_000,
-    })
-    if (applied.status !== 0) throw new Error(`Historical patch failed: ${applied.stderr}`)
-    return await readFile(join(temporary, allowed), "utf8")
-  } finally {
-    await rm(temporary, { recursive: true, force: true })
-  }
-}
 
 /**
  * Registers only the one flag the visible test names, and forwards it by hand.

@@ -2,16 +2,13 @@ import { parseArgs } from "node:util"
 import { loadConfig } from "./config.js"
 import { createFactory, type Factory } from "./controller/factory.js"
 import { ACTIVE_STATES } from "./domain/states.js"
-import { workspaceInspectionOptions } from "./fixtures/workspace.js"
+import { builderSandboxProvider, workspaceInspectionOptions } from "./fixtures/workspace.js"
 import { createHttpApi } from "./http.js"
 import { createArtifactStore } from "./storage/artifacts.js"
 import { captureFixtureBaseline } from "./verification/baseline.js"
 import { createDockerVerifier } from "./verification/docker-verifier.js"
 import { createHttpWorkerClient } from "./worker/client.js"
-import {
-  createThreadWorkspaceReader,
-  THREAD_WORKSPACE_READER_GAP,
-} from "./worker/workspace-reader.js"
+import { createThreadWorkspaceReader } from "./worker/workspace-reader.js"
 
 const USAGE = `factory <command> [options]
 
@@ -55,13 +52,6 @@ async function main(argv: string[]): Promise<number> {
     return command ? 0 : 1
   }
   const config = loadConfig(process.env)
-  // Announced before anything is dispatched, not discovered afterwards in the journal.
-  // Stderr, so the JSON contract on stdout is untouched, and on every command rather than
-  // only on `dispatch`: a `show` of a work order blocked by this gap needs the same
-  // explanation as the dispatch that blocked it. Delete with the placeholder (#731).
-  process.stderr.write(
-    `factory: candidate bytes are unavailable — ${THREAD_WORKSPACE_READER_GAP}\n`,
-  )
   const factory: Factory = await createFactory({
     registryPath: config.registryPath,
     worker: createHttpWorkerClient(config.workerUrl),
@@ -72,7 +62,10 @@ async function main(argv: string[]): Promise<number> {
     maxActiveMs: config.maxActiveMs,
     maxChangedBytes: config.maxChangedBytes,
     verifier: createDockerVerifier(createArtifactStore(config.artifactsDir)),
-    workspaceReader: createThreadWorkspaceReader(workspaceInspectionOptions),
+    workspaceReader: createThreadWorkspaceReader(
+      builderSandboxProvider(),
+      workspaceInspectionOptions,
+    ),
     captureBaseline: captureFixtureBaseline,
   })
   const needId = () => {

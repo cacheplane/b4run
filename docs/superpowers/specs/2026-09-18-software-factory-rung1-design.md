@@ -58,13 +58,23 @@ workspace, and the independent checks never exist inside the builder's.
 ## Dependency, and what it does not block
 
 Rung 1 needs a supported way for a trusted co-located process to read a thread's
-workspace without disturbing it. No such surface exists today: the Agent
-Protocol exposes none, and acquiring the sandbox from a second process replaces
-the worker's container. That surface is being designed and implemented
-separately and will arrive as its own pull request. Rung 1 does not depend on
-its exact shape, only on the contract below.
+workspace without disturbing it. No such surface existed when this was written;
+one was designed and implemented separately.
 
-The controller consumes it behind one interface:
+**Corrected after that surface landed (`SandboxProvider.openWorkspaceReader`,
+pull request #731).** It arrived, the controller's reader is built on it, and it
+reads a thread's workspace for real — but it addresses **provider storage by
+thread id**, and the factory's builder does not use provider storage. The
+builder is configured with a workspace *definition*, so its threads are managed
+workspaces: `SandboxManager` routes them to `ManagedWorkspaceProvider`, whose
+bytes live in a volume named by an intent hash. The read-design spec put a
+managed-workspace-aware variant out of scope on the grounds that addressing by
+thread id "is what the first consumer has"; this controller is that consumer and
+it does not. Until the surface covers managed workspaces, the end-to-end lane
+proves the join over a thread workspace in provider storage, and reading the
+builder's own workspace stays open.
+
+The controller consumes it behind one interface:The controller consumes it behind one interface:
 
 ```ts
 /** Read a builder thread's workspace after its turn ends. Never mutates it. */
@@ -73,10 +83,10 @@ export interface WorkspaceReader {
 }
 ```
 
-A fake implementation backs layers 1 and 2 of the proof, so implementation
-starts immediately and only the Docker-gated layer waits on the framework PR.
-If that surface lands with a different shape, this interface is the only file
-that changes.
+A fake implementation backs layers 1 and 2 of the proof. The real implementation
+is one function over `withWorkspaceReader`, and it carries the two structural
+inspection options (`excludeRootDirectories`, `expectedRootSymlinks`) the
+workspace definition implies, plus the builder's own `runAsNonRoot` identity.
 
 The verifier needs the same treatment, for a reason worth recording. The
 framework's `fakeSandbox` cannot stand in for a real container here: it exposes
@@ -353,9 +363,14 @@ whatever else also asserts it.
 
 The controller's real verifier in a real container, behind the same environment
 gate the repository already uses for Docker suites. The verifier half of this
-layer runs today. The end-to-end half — controller reads the builder's workspace,
-assembles, verifies, freezes, exports — waits on the framework surface; nothing
-else does.
+layer runs today, and so does the end-to-end half: bytes in a real thread
+workspace volume, read out by the real reader in its own read-only container,
+assembled against the controller's own captured baseline, verified, frozen and
+exported (`test/end-to-end.integration.test.ts`). What that test does not yet
+join is the builder's *own* workspace, for the managed-workspace addressing
+reason recorded above; the bytes it reads are placed through the sandbox handle
+instead. The same file pins that gap with the real builder, so it fails loudly
+the day the surface covers managed workspaces.
 
 Both Docker-gated projects run under `vitest.sandbox.config.ts`
 (`pnpm --filter @b4-example/software-factory-server test:sandbox`), wired into
