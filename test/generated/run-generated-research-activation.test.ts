@@ -4,7 +4,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 
 import { afterEach, expect, test } from "vitest"
-
+import { DEMO_FIXTURES, DEMO_PROMPT } from "../../docs/brand/demo/scenario.mjs"
 import { createArtifactRoot } from "../../packages/devkit/src/testing/index.ts"
 import { createAimock, script } from "../../packages/testing/dist/index.js"
 import { getTestRegistryUrl } from "../harness/local-registry.ts"
@@ -21,6 +21,7 @@ import {
   withPackagedNpmServer,
 } from "../harness/packaged-app.ts"
 import { writeRegistryNpmrc } from "../harness/scaffold-packaging.ts"
+import { runWorkbenchBrowserJourney } from "../harness/workbench-browser.ts"
 
 const tempDirs: TrackedTempDir[] = []
 // Measured on 2026-08-26, two-process session (macOS, node 24.19.0 / npm
@@ -1118,6 +1119,8 @@ test("activates the default research scaffold through the complete npm lifecycle
       ...createSafeResearchFixtures(),
       ...createGatedAndBuiltFixtures(),
       ...createWebHopFixtures(),
+      // W7: the README recording's journey, driven from a real browser.
+      ...DEMO_FIXTURES,
     ])
     const activeAimock = aimock
     const agUiRecorder = createAgUiTranscriptRecorder({
@@ -1563,6 +1566,29 @@ test("activates the default research scaffold through the complete npm lifecycle
             expect(activeAimock.getRequests()).toHaveLength(webResumeJournalStart + 1)
             expect(webResumeRunId).not.toBe(webGatedRunId)
             assertWebResumedJourney(webResumed.events, webInterrupt.gatedToolCallId)
+
+            // W7 — the Workbench, in a real browser. Everything above proves the
+            // web tier over HTTP; this proves the page renders, sends, streams,
+            // settles, persists the thread, and restores it after a reload —
+            // the README recording's journey, now required. The +3 is the
+            // demo fixture's two tool turns plus its reply, the browser's only
+            // path to a model being the B4 server behind the CopilotKit route.
+            const { chromium } = await import("@playwright/test")
+            const browserJournalStart = activeAimock.getRequests().length
+            const browserResult = await runWorkbenchBrowserJourney(
+              {
+                webUrl,
+                prompt: DEMO_PROMPT,
+                tools: ["searchCorpus", "readDoc"],
+                answer: "ReAct and plan-and-execute are common. [corpus/agent-architectures.md]",
+                screenshotPath: join(dirname(commandsTranscriptPath), "workbench-browser.png"),
+              },
+              { chromium },
+            )
+            expect(browserResult.threadId).toMatch(
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+            )
+            expect(activeAimock.getRequests()).toHaveLength(browserJournalStart + 3)
 
             return { webInterruptId: webInterrupt.interruptId }
           },
