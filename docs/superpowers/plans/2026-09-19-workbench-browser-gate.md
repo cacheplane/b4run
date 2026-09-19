@@ -559,12 +559,20 @@ Run: `R=$(ls -t artifacts/testing/*/framework/vitest-report.json | head -1); ech
 (The lane writes `artifacts/testing/<runId>/framework/vitest-report.json` — `scripts/harness-report.mjs:64,177,238`.)
 Expected: the activation test `passed`. Note its duration for the PR description.
 
-- [ ] **Step 3: Mutation 1 — a wrong prompt must fail at restoration, not pass**
+- [ ] **Step 3: Mutation 1 — a wrong ANSWER must fail at restoration, not pass**
 
-Temporarily edit the W7 call: `prompt: \`${DEMO_PROMPT} (mutated)\``. Run the lane again:
+Do not mutate the prompt: aimock matches `userMessage` as a substring, so a prompt
+with text appended still matches its fixture and the run completes (verified
+2026-09-19 — the appended-prompt mutation passed, proving nothing). Mutate the
+evidence the restore step asserts instead. Temporarily edit the W7 call:
+`answer: \`${BROWSER_REPLY} (mutated)\``. Run the lane again:
 
 Run: `pnpm verify:harness:framework > /tmp/lane-mut1.log 2>&1; echo "exit=$?"`
-Expected: `exit=1`. The failure must be the gate, not an earlier assertion: `grep -m1 -E "did not persist the active thread id|unmatched|fixture" /tmp/lane-mut1.log`. (A mutated prompt matches no fixture, so the run errors and no thread persists.) Confirm the screenshot was written: `find artifacts/testing -name workbench-browser.png`. Revert the edit: `git checkout -- test/generated/run-generated-research-activation.test.ts`.
+Expected: `exit=1`. The failure must be the gate's restore assertion (the transcript
+never shows the mutated answer, so `restoreWorkbenchThread`'s `getByText` wait times
+out), and the wrapper message must carry the cause chain: `grep -m2 -E "caused by|waiting for|getByText" /tmp/lane-mut1.log`.
+Confirm the screenshot reached the CI-uploaded path: `ls -la artifacts/testing/generated-research-activation/workbench-browser.png`.
+Revert the edit: `git checkout -- test/generated/run-generated-research-activation.test.ts`.
 
 - [ ] **Step 4: Mutation 2 — no browser must fail, not skip**
 
