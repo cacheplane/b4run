@@ -41,11 +41,15 @@ this journey. The sibling modules it imports (`scenario.mjs`, `stage.mjs`,
 `processes.mjs`, `normalize-log.mjs`) have no top-level side effects. The script
 itself has no CI invocation (`pnpm media:readme:capture` only).
 
-`docs/brand/demo/scenario.mjs` exports `DEMO_PROMPT`
-("What are common agent architectures?") and `DEMO_FIXTURES` (one `searchCorpus`
-call, one `readDoc` call, a cited reply). The prompt is distinct from every
-prompt the activation test already scripts, so it adds no fixture-matching
-ambiguity.
+The gate uses its own prompt and fixture (`BROWSER_PROMPT`, mirroring the demo
+scenario's shape: one `searchCorpus` call, one `readDoc` call, a cited reply)
+rather than `docs/brand/demo/scenario.mjs`'s `DEMO_PROMPT`. **Amended
+2026-09-19 after review:** aimock matches `userMessage` as a *substring*
+(`@copilotkit/aimock` `router.js:217-220`; no `requestTransform` means no exact
+mode) and breaks ties by registration order, and `DEMO_PROMPT` is a prefix of
+the harness's existing `SAFE_PROMPT` — so reusing it would work only while the
+demo fixtures stayed registered last. The activation test now also asserts, at
+registration, that no registered prompt is a proper substring of another.
 
 ## Design
 
@@ -69,30 +73,41 @@ Root `pnpm exec` resolves because `@playwright/test` is a root devDependency
 
 ### The journey (W7)
 
-1. `DEMO_FIXTURES` is registered on the harness's aimock alongside the existing
-   fixtures. Journal accounting for W1–W6 is untouched: W7 runs after them and
-   asserts only its own delta.
+1. The gate's fixture is registered on the harness's aimock alongside the
+   existing fixtures, guarded against substring collisions. Journal accounting
+   for W1–W6 is untouched: W7 runs after them and asserts only its own delta.
 2. Launch headless Chromium; new context; collect every `console` error and
    `pageerror` for the page's lifetime.
 3. `openReadyWorkbench(page, webUrl)`.
 4. `fillActiveWorkbenchComposer(page, DEMO_PROMPT)`; click `Send`.
 5. `waitForWorkbenchRunCompletion(page)`.
-6. Assert the aimock journal grew by exactly 3 (`DEMO_FIXTURES` is two tool
-   calls and one reply). The browser's only path to a model is the B4 server —
+6. Assert the aimock journal grew by exactly 3 (two tool calls and one reply). The browser's only path to a model is the B4 server —
    W6's invariant, now proven from a real page.
 7. Read the thread id from `localStorage["b4.workbench.threads"]`, the entry
    whose `title` equals the prompt (the seam `capture.mjs` reads at line ~951;
    missing id is a failure). Then `restoreWorkbenchThread(page, …)` with the
    fixture's tool names and answer text.
-8. Assert the collected console/page errors are empty. Close the browser in a
-   `finally`.
+8. Assert the collected console/page errors are empty — with one documented
+   allowance found on the first live run: the Workbench probes
+   `/api/b4/threads/:id/state` and `/pending_interrupts` for a brand-new
+   thread, and the browser logs the designed 404 ("nothing yet"; W2 asserts
+   that same 404) as a `Failed to load resource` console error. Only a 404 on
+   exactly those two paths is ignored; a 500 there, or a 404 anywhere else,
+   still fails. Close the browser in a `finally`, and honour the harness's
+   lifecycle abort signal so the deadline's cleanup reserve stays real.
 
 ### Failure behaviour
 
 Fail closed. A missing Chromium is a failure, not a skip (`playwright install`
-is documented for local runs). On any W7 failure a full-page screenshot is
-written next to the session transcript the harness already preserves, so the
-uploaded artifact carries the rendered state.
+is documented for local runs), checked before the multi-minute scaffold so it
+fails in seconds. On any W7 failure a full-page screenshot is written under the
+repo-relative `artifacts/testing/` tree — the only path the `harness-verify`
+job uploads (the harness's preserved temp root lives under `os.tmpdir()` and is
+never uploaded). The activation test's wrapper error now appends the flattened
+cause chain, because vitest's JSON reporter drops `{ cause }` and would
+otherwise show only file paths. Prompts must be trimmed and at most 80
+characters: the thread rail shows the truncated title, and the restore helper
+uses one string for both the rail row and the transcript text.
 
 ### Budget
 
