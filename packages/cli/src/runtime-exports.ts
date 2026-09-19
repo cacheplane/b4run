@@ -30,6 +30,12 @@ export {
   startRuntimeServer,
 } from "./lib/dev/runtime-server.js"
 export {
+  type ServeFallback,
+  type ServeHandle,
+  type ServeOptions,
+  serve,
+} from "./lib/dev/serve.js"
+export {
   type ServeRuntimeHandle,
   type ServeRuntimeOptions,
   serveRuntime,
