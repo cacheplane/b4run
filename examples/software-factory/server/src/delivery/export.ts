@@ -16,8 +16,8 @@ export interface ExportInput {
  * than an overwrite: the operator approved a specific bundle, once.
  */
 export async function exportApproved(input: ExportInput): Promise<string> {
-  const path = join(input.directory, `${input.bundle.digest}.json`)
-  const body = `${JSON.stringify({ bundle: input.bundle, changes: input.changes }, null, 2)}\n`
+  const path = exportPath(input.directory, input.bundle)
+  const body = exportBody(input)
   await mkdir(input.directory, { recursive: true })
   // Write the whole body to a sibling temp file first, then publish it under the digest with
   // `link`, which is atomic and fails with EEXIST when the name is taken. That is both
@@ -40,4 +40,33 @@ export async function exportApproved(input: ExportInput): Promise<string> {
   if (existing !== body)
     throw new Error(`Bundle ${input.bundle.digest} was already exported with different content`)
   return path
+}
+
+/** Where an export of `bundle` lands. */
+export function exportPath(directory: string, bundle: Bundle): string {
+  return join(directory, `${bundle.digest}.json`)
+}
+
+/** The exact bytes an export writes, so a reader can compare rather than trust a name. */
+export function exportBody(input: Omit<ExportInput, "directory">): string {
+  return `${JSON.stringify({ bundle: input.bundle, changes: input.changes }, null, 2)}\n`
+}
+
+export type ExportedState = "exported" | "missing" | "differs"
+
+/**
+ * What the export directory says about `bundle`: the approved bytes are there, nothing is
+ * there, or something else is under the name. A name is not a delivery — `exportApproved`
+ * refuses to call an existing file its own without comparing content, and any reader that
+ * decides "delivered" from the directory must hold the same standard.
+ */
+export async function exportedState(input: ExportInput): Promise<ExportedState> {
+  let existing: string
+  try {
+    existing = await readFile(exportPath(input.directory, input.bundle), "utf8")
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing"
+    throw error
+  }
+  return existing === exportBody(input) ? "exported" : "differs"
 }

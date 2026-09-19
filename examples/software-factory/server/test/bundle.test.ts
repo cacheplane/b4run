@@ -92,6 +92,20 @@ describe("freezeBundle", () => {
     ).not.toBe(one.digest)
   })
 
+  it("moves the digest when only the receipt or the freeze time differs, with identical bytes", () => {
+    // The registry keys bundles by digest and treats a repeated digest as the same record.
+    // That is only true if the digest covers everything the record holds: a bundle frozen
+    // over a second receipt for the same claim must be a second bundle, not a silent alias
+    // of the first pointing at a receipt it never had.
+    const one = freezeBundle(base)
+    const otherReceipt = freezeBundle({ ...base, receipt: { ...receipt, id: "rc-2" } })
+    expect(otherReceipt.digest).not.toBe(one.digest)
+    expect(otherReceipt.payload.receiptId).toBe("rc-2")
+    const later = freezeBundle({ ...base, frozenAt: "2026-09-18T00:00:02.000Z" })
+    expect(later.digest).not.toBe(one.digest)
+    expect(later.payload.frozenAt).toBe("2026-09-18T00:00:02.000Z")
+  })
+
   it("refuses to freeze anything but a passing receipt", () => {
     expect(() => freezeBundle({ ...base, receipt: { ...receipt, verdict: "fail" } })).toThrow(
       /pass/,

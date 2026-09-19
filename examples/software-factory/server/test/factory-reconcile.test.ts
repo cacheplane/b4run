@@ -2,15 +2,19 @@ import { createHash } from "node:crypto"
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { setTimeout as sleep } from "node:timers/promises"
 import { afterEach, describe, expect, it } from "vitest"
 import type { ControllerContext } from "../src/controller/context.ts"
 import { createFactory, type Factory, type FactoryOptions } from "../src/controller/factory.ts"
 import { reconcileWorkOrder } from "../src/controller/reconcile.ts"
+import { exportApproved } from "../src/delivery/export.ts"
 import { nextState, type TransitionEvent } from "../src/domain/states.ts"
 import type { WorkOrderRow } from "../src/domain/work-order.ts"
 import { createCommandLog } from "../src/registry/commands.ts"
 import { openRegistry } from "../src/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/registry/work-orders.ts"
+import { createArtifactStore } from "../src/storage/artifacts.ts"
+import type { Verifier } from "../src/verification/verifier.ts"
 import { createHttpWorkerClient } from "../src/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
@@ -165,6 +169,52 @@ describe("reconciliation", () => {
     expect(reader.reads.filter((t) => t === threadId)).toHaveLength(2)
   })
 
+  it("boots while a re-verification is still in its container, and a cancel ends it", async () => {
+    // Re-verification is container work with a deadline of its own. A boot that waits for it
+    // has nothing listening — no HTTP, no budget ticker — so nothing could cancel a verifier
+    // that hangs, and the factory would be down for as long as the container ran.
+    await bootWorker({ run: "edits_only" })
+    await bootFactory()
+    const { id } = await awaiting()
+    await crash()
+    forceRow(id, { state: "verifying", bundleDigest: null })
+
+    let entered = () => {}
+    const entry = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    let observed: AbortSignal | null = null
+    const verifier: Verifier = {
+      verify(_input, signal) {
+        observed = signal
+        entered()
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+        })
+      },
+    }
+    const booted = bootFactory({ verifier })
+    const outcome = await Promise.race([
+      booted.then(() => "booted" as const),
+      entry.then(() => sleep(2_000)).then(() => "verifier still holds boot" as const),
+    ])
+    expect(outcome).toBe("booted")
+    await booted
+    expect(factory.show(id)?.state).toBe("verifying")
+    // Boot came back first; the phase is still on its way into the verifier. Cancel only once
+    // it is inside, or the state guards ahead of the verifier return before it is ever called.
+    await entry
+
+    expect((await factory.cancel(id)).state).toBe("cancelled")
+    expect((observed as AbortSignal | null)?.aborted).toBe(true)
+    await factory.waitFor(
+      id,
+      () => factory.events(id).some((e) => e.type === "verification_aborted"),
+      20_000,
+    )
+    expect(factory.show(id)).toMatchObject({ state: "cancelled", bundleDigest: null })
+  })
+
   it("blocks a verifying work order with no worker thread instead of stranding it", async () => {
     await bootWorker({ run: "edits_only" })
     await bootFactory()
@@ -192,8 +242,12 @@ describe("reconciliation", () => {
       blockedReason: null,
     } as unknown as WorkOrderRow
     const seen: string[] = []
+    const tracked: Promise<void>[] = []
     const ctx = {
       signal: new AbortController().signal,
+      track: (_id: string, run: Promise<void>) => {
+        tracked.push(run)
+      },
       mustGet: () => row,
       recordEvent: (_id: string, type: string) => {
         seen.push(type)
@@ -207,6 +261,8 @@ describe("reconciliation", () => {
     } as unknown as ControllerContext
 
     await reconcileWorkOrder(ctx, row.id)
+    // The phase is a tracked background run now, not something the walk awaits.
+    await Promise.all(tracked)
     expect(row).toMatchObject({ state: "blocked", blockedReason: "verification_inconclusive" })
     expect(seen).toEqual(["reconciled", "verification_undecided", "receipt_inconclusive"])
   })
@@ -351,6 +407,11 @@ describe("reconciliation", () => {
     await bootWorker({ run: "edits_only" })
     await bootFactory()
     const { id, row } = await awaiting()
+    const { bundle, candidate } = factory.evidence(id)
+    if (!bundle || !candidate) throw new Error("no frozen evidence")
+    const changes = JSON.parse(
+      await createArtifactStore(join(dir, "artifacts")).read(candidate.artifactDigest),
+    ) as Record<string, string>
     await crash()
     const registry = openRegistry(registryPath())
     const rows = createWorkOrderStore(registry.db)
@@ -367,14 +428,36 @@ describe("reconciliation", () => {
     rows.update(id, row.revision, { state: "exporting", activeStartedAt: now() }, now())
     registry.close()
     // The write the crashed export had already made: named by the bundle digest, by the
-    // controller itself.
-    writeFileSync(join(out(), `${row.bundleDigest}.json`), "{}")
+    // controller itself, holding the approved bundle and bytes.
+    await exportApproved({ directory: out(), bundle, changes })
     const before = posts()
     await bootFactory()
     expect(factory.show(id)?.state).toBe("exported")
     expect(factory.events(id).map((e) => e.type)).toContain("delivery_observed")
     // The worker has no part in an export: nothing was asked of it.
     expect(posts()).toBe(before)
+  })
+
+  it("blocks exporting when the file under the bundle's name is not the approved bundle", async () => {
+    // A name is not a delivery. `exportApproved` compares content before it will call an
+    // existing file its own; reconciliation must hold the same standard, or a stray file
+    // under the right name is enough to mark approved bytes as delivered when they never were.
+    await bootWorker({ run: "edits_only" })
+    await bootFactory()
+    const { id, row } = await awaiting()
+    await crash()
+    forceRow(id, { state: "exporting", activeStartedAt: now() })
+    writeFileSync(join(out(), `${row.bundleDigest}.json`), "{}")
+    await bootFactory()
+    expect(factory.show(id)).toMatchObject({
+      state: "blocked",
+      blockedReason: "export_unconfirmed",
+    })
+    const types = factory.events(id).map((e) => e.type)
+    expect(types).toContain("export_mismatch")
+    expect(types).not.toContain("delivery_observed")
+    // The stray file is left for the operator; reconciliation writes and removes nothing.
+    expect(readdirSync(out())).toEqual([`${row.bundleDigest}.json`])
   })
 
   it("blocks exporting with export_unconfirmed when no bytes were written", async () => {

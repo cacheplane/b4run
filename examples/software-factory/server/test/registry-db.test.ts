@@ -16,6 +16,19 @@ function tempPath() {
 }
 
 describe("openRegistry", () => {
+  it("carries no candidate_verified column: the worker never reports its own verdict", () => {
+    // The rung 0 field the worker wrote its claimed verdict into. Rung 1 deleted every channel
+    // by which a worker could claim its result; a column that survives, always null, is the
+    // likeliest thing for a reader to mistake for one.
+    const registry = openRegistry(tempPath())
+    const columns = (
+      registry.db.prepare("PRAGMA table_info(work_orders)").all() as { name: string }[]
+    ).map((c) => c.name)
+    expect(columns).not.toContain("candidate_verified")
+    expect(SCHEMA_VERSION).toBe(3)
+    registry.close()
+  })
+
   it("creates the file, the tables, and the version row", () => {
     const registry = openRegistry(tempPath())
     const tables = registry.db
@@ -47,7 +60,7 @@ describe("openRegistry", () => {
     const rows = registry.db.prepare("SELECT count(*) AS n FROM schema_version").get() as {
       n: number
     }
-    expect(rows.n).toBe(2)
+    expect(rows.n).toBe(SCHEMA_VERSION)
     registry.close()
   })
 
@@ -77,7 +90,6 @@ describe("migration 2", () => {
       name: string
     }[]
     expect(wo.map((c) => c.name)).toContain("bundle_digest")
-    expect(SCHEMA_VERSION).toBe(2)
     registry.close()
   })
 

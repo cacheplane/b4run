@@ -23,6 +23,13 @@ export interface ControllerContext {
   readonly exportDir: string
   readonly maxChangedBytes: number
   readonly signal: AbortSignal
+  /**
+   * A signal for container work on one work order: aborted when the factory closes and
+   * when the row leaves `verifying` for any reason (an operator cancel, budget exhaustion).
+   * The factory-wide `signal` is not enough — it aborts only on close(), so a cancelled
+   * work order's verifier would otherwise run to its own deadline.
+   */
+  verificationSignal(id: string): AbortSignal
   now(): number
   iso(): string
   mustGet(id: string): WorkOrderRow

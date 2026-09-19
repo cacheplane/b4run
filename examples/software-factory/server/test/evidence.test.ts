@@ -17,7 +17,6 @@ function stores() {
     workerThreadId: null,
     interruptId: null,
     candidateDigest: null,
-    candidateVerified: null,
     bundleDigest: null,
     blockedReason: null,
     failureReason: null,
@@ -70,6 +69,38 @@ describe("evidence store", () => {
       frozenAt: at,
     }
     evidence.recordBundle(bundle)
+    expect(evidence.bundle(bundle.digest)).toEqual(bundle)
+  })
+
+  it("refuses a different bundle reusing the same digest, and leaves the stored one unchanged", () => {
+    // `recordBundle` used to INSERT OR IGNORE on the strength of "the digest covers the
+    // record's content". It did not cover `receiptId` or `frozenAt`, so a bundle re-frozen
+    // over a later receipt kept the first receipt id, and the evidence view showed a receipt
+    // the row's journal never issued. A repeated digest with different content is a defect
+    // to surface, exactly as it is for receipts.
+    const { evidence } = stores()
+    evidence.recordReceipt({
+      id: "rc-1",
+      workOrderId: "wo-1",
+      candidateDigest: "a".repeat(64),
+      verifierIdentity: "docker:sha256:abc",
+      policyDigest: "d".repeat(64),
+      environmentIdentity: "sha256:abc",
+      verdict: "pass" as const,
+      checks: [{ id: "visible", acceptanceIds: ["one"], verdict: "pass" as const, evidence: [] }],
+      issuedAt: at,
+    })
+    const bundle = {
+      digest: "e".repeat(64),
+      workOrderId: "wo-1",
+      candidateDigest: "a".repeat(64),
+      receiptId: "rc-1",
+      payload: { repositoryId: "cli-flags" },
+      frozenAt: at,
+    }
+    evidence.recordBundle(bundle)
+    evidence.recordBundle(bundle)
+    expect(() => evidence.recordBundle({ ...bundle, receiptId: "rc-2" })).toThrow(/e{64}/)
     expect(evidence.bundle(bundle.digest)).toEqual(bundle)
   })
 

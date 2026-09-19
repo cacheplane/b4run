@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 export interface Registry {
   readonly db: DatabaseSync
@@ -126,6 +126,13 @@ const MIGRATIONS: readonly Migration[] = [
       );
       CREATE INDEX bundles_by_work_order ON bundles(work_order_id);
     `,
+  },
+  {
+    // The rung 0 field the worker reported its own verdict into. Rung 1 removed every channel
+    // by which a worker could claim its result and this column was only ever written null
+    // after that; left in place it reads as exactly the channel that no longer exists.
+    version: 3,
+    up: "ALTER TABLE work_orders DROP COLUMN candidate_verified;",
   },
 ]
 

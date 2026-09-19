@@ -16,8 +16,9 @@ import type { ControllerContext } from "./context.js"
 export async function runVerification(ctx: ControllerContext, id: string): Promise<void> {
   const row = ctx.mustGet(id)
   if (row.state !== "verifying" || !row.workerThreadId) return
+  const signal = ctx.verificationSignal(id)
   try {
-    await verifyCandidate(ctx, id, row)
+    await verifyCandidate(ctx, id, row, signal)
   } catch (error) {
     // The backstop. The specific faults below (`baseline_unavailable`, `workspace_unreadable`,
     // `verifier_unavailable`) each journal what they know and return; this catches everything
@@ -36,6 +37,7 @@ async function verifyCandidate(
   ctx: ControllerContext,
   id: string,
   row: WorkOrderRow,
+  signal: AbortSignal,
 ): Promise<void> {
   const threadId = row.workerThreadId as string
   const policy = loadPolicy(row.taskId)
@@ -47,6 +49,12 @@ async function verifyCandidate(
    * nothing journalled to say why.
    */
   const unreadable = (type: string, error: unknown): void => {
+    // Aborted reads are the controller's own doing (the row left `verifying`, or the factory
+    // is closing), not a baseline or workspace it could not reach.
+    if (signal.aborted) {
+      ctx.recordEvent(id, "verification_aborted", { reason: String(signal.reason) })
+      return
+    }
     ctx.recordEvent(id, type, { error: String(error) })
     if (ctx.mustGet(id).state === "verifying")
       ctx.transition(id, "receipt_inconclusive", { blockedReason: "verification_inconclusive" })
@@ -54,14 +62,14 @@ async function verifyCandidate(
 
   let baseline: Awaited<ReturnType<typeof ctx.captureBaseline>>
   try {
-    baseline = await ctx.captureBaseline(row.taskId, ctx.signal)
+    baseline = await ctx.captureBaseline(row.taskId, signal)
   } catch (error) {
     unreadable("baseline_unavailable", error)
     return
   }
   let observed: ReadonlyMap<string, string>
   try {
-    observed = await ctx.workspaceReader.read({ threadId, taskId: row.taskId }, ctx.signal)
+    observed = await ctx.workspaceReader.read({ threadId, taskId: row.taskId }, signal)
   } catch (error) {
     unreadable("workspace_unreadable", error)
     return
@@ -145,9 +153,16 @@ async function verifyCandidate(
         changes: candidate.changes,
         policyDigest: policy.policyDigest,
       },
-      ctx.signal,
+      signal,
     )
   } catch (error) {
+    // An abort is the controller's own doing — the row left `verifying` under it, or the
+    // factory is closing — not a harness that could not run, and the row has already been
+    // moved by whoever aborted it.
+    if (signal.aborted) {
+      ctx.recordEvent(id, "verification_aborted", { reason: String(signal.reason) })
+      return
+    }
     ctx.recordEvent(id, "verifier_unavailable", { error: String(error) })
     if (ctx.mustGet(id).state === "verifying")
       ctx.transition(id, "receipt_inconclusive", { blockedReason: "verification_inconclusive" })

@@ -22,6 +22,11 @@ export const BundlePayloadSchema = z.object({
   evidence: z.array(z.object({ id: z.string().min(1), digest: z.string().regex(DIGEST_PATTERN) })),
   operation: z.literal("export-local"),
   destinationId: z.string().min(1),
+  // Both are in the digested payload so the digest covers the whole record, which is what
+  // lets the registry treat a repeated digest as a repeated bundle: two freezes over two
+  // receipts for the same claim are two bundles, each naming the receipt it was earned by.
+  receiptId: z.string().min(1),
+  frozenAt: z.string().min(1),
 })
 export type BundlePayload = z.infer<typeof BundlePayloadSchema>
 
@@ -73,6 +78,8 @@ export function freezeBundle(input: FreezeBundleInput): Bundle {
     evidence,
     operation: "export-local" as const,
     destinationId: input.destinationId,
+    receiptId: input.receipt.id,
+    frozenAt: input.frozenAt,
   }
 
   return {

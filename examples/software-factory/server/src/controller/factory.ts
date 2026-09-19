@@ -124,6 +124,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const log = options.log ?? (() => {})
   const abort = new AbortController()
   const runs = new Map<string, Promise<void>>()
+  /** One per work order in `verifying`; aborted the moment the row leaves that state. */
+  const verifications = new Map<string, AbortController>()
   let closed = false
   /** Started only once reconciliation has run, so no tick can race the boot rules. */
   let ticker: BudgetTicker | null = null
@@ -163,8 +165,23 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       }
       const updated = store.update(id, row.revision, { ...patch, ...accounting, state: to }, iso())
       recordEvent(id, "transition", { event, from: row.state, to, ...payload })
+      // Container work for a row that is no longer being verified has no one to report to:
+      // abort it now rather than let it run to the verifier's own deadline.
+      if (row.state === "verifying" && to !== "verifying") {
+        verifications.get(id)?.abort()
+        verifications.delete(id)
+      }
       return updated
     })
+
+  const verificationSignal = (id: string): AbortSignal => {
+    let controller = verifications.get(id)
+    if (!controller) {
+      controller = new AbortController()
+      verifications.set(id, controller)
+    }
+    return AbortSignal.any([abort.signal, controller.signal])
+  }
 
   const finish = (operationKey: string, outcome: CommandOutcome): CommandOutcome => {
     commands.complete(operationKey, outcome)
@@ -282,6 +299,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     exportDir: options.exportDir,
     maxChangedBytes: options.maxChangedBytes ?? 256 * 1024,
     signal: abort.signal,
+    verificationSignal,
     now,
     iso,
     mustGet,
@@ -350,7 +368,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         workerThreadId: null,
         interruptId: null,
         candidateDigest: null,
-        candidateVerified: null,
         bundleDigest: null,
         blockedReason: null,
         failureReason: null,
