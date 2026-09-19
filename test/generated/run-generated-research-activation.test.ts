@@ -3,7 +3,7 @@ import { constants, existsSync } from "node:fs"
 import { access, mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 
-import { afterEach, expect, test } from "vitest"
+import { afterEach, describe, expect, test } from "vitest"
 import { createArtifactRoot } from "../../packages/devkit/src/testing/index.ts"
 import { createAimock, script } from "../../packages/testing/dist/index.js"
 import { getTestRegistryUrl } from "../harness/local-registry.ts"
@@ -209,18 +209,33 @@ function findPromptCollisions(
 }
 
 /**
+ * `String(value)` throws on a null-prototype object or one whose `toString`
+ * throws, and `flattenCause` renders inside the array literal that builds the
+ * wrapper error — so an unprintable cause would otherwise replace the whole
+ * diagnostic with a bare `TypeError`.
+ */
+function safeMessage(value: unknown): string {
+  try {
+    return value instanceof Error ? value.message : String(value)
+  } catch {
+    return "<unprintable cause>"
+  }
+}
+
+/**
  * Vitest's JSON reporter serialises `message` but not `cause`, so an error
  * wrapped for its file paths would reach CI with the real failure stripped.
  * Flattens the chain (and an AggregateError's branches) into text.
  */
 function flattenCause(error: unknown, depth = 0): string[] {
-  if (error === null || typeof error !== "object" || depth >= 8) return []
-  const lines: string[] = []
-  const message = error instanceof Error ? error.message : String(error)
-  lines.push(`caused by: ${message}`)
+  if (error === null || error === undefined || depth >= 8) return []
+  // A primitive cause (`cause: "plain string"`) is worth reporting, but it has
+  // no `cause` of its own to walk, so it terminates the chain here.
+  const lines: string[] = [`caused by: ${safeMessage(error)}`]
+  if (typeof error !== "object") return lines
   if (error instanceof AggregateError) {
     for (const branch of error.errors) {
-      lines.push(`  - ${branch instanceof Error ? branch.message : String(branch)}`)
+      lines.push(`  - ${safeMessage(branch)}`)
     }
   }
   lines.push(...flattenCause((error as { cause?: unknown }).cause, depth + 1))
@@ -1087,6 +1102,70 @@ afterEach(async () => {
   await cleanupTrackedTempDirs(tempDirs)
 })
 
+// `flattenCause` renders inside the array literal that builds the wrapper error,
+// so anything it throws replaces the entire diagnostic — the failure paths this
+// lane preserves included.
+describe("flattenCause", () => {
+  test("reports a primitive cause instead of dropping it", () => {
+    const error = new Error("outer", { cause: "plain string" })
+    expect(flattenCause(error.cause)).toEqual(["caused by: plain string"])
+    expect(flattenCause(new Error("outer", { cause: 42 }).cause)).toEqual(["caused by: 42"])
+  })
+
+  test("walks an object chain and stops at an absent cause", () => {
+    const chained = new Error("top", { cause: new Error("middle", { cause: "bottom" }) })
+    expect(flattenCause(chained)).toEqual([
+      "caused by: top",
+      "caused by: middle",
+      "caused by: bottom",
+    ])
+    expect(flattenCause(undefined)).toEqual([])
+    expect(flattenCause(null)).toEqual([])
+  })
+
+  test("renders an unprintable cause rather than throwing", () => {
+    const nullPrototype = Object.assign(Object.create(null), { cause: "still walked" })
+    expect(flattenCause(nullPrototype)).toEqual([
+      "caused by: <unprintable cause>",
+      "caused by: still walked",
+    ])
+
+    const hostile = {
+      toString() {
+        throw new Error("no primitive for you")
+      },
+    }
+    expect(flattenCause(hostile)).toEqual(["caused by: <unprintable cause>"])
+
+    const throwingMessage = new Error("ignored")
+    Object.defineProperty(throwingMessage, "message", {
+      get() {
+        throw new Error("message getter exploded")
+      },
+    })
+    expect(flattenCause(throwingMessage)).toEqual(["caused by: <unprintable cause>"])
+  })
+
+  test("renders AggregateError branches, including unprintable ones", () => {
+    const aggregate = new AggregateError(
+      [new Error("branch one"), "branch two", Object.create(null)],
+      "all failed",
+    )
+    expect(flattenCause(aggregate)).toEqual([
+      "caused by: all failed",
+      "  - branch one",
+      "  - branch two",
+      "  - <unprintable cause>",
+    ])
+  })
+
+  test("stops walking a cyclic chain", () => {
+    const cyclic: { cause?: unknown; message: string } = { message: "loop" }
+    cyclic.cause = cyclic
+    expect(flattenCause(cyclic)).toHaveLength(8)
+  })
+})
+
 // Proves the anchor before the lane has a second block to disambiguate: the
 // `dev:web` line starts with the whole `npm run dev` prefix, so an unanchored
 // `lastIndexOf` selects the WRONG block the moment a web child is recorded after
@@ -1693,7 +1772,8 @@ test("activates the default research scaffold through the complete npm lifecycle
     // W6, second half — the SECOND child dies too, and its own block says so.
     assertRecordedServerExit(transcriptAfterDev, { appRoot, script: "dev:web" })
     // A leak canary, not a proof of the strip. It says only that nothing echoed
-    // the ambient key into a transcript this lane preserves and CI uploads —
+    // the ambient key into a transcript this lane preserves under its temp root
+    // and names in the failure message (CI uploads only `artifacts/testing/`) —
     // which holds largely because the web tier has no model path except through
     // B4.run, so there is little to echo it. Breaking `GENERATED_APP_UNSET_ENV`
     // for `dev:web` leaves this green; the assertion that actually fails is

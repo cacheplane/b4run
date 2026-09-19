@@ -123,8 +123,7 @@ export function findPersistedThreadId(
 
 export const JOURNEY_ABORTED_MESSAGE = "Workbench browser gate aborted by the harness deadline"
 
-export const PROMPT_SHAPE_MESSAGE =
-  "Workbench browser gate prompt must be trimmed and at most 80 characters (the thread rail shows the truncated title)"
+export const PROMPT_SHAPE_MESSAGE = `Workbench browser gate prompt must be trimmed and at most ${MAX_THREAD_TITLE_LENGTH} characters (the thread rail shows the truncated title)`
 
 export async function runWorkbenchBrowserJourney(
   options: WorkbenchBrowserOptions,
