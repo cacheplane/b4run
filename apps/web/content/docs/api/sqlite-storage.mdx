@@ -39,6 +39,8 @@ The package uses Node's `node:sqlite` `DatabaseSync` and LangGraph checkpoint co
 | `createThreadsStore` | Open, migrate, and return a thread store. |
 | `openWorkspaceInstallation` | Own a local installation's durable source and association storage. |
 | `WorkspaceInstallation` | Hold installation identity, guarded stores, and close. |
+| `openWorkspaceInstallationReader` | Open a read-only view of an installation another process owns, without its admission lock. |
+| `WorkspaceInstallationReader` | Hold installation identity, read-only association lookups, and close. |
 | `WorkspaceSourceStore` | Persist and retrieve verified source bundles. |
 | `WorkspaceAssociation` | Describe creating, ready, deleting, or deleted state with its revision. |
 | `WorkspaceAssociationStore` | Insert source-backed intents and transition associations by revision. |
@@ -143,6 +145,15 @@ unsupported. The runtime normally owns this connection for the application.
 Associations require retained source before insertion. Readiness is validated
 against the intent and uses an expected revision. Deleting state prevents new
 admission and stale readiness publication; deleted rows remain tombstones.
+
+`openWorkspaceInstallationReader(appRoot)` opens the same two databases
+read-only, takes no admission transaction, and so coexists with the live owner.
+It validates what the owner validates and requires a ready installation; it
+never creates the directory or either database, so a missing installation is an
+error rather than an empty view. It exposes `associations.get` and
+`associations.list` only. A co-located host process uses it to resolve a
+thread's published `ReadyWorkspace` for `@b4run/cli/workspace`'s
+`withManagedWorkspaceReader`.
 Cleanup errors retain deletion state so a later attempt can finish it.
 
 ## Examples and related guides
