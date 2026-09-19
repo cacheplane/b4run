@@ -1,8 +1,10 @@
 import type { B4Config } from "@b4run/core"
-import { loadB4Config, seedB4Config } from "@b4run/core"
+import { configureApprovalGrants, loadB4Config, seedB4Config } from "@b4run/core"
 import type { MemoryStore } from "@b4run/memory"
 import type { PermissionsStore } from "@b4run/permissions"
 import type {
+  ApprovalGrantMode,
+  InterruptGrantStore,
   MiddlewareAfterHook,
   MiddlewareHandler,
   MiddlewareRequest,
@@ -37,6 +39,12 @@ import {
 import { abortableAsyncIterable } from "./abortable-iterable.js"
 import { handleAgUiFetchRequest } from "./agui-handler.js"
 import {
+  type ApprovalGrantRuntime,
+  gateResumeWithGrants,
+  minterFor,
+  voidSupersededGrants,
+} from "./approval-grants.js"
+import {
   payloadTooLarge,
   RequestBodyTimeoutError,
   RequestBodyTooLargeError,
@@ -55,6 +63,7 @@ import { readParkedInterruptIds, readParkedRoute, settleParkedRoute } from "./pa
 import {
   type B4ResumeEntry,
   createPendingResumeClaims,
+  grantOf,
   type PendingResumeClaims,
   parsePendingInterrupts,
   readPendingInterrupts,
@@ -555,6 +564,42 @@ export async function createRuntimeFetchHandler(
     (bootStoresOptional
       ? undefined
       : await requireBoot(fallbacks, "checkpointer").resolveCheckpointer(options.appRoot))
+
+  // ── Approval grants ──────────────────────────────────────────────────────
+  //
+  // Resolved once, at boot, from the same config every other store comes from.
+  // `loadConfig` is memoized, so this is not a second disk read.
+  //
+  // `configureApprovalGrants` is called HERE as well as in
+  // `prepareRouteExecution`, and the duplication is deliberate: this runtime
+  // can answer `POST /threads/:id/resume` for a thread parked by an earlier
+  // process, before it has prepared a single route, and the resume endpoint
+  // must know the mode on its first request rather than on its second. The
+  // latch only ratchets up, so calling it twice cannot weaken anything.
+  const approvalConfig = (options.config ?? (await fallbacks?.loadConfig(options.appRoot)))
+    ?.approvals
+  const approvalGrantMode: ApprovalGrantMode = approvalConfig?.grants ?? "off"
+  configureApprovalGrants(approvalGrantMode)
+  const interruptGrantStore: InterruptGrantStore | undefined =
+    approvalGrantMode === "off"
+      ? undefined
+      : (approvalConfig?.grantStore ??
+        (await fallbacks?.resolveInterruptGrantStore?.(options.appRoot)))
+  if (approvalGrantMode !== "off" && !interruptGrantStore) {
+    // Loud, once, at boot — not at the first resume. An operator who switched
+    // grants on and got no store has a misconfiguration, and the request-time
+    // symptom (`409 grant_unavailable`) points at the wrong thing.
+    console.warn(
+      `B4: approvals.grants is "${approvalGrantMode}" but no interrupt-grant store could be ` +
+        `resolved for ${options.appRoot}. Approvals cannot be granted or consumed. Set ` +
+        `approvals.grantStore in b4.config.ts, or run on a runtime with the node fallbacks.`,
+    )
+  }
+  const approvalGrants: ApprovalGrantRuntime = {
+    mode: approvalGrantMode,
+    ...(interruptGrantStore ? { store: interruptGrantStore } : {}),
+    ...(approvalConfig?.grantTtlMs !== undefined ? { ttlMs: approvalConfig.grantTtlMs } : {}),
+  }
   // Degrades rather than throws HERE: sandboxing is opt-in, so no fallbacks
   // means no sandbox provider — the same result as an app with no `sandbox`
   // config, and the right answer for every node app. What was missing is the
@@ -929,6 +974,7 @@ export async function createRuntimeFetchHandler(
     const routes = buildRouteTable({
       probeReadiness,
       appRoot: options.appRoot,
+      approvalGrants,
       apAttachMaxViewers,
       apSseHeartbeatIntervalMs,
       boot,
@@ -1322,6 +1368,8 @@ function isRowWeJustWrote(thread: Thread, stored: Record<string, unknown> | unde
  */
 export function buildRouteTable(ctx: {
   readonly appRoot: string
+  /** Boot-resolved approval-grant mode, store and TTL. See approval-grants.ts. */
+  readonly approvalGrants: ApprovalGrantRuntime
   readonly apAttachMaxViewers: number
   readonly apSseHeartbeatIntervalMs: number
   readonly boot: RouteBoot
@@ -1370,6 +1418,7 @@ export function buildRouteTable(ctx: {
 }): RouteMatcher[] {
   const {
     appRoot,
+    approvalGrants,
     probeReadiness,
     apAttachMaxViewers,
     apSseHeartbeatIntervalMs,
@@ -1827,6 +1876,7 @@ export function buildRouteTable(ctx: {
       handle: async (request, params) =>
         handleApStreamRequest({
           appRoot,
+          approvalGrants,
           apSseHeartbeatIntervalMs,
           boot,
           checkpointer: getCheckpointer(request),
@@ -1880,6 +1930,7 @@ export function buildRouteTable(ctx: {
       handle: async (request, params) =>
         handleAgUiFetchRequest({
           appRoot,
+          approvalGrants,
           boot,
           ...(bootConfig ? { config: bootConfig } : {}),
           checkpointer: getCheckpointer(request),
@@ -1952,6 +2003,7 @@ export function buildRouteTable(ctx: {
       handle: async (request, params) =>
         handleApWaitRequest({
           appRoot,
+          approvalGrants,
           boot,
           checkpointer: getCheckpointer(request),
           getMemoryStore: () => getMemoryStoreFor(request),
@@ -2237,6 +2289,7 @@ export function buildRouteTable(ctx: {
       handle: async (request, params) =>
         handleResumeRequest({
           appRoot,
+          approvalGrants,
           apSseHeartbeatIntervalMs,
           boot,
           checkpointer: getCheckpointer(request),
@@ -2344,6 +2397,7 @@ async function dispatch(
 // ---------------------------------------------------------------------------
 
 async function handleApStreamRequest(options: {
+  readonly approvalGrants: ApprovalGrantRuntime
   readonly appRoot: string
   readonly apSseHeartbeatIntervalMs: number
   readonly boot: RouteBoot
@@ -2365,6 +2419,7 @@ async function handleApStreamRequest(options: {
 }): Promise<Response> {
   const {
     appRoot,
+    approvalGrants,
     apSseHeartbeatIntervalMs,
     boot,
     checkpointer,
@@ -2383,6 +2438,10 @@ async function handleApStreamRequest(options: {
     threadRouteMap,
     threadsStore,
   } = options
+
+  // Per-run minter for this thread. Built once per request so every
+  // `interrupt()` in the turn mints against the same thread and store.
+  const approvalGrantMinter = minterFor(approvalGrants, threadId)
 
   const rawBody = await request.text()
   const parsedBody = parseJson(rawBody)
@@ -2601,6 +2660,11 @@ async function handleApStreamRequest(options: {
             signal: run.signal,
             ...(staticModules ? { staticModules } : {}),
             threadId,
+            // Injected into config.configurable by the agent-adapter for the
+            // park site to read. Absent — never a no-op minter — when grants
+            // are off or no store resolved; the park site decides what that
+            // absence means under the configured mode.
+            ...(approvalGrantMinter ? { approvalGrantMinter } : {}),
             threadsStore,
           })
           // Belt-and-braces, mirroring the AG-UI handler: pass the signal to
@@ -2625,6 +2689,17 @@ async function handleApStreamRequest(options: {
           // thread that reads "interrupted" with its prompt gated on whatever
           // route runs next.
           await settleParkedRoute({
+            ...(approvalGrants.mode === "off"
+              ? {}
+              : {
+                  voidGrants: async (stillPending) => {
+                    await voidSupersededGrants({
+                      ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
+                      threadId,
+                      stillPending,
+                    })
+                  },
+                }),
             canPark: route.mode === "agent",
             checkpointer,
             parked: sawInterrupt,
@@ -2657,6 +2732,17 @@ async function handleApStreamRequest(options: {
           // to be recorded here too — including when the failure IS the
           // success-path settle above. Retried, not skipped.
           await settleParkedRoute({
+            ...(approvalGrants.mode === "off"
+              ? {}
+              : {
+                  voidGrants: async (stillPending) => {
+                    await voidSupersededGrants({
+                      ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
+                      threadId,
+                      stillPending,
+                    })
+                  },
+                }),
             canPark: route.mode === "agent",
             checkpointer,
             parked: sawInterrupt,
@@ -2719,6 +2805,7 @@ async function handleApStreamRequest(options: {
 // ---------------------------------------------------------------------------
 
 async function handleApWaitRequest(options: {
+  readonly approvalGrants: ApprovalGrantRuntime
   readonly appRoot: string
   readonly boot: RouteBoot
   readonly checkpointer: BaseCheckpointSaver
@@ -2738,6 +2825,7 @@ async function handleApWaitRequest(options: {
 }): Promise<Response> {
   const {
     appRoot,
+    approvalGrants,
     boot,
     checkpointer,
     getMemoryStore,
@@ -2754,6 +2842,10 @@ async function handleApWaitRequest(options: {
     threadRouteMap,
     threadsStore,
   } = options
+
+  // Per-run minter for this thread. Built once per request so every
+  // `interrupt()` in the turn mints against the same thread and store.
+  const approvalGrantMinter = minterFor(approvalGrants, threadId)
 
   const rawBody = await request.text()
   const parsedBody = parseJson(rawBody)
@@ -2939,6 +3031,17 @@ async function handleApWaitRequest(options: {
       ? await readParkedInterruptIds(checkpointer, threadId).catch(() => undefined)
       : undefined
     await settleParkedRoute({
+      ...(approvalGrants.mode === "off"
+        ? {}
+        : {
+            voidGrants: async (stillPending) => {
+              await voidSupersededGrants({
+                ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
+                threadId,
+                stillPending,
+              })
+            },
+          }),
       canPark,
       checkpointer,
       parked: interruptIdsAfter
@@ -2978,6 +3081,11 @@ async function handleApWaitRequest(options: {
       signal: run.signal,
       ...(staticModules ? { staticModules } : {}),
       threadId,
+      // Injected into config.configurable by the agent-adapter for the
+      // park site to read. Absent — never a no-op minter — when grants
+      // are off or no store resolved; the park site decides what that
+      // absence means under the configured mode.
+      ...(approvalGrantMinter ? { approvalGrantMinter } : {}),
       threadsStore,
     })
 
@@ -3343,10 +3451,17 @@ async function handleApPendingInterruptsRequest(options: {
   // is parked, and POST /resume is the surface that refuses to act on writes it
   // cannot address safely (malformed_checkpoint).
   const snapshot = await readPendingInterrupts(checkpointer, threadId)
+  // `grant` is lifted alongside the verbatim `value` so a reconnecting client
+  // can answer the prompt without knowing the envelope's shape. Re-readable by
+  // design: single-use is a property of CONSUMPTION, not of disclosure, and a
+  // client that reloads must be able to get it again. The disclosure gate is
+  // unchanged — this endpoint is already gated on `thread.pending_interrupts`,
+  // and the grant inherits that gate exactly.
   const interrupts = (snapshot?.interrupts ?? []).map(({ interruptId, resumeKey, value }) => ({
     interruptId,
     resumeKey,
     value,
+    ...(grantOf(value) !== undefined ? { grant: grantOf(value) } : {}),
   }))
   return Response.json(
     { interrupts },
@@ -3540,8 +3655,16 @@ async function handleApAttachRequest(options: {
         }
         return
       }
+      // Same lift as GET /threads/:id/pending_interrupts, and gated the same
+      // way (`thread.attach`). Both are channels that already carry the
+      // prompt, which is the whole reason the grant rides on them.
       const interrupts = (durableTuple ? parsePendingInterrupts(durableTuple).interrupts : []).map(
-        ({ interruptId, resumeKey, value }) => ({ interruptId, resumeKey, value }),
+        ({ interruptId, resumeKey, value }) => ({
+          interruptId,
+          resumeKey,
+          value,
+          ...(grantOf(value) !== undefined ? { grant: grantOf(value) } : {}),
+        }),
       )
       yield encodeEvent("state", {
         anchor: null,
@@ -3610,6 +3733,7 @@ async function handleApAttachRequest(options: {
 // ---------------------------------------------------------------------------
 
 async function handleResumeRequest(options: {
+  readonly approvalGrants: ApprovalGrantRuntime
   readonly appRoot: string
   readonly apSseHeartbeatIntervalMs: number
   readonly boot: RouteBoot
@@ -3632,6 +3756,7 @@ async function handleResumeRequest(options: {
 }): Promise<Response> {
   const {
     appRoot,
+    approvalGrants,
     apSseHeartbeatIntervalMs,
     boot,
     checkpointer,
@@ -3651,6 +3776,10 @@ async function handleResumeRequest(options: {
     threadRouteMap,
     threadsStore,
   } = options
+
+  // Per-run minter for this thread. Built once per request so every
+  // `interrupt()` in the turn mints against the same thread and store.
+  const approvalGrantMinter = minterFor(approvalGrants, threadId)
 
   if (!threadId) {
     return Response.json(createRequestErrorBody("Missing thread_id in resume URL"), {
@@ -3743,6 +3872,26 @@ async function handleResumeRequest(options: {
     if (resumeResolution.mode !== "resume") {
       return Response.json(createRequestErrorBody("Resume entries are required"), { status: 409 })
     }
+
+    // Grants: verified and consumed HERE — after the thread-access gate, after
+    // `tryClaim`, and after the exact-set match, never before any of them.
+    // The ordering comment above explains why the gate must precede every side
+    // effect and every distinguishable error on this endpoint; grant checks
+    // inherit that rule wholesale, because their codes (`grant_consumed` vs
+    // `grant_invalid`) are exactly the kind of distinction that would turn
+    // this endpoint into an oracle on a victim's parked set.
+    //
+    // The design puts the grant check at step 4 and the exact-set match at
+    // step 5; they are swapped here. That only moves the grant check LATER,
+    // which is strictly less oracle surface, and it means a grant is never
+    // checked against a resume body whose shape has not been validated.
+    const refusedByGrant = await gateResumeWithGrants({
+      grants: approvalGrants,
+      threadId,
+      pending: pendingInterrupts.interrupts,
+      entries: body.resume,
+    })
+    if (refusedByGrant) return refusedByGrant
 
     // Resolve which route last ran on this thread, in priority order:
     //   1. in-memory map (fast-path, current server session)
@@ -3864,6 +4013,11 @@ async function handleResumeRequest(options: {
               signal: run.signal,
               ...(staticModules ? { staticModules } : {}),
               threadId,
+              // Injected into config.configurable by the agent-adapter for the
+              // park site to read. Absent — never a no-op minter — when grants
+              // are off or no store resolved; the park site decides what that
+              // absence means under the configured mode.
+              ...(approvalGrantMinter ? { approvalGrantMinter } : {}),
               threadsStore,
             })
             // Belt-and-braces, mirroring the AG-UI handler: pass the signal to
@@ -3885,6 +4039,17 @@ async function handleResumeRequest(options: {
             // parked; one that answers the last prompt retires it. Same
             // ordering and same failure contract as handleApStreamRequest.
             await settleParkedRoute({
+              ...(approvalGrants.mode === "off"
+                ? {}
+                : {
+                    voidGrants: async (stillPending) => {
+                      await voidSupersededGrants({
+                        ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
+                        threadId,
+                        stillPending,
+                      })
+                    },
+                  }),
               canPark: route.mode === "agent",
               checkpointer,
               parked: sawInterrupt,
@@ -3914,6 +4079,17 @@ async function handleResumeRequest(options: {
                 }
             safeEnqueue(controller, encoder.encode(toSseEvent(terminalChunk)))
             await settleParkedRoute({
+              ...(approvalGrants.mode === "off"
+                ? {}
+                : {
+                    voidGrants: async (stillPending) => {
+                      await voidSupersededGrants({
+                        ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
+                        threadId,
+                        stillPending,
+                      })
+                    },
+                  }),
               canPark: route.mode === "agent",
               checkpointer,
               parked: sawInterrupt,
@@ -4086,10 +4262,19 @@ function isB4ResumeBody(
         !Array.isArray(entry) &&
         typeof entry.interruptId === "string" &&
         entry.interruptId.length > 0 &&
+        // `grant` is admitted on BOTH shapes, and only as a string. The
+        // exact-key-set discipline is kept — an unknown key is still a 400 —
+        // because it is what stops a client smuggling extra fields into a
+        // resume. See `B4ResumeEntry.grant`.
         ((entry.status === "resolved" &&
           isPermissionDecision(entry.payload) &&
-          hasExactKeys(entry, ["interruptId", "payload", "status"])) ||
-          (entry.status === "cancelled" && hasExactKeys(entry, ["interruptId", "status"]))),
+          (hasExactKeys(entry, ["interruptId", "payload", "status"]) ||
+            (hasExactKeys(entry, ["grant", "interruptId", "payload", "status"]) &&
+              typeof entry.grant === "string"))) ||
+          (entry.status === "cancelled" &&
+            (hasExactKeys(entry, ["interruptId", "status"]) ||
+              (hasExactKeys(entry, ["grant", "interruptId", "status"]) &&
+                typeof entry.grant === "string")))),
     )
   )
 }

@@ -78,6 +78,7 @@ export const DOCS_NAV = [
       { label: "Thread Access", href: "/docs/thread-access" },
       { label: "Access Control", href: "/docs/access-control" },
       { label: "Permissions", href: "/docs/permissions" },
+      { label: "Approval Grants", href: "/docs/approval-grants" },
       { label: "Execution Sandbox", href: "/docs/sandbox" },
       { label: "Kubernetes Sandbox", href: "/docs/sandbox/kubernetes" },
     ],

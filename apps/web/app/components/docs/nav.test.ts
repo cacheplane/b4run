@@ -96,6 +96,7 @@ const FOUNDATION_DOCS_NAV = [
       { label: "Thread Access", href: "/docs/thread-access" },
       { label: "Access Control", href: "/docs/access-control" },
       { label: "Permissions", href: "/docs/permissions" },
+      { label: "Approval Grants", href: "/docs/approval-grants" },
       { label: "Execution Sandbox", href: "/docs/sandbox" },
       { label: "Kubernetes Sandbox", href: "/docs/sandbox/kubernetes" },
     ],
@@ -436,14 +437,14 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
       (section) => section.items,
     )
 
-    expect(expectedPages).toHaveLength(63)
+    expect(expectedPages).toHaveLength(64)
     expect(DOCS_PAGES).toEqual(expectedPages)
   })
 
   it("adds sixteen hidden API leaves immediately after the hub", () => {
-    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(63)
-    expect(DOCS_PAGES).toHaveLength(63)
-    expect(ALL_DOCS_PAGES).toHaveLength(79)
+    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(64)
+    expect(DOCS_PAGES).toHaveLength(64)
+    expect(ALL_DOCS_PAGES).toHaveLength(80)
 
     const hubIndex = ALL_DOCS_PAGES.findIndex(({ href }) => href === "/docs/api")
     expect(ALL_DOCS_PAGES.slice(hubIndex + 1, hubIndex + 17)).toEqual(API_REFERENCE_PAGES)

@@ -8,6 +8,7 @@ import {
 import type { B4ErrorCode, ConstraintContext, ConstraintPredicate } from "@b4run/sdk"
 import { POSIX_SEP } from "@b4run/sdk/pure"
 import { interrupt } from "@langchain/langgraph"
+import { mintGrantForPark } from "./approval-grants.js"
 
 export type PathOperation = "readFile" | "writeFile" | "listDir"
 
@@ -463,7 +464,39 @@ async function emitPermissionInterrupt(args: InterruptArgs): Promise<"allow" | "
                 }
               : { operation: args.operation, path: args.path, suggestedPattern },
   }
-  const decision = interrupt(payload) as "once" | "always" | "deny"
+  // Mint the single-use approval grant for this park, BEFORE the interrupt
+  // throw, so that under `approvals.grants: "required"` a run with no minter
+  // aborts the turn instead of parking a prompt nobody can answer safely.
+  // Ordering is the whole mechanism: `interrupt()` throws, so anything after
+  // it never runs on the parking pass.
+  //
+  // The grant travels IN the envelope. The design (§1) argued for attaching it
+  // at projection time instead, to keep the plaintext out of the persisted
+  // `writes` blob — but the park site cannot do that: it has no storage handle
+  // and no way to reach the three disclosure paths, and attaching downstream
+  // is exactly the CLI-minting shape the decision on #738 rejected for not
+  // being able to fail closed. The consequence is stated plainly in the docs:
+  // the plaintext grant is at rest in the checkpointer's `writes`, so the
+  // hash-only grant store protects the consumption ledger, not the checkpoint.
+  // `toAguiInterrupt` also surfaces it as a top-level `grant`, while keeping
+  // the `metadata` copy — AG-UI's `Interrupt` is a closed `"strip"`-mode zod
+  // object with no `grant` key, so a re-validating client would lose a
+  // top-level-only field.
+  //
+  // KNOWN COST, accepted rather than hidden: on the RESUME pass LangGraph
+  // re-executes this node from the top, `interruptId` is regenerated (it
+  // always has been), and this mints one more grant row that is never
+  // disclosed and never presented. It is swept by `voidOutstanding` when the
+  // turn settles, because its id is not in the post-turn pending set. The
+  // alternative — asking LangGraph's private scratchpad whether this is a
+  // replay — trades a bounded, self-cleaning write for a dependency on an
+  // unexported internal, which is the worse bargain at the one site that must
+  // stay obviously correct.
+  const grant = await mintGrantForPark(interruptId)
+  const decision = interrupt(grant === undefined ? payload : { ...payload, grant }) as
+    | "once"
+    | "always"
+    | "deny"
   if (decision === "deny") return "deny"
   if (decision === "always") {
     const tool =
