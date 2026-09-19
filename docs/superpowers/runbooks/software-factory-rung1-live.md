@@ -9,14 +9,13 @@ candidate, verifies it in its own container, freezes a review bundle, and export
 bytes that bundle names. It is not a benchmark and it says nothing about repair quality
 beyond one fixture.
 
-**Still blocked, for a different reason than before.** `createThreadWorkspaceReader` is real
-now — it reads a thread's workspace through `SandboxProvider.openWorkspaceReader` (pull
-request #731, merged) — but that capability addresses PROVIDER storage by thread id, and the
-builder's threads are **managed workspaces** because `b4.config.ts` gives the builder a
-workspace definition. Their bytes live in a managed-workspace volume the capability does not
-address, so a live run still settles every work order as `verification_inconclusive` with a
-`workspace_unreadable` event, and step 6 onward cannot be reached. Do not record such a run
-as a rung 1 demonstration; if you run it anyway, record it as the blocked outcome it is.
+**Unblocked on the read side.** `createThreadWorkspaceReader` reads the builder's own
+managed workspace through `withManagedWorkspaceReader` (`@b4run/cli/workspace`, see
+`docs/superpowers/specs/2026-09-19-managed-workspace-read-design.md`): the thread is resolved
+through the builder's installation store under its app root, and the published record's
+volume is read in a separate read-only container. The builder in this runbook is this
+package, run from its own root, which is the root the controller's command line reads. A
+live run still needs a model key; nothing below has been run against one yet.
 
 What *is* proven, without a live model, is the controller's half of the join:
 `B4_TEST_DOCKER=1 pnpm --filter @b4-example/software-factory-server test:sandbox` reads a

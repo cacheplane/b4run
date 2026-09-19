@@ -70,9 +70,11 @@ workspaces: `SandboxManager` routes them to `ManagedWorkspaceProvider`, whose
 bytes live in a volume named by an intent hash. The read-design spec put a
 managed-workspace-aware variant out of scope on the grounds that addressing by
 thread id "is what the first consumer has"; this controller is that consumer and
-it does not. Until the surface covers managed workspaces, the end-to-end lane
-proves the join over a thread workspace in provider storage, and reading the
-builder's own workspace stays open.
+it does not. **Corrected again once the managed half landed**
+(`docs/superpowers/specs/2026-09-19-managed-workspace-read-design.md`): the
+controller now resolves a thread through the builder's installation store and
+reads the published record's volume via `withManagedWorkspaceReader`, and the
+end-to-end lane reads the builder's own workspace.
 
 The controller consumes it behind one interface:The controller consumes it behind one interface:
 
@@ -388,11 +390,9 @@ gate the repository already uses for Docker suites. The verifier half of this
 layer runs today, and so does the end-to-end half: bytes in a real thread
 workspace volume, read out by the real reader in its own read-only container,
 assembled against the controller's own captured baseline, verified, frozen and
-exported (`test/end-to-end.integration.test.ts`). What that test does not yet
-join is the builder's *own* workspace, for the managed-workspace addressing
-reason recorded above; the bytes it reads are placed through the sandbox handle
-instead. The same file pins that gap with the real builder, so it fails loudly
-the day the surface covers managed workspaces.
+exported (`test/end-to-end.integration.test.ts`). The bytes it reads are the
+builder's own: a real builder turn writes them into its managed workspace, and
+the controller reads that workspace between turns.
 
 Both Docker-gated projects run under `vitest.sandbox.config.ts`
 (`pnpm --filter @b4-example/software-factory-server test:sandbox`), wired into

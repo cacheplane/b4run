@@ -451,6 +451,9 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
     devDependencies:
+      '@b4run/sqlite-storage':
+        specifier: workspace:*
+        version: link:../../../packages/sqlite-storage
       '@b4run/testing':
         specifier: workspace:*
         version: link:../../../packages/testing
