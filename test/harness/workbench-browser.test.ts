@@ -15,6 +15,7 @@ const STORAGE_KEY = "b4.workbench.threads"
 function fakeDeps(
   overrides: {
     readonly threadId?: string | undefined
+    readonly title?: string
     readonly consoleErrors?: readonly string[]
     readonly consoleWarnings?: readonly string[]
     readonly pageErrors?: readonly string[]
@@ -29,7 +30,7 @@ function fakeDeps(
     }),
     evaluate: vi.fn(async () => {
       if (overrides.threadId === undefined) return null
-      return JSON.stringify([{ id: overrides.threadId, title: PROMPT }])
+      return JSON.stringify([{ id: overrides.threadId, title: overrides.title ?? PROMPT }])
     }),
     screenshot: vi.fn(async () => {
       calls.push("screenshot")
@@ -152,6 +153,20 @@ describe("runWorkbenchBrowserJourney", () => {
     await expect(runWorkbenchBrowserJourney(baseOptions, deps)).rejects.toThrow(/pageerror: boom/)
   })
 
+  it("normalises the prompt into the title the Workbench stores", async () => {
+    // A long prompt is truncated to MAX_THREAD_TITLE_LENGTH (80) after trimming,
+    // exactly as thread-source.ts's touch() does; a 37-char prompt would make
+    // this normalisation an identity and prove nothing.
+    const longPrompt = `  ${"a".repeat(100)}  `
+    const { deps } = fakeDeps({
+      threadId: "t-long",
+      title: longPrompt.trim().slice(0, 80),
+    })
+    await expect(
+      runWorkbenchBrowserJourney({ ...baseOptions, prompt: longPrompt }, deps),
+    ).resolves.toEqual({ threadId: "t-long" })
+  })
+
   it("screenshots and rethrows when restoration fails", async () => {
     const { deps, page } = fakeDeps({ threadId: "t-1", failRestore: true })
     await expect(runWorkbenchBrowserJourney(baseOptions, deps)).rejects.toThrow(
@@ -220,5 +235,13 @@ describe("findPersistedThreadId", () => {
       { id: "t-1", title: PROMPT },
     ])
     expect(findPersistedThreadId(raw, PROMPT)).toEqual({ threadId: "t-1" })
+  })
+
+  it("takes the first entry with the title, because the list is newest-first", () => {
+    const raw = JSON.stringify([
+      { id: "newest", title: PROMPT },
+      { id: "oldest", title: PROMPT },
+    ])
+    expect(findPersistedThreadId(raw, PROMPT)).toEqual({ threadId: "newest" })
   })
 })

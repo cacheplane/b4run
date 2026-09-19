@@ -95,7 +95,9 @@ export function findPersistedThreadId(
     if (typeof entry !== "object" || entry === null) continue
     const title = (entry as { title?: unknown }).title
     if (typeof title === "string") titles.push(title)
-    if (title === expectedTitle) matched = entry as Record<string, unknown>
+    // First match wins: thread-source.ts stores newest-first, so the first
+    // entry with this title is the run we just made, not an older namesake.
+    if (title === expectedTitle && matched === undefined) matched = entry as Record<string, unknown>
   }
   if (matched === undefined) {
     return {
