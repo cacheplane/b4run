@@ -3,13 +3,16 @@
  * browser, through the real CopilotKit runtime, to the real B4 server.
  *
  * This is the README recording's journey (docs/brand/demo/capture.mjs)
- * promoted to a CI assertion. The journey functions are imported from there so
- * the gate and the recording cannot drift; `chromium` is injected so this file
- * has a unit test that never launches a browser.
+ * promoted to a CI assertion. The gate and the recording share the journey
+ * functions; the Send click is the one step each inlines. `chromium` is
+ * injected so this file has a unit test that never launches a browser.
  *
  * Fail closed: a missing browser, a missing persisted thread id, a console
  * error, or an uncaught page error each fail the journey. There is no skip.
  */
+import { mkdir } from "node:fs/promises"
+import { dirname } from "node:path"
+
 import type { Browser, BrowserContext, Page } from "@playwright/test"
 
 import {
@@ -42,6 +45,11 @@ export interface WorkbenchBrowserOptions {
   readonly answer: string
   /** Written only when the journey fails, next to the harness transcripts. */
   readonly screenshotPath: string
+  /**
+   * The harness lifecycle signal. Aborting closes the browser and rejects the
+   * journey, so a hung page cannot outlive the test's own deadline.
+   */
+  readonly signal?: AbortSignal
 }
 
 const DEFAULT_JOURNEY: WorkbenchBrowserJourney = {
@@ -113,45 +121,73 @@ export function findPersistedThreadId(
   return { threadId: id }
 }
 
+export const JOURNEY_ABORTED_MESSAGE = "Workbench browser gate aborted by the harness deadline"
+
+export const PROMPT_SHAPE_MESSAGE =
+  "Workbench browser gate prompt must be trimmed and at most 80 characters (the thread rail shows the truncated title)"
+
 export async function runWorkbenchBrowserJourney(
   options: WorkbenchBrowserOptions,
   deps: WorkbenchBrowserDeps,
 ): Promise<{ readonly threadId: string }> {
+  // `restoreWorkbenchThread` matches the prompt against BOTH the thread rail's
+  // row (which shows the truncated, trimmed title) and the transcript's message
+  // text (which shows the prompt verbatim). A prompt that does not survive
+  // `touch()`'s normalisation unchanged can therefore never match both, so
+  // reject it here rather than time out in the browser.
+  if (options.prompt !== options.prompt.trim() || options.prompt.length > MAX_THREAD_TITLE_LENGTH) {
+    throw new Error(PROMPT_SHAPE_MESSAGE)
+  }
+  const { signal } = options
+  if (signal?.aborted === true) throw new Error(JOURNEY_ABORTED_MESSAGE)
   const journey = deps.journey ?? DEFAULT_JOURNEY
   const browser = await deps.chromium.launch({ headless: true })
+  let closeOnAbort: (() => void) | undefined
   let context: BrowserContext | undefined
   try {
+    if (signal !== undefined) {
+      // Closing the browser unblocks whatever Playwright call is in flight; the
+      // race below is what turns that into the abort error.
+      closeOnAbort = () => {
+        void browser.close().catch(() => undefined)
+      }
+      signal.addEventListener("abort", closeOnAbort, { once: true })
+    }
     context = await browser.newContext()
     const page = await context.newPage()
     const errors = collectPageErrors(page)
     try {
-      await journey.openReadyWorkbench(page, options.webUrl)
-      await journey.fillActiveWorkbenchComposer(page, options.prompt)
-      await page.getByRole("button", { name: "Send", exact: true }).click()
-      await journey.waitForWorkbenchRunCompletion(page)
+      return await raceAbort(signal, async () => {
+        await journey.openReadyWorkbench(page, options.webUrl)
+        await journey.fillActiveWorkbenchComposer(page, options.prompt)
+        await page.getByRole("button", { name: "Send", exact: true }).click()
+        await journey.waitForWorkbenchRunCompletion(page)
 
-      const expectedTitle = options.prompt.trim().slice(0, MAX_THREAD_TITLE_LENGTH)
-      const raw = await readPersistedThreadsRaw(page)
-      const found = findPersistedThreadId(raw, expectedTitle)
-      if (found.threadId === undefined) {
-        throw new Error(
-          `Workbench did not persist the active thread id for "${expectedTitle}"; ${found.reason}`,
-        )
-      }
-      const threadId = found.threadId
-      await journey.restoreWorkbenchThread(page, {
-        workbenchUrl: options.webUrl,
-        threadId,
-        prompt: options.prompt,
-        tools: options.tools,
-        answer: options.answer,
+        const expectedTitle = options.prompt.slice(0, MAX_THREAD_TITLE_LENGTH)
+        const raw = await readPersistedThreadsRaw(page)
+        const found = findPersistedThreadId(raw, expectedTitle)
+        if (found.threadId === undefined) {
+          throw new Error(
+            `Workbench did not persist the active thread id for "${expectedTitle}"; ${found.reason}`,
+          )
+        }
+        const threadId = found.threadId
+        await journey.restoreWorkbenchThread(page, {
+          workbenchUrl: options.webUrl,
+          threadId,
+          prompt: options.prompt,
+          tools: options.tools,
+          answer: options.answer,
+        })
+        if (errors.length > 0) {
+          throw new Error("Workbench console errors during the browser gate")
+        }
+        return { threadId }
       })
-      if (errors.length > 0) {
-        throw new Error("Workbench console errors during the browser gate")
-      }
-      return { threadId }
     } catch (error) {
-      // Best effort: the rendered state is the one thing the transcript cannot show.
+      // Best effort: the rendered state is the one thing the transcript cannot
+      // show, and its directory is a CI-uploaded path that may not exist yet.
+      await mkdir(dirname(options.screenshotPath), { recursive: true }).catch(() => undefined)
       await page.screenshot({ path: options.screenshotPath, fullPage: true }).catch(() => undefined)
       if (errors.length > 0) {
         const originalMessage = error instanceof Error ? error.message : String(error)
@@ -163,9 +199,55 @@ export async function runWorkbenchBrowserJourney(
       throw error
     }
   } finally {
+    if (closeOnAbort !== undefined) signal?.removeEventListener("abort", closeOnAbort)
     await context?.close().catch(() => undefined)
     await browser.close().catch(() => undefined)
   }
+}
+
+/**
+ * Runs `work`, rejecting with {@link JOURNEY_ABORTED_MESSAGE} if `signal`
+ * aborts first. The listener is always removed, and the rejection is always
+ * observed, so an abort arriving after `work` settled is not an unhandled
+ * rejection.
+ */
+async function raceAbort<T>(signal: AbortSignal | undefined, work: () => Promise<T>): Promise<T> {
+  if (signal === undefined) return work()
+  let onAbort: (() => void) | undefined
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(new Error(JOURNEY_ABORTED_MESSAGE))
+    signal.addEventListener("abort", onAbort, { once: true })
+  })
+  aborted.catch(() => undefined)
+  try {
+    return await Promise.race([work(), aborted])
+  } finally {
+    if (onAbort !== undefined) signal.removeEventListener("abort", onAbort)
+  }
+}
+
+/**
+ * The Workbench hydrates a thread by probing its state and its pending
+ * interrupts. On a brand-new thread the B4.run server answers both with 404 —
+ * that is the designed "nothing recorded yet" answer, asserted directly over
+ * HTTP by W2 of the activation harness — and the browser logs the failed fetch
+ * as a console error. Tolerate exactly that: a 404 resource error on exactly
+ * those two paths. A 500 on them, a 404 anywhere else, and every non-resource
+ * console error still fail the gate.
+ */
+const HYDRATE_PROBE_404_PREFIX =
+  "Failed to load resource: the server responded with a status of 404"
+const HYDRATE_PROBE_PATHNAME = /^\/api\/b4\/threads\/[^/]+\/(state|pending_interrupts)$/
+
+export function isExpectedHydrateProbeError(text: string, url: string): boolean {
+  if (!text.startsWith(HYDRATE_PROBE_404_PREFIX)) return false
+  let pathname: string
+  try {
+    pathname = new URL(url).pathname
+  } catch {
+    return false
+  }
+  return HYDRATE_PROBE_PATHNAME.test(pathname)
 }
 
 function collectPageErrors(page: Page): string[] {
@@ -173,6 +255,7 @@ function collectPageErrors(page: Page): string[] {
   page.on("console", (message) => {
     if (message.type() !== "error") return
     const { url } = message.location()
+    if (isExpectedHydrateProbeError(message.text(), url)) return
     errors.push(url === "" ? message.text() : `${message.text()} [${url}]`)
   })
   page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`))

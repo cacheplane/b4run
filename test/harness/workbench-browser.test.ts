@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest"
 
 import {
   findPersistedThreadId,
+  JOURNEY_ABORTED_MESSAGE,
+  PROMPT_SHAPE_MESSAGE,
   runWorkbenchBrowserJourney,
   type WorkbenchBrowserDeps,
   type WorkbenchBrowserJourney,
@@ -16,10 +18,11 @@ function fakeDeps(
   overrides: {
     readonly threadId?: string | undefined
     readonly title?: string
-    readonly consoleErrors?: readonly string[]
+    readonly consoleErrors?: readonly (string | { readonly text: string; readonly url: string })[]
     readonly consoleWarnings?: readonly string[]
     readonly pageErrors?: readonly string[]
     readonly failRestore?: boolean
+    readonly abortDuringRun?: AbortController
   } = {},
 ) {
   const calls: string[] = []
@@ -58,11 +61,12 @@ function fakeDeps(
     openReadyWorkbench: vi.fn(async () => {
       calls.push("open")
       // Emit the errors/warnings after the page is open, like a real page would.
-      for (const text of overrides.consoleErrors ?? []) {
+      for (const entry of overrides.consoleErrors ?? []) {
+        const { text, url } = typeof entry === "string" ? { text: entry, url: "" } : entry
         listeners.get("console")?.({
           type: () => "error",
           text: () => text,
-          location: () => ({ url: "" }),
+          location: () => ({ url }),
         })
       }
       for (const text of overrides.consoleWarnings ?? []) {
@@ -81,6 +85,8 @@ function fakeDeps(
     }),
     waitForWorkbenchRunCompletion: vi.fn(async () => {
       calls.push("complete")
+      // The harness deadline can fire at any point; mid-run is the interesting one.
+      overrides.abortDuringRun?.abort()
     }),
     restoreWorkbenchThread: vi.fn(async () => {
       calls.push("restore")
@@ -153,18 +159,86 @@ describe("runWorkbenchBrowserJourney", () => {
     await expect(runWorkbenchBrowserJourney(baseOptions, deps)).rejects.toThrow(/pageerror: boom/)
   })
 
-  it("normalises the prompt into the title the Workbench stores", async () => {
-    // A long prompt is truncated to MAX_THREAD_TITLE_LENGTH (80) after trimming,
-    // exactly as thread-source.ts's touch() does; a 37-char prompt would make
-    // this normalisation an identity and prove nothing.
-    const longPrompt = `  ${"a".repeat(100)}  `
-    const { deps } = fakeDeps({
-      threadId: "t-long",
-      title: longPrompt.trim().slice(0, 80),
-    })
+  it("rejects a prompt longer than the thread rail's truncated title, before launching", async () => {
+    const { deps, chromium } = fakeDeps({ threadId: "t-long" })
     await expect(
-      runWorkbenchBrowserJourney({ ...baseOptions, prompt: longPrompt }, deps),
-    ).resolves.toEqual({ threadId: "t-long" })
+      runWorkbenchBrowserJourney({ ...baseOptions, prompt: "a".repeat(100) }, deps),
+    ).rejects.toThrow(PROMPT_SHAPE_MESSAGE)
+    expect(chromium.launch).not.toHaveBeenCalled()
+  })
+
+  it("rejects an untrimmed prompt, before launching", async () => {
+    const { deps, chromium } = fakeDeps({ threadId: "t-1" })
+    await expect(
+      runWorkbenchBrowserJourney({ ...baseOptions, prompt: `  ${PROMPT}  ` }, deps),
+    ).rejects.toThrow(PROMPT_SHAPE_MESSAGE)
+    expect(chromium.launch).not.toHaveBeenCalled()
+  })
+
+  it("tolerates the hydrate probes' 404s on a brand-new thread", async () => {
+    const { deps } = fakeDeps({
+      threadId: "t-1",
+      consoleErrors: [
+        {
+          text: "Failed to load resource: the server responded with a status of 404 (Not Found)",
+          url: "http://127.0.0.1:4712/api/b4/threads/t-1/state",
+        },
+        {
+          text: "Failed to load resource: the server responded with a status of 404 (Not Found)",
+          url: "http://127.0.0.1:4712/api/b4/threads/t-1/pending_interrupts",
+        },
+      ],
+    })
+    await expect(runWorkbenchBrowserJourney(baseOptions, deps)).resolves.toEqual({
+      threadId: "t-1",
+    })
+  })
+
+  it("fails on a 500 from a hydrate probe", async () => {
+    const { deps } = fakeDeps({
+      threadId: "t-1",
+      consoleErrors: [
+        {
+          text: "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+          url: "http://127.0.0.1:4712/api/b4/threads/t-1/state",
+        },
+      ],
+    })
+    await expect(runWorkbenchBrowserJourney(baseOptions, deps)).rejects.toThrow(
+      /status of 500.*threads\/t-1\/state/s,
+    )
+  })
+
+  it("fails on a 404 from a path that is not a hydrate probe", async () => {
+    const { deps } = fakeDeps({
+      threadId: "t-1",
+      consoleErrors: [
+        {
+          text: "Failed to load resource: the server responded with a status of 404 (Not Found)",
+          url: "http://127.0.0.1:4712/api/b4/threads/x/other",
+        },
+      ],
+    })
+    await expect(runWorkbenchBrowserJourney(baseOptions, deps)).rejects.toThrow(/threads\/x\/other/)
+  })
+
+  it("rejects and closes the browser when the harness signal aborts mid-journey", async () => {
+    const controller = new AbortController()
+    const { deps, calls } = fakeDeps({ threadId: "t-1", abortDuringRun: controller })
+    await expect(
+      runWorkbenchBrowserJourney({ ...baseOptions, signal: controller.signal }, deps),
+    ).rejects.toThrow(JOURNEY_ABORTED_MESSAGE)
+    expect(calls).toContain("browser.close")
+  })
+
+  it("refuses to launch a browser for an already-aborted signal", async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const { deps, chromium } = fakeDeps({ threadId: "t-1" })
+    await expect(
+      runWorkbenchBrowserJourney({ ...baseOptions, signal: controller.signal }, deps),
+    ).rejects.toThrow(JOURNEY_ABORTED_MESSAGE)
+    expect(chromium.launch).not.toHaveBeenCalled()
   })
 
   it("screenshots and rethrows when restoration fails", async () => {

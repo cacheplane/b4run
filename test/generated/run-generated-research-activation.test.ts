@@ -1,10 +1,9 @@
 import { randomUUID } from "node:crypto"
-import { constants } from "node:fs"
+import { constants, existsSync } from "node:fs"
 import { access, mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 
 import { afterEach, expect, test } from "vitest"
-import { DEMO_FIXTURES, DEMO_PROMPT } from "../../docs/brand/demo/scenario.mjs"
 import { createArtifactRoot } from "../../packages/devkit/src/testing/index.ts"
 import { createAimock, script } from "../../packages/testing/dist/index.js"
 import { getTestRegistryUrl } from "../harness/local-registry.ts"
@@ -82,6 +81,11 @@ const WEB_TODOS = [
 const WEB_GATED_PROMPT = "Web hop gate: run the external fetch script for the workbench check."
 const WEB_FETCH_COMMAND = "node scripts/fetch-source.mjs workbench hop"
 const WEB_GATED_REPLY = "Fetched external context after approval through the web client."
+// W7's own journey. Distinct from every other registered prompt — aimock matches
+// userMessage as a substring and breaks ties by registration order, so a prompt
+// that is a prefix of another (DEMO_PROMPT ⊂ SAFE_PROMPT) is a latent collision.
+const BROWSER_PROMPT = "Workbench gate: summarize the corpus on agent architectures."
+const BROWSER_REPLY = "ReAct and plan-and-execute are common. [corpus/agent-architectures.md]"
 // CopilotKit's fetch-router matches `agent/<agentId>/run`; `default` is the id
 // the runtime route registers and every CopilotKit hook resolves.
 const COPILOTKIT_RUN_PATH = "/api/copilotkit/agent/default/run"
@@ -163,6 +167,64 @@ function createWebHopFixtures() {
       .replies(WEB_GATED_REPLY)
       .build(),
   ]
+}
+
+function createBrowserFixtures() {
+  return script()
+    .user(BROWSER_PROMPT)
+    .callsTool("searchCorpus", { query: "agent architectures" })
+    .callsTool("readDoc", { path: "corpus/agent-architectures.md" })
+    .replies(BROWSER_REPLY)
+    .build()
+}
+
+/**
+ * aimock resolves a request by finding the first registered fixture whose
+ * `match.userMessage` is a SUBSTRING of the incoming user message
+ * (@copilotkit/aimock router.js:217-220) — so if one registered prompt contains
+ * another, the shorter one silently answers the longer one's turns whenever it
+ * was registered first. Registration order is not a contract worth relying on;
+ * this returns every offending pair so a new fixture fails loudly here rather
+ * than as an inexplicable journey mismatch a thousand lines later.
+ */
+function findPromptCollisions(
+  fixtures: readonly { readonly match: { readonly userMessage?: string } }[],
+): string[] {
+  const prompts = [
+    ...new Set(
+      fixtures.flatMap((fixture) =>
+        typeof fixture.match.userMessage === "string" ? [fixture.match.userMessage] : [],
+      ),
+    ),
+  ]
+  const collisions: string[] = []
+  for (const outer of prompts) {
+    for (const inner of prompts) {
+      if (inner !== outer && outer.includes(inner)) {
+        collisions.push(`"${inner}" is a substring of "${outer}"`)
+      }
+    }
+  }
+  return collisions
+}
+
+/**
+ * Vitest's JSON reporter serialises `message` but not `cause`, so an error
+ * wrapped for its file paths would reach CI with the real failure stripped.
+ * Flattens the chain (and an AggregateError's branches) into text.
+ */
+function flattenCause(error: unknown, depth = 0): string[] {
+  if (error === null || typeof error !== "object" || depth >= 8) return []
+  const lines: string[] = []
+  const message = error instanceof Error ? error.message : String(error)
+  lines.push(`caused by: ${message}`)
+  if (error instanceof AggregateError) {
+    for (const branch of error.errors) {
+      lines.push(`  - ${branch instanceof Error ? branch.message : String(branch)}`)
+    }
+  }
+  lines.push(...flattenCause((error as { cause?: unknown }).cause, depth + 1))
+  return lines
 }
 
 function correlateRootToolCalls(events: readonly AgUiEvent[]): Map<string, unknown> {
@@ -1073,6 +1135,25 @@ test("activates the default research scaffold through the complete npm lifecycle
   )
   const commandsTranscriptPath = join(expectedArtifactRoot, "transcripts", "commands.log")
   const agUiTranscriptPath = join(expectedArtifactRoot, "transcripts", "ag-ui.json")
+  // Repo-relative on purpose — `harness-verify` uploads `artifacts/testing/`
+  // only, and the rest of this test's artifact root lives under os.tmpdir().
+  const browserScreenshotPath = join(
+    process.cwd(),
+    "artifacts",
+    "testing",
+    "generated-research-activation",
+    "workbench-browser.png",
+  )
+  // W7 needs a real Chromium. Check it before the scaffold and the installs so a
+  // machine without one fails in seconds rather than after many minutes of work.
+  // `@playwright/test` is imported dynamically because this file also holds pure
+  // unit-ish assertions that must not pay for loading it.
+  const { chromium } = await import("@playwright/test")
+  if (!existsSync(chromium.executablePath())) {
+    throw new Error(
+      "Chromium is not installed for the Workbench browser gate; run: pnpm exec playwright install chromium",
+    )
+  }
   const childServer = {
     active: undefined as { stop(): Promise<void> } | undefined,
   }
@@ -1115,13 +1196,16 @@ test("activates the default research scaffold through the complete npm lifecycle
     await writeFile(agUiTranscriptPath, "", "utf8")
 
     aimock = await createAimock({ fixtures: [] })
-    aimock.addFixtures([
+    const registeredFixtures = [
       ...createSafeResearchFixtures(),
       ...createGatedAndBuiltFixtures(),
       ...createWebHopFixtures(),
-      // W7: the README recording's journey, driven from a real browser.
-      ...DEMO_FIXTURES,
-    ])
+      // W7: the Workbench's own journey, driven from a real browser.
+      ...createBrowserFixtures(),
+    ]
+    aimock.addFixtures(registeredFixtures)
+    // Guard, not an assertion about today's fixtures: see findPromptCollisions.
+    expect(findPromptCollisions(registeredFixtures)).toEqual([])
     const activeAimock = aimock
     const agUiRecorder = createAgUiTranscriptRecorder({
       aimockUrl: activeAimock.baseUrl,
@@ -1571,17 +1655,22 @@ test("activates the default research scaffold through the complete npm lifecycle
             // web tier over HTTP; this proves the page renders, sends, streams,
             // settles, persists the thread, and restores it after a reload —
             // the README recording's journey, now required. The +3 is the
-            // demo fixture's two tool turns plus its reply, the browser's only
-            // path to a model being the B4 server behind the CopilotKit route.
-            const { chromium } = await import("@playwright/test")
+            // browser fixture's two tool turns plus its reply, the browser's
+            // only path to a model being the B4 server behind the CopilotKit
+            // route. `chromium` comes from the preflight import at the top of
+            // this test rather than a second one here.
             const browserJournalStart = activeAimock.getRequests().length
             const browserResult = await runWorkbenchBrowserJourney(
               {
                 webUrl,
-                prompt: DEMO_PROMPT,
+                prompt: BROWSER_PROMPT,
                 tools: ["searchCorpus", "readDoc"],
-                answer: "ReAct and plan-and-execute are common. [corpus/agent-architectures.md]",
-                screenshotPath: join(dirname(commandsTranscriptPath), "workbench-browser.png"),
+                answer: BROWSER_REPLY,
+                // Repo-relative, not the harness's os.tmpdir() artifact root:
+                // harness-verify uploads only `artifacts/testing/`, so a
+                // screenshot written anywhere else never reaches CI.
+                screenshotPath: browserScreenshotPath,
+                signal: lifecycleSignal,
               },
               { chromium },
             )
@@ -1753,6 +1842,10 @@ test("activates the default research scaffold through the complete npm lifecycle
         `App root: ${appRoot}`,
         `Commands transcript: ${commandsTranscriptPath}`,
         `AG-UI transcript: ${agUiTranscriptPath}`,
+        `Browser screenshot (if W7 failed): ${browserScreenshotPath}`,
+        // Vitest's JSON reporter drops `cause`, so CI would otherwise see only
+        // the paths above and never the failure that produced them.
+        ...flattenCause(cause),
       ].join("\n"),
       { cause },
     )
