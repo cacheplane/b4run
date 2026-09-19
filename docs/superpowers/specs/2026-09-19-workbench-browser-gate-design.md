@@ -79,7 +79,7 @@ Root `pnpm exec` resolves because `@playwright/test` is a root devDependency
 2. Launch headless Chromium; new context; collect every `console` error and
    `pageerror` for the page's lifetime.
 3. `openReadyWorkbench(page, webUrl)`.
-4. `fillActiveWorkbenchComposer(page, DEMO_PROMPT)`; click `Send`.
+4. `fillActiveWorkbenchComposer(page, BROWSER_PROMPT)`; click `Send`.
 5. `waitForWorkbenchRunCompletion(page)`.
 6. Assert the aimock journal grew by exactly 3 (two tool calls and one reply). The browser's only path to a model is the B4 server —
    W6's invariant, now proven from a real page.
@@ -129,8 +129,11 @@ contract; step 1 lands and is measured first because of the CI merge treadmill.
 - The existing `docs/brand/demo/demo.test.mjs` unit tests keep covering the
   helpers with a fake `chromium`; no duplication.
 - A local run of the framework lane with Chromium installed is the acceptance
-  check; a second run with a deliberately wrong prompt must fail at step 7
-  (thread rail) to prove the assertions bind.
+  check; a second run with a deliberately wrong *answer* must fail at
+  restoration (the transcript never shows it) to prove the assertions bind.
+  Do not mutate the prompt: aimock substring-matches `userMessage`, so an
+  appended prompt still matches its fixture and the gate stays green (verified
+  2026-09-19).
 - Mutation to prove fail-closed: run once with the Chromium cache path pointed
   at an empty directory and confirm W7 fails rather than skips.
 

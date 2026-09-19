@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-19-workbench-browser-gate-design.md`
 
-**Note (2026-09-19, Task 1):** under `moduleResolution: "Bundler"` TypeScript pairs a `.mjs` module only with a `.d.mts` sibling — a `.d.ts` leaves the import at TS7016 (verified both ways). All declaration files in this plan are therefore `.d.mts`. Also: root `pnpm lint:fix` applies `--unsafe` fixes repo-wide; scope formatting fixes to the files you own.
+**Execution record (2026-09-19):** Task 3 as executed uses a dedicated `BROWSER_PROMPT` and no `scenario.d.mts`; the DEMO_FIXTURES text below is the pre-review plan, kept as the record. **Note (Task 1):** under `moduleResolution: "Bundler"` TypeScript pairs a `.mjs` module only with a `.d.mts` sibling — a `.d.ts` leaves the import at TS7016 (verified both ways). All declaration files in this plan are therefore `.d.mts`. Also: root `pnpm lint:fix` applies `--unsafe` fixes repo-wide; scope formatting fixes to the files you own.
 
 **Environment:** Node 24 (`nvm use 24` — Node 22 fails ~8 harness tests spuriously). Run `pnpm install --frozen-lockfile && pnpm build` once in a fresh worktree. Install a browser once: `pnpm exec playwright install chromium`. Capture exit codes directly (`cmd > /tmp/x.log 2>&1; echo $?`); never pipe a gate through `tail`. Never run bare `biome check --write`; use `pnpm lint:fix` or the package's lint script.
 
@@ -87,7 +87,7 @@ Expected: `exit=0`.
 - [ ] **Step 5: Confirm lint and the brand-demo unit tests are untouched**
 
 Run: `pnpm lint > /tmp/l1.log 2>&1; echo "lint=$?"; pnpm test:brand-demo > /tmp/bd.log 2>&1; echo "brand-demo=$?"`
-Expected: both `0`. (Root lint runs `biome lint` over `docs/brand/demo`; a `.d.ts` there must pass it.)
+Expected: both `0`. (Root lint runs `biome lint` over `docs/brand/demo`; a `.d.mts` there must pass it.)
 
 - [ ] **Step 6: Commit**
 
@@ -593,7 +593,7 @@ Expected: empty status; all three `0`.
 ```bash
 git push -u origin blove/sp4-workbench-browser-gate
 gh pr create --base main --title "test(harness): open the scaffolded Workbench in a real browser (SP4, step 1)" --body-file - <<'EOF'
-Closes the last open item of the Workbench arc: a seventh web assertion (W7) in the generated-app activation harness drives the scaffolded Workbench in headless Chromium — through the real CopilotKit runtime to the real B4 server, aimock behind it — sends the README demo prompt, waits for the run to settle, and restores the thread after a reload. It reuses the journey helpers `docs/brand/demo/capture.mjs` already exports, so the gate and the README recording cannot drift.
+Closes the last open item of the Workbench arc: a seventh web assertion (W7) in the generated-app activation harness drives the scaffolded Workbench in headless Chromium — through the real CopilotKit runtime to the real B4 server, aimock behind it — sends the gate's own prompt (aimock substring-matches, so the README demo prompt — a prefix of the harness's safe prompt — is not reused), waits for the run to settle, and restores the thread after a reload. It reuses the journey helpers `docs/brand/demo/capture.mjs` exports; the Send click is the one step each inlines.
 
 Spec: `docs/superpowers/specs/2026-09-19-workbench-browser-gate-design.md`.
 
@@ -619,7 +619,7 @@ EOF
 
 ## Self-review
 
-**Spec coverage.** Where it runs (Task 3, 4) ✓. The journey steps 1–8 (Task 2 helper + Task 3 wiring; step 1 fixture registration ✓; step 6 the +3 delta ✓; step 7 localStorage seam ✓; step 8 console errors ✓). Failure behaviour: fail closed + screenshot (Task 2, verified in Task 5 mutations) ✓. Budget: measured in Task 5 / Task 6 ✓. Type coverage risk → `capture.d.mts` (Task 1) and `scenario.d.mts` (Task 3) ✓. Testing the gate itself: unit tests with fake browser + two mutations ✓. Out of scope: step 2 named in the PR ✓.
+**Spec coverage.** Where it runs (Task 3, 4) ✓. The journey steps 1–8 (Task 2 helper + Task 3 wiring; step 1 fixture registration ✓; step 6 the +3 delta ✓; step 7 localStorage seam ✓; step 8 console errors ✓). Failure behaviour: fail closed + screenshot (Task 2, verified in Task 5 mutations) ✓. Budget: measured in Task 5 / Task 6 ✓. Type coverage risk → `capture.d.mts` (Task 1) ✓; `scenario.d.mts` was added in Task 3 and then removed when the gate stopped reusing the demo scenario (aimock substring matching). Testing the gate itself: unit tests with fake browser + two mutations ✓. Out of scope: step 2 named in the PR ✓.
 
 **Placeholders.** One deliberate fill-in in the PR body (`<fill from Task 5 Step 2>`) — a measurement, filled at Task 6. Two "verify the name/shape" guards (AimockFixture type name; `t-` thread-id prefix) give the exact command and the fallback.
 
