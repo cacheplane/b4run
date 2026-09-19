@@ -14,9 +14,13 @@ import {
 import type { Docker, SpawnResult } from "./docker-cli.js"
 import { dockerExec } from "./docker-exec.js"
 import { dockerFilesystem } from "./docker-filesystem.js"
+import { openDockerWorkspaceReader } from "./docker-workspace-reader.js"
 import { prepareWorkspaceScript } from "./managed-workspace-prepare.js"
 
 const PREFIX = "b4.workspace."
+const VOLUME_PREFIX = "b4-ws-volume-"
+/** Reader containers over a managed volume; label and hardening match the provider-storage reader. */
+const READER_PREFIX = "b4-ws-reader-"
 const fail = (code: "conflict" | "lost" | "unsupported" | "uncertain", message: string): never => {
   throw new WorkspaceLifecycleError(code, message)
 }
@@ -25,7 +29,7 @@ function names(intent: WorkspaceCreateIntent) {
     .update(JSON.stringify([intent.environment.binding, intent.installationId, intent.operationId]))
     .digest("hex")
   return {
-    volume: `b4-ws-volume-${key}`,
+    volume: `${VOLUME_PREFIX}${key}`,
     record: `b4-ws-record-${key}`,
     prepare: `b4-ws-prepare-${key}`,
     session: `b4-ws-session-${key}-`,
@@ -457,6 +461,52 @@ export function createDockerManagedWorkspaces(opts: {
       if (item && item.Config?.Labels?.[`${PREFIX}incarnation`] !== session.incarnation)
         fail("conflict", "Session incarnation mismatch")
       await remove("container", name, intent, signal)
+    },
+    /**
+     * Read the published workspace's volume WITHOUT touching any session.
+     *
+     * `stored()` is the same verification `reconnect` starts from: the record
+     * container exists and is ours, the persisted intent verifies, the daemon
+     * and scope binding are this provider's, the published record matches the
+     * reference, and the volume exists and is ours. The caller's provenance
+     * must then equal the stored record, exactly as `reconnect` requires, so a
+     * reference cannot be paired with another workspace's provenance. Nothing
+     * here lists or names a session container: no `ps`, no `keepers()`.
+     *
+     * The volume is created by `docker volume create` with the local driver, so
+     * it has a host mountpoint and the reader binds that path read-only. A bind
+     * refuses a missing source instead of creating a volume, which keeps the
+     * "a destroyed workspace stays destroyed" property of the provider-storage
+     * reader (see `openDockerWorkspaceReader`).
+     */
+    async openWorkspaceReader(input) {
+      const { intent, ready } = await stored(input.workspace.reference, input.signal)
+      try {
+        verifyReadyWorkspace(input.workspace, intent)
+      } catch (error) {
+        throw new WorkspaceLifecycleError("conflict", "Workspace provenance mismatch", {
+          cause: error,
+        })
+      }
+      if (JSON.stringify(input.workspace) !== JSON.stringify(ready))
+        fail("conflict", "Workspace provenance mismatch")
+      const n = names(intent)
+      return openDockerWorkspaceReader(
+        {
+          docker,
+          // The image the workspace was prepared with, pinned by digest, not the
+          // provider's mutable tag: the reader runs as the workspace's own owner.
+          image: intent.environment.identity,
+          volume: n.volume,
+          resourceId: n.volume.slice(VOLUME_PREFIX.length),
+          containerPrefix: READER_PREFIX,
+        },
+        {
+          threadId: intent.threadId,
+          signal: input.signal,
+          ...(input.runAsNonRoot === undefined ? {} : { runAsNonRoot: input.runAsNonRoot }),
+        },
+      )
     },
     async destroy(target, signal) {
       const intent = verifyWorkspaceIntent(target.intent)

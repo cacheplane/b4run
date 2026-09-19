@@ -24,7 +24,11 @@ export interface DockerWorkspaceReaderDeps {
   readonly volume: string
   /** `resourceScope(scope)(threadId)` — used for the reader's name and label. */
   readonly resourceId: string
+  /** Container name prefix; defaults to the provider-storage reader's. */
+  readonly containerPrefix?: string
 }
+
+const DEFAULT_CONTAINER_PREFIX = "b4-sbx-rdr-"
 
 /** Same defaulting rule as the keeper's launch config, so a reader matches its workspace's owner. */
 function resolveReaderUser(
@@ -97,6 +101,7 @@ export async function openDockerWorkspaceReader(
   input: OpenWorkspaceReaderInput,
 ): Promise<SandboxWorkspaceReader> {
   const { docker, image, volume, resourceId } = deps
+  const containerPrefix = deps.containerPrefix ?? DEFAULT_CONTAINER_PREFIX
   const { threadId, signal } = input
   signal.throwIfAborted()
 
@@ -118,7 +123,7 @@ export async function openDockerWorkspaceReader(
   }
 
   const user = resolveReaderUser(input.runAsNonRoot)
-  const container = `b4-sbx-rdr-${resourceId}-${randomUUID().replaceAll("-", "").slice(0, 8)}`
+  const container = `${containerPrefix}${resourceId}-${randomUUID().replaceAll("-", "").slice(0, 8)}`
   // A cancelled `run -d` kills the docker CLI, not necessarily the container it
   // already asked for. Reap it on every throwing path so a failed open cannot
   // strand a reader the caller never received a `close()` for.

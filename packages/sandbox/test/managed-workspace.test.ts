@@ -1,3 +1,4 @@
+import type { ReadyWorkspace, SandboxWorkspaceReader } from "@b4run/workspace"
 import { describe, expect, it } from "vitest"
 import type { Docker } from "../src/docker/docker-cli.ts"
 import { createDockerManagedWorkspaces } from "../src/docker/managed-workspace.ts"
@@ -64,6 +65,8 @@ function fixture() {
         return ok([...objects.keys()].filter((k) => k.includes("session")).join("\n"))
       if (args.includes("inspect")) {
         const item = objects.get(args.at(-1)!)
+        if (item && args.includes("{{.Mountpoint}}"))
+          return ok(`/var/lib/docker/volumes/${args.at(-1)}/_data`)
         return item
           ? ok(JSON.stringify([item]))
           : { exitCode: 1, stdout: "", stderr: "Error: No such object: missing" }
@@ -317,3 +320,93 @@ it.each(["ordinary command failure", "daemon stream disconnected"])(
     expect(replayed).toBe(false)
   },
 )
+
+describe("managed Docker workspace reader", () => {
+  const open = async (f: ReturnType<typeof fixture>, ready: ReadyWorkspace) =>
+    f.provider.openWorkspaceReader?.({
+      workspace: ready,
+      signal,
+    }) as Promise<SandboxWorkspaceReader>
+
+  it("binds the managed volume read-only and never names a session container", async () => {
+    const f = fixture(),
+      intent = await f.intent(),
+      ready = await f.provider.create(intent, source, signal)
+    const session = await f.provider.reconnect(ready, { network: { mode: "deny" } }, signal)
+    const sessionName = [...f.objects.keys()].find((k) => k.endsWith(session.reference.incarnation))
+    expect(sessionName).toMatch(/^b4-ws-session-/)
+    const before = f.calls.length
+    const reader = await open(f, ready)
+    expect(reader.threadId).toBe("thread")
+    expect(reader.workspaceRoot).toBe("/workspace")
+    const readerRun = f.calls.slice(before).find((c) => c[0] === "run")
+    expect(readerRun).toBeDefined()
+    const name = readerRun?.[readerRun.indexOf("--name") + 1] ?? ""
+    const key = ready.reference.resource.volume?.slice("b4-ws-volume-".length)
+    expect(name.startsWith(`b4-ws-reader-${key}-`)).toBe(true)
+    const line = readerRun?.join(" ") ?? ""
+    expect(line).toContain(
+      `--mount type=bind,source=/var/lib/docker/volumes/${ready.reference.resource.volume}/_data,target=/workspace,readonly`,
+    )
+    expect(line).not.toContain("type=volume")
+    expect(line).toContain("--network none")
+    expect(line).toContain("--cap-drop ALL")
+    expect(line).toContain("--security-opt no-new-privileges")
+    expect(line).toContain("--read-only")
+    expect(line).toContain(`--label b4.sandbox.reader=${key}`)
+    expect(line).toContain(`sha256:${"a".repeat(64)} sleep infinity`)
+    expect(f.objects.has(name)).toBe(true)
+    await reader.close()
+    expect(f.objects.has(name)).toBe(false)
+    const commands = f.calls.slice(before)
+    expect(commands.some((c) => c[0] === "ps")).toBe(false)
+    expect(commands.some((c) => c.some((arg) => arg.includes("b4-ws-session-")))).toBe(false)
+    // The session is untouched: still present, never removed or restarted.
+    expect(f.objects.has(sessionName as string)).toBe(true)
+  })
+
+  it("rejects a lost record without creating anything", async () => {
+    const f = fixture(),
+      intent = await f.intent(),
+      ready = await f.provider.create(intent, source, signal)
+    f.objects.delete(ready.reference.resource.record as string)
+    const size = f.objects.size
+    await expect(open(f, ready)).rejects.toMatchObject({ code: "lost" })
+    expect(f.objects.size).toBe(size)
+  })
+
+  it("rejects a lost volume without creating anything", async () => {
+    const f = fixture(),
+      intent = await f.intent(),
+      ready = await f.provider.create(intent, source, signal)
+    f.objects.delete(ready.reference.resource.volume as string)
+    const size = f.objects.size
+    await expect(open(f, ready)).rejects.toMatchObject({ code: "lost" })
+    expect(f.objects.size).toBe(size)
+    expect(
+      f.calls.some(
+        (c) => c[0] === "run" && c.includes("--mount") && c.join(" ").includes("b4-ws-reader-"),
+      ),
+    ).toBe(false)
+  })
+
+  it("rejects a reference paired with another workspace's provenance", async () => {
+    const f = fixture(),
+      intent = await f.intent(),
+      ready = await f.provider.create(intent, source, signal)
+    const forged: ReadyWorkspace = {
+      reference: ready.reference,
+      provenance: { ...ready.provenance, sourceDigest: `sha256:${"b".repeat(64)}` },
+    }
+    await expect(open(f, forged)).rejects.toMatchObject({ code: "conflict" })
+  })
+
+  it("rejects a foreign volume before opening", async () => {
+    const f = fixture(),
+      intent = await f.intent(),
+      ready = await f.provider.create(intent, source, signal)
+    f.objects.set(ready.reference.resource.volume as string, { Labels: {} })
+    await expect(open(f, ready)).rejects.toMatchObject({ code: "conflict" })
+    expect(f.calls.some((c) => c[0] === "run" && c.join(" ").includes("b4-ws-reader-"))).toBe(false)
+  })
+})
