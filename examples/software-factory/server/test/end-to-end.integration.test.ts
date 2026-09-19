@@ -1,17 +1,11 @@
-import { randomUUID } from "node:crypto"
 import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createAgentHarness, script } from "@b4run/testing"
-import type { SandboxHandle } from "@b4run/workspace"
 import { afterEach, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/controller/factory.ts"
 import { loadFixture } from "../src/fixtures/catalog.ts"
-import {
-  builderSandboxProvider,
-  sandboxPolicy,
-  workspaceInspectionOptions,
-} from "../src/fixtures/workspace.ts"
+import { builderSandboxProvider, workspaceInspectionOptions } from "../src/fixtures/workspace.ts"
 import { TASK_PROMPTS } from "../src/prompts.ts"
 import { createArtifactStore } from "../src/storage/artifacts.ts"
 import { captureFixtureBaseline } from "../src/verification/baseline.ts"
@@ -23,16 +17,18 @@ import { isolatedApp } from "./isolated-app.ts"
 import { applyReference } from "./reference-repair.ts"
 
 /**
- * The join: bytes that exist only inside a real thread's workspace volume, read out by the
- * controller's own reader, assembled against the controller's own captured baseline,
- * verified in the controller's own container, frozen into a bundle and exported.
+ * The join: bytes the BUILDER'S OWN TOOLS wrote into its managed workspace during a real
+ * turn, read out by the controller's own reader, assembled against the controller's own
+ * captured baseline, verified in the controller's own container, frozen into a bundle and
+ * exported.
  *
- * What is real here: the workspace volume, the reader (a separate read-only container over
- * that volume), the captured baseline, the assembly, the verifier, the bundle and the
- * export. What is not: the Agent Protocol worker is the fake HTTP one, pointed at the thread
- * whose workspace the controller then reads, and the bytes in that workspace are placed
- * through the sandbox handle rather than by a builder turn — see the second test for why
- * the builder's own workspace cannot be read yet.
+ * What is real here: the builder route, its tools, its permission config, its managed
+ * workspace (a `b4-ws-volume-*` published under the builder's installation), the reader (a
+ * separate read-only container over that volume, resolved through the builder's installation
+ * store), the captured baseline, the assembly, the verifier, the bundle and the export. What
+ * is not: the model is scripted (the harness's aimock), and the Agent Protocol worker the
+ * controller dispatches to is the fake HTTP one, pointed at the thread the real builder just
+ * ran — the controller then reads that thread's workspace for itself.
  */
 
 const fixture = loadFixture("cli-flags")
@@ -50,34 +46,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
 
-/**
- * Build a thread workspace in PROVIDER storage that matches what the builder's workspace
- * definition produces: the captured baseline's files, a `.git` directory standing in for the
- * git baseline, and the `node_modules` environment link. Both structural inspection options
- * are therefore exercised against real Docker rather than merely passed.
- */
-async function materializeThreadWorkspace(
-  handle: SandboxHandle,
-  signal: AbortSignal,
-): Promise<void> {
-  const ctx = { workspaceRoot: handle.workspaceRoot, signal }
-  const baseline = await captureFixtureBaseline("cli-flags", signal)
-  for (const [path, content] of baseline.files)
-    await handle.filesystem.writeFile(`${handle.workspaceRoot}/${path}`, content, ctx)
-  const link = workspaceInspectionOptions("cli-flags").expectedRootSymlinks.node_modules as string
-  const prepared = await handle.exec.runCommand(
-    {
-      command: `mkdir -p ${handle.workspaceRoot}/.git && printf 'ref: refs/heads/main\\n' > ${handle.workspaceRoot}/.git/HEAD && ln -sfn ${link} ${handle.workspaceRoot}/node_modules`,
-    },
-    ctx,
-  )
-  expect({ exitCode: prepared.exitCode, stderr: prepared.stderr }).toEqual({
-    exitCode: 0,
-    stderr: "",
-  })
-}
-
-it("reads a real thread workspace and turns those bytes into a verdict, a bundle and an export", async () => {
+it("reads the builder's own workspace and turns those bytes into a verdict, a bundle and an export", async () => {
   const dir = await mkdtemp(join(tmpdir(), "factory-e2e-"))
   cleanups.push(() => rm(dir, { recursive: true, force: true }))
   const exportDir = join(dir, "out")
@@ -86,27 +55,40 @@ it("reads a real thread workspace and turns those bytes into a verdict, a bundle
   // them is this lane's fault and not the candidate's.
   const repaired = await applyReference()
 
-  const threadId = `e2e-${randomUUID()}`
-  const builder = builderSandboxProvider()
-  cleanups.push(() => builder.destroy(threadId))
-  const handle = await builder.acquire({
-    threadId,
-    policy: sandboxPolicy,
-    signal: AbortSignal.timeout(180_000),
+  // The builder: this package's own app, in an isolated root so its installation store and
+  // checkpoints are this test's and nobody else's. The harness OWNS that installation for as
+  // long as it is open — exactly as a running `b4` server does — so the controller below has
+  // to read it without becoming a second owner.
+  const appRoot = await isolatedApp()
+  cleanups.push(() => rm(appRoot, { recursive: true, force: true }))
+  const harness = await createAgentHarness({ appRoot, route: "/build#agent" })
+  cleanups.push(() => harness.close({ destroyWorkspaces: true }))
+  const input = TASK_PROMPTS["cli-flags"] as string
+  const run = await harness.run({
+    input,
+    fixtures: script()
+      .user(input)
+      .callsTool("readFile", { path: "TASK.md" })
+      .callsTool("writeFile", { path: source, content: repaired })
+      .callsTool("runBash", { command: "npm test" })
+      .replies("Repair complete.")
+      .build(),
   })
-  await materializeThreadWorkspace(handle, AbortSignal.timeout(180_000))
-  // The one change the work order is about, written inside the container and nowhere else.
-  await handle.filesystem.writeFile(`${handle.workspaceRoot}/${source}`, repaired, {
-    workspaceRoot: handle.workspaceRoot,
-    signal: AbortSignal.timeout(60_000),
-  })
-  // Compute released, workspace volume KEPT: the state the controller reads in, and one of
-  // the states `openWorkspaceReader` is specified for.
-  await builder.release(threadId)
+  // The bytes really are in the builder's workspace: its own tools put them there and the
+  // fixture's test command ran over them in the container.
+  expect(run.toolResults.map((result) => result.isError)).toEqual([false, false, false])
+  expect(String(run.toolResults[2]?.content)).toContain("b4-fixture-cli-flags")
+  const threadId = run.threadId
 
-  // A DIFFERENT provider instance, as the controller is a different process in production,
-  // addressing the same storage by scope and thread id.
-  const reader = createThreadWorkspaceReader(builderSandboxProvider(), workspaceInspectionOptions)
+  // Read while the thread is IDLE BETWEEN TURNS, with its session container still alive:
+  // one of the two states the read surface is specified for, and the one `docker exec` into
+  // the builder could never serve safely. A DIFFERENT provider instance, as the controller is
+  // a different process in production, addressing the same storage by scope, image and the
+  // builder's installation store.
+  const reader = createThreadWorkspaceReader(
+    { provider: builderSandboxProvider(), appRoot },
+    workspaceInspectionOptions,
+  )
   const observed = await reader.read(
     { threadId, taskId: "cli-flags" },
     AbortSignal.timeout(120_000),
@@ -122,6 +104,20 @@ it("reads a real thread workspace and turns those bytes into a verdict, a bundle
   // baseline and must survive, so the exclusion has to be a root-directory rule.
   expect(observed.has(".gitignore")).toBe(true)
   expect(observed.has("node_modules")).toBe(false)
+  // Reading disturbed nothing: the builder's next turn runs its tools in the same session
+  // and workspace. (Which script the harness replays for that turn is not asserted — its
+  // fixtures match on the conversation, and the first turn's prompt is still in it.)
+  const again = await harness.run({
+    input: "Confirm the file.",
+    fixtures: script()
+      .user("Confirm the file.")
+      .callsTool("readFile", { path: source })
+      .replies("Confirmed.")
+      .build(),
+  })
+  expect(again.threadId).toBe(threadId)
+  expect(again.toolResults.length).toBeGreaterThan(0)
+  expect(again.toolResults.map((result) => result.isError)).not.toContain(true)
 
   worker = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only", threadId })
   factory = await createFactory({
@@ -132,7 +128,7 @@ it("reads a real thread workspace and turns those bytes into a verdict, a bundle
     artifactsDir: join(dir, "artifacts"),
     verifier: createDockerVerifier(createArtifactStore(join(dir, "artifacts"))),
     workspaceReader: createThreadWorkspaceReader(
-      builderSandboxProvider(),
+      { provider: builderSandboxProvider(), appRoot },
       workspaceInspectionOptions,
     ),
     captureBaseline: captureFixtureBaseline,
@@ -177,55 +173,3 @@ it("reads a real thread workspace and turns those bytes into a verdict, a bundle
   ) as { changes: Record<string, string> }
   expect(exported.changes).toEqual({ [source]: repaired })
 }, 900_000)
-
-/**
- * The half of the join that is still open, pinned rather than described.
- *
- * The builder is configured with a workspace DEFINITION, so its threads are managed
- * workspaces: `SandboxManager` routes them to `ManagedWorkspaceProvider`, whose bytes live in
- * a `b4-ws-volume-<intent hash>` volume and never in the provider storage that
- * `openWorkspaceReader` addresses by thread id. So the read below fails on a workspace that
- * demonstrably exists — the builder's own tools read and wrote it in this very test.
- *
- * The thread-workspace-read spec put a managed-workspace-aware variant out of scope on the
- * grounds that addressing by thread id against provider storage "is what the first consumer
- * has". This test is the counter-example: the first consumer is this controller, and it does
- * not. Delete it, and read the builder's real workspace in the test above, once the surface
- * covers managed workspaces.
- */
-it("cannot yet read the builder's own workspace, because it is a managed workspace", async () => {
-  const appRoot = await isolatedApp()
-  cleanups.push(() => rm(appRoot, { recursive: true, force: true }))
-  const repaired = await applyReference()
-  const harness = await createAgentHarness({ appRoot, route: "/build#agent" })
-  let threadId: string
-  try {
-    const input = TASK_PROMPTS["cli-flags"] as string
-    const run = await harness.run({
-      input,
-      fixtures: script()
-        .user(input)
-        .callsTool("readFile", { path: "TASK.md" })
-        .callsTool("writeFile", { path: source, content: repaired })
-        .callsTool("runBash", { command: "npm test" })
-        .replies("Repair complete.")
-        .build(),
-    })
-    // The bytes really are in the builder's workspace: its own tools put them there and the
-    // fixture's test command ran over them in the container.
-    expect(run.toolResults.map((result) => result.isError)).toEqual([false, false, false])
-    expect(String(run.toolResults[2]?.content)).toContain("b4-fixture-cli-flags")
-    threadId = run.threadId
-
-    // Read while the thread is idle between turns — the exact state the capability is
-    // specified for, and with the workspace indisputably still alive. Not "the workspace is
-    // empty" and not a hang: the capability looks for storage in a place this thread's bytes
-    // have never been, and says so.
-    const reader = createThreadWorkspaceReader(builderSandboxProvider(), workspaceInspectionOptions)
-    await expect(
-      reader.read({ threadId, taskId: "cli-flags" }, AbortSignal.timeout(120_000)),
-    ).rejects.toThrow(/no workspace storage for thread/)
-  } finally {
-    await harness.close({ destroyWorkspaces: true })
-  }
-}, 600_000)

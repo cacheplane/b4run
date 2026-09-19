@@ -5,10 +5,13 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
-import { createSourceBundle, readSourceFile } from "@b4run/workspace/node"
-import { afterEach, expect, it } from "vitest"
+import { createSourceBundle, createWorkspaceIntent, readSourceFile } from "@b4run/workspace/node"
+import { afterEach, describe, expect, it } from "vitest"
 import { makeWorkspaceAssociationStore } from "../src/workspace/association-store.ts"
-import { openWorkspaceInstallation } from "../src/workspace/installation.ts"
+import {
+  openWorkspaceInstallation,
+  openWorkspaceInstallationReader,
+} from "../src/workspace/installation.ts"
 import { makeWorkspaceSourceStore } from "../src/workspace/source-store.ts"
 
 const roots: string[] = []
@@ -294,4 +297,99 @@ it("owns durable associations and refuses association operations after close", a
   owner.close()
   expect(() => owner.associations.get(intent.threadId)).toThrow(/closed/i)
   expect(open(path).associations.get(intent.threadId)?.intent).toEqual(intent)
+})
+
+describe("openWorkspaceInstallationReader", () => {
+  const readers: ReturnType<typeof openWorkspaceInstallationReader>[] = []
+  afterEach(() => {
+    for (const reader of readers.splice(0)) reader.close()
+  })
+  const read = (path: string) => {
+    const reader = openWorkspaceInstallationReader(path)
+    readers.push(reader)
+    return reader
+  }
+  const intentFor = (owner: ReturnType<typeof openWorkspaceInstallation>, threadId: string) =>
+    createWorkspaceIntent({
+      installationId: owner.installationId,
+      operationId: randomUUID(),
+      threadId,
+      definition: { version: 1, source: bundle, environmentLinks: [] },
+      environment: {
+        binding: { provider: "test", scope: "s", account: "a" },
+        identity: "immutable",
+      },
+    })
+
+  it("reads associations alongside the live owner and follows its later writes", () => {
+    const path = root()
+    const owner = open(path)
+    owner.sources.put(bundle)
+    const created = owner.associations.create(intentFor(owner, "t-1"))
+    const reader = read(path)
+    expect(reader.installationId).toBe(owner.installationId)
+    expect(reader.associations.get("t-1")).toEqual(created)
+    expect(reader.associations.get("t-2")).toBeUndefined()
+    const ready = owner.associations.markReady("t-1", created.revision, {
+      reference: {
+        version: 1,
+        operationId: created.intent.operationId,
+        installationId: created.intent.installationId,
+        threadId: "t-1",
+        intentDigest: created.intent.digest,
+        resource: { volume: "v" },
+      },
+      provenance: {
+        sourceDigest: created.intent.sourceDigest,
+        environment: created.intent.environment,
+        retention: { filesystem: "until-destroy", memory: "discarded" },
+      },
+    })
+    expect(reader.associations.get("t-1")).toEqual(ready)
+    expect(reader.associations.list()).toEqual([ready])
+    // The owner is still the single owner: a second owner is still refused.
+    expect(() => open(path)).toThrow()
+  })
+
+  it("never creates an installation: a missing one is an error and stays missing", () => {
+    const path = mkdtempSync(join(tmpdir(), "b4-installation-none-"))
+    roots.push(path)
+    expect(() => read(path)).toThrow(/No workspace installation/)
+    expect(existsSync(join(path, ".b4"))).toBe(false)
+    mkdirSync(join(path, ".b4/workspaces"), { recursive: true })
+    expect(() => read(path)).toThrow(/No workspace installation/)
+    expect(existsSync(join(path, ".b4/workspaces/admission.sqlite"))).toBe(false)
+  })
+
+  it("refuses an initializing or inconsistent installation", () => {
+    const initializing = root()
+    admission(initializing)
+    edit(initializing, "state", () => {})
+    expect(() => read(initializing)).toThrow(/initializing/)
+    const mismatched = root()
+    admission(mismatched, randomUUID(), "ready")
+    state(mismatched, randomUUID())
+    expect(() => read(mismatched)).toThrow(/identity/)
+  })
+
+  it("is read-only and idempotently closable", () => {
+    const path = root()
+    const owner = open(path)
+    owner.sources.put(bundle)
+    owner.associations.create(intentFor(owner, "t-1"))
+    owner.close()
+    const reader = read(path)
+    const db = new DatabaseSync(join(path, ".b4/workspaces/state.sqlite"), { readOnly: true })
+    try {
+      expect(() => db.exec("DELETE FROM workspace_associations")).toThrow(/readonly/i)
+    } finally {
+      db.close()
+    }
+    expect(reader.associations.get("t-1")?.state).toBe("creating")
+    reader.close()
+    reader.close()
+    expect(() => reader.associations.get("t-1")).toThrow(/closed/i)
+    // The owner can still come back afterwards.
+    expect(open(path).installationId).toBe(owner.installationId)
+  })
 })

@@ -45,7 +45,7 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | `WorkspaceSession` | Expose filesystem and command backends for one admitted incarnation. |
 | `CreationStatus` | Distinguish absent, pending, ready, failed, and unknown creation outcomes. |
 | `WorkspaceDeletionTarget` | Clean up a persisted creation operation, including one with no ready reference. |
-| `ManagedWorkspaceProvider` | Own physical workspace creation, inspection, reconnection, release, and destruction. |
+| `ManagedWorkspaceProvider` | Own physical workspace creation, inspection, reconnection, release, destruction, and optional reads. |
 | `WorkspaceLifecycleErrorCode` | Classify lost, expired, conflicting, unsupported, retryable, and uncertain operations. |
 | `WorkspaceLifecycleError` | Report a typed workspace lifecycle failure. |
 | `SourceBundle` | Describe immutable canonical source content and its digest. |
@@ -59,10 +59,12 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | `SandboxProvider` | Define sandbox acquisition, release, destruction, and optional workspace reads. |
 | `SandboxSecurityPolicy` | Describe provider-agnostic hardening intent. |
 | `OpenWorkspaceReaderInput` | Name the thread to read, its cancellation signal, and the identity the reader runs as. |
+| `OpenManagedWorkspaceReaderInput` | Name the published managed workspace to read, its cancellation signal, and the identity the reader runs as. |
 | `SandboxWorkspaceReader` | Read one thread's workspace storage, with no write and no command surface. |
 | `ReadOnlyFilesystemBackend` | Define the read half of a filesystem, with inspection metadata required. |
 | `WorkspaceReadSource` | Describe the minimum a workspace inspector consumes. |
 | `withWorkspaceReader` | Open a thread's workspace reader, hand it to an operation, and always close it. |
+| `scopedWorkspaceReader` | Run an operation over any opened workspace reader and always close it. |
 | `BackendContext` | Carry cancellation and the active workspace root. |
 | `ExecBackend` | Define shell-command execution. |
 | `ExecMiddleware` | Wrap an execution backend. |
@@ -330,6 +332,36 @@ export declare function withWorkspaceReader<T>(
 ```
 
 `withWorkspaceReader` closes the reader on both paths. A close failure surfaces on its own, and alongside a body failure as an `AggregateError` rather than replacing it. A provider without the capability raises instead of silently returning nothing.
+
+```ts api-contract="@b4run/workspace#.:scopedWorkspaceReader"
+export declare function scopedWorkspaceReader<T>(
+  open: () => Promise<SandboxWorkspaceReader>,
+  operation: (reader: SandboxWorkspaceReader) => Promise<T>,
+): Promise<T>
+```
+
+`scopedWorkspaceReader` is the lifetime rule behind `withWorkspaceReader` for any way of opening a reader: open lazily, run, always close, and never let a close failure hide a body failure. `withWorkspaceReader` and `@b4run/cli/workspace`'s `withManagedWorkspaceReader` both delegate to it.
+
+#### Managed workspace reads
+
+A workspace created through `sandbox.workspace` is a managed workspace. Its storage is named by the creating installation and operation, not by the thread id, so `SandboxProvider.openWorkspaceReader` cannot address it. `ManagedWorkspaceProvider.openWorkspaceReader`, optional under the same contract, is addressed by the published `ReadyWorkspace` instead.
+
+```ts api-contract="@b4run/workspace#.:OpenManagedWorkspaceReaderInput"
+export interface OpenManagedWorkspaceReaderInput {
+  readonly workspace: ReadyWorkspace
+  readonly signal: AbortSignal
+  readonly runAsNonRoot?: SandboxSecurityPolicy["runAsNonRoot"]
+}
+```
+
+**Fields: `@b4run/workspace#.:OpenManagedWorkspaceReaderInput`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly workspace` | `ReadyWorkspace` | yes | Name the published workspace whose storage to open; the provider verifies it against its own record. |
+| `readonly signal` | `AbortSignal` | yes | Cancel the open. |
+| `readonly runAsNonRoot` | `SandboxSecurityPolicy["runAsNonRoot"]` | no | Match the identity that owns the produced files; defaults to the provider's secure default. |
+
+The Docker provider verifies the record, binding and volume exactly as `reconnect` does, then binds the managed volume's backing directory read-only in a separate networkless container. It never lists, starts, stops or replaces a session container; a lost record or volume is a `lost` error, never a recreated volume. A co-located host process obtains the `ReadyWorkspace` through `@b4run/sqlite-storage`'s `openWorkspaceInstallationReader`; `@b4run/cli/workspace`'s `withManagedWorkspaceReader` joins the two by thread id.
 
 ```ts api-contract="@b4run/workspace#.:SandboxConfig"
 export interface SandboxConfig {

@@ -12,5 +12,10 @@ export type {
   WorkspaceAssociation,
   WorkspaceAssociationStore,
 } from "./workspace/association-store.js"
-export { openWorkspaceInstallation, type WorkspaceInstallation } from "./workspace/installation.js"
+export {
+  openWorkspaceInstallation,
+  openWorkspaceInstallationReader,
+  type WorkspaceInstallation,
+  type WorkspaceInstallationReader,
+} from "./workspace/installation.js"
 export type { WorkspaceSourceStore } from "./workspace/source-store.js"

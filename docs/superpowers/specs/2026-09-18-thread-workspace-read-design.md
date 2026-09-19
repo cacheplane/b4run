@@ -373,9 +373,15 @@ const produced = await withWorkspaceReader(provider, { threadId, signal }, (read
 - The captured baseline / `SourceBundle` reader (D10).
 - A Kubernetes implementation (D5).
 - Writes, patches or exports of any kind.
-- A managed-workspace-aware variant. `ManagedWorkspaceProvider` sessions have
-  their own lifecycle; the capability here is addressed by `threadId` against
-  provider storage, which is what the first consumer has.
+- ~~A managed-workspace-aware variant.~~ This bullet originally excluded a
+  managed-aware variant on the grounds that thread-id addressing against
+  provider storage "is what the first consumer has". That was false: the first
+  consumer's builder declares `sandbox.workspace`, so its threads never reach
+  `acquire` and their bytes live in `b4-ws-volume-*`, which no function of the
+  thread id can name. The managed half is specified in
+  `2026-09-19-managed-workspace-read-design.md`: a `ReadyWorkspace`-addressed
+  `openWorkspaceReader` on `ManagedWorkspaceProvider`, a read-only opener for
+  the installation store, and `@b4run/cli/workspace` helpers that join them.
 
 ## Acceptance
 

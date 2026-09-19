@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { inspectWorkspace, scopedWorkspaceReader } from "@b4run/workspace"
 import { createSourceBundle, createWorkspaceIntent } from "@b4run/workspace/node"
 import { describe, expect, it } from "vitest"
 import { createDocker } from "../src/docker/docker-cli.ts"
@@ -171,6 +172,134 @@ describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
       } finally {
         await provider.destroy({ intent }, signal)
       }
+    })
+  },
+)
+
+describe.skipIf(process.env.B4_TEST_DOCKER !== "1")(
+  "managed Docker workspace reader",
+  { timeout: 180000 },
+  () => {
+    it("reads a live and a released workspace without disturbing the session", async () => {
+      const docker = createDocker(),
+        signal = new AbortController().signal
+      const opts = {
+        scope: `managed-reader-${randomUUID()}`,
+        image: process.env.B4_TEST_MANAGED_IMAGE ?? "b4-code-fixer:fixture-v1",
+        docker,
+      }
+      const provider = createDockerManagedWorkspaces(opts)
+      const source = createSourceBundle([
+        { path: "kept.txt", bytes: Buffer.from("from source"), executable: false },
+      ])
+      const intent = createWorkspaceIntent({
+        operationId: randomUUID(),
+        installationId: randomUUID(),
+        threadId: "reader-thread",
+        definition: {
+          version: 1,
+          source,
+          environmentLinks: [
+            { path: "node_modules", target: "/opt/fixtures/cli-flags/node_modules" },
+          ],
+          baseline: "git",
+        },
+        environment: await provider.resolveEnvironment(signal),
+      })
+      const read = () =>
+        scopedWorkspaceReader(
+          () => provider.openWorkspaceReader?.({ workspace: ready, signal }) as never,
+          (reader) =>
+            inspectWorkspace(reader, {
+              signal,
+              excludeRootDirectories: [".git"],
+              expectedRootSymlinks: { node_modules: "/opt/fixtures/cli-flags/node_modules" },
+            }),
+        )
+      const readers = () =>
+        docker
+          .run(["ps", "-aq", "--filter", "label=b4.sandbox.reader"])
+          .then((r) => r.stdout.trim())
+      // `rm -f` on an auto-removing container can return while the daemon is
+      // still finishing the removal, so "gone" is polled, not sampled once.
+      const expectNoReaders = () => expect.poll(readers, { timeout: 10_000 }).toBe("")
+      const ready = await provider.create(intent, source, signal)
+      try {
+        const session = await provider.reconnect(ready, { network: { mode: "deny" } }, signal)
+        const container = (
+          await docker.run([
+            "ps",
+            "-q",
+            "--filter",
+            `label=b4.workspace.incarnation=${session.reference.incarnation}`,
+          ])
+        ).stdout.trim()
+        expect(container).not.toBe("")
+        const wrote = await docker.exec(container, [
+          "sh",
+          "-c",
+          "printf produced > /workspace/out.txt",
+        ])
+        expect(wrote.exitCode, wrote.stderr).toBe(0)
+
+        // Read while the session is LIVE.
+        const live = await read()
+        expect(live.files).toEqual({ "kept.txt": "from source", "out.txt": "produced" })
+        await expectNoReaders()
+        // The session: same container, still running, still writable.
+        const after = (
+          await docker.run([
+            "ps",
+            "-q",
+            "--filter",
+            `label=b4.workspace.incarnation=${session.reference.incarnation}`,
+            "--filter",
+            "status=running",
+          ])
+        ).stdout.trim()
+        expect(after).toBe(container)
+        const still = await docker.exec(container, [
+          "sh",
+          "-c",
+          "printf again >> /workspace/out.txt",
+        ])
+        expect(still.exitCode, still.stderr).toBe(0)
+
+        // Read after RELEASE: only the volume remains.
+        await provider.release(session.reference, signal)
+        const released = await read()
+        expect(released.files["out.txt"]).toBe("producedagain")
+        await expectNoReaders()
+
+        // A reader cannot write: the bind is read-only at the kernel.
+        const probe = await provider.openWorkspaceReader?.({ workspace: ready, signal })
+        try {
+          const name = (
+            await docker.run(["ps", "-q", "--filter", "label=b4.sandbox.reader"])
+          ).stdout.trim()
+          expect(name).not.toBe("")
+          const denied = await docker.exec(name, ["sh", "-c", "echo x > /workspace/forbidden"])
+          expect(denied.exitCode).not.toBe(0)
+          expect(denied.stderr).toMatch(/read-only file system/i)
+        } finally {
+          await probe?.close()
+        }
+      } finally {
+        await provider.destroy({ intent, reference: ready.reference }, signal)
+      }
+      // Destroyed stays destroyed: no volume is recreated by a read.
+      await expect(read()).rejects.toMatchObject({ code: "lost" })
+      expect(
+        (
+          await docker.run([
+            "volume",
+            "ls",
+            "-q",
+            "--filter",
+            `name=${ready.reference.resource.volume}`,
+          ])
+        ).stdout.trim(),
+      ).toBe("")
     })
   },
 )

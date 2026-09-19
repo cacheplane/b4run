@@ -5,7 +5,7 @@ import type {
   SandboxProvider,
   SandboxWorkspaceReader,
 } from "../src/sandbox-types.ts"
-import { withWorkspaceReader } from "../src/with-workspace-reader.ts"
+import { scopedWorkspaceReader, withWorkspaceReader } from "../src/with-workspace-reader.ts"
 
 const text = (value: string) => new TextEncoder().encode(value)
 
@@ -160,5 +160,54 @@ describe("withWorkspaceReader", () => {
       "src/a.ts": "export const a = 1\n",
     })
     expect(harness.closes).toBe(1)
+  })
+})
+
+describe("scopedWorkspaceReader", () => {
+  test("opens lazily, returns the result and closes", async () => {
+    const harness = providerFor({ files: { "/workspace/a.txt": "one" } })
+    let opened = 0
+    const result = await scopedWorkspaceReader(
+      async () => {
+        opened += 1
+        return harness.provider.openWorkspaceReader?.(input) as Promise<SandboxWorkspaceReader>
+      },
+      async (r) =>
+        r.filesystem.readFile("/workspace/a.txt", {
+          signal: input.signal,
+          workspaceRoot: "/workspace",
+        }),
+    )
+    expect({ result, opened, closes: harness.closes }).toEqual({
+      result: "one",
+      opened: 1,
+      closes: 1,
+    })
+  })
+
+  test("an open failure surfaces without a close", async () => {
+    const openError = new Error("no such workspace")
+    const harness = providerFor({ openError })
+    await expect(
+      scopedWorkspaceReader(
+        () => harness.provider.openWorkspaceReader?.(input) as Promise<SandboxWorkspaceReader>,
+        async () => "ok",
+      ),
+    ).rejects.toBe(openError)
+    expect(harness.closes).toBe(0)
+  })
+
+  test("a close failure never swallows the body failure", async () => {
+    const closeError = new Error("reader cleanup failed")
+    const bodyError = new Error("verification failed")
+    const harness = providerFor({ closeError })
+    const thrown = await scopedWorkspaceReader(
+      () => harness.provider.openWorkspaceReader?.(input) as Promise<SandboxWorkspaceReader>,
+      async () => {
+        throw bodyError
+      },
+    ).catch((error: unknown) => error)
+    expect(thrown).toBeInstanceOf(AggregateError)
+    expect((thrown as AggregateError).errors).toEqual([bodyError, closeError])
   })
 })

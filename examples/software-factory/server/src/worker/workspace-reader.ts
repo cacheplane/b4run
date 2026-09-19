@@ -1,5 +1,6 @@
+import { withManagedWorkspaceReader } from "@b4run/cli/workspace"
 import type { SandboxProvider, SandboxSecurityPolicy } from "@b4run/workspace"
-import { inspectWorkspace, withWorkspaceReader } from "@b4run/workspace"
+import { inspectWorkspace } from "@b4run/workspace"
 
 /**
  * Read a builder thread's workspace after its turn has ended. The controller uses
@@ -52,32 +53,49 @@ export interface WorkspaceReadOptions {
 export type WorkspaceInspectionOptions = (taskId: string) => WorkspaceReadOptions
 
 /**
- * The real reader, over the framework's read-only thread-workspace surface.
+ * Where the builder's workspaces live, as seen from the controller's process.
  *
- * `provider` is the controller's OWN handle on the builder's sandbox storage: the same
- * provider kind, scope and image the builder is configured with, constructed in this
- * process. That is addressing, not authorization — naming a thread id is not a claim of
- * ownership — so the process holding it is the boundary. `openWorkspaceReader` attaches the
- * thread's workspace volume read-only in a separate, networkless container and never touches
- * the thread's own sandbox, which is why this is safe to call while the builder sits idle
- * between turns as well as after its compute has been released.
+ * The builder declares `sandbox.workspace`, so its threads are MANAGED workspaces: their
+ * bytes live in storage named by the worker's installation and operation ids, which no
+ * function of the thread id can reproduce. Resolving a thread therefore needs the worker's
+ * own installation store under `appRoot` (read-only, without the worker's owner lock) as
+ * well as a provider of the same kind, scope and image, constructed here.
+ */
+export interface ThreadWorkspaceSource {
+  /** Same kind, scope and image as the builder's `b4.config.ts`; constructed in this process. */
+  readonly provider: SandboxProvider
+  /** The builder app's root: where `b4` keeps `.b4/workspaces` for that app. */
+  readonly appRoot: string
+}
+
+/**
+ * The real reader, over the framework's managed-workspace read surface.
  *
- * `withWorkspaceReader` owns the reader's lifetime, including a close that fails: there is
- * no `release` for a caller to forget, and a close failure is aggregated with a read failure
- * rather than replacing it.
+ * `withManagedWorkspaceReader` resolves the thread through the builder's installation store
+ * to its published workspace record, then opens that record's storage read-only in a
+ * separate, networkless container that never touches the builder's own session — which is
+ * why this is safe to call while the builder sits idle between turns as well as after its
+ * compute has been released. That is addressing, not authorization: naming a thread id is
+ * not a claim of ownership, so the process holding the provider and the app root is the
+ * boundary.
+ *
+ * The helper owns the reader's lifetime, including a close that fails: there is no `release`
+ * for a caller to forget, and a close failure is aggregated with a read failure rather than
+ * replacing it.
  */
 export function createThreadWorkspaceReader(
-  provider: SandboxProvider,
+  source: ThreadWorkspaceSource,
   optionsFor: WorkspaceInspectionOptions,
 ): WorkspaceReader {
   return {
     async read(target, signal) {
       // Resolved before anything is opened: a task whose inspection options cannot be
-      // derived is a refusal that costs no container.
+      // derived is a refusal that costs no container and no store lookup.
       const options = optionsFor(target.taskId)
-      const inspection = await withWorkspaceReader(
-        provider,
+      const inspection = await withManagedWorkspaceReader(
         {
+          appRoot: source.appRoot,
+          provider: source.provider,
           threadId: target.threadId,
           signal,
           ...(options.runAsNonRoot === undefined ? {} : { runAsNonRoot: options.runAsNonRoot }),

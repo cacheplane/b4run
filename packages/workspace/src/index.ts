@@ -9,6 +9,7 @@ export type {
   CapturedWorkspaceDefinition,
   CreationStatus,
   ManagedWorkspaceProvider,
+  OpenManagedWorkspaceReaderInput,
   ReadyWorkspace,
   WorkspaceCreateIntent,
   WorkspaceDefinition,
@@ -42,4 +43,4 @@ export type {
   FilesystemMiddleware,
 } from "./types.js"
 export { type LoggingOptions, withExecLogging, withFilesystemLogging } from "./with-logging.js"
-export { withWorkspaceReader } from "./with-workspace-reader.js"
+export { scopedWorkspaceReader, withWorkspaceReader } from "./with-workspace-reader.js"

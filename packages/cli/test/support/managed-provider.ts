@@ -7,7 +7,7 @@ import type {
 } from "@b4run/workspace"
 import { verifyReadyWorkspace } from "@b4run/workspace/node"
 /** A remote-service model: records and files survive compute sessions and runtime objects. */
-export function managedProviderFixture() {
+export function managedProviderFixture(options: { readonly reads?: boolean } = {}) {
   const records = new Map<
     string,
     { intent: WorkspaceCreateIntent; ready: ReadyWorkspace; files: Map<string, Uint8Array> }
@@ -122,6 +122,66 @@ export function managedProviderFixture() {
       calls.push("destroy")
       records.delete(target.intent.operationId)
     },
+    ...(options.reads === false
+      ? {}
+      : {
+          async openWorkspaceReader({ workspace, signal }) {
+            calls.push("read")
+            signal.throwIfAborted()
+            const record = records.get(workspace.reference.operationId)
+            if (!record) throw new Error("Remote workspace lost")
+            const canonical = (value: ReadyWorkspace) =>
+              JSON.stringify(verifyReadyWorkspace(value, record.intent))
+            if (canonical(record.ready) !== canonical(workspace))
+              throw new Error("Remote workspace provenance mismatch")
+            const files = record.files
+            const lstat = async (path: string) => {
+              if (files.has(path)) {
+                return {
+                  kind: "file" as const,
+                  size: files.get(path)?.length ?? 0,
+                  executable: false,
+                }
+              }
+              const prefix = path.endsWith("/") ? path : `${path}/`
+              if (path === "/workspace" || [...files.keys()].some((key) => key.startsWith(prefix)))
+                return { kind: "directory" as const, size: 0, executable: false }
+              throw new Error("ENOENT")
+            }
+            const readBinaryFile = async (path: string) => {
+              const bytes = files.get(path)
+              if (!bytes) throw new Error("ENOENT")
+              return bytes.slice()
+            }
+            return {
+              threadId: workspace.reference.threadId,
+              workspaceRoot: "/workspace",
+              filesystem: {
+                lstat,
+                readBinaryFile,
+                async readFile(path) {
+                  return new TextDecoder().decode(await readBinaryFile(path))
+                },
+                async statFile(path) {
+                  return { size: (await lstat(path)).size, mtimeMs: 0 }
+                },
+                async listDir(path) {
+                  const prefix = path.endsWith("/") ? path : `${path}/`
+                  return [
+                    ...new Set(
+                      [...files.keys()]
+                        .filter((key) => key.startsWith(prefix))
+                        .map((key) => key.slice(prefix.length).split("/")[0] as string),
+                    ),
+                  ]
+                },
+              },
+              async close() {
+                calls.push("close")
+              },
+            }
+          },
+        }),
   }
   const provider: SandboxProvider = {
     name: "test-service",

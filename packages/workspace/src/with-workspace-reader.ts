@@ -17,12 +17,25 @@ export async function withWorkspaceReader<T>(
   input: OpenWorkspaceReaderInput,
   operation: (reader: SandboxWorkspaceReader) => Promise<T>,
 ): Promise<T> {
-  if (typeof provider.openWorkspaceReader !== "function") {
+  const open = provider.openWorkspaceReader
+  if (typeof open !== "function") {
     throw new Error(
       `Sandbox provider "${provider.name}" does not support reading a thread workspace`,
     )
   }
-  const reader = await provider.openWorkspaceReader(input)
+  return scopedWorkspaceReader(() => open.call(provider, input), operation)
+}
+
+/**
+ * The lifetime rule behind `withWorkspaceReader`, for any way of opening a
+ * reader (provider storage by thread id, managed storage by published record):
+ * open, run, always close, and never let a close failure hide a body failure.
+ */
+export async function scopedWorkspaceReader<T>(
+  open: () => Promise<SandboxWorkspaceReader>,
+  operation: (reader: SandboxWorkspaceReader) => Promise<T>,
+): Promise<T> {
+  const reader = await open()
   let failed = false
   let failure: unknown
   let result: T | undefined
