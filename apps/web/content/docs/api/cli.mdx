@@ -158,8 +158,11 @@ New scenario files should import these aliases from [`@b4run/sdk/testing`](/docs
 | `WithWorkspaceOptions` | Select source, provider, policy, and a private durable state directory. |
 | `cleanupWorkspaces` | Remove managed workspaces from an inactive, dedicated app installation with exclusive ownership and retryable deletion. |
 | `withWorkspace` | Run host-authored work in a fresh managed workspace with durable cleanup. |
+| `ManagedWorkspaceReadOptions` | Name the worker app root, its provider, the thread to read, cancellation, and the reader identity. |
+| `openManagedWorkspaceReader` | Resolve a thread to its published managed workspace through the worker's installation store and open it read-only. |
+| `withManagedWorkspaceReader` | Open a managed workspace reader for a thread, hand it to an operation, and always close it. |
 
-The package root exports the same three. This subpath exists so a host process
+The package root exports the first three. This subpath exists so a host process
 can own workspace lifecycle without importing the command program that the root
 entry is.
 
@@ -234,6 +237,22 @@ use separate directories for concurrent jobs. Prior unfinished work is destroyed
 before a fresh callback starts. Cleanup is part of completion: failures propagate
 and retained deletion records support retry. This is useful for an independent
 verifier without duplicating provider lifecycle code in an application.
+
+### Reading a managed workspace
+
+`withManagedWorkspaceReader({ appRoot, provider, threadId, signal }, operation)`
+reads the workspace of a thread whose app declares `sandbox.workspace`. Such
+threads never reach `SandboxProvider.acquire`, so `withWorkspaceReader` cannot
+address them by thread id. The helper opens the worker's installation store
+under `appRoot` read-only, without taking the worker's owner lock, resolves the
+thread's published `ReadyWorkspace`, and calls
+`provider.workspaces.openWorkspaceReader` with it. It refuses, naming the fact,
+when the provider has no managed capability or no read capability, when the
+installation does not exist, when the thread has no association, when the
+workspace is not published yet (`retryable`), is deleted (`lost`), or is past
+its retention deadline (`expired`). There is no fallback to provider storage.
+`openManagedWorkspaceReader` is the same resolution without the scoped close.
+This is addressing, not authorization: gate access to the calling process.
 
 ## Examples and related guides
 

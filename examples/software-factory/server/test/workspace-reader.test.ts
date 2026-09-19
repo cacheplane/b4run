@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs"
-import { fakeSandbox } from "@b4run/sandbox/testing"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { SandboxProvider } from "@b4run/workspace"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import {
   fixtureWorkspace,
   sandboxImage,
@@ -12,6 +14,7 @@ import {
   createThreadWorkspaceReader,
   type WorkspaceReadOptions,
 } from "../src/worker/workspace-reader.ts"
+import { fakeManagedApp } from "./fake-managed-provider.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 /** Every read names the thread AND the task: inspection options are per task. */
@@ -70,11 +73,13 @@ describe("fake workspace reader", () => {
 })
 
 /**
- * What can be proven without Docker. `fakeSandbox` implements `openWorkspaceReader`, so the
- * wiring — capability probe, options pass-through, close — is exercised in the default lane;
- * what it cannot model is symlinks, which is why `expectedRootSymlinks` is proven positively
- * only against real Docker (see `end-to-end.integration.test.ts`) and here only by the
- * refusal it produces when the link it names is absent.
+ * What can be proven without Docker. The builder's threads are managed workspaces, so the
+ * wiring under test is: resolve the thread through the builder's installation store, open
+ * the published record's storage through the provider's managed reader, pass the inspection
+ * options through, close. What an in-memory volume cannot model is symlinks, which is why
+ * `expectedRootSymlinks` is proven positively only against real Docker (see
+ * `end-to-end.integration.test.ts`) and here only by the refusal it produces when the link
+ * it names is absent.
  */
 describe("the real thread workspace reader", () => {
   /** Options shaped like the fixture's, minus the symlink the in-memory volume cannot hold. */
@@ -83,21 +88,17 @@ describe("the real thread workspace reader", () => {
     expectedRootSymlinks: {},
   })
 
-  /** A provider whose thread `t-1` holds a workspace with a git directory in its root. */
-  const withThread = async (): Promise<SandboxProvider> => {
-    const provider = fakeSandbox()
-    const handle = await provider.acquire({
-      threadId: "t-1",
-      policy: { network: { mode: "deny" } },
-      signal: AbortSignal.timeout(1_000),
-    })
-    const ctx = { workspaceRoot: handle.workspaceRoot, signal: AbortSignal.timeout(1_000) }
-    await handle.filesystem.writeFile("/workspace/src/cli.ts", "fixed\n", ctx)
-    await handle.filesystem.writeFile("/workspace/.git/HEAD", "ref: refs/heads/main\n", ctx)
-    // The builder's compute is gone; the workspace storage is not. That is the state the
-    // controller reads in, so it is the state this test reads in.
-    await provider.release("t-1")
-    return provider
+  const apps: Array<Awaited<ReturnType<typeof fakeManagedApp>>> = []
+  afterEach(async () => {
+    for (const app of apps.splice(0)) await app.close()
+  })
+
+  /** A builder app whose thread `t-1` holds a published workspace with a git directory in its root. */
+  const withThread = async () => {
+    const app = await fakeManagedApp()
+    apps.push(app)
+    await app.seed("t-1", { "src/cli.ts": "fixed\n", ".git/HEAD": "ref: refs/heads/main\n" })
+    return app
   }
 
   it("reads the thread's own bytes", async () => {
@@ -108,8 +109,8 @@ describe("the real thread workspace reader", () => {
   })
 
   it("carries excludeRootDirectories through, so the git baseline is not a candidate change", async () => {
-    const provider = await withThread()
-    const kept = createThreadWorkspaceReader(provider, () => ({
+    const app = await withThread()
+    const kept = createThreadWorkspaceReader(app, () => ({
       excludeRootDirectories: [],
       expectedRootSymlinks: {},
     }))
@@ -127,19 +128,43 @@ describe("the real thread workspace reader", () => {
     )
   })
 
-  it("refuses a thread with no workspace storage rather than reporting an empty one", async () => {
+  it("refuses a thread the builder has never seen rather than reporting an empty one", async () => {
     const reader = createThreadWorkspaceReader(await withThread(), fakeOptions)
     // "Produced nothing" and "never existed" are different facts to a verifier: the first is
     // a candidate with no changes, the second is the controller not knowing.
-    await expect(reader.read(target("t-2"), AbortSignal.timeout(5_000))).rejects.toThrow(/t-2/)
+    await expect(reader.read(target("t-2"), AbortSignal.timeout(5_000))).rejects.toThrow(
+      /No managed workspace for thread "t-2"/,
+    )
   })
 
-  it("refuses a provider without the capability, naming it", async () => {
-    const { openWorkspaceReader: _omitted, ...withoutCapability } = await withThread()
-    const reader = createThreadWorkspaceReader(withoutCapability, fakeOptions)
-    await expect(reader.read(target("t-1"), AbortSignal.timeout(5_000))).rejects.toThrow(
-      /does not support reading a thread workspace/,
+  it("refuses a provider without the managed read capability, naming it", async () => {
+    const app = await withThread()
+    const { openWorkspaceReader: _omitted, ...workspaces } = app.provider.workspaces as NonNullable<
+      SandboxProvider["workspaces"]
+    >
+    const reader = createThreadWorkspaceReader(
+      { appRoot: app.appRoot, provider: { ...app.provider, workspaces } },
+      fakeOptions,
     )
+    await expect(reader.read(target("t-1"), AbortSignal.timeout(5_000))).rejects.toThrow(
+      /"fake-managed" does not support reading a workspace/,
+    )
+  })
+
+  it("refuses an app root where no builder has ever run", async () => {
+    const app = await withThread()
+    const empty = await mkdtemp(join(tmpdir(), "factory-no-builder-"))
+    try {
+      const reader = createThreadWorkspaceReader(
+        { appRoot: empty, provider: app.provider },
+        fakeOptions,
+      )
+      await expect(reader.read(target("t-1"), AbortSignal.timeout(5_000))).rejects.toThrow(
+        /No workspace installation/,
+      )
+    } finally {
+      await rm(empty, { recursive: true, force: true })
+    }
   })
 })
 
@@ -178,22 +203,36 @@ describe("inspection options travel with the reader", () => {
 
   it("refuses an unknown task before it opens anything", async () => {
     let opened = false
-    const provider = fakeSandbox()
-    const reader = createThreadWorkspaceReader(
-      {
-        ...provider,
-        openWorkspaceReader(input) {
-          opened = true
-          return (provider.openWorkspaceReader as NonNullable<typeof provider.openWorkspaceReader>)(
-            input,
-          )
+    const app = await fakeManagedApp()
+    try {
+      await app.seed("t-1", {})
+      const workspaces = app.provider.workspaces as NonNullable<SandboxProvider["workspaces"]>
+      const reader = createThreadWorkspaceReader(
+        {
+          appRoot: app.appRoot,
+          provider: {
+            ...app.provider,
+            workspaces: {
+              ...workspaces,
+              openWorkspaceReader(input) {
+                opened = true
+                return (
+                  workspaces.openWorkspaceReader as NonNullable<
+                    typeof workspaces.openWorkspaceReader
+                  >
+                )(input)
+              },
+            },
+          },
         },
-      },
-      workspaceInspectionOptions,
-    )
-    await expect(
-      reader.read(target("t-1", "no-such-task"), AbortSignal.timeout(1_000)),
-    ).rejects.toThrow(/Unknown fixture/)
-    expect(opened).toBe(false)
+        workspaceInspectionOptions,
+      )
+      await expect(
+        reader.read(target("t-1", "no-such-task"), AbortSignal.timeout(1_000)),
+      ).rejects.toThrow(/Unknown fixture/)
+      expect(opened).toBe(false)
+    } finally {
+      await app.close()
+    }
   })
 })

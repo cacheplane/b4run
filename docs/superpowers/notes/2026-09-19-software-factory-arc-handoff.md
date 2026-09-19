@@ -64,6 +64,12 @@ The example lives in `examples/software-factory/server`. The pieces that carry t
 
 ## 4. The blocker, and why it is not a bug you can fix in the example
 
+> **Resolved after this snapshot** by `docs/superpowers/specs/2026-09-19-managed-workspace-read-design.md`:
+> candidate fix 1 below, plus a read-only opener for the installation store so a co-located
+> controller can resolve the thread without becoming a second owner. The refusal test is
+> deleted and the end-to-end lane reads the builder's own workspace. The rest of this section
+> is kept as the record of why.
+
 `openWorkspaceReader` addresses a thread's storage **by thread id**, building `b4-sbx-vol-<resourceId(threadId)>` (`packages/sandbox/src/docker/docker-sandbox.ts:106`, reader at :353).
 
 The factory's builder declares `sandbox.workspace`, so `SandboxManager.getForThread` routes it to the managed workspace manager and returns before `acquire` is ever called (`packages/cli/src/lib/runtime/sandbox-manager.ts:42`, versus the `acquire` at :53). That volume therefore never exists. The builder's bytes live in `b4-ws-volume-<sha256([binding, installationId, operationId])>` (`packages/sandbox/src/docker/managed-workspace.ts:28`).
@@ -89,7 +95,7 @@ Do not overstate this in a PR description or a demo.
 
 **Also proven.** A candidate that satisfies the visible suite while failing the independent checks gets a `fail`. A candidate that rewrites its own test is caught by the snapshot comparison. These are earned in a container, not scripted.
 
-**Still resting on a fake.** The Agent Protocol worker in the end-to-end test, the model script, and — the one that matters — **the bytes are placed through a sandbox handle, not produced by a builder turn**, because of §4.
+**Still resting on a fake.** The Agent Protocol worker in the end-to-end test and the model script. The bytes are no longer placed through a sandbox handle: since the §4 fix they are produced by a real builder turn and read from the builder's own managed workspace.
 
 **Never run.** The live demonstration. It needs a model key *and* the §4 fix. `docs/superpowers/runbooks/software-factory-rung1-live.md` is blocked and its step 8, the weak-repair refusal, is under-specified on purpose: there was no honest way to write an exact recipe for producing a weak repair without a live model or a hand-edited workspace.
 
@@ -123,8 +129,8 @@ Do not overstate this in a PR description or a demo.
 
 Ordered by what I would do first. All were found in review and deliberately deferred so the rung stayed reviewable.
 
-1. **The §4 addressing decision.** Blocks the real end-to-end proof. Framework change, spec-level.
-2. **Push `661f2129` and open a PR**, or fold it into whatever comes next.
+1. ~~**The §4 addressing decision.**~~ Done; see the note at the top of §4.
+2. ~~**Push `661f2129` and open a PR**~~ Done: [#747](https://github.com/cacheplane/b4run/pull/747).
 3. **Cancel and budget exhaustion do not stop a running verifier.** `src/controller/verify.ts:148` passes `ctx.signal`, the factory-wide abort, not a per-work-order one. The record settles correctly but the container runs to its 300 second deadline.
 4. **Boot does unbounded, unbudgeted container work.** `src/controller/factory.ts:831` awaits `reconcileAll` before `startBudgetTicker` at :836 and before HTTP listens. A hanging verifier hangs boot with nothing alive to cancel it.
 5. **`candidateVerified` is a dead column** (`src/registry/work-orders.ts:78`, only ever written `null` at `src/controller/factory.ts:353`). It is exactly the rung 0 field where the worker reported its own verdict. Of everything here, it is the likeliest thing for a copier to misread.

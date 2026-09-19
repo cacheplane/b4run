@@ -60,32 +60,32 @@ nothing else; rung 0 drove code-fixer as its worker, and rung 1 does not.
 
 ## What is joined, and what is not
 
-The controller reads a thread's workspace through
-`SandboxProvider.openWorkspaceReader` (framework pull request #731, merged). The reader is
-real: `src/worker/workspace-reader.ts` opens a read-only view of the thread's workspace
-volume in a separate, networkless container, inspects it, and closes it — the thread's own
-sandbox is never acquired, started, stopped or replaced, and the reader carries no exec
-backend and no write operation, so a mutation cannot be expressed.
+The controller reads a builder thread's workspace through the framework's managed-workspace
+read surface: `withManagedWorkspaceReader` from `@b4run/cli/workspace`, over
+`ManagedWorkspaceProvider.openWorkspaceReader`. The builder's `b4.config.ts` gives it a
+workspace *definition*, which makes its threads **managed workspaces**: their bytes live in a
+volume named by the builder's installation and operation ids, not by the thread id, so the
+reader first resolves the thread through the builder's own installation store under its app
+root (read-only, without taking the builder's owner lock) and then opens that record's volume
+read-only in a separate, networkless container. `src/worker/workspace-reader.ts` is that
+join; the builder's own session is never acquired, started, stopped or replaced, and the
+reader carries no exec backend and no write operation, so a mutation cannot be expressed.
 
-- **Joined, and proven in `test/end-to-end.integration.test.ts` (Docker-gated).** Bytes that
-  exist only inside a real thread's workspace volume are read out by the controller, diffed
-  against the baseline it captured itself, assembled and digested, verified in its own
-  container with its own copy of the independent checks, frozen into a bundle, approved and
-  exported under the bundle's own name. The two structural inspection options are exercised
-  against real Docker in that lane rather than merely passed: the git baseline is excluded
-  (while `.gitignore` survives) and the `node_modules` environment link is validated against
-  its exact target instead of walked into.
-- **Not joined: the builder's own workspace.** `b4.config.ts` gives the builder a workspace
-  *definition*, which makes its threads **managed workspaces**. Their bytes live in a
-  managed-workspace volume named by an intent hash, not in the provider storage that
-  `openWorkspaceReader` addresses by thread id, so a read of a builder thread fails with
-  "no workspace storage for thread …" on a workspace that demonstrably exists. The
-  thread-workspace-read design put a managed-workspace-aware variant out of scope; this
-  controller is the consumer that needs it. The end-to-end lane therefore places the bytes
-  through the sandbox handle, and a second test in the same file pins the gap by running the
-  real builder and asserting the refusal, so it fails the day the surface covers managed
-  workspaces. **Running the command line against a real builder still settles every work
-  order as `verification_inconclusive` with a `workspace_unreadable` event.**
+- **Joined, and proven in `test/end-to-end.integration.test.ts` (Docker-gated).** A real
+  builder turn — the route, its tools, its permission config and its container, with only the
+  model scripted — writes the repair into the builder's managed workspace. The controller
+  then reads that workspace for itself while the builder sits idle between turns, diffs it
+  against the baseline it captured itself, assembles and digests, verifies in its own
+  container with its own copy of the independent checks, freezes a bundle, approves and
+  exports under the bundle's own name. The builder's next turn still sees its own repair,
+  which is the non-disturbance claim, measured. The two structural inspection options are
+  exercised against real Docker in that lane rather than merely passed: the git baseline is
+  excluded (while `.gitignore` survives) and the `node_modules` environment link is validated
+  against its exact target instead of walked into.
+- **Addressing, not authorization.** The controller needs the builder's app root as well as
+  a provider of the same kind, scope and image. Naming a thread id is not a claim of
+  ownership; the process holding those two things is the boundary. In this example the
+  builder is this package, so the command line uses its own root.
 - **What rests on a fake elsewhere.** Layer 1 scripts the worker, the reader and the
   verifier. The end-to-end lane keeps only the Agent Protocol worker fake — pointed at the
   thread whose workspace the controller reads — and the builder-side test scripts the model,

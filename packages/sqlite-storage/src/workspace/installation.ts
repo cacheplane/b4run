@@ -14,6 +14,16 @@ export interface WorkspaceInstallation {
   readonly associations: WorkspaceAssociationStore
   close(): void
 }
+/**
+ * A read-only view of an installation another process owns. Takes no
+ * admission transaction, so it coexists with the live owner; never creates a
+ * directory or database, so "the worker has never run here" stays an error.
+ */
+export interface WorkspaceInstallationReader {
+  readonly installationId: string
+  readonly associations: Pick<WorkspaceAssociationStore, "get" | "list">
+  close(): void
+}
 interface Admission {
   installationId: string
   phase: "initializing" | "ready"
@@ -81,6 +91,80 @@ function validateState(db: DatabaseSync, id: string): void {
   if (associationVersions.length !== 1 || associationVersions[0]?.version !== 1)
     throw new Error("Invalid workspace association schema version")
   db.prepare("SELECT thread_id,revision,state,payload FROM workspace_associations LIMIT 0").all()
+}
+
+/** The owner's on-disk layout, resolved without creating anything. */
+function installationPaths(appRoot: string) {
+  const directory = join(realpathSync(appRoot), ".b4", "workspaces")
+  return {
+    directory,
+    admissionPath: join(directory, "admission.sqlite"),
+    statePath: join(directory, "state.sqlite"),
+  }
+}
+
+/** Absorb the owner's short write transactions instead of failing on SQLITE_BUSY. */
+const READER_BUSY_TIMEOUT_MS = 2000
+
+export function openWorkspaceInstallationReader(appRoot: string): WorkspaceInstallationReader {
+  inspect(realpathSync(appRoot), true)
+  const { directory, admissionPath, statePath } = installationPaths(appRoot)
+  if (!inspect(directory, true) || !databaseExists(admissionPath) || !databaseExists(statePath))
+    throw new Error(`No workspace installation under ${appRoot}`)
+  let admissionDb: DatabaseSync | undefined
+  let stateDb: DatabaseSync | undefined
+  let closed = false
+  function close(): void {
+    if (closed) return
+    closed = true
+    const failures: unknown[] = []
+    for (const db of [stateDb, admissionDb]) {
+      try {
+        db?.close()
+      } catch (error) {
+        failures.push(error)
+      }
+    }
+    if (failures.length)
+      throw new AggregateError(failures, "Workspace installation reader close failed")
+  }
+  try {
+    admissionDb = new DatabaseSync(admissionPath, { readOnly: true })
+    admissionDb.exec(`PRAGMA busy_timeout=${READER_BUSY_TIMEOUT_MS}`)
+    const metadata = loadAdmission(admissionDb)
+    if (metadata.phase !== "ready") throw new Error("Workspace installation is still initializing")
+    stateDb = new DatabaseSync(statePath, { readOnly: true })
+    stateDb.exec(`PRAGMA busy_timeout=${READER_BUSY_TIMEOUT_MS}`)
+    validateState(stateDb, metadata.installationId)
+    // validateState has proven every table exists, so the store constructors
+    // only prepare statements; on a read-only connection they could not
+    // create anything anyway.
+    const associations = makeWorkspaceAssociationStore(stateDb, makeWorkspaceSourceStore(stateDb))
+    function requireOpen(): void {
+      if (closed) throw new Error("Workspace installation reader is closed")
+    }
+    return {
+      installationId: metadata.installationId,
+      associations: {
+        list() {
+          requireOpen()
+          return associations.list()
+        },
+        get(threadId) {
+          requireOpen()
+          return associations.get(threadId)
+        },
+      },
+      close,
+    }
+  } catch (error) {
+    try {
+      close()
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], "Workspace installation reader open failed")
+    }
+    throw error
+  }
 }
 
 /** Local trusted-host owner. The admission writer transaction lasts until close(). */
