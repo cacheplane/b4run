@@ -287,6 +287,13 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # W7 in the generated-app activation test drives the scaffolded Workbench
+      # in headless Chromium (test/harness/workbench-browser.ts). Root `pnpm exec`
+      # resolves because @playwright/test is a root devDependency, unlike the
+      # inspector lane which must --filter.
+      - name: Install Chromium for the Workbench browser gate
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: Harness Coordinator Self-Test
         run: pnpm verify:harness:self-test
 
