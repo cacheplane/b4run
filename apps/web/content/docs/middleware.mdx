@@ -65,6 +65,15 @@ not make them supported runtime options. Protocol validation and authorization
 still run in their existing order; malformed requests may be rejected before
 middleware runs.
 
+On AG-UI, that ordering is now explicit: the runtime validates `threadId`,
+`runId` and `state` and rejects a non-empty client-supplied `tools` or
+`forwardedProps` **before** middleware, so no middleware is handed an envelope
+B4.run has already refused, and there is no reason for middleware to re-check
+B4.run's own wire format. See
+[envelope validation](/docs/ag-ui#envelope-validation). What is left for
+middleware is what is genuinely the app's — the shape of its own request
+context.
+
 Use this snapshot to validate application context or reject a request. Return
 validated values through `allow(context)` to make them available to tools.
 Editing `req.body` does not rewrite the request's execution input or resume

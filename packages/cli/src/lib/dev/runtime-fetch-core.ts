@@ -383,6 +383,12 @@ export async function createRuntimeFetchHandler(
   // caller supplies none: each store must then be injected, or the first use
   // throws with a message naming what is missing.
   const fallbacks = options.bootFallbacks
+  // One read for every boot-time config decision — CORS and the AG-UI run
+  // envelope's per-route opt-ins. Deliberately NOT folded into `boot.config`
+  // below: that field means "the caller supplied a config object, so
+  // `b4.config.ts` must never be read", and a disk-loaded value there would
+  // erase the distinction route execution branches on.
+  const bootConfig = await readBootB4Config(options)
   const boot: RouteBoot = {
     ...(options.config ? { config: options.config } : {}),
     ...(fallbacks ? { bootFallbacks: fallbacks } : {}),
@@ -863,6 +869,7 @@ export async function createRuntimeFetchHandler(
       apAttachMaxViewers,
       apSseHeartbeatIntervalMs,
       boot,
+      bootConfig,
       getCheckpointer,
       getMemoryStoreFor,
       getPermissionsStore,
@@ -1118,10 +1125,10 @@ export async function createRuntimeFetchHandler(
     // able to read ALL of them, including the failures. Stamping once here is
     // the only version of that with no path left uncovered.
     //
-    // Resolved at boot — see `readCorsConfig` for where the config comes from.
-    // Boot is also where a malformed origin list should fail, so an operator
-    // sees it on startup rather than on the first cross-origin request.
-    const corsPolicy = resolveCorsPolicy(await readCorsConfig(options))
+    // Resolved at boot — see `readBootB4Config` for where the config comes
+    // from. Boot is also where a malformed origin list should fail, so an
+    // operator sees it on startup rather than on the first cross-origin request.
+    const corsPolicy = resolveCorsPolicy(bootConfig?.server?.cors)
     const fetch = async (request: Request): Promise<Response> => {
       // A preflight never reaches the route table: it claims no in-flight slot
       // and needs no stores, and the router has no OPTIONS route that could
@@ -1254,6 +1261,12 @@ export function buildRouteTable(ctx: {
   readonly apAttachMaxViewers: number
   readonly apSseHeartbeatIntervalMs: number
   readonly boot: RouteBoot
+  /**
+   * The boot-resolved `b4.config.ts` (see `readBootB4Config`), separate from
+   * `boot.config` because that one means "a caller supplied a config object".
+   * Read for `server.agui`, the AG-UI run envelope's per-route opt-ins.
+   */
+  readonly bootConfig: B4Config | undefined
   readonly getCheckpointer: (request: Request) => BaseCheckpointSaver
   readonly getMemoryStoreFor: (request: Request) => Promise<MemoryStore>
   readonly getPermissionsStore: (
@@ -1295,6 +1308,7 @@ export function buildRouteTable(ctx: {
     apAttachMaxViewers,
     apSseHeartbeatIntervalMs,
     boot,
+    bootConfig,
     getCheckpointer,
     getMemoryStoreFor,
     getPermissionsStore,
@@ -1655,6 +1669,7 @@ export function buildRouteTable(ctx: {
         handleAgUiFetchRequest({
           appRoot,
           boot,
+          ...(bootConfig ? { config: bootConfig } : {}),
           checkpointer: getCheckpointer(request),
           getMemoryStore: () => getMemoryStoreFor(request),
           liveTurnHub,
@@ -1841,11 +1856,11 @@ export function buildRouteTable(ctx: {
 }
 
 // ---------------------------------------------------------------------------
-// CORS config resolution
+// Boot config resolution
 // ---------------------------------------------------------------------------
 
 /**
- * `server.cors`, or undefined when this runtime has no config to read it from.
+ * The app's `B4Config`, or undefined when this runtime has no config to read.
  *
  * Three callers, three shapes:
  * - An edge runtime (or any caller that injects its own stores) passes
@@ -1854,19 +1869,20 @@ export function buildRouteTable(ctx: {
  *   lazily through the same memo, so loading here costs nothing extra.
  * - Neither: no config file and none supplied. That is a legal B4.run app, and
  *   `loadB4Config` signals it by throwing (`access` ENOENT). No config means
- *   no CORS, exactly like an app that omits the block — the same
- *   try/catch-to-defaults shape `resolveMemoryStore` uses for this case.
+ *   defaults everywhere — no CORS, and a closed AG-UI envelope — exactly like
+ *   an app that omits the blocks, and the same try/catch-to-defaults shape
+ *   `resolveMemoryStore` uses for this case.
  *
  * A config that EXISTS but is malformed still throws: the catch here covers
  * only obtaining the config, and `resolveCorsPolicy` validates afterwards.
  */
-async function readCorsConfig(options: {
+async function readBootB4Config(options: {
   readonly appRoot: string
   readonly config?: B4Config
-}): Promise<CorsConfig | undefined> {
-  if (options.config) return options.config.server?.cors
+}): Promise<B4Config | undefined> {
+  if (options.config) return options.config
   try {
-    return (await loadB4Config({ appRoot: options.appRoot })).config.server?.cors
+    return (await loadB4Config({ appRoot: options.appRoot })).config
   } catch {
     return undefined
   }

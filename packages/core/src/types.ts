@@ -207,6 +207,28 @@ export interface B4Config {
      * ```
      */
     readonly cors?: CorsConfig
+    /**
+     * Which client-supplied AG-UI envelope fields `POST /agui/:routeId` honors,
+     * per route. Both lists are empty unless set, which means the runtime
+     * REJECTS a non-empty `tools` or `forwardedProps` with a 422 rather than
+     * ignoring it — a client cannot tell an ignored field from an honored one,
+     * and both of these let a caller add to what the route decided.
+     *
+     * Entries are route ids as they appear in the route tree (`"/chat"`,
+     * `"/support/billing"`), matched exactly. An empty `tools: []` or
+     * `forwardedProps: {}` — what an AG-UI client sends when it has nothing to
+     * add — is accepted with or without the opt-in.
+     *
+     * ```ts
+     * server: { agui: { clientTools: ["/chat"] } }
+     * ```
+     */
+    readonly agui?: {
+      /** Route ids whose callers may send a non-empty `tools` array. */
+      readonly clientTools?: readonly string[]
+      /** Route ids whose callers may send a non-empty `forwardedProps` object. */
+      readonly clientForwardedProps?: readonly string[]
+    }
   }
   readonly memory?: {
     readonly enabled?: boolean
