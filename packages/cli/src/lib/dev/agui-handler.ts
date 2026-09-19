@@ -13,6 +13,7 @@ import type { SandboxManager } from "../runtime/sandbox-manager.js"
 import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import type { StreamChunk } from "../runtime/stream-types.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
+import { type ApprovalGrantRuntime, gateResumeWithGrants, minterFor } from "./approval-grants.js"
 import type { LiveTurnHub, LiveTurnProducer } from "./live-turn-hub.js"
 import { headersToRecord, runMiddleware } from "./middleware.js"
 import { toWebRequest, writeNodeResponse } from "./node-web-adapter.js"
@@ -34,6 +35,16 @@ import { assertNoReservedKey } from "./thread-metadata.js"
 
 export interface AgUiFetchRequestOptions {
   readonly appRoot: string
+  /**
+   * Boot-resolved approval-grant mode, store and TTL.
+   *
+   * Optional so direct callers (tests, embedders) keep their existing
+   * behavior — and that optionality is safe HERE, unlike at the park site,
+   * because absence resolves to `{ mode: "off" }`, which is exactly the
+   * pre-grant path. The fail-closed decision lives at the park, not at the
+   * handler.
+   */
+  readonly approvalGrants?: ApprovalGrantRuntime
   /** Boot state (supplied config + node fallbacks) forwarded to route execution. */
   readonly boot?: Pick<BootResolvedInstances, "bootFallbacks" | "config">
   readonly checkpointer: BaseCheckpointSaver
@@ -186,6 +197,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     permissionsStore,
     registry,
     resumeClaims,
+    approvalGrants = { mode: "off" },
     runRegistry,
     threadAccess,
     threadsStore,
@@ -339,6 +351,22 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     }
 
     const threadId = input.threadId
+    const approvalGrantMinter = minterFor(approvalGrants, threadId)
+
+    // Grant checks run HERE: after the thread-access gate, after the resume
+    // claim, and after the exact-set match — never before them, or the
+    // distinct grant codes become an oracle on a victim's parked set, which is
+    // exactly what the gate-before-tryClaim ordering exists to prevent.
+    // Consumes on success, immediately before the resume reaches the graph.
+    if (b4Input.resume && b4Input.resume.length > 0) {
+      const refused = await gateResumeWithGrants({
+        grants: approvalGrants,
+        threadId,
+        pending: pending.interrupts,
+        entries: b4Input.resume,
+      })
+      if (refused) return refused
+    }
 
     // Authorize — and, when this turn must, create — the concrete row BEFORE
     // claiming the run slot, mirroring the Agent Protocol run handlers. Doing it
@@ -473,6 +501,11 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                   : [],
               },
               ...(resumeResolution.mode === "resume" ? { resume: resumeResolution.resume } : {}),
+              // Injected into config.configurable by the agent-adapter, for the
+              // park site to read. `undefined` when grants are off or no store
+              // resolved — never a no-op minter, which would satisfy the park
+              // site's presence check and park without a grant.
+              ...(approvalGrantMinter ? { approvalGrantMinter } : {}),
               ...(middlewareResult.context ? { middlewareContext: middlewareResult.context } : {}),
               ...(getMemoryStore ? { memoryStore: getMemoryStore } : {}),
               ...(permissionsStore ? { permissionsStore } : {}),

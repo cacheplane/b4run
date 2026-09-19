@@ -1,7 +1,7 @@
 import type { PromptFragment, StreamTransformer } from "@b4run/core"
 import { readRuntimeEnv } from "@b4run/core"
-import type { B4Agent, RetryConfig } from "@b4run/sdk"
-import { isB4Agent } from "@b4run/sdk"
+import type { ApprovalGrantMinter, B4Agent, RetryConfig } from "@b4run/sdk"
+import { APPROVAL_GRANT_MINTER_KEY, isB4Agent } from "@b4run/sdk"
 import { type BaseMessageLike, HumanMessage } from "@langchain/core/messages"
 import { Command } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
@@ -833,6 +833,18 @@ export interface AgentOptions {
    * replay.
    */
   readonly threadId?: string
+  /**
+   * Per-run approval-grant minter, forwarded into
+   * `config.configurable[APPROVAL_GRANT_MINTER_KEY]` so the park site in
+   * `@b4run/core` can read it from the ambient run config with `getConfig()`.
+   *
+   * Same channel and same optionality as `threadId`: an invoker that omits it
+   * is a legacy invoker, and the park site — not this adapter — decides
+   * whether that absence is tolerable. Do NOT default it to a no-op minter
+   * here; a silent no-op is exactly the failure the fail-closed rule exists to
+   * prevent.
+   */
+  readonly approvalGrantMinter?: ApprovalGrantMinter
   readonly summarization?: ResolvedSummarizationConfig
   /**
    * Set by the CLI runtime when a per-thread sandbox is active for this turn
@@ -978,6 +990,11 @@ function prepareAgentCall(options: AgentOptions): {
   const configurable: Record<string, unknown> = { ...params }
   if (options.threadId !== undefined && options.threadId.length > 0) {
     configurable.thread_id = options.threadId
+  }
+  // Spread AFTER `params` so a route param can never shadow the minter: the
+  // params come from the URL, this does not.
+  if (options.approvalGrantMinter !== undefined) {
+    configurable[APPROVAL_GRANT_MINTER_KEY] = options.approvalGrantMinter
   }
   if (Object.keys(configurable).length > 0) {
     config.configurable = configurable

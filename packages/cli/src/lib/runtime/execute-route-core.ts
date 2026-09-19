@@ -23,6 +23,7 @@ import {
   applyCapabilities,
   type B4Config,
   type CapabilityContribution,
+  configureApprovalGrants,
   createAgentsMdMarker,
   createCapabilityRegistry,
   createMemoryMarker,
@@ -65,7 +66,12 @@ import {
 } from "@b4run/langchain"
 import { routeNamespaceKey } from "@b4run/memory/namespace"
 import type { PermissionMode, PermissionsStore } from "@b4run/permissions"
-import type { B4Middleware, ThreadAccessPolicy } from "@b4run/sdk"
+import type {
+  ApprovalGrantMinter,
+  B4Middleware,
+  InterruptGrantStore,
+  ThreadAccessPolicy,
+} from "@b4run/sdk"
 import { type B4Agent, isB4Agent, type WorkspaceFs } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { ExecBackend, FilesystemBackend } from "@b4run/workspace"
@@ -145,6 +151,20 @@ export interface RuntimeBootFallbacks {
   readonly defaultThreadsStore: (appRoot: string) => ThreadsStore
   /** Config checkpointer, else the default sqlite saver (boot-level resolution). */
   readonly resolveCheckpointer: (appRoot: string) => Promise<BaseCheckpointSaver>
+  /**
+   * Where approval grants record that they were consumed.
+   *
+   * OPTIONAL, like `loadThreadAccess` and for the same reason: this interface
+   * is exported, and an external embedder constructing the bag as an object
+   * literal must not fail to typecheck against a new required member. Absence
+   * is NOT a silent ungating here — the park site fails closed under
+   * `approvals.grants: "required"` whatever this returns, and the resume
+   * endpoint answers `409 grant_unavailable` rather than falling through to
+   * the pre-grant path.
+   */
+  readonly resolveInterruptGrantStore?: (
+    appRoot: string,
+  ) => Promise<InterruptGrantStore | undefined>
   /** Config threads store, else the default sqlite store (boot-level resolution). */
   readonly resolveThreadsStore: (appRoot: string) => Promise<ThreadsStore>
   /** Config permissions + `.b4/permissions.json` (boot-level resolution). */
@@ -493,6 +513,14 @@ export async function* streamResolvedRoute(
      * endpoint can replay them.
      */
     readonly threadId?: string
+    /**
+     * Per-run approval-grant minter, forwarded to the agent-adapter, which
+     * puts it in `config.configurable` for the park site to read. Optional,
+     * like `threadId`: the HTTP layer supplies one, a direct caller (the
+     * testing harness, an embedder) may not, and the park site decides what
+     * that absence means under the configured mode.
+     */
+    readonly approvalGrantMinter?: ApprovalGrantMinter
   },
 ): AsyncGenerator<StreamChunk> {
   const sandboxRunKey = options.sandboxThreadId ?? options.threadId
@@ -583,6 +611,9 @@ export async function* streamResolvedRoute(
         ...(streamTransformers && streamTransformers.length > 0 ? { streamTransformers } : {}),
         ...(subagentResolver ? { subagentResolver } : {}),
         ...(options.threadId ? { threadId: options.threadId } : {}),
+        ...(options.approvalGrantMinter
+          ? { approvalGrantMinter: options.approvalGrantMinter }
+          : {}),
         ...(bypassCache ? { bypassCache: true } : {}),
         ...(sandboxed ? { sandboxed: true } : {}),
       })) {
@@ -885,6 +916,20 @@ async function prepareRouteExecutionForInvocation(
   permissionsConfig = loadedB4Config?.permissions
   configCheckpointer = loadedB4Config?.checkpointer
   configThreadsStore = loadedB4Config?.threadsStore
+
+  // Put the approval-grant mode in force for this process, from the resolved
+  // config, BEFORE any route work can reach a park.
+  //
+  // This is the half of approval grants that deliberately does NOT ride in
+  // `config.configurable`. The minter does, because it is per-run; the mode
+  // cannot, because `configurable` injection is optional by construction and a
+  // mode that went missing alongside the minter could never detect the
+  // minter's absence. Setting it here means every path that prepares a route —
+  // including the testing harness and a direct `streamResolvedRoute` call —
+  // puts the operator's setting in force, so `"required"` fails closed at the
+  // park site even for an invoker that never learned to inject a minter.
+  // `configureApprovalGrants` only ratchets up.
+  configureApprovalGrants(loadedB4Config?.approvals?.grants ?? "off")
 
   // When a SandboxManager is configured and we have a stable thread id, resolve
   // the thread's sandbox handle and route the workspace filesystem/exec (and the

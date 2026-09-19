@@ -129,3 +129,59 @@ describe("fromAguiResume", () => {
     expect(Object.hasOwn(resume, "payload")).toBe(true)
   })
 })
+
+describe("toAguiInterrupt — approval grants", () => {
+  const envelope = {
+    interruptId: "perm-1",
+    type: "permission-request",
+    kind: "tool",
+    grant: "b4ag_abc",
+    detail: { toolName: "allocate" },
+  }
+
+  test("surfaces the grant top-level AND keeps it in metadata", () => {
+    const interrupt = toAguiInterrupt(envelope)
+    if (!interrupt) throw new Error("expected an interrupt")
+    expect(interrupt.grant).toBe("b4ag_abc")
+    // `metadata` is the copy that survives a round trip through AG-UI's own
+    // `InterruptSchema`, which is a closed `"strip"`-mode object with no
+    // `grant` key. Dropping this copy would make a re-validating client's
+    // prompt silently unanswerable under `approvals.grants: "required"`.
+    expect((interrupt.metadata as { grant?: string }).grant).toBe("b4ag_abc")
+  })
+
+  test("omits the top-level field entirely when the envelope carries no grant", () => {
+    const { grant: _grant, ...withoutGrant } = envelope
+    const interrupt = toAguiInterrupt(withoutGrant)
+    if (!interrupt) throw new Error("expected an interrupt")
+    expect(Object.hasOwn(interrupt, "grant")).toBe(false)
+  })
+
+  test("ignores a non-string grant rather than forwarding it", () => {
+    const interrupt = toAguiInterrupt({ ...envelope, grant: { nope: true } })
+    if (!interrupt) throw new Error("expected an interrupt")
+    expect(Object.hasOwn(interrupt, "grant")).toBe(false)
+  })
+})
+
+describe("fromAguiResume — approval grants", () => {
+  test("echoes a string grant through to the B4 resume request", () => {
+    const [resume] = fromAguiResume([
+      { interruptId: "perm-1", status: "resolved", payload: "once", grant: "b4ag_abc" },
+    ])
+    expect(resume).toEqual({
+      interruptId: "perm-1",
+      status: "resolved",
+      payload: "once",
+      grant: "b4ag_abc",
+    })
+  })
+
+  test("drops a non-string grant — an opaque echo is not a JSON channel", () => {
+    const [resume] = fromAguiResume([
+      { interruptId: "perm-1", status: "cancelled", grant: { evil: true } },
+    ])
+    if (!resume) throw new Error("expected one entry")
+    expect(Object.hasOwn(resume, "grant")).toBe(false)
+  })
+})

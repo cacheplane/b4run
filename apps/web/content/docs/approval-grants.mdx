@@ -1,0 +1,156 @@
+# Approval Grants
+
+An **approval grant** is a single-use capability the runtime mints when it parks a [human-in-the-loop approval](/docs/permissions), and requires back when that approval is answered.
+
+It exists because disclosure control is not consumption control. [Thread access](/docs/thread-access) already decides who may touch a thread at all, and that is the right answer to *who*. It is coarse by construction: it cannot tell two resumes of the same thread by the same caller apart, and it should not try. So inside a session that legitimately holds the thread, two things were unguarded:
+
+- **Replay.** The same approval answered twice — and a financial allocation applied twice with it. Nothing in the runtime recorded that a parked call had already been answered. What looked like replay protection was emergent: once LangGraph consumed the pending writes, a replayed body found an empty pending set and got a `409`. That is a side effect of LangGraph's semantics, not a property B4.run enforced.
+- **Staleness.** An answer minted against an earlier proposal applied to the current one, because nothing marked the earlier prompt dead when the thread moved past it.
+
+## Two layers, AND-composed
+
+| | `ThreadAccessPolicy` | The grant |
+|---|---|---|
+| Question | **Who** is this caller, and may they touch this thread at all | **Which** parked call is this answering, and is this the **first** answer |
+| Knows about | Headers, identity, tenancy, the ownership stamp, `resuming` | The thread, the interrupt, the graph position, the consumption record |
+| Knows nothing about | Which interrupt, how many times | Who the caller is |
+| Runs | First, always | Second, only after an allow |
+| Refuses with | 403/404, your policy's choice | 400/403/409, fixed by the runtime |
+
+The order is fixed and the grant check never runs first. A grant is verified **after** the access gate, so a caller the policy denies can never read a grant failure as an oracle telling them whether a guessed `interruptId` names a real parked call.
+
+The grant is deliberately **not** bound to caller identity, and your policy is deliberately never shown the grant value. The runtime has no identity model — binding to a header it does not understand would be theater — and a policy that authorized on a client-supplied value would be authorizing on input that has not been verified yet. If you want "the same human who was prompted must answer", that is a question your policy answers from your own identity, in `update`, with `req.resuming === true`.
+
+Grants also do not replace the in-process resume claim. The claim answers "is one resume in flight"; the grant answers "was this answered before". Different questions, both kept.
+
+## Turning it on
+
+```ts title="b4.config.ts"
+export default {
+  approvals: {
+    // "off" (default) | "optional" | "required"
+    grants: "optional",
+    // grantTtlMs: 86_400_000,   // omitted means no expiry
+    // grantStore: createPostgresInterruptGrantStore({ ... }),
+  },
+}
+```
+
+| Mode | Park | Resume |
+|---|---|---|
+| `"off"` (default) | No grant is minted. | No grant is required. Exactly the pre-grant behavior. |
+| `"optional"` | A grant is minted and disclosed whenever the run can mint one. | An interrupt that **has** a grant **requires** it. An interrupt with no grant row resumes as before. |
+| `"required"` | A park that cannot mint a grant aborts the turn. | A resume with no grant is refused. |
+
+The setting is process-wide and **ratchets up only**: one process can prepare routes for more than one app root, and a second config with a weaker setting must not be able to weaken a stricter one already in force — that would be a downgrade attack expressible as an ordinary config file. Two app roots in one process therefore share the strictest mode either of them asks for. A process that needs two different modes needs two processes.
+
+### The `"optional"` rule, which is load-bearing
+
+> An interrupt that **has** a grant row **requires** its grant. An interrupt with **no** grant row — one parked before you switched grants on, or parked by an invoker that could not mint — resumes exactly as it did before.
+
+The softness is **per-interrupt-age, not per-request.** Read the other way round, `"optional"` would be a bypass rather than a migration window: omit the grant, get the old path. It is a window, and it drains as the threads parked before the change settle.
+
+Threads parked before the change cannot be retrofitted. Minting a grant for a prompt already disclosed to whoever saw it proves nothing, so under `"required"` those resumes answer `409 grant_unavailable` and the prompt has to be re-parked. The residual set is small and bounded.
+
+## The client flow
+
+### Out
+
+The grant reaches the client on the channels that already carry the prompt, and only those, so there is exactly one disclosure gate to reason about — the same `thread.pending_interrupts` / `thread.attach` gate, composed as AND with the parking route's middleware.
+
+| Channel | Where the grant is |
+|---|---|
+| The AG-UI `interrupt` chunk | Top-level `grant`, **and** `metadata.grant` |
+| `GET /threads/:thread_id/pending_interrupts` | `grant` beside `interruptId`, `resumeKey` and `value` |
+| The attach `state` frame | `grant` on each entry of `interrupts` |
+
+On AG-UI it arrives twice, and both copies are needed. `Interrupt` is AG-UI's type, not B4.run's: it is inferred from a closed, `"strip"`-mode `InterruptSchema` with no `grant` key, so a consumer that re-validates an interrupt through AG-UI's own schema silently drops a top-level `grant` — quietly making the prompt unanswerable under `"required"`. `metadata` is an open record and survives that round trip. **Read `grant` if you have it, fall back to `metadata.grant`:** the top-level field is the ergonomic one, `metadata.grant` is the durable one.
+
+<Callout type="info" title="The grant is re-readable, not read-once">
+A client that reattaches after a reload must be able to read the grant again, and reattach is a supported path. Single-use is a property of **consumption**, not of disclosure. Nothing is spent by looking.
+</Callout>
+
+### Back
+
+Per entry in the resume body, not as a header — a resume body carries one entry per pending interrupt and must address the pending set exactly.
+
+```sh
+curl -X POST http://127.0.0.1:2024/threads/$THREAD/resume \
+  -H 'Content-Type: application/json' \
+  -d '{"resume":[{"interruptId":"perm-abc123","status":"resolved","payload":"once","grant":"b4ag_..."}],"route":"/research#agent"}'
+```
+
+`grant` is opaque. The client echoes the string it was given and authors nothing about the decision beyond `status` and `payload`. It is optional on the type for migration only; at runtime it is required whenever the interrupt has one.
+
+A `cancelled` entry carries its grant too. A denial **is** a decision, and a re-answerable denial is a replay surface of its own, so `deny` consumes the grant exactly as `once` and `always` do.
+
+## Every failure
+
+| Status | `code` | When |
+|---|---|---|
+| `400` | `grant_required` | Mode is `"required"`, the interrupt has a grant, and the entry omitted it. |
+| `403` | `grant_invalid` | The grant does not match — wrong grant, grant for another parked call, malformed, or no row under `"optional"` with a grant presented anyway. |
+| `409` | `grant_consumed` | Already answered. Echoes `consumedAt` and `consumedDecision`. |
+| `409` | `grant_expired` | `grantTtlMs` elapsed before anyone answered. |
+| `409` | `grant_unavailable` | Grants are on but nothing can record them, or the interrupt was parked without one and the mode is `"required"`. |
+| `409` | `stale_interrupt` | The thread moved past this parked call before it was answered. |
+
+`403 grant_invalid` is the **same** status, code and message for every one of its causes. That is deliberate: a caller who has already passed the thread gate must not be able to use the difference to learn whether a guessed `interruptId` names a real parked call. The endpoint is not an oracle, and it will not grow a `reason` field to make debugging easier — log server-side instead.
+
+`409 grant_consumed` echoing the decision is also deliberate, and is not a leak: the caller made that decision. It is there so a double-submitting UI renders "already approved" instead of re-prompting. The call is **not** re-executed.
+
+`409 stale_interrupt` is the existing code, reused on purpose. When a turn settles, every outstanding grant for that thread whose parked call is no longer pending is stamped void — so to a client, a voided grant and a vanished interrupt are the same event, because they are.
+
+## Fail-closed at the park site
+
+Under `"required"`, a park that cannot mint a grant **aborts the turn**, loudly, rather than parking a prompt nobody can answer safely. The failure is `MissingApprovalGrantMinterError` and B4.run never catches it.
+
+This is the half that makes `"required"` mean anything. The minter is injected per run and injection is optional by construction — an invoker that calls the streaming entry points directly omits it, exactly as it omits `threadId`. If that absence produced a park with no grant, `"required"` would silently degrade to the old path for precisely the invokers whose missing minter it is supposed to catch. The park site is the one place that knows a grant is about to be needed, so it is the one place that can refuse.
+
+If you invoke a route outside the B4.run runtime and want grants required, inject the minter yourself or set `approvals.grants` to `"optional"` or `"off"`.
+
+## Where consumption is recorded
+
+A B4-owned `interrupt_grants` table, added by an additive versioned migration. It does not alter `checkpoints`, `writes` or `threads`, so it is reversible by dropping one table and setting `"off"`.
+
+| Runtime | Store |
+|---|---|
+| Node, default | SQLite at `<appRoot>/.b4/interrupt-grants.sqlite` |
+| Multi-replica | `createPostgresInterruptGrantStore` from `@b4run/postgres-storage` |
+| Everything else | An in-process store — neither durable nor replica-safe |
+
+Set `approvals.grantStore` to override. A multi-replica deployment **must**: the in-process store cannot see another replica's consumption, which is the one thing the feature exists to record.
+
+Only a SHA-256 hash of the grant is stored, for the same reason a password is not stored — an operator with read access to the database, or a leaked backup, must not thereby be able to answer approval prompts. Consumption is a conditional `UPDATE … WHERE consumed_at IS NULL AND voided_at IS NULL`, so the row count decides the winner: atomic, durable across a restart, and correct across replicas.
+
+The table is deliberately not the checkpointer's `writes` blob. That blob is LangGraph's, it is returned to clients, and it is deleted on LangGraph's schedule rather than B4.run's — the consumption record would disappear at exactly the moment it is needed to answer a replay.
+
+## Two limitations worth stating plainly
+
+### At-most-once *delivery* is not exactly-once *effect*
+
+The grant is consumed immediately **before** the resume is delivered to the graph. A crash in between loses the approval and the human is prompted again, rather than risking a double application. That direction is chosen on purpose, and it is the honest statement of what this buys.
+
+It says nothing about what your tool did. A tool that half-applied a ledger write before crashing is still half-applied. **Your own idempotency key does not become redundant**, and deleting it because approvals are now single-use is the most likely way to misread this page.
+
+### The plaintext grant is at rest in the checkpoint
+
+The park site carries the grant in the interrupt envelope, because it lives inside LangGraph's `interrupt()` throw and has no storage handle with which to attach it later at projection time. The envelope is persisted verbatim. So the plaintext grant sits in the checkpointer's `writes` blob for as long as the prompt is parked.
+
+The hash-only grant store therefore protects the **consumption ledger**, not the checkpoint. **Anyone with read access to the checkpoint store can answer a prompt that is still parked.** Treat the checkpointer as the sensitive store it already is; grants do not change its threat model.
+
+## What stays your application's job
+
+1. **What a decision means.** B4.run's vocabulary is `once` / `always` / `deny` over a tool call. "Approve allocating $4,812.00 of payment P to invoice I" is not in that vocabulary and will not be.
+2. **Idempotency of the effect.** See above. This is the one most likely to be misread as code you can now delete.
+3. **Binding the decision to the domain object the human saw.** The runtime knows the tool call. It does not know which version of the proposal was on screen.
+4. **Authority.** Whether *this* human may approve *this* amount — approval limits, four-eyes, segregation of duties.
+5. **Audit in domain terms.** The table records that an approval was consumed, when, and with which decision. It does not record who, or why, or against what.
+
+## Related
+
+<RelatedCards items={[
+  { href: "/docs/permissions", title: "Permissions", subtitle: "the human-in-the-loop gates that park the approvals grants bind to" },
+  { href: "/docs/thread-access", title: "Thread Access", subtitle: "the policy that answers who may touch a thread at all" },
+  { href: "/docs/configuration", title: "Configuration Reference", subtitle: "b4.config.ts reference including the full approvals block" },
+]} />

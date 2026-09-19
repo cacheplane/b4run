@@ -34,6 +34,12 @@ export default config({
     // store: sharedPermissionsStore,
   },
 
+  approvals: {
+    grants: "off",
+    // grantTtlMs: 86_400_000,
+    // grantStore: sharedInterruptGrantStore,
+  },
+
   // Defaults are local SQLite/file stores under .b4/.
   // checkpointer: sharedCheckpointer,
   // threadsStore: sharedThreadsStore,
@@ -189,6 +195,30 @@ before use. The custom store owns its mode and allow/deny policy: sibling
 `permissions.mode`, `allow`, `deny`, and `B4_PERMISSIONS_MODE` are not applied
 again. In an embedded runtime, a boot-supplied store takes precedence over this
 config field.
+
+### `approvals`
+
+```ts
+approvals?: {
+  grants?: "off" | "optional" | "required"
+  grantTtlMs?: number
+  grantStore?: InterruptGrantStore
+}
+```
+
+`grants` decides whether a parked approval carries a single-use grant that
+must be echoed on resume. Default `"off"`, which is the pre-grant behavior.
+Under `"optional"` an interrupt that **has** a grant requires it while one
+parked without a grant resumes as before; under `"required"` a resume with no
+grant is refused and a park that cannot mint one aborts the turn. The setting
+is process-wide and ratchets up only, so two app roots in one process share
+the strictest mode either asks for.
+
+`grantTtlMs` is omitted by default, meaning no expiry — a human approval may
+legitimately sit overnight. `grantStore` defaults to SQLite at
+`.b4/interrupt-grants.sqlite` on node and to a non-durable in-process store
+elsewhere, so a multi-replica deployment must supply one. See [Approval
+Grants](/docs/approval-grants).
 
 ### `checkpointer`
 

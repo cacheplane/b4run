@@ -6,6 +6,17 @@ export interface B4ResumeEntry {
   readonly interruptId: string
   readonly status: "resolved" | "cancelled"
   readonly payload?: unknown
+  /**
+   * The single-use approval grant the parked prompt carried, echoed back
+   * verbatim. Opaque: the client authors nothing about the decision beyond
+   * `status`/`payload`, and never constructs this value.
+   *
+   * Optional at the type level for migration only. At runtime it is required
+   * whenever the interrupt HAS a grant row — which is the rule that stops
+   * `approvals.grants: "optional"` from being a bypass — and always under
+   * `"required"`. See `approval-grants.ts`.
+   */
+  readonly grant?: string
 }
 
 export interface PendingInterrupt {
@@ -69,6 +80,25 @@ export type ResumeResolution =
  * something else too — channel values *and* pending interrupts — pays for one
  * `getTuple` instead of two. Pure: no I/O, no checkpointer.
  */
+/**
+ * The approval grant carried by a parked interrupt's envelope, if any.
+ *
+ * The grant lives IN the envelope because the park site — inside `interrupt()`
+ * in `@b4run/core` — has no storage handle and no way to reach the disclosure
+ * paths, so it cannot attach the grant at projection time. The consequence is
+ * stated rather than hidden: the plaintext grant is at rest in the
+ * checkpointer's `writes`, so the hash-only grant store protects the
+ * consumption ledger, not the checkpoint. See the docs.
+ *
+ * Projections lift it to a top-level `grant` alongside the verbatim `value`,
+ * so a client does not have to know the envelope's shape to answer a prompt.
+ */
+export function grantOf(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined
+  const grant = (value as { grant?: unknown }).grant
+  return typeof grant === "string" && grant.length > 0 ? grant : undefined
+}
+
 export function parsePendingInterrupts(tuple: CheckpointTuple): PendingInterruptSnapshot {
   const interrupts: PendingInterrupt[] = []
   let malformed = false

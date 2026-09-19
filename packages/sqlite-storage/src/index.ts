@@ -1,5 +1,12 @@
 export type { SqliteCheckpointerOptions } from "./checkpointer/index.js"
 export { B4SqliteSaver, sqliteCheckpointer } from "./checkpointer/index.js"
+export type { InterruptGrantStoreOptions } from "./interrupt-grants/index.js"
+export { createInterruptGrantStore } from "./interrupt-grants/index.js"
+export type {
+  InterruptGrantConsumption,
+  InterruptGrantRecord,
+  InterruptGrantStore,
+} from "./interrupt-grants/types.js"
 export type {
   CreateThreadInput,
   Thread,
