@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-19-workbench-browser-gate-design.md`
 
+**Note (2026-09-19, Task 1):** under `moduleResolution: "Bundler"` TypeScript pairs a `.mjs` module only with a `.d.mts` sibling — a `.d.ts` leaves the import at TS7016 (verified both ways). All declaration files in this plan are therefore `.d.mts`. Also: root `pnpm lint:fix` applies `--unsafe` fixes repo-wide; scope formatting fixes to the files you own.
+
 **Environment:** Node 24 (`nvm use 24` — Node 22 fails ~8 harness tests spuriously). Run `pnpm install --frozen-lockfile && pnpm build` once in a fresh worktree. Install a browser once: `pnpm exec playwright install chromium`. Capture exit codes directly (`cmd > /tmp/x.log 2>&1; echo $?`); never pipe a gate through `tail`. Never run bare `biome check --write`; use `pnpm lint:fix` or the package's lint script.
 
 ---
@@ -18,7 +20,7 @@
 
 | File | Responsibility |
 |---|---|
-| `docs/brand/demo/capture.d.ts` (create) | Type declarations for the four journey helpers so TypeScript under `test/tsconfig.json` (no `allowJs`) can import the `.mjs`. |
+| `docs/brand/demo/capture.d.mts` (create) | Type declarations for the four journey helpers so TypeScript under `test/tsconfig.json` (no `allowJs`) can import the `.mjs`. |
 | `test/harness/workbench-browser.ts` (create) | `runWorkbenchBrowserJourney(options, deps)`: launch → open → send → complete → read thread id → restore → collect console errors → screenshot on failure → close. Pure orchestration; no harness state. |
 | `test/harness/workbench-browser.test.ts` (create) | Unit tests with a fake `chromium` proving ordering, the console-error assertion, the missing-thread-id failure, and the screenshot-on-failure path. |
 | `test/generated/run-generated-research-activation.test.ts` (modify) | Register `DEMO_FIXTURES`; call W7 at the end of the `dev:web` session with the real chromium. |
@@ -29,7 +31,7 @@
 ### Task 1: Type declarations for the capture helpers
 
 **Files:**
-- Create: `docs/brand/demo/capture.d.ts`
+- Create: `docs/brand/demo/capture.d.mts`
 - Test: `pnpm typecheck` (root; `test/tsconfig.json` is what compiles `test/**`)
 
 - [ ] **Step 1: Write a probe import that must fail to type-check**
@@ -49,7 +51,7 @@ Expected: `exit=1` and a `TS7016` ("Could not find a declaration file for module
 
 - [ ] **Step 3: Write the declaration file**
 
-`docs/brand/demo/capture.d.ts`:
+`docs/brand/demo/capture.d.mts`:
 
 ```ts
 /**
@@ -90,7 +92,7 @@ Expected: both `0`. (Root lint runs `biome lint` over `docs/brand/demo`; a `.d.t
 - [ ] **Step 6: Commit**
 
 ```bash
-git add docs/brand/demo/capture.d.ts test/harness/workbench-browser.ts
+git add docs/brand/demo/capture.d.mts test/harness/workbench-browser.ts
 git commit -m "test(harness): declare types for the Workbench capture helpers
 
 The activation harness will drive the scaffolded Workbench through the same
@@ -426,7 +428,7 @@ import { DEMO_FIXTURES, DEMO_PROMPT } from "../../docs/brand/demo/scenario.mjs"
 import { runWorkbenchBrowserJourney } from "../harness/workbench-browser.ts"
 ```
 
-`scenario.mjs` needs a declaration too. Create `docs/brand/demo/scenario.d.ts`:
+`scenario.mjs` needs a declaration too. Create `docs/brand/demo/scenario.d.mts`:
 
 ```ts
 import type { AimockFixture } from "../../../packages/testing/src/fixture-builder.ts"
@@ -490,7 +492,7 @@ Expected: `exit=0`. A `TS7016` on `scenario.mjs` means the `.d.ts` from Step 1 i
 - [ ] **Step 5: Commit (the run is Task 5; this commit is the wiring)**
 
 ```bash
-git add docs/brand/demo/scenario.d.ts test/generated/run-generated-research-activation.test.ts
+git add docs/brand/demo/scenario.d.mts test/generated/run-generated-research-activation.test.ts
 git commit -m "test(generated): W7 — drive the scaffolded Workbench in headless Chromium
 
 The seventh web assertion opens the generated web client in a real browser,
@@ -609,8 +611,8 @@ EOF
 
 ## Self-review
 
-**Spec coverage.** Where it runs (Task 3, 4) ✓. The journey steps 1–8 (Task 2 helper + Task 3 wiring; step 1 fixture registration ✓; step 6 the +3 delta ✓; step 7 localStorage seam ✓; step 8 console errors ✓). Failure behaviour: fail closed + screenshot (Task 2, verified in Task 5 mutations) ✓. Budget: measured in Task 5 / Task 6 ✓. Type coverage risk → `capture.d.ts` (Task 1) and `scenario.d.ts` (Task 3) ✓. Testing the gate itself: unit tests with fake browser + two mutations ✓. Out of scope: step 2 named in the PR ✓.
+**Spec coverage.** Where it runs (Task 3, 4) ✓. The journey steps 1–8 (Task 2 helper + Task 3 wiring; step 1 fixture registration ✓; step 6 the +3 delta ✓; step 7 localStorage seam ✓; step 8 console errors ✓). Failure behaviour: fail closed + screenshot (Task 2, verified in Task 5 mutations) ✓. Budget: measured in Task 5 / Task 6 ✓. Type coverage risk → `capture.d.mts` (Task 1) and `scenario.d.mts` (Task 3) ✓. Testing the gate itself: unit tests with fake browser + two mutations ✓. Out of scope: step 2 named in the PR ✓.
 
 **Placeholders.** One deliberate fill-in in the PR body (`<fill from Task 5 Step 2>`) — a measurement, filled at Task 6. Two "verify the name/shape" guards (AimockFixture type name; `t-` thread-id prefix) give the exact command and the fallback.
 
-**Type consistency.** `runWorkbenchBrowserJourney(options, deps)` — same signature in Task 2 test, Task 2 impl, Task 3 call. `WorkbenchBrowserDeps.chromium.launch({ headless: true })` matches the test's `toHaveBeenCalledWith({ headless: true })`. `restoreWorkbenchThread` option names (`workbenchUrl, threadId, prompt, tools, answer`) match `capture.d.ts` and the `.mjs`.
+**Type consistency.** `runWorkbenchBrowserJourney(options, deps)` — same signature in Task 2 test, Task 2 impl, Task 3 call. `WorkbenchBrowserDeps.chromium.launch({ headless: true })` matches the test's `toHaveBeenCalledWith({ headless: true })`. `restoreWorkbenchThread` option names (`workbenchUrl, threadId, prompt, tools, answer`) match `capture.d.mts` and the `.mjs`.

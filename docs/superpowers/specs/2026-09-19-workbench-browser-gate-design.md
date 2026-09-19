@@ -123,7 +123,7 @@ contract; step 1 lands and is measured first because of the CI merge treadmill.
 
 - **Type coverage.** The test is TypeScript and the helpers are untyped `.mjs`;
   neither the root nor `test/tsconfig.json` sets `allowJs` (verified). A
-  minimal `capture.d.ts` beside the script declaring the four helpers is
+  minimal `capture.d.mts` beside the script declaring the four helpers is
   therefore part of step 1, and `pnpm typecheck` is the first gate the plan runs.
 - **Chromium on CI.** `--with-deps` on `ubuntu-latest` is the same call the
   inspector and examples lanes already make.
