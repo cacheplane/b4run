@@ -51,6 +51,12 @@ The root's edge-safe classification covers its import graph. Local workerd plus 
 | `ThreadStatus` | Name thread runtime status. |
 | `ThreadsStore` | Define the threads-store contract. |
 | `createPostgresThreadsStore` | Create a threads store. |
+| `InterruptGrantRecord` | Describe a stored approval-grant row. |
+| `InterruptGrantStore` | Define the approval-grant store contract. |
+| `InterruptGrantConsumption` | Describe a conditional consume's outcome. |
+| `PostgresInterruptGrantStore` | Define a durable approval-grant store. |
+| `PostgresInterruptGrantStoreOptions` | Configure approval-grant storage. |
+| `createPostgresInterruptGrantStore` | Create an approval-grant store. |
 
 ### `@b4run/postgres-storage/node`
 
@@ -82,6 +88,12 @@ The `/node` entry also re-exports every root export. The repeated rows below est
 | `ThreadStatus` | Re-export thread status. |
 | `ThreadsStore` | Re-export the threads-store contract. |
 | `createPostgresThreadsStore` | Create a Node threads store. |
+| `InterruptGrantRecord` | Re-export the approval-grant row type. |
+| `InterruptGrantStore` | Re-export the approval-grant store contract. |
+| `InterruptGrantConsumption` | Re-export the consume outcome type. |
+| `PostgresInterruptGrantStore` | Re-export the approval-grant store type. |
+| `PostgresInterruptGrantStoreOptions` | Re-export approval-grant options. |
+| `createPostgresInterruptGrantStore` | Create a Node approval-grant store. |
 
 ## Key contracts
 

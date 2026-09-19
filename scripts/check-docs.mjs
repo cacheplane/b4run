@@ -3094,6 +3094,10 @@ if (
 
 const expectedB4ConfigSchemaPaths = [
   "appDir",
+  "approvals",
+  "approvals.grantStore",
+  "approvals.grantTtlMs",
+  "approvals.grants",
   "backends",
   "backends.exec",
   "backends.filesystem",
@@ -4233,6 +4237,7 @@ const expectedNavDocEntries = [
   { label: "Access Control", href: "/docs/access-control" },
   { label: "Thread Access", href: "/docs/thread-access" },
   { label: "Permissions", href: "/docs/permissions" },
+  { label: "Approval Grants", href: "/docs/approval-grants" },
   { label: "Retry", href: "/docs/retry" },
   { label: "Observability", href: "/docs/observability" },
   { label: "Inspector", href: "/docs/inspector" },
@@ -4352,9 +4357,9 @@ if (apiReferenceRegistry) {
     ...navDocEntries.slice(apiHubIndex + 1),
   ]
   const expectedAllDocsPageCount = navDocEntries.length + API_REFERENCE_PAGES.length
-  if (navDocEntries.length !== 60 || expectedAllDocsPages.length !== expectedAllDocsPageCount) {
+  if (navDocEntries.length !== 61 || expectedAllDocsPages.length !== expectedAllDocsPageCount) {
     failures.push(
-      `Docs page registries must retain 60 journey pages plus every registered API reference leaf; received ${navDocEntries.length} journey pages, ${API_REFERENCE_PAGES.length} reference leaves, and ${expectedAllDocsPages.length} total pages`,
+      `Docs page registries must retain 61 journey pages plus every registered API reference leaf; received ${navDocEntries.length} journey pages, ${API_REFERENCE_PAGES.length} reference leaves, and ${expectedAllDocsPages.length} total pages`,
     )
   }
   const navModule = await tsImport(pathToFileURL(docsNavPath).href, import.meta.url).catch(

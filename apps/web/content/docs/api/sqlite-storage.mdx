@@ -37,6 +37,11 @@ The package uses Node's `node:sqlite` `DatabaseSync` and LangGraph checkpoint co
 | `ThreadsStore` | Define thread create/read/delete/list/update operations. |
 | `ThreadsStoreOptions` | Select the thread database path. |
 | `createThreadsStore` | Open, migrate, and return a thread store. |
+| `InterruptGrantRecord` | Describe a stored approval-grant row. |
+| `InterruptGrantStore` | Define the approval-grant store contract. |
+| `InterruptGrantConsumption` | Describe a conditional consume's outcome. |
+| `InterruptGrantStoreOptions` | Select the approval-grant database path. |
+| `createInterruptGrantStore` | Open, migrate, and return an approval-grant store. |
 | `openWorkspaceInstallation` | Own a local installation's durable source and association storage. |
 | `WorkspaceInstallation` | Hold installation identity, guarded stores, and close. |
 | `WorkspaceSourceStore` | Persist and retrieve verified source bundles. |

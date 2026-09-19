@@ -21,6 +21,25 @@ export type { BackendAdapter } from "./backend-adapter.js"
 export type { B4ErrorCode, B4ErrorDescriptor } from "./errors.js"
 export { B4_ERRORS, describeError, errorDocsUrl } from "./errors.js"
 export type {
+  ApprovalGrantMinter,
+  ApprovalGrantMode,
+  InterruptGrantConsumption,
+  InterruptGrantRecord,
+  InterruptGrantStore,
+} from "./interrupt-grants.js"
+export {
+  APPROVAL_GRANT_BYTES,
+  APPROVAL_GRANT_MINTER_KEY,
+  APPROVAL_GRANT_MODES,
+  APPROVAL_GRANT_PREFIX,
+  createApprovalGrant,
+  createMemoryInterruptGrantStore,
+  hashApprovalGrant,
+  isApprovalGrantMode,
+  isApprovalGrantShape,
+  timingSafeHexEqual,
+} from "./interrupt-grants.js"
+export type {
   AnthropicModelId,
   GoogleModelId,
   KnownModelId,

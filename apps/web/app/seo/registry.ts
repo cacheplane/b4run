@@ -281,6 +281,13 @@ export const DOCS_SEO_ENTRIES = [
     sourcePath: "apps/web/content/docs/permissions.mdx",
   },
   {
+    path: "/docs/approval-grants",
+    title: "Approval Grants",
+    description:
+      "Bind each parked B4.run approval to a single-use grant that stops replayed and stale resumes, with modes, storage, and every failure code.",
+    sourcePath: "apps/web/content/docs/approval-grants.mdx",
+  },
+  {
     path: "/docs/retry",
     title: "Retry",
     description:

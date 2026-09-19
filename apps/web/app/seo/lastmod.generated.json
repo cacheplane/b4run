@@ -126,6 +126,11 @@
       "sourceDigest": "2b6ae8b52086c700a52e2d5d6f9225b1fe2e334df3507f9d019ba031d9383fae",
       "recordDigest": "377f02ec695270523677382c19653569d17c3636d9fa220a36efa0ce15483075"
     },
+    "/docs/approval-grants": {
+      "lastModified": "2026-09-19T02:05:57.316Z",
+      "sourceDigest": "1f83bd773730bbfe118b546b578cc7add9ce674a21df7467947a83600875c57b",
+      "recordDigest": "b81aee42b2dde42e8847d7089ce154abcecffa8600c3d37159bd8938c57da7b6"
+    },
     "/docs/blueprints": {
       "lastModified": "2026-09-15T18:54:20.913Z",
       "sourceDigest": "999932dc03aeb609877884251ad0d931b4b04159c77f30e9d972b3f76f4a27c0",
@@ -137,9 +142,9 @@
       "recordDigest": "00469e6fe4ea3cc8a68c41578884a89d214ea8f1f0faf5b4b6a83ff4d67740f8"
     },
     "/docs/configuration": {
-      "lastModified": "2026-09-17T23:17:55.685Z",
-      "sourceDigest": "e6ec9927b535a3736bc983473e8cbef52b9d9904fe028fba383e256dc0f74d63",
-      "recordDigest": "cdc6b1703020ae91f784829cf1223f86ad0223b75b3540b5123853ad36c4c3bc"
+      "lastModified": "2026-09-19T02:05:57.316Z",
+      "sourceDigest": "70da20c076971c5735362800ad98612f524982b67903c78742a0131a1e761f41",
+      "recordDigest": "63fa2ca6e77216f4c858b152682ef780a531e31ccd0cd4e652cb7bce5ee3044f"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-07T19:58:55.550Z",
@@ -172,9 +177,9 @@
       "recordDigest": "1f9c3a2e6e99b9e9f5574e85e93834f35fe4a0f7aee7d1563b754f378da7e54a"
     },
     "/docs/deployment/vercel": {
-      "lastModified": "2026-09-18T01:02:37.211Z",
-      "sourceDigest": "c9c6729c46e025dc24f2bc9f47dde7ac6ebd32fa3f1f6c4e511537adb3f760b0",
-      "recordDigest": "a1741873584ef7244f342e174f7f72d59a6e8ea621867d816c07b544cf994b6a"
+      "lastModified": "2026-09-19T02:05:57.316Z",
+      "sourceDigest": "6e840ebc9f280b9382395e5e0739ca671146e598185b63f20e073fc7b4994234",
+      "recordDigest": "02f5feca46b522414cbfd500777497e22bdc8e1c81d9ad3cd80eb5ceaac8a95d"
     },
     "/docs/dev-server": {
       "lastModified": "2026-09-07T19:58:55.550Z",

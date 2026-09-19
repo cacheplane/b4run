@@ -93,6 +93,21 @@ import { scenarios } from "@b4run/sdk/testing"
 | `defineThreadAccess` | Preserve types for a thread access policy. |
 | `deny` | Refuse a thread request. |
 | `permit` | Allow a thread request, optionally stamping it on create. |
+| `ApprovalGrantMode` | Name the approval-grant strictness: `off`, `optional`, or `required`. |
+| `ApprovalGrantMinter` | Mint one single-use approval grant for one parked interrupt. |
+| `InterruptGrantRecord` | Describe a stored grant row, which holds the hash and never the grant. |
+| `InterruptGrantStore` | Define the durable record of which parked approvals have been answered. |
+| `InterruptGrantConsumption` | Express the outcome of a conditional consume. |
+| `APPROVAL_GRANT_MODES` | List every approval-grant mode. |
+| `APPROVAL_GRANT_MINTER_KEY` | Name the run-config key the per-run minter travels under. |
+| `APPROVAL_GRANT_PREFIX` | Expose the `b4ag_` prefix that makes a grant recognizable. |
+| `APPROVAL_GRANT_BYTES` | Expose the randomness, in bytes, behind one grant. |
+| `isApprovalGrantMode` | Validate an approval-grant mode. |
+| `isApprovalGrantShape` | Check a grant arriving on the wire before it is hashed. |
+| `createApprovalGrant` | Mint one grant and return its plaintext and hash. |
+| `hashApprovalGrant` | Hash a grant for storage and comparison. |
+| `timingSafeHexEqual` | Compare two hex digests in constant time. |
+| `createMemoryInterruptGrantStore` | Create the in-process grant store used by tests and storeless runtimes. |
 | `BuiltInModelProviderId` | Name a built-in model provider. |
 | `ModelProviderId` | Name a built-in or custom model provider. |
 | `inferProvider` | Infer a provider from a model ID. |

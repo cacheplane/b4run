@@ -123,6 +123,11 @@ Importing `/node` registers the disk-backed `b4.config.ts` loader. The root rema
 | `renderToolTypes` | Render route tool types. |
 | `CorsConfig` | Configure cross-origin access to the runtime. |
 | `B4Config` | Configure a B4.run application. |
+| `configureApprovalGrants` | Raise the process-wide approval-grant mode. |
+| `approvalGrantMode` | Read the approval-grant mode in force in this process. |
+| `mintGrantForPark` | Mint the grant for a park, or fail closed when one is required. |
+| `MissingApprovalGrantMinterError` | Report a required grant that no minter could issue. |
+| `__resetApprovalGrantsForTests` | Drop the approval-grant latch so a suite can exercise every mode. |
 | `VercelBuildConfig` | Describe the `vercel` target's static assets, extra functions, and routes (`build.vercel`). |
 | `VercelBuildRoute` | One Build Output route with a required `src`. |
 | `DiscoveredB4App` | Describe a located B4.run application. |

@@ -1,6 +1,13 @@
 export type { ThreadsStore } from "@b4run/sqlite-storage"
 export type { BuildTargetName } from "./build-targets.js"
 export { BUILD_TARGET_NAMES, isBuildTargetName } from "./build-targets.js"
+export {
+  __resetApprovalGrantsForTests,
+  approvalGrantMode,
+  configureApprovalGrants,
+  MissingApprovalGrantMinterError,
+  mintGrantForPark,
+} from "./capabilities/approval-grants.js"
 export { createAgentsMdMarker } from "./capabilities/built-in/agents-md.js"
 export { createMemoryMarker } from "./capabilities/built-in/memory.js"
 export { createMemoryMdMarker, MAX_MEMORY_BYTES } from "./capabilities/built-in/memory-md.js"

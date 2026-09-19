@@ -1,5 +1,5 @@
 import type { PermissionMode, PermissionsStore } from "@b4run/permissions"
-import type { ModelProviderId, RouteKind } from "@b4run/sdk"
+import type { ApprovalGrantMode, InterruptGrantStore, ModelProviderId, RouteKind } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { ExecBackend, FilesystemBackend, SandboxConfig } from "@b4run/workspace"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
@@ -104,6 +104,44 @@ export interface B4Config {
      * only calls `load()` on it, then reads it.
      */
     readonly store?: PermissionsStore
+  }
+  /**
+   * Human-in-the-loop approvals. See the approval-grants docs.
+   */
+  readonly approvals?: {
+    /**
+     * Whether a parked approval carries a single-use **grant** that must be
+     * echoed on resume — the fix for replay and staleness in #736.
+     *
+     * - `"off"` (default) — no grant is minted and none is required. Exactly
+     *   the pre-grant behavior.
+     * - `"optional"` — grants are minted and disclosed, and an interrupt that
+     *   HAS a grant requires it. An interrupt parked without one (before the
+     *   migration, or while the mode was `"off"`) resumes as before. The
+     *   softness is per-interrupt-age, not per-request: a per-request softness
+     *   would be a bypass.
+     * - `"required"` — a resume with no grant is refused, and a park that
+     *   cannot mint one is refused too, loudly. See the fail-closed rule on
+     *   `mintGrantForPark`.
+     *
+     * The setting is process-wide and ratchets up only: two app roots in one
+     * process share the strictest mode either asks for.
+     */
+    readonly grants?: ApprovalGrantMode
+    /**
+     * Lifetime of a minted grant, in milliseconds. Omitted means no TTL, and
+     * that is the default on purpose — a human approval may legitimately sit
+     * overnight, and an expiry that fires while someone is asleep turns a
+     * safety feature into an outage.
+     */
+    readonly grantTtlMs?: number
+    /**
+     * Where consumption is recorded. Defaults to the SQLite store beside the
+     * checkpointer on node, and to an in-process store elsewhere — which is
+     * NOT durable and NOT replica-safe, so a multi-replica deployment must
+     * configure a real one (`@b4run/postgres-storage`).
+     */
+    readonly grantStore?: InterruptGrantStore
   }
   readonly checkpointer?: BaseCheckpointSaver
   readonly threadsStore?: ThreadsStore

@@ -68,6 +68,7 @@ export const DOCS_NAV = [
       { label: "Access Control", href: "/docs/access-control" },
       { label: "Thread Access", href: "/docs/thread-access" },
       { label: "Permissions", href: "/docs/permissions" },
+      { label: "Approval Grants", href: "/docs/approval-grants" },
       { label: "Retry", href: "/docs/retry" },
       { label: "Observability", href: "/docs/observability" },
       { label: "Inspector", href: "/docs/inspector" },
