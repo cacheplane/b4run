@@ -63,6 +63,7 @@ const EXPECTED_DETAILED_IMPORTS = [
   ["@b4run/cli", "./fetch"],
   ["@b4run/cli", "./runtime"],
   ["@b4run/cli", "./testing"],
+  ["@b4run/cli", "./workspace"],
   ["@b4run/core", "."],
   ["@b4run/core", "./node"],
   ["@b4run/ag-ui", "."],
@@ -341,6 +342,9 @@ const EXPECTED_REQUIRED_CONTRACT_KEYS = [
   "@b4run/workspace#.:SandboxPolicy",
   "@b4run/workspace#.:SandboxProvider",
   "@b4run/workspace#.:SandboxSecurityPolicy",
+  "@b4run/workspace#.:SandboxWorkspaceReader",
+  "@b4run/workspace#.:OpenWorkspaceReaderInput",
+  "@b4run/workspace#.:withWorkspaceReader",
   "@b4run/workspace#.:SourceBundle",
   "@b4run/workspace#.:SourceFileInput",
   "@b4run/workspace#.:WorkspaceSourceDefinition",
@@ -699,7 +703,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
   it("uses unique keys in separate import and operated address spaces", () => {
     const addresses = ARTIFACT_REGISTRY.map(artifactAddressFor)
     expect(new Set(addresses).size).toBe(addresses.length)
-    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(44)
+    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(45)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated")).toHaveLength(3)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated")).toEqual([
       GENERATED_ROUTES_ARTIFACT,
@@ -1068,7 +1072,7 @@ describe("package catalog", { timeout: 30_000 }, () => {
 
   it("registers every authored high-value signature contract exactly once", () => {
     expect(API_REQUIRED_CONTRACT_KEYS).toEqual(EXPECTED_REQUIRED_CONTRACT_KEYS)
-    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(113)
+    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(116)
     expect(new Set(API_REQUIRED_CONTRACT_KEYS).size).toBe(API_REQUIRED_CONTRACT_KEYS.length)
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/sdk#.:agent")
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/memory#.:MemoryStore")

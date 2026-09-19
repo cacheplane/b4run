@@ -51,6 +51,10 @@
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
+    },
+    "./workspace": {
+      "types": "./dist/workspace-exports.d.ts",
+      "default": "./dist/workspace-exports.js"
     }
   },
   "publishConfig": {

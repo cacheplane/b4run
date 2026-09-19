@@ -1028,6 +1028,7 @@ const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
   ["import:@b4run/cli:./fetch", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/cli:./runtime", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/cli:./testing", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/cli:./workspace", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/core:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/core:./node", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/core:./internal/compiler", "internal", "surfaceKind", "typescript-runtime"],
@@ -1299,6 +1300,9 @@ const EXPECTED_API_REQUIRED_CONTRACT_KEYS = [
   "@b4run/workspace#.:SandboxPolicy",
   "@b4run/workspace#.:SandboxProvider",
   "@b4run/workspace#.:SandboxSecurityPolicy",
+  "@b4run/workspace#.:SandboxWorkspaceReader",
+  "@b4run/workspace#.:OpenWorkspaceReaderInput",
+  "@b4run/workspace#.:withWorkspaceReader",
   "@b4run/workspace#.:SourceBundle",
   "@b4run/workspace#.:SourceFileInput",
   "@b4run/workspace#.:WorkspaceSourceDefinition",
@@ -2487,11 +2491,19 @@ const accuracyContracts = [
       "It is not authentication",
       "mutually untrusted workloads",
       "not automatically reattached, migrated, or deleted",
+      "## Reading a thread's workspace from another process",
+      'import { inspectWorkspace, withWorkspaceReader } from "@b4run/workspace"',
+      "It is not an authorization boundary",
+      "`ReadWriteOnce` PersistentVolumeClaim",
+      "not an atomic snapshot",
     ],
     forbidden: [
       "provider: kubernetesSandbox({",
       "helm upgrade --install b4-sandbox-infra",
-      'from "@b4run/workspace"',
+      // Sandbox CONTRACT types belong to `@b4run/sandbox` on this page. The
+      // workspace package still owns inspection, so a bare package name is too
+      // coarse a pin — it would ban the reader recipe's honest import.
+      'SandboxPolicy } from "@b4run/workspace"',
       'import type { SandboxHandle, SandboxPolicy, SandboxProvider } from "@b4run/sandbox"',
       "workspace can survive idle reap, process restart, or compute replacement",
       "gives each Agent Protocol thread an isolated filesystem",
@@ -4408,15 +4420,15 @@ if (apiReferenceRegistry) {
   }
 
   const artifactAddresses = ARTIFACT_REGISTRY.map(apiReferenceRegistry.artifactAddressFor)
-  if (ARTIFACT_REGISTRY.length !== 48 || new Set(artifactAddresses).size !== 48) {
-    failures.push("ARTIFACT_REGISTRY must contain exactly 48 unique artifact addresses")
+  if (ARTIFACT_REGISTRY.length !== 49 || new Set(artifactAddresses).size !== 49) {
+    failures.push("ARTIFACT_REGISTRY must contain exactly 49 unique artifact addresses")
   }
   const importCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import").length
   const operatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated").length
   const generatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated").length
-  if (importCount !== 44 || operatedCount !== 3 || generatedCount !== 1) {
+  if (importCount !== 45 || operatedCount !== 3 || generatedCount !== 1) {
     failures.push(
-      `ARTIFACT_REGISTRY must contain 44 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
+      `ARTIFACT_REGISTRY must contain 45 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
     )
   }
   const invalidApplicationRecommendations = ARTIFACT_REGISTRY.filter(

@@ -55,9 +55,11 @@ register runtime configuration, or provide workspace lifecycle recovery.
 
 ### Inspecting a text workspace
 
-`inspectWorkspace` accepts the permission-bound `ctx.fs` author handle or a
-`SandboxHandle`. Both use the same bounded traversal and require leaf metadata
-(`stat` / `lstat`) and raw binary reads; missing support fails closed.
+`inspectWorkspace` accepts the permission-bound `ctx.fs` author handle, a
+`SandboxHandle`, or any `WorkspaceReadSource` — including the `SandboxWorkspaceReader`
+a provider hands back from `openWorkspaceReader`. All use the same bounded traversal
+and require leaf metadata (`stat` / `lstat`) and raw binary reads; missing support
+fails closed.
 
 ```ts
 import { inspectWorkspace } from "@b4run/workspace"
@@ -84,6 +86,18 @@ targets are never traversed. Nested entries receive no root exclusions. All othe
 symlinks, non-file/non-directory entries, executable files, invalid UTF-8 and
 NUL-containing binary data are rejected. Leaf names cannot traverse directories.
 UTF-8 text without NUL is accepted; this is not a file-format classifier.
+
+### Reading another thread's workspace
+
+`withWorkspaceReader(provider, { threadId, signal }, operation)` opens a provider's
+optional read-only view of one thread's workspace storage, hands it to `operation`,
+and closes it on both the success and failure paths. The reader carries no write
+method and no command backend, and reading does not disturb that thread's live
+sandbox. `openWorkspaceReader` is optional on `SandboxProvider`; a provider that
+omits it makes `withWorkspaceReader` raise rather than silently return nothing.
+
+This is a host-side API for an already-trusted caller. It is not an authorization
+boundary, not a tool an agent can call, and not an HTTP surface.
 
 Pass a signal to check cancellation around every filesystem call; sandbox backends
 also receive it in their `BackendContext`. Author handles retain their existing

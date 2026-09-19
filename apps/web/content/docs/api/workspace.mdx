@@ -31,7 +31,7 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | Export | Responsibility |
 |---|---|
 | `compose` | Compose backend middleware right-to-left. |
-| `inspectWorkspace` | Inspect a bounded text inventory through author filesystem APIs or a sandbox handle. |
+| `inspectWorkspace` | Inspect a bounded text inventory through author filesystem APIs, a sandbox handle, or a read-only workspace reader. |
 | `InspectWorkspaceOptions` | Set byte and entry limits, cancellation, omitted directories, and required root links. |
 | `WorkspaceInspection` | Return relative-path text files, validated links, byte count, and entry count. |
 | `WorkspaceDefinition` | Declare initial source, immutable environment links, and an optional Git baseline. |
@@ -56,8 +56,13 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | `SandboxConfig` | Configure provider selection and lifecycle policy. |
 | `SandboxHandle` | Describe one acquired sandbox. |
 | `SandboxPolicy` | Describe per-thread network, environment, resource, and security policy. |
-| `SandboxProvider` | Define sandbox acquisition, release, and destruction. |
+| `SandboxProvider` | Define sandbox acquisition, release, destruction, and optional workspace reads. |
 | `SandboxSecurityPolicy` | Describe provider-agnostic hardening intent. |
+| `OpenWorkspaceReaderInput` | Name the thread to read, its cancellation signal, and the identity the reader runs as. |
+| `SandboxWorkspaceReader` | Read one thread's workspace storage, with no write and no command surface. |
+| `ReadOnlyFilesystemBackend` | Define the read half of a filesystem, with inspection metadata required. |
+| `WorkspaceReadSource` | Describe the minimum a workspace inspector consumes. |
+| `withWorkspaceReader` | Open a thread's workspace reader, hand it to an operation, and always close it. |
 | `BackendContext` | Carry cancellation and the active workspace root. |
 | `ExecBackend` | Define shell-command execution. |
 | `ExecMiddleware` | Wrap an execution backend. |
@@ -271,6 +276,7 @@ export interface SandboxProvider {
     readonly detail?: string
     readonly warnings?: readonly string[]
   }>
+  openWorkspaceReader?(input: OpenWorkspaceReaderInput): Promise<SandboxWorkspaceReader>
 }
 ```
 
@@ -279,6 +285,51 @@ export interface SandboxProvider {
 |---|---|---|---|
 | `readonly workspaces` | `ManagedWorkspaceProvider` | no | Supply provider-owned durable workspace operations. |
 | `readonly name` | `string` | yes | Identify the provider. |
+
+`openWorkspaceReader` is an optional capability. Presence is the probe: a provider whose storage cannot be attached a second time omits it rather than implementing it unreliably. An implementation must leave the thread's sandbox undisturbed, make writes impossible rather than merely undocumented, and reject rather than return an empty view when the thread has no workspace storage.
+
+It is not an authorization boundary. The caller already holds the provider; naming a thread id is not a claim of ownership.
+
+```ts api-contract="@b4run/workspace#.:SandboxWorkspaceReader"
+export interface SandboxWorkspaceReader extends WorkspaceReadSource {
+  readonly threadId: string
+  readonly filesystem: ReadOnlyFilesystemBackend
+  close(): Promise<void>
+}
+```
+
+**Fields: `@b4run/workspace#.:SandboxWorkspaceReader`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly threadId` | `string` | yes | Identify the thread whose workspace is being read. |
+| `readonly filesystem` | `ReadOnlyFilesystemBackend` | yes | Read files, directories, and leaf metadata. |
+
+`close()` releases reader-side resources and is idempotent. It never touches the thread's sandbox. `workspaceRoot` comes from `WorkspaceReadSource` and names the absolute root inside the sandbox.
+
+```ts api-contract="@b4run/workspace#.:OpenWorkspaceReaderInput"
+export interface OpenWorkspaceReaderInput {
+  readonly threadId: string
+  readonly signal: AbortSignal
+  readonly runAsNonRoot?: SandboxSecurityPolicy["runAsNonRoot"]
+}
+```
+
+**Fields: `@b4run/workspace#.:OpenWorkspaceReaderInput`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly threadId` | `string` | yes | Name the thread whose workspace storage to open. |
+| `readonly signal` | `AbortSignal` | yes | Cancel the open. |
+| `readonly runAsNonRoot` | `SandboxSecurityPolicy["runAsNonRoot"]` | no | Match the identity that owns the produced files; defaults to the provider's secure default. |
+
+```ts api-contract="@b4run/workspace#.:withWorkspaceReader"
+export declare function withWorkspaceReader<T>(
+  provider: SandboxProvider,
+  input: OpenWorkspaceReaderInput,
+  operation: (reader: SandboxWorkspaceReader) => Promise<T>,
+): Promise<T>
+```
+
+`withWorkspaceReader` closes the reader on both paths. A close failure surfaces on its own, and alongside a body failure as an `AggregateError` rather than replacing it. A provider without the capability raises instead of silently returning nothing.
 
 ```ts api-contract="@b4run/workspace#.:SandboxConfig"
 export interface SandboxConfig {

@@ -57,6 +57,7 @@ console.log(runtime.url)
 - `@b4run/cli` and its `b4` command are supported node-only application and tooling surfaces.
 - `@b4run/cli/fetch` is a supported edge-safe integration surface for generated fetch deployments.
 - `@b4run/cli/runtime` is Node-only and low-level.
+- `@b4run/cli/workspace` is Node-only and low-level: managed-workspace lifecycle for a host process, without the command program.
 - `@b4run/cli/testing` is a deprecated, back-compat-only node-only alias of `@b4run/sdk/testing`; it remains supported only for existing imports, and new scenario code should use the SDK subpath.
 
 `serveRuntime()` starts once and does not watch files or run type generation at boot. Use `b4 dev` for the development watcher and generated types.

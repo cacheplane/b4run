@@ -5,6 +5,7 @@ import { resourceScope } from "../resource-scope.js"
 import { createDocker, type Docker, type SpawnResult } from "./docker-cli.js"
 import { dockerExec } from "./docker-exec.js"
 import { dockerFilesystem } from "./docker-filesystem.js"
+import { openDockerWorkspaceReader } from "./docker-workspace-reader.js"
 import { createDockerManagedWorkspaces } from "./managed-workspace.js"
 import { createThreadLifecycleCoordinator } from "./thread-lifecycle.js"
 
@@ -348,6 +349,19 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
           workspaceRoot: ROOT,
         }
       })
+    },
+    openWorkspaceReader(input) {
+      // Intentionally NOT inside lifecycle.runExclusive: a read must never wait
+      // on (or be able to influence) the thread's keeper lifecycle.
+      return openDockerWorkspaceReader(
+        {
+          docker,
+          image: opts.image,
+          volume: volumeName(input.threadId),
+          resourceId: resourceId(input.threadId),
+        },
+        input,
+      )
     },
     release(threadId) {
       return lifecycle.runExclusive(threadId, async () => {

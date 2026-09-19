@@ -22,11 +22,15 @@ export type {
 } from "./managed-workspace.js"
 export { WorkspaceLifecycleError } from "./managed-workspace.js"
 export type {
+  OpenWorkspaceReaderInput,
+  ReadOnlyFilesystemBackend,
   SandboxConfig,
   SandboxHandle,
   SandboxPolicy,
   SandboxProvider,
   SandboxSecurityPolicy,
+  SandboxWorkspaceReader,
+  WorkspaceReadSource,
 } from "./sandbox-types.js"
 export type { SourceBundle, SourceFileInput } from "./source-bundle.js"
 export type { WorkspaceSourceDefinition } from "./source-capture.js"
@@ -38,3 +42,4 @@ export type {
   FilesystemMiddleware,
 } from "./types.js"
 export { type LoggingOptions, withExecLogging, withFilesystemLogging } from "./with-logging.js"
+export { withWorkspaceReader } from "./with-workspace-reader.js"
