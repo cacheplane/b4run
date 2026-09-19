@@ -511,6 +511,13 @@
             {
               "classification": "safe",
               "descriptor": {
+                "name": "Install Chromium for the Workbench browser gate",
+                "run": "pnpm exec playwright install --with-deps chromium"
+              }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
                 "name": "Harness Coordinator Self-Test",
                 "run": "pnpm verify:harness:self-test"
               }

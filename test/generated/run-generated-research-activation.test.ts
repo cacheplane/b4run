@@ -1,10 +1,9 @@
 import { randomUUID } from "node:crypto"
-import { constants } from "node:fs"
+import { constants, existsSync } from "node:fs"
 import { access, mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 
-import { afterEach, expect, test } from "vitest"
-
+import { afterEach, describe, expect, test } from "vitest"
 import { createArtifactRoot } from "../../packages/devkit/src/testing/index.ts"
 import { createAimock, script } from "../../packages/testing/dist/index.js"
 import { getTestRegistryUrl } from "../harness/local-registry.ts"
@@ -21,6 +20,7 @@ import {
   withPackagedNpmServer,
 } from "../harness/packaged-app.ts"
 import { writeRegistryNpmrc } from "../harness/scaffold-packaging.ts"
+import { runWorkbenchBrowserJourney } from "../harness/workbench-browser.ts"
 
 const tempDirs: TrackedTempDir[] = []
 // Measured on 2026-08-26, two-process session (macOS, node 24.19.0 / npm
@@ -81,6 +81,11 @@ const WEB_TODOS = [
 const WEB_GATED_PROMPT = "Web hop gate: run the external fetch script for the workbench check."
 const WEB_FETCH_COMMAND = "node scripts/fetch-source.mjs workbench hop"
 const WEB_GATED_REPLY = "Fetched external context after approval through the web client."
+// W7's own journey. Distinct from every other registered prompt — aimock matches
+// userMessage as a substring and breaks ties by registration order, so a prompt
+// that is a prefix of another (DEMO_PROMPT ⊂ SAFE_PROMPT) is a latent collision.
+const BROWSER_PROMPT = "Workbench gate: summarize the corpus on agent architectures."
+const BROWSER_REPLY = "ReAct and plan-and-execute are common. [corpus/agent-architectures.md]"
 // CopilotKit's fetch-router matches `agent/<agentId>/run`; `default` is the id
 // the runtime route registers and every CopilotKit hook resolves.
 const COPILOTKIT_RUN_PATH = "/api/copilotkit/agent/default/run"
@@ -162,6 +167,96 @@ function createWebHopFixtures() {
       .replies(WEB_GATED_REPLY)
       .build(),
   ]
+}
+
+function createBrowserFixtures() {
+  return script()
+    .user(BROWSER_PROMPT)
+    .callsTool("searchCorpus", { query: "agent architectures" })
+    .callsTool("readDoc", { path: "corpus/agent-architectures.md" })
+    .replies(BROWSER_REPLY)
+    .build()
+}
+
+/**
+ * aimock resolves a request by finding the first registered fixture whose
+ * `match.userMessage` is a SUBSTRING of the incoming user message
+ * (@copilotkit/aimock router.js:217-220) — so if one registered prompt contains
+ * another, the shorter one silently answers the longer one's turns whenever it
+ * was registered first. Registration order is not a contract worth relying on;
+ * this returns every offending pair so a new fixture fails loudly here rather
+ * than as an inexplicable journey mismatch a thousand lines later.
+ */
+function findPromptCollisions(
+  fixtures: readonly { readonly match: { readonly userMessage?: string } }[],
+): string[] {
+  const prompts = [
+    ...new Set(
+      fixtures.flatMap((fixture) =>
+        typeof fixture.match.userMessage === "string" ? [fixture.match.userMessage] : [],
+      ),
+    ),
+  ]
+  const collisions: string[] = []
+  for (const outer of prompts) {
+    for (const inner of prompts) {
+      if (inner !== outer && outer.includes(inner)) {
+        collisions.push(`"${inner}" is a substring of "${outer}"`)
+      }
+    }
+  }
+  return collisions
+}
+
+/**
+ * `String(value)` throws on a null-prototype object or one whose `toString`
+ * throws, and `flattenCause` renders inside the array literal that builds the
+ * wrapper error — so an unprintable cause would otherwise replace the whole
+ * diagnostic with a bare `TypeError`.
+ */
+function safeMessage(value: unknown): string {
+  try {
+    return value instanceof Error ? value.message : String(value)
+  } catch {
+    return "<unprintable cause>"
+  }
+}
+
+const FLATTEN_CAUSE_MAX_DEPTH = 8
+
+/**
+ * Vitest's JSON reporter serialises `message` but not `cause`, so an error
+ * wrapped for its file paths would reach CI with the real failure stripped.
+ * Flattens the chain (and an AggregateError's branches) into text.
+ */
+function flattenCause(error: unknown, depth = 0): string[] {
+  if (error === null || error === undefined) return []
+  if (depth >= FLATTEN_CAUSE_MAX_DEPTH) {
+    return [`caused by: <chain truncated at depth ${FLATTEN_CAUSE_MAX_DEPTH}>`]
+  }
+  // A primitive cause (`cause: "plain string"`) is worth reporting, but it has
+  // no `cause` of its own to walk, so it terminates the chain here.
+  const lines: string[] = [`caused by: ${safeMessage(error)}`]
+  if (typeof error !== "object") return lines
+  if (error instanceof AggregateError) {
+    let branches: unknown[] = []
+    try {
+      branches = Array.from(error.errors)
+    } catch {
+      branches = []
+    }
+    for (const branch of branches) {
+      lines.push(`  - ${safeMessage(branch)}`)
+    }
+  }
+  let cause: unknown
+  try {
+    cause = (error as { cause?: unknown }).cause
+  } catch {
+    cause = undefined
+  }
+  lines.push(...flattenCause(cause, depth + 1))
+  return lines
 }
 
 function correlateRootToolCalls(events: readonly AgUiEvent[]): Map<string, unknown> {
@@ -1024,6 +1119,93 @@ afterEach(async () => {
   await cleanupTrackedTempDirs(tempDirs)
 })
 
+// `flattenCause` renders inside the array literal that builds the wrapper error,
+// so anything it throws replaces the entire diagnostic — the failure paths this
+// lane preserves included.
+describe("flattenCause", () => {
+  test("reports a primitive cause instead of dropping it", () => {
+    const error = new Error("outer", { cause: "plain string" })
+    expect(flattenCause(error.cause)).toEqual(["caused by: plain string"])
+    expect(flattenCause(new Error("outer", { cause: 42 }).cause)).toEqual(["caused by: 42"])
+  })
+
+  test("walks an object chain and stops at an absent cause", () => {
+    const chained = new Error("top", { cause: new Error("middle", { cause: "bottom" }) })
+    expect(flattenCause(chained)).toEqual([
+      "caused by: top",
+      "caused by: middle",
+      "caused by: bottom",
+    ])
+    expect(flattenCause(undefined)).toEqual([])
+    expect(flattenCause(null)).toEqual([])
+  })
+
+  test("renders an unprintable cause rather than throwing", () => {
+    const nullPrototype = Object.assign(Object.create(null), { cause: "still walked" })
+    expect(flattenCause(nullPrototype)).toEqual([
+      "caused by: <unprintable cause>",
+      "caused by: still walked",
+    ])
+
+    const hostile = {
+      toString() {
+        throw new Error("no primitive for you")
+      },
+    }
+    expect(flattenCause(hostile)).toEqual(["caused by: <unprintable cause>"])
+
+    const throwingMessage = new Error("ignored")
+    Object.defineProperty(throwingMessage, "message", {
+      get() {
+        throw new Error("message getter exploded")
+      },
+    })
+    expect(flattenCause(throwingMessage)).toEqual(["caused by: <unprintable cause>"])
+  })
+
+  test("renders AggregateError branches, including unprintable ones", () => {
+    const aggregate = new AggregateError(
+      [new Error("branch one"), "branch two", Object.create(null)],
+      "all failed",
+    )
+    expect(flattenCause(aggregate)).toEqual([
+      "caused by: all failed",
+      "  - branch one",
+      "  - branch two",
+      "  - <unprintable cause>",
+    ])
+  })
+
+  test("marks a truncated cause chain instead of silently stopping", () => {
+    const cyclic: { cause?: unknown; message: string } = { message: "loop" }
+    cyclic.cause = cyclic
+    const lines = flattenCause(cyclic)
+    expect(lines).toHaveLength(9)
+    expect(lines[8]).toBe(`caused by: <chain truncated at depth ${FLATTEN_CAUSE_MAX_DEPTH}>`)
+  })
+
+  test("guards a throwing cause getter instead of letting it escape", () => {
+    const error = new Error("outer")
+    Object.defineProperty(error, "cause", {
+      get() {
+        throw new Error("cause getter exploded")
+      },
+    })
+    expect(flattenCause(error)).toEqual(["caused by: outer"])
+  })
+
+  test("guards a throwing errors getter on an AggregateError-like object", () => {
+    const hostile = Object.create(AggregateError.prototype) as AggregateError
+    Object.defineProperty(hostile, "message", { value: "all failed" })
+    Object.defineProperty(hostile, "errors", {
+      get() {
+        throw new Error("errors getter exploded")
+      },
+    })
+    expect(flattenCause(hostile)).toEqual(["caused by: all failed"])
+  })
+})
+
 // Proves the anchor before the lane has a second block to disambiguate: the
 // `dev:web` line starts with the whole `npm run dev` prefix, so an unanchored
 // `lastIndexOf` selects the WRONG block the moment a web child is recorded after
@@ -1072,6 +1254,25 @@ test("activates the default research scaffold through the complete npm lifecycle
   )
   const commandsTranscriptPath = join(expectedArtifactRoot, "transcripts", "commands.log")
   const agUiTranscriptPath = join(expectedArtifactRoot, "transcripts", "ag-ui.json")
+  // Repo-relative on purpose — `harness-verify` uploads `artifacts/testing/`
+  // only, and the rest of this test's artifact root lives under os.tmpdir().
+  const browserScreenshotPath = join(
+    process.cwd(),
+    "artifacts",
+    "testing",
+    "generated-research-activation",
+    "workbench-browser.png",
+  )
+  // W7 needs a real Chromium. Check it before the scaffold and the installs so a
+  // machine without one fails in seconds rather than after many minutes of work.
+  // `@playwright/test` is imported dynamically because this file also holds pure
+  // unit-ish assertions that must not pay for loading it.
+  const { chromium } = await import("@playwright/test")
+  if (!existsSync(chromium.executablePath())) {
+    throw new Error(
+      "Chromium is not installed for the Workbench browser gate; run: pnpm exec playwright install chromium",
+    )
+  }
   const childServer = {
     active: undefined as { stop(): Promise<void> } | undefined,
   }
@@ -1114,11 +1315,16 @@ test("activates the default research scaffold through the complete npm lifecycle
     await writeFile(agUiTranscriptPath, "", "utf8")
 
     aimock = await createAimock({ fixtures: [] })
-    aimock.addFixtures([
+    const registeredFixtures = [
       ...createSafeResearchFixtures(),
       ...createGatedAndBuiltFixtures(),
       ...createWebHopFixtures(),
-    ])
+      // W7: the Workbench's own journey, driven from a real browser.
+      ...createBrowserFixtures(),
+    ]
+    aimock.addFixtures(registeredFixtures)
+    // Guard, not an assertion about today's fixtures: see findPromptCollisions.
+    expect(findPromptCollisions(registeredFixtures)).toEqual([])
     const activeAimock = aimock
     const agUiRecorder = createAgUiTranscriptRecorder({
       aimockUrl: activeAimock.baseUrl,
@@ -1564,6 +1770,34 @@ test("activates the default research scaffold through the complete npm lifecycle
             expect(webResumeRunId).not.toBe(webGatedRunId)
             assertWebResumedJourney(webResumed.events, webInterrupt.gatedToolCallId)
 
+            // W7 — the Workbench, in a real browser. Everything above proves the
+            // web tier over HTTP; this proves the page renders, sends, streams,
+            // settles, persists the thread, and restores it after a reload —
+            // the README recording's journey, now required. The +3 is the
+            // browser fixture's two tool turns plus its reply, the browser's
+            // only path to a model being the B4 server behind the CopilotKit
+            // route. `chromium` comes from the preflight import at the top of
+            // this test rather than a second one here.
+            const browserJournalStart = activeAimock.getRequests().length
+            const browserResult = await runWorkbenchBrowserJourney(
+              {
+                webUrl,
+                prompt: BROWSER_PROMPT,
+                tools: ["searchCorpus", "readDoc"],
+                answer: BROWSER_REPLY,
+                // Repo-relative, not the harness's os.tmpdir() artifact root:
+                // harness-verify uploads only `artifacts/testing/`, so a
+                // screenshot written anywhere else never reaches CI.
+                screenshotPath: browserScreenshotPath,
+                signal: lifecycleSignal,
+              },
+              { chromium },
+            )
+            expect(browserResult.threadId).toMatch(
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+            )
+            expect(activeAimock.getRequests()).toHaveLength(browserJournalStart + 3)
+
             return { webInterruptId: webInterrupt.interruptId }
           },
         )
@@ -1578,7 +1812,8 @@ test("activates the default research scaffold through the complete npm lifecycle
     // W6, second half — the SECOND child dies too, and its own block says so.
     assertRecordedServerExit(transcriptAfterDev, { appRoot, script: "dev:web" })
     // A leak canary, not a proof of the strip. It says only that nothing echoed
-    // the ambient key into a transcript this lane preserves and CI uploads —
+    // the ambient key into a transcript this lane preserves under its temp root
+    // and names in the failure message (CI uploads only `artifacts/testing/`) —
     // which holds largely because the web tier has no model path except through
     // B4.run, so there is little to echo it. Breaking `GENERATED_APP_UNSET_ENV`
     // for `dev:web` leaves this green; the assertion that actually fails is
@@ -1727,6 +1962,10 @@ test("activates the default research scaffold through the complete npm lifecycle
         `App root: ${appRoot}`,
         `Commands transcript: ${commandsTranscriptPath}`,
         `AG-UI transcript: ${agUiTranscriptPath}`,
+        `Browser screenshot (if W7 failed): ${browserScreenshotPath}`,
+        // Vitest's JSON reporter drops `cause`, so CI would otherwise see only
+        // the paths above and never the failure that produced them.
+        ...flattenCause(cause),
       ].join("\n"),
       { cause },
     )

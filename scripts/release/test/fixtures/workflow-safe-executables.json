@@ -304,6 +304,14 @@
         "classification": "safe",
         "job": "harness-verify",
         "stepIndex": 5,
+        "step": "Install Chromium for the Workbench browser gate",
+        "kind": "run",
+        "value": "pnpm exec playwright install --with-deps chromium"
+      },
+      {
+        "classification": "safe",
+        "job": "harness-verify",
+        "stepIndex": 6,
         "step": "Harness Coordinator Self-Test",
         "kind": "run",
         "value": "pnpm verify:harness:self-test"
@@ -311,7 +319,7 @@
       {
         "classification": "safe",
         "job": "harness-verify",
-        "stepIndex": 6,
+        "stepIndex": 7,
         "step": "Framework Verification",
         "kind": "run",
         "value": "pnpm verify:harness:framework"
@@ -319,7 +327,7 @@
       {
         "classification": "safe",
         "job": "harness-verify",
-        "stepIndex": 7,
+        "stepIndex": 8,
         "step": "Runtime Contract Verification",
         "kind": "run",
         "value": "pnpm verify:harness:runtime"
@@ -327,7 +335,7 @@
       {
         "classification": "safe",
         "job": "harness-verify",
-        "stepIndex": 8,
+        "stepIndex": 9,
         "step": "Smoke Harness Verification",
         "kind": "run",
         "value": "pnpm verify:harness:smoke"
@@ -335,7 +343,7 @@
       {
         "classification": "safe",
         "job": "harness-verify",
-        "stepIndex": 9,
+        "stepIndex": 10,
         "step": "Upload Harness Artifacts",
         "kind": "step-uses",
         "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
