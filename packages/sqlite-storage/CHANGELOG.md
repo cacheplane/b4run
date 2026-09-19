@@ -1,5 +1,12 @@
 # @dawn-ai/sqlite-storage
 
+## 0.8.37
+
+### Patch Changes
+
+- Updated dependencies [7410154]
+  - @b4run/workspace@0.8.37
+
 ## 0.8.36
 
 ### Patch Changes
