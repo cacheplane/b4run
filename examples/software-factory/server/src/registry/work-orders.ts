@@ -28,7 +28,6 @@ export type WorkOrderPatch = Partial<
     | "workerThreadId"
     | "interruptId"
     | "candidateDigest"
-    | "candidateVerified"
     | "bundleDigest"
     | "blockedReason"
     | "failureReason"
@@ -75,7 +74,6 @@ const COLUMNS: Readonly<Record<keyof WorkOrderRow, string>> = {
   workerThreadId: "worker_thread_id",
   interruptId: "interrupt_id",
   candidateDigest: "candidate_digest",
-  candidateVerified: "candidate_verified",
   bundleDigest: "bundle_digest",
   blockedReason: "blocked_reason",
   failureReason: "failure_reason",
@@ -92,7 +90,6 @@ type SqlValue = string | number | null
 
 function toSql(key: keyof WorkOrderRow, value: unknown): SqlValue {
   if (value === null || value === undefined) return null
-  if (typeof value === "boolean") return value ? 1 : 0
   if (typeof value === "number" || typeof value === "string") return value
   throw new TypeError(`Unsupported value for ${key}`)
 }
@@ -100,11 +97,7 @@ function toSql(key: keyof WorkOrderRow, value: unknown): SqlValue {
 function fromSql(record: Record<string, unknown>): WorkOrderRow {
   const raw: Record<string, unknown> = {}
   for (const [key, column] of Object.entries(COLUMNS) as [keyof WorkOrderRow, string][]) {
-    const value = record[column]
-    raw[key] =
-      key === "candidateVerified" && value !== null && value !== undefined
-        ? value === 1
-        : (value ?? null)
+    raw[key] = record[column] ?? null
   }
   return WorkOrderRowSchema.parse(raw)
 }

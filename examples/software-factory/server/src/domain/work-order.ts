@@ -13,7 +13,6 @@ export const WorkOrderRowSchema = z.object({
   /** Set only when an unexpected interrupt is found parked on the thread; rung 1 has no gate. */
   interruptId: z.string().min(1).nullable(),
   candidateDigest: z.string().regex(DIGEST_PATTERN).nullable(),
-  candidateVerified: z.boolean().nullable(),
   /** Set when the controller freezes a review bundle; what approval binds to. */
   bundleDigest: z.string().regex(DIGEST_PATTERN).nullable(),
   blockedReason: z.enum(BLOCKED_REASONS).nullable(),

@@ -176,6 +176,51 @@ describe("cancel", () => {
     expect(readdirSync(out())).toEqual([])
   })
 
+  it("aborts a verifier still running when the work order is cancelled", async () => {
+    // The verifier parks until its own signal aborts. Only a per-work-order signal can free
+    // it: the factory-wide one aborts on close(), long after the operator asked.
+    let entered = () => {}
+    const entry = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    let observed: AbortSignal | null = null
+    const verifier: Verifier = {
+      verify(_input, signal) {
+        observed = signal
+        entered()
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+        })
+      },
+    }
+    await boot({}, { verifier })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const dispatched = await factory.waitFor(id, (r) => r.workerThreadId !== null)
+    reader.set(dispatched.workerThreadId as string, repaired())
+    await entry
+
+    const outcome = await factory.cancel(id)
+    expect(outcome).toEqual({ ok: true, state: "cancelled", message: "Cancelled" })
+    const aborted = new Promise<boolean>((resolve) => {
+      const signal = observed as AbortSignal | null
+      if (!signal) return resolve(false)
+      if (signal.aborted) return resolve(true)
+      signal.addEventListener("abort", () => resolve(true), { once: true })
+      setTimeout(() => resolve(false), 5_000).unref()
+    })
+    expect(await aborted).toBe(true)
+    await factory.waitFor(
+      id,
+      () => factory.events(id).some((e) => e.type === "verification_aborted"),
+      20_000,
+    )
+    expect(factory.show(id)).toMatchObject({ state: "cancelled", bundleDigest: null })
+    const types = factory.events(id).map((e) => e.type)
+    expect(types).not.toContain("bundle_frozen")
+    expect(types).not.toContain("verifier_unavailable")
+  })
+
   it("cancels a received work order that has no thread", async () => {
     await boot()
     const { id } = await factory.create({ taskId: "cli-flags" })

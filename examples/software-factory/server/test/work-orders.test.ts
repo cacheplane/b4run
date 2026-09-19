@@ -16,7 +16,6 @@ function freshRow(id = "wo-1"): WorkOrderRow {
     workerThreadId: null,
     interruptId: null,
     candidateDigest: null,
-    candidateVerified: null,
     bundleDigest: null,
     blockedReason: null,
     failureReason: null,
@@ -54,18 +53,13 @@ describe("work-order store", () => {
     expect(s.get("wo-1")?.state).toBe("dispatched")
   })
 
-  it("stores booleans and nulls faithfully", () => {
+  it("stores strings and nulls faithfully", () => {
     const s = store()
     s.insert(freshRow())
-    const row = s.update(
-      "wo-1",
-      0,
-      { candidateDigest: digest, candidateVerified: false, interruptId: "perm-1" },
-      at,
-    )
-    expect(row.candidateVerified).toBe(false)
+    const row = s.update("wo-1", 0, { candidateDigest: digest, interruptId: "perm-1" }, at)
+    expect(row.candidateDigest).toBe(digest)
     expect(row.interruptId).toBe("perm-1")
-    expect(s.update("wo-1", 1, { candidateVerified: null }, at).candidateVerified).toBeNull()
+    expect(s.update("wo-1", 1, { interruptId: null }, at).interruptId).toBeNull()
   })
 
   it("appends and reads events in sequence", () => {

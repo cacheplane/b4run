@@ -249,6 +249,28 @@ reconciliation does require is that the phase decide: a row it returns still in 
 is journalled `verification_undecided` and blocked `verification_inconclusive`, so no early
 exit can strand a row for every later boot to rediscover.
 
+Two refinements landed after the rung merged, both found in review:
+
+- **Re-verification is a tracked background run, not something boot awaits.** The phase is
+  container work with a deadline of its own, and a boot that waited for it had nothing
+  listening meanwhile — no HTTP to take a cancel, no budget ticker — so a verifier that hung
+  held the factory down for as long as its container ran. Tracked, it is a run like any
+  other: `close()` waits for it within its bound, and a cancel or an exhausted budget aborts
+  it. Each work order in `verifying` has its own verification signal, aborted the moment the
+  row leaves that state; the factory-wide signal aborts only on `close()` and was never
+  enough to stop a running verifier.
+- **A restart in `exporting` compares content, not names.** The rule reads the approved
+  bytes back from the artifact store and compares the file under the bundle's name against
+  the exact body `exportApproved` writes. A file that is there but differs is journalled
+  `export_mismatch` and blocked `export_unconfirmed`, left in place for the operator. A name
+  alone was never a delivery: the export itself refuses to call an existing file its own
+  without reading it, and the rule that marks a work order `exported` holds the same standard.
+
+The bundle digest covers the receipt id and the freeze time as well as the claim, so two
+freezes over two receipts are two bundles and the registry can check, rather than assume,
+that a repeated digest is a repeated record. The rung 0 `candidate_verified` column, the one
+field a worker ever reported its own verdict into, is dropped by schema version 3.
+
 ## Registry additions
 
 Rung 0's tables stand. Three additions:
@@ -382,6 +404,9 @@ because that is the image both the builder and the verifier run.
 | Restart in `verifying` with the builder's workspace reaped | Blocked `verification_inconclusive` | 1 |
 | The verifying phase returns without deciding | Blocked `verification_inconclusive`; never left in `verifying` | 1 |
 | Restart in `exporting` | Receipt decides; approved bytes exported exactly once | 1 |
+| Restart in `exporting` with a stray file under the bundle's name | Blocked `export_unconfirmed`, `export_mismatch` journalled, file left in place | 1 |
+| Restart in `verifying` while the verifier is still in its container | Boot returns; cancel aborts the verifier | 1 |
+| Cancel while the verifier is running | Verifier's signal aborts; `verification_aborted`, no bundle | 1 |
 | Candidate attempts path traversal or network access | Denied at the real isolation boundary | 3 |
 | Budget exhausted during verification | Cancelled, blocked `budget_exhausted`, no further work | 1 |
 

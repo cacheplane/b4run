@@ -1,5 +1,4 @@
-import { access } from "node:fs/promises"
-import { join } from "node:path"
+import { type ExportedState, exportedState, exportPath } from "../delivery/export.js"
 import { isTerminal } from "../domain/states.js"
 import type { WorkOrderRow } from "../domain/work-order.js"
 import type { StreamFrame } from "../worker/wire.js"
@@ -243,7 +242,7 @@ async function reconcileRun(
   // end of a stream means when the controller is watching one. Whether that workspace holds
   // a candidate is the verifying phase's judgement, not this rule's.
   ctx.transition(id, "turn_ended_with_workspace", {}, { reconciled: true, status: thread.status })
-  await reverify(ctx, id)
+  reverify(ctx, id)
 }
 
 /**
@@ -254,11 +253,18 @@ async function reconcileRun(
  */
 async function reconcileVerifying(ctx: ControllerContext, row: WorkOrderRow): Promise<void> {
   ctx.recordEvent(row.id, "reconciled", { resolution: "reverify", state: row.state })
-  await reverify(ctx, row.id)
+  reverify(ctx, row.id)
 }
 
 /**
- * Run the verifying phase again after a restart.
+ * Run the verifying phase again after a restart, as a tracked background run.
+ *
+ * Not awaited by the boot walk. The phase is container work with a deadline of its own, and
+ * a boot that waited for it would have nothing listening meanwhile — no HTTP to take a
+ * cancel, no budget ticker — so a verifier that hung would hold the whole factory down for
+ * as long as its container ran. Tracked, it is a run like any other: `close()` waits for it
+ * within its bound, and a cancel or an exhausted budget aborts it through the row's own
+ * verification signal.
  *
  * The phase reads the builder's workspace itself and already has an answer for a workspace
  * that is no longer there — `workspace_unreadable`, journalled, then `inconclusive`, which
@@ -274,16 +280,21 @@ async function reconcileVerifying(ctx: ControllerContext, row: WorkOrderRow): Pr
  * post-condition below is checked against the row, not against any one cause: if the phase
  * came back and the row is still `verifying`, that is recorded and settled here.
  */
-async function reverify(ctx: ControllerContext, id: string): Promise<void> {
+function reverify(ctx: ControllerContext, id: string): void {
   if (ctx.mustGet(id).state !== "verifying") return
-  try {
-    await ctx.runVerification(id)
-  } catch (error) {
-    ctx.recordEvent(id, "reconcile_failed", { phase: "verifying", error: String(error) })
-    settleUndecided(ctx, id, "the verifying phase could not be completed after restart")
-    return
-  }
-  settleUndecided(ctx, id, "the verifying phase returned without deciding after restart")
+  ctx.track(
+    id,
+    (async () => {
+      try {
+        await ctx.runVerification(id)
+      } catch (error) {
+        ctx.recordEvent(id, "reconcile_failed", { phase: "verifying", error: String(error) })
+        settleUndecided(ctx, id, "the verifying phase could not be completed after restart")
+        return
+      }
+      settleUndecided(ctx, id, "the verifying phase returned without deciding after restart")
+    })(),
+  )
 }
 
 /**
@@ -307,43 +318,76 @@ function settleUndecided(ctx: ControllerContext, id: string, reason: string): vo
  * itself, named by the bundle digest it approved, so its own export directory — not a receipt
  * some worker was trusted to leave behind — is what says whether the write happened. Nothing
  * is resumed: the bytes are either there or they are not.
+ *
+ * "There" means the approved bundle and bytes, compared, not a file under the right name:
+ * `exportApproved` will not call an existing file its own without reading it, and a rule
+ * that marks a work order `exported` cannot hold a lower standard than the export did.
  */
 async function reconcileExporting(ctx: ControllerContext, row: WorkOrderRow): Promise<void> {
   const id = row.id
-  const bundle = row.bundleDigest ? ctx.evidence.bundle(row.bundleDigest) : null
-  const path = bundle ? join(ctx.exportDir, `${bundle.digest}.json`) : null
-  if (bundle && path && (await exists(path))) {
+  const unconfirmed = (reason: string) => {
     if (ctx.mustGet(id).state !== "exporting") return
-    ctx.store.transaction(() => {
-      if (!ctx.store.delivery(id))
-        ctx.store.recordDelivery({
-          workOrderId: id,
-          candidateDigest: bundle.candidateDigest,
-          receiptPath: path,
-          observedAt: ctx.iso(),
-        })
-      ctx.recordEvent(id, "delivery_observed", { receiptPath: path, reconciled: true })
-      ctx.transition(id, "receipt_observed", {}, { reconciled: true })
-    })
+    ctx.transition(
+      id,
+      "export_unconfirmed",
+      { blockedReason: "export_unconfirmed" },
+      { reconciled: true, reason },
+    )
+  }
+  const bundle = row.bundleDigest ? ctx.evidence.bundle(row.bundleDigest) : null
+  if (!bundle) {
+    unconfirmed("no frozen bundle to export")
     return
   }
-  if (ctx.mustGet(id).state !== "exporting") return
-  ctx.transition(
-    id,
-    "export_unconfirmed",
-    { blockedReason: "export_unconfirmed" },
-    {
-      reconciled: true,
-      reason: bundle ? "no exported bytes after restart" : "no frozen bundle to export",
-    },
-  )
-}
-
-async function exists(path: string): Promise<boolean> {
+  const candidate = ctx.evidence.candidate(bundle.candidateDigest)
+  if (!candidate) {
+    unconfirmed("the frozen bundle's candidate is missing from the registry")
+    return
+  }
+  // The same read `approve` makes: content-addressed, re-hashed against the digest asked for.
+  let changes: Record<string, string>
   try {
-    await access(path)
-    return true
-  } catch {
-    return false
+    changes = JSON.parse(await ctx.artifacts.read(candidate.artifactDigest)) as Record<
+      string,
+      string
+    >
+  } catch (error) {
+    ctx.recordEvent(id, "candidate_unreadable", { phase: "reconcile", error: String(error) })
+    unconfirmed("the approved bytes could not be read to compare against the export")
+    return
+  }
+  const path = exportPath(ctx.exportDir, bundle)
+  let state: ExportedState
+  try {
+    state = await exportedState({ directory: ctx.exportDir, bundle, changes })
+  } catch (error) {
+    ctx.recordEvent(id, "export_unreadable", { receiptPath: path, error: String(error) })
+    unconfirmed("the export directory could not be read after restart")
+    return
+  }
+  switch (state) {
+    case "exported":
+      if (ctx.mustGet(id).state !== "exporting") return
+      ctx.store.transaction(() => {
+        if (!ctx.store.delivery(id))
+          ctx.store.recordDelivery({
+            workOrderId: id,
+            candidateDigest: bundle.candidateDigest,
+            receiptPath: path,
+            observedAt: ctx.iso(),
+          })
+        ctx.recordEvent(id, "delivery_observed", { receiptPath: path, reconciled: true })
+        ctx.transition(id, "receipt_observed", {}, { reconciled: true })
+      })
+      return
+    case "differs":
+      // Left in place for the operator: reconciliation never writes or removes exported
+      // bytes, and whatever is under that name is evidence of something.
+      ctx.recordEvent(id, "export_mismatch", { receiptPath: path, reconciled: true })
+      unconfirmed("the file under the bundle's name is not the approved bundle")
+      return
+    case "missing":
+      unconfirmed("no exported bytes after restart")
+      return
   }
 }

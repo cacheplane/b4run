@@ -14,7 +14,6 @@ function row(overrides: Partial<WorkOrderRow>): WorkOrderRow {
     workerThreadId: "t-1",
     interruptId: null,
     candidateDigest: null,
-    candidateVerified: null,
     bundleDigest: null,
     blockedReason: null,
     failureReason: null,

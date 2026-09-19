@@ -19,7 +19,6 @@ function validRow() {
     workerThreadId: null,
     interruptId: null,
     candidateDigest: null,
-    candidateVerified: null,
     bundleDigest: null,
     blockedReason: null,
     failureReason: null,

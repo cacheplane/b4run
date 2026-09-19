@@ -42,6 +42,22 @@ export function createEvidenceStore(db: DatabaseSync): EvidenceStore {
       : null
   }
 
+  const getBundle = (digest: string): Bundle | null => {
+    const row = db.prepare("SELECT * FROM bundles WHERE digest = ?").get(digest) as
+      | Record<string, string>
+      | undefined
+    return row
+      ? BundleSchema.parse({
+          digest: row.digest,
+          workOrderId: row.work_order_id,
+          candidateDigest: row.candidate_digest,
+          receiptId: row.receipt_id,
+          payload: JSON.parse(String(row.payload)),
+          frozenAt: row.frozen_at,
+        })
+      : null
+  }
+
   return {
     // `digest` is a hash over the record's own content, so "same key, different
     // content" cannot happen without a sha256 collision: INSERT OR IGNORE is safe.
@@ -108,12 +124,20 @@ export function createEvidenceStore(db: DatabaseSync): EvidenceStore {
     receipt(id) {
       return getReceipt(id)
     },
-    // `digest` is a hash over the record's own content, so "same key, different
-    // content" cannot happen without a sha256 collision: INSERT OR IGNORE is safe.
+    // `freezeBundle` digests the whole record, receipt id and freeze time included, so a
+    // repeated digest should be a repeated bundle. That is checked rather than assumed: the
+    // store cannot see who computed the digest, and a same-digest record naming a different
+    // receipt would otherwise be dropped on the floor, leaving the row's journal and the
+    // evidence view naming different receipts.
     recordBundle(bundle) {
-      BundleSchema.parse(bundle)
+      const parsed = BundleSchema.parse(bundle)
+      const existing = getBundle(parsed.digest)
+      if (existing) {
+        if (JSON.stringify(existing) === JSON.stringify(parsed)) return
+        throw new Error(`Recorded bundle ${parsed.digest} differs from the one already stored`)
+      }
       db.prepare(
-        `INSERT OR IGNORE INTO bundles
+        `INSERT INTO bundles
          (digest, work_order_id, candidate_digest, receipt_id, payload, frozen_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
       ).run(
@@ -126,19 +150,7 @@ export function createEvidenceStore(db: DatabaseSync): EvidenceStore {
       )
     },
     bundle(digest) {
-      const row = db.prepare("SELECT * FROM bundles WHERE digest = ?").get(digest) as
-        | Record<string, string>
-        | undefined
-      return row
-        ? BundleSchema.parse({
-            digest: row.digest,
-            workOrderId: row.work_order_id,
-            candidateDigest: row.candidate_digest,
-            receiptId: row.receipt_id,
-            payload: JSON.parse(String(row.payload)),
-            frozenAt: row.frozen_at,
-          })
-        : null
+      return getBundle(digest)
     },
   }
 }
