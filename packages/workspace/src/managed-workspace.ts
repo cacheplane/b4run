@@ -1,4 +1,9 @@
-import type { SandboxHandle, SandboxPolicy } from "./sandbox-types.js"
+import type {
+  SandboxHandle,
+  SandboxPolicy,
+  SandboxSecurityPolicy,
+  SandboxWorkspaceReader,
+} from "./sandbox-types.js"
 import type { SourceBundle } from "./source-bundle.js"
 import type { WorkspaceSourceDefinition } from "./source-capture.js"
 
@@ -72,6 +77,17 @@ export interface WorkspaceDeletionTarget {
   readonly intent: WorkspaceCreateIntent
   readonly reference?: WorkspaceReference
 }
+/**
+ * Addresses a managed workspace by its PUBLISHED record, never by a thread id:
+ * the provider's storage is named by the intent (installation, operation,
+ * binding), which no function of the thread id can reproduce.
+ */
+export interface OpenManagedWorkspaceReaderInput {
+  readonly workspace: ReadyWorkspace
+  readonly signal: AbortSignal
+  /** Same vocabulary and default as `OpenWorkspaceReaderInput.runAsNonRoot`. */
+  readonly runAsNonRoot?: SandboxSecurityPolicy["runAsNonRoot"]
+}
 export interface ManagedWorkspaceProvider {
   readonly name: string
   resolveEnvironment(signal: AbortSignal): Promise<WorkspaceEnvironment>
@@ -89,6 +105,15 @@ export interface ManagedWorkspaceProvider {
   ): Promise<WorkspaceSession>
   release(session: WorkspaceSessionReference, signal: AbortSignal): Promise<void>
   destroy(target: WorkspaceDeletionTarget, signal: AbortSignal): Promise<void>
+  /**
+   * OPTIONAL capability with the contract of `SandboxProvider.openWorkspaceReader`:
+   * a read-only view of the workspace's storage for a trusted, co-located host
+   * process that never creates, starts, stops or replaces a session, makes
+   * writes impossible, and rejects (never returns an empty view) when the
+   * workspace is gone. Presence of the method is the capability probe. Not an
+   * authorization boundary.
+   */
+  openWorkspaceReader?(input: OpenManagedWorkspaceReaderInput): Promise<SandboxWorkspaceReader>
 }
 export type WorkspaceLifecycleErrorCode =
   | "lost"
