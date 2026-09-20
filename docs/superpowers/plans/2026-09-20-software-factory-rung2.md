@@ -2858,7 +2858,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-> **Task 13 as landed.** The rung 2 ladder proof passes on the first attempt: the scripted builder writes the reference repair into its own managed workspace of the devkit archive, the controller reads it, assembles it against its own capture, verifies it in the prepared image, freezes, approves (re-verifies) and exports exactly those bytes. Lane wall clock about 115 s, dominated by the two verifications; the full Docker lane (five files) about 283 s. `applyReference` refuses a task with more than one allowed path.
+> **Task 13 as landed.** The rung 2 ladder proof passes on the first attempt: the scripted builder writes the reference repair into its own managed workspace of the devkit archive, the controller reads it, assembles it against its own capture, verifies it in the prepared image, freezes, approves (re-verifies) and exports exactly those bytes. Lane wall clock about 115 s, dominated by the two verifications; the full Docker lane (five files) about 283 s. `applyReference` refuses a task with more than one allowed path. **Gap found in review, fixed before Task 14:** a builder that runs the target's build writes `packages/devkit/dist/**` into its workspace, and the controller's reader returned those paths, which the assembly rule rejects as "added". The reader now drops paths under the target's `snapshotIgnore` prefixes (the verifier's tamper comparison already did), and the devkit end-to-end lane's scripted builder now runs the real build and test inside its container, which is the first proof of the derived permissions and the dependency link against a real container.
 
 ### Task 14: Docs, gates and the handoff
 
