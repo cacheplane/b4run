@@ -1272,6 +1272,198 @@ describe("logical-identity root tool projection", () => {
     ])
   })
 
+  test("a thrown tool emits a tool_result carrying the error ToolMessage the model receives", async () => {
+    // LangGraph's ToolNode catches the throw and hands the model a
+    // `status: "error"` ToolMessage; on the wire that arrives as the tools
+    // node's on_chain_end, after an on_tool_error that carries only the raw
+    // (stringified) error and no tool-call id.
+    const errorToolMessage = {
+      type: "tool",
+      status: "error",
+      content: "Error: kaboom\n Please fix your mistakes.",
+      name: "customerStatement",
+      tool_call_id: "call_stmt_1",
+    }
+    const entry = streamOf([
+      {
+        event: "on_chat_model_end",
+        run_id: "model-1",
+        name: "model",
+        data: {
+          output: {
+            content: "",
+            tool_calls: [{ id: "call_stmt_1", name: "customerStatement", args: { id: "x" } }],
+          },
+        },
+      },
+      {
+        event: "on_tool_start",
+        run_id: "stmt-run-1",
+        name: "customerStatement",
+        data: { input: { input: '{"id":"x"}' } },
+      },
+      {
+        event: "on_tool_error",
+        run_id: "stmt-run-1",
+        name: "customerStatement",
+        data: { input: { input: '{"id":"x"}' }, error: "kaboom\n\nError: kaboom\n    at run" },
+      },
+      {
+        event: "on_chain_end",
+        run_id: "tools-1",
+        name: "tools",
+        data: { output: { messages: [errorToolMessage] } },
+      },
+      { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: { ok: true } } },
+    ])
+
+    await expect(collect(entry)).resolves.toEqual([
+      {
+        type: "tool_call",
+        data: { id: "call_stmt_1", name: "customerStatement", input: { id: "x" } },
+      },
+      {
+        type: "tool_result",
+        data: { id: "call_stmt_1", name: "customerStatement", output: errorToolMessage },
+      },
+      { type: "done", data: { ok: true } },
+    ])
+  })
+
+  test("a thrown tool on the resume-replay path announces and resolves under the ToolMessage id", async () => {
+    const errorToolMessage = {
+      type: "tool",
+      status: "error",
+      content: "Error: denied\n Please fix your mistakes.",
+      name: "runBash",
+      tool_call_id: "call_runBash_0_0",
+    }
+    const entry = streamOf([
+      {
+        event: "on_tool_start",
+        run_id: "replay-run-1",
+        name: "runBash",
+        data: { input: { command: "fetch" } },
+      },
+      {
+        event: "on_tool_error",
+        run_id: "replay-run-1",
+        name: "runBash",
+        data: { input: { command: "fetch" }, error: "denied" },
+      },
+      {
+        event: "on_chain_end",
+        run_id: "tools-1",
+        name: "tools",
+        data: { output: { messages: [errorToolMessage] } },
+      },
+      { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: { ok: true } } },
+    ])
+
+    await expect(collect(entry)).resolves.toEqual([
+      {
+        type: "tool_call",
+        data: { id: "call_runBash_0_0", name: "runBash", input: { command: "fetch" } },
+      },
+      {
+        type: "tool_result",
+        data: { id: "call_runBash_0_0", name: "runBash", output: errorToolMessage },
+      },
+      { type: "done", data: { ok: true } },
+    ])
+  })
+
+  test("a thrown tool whose error ToolMessage only surfaces in the final output still resolves once", async () => {
+    const olderError = {
+      type: "tool",
+      status: "error",
+      content: "Error: old\n Please fix your mistakes.",
+      name: "probe",
+      tool_call_id: "call_probe_old",
+    }
+    const thisTurnError = {
+      type: "tool",
+      status: "error",
+      content: "Error: new\n Please fix your mistakes.",
+      name: "probe",
+      tool_call_id: "call_probe_1",
+    }
+    const entry = streamOf([
+      {
+        event: "on_chat_model_end",
+        run_id: "model-1",
+        name: "model",
+        data: {
+          output: { content: "", tool_calls: [{ id: "call_probe_1", name: "probe", args: {} }] },
+        },
+      },
+      { event: "on_tool_start", run_id: "probe-run-1", name: "probe", data: { input: {} } },
+      { event: "on_tool_error", run_id: "probe-run-1", name: "probe", data: { error: "new" } },
+      {
+        event: "on_chain_end",
+        run_id: "root",
+        name: "LangGraph",
+        data: { output: { messages: [olderError, thisTurnError] } },
+      },
+    ])
+
+    await expect(collect(entry)).resolves.toEqual([
+      { type: "tool_call", data: { id: "call_probe_1", name: "probe", input: {} } },
+      { type: "tool_result", data: { id: "call_probe_1", name: "probe", output: thisTurnError } },
+      { type: "done", data: { messages: [olderError, thisTurnError] } },
+    ])
+  })
+
+  test("a successful sibling in the same tool step is never re-resolved from the tools node output", async () => {
+    const okToolMessage = {
+      type: "tool",
+      status: "success",
+      content: "fine",
+      name: "ok",
+      tool_call_id: "call_ok_1",
+    }
+    const errorToolMessage = {
+      type: "tool",
+      status: "error",
+      content: "Error: kaboom\n Please fix your mistakes.",
+      name: "bad",
+      tool_call_id: "call_bad_1",
+    }
+    const entry = streamOf([
+      {
+        event: "on_chat_model_end",
+        run_id: "model-1",
+        name: "model",
+        data: {
+          output: {
+            content: "",
+            tool_calls: [
+              { id: "call_ok_1", name: "ok", args: {} },
+              { id: "call_bad_1", name: "bad", args: {} },
+            ],
+          },
+        },
+      },
+      { event: "on_tool_start", run_id: "ok-run", name: "ok", data: { input: {} } },
+      { event: "on_tool_start", run_id: "bad-run", name: "bad", data: { input: {} } },
+      { event: "on_tool_end", run_id: "ok-run", name: "ok", data: { output: okToolMessage } },
+      { event: "on_tool_error", run_id: "bad-run", name: "bad", data: { error: "kaboom" } },
+      {
+        event: "on_chain_end",
+        run_id: "tools-1",
+        name: "tools",
+        data: { output: { messages: [okToolMessage, errorToolMessage] } },
+      },
+      { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: {} } },
+    ])
+
+    const chunks = await collect(entry)
+    expect(chunks.filter((c) => c.type === "tool_result")).toEqual([
+      { type: "tool_result", data: { id: "call_ok_1", name: "ok", output: okToolMessage } },
+      { type: "tool_result", data: { id: "call_bad_1", name: "bad", output: errorToolMessage } },
+    ])
+  })
+
   test("a duplicate on_tool_end for the same run id never re-announces or swallows output", async () => {
     const entry = streamOf([
       {

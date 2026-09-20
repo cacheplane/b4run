@@ -14,7 +14,12 @@ import type {
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { checkpointRoutes } from "../runtime/checkpoint-route-provenance.js"
-import { type BootResolvedInstances, streamResolvedRoute } from "../runtime/execute-route-core.js"
+import {
+  type BootResolvedInstances,
+  checkRouteResponseFormatSupport,
+  nonAgentResponseFormatMessage,
+  streamResolvedRoute,
+} from "../runtime/execute-route-core.js"
 import type { SandboxManager } from "../runtime/sandbox-manager.js"
 import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import type { StreamChunk } from "../runtime/stream-types.js"
@@ -30,6 +35,7 @@ import {
   resolvePendingResume,
 } from "./pending-interrupts.js"
 import { extractRouteParams } from "./request-context.js"
+import { readResponseFormat, rejectResponseSchema } from "./response-schema.js"
 import type { RunRegistry } from "./run-registry.js"
 import type { RuntimeRegistry } from "./runtime-registry-core.js"
 import { createRequestErrorBody } from "./server-errors.js"
@@ -266,6 +272,24 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       return Response.json(createRequestErrorBody(`Unknown route: ${routeKey}`), { status: 404 })
     }
 
+    // The client's response schema (Hashbrown's `hashbrown.responseSchema`),
+    // read off the ORIGINAL JSON because `RunAgentInputSchema` strips the key.
+    // Malformed is judged here, before middleware, from the body alone; whether
+    // the ROUTE can honor it is judged below, after middleware has admitted
+    // the caller and before any side effect. Never ignored: see response-schema.ts.
+    const responseSchema = readResponseFormat(parsedJson)
+    if (!responseSchema.ok) {
+      return Response.json(
+        createRequestErrorBody(
+          responseSchema.message,
+          { code: responseSchema.code },
+          { code: "B4_E5402" },
+        ),
+        { status: responseSchema.status },
+      )
+    }
+    const responseFormat = responseSchema.responseFormat
+
     const requestUrl = new URL(request.url)
     const b4Input = fromRunAgentInput(input)
     // The one place this turn decides it is a resume. Computed HERE, above
@@ -287,6 +311,38 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     const middlewareResult = await runMiddleware(middleware, middlewareRequest)
     if (middlewareResult.action === "reject") {
       return statusResponse(middlewareResult.status, middlewareResult.body)
+    }
+
+    // Can this route's root model be bound to the schema? Decided here — after
+    // middleware, so an unauthenticated caller learns nothing about the route,
+    // and before the thread gate, so a rejected run claims no slot, creates no
+    // row and starts no stream. The route module load this needs is the same
+    // memoized one the run would do. A non-agent assistant id is settled off
+    // the registry entry alone; the provider needs the descriptor, which the
+    // boot fallbacks load (a caller without them — a direct embedder — still
+    // gets the same rejection from `streamResolvedRoute`, as a RUN_ERROR).
+    if (responseFormat) {
+      const unsupported =
+        route.mode !== "agent"
+          ? {
+              ok: false as const,
+              message: nonAgentResponseFormatMessage(route.routeId, route.mode),
+            }
+          : boot?.bootFallbacks
+            ? await checkRouteResponseFormatSupport({
+                appRoot,
+                bootFallbacks: boot.bootFallbacks,
+                routeFile: route.routeFile,
+                routeId: route.routeId,
+              })
+            : { ok: true as const }
+      if (!unsupported.ok) {
+        const rejection = rejectResponseSchema("response_schema_not_supported", unsupported.message)
+        return Response.json(
+          createRequestErrorBody(rejection.message, { code: rejection.code }, { code: "B4_E5402" }),
+          { status: rejection.status },
+        )
+      }
     }
 
     // `update` on a row that exists, `create` on one this turn is about to
@@ -487,6 +543,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                   : [],
               },
               ...(resumeResolution.mode === "resume" ? { resume: resumeResolution.resume } : {}),
+              ...(responseFormat ? { responseFormat } : {}),
               ...(middlewareResult.context ? { middlewareContext: middlewareResult.context } : {}),
               ...(getMemoryStore ? { memoryStore: getMemoryStore } : {}),
               ...(permissionsStore ? { permissionsStore } : {}),

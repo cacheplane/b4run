@@ -54,14 +54,18 @@ import {
   defaultSummarize,
   defaultTokenCounter,
   executeAgentTurn,
+  type JsonSchemaResponseFormat,
   materializeAgentGraph,
   type OffloadFn,
   OffloadStore,
   offloadToolOutput,
   type ResolvedSubagentGraph,
   type ResolvedSummarizationConfig,
+  resolveProvider,
   type SubagentResolver,
   streamAgent,
+  supportsJsonSchemaResponseFormat,
+  unsupportedResponseFormatMessage,
 } from "@b4run/langchain"
 import { routeNamespaceKey } from "@b4run/memory/namespace"
 import type { PermissionMode, PermissionsStore } from "@b4run/permissions"
@@ -478,6 +482,15 @@ export async function* streamResolvedRoute(
      * as its input instead of the normal `input` field. Used by the resume
      * endpoint to replay a parked graph state after a permission interrupt.
      */
+    /**
+     * A JSON schema the root model's final message must match, from the
+     * client's AG-UI envelope (`hashbrown.responseSchema`). Bound on the root
+     * model as the provider's native schema-constrained output, alongside the
+     * route's tools; subagents never inherit it. Only an `agent` route on a
+     * provider that can honor it may carry one — `checkRouteResponseFormatSupport`
+     * is the request-time gate, and this path throws if it was skipped.
+     */
+    readonly responseFormat?: JsonSchemaResponseFormat
     readonly resume?: RouteResumePayload
     readonly routeFile: string
     readonly routeId: string
@@ -522,6 +535,11 @@ export async function* streamResolvedRoute(
       sandboxed,
       bypassCache,
     } = prepared
+
+    if (options.responseFormat) {
+      const unsupported = responseFormatSupport(options.routeId, normalized)
+      if (unsupported) throw new Error(unsupported.message)
+    }
 
     if (normalized.kind !== "agent") {
       // Non-agent routes don't support incremental streaming — execute and emit done
@@ -585,6 +603,7 @@ export async function* streamResolvedRoute(
         ...(options.threadId ? { threadId: options.threadId } : {}),
         ...(bypassCache ? { bypassCache: true } : {}),
         ...(sandboxed ? { sandboxed: true } : {}),
+        ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
       })) {
         switch (chunk.type) {
           case "token":
@@ -689,6 +708,69 @@ export async function* streamResolvedRoute(
       releaseSandbox?.()
     }
   }
+}
+
+/** Why a route cannot take a client-supplied response schema. */
+export interface RouteResponseFormatUnsupported {
+  readonly ok: false
+  readonly message: string
+}
+
+/**
+ * Whether a route's ROOT model can be bound to a JSON-schema response format:
+ * an `agent()` descriptor route whose resolved provider has a schema-
+ * constrained output mode that coexists with tool calls (see
+ * `JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS` in `@b4run/langchain`). A chain,
+ * graph or workflow route owns its own model calls, so there is nothing for
+ * the runtime to bind. Pure — reads only the normalized module.
+ */
+function responseFormatSupport(
+  routeId: string,
+  normalized: Pick<NormalizedRouteModule, "entry" | "kind">,
+): RouteResponseFormatUnsupported | undefined {
+  if (normalized.kind !== "agent" || !isB4Agent(normalized.entry)) {
+    return { ok: false, message: nonAgentResponseFormatMessage(routeId, normalized.kind) }
+  }
+  const descriptor = normalized.entry
+  let provider: ReturnType<typeof resolveProvider>
+  try {
+    provider = resolveProvider({
+      model: descriptor.model,
+      ...(descriptor.provider !== undefined ? { provider: descriptor.provider } : {}),
+    })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  if (!supportsJsonSchemaResponseFormat(provider)) {
+    return { ok: false, message: unsupportedResponseFormatMessage(provider) }
+  }
+  return undefined
+}
+
+/** Why a chain/graph/workflow route cannot take a response schema. */
+export function nonAgentResponseFormatMessage(routeId: string, kind: string): string {
+  return `Route "${routeId}" is a ${kind} route; a response schema can only be applied to an agent route's root model.`
+}
+
+/**
+ * Request-time preflight for a client-supplied response schema: load the
+ * route's module (memoized per process, so this costs nothing the run itself
+ * would not pay) and report whether its root model can be bound to one.
+ * Callers use it to turn an unsupported schema into a request error BEFORE
+ * any run side effect; `streamResolvedRoute` re-checks and throws, so a
+ * caller that skips this still never gets a silently unconstrained run.
+ */
+export async function checkRouteResponseFormatSupport(options: {
+  readonly appRoot: string
+  readonly bootFallbacks: RuntimeBootFallbacks | undefined
+  readonly routeFile: string
+  readonly routeId: string
+}): Promise<{ readonly ok: true } | RouteResponseFormatUnsupported> {
+  const prepared = await getPreparedRouteModules(
+    { appRoot: options.appRoot, routeFile: options.routeFile, routeId: options.routeId },
+    options.bootFallbacks,
+  )
+  return responseFormatSupport(options.routeId, prepared.module) ?? { ok: true }
 }
 
 export interface PreparedRoute {

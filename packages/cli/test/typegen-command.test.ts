@@ -124,6 +124,35 @@ async function packPackage(packageName: string, outputDir: string) {
 }
 
 describe("b4 typegen", () => {
+  test("fails when a tool's input type does not resolve", async () => {
+    const appRoot = await createFixtureApp()
+    const toolFile = join(appRoot, "src/app/tools/render.ts")
+    await mkdir(dirname(toolFile), { recursive: true })
+    await writeFile(
+      toolFile,
+      'import type { RenderInput } from "@fixture/contracts"\nexport default async function render(input: RenderInput) { return input }\n',
+    )
+    const stdout: string[] = []
+    const stderr: string[] = []
+
+    const exitCode = await run(["typegen", "--cwd", appRoot], {
+      stderr: (message: string) => {
+        stderr.push(message)
+      },
+      stdout: (message: string) => {
+        stdout.push(message)
+      },
+    })
+
+    expect(exitCode).not.toBe(0)
+    expect(stdout.join("")).not.toContain("Wrote types")
+    const errorOutput = stderr.join("")
+    expect(errorOutput).toContain("Failed to generate route types")
+    expect(errorOutput).toContain(toolFile)
+    expect(errorOutput).toContain("RenderInput")
+    expect(errorOutput).toContain("@fixture/contracts")
+  })
+
   test("writes generated route types into the target app", async () => {
     const appRoot = await createFixtureApp()
     const stdout: string[] = []

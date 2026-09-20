@@ -110,12 +110,118 @@ export function missingProviderPackageMessage(
   return `Provider "${provider}" requires ${packageName}. Install it with: pnpm add ${packageName} [B4_E4001]${docs}`
 }
 
+/**
+ * A JSON Schema the model's final text message must conform to, applied as the
+ * provider's native schema-constrained output mode. Sent by AG-UI clients that
+ * render the assistant's reply — Hashbrown's `hashbrown.responseSchema` — and
+ * bound on the ROOT model only: subagents, summarization and the memory
+ * extractor construct their own models and never see it.
+ */
+export interface JsonSchemaResponseFormat {
+  readonly type: "json_schema"
+  /** Provider-facing schema name (OpenAI requires one; `^[a-zA-Z0-9_-]{1,64}$`). */
+  readonly name: string
+  readonly schema: Readonly<Record<string, unknown>>
+}
+
+/**
+ * Providers whose chat model accepts a JSON-schema output format ALONGSIDE
+ * bound tools, so an agent loop can keep calling tools and still have its
+ * final message constrained:
+ *
+ * - `openai`: `response_format: { type: "json_schema", ... }` is a call
+ *   option `@langchain/openai` forwards on both the Chat Completions and
+ *   Responses paths, and the API accepts it together with `tools` — a turn
+ *   that calls tools returns tool calls, a turn that answers returns JSON.
+ * - `anthropic`: `outputConfig.format = { type: "json_schema", ... }` is the
+ *   call option `withStructuredOutput({ method: "jsonSchema" })` itself binds.
+ *
+ * Every other provider is REJECTED when a response format is requested rather
+ * than silently run unconstrained: from the client's side an ignored schema
+ * and an honored one look identical until a reply fails to parse. Gemini in
+ * particular refuses `responseSchema` combined with function declarations,
+ * and the OpenAI-compatible gateways (`xai`, `openrouter`, `groq`) honor
+ * `response_format` only for some upstream models, which is exactly the
+ * silent no-op this exists to prevent.
+ */
+export const JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS: readonly BuiltInModelProviderId[] = [
+  "openai",
+  "anthropic",
+]
+
+export function supportsJsonSchemaResponseFormat(provider: BuiltInModelProviderId): boolean {
+  return JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS.includes(provider)
+}
+
+export function unsupportedResponseFormatMessage(provider: BuiltInModelProviderId): string {
+  return (
+    `Provider "${provider}" cannot constrain the model's final message to a JSON schema alongside tool calls, ` +
+    `so a client-supplied response schema is rejected rather than ignored. ` +
+    `Supported providers: ${JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS.join(", ")}.`
+  )
+}
+
+interface WithConfig {
+  readonly withConfig: (config: Record<string, unknown>) => unknown
+}
+
+function hasWithConfig(model: unknown): model is WithConfig {
+  return (
+    typeof model === "object" &&
+    model !== null &&
+    "withConfig" in model &&
+    typeof (model as { withConfig?: unknown }).withConfig === "function"
+  )
+}
+
+/**
+ * Bind the response format as a call option on the constructed model. A
+ * `RunnableBinding` is what `createReactAgent` expects to find when it binds
+ * tools — it merges the binding's config with `bindTools`' own — so the
+ * format reaches every invocation of the model loop, and the tools do too.
+ */
+function bindResponseFormat(
+  model: unknown,
+  provider: BuiltInModelProviderId,
+  format: JsonSchemaResponseFormat,
+): unknown {
+  if (!hasWithConfig(model)) {
+    throw new Error(
+      `Provider "${provider}" chat model does not expose withConfig(), so a response format cannot be bound.`,
+    )
+  }
+  switch (provider) {
+    case "openai":
+      return model.withConfig({
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: format.name, schema: format.schema, strict: true },
+        },
+      })
+    case "anthropic":
+      return model.withConfig({
+        outputConfig: { format: { type: "json_schema", schema: format.schema } },
+      })
+    default:
+      throw new Error(unsupportedResponseFormatMessage(provider))
+  }
+}
+
 export async function createChatModel(options: {
   readonly model: string
   readonly provider: BuiltInModelProviderId
   readonly reasoning?: ReasoningConfig
   readonly importer?: Importer
+  /**
+   * When set, the returned model is bound so its final message must match
+   * the schema; see {@link JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS} for which
+   * providers can. Any other provider rejects BEFORE its package is imported.
+   */
+  readonly responseFormat?: JsonSchemaResponseFormat
 }): Promise<unknown> {
+  if (options.responseFormat && !supportsJsonSchemaResponseFormat(options.provider)) {
+    throw new Error(unsupportedResponseFormatMessage(options.provider))
+  }
   warnOnUnknownModelId({ model: options.model, provider: options.provider })
   const spec = providerSpecs[options.provider]
   const importer = options.importer ?? seededImporter ?? defaultModelImporter
@@ -168,7 +274,10 @@ export async function createChatModel(options: {
     }
   }
 
-  return new (Constructor as ChatModelConstructor)(constructorOptions)
+  const model = new (Constructor as ChatModelConstructor)(constructorOptions)
+  return options.responseFormat
+    ? bindResponseFormat(model, options.provider, options.responseFormat)
+    : model
 }
 
 function isMissingModuleError(error: unknown, expectedPackageName: string): boolean {

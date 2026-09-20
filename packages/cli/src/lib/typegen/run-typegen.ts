@@ -167,6 +167,7 @@ export async function runTypegen(options: {
 
   for (const route of manifest.routes) {
     const { types: tools, schemas } = extractToolArtifactsForRoute({
+      appRoot,
       routeDir: route.routeDir,
       sharedToolsDir,
       typeReferenceFileName: join(b4Dir, SCENARIO_TYPES_FILE),
