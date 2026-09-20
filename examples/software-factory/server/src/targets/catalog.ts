@@ -276,30 +276,15 @@ export function loadTask(id: string, options: CatalogOptions = {}): Task {
   const dir = options.tasksDir ?? tasksDir
   if (!loadTaskIds(dir).includes(id)) throw new Error(`Unknown task: ${id}`)
   const directory = join(dir, id)
-  const raw = JSON.parse(readFileSync(join(directory, "task.json"), "utf8")) as {
-    target?: unknown
-    allowedSourcePaths?: unknown
-    immutablePaths?: unknown
-  }
-  // Cross-checked against the raw manifest, before `TaskSchema`'s own disjointness refine can
-  // reject an allowed path nested under an immutable directory: a task that reaches into the
-  // target's runner configuration is a distinct, more specific defect (the completion policy
-  // itself becoming editable), and must be reported as that rather than as a generic
-  // disjointness failure that happens to fire on the same input.
-  const target = loadTarget(
-    typeof raw.target === "string" ? raw.target : String(raw.target),
-    options,
-  )
-  const allowedSourcePaths = Array.isArray(raw.allowedSourcePaths) ? raw.allowedSourcePaths : []
-  const immutablePaths = Array.isArray(raw.immutablePaths) ? raw.immutablePaths : []
-  for (const path of allowedSourcePaths)
+  const manifest = TaskSchema.parse(JSON.parse(readFileSync(join(directory, "task.json"), "utf8")))
+  if (manifest.id !== id) throw new Error(`Task ${id} declares a different id: ${manifest.id}`)
+  const target = loadTarget(manifest.target, options)
+  for (const path of manifest.allowedSourcePaths)
     if (covers(target.runnerConfig, path))
       throw new Error(`Task ${id} may edit ${path}, which is the target's runner configuration`)
   for (const path of target.runnerConfig)
-    if (!covers(immutablePaths, path))
+    if (!covers(manifest.immutablePaths, path))
       throw new Error(`Task ${id}: runner configuration ${path} must be immutable`)
-  const manifest = TaskSchema.parse(raw)
-  if (manifest.id !== id) throw new Error(`Task ${id} declares a different id: ${manifest.id}`)
   const checks = ChecksSchema.parse(
     JSON.parse(readFileSync(join(directory, "checks.json"), "utf8")),
   )

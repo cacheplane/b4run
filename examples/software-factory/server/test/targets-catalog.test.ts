@@ -298,12 +298,15 @@ describe("task catalog", () => {
         repositoryRoot: root,
       }),
     ).toThrow(/runner configuration/)
+    // immutablePaths is empty here, not ["config"]: the disjointness refine would reject
+    // an allowed path nested under an immutable directory before this check ever ran, and
+    // that precedence (a schema-level defect over a cross-catalog one) is intended.
     expect(() =>
       loadTask("k", {
         targetsDir: targetsDir(pin, { runnerConfig: ["config"] }),
         tasksDir: tasksDirFor({
           allowedSourcePaths: ["config/base.json"],
-          immutablePaths: ["config"],
+          immutablePaths: [],
         }),
         repositoryRoot: root,
       }),
