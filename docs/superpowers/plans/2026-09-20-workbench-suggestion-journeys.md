@@ -29,8 +29,9 @@
 | File | Responsibility |
 |---|---|
 | `test/harness/workbench-page.ts` (exists after Task 1) | The shared page seam: `withWorkbenchPage` (launch → error collection → abort race → screenshot → close), `raceAbort`, `collectPageErrors`, `isExpectedHydrateProbeError`. Task 2 does not change it. |
-| `test/harness/workbench-browser.ts` (modify) | W7 plus the three suggestion journeys; imports the seam. |
-| `test/harness/workbench-browser.test.ts` (modify) | Fake-browser tests for the new helper: ordering per journey, journey-named failure, per-journey screenshot name. W7's existing tests stay untouched. |
+| `test/harness/workbench-suggestions.ts` (create) | `runWorkbenchSuggestionJourneys` and the three journey functions; imports `withWorkbenchPage` from the seam and the journey helpers from `capture.mjs`. Must NOT import `workbench-browser.ts` — the gate's header now says only W7 lives there. |
+| `test/harness/workbench-suggestions.test.ts` (create) | Fake-browser tests: the three journeys in order in one browser, the `Allow once` click, the Approve click, journey-named failure with its own screenshot path, stop-at-first-failure, and per-journey console-error attribution. |
+| `test/harness/workbench-browser.ts` (modify) | `WorkbenchBrowserDeps extends WorkbenchPageDeps`; otherwise unchanged. |
 | `test/generated/run-generated-research-activation.test.ts` (modify) | `createTeachFixture()`; W8 call after W7. |
 
 ---
@@ -134,7 +135,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 Append to `test/harness/workbench-browser.test.ts` (reuse the file's `fakeDeps` and extend its fake `page` with `getByRole(...).click/waitFor`, `getByText`, `getByLabel`, and `request.get` as shown; keep the existing tests untouched):
 
 ```ts
-import { runWorkbenchSuggestionJourneys, type SuggestionJourneyDeps } from "./workbench-browser.ts"
+import { runWorkbenchSuggestionJourneys, type SuggestionJourneyDeps } from "./workbench-suggestions.ts"
 
 function fakeSuggestionDeps(overrides: { readonly failAt?: "research" | "gate" | "teach" } = {}) {
   const calls: string[] = []
@@ -220,7 +221,7 @@ Run: `pnpm exec vitest --run --config test/generated/vitest.config.ts test/harne
 
 - [ ] **Step 3: Implement the helper**
 
-Append to `test/harness/workbench-browser.ts`:
+Create `test/harness/workbench-suggestions.ts`:
 
 ```ts
 export interface SuggestionJourneyOptions {
@@ -235,8 +236,11 @@ export interface SuggestionJourneyOptions {
 }
 
 export interface SuggestionJourneyDeps {
-  readonly chromium: WorkbenchBrowserDeps["chromium"]
-  readonly journey?: Pick<WorkbenchBrowserJourney, "openReadyWorkbench" | "waitForWorkbenchRunCompletion">
+  readonly chromium: WorkbenchPageDeps["chromium"]
+  readonly journey?: {
+    readonly openReadyWorkbench: typeof openReadyWorkbench
+    readonly waitForWorkbenchRunCompletion: typeof waitForWorkbenchRunCompletion
+  }
 }
 
 /** One journey's step, named so a failure says which suggestion broke. */
@@ -435,7 +439,7 @@ Register it as the last spread in `registeredFixtures` (after `...createBrowserF
             expect(activeAimock.getRequests()).toHaveLength(suggestionsJournalStart + 10 + 2 + 2)
 ```
 
-Import `runWorkbenchSuggestionJourneys` alongside `runWorkbenchBrowserJourney`. Add `workbench-browser-research.png`, `-gate.png`, `-teach.png` to the wrapper's failure message next to the existing screenshot line.
+Import `runWorkbenchSuggestionJourneys` from `../harness/workbench-suggestions.ts` (a different module from `runWorkbenchBrowserJourney`). Add `workbench-browser-research.png`, `-gate.png`, `-teach.png` to the wrapper's failure message next to the existing screenshot line.
 
 - [ ] **Step 3: Typecheck, lint, commit (lane run is Task 4)**
 
