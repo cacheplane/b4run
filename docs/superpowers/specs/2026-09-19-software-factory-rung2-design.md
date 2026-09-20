@@ -95,8 +95,11 @@ now names its runner. `checks.json` becomes:
   `--import tsx`.
 
 The independent suite is always a `node-test` suite written to `checks/` at the
-workspace root, as in rung 1; it reaches the built artifact through
-`commands.cwd`.
+workspace root, as in rung 1. `node-test` suites always run at the workspace
+root, whatever `commands.cwd` is, and their file paths are root-relative; a
+check reaches the built artifact by naming the target's package path itself
+(for devkit, `packages/devkit/dist/...`). Only the build and the vitest
+invocation run at `commands.cwd`.
 
 ### `tasks/<id>/`
 
