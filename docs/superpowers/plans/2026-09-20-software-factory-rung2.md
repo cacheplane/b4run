@@ -1511,6 +1511,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
+> **Task 6 as landed (review-driven).** `policyEnvironment(task)` is exported and tested per field. The framework's capture requires an exact flat file inventory, so `targetWorkspace` derives `source.include` by walking the extracted archive (`capturedFiles`), refuses the reserved `TASK.md`/`.gitignore` names, and only accepts regular files. `captureTargetBaseline` captures into a per-call `instance` directory and removes it once the bytes are in memory (two work orders on one task may verify concurrently). A fast-lane test pins the controller's pinned archive to the builder's working-tree fixture for as long as the `src/fixtures` bridge lives.
+
 ### Task 7: Suite runners: node-test with execArgv, vitest with a JSON report, build
 
 **Files:**
