@@ -431,14 +431,21 @@ jobs:
         run: pnpm code-fixer:prepare
 
       - name: Software factory controller-owned verification
-        # The software-factory example's builder and verifier both run in
-        # `b4-code-fixer:fixture-v1`, the image the previous step builds, and its
-        # fixture is the same `cli-flags` project baked into that image's
-        # /opt/fixtures. The dependency build is the factory's own closure
-        # (`^...` excludes the example, whose `build` is `b4 build`), which is
-        # already warm from the code-fixer build above.
+        # The software-factory example runs its builder and its verifier in the
+        # image of the TARGET a task names, not in code-fixer's fixture image.
+        # `target:prepare <id>` pulls the pinned base, builds
+        # `targets/<id>/Dockerfile` for this runner's platform (linux/amd64),
+        # asserts the target's modules resolve inside it, and rewrites
+        # `targets/<id>/target.json` with the runner's own local image id. That
+        # manifest diff is expected here and nothing in this job asserts a clean
+        # tree. Both shipped targets are prepared because the Docker lanes cover
+        # both. The dependency build is the factory's own closure (`^...`
+        # excludes the example, whose `build` is `b4 build`), which is already
+        # warm from the code-fixer build above.
         run: |
           pnpm turbo run build --filter=@b4-example/software-factory-server^...
+          pnpm --filter @b4-example/software-factory-server target:prepare cli-flags
+          pnpm --filter @b4-example/software-factory-server target:prepare devkit
           pnpm --filter @b4-example/software-factory-server test:sandbox
 
       - name: Managed Docker lifecycle and runtime restart
