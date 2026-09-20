@@ -229,6 +229,9 @@ export interface SuggestionJourneyDeps {
   readonly journey?: Pick<WorkbenchBrowserJourney, "openReadyWorkbench" | "waitForWorkbenchRunCompletion">
 }
 
+/** One journey's step, named so a failure says which suggestion broke. */
+type SuggestionJourney = (typeof JOURNEYS)[number]
+
 const JOURNEYS = [
   { key: "research", title: "Research a topic" },
   { key: "gate", title: "Trigger a permission prompt" },
@@ -297,31 +300,45 @@ export async function runWorkbenchSuggestionJourneys(
   deps: SuggestionJourneyDeps,
 ): Promise<void> {
   const journey = deps.journey ?? DEFAULT_JOURNEY
-  let current: (typeof JOURNEYS)[number] | undefined
-  const screenshotFor = () => join(options.screenshotDir, `workbench-browser-${current?.key ?? "open"}.png`)
-  try {
-    await withWorkbenchPage(
-      { get screenshotPath() { return screenshotFor() }, signal: options.signal },
-      { chromium: deps.chromium },
-      async (page, errors) => {
-        await journey.openReadyWorkbench(page, options.webUrl)
-        for (const j of JOURNEYS) {
-          current = j
-          if (j.key === "research") await researchJourney(page, options, journey)
-          else if (j.key === "gate") await gateJourney(page, options, journey)
+  let current: SuggestionJourney = JOURNEYS[0]
+  await withWorkbenchPage(
+    {
+      // A function, not a string: withWorkbenchPage resolves it at screenshot
+      // time, so each journey's failure writes its own file instead of the
+      // three overwriting one another.
+      screenshotPath: () => join(options.screenshotDir, `workbench-browser-${current.key}.png`),
+      signal: options.signal,
+    },
+    { chromium: deps.chromium },
+    async (page, errors) => {
+      await journey.openReadyWorkbench(page, options.webUrl)
+      for (const next of JOURNEYS) {
+        current = next
+        try {
+          if (next.key === "research") await researchJourney(page, options, journey)
+          else if (next.key === "gate") await gateJourney(page, options, journey)
           else await teachJourney(page, options, journey)
+          // Per journey, not once at the end: a console error from the research
+          // journey must not be reported against "Teach it a preference" with a
+          // screenshot of the memory panel.
+          if (errors.length > 0) {
+            throw new Error(`Workbench console errors:\n${errors.join("\n")}`)
+          }
+        } catch (error) {
+          // The journey name goes on INSIDE the page body, so withWorkbenchPage
+          // stays the single outer wrapping site and a CI log does not print the
+          // same Playwright timeout three times.
+          throw new Error(`${next.title}: ${error instanceof Error ? error.message : String(error)}`, {
+            cause: error,
+          })
         }
-        if (errors.length > 0) throw new Error(`Workbench console errors during the suggestion journeys:\n${errors.join("\n")}`)
-      },
-    )
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`${current?.title ?? "Workbench open"}: ${message}`, { cause: error })
-  }
+      }
+    },
+  )
 }
 ```
 
-`withWorkbenchPage` reads `options.screenshotPath` at screenshot time; the getter above makes it journey-specific. If the existing code reads it eagerly, change it to read at use. Import `join` from `node:path` if not already imported.
+`withWorkbenchPage` accepts `screenshotPath` as `string | (() => string)` and resolves it at screenshot time (Task 1's follow-up commit), which is what makes the per-journey file name work; it also backstops the success-path `errors.length` check, so the per-journey check above is for attribution, not safety. Import `join` from `node:path` if not already imported.
 
 - [ ] **Step 4: Run the tests**
 
