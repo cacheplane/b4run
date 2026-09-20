@@ -28,13 +28,23 @@
 
 | File | Responsibility |
 |---|---|
-| `test/harness/workbench-browser.ts` (modify) | Extract `withWorkbenchPage` (launch → errors → abort race → screenshot → close) from `runWorkbenchBrowserJourney`; add `runWorkbenchSuggestionJourneys` and its three journey functions. |
-| `test/harness/workbench-browser.test.ts` (modify) | Fake-browser tests for the new helper: ordering per journey, journey-named failure, per-journey screenshot name, refactor-safety of W7's tests. |
+| `test/harness/workbench-page.ts` (exists after Task 1) | The shared page seam: `withWorkbenchPage` (launch → error collection → abort race → screenshot → close), `raceAbort`, `collectPageErrors`, `isExpectedHydrateProbeError`. Task 2 does not change it. |
+| `test/harness/workbench-browser.ts` (modify) | W7 plus the three suggestion journeys; imports the seam. |
+| `test/harness/workbench-browser.test.ts` (modify) | Fake-browser tests for the new helper: ordering per journey, journey-named failure, per-journey screenshot name. W7's existing tests stay untouched. |
 | `test/generated/run-generated-research-activation.test.ts` (modify) | `createTeachFixture()`; W8 call after W7. |
 
 ---
 
-### Task 1: Extract the page scaffolding without changing W7's behaviour
+### Task 1 (DONE): Extract the page scaffolding without changing W7's behaviour
+
+**Executed 2026-09-20** over four commits: the extraction (`36a06a50`), the seam
+contract fixes (`29bb683c` — `screenshotPath: string | (() => string)` resolved
+late, a success-path backstop so no caller can forget the console-error check,
+deps narrowed to `Pick<…, "chromium">`, `WorkbenchBrowserOptions extends
+WorkbenchPageOptions`), a guard so a throwing screenshot resolver cannot replace
+the real failure, and a pure move of the seam into `test/harness/workbench-page.ts`.
+The original steps below are the record.
+
 
 **Files:**
 - Modify: `test/harness/workbench-browser.ts`
