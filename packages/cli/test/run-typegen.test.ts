@@ -52,7 +52,82 @@ async function setupApp(options?: { withState?: boolean }) {
   return { appRoot, routeDir }
 }
 
+const ALIASED_TOOL = [
+  'import type { RenderInput } from "@fixture/contracts"',
+  "",
+  "export default async function render(input: RenderInput) {",
+  "  return { count: input.components.length }",
+  "}",
+  "",
+].join("\n")
+
+const CONTRACTS = [
+  "export interface RenderInput {",
+  "  readonly text: string",
+  "  readonly components: ReadonlyArray<{ readonly id: string }>",
+  "}",
+  "",
+].join("\n")
+
+async function setupAliasedApp(options: { readonly withTsconfig: boolean }) {
+  const appRoot = await mkdtemp(join(tmpdir(), "b4-typegen-alias-"))
+  tempDirs.push(appRoot)
+  const routeDir = join(appRoot, "src", "app", "assistant")
+
+  await Promise.all([
+    createFile(join(appRoot, "package.json"), '{"type":"module"}'),
+    createFile(join(appRoot, "b4.config.ts"), "export default {};\n"),
+    createFile(join(routeDir, "index.ts"), "export const agent = async () => ({});\n"),
+    createFile(join(routeDir, "tools", "render.ts"), ALIASED_TOOL),
+    createFile(join(appRoot, "shared", "src", "contracts.ts"), CONTRACTS),
+    ...(options.withTsconfig
+      ? [
+          createFile(
+            join(appRoot, "tsconfig.json"),
+            JSON.stringify({
+              compilerOptions: {
+                strict: true,
+                baseUrl: ".",
+                paths: { "@fixture/contracts": ["./shared/src/contracts.ts"] },
+              },
+            }),
+          ),
+        ]
+      : []),
+  ])
+
+  return { appRoot, routeDir }
+}
+
 describe("runTypegen", () => {
+  test("derives tool schemas through the app's tsconfig `paths` aliases", async () => {
+    const { appRoot } = await setupAliasedApp({ withTsconfig: true })
+    const manifest = await discoverRoutes({ appRoot })
+
+    await runTypegen({ appRoot, manifest })
+
+    const schemas = JSON.parse(
+      await readFile(join(appRoot, ".b4", "routes", "assistant", "tools.json"), "utf8"),
+    )
+    expect(Object.keys(schemas)).toEqual(["render"])
+    expect(schemas.render.parameters.required).toEqual(["text", "components"])
+    expect(schemas.render.parameters.properties.text).toEqual({ type: "string" })
+  })
+
+  test("fails instead of writing an empty schema when an input type does not resolve", async () => {
+    const { appRoot, routeDir } = await setupAliasedApp({
+      withTsconfig: false,
+    })
+    const manifest = await discoverRoutes({ appRoot })
+
+    const error = await runTypegen({ appRoot, manifest }).catch((cause: unknown) => cause)
+
+    expect(error).toBeInstanceOf(compiler.UnresolvedToolInputTypeError)
+    expect((error as Error).message).toContain(join(routeDir, "tools", "render.ts"))
+    expect((error as Error).message).toContain("RenderInput")
+    expect(existsSync(join(appRoot, ".b4", "routes", "assistant", "tools.json"))).toBe(false)
+  })
+
   test("writes types and schemas from one combined route analysis", async () => {
     const { appRoot } = await setupApp()
     const manifest = await discoverRoutes({ appRoot })
