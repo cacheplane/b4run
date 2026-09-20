@@ -1234,7 +1234,6 @@ describe("targetWorkspace", () => {
     const options = targetInspectionOptions(loadTask("devkit-spawn-deadline"))
     expect(options.excludeRootDirectories).toEqual([".git"])
     expect(options.expectedRootSymlinks).toEqual({ node_modules: "/opt/targets/devkit/node_modules" })
-    expect(options.maxTotalBytes).toBe(16 * 1024 * 1024)
   })
 
   it("derives the sandbox policy from the target's resources and denies the network", () => {
@@ -1312,7 +1311,9 @@ export function targetWorkspace(
       include: [...task.target.capture.include],
       files: [
         { path: "TASK.md", text: task.specText },
-        { path: ".gitignore", text: "node_modules/\n" },
+        // Build output the target declares is ignored in the workspace's own git repo too, so
+        // the builder's `git status` is not noise; the baseline commit force-adds sources.
+        { path: ".gitignore", text: `${["node_modules/", ...task.target.snapshotIgnore].join("\n")}\n` },
       ],
     },
     environmentLinks: task.target.environmentLinks.map((link) => ({ ...link })),
@@ -1331,12 +1332,12 @@ export function targetInspectionOptions(task: Task): WorkspaceReadOptions {
   const expectedRootSymlinks: Record<string, string> = {}
   for (const link of task.target.environmentLinks) expectedRootSymlinks[link.path] = link.target
   const policy = targetSandboxPolicy(task.target)
+  // Inspection can exclude root directories only: build output under a package is walked and
+  // counts toward the reader's default limits; `snapshotIgnore` is consumed by the verifier's
+  // tamper comparison, not here.
   return {
     excludeRootDirectories: [".git"],
     expectedRootSymlinks,
-    maxEntries: 10_000,
-    maxFileBytes: 2 * 1024 * 1024,
-    maxTotalBytes: 16 * 1024 * 1024,
     ...(policy.security?.runAsNonRoot === undefined
       ? {}
       : { runAsNonRoot: policy.security.runAsNonRoot }),
