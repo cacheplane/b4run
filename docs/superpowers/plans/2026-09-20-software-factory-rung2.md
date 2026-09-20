@@ -2297,6 +2297,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
+> **Task 9 as landed (review-driven).** `src/fixtures/` is gone; `fixtures/cli-flags/project` stays as the cli-flags target's source. `ThreadWorkspaceSource.providerFor(taskId)` gives the reader a provider per target. `src/targets/permissions.ts` `builderPermissions(target)` derives the allow-lists: bash entries are the target's FULL build and test invocations, at the root and under `cd <cwd> && `, deduplicated, plus `node `, `cat`, `ls`, `head`; tested exactly for both shipped targets. `src/prompts.ts` `taskPrompt(task)` derives the builder prompt from the same commands (reproduce first, build, test); `taskPrompts(onUnavailable, options)` builds the controller's task table per task and never throws, so an unprepared sibling task is reported as `task_unavailable` and refused as unknown rather than preventing boot. The CLI writes factory events as NDJSON to stderr. The full Docker lane passes (about 56 s). CI still builds only the code-fixer image; Task 14 Step 2b adds `target:prepare`.
+
 ### Task 10: Dockerfiles, the prepare script, and measured resources
 
 **Files:**
