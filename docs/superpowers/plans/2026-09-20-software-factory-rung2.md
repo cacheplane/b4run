@@ -328,7 +328,7 @@ describe("target catalog", () => {
     const target = loadTarget("t", { targetsDir: targetsDir(pin), repositoryRoot: root })
     expect(target.pin).toBe(pin)
     expect(target.directory.endsWith("/t")).toBe(true)
-    expect(imageTag(target)).toBe(`b4-factory-t:${pin.slice(0, 12)}`)
+    expect(imageTag(target)).toBe(`b4-factory-t:${pin.slice(0, 12)}-${"c".repeat(12)}`)
     expect(environmentIdentity(target)).toMatch(/^[a-f0-9]{64}$/)
   })
 
@@ -502,8 +502,12 @@ function commitExists(repo: string, pin: string): boolean {
 }
 
 /** The tag the prepare script builds and the sandbox provider runs. Derived, never stored. */
-export function imageTag(target: Pick<Target, "id" | "pin">): string {
-  return `b4-factory-${target.id}:${target.pin.slice(0, 12)}`
+/**
+ * Binds the pin AND the Dockerfile, so a changed Dockerfile at the same pin never runs under
+ * the old recorded identity. Computable before a build from a provisional image object.
+ */
+export function imageTag(target: Pick<Target, "id" | "pin" | "image">): string {
+  return `b4-factory-${target.id}:${target.pin.slice(0, 12)}-${target.image.dockerfileSha256.slice(0, 12)}`
 }
 
 /** The environment identity every receipt and bundle binds for this target. */
@@ -2371,7 +2375,13 @@ try {
   const pnpmVersion = String(rootPackage.packageManager ?? "").replace(/^pnpm@/, "")
   if (!/^\d+\.\d+\.\d+$/.test(pnpmVersion)) throw new Error(`No pnpm version at ${manifest.pin}`)
 
-  const tag = imageTag(manifest)
+  const sha = (text: string) => createHash("sha256").update(text).digest("hex")
+  const dockerfileSha256 = sha(readFileSync(join(directory, "Dockerfile"), "utf8"))
+  const lockfileSha256 = sha(sh("git", ["-C", repo, "show", `${manifest.pin}:${manifest.lockfile}`]))
+  // The tag binds the pin and the Dockerfile (see `imageTag`), so it is computable before the
+  // build from a provisional image object; `localId` is the only field the build supplies.
+  const provisional = { localId: `sha256:${"0".repeat(64)}`, platform, baseManifestDigest, dockerfileSha256, lockfileSha256, pnpmVersion }
+  const tag = imageTag({ id: manifest.id, pin: manifest.pin, image: provisional })
   execFileSync(
     "docker",
     ["build", "--platform", platform, "--build-arg", `BASE_IMAGE=${baseRef}`, "--build-arg", `PLATFORM=${platform}`, "--build-arg", `PNPM_VERSION=${pnpmVersion}`, "-t", tag, context],
@@ -2385,15 +2395,7 @@ try {
   for (const specifier of manifest.imageAssertResolves)
     execFileSync("docker", ["run", "--rm", "--network", "none", "-w", cwd, tag, "node", "-e", `require.resolve(${JSON.stringify(specifier)})`], { stdio: "inherit" })
 
-  const sha = (text: string) => createHash("sha256").update(text).digest("hex")
-  const image = {
-    localId,
-    platform,
-    baseManifestDigest,
-    dockerfileSha256: sha(readFileSync(join(directory, "Dockerfile"), "utf8")),
-    lockfileSha256: sha(sh("git", ["-C", repo, "show", `${manifest.pin}:${manifest.lockfile}`])),
-    pnpmVersion,
-  }
+  const image = { ...provisional, localId }
   writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, image }, null, 2)}\n`)
   console.log(JSON.stringify({ tag, ...image }, null, 2))
 } finally {
@@ -2413,7 +2415,7 @@ Expected: two builds, the resolve assertions pass, both `target.json` files gain
 Run each three times and record the slowest wall clock:
 
 ```bash
-TAG=$(node -e 'const t=require("./targets/devkit/target.json");console.log(`b4-factory-devkit:${t.pin.slice(0,12)}`)')
+TAG=$(node -e 'const t=require("./targets/devkit/target.json");console.log(`b4-factory-devkit:${t.pin.slice(0,12)}-${t.image.dockerfileSha256.slice(0,12)}`)')
 ARCH=$(mktemp -d) && git -C "$(git rev-parse --show-toplevel)" archive --format=tar "$(node -e 'console.log(require("./targets/devkit/target.json").pin)')" -- package.json pnpm-workspace.yaml .npmrc packages/devkit packages/config-typescript | tar -x -C "$ARCH"
 time docker run --rm --network none --read-only --tmpfs /tmp -v "$ARCH":/workspace -w /workspace/packages/devkit -e HOME=/tmp $TAG sh -c 'ln -s /opt/targets/devkit/node_modules /workspace/node_modules 2>/dev/null; pnpm exec tsc -b tsconfig.json && pnpm exec vitest --run --no-cache --config vitest.config.ts --exclude test/template-thread-access.test.ts'
 ```
