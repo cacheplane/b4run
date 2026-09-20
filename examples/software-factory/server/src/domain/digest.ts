@@ -140,8 +140,11 @@ export function specificationDigest(taskText: string, acceptanceIds: readonly st
 export interface PolicyEnvironment {
   /** `environmentIdentityDigest` of the target's image object. */
   readonly identity: string
+  /** A full 40-hex commit sha in the target repository; defines the baseline bytes. */
   readonly pin: string
+  /** Repository directory that is the workspace root; `.` is the repository itself. */
   readonly root: string
+  /** Paths captured, relative to `root`. */
   readonly captureInclude: readonly string[]
   /** sha256 of `defect.patch`, or null when the pinned bytes are already the baseline. */
   readonly defectPatchSha256: string | null
@@ -151,9 +154,10 @@ export interface PolicyEnvironment {
  * Digest of the completion policy: the checks, the inventory the builder may
  * touch, and the environment the verdict is earned in. `checks` must be a plain
  * object; `canon` validates its contents (see {@link DigestInputError}) so two
- * policies that differ only by an unrepresentable value cannot collide. The
- * environment is included because a bundle frozen over one baseline definition
- * or one image must not be approvable after either changed.
+ * policies that differ only by an unrepresentable value — e.g. an `undefined`
+ * field — cannot collide. The environment is included because a bundle frozen
+ * over one baseline definition or one image must not be approvable after
+ * either changed.
  */
 export function policyDigest(input: {
   readonly checks: Readonly<Record<string, unknown>>

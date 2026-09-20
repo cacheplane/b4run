@@ -177,20 +177,25 @@ describe("policyDigest v2", () => {
       defectPatchSha256: "2".repeat(64),
     },
   }
+  const one = policyDigest(base)
 
-  it("moves when only the environment binding moves", () => {
-    const one = policyDigest(base)
-    expect(
-      policyDigest({ ...base, environment: { ...base.environment, identity: "f".repeat(64) } }),
-    ).not.toBe(one)
+  for (const key of Object.keys(base.environment) as (keyof typeof base.environment)[]) {
+    it(`moves when environment.${key} moves`, () => {
+      const current = base.environment[key]
+      const moved = Array.isArray(current)
+        ? [...current, "x"]
+        : current === null
+          ? "3".repeat(64)
+          : `${current}x`
+      expect(
+        policyDigest({ ...base, environment: { ...base.environment, [key]: moved } }),
+      ).not.toBe(one)
+    })
+  }
+
+  it("moves when defectPatchSha256 goes from a hash to null", () => {
     expect(
       policyDigest({ ...base, environment: { ...base.environment, defectPatchSha256: null } }),
-    ).not.toBe(one)
-    expect(
-      policyDigest({
-        ...base,
-        environment: { ...base.environment, captureInclude: ["packages/devkit", "x"] },
-      }),
     ).not.toBe(one)
   })
 
@@ -212,10 +217,15 @@ describe("environmentIdentityDigest", () => {
     lockfileSha256: "d".repeat(64),
     pnpmVersion: "10.33.0",
   }
-  it("is a 64-hex digest that moves with any field", () => {
-    const one = environmentIdentityDigest(image)
+  const one = environmentIdentityDigest(image)
+
+  it("is a 64-hex digest", () => {
     expect(one).toMatch(/^[a-f0-9]{64}$/)
-    expect(environmentIdentityDigest({ ...image, platform: "linux/amd64" })).not.toBe(one)
-    expect(environmentIdentityDigest({ ...image, pnpmVersion: "10.33.1" })).not.toBe(one)
   })
+
+  for (const key of Object.keys(image) as (keyof typeof image)[]) {
+    it(`moves when ${key} moves`, () => {
+      expect(environmentIdentityDigest({ ...image, [key]: `${image[key]}-x` })).not.toBe(one)
+    })
+  }
 })

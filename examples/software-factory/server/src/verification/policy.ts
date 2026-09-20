@@ -30,6 +30,14 @@ export function loadPolicy(taskId: string): VerificationPolicy {
       checks: fixture.checks,
       allowedSourcePaths: fixture.manifest.allowedSourcePaths,
       immutablePaths: fixture.manifest.immutablePaths,
+      // Rung 1 has no target catalog yet; a later task derives this from the task's target.
+      environment: {
+        identity: "fixture",
+        pin: "0".repeat(40),
+        root: ".",
+        captureInclude: [],
+        defectPatchSha256: null,
+      },
     }),
   }
 }
