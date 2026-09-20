@@ -147,15 +147,26 @@ threads (W7 proves restore once); visual assertions; the Reject decision.
   matches, never `{ exact: true }`.
 - **`Allow once` timing**: the card appears mid-stream; the wait is on the
   alert role, not on a fixed delay.
+- **The imported completion helper is still 120 s.** The journeys arm their own
+  waits at 45 s, but `waitForWorkbenchRunCompletion` (shared with W7 and the
+  README capture) carries three 120 s waits and runs once per journey, so W8's
+  worst *single* wait is 120 s. Budget the lane against that, not 45 s.
 - **Per-wait timeouts must stay well inside the lane budget.** At 120 s a
   drifted locator is killed by the harness deadline instead of by Playwright,
   and the abort rejects outside the page body — losing the journey name, the
   call log naming the locator, and the screenshot (taken against a closed
   page). 45 s keeps Playwright's own timeout the one that wins.
-- **`.last()` masks duplicate cards.** One fresh thread must render exactly one
-  plan card and one `researcher` subagent card; duplicates are the regression
-  the AG-UI suppression ledger fixed, so the journeys assert `toHaveCount(1)`
-  rather than tolerating a second.
+- **`.last()` masks duplicates.** One fresh thread must render exactly one plan
+  card, one `researcher` subagent card, and one copy of each reply; duplicates
+  are the regression the AG-UI suppression ledger fixed. The journeys use a
+  local `expectExactlyOne` helper rather than Playwright's `toHaveCount(1)`,
+  for two reasons: the web-first matcher reaches into `Locator` internals and
+  cannot be driven by the unit tests' structural fake, and it *polls* until the
+  count becomes 1, so a duplicate that later resolves would pass. A one-shot
+  count taken after a visibility wait does not. (Measured: Playwright's text
+  engine excludes an ancestor whose child also matches, so one message resolves
+  to exactly one element however deeply nested — two matches means two
+  messages.)
 - **Approve and Reject are indistinguishable by removal alone** — both drop the
   row and both delete the candidate server-side — so the teach journey needs an
   assertion only the approve path satisfies.
