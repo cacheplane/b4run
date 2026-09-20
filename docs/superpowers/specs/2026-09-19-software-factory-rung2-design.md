@@ -281,6 +281,19 @@ stays denied; the frozen install is the point.
   larger than a fixture.
 - The reader needs no code change.
 
+## One framework change: the sandbox reaps orphans
+
+Preparing the devkit image exposed a defect in `packages/sandbox`: the Docker
+session container was started without `--init`, so a command's orphaned
+descendants were reparented to a `sleep` that never waits for them. They
+stayed as zombies, `kill(pid, 0)` kept succeeding, and devkit's own
+process-tree tests failed deterministically inside the factory's container
+while passing everywhere else. Each zombie also held a `--pids-limit` slot
+for the life of the container. The sandbox now launches with `--init`, the
+flag is part of the launch identity so an old keeper is replaced, and the
+change ships as a patch changeset for `@b4run/sandbox`. This is the kind of
+finding the dogfood exists to produce.
+
 ## Lifecycle, cancel, budget and reconciliation
 
 Unchanged from rung 1 plus the hardening in `9d676522`: per-work-order
@@ -409,7 +422,12 @@ named rungs are in the
   automates or verifies the advance beyond the layer 1 patch-applies test.
 - **The image trusts its build.** The Dockerfile is pinned to a base digest, a
   platform and a frozen lockfile, but the image is built on the operator's
-  machine and the id recorded is whatever that build produced.
+  machine and the id recorded is whatever that build produced. The `git`
+  binary `apt-get` installs is resolved at build time and is not among the
+  recorded inputs: two builds of the same inputs a month apart can hold
+  different `git` versions under one environment identity. Accepted for this
+  rung; pinning it or recording `git --version` in the image object is the
+  fix if it ever matters.
 - **The verifier still shares an image with the builder.** As in rung 1; an
   untrusted candidate can observe its runtime.
 - **One excluded test.** The visible suite is devkit's suite minus one file,
