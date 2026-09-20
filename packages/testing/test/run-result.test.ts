@@ -338,6 +338,91 @@ it("captures a subagent error end", async () => {
   const r = await collectRunResult(s() as never, "t")
   expect(r.subagents[0]).toMatchObject({ name: "research", error: "boom" })
 })
+describe("collectRunResult tool results from the live stream", () => {
+  it("marks a thrown tool's streamed error ToolMessage as isError without reading the final messages", async () => {
+    async function* s() {
+      yield { type: "tool_call", id: "call_stmt_1", name: "customerStatement", input: { id: "x" } }
+      yield {
+        type: "tool_result",
+        id: "call_stmt_1",
+        name: "customerStatement",
+        output: {
+          type: "tool",
+          status: "error",
+          content: "Error: no such customer\n Please fix your mistakes.",
+          name: "customerStatement",
+          tool_call_id: "call_stmt_1",
+        },
+      }
+      yield { type: "done", output: { messages: [] } }
+    }
+    const r = await collectRunResult(s() as never, "t")
+    expect(r.toolResults).toEqual([
+      {
+        name: "customerStatement",
+        status: "error",
+        content: "Error: no such customer\n Please fix your mistakes.",
+        isError: true,
+      },
+    ])
+  })
+
+  it("reads a serialized ToolMessage, a Command's ToolMessage, and a plain output from the stream", async () => {
+    async function* s() {
+      yield {
+        type: "tool_result",
+        id: "c1",
+        name: "probe",
+        output: {
+          lc: 1,
+          type: "constructor",
+          id: ["langchain_core", "messages", "ToolMessage"],
+          kwargs: { status: "success", content: "probe-ok", name: "probe", tool_call_id: "c1" },
+        },
+      }
+      yield {
+        type: "tool_result",
+        id: "c2",
+        name: "writeTodos",
+        output: {
+          update: {
+            todos: [],
+            messages: [{ type: "tool", content: "{}", name: "writeTodos", tool_call_id: "c2" }],
+          },
+        },
+      }
+      yield { type: "tool_result", name: "legacy", output: { matched: 2 } }
+      yield { type: "done", output: { messages: [] } }
+    }
+    const r = await collectRunResult(s() as never, "t")
+    expect(r.toolResults).toEqual([
+      { name: "probe", status: "success", content: "probe-ok", isError: false },
+      { name: "writeTodos", content: "{}", isError: false },
+      { name: "legacy", content: { matched: 2 }, isError: false },
+    ])
+  })
+
+  it("falls back to the final messages when the stream carried no tool_result chunks", async () => {
+    async function* s() {
+      yield {
+        type: "done",
+        output: {
+          messages: [
+            {
+              id: ["langchain_core", "messages", "ToolMessage"],
+              kwargs: { name: "readDoc", status: "error", content: "Error: ENOENT" },
+            },
+          ],
+        },
+      }
+    }
+    const r = await collectRunResult(s() as never, "t")
+    expect(r.toolResults).toEqual([
+      { name: "readDoc", status: "error", content: "Error: ENOENT", isError: true },
+    ])
+  })
+})
+
 describe("deriveToolResults", () => {
   it("extracts tool results from serialized ToolMessages and flags errors", () => {
     const messages = [

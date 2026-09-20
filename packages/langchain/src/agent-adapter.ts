@@ -287,6 +287,100 @@ interface RootToolProjectionState {
   readonly announcedToolCallIds: Set<string>
   /** Root on_tool_start data awaiting resolution at on_tool_end, keyed by execution run id. */
   readonly heldRootToolStarts: Map<string, { readonly name: string; readonly input: unknown }>
+  /**
+   * Root executions that threw (a non-interrupt `on_tool_error`), awaiting the
+   * error ToolMessage LangGraph's ToolNode hands the model. FIFO by tool name.
+   */
+  readonly pendingRootToolErrors: Array<{ readonly name: string; readonly input: unknown }>
+}
+
+interface ErrorToolMessageView {
+  readonly id: string
+  readonly name: string
+  readonly message: unknown
+}
+
+/**
+ * Reads a `status: "error"` ToolMessage in either its live instance shape
+ * (`{ status, name, tool_call_id }`) or its serialized shape
+ * (`{ id: [..., "ToolMessage"], kwargs: { status, name, tool_call_id } }`).
+ * Returns undefined for anything else — including hostile getters.
+ */
+function readErrorToolMessage(value: unknown): ErrorToolMessageView | undefined {
+  try {
+    if (!isRecord(value)) return undefined
+    const fields = isRecord(value.kwargs) ? value.kwargs : value
+    if (fields.status !== "error") return undefined
+    const id = fields.tool_call_id
+    const name = fields.name
+    if (typeof id !== "string" || id === "" || typeof name !== "string" || name === "") {
+      return undefined
+    }
+    return { id, name, message: value }
+  } catch {
+    return undefined
+  }
+}
+
+function readOutputMessages(output: unknown): readonly unknown[] {
+  try {
+    if (!isRecord(output)) return []
+    if (Array.isArray(output.messages)) return output.messages
+    if (isRecord(output.update) && Array.isArray(output.update.messages)) {
+      return output.update.messages
+    }
+    return []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Resolves pending root tool errors against a chain output's messages.
+ *
+ * `on_tool_error` never carries the model/provider tool-call id — only the
+ * raw (usually stringified) error — so a thrown tool cannot be resolved at
+ * that event. LangGraph's ToolNode catches the throw and appends a
+ * `status: "error"` ToolMessage for the model; that message surfaces in the
+ * tools node's `on_chain_end` (and, as a fallback for graphs whose tool node
+ * we never observe, in the top-level output). Emitting it as the
+ * `tool_result` keeps a failing call keyed by the same logical id and
+ * serialized exactly like a successful one, instead of leaving the client
+ * with a call that never resolves.
+ *
+ * Matching is by tool name, FIFO, and each pending error resolves at most
+ * once. `fromEnd` scans newest-first so a multi-turn final output resolves
+ * this turn's error rather than an older message with the same tool name.
+ */
+function resolveRootToolErrors(
+  rootTools: RootToolProjectionState,
+  output: unknown,
+  fromEnd: boolean,
+): AgentStreamChunk[] {
+  if (rootTools.pendingRootToolErrors.length === 0) return []
+  const messages = readOutputMessages(output)
+  const chunks: AgentStreamChunk[] = []
+  const ordered = fromEnd ? [...messages].reverse() : messages
+  for (const candidate of ordered) {
+    if (rootTools.pendingRootToolErrors.length === 0) break
+    const view = readErrorToolMessage(candidate)
+    if (!view) continue
+    const index = rootTools.pendingRootToolErrors.findIndex((p) => p.name === view.name)
+    if (index === -1) continue
+    const [pending] = rootTools.pendingRootToolErrors.splice(index, 1)
+    if (!rootTools.announcedToolCallIds.has(view.id)) {
+      rootTools.announcedToolCallIds.add(view.id)
+      chunks.push({
+        type: "tool_call",
+        data: { id: view.id, name: view.name, input: pending?.input },
+      })
+    }
+    chunks.push({
+      type: "tool_result",
+      data: { id: view.id, name: view.name, output: view.message },
+    })
+  }
+  return fromEnd ? chunks.reverse() : chunks
 }
 
 interface SubagentPhaseProjection {
@@ -630,21 +724,34 @@ function classifyStreamEvent(
         finalOutput: undefined,
         interrupts: extractInterrupts(event.data.chunk) ?? [],
       }
-    case "on_tool_error":
-      if (!child) rootTools.heldRootToolStarts.delete(event.run_id)
+    case "on_tool_error": {
+      const interrupts = extractInterruptsFromError(event.data.error)
+      if (!child) {
+        const held = rootTools.heldRootToolStarts.get(event.run_id)
+        rootTools.heldRootToolStarts.delete(event.run_id)
+        // A genuine throw (not an `interrupt()`) resolves later, from the
+        // error ToolMessage the tool node appends; see resolveRootToolErrors.
+        if (interrupts === undefined) {
+          rootTools.pendingRootToolErrors.push({
+            name: event.name,
+            input: held?.input ?? event.data.input,
+          })
+        }
+      }
       return {
         capturesFinalOutput: false,
         child,
         chunks: [],
         finalOutput: undefined,
-        interrupts: extractInterruptsFromError(event.data.error) ?? [],
+        interrupts: interrupts ?? [],
       }
+    }
     case "on_chain_end":
       if (!child && event.name === "LangGraph") {
         return {
           capturesFinalOutput: true,
           child,
-          chunks: [],
+          chunks: resolveRootToolErrors(rootTools, event.data.output, true),
           finalOutput: event.data.output,
           interrupts: extractInterrupts(event.data.output) ?? [],
         }
@@ -658,7 +765,13 @@ function classifyStreamEvent(
           interrupts: extractInterrupts(event.data.output) ?? [],
         }
       }
-      break
+      return {
+        capturesFinalOutput: false,
+        child,
+        chunks: resolveRootToolErrors(rootTools, event.data.output, false),
+        finalOutput: undefined,
+        interrupts: [],
+      }
   }
 
   return {
@@ -1051,6 +1164,7 @@ async function* streamFromRunnable(
         textModelRunIds: new Set(),
         announcedToolCallIds: new Set(),
         heldRootToolStarts: new Map(),
+        pendingRootToolErrors: [],
       }
 
       try {
