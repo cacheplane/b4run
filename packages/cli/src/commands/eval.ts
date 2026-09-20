@@ -42,6 +42,7 @@ interface TestingModule {
     live?: boolean
     record?: boolean
     recordUpstream?: string
+    middlewareContext?: unknown
   }): Promise<AgentHarnessShape>
   loadFixtures(path: string): unknown
   writeFixtures(path: string, fixtures: unknown): void
@@ -145,6 +146,9 @@ export async function runEvalCommand(
       ...(options.record ? { record: true } : {}),
       ...(options.record && process.env.B4_RECORD_UPSTREAM
         ? { recordUpstream: process.env.B4_RECORD_UPSTREAM }
+        : {}),
+      ...(loaded.definition.middlewareContext !== undefined
+        ? { middlewareContext: loaded.definition.middlewareContext }
         : {}),
     })
     try {
