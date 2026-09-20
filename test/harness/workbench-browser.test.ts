@@ -100,6 +100,16 @@ function fakeDeps(
   return { calls, deps, page, chromium }
 }
 
+/** Returns the error a call rejected with, failing if it resolved instead. */
+async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
+  try {
+    await promise
+  } catch (error) {
+    return error as Error
+  }
+  throw new Error("expected the call to reject, but it resolved")
+}
+
 const baseOptions = {
   webUrl: "http://127.0.0.1:4712",
   prompt: PROMPT,
@@ -151,8 +161,10 @@ describe("runWorkbenchBrowserJourney", () => {
 
   it("fails on a console error even when every step succeeded", async () => {
     const { deps } = fakeDeps({ threadId: "t-1", consoleErrors: ["Hydration failed"] })
+    // W7's own check must be the layer that fires, not the seam's backstop:
+    // pin its wording so deleting that check cannot stay green.
     await expect(runWorkbenchBrowserJourney(baseOptions, deps)).rejects.toThrow(
-      /console errors.*Hydration failed/s,
+      /console errors during the browser gate[\s\S]*Hydration failed/,
     )
   })
 
@@ -290,6 +302,40 @@ describe("withWorkbenchPage", () => {
       }),
     ).rejects.toThrow(COLLECTED_ERRORS_BACKSTOP_MESSAGE)
     expect(page.screenshot).toHaveBeenCalledWith({ path: "/tmp/backstop.png", fullPage: true })
+  })
+
+  it("states the collected-errors heading once when the backstop fires", async () => {
+    const { deps } = fakeDeps({ consoleErrors: ["Hydration failed"] })
+    const rejection = await rejectionOf(
+      withWorkbenchPage({ screenshotPath: "/tmp/backstop.png" }, deps, async (bodyPage) => {
+        await deps.journey?.openReadyWorkbench(bodyPage, baseOptions.webUrl)
+        return "the body did not check"
+      }),
+    )
+    expect(rejection.message).toContain("Hydration failed")
+    expect(rejection.message).not.toContain("before the failure")
+    expect(rejection.message.match(/Workbench console errors/g)).toHaveLength(1)
+  })
+
+  it("keeps the real failure when the screenshot resolver throws", async () => {
+    const { chromium, page } = fakeDeps()
+    const cause = new Error("the resolver is caller code")
+    const rejection = await rejectionOf(
+      withWorkbenchPage(
+        {
+          screenshotPath: () => {
+            throw cause
+          },
+        },
+        { chromium },
+        async () => {
+          throw new Error("THE REAL PLAYWRIGHT TIMEOUT", { cause: "call log" })
+        },
+      ),
+    )
+    expect(rejection.message).toBe("THE REAL PLAYWRIGHT TIMEOUT")
+    expect(rejection.cause).toBe("call log")
+    expect(page.screenshot).not.toHaveBeenCalled()
   })
 })
 

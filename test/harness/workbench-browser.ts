@@ -160,6 +160,22 @@ export const COLLECTED_ERRORS_BACKSTOP_MESSAGE =
  *   keep pushing into it while `body` runs, so read it late (at the point you
  *   want to decide) rather than snapshotting its contents or length early.
  */
+/**
+ * Resolves a configured screenshot path, or `undefined` if a caller-supplied
+ * resolver threw. Returning `undefined` rather than propagating is the point:
+ * this runs inside the failure handler, where an escaping exception would
+ * replace the real error — the Playwright timeout, its call log, the collected
+ * console errors and the whole cause chain — with a bare `TypeError`.
+ */
+function resolveScreenshotPath(configured: string | (() => string)): string | undefined {
+  if (typeof configured !== "function") return configured
+  try {
+    return configured()
+  } catch {
+    return undefined
+  }
+}
+
 export async function withWorkbenchPage<T>(
   options: WorkbenchPageOptions,
   deps: Pick<WorkbenchBrowserDeps, "chromium">,
@@ -191,11 +207,20 @@ export async function withWorkbenchPage<T>(
     } catch (error) {
       // Best effort: the rendered state is the one thing the transcript cannot
       // show, and its directory is a CI-uploaded path that may not exist yet.
-      const { screenshotPath: configured } = options
-      const screenshotPath = typeof configured === "function" ? configured() : configured
-      await mkdir(dirname(screenshotPath), { recursive: true }).catch(() => undefined)
-      await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined)
+      // The resolver is caller code, so a throw from it must not replace the
+      // real failure — give up on the screenshot instead.
+      const screenshotPath = resolveScreenshotPath(options.screenshotPath)
+      if (screenshotPath !== undefined) {
+        await mkdir(dirname(screenshotPath), { recursive: true }).catch(() => undefined)
+        await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined)
+      }
       if (errors.length > 0) {
+        // The backstop IS the collected errors, so it takes them as its own
+        // list rather than the "before the failure" heading, which would print
+        // a second near-identical line (and a third through `flattenCause`).
+        if (error instanceof Error && error.message === COLLECTED_ERRORS_BACKSTOP_MESSAGE) {
+          throw new Error(`${COLLECTED_ERRORS_BACKSTOP_MESSAGE}:\n${errors.join("\n")}`)
+        }
         const originalMessage = error instanceof Error ? error.message : String(error)
         throw new Error(
           `${originalMessage}\nWorkbench console errors before the failure:\n${errors.join("\n")}`,
