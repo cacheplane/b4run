@@ -54,7 +54,6 @@ export function captureTarget(
   const directory = `.factory/captures/${role}/${task.id}`
   const absolute = join(appRoot, ".factory", "captures", role, task.id)
   const scratch = join(appRoot, ".factory", "captures", role, `.${task.id}.tmp-${process.pid}`)
-  rmSync(absolute, { recursive: true, force: true })
   rmSync(scratch, { recursive: true, force: true })
   mkdirSync(scratch, { recursive: true })
 
@@ -84,7 +83,7 @@ export function captureTarget(
       })
     } catch (error) {
       const stderr = (error as { stderr?: string }).stderr ?? String(error)
-      throw new Error(`Task ${task.id}: git archive of ${treeish} failed: ${stderr}`, {
+      throw new Error(`Task ${task.id}: tar extraction of ${treeish} failed: ${stderr}`, {
         cause: error,
       })
     } finally {
@@ -123,6 +122,7 @@ export function captureTarget(
       }
     }
 
+    rmSync(absolute, { recursive: true, force: true })
     renameSync(scratch, absolute)
   } catch (error) {
     rmSync(scratch, { recursive: true, force: true })
