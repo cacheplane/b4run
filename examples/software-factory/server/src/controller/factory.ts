@@ -16,7 +16,7 @@ import type {
   Receipt,
   WorkOrderRow,
 } from "../domain/work-order.js"
-import { TASK_PROMPTS } from "../prompts.js"
+import { taskPrompts } from "../prompts.js"
 import { type CommandLog, createCommandLog } from "../registry/commands.js"
 import { openRegistry } from "../registry/db.js"
 import { createEvidenceStore, type EvidenceStore } from "../registry/evidence.js"
@@ -51,7 +51,7 @@ export interface FactoryOptions {
     signal: AbortSignal,
   ): Promise<{ readonly digest: string; readonly files: ReadonlyMap<string, string> }>
   readonly maxChangedBytes?: number
-  /** Task id to prompt. Defaults to TASK_PROMPTS. */
+  /** Task id to prompt. Defaults to the catalog's own tasks. */
   readonly tasks?: Readonly<Record<string, string>>
   readonly approvalTtlMs?: number
   readonly maxActiveMs?: number
@@ -118,10 +118,14 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const commands: CommandLog = createCommandLog(registry.db)
   const evidenceStore: EvidenceStore = createEvidenceStore(registry.db)
   const artifacts: ArtifactStore = createArtifactStore(options.artifactsDir)
-  const tasks = options.tasks ?? TASK_PROMPTS
+  const log = options.log ?? (() => {})
+  // A task the catalog cannot serve is omitted and reported, never thrown: one unprepared
+  // sibling target must not decide whether the controller boots.
+  const tasks =
+    options.tasks ??
+    taskPrompts((id, error) => log("task_unavailable", { id, error: String(error) }))
   const now = options.now ?? Date.now
   const iso = () => new Date(now()).toISOString()
-  const log = options.log ?? (() => {})
   const abort = new AbortController()
   const runs = new Map<string, Promise<void>>()
   /** One per work order in `verifying`; aborted the moment the row leaves that state. */

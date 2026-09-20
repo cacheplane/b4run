@@ -1,7 +1,13 @@
 import { cp, mkdir, mkdtemp, readdir, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
-import { appRoot } from "../src/fixtures/catalog.ts"
+import { appRoot, repositoryRoot } from "../src/targets/catalog.ts"
+
+// The copy lives outside the repository, so `git rev-parse` from it finds nothing: the
+// copied `b4.config.ts` must still be told which repository the targets pin into. Resolved
+// here, where this module does run inside the repository, and never overriding an operator's
+// own value.
+process.env.FACTORY_REPO_ROOT ??= repositoryRoot()
 
 /** Copy author files into a private installation, sharing only dependencies. */
 export async function isolatedApp(): Promise<string> {

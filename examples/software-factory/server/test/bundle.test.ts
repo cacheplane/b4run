@@ -1,12 +1,15 @@
+import { createHash } from "node:crypto"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
+import { policyDigest } from "../src/domain/digest.ts"
 import type { Receipt } from "../src/domain/work-order.ts"
 import { freezeBundle } from "../src/review/bundle.ts"
 import { createArtifactStore } from "../src/storage/artifacts.ts"
+import { loadTask, type Task } from "../src/targets/catalog.ts"
 import { suiteChecks } from "../src/verification/docker-verifier.ts"
-import { loadPolicy } from "../src/verification/policy.ts"
+import { loadPolicy, policyEnvironment } from "../src/verification/policy.ts"
 
 const receipt = {
   id: "rc-1",
@@ -41,6 +44,62 @@ describe("loadPolicy", () => {
     const one = loadPolicy("cli-flags")
     const two = loadPolicy("cli-flags")
     expect(two.policyDigest).toBe(one.policyDigest)
+  })
+
+  it("binds the target's environment, so a changed image or baseline definition moves the policy", () => {
+    const policy = loadPolicy("cli-flags")
+    expect(policy.environment.identity).toMatch(/^[a-f0-9]{64}$/)
+    expect(policy.environment.pin).toMatch(/^[a-f0-9]{40}$/)
+    expect(policy.environment.defectPatchSha256).toBeNull()
+    expect(policy.environment.root).toBe(
+      "examples/software-factory/server/fixtures/cli-flags/project",
+    )
+    expect(policy.environment.captureInclude).toEqual(policy.task.target.capture.include)
+  })
+
+  it("hashes the defect patch into the environment when the task has one", () => {
+    // Both branches from one real task: the hash follows the patch bytes, and a task
+    // without a defect patch hashes to nothing.
+    const real = loadTask("devkit-spawn-deadline")
+    expect(policyEnvironment(real).defectPatchSha256).toBe(
+      createHash("sha256")
+        .update(real.defectPatch as string)
+        .digest("hex"),
+    )
+    const withDefect = { ...real, defectPatch: "--- a/x\n+++ b/x\n" }
+    const environment = policyEnvironment(withDefect)
+    expect(environment.defectPatchSha256).toBe(
+      createHash("sha256").update("--- a/x\n+++ b/x\n").digest("hex"),
+    )
+    expect(policyEnvironment({ ...real, defectPatch: null }).defectPatchSha256).toBeNull()
+  })
+
+  it("moves the policy digest when the checks, the allowed paths or the immutable paths move", () => {
+    const base = loadPolicy("cli-flags")
+    const digestFor = (task: Task) =>
+      policyDigest({
+        checks: task.checks,
+        allowedSourcePaths: task.manifest.allowedSourcePaths,
+        immutablePaths: task.manifest.immutablePaths,
+        environment: policyEnvironment(task),
+      })
+    const task = base.task
+    expect(digestFor(task)).toBe(base.policyDigest)
+    expect(
+      digestFor({
+        ...task,
+        checks: { ...task.checks, visible: { ...task.checks.visible, assertions: ["other"] } },
+      }),
+    ).not.toBe(base.policyDigest)
+    expect(
+      digestFor({
+        ...task,
+        manifest: { ...task.manifest, allowedSourcePaths: ["src/other.ts"] },
+      }),
+    ).not.toBe(base.policyDigest)
+    expect(digestFor({ ...task, manifest: { ...task.manifest, immutablePaths: [] } })).not.toBe(
+      base.policyDigest,
+    )
   })
 })
 

@@ -44,6 +44,14 @@ export interface WorkspaceReadOptions {
    * Derived from the policy rather than restated here, for exactly that reason.
    */
   readonly runAsNonRoot?: SandboxSecurityPolicy["runAsNonRoot"]
+  /**
+   * Root-relative directory prefixes the builder may legitimately write under (the target's
+   * build output); paths under them are dropped from the observed set, because the assembly
+   * rule rejects any path the baseline lacks and build output is not a candidate. Inspection
+   * cannot exclude nested directories, so this is a reader-side filter, the same prefixes the
+   * verifier's tamper comparison skips.
+   */
+  readonly ignorePrefixes?: readonly string[]
   readonly maxEntries?: number
   readonly maxFileBytes?: number
   readonly maxTotalBytes?: number
@@ -62,8 +70,13 @@ export type WorkspaceInspectionOptions = (taskId: string) => WorkspaceReadOption
  * well as a provider of the same kind, scope and image, constructed here.
  */
 export interface ThreadWorkspaceSource {
-  /** Same kind, scope and image as the builder's `b4.config.ts`; constructed in this process. */
-  readonly provider: SandboxProvider
+  /**
+   * Same kind, scope and image as the builder's `b4.config.ts` for that task. The image is
+   * the target's, and a target is a property of the task, so the provider is resolved PER
+   * TASK rather than once for the process: one provider for every task would address the
+   * wrong image as soon as a second target exists.
+   */
+  providerFor(taskId: string): SandboxProvider
   /** The builder app's root: where `b4` keeps `.b4/workspaces` for that app. */
   readonly appRoot: string
 }
@@ -95,7 +108,7 @@ export function createThreadWorkspaceReader(
       const inspection = await withManagedWorkspaceReader(
         {
           appRoot: source.appRoot,
-          provider: source.provider,
+          provider: source.providerFor(target.taskId),
           threadId: target.threadId,
           signal,
           ...(options.runAsNonRoot === undefined ? {} : { runAsNonRoot: options.runAsNonRoot }),
@@ -113,7 +126,12 @@ export function createThreadWorkspaceReader(
             expectedRootSymlinks: options.expectedRootSymlinks,
           }),
       )
-      return new Map(Object.entries(inspection.files))
+      const ignored = options.ignorePrefixes ?? []
+      return new Map(
+        Object.entries(inspection.files).filter(
+          ([path]) => !ignored.some((prefix) => path.startsWith(prefix)),
+        ),
+      )
     },
   }
 }

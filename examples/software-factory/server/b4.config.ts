@@ -1,23 +1,24 @@
 import { config } from "@b4run/cli"
-import { loadFixture } from "./src/fixtures/catalog.js"
+import { loadTask } from "./src/targets/catalog.js"
+import { builderPermissions } from "./src/targets/permissions.js"
 import {
   builderSandboxProvider,
-  fixtureWorkspace,
-  sandboxPolicy,
-} from "./src/fixtures/workspace.js"
+  targetSandboxPolicy,
+  targetWorkspace,
+} from "./src/targets/workspace.js"
 
-const task = process.env.FACTORY_TASK_ID ?? "cli-flags"
-const { manifest } = loadFixture(task)
+const task = loadTask(process.env.FACTORY_TASK_ID ?? "cli-flags")
 
 export default config({
   appDir: "src/app",
   build: { targets: ["node"] },
   sandbox: {
-    ...sandboxPolicy,
+    ...targetSandboxPolicy(task.target),
     // Same constructor the controller's workspace reader uses, so the scope and image that
-    // address this thread's workspace volume are one declaration, not two.
-    provider: builderSandboxProvider(),
-    workspace: fixtureWorkspace(task),
+    // address this thread's workspace are one declaration, not two.
+    provider: builderSandboxProvider(task.target),
+    // The builder's own archive of the pinned subtree; the controller captures its own.
+    workspace: targetWorkspace(task, "builder"),
   },
   toolOutput: {
     // The controller never reads a tool result, so nothing here is load-bearing
@@ -25,16 +26,8 @@ export default config({
     previewLines: 10,
   },
   permissions: {
-    allow: {
-      // Prepared dependencies are readable inside the container, never writable.
-      readFile: [
-        `/opt/fixtures/${manifest.id}/node_modules`,
-        `/opt/fixtures/${manifest.id}/node_modules/`,
-      ],
-      listDir: [`/opt/fixtures/${manifest.id}/node_modules`],
-      // Prefix matches on the whole command. Only what the fixture's own test
-      // command needs: anything else should surface as an unexpected interrupt.
-      bash: ["npm test", "npm run test", "npm --silent test", "node ", "cat", "ls", "head"],
-    },
+    // Derived from the target's own commands and environment links: only what this target
+    // needs, so anything else surfaces as an interrupt.
+    allow: { ...builderPermissions(task.target) },
   },
 })

@@ -529,7 +529,7 @@
         "stepIndex": 9,
         "step": "Software factory controller-owned verification",
         "kind": "run",
-        "value": "pnpm turbo run build --filter=@b4-example/software-factory-server^...\npnpm --filter @b4-example/software-factory-server test:sandbox\n",
+        "value": "pnpm turbo run build --filter=@b4-example/software-factory-server^...\npnpm --filter @b4-example/software-factory-server target:prepare cli-flags\npnpm --filter @b4-example/software-factory-server target:prepare devkit\npnpm --filter @b4-example/software-factory-server test:sandbox\n",
         "classification": "safe"
       },
       {

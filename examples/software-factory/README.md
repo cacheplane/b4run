@@ -49,11 +49,20 @@ bundle and an export, but the bytes in that lane are not yet the *builder's* own
   with `link`, so a retry lands on the same name with the same content and a second delivery
   is impossible.
 
+**Targets and tasks.** A *target* is an environment: a commit pin, the repository subtree the
+workspace is captured from, that capture's inventory, the prepared image its dependencies live
+in, and the build and test commands to run. It lives under `targets/<id>/`. A *task* is one
+repair inside a target: a spec with named acceptance ids, the defect and reference patches,
+and the visible and independent checks. It lives under `tasks/<id>/`. Adding either is a
+directory and a prepared image, not a code change; the design is in
+[the rung 2 spec](../../docs/superpowers/specs/2026-09-19-software-factory-rung2-design.md).
+
 ## What it does not do
 
-No authentication (loopback only; do not expose it). No repair loop, no token budgets, one
-task (`cli-flags`), no UI, and one export target (the local filesystem). Verification proves a
-focused repair policy, not arbitrary program correctness, and the receipt says so.
+No authentication (loopback only; do not expose it). No repair loop, no token budgets, no
+live model producing a repair, no UI, and one export target (the local filesystem).
+Verification proves a focused repair policy, not arbitrary program correctness, and the
+receipt says so.
 
 **`examples/code-fixer` is untouched by this rung.** The factory borrows its fixture image and
 nothing else; rung 0 drove code-fixer as its worker, and rung 1 does not.
@@ -92,20 +101,23 @@ reader carries no exec backend and no write operation, so a mutation cannot be e
   as layer 2 does; the route, tools, permission config and container there are real.
 - **What the inspection options are.** They are not cosmetic: `WorkspaceInspectionOptions`
   supplies `excludeRootDirectories` and `expectedRootSymlinks` for every read, derived from
-  the workspace definition rather than restated, plus the builder's own `runAsNonRoot`
-  identity so the reader can read what the builder wrote. A reader without them throws on the
+  the target rather than restated, plus the builder's own `runAsNonRoot` identity so the
+  reader can read what the builder wrote. A reader without them throws on the
   dependency symlink or reports the git directory as added paths — a `scope_violation` on
-  every run.
+  every run. `ignorePrefixes` is the same list the verifier's tamper comparison skips (the
+  target's `snapshotIgnore`): a builder that runs the target's build writes there
+  legitimately, and those paths are dropped rather than reported as added.
 
 ## Run it
 
-The builder and the verifier both run in the fixture image, so this needs Docker:
+The builder and the verifier both run in the target's prepared image, so this needs Docker:
 
-    pnpm --filter @b4-example/code-fixer-server sandbox:prepare   # builds b4-code-fixer:fixture-v1
+    cd examples/software-factory/server
+    pnpm target:prepare cli-flags   # builds b4-factory-cli-flags:<pin>-<dockerfile sha>
 
 Terminal 1, the builder — **this package**, not code-fixer:
 
-    cd examples/software-factory/server && OPENAI_API_KEY=... pnpm dev --port 4100
+    OPENAI_API_KEY=... pnpm dev --port 4100
 
 Terminal 2, the controller:
 
@@ -139,8 +151,8 @@ on 127.0.0.1.
 | `FACTORY_MAX_ACTIVE_MS` | no | Default 1200000; waiting on a person is not active time |
 | `FACTORY_MAX_CHANGED_BYTES` | no | Default 1048576; exceeding it is a `scope_violation`, never a truncation |
 | `FACTORY_HTTP_PORT` | no | Default 4300, for `serve` |
-| `FACTORY_SANDBOX_IMAGE` | no | Default `b4-code-fixer:fixture-v1`, run by both the builder and the verifier. **Setting it rewrites the environment identity every bundle binds**: the verifier records this value verbatim, so a bundle frozen under one value is invalidated at approval under another (which is the intended behaviour), but the value is a mutable tag. The spec requires the bundle to bind a **pinned image digest**, and rung 1 does not meet that: two different images can carry the same tag, and consent cannot tell them apart. Resolving the tag to a digest needs a Docker call on a path that must not make one, so the honest value is recorded rather than a fabricated pin. |
-| `FACTORY_TASK_ID` | no | Which fixture `b4.config.ts` configures the builder for; default `cli-flags` |
+| `FACTORY_REPO_ROOT` | no | The repository the targets pin into; default `git rev-parse --show-toplevel` from the package. Set by the Docker-lane tests, which copy the app outside the repository. |
+| `FACTORY_TASK_ID` | no | Which task `b4.config.ts` configures the builder for; default `cli-flags` |
 | `FACTORY_BUILDER_MODEL` | no | Default `gpt-5-mini`, read by the builder route |
 
 Rung 0's `FACTORY_WORKER_OUTBOX` and `FACTORY_RECEIPT_WAIT_MS` name nothing now — the trust
@@ -153,7 +165,7 @@ old service file keeps starting.
     pnpm test:sandbox   # layers 2 and 3: the real builder and the real verifier, Docker required
 
 Layer 1 is the only always-on lane. Layers 2 and 3 are Docker-gated and run in CI's
-`sandbox-docker` job, after the step that builds `b4-code-fixer:fixture-v1`. Layer 2 needs
-Docker even though its model is scripted: the app configures a sandbox, so the run acquires a
+`sandbox-docker` job, after the step that prepares the factory's target images
+(`target:prepare`). Layer 2 needs Docker even though its model is scripted: the app configures a sandbox, so the run acquires a
 real container — which is the point, since the permission config and `runBash` are exactly
 what that layer exists to exercise. Both fail rather than skip when Docker is absent.

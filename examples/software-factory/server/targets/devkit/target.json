@@ -1,0 +1,89 @@
+{
+  "id": "devkit",
+  "pin": "6a59e00aed466330c182989265786af396f39d80",
+  "root": ".",
+  "capture": {
+    "include": [
+      "package.json",
+      "pnpm-workspace.yaml",
+      ".npmrc",
+      "packages/devkit/package.json",
+      "packages/devkit/tsconfig.json",
+      "packages/devkit/tsconfig.test.json",
+      "packages/devkit/vitest.config.ts",
+      "packages/devkit/src",
+      "packages/devkit/test",
+      "packages/config-typescript"
+    ]
+  },
+  "snapshotIgnore": ["packages/devkit/dist/"],
+  "imageContext": [
+    "package.json",
+    "pnpm-workspace.yaml",
+    "pnpm-lock.yaml",
+    ".npmrc",
+    "packages/devkit/package.json",
+    "packages/config-typescript"
+  ],
+  "lockfile": "pnpm-lock.yaml",
+  "imageAssertResolves": ["vitest", "typescript", "@types/node/package.json"],
+  "environmentLinks": [
+    {
+      "path": "node_modules",
+      "target": "/opt/targets/devkit/node_modules"
+    }
+  ],
+  "commands": {
+    "cwd": "packages/devkit",
+    "build": ["pnpm", "exec", "tsc", "-b", "tsconfig.json"],
+    "test": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "--run",
+      "--no-cache",
+      "--config",
+      "vitest.config.ts",
+      "--exclude",
+      "test/generated-app.test.ts",
+      "--exclude",
+      "test/template-agents-md.test.ts",
+      "--exclude",
+      "test/template-copilotkit-dependencies.test.ts",
+      "--exclude",
+      "test/template-gitignore.test.ts",
+      "--exclude",
+      "test/template-no-playwright.test.ts",
+      "--exclude",
+      "test/template-root-scripts.test.ts",
+      "--exclude",
+      "test/template-telemetry-off.test.ts",
+      "--exclude",
+      "test/template-thread-access.test.ts",
+      "--exclude",
+      "test/templates.test.ts"
+    ],
+    "nodeTestExecArgv": []
+  },
+  "runnerConfig": [
+    "packages/devkit/package.json",
+    "packages/devkit/vitest.config.ts",
+    "packages/devkit/tsconfig.json",
+    "packages/devkit/tsconfig.test.json",
+    "packages/config-typescript"
+  ],
+  "resources": {
+    "memoryMb": 768,
+    "cpus": 2,
+    "commandTimeoutMs": 60000,
+    "verifierDeadlineMs": 120000
+  },
+  "image": {
+    "localId": "sha256:e132a2b1f79acb61e92d55f29f657ebd0ecc577ba8a955faa21779ec54d0f364",
+    "platform": "linux/arm64",
+    "baseManifestDigest": "sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553",
+    "dockerfileSha256": "981424fcce210c7d67002672d00e80ed2d80337cb68f6dc41fd3e9b73e0dc006",
+    "lockfileSha256": "a9acc6e4cd564e01e1ad4658e48b003bd223c96c0a54f6f9e39ce47f3f6e18d9",
+    "pnpmVersion": "10.33.0"
+  }
+}

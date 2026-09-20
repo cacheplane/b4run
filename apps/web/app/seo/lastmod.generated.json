@@ -342,9 +342,9 @@
       "recordDigest": "a23d9f6359ad6c7eaa5814a6647e725a89a360db81da40393ee2ee32eccaaebc"
     },
     "/docs/sandbox": {
-      "lastModified": "2026-09-19T16:01:55.164Z",
-      "sourceDigest": "923ee370c463cac8e0a38b42099def541853814f5dd8afa28ed1893301055159",
-      "recordDigest": "19f391f08d5304dcc9eec90097f986ff52dc0af2fcaeb7ea957b886341557f6b"
+      "lastModified": "2026-09-20T16:56:19.952Z",
+      "sourceDigest": "6d17f2ee93c31c6f7ca431df8d61d6890283d17d219f1b9afa93c6658af67318",
+      "recordDigest": "e0503218c42486d369611361cdbf3e6ce82143267c2b36296fdf6e2fd814dec1"
     },
     "/docs/sandbox/kubernetes": {
       "lastModified": "2026-09-14T21:13:45.147Z",

@@ -9,6 +9,7 @@
     "typecheck": "tsc -p . --noEmit",
     "lint": "biome check .",
     "factory": "tsx src/cli.ts",
+    "target:prepare": "tsx scripts/prepare-target.ts",
     "check": "b4 check",
     "build": "b4 build",
     "dev": "b4 dev"

@@ -29,6 +29,14 @@ interface DockerLaunchConfig {
   readonly readOnlyRootFilesystem: boolean
   readonly pidsLimit: number
   readonly user: { readonly uid: number; readonly gid: number } | null
+  /**
+   * Always true: the keeper runs `sleep infinity` as PID 1, which never
+   * reaps. `--init` installs Docker's own PID 1 so descendants orphaned by a
+   * command are reaped instead of lingering as zombies. Recorded in the
+   * launch config so a keeper started before this flag existed is replaced
+   * rather than reused.
+   */
+  readonly init: boolean
 }
 
 interface DockerLifecycleState {
@@ -75,6 +83,7 @@ function resolveLaunchConfig(policy: SandboxPolicy): DockerLaunchConfig {
     readOnlyRootFilesystem: sec.readOnlyRootFilesystem ?? true,
     pidsLimit: sec.pidsLimit ?? 512,
     user,
+    init: true,
   })
 }
 
@@ -176,6 +185,10 @@ export function dockerSandbox(opts: DockerSandboxOptions): SandboxProvider {
     const user = launchConfig.user
 
     const hardening: string[] = [
+      // Not policy-controlled: without a reaper, PID 1 (`sleep infinity`)
+      // never wait()s, so orphaned descendants stay zombies that hold
+      // --pids-limit slots and keep kill(pid, 0) succeeding forever.
+      ...(launchConfig.init ? ["--init"] : []),
       ...(launchConfig.dropAllCapabilities ? ["--cap-drop", "ALL"] : []),
       ...(launchConfig.noNewPrivileges ? ["--security-opt", "no-new-privileges"] : []),
       "--pids-limit",

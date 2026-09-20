@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest"
 import config from "../b4.config.ts"
 import builder from "../src/app/build/index.ts"
-import { TASK_PROMPTS } from "../src/prompts.ts"
+import { taskPrompt } from "../src/prompts.ts"
+import { loadTask } from "../src/targets/catalog.ts"
 
 describe("builder configuration", () => {
   it("denies the network and pins one image for both containers", () => {
     expect(config.sandbox?.network?.mode).toBe("deny")
     expect(config.sandbox?.provider.name).toBe("docker")
-    expect(config.sandbox?.workspace?.source.directory).toBe("fixtures/cli-flags/project")
+    expect(config.sandbox?.workspace?.source.directory).toBe(".factory/captures/builder/cli-flags")
   })
 
-  it("pre-approves exactly the commands the fixture needs, so an interrupt is a surprise", () => {
+  it("pre-approves exactly the commands the target needs, so an interrupt is a surprise", () => {
     const bash = config.permissions?.allow?.bash ?? []
     expect(bash).toContain("npm test")
     // Prefix matching is why this has a trailing space.
@@ -33,8 +34,14 @@ describe("the builder route", () => {
     expect(builder.systemPrompt).not.toMatch(/prepareReview|exportForReview/)
   })
 
-  it("has a prompt constant for the fixture, so static fixtures can key to it", () => {
-    expect(TASK_PROMPTS["cli-flags"]).toMatch(/\S/)
-    expect(TASK_PROMPTS["cli-flags"]).not.toMatch(/exportForReview/)
+  it("derives the task's prompt from the target's own commands", () => {
+    const prompt = taskPrompt(loadTask("cli-flags"))
+    // The command it is told to run is the one its permissions pre-approve, because both
+    // come from the target's manifest.
+    expect(prompt).toContain("Run the tests with `npm test`.")
+    // Reproduce first: the builder is asked to see the failure before it changes anything.
+    expect(prompt).toMatch(/Reproduce the failure/)
+    expect(config.permissions?.allow?.bash ?? []).toContain("npm test")
+    expect(prompt).not.toMatch(/exportForReview/)
   })
 })
