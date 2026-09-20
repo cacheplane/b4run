@@ -207,6 +207,49 @@ For a permission prompt, a resolved payload can carry a B4.run decision such as
 `"once"` or `"always"`; cancelling the interrupt maps to denial at the runtime
 boundary. Every answer must address one currently pending interrupt.
 
+## Response schema
+
+Some AG-UI clients render the assistant's reply rather than print it.
+[Hashbrown](https://hashbrown.dev) is one: its client sends
+`hashbrown: { ui: true, responseSchema }` on every run, where `responseSchema`
+is the JSON Schema the final assistant message must conform to. The runtime
+reads that field off the run body and does one of two things — it never
+ignores it, because from the client's side an ignored schema and an honored
+one look identical until a reply fails to parse.
+
+**Applied.** On an `agent` route whose provider can constrain its final message
+to a schema while still calling tools, the schema is bound on the root model
+as that provider's native structured output:
+
+| Provider | How the schema is applied |
+| --- | --- |
+| `openai` | `response_format: { type: "json_schema", json_schema: { name: "hashbrown_response", schema, strict: true } }` on every root-model call, on both the Chat Completions and Responses paths. |
+| `anthropic` | `output_config.format = { type: "json_schema", schema }` on every root-model call. |
+
+Tool-calling turns are unaffected: a turn that calls tools still returns tool
+calls, and only the turn that answers is constrained. The schema is bound on
+the **root** model only; subagents, summarization and memory extraction never
+see it. Because the binding is per request, a run that carries a schema always
+compiles a fresh agent graph instead of reusing the process cache.
+
+Strict OpenAI structured outputs require a schema OpenAI accepts in strict
+mode (every object with `additionalProperties: false` and all of its
+properties listed in `required`). Hashbrown's schema builder emits that shape;
+a hand-written schema that does not is rejected by OpenAI and surfaces as a
+`RUN_ERROR`.
+
+**Rejected.** Anywhere else the run is refused with `422` and error code
+`B4_E5402` before middleware context is built into a run, before the thread
+is created, and before a run slot is claimed. `error.details.code` says why:
+
+| `details.code` | Meaning |
+| --- | --- |
+| `invalid_response_schema` | `hashbrown` is present but not a JSON object, or `hashbrown.responseSchema` is present but not a JSON Schema object. Judged from the body alone, before middleware runs. |
+| `response_schema_not_supported` | The route is not an `agent` route, or its provider (`google`, `mistral`, `groq`, `ollama`, `xai`, `openrouter`) has no schema-constrained output mode that coexists with tool calls. Judged after middleware has admitted the caller. |
+
+A run without `hashbrown`, or with `hashbrown: { ui: true }` and no schema,
+is unchanged.
+
 ## Threading
 
 AG-UI's `threadId` is the B4.run thread id; there is no separate mapping table.

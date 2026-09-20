@@ -136,6 +136,11 @@ export const B4_ERRORS = {
     title: "Runtime store not provided",
     docsPath: "/docs/deployment",
   },
+  B4_E5402: {
+    code: "B4_E5402",
+    title: "AG-UI response schema rejected",
+    docsPath: "/docs/ag-ui#response-schema",
+  },
 } as const satisfies Record<string, B4ErrorDescriptor>
 
 /** The union of all registered error codes. Producers cannot invent codes. */
