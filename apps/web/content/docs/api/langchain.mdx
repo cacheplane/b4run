@@ -47,7 +47,11 @@ The runtime root is edge-safe for B4.run's emitted Hono/workerd target. Compatib
 | `chainAdapter` | Adapt a LangChain runnable to B4.run's chain backend contract. |
 | `BuiltInModelProviderId` | Re-export the SDK-owned built-in provider union. |
 | `ModelProviderId` | Re-export the SDK-owned provider identifier. |
-| `createChatModel` | Load and construct a selected provider chat model. |
+| `createChatModel` | Load and construct a selected provider chat model, optionally bound to a JSON-schema response format. |
+| `JsonSchemaResponseFormat` | Describe a JSON schema the root model's final message must match. |
+| `JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS` | List the providers whose schema-constrained output coexists with tool calls. |
+| `supportsJsonSchemaResponseFormat` | Report whether a provider can be bound to a JSON-schema response format. |
+| `unsupportedResponseFormatMessage` | Produce the rejection message for a provider that cannot. |
 | `providerPackages` | Map built-in provider IDs to integration packages. |
 | `seedModelImporter` | Install the process-global fallback provider importer. |
 | `inferProvider` | Re-export SDK provider inference. |
@@ -224,6 +228,8 @@ An explicit model provider bypasses provider inference.
 #### Provider lifecycle and failure boundaries
 
 Unknown explicit providers throw with the supported list. If no provider is explicit and inference fails, resolution throws before model construction. `seedModelImporter()` is last-call-wins process state; seed it during runtime assembly, not per request.
+
+`createChatModel({ responseFormat })` and `streamAgent({ responseFormat })` bind a `JsonSchemaResponseFormat` on the root model as the provider's native schema-constrained output — OpenAI `response_format` (`json_schema`, `strict: true`) or Anthropic `output_config.format` — alongside the route's tools, so tool-calling turns are unaffected and only the final message is constrained. Only the providers in `JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS` qualify; any other provider throws `unsupportedResponseFormatMessage(provider)` before its package is imported, never silently running unconstrained. A format-bound agent always compiles a fresh graph and never touches the materialized-agent cache. The AG-UI endpoint sources it from the client's `hashbrown.responseSchema`; see [AG-UI](/docs/ag-ui#response-schema).
 
 #### Behavior contract `langchain.retry.exhaustion`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/langchain/test/retry.test.ts","testNames":["throws after max attempts exhausted"]}] */}

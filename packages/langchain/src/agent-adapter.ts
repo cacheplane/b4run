@@ -5,7 +5,7 @@ import { isB4Agent } from "@b4run/sdk"
 import { type BaseMessageLike, HumanMessage } from "@langchain/core/messages"
 import { Command } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
-import { createChatModel } from "./chat-model-factory.js"
+import { createChatModel, type JsonSchemaResponseFormat } from "./chat-model-factory.js"
 import { readLogicalToolCallId } from "./logical-tool-call-id.js"
 import { resolveProvider } from "./model-provider-resolver.js"
 import { isRetryableError, withRetry } from "./retry.js"
@@ -111,14 +111,19 @@ async function materializeAgent(
     readonly routeParamNames?: readonly string[]
     readonly streamTransformers?: readonly StreamTransformer[]
     readonly subagentResolver?: SubagentResolver
+    readonly responseFormat?: JsonSchemaResponseFormat
   } = {},
 ): Promise<AgentLike> {
   // Converted tools capture middleware context, including request-specific
   // identity and authorization. Never read or seed the shared cache with it.
+  // A response format is per-request too: it is bound INTO the model, so a
+  // cached graph would either carry one request's schema into the next or
+  // hand a format-bound request the unbound graph.
   const bypassCache =
     opts.middlewareContext !== undefined ||
     opts.subagentResolver !== undefined ||
     opts.bypassCache === true ||
+    opts.responseFormat !== undefined ||
     (opts.streamTransformers?.length ?? 0) > 0
 
   // Without a checkpointer there is no cache key at all (the graph carries no
@@ -152,6 +157,7 @@ async function materializeAgent(
     model: descriptor.model,
     provider,
     ...(descriptor.reasoning ? { reasoning: descriptor.reasoning } : {}),
+    ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
   })
 
   const fragments = opts.promptFragments ?? []
@@ -213,6 +219,8 @@ export async function materializeAgentGraph(options: {
   readonly streamTransformers?: readonly StreamTransformer[]
   readonly promptFragments?: readonly PromptFragment[]
   readonly summarization?: ResolvedSummarizationConfig
+  /** Bind the root model's final message to a JSON schema; see `createChatModel`. */
+  readonly responseFormat?: JsonSchemaResponseFormat
   readonly subagentResolver?: SubagentResolver
   /**
    * Set when the caller's tools are bound to a per-thread sandbox (workspace
@@ -230,6 +238,7 @@ export async function materializeAgentGraph(options: {
     ...(options.summarization ? { summarization: options.summarization } : {}),
     ...(options.streamTransformers ? { streamTransformers: options.streamTransformers } : {}),
     ...(options.subagentResolver ? { subagentResolver: options.subagentResolver } : {}),
+    ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
     ...(options.bypassCache === true || options.sandboxed === true ? { bypassCache: true } : {}),
   })
 }
@@ -835,6 +844,13 @@ export interface AgentOptions {
   readonly threadId?: string
   readonly summarization?: ResolvedSummarizationConfig
   /**
+   * A JSON schema the ROOT model's final message must match, bound as the
+   * provider's native schema-constrained output alongside the route's tools
+   * (see `createChatModel`). Per request, so it forces a fresh graph compile.
+   * Unsupported providers throw before any model call.
+   */
+  readonly responseFormat?: JsonSchemaResponseFormat
+  /**
    * Set by the CLI runtime when a per-thread sandbox is active for this turn
    * (the workspace tools close over the thread's sandbox filesystem/exec
    * backend). Forces `bypassCache` in materializeAgent so a cached agent
@@ -919,6 +935,7 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
         routeParamNames: options.routeParamNames,
         ...(options.streamTransformers ? { streamTransformers: options.streamTransformers } : {}),
         ...(resolver ? { subagentResolver: resolver } : {}),
+        ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
       },
     )
     const retryConfig = options.entry.retry
@@ -929,6 +946,11 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
 
   // Legacy path — raw Runnable with .invoke()
   assertAgentLike(options.entry)
+  if (options.responseFormat) {
+    throw new Error(
+      "A response format can only be bound on an agent() descriptor route: a raw LangChain runnable owns its own model.",
+    )
+  }
 
   const langchainTools = options.tools.map((tool) =>
     tool.name === "task" && resolver
