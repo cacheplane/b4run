@@ -84,6 +84,45 @@ function targetsDir(pin: string, overrides: Record<string, unknown> = {}): strin
   return dir
 }
 
+/**
+ * An origin with two commits and a `--depth 1` clone of it, which is the shape of a CI
+ * checkout: the clone holds the tip and not the commit a target pins. `file://` (not a bare
+ * path) is what makes the clone shallow, and `allowAnySHA1InWant` is what lets a fetch ask
+ * for one commit by SHA, as GitHub's servers do.
+ */
+function shallowClone(): { origin: string; clone: string; older: string } {
+  const origin = mkdtempSync(join(tmpdir(), "factory-origin-"))
+  dirs.push(origin)
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-C", origin, ...args], { encoding: "utf8" }).trim()
+  git("init", "-q")
+  git("config", "user.email", "t@example.com")
+  git("config", "user.name", "t")
+  git("config", "uploadpack.allowAnySHA1InWant", "true")
+  writeFileSync(join(origin, "a.txt"), "a\n")
+  git("add", ".")
+  git("commit", "-q", "-m", "one")
+  const older = git("rev-parse", "HEAD")
+  writeFileSync(join(origin, "a.txt"), "b\n")
+  git("commit", "-q", "-a", "-m", "two")
+  const clone = mkdtempSync(join(tmpdir(), "factory-clone-"))
+  dirs.push(clone)
+  rmSync(clone, { recursive: true, force: true })
+  execFileSync("git", ["clone", "-q", "--depth", "1", `file://${origin}`, clone], {
+    encoding: "utf8",
+  })
+  return { origin, clone, older }
+}
+
+function holdsCommit(root: string, sha: string): boolean {
+  try {
+    execFileSync("git", ["-C", root, "cat-file", "-e", `${sha}^{commit}`], { stdio: "ignore" })
+    return true
+  } catch {
+    return false
+  }
+}
+
 describe("target catalog", () => {
   it("lists the targets shipped with the factory", () => {
     expect(loadTargetIds()).toEqual(["cli-flags", "devkit"])
@@ -109,6 +148,36 @@ describe("target catalog", () => {
     expect(() => loadTarget("t", { targetsDir: targetsDir(absent), repositoryRoot: root })).toThrow(
       /not in the repository/,
     )
+  })
+
+  it("fetches a pin a shallow checkout lacks", () => {
+    const { clone, older } = shallowClone()
+    expect(holdsCommit(clone, older)).toBe(false)
+    const target = loadTarget("t", { targetsDir: targetsDir(older), repositoryRoot: clone })
+    expect(target.pin).toBe(older)
+    expect(holdsCommit(clone, older)).toBe(true)
+  })
+
+  it("refuses a missing pin without fetching when FACTORY_NO_FETCH is set", () => {
+    const { clone, older } = shallowClone()
+    const previous = process.env.FACTORY_NO_FETCH
+    process.env.FACTORY_NO_FETCH = "1"
+    try {
+      expect(() =>
+        loadTarget("t", { targetsDir: targetsDir(older), repositoryRoot: clone }),
+      ).toThrow(/not in the repository[\s\S]*FACTORY_NO_FETCH/)
+    } finally {
+      if (previous === undefined) delete process.env.FACTORY_NO_FETCH
+      else process.env.FACTORY_NO_FETCH = previous
+    }
+    expect(holdsCommit(clone, older)).toBe(false)
+  })
+
+  it("reports a failed fetch for a pin that exists nowhere", () => {
+    const { clone } = shallowClone()
+    expect(() =>
+      loadTarget("t", { targetsDir: targetsDir("1".repeat(40)), repositoryRoot: clone }),
+    ).toThrow(/fetching it from origin also failed/)
   })
 
   it("refuses a target that has not been prepared", () => {

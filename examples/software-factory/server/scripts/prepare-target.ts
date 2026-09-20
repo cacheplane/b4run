@@ -6,6 +6,7 @@ import { join } from "node:path"
 import {
   appRoot,
   covers,
+  ensurePin,
   imageTag,
   repositoryRoot,
   TargetSchema,
@@ -26,6 +27,10 @@ const directory = join(targetsDir, id)
 const manifestPath = join(directory, "target.json")
 const manifest = TargetSchema.parse(JSON.parse(readFileSync(manifestPath, "utf8")))
 const repo = repositoryRoot()
+// This script parses the manifest itself (the image may be absent, which `loadTarget`
+// refuses), so it must make the pin present the same way `loadTarget` does: a shallow
+// checkout has everything but the commit the archive below is taken from.
+ensurePin(repo, id, manifest.pin)
 // The lockfile hash only means something if the lockfile was in the build context: a hash
 // over a file the build never saw records an input that did not produce the image.
 if (!covers(manifest.imageContext, manifest.lockfile))

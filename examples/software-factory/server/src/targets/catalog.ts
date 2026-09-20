@@ -185,9 +185,37 @@ export function loadTarget(id: string, options: CatalogOptions = {}): Target {
   if (!manifest.image)
     throw new Error(`Target ${id} has not been prepared: run scripts/prepare-target.ts ${id}`)
   const repo = options.repositoryRoot ?? repositoryRoot()
-  if (!commitExists(repo, manifest.pin))
-    throw new Error(`Target ${id} pins ${manifest.pin}, which is not in the repository at ${repo}`)
+  ensurePin(repo, id, manifest.pin)
   return { ...manifest, image: manifest.image, directory }
+}
+
+/**
+ * Make `pin` available in `repo`'s object store, fetching it from `origin` on a miss.
+ *
+ * A shallow checkout — which is what most CI jobs get — does not contain the pin, and the
+ * pin is the only source of truth for what the factory builds against. Fetching that one
+ * commit by SHA (GitHub allows it for a reachable commit) keeps that honest without
+ * requiring every job in the repository to deepen its checkout. `FACTORY_NO_FETCH=1` turns
+ * a missing pin back into a hard error, for offline or determinism runs.
+ */
+export function ensurePin(repo: string, id: string, pin: string): void {
+  if (commitExists(repo, pin)) return
+  const missing = `Target ${id} pins ${pin}, which is not in the repository at ${repo}`
+  if (process.env.FACTORY_NO_FETCH === "1")
+    throw new Error(`${missing} (FACTORY_NO_FETCH=1, not fetched)`)
+  process.stderr.write(
+    `factory: pin ${pin.slice(0, 12)} for target ${id} is not in the local object store; fetching it from origin\n`,
+  )
+  try {
+    execFileSync("git", ["-C", repo, "fetch", "--depth=1", "origin", pin], {
+      stdio: ["ignore", "ignore", "inherit"],
+      timeout: 120_000,
+    })
+  } catch (error) {
+    throw new Error(`${missing} (fetching it from origin also failed: ${String(error)})`)
+  }
+  if (!commitExists(repo, pin))
+    throw new Error(`${missing} (fetching it from origin also failed: the fetch did not add it)`)
 }
 
 function commitExists(repo: string, pin: string): boolean {

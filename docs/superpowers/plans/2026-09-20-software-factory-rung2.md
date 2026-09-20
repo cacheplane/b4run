@@ -2912,6 +2912,21 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 Title: `feat(software-factory): rung 2, the builder retargeted at packages/devkit`. Body: the spec's "Decision" paragraph, the three ladder proofs and which test carries each (Task 12 for build-and-test, Task 13 for the scripted repair), the measured resources, and the list of what the proof does not claim from the spec. End with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 
+> **Task 14 as landed (CI-driven).** Seven CI jobs failed on the same root cause: most
+> jobs in `.github/workflows/ci.yml` check out at the default shallow depth (only
+> `changesets`, `harness-verify`, `pack-smoke`, `push`, `release-controller` and
+> `source-validate` set `fetch-depth: 0`), so the targets' pin is absent from their object
+> stores. `target:prepare` failed in `git archive`, and every "Build packages" step failed
+> too, because turbo builds the example, whose `b4.config.ts` calls `loadTask` →
+> `loadTarget` → `commitExists`. Fix: `ensurePin(repo, id, pin)` in
+> `src/targets/catalog.ts` fetches a missing pin from `origin` by SHA
+> (`git fetch --depth=1 origin <pin>`, which GitHub allows for a reachable commit) once,
+> on first load, and is used by both `loadTarget` and `scripts/prepare-target.ts` (which
+> parses the manifest itself because the image may be absent). `FACTORY_NO_FETCH=1` keeps
+> a missing pin a hard error for offline or determinism runs. Deepening every job's
+> checkout was the alternative and was rejected: the pin is the factory's business, not
+> the repository's CI configuration.
+
 ---
 
 ## Self-review against the spec

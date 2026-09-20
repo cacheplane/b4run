@@ -185,6 +185,9 @@ Docker Desktop registry proxy is wedged and `docker pull` hangs. It is an
 explicit opt-in, never a fallback, because it records a base digest nobody
 refreshed.
 
+A shallow checkout that lacks the pin fetches that one commit from `origin` on
+first load; `FACTORY_NO_FETCH=1` turns a missing pin into a hard error.
+
 ### Run one work order end to end
 
 Two processes, as in rung 1. Terminal 1 is the builder, a b4 app whose
