@@ -2633,6 +2633,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
+> **Task 11 as landed.** `defect.patch` is one hunk on the pinned `process.ts`: the race's `finally` clears the timer only when the child closed; `reference.patch` is the inverse; both generated from the object store. The check runs the built `packages/devkit/dist/testing/index.js` from the workspace root under plain `node`. Admission gate run by hand outside the container: with the defect the check FAILS at about 8 s (the child is killed by the check's own timeout), with the reference it PASSES in about 40 ms, and the visible suite with the defect fails exactly the one named regression test. `test/tasks.test.ts` proves both patches apply to the pin and round-trip for every shipped task.
+
 ### Task 12: Layer 2: the real image builds and tests devkit, and admits the task
 
 **Files:**
