@@ -1,0 +1,239 @@
+import type { Browser, BrowserContext, Page } from "@playwright/test"
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  runWorkbenchSuggestionJourneys,
+  type SuggestionJourneyDeps,
+  type SuggestionJourneyOptions,
+} from "./workbench-suggestions.ts"
+
+const RESEARCH_REPLY = "I wrote a short report covering ReAct and plan-and-execute architectures."
+const FETCH_COMMAND = "node scripts/fetch-source.mjs quantum computing"
+const GATED_REPLY = "Fetched external context after approval."
+const TEACH_CONTENT = "Brian prefers concise, code-first answers"
+
+const baseOptions: SuggestionJourneyOptions = {
+  webUrl: "http://127.0.0.1:4712",
+  screenshotDir: "/tmp/shots",
+  fetchCommand: FETCH_COMMAND,
+  gatedReply: GATED_REPLY,
+  researchReply: RESEARCH_REPLY,
+  teachContent: TEACH_CONTENT,
+}
+
+/**
+ * A fake browser whose locators record every chained step as a readable
+ * description, so a test can assert both WHAT was clicked and in what order.
+ *
+ * `onCall` sees each recorded call and may throw — that is how a test injects a
+ * failure at one exact step (say the `Allow once` click) without teaching the
+ * fake anything about journeys.
+ */
+function fakeBrowser(
+  overrides: {
+    readonly onCall?: (call: string) => void
+    readonly candidates?: readonly { readonly content: string }[]
+    readonly candidatesOk?: boolean
+  } = {},
+) {
+  const calls: string[] = []
+  const listeners = new Map<string, (payload: unknown) => void>()
+  const record = (call: string) => {
+    calls.push(call)
+    overrides.onCall?.(call)
+  }
+  const name = (value: unknown): string =>
+    value instanceof RegExp ? String(value) : JSON.stringify(value)
+
+  // biome-ignore lint/suspicious/noExplicitAny: a structural stand-in for Locator.
+  function locator(desc: string): any {
+    return {
+      getByRole: (role: string, options?: { name?: unknown }) =>
+        locator(
+          options?.name === undefined
+            ? `${desc} > ${role}`
+            : `${desc} > ${role}=${name(options.name)}`,
+        ),
+      getByText: (text: unknown) => locator(`${desc} > text=${name(text)}`),
+      getByLabel: (label: string) => locator(`${desc} > label=${label}`),
+      locator: (selector: string) => locator(`${desc} > ${selector}`),
+      filter: (options: { hasText?: unknown }) =>
+        locator(`${desc} | hasText=${name(options.hasText)}`),
+      last: () => locator(`${desc} .last`),
+      click: async () => record(`click ${desc}`),
+      waitFor: async (options: { state: string }) => record(`waitFor:${options.state} ${desc}`),
+    }
+  }
+
+  const page = {
+    on: vi.fn((event: string, listener: (payload: unknown) => void) => {
+      listeners.set(event, listener)
+    }),
+    screenshot: vi.fn(async (options: { path: string }) => {
+      calls.push(`screenshot ${options.path}`)
+    }),
+    getByRole: (role: string, options?: { name?: unknown }) =>
+      locator(
+        options?.name === undefined ? `page > ${role}` : `page > ${role}=${name(options.name)}`,
+      ),
+    getByText: (text: unknown) => locator(`page > text=${name(text)}`),
+    getByLabel: (label: string) => locator(`page > label=${label}`),
+    locator: (selector: string) => locator(`page > ${selector}`),
+    request: {
+      get: vi.fn(async (url: string) => {
+        calls.push(`GET ${url}`)
+        return {
+          ok: () => overrides.candidatesOk !== false,
+          status: () => (overrides.candidatesOk === false ? 500 : 200),
+          json: async () => ({ candidates: overrides.candidates ?? [] }),
+        }
+      }),
+    },
+  } as unknown as Page
+  const context = {
+    newPage: vi.fn(async () => page),
+    close: vi.fn(async () => {
+      calls.push("context.close")
+    }),
+  } as unknown as BrowserContext
+  const browser = {
+    newContext: vi.fn(async () => context),
+    close: vi.fn(async () => {
+      calls.push("browser.close")
+    }),
+  } as unknown as Browser
+  const chromium = { launch: vi.fn(async () => browser) }
+  const journey = {
+    openReadyWorkbench: vi.fn(async () => {
+      calls.push("open")
+    }),
+    waitForWorkbenchRunCompletion: vi.fn(async () => {
+      record("complete")
+    }),
+  } as unknown as NonNullable<SuggestionJourneyDeps["journey"]>
+  const deps: SuggestionJourneyDeps = { chromium, journey }
+  const emitConsoleError = (text: string) => {
+    listeners.get("console")?.({
+      type: () => "error",
+      text: () => text,
+      location: () => ({ url: "" }),
+    })
+  }
+  return { calls, chromium, deps, journey, page, emitConsoleError }
+}
+
+/** Returns the error a call rejected with, failing if it resolved instead. */
+async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
+  try {
+    await promise
+  } catch (error) {
+    return error as Error
+  }
+  throw new Error("expected the call to reject, but it resolved")
+}
+
+/** Just the button clicks, which is where the journey order is legible. */
+const clicks = (calls: readonly string[]): string[] =>
+  calls.filter((call) => call.startsWith("click "))
+
+describe("runWorkbenchSuggestionJourneys", () => {
+  it("runs the three journeys in order in one browser, each from a new conversation", async () => {
+    const { calls, chromium, deps, journey } = fakeBrowser()
+    await runWorkbenchSuggestionJourneys(baseOptions, deps)
+
+    expect(chromium.launch).toHaveBeenCalledTimes(1)
+    expect(journey.openReadyWorkbench).toHaveBeenCalledTimes(1)
+    expect(calls[0]).toBe("open")
+    expect(clicks(calls).filter((call) => call.includes("New conversation"))).toHaveLength(3)
+    // Every suggestion click is immediately preceded by a New conversation click.
+    const starts = clicks(calls).filter(
+      (call) => call.includes("New conversation") || call.includes("^"),
+    )
+    expect(starts).toEqual([
+      'click page > button="New conversation"',
+      "click page > button=/^Research a topic/",
+      'click page > button="New conversation"',
+      "click page > button=/^Trigger a permission prompt/",
+      'click page > button="New conversation"',
+      "click page > button=/^Teach it a preference/",
+    ])
+    expect(calls.slice(-2)).toEqual(["context.close", "browser.close"])
+  })
+
+  it("clicks Allow once inside the alert holding the command, then waits for it to go", async () => {
+    const { calls, deps } = fakeBrowser()
+    await runWorkbenchSuggestionJourneys(baseOptions, deps)
+    const alert = `page > alert | hasText=${JSON.stringify(FETCH_COMMAND)}`
+    const allow = calls.indexOf(`click ${alert} > button="Allow once"`)
+    expect(allow).toBeGreaterThan(-1)
+    expect(calls.indexOf(`waitFor:hidden ${alert}`)).toBeGreaterThan(allow)
+  })
+
+  it("expands the collapsed subagent card before asserting its tools", async () => {
+    const { calls, deps } = fakeBrowser()
+    await runWorkbenchSuggestionJourneys(baseOptions, deps)
+    const card = 'page > main > details | hasText="researcher · completed" .last'
+    const expand = calls.indexOf(`click ${card} > summary`)
+    expect(expand).toBeGreaterThan(-1)
+    expect(
+      calls.indexOf(`waitFor:visible ${card} > label=Subagent tools > text="searchCorpus"`),
+    ).toBeGreaterThan(expand)
+  })
+
+  it("approves the candidate by its full accessible name and verifies it is gone", async () => {
+    const { calls, deps, page } = fakeBrowser()
+    await runWorkbenchSuggestionJourneys(baseOptions, deps)
+    expect(calls).toContain(
+      `click page > label=Memory candidates > button=${JSON.stringify(`Approve: ${TEACH_CONTENT}`)}`,
+    )
+    expect(page.request.get).toHaveBeenCalledWith("http://127.0.0.1:4712/api/b4/memory/candidates")
+  })
+
+  it("fails when the approved candidate is still listed over HTTP", async () => {
+    const { deps } = fakeBrowser({ candidates: [{ content: TEACH_CONTENT }] })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/^Teach it a preference: approved candidate is still listed/)
+  })
+
+  it("names the failing journey and screenshots under that journey's own name", async () => {
+    const { calls, deps } = fakeBrowser({
+      onCall: (call) => {
+        if (call.includes("Allow once")) throw new Error("the gate never resolved")
+      },
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/^Trigger a permission prompt: the gate never resolved/)
+    expect(calls).toContain("screenshot /tmp/shots/workbench-browser-gate.png")
+    expect(calls).not.toContain("screenshot /tmp/shots/workbench-browser-teach.png")
+  })
+
+  it("stops the run when the first journey fails, never reaching the second suggestion", async () => {
+    const { calls, deps } = fakeBrowser({
+      onCall: (call) => {
+        if (call.includes(RESEARCH_REPLY)) throw new Error("the report never rendered")
+      },
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/^Research a topic: the report never rendered/)
+    expect(calls.some((call) => call.includes("Trigger a permission prompt"))).toBe(false)
+    expect(calls).toContain("screenshot /tmp/shots/workbench-browser-research.png")
+  })
+
+  it("reports a console error from the first journey against that journey", async () => {
+    const fake = fakeBrowser()
+    let emitted = false
+    // The first run completion is the research journey's; emit there so the
+    // error is collected well before the gate and teach journeys run.
+    vi.mocked(fake.journey.waitForWorkbenchRunCompletion).mockImplementation(async () => {
+      if (!emitted) {
+        emitted = true
+        fake.emitConsoleError("Hydration failed")
+      }
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, fake.deps))
+    expect(rejection.message).toMatch(/^Research a topic: Workbench console errors/)
+    expect(rejection.message).toContain("Hydration failed")
+    expect(fake.calls).toContain("screenshot /tmp/shots/workbench-browser-research.png")
+    expect(fake.calls.some((call) => call.includes("Teach it a preference"))).toBe(false)
+  })
+})
