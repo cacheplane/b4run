@@ -2858,6 +2858,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
+> **Task 13 as landed.** The rung 2 ladder proof passes on the first attempt: the scripted builder writes the reference repair into its own managed workspace of the devkit archive, the controller reads it, assembles it against its own capture, verifies it in the prepared image, freezes, approves (re-verifies) and exports exactly those bytes. Lane wall clock about 115 s, dominated by the two verifications; the full Docker lane (five files) about 283 s. `applyReference` refuses a task with more than one allowed path.
+
 ### Task 14: Docs, gates and the handoff
 
 **Files:**
