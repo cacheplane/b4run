@@ -953,6 +953,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
+> **Task 3 as landed (review-driven).** The catalog's path rules reuse `relativePath` and a prefix-aware `covers(entries, path)`: suite files are canonical relative paths with distinct schemas for the visible file (never under `checks/`) and the independent file (always under `checks/`); allowed-versus-protected overlap is symmetric (`overlaps`), so an allowed directory cannot swallow a protected file; a `node-test` visible suite must be immutable; and `assertTaskFitsTarget(id, manifest, checks, target)` carries the cross-checks so the shipped tasks are checked in layer 1 without a prepared target. `.strict()` on every schema. `src/fixtures` keeps loading through a commented bridge until Task 9.
+
 ### Task 4: The archive step
 
 **Files:**
