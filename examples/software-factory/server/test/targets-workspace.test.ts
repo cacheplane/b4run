@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import type { Task } from "../src/targets/catalog.ts"
+import { imageTag, type Task } from "../src/targets/catalog.ts"
 import {
   builderSandboxProvider,
   builderSandboxScope,
@@ -35,7 +35,7 @@ function repo(): { root: string; pin: string } {
   return { root, pin }
 }
 
-function task(pin: string, overrides: Partial<Task> = {}): Task {
+function task(pin: string): Task {
   return {
     id: "k",
     directory: "/unused",
@@ -58,7 +58,7 @@ function task(pin: string, overrides: Partial<Task> = {}): Task {
       pin,
       root: "pkg",
       capture: { include: ["src", "package.json"] },
-      snapshotIgnore: [],
+      snapshotIgnore: ["packages/x/dist/"],
       image: {
         localId: `sha256:${"a".repeat(64)}`,
         platform: "linux/arm64",
@@ -80,7 +80,6 @@ function task(pin: string, overrides: Partial<Task> = {}): Task {
         verifierDeadlineMs: 600_000,
       },
     },
-    ...overrides,
   }
 }
 
@@ -98,7 +97,7 @@ describe("targetWorkspace", () => {
     expect(definition.source.include).toEqual(["src", "package.json"])
     expect(definition.source.files).toEqual([
       { path: "TASK.md", text: "# spec\n" },
-      { path: ".gitignore", text: "node_modules/\n" },
+      { path: ".gitignore", text: "node_modules/\npackages/x/dist/\n" },
     ])
     expect(definition.environmentLinks).toEqual([
       { path: "node_modules", target: "/opt/targets/t/node_modules" },
@@ -108,13 +107,13 @@ describe("targetWorkspace", () => {
 })
 
 describe("targetInspectionOptions", () => {
-  it("derives the root symlinks, the git exclusion and the reader's limits from the target", () => {
+  it("derives the root symlinks and the git exclusion from the target, without restating the reader's limits", () => {
     const options = targetInspectionOptions(task("0".repeat(40)))
     expect(options.excludeRootDirectories).toEqual([".git"])
     expect(options.expectedRootSymlinks).toEqual({ node_modules: "/opt/targets/t/node_modules" })
-    expect(options.maxTotalBytes).toBe(16 * 1024 * 1024)
-    expect(options.maxEntries).toBe(10_000)
-    expect(options.maxFileBytes).toBe(2 * 1024 * 1024)
+    expect(options).not.toHaveProperty("maxEntries")
+    expect(options).not.toHaveProperty("maxFileBytes")
+    expect(options).not.toHaveProperty("maxTotalBytes")
   })
 })
 
@@ -132,8 +131,10 @@ describe("targetSandboxPolicy", () => {
 
 describe("builderSandboxProvider", () => {
   it("is a docker provider on the target's derived image tag and the builder scope", () => {
-    const provider = builderSandboxProvider(task("0".repeat(40)).target)
+    const t = task("0".repeat(40))
+    const provider = builderSandboxProvider(t.target)
     expect(provider.name).toBe("docker")
+    expect(imageTag(t.target)).toMatch(/^b4-factory-t:[a-f0-9]{12}-[a-f0-9]{12}$/)
     expect(builderSandboxScope).toBe("software-factory-builder")
   })
 })

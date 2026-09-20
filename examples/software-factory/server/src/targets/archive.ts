@@ -35,8 +35,8 @@ const TASK_ID_PATTERN = /^[\w-]+$/
  * builder's copy at load time. Rebuilt on every call: there is no cache to invalidate.
  *
  * Built into a scratch sibling and renamed into place only once the archive, extraction and
- * defect patch have all succeeded, so a failed capture leaves nothing at all behind — no
- * partial `absolute` directory and no scratch directory beside it.
+ * defect patch have all succeeded, so a failed capture leaves the previous capture at
+ * `absolute` in place (or nothing, if there was none) and no scratch directory beside it.
  *
  * `git archive` silently honours an in-tree `.gitattributes export-ignore`: an included path
  * can vanish from the archive with no error. Every entry of `capture.include` is therefore

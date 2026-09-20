@@ -48,7 +48,13 @@ export function targetWorkspace(
       include: [...task.target.capture.include],
       files: [
         { path: "TASK.md", text: task.specText },
-        { path: ".gitignore", text: "node_modules/\n" },
+        // Build output the target declares as `snapshotIgnore` is also ignored in the
+        // workspace's own git repo, so the builder's `git status` is not noise. The baseline
+        // commit is unaffected: the prepare step force-adds sources and links.
+        {
+          path: ".gitignore",
+          text: `${["node_modules/", ...task.target.snapshotIgnore].join("\n")}\n`,
+        },
       ],
     },
     environmentLinks: task.target.environmentLinks.map((link) => ({ ...link })),
@@ -61,8 +67,12 @@ export function targetWorkspace(
  * target rather than restated by each caller: `baseline: "git"` puts a `.git` directory in the
  * workspace that is not part of the capture, and each environment link is a root symlink
  * inspection refuses to walk unless told its exact target. The reader and the verifier share
- * this so they cannot drift apart. Limits are the reader's: a monorepo capture is larger than
- * a fixture.
+ * this so they cannot drift apart.
+ *
+ * Inspection can exclude root directories only, so build output under a package (e.g.
+ * `packages/devkit/dist`) is walked and counts toward the reader's entry and byte limits;
+ * `snapshotIgnore` is consumed by the verifier's tamper comparison, not here. A target whose
+ * build output is large must raise the reader's limits rather than expect exclusion.
  */
 export function targetInspectionOptions(task: Task): WorkspaceReadOptions {
   const expectedRootSymlinks: Record<string, string> = {}
@@ -71,9 +81,11 @@ export function targetInspectionOptions(task: Task): WorkspaceReadOptions {
   return {
     excludeRootDirectories: [".git"],
     expectedRootSymlinks,
-    maxEntries: 10_000,
-    maxFileBytes: 2 * 1024 * 1024,
-    maxTotalBytes: 16 * 1024 * 1024,
+    // Mirrors the builder's own policy rather than trusting the reader's default to keep
+    // matching it: relax `security.runAsNonRoot` for the builder and its files change
+    // owner, and a reader still running as the secure default cannot read them. Inert today
+    // by construction (the policy sets no `security`), kept because the derivation is the
+    // point.
     ...(policy.security?.runAsNonRoot === undefined
       ? {}
       : { runAsNonRoot: policy.security.runAsNonRoot }),
