@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { describe, expect, test } from "vitest"
 import type { Docker } from "../src/docker/docker-cli.ts"
 import { dockerFilesystem } from "../src/docker/docker-filesystem.ts"
@@ -246,11 +247,12 @@ describe("dockerSandbox (unit, no daemon)", () => {
 describe("dockerSandbox hardening flags", () => {
   const acquireArgs = (runs: string[][]) => (runs.find((r) => r[0] === "run") ?? []).join(" ")
 
-  test("hardened by default: cap-drop ALL, no-new-privileges, pids-limit 512, read-only + tmpfs, non-root user + HOME", async () => {
+  test("hardened by default: init, cap-drop ALL, no-new-privileges, pids-limit 512, read-only + tmpfs, non-root user + HOME", async () => {
     const { docker, runs } = recordingDocker()
     const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
     await p.acquire({ threadId: "abc", policy: { network: { mode: "deny" } }, signal: signal() })
     const j = acquireArgs(runs)
+    expect(j).toContain("--init")
     expect(j).toContain("--cap-drop ALL")
     expect(j).toContain("--security-opt no-new-privileges")
     expect(j).toContain("--pids-limit 512")
@@ -286,6 +288,40 @@ describe("dockerSandbox hardening flags", () => {
     expect(j).not.toContain("--user")
     expect(j).not.toContain("HOME=/workspace")
     expect(j).toContain("--pids-limit 128")
+    // --init is not policy-controlled: the reaper survives every opt-out.
+    expect(j).toContain("--init")
+  })
+
+  test("the keeper `run -d` installs a PID 1 reaper, and the flag is part of its identity", async () => {
+    const { docker, runs } = recordingDocker()
+    const p = dockerSandbox({ scope: "sandbox-test", image: "node:22-slim", docker })
+    await p.acquire({ threadId: "abc", policy: { network: { mode: "deny" } }, signal: signal() })
+    const keeper = runs.find((r) => r[0] === "run" && r.includes("-d")) ?? []
+    expect(keeper).toContain("--init")
+    const identityLabel = keeper.find((arg) => arg.startsWith("b4.sandbox.identity="))
+    expect(identityLabel).toBeDefined()
+
+    // A keeper launched without the reaper hashes differently, so acquire()
+    // replaces it instead of reusing it.
+    const withoutInit = createHash("sha256")
+      .update(
+        JSON.stringify({
+          image: "node:22-slim",
+          launchConfig: {
+            networkMode: "none",
+            env: [["HOME", "/workspace"]],
+            memoryMb: null,
+            cpus: null,
+            dropAllCapabilities: true,
+            noNewPrivileges: true,
+            readOnlyRootFilesystem: true,
+            pidsLimit: 512,
+            user: { uid: 1000, gid: 1000 },
+          },
+        }),
+      )
+      .digest("hex")
+    expect(identityLabel).not.toBe(`b4.sandbox.identity=${withoutInit}`)
   })
 
   test("keeper `run -d` does NOT set -w (so Docker can't stomp the chown'd /workspace ownership)", async () => {

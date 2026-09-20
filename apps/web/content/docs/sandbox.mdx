@@ -79,6 +79,9 @@ The Docker provider applies these defaults:
 | Process count | `--pids-limit 512` |
 | Root filesystem | `--read-only`, with writable `/tmp` and `/run` tmpfs mounts |
 | User | `--user 1000:1000`, with `HOME=/workspace` |
+| Orphan reaping | `--init` (always on; not policy-controlled) |
+
+`--init` installs a real PID 1 in the session container. Without it the container's PID 1 never reaps, so a descendant orphaned by a cancelled or timed-out command stays a zombie: it holds a `--pids-limit` slot for the life of the container, and process-tree termination looks like it failed because the pid is still signalable.
 
 The portable `security` policy exposes `dropAllCapabilities`, `noNewPrivileges`, `readOnlyRootFilesystem`, `runAsNonRoot`, and `pidsLimit`. Each can be overridden for a compatible image, but every relaxation changes the isolation boundary.
 
