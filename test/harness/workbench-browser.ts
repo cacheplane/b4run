@@ -125,21 +125,33 @@ export const JOURNEY_ABORTED_MESSAGE = "Workbench browser gate aborted by the ha
 
 export const PROMPT_SHAPE_MESSAGE = `Workbench browser gate prompt must be trimmed and at most ${MAX_THREAD_TITLE_LENGTH} characters (the thread rail shows the truncated title)`
 
-export async function runWorkbenchBrowserJourney(
-  options: WorkbenchBrowserOptions,
+export interface WorkbenchPageOptions {
+  /** Written only when the body fails, next to the harness transcripts. */
+  readonly screenshotPath: string
+  /**
+   * The harness lifecycle signal. Aborting closes the browser and rejects the
+   * body, so a hung page cannot outlive the test's own deadline.
+   */
+  readonly signal?: AbortSignal
+}
+
+/**
+ * The fail-closed scaffolding every Workbench browser journey shares: the
+ * pre-launch abort check, the Chromium launch, the abort listener that closes
+ * the browser, a fresh context/page with console and page-error collection,
+ * the abort race around `body`, the failure screenshot with the collected
+ * console errors appended, and the best-effort cleanup.
+ *
+ * `options.screenshotPath` is read at screenshot time, so a caller driving
+ * several journeys through one options object can vary it per journey.
+ */
+async function withWorkbenchPage<T>(
+  options: WorkbenchPageOptions,
   deps: WorkbenchBrowserDeps,
-): Promise<{ readonly threadId: string }> {
-  // `restoreWorkbenchThread` matches the prompt against BOTH the thread rail's
-  // row (which shows the truncated, trimmed title) and the transcript's message
-  // text (which shows the prompt verbatim). A prompt that does not survive
-  // `touch()`'s normalisation unchanged can therefore never match both, so
-  // reject it here rather than time out in the browser.
-  if (options.prompt !== options.prompt.trim() || options.prompt.length > MAX_THREAD_TITLE_LENGTH) {
-    throw new Error(PROMPT_SHAPE_MESSAGE)
-  }
+  body: (page: Page, errors: readonly string[]) => Promise<T>,
+): Promise<T> {
   const { signal } = options
   if (signal?.aborted === true) throw new Error(JOURNEY_ABORTED_MESSAGE)
-  const journey = deps.journey ?? DEFAULT_JOURNEY
   const browser = await deps.chromium.launch({ headless: true })
   let closeOnAbort: (() => void) | undefined
   let context: BrowserContext | undefined
@@ -156,38 +168,13 @@ export async function runWorkbenchBrowserJourney(
     const page = await context.newPage()
     const errors = collectPageErrors(page)
     try {
-      return await raceAbort(signal, async () => {
-        await journey.openReadyWorkbench(page, options.webUrl)
-        await journey.fillActiveWorkbenchComposer(page, options.prompt)
-        await page.getByRole("button", { name: "Send", exact: true }).click()
-        await journey.waitForWorkbenchRunCompletion(page)
-
-        const expectedTitle = options.prompt.slice(0, MAX_THREAD_TITLE_LENGTH)
-        const raw = await readPersistedThreadsRaw(page)
-        const found = findPersistedThreadId(raw, expectedTitle)
-        if (found.threadId === undefined) {
-          throw new Error(
-            `Workbench did not persist the active thread id for "${expectedTitle}"; ${found.reason}`,
-          )
-        }
-        const threadId = found.threadId
-        await journey.restoreWorkbenchThread(page, {
-          workbenchUrl: options.webUrl,
-          threadId,
-          prompt: options.prompt,
-          tools: options.tools,
-          answer: options.answer,
-        })
-        if (errors.length > 0) {
-          throw new Error("Workbench console errors during the browser gate")
-        }
-        return { threadId }
-      })
+      return await raceAbort(signal, () => body(page, errors))
     } catch (error) {
       // Best effort: the rendered state is the one thing the transcript cannot
       // show, and its directory is a CI-uploaded path that may not exist yet.
-      await mkdir(dirname(options.screenshotPath), { recursive: true }).catch(() => undefined)
-      await page.screenshot({ path: options.screenshotPath, fullPage: true }).catch(() => undefined)
+      const screenshotPath = options.screenshotPath
+      await mkdir(dirname(screenshotPath), { recursive: true }).catch(() => undefined)
+      await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined)
       if (errors.length > 0) {
         const originalMessage = error instanceof Error ? error.message : String(error)
         throw new Error(
@@ -202,6 +189,48 @@ export async function runWorkbenchBrowserJourney(
     await context?.close().catch(() => undefined)
     await browser.close().catch(() => undefined)
   }
+}
+
+export async function runWorkbenchBrowserJourney(
+  options: WorkbenchBrowserOptions,
+  deps: WorkbenchBrowserDeps,
+): Promise<{ readonly threadId: string }> {
+  // `restoreWorkbenchThread` matches the prompt against BOTH the thread rail's
+  // row (which shows the truncated, trimmed title) and the transcript's message
+  // text (which shows the prompt verbatim). A prompt that does not survive
+  // `touch()`'s normalisation unchanged can therefore never match both, so
+  // reject it here rather than time out in the browser.
+  if (options.prompt !== options.prompt.trim() || options.prompt.length > MAX_THREAD_TITLE_LENGTH) {
+    throw new Error(PROMPT_SHAPE_MESSAGE)
+  }
+  const journey = deps.journey ?? DEFAULT_JOURNEY
+  return withWorkbenchPage(options, deps, async (page, errors) => {
+    await journey.openReadyWorkbench(page, options.webUrl)
+    await journey.fillActiveWorkbenchComposer(page, options.prompt)
+    await page.getByRole("button", { name: "Send", exact: true }).click()
+    await journey.waitForWorkbenchRunCompletion(page)
+
+    const expectedTitle = options.prompt.slice(0, MAX_THREAD_TITLE_LENGTH)
+    const raw = await readPersistedThreadsRaw(page)
+    const found = findPersistedThreadId(raw, expectedTitle)
+    if (found.threadId === undefined) {
+      throw new Error(
+        `Workbench did not persist the active thread id for "${expectedTitle}"; ${found.reason}`,
+      )
+    }
+    const threadId = found.threadId
+    await journey.restoreWorkbenchThread(page, {
+      workbenchUrl: options.webUrl,
+      threadId,
+      prompt: options.prompt,
+      tools: options.tools,
+      answer: options.answer,
+    })
+    if (errors.length > 0) {
+      throw new Error("Workbench console errors during the browser gate")
+    }
+    return { threadId }
+  })
 }
 
 /**
