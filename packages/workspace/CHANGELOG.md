@@ -1,6 +1,6 @@
 # @dawn-ai/workspace
 
-## 1.0.0
+## 0.9.0
 
 ### Minor Changes
 
@@ -44,7 +44,7 @@
 
 - Updated dependencies [7c9627f]
 - Updated dependencies [6a59e00]
-  - @b4run/sdk@1.0.0
+  - @b4run/sdk@0.9.0
 
 ## 0.8.36
 

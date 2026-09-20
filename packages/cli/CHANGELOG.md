@@ -1,6 +1,6 @@
 # @dawn-ai/cli
 
-## 1.0.0
+## 0.9.0
 
 ### Minor Changes
 
@@ -52,15 +52,15 @@
 - Updated dependencies [7410154]
 - Updated dependencies [16ef75f]
 - Updated dependencies [9927409]
-  - @b4run/langchain@1.0.0
-  - @b4run/sdk@1.0.0
-  - @b4run/workspace@1.0.0
-  - @b4run/sqlite-storage@1.0.0
-  - @b4run/ag-ui@1.0.0
-  - @b4run/core@1.0.0
-  - @b4run/langgraph@1.0.0
-  - @b4run/permissions@1.0.0
-  - @b4run/memory@1.0.0
+  - @b4run/langchain@0.9.0
+  - @b4run/sdk@0.9.0
+  - @b4run/workspace@0.9.0
+  - @b4run/sqlite-storage@0.9.0
+  - @b4run/ag-ui@0.9.0
+  - @b4run/core@0.9.0
+  - @b4run/langgraph@0.9.0
+  - @b4run/permissions@0.9.0
+  - @b4run/memory@0.9.0
 
 ## 0.8.36
 

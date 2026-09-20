@@ -1,6 +1,6 @@
 # @dawn-ai/langchain
 
-## 1.0.0
+## 0.9.0
 
 ### Patch Changes
 
@@ -28,9 +28,9 @@
 - Updated dependencies [6a59e00]
 - Updated dependencies [7410154]
 - Updated dependencies [9927409]
-  - @b4run/sdk@1.0.0
-  - @b4run/workspace@1.0.0
-  - @b4run/core@1.0.0
+  - @b4run/sdk@0.9.0
+  - @b4run/workspace@0.9.0
+  - @b4run/core@0.9.0
 
 ## 0.8.36
 

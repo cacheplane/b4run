@@ -11,11 +11,11 @@
 - Updated dependencies [7410154]
 - Updated dependencies [16ef75f]
 - Updated dependencies [9927409]
-  - @b4run/langchain@1.0.0
-  - @b4run/cli@1.0.0
-  - @b4run/sdk@1.0.0
-  - @b4run/core@1.0.0
-  - @b4run/memory-pgvector@1.0.0
+  - @b4run/langchain@0.9.0
+  - @b4run/cli@0.9.0
+  - @b4run/sdk@0.9.0
+  - @b4run/core@0.9.0
+  - @b4run/memory-pgvector@0.9.0
 
 ## 0.0.28
 

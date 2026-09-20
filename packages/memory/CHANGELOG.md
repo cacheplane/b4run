@@ -1,11 +1,11 @@
 # @dawn-ai/memory
 
-## 1.0.0
+## 0.9.0
 
 ### Patch Changes
 
 - Updated dependencies [516c038]
-  - @b4run/sqlite-storage@1.0.0
+  - @b4run/sqlite-storage@0.9.0
 
 ## 0.8.36
 

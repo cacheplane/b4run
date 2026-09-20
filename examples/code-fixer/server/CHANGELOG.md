@@ -10,10 +10,10 @@
 - Updated dependencies [6a59e00]
 - Updated dependencies [7410154]
 - Updated dependencies [9927409]
-  - @b4run/cli@1.0.0
-  - @b4run/sdk@1.0.0
-  - @b4run/workspace@1.0.0
-  - @b4run/sandbox@1.0.0
+  - @b4run/cli@0.9.0
+  - @b4run/sdk@0.9.0
+  - @b4run/workspace@0.9.0
+  - @b4run/sandbox@0.9.0
 
 ## 0.0.5
 
