@@ -2,15 +2,13 @@ import type { Browser, BrowserContext, Page } from "@playwright/test"
 import { describe, expect, it, vi } from "vitest"
 
 import {
-  COLLECTED_ERRORS_BACKSTOP_MESSAGE,
   findPersistedThreadId,
-  JOURNEY_ABORTED_MESSAGE,
   PROMPT_SHAPE_MESSAGE,
   runWorkbenchBrowserJourney,
   type WorkbenchBrowserDeps,
   type WorkbenchBrowserJourney,
-  withWorkbenchPage,
 } from "./workbench-browser.ts"
+import { JOURNEY_ABORTED_MESSAGE } from "./workbench-page.ts"
 
 const PROMPT = "What are common agent architectures?"
 const ANSWER = "ReAct and plan-and-execute are common. [corpus/agent-architectures.md]"
@@ -98,16 +96,6 @@ function fakeDeps(
   }
   const deps: WorkbenchBrowserDeps = { chromium, journey }
   return { calls, deps, page, chromium }
-}
-
-/** Returns the error a call rejected with, failing if it resolved instead. */
-async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
-  try {
-    await promise
-  } catch (error) {
-    return error as Error
-  }
-  throw new Error("expected the call to reject, but it resolved")
 }
 
 const baseOptions = {
@@ -272,70 +260,6 @@ describe("runWorkbenchBrowserJourney", () => {
     await expect(runWorkbenchBrowserJourney(baseOptions, deps)).rejects.toThrow(
       /thread rail did not list the prompt[\s\S]*Hydration failed/,
     )
-  })
-})
-
-describe("withWorkbenchPage", () => {
-  it("resolves a screenshotPath function at failure time, not at call time", async () => {
-    // Only `chromium` is needed: the seam never reads `deps.journey`.
-    const { chromium, page } = fakeDeps()
-    let target = "/tmp/before-the-body-ran.png"
-    await expect(
-      withWorkbenchPage({ screenshotPath: () => target }, { chromium }, async () => {
-        target = "/tmp/named-for-this-journey.png"
-        throw new Error("the body blew up")
-      }),
-    ).rejects.toThrow(/the body blew up/)
-    expect(page.screenshot).toHaveBeenCalledWith({
-      path: "/tmp/named-for-this-journey.png",
-      fullPage: true,
-    })
-  })
-
-  it("fails a body that returned normally while a console error was collected", async () => {
-    const { deps, page } = fakeDeps({ consoleErrors: ["Hydration failed"] })
-    await expect(
-      withWorkbenchPage({ screenshotPath: "/tmp/backstop.png" }, deps, async (bodyPage) => {
-        // The fake emits its console errors from `openReadyWorkbench`.
-        await deps.journey?.openReadyWorkbench(bodyPage, baseOptions.webUrl)
-        return "the body did not check"
-      }),
-    ).rejects.toThrow(COLLECTED_ERRORS_BACKSTOP_MESSAGE)
-    expect(page.screenshot).toHaveBeenCalledWith({ path: "/tmp/backstop.png", fullPage: true })
-  })
-
-  it("states the collected-errors heading once when the backstop fires", async () => {
-    const { deps } = fakeDeps({ consoleErrors: ["Hydration failed"] })
-    const rejection = await rejectionOf(
-      withWorkbenchPage({ screenshotPath: "/tmp/backstop.png" }, deps, async (bodyPage) => {
-        await deps.journey?.openReadyWorkbench(bodyPage, baseOptions.webUrl)
-        return "the body did not check"
-      }),
-    )
-    expect(rejection.message).toContain("Hydration failed")
-    expect(rejection.message).not.toContain("before the failure")
-    expect(rejection.message.match(/Workbench console errors/g)).toHaveLength(1)
-  })
-
-  it("keeps the real failure when the screenshot resolver throws", async () => {
-    const { chromium, page } = fakeDeps()
-    const cause = new Error("the resolver is caller code")
-    const rejection = await rejectionOf(
-      withWorkbenchPage(
-        {
-          screenshotPath: () => {
-            throw cause
-          },
-        },
-        { chromium },
-        async () => {
-          throw new Error("THE REAL PLAYWRIGHT TIMEOUT", { cause: "call log" })
-        },
-      ),
-    )
-    expect(rejection.message).toBe("THE REAL PLAYWRIGHT TIMEOUT")
-    expect(rejection.cause).toBe("call log")
-    expect(page.screenshot).not.toHaveBeenCalled()
   })
 })
 
