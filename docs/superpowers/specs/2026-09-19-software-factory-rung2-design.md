@@ -206,6 +206,26 @@ frozen install silently skipped), and write the `image` object into
 one until the script is run again, and approve already refuses a bundle whose
 environment moved.
 
+Two findings from preparing the devkit image, recorded because they are the kind of
+thing a re-prepare on another host will hit again:
+
+- **Vite bundles a TypeScript config into `<nearest node_modules>/.vite-temp`** and its
+  guard tolerates only `EACCES`, not a read-only filesystem. With `node_modules` a symlink
+  into the read-only image, vitest could not start. The devkit Dockerfile therefore links
+  `/opt/targets/devkit/node_modules/.vite-temp` to `/tmp`, the sandbox's tmpfs. `--no-cache`
+  is still needed for vitest's own cache.
+- **Two devkit test files compare templates against `examples/research/*`**, which is outside
+  the capture: `test/template-thread-access.test.ts` and `test/templates.test.ts`. Both are
+  excluded in `commands.test`. Nine of eleven files run; the regression test the task grades
+  on is in `test/process-artifacts.test.ts` and is not excluded. Widening the capture to pull
+  in the research example was rejected: it is not the package under repair.
+
+`docker pull` can hang on a host whose Docker Desktop registry proxy is wedged; the prepare
+script accepts `FACTORY_SKIP_BASE_PULL=1` as an explicit opt-in to build from the locally
+held base image, and the recorded base digest is then whatever that host holds. It is never
+a fallback. After every prepare run, `biome check --write targets` reformats the manifest
+the script wrote.
+
 `--ignore-scripts` also skips the target's own lifecycle scripts. Devkit and
 its sibling declare none, and the repository's `onlyBuiltDependencies` names
 only `workerd`, which is outside the closure. A target whose closure needs a
@@ -224,13 +244,21 @@ it.
 
 ### Resources
 
-The sandbox policy for this target sets memory to 2048 MiB, the per-command
-ceiling to 300 s, and the verifier deadline to 600 s. These are placeholders
-for the plan to replace with measured values: the plan runs
-`pnpm build` and `pnpm test` for devkit in the prepared container three times
-and records the slowest run, and the written limits must give at least three
-times that headroom (the wedge-detector rule from the timing-flake work, not a
-stopwatch). Network stays denied; the frozen install is the point.
+Measured in the prepared image under the sandbox's real constraints (read-only
+root, tmpfs `/tmp`, no network, user `node`), three runs each, slowest taken:
+
+| | slowest |
+|---|---|
+| build (`tsc -b`) | 1.4 s |
+| test (vitest, 9 files) | 8.9 s |
+| peak memory (cgroup `memory.peak`) | 369 MiB |
+
+The written limits give at least three times that headroom, rounded up to a
+whole minute (the wedge-detector rule from the timing-flake work, not a
+stopwatch): `commandTimeoutMs` 60 000, `verifierDeadlineMs` 120 000 (two
+minutes rather than one, so a single slow command cannot consume the whole
+verifier budget), `memoryMb` 768 (twice the peak, rounded up to 256). Network
+stays denied; the frozen install is the point.
 
 ## What changes in the verifier and the reader
 

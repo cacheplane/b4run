@@ -244,6 +244,14 @@ others.
 
 ## Where the pain points are
 
+- **Preparing an image finds toolchain assumptions one at a time.** Vite writes a temp
+  bundle under the nearest `node_modules`, which is read-only in the sandbox, so the devkit
+  image links that directory to `/tmp`. Two devkit tests compare against a sibling example
+  outside the capture and are excluded. A host whose Docker Desktop registry proxy is wedged
+  hangs `docker pull`; `FACTORY_SKIP_BASE_PULL=1` builds from the local base as an explicit
+  opt-in. Run `biome check --write targets` after every prepare. Each of these cost a
+  rebuild to discover.
+
 - **The prepare step is a manual, out-of-band action** that mutates a
   checked-in file. Forgetting it gives a target that will not load, which is
   the right failure, but the error will be met by every new contributor.
