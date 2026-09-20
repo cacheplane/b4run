@@ -3,6 +3,7 @@ import {
   gradeNodeTestEvents,
   gradeVitestReport,
   runBuild,
+  runNodeTestSuite,
   shellJoin,
 } from "../src/verification/checks-runner.ts"
 
@@ -195,5 +196,53 @@ describe("runBuild", () => {
       AbortSignal.timeout(1000),
     )
     expect(result).toEqual({ ok: true, output: "(no build step)\n" })
+  })
+})
+
+/** A handle that runs nothing and records the one command string it was handed. */
+function recordingHandle(stdout: string) {
+  const commands: string[] = []
+  const handle = {
+    workspaceRoot: "/workspace",
+    exec: {
+      runCommand: (request: { command: string }) => {
+        commands.push(request.command)
+        return Promise.resolve({ stdout, stderr: "", exitCode: 0 })
+      },
+    },
+  } as unknown as Parameters<typeof runBuild>[0]
+  return { handle, commands }
+}
+
+const devkit = {
+  commands: {
+    cwd: "packages/devkit",
+    build: ["pnpm", "build"],
+    test: ["pnpm", "test"],
+    nodeTestExecArgv: ["--import", "tsx"],
+  },
+} as never
+
+describe("the runner's working directory", () => {
+  it("runs a node-test suite at the workspace root, never inside the target's cwd", async () => {
+    // Suite paths are workspace-root-relative: the independent check is written to
+    // `checks/<name>` at the root, so a `cd` into the target's cwd would not find it.
+    const { handle, commands } = recordingHandle(JSON.stringify({ events: [], output: "" }))
+    await runNodeTestSuite(
+      handle,
+      devkit,
+      { runner: "node-test", file: "checks/independent.test.ts", assertions: ["a"] },
+      AbortSignal.timeout(1000),
+    )
+    expect(commands).toHaveLength(1)
+    expect(commands[0]).not.toContain("cd ")
+    expect(commands[0]).toContain("/usr/local/bin/node <<'B4_SUITE_PROGRAM'")
+    expect(commands[0]).toContain('"checks/independent.test.ts"')
+  })
+
+  it("runs the build inside the target's cwd", async () => {
+    const { handle, commands } = recordingHandle("")
+    await runBuild(handle, devkit, AbortSignal.timeout(1000))
+    expect(commands).toEqual(["'cd' 'packages/devkit' && 'pnpm' 'build'"])
   })
 })

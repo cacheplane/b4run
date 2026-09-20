@@ -90,8 +90,10 @@ export function createDockerVerifier(
               (
                 await inspectWorkspace(handle, {
                   signal: bounded,
-                  excludeRootDirectories: inspection.excludeRootDirectories,
-                  expectedRootSymlinks: inspection.expectedRootSymlinks,
+                  // The reader's own options, spread whole rather than picked apart: a new
+                  // one (`runAsNonRoot` today) must not be silently dropped here.
+                  ...inspection,
+                  // The framework's defaults, restated so a change there is visible here.
                   maxEntries: 10_000,
                   maxFileBytes: 2 * 1024 * 1024,
                   maxTotalBytes: 16 * 1024 * 1024,
@@ -153,13 +155,17 @@ export function createDockerVerifier(
           ],
         }
       } finally {
-        await rm(stateRoot, { recursive: true, force: true })
-        // Only once `withWorkspace` has returned: the framework captures the source at
-        // workspace preparation, so the capture is no longer read after the callback ends.
-        await rm(join(appRoot, captureDirectory(task.id, "verifier", instance)), {
-          recursive: true,
-          force: true,
-        })
+        // `allSettled`, and neither awaited alone: a cleanup that fails must not replace the
+        // verdict (or the caller's own cancellation) with its own error. The capture is
+        // removed only once `withWorkspace` has returned, because the framework captures the
+        // source at workspace preparation and does not read it after the callback ends.
+        await Promise.allSettled([
+          rm(stateRoot, { recursive: true, force: true }),
+          rm(join(appRoot, captureDirectory(task.id, "verifier", instance)), {
+            recursive: true,
+            force: true,
+          }),
+        ])
       }
 
       if (!outcome.build.ok)
@@ -189,7 +195,7 @@ export function createDockerVerifier(
                 await put(
                   artifacts,
                   outcome.tampered,
-                  `a suite mutated the workspace during ${outcome.tampered}\n${outcome.visible?.output ?? ""}`,
+                  `a suite mutated the workspace during ${outcome.tampered}\n${outcome[outcome.tampered]?.output ?? ""}`,
                 ),
               ],
             },

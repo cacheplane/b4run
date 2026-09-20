@@ -188,6 +188,13 @@ export async function runBuild(
  * Run a `node-test` suite inside the sandbox, using the target's own `execArgv` rather than
  * a hard-coded `--import tsx`, and grade it against its named assertions.
  *
+ * Unlike the build and vitest commands, this one runs at the WORKSPACE ROOT and never `cd`s
+ * into `commands.cwd`. Suite file paths in the catalog are workspace-root-relative: the
+ * independent check is written to `checks/<name>` at the root by the verifier itself, and a
+ * visible node-test file may live anywhere in the tree (`packages/x/test/y.test.ts`). A
+ * check reaches the built artifact through the target's cwd in its own import specifier
+ * (`packages/devkit/dist/...`), so the runner has no cwd to supply.
+ *
  * The parent runner uses built-ins only. Submitted code runs in a child process, so its
  * stdout arrives as a `test:stdout` event and cannot forge a `test:pass` receipt.
  */
@@ -214,7 +221,7 @@ const { run } = require('node:test')
   try {
     result = await handle.exec.runCommand(
       {
-        command: `${cdPrefix(target)}/usr/local/bin/node <<'B4_SUITE_PROGRAM'\n${program}\nB4_SUITE_PROGRAM`,
+        command: `/usr/local/bin/node <<'B4_SUITE_PROGRAM'\n${program}\nB4_SUITE_PROGRAM`,
       },
       { workspaceRoot: handle.workspaceRoot, signal },
     )
