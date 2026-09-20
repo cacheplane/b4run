@@ -2452,6 +2452,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
+> **Task 10 as landed (review-driven).** Both targets prepared (`FACTORY_SKIP_BASE_PULL=1`, the host's registry proxy was wedged). The prepare script formats the manifest it writes, keeps `image` last, refuses a lockfile outside `imageContext`, and refuses an unknown host architecture. The devkit Dockerfile links `node_modules/.vite-temp` to `/tmp` (Vite tolerates only `EACCES` under a read-only tree); `commands.test` also excludes `test/templates.test.ts` (compares against `examples/research`). The review found the Docker sandbox had no PID 1 reaper, which made devkit's process-tree tests fail only inside the container; `packages/sandbox` now launches with `--init` (commit `4c9aff13`, changeset). Measured from three green runs under `--init`: build 355 ms, test 7393 ms, peak 367 MiB → `commandTimeoutMs` 60000, `verifierDeadlineMs` 120000, `memoryMb` 768.
+
 ### Task 11: The task `devkit-spawn-deadline`
 
 **Files:**
