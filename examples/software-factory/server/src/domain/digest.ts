@@ -136,20 +136,67 @@ export function specificationDigest(taskText: string, acceptanceIds: readonly st
   return digest("b4-factory-spec-v1", { taskText, acceptanceIds: [...acceptanceIds].sort() })
 }
 
+/** What the verifier ran in and what it ran over, bound into the policy. */
+export interface PolicyEnvironment {
+  /** `environmentIdentityDigest` of the target's image object. */
+  readonly identity: string
+  readonly pin: string
+  readonly root: string
+  readonly captureInclude: readonly string[]
+  /** sha256 of `defect.patch`, or null when the pinned bytes are already the baseline. */
+  readonly defectPatchSha256: string | null
+}
+
 /**
- * Digest of the completion policy: the checks and the inventory the builder
- * may touch. `checks` must be a plain object; `canon` validates its contents
- * (see {@link DigestInputError}) so two policies that differ only by an
- * unrepresentable value — e.g. an `undefined` field — cannot collide.
+ * Digest of the completion policy: the checks, the inventory the builder may
+ * touch, and the environment the verdict is earned in. `checks` must be a plain
+ * object; `canon` validates its contents (see {@link DigestInputError}) so two
+ * policies that differ only by an unrepresentable value cannot collide. The
+ * environment is included because a bundle frozen over one baseline definition
+ * or one image must not be approvable after either changed.
  */
 export function policyDigest(input: {
   readonly checks: Readonly<Record<string, unknown>>
   readonly allowedSourcePaths: readonly string[]
   readonly immutablePaths: readonly string[]
+  readonly environment: PolicyEnvironment
 }): string {
-  return digest("b4-factory-policy-v1", {
+  return digest("b4-factory-policy-v2", {
     checks: input.checks,
     allowedSourcePaths: [...input.allowedSourcePaths].sort(),
     immutablePaths: [...input.immutablePaths].sort(),
+    environment: {
+      identity: input.environment.identity,
+      pin: input.environment.pin,
+      root: input.environment.root,
+      captureInclude: [...input.environment.captureInclude].sort(),
+      defectPatchSha256: input.environment.defectPatchSha256,
+    },
+  })
+}
+
+/** The inputs that determined a target image, as the prepare script recorded them. */
+export interface ImageInputs {
+  readonly localId: string
+  readonly platform: string
+  readonly baseManifestDigest: string
+  readonly dockerfileSha256: string
+  readonly lockfileSha256: string
+  readonly pnpmVersion: string
+}
+
+/**
+ * The environment identity every receipt and bundle binds. A local Docker image
+ * id alone is host-specific and unverifiable elsewhere; digesting it together
+ * with the inputs that produced it lets a second host verify the inputs.
+ */
+export function environmentIdentityDigest(image: ImageInputs): string {
+  return digest("b4-factory-environment-v1", {
+    localId: image.localId,
+    platform: image.platform,
+    baseManifestDigest: image.baseManifestDigest,
+    dockerfileSha256: image.dockerfileSha256,
+    lockfileSha256: image.lockfileSha256,
+    pnpmVersion: image.pnpmVersion,
   })
 }

@@ -4,6 +4,7 @@ import {
   candidateDigest,
   canon,
   DigestInputError,
+  environmentIdentityDigest,
   policyDigest,
 } from "../src/domain/digest.ts"
 
@@ -116,6 +117,13 @@ describe("canon rejects input it cannot hash injectively", () => {
     const base = {
       allowedSourcePaths: ["src/a.ts"],
       immutablePaths: [] as string[],
+      environment: {
+        identity: "e".repeat(64),
+        pin: "1".repeat(40),
+        root: ".",
+        captureInclude: [] as string[],
+        defectPatchSha256: null,
+      },
     }
     expect(() => policyDigest({ ...base, checks: { visible: { assertion: "ok" } } })).not.toThrow()
     expect(() =>
@@ -153,5 +161,61 @@ describe("canon rejects input it cannot hash injectively", () => {
   it("produces an unchanged digest for a legitimate nested structure", () => {
     const value = { a: 1, b: { c: [3, 2, 1], d: null }, e: "text" }
     expect(canon(value)).toBe('{"a":1,"b":{"c":[3,2,1],"d":null},"e":"text"}')
+  })
+})
+
+describe("policyDigest v2", () => {
+  const base = {
+    checks: { visible: { runner: "vitest", assertions: ["a"] } },
+    allowedSourcePaths: ["packages/devkit/src/testing/process.ts"],
+    immutablePaths: ["packages/devkit/package.json"],
+    environment: {
+      identity: "e".repeat(64),
+      pin: "1".repeat(40),
+      root: ".",
+      captureInclude: ["packages/devkit"],
+      defectPatchSha256: "2".repeat(64),
+    },
+  }
+
+  it("moves when only the environment binding moves", () => {
+    const one = policyDigest(base)
+    expect(
+      policyDigest({ ...base, environment: { ...base.environment, identity: "f".repeat(64) } }),
+    ).not.toBe(one)
+    expect(
+      policyDigest({ ...base, environment: { ...base.environment, defectPatchSha256: null } }),
+    ).not.toBe(one)
+    expect(
+      policyDigest({
+        ...base,
+        environment: { ...base.environment, captureInclude: ["packages/devkit", "x"] },
+      }),
+    ).not.toBe(one)
+  })
+
+  it("is order-independent over the include list", () => {
+    expect(
+      policyDigest({ ...base, environment: { ...base.environment, captureInclude: ["b", "a"] } }),
+    ).toBe(
+      policyDigest({ ...base, environment: { ...base.environment, captureInclude: ["a", "b"] } }),
+    )
+  })
+})
+
+describe("environmentIdentityDigest", () => {
+  const image = {
+    localId: `sha256:${"a".repeat(64)}`,
+    platform: "linux/arm64",
+    baseManifestDigest: `sha256:${"b".repeat(64)}`,
+    dockerfileSha256: "c".repeat(64),
+    lockfileSha256: "d".repeat(64),
+    pnpmVersion: "10.33.0",
+  }
+  it("is a 64-hex digest that moves with any field", () => {
+    const one = environmentIdentityDigest(image)
+    expect(one).toMatch(/^[a-f0-9]{64}$/)
+    expect(environmentIdentityDigest({ ...image, platform: "linux/amd64" })).not.toBe(one)
+    expect(environmentIdentityDigest({ ...image, pnpmVersion: "10.33.1" })).not.toBe(one)
   })
 })
