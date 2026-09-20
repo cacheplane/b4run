@@ -66,11 +66,15 @@ them. That is deliberate.
 ### The image
 
 The image bakes the pnpm dependency closure for the target at the pin. It is
-built once per pin by the prepare script and recorded by digest in
-`target.json`. The verifier writes that digest into every receipt as
+built once per pin by the prepare script and recorded in `target.json` as an
+`image` object: the local image id and the inputs that produced it (base
+manifest digest, platform, Dockerfile and lockfile hashes, pnpm version). The
+verifier writes the digest of that object into every receipt as
 `environmentIdentity`, and every bundle binds it. Rebuild the image and every
-frozen bundle over the old digest becomes unapprovable, which is the intended
-behaviour: consent was given for a claim that named the old environment.
+frozen bundle over the old identity becomes unapprovable, which is the intended
+behaviour: consent was given for a claim that named the old environment. The
+id is local to the host that built it; another host can check the inputs, not
+pull the image. A registry digest is the rung 3 upgrade.
 
 Inside a container, the dependency trees are symlinks from the workspace into
 `/opt/targets/<id>/`. There are two for pnpm, the root `node_modules` and the
@@ -109,9 +113,11 @@ cd examples/software-factory/server
 pnpm exec tsx scripts/prepare-target.ts devkit
 ```
 
-This pulls the base image, builds `targets/devkit/Dockerfile`, and writes the
-image id into `targets/devkit/target.json` under `image.digest`. Commit that
-change. Until the digest is present the target does not load.
+This pulls the base image, builds `targets/devkit/Dockerfile` for the pinned
+platform, asserts the install matches the lockfile, and writes the `image`
+object (local image id plus the inputs that produced it) into
+`targets/devkit/target.json`. Commit that change. Until the object is present
+the target does not load.
 
 ### Run one work order end to end
 
@@ -164,7 +170,8 @@ returns the recorded outcome and writes nothing.
 ### Add a target
 
 1. Create `targets/<id>/target.json` with the pin, the capture lists, the
-   environment links and the commands. Leave `image.digest` absent.
+   environment links, the runner configuration files and the commands. Leave
+   `image` absent; the prepare script writes it.
 2. Write the Dockerfile. Copy only what the filtered install needs.
 3. Run the prepare script; commit the digest it writes.
 4. Measure `commands.build` and `commands.test` in the prepared container

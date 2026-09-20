@@ -63,9 +63,10 @@ at boot, are validated with zod, and are digested into the bundle.
 | `id` | The target id; must equal the directory name. |
 | `pin` | A full 40-hex commit SHA in the repository the factory runs inside. The loader refuses anything else and refuses a pin the local object store does not contain. |
 | `capture` | `{ include: string[], excludeDirectories: string[] }`, paths relative to the repository root, passed to `git archive` and then to the workspace capture. For devkit: include `packages/devkit`, `packages/config-typescript`, `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`; exclude `dist`, `node_modules`, `.turbo`. |
-| `image` | `{ digest: string }`, the image id the prepare script wrote back, `sha256:` plus 64 hex. The verifier records it verbatim as `environmentIdentity`. A missing digest is a load error: a target is not usable until it has been prepared. |
+| `image` | Written by the prepare script: `{ localId, platform, baseManifestDigest, dockerfileSha256, lockfileSha256, pnpmVersion }`. `localId` is the Docker image id and is named as such: it is the hash of the image's config JSON, host-specific and not a registry digest. The environment identity every bundle binds is the sha256 of this whole object, so a second host can verify that the same inputs were used even though it cannot pull the image. A missing `image` is a load error: a target is not usable until it has been prepared. Pushing to a registry and binding the manifest digest instead is the rung 3 upgrade. |
 | `environmentLinks` | Where the image's dependency trees mount into the workspace. For pnpm this is two links: `node_modules` and `packages/devkit/node_modules`, both under `/opt/targets/<id>/`. |
 | `commands` | `{ cwd, build: string[], test: string[] }`, argv arrays run at `cwd` relative to the workspace root, no shell. For devkit: `cwd` `packages/devkit`, build `["pnpm","build"]`, test `["pnpm","test","--","--exclude","test/template-thread-access.test.ts"]`. The exclusion carries a comment: that test reads `examples/research/server/src`, which is outside the capture. No turbo runs inside the container. |
+| `runnerConfig` | The files the test command reads to decide what to run: for devkit `packages/devkit/package.json`, `packages/devkit/vitest.config.ts`, `packages/devkit/tsconfig.json`, `packages/devkit/tsconfig.test.json`. Every task against this target must list them as immutable, and the task loader refuses a task whose allowed paths include any of them. Without this the "tests are immutable" guarantee is hollow: a builder that may edit the runner's configuration can exclude the test it fails. |
 
 The repository is not a field. Rung 2 is a dogfood: the target repository is the
 one the factory is running inside, resolved once with
@@ -83,8 +84,12 @@ one the factory is running inside, resolved once with
 | `checks/` | The independent suite. Structurally absent from the capture; the verifier writes it into its own container after the visible suite has run. |
 
 `policyDigest` is computed over `task.json`, `checks.json`, the bytes of every
-file under `checks/`, and the target's `image.digest`. A change to any of them
-invalidates a frozen bundle at approve, which rung 1 already enforces.
+file under `checks/`, the bytes of `defect.patch`, the target's `capture`
+lists and the target's environment identity. A change to any of them
+invalidates a frozen bundle at approve, which rung 1 already enforces. The
+patch and the allowlist are included because they determine the baseline: a
+bundle frozen over one baseline must not be approvable after the baseline's
+definition changed.
 
 ### The task in this rung: `devkit-spawn-deadline`
 
@@ -104,7 +109,15 @@ invalidates a frozen bundle at approve, which rung 1 already enforces.
   built `dist/`, calls `spawnProcess` on a missing command with a long
   deadline, and lets its event loop drain; the check asserts the child exits
   within two seconds. It is a different oracle from the fake-timer test and it
-  exercises the built artifact, which is what a consumer runs.
+  exercises the built artifact, which is what a consumer runs. Its inputs (the
+  missing command's path, the deadline) are disjoint from the visible test's,
+  so a repair that special-cases the visible fixture does not pass it.
+- **Task admission.** A task is admitted only when, in the real container, its
+  independent suite fails on the defect-patched baseline and passes on the
+  reference repair. A check that cannot tell the defect from the fix proves
+  nothing and is refused. This is the smallest form of the oracle-strengthening
+  the literature asks for; mutation-scoring a task against deliberately wrong
+  repairs is a rung 3 addition, when a model produces repairs.
 - The scripted builder is one model script: read the file, write the repaired
   file, stop.
 
@@ -132,19 +145,37 @@ different bytes. The pin is the only source of truth.
 
 ### Image
 
-`targets/devkit/Dockerfile` starts from a digest-pinned `node:24-slim`,
-installs git, enables corepack at the `packageManager` version from the root
-manifest, copies the root manifests, the lockfile and the two `package.json`
-files in devkit's closure at the pin, and runs
-`pnpm install --frozen-lockfile --filter @b4run/devkit... --ignore-scripts`.
+`targets/devkit/Dockerfile` starts from `node:24-slim` pinned by manifest
+digest **and** `--platform`, because the digest of a multi-arch tag names a
+manifest index and an arm64 laptop and an amd64 runner would otherwise pull
+different images under one pin. It installs git, enables corepack at the
+`packageManager` version from the root manifest, copies the root manifests and
+the lockfile at the pin, copies **every workspace package in devkit's filtered
+closure in full** (not only its `package.json`), and runs
+`pnpm install --frozen-lockfile --filter @b4run/devkit... --ignore-scripts`,
+then the build script of any closure sibling that has one. Siblings are copied
+in full because pnpm links a `workspace:` dependency as a relative symlink to
+the sibling directory; inside the image that resolves to the image's copy, and
+a stub copy would give the builder an empty package. For devkit the one sibling
+is `@b4run/config-typescript`, json only, no build.
+
 The resulting `/opt/targets/devkit/node_modules` and
 `/opt/targets/devkit/packages/devkit/node_modules` are the two link targets.
 
 `scripts/prepare-target.ts <id>` mirrors code-fixer's prepare script: pull and
-digest-pin the base image, `docker build`, `docker image inspect`, and write
-the image id into `target.json` as `image.digest`. A rebuilt image has a new
-digest; the manifest names the old one until the script is run again, and
-approve already refuses a bundle whose environment moved.
+digest-pin the base image, `docker build`, `docker image inspect`, assert the
+install matches the lockfile (`pnpm ls --depth 0` inside the image against the
+filtered lockfile, which catches a platform-matched optional dependency the
+frozen install silently skipped), and write the `image` object into
+`target.json`. A rebuilt image has a new local id; the manifest names the old
+one until the script is run again, and approve already refuses a bundle whose
+environment moved.
+
+`--ignore-scripts` also skips the target's own lifecycle scripts. Devkit and
+its sibling declare none, and the repository's `onlyBuiltDependencies` names
+only `workerd`, which is outside the closure. A target whose closure needs a
+build script must list it in the Dockerfile explicitly; the prepare-time
+assertion is what catches the omission.
 
 ### Links inside the workspace
 
@@ -175,8 +206,10 @@ stopwatch). Network stays denied; the frozen install is the point.
   candidate and before the visible suite. A build failure is a failed visible
   check with the compiler output as evidence, not inconclusive: it is a fact
   about the candidate.
-- `environmentIdentity` is the target's `image.digest`. The rung 1 caveat about
-  mutable tags comes out of the README and the verifier.
+- `environmentIdentity` is the sha256 of the target's `image` object. The rung 1
+  caveat about mutable tags comes out of the README and the verifier, replaced
+  by the narrower caveat that the identity is a local id plus its inputs, not a
+  registry digest.
 - The before-and-after snapshot around each suite excludes `dist`, `.turbo` and
   the vitest cache under the package directory, because the build writes there
   legitimately. Any other change during a suite is still tampering.
@@ -199,8 +232,9 @@ layer; an invariant that must hold on every push is asserted there.
 
 - Catalog loading rejects: a pin that is not 40 hex, a pin absent from the
   object store, a task naming an unknown target, overlapping allowed and
-  immutable paths, an allowed path ending in `.test.ts`, a target without an
-  image digest.
+  immutable paths, an allowed path ending in `.test.ts`, an allowed path that is
+  one of the target's `runnerConfig` files, a task that does not list every
+  `runnerConfig` file as immutable, a target without an `image` object.
 - The archive module, against a throwaway git repository built in the test:
   the archive contains exactly the include list, the defect patch is applied,
   and the baseline digest is identical across two captures.
@@ -208,14 +242,16 @@ layer; an invariant that must hold on every push is asserted there.
 - The rung 1 invariants re-asserted through the new catalogs with the fake
   verifier: visible pass plus independent fail cannot reach
   `awaiting_approval`; an immutable-path edit is a scope violation; a changed
-  image digest invalidates a frozen bundle at approve.
+  environment identity invalidates a frozen bundle at approve.
 
 ### Layer 2: the real image, Docker-gated
 
 In a real container from the prepared image: `commands.build` then
 `commands.test` pass on the unpatched pin, and the visible regression test
 fails on the defect-patched baseline. This is the ladder's "baseline, build and
-test one `packages/*` member in the sandbox".
+test one `packages/*` member in the sandbox". The task admission gate runs here
+too: the independent suite fails on the defect-patched baseline and passes on
+the reference repair.
 
 ### Layer 3: end to end, Docker-gated
 
@@ -276,14 +312,31 @@ The rung 1 `cli-flags` fixture is re-expressed as a target and a task so layer 1
 keeps a fast, container-free path, and `src/fixtures/` is deleted. That
 retirement is what closes the handoff's seam-leak item.
 
+## Research alignment
+
+The design was graded against four literature and product surveys after it was
+approved in conversation; the findings, the amendments they produced (the
+`image` object, sibling packages copied in full, `runnerConfig`, the task
+admission gate, patch and allowlist in `policyDigest`) and the gaps deferred to
+named rungs are in the
+[research alignment note](../notes/2026-09-19-software-factory-rung2-research-alignment.md).
+
 ## Risks accepted for rung 2
 
-- **Same host, no authentication.** Unchanged.
+- **Same host, no authentication, no separation of duties.** The principal that
+  creates a work order can approve it. Copilot's requester-cannot-approve rule
+  is the model to adopt in the authentication rung, before any external
+  delivery.
+- **The environment identity is a local image id plus its inputs**, not a
+  registry manifest digest. Another host can verify the inputs, not the image.
+- **A running verifier has no liveness signal** beyond its start-to-close
+  deadline. A wedged container costs up to the deadline before it is
+  inconclusive.
 - **One pin.** Advancing it is a manual edit plus a prepare run; nothing
   automates or verifies the advance beyond the layer 1 patch-applies test.
-- **The image trusts its build.** The Dockerfile is pinned to a base digest and
-  a frozen lockfile, but the image is built on the operator's machine and the
-  digest recorded is whatever that build produced.
+- **The image trusts its build.** The Dockerfile is pinned to a base digest, a
+  platform and a frozen lockfile, but the image is built on the operator's
+  machine and the id recorded is whatever that build produced.
 - **The verifier still shares an image with the builder.** As in rung 1; an
   untrusted candidate can observe its runtime.
 - **One excluded test.** The visible suite is devkit's suite minus one file,
@@ -304,4 +357,7 @@ retirement is what closes the handoff's seam-leak item.
 5. `src/fixtures/` is gone and `cli-flags` runs as a target and a task.
 6. Every resource limit in the target's policy is a measured value with the
    measurement recorded in the plan.
+8. The task admission gate passes for `devkit-spawn-deadline`: its independent
+   suite fails on the defect and passes on the reference repair, in the real
+   container.
 7. `examples/code-fixer` has no diff, and `pnpm ci:validate` is green.
