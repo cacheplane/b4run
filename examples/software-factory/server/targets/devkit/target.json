@@ -1,0 +1,54 @@
+{
+  "id": "devkit",
+  "pin": "6a59e00aed466330c182989265786af396f39d80",
+  "root": ".",
+  "capture": {
+    "include": [
+      "package.json",
+      "pnpm-workspace.yaml",
+      ".npmrc",
+      "packages/devkit",
+      "packages/config-typescript"
+    ]
+  },
+  "snapshotIgnore": ["packages/devkit/dist/"],
+  "imageContext": [
+    "package.json",
+    "pnpm-workspace.yaml",
+    "pnpm-lock.yaml",
+    ".npmrc",
+    "packages/devkit/package.json",
+    "packages/config-typescript"
+  ],
+  "lockfile": "pnpm-lock.yaml",
+  "imageAssertResolves": ["vitest", "typescript", "@types/node/package.json"],
+  "environmentLinks": [{ "path": "node_modules", "target": "/opt/targets/devkit/node_modules" }],
+  "commands": {
+    "cwd": "packages/devkit",
+    "build": ["pnpm", "exec", "tsc", "-b", "tsconfig.json"],
+    "test": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "--run",
+      "--no-cache",
+      "--config",
+      "vitest.config.ts",
+      "--exclude",
+      "test/template-thread-access.test.ts"
+    ],
+    "nodeTestExecArgv": []
+  },
+  "runnerConfig": [
+    "packages/devkit/package.json",
+    "packages/devkit/vitest.config.ts",
+    "packages/devkit/tsconfig.json",
+    "packages/devkit/tsconfig.test.json"
+  ],
+  "resources": {
+    "memoryMb": 2048,
+    "cpus": 2,
+    "commandTimeoutMs": 300000,
+    "verifierDeadlineMs": 600000
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "cli-flags",
+  "pin": "6a59e00aed466330c182989265786af396f39d80",
+  "root": "examples/software-factory/server/fixtures/cli-flags/project",
+  "capture": { "include": ["LICENSE", "package-lock.json", "package.json", "src", "test"] },
+  "snapshotIgnore": [],
+  "imageContext": [
+    "examples/software-factory/server/fixtures/cli-flags/project/package.json",
+    "examples/software-factory/server/fixtures/cli-flags/project/package-lock.json"
+  ],
+  "lockfile": "examples/software-factory/server/fixtures/cli-flags/project/package-lock.json",
+  "imageAssertResolves": ["commander", "tsx"],
+  "environmentLinks": [{ "path": "node_modules", "target": "/opt/targets/cli-flags/node_modules" }],
+  "commands": {
+    "cwd": ".",
+    "build": [],
+    "test": ["npm", "test"],
+    "nodeTestExecArgv": ["--import", "tsx"]
+  },
+  "runnerConfig": ["package.json"],
+  "resources": {
+    "memoryMb": 1024,
+    "cpus": 1,
+    "commandTimeoutMs": 120000,
+    "verifierDeadlineMs": 300000
+  }
+}
