@@ -147,6 +147,18 @@ threads (W7 proves restore once); visual assertions; the Reject decision.
   matches, never `{ exact: true }`.
 - **`Allow once` timing**: the card appears mid-stream; the wait is on the
   alert role, not on a fixed delay.
+- **Per-wait timeouts must stay well inside the lane budget.** At 120 s a
+  drifted locator is killed by the harness deadline instead of by Playwright,
+  and the abort rejects outside the page body — losing the journey name, the
+  call log naming the locator, and the screenshot (taken against a closed
+  page). 45 s keeps Playwright's own timeout the one that wins.
+- **`.last()` masks duplicate cards.** One fresh thread must render exactly one
+  plan card and one `researcher` subagent card; duplicates are the regression
+  the AG-UI suppression ledger fixed, so the journeys assert `toHaveCount(1)`
+  rather than tolerating a second.
+- **Approve and Reject are indistinguishable by removal alone** — both drop the
+  row and both delete the candidate server-side — so the teach journey needs an
+  assertion only the approve path satisfies.
 - **Journal deltas are exact** (10/2/2). A StrictMode double-send or a
   suggestions-reload that hits the model would show up as a wrong count — that
   strictness is the point.
