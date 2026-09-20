@@ -21,10 +21,23 @@ test("A1: a spawn that fails asynchronously leaves no deadline timer running", (
   const started = Date.now()
   const result = spawnSync(process.execPath, ["-e", program], { encoding: "utf8", timeout: 8_000 })
   const elapsed = Date.now() - started
+  // The verifier's independent evidence carries only what this check writes to stdout or
+  // stderr — an assertion's own message never reaches it — so a failing run has to say here
+  // what it saw, or the receipt hands the builder a bare verdict and no diagnosis.
+  if (result.status !== 0 || elapsed >= 5_000)
+    console.error(
+      `A1 failed: child exit ${String(result.status)} signal ${String(result.signal)} after ` +
+        `${elapsed}ms. A deadline timer the repair forgot keeps the child's event loop alive ` +
+        `until spawnSync kills it.\n${result.stderr}`,
+    )
   assert.equal(
     result.status,
     0,
     `child exit ${String(result.status)} signal ${String(result.signal)}: ${result.stderr}`,
   )
-  assert.ok(elapsed < 2_000, `the child's event loop stayed alive for ${elapsed}ms after the rejection`)
+  // The discriminating signal is the 8s kill above: a forgotten deadline timer keeps the
+  // child alive until spawnSync kills it, which turns `status` null. This bound only
+  // separates "drained promptly" from "killed", so it is loose on purpose — a slow, loaded
+  // machine must not fail a correct repair.
+  assert.ok(elapsed < 5_000, `the child's event loop stayed alive for ${elapsed}ms after the rejection`)
 })
