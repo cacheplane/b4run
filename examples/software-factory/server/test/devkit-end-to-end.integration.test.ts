@@ -24,15 +24,28 @@ import { applyReference } from "./reference-repair.ts"
  * assembles them against ITS OWN archive of the pin, verifies them in the prepared image,
  * freezes a bundle, approves and exports exactly those bytes.
  *
- * The builder's script does not run the tests. This lane proves the JOIN, not the builder's
- * judgement, and the checks themselves are graded by the layer 2 lane
- * (`target-devkit.integration.test.ts`); paying for a build and a test suite inside the
- * builder's container as well would buy nothing this lane asserts.
+ * The builder really builds and tests inside its own container here, which no other lane
+ * proves: `builderPermissions(devkit)` is derived from the target's own `commands`, and only
+ * a real turn shows that the derived prefixes admit those exact invocations and that the
+ * dependency link resolves for them. The build is also what makes the reader's
+ * `ignorePrefixes` load-bearing — it writes `packages/devkit/dist/**` into the workspace, and
+ * without the filter every one of those paths would be an "added" path and a scope violation.
+ * The checks themselves are still graded by the layer 2 lane
+ * (`target-devkit.integration.test.ts`).
  */
 
 const TASK = "devkit-spawn-deadline"
 const task = loadTask(TASK)
 const source = task.manifest.allowedSourcePaths[0] as string
+// Built from the target's own commands rather than restated, so the fixture cannot drift from
+// what `builderPermissions` pre-approves; the `cd` prefix is the one the builder is told to
+// use, and it is the allow-list entry too.
+const buildCommand = `cd ${task.target.commands.cwd} && ${task.target.commands.build.join(" ")}`
+const testCommand = `cd ${task.target.commands.cwd} && ${task.target.commands.test.join(" ")}`
+// Vitest colours its summary, and the tool result carries that output as JSON text, so the
+// escapes arrive either raw or as their `\u001b` spelling. Stripped before the summary's
+// shape is pinned, rather than pinning the colour codes.
+const ANSI = new RegExp(`(?:\\\\u001b|${String.fromCodePoint(0x1b)})\\[[0-9;]*m`, "g")
 // Verification is active time and this lane verifies twice (once for the receipt, again at
 // approve), so every budget below is derived from the target's own deadline.
 const budget = task.target.resources.verifierDeadlineMs
@@ -61,9 +74,10 @@ it(
     // them is this lane's fault and not the candidate's.
     const repaired = await applyReference(TASK)
 
-    // The copied `b4.config.ts` reads FACTORY_TASK_ID at load, and the harness loads it when
-    // it starts: the variable has to be set before the copy is even taken, or the builder
-    // would come up sandboxed for the default task and archive the wrong subtree.
+    // Both the copied `b4.config.ts` and the copied `src/app/build/index.ts` read
+    // FACTORY_TASK_ID at module load, and the harness loads them when it starts: the variable
+    // has to be set before `createAgentHarness`, or the builder would come up sandboxed for
+    // the default task and prompted with the wrong spec. (Taking the copy does not read it.)
     process.env.FACTORY_TASK_ID = TASK
     const appRoot = await isolatedApp()
     cleanups.push(() => rm(appRoot, { recursive: true, force: true }))
@@ -75,14 +89,30 @@ it(
       fixtures: script()
         .user(input)
         .callsTool("readFile", { path: "TASK.md" })
+        .callsTool("runBash", { command: buildCommand })
         .callsTool("readFile", { path: source })
         .callsTool("writeFile", { path: source, content: repaired })
+        .callsTool("runBash", { command: testCommand })
         .replies("Repair complete.")
         .build(),
     })
     // Every tool call the builder made was admitted: the spec is in the workspace to read,
-    // and the one path the task permits is writable.
-    expect(run.toolResults.map((result) => result.isError)).toEqual([false, false, false])
+    // the one path the task permits is writable, and the target's OWN build and test
+    // invocations matched `builderPermissions(devkit)` against a real container rather than
+    // surfacing as an interrupt. A refusal here would arrive as `isError`.
+    expect(run.toolResults.map((result) => result.isError)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+    ])
+    // The suite really ran over the repaired bytes in the builder's container, with the
+    // dependency link resolving `vitest`: the summary line is vitest's own, and the runner
+    // colours it, so the colour codes come out before the shape is pinned.
+    const suiteOutput = String(run.toolResults[4]?.content).replaceAll(ANSI, "")
+    expect(suiteOutput).toMatch(/Tests\s+\d+ passed/)
+    expect(suiteOutput).toContain('"exitCode":0')
     const threadId = run.threadId
 
     // The bytes are in the BUILDER'S workspace before the controller is ever constructed:
@@ -93,6 +123,13 @@ it(
       () => targetInspectionOptions(task),
     )
     const observed = await reader.read({ threadId, taskId: TASK }, AbortSignal.timeout(120_000))
+    // The builder's build wrote `packages/devkit/dist/**` into the workspace; the reader drops
+    // every path under the target's `snapshotIgnore` prefixes, because the assembly rule
+    // rejects any path the baseline lacks and build output is not a candidate. Without the
+    // filter the work order below would block with `scope_violation`.
+    expect([...observed.keys()].filter((path) => path.startsWith("packages/devkit/dist/"))).toEqual(
+      [],
+    )
     expect(observed.get(source)).toBe(repaired)
     expect(observed.get("TASK.md")).toBe(task.specText)
     // The capture is the target's `capture.include` and nothing else: `packages/devkit/templates`
@@ -121,7 +158,10 @@ it(
         () => targetInspectionOptions(task),
       ),
       captureBaseline: captureTargetBaseline,
-      maxActiveMs: 3 * budget,
+      // The builder's turn is already spent by now, but the controller's own clock has to
+      // cover two verifications; the turn that produced these bytes included a build and a
+      // real test run, so the lane is longer than the scripted one.
+      maxActiveMs: 4 * budget,
     })
     const { id } = await factory.create({ taskId: TASK })
     await factory.dispatch(id)

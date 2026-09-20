@@ -14,6 +14,14 @@ const dist = join(process.cwd(), "packages/devkit/dist/testing/index.js")
 // "drained promptly" from "killed", so it is loose on purpose — a slow, loaded machine must
 // not fail a correct repair. One constant, so the diagnosis and the assertion cannot drift.
 const DRAIN_BUDGET_MS = 5_000
+// How long spawnSync lets the child live before killing it. The check discriminates only
+// while DRAIN_BUDGET_MS < KILL_AFTER_MS: a kill at or before the budget would make a hung
+// child look like a prompt drain.
+const KILL_AFTER_MS = 8_000
+if (!(DRAIN_BUDGET_MS < KILL_AFTER_MS))
+  throw new Error(
+    `A1 cannot discriminate: DRAIN_BUDGET_MS (${DRAIN_BUDGET_MS}) must be below KILL_AFTER_MS (${KILL_AFTER_MS})`,
+  )
 
 test("A1: a spawn that fails asynchronously leaves no deadline timer running", () => {
   const program = `
@@ -25,7 +33,7 @@ test("A1: a spawn that fails asynchronously leaves no deadline timer running", (
     })
   `
   const started = Date.now()
-  const result = spawnSync(process.execPath, ["-e", program], { encoding: "utf8", timeout: 8_000 })
+  const result = spawnSync(process.execPath, ["-e", program], { encoding: "utf8", timeout: KILL_AFTER_MS })
   const elapsed = Date.now() - started
   // The verifier's independent evidence carries only what this check writes to stdout or
   // stderr — an assertion's own message never reaches it — so a failing run has to say here

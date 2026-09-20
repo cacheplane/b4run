@@ -44,6 +44,14 @@ export interface WorkspaceReadOptions {
    * Derived from the policy rather than restated here, for exactly that reason.
    */
   readonly runAsNonRoot?: SandboxSecurityPolicy["runAsNonRoot"]
+  /**
+   * Root-relative directory prefixes the builder may legitimately write under (the target's
+   * build output); paths under them are dropped from the observed set, because the assembly
+   * rule rejects any path the baseline lacks and build output is not a candidate. Inspection
+   * cannot exclude nested directories, so this is a reader-side filter, the same prefixes the
+   * verifier's tamper comparison skips.
+   */
+  readonly ignorePrefixes?: readonly string[]
   readonly maxEntries?: number
   readonly maxFileBytes?: number
   readonly maxTotalBytes?: number
@@ -118,7 +126,12 @@ export function createThreadWorkspaceReader(
             expectedRootSymlinks: options.expectedRootSymlinks,
           }),
       )
-      return new Map(Object.entries(inspection.files))
+      const ignored = options.ignorePrefixes ?? []
+      return new Map(
+        Object.entries(inspection.files).filter(
+          ([path]) => !ignored.some((prefix) => path.startsWith(prefix)),
+        ),
+      )
     },
   }
 }

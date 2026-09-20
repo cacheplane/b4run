@@ -90,6 +90,25 @@ describe("the real thread workspace reader", () => {
     )
   })
 
+  it("drops paths under ignorePrefixes, so the target's build output is not an added path", async () => {
+    const app = await fakeManagedApp()
+    apps.push(app)
+    await app.seed("t-1", {
+      "src/a.ts": "source\n",
+      "packages/x/dist/a.js": "built\n",
+      "packages/x/dist-notes.ts": "not build output\n",
+    })
+    const reader = createThreadWorkspaceReader(sourceOf(app), () => ({
+      ...fakeOptions(),
+      ignorePrefixes: ["packages/x/dist/"],
+    }))
+    // A prefix match, not a path-segment one by accident: `dist-notes.ts` shares the first
+    // characters of the directory prefix and is NOT build output, so it survives.
+    expect(
+      [...(await reader.read(target("t-1"), AbortSignal.timeout(5_000))).keys()].sort(),
+    ).toEqual(["packages/x/dist-notes.ts", "src/a.ts"])
+  })
+
   it("carries expectedRootSymlinks through, and refuses when the link it names is absent", async () => {
     const reader = createThreadWorkspaceReader(sourceOf(await withThread()), inspectionOptions)
     await expect(reader.read(target("t-1"), AbortSignal.timeout(5_000))).rejects.toThrow(

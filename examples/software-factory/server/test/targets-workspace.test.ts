@@ -148,6 +148,9 @@ describe("targetInspectionOptions", () => {
     const options = targetInspectionOptions(task("0".repeat(40)))
     expect(options.excludeRootDirectories).toEqual([".git"])
     expect(options.expectedRootSymlinks).toEqual({ node_modules: "/opt/targets/t/node_modules" })
+    // The same prefixes the verifier's tamper comparison skips: a builder that runs the
+    // target's build writes there, and the assembly rule rejects any path the baseline lacks.
+    expect(options.ignorePrefixes).toEqual(task("0".repeat(40)).target.snapshotIgnore)
     expect(options).not.toHaveProperty("maxEntries")
     expect(options).not.toHaveProperty("maxFileBytes")
     expect(options).not.toHaveProperty("maxTotalBytes")

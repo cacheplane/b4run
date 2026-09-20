@@ -105,9 +105,12 @@ export function targetWorkspace(
  * this so they cannot drift apart.
  *
  * Inspection can exclude root directories only, so build output under a package (e.g.
- * `packages/devkit/dist`) is walked and counts toward the reader's entry and byte limits;
- * `snapshotIgnore` is consumed by the verifier's tamper comparison, not here. A target whose
- * build output is large must raise the reader's limits rather than expect exclusion.
+ * `packages/devkit/dist`) is walked and counts toward the reader's entry and byte limits.
+ * `snapshotIgnore` has two consumers, both of them here: the verifier's tamper comparison
+ * skips those prefixes, and the reader drops them from its observed set, because a builder
+ * that runs the target's build writes there legitimately and the assembly rule rejects any
+ * path the baseline lacks. A target whose build output is large must still raise the reader's
+ * limits rather than expect exclusion — the filter is applied after the walk.
  */
 export function targetInspectionOptions(task: Task): WorkspaceReadOptions {
   const expectedRootSymlinks: Record<string, string> = {}
@@ -116,6 +119,7 @@ export function targetInspectionOptions(task: Task): WorkspaceReadOptions {
   return {
     excludeRootDirectories: [".git"],
     expectedRootSymlinks,
+    ignorePrefixes: [...task.target.snapshotIgnore],
     // Mirrors the builder's own policy rather than trusting the reader's default to keep
     // matching it: relax `security.runAsNonRoot` for the builder and its files change
     // owner, and a reader still running as the secure default cannot read them. Inert today
