@@ -106,8 +106,8 @@ export function targetWorkspace(
  *
  * Inspection can exclude root directories only, so build output under a package (e.g.
  * `packages/devkit/dist`) is walked and counts toward the reader's entry and byte limits.
- * `snapshotIgnore` has two consumers, both of them here: the verifier's tamper comparison
- * skips those prefixes, and the reader drops them from its observed set, because a builder
+ * `snapshotIgnore` has three consumers: the workspace's `.gitignore` (above), the verifier's
+ * tamper comparison, and the reader's observed set (via `ignorePrefixes`), because a builder
  * that runs the target's build writes there legitimately and the assembly rule rejects any
  * path the baseline lacks. A target whose build output is large must still raise the reader's
  * limits rather than expect exclusion — the filter is applied after the walk.

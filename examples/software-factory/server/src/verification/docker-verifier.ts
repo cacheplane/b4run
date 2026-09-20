@@ -92,6 +92,11 @@ export function createDockerVerifier(
                   signal: bounded,
                   // The reader's own options, spread whole rather than picked apart: a new
                   // one (`runAsNonRoot` today) must not be silently dropped here.
+                  // `ignorePrefixes` rides along and is deliberately NOT honoured by this
+                  // snapshot: it is reader-side, where build output must not read as an added
+                  // candidate path, whereas the tamper comparison below has its own exclusion
+                  // rule and wants to see everything the walk found. The framework ignores
+                  // keys it does not know, so passing it here is inert rather than wrong.
                   ...inspection,
                   // The framework's defaults, restated so a change there is visible here.
                   maxEntries: 10_000,

@@ -89,9 +89,9 @@ it(
       fixtures: script()
         .user(input)
         .callsTool("readFile", { path: "TASK.md" })
-        .callsTool("runBash", { command: buildCommand })
         .callsTool("readFile", { path: source })
         .callsTool("writeFile", { path: source, content: repaired })
+        .callsTool("runBash", { command: buildCommand })
         .callsTool("runBash", { command: testCommand })
         .replies("Repair complete.")
         .build(),
@@ -158,9 +158,9 @@ it(
         () => targetInspectionOptions(task),
       ),
       captureBaseline: captureTargetBaseline,
-      // The builder's turn is already spent by now, but the controller's own clock has to
-      // cover two verifications; the turn that produced these bytes included a build and a
-      // real test run, so the lane is longer than the scripted one.
+      // The active clock starts at dispatch, which is after the builder's turn, so none of
+      // the turn above is charged to it. Four times the target's own deadline is headroom for
+      // the TWO verifications this lane runs (the receipt's, and the one at approve).
       maxActiveMs: 4 * budget,
     })
     const { id } = await factory.create({ taskId: TASK })
