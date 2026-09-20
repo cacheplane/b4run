@@ -2721,6 +2721,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
+> **Task 12 as landed.** The first devkit workspace ever built failed the framework's portable-path rule on `templates/` route paths (`(public)`, `[tenant]`, `[...path]`), so devkit's `capture.include` names its own `package.json`, the three config files, `src` and `test`, and `commands.test` excludes the nine tests that read templates or `examples/research`. The visible suite is twelve tests in two files; the graded regression test survives. Three lane tests pass in about 110 s: reference repair (both suites pass), defect baseline (both fail, evidence names the regression test and A1), non-compiling candidate (`build:fail` only). The node-test runner captures only stdout/stderr events, so the check prints its own diagnosis; carrying `test:fail` details into the output is a follow-up.
+
 ### Task 13: Layer 3: the scripted builder repairs devkit end to end
 
 **Files:**
