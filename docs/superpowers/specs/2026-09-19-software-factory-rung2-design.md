@@ -434,8 +434,18 @@ named rungs are in the
   fix if it ever matters.
 - **The verifier still shares an image with the builder.** As in rung 1; an
   untrusted candidate can observe its runtime.
-- **One excluded test.** The visible suite is devkit's suite minus one file,
-  and the exclusion is a fact about the capture, recorded in the command.
+- **Two excluded tests.** The visible suite is devkit's suite minus the two
+  files that compare against `examples/research`, and the exclusion is a fact
+  about the capture, recorded in the command.
+- **The vitest report channel is forgeable by a determined builder.** The
+  visible suite's JSON report is written to `/tmp` inside the builder-reachable
+  container and read back in the same command. The path and the stdout marker
+  carry a per-run nonce, so a test cannot forge them blind, but a test that
+  reads the nonce from the vitest process's argv and leaves a background writer
+  could still replace the report. This affects only the visible suite (the
+  independent suite is always `node-test`, graded from its event stream), and
+  it still requires vitest's real exit code to be zero. The fix is to run the
+  target's tests as a uid that cannot reach the report; deferred.
 
 ## Success criteria
 
