@@ -63,7 +63,7 @@ at boot, are validated with zod, and are digested into the bundle.
 | `id` | The target id; must equal the directory name. |
 | `pin` | A full 40-hex commit SHA in the repository the factory runs inside. The loader refuses anything else and refuses a pin the local object store does not contain. |
 | `root` | The repository directory that becomes the workspace root, `.` for the repository itself. `git archive <pin>:<root>` produces an archive rooted there, so task paths are root-relative and a target whose root is a subdirectory keeps short paths. `cli-flags` uses `examples/software-factory/server/fixtures/cli-flags/project`; devkit uses `.`. |
-| `capture` | `{ include: string[] }`, paths relative to `root`, the pathspec for `git archive`. It is the capture's definition and enters the policy digest as such. The framework's workspace capture requires an exact flat file inventory, so the workspace definition derives that list by walking the extracted archive rather than passing this field through. For devkit: `package.json`, `pnpm-workspace.yaml`, `.npmrc`, `packages/devkit`, `packages/config-typescript`. The lockfile is not captured: the image already holds the install, and nothing at run time reads it. There is no exclude list: an archive of a commit contains only tracked files, so `dist`, `node_modules` and `.turbo` are absent by construction. |
+| `capture` | `{ include: string[] }`, paths relative to `root`, the pathspec for `git archive`. It is the capture's definition and enters the policy digest as such. The framework's workspace capture requires an exact flat file inventory, so the workspace definition derives that list by walking the extracted archive rather than passing this field through. For devkit: `package.json`, `pnpm-workspace.yaml`, `.npmrc`, `packages/config-typescript`, and devkit's own `package.json`, `tsconfig.json`, `tsconfig.test.json`, `vitest.config.ts`, `src`, `test`; not `templates`, whose route paths the capture's portable-path rule rejects. | For devkit: `package.json`, `pnpm-workspace.yaml`, `.npmrc`, `packages/devkit`, `packages/config-typescript`. The lockfile is not captured: the image already holds the install, and nothing at run time reads it. There is no exclude list: an archive of a commit contains only tracked files, so `dist`, `node_modules` and `.turbo` are absent by construction. |
 | `snapshotIgnore` | Path prefixes, root-relative, that a suite may legitimately write under: for devkit `packages/devkit/dist/`. The verifier's before-and-after tamper comparison skips them; everything else that changes during a suite is still tampering. Inspection can only exclude root directories, which is why this is a verifier-side filter. |
 | `image` | Written by the prepare script: `{ localId, platform, baseManifestDigest, dockerfileSha256, lockfileSha256, pnpmVersion }`. `localId` is the Docker image id and is named as such: it is the hash of the image's config JSON, host-specific and not a registry digest. The environment identity every bundle binds is the sha256 of this whole object, so a second host can verify that the same inputs were used even though it cannot pull the image. A missing `image` is a load error: a target is not usable until it has been prepared. Pushing to a registry and binding the manifest digest instead is the rung 3 upgrade. |
 | `environmentLinks` | Where the image's dependency tree mounts into the workspace: one root link, `node_modules` to `/opt/targets/<id>/node_modules`. The image installs with pnpm's hoisted linker so every dependency, including workspace siblings, resolves from that one tree. Inspection validates root symlinks only and refuses nested ones, which rules out pnpm's default per-package `node_modules` links. |
@@ -221,11 +221,18 @@ thing a re-prepare on another host will hit again:
   into the read-only image, vitest could not start. The devkit Dockerfile therefore links
   `/opt/targets/devkit/node_modules/.vite-temp` to `/tmp`, the sandbox's tmpfs. `--no-cache`
   is still needed for vitest's own cache.
-- **Two devkit test files compare templates against `examples/research/*`**, which is outside
-  the capture: `test/template-thread-access.test.ts` and `test/templates.test.ts`. Both are
-  excluded in `commands.test`. Nine of eleven files run; the regression test the task grades
-  on is in `test/process-artifacts.test.ts` and is not excluded. Widening the capture to pull
-  in the research example was rejected: it is not the package under repair.
+- **Devkit's templates cannot be captured at all.** The framework's source capture
+  accepts only portable ASCII paths (`[A-Za-z0-9._ /-]`), and `packages/devkit/templates`
+  holds Next.js route paths such as `(public)/hello/[tenant]` and `api/b4/[...path]`. The
+  first devkit workspace ever built (the layer 2 lane) failed on that rule, so the target's
+  capture names devkit's own entries (`package.json`, the three config files, `src`, `test`)
+  and omits `templates`. Nine of devkit's eleven test files read the templates or compare
+  them against `examples/research/*`, and all nine are excluded in `commands.test`. The
+  visible suite is therefore twelve tests in two files, `test/process-artifacts.test.ts`
+  (which holds the graded regression test) and `test/reporting.test.ts`. This is a floor
+  the framework sets, not a choice; widening the path charset in `@b4run/workspace` is the
+  follow-up that would restore the full suite, and a target whose tests read outside its
+  package is the recurring shape.
 
 `docker pull` can hang on a host whose Docker Desktop registry proxy is wedged; the prepare
 script accepts `FACTORY_SKIP_BASE_PULL=1` as an explicit opt-in to build from the locally
