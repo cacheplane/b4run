@@ -15,6 +15,11 @@ import { loadTask } from "../src/targets/catalog.ts"
  */
 export async function applyReference(id = "cli-flags"): Promise<string> {
   const task = loadTask(id)
+  // This helper returns ONE file's repaired bytes, and its callers index the same way. A task
+  // that permits a second path would silently have that path's repair dropped, so refuse it
+  // here rather than return a half-applied candidate.
+  if (task.manifest.allowedSourcePaths.length !== 1)
+    throw new Error("Reference repair helper assumes one allowed path")
   const allowed = task.manifest.allowedSourcePaths[0] as string
   const appRoot = await mkdtemp(join(tmpdir(), "factory-reference-"))
   try {

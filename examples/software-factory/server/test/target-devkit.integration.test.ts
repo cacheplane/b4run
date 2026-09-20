@@ -81,7 +81,10 @@ describe("the devkit target in its prepared image", () => {
       expect(await evidenceOf(artifacts, receipt, "visible")).toContain(
         "clears the deadline when spawning fails asynchronously",
       )
-      expect(await evidenceOf(artifacts, receipt, "independent")).toMatch(/A1|event loop|signal/)
+      // The independent check prints its own diagnosis before asserting, because an
+      // assertion's message never reaches the receipt: the evidence carries that line.
+      const independentOutput = await evidenceOf(artifacts, receipt, "independent")
+      expect(independentOutput).toContain("A1 failed")
     },
     budget + 60_000,
   )
