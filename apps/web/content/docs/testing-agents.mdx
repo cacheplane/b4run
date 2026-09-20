@@ -182,6 +182,23 @@ expectState(run).field("todos").toEqual([{ content: "ship it", status: "pending"
 
 `run.state` is the full agent state after the run — the same object a checkpointer would persist.
 
+### Supply the middleware context
+
+`createAgentHarness` invokes the route's agent directly, so `src/middleware.ts` never runs and `ctx.middleware` is `undefined` inside tools. Pass `middlewareContext` with the record your middleware would have returned from `allow(context)` — either a fixed value or a function evaluated once per `run()`/`resume()` that receives the turn's `threadId` and `input`:
+
+```ts
+const h = await createAgentHarness({
+  appRoot,
+  route: "/assistant#agent",
+  middlewareContext: async ({ threadId }) => ({
+    session: await openTestSession(threadId),
+    ledger: snapshotLedger(),
+  }),
+})
+```
+
+Every tool the run invokes reads that record as `ctx.middleware`. The same option is accepted on `defineEval` so `b4 eval` can drive routes whose tools depend on middleware.
+
 ## Choose the execution boundary
 
 `@b4run/testing` exposes a separate factory for each execution boundary:
