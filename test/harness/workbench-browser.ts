@@ -13,7 +13,7 @@
  * Fail closed: a missing browser, a missing persisted thread id, a console
  * error, or an uncaught page error each fail the journey. There is no skip.
  */
-import type { Browser, Page } from "@playwright/test"
+import type { Page } from "@playwright/test"
 
 import {
   fillActiveWorkbenchComposer,
@@ -21,7 +21,11 @@ import {
   restoreWorkbenchThread,
   waitForWorkbenchRunCompletion,
 } from "../../docs/brand/demo/capture.mjs"
-import { type WorkbenchPageOptions, withWorkbenchPage } from "./workbench-page.ts"
+import {
+  type WorkbenchPageDeps,
+  type WorkbenchPageOptions,
+  withWorkbenchPage,
+} from "./workbench-page.ts"
 
 export interface WorkbenchBrowserJourney {
   readonly openReadyWorkbench: typeof openReadyWorkbench
@@ -30,8 +34,12 @@ export interface WorkbenchBrowserJourney {
   readonly restoreWorkbenchThread: typeof restoreWorkbenchThread
 }
 
-export interface WorkbenchBrowserDeps {
-  readonly chromium: { launch(options: { headless: true }): Promise<Browser> }
+/**
+ * The seam's deps plus this journey's own helpers. `chromium` is inherited
+ * rather than restated, so the launch signature cannot drift from the seam
+ * that actually calls it.
+ */
+export interface WorkbenchBrowserDeps extends WorkbenchPageDeps {
   readonly journey?: WorkbenchBrowserJourney
 }
 
