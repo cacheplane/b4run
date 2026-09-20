@@ -737,6 +737,34 @@ describe("toAguiEvents", () => {
     // the open text message was flushed before the error
     expect(out.some((e) => e.type === EventType.TEXT_MESSAGE_END)).toBe(true)
   })
+
+  test("an upstream error carrying a string `code` surfaces it on RUN_ERROR", async () => {
+    async function* boom(): AsyncGenerator<B4AgentStreamChunk> {
+      yield { type: "token", data: "hi" }
+      throw Object.assign(new Error("rejected"), { code: "middleware_rejected" })
+    }
+    const out = []
+    for await (const ev of toAguiEvents(boom(), CTX, { idFactory: createCounterIdFactory() })) {
+      out.push(ev)
+    }
+    expect(out.at(-1)).toEqual({
+      type: EventType.RUN_ERROR,
+      message: "rejected",
+      code: "middleware_rejected",
+    })
+  })
+
+  test("a non-string `code` on an upstream error is not forwarded", async () => {
+    async function* boom(): AsyncGenerator<B4AgentStreamChunk> {
+      yield { type: "token", data: "hi" }
+      throw Object.assign(new Error("rejected"), { code: 42 })
+    }
+    const out = []
+    for await (const ev of toAguiEvents(boom(), CTX, { idFactory: createCounterIdFactory() })) {
+      out.push(ev)
+    }
+    expect(out.at(-1)).toEqual({ type: EventType.RUN_ERROR, message: "rejected" })
+  })
 })
 
 describe("orchestration suppression", () => {

@@ -281,6 +281,15 @@ export async function* toAguiEvents(
   } catch (err) {
     yield* flushAllText()
     yield* ledger.settle()
-    yield { type: EventType.RUN_ERROR, message: err instanceof Error ? err.message : String(err) }
+    // An upstream error that names a machine-readable `code` (the runtime's
+    // middleware `after` rejection does) keeps it on the wire; anything else
+    // stays message-only, exactly as before.
+    const code =
+      err instanceof Error && "code" in err && typeof err.code === "string" ? err.code : undefined
+    yield {
+      type: EventType.RUN_ERROR,
+      message: err instanceof Error ? err.message : String(err),
+      ...(code !== undefined ? { code } : {}),
+    }
   }
 }

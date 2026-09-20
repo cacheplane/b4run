@@ -4,7 +4,13 @@ import { type B4AgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@b4run
 import { encodeAgUiSse } from "@b4run/ag-ui/sse"
 import type { MemoryStoreLike } from "@b4run/core"
 import type { PermissionsStore } from "@b4run/permissions"
-import type { MiddlewareHandler, MiddlewareRequest, ThreadAccessPolicy } from "@b4run/sdk"
+import type {
+  MiddlewareAfterHook,
+  MiddlewareAfterMessage,
+  MiddlewareHandler,
+  MiddlewareRequest,
+  ThreadAccessPolicy,
+} from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { checkpointRoutes } from "../runtime/checkpoint-route-provenance.js"
@@ -20,6 +26,7 @@ import type { StreamChunk } from "../runtime/stream-types.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
 import type { LiveTurnHub, LiveTurnProducer } from "./live-turn-hub.js"
 import { headersToRecord, runMiddleware } from "./middleware.js"
+import { applyMiddlewareAfter } from "./middleware-after.js"
 import { toWebRequest, writeNodeResponse } from "./node-web-adapter.js"
 import { readParkedRoute, settleParkedRoute } from "./parked-route.js"
 import {
@@ -52,6 +59,12 @@ export interface AgUiFetchRequestOptions {
   readonly getMemoryStore?: () => Promise<MemoryStoreLike>
   readonly liveTurnHub: LiveTurnHub
   readonly middleware: MiddlewareHandler | undefined
+  /**
+   * The middleware's final-message hook, when its definition has one. Wraps
+   * the route stream so the final assistant message reaches the client only
+   * once the hook has answered; absent, the stream is not wrapped at all.
+   */
+  readonly middlewareAfter?: MiddlewareAfterHook
   /**
    * Boot-resolved permissions store (or a per-request factory in dev),
    * forwarded into route execution so no per-request store construction is
@@ -189,6 +202,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     getMemoryStore,
     liveTurnHub,
     middleware,
+    middlewareAfter,
     permissionsStore,
     registry,
     resumeClaims,
@@ -553,7 +567,20 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             const observedRouteStream = observeInterrupts(abortableRouteStream, () => {
               sawInterrupt = true
             })
-            const liveTappedStream = tapLiveTurn(observedRouteStream, liveTurn, (chunk) => {
+            // Upstream of the live-turn tap and of AG-UI translation, so an
+            // attacher and the primary client see the same final message, and
+            // a rejection reaches both as the terminal error.
+            const guardedRouteStream = middlewareAfter
+              ? applyMiddlewareAfter(observedRouteStream, middlewareAfter, {
+                  assistantId: route.assistantId,
+                  context: middlewareResult.context,
+                  messages: b4Input.messages.map(toAfterMessage),
+                  routeId: route.routeId,
+                  runId: input.runId,
+                  threadId,
+                })
+              : observedRouteStream
+            const liveTappedStream = tapLiveTurn(guardedRouteStream, liveTurn, (chunk) => {
               terminalChunk = chunk
             })
             for await (const event of toAguiEvents(normalizeB4Stream(liveTappedStream), {
@@ -669,6 +696,19 @@ export async function handleAgUiRequest(options: AgUiRequestOptions): Promise<vo
     request: toWebRequest(request, response),
   })
   await writeNodeResponse(response, webResponse)
+}
+
+/** The SDK-facing view of one inbound message: role, text, and the client's id when it sent one. */
+function toAfterMessage(message: {
+  readonly role: string
+  readonly content: string
+  readonly id?: string | undefined
+}): MiddlewareAfterMessage {
+  return {
+    role: message.role,
+    content: message.content,
+    ...(message.id !== undefined ? { id: message.id } : {}),
+  }
 }
 
 function safeEnqueue(controller: ReadableStreamDefaultController<Uint8Array>, chunk: Uint8Array) {

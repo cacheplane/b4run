@@ -2,7 +2,12 @@ import type { B4Config } from "@b4run/core"
 import { loadB4Config, seedB4Config } from "@b4run/core"
 import type { MemoryStore } from "@b4run/memory"
 import type { PermissionsStore } from "@b4run/permissions"
-import type { MiddlewareHandler, MiddlewareRequest, ThreadAccessPolicy } from "@b4run/sdk"
+import type {
+  MiddlewareAfterHook,
+  MiddlewareHandler,
+  MiddlewareRequest,
+  ThreadAccessPolicy,
+} from "@b4run/sdk"
 import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
 import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
@@ -434,6 +439,7 @@ export async function createRuntimeFetchHandler(
     { appRoot: options.appRoot },
   )
   const middleware = boundMiddleware.handler
+  const middlewareAfter = boundMiddleware.after
   // After the request drain, so a `dispose` never ends a pool a request is
   // still using. A rejection is the operator's to see, not a reason to wedge
   // shutdown: the process is exiting either way.
@@ -870,6 +876,7 @@ export async function createRuntimeFetchHandler(
       getThreadsStore,
       liveTurnHub,
       middleware,
+      ...(middlewareAfter ? { middlewareAfter } : {}),
       registry,
       resumeClaims,
       threadAccess,
@@ -1268,6 +1275,8 @@ export function buildRouteTable(ctx: {
   readonly getThreadsStore: (request: Request) => ThreadsStore
   readonly liveTurnHub: LiveTurnHub
   readonly middleware: MiddlewareHandler | undefined
+  /** The middleware's final-message hook; only the AG-UI route consumes it. */
+  readonly middlewareAfter?: MiddlewareAfterHook
   readonly registry: RuntimeRegistry
   /**
    * The boot-resolved policy. `buildRouteTable` runs before any request exists,
@@ -1302,6 +1311,7 @@ export function buildRouteTable(ctx: {
     getThreadsStore,
     liveTurnHub,
     middleware,
+    middlewareAfter,
     registry,
     threadAccess,
     getShutdownSignal,
@@ -1659,6 +1669,7 @@ export function buildRouteTable(ctx: {
           getMemoryStore: () => getMemoryStoreFor(request),
           liveTurnHub,
           middleware,
+          ...(middlewareAfter ? { middlewareAfter } : {}),
           permissionsStore: getPermissionsStore(request),
           registry,
           resumeClaims,
