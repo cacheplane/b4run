@@ -2,7 +2,9 @@
   "id": "cli-flags",
   "pin": "6a59e00aed466330c182989265786af396f39d80",
   "root": "examples/software-factory/server/fixtures/cli-flags/project",
-  "capture": { "include": ["LICENSE", "package-lock.json", "package.json", "src", "test"] },
+  "capture": {
+    "include": ["LICENSE", "package-lock.json", "package.json", "src", "test"]
+  },
   "snapshotIgnore": [],
   "imageContext": [
     "examples/software-factory/server/fixtures/cli-flags/project/package.json",
@@ -10,7 +12,12 @@
   ],
   "lockfile": "examples/software-factory/server/fixtures/cli-flags/project/package-lock.json",
   "imageAssertResolves": ["commander", "tsx"],
-  "environmentLinks": [{ "path": "node_modules", "target": "/opt/targets/cli-flags/node_modules" }],
+  "environmentLinks": [
+    {
+      "path": "node_modules",
+      "target": "/opt/targets/cli-flags/node_modules"
+    }
+  ],
   "commands": {
     "cwd": ".",
     "build": [],
@@ -23,5 +30,13 @@
     "cpus": 1,
     "commandTimeoutMs": 120000,
     "verifierDeadlineMs": 300000
+  },
+  "image": {
+    "localId": "sha256:ebd35981eb4d72fbdcc64893c2944bab7ac7f55cbffb4c533c40322f7da2121a",
+    "platform": "linux/arm64",
+    "baseManifestDigest": "sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553",
+    "dockerfileSha256": "a48cf63989b5b52d6c87acadcb27f25a5a124e5bbd2be4af6cc3e2343524fd4c",
+    "lockfileSha256": "b92d3418bfb83f0be82978baab1bfe2b04c465727432639d43448118b8202da8",
+    "pnpmVersion": "10.33.0"
   }
 }
