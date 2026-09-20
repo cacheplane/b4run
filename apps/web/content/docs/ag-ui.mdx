@@ -109,6 +109,7 @@ correlation.
 | `token` | `TEXT_MESSAGE_START` once, then `TEXT_MESSAGE_CONTENT` per delta |
 | `tool_call` | close open text, then `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END` |
 | `tool_result` | close open text, then `TOOL_CALL_RESULT` |
+| `tool_result` for a tool that threw | `TOOL_CALL_RESULT` under the same `toolCallId`; `content` is the serialized `status: "error"` ToolMessage the model receives, exactly as a successful result is serialized |
 | `tool_call` and `tool_result` for a `writeTodos` or `task` call whose activity was emitted | no `TOOL_CALL_*` events; the activity is the whole presentation |
 | root `plan_update` | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.plan` |
 | `subagent.start` and matching child plan/tool/result/end chunks | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.subagent` |

@@ -78,6 +78,38 @@ describe("toAguiEvents", () => {
     ])
   })
 
+  test("a failing tool's error ToolMessage reaches TOOL_CALL_RESULT under the same toolCallId", async () => {
+    // What @b4run/langchain emits for a thrown tool: the serialized error
+    // ToolMessage the model receives, keyed by the model's tool-call id.
+    const errorToolMessage = {
+      lc: 1,
+      type: "constructor",
+      id: ["langchain_core", "messages", "ToolMessage"],
+      kwargs: {
+        status: "error",
+        content: "Error: kaboom\n Please fix your mistakes.",
+        name: "customerStatement",
+        tool_call_id: "call_stmt_1",
+      },
+    }
+    const events = await collect([
+      { type: "tool_call", data: { id: "call_stmt_1", name: "customerStatement", input: {} } },
+      {
+        type: "tool_result",
+        data: { id: "call_stmt_1", name: "customerStatement", output: errorToolMessage },
+      },
+      { type: "done", data: {} },
+    ])
+    const result = events.find((event) => event.type === EventType.TOOL_CALL_RESULT)
+    expect(result).toEqual({
+      type: EventType.TOOL_CALL_RESULT,
+      messageId: "tr-1",
+      toolCallId: "call_stmt_1",
+      content: JSON.stringify(errorToolMessage),
+    })
+    expect(JSON.parse((result as { content: string }).content).kwargs.status).toBe("error")
+  })
+
   test.each([
     ["function", () => undefined],
     ["symbol", Symbol("result")],

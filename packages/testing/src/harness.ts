@@ -14,6 +14,7 @@ import {
 } from "@b4run/cli/runtime"
 import { __clearB4ConfigCacheForTests } from "@b4run/core"
 import { discoverRoutes } from "@b4run/core/node"
+import type { B4ToolContext } from "@b4run/sdk"
 import { type Aimock, createAimock } from "./aimock-runner.js"
 import type { FixtureSet, ScriptBuilder } from "./fixture-builder.js"
 import { recordingsToFixtures } from "./record-fixtures.js"
@@ -43,10 +44,40 @@ function systemPromptFromRequests(
   return ""
 }
 
+/** The turn a harness is about to drive; passed to a `middlewareContext` factory. */
+export interface AgentHarnessRunInfo {
+  readonly threadId: string
+  /** The user message for `run()`; absent for `resume()`. */
+  readonly input?: string
+  /** The interrupt resolutions for `resume()`; absent for `run()`. */
+  readonly resume?: readonly B4ResumeEntry[]
+}
+
+/**
+ * The context a route's `middleware.ts` would have produced via `allow(context)`,
+ * either as a fixed value or as a factory evaluated once per `run()`/`resume()`.
+ * Tools read it as `ctx.middleware`.
+ */
+export type AgentHarnessMiddlewareContext =
+  | NonNullable<B4ToolContext["middleware"]>
+  | ((
+      run: AgentHarnessRunInfo,
+    ) =>
+      | NonNullable<B4ToolContext["middleware"]>
+      | undefined
+      | Promise<NonNullable<B4ToolContext["middleware"]> | undefined>)
+
 export interface AgentHarnessOptions {
   readonly appRoot: string
   readonly route: string
   readonly fixtures?: FixtureSet
+  /**
+   * The harness invokes the route's agent directly, so `middleware.ts` never
+   * runs. Supply the context it would have returned so tools that read
+   * `ctx.middleware` (a session, a database handle, a per-request snapshot)
+   * behave as they do behind the server. A function is evaluated per turn.
+   */
+  readonly middlewareContext?: AgentHarnessMiddlewareContext
   /**
    * When true, proxy all LLM requests through a real upstream (OPENAI_API_KEY
    * must be set). Requires OPENAI_API_KEY to be present in the environment.
@@ -56,6 +87,16 @@ export interface AgentHarnessOptions {
   readonly record?: boolean
   /** Upstream base URL for record mode (no /v1 suffix). Default https://api.openai.com. */
   readonly recordUpstream?: string
+}
+
+/** Evaluate a `middlewareContext` option (value or per-turn factory) for one turn. */
+async function resolveMiddlewareContext(
+  option: AgentHarnessMiddlewareContext | undefined,
+  run: AgentHarnessRunInfo,
+): Promise<NonNullable<B4ToolContext["middleware"]> | undefined> {
+  if (option === undefined) return undefined
+  if (typeof option === "function") return await option(run)
+  return option
 }
 
 export interface AgentHarness {
@@ -172,6 +213,11 @@ export async function createAgentHarness(options: AgentHarnessOptions): Promise<
       }
       resolvedResume = resolution.resume
     }
+    const middlewareContext = await resolveMiddlewareContext(options.middlewareContext, {
+      threadId,
+      ...(driveOpts.input !== undefined ? { input: driveOpts.input } : {}),
+      ...(driveOpts.resume !== undefined ? { resume: driveOpts.resume } : {}),
+    })
     const streamArgs: Parameters<typeof streamResolvedRoute>[0] = {
       appRoot: options.appRoot,
       input:
@@ -184,6 +230,7 @@ export async function createAgentHarness(options: AgentHarnessOptions): Promise<
       threadId,
       ...(sandboxManager ? { sandboxManager } : {}),
       ...(resolvedResume ? { resume: resolvedResume } : {}),
+      ...(middlewareContext !== undefined ? { middlewareContext } : {}),
     }
     const stream = streamResolvedRoute(streamArgs)
     const result = await collectRunResult(stream, threadId)

@@ -1,4 +1,9 @@
-import type { AgentRunResult, FixtureSet, ScriptBuilder } from "@b4run/testing"
+import type {
+  AgentHarnessMiddlewareContext,
+  AgentRunResult,
+  FixtureSet,
+  ScriptBuilder,
+} from "@b4run/testing"
 
 /** One dataset row. `input` is the user message for agent routes (v1). */
 export interface EvalCase {
@@ -32,6 +37,12 @@ export interface EvalDefinition {
   readonly route?: string
   readonly dataset: Dataset
   readonly scorers: readonly Scorer[]
+  /**
+   * The context the route's `middleware.ts` would have produced, forwarded to
+   * `createAgentHarness({ middlewareContext })` by `b4 eval`. A function is
+   * evaluated once per case.
+   */
+  readonly middlewareContext?: AgentHarnessMiddlewareContext
   /** Sugar for gate.mean(threshold). Ignored if `gate` is set. */
   readonly threshold?: number
   readonly gate?: GatePolicy

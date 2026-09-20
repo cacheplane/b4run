@@ -71,6 +71,7 @@ export interface EvalDefinition {
   readonly route?: string
   readonly dataset: Dataset
   readonly scorers: readonly Scorer[]
+  readonly middlewareContext?: AgentHarnessMiddlewareContext
   readonly threshold?: number
   readonly gate?: GatePolicy
 }
@@ -83,6 +84,7 @@ export interface EvalDefinition {
 | `readonly route` | `string` | no | Select a route key. |
 | `readonly dataset` | `Dataset` | yes | Supply inline, file, or factory cases. |
 | `readonly scorers` | `readonly Scorer[]` | yes | Score every case. |
+| `readonly middlewareContext` | `AgentHarnessMiddlewareContext` | no | Supply the context `middleware.ts` would have produced. |
 | `readonly threshold` | `number` | no | Shorthand for a mean gate. |
 | `readonly gate` | `GatePolicy` | no | Define explicit report pass policy. |
 
