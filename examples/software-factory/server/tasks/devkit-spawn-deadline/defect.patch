@@ -4,8 +4,8 @@
    } catch (error) {
      throw createSpawnProcessError(options, args, child, stderr, stdout, "spawn", error)
    } finally {
--    if (timeoutHandle !== undefined && closed) clearTimeout(timeoutHandle)
-+    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle)
+-    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle)
++    if (timeoutHandle !== undefined && closed) clearTimeout(timeoutHandle)
      if (abortListener !== undefined) options.signal?.removeEventListener("abort", abortListener)
    }
  

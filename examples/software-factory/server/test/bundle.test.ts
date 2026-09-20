@@ -58,15 +58,20 @@ describe("loadPolicy", () => {
   })
 
   it("hashes the defect patch into the environment when the task has one", () => {
-    // The devkit task has no defect patch yet (a later task writes it); prove the branch
-    // with a synthetic task built from the real one.
+    // Both branches from one real task: the hash follows the patch bytes, and a task
+    // without a defect patch hashes to nothing.
     const real = loadTask("devkit-spawn-deadline")
+    expect(policyEnvironment(real).defectPatchSha256).toBe(
+      createHash("sha256")
+        .update(real.defectPatch as string)
+        .digest("hex"),
+    )
     const withDefect = { ...real, defectPatch: "--- a/x\n+++ b/x\n" }
     const environment = policyEnvironment(withDefect)
     expect(environment.defectPatchSha256).toBe(
       createHash("sha256").update("--- a/x\n+++ b/x\n").digest("hex"),
     )
-    expect(policyEnvironment(real).defectPatchSha256).toBeNull()
+    expect(policyEnvironment({ ...real, defectPatch: null }).defectPatchSha256).toBeNull()
   })
 
   it("moves the policy digest when the checks, the allowed paths or the immutable paths move", () => {
