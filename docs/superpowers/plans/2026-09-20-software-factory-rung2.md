@@ -2866,6 +2866,19 @@ Remove the DRAFT status line. Fix every command and field name against the code:
 
 Change the spec's status line to `Status: implemented; see the plan and the developer guide`.
 
+- [ ] **Step 2b: CI builds the target images before the factory's Docker lane**
+
+`.github/workflows/ci.yml`'s `sandbox-docker` job runs `pnpm --filter @b4-example/software-factory-server test:sandbox` after a step that builds `b4-code-fixer:fixture-v1`. The factory's lanes now need `b4-factory-cli-flags:<pin12>-<sha12>` and `b4-factory-devkit:<pin12>-<sha12>`. Add, immediately before the factory's `test:sandbox` step:
+
+```yaml
+      - name: Prepare the software factory's target images
+        run: |
+          pnpm --filter @b4-example/software-factory-server target:prepare cli-flags
+          pnpm --filter @b4-example/software-factory-server target:prepare devkit
+```
+
+The prepare script pulls the base image (CI has network), builds for the runner's platform (`linux/amd64`), asserts the modules resolve, and rewrites `target.json` with the runner's local image id; that manifest diff is expected in CI and must not fail any step (check nothing runs `git diff --exit-code` after it). Keep the code-fixer image step: code-fixer's own lane still uses it. Fix the README's "Tests" sentence that names `b4-code-fixer:fixture-v1` as what CI builds for the factory. **Workflow-edit trap (memory):** the workflow-contracts audit pins descriptors of every workflow; run `node --test scripts/release/test/workflow-contracts.test.mjs` (or whatever `pnpm lint` at the root invokes; find it with `grep -rn "workflow-contracts" package.json scripts`) and, if it fails, splice the two audited allowlist fixtures surgically for the new step rather than re-serialising them.
+
 - [ ] **Step 3: Gates that live outside the package**
 
 Run from `<repo>`:
