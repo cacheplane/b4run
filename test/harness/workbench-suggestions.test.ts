@@ -90,11 +90,20 @@ function fakeBrowser(
   }
   const name = (value: unknown): string =>
     value instanceof RegExp ? String(value) : JSON.stringify(value)
-  const countOf = (desc: string): number =>
-    overrides.countFor?.(desc) ??
-    // The one locator the journey expects to find NOTHING: writeFile must not
-    // be rendered inside an activity card's <details>.
-    (desc.includes("details") && desc.includes("writeFile") ? 0 : 1)
+  // `.first()`/`.last()` narrow a locator; they do not change whether the thing
+  // EXISTS, so a count override written for a locator applies to its narrowings
+  // too. Without this a base count of 0 would still let `.first().waitFor()`
+  // succeed, which is the hole that let a locator matching nothing look proven.
+  const baseDesc = (desc: string): string => desc.replace(/ \.(first|last)$/, "")
+  const countOf = (desc: string): number => {
+    const base = baseDesc(desc)
+    return (
+      overrides.countFor?.(base) ??
+      // The one locator the journey expects to find NOTHING: writeFile must not
+      // be rendered inside an activity card's <details>.
+      (base.includes("details") && base.includes("writeFile") ? 0 : 1)
+    )
+  }
 
   // biome-ignore lint/suspicious/noExplicitAny: a structural stand-in for Locator.
   function locator(desc: string): any {
@@ -116,8 +125,28 @@ function fakeBrowser(
         record(`count ${desc}`)
         return countOf(desc)
       },
-      click: async () => record(`click ${desc}`),
-      waitFor: async (options: { state: string }) => record(`waitFor:${options.state} ${desc}`),
+      // A click and a visibility wait on a locator that matches NOTHING must
+      // fail the way Playwright fails — by exhausting the timeout — or "this
+      // button does not exist" is unrepresentable and every ordering assertion
+      // in this file is decorative. Recorded before throwing, because
+      // Playwright would have attempted it too.
+      click: async (options?: { timeout?: number }) => {
+        record(`click ${desc}`)
+        if (countOf(desc) === 0) {
+          throw new Error(
+            `locator.click: Timeout ${options?.timeout ?? 30_000}ms exceeded.\nwaiting for ${desc}`,
+          )
+        }
+      },
+      waitFor: async (options: { state: string; timeout?: number }) => {
+        record(`waitFor:${options.state} ${desc}`)
+        // Only `visible` — a locator that matches nothing IS hidden.
+        if (options.state === "visible" && countOf(desc) === 0) {
+          throw new Error(
+            `locator.waitFor: Timeout ${options.timeout ?? 30_000}ms exceeded.\nwaiting for ${desc} to be visible`,
+          )
+        }
+      },
     }
   }
 
@@ -215,7 +244,7 @@ async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
 const GOLDEN_CALLS: readonly string[] = [
   "open",
   // Research a topic
-  'click page > button="New conversation"',
+  'click page > button="+ New conversation"',
   "click page > button=/^Research a topic/",
   "complete",
   'waitFor:visible page > main > details | hasText="Plan · 1/4 complete" .first',
@@ -233,7 +262,7 @@ const GOLDEN_CALLS: readonly string[] = [
   `waitFor:visible page > main > text=${JSON.stringify(RESEARCH_REPLY)} .first`,
   `count page > main > text=${JSON.stringify(RESEARCH_REPLY)}`,
   // Trigger a permission prompt
-  'click page > button="New conversation"',
+  'click page > button="+ New conversation"',
   "click page > button=/^Trigger a permission prompt/",
   `waitFor:visible page > alert | hasText=${JSON.stringify(FETCH_COMMAND)} .first`,
   `count page > alert | hasText=${JSON.stringify(FETCH_COMMAND)}`,
@@ -243,7 +272,7 @@ const GOLDEN_CALLS: readonly string[] = [
   `waitFor:visible page > main > text=${JSON.stringify(GATED_REPLY)} .first`,
   `count page > main > text=${JSON.stringify(GATED_REPLY)}`,
   // Teach it a preference
-  'click page > button="New conversation"',
+  'click page > button="+ New conversation"',
   "click page > button=/^Teach it a preference/",
   "complete",
   `waitFor:visible page > label=Memory candidates > text=${JSON.stringify(TEACH_CONTENT)}`,
@@ -271,16 +300,35 @@ describe("runWorkbenchSuggestionJourneys", () => {
     const starts = calls.filter(
       (call) =>
         call.startsWith("click ") &&
-        (call.includes('button="New conversation"') || call.includes("button=/^")),
+        (call.includes('button="+ New conversation"') || call.includes("button=/^")),
     )
     expect(starts).toEqual([
-      'click page > button="New conversation"',
+      'click page > button="+ New conversation"',
       "click page > button=/^Research a topic/",
-      'click page > button="New conversation"',
+      'click page > button="+ New conversation"',
       "click page > button=/^Trigger a permission prompt/",
-      'click page > button="New conversation"',
+      'click page > button="+ New conversation"',
       "click page > button=/^Teach it a preference/",
     ])
+  })
+
+  it("fails with Playwright's own message when the create button is missing", async () => {
+    // The rail's create button is `+ New conversation`; the bare string is the
+    // UNTITLED ROW's label. Dropping the plus must not stay green.
+    const { deps } = fakeBrowser({
+      countFor: (desc) => (desc.includes('button="+ New conversation"') ? 0 : undefined),
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/^Research a topic: locator\.click: Timeout 45000ms/)
+    expect(rejection.message).toContain('button="+ New conversation"')
+  })
+
+  it("fails when a suggestion button is missing", async () => {
+    const { deps } = fakeBrowser({
+      countFor: (desc) => (desc.includes("Teach it a preference") ? 0 : undefined),
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/^Teach it a preference: locator\.click: Timeout 45000ms/)
   })
 
   it("fails when a second plan card is rendered in the same thread", async () => {

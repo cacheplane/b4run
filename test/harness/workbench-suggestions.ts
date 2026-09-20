@@ -120,16 +120,31 @@ async function expectNone(locator: Locator, what: string): Promise<void> {
 }
 
 /**
- * Starts one suggestion from a clean slate. `New conversation` is what makes
- * each journey its own thread — without it the second journey would append to
- * the first one's transcript and the empty state would never be on screen.
+ * Starts one suggestion from a clean slate. Creating a thread is what makes
+ * each journey its own — without it the second journey would append to the
+ * first one's transcript and the empty state would never be on screen.
  *
- * The button's accessible name is the suggestion's title followed by its
- * message (EmptyState.tsx), so match on the escaped title as a prefix.
+ * THE `+` IS LOAD-BEARING. The rail's create button renders the literal
+ * `+ New conversation`, while an UNTITLED THREAD ROW renders exactly
+ * `New conversation` (`UNTITLED_THREAD_LABEL`) — see ThreadRail.tsx. Matching
+ * the bare string therefore finds the ROW, not the button: one element on a
+ * fresh load (clicking it is a no-op, which is why journey 1 would still pass)
+ * and ZERO once journey 1 has titled that thread, so journey 2 would retry
+ * until it timed out. Do not "tidy" the plus away.
+ *
+ * `handleCreate` no-ops when the active thread is already untitled, so clicking
+ * the real button on a fresh load behaves exactly as before.
+ *
+ * The suggestion button's accessible name is the title followed by its message
+ * (EmptyState.tsx), so match on the escaped title as a prefix.
  */
 async function startSuggestion(page: Page, title: string): Promise<void> {
-  await page.getByRole("button", { name: "New conversation", exact: true }).click()
-  await page.getByRole("button", { name: new RegExp(`^${escapeRegExp(title)}`) }).click()
+  await page
+    .getByRole("button", { name: "+ New conversation", exact: true })
+    .click({ timeout: LOCATOR_TIMEOUT_MS })
+  await page
+    .getByRole("button", { name: new RegExp(`^${escapeRegExp(title)}`) })
+    .click({ timeout: LOCATOR_TIMEOUT_MS })
 }
 
 async function researchJourney(
@@ -155,7 +170,7 @@ async function researchJourney(
   // (open={content.status === "running"}), so the tools list is in the DOM but
   // hidden. Expanding it is the only way to see the list — and is itself a real
   // user action worth gating.
-  await subagentCard.locator("summary").click()
+  await subagentCard.locator("summary").click({ timeout: LOCATOR_TIMEOUT_MS })
   // Assert the DISCLOSURE, not just its consequence. If the card ever ships
   // already-open, the click above collapses it and the tool waits below would
   // read as "the tools never rendered" instead of "the open state flipped".
@@ -188,7 +203,9 @@ async function gateJourney(
   // inside it, so the filter matches the card that holds this command.
   const alert = page.getByRole("alert").filter({ hasText: options.fetchCommand })
   await expectExactlyOne(alert, "permission gate for this command")
-  await alert.getByRole("button", { name: "Allow once", exact: true }).click()
+  await alert
+    .getByRole("button", { name: "Allow once", exact: true })
+    .click({ timeout: LOCATOR_TIMEOUT_MS })
   await alert.waitFor(HIDDEN)
   await journey.waitForWorkbenchRunCompletion(page)
   // Exactly one: see the research journey's reply — a nested message still
@@ -238,7 +255,10 @@ async function teachJourney(
   // real (named, screenshotted) failure is followed moments later by an
   // unhandled waitForResponse timeout that can take the vitest worker down with
   // it. `Promise.all` attaches a handler to both before either can settle.
-  const [approved] = await Promise.all([approvePost, approveButton.click()])
+  const [approved] = await Promise.all([
+    approvePost,
+    approveButton.click({ timeout: LOCATOR_TIMEOUT_MS }),
+  ])
   if (!approved.ok()) throw new Error(`approve failed with HTTP ${approved.status()}`)
   const approvedBody = (await approved.json()) as {
     record?: { content?: unknown; status?: unknown }
@@ -254,7 +274,10 @@ async function teachJourney(
   await panel.getByText(options.teachContent, { exact: true }).waitFor(HIDDEN)
   // Kept alongside the POST assertion: a UI-only check would pass on an
   // optimistic removal whose write never landed.
-  const response = await page.request.get(new URL("/api/b4/memory/candidates", options.webUrl).href)
+  const response = await page.request.get(
+    new URL("/api/b4/memory/candidates", options.webUrl).href,
+    { timeout: LOCATOR_TIMEOUT_MS },
+  )
   if (!response.ok())
     throw new Error(`memory candidates read failed with HTTP ${response.status()}`)
   const body = (await response.json()) as { candidates?: Array<{ content?: unknown }> }
