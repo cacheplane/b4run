@@ -59,9 +59,10 @@ directory and a prepared image, not a code change; the design is in
 
 ## What it does not do
 
-No authentication (loopback only; do not expose it). No repair loop, no token budgets, one
-task (`cli-flags`), no UI, and one export target (the local filesystem). Verification proves a
-focused repair policy, not arbitrary program correctness, and the receipt says so.
+No authentication (loopback only; do not expose it). No repair loop, no token budgets, no
+live model producing a repair, no UI, and one export target (the local filesystem).
+Verification proves a focused repair policy, not arbitrary program correctness, and the
+receipt says so.
 
 **`examples/code-fixer` is untouched by this rung.** The factory borrows its fixture image and
 nothing else; rung 0 drove code-fixer as its worker, and rung 1 does not.

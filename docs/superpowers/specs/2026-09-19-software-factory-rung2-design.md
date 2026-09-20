@@ -1,7 +1,7 @@
 # Software factory, rung 2: the builder retargeted at the b4run monorepo
 
 Date: 2026-09-19
-Status: design approved in conversation; awaiting written review
+Status: implemented on branch blove/software-factory-rung2-spec; see the plan's "as landed" notes and the developer guide
 Program document: [b4.run Software Factory RFC 001](2026-09-16-software-factory-rfc.md)
 Predecessors: [rung 0](2026-09-16-software-factory-rung0-design.md) `8dbc0bdb`, [rung 1](2026-09-18-software-factory-rung1-design.md) `c8e4f952`, byte channel `1e54414c`, hardening `9d676522`, managed-workspace read `516c038c`
 Source snapshot: `3a26d1a2`
@@ -350,15 +350,21 @@ In a real container from the prepared image: `commands.build` then
 fails on the defect-patched baseline. This is the ladder's "baseline, build and
 test one `packages/*` member in the sandbox". The task admission gate runs here
 too: the independent suite fails on the defect-patched baseline and passes on
-the reference repair.
+the reference repair. As landed, `test/target-devkit.integration.test.ts` has
+three cases — reference repair (both suites pass), defect baseline (both fail,
+and the evidence names the regression test and `A1`) and a non-compiling
+candidate (`build:fail` alone) — in about 110 s.
 
 ### Layer 3: end to end, Docker-gated
 
-The scripted builder writes the reference repair into its own managed
-workspace; the controller reads it through the byte channel, verifies in its
-container, freezes, approves and exports. The exported changes equal
-`reference.patch` applied to the baseline. This is the ladder's "a scripted
-repair of a known past defect verifies".
+The scripted builder runs the target's own build and test inside its container
+and writes the reference repair into its own managed workspace; the controller
+reads it through the byte channel, verifies in its container, freezes, approves
+and exports. The exported changes equal `reference.patch` applied to the
+baseline. This is the ladder's "a scripted repair of a known past defect
+verifies". The builder's real build is also what makes the reader's
+`ignorePrefixes` load-bearing: `packages/devkit/dist/**` is written into the
+builder's workspace and must not read as added candidate paths.
 
 ### What the proof does not claim
 
