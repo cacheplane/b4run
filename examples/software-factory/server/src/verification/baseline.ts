@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { rmSync } from "node:fs"
 import { join } from "node:path"
 import { captureWorkspaceDefinition, readSourceFile } from "@b4run/workspace/node"
+import { captureDirectory } from "../targets/archive.js"
 import { appRoot, loadTask } from "../targets/catalog.js"
 import { targetWorkspace } from "../targets/workspace.js"
 
@@ -30,13 +31,7 @@ export async function captureTargetBaseline(
 ): Promise<CapturedBaseline> {
   const task = loadTask(taskId)
   const instance = randomUUID()
-  const instanceDirectory = join(
-    appRoot,
-    ".factory",
-    "captures",
-    "controller",
-    `${taskId}.${instance}`,
-  )
+  const instanceDirectory = join(appRoot, captureDirectory(taskId, "controller", instance))
   try {
     const definition = targetWorkspace(task, "controller", { instance })
     const captured = await captureWorkspaceDefinition(appRoot, definition, { signal })

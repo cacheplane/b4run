@@ -36,6 +36,22 @@ const TASK_ID_PATTERN = /^[\w-]+$/
 const INSTANCE_PATTERN = /^[\w-]+$/
 
 /**
+ * The app-relative directory one capture lives at: `.factory/captures/<role>/<taskId>` or,
+ * with an `instance`, `.factory/captures/<role>/<taskId>.<instance>`. The one place this
+ * formula is written, so `captureTarget` and any caller that needs to name (rather than
+ * create) a capture's directory — such as removing an instance directory a failed capture
+ * left behind — cannot drift apart from it.
+ */
+export function captureDirectory(taskId: string, role: CaptureRole, instance?: string): string {
+  if (!ROLE_PATTERN.test(role)) throw new Error(`Invalid capture role: ${role}`)
+  if (!TASK_ID_PATTERN.test(taskId)) throw new Error(`Invalid task id: ${taskId}`)
+  if (instance !== undefined && !INSTANCE_PATTERN.test(instance))
+    throw new Error(`Invalid capture instance: ${instance}`)
+  const name = instance === undefined ? taskId : `${taskId}.${instance}`
+  return `.factory/captures/${role}/${name}`
+}
+
+/**
  * The baseline for a task: the target's pinned subtree with the task's defect applied.
  *
  * Archived from the repository's object store, never its working tree, so uncommitted edits
@@ -60,15 +76,11 @@ export function captureTarget(
   role: CaptureRole,
   options: CaptureTargetOptions = {},
 ): CapturedTarget {
-  if (!ROLE_PATTERN.test(role)) throw new Error(`Invalid capture role: ${role}`)
-  if (!TASK_ID_PATTERN.test(task.id)) throw new Error(`Invalid task id: ${task.id}`)
-  if (options.instance !== undefined && !INSTANCE_PATTERN.test(options.instance))
-    throw new Error(`Invalid capture instance: ${options.instance}`)
+  const directory = captureDirectory(task.id, role, options.instance)
   const appRoot = options.appRoot ?? defaultAppRoot
   const repo = options.repositoryRoot ?? defaultRepositoryRoot()
   const name = options.instance === undefined ? task.id : `${task.id}.${options.instance}`
-  const directory = `.factory/captures/${role}/${name}`
-  const absolute = join(appRoot, ".factory", "captures", role, name)
+  const absolute = join(appRoot, directory)
   const scratch = join(appRoot, ".factory", "captures", role, `.${name}.tmp-${process.pid}`)
   rmSync(scratch, { recursive: true, force: true })
   mkdirSync(scratch, { recursive: true })

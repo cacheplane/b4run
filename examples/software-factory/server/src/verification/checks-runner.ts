@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto"
 import type { SandboxHandle } from "@b4run/workspace"
+import { z } from "zod"
 import type { Verdict } from "../domain/work-order.js"
 import type { Suite, Target } from "../targets/catalog.js"
 
@@ -56,68 +58,99 @@ export function gradeNodeTestEvents(
   }
 }
 
-interface VitestAssertionResult {
-  readonly fullName?: string
-  readonly status?: string
-}
+const VitestAssertionResultSchema = z.object({
+  fullName: z.string(),
+  status: z.string(),
+  failureMessages: z.array(z.string()).optional(),
+})
 
-interface VitestTestResult {
-  readonly assertionResults?: readonly VitestAssertionResult[]
-}
+const VitestTestResultSchema = z.object({
+  assertionResults: z.array(VitestAssertionResultSchema).optional(),
+})
 
-interface VitestJsonReport {
-  readonly numFailedTests?: unknown
-  readonly testResults?: readonly VitestTestResult[]
+/**
+ * The shape trusted out of a vitest JSON reporter file. `.passthrough()` because vitest's
+ * report carries many more fields than the ones graded here, and validation must not start
+ * rejecting a real report the moment vitest adds one.
+ */
+const VitestJsonReportSchema = z
+  .object({
+    numFailedTests: z.number().optional(),
+    numTotalTests: z.number().optional(),
+    testResults: z.array(VitestTestResultSchema),
+  })
+  .passthrough()
+
+export interface VitestGrade {
+  readonly verdict: Verdict
+  readonly events: readonly SuiteEvent[]
+  /** Every failed assertion's own rendering, flattened, in report order. */
+  readonly failureMessages: readonly string[]
 }
 
 /**
  * Grade a vitest JSON reporter report as pure data. Symmetric with
  * {@link gradeNodeTestEvents}: pass requires every expected assertion to appear exactly once
- * as a passing event, nothing else failed, and the exit code agrees. A report vitest could
- * not produce, or that disagrees with the exit code in a way that only a broken runner would
- * produce, is `inconclusive`.
+ * as a passing event, nothing else failed, the exit code agrees, and the report's own totals
+ * (`numFailedTests`, `numTotalTests`) are present and consistent with that. A report vitest
+ * could not produce, one that fails shape validation (parses as JSON but is not a report —
+ * `null`, an array, a report whose `testResults` is not an array, and so on), or one that
+ * disagrees with the exit code in a way that only a broken runner would produce, is
+ * `inconclusive`, never a thrown exception: this function is fed untrusted process output and
+ * must have an answer for anything that output could be.
  */
 export function gradeVitestReport(
   exitCode: number,
   reportJson: string,
   expected: readonly string[],
-): SuiteResult {
-  let parsed: VitestJsonReport
+): VitestGrade {
+  let raw: unknown
   try {
-    parsed = JSON.parse(reportJson)
+    raw = JSON.parse(reportJson)
   } catch {
-    return { verdict: "inconclusive", output: reportJson, events: [] }
+    return { verdict: "inconclusive", events: [], failureMessages: [] }
   }
 
+  const validated = VitestJsonReportSchema.safeParse(raw)
+  if (!validated.success) return { verdict: "inconclusive", events: [], failureMessages: [] }
+  const parsed = validated.data
+
   const events: SuiteEvent[] = []
-  for (const testResult of parsed.testResults ?? [])
+  const failureMessages: string[] = []
+  for (const testResult of parsed.testResults)
     for (const assertion of testResult.assertionResults ?? []) {
-      const name = assertion.fullName ?? ""
       const type =
         assertion.status === "passed"
           ? "test:pass"
           : assertion.status === "failed"
             ? "test:fail"
-            : `test:${assertion.status ?? "unknown"}`
-      events.push({ type, name })
+            : `test:${assertion.status}`
+      events.push({ type, name: assertion.fullName })
+      if (assertion.status === "failed") failureMessages.push(...(assertion.failureMessages ?? []))
     }
 
-  const failedCount = typeof parsed.numFailedTests === "number" ? parsed.numFailedTests : Number.NaN
-  const sawFailure = failedCount > 0 || events.some((event) => event.type === "test:fail")
+  const failedCount = parsed.numFailedTests
+  const sawFailure =
+    (typeof failedCount === "number" && failedCount > 0) ||
+    events.some((event) => event.type === "test:fail")
 
-  if (sawFailure && exitCode !== 0) return { verdict: "fail", output: reportJson, events }
-  if (sawFailure) return { verdict: "inconclusive", output: reportJson, events }
+  if (sawFailure && exitCode !== 0) return { verdict: "fail", events, failureMessages }
+  if (sawFailure) return { verdict: "inconclusive", events, failureMessages }
 
+  const totalCount = parsed.numTotalTests
   const passed =
     exitCode === 0 &&
+    typeof failedCount === "number" &&
     failedCount === 0 &&
     expected.length > 0 &&
+    typeof totalCount === "number" &&
+    totalCount >= expected.length &&
     expected.every(
       (name) =>
         events.filter((event) => event.type === "test:pass" && event.name === name).length === 1,
     )
 
-  return { verdict: passed ? "pass" : "inconclusive", output: reportJson, events }
+  return { verdict: passed ? "pass" : "inconclusive", events, failureMessages }
 }
 
 type NodeTestSuite = Extract<Suite, { runner: "node-test" }>
@@ -125,7 +158,7 @@ type VitestSuite = Extract<Suite, { runner: "vitest" }>
 
 /** `cd` into the target's command working directory unless it is already the workspace root. */
 function cdPrefix(target: Pick<Target, "commands">): string {
-  return target.commands.cwd === "." ? "" : `cd '${target.commands.cwd}' && `
+  return target.commands.cwd === "." ? "" : `${shellJoin(["cd", target.commands.cwd])} && `
 }
 
 async function runAt(
@@ -206,13 +239,21 @@ const { run } = require('node:test')
   return { verdict: graded.verdict, output: parsed.output, events: graded.events }
 }
 
-/** Marks the last line of a vitest run's stdout, before the JSON report it wrote to disk. */
-const REPORT_MARKER = "B4_FACTORY_REPORT"
-const REPORT_PATH = "/tmp/b4-factory-vitest-report.json"
-
 /**
  * Run a vitest suite inside the sandbox with a JSON reporter appended to the target's own
  * test invocation, and grade the report as pure data.
+ *
+ * The report path and the marker that separates it from the run's own stdout both carry a
+ * per-run nonce, so a suite cannot pre-write a forged report at a path or under a marker it
+ * could guess before the run starts.
+ *
+ * That is a defense against a blind guess only. The nonce is not a secret from code running
+ * inside the same container: it is plainly visible in the vitest process's own argv (in
+ * `/proc/<pid>/cmdline` or `ps`) for any process able to read it, so a suite that spawns a
+ * background writer to watch for and overwrite the report file after reading the nonce off
+ * the command line could still forge it. Closing that requires running the target's tests as
+ * a uid that cannot reach the report file at all (or the container's `/tmp`), which this
+ * runner does not yet do — tracked as a follow-up, not fixed here.
  */
 export async function runVitestSuite(
   handle: SandboxHandle,
@@ -220,14 +261,22 @@ export async function runVitestSuite(
   suite: VitestSuite,
   signal: AbortSignal,
 ): Promise<SuiteResult> {
-  const argv = [...target.commands.test, "--reporter=json", `--outputFile=${REPORT_PATH}`]
+  const nonce = randomUUID()
+  const reportPath = `/tmp/b4-factory-vitest-report.${nonce}.json`
+  const marker = `B4_FACTORY_REPORT_${nonce}`
+  const argv = [
+    ...target.commands.test,
+    "--reporter=default",
+    "--reporter=json",
+    `--outputFile=${reportPath}`,
+  ]
   const command = [
-    `rm -f ${REPORT_PATH}`,
+    `rm -f ${reportPath}`,
     `${cdPrefix(target)}${shellJoin(argv)}`,
     "code=$?",
     "echo",
-    `echo ${REPORT_MARKER}`,
-    `cat ${REPORT_PATH} 2>/dev/null`,
+    `echo ${marker}`,
+    `cat ${reportPath} 2>/dev/null`,
     "exit $code",
   ].join("; ")
 
@@ -242,13 +291,16 @@ export async function runVitestSuite(
     return { verdict: "inconclusive", output: `suite did not run: ${String(error)}`, events: [] }
   }
 
-  const markerLine = `${REPORT_MARKER}\n`
+  const markerLine = `${marker}\n`
   const markerIndex = result.stdout.lastIndexOf(markerLine)
   const output = markerIndex === -1 ? result.stdout : result.stdout.slice(0, markerIndex)
   const reportJson = markerIndex === -1 ? "" : result.stdout.slice(markerIndex + markerLine.length)
 
   const graded = gradeVitestReport(result.exitCode, reportJson, suite.assertions)
-  return { verdict: graded.verdict, output: `${output}\n${result.stderr}`, events: graded.events }
+  const base = `${output}\n${result.stderr}`
+  const finalOutput =
+    graded.failureMessages.length === 0 ? base : `${base}\n${graded.failureMessages.join("\n")}`
+  return { verdict: graded.verdict, output: finalOutput, events: graded.events }
 }
 
 /**
