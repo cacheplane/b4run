@@ -10,11 +10,14 @@
  * `workbench-browser.ts`; this file does not import it, and the two gates share
  * nothing but the seam and the journey helpers.
  *
- * Fail closed: every wait has a deadline WELL INSIDE the harness's own, so a
- * drifted locator is killed by Playwright (which names the locator, prints the
- * call log, and leaves a live page to screenshot) rather than by the harness
- * deadline (which rejects outside the body, so nothing below ever runs). A
- * console error collected during a journey fails THAT journey.
+ * Fail closed: every wait THIS FILE arms has a deadline well inside the
+ * harness's own, so a drifted locator is killed by Playwright (which names the
+ * locator, prints the call log, and leaves a live page to screenshot) rather
+ * than by the harness deadline (which rejects outside the body, so nothing
+ * below ever runs). The imported `waitForWorkbenchRunCompletion` keeps its own
+ * budget — three 120s waits, once per journey — so W8's worst single wait is
+ * still 120s and comes from capture.mjs, not from here. A console error
+ * collected during a journey fails THAT journey.
  */
 import { join } from "node:path"
 
@@ -52,7 +55,10 @@ export interface SuggestionJourneyDeps extends WorkbenchPageDeps {
 type SuggestionJourneyHelpers = NonNullable<SuggestionJourneyDeps["journey"]>
 
 /**
- * Every wait's deadline, in ms.
+ * The deadline, in ms, for every wait ARMED IN THIS FILE.
+ *
+ * It does not reach `waitForWorkbenchRunCompletion`, which comes from
+ * capture.mjs with three 120s waits of its own and runs once per journey.
  *
  * Deliberately far below the harness's own deadline. `withWorkbenchPage`'s
  * abort race rejects from OUTSIDE `body`, so a harness abort skips this file's
@@ -95,6 +101,11 @@ function escapeRegExp(value: string): string {
  * there is one plan card and one card per subagent. Counting after the wait,
  * not before, so a card that has not rendered yet is a timeout rather than a
  * count of zero.
+ *
+ * The count is a ONE-SHOT SNAPSHOT taken at that moment, not a settled
+ * invariant: a duplicate that renders later in the journey slips through. It
+ * catches the duplicate that is already on screen when the assertion runs,
+ * which is the shape every duplicate-emit bug so far has had.
  */
 async function expectExactlyOne(locator: Locator, what: string): Promise<void> {
   await locator.first().waitFor(VISIBLE)
@@ -160,10 +171,11 @@ async function researchJourney(
     main.locator("details").getByText("writeFile", { exact: true }),
     "writeFile inside an activity card",
   )
-  // `.last()` stays here and on the gated reply: the markdown renderer can nest
-  // the reply's text (a <p> inside its container), so an exact-text match can
-  // legitimately resolve to more than one element for ONE message.
-  await main.getByText(options.researchReply, { exact: true }).last().waitFor(VISIBLE)
+  // Exactly one, not `.last()`: Playwright's text engine drops an ancestor whose
+  // child also matches, so ONE message — however deeply the markdown renderer
+  // nests it — counts 1. A count of 2 therefore means two messages, which is
+  // precisely the AG-UI duplicate-emit bug `.last()` would have hidden.
+  await expectExactlyOne(main.getByText(options.researchReply, { exact: true }), "assistant reply")
 }
 
 async function gateJourney(
@@ -179,12 +191,12 @@ async function gateJourney(
   await alert.getByRole("button", { name: "Allow once", exact: true }).click()
   await alert.waitFor(HIDDEN)
   await journey.waitForWorkbenchRunCompletion(page)
-  // `.last()`: see the research journey's reply — nested markdown text.
-  await page
-    .getByRole("main")
-    .getByText(options.gatedReply, { exact: true })
-    .last()
-    .waitFor(VISIBLE)
+  // Exactly one: see the research journey's reply — a nested message still
+  // counts 1, so 2 means the reply was emitted twice.
+  await expectExactlyOne(
+    page.getByRole("main").getByText(options.gatedReply, { exact: true }),
+    "gated reply",
+  )
 }
 
 async function teachJourney(
@@ -206,14 +218,27 @@ async function teachJourney(
   // returns null for a plain `activated`, and reject never sets an outcome at
   // all (MemoryPanel.tsx). Only approve POSTs this route, and only its body
   // carries the stored record; `{ ok: true }` is all reject returns.
+  //
+  // `APPROVE_PATHNAME` alone is what discriminates approve from reject — the
+  // method check is belt-and-braces and removing it changes nothing. Do NOT
+  // "simplify" this the other way round: a looser pathname with only the method
+  // to lean on would match the reject POST.
   const approvePost = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
       APPROVE_PATHNAME.test(new URL(response.url()).pathname),
     { timeout: LOCATOR_TIMEOUT_MS },
   )
-  await panel.getByRole("button", { name: `Approve: ${options.teachContent}`, exact: true }).click()
-  const approved = await approvePost
+  const approveButton = panel.getByRole("button", {
+    name: `Approve: ${options.teachContent}`,
+    exact: true,
+  })
+  // Playwright's documented pattern, and not cosmetic: awaiting the click on its
+  // own leaves `approvePost` unhandled if the click throws, so the journey's
+  // real (named, screenshotted) failure is followed moments later by an
+  // unhandled waitForResponse timeout that can take the vitest worker down with
+  // it. `Promise.all` attaches a handler to both before either can settle.
+  const [approved] = await Promise.all([approvePost, approveButton.click()])
   if (!approved.ok()) throw new Error(`approve failed with HTTP ${approved.status()}`)
   const approvedBody = (await approved.json()) as {
     record?: { content?: unknown; status?: unknown }

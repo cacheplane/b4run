@@ -230,7 +230,8 @@ const GOLDEN_CALLS: readonly string[] = [
   'waitFor:visible page > main > text="writeFile" .first',
   'count page > main > text="writeFile"',
   'count page > main > details > text="writeFile"',
-  `waitFor:visible page > main > text=${JSON.stringify(RESEARCH_REPLY)} .last`,
+  `waitFor:visible page > main > text=${JSON.stringify(RESEARCH_REPLY)} .first`,
+  `count page > main > text=${JSON.stringify(RESEARCH_REPLY)}`,
   // Trigger a permission prompt
   'click page > button="New conversation"',
   "click page > button=/^Trigger a permission prompt/",
@@ -239,7 +240,8 @@ const GOLDEN_CALLS: readonly string[] = [
   `click page > alert | hasText=${JSON.stringify(FETCH_COMMAND)} > button="Allow once"`,
   `waitFor:hidden page > alert | hasText=${JSON.stringify(FETCH_COMMAND)}`,
   "complete",
-  `waitFor:visible page > main > text=${JSON.stringify(GATED_REPLY)} .last`,
+  `waitFor:visible page > main > text=${JSON.stringify(GATED_REPLY)} .first`,
+  `count page > main > text=${JSON.stringify(GATED_REPLY)}`,
   // Teach it a preference
   'click page > button="New conversation"',
   "click page > button=/^Teach it a preference/",
@@ -299,6 +301,28 @@ describe("runWorkbenchSuggestionJourneys", () => {
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
     expect(rejection.message).toMatch(/expected exactly one researcher subagent card/)
+  })
+
+  it("fails when the assistant reply is rendered twice", async () => {
+    // Playwright's text engine already drops an ancestor whose child matches,
+    // so a second match means a second MESSAGE — the duplicate-emit regression
+    // a `.last()` here would have hidden.
+    const { deps } = fakeBrowser({
+      countFor: (desc) => (desc.includes(RESEARCH_REPLY) ? 2 : undefined),
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/^Research a topic: expected exactly one assistant reply/)
+    expect(rejection.message).toContain("found 2")
+  })
+
+  it("fails when the gated reply is rendered twice", async () => {
+    const { deps } = fakeBrowser({
+      countFor: (desc) => (desc.includes(GATED_REPLY) ? 2 : undefined),
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(
+      /^Trigger a permission prompt: expected exactly one gated reply/,
+    )
   })
 
   it("fails when writeFile is rendered inside an activity card", async () => {
