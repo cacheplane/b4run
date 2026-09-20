@@ -2,11 +2,11 @@ import { parseArgs } from "node:util"
 import { loadConfig } from "./config.js"
 import { createFactory, type Factory } from "./controller/factory.js"
 import { ACTIVE_STATES } from "./domain/states.js"
-import { appRoot } from "./fixtures/catalog.js"
-import { builderSandboxProvider, workspaceInspectionOptions } from "./fixtures/workspace.js"
 import { createHttpApi } from "./http.js"
 import { createArtifactStore } from "./storage/artifacts.js"
-import { captureFixtureBaseline } from "./verification/baseline.js"
+import { appRoot, loadTask } from "./targets/catalog.js"
+import { builderSandboxProvider, targetInspectionOptions } from "./targets/workspace.js"
+import { captureTargetBaseline } from "./verification/baseline.js"
 import { createDockerVerifier } from "./verification/docker-verifier.js"
 import { createHttpWorkerClient } from "./worker/client.js"
 import { createThreadWorkspaceReader } from "./worker/workspace-reader.js"
@@ -63,13 +63,13 @@ async function main(argv: string[]): Promise<number> {
     maxActiveMs: config.maxActiveMs,
     maxChangedBytes: config.maxChangedBytes,
     verifier: createDockerVerifier(createArtifactStore(config.artifactsDir)),
-    // The builder is THIS package (`pnpm dev` here), so its installation store is under
-    // this package's root.
     workspaceReader: createThreadWorkspaceReader(
-      { provider: builderSandboxProvider(), appRoot },
-      workspaceInspectionOptions,
+      // The builder is THIS package (`pnpm dev` here), so its installation store is under
+      // this package's root. The provider is per target, so the reader resolves it per task.
+      { providerFor: (taskId) => builderSandboxProvider(loadTask(taskId).target), appRoot },
+      (taskId) => targetInspectionOptions(loadTask(taskId)),
     ),
-    captureBaseline: captureFixtureBaseline,
+    captureBaseline: captureTargetBaseline,
   })
   const needId = () => {
     if (!id) throw new Error(`${command} requires a work order id`)

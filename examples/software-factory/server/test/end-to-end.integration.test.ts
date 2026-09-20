@@ -4,11 +4,11 @@ import { join } from "node:path"
 import { createAgentHarness, script } from "@b4run/testing"
 import { afterEach, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/controller/factory.ts"
-import { loadFixture } from "../src/fixtures/catalog.ts"
-import { builderSandboxProvider, workspaceInspectionOptions } from "../src/fixtures/workspace.ts"
 import { TASK_PROMPTS } from "../src/prompts.ts"
 import { createArtifactStore } from "../src/storage/artifacts.ts"
-import { captureFixtureBaseline } from "../src/verification/baseline.ts"
+import { loadTask } from "../src/targets/catalog.ts"
+import { builderSandboxProvider, targetInspectionOptions } from "../src/targets/workspace.ts"
+import { captureTargetBaseline } from "../src/verification/baseline.ts"
 import { createDockerVerifier } from "../src/verification/docker-verifier.ts"
 import { createHttpWorkerClient } from "../src/worker/client.ts"
 import { createThreadWorkspaceReader } from "../src/worker/workspace-reader.ts"
@@ -31,8 +31,8 @@ import { applyReference } from "./reference-repair.ts"
  * ran — the controller then reads that thread's workspace for itself.
  */
 
-const fixture = loadFixture("cli-flags")
-const source = fixture.manifest.allowedSourcePaths[0] as string
+const task = loadTask("cli-flags")
+const source = task.manifest.allowedSourcePaths[0] as string
 
 let factory: Factory | undefined
 let worker: FakeWorker | undefined
@@ -86,18 +86,15 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   // a different process in production, addressing the same storage by scope, image and the
   // builder's installation store.
   const reader = createThreadWorkspaceReader(
-    { provider: builderSandboxProvider(), appRoot },
-    workspaceInspectionOptions,
+    { providerFor: () => builderSandboxProvider(task.target), appRoot },
+    () => targetInspectionOptions(task),
   )
   const observed = await reader.read(
     { threadId, taskId: "cli-flags" },
     AbortSignal.timeout(120_000),
   )
   expect(observed.get(source)).toBe(repaired)
-  // Bridge until src/fixtures is retired: the spec now lives under tasks/<id>/.
-  expect(observed.get("TASK.md")).toBe(
-    await readFile(join(fixture.tasksDirectory, "spec.md"), "utf8"),
-  )
+  expect(observed.get("TASK.md")).toBe(task.specText)
   // Both structural inspection options are load-bearing against real Docker: the git
   // directory is excluded rather than reported as added paths, and the `node_modules`
   // symlink is validated against its exact target rather than walked into. Without either,
@@ -131,10 +128,10 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
     artifactsDir: join(dir, "artifacts"),
     verifier: createDockerVerifier(createArtifactStore(join(dir, "artifacts"))),
     workspaceReader: createThreadWorkspaceReader(
-      { provider: builderSandboxProvider(), appRoot },
-      workspaceInspectionOptions,
+      { providerFor: () => builderSandboxProvider(task.target), appRoot },
+      () => targetInspectionOptions(task),
     ),
-    captureBaseline: captureFixtureBaseline,
+    captureBaseline: captureTargetBaseline,
   })
   const { id } = await factory.create({ taskId: "cli-flags" })
   await factory.dispatch(id)
@@ -153,7 +150,7 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   // read for itself: one changed path, the one the builder is allowed to write.
   expect(evidence.candidate?.changedPaths).toEqual([source])
   expect(evidence.candidate?.baselineDigest).toBe(
-    (await captureFixtureBaseline("cli-flags", AbortSignal.timeout(60_000))).digest,
+    (await captureTargetBaseline("cli-flags", AbortSignal.timeout(60_000))).digest,
   )
   expect(evidence.receipt?.verdict).toBe("pass")
   expect(evidence.receipt?.candidateDigest).toBe(evidence.candidate?.digest)

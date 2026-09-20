@@ -12,7 +12,7 @@ export default agent({
   description: "Repairs a failing test in a bounded workspace.",
   systemPrompt: `You repair a single defect in an isolated workspace.
 
-${TASK_PROMPTS["cli-flags"]}
+${TASK_PROMPTS[process.env.FACTORY_TASK_ID ?? "cli-flags"] ?? TASK_PROMPTS["cli-flags"]}
 
 Rules you cannot negotiate:
 - Change only the files TASK.md lists as permitted. Every other file, especially any test, is immutable.

@@ -44,10 +44,3 @@ export async function captureTargetBaseline(
     rmSync(instanceDirectory, { recursive: true, force: true })
   }
 }
-
-/**
- * Bridge until src/fixtures is retired: the builder still captures the working-tree fixture
- * while the controller archives the pin; a test in `test/baseline.test.ts` pins the two to the
- * same bytes.
- */
-export const captureFixtureBaseline = captureTargetBaseline

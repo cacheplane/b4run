@@ -62,8 +62,13 @@ export type WorkspaceInspectionOptions = (taskId: string) => WorkspaceReadOption
  * well as a provider of the same kind, scope and image, constructed here.
  */
 export interface ThreadWorkspaceSource {
-  /** Same kind, scope and image as the builder's `b4.config.ts`; constructed in this process. */
-  readonly provider: SandboxProvider
+  /**
+   * Same kind, scope and image as the builder's `b4.config.ts` for that task. The image is
+   * the target's, and a target is a property of the task, so the provider is resolved PER
+   * TASK rather than once for the process: one provider for every task would address the
+   * wrong image as soon as a second target exists.
+   */
+  providerFor(taskId: string): SandboxProvider
   /** The builder app's root: where `b4` keeps `.b4/workspaces` for that app. */
   readonly appRoot: string
 }
@@ -95,7 +100,7 @@ export function createThreadWorkspaceReader(
       const inspection = await withManagedWorkspaceReader(
         {
           appRoot: source.appRoot,
-          provider: source.provider,
+          provider: source.providerFor(target.taskId),
           threadId: target.threadId,
           signal,
           ...(options.runAsNonRoot === undefined ? {} : { runAsNonRoot: options.runAsNonRoot }),

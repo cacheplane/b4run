@@ -1,31 +1,32 @@
 import { spawnSync } from "node:child_process"
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, join } from "node:path"
-import { loadFixture } from "../src/fixtures/catalog.ts"
+import { join } from "node:path"
+import { captureTarget } from "../src/targets/archive.ts"
+import { loadTask } from "../src/targets/catalog.ts"
 
 /**
- * The historical reference repair: apply `tasks/<id>/reference.patch` to a throwaway copy
- * and read the repaired source back. A candidate known to be correct, so a failing verdict
- * over it is the harness's fault and not the candidate's.
+ * The historical reference repair: apply `tasks/<id>/reference.patch` to a throwaway capture
+ * of the task's baseline and read the repaired source back. A candidate known to be correct,
+ * so a failing verdict over it is the harness's fault and not the candidate's.
+ *
+ * The capture is taken under a temporary app root, so it never disturbs the builder's or the
+ * controller's own capture directories.
  */
 export async function applyReference(id = "cli-flags"): Promise<string> {
-  const fixture = loadFixture(id)
-  const allowed = fixture.manifest.allowedSourcePaths[0] as string
-  const temporary = await mkdtemp(join(tmpdir(), "factory-reference-"))
+  const task = loadTask(id)
+  const allowed = task.manifest.allowedSourcePaths[0] as string
+  const appRoot = await mkdtemp(join(tmpdir(), "factory-reference-"))
   try {
-    await cp(join(fixture.directory, "project"), temporary, {
-      recursive: true,
-      filter: (path) => basename(path) !== "node_modules",
-    })
-    const applied = spawnSync("git", ["apply", join(fixture.tasksDirectory, "reference.patch")], {
-      cwd: temporary,
+    const captured = captureTarget(task, "test", { appRoot })
+    const applied = spawnSync("git", ["apply", join(task.directory, "reference.patch")], {
+      cwd: captured.absolute,
       encoding: "utf8",
       timeout: 10_000,
     })
     if (applied.status !== 0) throw new Error(`Historical patch failed: ${applied.stderr}`)
-    return await readFile(join(temporary, allowed), "utf8")
+    return await readFile(join(captured.absolute, allowed), "utf8")
   } finally {
-    await rm(temporary, { recursive: true, force: true })
+    await rm(appRoot, { recursive: true, force: true })
   }
 }

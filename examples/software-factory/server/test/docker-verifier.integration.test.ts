@@ -2,16 +2,16 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { loadFixture } from "../src/fixtures/catalog.ts"
 import { freezeBundle } from "../src/review/bundle.ts"
 import { createArtifactStore } from "../src/storage/artifacts.ts"
+import { loadTask } from "../src/targets/catalog.ts"
 import { createDockerVerifier } from "../src/verification/docker-verifier.ts"
 import { loadPolicy } from "../src/verification/policy.ts"
 import { applyReference } from "./reference-repair.ts"
 
-const fixture = loadFixture("cli-flags")
+const task = loadTask("cli-flags")
 const policy = loadPolicy("cli-flags")
-const allowed = fixture.manifest.allowedSourcePaths[0] as string
+const allowed = task.manifest.allowedSourcePaths[0] as string
 
 const directories: string[] = []
 afterEach(async () => {

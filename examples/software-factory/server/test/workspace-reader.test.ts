@@ -4,12 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { SandboxProvider } from "@b4run/workspace"
 import { afterEach, describe, expect, it } from "vitest"
-import {
-  fixtureWorkspace,
-  sandboxImage,
-  sandboxPolicy,
-  workspaceInspectionOptions,
-} from "../src/fixtures/workspace.ts"
+import { loadTask } from "../src/targets/catalog.ts"
+import { targetInspectionOptions, targetSandboxPolicy } from "../src/targets/workspace.ts"
 import {
   createThreadWorkspaceReader,
   type WorkspaceReadOptions,
@@ -20,41 +16,8 @@ import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 /** Every read names the thread AND the task: inspection options are per task. */
 const target = (threadId: string, taskId = "cli-flags") => ({ threadId, taskId })
 
-/**
- * The environment identity a bundle binds is this value, verbatim. It is a tag, not the
- * pinned digest the spec asks for, and the README has to say so: a reader who is told the
- * bundle "binds the verifier's environment" would otherwise reasonably assume the binding
- * survives the tag being repointed at a different image. It does not.
- */
-describe("the sandbox image is the environment identity", () => {
-  it("is a mutable tag, and the README says the pinned-digest requirement is unmet", () => {
-    expect(sandboxImage).toBe(process.env.FACTORY_SANDBOX_IMAGE ?? "b4-code-fixer:fixture-v1")
-    expect(sandboxImage).not.toMatch(/@sha256:/)
-    const readme = readFileSync(new URL("../../README.md", import.meta.url), "utf8")
-    const row = readme.split("\n").find((line) => line.startsWith("| `FACTORY_SANDBOX_IMAGE`"))
-    expect(row).toBeDefined()
-    expect(row).toMatch(/rewrites the environment identity/)
-    expect(row).toMatch(/mutable tag/)
-    expect(row).toMatch(/pinned image digest/)
-    expect(row).toMatch(/does not meet/)
-  })
-})
-
-describe("fixture workspace definition", () => {
-  it("captures only the declared inventory and never the checks", () => {
-    const definition = fixtureWorkspace("cli-flags")
-    expect(definition.source.directory).toBe("fixtures/cli-flags/project")
-    expect(definition.source.include).toContain("src/cli.ts")
-    expect(definition.source.include).toContain("test/cli.test.ts")
-    for (const path of definition.source.include) expect(path.startsWith("checks/")).toBe(false)
-    expect(definition.baseline).toBe("git")
-  })
-
-  it("denies the network and bounds the container", () => {
-    expect(sandboxPolicy.network.mode).toBe("deny")
-    expect(sandboxPolicy.resources?.timeoutMs).toBeGreaterThan(0)
-  })
-})
+/** The task's own inspection options, as the controller derives them. */
+const inspectionOptions = (taskId: string) => targetInspectionOptions(loadTask(taskId))
 
 describe("fake workspace reader", () => {
   it("returns the scripted bytes for a thread and rejects an unknown one", async () => {
@@ -82,7 +45,7 @@ describe("fake workspace reader", () => {
  * it names is absent.
  */
 describe("the real thread workspace reader", () => {
-  /** Options shaped like the fixture's, minus the symlink the in-memory volume cannot hold. */
+  /** Options shaped like the target's, minus the symlink the in-memory volume cannot hold. */
   const fakeOptions = (): WorkspaceReadOptions => ({
     excludeRootDirectories: [".git"],
     expectedRootSymlinks: {},
@@ -98,7 +61,8 @@ describe("the real thread workspace reader", () => {
     const app = await fakeManagedApp()
     apps.push(app)
     await app.seed("t-1", { "src/cli.ts": "fixed\n", ".git/HEAD": "ref: refs/heads/main\n" })
-    return app
+    // The reader resolves a provider per task; this app's one provider serves every task.
+    return { appRoot: app.appRoot, providerFor: () => app.provider, provider: app.provider }
   }
 
   it("reads the thread's own bytes", async () => {
@@ -122,7 +86,7 @@ describe("the real thread workspace reader", () => {
   })
 
   it("carries expectedRootSymlinks through, and refuses when the link it names is absent", async () => {
-    const reader = createThreadWorkspaceReader(await withThread(), workspaceInspectionOptions)
+    const reader = createThreadWorkspaceReader(await withThread(), inspectionOptions)
     await expect(reader.read(target("t-1"), AbortSignal.timeout(5_000))).rejects.toThrow(
       /Missing expected root symlink: node_modules/,
     )
@@ -143,7 +107,7 @@ describe("the real thread workspace reader", () => {
       SandboxProvider["workspaces"]
     >
     const reader = createThreadWorkspaceReader(
-      { appRoot: app.appRoot, provider: { ...app.provider, workspaces } },
+      { appRoot: app.appRoot, providerFor: () => ({ ...app.provider, workspaces }) },
       fakeOptions,
     )
     await expect(reader.read(target("t-1"), AbortSignal.timeout(5_000))).rejects.toThrow(
@@ -156,7 +120,7 @@ describe("the real thread workspace reader", () => {
     const empty = await mkdtemp(join(tmpdir(), "factory-no-builder-"))
     try {
       const reader = createThreadWorkspaceReader(
-        { appRoot: empty, provider: app.provider },
+        { appRoot: empty, providerFor: () => app.provider },
         fakeOptions,
       )
       await expect(reader.read(target("t-1"), AbortSignal.timeout(5_000))).rejects.toThrow(
@@ -176,19 +140,6 @@ describe("the real thread workspace reader", () => {
  * the reader identity is derived from the builder's own sandbox policy for the same reason.
  */
 describe("inspection options travel with the reader", () => {
-  it("derives the git exclusion and the dependency symlink from the workspace definition", () => {
-    const definition = fixtureWorkspace("cli-flags")
-    const options = workspaceInspectionOptions("cli-flags")
-    expect(definition.baseline).toBe("git")
-    expect(options.excludeRootDirectories).toEqual([".git"])
-    expect(options.expectedRootSymlinks).toEqual({
-      node_modules: "/opt/fixtures/cli-flags/node_modules",
-    })
-    // Derived, not restated: every link in the definition has an expectation.
-    for (const link of definition.environmentLinks ?? [])
-      expect(options.expectedRootSymlinks[link.path]).toBe(link.target)
-  })
-
   it("is described in the README by the options the replacement must carry", () => {
     const readme = readFileSync(new URL("../../README.md", import.meta.url), "utf8")
     expect(readme).toMatch(/excludeRootDirectories/)
@@ -197,8 +148,10 @@ describe("inspection options travel with the reader", () => {
   })
 
   it("mirrors the builder's sandbox policy identity, so the reader can read what the builder wrote", () => {
-    const options = workspaceInspectionOptions("cli-flags")
-    expect(options.runAsNonRoot).toBe(sandboxPolicy.security?.runAsNonRoot)
+    const task = loadTask("cli-flags")
+    expect(targetInspectionOptions(task).runAsNonRoot).toBe(
+      targetSandboxPolicy(task.target).security?.runAsNonRoot,
+    )
   })
 
   it("refuses an unknown task before it opens anything", async () => {
@@ -210,7 +163,7 @@ describe("inspection options travel with the reader", () => {
       const reader = createThreadWorkspaceReader(
         {
           appRoot: app.appRoot,
-          provider: {
+          providerFor: () => ({
             ...app.provider,
             workspaces: {
               ...workspaces,
@@ -223,13 +176,13 @@ describe("inspection options travel with the reader", () => {
                 )(input)
               },
             },
-          },
+          }),
         },
-        workspaceInspectionOptions,
+        inspectionOptions,
       )
       await expect(
         reader.read(target("t-1", "no-such-task"), AbortSignal.timeout(1_000)),
-      ).rejects.toThrow(/Unknown fixture/)
+      ).rejects.toThrow(/Unknown task/)
       expect(opened).toBe(false)
     } finally {
       await app.close()

@@ -7,10 +7,10 @@ describe("builder configuration", () => {
   it("denies the network and pins one image for both containers", () => {
     expect(config.sandbox?.network?.mode).toBe("deny")
     expect(config.sandbox?.provider.name).toBe("docker")
-    expect(config.sandbox?.workspace?.source.directory).toBe("fixtures/cli-flags/project")
+    expect(config.sandbox?.workspace?.source.directory).toBe(".factory/captures/builder/cli-flags")
   })
 
-  it("pre-approves exactly the commands the fixture needs, so an interrupt is a surprise", () => {
+  it("pre-approves exactly the commands the target needs, so an interrupt is a surprise", () => {
     const bash = config.permissions?.allow?.bash ?? []
     expect(bash).toContain("npm test")
     // Prefix matching is why this has a trailing space.
@@ -33,7 +33,7 @@ describe("the builder route", () => {
     expect(builder.systemPrompt).not.toMatch(/prepareReview|exportForReview/)
   })
 
-  it("has a prompt constant for the fixture, so static fixtures can key to it", () => {
+  it("has a prompt constant for the task, so static fixtures can key to it", () => {
     expect(TASK_PROMPTS["cli-flags"]).toMatch(/\S/)
     expect(TASK_PROMPTS["cli-flags"]).not.toMatch(/exportForReview/)
   })
