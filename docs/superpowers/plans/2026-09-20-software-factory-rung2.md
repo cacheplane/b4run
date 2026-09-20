@@ -23,6 +23,7 @@
 - Layer 1 (always on): `npx vitest run` from the package root. Docker lanes: `npx vitest run --config vitest.sandbox.config.ts`. Typecheck: `npx tsc -p . --noEmit`. Lint: `npx biome check .`; format only your own files with `npx biome check --write <files>`. Never run bare `biome check --write` at the repo root.
 - `examples/code-fixer` must have no diff at the end. Check with `git status --short examples/code-fixer` before every commit.
 - Commit after every task with the message shown. Every commit message ends with the line `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
+- **The package's layer 1 suite (`npx vitest run`) and typecheck are green at every commit.** A plan step that predicts a red gate is wrong; make it green in the same task.
 - Docker must be running for Tasks 10 onward. If it is not, stop at Task 9 and say so; do not fake a Docker result.
 
 ## Nine facts that will bite you if you skip them
@@ -201,7 +202,18 @@ export function environmentIdentityDigest(image: ImageInputs): string {
 - [ ] **Step 4: Run the digest tests**
 
 Run: `npx vitest run test/digest.test.ts`
-Expected: PASS for the new tests. If an existing test pins a literal `policyDigest` value, update the literal: the tag moved to v2 and that is the intended change. `npx tsc -p . --noEmit` now fails in `src/verification/policy.ts` (missing `environment`); that is fixed in Task 6.
+Expected: PASS for the new tests. If an existing test pins a literal `policyDigest` value, update the literal: the tag moved to v2 and that is the intended change.
+
+**Keep layer 1 green.** vitest transpiles without typechecking, so `loadPolicy` in `src/verification/policy.ts` would reach `policyDigest` without an `environment` and throw at runtime, failing `test/bundle.test.ts` for the five tasks until Task 6. Give it a placeholder in this task:
+
+```ts
+    // Rung 1 has no target catalog yet; Task 6 derives this from the task's target.
+    environment: { identity: "fixture", pin: "0".repeat(40), root: ".", captureInclude: [], defectPatchSha256: null },
+```
+
+Then `npx vitest run` (whole package) and `npx tsc -p . --noEmit` must both be clean. Every later task holds the same gate: the package suite is green at every commit.
+
+**Test every digested field.** Generate one assertion per field of `PolicyEnvironment` and of `ImageInputs` (loop over `Object.keys`), so a field dropped from a digest body fails a test rather than passing silently.
 
 - [ ] **Step 5: Commit**
 
