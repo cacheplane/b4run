@@ -34,7 +34,23 @@ export interface WorkbenchBrowserDeps {
   readonly journey?: WorkbenchBrowserJourney
 }
 
-export interface WorkbenchBrowserOptions {
+export interface WorkbenchPageOptions {
+  /**
+   * Written only when the body fails, next to the harness transcripts.
+   *
+   * A function is resolved at screenshot time, not when the page is opened, so
+   * one options object can drive several journeys that each want their own
+   * file name.
+   */
+  readonly screenshotPath: string | (() => string)
+  /**
+   * The harness lifecycle signal. Aborting closes the browser and rejects the
+   * body, so a hung page cannot outlive the test's own deadline.
+   */
+  readonly signal?: AbortSignal
+}
+
+export interface WorkbenchBrowserOptions extends WorkbenchPageOptions {
   /** The generated web client's base URL (the harness's `dev:web` session). */
   readonly webUrl: string
   /** The prompt to send; must match an aimock fixture's `userMessage`. */
@@ -43,13 +59,6 @@ export interface WorkbenchBrowserOptions {
   readonly tools: readonly string[]
   /** The fixture's final reply — asserted on screen after reload. */
   readonly answer: string
-  /** Written only when the journey fails, next to the harness transcripts. */
-  readonly screenshotPath: string
-  /**
-   * The harness lifecycle signal. Aborting closes the browser and rejects the
-   * journey, so a hung page cannot outlive the test's own deadline.
-   */
-  readonly signal?: AbortSignal
 }
 
 const DEFAULT_JOURNEY: WorkbenchBrowserJourney = {
@@ -125,29 +134,35 @@ export const JOURNEY_ABORTED_MESSAGE = "Workbench browser gate aborted by the ha
 
 export const PROMPT_SHAPE_MESSAGE = `Workbench browser gate prompt must be trimmed and at most ${MAX_THREAD_TITLE_LENGTH} characters (the thread rail shows the truncated title)`
 
-export interface WorkbenchPageOptions {
-  /** Written only when the body fails, next to the harness transcripts. */
-  readonly screenshotPath: string
-  /**
-   * The harness lifecycle signal. Aborting closes the browser and rejects the
-   * body, so a hung page cannot outlive the test's own deadline.
-   */
-  readonly signal?: AbortSignal
-}
+export const COLLECTED_ERRORS_BACKSTOP_MESSAGE =
+  "Workbench console errors collected during the browser session"
 
 /**
  * The fail-closed scaffolding every Workbench browser journey shares: the
  * pre-launch abort check, the Chromium launch, the abort listener that closes
  * the browser, a fresh context/page with console and page-error collection,
- * the abort race around `body`, the failure screenshot with the collected
- * console errors appended, and the best-effort cleanup.
+ * the abort race around `body`, the collected-errors backstop, the failure
+ * screenshot with the collected console errors appended, and the best-effort
+ * cleanup.
  *
- * `options.screenshotPath` is read at screenshot time, so a caller driving
- * several journeys through one options object can vary it per journey.
+ * This is the SINGLE wrapping site for a journey's failure: it attaches the
+ * console errors and the `cause`, and the activation test's `flattenCause`
+ * prints every level of that chain. Do not wrap a `withWorkbenchPage` call
+ * from outside — a journey that wants its own name on the failure applies
+ * that prefix *inside* `body`, so CI shows the underlying Playwright error and
+ * its call log once.
+ *
+ * `options.screenshotPath` is resolved at screenshot time (a function is
+ * called then), so a caller driving several journeys through one options
+ * object can vary the file name per journey.
+ *
+ * @param body Receives the page and the LIVE `errors` array — the collectors
+ *   keep pushing into it while `body` runs, so read it late (at the point you
+ *   want to decide) rather than snapshotting its contents or length early.
  */
-async function withWorkbenchPage<T>(
+export async function withWorkbenchPage<T>(
   options: WorkbenchPageOptions,
-  deps: WorkbenchBrowserDeps,
+  deps: Pick<WorkbenchBrowserDeps, "chromium">,
   body: (page: Page, errors: readonly string[]) => Promise<T>,
 ): Promise<T> {
   const { signal } = options
@@ -168,11 +183,16 @@ async function withWorkbenchPage<T>(
     const page = await context.newPage()
     const errors = collectPageErrors(page)
     try {
-      return await raceAbort(signal, () => body(page, errors))
+      const result = await raceAbort(signal, () => body(page, errors))
+      // Backstop: a body that forgot to check still cannot pass with errors
+      // collected. W7 checks first, so its own message is what it reports.
+      if (errors.length > 0) throw new Error(COLLECTED_ERRORS_BACKSTOP_MESSAGE)
+      return result
     } catch (error) {
       // Best effort: the rendered state is the one thing the transcript cannot
       // show, and its directory is a CI-uploaded path that may not exist yet.
-      const screenshotPath = options.screenshotPath
+      const { screenshotPath: configured } = options
+      const screenshotPath = typeof configured === "function" ? configured() : configured
       await mkdir(dirname(screenshotPath), { recursive: true }).catch(() => undefined)
       await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined)
       if (errors.length > 0) {

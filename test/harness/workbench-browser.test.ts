@@ -2,12 +2,14 @@ import type { Browser, BrowserContext, Page } from "@playwright/test"
 import { describe, expect, it, vi } from "vitest"
 
 import {
+  COLLECTED_ERRORS_BACKSTOP_MESSAGE,
   findPersistedThreadId,
   JOURNEY_ABORTED_MESSAGE,
   PROMPT_SHAPE_MESSAGE,
   runWorkbenchBrowserJourney,
   type WorkbenchBrowserDeps,
   type WorkbenchBrowserJourney,
+  withWorkbenchPage,
 } from "./workbench-browser.ts"
 
 const PROMPT = "What are common agent architectures?"
@@ -258,6 +260,36 @@ describe("runWorkbenchBrowserJourney", () => {
     await expect(runWorkbenchBrowserJourney(baseOptions, deps)).rejects.toThrow(
       /thread rail did not list the prompt[\s\S]*Hydration failed/,
     )
+  })
+})
+
+describe("withWorkbenchPage", () => {
+  it("resolves a screenshotPath function at failure time, not at call time", async () => {
+    // Only `chromium` is needed: the seam never reads `deps.journey`.
+    const { chromium, page } = fakeDeps()
+    let target = "/tmp/before-the-body-ran.png"
+    await expect(
+      withWorkbenchPage({ screenshotPath: () => target }, { chromium }, async () => {
+        target = "/tmp/named-for-this-journey.png"
+        throw new Error("the body blew up")
+      }),
+    ).rejects.toThrow(/the body blew up/)
+    expect(page.screenshot).toHaveBeenCalledWith({
+      path: "/tmp/named-for-this-journey.png",
+      fullPage: true,
+    })
+  })
+
+  it("fails a body that returned normally while a console error was collected", async () => {
+    const { deps, page } = fakeDeps({ consoleErrors: ["Hydration failed"] })
+    await expect(
+      withWorkbenchPage({ screenshotPath: "/tmp/backstop.png" }, deps, async (bodyPage) => {
+        // The fake emits its console errors from `openReadyWorkbench`.
+        await deps.journey?.openReadyWorkbench(bodyPage, baseOptions.webUrl)
+        return "the body did not check"
+      }),
+    ).rejects.toThrow(COLLECTED_ERRORS_BACKSTOP_MESSAGE)
+    expect(page.screenshot).toHaveBeenCalledWith({ path: "/tmp/backstop.png", fullPage: true })
   })
 })
 
