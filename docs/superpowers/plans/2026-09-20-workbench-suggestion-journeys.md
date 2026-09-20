@@ -14,6 +14,7 @@
 
 **Facts the code depends on (verified 2026-09-20):**
 - Suggestion buttons: `<button>` whose accessible name is `title` + `message` (`EmptyState.tsx:43-53`). Titles: `Research a topic`, `Trigger a permission prompt`, `Teach it a preference`.
+- **Card `<details>` state:** the plan card is `open={hasActiveTodo}` (our fixture leaves one todo `in_progress`, so it is expanded); the subagent card is `open={content.status === "running"}`, so a *completed* subagent renders COLLAPSED and its `Subagent tools` list is hidden until the `<summary>` is clicked. Card summaries include the `▸` marker in `textContent`, so header assertions must not use `{ exact: true }`.
 - Safe journey = 10 model turns (root 7 incl. one `writeTodos` with statuses completed/in_progress/pending/pending; researcher 3). Plan card summary text: `Plan · 1/4 complete`. Subagent card summary: `researcher · completed · 2 tools`; tools list `aria-label="Subagent tools"`. Root reply: `I wrote a short report covering ReAct and plan-and-execute architectures. [corpus/agent-architectures.md]`.
 - Gated journey = 2 turns; the gate is `role="alert"` with buttons `Allow once` / `Allow always` / `Deny` (`PermissionPrompt.tsx:269-271`); `FETCH_COMMAND = "node scripts/fetch-source.mjs quantum computing"`; `GATED_REPLY = "Fetched external context after approval."` — both constants already exist in the activation test.
 - Memory panel: `aria-label="Memory candidates"`; row shows `candidate.content` then `candidate.namespace`; Approve button `aria-label` is `Approve: ${shortLabel(content)}` with `LABEL_LIMIT = 60` (our content is 36 chars, so it is the full content). The panel refetches after a decision. `remember`'s schema: `data: { subject, predicate, value }` plus `content`.
@@ -244,9 +245,20 @@ async function researchJourney(page: Page, o: SuggestionJourneyOptions, j: NonNu
   await startSuggestion(page, "Research a topic")
   await j.waitForWorkbenchRunCompletion(page)
   const main = page.getByRole("main")
+  // Substring matches, never { exact: true }: each card summary starts with the
+  // `▸` marker, which is a real aria-hidden element and so part of textContent.
+  // The plan card stays expanded (open={hasActiveTodo}; the fixture leaves one
+  // todo in_progress), so its checklist needs no click.
   await main.getByText("Plan · 1/4 complete").last().waitFor(VISIBLE)
-  await main.getByText(/researcher · completed/).last().waitFor(VISIBLE)
-  const tools = main.getByLabel("Subagent tools").last()
+  const subagentCard = main.locator("details").filter({ hasText: "researcher · completed" }).last()
+  await subagentCard.locator("summary").waitFor(VISIBLE)
+  await subagentCard.getByText(/researcher · completed · 2 tools/).waitFor(VISIBLE)
+  // The subagent card collapses the moment its subagent finishes
+  // (open={content.status === "running"}), so the tools list is in the DOM but
+  // hidden. Expanding it is the only way to see the list — and is itself a real
+  // user action worth gating.
+  await subagentCard.locator("summary").click()
+  const tools = subagentCard.getByLabel("Subagent tools")
   await tools.getByText("searchCorpus", { exact: true }).waitFor(VISIBLE)
   await tools.getByText("readDoc", { exact: true }).waitFor(VISIBLE)
   await main.getByText("writeFile", { exact: true }).last().waitFor(VISIBLE)

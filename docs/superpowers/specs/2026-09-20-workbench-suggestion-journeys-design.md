@@ -66,8 +66,13 @@ thrown error names the journey.
 1. Click `New conversation`; click the suggestion button `/^Research a topic/`.
 2. Wait for completion (`waitForWorkbenchRunCompletion`).
 3. Assert visible in `main`: a `Plan` card whose summary contains
-   `1/4 complete`; a subagent card whose summary contains `researcher` and
-   `completed`, with `searchCorpus` and `readDoc` under `Subagent tools`; a
+   `1/4 complete` (that card stays expanded — `open={hasActiveTodo}` and the
+   fixture leaves one todo `in_progress`); a subagent card whose summary
+   contains `researcher · completed · 2 tools`. **The subagent card collapses
+   when its subagent finishes** (`open={content.status === "running"}`), so its
+   tools list is in the DOM but not visible: click the card's `<summary>` to
+   expand it — a real user action, and the only way to see the list — then
+   assert `searchCorpus` and `readDoc` under `Subagent tools`. Then a
    `writeFile` tool card; and the root reply
    `I wrote a short report covering ReAct and plan-and-execute architectures.
    [corpus/agent-architectures.md]`.
@@ -136,6 +141,10 @@ threads (W7 proves restore once); visual assertions; the Reject decision.
 
 - **Suggestion-button names include the message**, so a copy change to a
   suggestion title breaks the locator; the regex anchors on the title only.
+- **Card summaries carry the `▸` marker in their `textContent`** (it is a real
+  `aria-hidden` element, not generated content — the trap recorded when the
+  ladder gaps were closed), so header assertions must be substring or regex
+  matches, never `{ exact: true }`.
 - **`Allow once` timing**: the card appears mid-stream; the wait is on the
   alert role, not on a fixed delay.
 - **Journal deltas are exact** (10/2/2). A StrictMode double-send or a
