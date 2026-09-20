@@ -43,7 +43,8 @@
     "packages/devkit/package.json",
     "packages/devkit/vitest.config.ts",
     "packages/devkit/tsconfig.json",
-    "packages/devkit/tsconfig.test.json"
+    "packages/devkit/tsconfig.test.json",
+    "packages/config-typescript"
   ],
   "resources": {
     "memoryMb": 2048,

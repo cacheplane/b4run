@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -8,6 +9,8 @@ import {
   imageTag,
   loadTarget,
   loadTargetIds,
+  repositoryRoot,
+  targetsDir as shippedTargetsDir,
   TargetSchema,
 } from "../src/targets/catalog.ts"
 
@@ -83,7 +86,7 @@ describe("target catalog", () => {
     const target = loadTarget("t", { targetsDir: targetsDir(pin), repositoryRoot: root })
     expect(target.pin).toBe(pin)
     expect(target.directory.endsWith("/t")).toBe(true)
-    expect(imageTag(target)).toBe(`b4-factory-t:${pin.slice(0, 12)}`)
+    expect(imageTag(target)).toBe(`b4-factory-t:${pin.slice(0, 12)}-${"c".repeat(12)}`)
     expect(environmentIdentity(target)).toMatch(/^[a-f0-9]{64}$/)
   })
 
@@ -124,5 +127,61 @@ describe("target catalog", () => {
     expect(
       TargetSchema.safeParse(manifest("1".repeat(40), { capture: { include: ["../a"] } })).success,
     ).toBe(false)
+  })
+
+  it("refuses a path without one canonical spelling, and a snapshot ignore entry without a trailing slash", () => {
+    const pin = "1".repeat(40)
+    for (const bad of ["a/./b", "a//b", "src/", "."]) {
+      expect(TargetSchema.safeParse(manifest(pin, { capture: { include: [bad] } })).success).toBe(
+        false,
+      )
+    }
+    expect(TargetSchema.safeParse(manifest(pin, { snapshotIgnore: ["dist"] })).success).toBe(false)
+    expect(TargetSchema.safeParse(manifest(pin, { snapshotIgnore: ["dist/"] })).success).toBe(true)
+  })
+
+  it("refuses an unknown top-level key", () => {
+    const pin = "1".repeat(40)
+    expect(TargetSchema.safeParse({ ...manifest(pin), extra: "nope" }).success).toBe(false)
+  })
+
+  it("resolves FACTORY_REPO_ROOT when set, and a real repository root otherwise", () => {
+    const prior = process.env.FACTORY_REPO_ROOT
+    try {
+      process.env.FACTORY_REPO_ROOT = "/some/configured/root"
+      expect(repositoryRoot()).toBe("/some/configured/root")
+
+      delete process.env.FACTORY_REPO_ROOT
+      const root = repositoryRoot()
+      expect(existsSync(join(root, ".git"))).toBe(true)
+    } finally {
+      if (prior === undefined) delete process.env.FACTORY_REPO_ROOT
+      else process.env.FACTORY_REPO_ROOT = prior
+    }
+  })
+
+  describe("shipped manifests", () => {
+    for (const id of loadTargetIds()) {
+      it(`parses ${id} and its pin exists in this repository`, () => {
+        const directory = join(shippedTargetsDir, id)
+        const parsed = TargetSchema.parse(
+          JSON.parse(readFileSync(join(directory, "target.json"), "utf8")),
+        )
+        expect(parsed.id).toBe(id)
+
+        const root = repositoryRoot()
+        expect(() =>
+          execFileSync("git", ["-C", root, "cat-file", "-e", `${parsed.pin}^{commit}`], {
+            stdio: "ignore",
+          }),
+        ).not.toThrow()
+
+        if (parsed.image) {
+          const dockerfile = readFileSync(join(directory, "Dockerfile"))
+          const sha256 = createHash("sha256").update(dockerfile).digest("hex")
+          expect(parsed.image.dockerfileSha256).toBe(sha256)
+        }
+      })
+    }
   })
 })
