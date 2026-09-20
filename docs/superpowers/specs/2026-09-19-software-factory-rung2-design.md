@@ -63,7 +63,7 @@ at boot, are validated with zod, and are digested into the bundle.
 | `id` | The target id; must equal the directory name. |
 | `pin` | A full 40-hex commit SHA in the repository the factory runs inside. The loader refuses anything else and refuses a pin the local object store does not contain. |
 | `root` | The repository directory that becomes the workspace root, `.` for the repository itself. `git archive <pin>:<root>` produces an archive rooted there, so task paths are root-relative and a target whose root is a subdirectory keeps short paths. `cli-flags` uses `examples/software-factory/server/fixtures/cli-flags/project`; devkit uses `.`. |
-| `capture` | `{ include: string[] }`, paths relative to `root`, passed to `git archive` and then to the workspace capture. For devkit: `package.json`, `pnpm-workspace.yaml`, `.npmrc`, `packages/devkit`, `packages/config-typescript`. The lockfile is not captured: the image already holds the install, and nothing at run time reads it. There is no exclude list: an archive of a commit contains only tracked files, so `dist`, `node_modules` and `.turbo` are absent by construction. |
+| `capture` | `{ include: string[] }`, paths relative to `root`, the pathspec for `git archive`. It is the capture's definition and enters the policy digest as such. The framework's workspace capture requires an exact flat file inventory, so the workspace definition derives that list by walking the extracted archive rather than passing this field through. For devkit: `package.json`, `pnpm-workspace.yaml`, `.npmrc`, `packages/devkit`, `packages/config-typescript`. The lockfile is not captured: the image already holds the install, and nothing at run time reads it. There is no exclude list: an archive of a commit contains only tracked files, so `dist`, `node_modules` and `.turbo` are absent by construction. |
 | `snapshotIgnore` | Path prefixes, root-relative, that a suite may legitimately write under: for devkit `packages/devkit/dist/`. The verifier's before-and-after tamper comparison skips them; everything else that changes during a suite is still tampering. Inspection can only exclude root directories, which is why this is a verifier-side filter. |
 | `image` | Written by the prepare script: `{ localId, platform, baseManifestDigest, dockerfileSha256, lockfileSha256, pnpmVersion }`. `localId` is the Docker image id and is named as such: it is the hash of the image's config JSON, host-specific and not a registry digest. The environment identity every bundle binds is the sha256 of this whole object, so a second host can verify that the same inputs were used even though it cannot pull the image. A missing `image` is a load error: a target is not usable until it has been prepared. Pushing to a registry and binding the manifest digest instead is the rung 3 upgrade. |
 | `environmentLinks` | Where the image's dependency tree mounts into the workspace: one root link, `node_modules` to `/opt/targets/<id>/node_modules`. The image installs with pnpm's hoisted linker so every dependency, including workspace siblings, resolves from that one tree. Inspection validates root symlinks only and refuses nested ones, which rules out pnpm's default per-package `node_modules` links. |
@@ -166,9 +166,13 @@ their digests agree. There is no cache: the directory is rebuilt on every
 capture.
 
 `captureBaseline` reads that directory. The builder's workspace definition
-points its `source.directory` at that directory with the target's include and
-exclude lists, so both containers see the same defective bytes and the
-baseline digest is over the archive, never over the host's working tree.
+points its `source.directory` at that directory, so both containers see the
+same defective bytes and the baseline digest is over the archive, never over
+the host's working tree. The controller's and the verifier's captures take a
+per-call `instance` suffix and are removed once consumed, because two work
+orders on one task may verify concurrently and a capture rebuilt under an
+in-flight walk fails the framework's change detection; the builder's copy is
+captured once per process at config load.
 
 Why an archive and not the checkout: the factory runs inside the repository it
 targets. A baseline read from the working tree would depend on whatever the

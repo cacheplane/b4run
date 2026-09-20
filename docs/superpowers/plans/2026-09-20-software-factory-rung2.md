@@ -1898,6 +1898,8 @@ export function createDockerVerifier(
       const target = task.target
       const deadlineMs = options.deadlineMs ?? target.resources.verifierDeadlineMs
       const stateRoot = join(appRoot, ".factory", "verifiers", randomUUID())
+      // Per-call capture: two work orders on one task may verify concurrently.
+      const workspace = targetWorkspace(task, "verifier", { instance: randomUUID() })
       const provider = dockerSandbox({ scope: "software-factory-verifier", image: imageTag(target) })
       const identity = environmentIdentity(target)
       const base = () => ({
@@ -1921,7 +1923,7 @@ export function createDockerVerifier(
             appRoot,
             stateRoot,
             provider,
-            workspace: targetWorkspace(task, "verifier"),
+            workspace,
             policy: targetSandboxPolicy(target),
             signal: bounded,
           },
@@ -1987,6 +1989,7 @@ export function createDockerVerifier(
         }
       } finally {
         await rm(stateRoot, { recursive: true, force: true })
+        await rm(join(appRoot, workspace.source.directory), { recursive: true, force: true })
       }
 
       // A build that fails is a fact about the candidate, graded as a failed visible check.
