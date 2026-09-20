@@ -3,7 +3,14 @@ import { createHash } from "node:crypto"
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { imageTag, repositoryRoot, TargetSchema, targetsDir } from "../src/targets/catalog.js"
+import {
+  appRoot,
+  covers,
+  imageTag,
+  repositoryRoot,
+  TargetSchema,
+  targetsDir,
+} from "../src/targets/catalog.js"
 
 /**
  * Build a target's image at its pin and record the inputs that produced it.
@@ -19,6 +26,12 @@ const directory = join(targetsDir, id)
 const manifestPath = join(directory, "target.json")
 const manifest = TargetSchema.parse(JSON.parse(readFileSync(manifestPath, "utf8")))
 const repo = repositoryRoot()
+// The lockfile hash only means something if the lockfile was in the build context: a hash
+// over a file the build never saw records an input that did not produce the image.
+if (!covers(manifest.imageContext, manifest.lockfile))
+  throw new Error(
+    `Target "${id}" records lockfile "${manifest.lockfile}", which its imageContext does not cover`,
+  )
 /** Captured stdout, trimmed: for values a trailing newline would corrupt, use `bytes`. */
 const sh = (cmd: string, args: string[], opts: { cwd?: string } = {}) =>
   execFileSync(cmd, args, {
@@ -31,7 +44,14 @@ const bytes = (cmd: string, args: string[]) =>
   execFileSync(cmd, args, { stdio: ["ignore", "pipe", "inherit"], maxBuffer: 256 * 1024 * 1024 })
 const sha = (content: Buffer) => createHash("sha256").update(content).digest("hex")
 
-const platform = `linux/${process.arch === "arm64" ? "arm64" : "amd64"}`
+const platform =
+  process.arch === "arm64"
+    ? "linux/arm64"
+    : process.arch === "x64"
+      ? "linux/amd64"
+      : (() => {
+          throw new Error(`Unsupported host architecture ${process.arch}`)
+        })()
 // The pull refreshes the base tag before its digest is read. `FACTORY_SKIP_BASE_PULL=1` is for
 // a host whose registry path is unreachable; the recorded digest is then whatever
 // `node:24-slim` that host already holds, so it is an explicit opt-in and never a fallback.
@@ -124,7 +144,15 @@ try {
     )
 
   const image = { ...provisional, localId }
-  writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, image }, null, 2)}\n`)
+  // `image` is deleted before the spread so it is always written last, whatever order the
+  // manifest on disk happened to be in.
+  const { image: _previousImage, ...manifestWithoutImage } = manifest
+  writeFileSync(manifestPath, `${JSON.stringify({ ...manifestWithoutImage, image }, null, 2)}\n`)
+  // The manifest is a checked-in source file, so the script leaves the tree lint-clean.
+  execFileSync("npx", ["biome", "format", "--write", manifestPath], {
+    stdio: "inherit",
+    cwd: appRoot,
+  })
   console.log(JSON.stringify({ tag, ...image }, null, 2))
 } finally {
   rmSync(context, { recursive: true, force: true })

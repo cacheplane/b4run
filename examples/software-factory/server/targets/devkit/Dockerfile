@@ -4,6 +4,8 @@ FROM --platform=${PLATFORM} ${BASE_IMAGE}
 ARG PNPM_VERSION
 # git for the workspace baseline; pnpm via npm, not corepack, because corepack caches the
 # binary in the enabling user's home and the container runs as `node` with no network.
+# git is resolved by apt at build time and is not part of the recorded image inputs; an
+# accepted gap, recorded in the rung 2 spec's risks.
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/* \
  && npm install -g pnpm@${PNPM_VERSION}
 WORKDIR /opt/targets/devkit

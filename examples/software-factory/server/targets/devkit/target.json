@@ -12,14 +12,6 @@
     ]
   },
   "snapshotIgnore": ["packages/devkit/dist/"],
-  "image": {
-    "localId": "sha256:e132a2b1f79acb61e92d55f29f657ebd0ecc577ba8a955faa21779ec54d0f364",
-    "platform": "linux/arm64",
-    "baseManifestDigest": "sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553",
-    "dockerfileSha256": "5f305b3d31741f4ddc8b2244c37f930c22c647225f9954e3cdb40fb8966d7ac3",
-    "lockfileSha256": "a9acc6e4cd564e01e1ad4658e48b003bd223c96c0a54f6f9e39ce47f3f6e18d9",
-    "pnpmVersion": "10.33.0"
-  },
   "imageContext": [
     "package.json",
     "pnpm-workspace.yaml",
@@ -66,5 +58,13 @@
     "cpus": 2,
     "commandTimeoutMs": 60000,
     "verifierDeadlineMs": 120000
+  },
+  "image": {
+    "localId": "sha256:e132a2b1f79acb61e92d55f29f657ebd0ecc577ba8a955faa21779ec54d0f364",
+    "platform": "linux/arm64",
+    "baseManifestDigest": "sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553",
+    "dockerfileSha256": "981424fcce210c7d67002672d00e80ed2d80337cb68f6dc41fd3e9b73e0dc006",
+    "lockfileSha256": "a9acc6e4cd564e01e1ad4658e48b003bd223c96c0a54f6f9e39ce47f3f6e18d9",
+    "pnpmVersion": "10.33.0"
   }
 }
