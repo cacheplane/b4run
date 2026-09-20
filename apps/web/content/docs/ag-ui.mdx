@@ -24,6 +24,70 @@ The URL segment is the URL-encoded `<routeId>#<kind>` assistant id. For example,
 `RunAgentInput`. B4.run creates an unknown thread, invokes the same route runtime
 used by Agent Protocol, and streams translated events back as SSE.
 
+## Envelope validation
+
+The runtime validates the run envelope itself, so no app has to re-check
+B4.run's own wire format. A body that AG-UI's schema cannot parse is a `400`;
+a body that parses but is not one B4.run will act on is a `422` carrying
+[`B4_E5401`](/docs/errors) and a machine-readable `error.details.code`:
+
+| `details.code` | When |
+|---|---|
+| `invalid_envelope` | the body is not a JSON object |
+| `invalid_thread_id` | `threadId` is missing, not a string, blank, or longer than 256 characters |
+| `invalid_run_id` | `runId` is missing, not a string, blank, or longer than 256 characters |
+| `invalid_state` | `state` is present and is not a JSON object |
+| `client_tools_not_allowed` | `tools` is not an array, or is non-empty on a route that did not opt in |
+| `forwarded_props_not_allowed` | `forwardedProps` is not an object, or is non-empty on a route that did not opt in |
+
+### Client-supplied `tools` and `forwardedProps` are closed by default
+
+These two fields are not the app's inputs — they are the caller's attempt to
+add to what the *route* decided. A client that sends `tools: [...]` on a route
+whose tool set the server chose is asking for authority it was not given, and
+`forwardedProps` reaches route code the same way.
+
+B4.run rejects them rather than ignoring them. Silently dropping a field is
+indistinguishable, from outside, from honoring it: a client could not tell
+whether it had just widened the run. A route that genuinely wants them says so
+in `b4.config.ts`:
+
+```ts
+server: { agui: { clientTools: ["/chat"], clientForwardedProps: ["/chat"] } }
+```
+
+See [`server.agui`](/docs/configuration#serveragui) for the full key. An empty
+`tools: []` or `forwardedProps: {}` — what an AG-UI client sends when it has
+nothing to add — is always accepted, so an ordinary client is unaffected.
+
+<Callout type="warn" title="Behavior change">
+  Before this, a non-empty `tools` or `forwardedProps` was accepted and passed
+  through to the route as `raw` — and, for `tools`, never acted on: the adapter
+  has never interpreted client tools. An app that read either from `raw`, and
+  any client that sends frontend tools (a CopilotKit frontend action, for
+  instance), now gets a `422` where it used to get a silently narrower run.
+  Name the route in `server.agui` to keep accepting them.
+</Callout>
+
+### Where the check runs
+
+Before route middleware and before the thread-access policy. The envelope
+check performs no I/O, takes no resume claim, reads no thread row and
+discloses nothing about one — it judges only what the caller said about
+itself. Running it first means an app's middleware is never handed an envelope
+the runtime has already decided not to honor, and a thread-access policy is
+never asked to authorize — or create a row for — a request that is about to be
+rejected. Because it never looks at a thread, it cannot leak whether one
+exists.
+
+`resume` is deliberately **not** decided here. Whether a turn genuinely resumes
+is not a property of the envelope: it depends on what is parked in the
+checkpointer, which B4.run only reads *after* the thread-access policy has
+authorized this caller to touch that thread. A `resume` that matches no pending
+interrupt is still rejected — as a `409` with `stale_interrupt`, and a turn
+that ignores a pending one as `409` `resume_required` — just at the point where
+the answer is actually known.
+
 ## Consuming it from a web UI
 
 `examples/chat/web` is the canonical reference client. Its CopilotKit runtime
