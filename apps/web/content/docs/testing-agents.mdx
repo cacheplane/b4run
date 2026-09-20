@@ -163,7 +163,7 @@ expectNoToolErrors(run)
 
 Asserts that no tool returned an error result. HITL permission interrupts are not counted as errors.
 
-To inspect tool results manually, use `run.toolResults` — a `ReadonlyArray<ObservedToolResult>` derived from the final conversation messages by `deriveToolResults` (also exported). Each entry has the shape `{ name: string, status?: "error" | "success", content: unknown, isError: boolean }`. This is useful for asserting on specific error messages or content when `expectNoToolErrors` is too broad.
+To inspect tool results manually, use `run.toolResults` — a `ReadonlyArray<ObservedToolResult>` collected from the run's streamed `tool_result` events (a tool that threw streams its `status: "error"` ToolMessage, so `isError` never depends on the final message list); a stream that carried no tool results falls back to the final conversation messages via `deriveToolResults` (also exported). Each entry has the shape `{ name: string, status?: "error" | "success", content: unknown, isError: boolean }`. This is useful for asserting on specific error messages or content when `expectNoToolErrors` is too broad.
 
 ```ts
 import { deriveToolResults } from "@b4run/testing"
