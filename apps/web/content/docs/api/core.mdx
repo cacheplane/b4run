@@ -87,6 +87,9 @@ Importing `/node` registers the disk-backed `b4.config.ts` loader. The root rema
 | `createWorkspaceFs` | Create a workspace filesystem facade. |
 | `B4ConfigLoader` | Define the configuration loader seam. |
 | `B4AppError` | Describe an app-root or route-entry failure that carries a `B4_Exxxx` code. |
+| `UnresolvedToolInputTypeError` | Thrown by tool-schema extraction when a tool's declared input type resolves to `any`/`unknown` or depends on an import that does not resolve; the message names the tool file, the type, and the tsconfig used. |
+| `UnresolvedToolInputTypeDetails` | The structured `details` on `UnresolvedToolInputTypeError`: tool name, file, type text, what it resolved to, unresolved imports, and the tsconfig path. |
+| `UnresolvedImport` | One unresolved module specifier or member from the compiler, with its diagnostic text. |
 | `__clearB4ConfigCacheForTests` | Clear the config memo in tests. |
 | `loadB4Config` | Load or read a memoized app configuration. |
 | `registerConfigLoader` | Register a runtime-specific config loader. |
@@ -154,9 +157,9 @@ Importing `/node` registers the disk-backed `b4.config.ts` loader. The root rema
 | `assertB4RoutesDir` | Validate the routes directory. |
 | `findB4App` | Locate a B4.run application root. |
 | `nodeMarkerFs` | Provide Node filesystem operations to capability markers. |
-| `ExtractToolSchemasOptions` | Configure compiler-backed schema extraction. |
-| `extractToolSchemasForRoute` | Extract tool schemas for a route. |
-| `ExtractToolTypesOptions` | Configure compiler-backed type extraction. |
+| `ExtractToolSchemasOptions` | Configure compiler-backed schema extraction. Optional `appRoot` (where the nearest `tsconfig.json` search starts; defaults to `routeDir`) and `tsconfig` (an explicit config to compile with). |
+| `extractToolSchemasForRoute` | Extract tool schemas for a route. Throws `UnresolvedToolInputTypeError` when a declared input type resolves to `any`/`unknown`. |
+| `ExtractToolTypesOptions` | Configure compiler-backed type extraction; accepts the same `appRoot` and `tsconfig` options. |
 | `extractToolTypesForRoute` | Extract tool types for a route. |
 
 ### `@b4run/core/internal/compiler`

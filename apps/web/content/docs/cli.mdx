@@ -95,6 +95,8 @@ b4 typegen
 
 The success log reports route, tool-schema, and stateful-route counts. The `tools.json` artifacts are consumed by `b4 build` to emit LangGraph entries.
 
+Tool input types are compiled with the app's own `tsconfig.json` (nearest to the app root, honoring `extends`, `paths`, and `baseUrl`). The command fails, naming the tool file and the unresolved type, when a declared input type resolves to `any` — for example an import through a path alias the tsconfig does not declare — instead of writing an empty schema.
+
 <Callout type="info" title="Run automatically by b4 dev">
   `b4 dev` runs `typegen` before every child (re)start, so saves that touch tool signatures or state schemas are picked up on the automatic restart. You only need to invoke it manually after a fresh clone, before CI, or after a tool signature change while the dev server isn't running.
 </Callout>

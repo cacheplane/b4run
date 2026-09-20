@@ -212,6 +212,8 @@ Inside an `agent` route, you do not call tools yourself. `b4 build` wires the ro
   <Step title="Use a typed, object-shaped input">
     B4.run's compiler pass extracts serializable input shapes written inline, declared as local aliases or interfaces, or imported from another module. Keep the root input object-shaped so B4.run can emit the model-facing tool schema.
 
+    Imports resolve with your app's own `tsconfig.json` (the nearest one above the app root, including its `extends` chain, `paths`, and `baseUrl`), so an input type that lives behind a path alias such as `@acme/contracts` derives the same schema as a relative import. If a declared input type cannot be resolved — the alias is missing from `tsconfig.json`, or the module has no such export — `b4 typegen` fails and names the tool file and the type, rather than silently emitting a schema with no properties. A tool that genuinely takes no input can omit the parameter or declare it as `{}`.
+
     ```ts
     export default async (input: { readonly tenant: string; readonly limit?: number }) => { ... }
     ```

@@ -1,7 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { dirname, isAbsolute, join } from "node:path"
 import type { RouteToolTypes } from "@b4run/core"
-import { renderB4Types, renderScenarioTypes, SCENARIO_TYPES_FILE } from "@b4run/core"
+import {
+  renderB4Types,
+  renderScenarioTypes,
+  SCENARIO_TYPES_FILE,
+  UnresolvedToolInputTypeError,
+} from "@b4run/core"
 import { analyzeToolSource } from "@b4run/core/internal/compiler"
 import { discoverRoutes, extractToolTypesForRoute, findB4App } from "@b4run/core/node"
 
@@ -91,6 +96,7 @@ async function runTypegen(appRoot?: string): Promise<void> {
     const toolTypesPerRoute: RouteToolTypes[] = []
     for (const route of manifest.routes) {
       const tools = await extractToolTypesForRoute({
+        appRoot: app.appRoot,
         routeDir: route.routeDir,
         sharedToolsDir,
         typeReferenceFileName: join(app.b4Dir, SCENARIO_TYPES_FILE),
@@ -108,13 +114,25 @@ async function runTypegen(appRoot?: string): Promise<void> {
       writeFile(outputPath, content, "utf-8"),
       writeFile(scenarioOutputPath, scenarioContent, "utf-8"),
     ])
-  } catch {
-    // Silently catch errors — typegen during dev should not crash the server
+  } catch (error) {
+    // Typegen during dev should not crash the server, but an input type that
+    // failed to resolve must not pass silently either: the model would be told
+    // the tool takes no arguments.
+    if (error instanceof UnresolvedToolInputTypeError) {
+      console.error(`[b4-tool-schema] ${error.message}`)
+    }
   }
 }
 
 export function transformToolSource(source: string, fileName: string): string | null {
-  const analysis = analyzeToolSource(source, fileName)
+  // Vite hands the transform an absolute module id; compile it with the app's
+  // own tsconfig so aliased input types resolve. Bare names (tests, ad-hoc
+  // callers) keep the built-in defaults.
+  const analysis = analyzeToolSource(
+    source,
+    fileName,
+    isAbsolute(fileName) ? { searchDir: dirname(fileName) } : {},
+  )
   if (!analysis) {
     return null
   }
