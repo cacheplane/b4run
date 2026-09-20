@@ -1,5 +1,37 @@
 # @dawn-ai/langchain
 
+## 1.0.0
+
+### Patch Changes
+
+- 7c9627f: Apply a client-supplied `hashbrown.responseSchema` on the AG-UI run body to the route's root model, or reject the run. `POST /agui/:routeId` used to accept the field and read nothing from it, so a Hashbrown client that expected the final message to match its UI schema got an unconstrained model and found out only when a reply failed to parse. On an `agent` route the schema is now bound as the provider's native schema-constrained output alongside the route's tools — OpenAI `response_format` (`json_schema`, `strict: true`) and Anthropic `output_config.format` — so tool-calling turns are untouched and only the final message is constrained. A malformed schema, a non-agent route, or a provider with no such mode is refused with `422` and the new `B4_E5402` (`invalid_response_schema` / `response_schema_not_supported`) before any run side effect. Runs without the field are unchanged. `@b4run/langchain` gains `JsonSchemaResponseFormat`, `createChatModel({ responseFormat })`, `streamAgent({ responseFormat })` and the `JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS` list.
+- 16ef75f: Emit a `tool_result` when a tool throws, so AG-UI clients see `TOOL_CALL_RESULT`.
+
+  `@b4run/langchain`'s agent adapter mapped `on_tool_end` to a `tool_result`
+  chunk and emitted nothing for a non-interrupt `on_tool_error`, so a client saw
+  `TOOL_CALL_START`, `TOOL_CALL_ARGS` and `TOOL_CALL_END` for a failing tool and
+  never a `TOOL_CALL_RESULT`; the error ToolMessage LangGraph hands the model
+  appeared only inside `RUN_FINISHED.result.messages`. The adapter now holds a
+  thrown root execution and resolves it from the `status: "error"` ToolMessage
+  the tool node appends for the model, emitting a `tool_result` keyed by the same
+  tool-call id whose `output` is that ToolMessage — serialized exactly like a
+  successful result. `interrupt()` throws are unaffected.
+
+  `@b4run/testing`'s `collectRunResult` now builds `run.toolResults` from the
+  streamed `tool_result` chunks (reading a ToolMessage, a Command's ToolMessage,
+  or a plain output), so a thrown tool is marked `isError` without reading the
+  final messages; a stream that carried no tool results still falls back to
+  `deriveToolResults` over the final messages.
+
+- Updated dependencies [7c9627f]
+- Updated dependencies [516c038]
+- Updated dependencies [6a59e00]
+- Updated dependencies [7410154]
+- Updated dependencies [9927409]
+  - @b4run/sdk@1.0.0
+  - @b4run/workspace@1.0.0
+  - @b4run/core@1.0.0
+
 ## 0.8.36
 
 ### Patch Changes
