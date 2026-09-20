@@ -1,8 +1,35 @@
+import { readdirSync } from "node:fs"
 import { dockerSandbox } from "@b4run/sandbox"
 import type { SandboxPolicy, SandboxProvider, WorkspaceDefinition } from "@b4run/workspace"
 import type { WorkspaceReadOptions } from "../worker/workspace-reader.js"
 import { type CaptureRole, type CaptureTargetOptions, captureTarget } from "./archive.js"
 import { imageTag, type Target, type Task } from "./catalog.js"
+
+/**
+ * Every regular file under `absolute`, relative to it, forward-slash, sorted.
+ *
+ * The framework's own source capture requires `source.include` to name every file the
+ * capture will contain, exactly: it walks the whole directory and rejects anything the list
+ * does not name one-for-one. The target's own `capture.include` (used for `git archive` and
+ * for the environment identity) is not that list — a directory entry like `src` is shorthand
+ * there for everything under it — so the flat inventory is derived here from what the archive
+ * actually extracted, rather than restating the target's directory-shaped list.
+ */
+function capturedFiles(absolute: string): string[] {
+  const found: string[] = []
+  const stack: string[] = [""]
+  while (stack.length > 0) {
+    // biome-ignore lint/style/noNonNullAssertion: stack.length > 0 guards this pop
+    const relative = stack.pop()!
+    const directory = relative ? `${absolute}/${relative}` : absolute
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const child = relative ? `${relative}/${entry.name}` : entry.name
+      if (entry.isDirectory()) stack.push(child)
+      else found.push(child)
+    }
+  }
+  return found.sort()
+}
 
 /**
  * Storage identity for the builder's sandboxes. Both the builder's own configuration and the
@@ -45,7 +72,7 @@ export function targetWorkspace(
   return {
     source: {
       directory: captured.directory,
-      include: [...task.target.capture.include],
+      include: capturedFiles(captured.absolute),
       files: [
         { path: "TASK.md", text: task.specText },
         // Build output the target declares as `snapshotIgnore` is also ignored in the

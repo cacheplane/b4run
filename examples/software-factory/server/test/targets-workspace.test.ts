@@ -94,7 +94,9 @@ describe("targetWorkspace", () => {
     expect(
       existsSync(join(appRoot, ".factory", "captures", "controller", "k", "src", "a.ts")),
     ).toBe(true)
-    expect(definition.source.include).toEqual(["src", "package.json"])
+    // Flat, sorted, and derived from what the archive actually extracted — not restating the
+    // target's own directory-shaped `capture.include`.
+    expect(definition.source.include).toEqual(["package.json", "src/a.ts"])
     expect(definition.source.files).toEqual([
       { path: "TASK.md", text: "# spec\n" },
       { path: ".gitignore", text: "node_modules/\npackages/x/dist/\n" },
