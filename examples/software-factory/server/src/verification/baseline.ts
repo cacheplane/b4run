@@ -30,8 +30,15 @@ export async function captureTargetBaseline(
 ): Promise<CapturedBaseline> {
   const task = loadTask(taskId)
   const instance = randomUUID()
-  const definition = targetWorkspace(task, "controller", { instance })
+  const instanceDirectory = join(
+    appRoot,
+    ".factory",
+    "captures",
+    "controller",
+    `${taskId}.${instance}`,
+  )
   try {
+    const definition = targetWorkspace(task, "controller", { instance })
     const captured = await captureWorkspaceDefinition(appRoot, definition, { signal })
     const decoder = new TextDecoder("utf-8", { fatal: true })
     const files = new Map<string, string>()
@@ -39,7 +46,7 @@ export async function captureTargetBaseline(
       files.set(entry.path, decoder.decode(readSourceFile(captured.source, entry.path)))
     return { digest: captured.source.digest, files }
   } finally {
-    rmSync(join(appRoot, definition.source.directory), { recursive: true, force: true })
+    rmSync(instanceDirectory, { recursive: true, force: true })
   }
 }
 

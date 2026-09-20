@@ -13,7 +13,7 @@ import {
   workspaceInspectionOptions,
 } from "../fixtures/workspace.js"
 import type { ArtifactStore } from "../storage/artifacts.js"
-import { runSuite, type SuiteResult } from "./checks-runner.js"
+import { runFixtureSuite, type SuiteResult } from "./checks-runner.js"
 import { type Verifier, type VerifyInput, worstVerdict } from "./verifier.js"
 
 /**
@@ -115,7 +115,7 @@ export function createDockerVerifier(
               })
 
             const beforeVisible = await snapshot()
-            const visible = await runSuite(handle, fixture.checks.visible, bounded)
+            const visible = await runFixtureSuite(handle, fixture.checks.visible, bounded)
             if (changed(beforeVisible, await snapshot()))
               return { tampered: "visible" as const, visible, independent: null }
 
@@ -131,7 +131,7 @@ export function createDockerVerifier(
             )
 
             const beforeIndependent = await snapshot()
-            const independent = await runSuite(handle, fixture.checks.independent, bounded)
+            const independent = await runFixtureSuite(handle, fixture.checks.independent, bounded)
             if (changed(beforeIndependent, await snapshot()))
               return { tampered: "independent" as const, visible, independent }
 
