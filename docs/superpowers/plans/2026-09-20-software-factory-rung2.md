@@ -1816,6 +1816,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
+> **Task 7 as landed (review-driven).** `runVitestSuite` names its report path and stdout marker with a per-run nonce, runs `--reporter=default` beside `--reporter=json` so the tests' output and vitest's failure rendering reach the pre-marker stream, and folds `failureMessages` into the output on a non-pass. `gradeVitestReport` validates the parsed report with zod (a parseable non-report grades inconclusive, never throws), requires `numTotalTests ≥ expected.length`, and treats an absent `numFailedTests` as inconclusive. The residual (a background writer that reads the nonce from argv) is in the spec's risks. `runFixtureSuite` is the rung 1 bridge the verifier calls until Task 8 rewrites it; `captureDirectory(taskId, role, instance?)` is exported from `archive.ts`.
+
 ### Task 8: The verifier over targets
 
 **Files:**
