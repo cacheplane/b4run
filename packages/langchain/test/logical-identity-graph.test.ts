@@ -195,6 +195,41 @@ describe("real-graph pins for logical tool identity", () => {
     expect((toolResults[0]?.data as { id?: unknown } | undefined)?.id).toBe("call_probe_1")
   })
 
+  it("streamAgent resolves a thrown tool with the error ToolMessage the model receives", async () => {
+    const boom = convertToolToLangChain({
+      name: "boom",
+      run: async () => {
+        throw new Error("kaboom")
+      },
+    })
+    const graph = createReactAgent({
+      llm: scriptedModel("call_boom_1", "boom", { q: "x" }),
+      tools: [boom],
+      checkpointer: new MemorySaver(),
+      // biome-ignore lint/suspicious/noExplicitAny: dynamically-built options
+    } as any)
+
+    const chunks = await collectAgentChunks(graph)
+    expect(chunks.filter((c) => c.type === "tool_call")).toEqual([
+      { type: "tool_call", data: { id: "call_boom_1", name: "boom", input: { q: "x" } } },
+    ])
+    const toolResults = chunks.filter((c) => c.type === "tool_result")
+    expect(toolResults).toHaveLength(1)
+    const data = toolResults[0]?.data as { id?: unknown; name?: unknown; output?: unknown }
+    expect(data.id).toBe("call_boom_1")
+    expect(data.name).toBe("boom")
+    // The output is the same ToolMessage LangGraph appends for the model, so
+    // it serializes exactly like a successful result does.
+    const output = data.output as { tool_call_id?: unknown; status?: unknown; content?: unknown }
+    expect(output.tool_call_id).toBe("call_boom_1")
+    expect(output.status).toBe("error")
+    expect(String(output.content)).toContain("kaboom")
+    expect(JSON.parse(JSON.stringify(output))).toMatchObject({
+      id: ["langchain_core", "messages", "ToolMessage"],
+      kwargs: { status: "error", tool_call_id: "call_boom_1", name: "boom" },
+    })
+  })
+
   it("streamAgent keys root tool chunks by the model's tool-call id (Command tool)", async () => {
     const writeTodos = convertToolToLangChain({
       name: "writeTodos",

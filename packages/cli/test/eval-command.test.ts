@@ -70,6 +70,20 @@ async function makeApp(evalSource: string): Promise<string> {
     ].join("\n"),
   )
 
+  await writeFile(
+    join(routeDir, "tools", "whoAmI.ts"),
+    [
+      "/** Echo the middleware context this tool was invoked with. */",
+      "export default async function whoAmI(",
+      "  input: { probe: string },",
+      "  ctx: { readonly middleware?: Readonly<Record<string, unknown>> },",
+      "): Promise<{ probe: string; middleware: Readonly<Record<string, unknown>> | null }> {",
+      "  return { probe: input.probe, middleware: ctx.middleware ?? null }",
+      "}",
+      "",
+    ].join("\n"),
+  )
+
   await mkdir(join(routeDir, "evals"), { recursive: true })
   await writeFile(join(routeDir, "evals", "filter.eval.ts"), evalSource)
 
@@ -143,7 +157,62 @@ function makeNoFixturesEvalApp(): Promise<string> {
   )
 }
 
+function makeMiddlewareContextEvalApp(): Promise<string> {
+  return makeApp(
+    [
+      'import { defineEval } from "@b4run/evals"',
+      'import { script } from "@b4run/testing"',
+      "",
+      "let calls = 0",
+      "export default defineEval({",
+      '  name: "middleware",',
+      "  middlewareContext: (run) => {",
+      "    calls += 1",
+      "    return { session: `s-${calls}`, input: run.input }",
+      "  },",
+      "  dataset: [",
+      "    {",
+      '      name: "first",',
+      '      input: "first",',
+      '      fixtures: script().user("first").callsTool("whoAmI", { probe: "first" }).replies("ok"),',
+      '      expected: { session: "s-1", input: "first" },',
+      "    },",
+      "    {",
+      '      name: "second",',
+      '      input: "second",',
+      '      fixtures: script().user("second").callsTool("whoAmI", { probe: "second" }).replies("ok"),',
+      '      expected: { session: "s-2", input: "second" },',
+      "    },",
+      "  ],",
+      "  scorers: [",
+      "    {",
+      '      name: "middleware-seen",',
+      "      score: (run, testCase) => {",
+      '        const result = run.toolResults.find((r) => r.name === "whoAmI")',
+      '        const content = typeof result?.content === "string" ? JSON.parse(result.content) : result?.content',
+      "        return JSON.stringify(content?.middleware) === JSON.stringify(testCase.expected)",
+      "      },",
+      "    },",
+      "  ],",
+      "  threshold: 1,",
+      "})",
+      "",
+    ].join("\n"),
+  )
+}
+
 describe("b4 eval (replay)", () => {
+  it("forwards the eval's middlewareContext to the harness, evaluated per case", async () => {
+    const root = await makeMiddlewareContextEvalApp()
+    const lines: string[] = []
+    await runEvalCommand(
+      undefined,
+      { cwd: root },
+      { stdout: (m) => lines.push(m), stderr: () => {} },
+    )
+    expect(lines.join("")).toContain("PASS")
+  }, 60_000)
+
   it("passes a satisfied eval (exit 0)", async () => {
     const root = await makePassingEvalApp()
     const lines: string[] = []

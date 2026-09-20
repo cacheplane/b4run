@@ -84,7 +84,7 @@ Every event frame is `event: <type>\ndata: <json>\n\n`. Parse the `event:` line 
 |---|---|---|
 | `chunk` | `string` | Streamed text fragment from the LLM. |
 | `tool_call` | `{ name: string, input: unknown }` | LLM is calling a tool. |
-| `tool_result` | `{ name: string, output: unknown }` | Tool returned a result. |
+| `tool_result` | `{ name: string, output: unknown }` | Tool returned a result. A tool that threw still emits one: `output` is the `status: "error"` ToolMessage the model receives. |
 | `plan_update` | plan object | Emitted after a [Planning](/docs/planning) `writeTodos` result updates the route's todo state. (Does not write back to `plan.md`.) |
 | `interrupt` | interrupt object | Emitted when the agent hits a HITL interrupt point. |
 | `subagent.start` | `{ name, routeId, depth, call_id }` | A subagent started. |
