@@ -70,6 +70,9 @@ async function main(argv: string[]): Promise<number> {
       (taskId) => targetInspectionOptions(loadTask(taskId)),
     ),
     captureBaseline: captureTargetBaseline,
+    // Diagnostics go to stderr, so a task the catalog could not serve (`task_unavailable`,
+    // usually an unprepared sibling target) is visible rather than a silently missing id.
+    log: (event, payload) => process.stderr.write(`${JSON.stringify({ event, ...payload })}\n`),
   })
   const needId = () => {
     if (!id) throw new Error(`${command} requires a work order id`)

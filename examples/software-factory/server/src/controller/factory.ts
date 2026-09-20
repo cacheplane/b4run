@@ -118,10 +118,14 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const commands: CommandLog = createCommandLog(registry.db)
   const evidenceStore: EvidenceStore = createEvidenceStore(registry.db)
   const artifacts: ArtifactStore = createArtifactStore(options.artifactsDir)
-  const tasks = options.tasks ?? taskPrompts()
+  const log = options.log ?? (() => {})
+  // A task the catalog cannot serve is omitted and reported, never thrown: one unprepared
+  // sibling target must not decide whether the controller boots.
+  const tasks =
+    options.tasks ??
+    taskPrompts((id, error) => log("task_unavailable", { id, error: String(error) }))
   const now = options.now ?? Date.now
   const iso = () => new Date(now()).toISOString()
-  const log = options.log ?? (() => {})
   const abort = new AbortController()
   const runs = new Map<string, Promise<void>>()
   /** One per work order in `verifying`; aborted the moment the row leaves that state. */

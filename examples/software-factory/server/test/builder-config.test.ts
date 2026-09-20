@@ -38,7 +38,9 @@ describe("the builder route", () => {
     const prompt = taskPrompt(loadTask("cli-flags"))
     // The command it is told to run is the one its permissions pre-approve, because both
     // come from the target's manifest.
-    expect(prompt).toContain("`npm test`")
+    expect(prompt).toContain("Run the tests with `npm test`.")
+    // Reproduce first: the builder is asked to see the failure before it changes anything.
+    expect(prompt).toMatch(/Reproduce the failure/)
     expect(config.permissions?.allow?.bash ?? []).toContain("npm test")
     expect(prompt).not.toMatch(/exportForReview/)
   })

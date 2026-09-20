@@ -1,4 +1,4 @@
-import { loadTask, loadTaskIds, type Task } from "./targets/catalog.js"
+import { type CatalogOptions, loadTask, loadTaskIds, type Task } from "./targets/catalog.js"
 
 /**
  * One invocation as the builder must type it: from the workspace root when the target's
@@ -24,14 +24,16 @@ export function taskPrompt(task: Task): string {
   const { commands } = task.target
   const sentences = ["Read TASK.md."]
   if (commands.cwd !== ".") sentences.push(`The package under repair is at \`${commands.cwd}\`.`)
-  const tests = `run its tests with \`${invocation(task, commands.test)}\``
+  sentences.push(
+    "Reproduce the failure with the test command below, then repair only the source files TASK.md permits you to change.",
+  )
+  const tests = `Run the tests with \`${invocation(task, commands.test)}\`.`
   sentences.push(
     commands.build.length > 0
-      ? `Build it with \`${invocation(task, commands.build)}\` and ${tests}.`
-      : `${tests.charAt(0).toUpperCase()}${tests.slice(1)}.`,
+      ? `Build it with \`${invocation(task, commands.build)}\` first. ${tests}`
+      : tests,
   )
   sentences.push(
-    "Repair only the source files TASK.md permits you to change.",
     "Do not edit any test or configuration.",
     "When the repair is complete and the tests pass, stop and say so.",
     "Use readFile, listDir, writeFile and runBash.",
@@ -40,10 +42,37 @@ export function taskPrompt(task: Task): string {
 }
 
 /**
- * Every task on disk, keyed by id: the controller's own task-id-to-prompt table, and the set
- * of task ids a work order may name. Derived from the catalog on each call rather than
- * compiled in, so a new task is a directory and a prepared image, not a code change.
+ * Every task the catalog can currently serve, keyed by id: the controller's own
+ * task-id-to-prompt table, and the set of task ids a work order may name. Derived from the
+ * catalog on each call rather than compiled in, so a new task is a directory and a prepared
+ * image, not a code change.
+ *
+ * A task that cannot be loaded — most often a sibling target nobody has prepared on this
+ * machine yet — is OMITTED and reported through `onUnavailable`, and this function never
+ * throws. One unprepared target must not decide whether the controller boots: a work order
+ * naming that task is refused as unknown, which is a fact about that task, while every other
+ * task in the catalog keeps working.
  */
-export function taskPrompts(): Readonly<Record<string, string>> {
-  return Object.fromEntries(loadTaskIds().map((id) => [id, taskPrompt(loadTask(id))]))
+export function taskPrompts(
+  onUnavailable?: (id: string, error: unknown) => void,
+  options?: CatalogOptions,
+): Readonly<Record<string, string>> {
+  let ids: string[]
+  try {
+    ids = loadTaskIds(options?.tasksDir)
+  } catch (error) {
+    // No catalog at all is reported the same way rather than thrown: the caller asked for
+    // the tasks that are available, and the answer is none.
+    onUnavailable?.("(catalog)", error)
+    return {}
+  }
+  const prompts: Record<string, string> = {}
+  for (const id of ids) {
+    try {
+      prompts[id] = taskPrompt(loadTask(id, options ?? {}))
+    } catch (error) {
+      onUnavailable?.(id, error)
+    }
+  }
+  return prompts
 }

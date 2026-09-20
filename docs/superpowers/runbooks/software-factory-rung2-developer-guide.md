@@ -179,6 +179,10 @@ returns the recorded outcome and writes nothing.
    deadline from the slowest run with at least three times headroom. Record the
    measurements in the plan or the target's README.
 
+The manifest's `commands` argv is trusted on two paths beyond the verifier: the
+builder's bash allow-list and the builder's prompt are both derived from it, so
+a command the manifest does not name is neither pre-approved nor asked for.
+
 ### Advance a pin
 
 Edit `pin`, regenerate both patches if they no longer apply (layer 1 tells
