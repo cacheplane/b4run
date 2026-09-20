@@ -2,12 +2,20 @@ import type { Browser, BrowserContext, Page } from "@playwright/test"
 import { describe, expect, it, vi } from "vitest"
 
 import {
+  MEMORY_LABEL_LIMIT,
   runWorkbenchSuggestionJourneys,
   type SuggestionJourneyDeps,
   type SuggestionJourneyOptions,
+  TEACH_CONTENT_SHAPE_MESSAGE,
 } from "./workbench-suggestions.ts"
 
-const RESEARCH_REPLY = "I wrote a short report covering ReAct and plan-and-execute architectures."
+/**
+ * The fixture's verbatim reply, CITATION INCLUDED — the journey matches it with
+ * `{ exact: true }`, so a shortened copy here would let a locator that can
+ * never match look proven.
+ */
+const RESEARCH_REPLY =
+  "I wrote a short report covering ReAct and plan-and-execute architectures. [corpus/agent-architectures.md]"
 const FETCH_COMMAND = "node scripts/fetch-source.mjs quantum computing"
 const GATED_REPLY = "Fetched external context after approval."
 const TEACH_CONTENT = "Brian prefers concise, code-first answers"
@@ -21,9 +29,45 @@ const baseOptions: SuggestionJourneyOptions = {
   teachContent: TEACH_CONTENT,
 }
 
+interface WireResponse {
+  readonly method: string
+  readonly url: string
+  readonly ok?: boolean
+  readonly status?: number
+  readonly body?: unknown
+}
+
+/**
+ * What the browser would see on the wire during the teach journey. The reject
+ * POST is a DECOY placed before the approve POST: `waitForResponse`'s predicate
+ * must turn it down, which is what proves the journey is watching for approve
+ * specifically rather than "any decision POST".
+ */
+const DEFAULT_WIRE: readonly WireResponse[] = [
+  {
+    method: "GET",
+    url: "http://127.0.0.1:4712/api/b4/memory/candidates",
+    body: { candidates: [] },
+  },
+  {
+    method: "POST",
+    url: "http://127.0.0.1:4712/api/b4/memory/candidates/cand1/reject",
+    body: { ok: true },
+  },
+  {
+    method: "POST",
+    url: "http://127.0.0.1:4712/api/b4/memory/candidates/cand1/approve",
+    body: {
+      record: { id: "cand1", content: TEACH_CONTENT, status: "active" },
+      action: "activated",
+      superseded: [],
+    },
+  },
+]
+
 /**
  * A fake browser whose locators record every chained step as a readable
- * description, so a test can assert both WHAT was clicked and in what order.
+ * description, so a test can assert both WHAT was located and in what order.
  *
  * `onCall` sees each recorded call and may throw — that is how a test injects a
  * failure at one exact step (say the `Allow once` click) without teaching the
@@ -32,8 +76,10 @@ const baseOptions: SuggestionJourneyOptions = {
 function fakeBrowser(
   overrides: {
     readonly onCall?: (call: string) => void
+    readonly countFor?: (desc: string) => number | undefined
     readonly candidates?: readonly { readonly content: string }[]
     readonly candidatesOk?: boolean
+    readonly wire?: readonly WireResponse[]
   } = {},
 ) {
   const calls: string[] = []
@@ -44,6 +90,11 @@ function fakeBrowser(
   }
   const name = (value: unknown): string =>
     value instanceof RegExp ? String(value) : JSON.stringify(value)
+  const countOf = (desc: string): number =>
+    overrides.countFor?.(desc) ??
+    // The one locator the journey expects to find NOTHING: writeFile must not
+    // be rendered inside an activity card's <details>.
+    (desc.includes("details") && desc.includes("writeFile") ? 0 : 1)
 
   // biome-ignore lint/suspicious/noExplicitAny: a structural stand-in for Locator.
   function locator(desc: string): any {
@@ -59,11 +110,24 @@ function fakeBrowser(
       locator: (selector: string) => locator(`${desc} > ${selector}`),
       filter: (options: { hasText?: unknown }) =>
         locator(`${desc} | hasText=${name(options.hasText)}`),
+      first: () => locator(`${desc} .first`),
       last: () => locator(`${desc} .last`),
+      count: async () => {
+        record(`count ${desc}`)
+        return countOf(desc)
+      },
       click: async () => record(`click ${desc}`),
       waitFor: async (options: { state: string }) => record(`waitFor:${options.state} ${desc}`),
     }
   }
+
+  const wireResponse = (wire: WireResponse) => ({
+    url: () => wire.url,
+    request: () => ({ method: () => wire.method }),
+    ok: () => wire.ok !== false,
+    status: () => wire.status ?? (wire.ok === false ? 500 : 200),
+    json: async () => wire.body,
+  })
 
   const page = {
     on: vi.fn((event: string, listener: (payload: unknown) => void) => {
@@ -79,6 +143,13 @@ function fakeBrowser(
     getByText: (text: unknown) => locator(`page > text=${name(text)}`),
     getByLabel: (label: string) => locator(`page > label=${label}`),
     locator: (selector: string) => locator(`page > ${selector}`),
+    // biome-ignore lint/suspicious/noExplicitAny: a structural stand-in for Response.
+    waitForResponse: vi.fn(async (predicate: (response: any) => boolean) => {
+      record("waitForResponse")
+      const match = (overrides.wire ?? DEFAULT_WIRE).find((wire) => predicate(wireResponse(wire)))
+      if (match === undefined) throw new Error("Timeout waiting for a matching response")
+      return wireResponse(match)
+    }),
     request: {
       get: vi.fn(async (url: string) => {
         calls.push(`GET ${url}`)
@@ -132,22 +203,73 @@ async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
   throw new Error("expected the call to reject, but it resolved")
 }
 
-/** Just the button clicks, which is where the journey order is legible. */
-const clicks = (calls: readonly string[]): string[] =>
-  calls.filter((call) => call.startsWith("click "))
+/**
+ * Every locator the three journeys touch, in order.
+ *
+ * Pinned as ONE array on purpose. Asserting only "the Allow once click
+ * happened" leaves the assertions most likely to drift against the template —
+ * the plan-card summary, the subagent card, the writeFile card — deletable with
+ * every test still green. A golden list makes any locator change, deletion or
+ * reordering show up as a diff a reviewer has to look at.
+ */
+const GOLDEN_CALLS: readonly string[] = [
+  "open",
+  // Research a topic
+  'click page > button="New conversation"',
+  "click page > button=/^Research a topic/",
+  "complete",
+  'waitFor:visible page > main > details | hasText="Plan · 1/4 complete" .first',
+  'count page > main > details | hasText="Plan · 1/4 complete"',
+  'waitFor:visible page > main > details | hasText="researcher · completed" .first',
+  'count page > main > details | hasText="researcher · completed"',
+  'waitFor:visible page > main > details | hasText="researcher · completed" > text=/researcher · completed · 2 tools/',
+  'click page > main > details | hasText="researcher · completed" > summary',
+  'waitFor:visible page > main > details[open] | hasText="researcher · completed"',
+  'waitFor:visible page > main > details | hasText="researcher · completed" > label=Subagent tools > text="searchCorpus"',
+  'waitFor:visible page > main > details | hasText="researcher · completed" > label=Subagent tools > text="readDoc"',
+  'waitFor:visible page > main > text="writeFile" .first',
+  'count page > main > text="writeFile"',
+  'count page > main > details > text="writeFile"',
+  `waitFor:visible page > main > text=${JSON.stringify(RESEARCH_REPLY)} .last`,
+  // Trigger a permission prompt
+  'click page > button="New conversation"',
+  "click page > button=/^Trigger a permission prompt/",
+  `waitFor:visible page > alert | hasText=${JSON.stringify(FETCH_COMMAND)} .first`,
+  `count page > alert | hasText=${JSON.stringify(FETCH_COMMAND)}`,
+  `click page > alert | hasText=${JSON.stringify(FETCH_COMMAND)} > button="Allow once"`,
+  `waitFor:hidden page > alert | hasText=${JSON.stringify(FETCH_COMMAND)}`,
+  "complete",
+  `waitFor:visible page > main > text=${JSON.stringify(GATED_REPLY)} .last`,
+  // Teach it a preference
+  'click page > button="New conversation"',
+  "click page > button=/^Teach it a preference/",
+  "complete",
+  `waitFor:visible page > label=Memory candidates > text=${JSON.stringify(TEACH_CONTENT)}`,
+  "waitForResponse",
+  `click page > label=Memory candidates > button=${JSON.stringify(`Approve: ${TEACH_CONTENT}`)}`,
+  `waitFor:hidden page > label=Memory candidates > text=${JSON.stringify(TEACH_CONTENT)}`,
+  "GET http://127.0.0.1:4712/api/b4/memory/candidates",
+  "context.close",
+  "browser.close",
+]
 
 describe("runWorkbenchSuggestionJourneys", () => {
-  it("runs the three journeys in order in one browser, each from a new conversation", async () => {
+  it("drives every journey's locators in order, in one browser", async () => {
     const { calls, chromium, deps, journey } = fakeBrowser()
     await runWorkbenchSuggestionJourneys(baseOptions, deps)
 
+    expect(calls).toEqual(GOLDEN_CALLS)
     expect(chromium.launch).toHaveBeenCalledTimes(1)
     expect(journey.openReadyWorkbench).toHaveBeenCalledTimes(1)
-    expect(calls[0]).toBe("open")
-    expect(clicks(calls).filter((call) => call.includes("New conversation"))).toHaveLength(3)
-    // Every suggestion click is immediately preceded by a New conversation click.
-    const starts = clicks(calls).filter(
-      (call) => call.includes("New conversation") || call.includes("^"),
+  })
+
+  it("starts each of the three journeys from a new conversation", async () => {
+    const { calls, deps } = fakeBrowser()
+    await runWorkbenchSuggestionJourneys(baseOptions, deps)
+    const starts = calls.filter(
+      (call) =>
+        call.startsWith("click ") &&
+        (call.includes('button="New conversation"') || call.includes("button=/^")),
     )
     expect(starts).toEqual([
       'click page > button="New conversation"',
@@ -157,42 +279,90 @@ describe("runWorkbenchSuggestionJourneys", () => {
       'click page > button="New conversation"',
       "click page > button=/^Teach it a preference/",
     ])
-    expect(calls.slice(-2)).toEqual(["context.close", "browser.close"])
   })
 
-  it("clicks Allow once inside the alert holding the command, then waits for it to go", async () => {
-    const { calls, deps } = fakeBrowser()
-    await runWorkbenchSuggestionJourneys(baseOptions, deps)
-    const alert = `page > alert | hasText=${JSON.stringify(FETCH_COMMAND)}`
-    const allow = calls.indexOf(`click ${alert} > button="Allow once"`)
-    expect(allow).toBeGreaterThan(-1)
-    expect(calls.indexOf(`waitFor:hidden ${alert}`)).toBeGreaterThan(allow)
+  it("fails when a second plan card is rendered in the same thread", async () => {
+    const { deps } = fakeBrowser({
+      countFor: (desc) => (desc.includes("Plan · 1/4 complete") ? 2 : undefined),
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/^Research a topic: expected exactly one plan card/)
+    expect(rejection.message).toContain("found 2")
   })
 
-  it("expands the collapsed subagent card before asserting its tools", async () => {
-    const { calls, deps } = fakeBrowser()
-    await runWorkbenchSuggestionJourneys(baseOptions, deps)
-    const card = 'page > main > details | hasText="researcher · completed" .last'
-    const expand = calls.indexOf(`click ${card} > summary`)
-    expect(expand).toBeGreaterThan(-1)
-    expect(
-      calls.indexOf(`waitFor:visible ${card} > label=Subagent tools > text="searchCorpus"`),
-    ).toBeGreaterThan(expand)
+  it("fails when a second researcher subagent card is rendered", async () => {
+    const { deps } = fakeBrowser({
+      countFor: (desc) =>
+        desc.includes("researcher · completed") && desc.endsWith('"researcher · completed"')
+          ? 2
+          : undefined,
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/expected exactly one researcher subagent card/)
   })
 
-  it("approves the candidate by its full accessible name and verifies it is gone", async () => {
-    const { calls, deps, page } = fakeBrowser()
-    await runWorkbenchSuggestionJourneys(baseOptions, deps)
-    expect(calls).toContain(
-      `click page > label=Memory candidates > button=${JSON.stringify(`Approve: ${TEACH_CONTENT}`)}`,
-    )
-    expect(page.request.get).toHaveBeenCalledWith("http://127.0.0.1:4712/api/b4/memory/candidates")
+  it("fails when writeFile is rendered inside an activity card", async () => {
+    const { deps } = fakeBrowser({
+      countFor: (desc) => (desc.includes("details") && desc.includes("writeFile") ? 1 : undefined),
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/expected no writeFile inside an activity card/)
+  })
+
+  it("watches for the approve POST specifically, turning down the reject POST", async () => {
+    const { deps } = fakeBrowser({
+      wire: [
+        {
+          method: "POST",
+          url: "http://127.0.0.1:4712/api/b4/memory/candidates/cand1/reject",
+          body: { ok: true },
+        },
+      ],
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/^Teach it a preference: Timeout waiting for a matching/)
+  })
+
+  it("fails when the approve response does not carry the candidate as an active record", async () => {
+    const { deps } = fakeBrowser({
+      wire: [
+        {
+          method: "POST",
+          url: "http://127.0.0.1:4712/api/b4/memory/candidates/cand1/approve",
+          body: { record: { content: TEACH_CONTENT, status: "candidate" } },
+        },
+      ],
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/approved record is 'candidate', not 'active'/)
   })
 
   it("fails when the approved candidate is still listed over HTTP", async () => {
     const { deps } = fakeBrowser({ candidates: [{ content: TEACH_CONTENT }] })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
     expect(rejection.message).toMatch(/^Teach it a preference: approved candidate is still listed/)
+  })
+
+  it("rejects a teachContent longer than the panel's label limit, before launching", async () => {
+    const { deps, chromium } = fakeBrowser()
+    await expect(
+      runWorkbenchSuggestionJourneys(
+        { ...baseOptions, teachContent: "a".repeat(MEMORY_LABEL_LIMIT + 1) },
+        deps,
+      ),
+    ).rejects.toThrow(TEACH_CONTENT_SHAPE_MESSAGE)
+    expect(chromium.launch).not.toHaveBeenCalled()
+  })
+
+  it("rejects a multi-line teachContent, before launching", async () => {
+    const { deps, chromium } = fakeBrowser()
+    await expect(
+      runWorkbenchSuggestionJourneys(
+        { ...baseOptions, teachContent: "Brian prefers\nconcise answers" },
+        deps,
+      ),
+    ).rejects.toThrow(TEACH_CONTENT_SHAPE_MESSAGE)
+    expect(chromium.launch).not.toHaveBeenCalled()
   })
 
   it("names the failing journey and screenshots under that journey's own name", async () => {
