@@ -2097,7 +2097,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-> **Task 8 as landed.** The verifier is target-driven end to end (`c3bd7861`): per-call verifier capture removed after `withWorkspace` returns, build step, runner dispatch, `changedOutside` with the target's `snapshotIgnore`, identity from the image object, deadline from the target. The rung 1 runner bridge is deleted. The cli-flags Docker lane passes all five tests against the pin archive in about 25 seconds. The build-failure branch has no caller until the devkit target (Task 12).
+> **Task 8 as landed.** The verifier is target-driven end to end (`c3bd7861`): per-call verifier capture removed after `withWorkspace` returns, build step, runner dispatch, `changedOutside` with the target's `snapshotIgnore`, identity from the image object, deadline from the target. The rung 1 runner bridge is deleted. The cli-flags Docker lane passes all five tests against the pin archive in about 25 seconds. The build-failure branch has no caller until the devkit target (Task 12). **Rule from review:** `node-test` suites run at the WORKSPACE ROOT whatever `commands.cwd` is; only build and vitest `cd` into it. A check file therefore names the built artifact by its full root-relative path (`packages/devkit/dist/...`), and a cwd-relative import would grade inconclusive.
 
 ### Task 9: Retire `src/fixtures`; rewire the CLI, the builder config and every test
 
