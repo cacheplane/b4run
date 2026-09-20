@@ -1367,6 +1367,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
+> **Ordering change during execution.** Task 10 (Dockerfiles, prepare script, image objects, measured resources) runs BEFORE Task 6. `loadPolicy` in Task 6 loads a target, and `loadTarget` refuses a target without an `image` object, so running Task 6 first would red every layer 1 test that calls `loadPolicy` until Task 10, violating the green-at-every-commit gate. Task 10 depends only on the catalog (Task 2) and Docker.
+
 ### Task 6: Policy and baseline over the catalogs
 
 **Files:**
