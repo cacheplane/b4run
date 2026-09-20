@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { captureTarget } from "../src/targets/archive.ts"
+import { type CaptureRole, captureTarget } from "../src/targets/archive.ts"
 import type { Task } from "../src/targets/catalog.ts"
 
 const dirs: string[] = []
@@ -19,7 +19,10 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
-/** A repository with a subdirectory, an untracked file, a dirty working tree, and one commit. */
+/**
+ * A repository with a subdirectory, an untracked file, a dirty working tree, a file deleted
+ * from the working tree after the commit, and a committed file outside the include list.
+ */
 function repo(): { root: string; pin: string } {
   const root = mkdtempSync(join(tmpdir(), "factory-archive-repo-"))
   dirs.push(root)
@@ -31,12 +34,16 @@ function repo(): { root: string; pin: string } {
   mkdirSync(join(root, "pkg", "src"), { recursive: true })
   writeFileSync(join(root, "pkg", "src", "a.ts"), "export const a = 1\n")
   writeFileSync(join(root, "pkg", "package.json"), "{}\n")
+  writeFileSync(join(root, "pkg", "NOTES.md"), "not in the include list\n")
   writeFileSync(join(root, "other.txt"), "other\n")
   git("add", ".")
   git("commit", "-q", "-m", "one")
   writeFileSync(join(root, "pkg", "src", "untracked.ts"), "not committed\n")
   writeFileSync(join(root, "pkg", "src", "a.ts"), "export const a = 2 // dirty working tree\n")
-  return { root, pin: git("rev-parse", "HEAD") }
+  const pin = git("rev-parse", "HEAD")
+  // Deleted from the working tree after the commit: the archive must still find it at the pin.
+  rmSync(join(root, "pkg", "package.json"))
+  return { root, pin }
 }
 
 const defect = `--- a/src/a.ts
@@ -46,7 +53,7 @@ const defect = `--- a/src/a.ts
 +export const a = 0
 `
 
-function task(_root: string, pin: string, overrides: Partial<Task> = {}): Task {
+function task(pin: string, overrides: Partial<Task> = {}): Task {
   return {
     id: "k",
     directory: "/unused",
@@ -95,7 +102,7 @@ describe("captureTarget", () => {
     const { root, pin } = repo()
     const appRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
     dirs.push(appRoot)
-    const captured = captureTarget(task(root, pin), "controller", { appRoot, repositoryRoot: root })
+    const captured = captureTarget(task(pin), "controller", { appRoot, repositoryRoot: root })
     expect(captured.directory).toBe(".factory/captures/controller/k")
     expect(captured.absolute).toBe(join(appRoot, ".factory", "captures", "controller", "k"))
     expect(readFileSync(join(captured.absolute, "src", "a.ts"), "utf8")).toBe(
@@ -103,6 +110,11 @@ describe("captureTarget", () => {
     )
     expect(existsSync(join(captured.absolute, "src", "untracked.ts"))).toBe(false)
     expect(existsSync(join(captured.absolute, "other.txt"))).toBe(false)
+    // Not in the include list, even though it was committed inside `pkg`: proves the include
+    // list filters rather than just excluding paths outside `root`.
+    expect(existsSync(join(captured.absolute, "NOTES.md"))).toBe(false)
+    // Deleted from the working tree after the commit, but still at the pin.
+    expect(readFileSync(join(captured.absolute, "package.json"), "utf8")).toBe("{}\n")
     expect(readdirSync(captured.absolute).sort()).toEqual(["package.json", "src"])
   })
 
@@ -110,7 +122,7 @@ describe("captureTarget", () => {
     const { root, pin } = repo()
     const appRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
     dirs.push(appRoot)
-    const t = task(root, pin)
+    const t = task(pin)
     const whole = {
       ...t,
       target: { ...t.target, root: "." as const, capture: { include: ["pkg", "other.txt"] } },
@@ -126,13 +138,13 @@ describe("captureTarget", () => {
     const { root, pin } = repo()
     const appRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
     dirs.push(appRoot)
-    const first = captureTarget(task(root, pin, { defectPatch: defect }), "builder", {
+    const first = captureTarget(task(pin, { defectPatch: defect }), "builder", {
       appRoot,
       repositoryRoot: root,
     })
     expect(readFileSync(join(first.absolute, "src", "a.ts"), "utf8")).toBe("export const a = 0\n")
     writeFileSync(join(first.absolute, "stray.txt"), "left behind\n")
-    const second = captureTarget(task(root, pin, { defectPatch: defect }), "builder", {
+    const second = captureTarget(task(pin, { defectPatch: defect }), "builder", {
       appRoot,
       repositoryRoot: root,
     })
@@ -146,8 +158,8 @@ describe("captureTarget", () => {
     const { root, pin } = repo()
     const appRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
     dirs.push(appRoot)
-    const builder = captureTarget(task(root, pin), "builder", { appRoot, repositoryRoot: root })
-    const controller = captureTarget(task(root, pin), "controller", {
+    const builder = captureTarget(task(pin), "builder", { appRoot, repositoryRoot: root })
+    const controller = captureTarget(task(pin), "controller", {
       appRoot,
       repositoryRoot: root,
     })
@@ -160,20 +172,39 @@ describe("captureTarget", () => {
     dirs.push(appRoot)
     const wrong = defect.replace("-export const a = 1", "-export const a = 9")
     expect(() =>
-      captureTarget(task(root, pin, { defectPatch: wrong }), "builder", {
+      captureTarget(task(pin, { defectPatch: wrong }), "builder", {
         appRoot,
         repositoryRoot: root,
       }),
     ).toThrow(/defect patch/)
-    const t = task(root, pin)
+    const t = task(pin)
     const missing = { ...t, target: { ...t.target, capture: { include: ["nope"] } } }
-    expect(() => captureTarget(missing, "builder", { appRoot, repositoryRoot: root })).toThrow()
+    expect(() => captureTarget(missing, "builder", { appRoot, repositoryRoot: root })).toThrow(
+      /nope/,
+    )
+  })
+
+  it("leaves nothing behind when a capture fails", () => {
+    const { root, pin } = repo()
+    const appRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
+    dirs.push(appRoot)
+    const wrong = defect.replace("-export const a = 1", "-export const a = 9")
+    expect(() =>
+      captureTarget(task(pin, { defectPatch: wrong }), "builder", {
+        appRoot,
+        repositoryRoot: root,
+      }),
+    ).toThrow()
+    const parent = join(appRoot, ".factory", "captures", "builder")
+    expect(existsSync(join(parent, "k"))).toBe(false)
+    // No scratch sibling either: whatever the parent directory holds, it isn't a leftover.
+    if (existsSync(parent)) expect(readdirSync(parent)).toEqual([])
   })
 
   it("refuses a role that is not a plain name", () => {
     const { root, pin } = repo()
     expect(() =>
-      captureTarget(task(root, pin), "../x", { appRoot: root, repositoryRoot: root }),
+      captureTarget(task(pin), "../x" as CaptureRole, { appRoot: root, repositoryRoot: root }),
     ).toThrow(/role/)
   })
 })
