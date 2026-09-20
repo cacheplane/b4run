@@ -461,10 +461,17 @@ named rungs are in the
   container and read back in the same command. The path and the stdout marker
   carry a per-run nonce, so a test cannot forge them blind, but a test that
   reads the nonce from the vitest process's argv and leaves a background writer
-  could still replace the report. This affects only the visible suite (the
-  independent suite is always `node-test`, graded from its event stream), and
-  it still requires vitest's real exit code to be zero. The fix is to run the
-  target's tests as a uid that cannot reach the report; deferred.
+  could still replace the report. The same primitive reaches further: a
+  process the visible suite leaves running can mutate the workspace in the
+  window between the visible suite's tamper comparison and the independent
+  suite's, so a candidate whose allowed source file (which vitest imports)
+  spawns a detached writer could put correct bytes in place for the
+  independent check while the exported bytes stay the builder's. Both suites
+  run in one verifier container, and `--init` reaps zombies, not live detached
+  processes. The fix is the same: run the target's tests as a uid that cannot
+  reach the workspace or the report; deferred. A cheaper partial mitigation,
+  reusing the post-visible snapshot as the pre-independent one, is not taken
+  because the check file is written in between.
 
 ## Success criteria
 

@@ -90,6 +90,12 @@ export function createDockerVerifier(
               (
                 await inspectWorkspace(handle, {
                   signal: bounded,
+                  // The framework's defaults, restated so a change there is visible here;
+                  // the reader's options spread after them so a target that raises the
+                  // reader's limits raises these too.
+                  maxEntries: 10_000,
+                  maxFileBytes: 2 * 1024 * 1024,
+                  maxTotalBytes: 16 * 1024 * 1024,
                   // The reader's own options, spread whole rather than picked apart: a new
                   // one (`runAsNonRoot` today) must not be silently dropped here.
                   // `ignorePrefixes` rides along and is deliberately NOT honoured by this
@@ -98,10 +104,6 @@ export function createDockerVerifier(
                   // rule and wants to see everything the walk found. The framework ignores
                   // keys it does not know, so passing it here is inert rather than wrong.
                   ...inspection,
-                  // The framework's defaults, restated so a change there is visible here.
-                  maxEntries: 10_000,
-                  maxFileBytes: 2 * 1024 * 1024,
-                  maxTotalBytes: 16 * 1024 * 1024,
                 })
               ).files
 
