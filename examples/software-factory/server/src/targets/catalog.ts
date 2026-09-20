@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { readdirSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { z } from "zod"
@@ -191,4 +191,130 @@ export function imageTag(target: Pick<Target, "id" | "pin" | "image">): string {
 /** The environment identity every receipt and bundle binds for this target. */
 export function environmentIdentity(target: Pick<Target, "image">): string {
   return environmentIdentityDigest(target.image)
+}
+
+const NodeTestSuiteSchema = z
+  .object({
+    runner: z.literal("node-test"),
+    file: z.string().regex(/^(?:test|checks)\/[\w./-]+\.test\.(?:ts|mjs|js)$/),
+    assertions: z.array(z.string().min(1)).min(1),
+  })
+  .strict()
+const VitestSuiteSchema = z
+  .object({ runner: z.literal("vitest"), assertions: z.array(z.string().min(1)).min(1) })
+  .strict()
+export const SuiteSchema = z.discriminatedUnion("runner", [NodeTestSuiteSchema, VitestSuiteSchema])
+export type Suite = z.infer<typeof SuiteSchema>
+export type NodeTestSuite = z.infer<typeof NodeTestSuiteSchema>
+export type VitestSuite = z.infer<typeof VitestSuiteSchema>
+
+/** The independent suite is always a node-test file the verifier writes in itself. */
+export const ChecksSchema = z
+  .object({ visible: SuiteSchema, independent: NodeTestSuiteSchema })
+  .strict()
+export type Checks = z.infer<typeof ChecksSchema>
+
+/**
+ * Does one of `entries` cover `path`? An entry is a file or a directory; a directory covers
+ * everything under it. Paths are canonical (see `relativePath`), so string comparison is exact.
+ */
+export function covers(entries: readonly string[], path: string): boolean {
+  return entries.some((entry) => path === entry || path.startsWith(`${entry}/`))
+}
+
+/**
+ * A path the builder may change. Never a test or a check: the factory's completion policy
+ * must not be reachable from the builder's own inventory. The target's runner configuration
+ * is checked in `loadTask`, where the target is known.
+ */
+const allowedSourcePath = relativePath
+  .refine((p) => !p.endsWith(".test.ts"), "a test file cannot be an allowed source path")
+  .refine((p) => !p.startsWith("checks/"), "a check cannot be an allowed source path")
+
+export const TaskSchema = z
+  .object({
+    id: z.string().min(1),
+    target: z.string().min(1),
+    allowedSourcePaths: z.array(allowedSourcePath).min(1),
+    immutablePaths: z.array(relativePath),
+  })
+  .strict()
+  .refine(
+    (m) => m.allowedSourcePaths.every((p) => !covers(m.immutablePaths, p)),
+    "allowed and immutable paths must be disjoint",
+  )
+export type TaskManifest = z.infer<typeof TaskSchema>
+
+export interface Task {
+  readonly id: string
+  readonly directory: string
+  readonly target: Target
+  readonly manifest: TaskManifest
+  readonly checks: Checks
+  /** `spec.md`; hashed into the specification digest and shown to the builder as TASK.md. */
+  readonly specText: string
+  /** Null when the pinned bytes are already the defective baseline. */
+  readonly defectPatch: string | null
+  readonly referencePatch: string
+}
+
+/** Task ids present on disk, sorted. A new task is a directory, not a code change. */
+export function loadTaskIds(dir = tasksDir): string[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      throw new Error(`No task catalog at ${dir}`)
+    throw error
+  }
+}
+
+export function loadTask(id: string, options: CatalogOptions = {}): Task {
+  const dir = options.tasksDir ?? tasksDir
+  if (!loadTaskIds(dir).includes(id)) throw new Error(`Unknown task: ${id}`)
+  const directory = join(dir, id)
+  const raw = JSON.parse(readFileSync(join(directory, "task.json"), "utf8")) as {
+    target?: unknown
+    allowedSourcePaths?: unknown
+    immutablePaths?: unknown
+  }
+  // Cross-checked against the raw manifest, before `TaskSchema`'s own disjointness refine can
+  // reject an allowed path nested under an immutable directory: a task that reaches into the
+  // target's runner configuration is a distinct, more specific defect (the completion policy
+  // itself becoming editable), and must be reported as that rather than as a generic
+  // disjointness failure that happens to fire on the same input.
+  const target = loadTarget(
+    typeof raw.target === "string" ? raw.target : String(raw.target),
+    options,
+  )
+  const allowedSourcePaths = Array.isArray(raw.allowedSourcePaths) ? raw.allowedSourcePaths : []
+  const immutablePaths = Array.isArray(raw.immutablePaths) ? raw.immutablePaths : []
+  for (const path of allowedSourcePaths)
+    if (covers(target.runnerConfig, path))
+      throw new Error(`Task ${id} may edit ${path}, which is the target's runner configuration`)
+  for (const path of target.runnerConfig)
+    if (!covers(immutablePaths, path))
+      throw new Error(`Task ${id}: runner configuration ${path} must be immutable`)
+  const manifest = TaskSchema.parse(raw)
+  if (manifest.id !== id) throw new Error(`Task ${id} declares a different id: ${manifest.id}`)
+  const checks = ChecksSchema.parse(
+    JSON.parse(readFileSync(join(directory, "checks.json"), "utf8")),
+  )
+  const checkFile = join(directory, checks.independent.file)
+  if (!existsSync(checkFile))
+    throw new Error(`Task ${id} names a missing check: ${checks.independent.file}`)
+  const defectPath = join(directory, "defect.patch")
+  return {
+    id,
+    directory,
+    target,
+    manifest,
+    checks,
+    specText: readFileSync(join(directory, "spec.md"), "utf8"),
+    defectPatch: existsSync(defectPath) ? readFileSync(defectPath, "utf8") : null,
+    referencePatch: readFileSync(join(directory, "reference.patch"), "utf8"),
+  }
 }

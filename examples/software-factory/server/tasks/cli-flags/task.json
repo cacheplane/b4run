@@ -1,0 +1,12 @@
+{
+  "id": "cli-flags",
+  "target": "cli-flags",
+  "allowedSourcePaths": ["src/cli.ts"],
+  "immutablePaths": [
+    "LICENSE",
+    "package-lock.json",
+    "package.json",
+    "src/memory.ts",
+    "test/cli.test.ts"
+  ]
+}

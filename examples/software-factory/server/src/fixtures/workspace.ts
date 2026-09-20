@@ -51,7 +51,8 @@ export function fixtureWorkspace(id: string): WorkspaceDefinition {
       directory: `fixtures/${id}/project`,
       include: [...manifest.allowedSourcePaths, ...manifest.immutablePaths],
       files: [
-        { path: "TASK.md", file: `fixtures/${id}/task.md` },
+        // Bridge until src/fixtures is retired: the spec now lives under tasks/<id>/.
+        { path: "TASK.md", file: `tasks/${id}/spec.md` },
         { path: ".gitignore", text: "node_modules/\n" },
       ],
     },

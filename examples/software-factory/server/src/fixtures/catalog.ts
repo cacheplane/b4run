@@ -6,6 +6,10 @@ import { z } from "zod"
 /** The package root, derived from this module rather than the working directory. */
 export const appRoot = fileURLToPath(new URL("../../", import.meta.url))
 export const fixturesDir = join(appRoot, "fixtures")
+// Bridge until src/fixtures is retired (task 9): the task-shaped files (spec, checks,
+// reference patch, independent check) now live under tasks/<id>/, alongside the target
+// catalog's own tasks. Only fixtures/<id>/project/ is still read from fixturesDir.
+const tasksDir = join(appRoot, "tasks")
 
 /**
  * A path the builder may change. Never a test, a check, or config: the factory's
@@ -40,6 +44,9 @@ export type Suite = z.infer<typeof SuiteSchema>
 export interface Fixture {
   readonly id: string
   readonly directory: string
+  // Bridge until src/fixtures is retired: the task-shaped files (task.json, checks.json,
+  // spec.md, reference.patch, checks/) live here now, not under `directory`.
+  readonly tasksDirectory: string
   readonly manifest: Manifest
   readonly checks: Checks
   readonly taskText: string
@@ -56,13 +63,16 @@ export function loadFixtureIds(): string[] {
 export function loadFixture(id: string): Fixture {
   if (!loadFixtureIds().includes(id)) throw new Error(`Unknown fixture: ${id}`)
   const directory = join(fixturesDir, id)
+  const tasksDirectory = join(tasksDir, id)
+  // Bridge until src/fixtures is retired: task.json carries `target` too, which this
+  // (non-strict) schema simply ignores.
   const manifest = ManifestSchema.parse(
-    JSON.parse(readFileSync(join(directory, "manifest.json"), "utf8")),
+    JSON.parse(readFileSync(join(tasksDirectory, "task.json"), "utf8")),
   )
   if (manifest.id !== id) throw new Error(`Fixture ${id} declares a different id: ${manifest.id}`)
   const checks = ChecksSchema.parse(
-    JSON.parse(readFileSync(join(directory, "checks.json"), "utf8")),
+    JSON.parse(readFileSync(join(tasksDirectory, "checks.json"), "utf8")),
   )
-  const taskText = readFileSync(join(directory, "task.md"), "utf8")
-  return { id, directory, manifest, checks, taskText }
+  const taskText = readFileSync(join(tasksDirectory, "spec.md"), "utf8")
+  return { id, directory, tasksDirectory, manifest, checks, taskText }
 }

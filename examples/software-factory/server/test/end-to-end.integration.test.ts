@@ -94,7 +94,10 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
     AbortSignal.timeout(120_000),
   )
   expect(observed.get(source)).toBe(repaired)
-  expect(observed.get("TASK.md")).toBe(await readFile(join(fixture.directory, "task.md"), "utf8"))
+  // Bridge until src/fixtures is retired: the spec now lives under tasks/<id>/.
+  expect(observed.get("TASK.md")).toBe(
+    await readFile(join(fixture.tasksDirectory, "spec.md"), "utf8"),
+  )
   // Both structural inspection options are load-bearing against real Docker: the git
   // directory is excluded rather than reported as added paths, and the `node_modules`
   // symlink is validated against its exact target rather than walked into. Without either,

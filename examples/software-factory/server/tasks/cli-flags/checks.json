@@ -1,11 +1,11 @@
 {
   "visible": {
+    "runner": "node-test",
     "file": "test/cli.test.ts",
-    "assertions": [
-      "documented dry-run flag reaches the handler"
-    ]
+    "assertions": ["documented dry-run flag reaches the handler"]
   },
   "independent": {
+    "runner": "node-test",
     "file": "checks/independent.test.ts",
     "assertions": [
       "forwards cap and memory-level cwd",

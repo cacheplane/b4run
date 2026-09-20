@@ -5,13 +5,18 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
+  ChecksSchema,
   environmentIdentity,
   imageTag,
   loadTarget,
   loadTargetIds,
+  loadTask,
+  loadTaskIds,
   repositoryRoot,
   targetsDir as shippedTargetsDir,
   TargetSchema,
+  TaskSchema,
+  tasksDir,
 } from "../src/targets/catalog.ts"
 
 const dirs: string[] = []
@@ -184,4 +189,183 @@ describe("target catalog", () => {
       })
     }
   })
+})
+
+/** Write a tasks directory holding one task against target `t`. */
+function tasksDirFor(
+  overrides: Record<string, unknown> = {},
+  files: Record<string, string> = {},
+): string {
+  const dir = mkdtempSync(join(tmpdir(), "factory-tasks-"))
+  dirs.push(dir)
+  mkdirSync(join(dir, "k", "checks"), { recursive: true })
+  writeFileSync(
+    join(dir, "k", "task.json"),
+    JSON.stringify({
+      id: "k",
+      target: "t",
+      allowedSourcePaths: ["src/a.ts"],
+      immutablePaths: ["package.json", "test/a.test.ts"],
+      ...overrides,
+    }),
+  )
+  writeFileSync(
+    join(dir, "k", "checks.json"),
+    JSON.stringify({
+      visible: { runner: "vitest", assertions: ["a passes"] },
+      independent: { runner: "node-test", file: "checks/k.test.ts", assertions: ["A1"] },
+    }),
+  )
+  writeFileSync(join(dir, "k", "spec.md"), "# k\n\nA1: something holds.\n")
+  writeFileSync(join(dir, "k", "reference.patch"), "--- a/src/a.ts\n+++ b/src/a.ts\n")
+  writeFileSync(join(dir, "k", "checks", "k.test.ts"), "")
+  for (const [name, content] of Object.entries(files)) writeFileSync(join(dir, "k", name), content)
+  return dir
+}
+
+describe("task catalog", () => {
+  it("lists the tasks shipped with the factory", () => {
+    expect(loadTaskIds()).toEqual(["cli-flags", "devkit-spawn-deadline"])
+  })
+
+  it("loads a task with its target, spec, checks and patches", () => {
+    const { root, pin } = repo()
+    const task = loadTask("k", {
+      targetsDir: targetsDir(pin),
+      tasksDir: tasksDirFor({}, { "defect.patch": "--- a/src/a.ts\n+++ b/src/a.ts\n" }),
+      repositoryRoot: root,
+    })
+    expect(task.target.id).toBe("t")
+    expect(task.specText).toMatch(/A1/)
+    expect(task.checks.visible.runner).toBe("vitest")
+    expect(task.defectPatch).toMatch(/^--- a/)
+    expect(task.referencePatch).toMatch(/^--- a/)
+    expect(task.directory.endsWith("/k")).toBe(true)
+  })
+
+  it("treats a missing defect patch as a baseline that is already defective", () => {
+    const { root, pin } = repo()
+    const task = loadTask("k", {
+      targetsDir: targetsDir(pin),
+      tasksDir: tasksDirFor(),
+      repositoryRoot: root,
+    })
+    expect(task.defectPatch).toBeNull()
+  })
+
+  it("refuses an allowed path that is a test, a check, or overlaps immutable", () => {
+    expect(
+      TaskSchema.safeParse({
+        id: "k",
+        target: "t",
+        allowedSourcePaths: ["test/a.test.ts"],
+        immutablePaths: [],
+      }).success,
+    ).toBe(false)
+    expect(
+      TaskSchema.safeParse({
+        id: "k",
+        target: "t",
+        allowedSourcePaths: ["checks/k.test.ts"],
+        immutablePaths: [],
+      }).success,
+    ).toBe(false)
+    expect(
+      TaskSchema.safeParse({
+        id: "k",
+        target: "t",
+        allowedSourcePaths: ["src/a.ts"],
+        immutablePaths: ["src/a.ts"],
+      }).success,
+    ).toBe(false)
+    // An allowed path UNDER an immutable directory overlaps too.
+    expect(
+      TaskSchema.safeParse({
+        id: "k",
+        target: "t",
+        allowedSourcePaths: ["src/a.ts"],
+        immutablePaths: ["src"],
+      }).success,
+    ).toBe(false)
+  })
+
+  it("refuses a task that may edit the target's runner configuration, including a file under a configured directory", () => {
+    const { root, pin } = repo()
+    expect(() =>
+      loadTask("k", {
+        targetsDir: targetsDir(pin),
+        tasksDir: tasksDirFor({ allowedSourcePaths: ["package.json"], immutablePaths: [] }),
+        repositoryRoot: root,
+      }),
+    ).toThrow(/runner configuration/)
+    expect(() =>
+      loadTask("k", {
+        targetsDir: targetsDir(pin, { runnerConfig: ["config"] }),
+        tasksDir: tasksDirFor({
+          allowedSourcePaths: ["config/base.json"],
+          immutablePaths: ["config"],
+        }),
+        repositoryRoot: root,
+      }),
+    ).toThrow(/runner configuration/)
+  })
+
+  it("refuses a task that leaves a runner configuration file mutable, and accepts one covered by an immutable directory", () => {
+    const { root, pin } = repo()
+    expect(() =>
+      loadTask("k", {
+        targetsDir: targetsDir(pin),
+        tasksDir: tasksDirFor({ immutablePaths: ["test/a.test.ts"] }),
+        repositoryRoot: root,
+      }),
+    ).toThrow(/must be immutable/)
+    const covered = loadTask("k", {
+      targetsDir: targetsDir(pin, { runnerConfig: ["config/base.json"] }),
+      tasksDir: tasksDirFor({ immutablePaths: ["config"] }),
+      repositoryRoot: root,
+    })
+    expect(covered.id).toBe("k")
+  })
+
+  it("refuses an independent check that is not a node-test suite, or whose file is missing", () => {
+    expect(
+      ChecksSchema.safeParse({
+        visible: { runner: "vitest", assertions: ["x"] },
+        independent: { runner: "vitest", assertions: ["x"] },
+      }).success,
+    ).toBe(false)
+    const { root, pin } = repo()
+    const dir = tasksDirFor()
+    rmSync(join(dir, "k", "checks", "k.test.ts"))
+    expect(() =>
+      loadTask("k", { targetsDir: targetsDir(pin), tasksDir: dir, repositoryRoot: root }),
+    ).toThrow(/checks\/k.test.ts/)
+  })
+
+  it("refuses an unknown task and an id that disagrees with its directory", () => {
+    const { root, pin } = repo()
+    const dir = tasksDirFor({ id: "other" })
+    expect(() =>
+      loadTask("nope", { targetsDir: targetsDir(pin), tasksDir: dir, repositoryRoot: root }),
+    ).toThrow(/Unknown task: nope/)
+    expect(() =>
+      loadTask("k", { targetsDir: targetsDir(pin), tasksDir: dir, repositoryRoot: root }),
+    ).toThrow(/declares a different id/)
+  })
+})
+
+describe("shipped tasks", () => {
+  for (const id of loadTaskIds()) {
+    it(`${id}: parses and its checks name acceptance ids that spec.md carries`, () => {
+      // loadTask needs a prepared target, which arrives later; parse the pieces directly.
+      const dir = join(tasksDir, id)
+      const manifest = TaskSchema.parse(JSON.parse(readFileSync(join(dir, "task.json"), "utf8")))
+      expect(manifest.id).toBe(id)
+      expect(loadTargetIds()).toContain(manifest.target)
+      const checks = ChecksSchema.parse(JSON.parse(readFileSync(join(dir, "checks.json"), "utf8")))
+      expect(existsSync(join(dir, checks.independent.file))).toBe(true)
+      expect(existsSync(join(dir, "spec.md"))).toBe(true)
+      expect(existsSync(join(dir, "reference.patch"))).toBe(true)
+    })
+  }
 })

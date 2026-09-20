@@ -1,0 +1,25 @@
+{
+  "id": "devkit-spawn-deadline",
+  "target": "devkit",
+  "allowedSourcePaths": ["packages/devkit/src/testing/process.ts"],
+  "immutablePaths": [
+    "package.json",
+    "pnpm-workspace.yaml",
+    ".npmrc",
+    "packages/config-typescript",
+    "packages/devkit/package.json",
+    "packages/devkit/vitest.config.ts",
+    "packages/devkit/tsconfig.json",
+    "packages/devkit/tsconfig.test.json",
+    "packages/devkit/templates",
+    "packages/devkit/test",
+    "packages/devkit/src/index.ts",
+    "packages/devkit/src/templates.ts",
+    "packages/devkit/src/write-template.ts",
+    "packages/devkit/src/testing/artifacts.ts",
+    "packages/devkit/src/testing/generated-app.ts",
+    "packages/devkit/src/testing/index.ts",
+    "packages/devkit/src/testing/reporting.ts",
+    "packages/devkit/src/testing/result-types.ts"
+  ]
+}

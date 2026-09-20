@@ -5,7 +5,7 @@ import { basename, join } from "node:path"
 import { loadFixture } from "../src/fixtures/catalog.ts"
 
 /**
- * The historical reference repair: apply `fixtures/<id>/reference.patch` to a throwaway copy
+ * The historical reference repair: apply `tasks/<id>/reference.patch` to a throwaway copy
  * and read the repaired source back. A candidate known to be correct, so a failing verdict
  * over it is the harness's fault and not the candidate's.
  */
@@ -18,7 +18,7 @@ export async function applyReference(id = "cli-flags"): Promise<string> {
       recursive: true,
       filter: (path) => basename(path) !== "node_modules",
     })
-    const applied = spawnSync("git", ["apply", join(fixture.directory, "reference.patch")], {
+    const applied = spawnSync("git", ["apply", join(fixture.tasksDirectory, "reference.patch")], {
       cwd: temporary,
       encoding: "utf8",
       timeout: 10_000,

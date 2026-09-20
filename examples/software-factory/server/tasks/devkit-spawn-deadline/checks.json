@@ -1,0 +1,11 @@
+{
+  "visible": {
+    "runner": "vitest",
+    "assertions": ["spawnProcess clears the deadline when spawning fails asynchronously"]
+  },
+  "independent": {
+    "runner": "node-test",
+    "file": "checks/spawn-deadline.test.ts",
+    "assertions": ["A1: a spawn that fails asynchronously leaves no deadline timer running"]
+  }
+}

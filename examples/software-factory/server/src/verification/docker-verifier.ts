@@ -124,7 +124,9 @@ export function createDockerVerifier(
             const name = fixture.checks.independent.file.replace(/^checks\//, "")
             await handle.filesystem.writeFile(
               join(handle.workspaceRoot, "checks", name),
-              await readFile(join(fixture.directory, "checks", name), "utf8"),
+              // Bridge until src/fixtures is retired: the independent check now lives
+              // under tasks/<id>/checks/, not fixtures/<id>/checks/.
+              await readFile(join(fixture.tasksDirectory, "checks", name), "utf8"),
               { workspaceRoot: handle.workspaceRoot, signal: bounded },
             )
 
