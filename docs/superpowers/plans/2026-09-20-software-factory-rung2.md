@@ -1189,6 +1189,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
+> **Task 4 as landed (review-driven).** `captureTarget(task, role: CaptureRole, options)` where `CaptureRole = "builder" | "controller" | "verifier" | "reference" | "test"`; builds in a scratch sibling and renames into place (a failed capture leaves nothing); `git apply --whitespace=nowarn` with `core.autocrlf=false`; asserts every include path is present after extraction because `git archive` honours `export-ignore` silently.
+
 ### Task 5: Target workspace, sandbox policy, inspection options, provider
 
 **Files:**
@@ -1263,7 +1265,7 @@ Create `src/targets/workspace.ts`:
 import { dockerSandbox } from "@b4run/sandbox"
 import type { SandboxPolicy, SandboxProvider, WorkspaceDefinition } from "@b4run/workspace"
 import type { WorkspaceReadOptions } from "../worker/workspace-reader.js"
-import { captureTarget, type CaptureTargetOptions } from "./archive.js"
+import { type CaptureRole, captureTarget, type CaptureTargetOptions } from "./archive.js"
 import { imageTag, type Target, type Task } from "./catalog.js"
 
 /**
@@ -1300,7 +1302,7 @@ export function targetSandboxPolicy(target: Target): SandboxPolicy {
  */
 export function targetWorkspace(
   task: Task,
-  role: string,
+  role: CaptureRole,
   options: CaptureTargetOptions = {},
 ): WorkspaceDefinition {
   const captured = captureTarget(task, role, options)
