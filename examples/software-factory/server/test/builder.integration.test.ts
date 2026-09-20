@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createAgentHarness, script } from "@b4run/testing"
 import { expect, it } from "vitest"
-import { TASK_PROMPTS } from "../src/prompts.ts"
+import { taskPrompt } from "../src/prompts.ts"
 import { captureTarget } from "../src/targets/archive.ts"
 import { loadTask } from "../src/targets/catalog.ts"
 import { isolatedApp } from "./isolated-app.ts"
@@ -31,7 +31,7 @@ it("drives the real builder to write the repaired source and nothing else", asyn
   await rm(captureRoot, { recursive: true, force: true })
   const harness = await createAgentHarness({ appRoot, route: "/build#agent" })
   try {
-    const input = TASK_PROMPTS["cli-flags"] as string
+    const input = taskPrompt(task)
     const run = await harness.run({
       input,
       fixtures: script()

@@ -1,5 +1,6 @@
 import { config } from "@b4run/cli"
 import { loadTask } from "./src/targets/catalog.js"
+import { builderPermissions } from "./src/targets/permissions.js"
 import {
   builderSandboxProvider,
   targetSandboxPolicy,
@@ -7,14 +8,6 @@ import {
 } from "./src/targets/workspace.js"
 
 const task = loadTask(process.env.FACTORY_TASK_ID ?? "cli-flags")
-const { commands, environmentLinks } = task.target
-/** Prefix matches on the whole command: the target's build and test invocations, at the root and at the target's cwd. */
-const invocations = [commands.build, commands.test]
-  .filter((argv) => argv.length > 0)
-  .flatMap((argv) => {
-    const head = argv.slice(0, 2).join(" ")
-    return commands.cwd === "." ? [head] : [head, `cd ${commands.cwd} && ${head}`]
-  })
 
 export default config({
   appDir: "src/app",
@@ -33,12 +26,8 @@ export default config({
     previewLines: 10,
   },
   permissions: {
-    allow: {
-      // The image's dependency tree is readable inside the container, never writable.
-      readFile: environmentLinks.flatMap((link) => [link.target, `${link.target}/`]),
-      listDir: environmentLinks.map((link) => link.target),
-      // Only what the target's own commands need: anything else should surface as an interrupt.
-      bash: [...invocations, "node ", "cat", "ls", "head"],
-    },
+    // Derived from the target's own commands and environment links: only what this target
+    // needs, so anything else surfaces as an interrupt.
+    allow: { ...builderPermissions(task.target) },
   },
 })

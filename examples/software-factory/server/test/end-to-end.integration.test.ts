@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { createAgentHarness, script } from "@b4run/testing"
 import { afterEach, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/controller/factory.ts"
-import { TASK_PROMPTS } from "../src/prompts.ts"
+import { taskPrompt } from "../src/prompts.ts"
 import { createArtifactStore } from "../src/storage/artifacts.ts"
 import { loadTask } from "../src/targets/catalog.ts"
 import { builderSandboxProvider, targetInspectionOptions } from "../src/targets/workspace.ts"
@@ -63,7 +63,7 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   cleanups.push(() => rm(appRoot, { recursive: true, force: true }))
   const harness = await createAgentHarness({ appRoot, route: "/build#agent" })
   cleanups.push(() => harness.close({ destroyWorkspaces: true }))
-  const input = TASK_PROMPTS["cli-flags"] as string
+  const input = taskPrompt(task)
   const run = await harness.run({
     input,
     fixtures: script()

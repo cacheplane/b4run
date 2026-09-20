@@ -3,7 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/controller/factory.ts"
-import { TASK_PROMPTS } from "../src/prompts.ts"
+import { taskPrompt } from "../src/prompts.ts"
+import { loadTask } from "../src/targets/catalog.ts"
 import { createHttpWorkerClient } from "../src/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
@@ -112,7 +113,7 @@ describe("create and dispatch", () => {
     expect(reader.reads).toEqual([dispatched.workerThreadId])
     expect(fake.requests.at(-1)?.body).toMatchObject({
       route: "/build#agent",
-      input: { messages: [{ role: "user", content: TASK_PROMPTS["cli-flags"] }] },
+      input: { messages: [{ role: "user", content: taskPrompt(loadTask("cli-flags")) }] },
     })
   })
 

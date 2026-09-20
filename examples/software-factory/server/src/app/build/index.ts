@@ -1,5 +1,6 @@
 import { agent } from "@b4run/sdk"
-import { TASK_PROMPTS } from "../../prompts.js"
+import { taskPrompt } from "../../prompts.js"
+import { loadTask } from "../../targets/catalog.js"
 
 /**
  * The bounded builder. It has the four built-in workspace tools and nothing else:
@@ -12,7 +13,7 @@ export default agent({
   description: "Repairs a failing test in a bounded workspace.",
   systemPrompt: `You repair a single defect in an isolated workspace.
 
-${TASK_PROMPTS[process.env.FACTORY_TASK_ID ?? "cli-flags"] ?? TASK_PROMPTS["cli-flags"]}
+${taskPrompt(loadTask(process.env.FACTORY_TASK_ID ?? "cli-flags"))}
 
 Rules you cannot negotiate:
 - Change only the files TASK.md lists as permitted. Every other file, especially any test, is immutable.

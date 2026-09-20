@@ -61,12 +61,17 @@ describe("the real thread workspace reader", () => {
     const app = await fakeManagedApp()
     apps.push(app)
     await app.seed("t-1", { "src/cli.ts": "fixed\n", ".git/HEAD": "ref: refs/heads/main\n" })
-    // The reader resolves a provider per task; this app's one provider serves every task.
-    return { appRoot: app.appRoot, providerFor: () => app.provider, provider: app.provider }
+    return app
   }
 
+  /** The reader resolves a provider per task; this app's one provider serves every task. */
+  const sourceOf = (app: Awaited<ReturnType<typeof withThread>>) => ({
+    appRoot: app.appRoot,
+    providerFor: () => app.provider,
+  })
+
   it("reads the thread's own bytes", async () => {
-    const reader = createThreadWorkspaceReader(await withThread(), fakeOptions)
+    const reader = createThreadWorkspaceReader(sourceOf(await withThread()), fakeOptions)
     expect(await reader.read(target("t-1"), AbortSignal.timeout(5_000))).toEqual(
       new Map([["src/cli.ts", "fixed\n"]]),
     )
@@ -74,7 +79,7 @@ describe("the real thread workspace reader", () => {
 
   it("carries excludeRootDirectories through, so the git baseline is not a candidate change", async () => {
     const app = await withThread()
-    const kept = createThreadWorkspaceReader(app, () => ({
+    const kept = createThreadWorkspaceReader(sourceOf(app), () => ({
       excludeRootDirectories: [],
       expectedRootSymlinks: {},
     }))
@@ -86,14 +91,14 @@ describe("the real thread workspace reader", () => {
   })
 
   it("carries expectedRootSymlinks through, and refuses when the link it names is absent", async () => {
-    const reader = createThreadWorkspaceReader(await withThread(), inspectionOptions)
+    const reader = createThreadWorkspaceReader(sourceOf(await withThread()), inspectionOptions)
     await expect(reader.read(target("t-1"), AbortSignal.timeout(5_000))).rejects.toThrow(
       /Missing expected root symlink: node_modules/,
     )
   })
 
   it("refuses a thread the builder has never seen rather than reporting an empty one", async () => {
-    const reader = createThreadWorkspaceReader(await withThread(), fakeOptions)
+    const reader = createThreadWorkspaceReader(sourceOf(await withThread()), fakeOptions)
     // "Produced nothing" and "never existed" are different facts to a verifier: the first is
     // a candidate with no changes, the second is the controller not knowing.
     await expect(reader.read(target("t-2"), AbortSignal.timeout(5_000))).rejects.toThrow(

@@ -100,8 +100,8 @@ reader carries no exec backend and no write operation, so a mutation cannot be e
   as layer 2 does; the route, tools, permission config and container there are real.
 - **What the inspection options are.** They are not cosmetic: `WorkspaceInspectionOptions`
   supplies `excludeRootDirectories` and `expectedRootSymlinks` for every read, derived from
-  the workspace definition rather than restated, plus the builder's own `runAsNonRoot`
-  identity so the reader can read what the builder wrote. A reader without them throws on the
+  the target rather than restated, plus the builder's own `runAsNonRoot` identity so the
+  reader can read what the builder wrote. A reader without them throws on the
   dependency symlink or reports the git directory as added paths — a `scope_violation` on
   every run.
 
@@ -109,11 +109,12 @@ reader carries no exec backend and no write operation, so a mutation cannot be e
 
 The builder and the verifier both run in the target's prepared image, so this needs Docker:
 
+    cd examples/software-factory/server
     pnpm target:prepare cli-flags   # builds b4-factory-cli-flags:<pin>-<dockerfile sha>
 
 Terminal 1, the builder — **this package**, not code-fixer:
 
-    cd examples/software-factory/server && OPENAI_API_KEY=... pnpm dev --port 4100
+    OPENAI_API_KEY=... pnpm dev --port 4100
 
 Terminal 2, the controller:
 
@@ -161,7 +162,7 @@ old service file keeps starting.
     pnpm test:sandbox   # layers 2 and 3: the real builder and the real verifier, Docker required
 
 Layer 1 is the only always-on lane. Layers 2 and 3 are Docker-gated and run in CI's
-`sandbox-docker` job, after the step that builds `b4-code-fixer:fixture-v1`. Layer 2 needs
-Docker even though its model is scripted: the app configures a sandbox, so the run acquires a
+`sandbox-docker` job, after the step that prepares the factory's target images
+(`target:prepare`). Layer 2 needs Docker even though its model is scripted: the app configures a sandbox, so the run acquires a
 real container — which is the point, since the permission config and `runBash` are exactly
 what that layer exists to exercise. Both fail rather than skip when Docker is absent.
