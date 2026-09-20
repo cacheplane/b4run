@@ -454,15 +454,29 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 4: Lane acceptance and three mutations
+### Task 4 (DONE): Lane acceptance and three mutations
 
-- [ ] **Step 1: Green run** — `pnpm verify:harness:framework > /tmp/lane.log 2>&1; echo $?` → `0`. Record the activation test's duration from `artifacts/testing/<latest>/framework/vitest-report.json`.
-- [ ] **Step 2: Mutation research** — change `"Plan · 1/4 complete"` to `"Plan · 4/4 complete"` in `researchJourney`; lane must exit 1 with `Research a topic:` in the message and `workbench-browser-research.png` present. Revert.
-- [ ] **Step 3: Mutation gate** — comment out the `Allow once` click; lane must exit 1 with `Trigger a permission prompt:` and the alert `waitFor(HIDDEN)` timeout in the cause chain. Revert.
-- [ ] **Step 4: Mutation teach** — change `TEACH_CONTENT` in the W8 call to `"wrong"`; lane must exit 1 with `Teach it a preference:`. Revert.
-- [ ] **Step 5:** `git status --short` empty; `pnpm typecheck`, `pnpm lint`, `node scripts/check-docs.mjs` all `0`.
+**Executed 2026-09-20.** Clean lane: `pnpm verify:harness:framework` exit 0,
+**twice** (activation test 137 s and 291 s — the body total is dominated by
+`npm install`, which this file's header records swinging 92–137 s, so W8's cost
+is inside run-to-run variance). The clean pass is itself the proof that all
+three journeys executed: `toHaveLength(suggestionsJournalStart + 14)` would
+have failed on a delta of anything else, including 0.
 
----
+Three mutations, one per journey, each exit 1 with the journey name, a 45 s
+Playwright timeout (not the harness deadline), the locator in the call log, and
+exactly one screenshot named for the failing journey:
+
+| Mutation | Result |
+|---|---|
+| `Plan · 1/4 complete` → `2/4` | `Research a topic: locator.waitFor: Timeout 45000ms` · `workbench-browser-research.png` |
+| `Allow once` → `Allow nonce` | `Trigger a permission prompt: locator.click: Timeout 45000ms` · `workbench-browser-gate.png`; the call log shows the alert matched the real fetch command, so the card rendered |
+| `record.status !== "active"` → `"inactive"` | `Teach it a preference: approved record …` · `workbench-browser-teach.png`; also reds the unit test pinning that message |
+
+**Trap worth keeping:** a `sed` whose pattern does not match mutates nothing and
+the lane passes, which looks exactly like a mutation that failed to bind. Assert
+the substitution count and abort if it is not 1 before spending five minutes on
+a run.
 
 ### Task 5: Pull request
 
