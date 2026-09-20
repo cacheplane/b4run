@@ -1,5 +1,40 @@
 # @dawn-ai/testing
 
+## 0.9.0
+
+### Patch Changes
+
+- 67b18fe: `createAgentHarness` accepts a `middlewareContext` option — a value or a `(run) => context` function evaluated per `run()`/`resume()` — so tools that read `ctx.middleware` can be exercised in-process even though the harness bypasses `middleware.ts`. `defineEval` accepts the same field and `b4 eval` forwards it to the harness.
+- 16ef75f: Emit a `tool_result` when a tool throws, so AG-UI clients see `TOOL_CALL_RESULT`.
+
+  `@b4run/langchain`'s agent adapter mapped `on_tool_end` to a `tool_result`
+  chunk and emitted nothing for a non-interrupt `on_tool_error`, so a client saw
+  `TOOL_CALL_START`, `TOOL_CALL_ARGS` and `TOOL_CALL_END` for a failing tool and
+  never a `TOOL_CALL_RESULT`; the error ToolMessage LangGraph hands the model
+  appeared only inside `RUN_FINISHED.result.messages`. The adapter now holds a
+  thrown root execution and resolves it from the `status: "error"` ToolMessage
+  the tool node appends for the model, emitting a `tool_result` keyed by the same
+  tool-call id whose `output` is that ToolMessage — serialized exactly like a
+  successful result. `interrupt()` throws are unaffected.
+
+  `@b4run/testing`'s `collectRunResult` now builds `run.toolResults` from the
+  streamed `tool_result` chunks (reading a ToolMessage, a Command's ToolMessage,
+  or a plain output), so a thrown tool is marked `isError` without reading the
+  final messages; a stream that carried no tool results still falls back to
+  `deriveToolResults` over the final messages.
+
+- Updated dependencies [7c9627f]
+- Updated dependencies [67b18fe]
+- Updated dependencies [516c038]
+- Updated dependencies [6a59e00]
+- Updated dependencies [7410154]
+- Updated dependencies [9927409]
+  - @b4run/cli@0.9.0
+  - @b4run/sdk@0.9.0
+  - @b4run/workspace@0.9.0
+  - @b4run/core@0.9.0
+  - @b4run/memory@0.9.0
+
 ## 0.8.36
 
 ### Patch Changes

@@ -1,5 +1,17 @@
 # @dawn-ai/sqlite-storage
 
+## 0.9.0
+
+### Minor Changes
+
+- 516c038: Read a managed workspace from a trusted host process. `ManagedWorkspaceProvider` gains an optional `openWorkspaceReader` addressed by the published `ReadyWorkspace` (implemented for Docker as a read-only bind of the managed volume in a separate networkless container that never touches a session), `@b4run/sqlite-storage` gains `openWorkspaceInstallationReader` (a lock-free read-only view of an installation another process owns), and `@b4run/cli/workspace` gains `openManagedWorkspaceReader` / `withManagedWorkspaceReader`, which resolve a thread to its published workspace through that store. `scopedWorkspaceReader` is exported from `@b4run/workspace` as the shared always-close lifetime.
+
+### Patch Changes
+
+- Updated dependencies [516c038]
+- Updated dependencies [7410154]
+  - @b4run/workspace@0.9.0
+
 ## 0.8.36
 
 ### Patch Changes

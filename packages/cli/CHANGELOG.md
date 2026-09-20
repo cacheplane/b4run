@@ -1,5 +1,67 @@
 # @dawn-ai/cli
 
+## 0.9.0
+
+### Minor Changes
+
+- 516c038: Read a managed workspace from a trusted host process. `ManagedWorkspaceProvider` gains an optional `openWorkspaceReader` addressed by the published `ReadyWorkspace` (implemented for Docker as a read-only bind of the managed volume in a separate networkless container that never touches a session), `@b4run/sqlite-storage` gains `openWorkspaceInstallationReader` (a lock-free read-only view of an installation another process owns), and `@b4run/cli/workspace` gains `openManagedWorkspaceReader` / `withManagedWorkspaceReader`, which resolve a thread to its published workspace through that store. `scopedWorkspaceReader` is exported from `@b4run/workspace` as the shared always-close lifetime.
+
+### Patch Changes
+
+- 7c9627f: Apply a client-supplied `hashbrown.responseSchema` on the AG-UI run body to the route's root model, or reject the run. `POST /agui/:routeId` used to accept the field and read nothing from it, so a Hashbrown client that expected the final message to match its UI schema got an unconstrained model and found out only when a reply failed to parse. On an `agent` route the schema is now bound as the provider's native schema-constrained output alongside the route's tools — OpenAI `response_format` (`json_schema`, `strict: true`) and Anthropic `output_config.format` — so tool-calling turns are untouched and only the final message is constrained. A malformed schema, a non-agent route, or a provider with no such mode is refused with `422` and the new `B4_E5402` (`invalid_response_schema` / `response_schema_not_supported`) before any run side effect. Runs without the field are unchanged. `@b4run/langchain` gains `JsonSchemaResponseFormat`, `createChatModel({ responseFormat })`, `streamAgent({ responseFormat })` and the `JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS` list.
+- 67b18fe: `createAgentHarness` accepts a `middlewareContext` option — a value or a `(run) => context` function evaluated per `run()`/`resume()` — so tools that read `ctx.middleware` can be exercised in-process even though the harness bypasses `middleware.ts`. `defineEval` accepts the same field and `b4 eval` forwards it to the harness.
+- 6a59e00: Add an `after` hook to the middleware lifecycle definition. `defineMiddleware({ handle, after })` runs `after` once per AG-UI run with the agent's final assistant message and the context `handle` allowed, before the client sees the message: return nothing to keep it, `{ finalMessage }` to replace it, or `reject(...)` to end the run with a `RUN_ERROR` (code `middleware_rejected`). With the hook defined the final assistant message is buffered and delivered whole before `RUN_FINISHED`; text before a tool call still streams live, and an app without the hook emits exactly the events it did before. `@b4run/ag-ui`'s `toAguiEvents` now forwards a string `code` from an upstream error onto `RUN_ERROR`.
+- 7410154: Add a read-only way for a trusted host process to read one thread's sandbox workspace.
+
+  `SandboxProvider` gains an optional `openWorkspaceReader`, and `@b4run/workspace`
+  exports `withWorkspaceReader` plus the `SandboxWorkspaceReader`,
+  `ReadOnlyFilesystemBackend`, `WorkspaceReadSource` and `OpenWorkspaceReaderInput`
+  contracts. `inspectWorkspace` now accepts any `WorkspaceReadSource`, so a reader
+  works wherever a `SandboxHandle` did.
+
+  `dockerSandbox` implements the capability by attaching the thread's existing
+  workspace into a separate, ephemeral, networkless container as a read-only bind
+  of the volume's backing directory: the thread's keeper container is never
+  inspected, started, stopped or replaced, and writes fail at the kernel rather
+  than at a policy check. It also reads a thread whose compute was already
+  released. A named-volume mount is deliberately avoided because it would create a
+  missing volume, so a reader racing a thread delete would resurrect that thread's
+  workspace as an empty volume. A `close()` that cannot remove its container
+  reports the failure instead of swallowing it, and reads after close are refused
+  with a clear error.
+
+  `kubernetesSandbox` omits the capability because a `ReadWriteOnce` claim cannot
+  be mounted by a second Pod unless it lands on the same node. `fakeSandbox`
+  implements it in memory and gained the `lstat`, `readBinaryFile` and `statFile`
+  members the Docker backend already had. `runProviderConformance` takes a
+  `workspaceReads` declaration and verifies it, so the contract is covered without
+  skipping a test for providers that omit the capability.
+
+  This is a host-side API for an already-trusted caller. It is not an authorization
+  boundary, not a model tool, and not an HTTP endpoint.
+
+  `@b4run/cli` also gains a `./workspace` subpath exporting `withWorkspace`,
+  `WithWorkspaceOptions` and `cleanupWorkspaces`, so a host process can own managed
+  workspace lifecycle without importing the package root, which is the command
+  program.
+
+- 9927409: Derive tool schemas with the app's own `tsconfig.json` and fail loudly on unresolved input types. The tool program `extractToolSchemasForRoute` / `extractToolTypesForRoute` build now reads the nearest `tsconfig.json` above the app root (honoring `extends`, `paths`, and `baseUrl`; an explicit `tsconfig` option is also accepted), so an input type imported through a path alias no longer resolves to `any` and derives its real schema. When a declared input type still resolves to `any`/`unknown`, or an import it depends on does not resolve, extraction throws `UnresolvedToolInputTypeError` naming the tool file, the type, and the tsconfig used; `b4 typegen` and `b4 verify` surface it as a failure instead of writing `{ properties: {} }`. Tools that take no input (`{}`, `Record<string, never>`, no parameter) keep working.
+- Updated dependencies [7c9627f]
+- Updated dependencies [516c038]
+- Updated dependencies [6a59e00]
+- Updated dependencies [7410154]
+- Updated dependencies [16ef75f]
+- Updated dependencies [9927409]
+  - @b4run/langchain@0.9.0
+  - @b4run/sdk@0.9.0
+  - @b4run/workspace@0.9.0
+  - @b4run/sqlite-storage@0.9.0
+  - @b4run/ag-ui@0.9.0
+  - @b4run/core@0.9.0
+  - @b4run/langgraph@0.9.0
+  - @b4run/permissions@0.9.0
+  - @b4run/memory@0.9.0
+
 ## 0.8.36
 
 ### Patch Changes

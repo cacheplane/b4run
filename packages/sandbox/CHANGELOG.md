@@ -1,5 +1,54 @@
 # @dawn-ai/sandbox
 
+## 0.9.0
+
+### Minor Changes
+
+- 516c038: Read a managed workspace from a trusted host process. `ManagedWorkspaceProvider` gains an optional `openWorkspaceReader` addressed by the published `ReadyWorkspace` (implemented for Docker as a read-only bind of the managed volume in a separate networkless container that never touches a session), `@b4run/sqlite-storage` gains `openWorkspaceInstallationReader` (a lock-free read-only view of an installation another process owns), and `@b4run/cli/workspace` gains `openManagedWorkspaceReader` / `withManagedWorkspaceReader`, which resolve a thread to its published workspace through that store. `scopedWorkspaceReader` is exported from `@b4run/workspace` as the shared always-close lifetime.
+
+### Patch Changes
+
+- 7410154: Add a read-only way for a trusted host process to read one thread's sandbox workspace.
+
+  `SandboxProvider` gains an optional `openWorkspaceReader`, and `@b4run/workspace`
+  exports `withWorkspaceReader` plus the `SandboxWorkspaceReader`,
+  `ReadOnlyFilesystemBackend`, `WorkspaceReadSource` and `OpenWorkspaceReaderInput`
+  contracts. `inspectWorkspace` now accepts any `WorkspaceReadSource`, so a reader
+  works wherever a `SandboxHandle` did.
+
+  `dockerSandbox` implements the capability by attaching the thread's existing
+  workspace into a separate, ephemeral, networkless container as a read-only bind
+  of the volume's backing directory: the thread's keeper container is never
+  inspected, started, stopped or replaced, and writes fail at the kernel rather
+  than at a policy check. It also reads a thread whose compute was already
+  released. A named-volume mount is deliberately avoided because it would create a
+  missing volume, so a reader racing a thread delete would resurrect that thread's
+  workspace as an empty volume. A `close()` that cannot remove its container
+  reports the failure instead of swallowing it, and reads after close are refused
+  with a clear error.
+
+  `kubernetesSandbox` omits the capability because a `ReadWriteOnce` claim cannot
+  be mounted by a second Pod unless it lands on the same node. `fakeSandbox`
+  implements it in memory and gained the `lstat`, `readBinaryFile` and `statFile`
+  members the Docker backend already had. `runProviderConformance` takes a
+  `workspaceReads` declaration and verifies it, so the contract is covered without
+  skipping a test for providers that omit the capability.
+
+  This is a host-side API for an already-trusted caller. It is not an authorization
+  boundary, not a model tool, and not an HTTP endpoint.
+
+  `@b4run/cli` also gains a `./workspace` subpath exporting `withWorkspace`,
+  `WithWorkspaceOptions` and `cleanupWorkspaces`, so a host process can own managed
+  workspace lifecycle without importing the package root, which is the command
+  program.
+
+- Updated dependencies [7c9627f]
+- Updated dependencies [516c038]
+- Updated dependencies [6a59e00]
+- Updated dependencies [7410154]
+  - @b4run/sdk@0.9.0
+  - @b4run/workspace@0.9.0
+
 ## 0.8.36
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @dawn-ai/evals
 
+## 0.9.0
+
+### Patch Changes
+
+- 67b18fe: `createAgentHarness` accepts a `middlewareContext` option — a value or a `(run) => context` function evaluated per `run()`/`resume()` — so tools that read `ctx.middleware` can be exercised in-process even though the harness bypasses `middleware.ts`. `defineEval` accepts the same field and `b4 eval` forwards it to the harness.
+- Updated dependencies [67b18fe]
+- Updated dependencies [16ef75f]
+  - @b4run/testing@0.9.0
+
 ## 0.8.36
 
 ### Patch Changes
