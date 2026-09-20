@@ -21,6 +21,7 @@ import {
 } from "../harness/packaged-app.ts"
 import { writeRegistryNpmrc } from "../harness/scaffold-packaging.ts"
 import { runWorkbenchBrowserJourney } from "../harness/workbench-browser.ts"
+import { runWorkbenchSuggestionJourneys } from "../harness/workbench-suggestions.ts"
 
 const tempDirs: TrackedTempDir[] = []
 // Measured on 2026-08-26, two-process session (macOS, node 24.19.0 / npm
@@ -86,6 +87,17 @@ const WEB_GATED_REPLY = "Fetched external context after approval through the web
 // that is a prefix of another (DEMO_PROMPT ⊂ SAFE_PROMPT) is a latent collision.
 const BROWSER_PROMPT = "Workbench gate: summarize the corpus on agent architectures."
 const BROWSER_REPLY = "ReAct and plan-and-execute are common. [corpus/agent-architectures.md]"
+// The safe root fixture's final reply. Named because W8 matches it on screen
+// with `{ exact: true }` — a dropped citation or changed punctuation there is a
+// 45-second wait on text that is visibly rendered.
+const RESEARCH_REPLY =
+  "I wrote a short report covering ReAct and plan-and-execute architectures. [corpus/agent-architectures.md]"
+// W8's third journey. The Workbench's "Teach it a preference" suggestion sends
+// this exact text; memory is in candidate mode in the template, so the
+// remember() call below becomes a row in the memory panel.
+const TEACH_PROMPT = "Remember that I prefer concise, cited reports."
+const TEACH_CONTENT = "User prefers concise, cited reports."
+const TEACH_REPLY = "Noted — I'll keep reports concise and cited."
 // CopilotKit's fetch-router matches `agent/<agentId>/run`; `default` is the id
 // the runtime route registers and every CopilotKit hook resolves.
 const COPILOTKIT_RUN_PATH = "/api/copilotkit/agent/default/run"
@@ -130,9 +142,7 @@ function createSafeResearchFixtures() {
     .callsTool("searchCorpus", { query: "agent architectures" })
     .callsTool("readDoc", { path: "corpus/agent-architectures.md" })
     .callsTool("writeFile", { path: "reports/agent-architectures.md", content: report })
-    .replies(
-      "I wrote a short report covering ReAct and plan-and-execute architectures. [corpus/agent-architectures.md]",
-    )
+    .replies(RESEARCH_REPLY)
     .build()
   const child = script()
     .user(SUBQUESTION)
@@ -175,6 +185,17 @@ function createBrowserFixtures() {
     .callsTool("searchCorpus", { query: "agent architectures" })
     .callsTool("readDoc", { path: "corpus/agent-architectures.md" })
     .replies(BROWSER_REPLY)
+    .build()
+}
+
+function createTeachFixture() {
+  return script()
+    .user(TEACH_PROMPT)
+    .callsTool("remember", {
+      data: { subject: "user", predicate: "prefers", value: "concise, cited reports" },
+      content: TEACH_CONTENT,
+    })
+    .replies(TEACH_REPLY)
     .build()
 }
 
@@ -1314,6 +1335,8 @@ test("activates the default research scaffold through the complete npm lifecycle
       ...createWebHopFixtures(),
       // W7: the Workbench's own journey, driven from a real browser.
       ...createBrowserFixtures(),
+      // W8's third journey; the other two reuse SAFE_PROMPT and GATED_PROMPT.
+      ...createTeachFixture(),
     ]
     aimock.addFixtures(registeredFixtures)
     // Guard, not an assertion about today's fixtures: see findPromptCollisions.
@@ -1791,6 +1814,28 @@ test("activates the default research scaffold through the complete npm lifecycle
             )
             expect(activeAimock.getRequests()).toHaveLength(browserJournalStart + 3)
 
+            // W8 — the three empty-state suggestions, in the same browser. Each
+            // starts a new conversation, so each is its own thread and its own
+            // exact journal delta: Research = 10 (the root fixture's 7 turns plus
+            // the researcher subagent's 3), Gate = 2 (the runBash turn, then the
+            // resumed reply after Allow once), Teach = 2 (remember + reply).
+            // The activity cards, the permission gate and the memory panel are
+            // the surfaces a template or CopilotKit bump breaks first.
+            const suggestionsJournalStart = activeAimock.getRequests().length
+            await runWorkbenchSuggestionJourneys(
+              {
+                webUrl,
+                screenshotDir: dirname(browserScreenshotPath),
+                fetchCommand: FETCH_COMMAND,
+                gatedReply: GATED_REPLY,
+                researchReply: RESEARCH_REPLY,
+                teachContent: TEACH_CONTENT,
+                signal: lifecycleSignal,
+              },
+              { chromium },
+            )
+            expect(activeAimock.getRequests()).toHaveLength(suggestionsJournalStart + 14)
+
             return { webInterruptId: webInterrupt.interruptId }
           },
         )
@@ -1956,6 +2001,7 @@ test("activates the default research scaffold through the complete npm lifecycle
         `Commands transcript: ${commandsTranscriptPath}`,
         `AG-UI transcript: ${agUiTranscriptPath}`,
         `Browser screenshot (if W7 failed): ${browserScreenshotPath}`,
+        `Browser screenshots (if W8 failed): ${join(dirname(browserScreenshotPath), "workbench-browser-research.png")}, ${join(dirname(browserScreenshotPath), "workbench-browser-gate.png")}, ${join(dirname(browserScreenshotPath), "workbench-browser-teach.png")}`,
         // Vitest's JSON reporter drops `cause`, so CI would otherwise see only
         // the paths above and never the failure that produced them.
         ...flattenCause(cause),
