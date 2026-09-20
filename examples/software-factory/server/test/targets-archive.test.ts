@@ -201,6 +201,29 @@ describe("captureTarget", () => {
     if (existsSync(parent)) expect(readdirSync(parent)).toEqual([])
   })
 
+  it("keeps two instances of the same role and task apart, and neither clobbers the other", () => {
+    const { root, pin } = repo()
+    const appRoot = mkdtempSync(join(tmpdir(), "factory-archive-app-"))
+    dirs.push(appRoot)
+    const one = captureTarget(task(pin), "controller", {
+      appRoot,
+      repositoryRoot: root,
+      instance: "one",
+    })
+    const two = captureTarget(task(pin), "controller", {
+      appRoot,
+      repositoryRoot: root,
+      instance: "two",
+    })
+    expect(one.directory).toBe(".factory/captures/controller/k.one")
+    expect(two.directory).toBe(".factory/captures/controller/k.two")
+    expect(one.absolute).not.toBe(two.absolute)
+    writeFileSync(join(one.absolute, "stray.txt"), "only in one\n")
+    expect(existsSync(join(one.absolute, "src", "a.ts"))).toBe(true)
+    expect(existsSync(join(two.absolute, "src", "a.ts"))).toBe(true)
+    expect(existsSync(join(two.absolute, "stray.txt"))).toBe(false)
+  })
+
   it("refuses a role that is not a plain name", () => {
     const { root, pin } = repo()
     expect(() =>

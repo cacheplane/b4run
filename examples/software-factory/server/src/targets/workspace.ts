@@ -25,11 +25,15 @@ function capturedFiles(absolute: string): string[] {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const child = relative ? `${relative}/${entry.name}` : entry.name
       if (entry.isDirectory()) stack.push(child)
-      else found.push(child)
+      else if (entry.isFile()) found.push(child)
+      else throw new Error(`Unsupported entry in capture: ${child}`)
     }
   }
   return found.sort()
 }
+
+/** Names {@link targetWorkspace} injects itself; a captured file cannot also claim one. */
+const RESERVED_CAPTURE_PATHS = ["TASK.md", ".gitignore"]
 
 /**
  * Storage identity for the builder's sandboxes. Both the builder's own configuration and the
@@ -69,10 +73,14 @@ export function targetWorkspace(
   options: CaptureTargetOptions = {},
 ): WorkspaceDefinition {
   const captured = captureTarget(task, role, options)
+  const include = capturedFiles(captured.absolute)
+  for (const path of RESERVED_CAPTURE_PATHS)
+    if (include.includes(path))
+      throw new Error(`Task ${task.id}: the capture must not contain ${path}; it is reserved`)
   return {
     source: {
       directory: captured.directory,
-      include: capturedFiles(captured.absolute),
+      include,
       files: [
         { path: "TASK.md", text: task.specText },
         // Build output the target declares as `snapshotIgnore` is also ignored in the

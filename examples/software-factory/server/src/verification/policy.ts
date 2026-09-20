@@ -21,7 +21,7 @@ export function policyEnvironment(task: Task): PolicyEnvironment {
     identity: environmentIdentity(task.target),
     pin: task.target.pin,
     root: task.target.root,
-    captureInclude: task.target.capture.include,
+    captureInclude: [...task.target.capture.include],
     defectPatchSha256:
       task.defectPatch === null
         ? null

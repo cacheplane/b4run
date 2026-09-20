@@ -16,6 +16,16 @@ export interface CapturedTarget {
 export interface CaptureTargetOptions {
   readonly appRoot?: string
   readonly repositoryRoot?: string
+  /**
+   * Distinguishes concurrent captures of the same role and task from one another: without it,
+   * a second capture of a task already in flight (the controller captures once per
+   * verification and again at approve, with no serialization between them) can rename a fresh
+   * directory into place while the first capture's `captureWorkspaceSource` is still walking
+   * it, which that walk sees as the source changing under it mid-read. When present, the
+   * capture lives at `.factory/captures/<role>/<taskId>.<instance>` instead of the shared,
+   * role-and-task-keyed directory.
+   */
+  readonly instance?: string
 }
 
 /** Who a capture is for: each captures into its own directory, never sharing one. */
@@ -23,6 +33,7 @@ export type CaptureRole = "builder" | "controller" | "verifier" | "reference" | 
 
 const ROLE_PATTERN = /^[\w-]+$/
 const TASK_ID_PATTERN = /^[\w-]+$/
+const INSTANCE_PATTERN = /^[\w-]+$/
 
 /**
  * The baseline for a task: the target's pinned subtree with the task's defect applied.
@@ -31,8 +42,10 @@ const TASK_ID_PATTERN = /^[\w-]+$/
  * are invisible and two captures of one pin are byte-identical. Extracted under the app root
  * because the framework's capture takes an app-relative path, and per `role` because the
  * builder's process and the controller's process each capture for themselves and must not
- * rebuild one directory under each other. Synchronous because `b4.config.ts` needs the
- * builder's copy at load time. Rebuilt on every call: there is no cache to invalidate.
+ * rebuild one directory under each other. Per `options.instance` too, when given, because one
+ * role can itself have more than one capture in flight at once (see {@link CaptureTargetOptions}).
+ * Synchronous because `b4.config.ts` needs the builder's copy at load time. Rebuilt on every
+ * call: there is no cache to invalidate.
  *
  * Built into a scratch sibling and renamed into place only once the archive, extraction and
  * defect patch have all succeeded, so a failed capture leaves the previous capture at
@@ -49,11 +62,14 @@ export function captureTarget(
 ): CapturedTarget {
   if (!ROLE_PATTERN.test(role)) throw new Error(`Invalid capture role: ${role}`)
   if (!TASK_ID_PATTERN.test(task.id)) throw new Error(`Invalid task id: ${task.id}`)
+  if (options.instance !== undefined && !INSTANCE_PATTERN.test(options.instance))
+    throw new Error(`Invalid capture instance: ${options.instance}`)
   const appRoot = options.appRoot ?? defaultAppRoot
   const repo = options.repositoryRoot ?? defaultRepositoryRoot()
-  const directory = `.factory/captures/${role}/${task.id}`
-  const absolute = join(appRoot, ".factory", "captures", role, task.id)
-  const scratch = join(appRoot, ".factory", "captures", role, `.${task.id}.tmp-${process.pid}`)
+  const name = options.instance === undefined ? task.id : `${task.id}.${options.instance}`
+  const directory = `.factory/captures/${role}/${name}`
+  const absolute = join(appRoot, ".factory", "captures", role, name)
+  const scratch = join(appRoot, ".factory", "captures", role, `.${name}.tmp-${process.pid}`)
   rmSync(scratch, { recursive: true, force: true })
   mkdirSync(scratch, { recursive: true })
 

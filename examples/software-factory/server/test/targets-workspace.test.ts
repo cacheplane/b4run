@@ -35,6 +35,25 @@ function repo(): { root: string; pin: string } {
   return { root, pin }
 }
 
+/** Like {@link repo}, but the pinned subtree itself carries a file the workspace reserves. */
+function repoWithReservedFile(name: string): { root: string; pin: string } {
+  const root = mkdtempSync(join(tmpdir(), "factory-ws-repo-"))
+  dirs.push(root)
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim()
+  git("init", "-q")
+  git("config", "user.email", "t@example.com")
+  git("config", "user.name", "t")
+  mkdirSync(join(root, "pkg", "src"), { recursive: true })
+  writeFileSync(join(root, "pkg", "src", "a.ts"), "export const a = 1\n")
+  writeFileSync(join(root, "pkg", "package.json"), "{}\n")
+  writeFileSync(join(root, "pkg", name), "reserved\n")
+  git("add", ".")
+  git("commit", "-q", "-m", "one")
+  const pin = git("rev-parse", "HEAD")
+  return { root, pin }
+}
+
 function task(pin: string): Task {
   return {
     id: "k",
@@ -105,6 +124,22 @@ describe("targetWorkspace", () => {
       { path: "node_modules", target: "/opt/targets/t/node_modules" },
     ])
     expect(definition.baseline).toBe("git")
+  })
+
+  it("refuses a capture that carries the reserved TASK.md or .gitignore names", () => {
+    const appRoot = mkdtempSync(join(tmpdir(), "factory-ws-app-"))
+    dirs.push(appRoot)
+    for (const name of ["TASK.md", ".gitignore"]) {
+      const { root, pin } = repoWithReservedFile(name)
+      const t = task(pin)
+      const withReserved = {
+        ...t,
+        target: { ...t.target, capture: { include: ["src", "package.json", name] } },
+      }
+      expect(() =>
+        targetWorkspace(withReserved, "controller", { appRoot, repositoryRoot: root }),
+      ).toThrow(new RegExp(`must not contain ${name.replace(".", "\\.")}; it is reserved`))
+    }
   })
 })
 
