@@ -313,16 +313,9 @@ function correlateRootToolCalls(events: readonly AgUiEvent[]): Map<string, unkno
         return event.delta
       })
       .join("")
-    const outerArgs = JSON.parse(encodedArgs) as unknown
-    const parsedArgs =
-      outerArgs !== null &&
-      typeof outerArgs === "object" &&
-      !Array.isArray(outerArgs) &&
-      Object.keys(outerArgs).length === 1 &&
-      typeof Reflect.get(outerArgs, "input") === "string"
-        ? (JSON.parse(Reflect.get(outerArgs, "input") as string) as unknown)
-        : outerArgs
-    parsedArgsByName.set(toolCallName, parsedArgs)
+    // Every tool's input type resolves through the app's tsconfig (#759), so
+    // ARGS are the model's parsed args with no ToolNode {input} wrapper.
+    parsedArgsByName.set(toolCallName, JSON.parse(encodedArgs) as unknown)
   }
   return parsedArgsByName
 }
@@ -904,10 +897,10 @@ function assertResumedGatedJourney(
       return event.delta
     })
     .join("")
-  const outerArgs = JSON.parse(encodedArgs) as { readonly input?: unknown }
-  expect(Object.keys(outerArgs)).toEqual(["input"])
-  expect(typeof outerArgs.input).toBe("string")
-  expect(JSON.parse(String(outerArgs.input))).toEqual({ command: FETCH_COMMAND })
+  // No ToolNode {input} wrapper: tool input types resolve through the app's
+  // tsconfig (#759), so runBash's schema is `{ command }` and the resumed
+  // call replays the model's parsed args as-is, matching the gated run.
+  expect(JSON.parse(encodedArgs)).toEqual({ command: FETCH_COMMAND })
 
   const toolResult = correlated.find((event) => event.type === "TOOL_CALL_RESULT")
   if (toolResult === undefined || typeof toolResult.content !== "string") {
