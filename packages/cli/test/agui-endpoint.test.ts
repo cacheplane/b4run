@@ -9,7 +9,7 @@ import {
   type SubagentResolver,
   streamAgent,
 } from "@b4run/langchain"
-import type { MiddlewareHandler } from "@b4run/sdk"
+import type { MiddlewareAfterHook, MiddlewareAfterRun, MiddlewareHandler } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch"
 import { AIMessage } from "@langchain/core/messages"
@@ -145,6 +145,7 @@ async function setupServer(
 
 interface ControlledServerOptions {
   readonly middleware?: MiddlewareHandler
+  readonly middlewareAfter?: MiddlewareAfterHook
   readonly checkpointer?: BaseCheckpointSaver
   readonly streamRoute: typeof streamResolvedRoute
   readonly shutdownSignal?: AbortSignal
@@ -175,6 +176,7 @@ async function setupControlledServer(controlled: ControlledServerOptions): Promi
         ({ getTuple: async () => undefined } as unknown as BaseCheckpointSaver),
       liveTurnHub: controlled.liveTurnHub ?? createLiveTurnHub(),
       middleware: controlled.middleware,
+      ...(controlled.middlewareAfter ? { middlewareAfter: controlled.middlewareAfter } : {}),
       registry: {
         appRoot,
         entries: [],
@@ -1151,4 +1153,182 @@ it("does not clone the request envelope when middleware is absent", async () => 
   } finally {
     clone.mockRestore()
   }
+})
+
+// ---------------------------------------------------------------------------
+// middleware `after` (issue #755): the final assistant message, validated or
+// rewritten server-side with the middleware context, before the client sees
+// its TEXT_MESSAGE_* frames and RUN_FINISHED.
+// ---------------------------------------------------------------------------
+
+/** A turn that talks, calls a tool, then answers — the answer is the final message. */
+const afterHookRoute: typeof streamResolvedRoute = async function* () {
+  yield { type: "chunk", data: "Looking", messageId: "m1" }
+  yield { type: "message_end", data: { messageId: "m1" } }
+  yield { type: "tool_call", id: "c1", name: "lookup", input: { q: "x" } }
+  yield { type: "tool_result", id: "c1", name: "lookup", output: "42" }
+  yield { type: "chunk", data: "The answer ", messageId: "m2" }
+  yield { type: "chunk", data: "is 42.", messageId: "m2" }
+  yield { type: "message_end", data: { messageId: "m2" } }
+  yield { type: "done", output: { ok: true } }
+}
+
+const AFTER_HOOK_RUN = {
+  threadId: "after-thread",
+  runId: "after-run",
+  messages: [{ id: "1", role: "user", content: "what is the answer?" }],
+}
+
+it("after hook: receives the final message with the middleware context, before RUN_FINISHED", async () => {
+  const seen: MiddlewareAfterRun[] = []
+  const { port } = await setupControlledServer({
+    middleware: () => ({ action: "continue", context: { tenant: "acme" } }),
+    middlewareAfter: (run) => {
+      seen.push(run)
+    },
+    streamRoute: afterHookRoute,
+  })
+  const { events, response } = await postRun(port, AFTER_HOOK_RUN)
+  expect(response.status).toBe(200)
+  expect(seen).toEqual([
+    {
+      assistantId: "/chat#agent",
+      context: { tenant: "acme" },
+      finalMessage: "The answer is 42.",
+      messages: [{ id: "1", role: "user", content: "what is the answer?" }],
+      routeId: "/chat",
+      runId: "after-run",
+      threadId: "after-thread",
+    },
+  ])
+  expect(events.map((event) => event.type)).toEqual([
+    "RUN_STARTED",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+    "TOOL_CALL_START",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_END",
+    "TOOL_CALL_RESULT",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+    "RUN_FINISHED",
+  ])
+  expect(events.at(-1)).toMatchObject({ outcome: { type: "success" }, result: { ok: true } })
+})
+
+it("after hook: a hook that returns nothing leaves the emitted events identical to no hook", async () => {
+  const baseline = await setupControlledServer({ streamRoute: afterHookRoute })
+  const hooked = await setupControlledServer({
+    middlewareAfter: () => undefined,
+    streamRoute: afterHookRoute,
+  })
+  // Message ids are minted per run, so they are the one thing allowed to differ.
+  const stableIds = (sse: string) => sse.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, "<id>")
+  const expected = stableIds(await (await requestRun(baseline.port, AFTER_HOOK_RUN)).text())
+  const actual = stableIds(await (await requestRun(hooked.port, AFTER_HOOK_RUN)).text())
+  expect(actual).toBe(expected)
+})
+
+it("after hook: replaces the final message; earlier text and tool frames are untouched", async () => {
+  const { port } = await setupControlledServer({
+    middlewareAfter: (run) => ({ finalMessage: `[checked] ${run.finalMessage}` }),
+    streamRoute: afterHookRoute,
+  })
+  const { events } = await postRun(port, AFTER_HOOK_RUN)
+  const text = events.filter((event) => event.type === "TEXT_MESSAGE_CONTENT")
+  expect(text.map((event) => event.delta)).toEqual(["Looking", "[checked] The answer is 42."])
+  expect(events.filter((event) => event.type === "TOOL_CALL_RESULT")).toHaveLength(1)
+  expect(events.at(-1)).toMatchObject({ type: "RUN_FINISHED", outcome: { type: "success" } })
+})
+
+it("after hook: reject() ends the run with RUN_ERROR and no final text", async () => {
+  const { port } = await setupControlledServer({
+    middlewareAfter: () => ({
+      action: "reject",
+      body: { error: "unknown component <Chart>" },
+      status: 422,
+    }),
+    streamRoute: afterHookRoute,
+  })
+  const { events, response } = await postRun(port, AFTER_HOOK_RUN)
+  expect(response.status).toBe(200)
+  expect(events.map((event) => event.type)).toEqual([
+    "RUN_STARTED",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+    "TOOL_CALL_START",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_END",
+    "TOOL_CALL_RESULT",
+    "RUN_ERROR",
+  ])
+  expect(events.at(-1)).toEqual({
+    type: "RUN_ERROR",
+    message: "unknown component <Chart>",
+    code: "middleware_rejected",
+  })
+  const thread = await fetch(`http://127.0.0.1:${port}/threads/after-thread`)
+  expect(await thread.json()).toMatchObject({ status: "idle" })
+})
+
+it("after hook: binds from a middleware file's lifecycle definition through the runtime", async () => {
+  const appRoot = await fixtureApp({
+    "src/app/context/index.ts":
+      "export const graph = async (_input, ctx) => ({ middleware: ctx.middleware })\n",
+    "src/middleware.ts": `
+      export default {
+        handle: (request) => ({ action: "continue", context: { tenant: request.headers["x-tenant"] } }),
+        after: (run) => run.context?.tenant === "acme"
+          ? { finalMessage: "validated for " + run.context.tenant }
+          : { action: "reject", status: 403, body: "tenant mismatch" },
+      }
+    `,
+  })
+  const runtime = await createRuntimeRequestListener({ appRoot })
+  cleanup.push(() => runtime.close())
+  const server = createServer(runtime.listener)
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())))
+  const port = (server.address() as AddressInfo).port
+  const post = async (threadId: string, tenant: string) => {
+    const response = await fetch(`http://127.0.0.1:${port}/agui/%2Fcontext%23graph`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "text/event-stream",
+        "x-tenant": tenant,
+      },
+      body: JSON.stringify({
+        context: [],
+        forwardedProps: {},
+        messages: [{ id: "1", role: "user", content: "hello" }],
+        runId: `run-${threadId}`,
+        state: {},
+        threadId,
+        tools: [],
+      }),
+    })
+    return parseSseEvents(await response.text())
+  }
+
+  const accepted = await post("after-file-ok", "acme")
+  expect(accepted.map((event) => event.type)).toEqual([
+    "RUN_STARTED",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+    "RUN_FINISHED",
+  ])
+  expect(accepted[2]).toMatchObject({ delta: "validated for acme" })
+
+  const rejected = await post("after-file-rejected", "other")
+  expect(rejected.at(-1)).toEqual({
+    type: "RUN_ERROR",
+    message: "tenant mismatch",
+    code: "middleware_rejected",
+  })
 })

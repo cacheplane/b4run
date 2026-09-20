@@ -71,7 +71,12 @@ import { scenarios } from "@b4run/sdk/testing"
 | `defineMemory` | Declare a typed long-term memory schema. |
 | `ContinueResult` | Continue middleware execution with optional context. |
 | `B4Middleware` | Define the middleware export contract: a handler or a lifecycle definition. |
-| `MiddlewareDefinition` | Define middleware with `setup`, `dispose`, and `handle`. |
+| `MiddlewareDefinition` | Define middleware with `setup`, `dispose`, `handle`, and `after`. |
+| `MiddlewareAfterHook` | Validate or replace the final assistant message of an AG-UI run. |
+| `MiddlewareAfterRun` | Describe what `after` receives: the final message and the allowed context. |
+| `MiddlewareAfterResult` | Express an `after` decision: keep, replace, or reject. |
+| `MiddlewareAfterMessage` | Describe one message of the conversation an `after` run was started with. |
+| `ReplaceFinalMessageResult` | Replace the final assistant message from `after`. |
 | `MiddlewareHandler` | Define the per-request middleware function. |
 | `MiddlewareRequest` | Describe a middleware request. |
 | `MiddlewareSetupContext` | Describe what `setup` receives. |
@@ -235,7 +240,11 @@ Middleware returns an explicit continue or reject result. Use `allow(context?)` 
 definition with optional `setup(ctx)` and `dispose()` hooks around `handle`.
 `setup` runs once, lazily, before the first gated request and is retried on the
 next request if it rejects; `dispose` runs from the Node runtimes' shutdown
-path. See [Lifecycle hooks](/docs/middleware#lifecycle-hooks).
+path. See [Lifecycle hooks](/docs/middleware#lifecycle-hooks). The definition
+may also carry `after(run)`, which receives an AG-UI run's final assistant
+message with the allowed context and may keep, replace, or `reject(...)` it
+before the client sees it. See
+[Validating the final assistant message](/docs/middleware#validating-the-final-assistant-message).
 
 ```ts api-contract="@b4run/sdk#.:defineMiddleware"
 export declare function defineMiddleware<T extends B4Middleware>(middleware: T): T
