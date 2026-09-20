@@ -62,15 +62,41 @@ at boot, are validated with zod, and are digested into the bundle.
 |---|---|
 | `id` | The target id; must equal the directory name. |
 | `pin` | A full 40-hex commit SHA in the repository the factory runs inside. The loader refuses anything else and refuses a pin the local object store does not contain. |
-| `capture` | `{ include: string[], excludeDirectories: string[] }`, paths relative to the repository root, passed to `git archive` and then to the workspace capture. For devkit: include `packages/devkit`, `packages/config-typescript`, `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`; exclude `dist`, `node_modules`, `.turbo`. |
+| `root` | The repository directory that becomes the workspace root, `.` for the repository itself. `git archive <pin>:<root>` produces an archive rooted there, so task paths are root-relative and a target whose root is a subdirectory keeps short paths. `cli-flags` uses `examples/software-factory/server/fixtures/cli-flags/project`; devkit uses `.`. |
+| `capture` | `{ include: string[] }`, paths relative to `root`, passed to `git archive` and then to the workspace capture. For devkit: `package.json`, `pnpm-workspace.yaml`, `.npmrc`, `packages/devkit`, `packages/config-typescript`. The lockfile is not captured: the image already holds the install, and nothing at run time reads it. There is no exclude list: an archive of a commit contains only tracked files, so `dist`, `node_modules` and `.turbo` are absent by construction. |
+| `snapshotIgnore` | Path prefixes, root-relative, that a suite may legitimately write under: for devkit `packages/devkit/dist/`. The verifier's before-and-after tamper comparison skips them; everything else that changes during a suite is still tampering. Inspection can only exclude root directories, which is why this is a verifier-side filter. |
 | `image` | Written by the prepare script: `{ localId, platform, baseManifestDigest, dockerfileSha256, lockfileSha256, pnpmVersion }`. `localId` is the Docker image id and is named as such: it is the hash of the image's config JSON, host-specific and not a registry digest. The environment identity every bundle binds is the sha256 of this whole object, so a second host can verify that the same inputs were used even though it cannot pull the image. A missing `image` is a load error: a target is not usable until it has been prepared. Pushing to a registry and binding the manifest digest instead is the rung 3 upgrade. |
-| `environmentLinks` | Where the image's dependency trees mount into the workspace. For pnpm this is two links: `node_modules` and `packages/devkit/node_modules`, both under `/opt/targets/<id>/`. |
-| `commands` | `{ cwd, build: string[], test: string[] }`, argv arrays run at `cwd` relative to the workspace root, no shell. For devkit: `cwd` `packages/devkit`, build `["pnpm","build"]`, test `["pnpm","test","--","--exclude","test/template-thread-access.test.ts"]`. The exclusion carries a comment: that test reads `examples/research/server/src`, which is outside the capture. No turbo runs inside the container. |
+| `environmentLinks` | Where the image's dependency tree mounts into the workspace: one root link, `node_modules` to `/opt/targets/<id>/node_modules`. The image installs with pnpm's hoisted linker so every dependency, including workspace siblings, resolves from that one tree. Inspection validates root symlinks only and refuses nested ones, which rules out pnpm's default per-package `node_modules` links. |
+| `imageContext`, `lockfile`, `imageAssertResolves` | What the prepare script needs: the repository paths copied into the build context at the pin, the lockfile path whose sha256 enters the image object, and module specifiers that must resolve from `commands.cwd` inside the built image (for devkit `vitest`, `typescript`, `@types/node/package.json`). The resolve assertion is what catches an install that silently skipped a platform-matched optional dependency. |
+| `commands` | `{ cwd, build: string[], test: string[], nodeTestExecArgv: string[] }`. `build` and `test` are argv arrays run at `cwd` relative to the workspace root through a quoting join, never a shell string from the manifest. For devkit: `cwd` `packages/devkit`, build `["pnpm","exec","tsc","-b","tsconfig.json"]`, test `["pnpm","exec","vitest","--run","--no-cache","--config","vitest.config.ts","--exclude","test/template-thread-access.test.ts"]`. `test` must be a vitest invocation: the runner appends `--reporter=json --outputFile=<path>` and grades the report. The exclusion carries a comment: that test reads `examples/research/server/src`, which is outside the capture. `--no-cache` because the dependency tree is a read-only mount. `nodeTestExecArgv` is what a `node:test` suite (the independent checks, and cli-flags's visible suite) is run with: `["--import","tsx"]` for cli-flags, `[]` for devkit, whose checks rely on Node 24's native type stripping because tsx is not in its closure. No turbo runs inside the container. |
+| `resources` | `{ memoryMb, cpus, commandTimeoutMs, verifierDeadlineMs }`, the sandbox policy and verifier deadline for this target. Measured, see "Resources". |
 | `runnerConfig` | The files the test command reads to decide what to run: for devkit `packages/devkit/package.json`, `packages/devkit/vitest.config.ts`, `packages/devkit/tsconfig.json`, `packages/devkit/tsconfig.test.json`. Every task against this target must list them as immutable, and the task loader refuses a task whose allowed paths include any of them. Without this the "tests are immutable" guarantee is hollow: a builder that may edit the runner's configuration can exclude the test it fails. |
 
 The repository is not a field. Rung 2 is a dogfood: the target repository is the
-one the factory is running inside, resolved once with
-`git rev-parse --show-toplevel`. An external repository is rung 4's concern.
+one the factory is running inside, resolved once from `FACTORY_REPO_ROOT` or,
+absent that, `git rev-parse --show-toplevel` from the working directory. The
+environment override exists because the layer 2 and 3 tests copy the app to a
+temporary root outside the repository. An external repository is rung 4's
+concern.
+
+### Suite runners
+
+Rung 1's suite runner drives `node:test` over one file and grades named
+assertions from its event stream. Devkit's tests are vitest tests, so a suite
+now names its runner. `checks.json` becomes:
+
+- `{ "runner": "vitest", "assertions": [...] }`: runs the target's
+  `commands.test` with a JSON reporter appended, and passes when the exit code
+  is zero, no test failed, and every named assertion appears exactly once as
+  passed. Assertion names are vitest full names, e.g.
+  `spawnProcess clears the deadline when spawning fails asynchronously`.
+- `{ "runner": "node-test", "file": "...", "assertions": [...] }`: rung 1's
+  runner, with the target's `nodeTestExecArgv` instead of a hard-coded
+  `--import tsx`.
+
+The independent suite is always a `node-test` suite written to `checks/` at the
+workspace root, as in rung 1; it reaches the built artifact through
+`commands.cwd`.
 
 ### `tasks/<id>/`
 
@@ -78,7 +104,7 @@ one the factory is running inside, resolved once with
 |---|---|
 | `task.json` | `id`, `target`, `allowedSourcePaths`, `immutablePaths`. Paths are repository paths, e.g. `packages/devkit/src/testing/process.ts`. The rung 1 regex that required `src/*.ts` at the workspace root is replaced by the rule that already carried the weight: allowed and immutable are disjoint, and an allowed path never ends in `.test.ts`. |
 | `spec.md` | What to change and what to preserve, with acceptance IDs in the RFC's `A1:` form and explicit non-goals. Its digest is `specificationDigest`. |
-| `defect.patch` | Applied to the archive before capture. Re-seeds the known regression on top of the pin, so the baseline is current code with one known defect rather than an old commit. |
+| `defect.patch` | Applied to the archive before capture. Re-seeds the known regression on top of the pin, so the baseline is current code with one known defect rather than an old commit. Optional: `cli-flags` has none, because its pinned bytes are already the defective baseline. |
 | `reference.patch` | The forward repair. Used only by the scripted builder in layer 3 and never read by the verifier. |
 | `checks.json` | Maps the visible suite and the independent suite to the acceptance IDs they cover, as in rung 1. |
 | `checks/` | The independent suite. Structurally absent from the capture; the verifier writes it into its own container after the visible suite has run. |
@@ -125,13 +151,19 @@ definition changed.
 
 ### Archive
 
-A new module `src/targets/archive.ts` exports one function,
-`captureTarget(taskId, signal)`. It resolves the repository root, runs
-`git archive <pin> -- <include...>` into a fresh temporary directory under
-`.factory/captures/`, extracts it, runs `git apply` with the task's
-`defect.patch` (a reject is a thrown error), and returns the directory. There
-is no cache: `git archive` of a hundred files is milliseconds, and a cache
-would need invalidation the rung does not otherwise need.
+A new module `src/targets/archive.ts` exports one synchronous function,
+`captureTarget(task, role)`. It resolves the repository root, runs
+`git archive <pin>:<root> -- <include...>`, extracts it into
+`.factory/captures/<role>/<taskId>/` under the app root after removing whatever
+was there, runs `git apply` with the task's `defect.patch` if present (a reject
+is a thrown error), and returns the directory as an app-relative path. The
+directory is app-relative and not a temporary directory because the framework's
+capture takes a portable path under the app root, and it is synchronous because
+`b4.config.ts` needs the builder's copy at load time. The `role` keeps the
+builder's copy and the controller's copy apart so two processes never rebuild
+one directory under each other; both derive from the same pin and patch, so
+their digests agree. There is no cache: the directory is rebuilt on every
+capture.
 
 `captureBaseline` reads that directory. The builder's workspace definition
 points its `source.directory` at that directory with the target's include and
@@ -159,8 +191,11 @@ the sibling directory; inside the image that resolves to the image's copy, and
 a stub copy would give the builder an empty package. For devkit the one sibling
 is `@b4run/config-typescript`, json only, no build.
 
-The resulting `/opt/targets/devkit/node_modules` and
-`/opt/targets/devkit/packages/devkit/node_modules` are the two link targets.
+The install uses `--config.node-linker=hoisted`, so `/opt/targets/devkit/node_modules`
+is one flat tree and the only link target. pnpm is installed with
+`npm install -g pnpm@<packageManager version>` rather than corepack, because
+corepack caches the binary in the enabling user's home and the container runs
+as `node` with the network denied.
 
 `scripts/prepare-target.ts <id>` mirrors code-fixer's prepare script: pull and
 digest-pin the base image, `docker build`, `docker image inspect`, assert the
@@ -179,12 +214,13 @@ assertion is what catches the omission.
 
 ### Links inside the workspace
 
-pnpm resolves a package's dependencies through the package's own
-`node_modules` symlinks into the root `.pnpm` store, so both directories must
-be present and must come from one install. The inspection options derive every
-expected root symlink from the target's `environmentLinks`, the same derivation
-rung 1 uses for one link, so the reader and the verifier cannot disagree about
-what a legitimate root symlink is.
+One root symlink, `node_modules`, derived into the inspection options from the
+target's `environmentLinks` exactly as rung 1 does, so the reader and the
+verifier cannot disagree about what a legitimate root symlink is. The hoisted
+install is what makes one link enough: with pnpm's default linker every
+workspace package has its own `node_modules` of relative symlinks, inspection
+refuses nested symlinks it was not told about, and there is no option to tell
+it.
 
 ### Resources
 
@@ -210,9 +246,11 @@ stopwatch). Network stays denied; the frozen install is the point.
   caveat about mutable tags comes out of the README and the verifier, replaced
   by the narrower caveat that the identity is a local id plus its inputs, not a
   registry digest.
-- The before-and-after snapshot around each suite excludes `dist`, `.turbo` and
-  the vitest cache under the package directory, because the build writes there
-  legitimately. Any other change during a suite is still tampering.
+- The before-and-after snapshot around each suite skips the target's
+  `snapshotIgnore` prefixes, because the build writes there legitimately. Any
+  other change during a suite is still tampering. The verifier's inspection
+  limits rise to the reader's (16 MiB total), since a monorepo capture is
+  larger than a fixture.
 - The reader needs no code change.
 
 ## Lifecycle, cancel, budget and reconciliation
@@ -238,7 +276,11 @@ layer; an invariant that must hold on every push is asserted there.
 - The archive module, against a throwaway git repository built in the test:
   the archive contains exactly the include list, the defect patch is applied,
   and the baseline digest is identical across two captures.
-- The task's two patches apply cleanly to the pin.
+- The task's two patches apply cleanly to the pin, and applying the defect
+  patch then the reference patch yields the pinned bytes again.
+- The suite graders, as pure functions over a captured vitest JSON report and a
+  captured `node:test` event list: a missing assertion, an extra failure and a
+  skipped named test each grade as they should.
 - The rung 1 invariants re-asserted through the new catalogs with the fake
   verifier: visible pass plus independent fail cannot reach
   `awaiting_approval`; an immutable-path edit is a scope violation; a changed
@@ -308,9 +350,12 @@ examples/software-factory/server/
     fixtures/           # removed; cli-flags moves to tasks/ + targets/
 ```
 
-The rung 1 `cli-flags` fixture is re-expressed as a target and a task so layer 1
-keeps a fast, container-free path, and `src/fixtures/` is deleted. That
-retirement is what closes the handoff's seam-leak item.
+The rung 1 `cli-flags` fixture is re-expressed as a target rooted at
+`fixtures/cli-flags/project` in this repository and a task, so every rung 1
+path and test stays valid, and `src/fixtures/` is deleted. Its image is built
+by the same prepare script from its own Dockerfile, so the README no longer
+sends the reader to code-fixer's. That retirement is what closes the handoff's
+seam-leak item.
 
 ## Research alignment
 
