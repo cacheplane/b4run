@@ -5,92 +5,84 @@ import { withWorkspace } from "@b4run/cli"
 import { dockerSandbox } from "@b4run/sandbox"
 import { inspectWorkspace } from "@b4run/workspace"
 import type { Receipt } from "../domain/work-order.js"
-import { appRoot, loadFixture } from "../fixtures/catalog.js"
-import {
-  fixtureWorkspace,
-  sandboxImage,
-  sandboxPolicy,
-  workspaceInspectionOptions,
-} from "../fixtures/workspace.js"
 import type { ArtifactStore } from "../storage/artifacts.js"
-import { runFixtureSuite, type SuiteResult } from "./checks-runner.js"
+import { captureDirectory } from "../targets/archive.js"
+import { appRoot, environmentIdentity, imageTag, loadTask } from "../targets/catalog.js"
+import {
+  targetInspectionOptions,
+  targetSandboxPolicy,
+  targetWorkspace,
+} from "../targets/workspace.js"
+import { runBuild, runSuite, type SuiteResult } from "./checks-runner.js"
 import { type Verifier, type VerifyInput, worstVerdict } from "./verifier.js"
 
-/**
- * How long one verification may take before the verifier stops itself.
- *
- * The verifier bounds itself rather than trusting a caller to bound it. Today it
- * has no such caller at boot: `reconcileAll` is awaited inside `createFactory`
- * and the budget ticker only starts afterwards, so a verification that runs
- * during reconciliation runs with no budget enforcement, nothing alive to cancel
- * it, and the HTTP API not yet listening. A hang there is a hang of the process.
- *
- * The figure is the sum of what the work can legitimately need: two suites at
- * the policy's 120s per-command ceiling, plus workspace capture, container
- * creation and four inspections.
- */
-export const VERIFIER_DEADLINE_MS = 300_000
-
 export interface DockerVerifierOptions {
-  /** Overridable only so a test can prove the deadline fires. */
+  /** Overrides the target's own deadline; only so a test can prove the deadline fires. */
   readonly deadlineMs?: number
 }
 
 interface Outcome {
+  readonly build: { ok: boolean; output: string }
   readonly tampered: "visible" | "independent" | null
-  readonly visible: SuiteResult
+  readonly visible: SuiteResult | null
   readonly independent: SuiteResult | null
 }
 
 /**
- * The real verifier. Its container is not the builder's: a different sandbox
- * scope, a freshly captured workspace, and the independent checks written in only
- * after the visible suite has had its turn, from the controller's own copy.
+ * The real verifier. Its container is not the builder's: a different sandbox scope, a
+ * freshly captured workspace of its own, and the independent checks written in only after
+ * the visible suite has had its turn, from the controller's own copy.
  *
- * The workspace is snapshotted before and after each suite. Any persistent change
- * a suite made is a rejection, which is what catches a candidate that repairs
- * itself by editing its own tests.
+ * The workspace is snapshotted before and after each suite. Any persistent change a suite
+ * made outside the target's `snapshotIgnore` prefixes is a rejection, which is what catches
+ * a candidate that repairs itself by editing its own tests.
  */
 export function createDockerVerifier(
   artifacts: ArtifactStore,
   options: DockerVerifierOptions = {},
 ): Verifier {
-  const deadlineMs = options.deadlineMs ?? VERIFIER_DEADLINE_MS
   return {
     async verify(input: VerifyInput, signal: AbortSignal): Promise<Receipt> {
-      const fixture = loadFixture(input.taskId)
+      const task = loadTask(input.taskId)
+      const target = task.target
+      const deadlineMs = options.deadlineMs ?? target.resources.verifierDeadlineMs
       const stateRoot = join(appRoot, ".factory", "verifiers", randomUUID())
-      const provider = dockerSandbox({ scope: "software-factory-verifier", image: sandboxImage })
-      const environmentIdentity = sandboxImage
-      // Built at return time, not at entry: `issuedAt` is when the receipt was
-      // issued, and a run that took four minutes must not claim it was issued
-      // before the checks it reports had run.
+      // Per-call capture: two work orders on one task may verify concurrently.
+      const instance = randomUUID()
+      const provider = dockerSandbox({
+        scope: "software-factory-verifier",
+        image: imageTag(target),
+      })
+      const identity = environmentIdentity(target)
+      // Built at return time, not at entry: `issuedAt` is when the receipt was issued, and a
+      // run that took four minutes must not claim it was issued before the checks it
+      // reports had run.
       const base = () => ({
         id: `rc-${randomUUID()}`,
         workOrderId: input.workOrderId,
         candidateDigest: input.candidateDigest,
-        verifierIdentity: `${provider.name}:${environmentIdentity}`,
+        verifierIdentity: `${provider.name}:${identity}`,
         policyDigest: input.policyDigest,
-        environmentIdentity,
+        environmentIdentity: identity,
         issuedAt: new Date().toISOString(),
       })
 
-      // The deadline is ours; the caller's signal is the caller's. Composing them
-      // means the container is torn down either way — `withWorkspace` destroys the
-      // thread on a fresh signal in its `finally` — while leaving the two causes
-      // distinguishable afterwards.
+      // The deadline is ours; the caller's signal is the caller's. Composing them means the
+      // container is torn down either way while leaving the two causes distinguishable.
       const deadline = AbortSignal.timeout(deadlineMs)
       const bounded = AbortSignal.any([signal, deadline])
+      const inspection = targetInspectionOptions(task)
 
       let outcome: Outcome
       try {
+        const workspace = targetWorkspace(task, "verifier", { instance })
         outcome = await withWorkspace(
           {
             appRoot,
             stateRoot,
             provider,
-            workspace: fixtureWorkspace(input.taskId),
-            policy: sandboxPolicy,
+            workspace,
+            policy: targetSandboxPolicy(target),
             signal: bounded,
           },
           async (handle) => {
@@ -98,13 +90,11 @@ export function createDockerVerifier(
               (
                 await inspectWorkspace(handle, {
                   signal: bounded,
-                  maxEntries: 1000,
+                  excludeRootDirectories: inspection.excludeRootDirectories,
+                  expectedRootSymlinks: inspection.expectedRootSymlinks,
+                  maxEntries: 10_000,
                   maxFileBytes: 2 * 1024 * 1024,
-                  maxTotalBytes: 2 * 1024 * 1024,
-                  // The same options the thread reader is given, from the same derivation:
-                  // the git directory and the dependency symlink are properties of the
-                  // workspace definition, not of this verifier.
-                  ...workspaceInspectionOptions(input.taskId),
+                  maxTotalBytes: 16 * 1024 * 1024,
                 })
               ).files
 
@@ -114,35 +104,35 @@ export function createDockerVerifier(
                 signal: bounded,
               })
 
-            const beforeVisible = await snapshot()
-            const visible = await runFixtureSuite(handle, fixture.checks.visible, bounded)
-            if (changed(beforeVisible, await snapshot()))
-              return { tampered: "visible" as const, visible, independent: null }
+            const build = await runBuild(handle, target, bounded)
+            if (!build.ok) return { build, tampered: null, visible: null, independent: null }
 
-            // Installed here and not before: the visible suite must not be able to
-            // read, edit or delete the checks it is graded against a moment later.
-            const name = fixture.checks.independent.file.replace(/^checks\//, "")
+            const beforeVisible = await snapshot()
+            const visible = await runSuite(handle, target, task.checks.visible, bounded)
+            if (changedOutside(beforeVisible, await snapshot(), target.snapshotIgnore))
+              return { build, tampered: "visible" as const, visible, independent: null }
+
+            // Installed here and not before: the visible suite must not be able to read,
+            // edit or delete the checks it is graded against a moment later.
+            const name = task.checks.independent.file.replace(/^checks\//, "")
             await handle.filesystem.writeFile(
               join(handle.workspaceRoot, "checks", name),
-              // Bridge until src/fixtures is retired: the independent check now lives
-              // under tasks/<id>/checks/, not fixtures/<id>/checks/.
-              await readFile(join(fixture.tasksDirectory, "checks", name), "utf8"),
+              await readFile(join(task.directory, "checks", name), "utf8"),
               { workspaceRoot: handle.workspaceRoot, signal: bounded },
             )
 
             const beforeIndependent = await snapshot()
-            const independent = await runFixtureSuite(handle, fixture.checks.independent, bounded)
-            if (changed(beforeIndependent, await snapshot()))
-              return { tampered: "independent" as const, visible, independent }
+            const independent = await runSuite(handle, target, task.checks.independent, bounded)
+            if (changedOutside(beforeIndependent, await snapshot(), target.snapshotIgnore))
+              return { build, tampered: "independent" as const, visible, independent }
 
-            return { tampered: null, visible, independent }
+            return { build, tampered: null, visible, independent }
           },
         )
       } catch (error) {
-        // Our own deadline fired: the harness ran out of time, which is a fact
-        // about the harness and not about the candidate. That is exactly what
-        // `inconclusive` means, so it is a receipt and not a rejection. A caller
-        // cancel is the caller's own decision and is re-thrown untouched.
+        // Our own deadline fired: a fact about the harness, not the candidate. That is what
+        // `inconclusive` means, so it is a receipt and not a rejection. A caller cancel is
+        // the caller's own decision and is re-thrown untouched.
         if (!deadline.aborted || signal.aborted) throw error
         return {
           ...base(),
@@ -164,7 +154,27 @@ export function createDockerVerifier(
         }
       } finally {
         await rm(stateRoot, { recursive: true, force: true })
+        // Only once `withWorkspace` has returned: the framework captures the source at
+        // workspace preparation, so the capture is no longer read after the callback ends.
+        await rm(join(appRoot, captureDirectory(task.id, "verifier", instance)), {
+          recursive: true,
+          force: true,
+        })
       }
+
+      if (!outcome.build.ok)
+        return {
+          ...base(),
+          verdict: "fail",
+          checks: [
+            {
+              id: "build",
+              acceptanceIds: [],
+              verdict: "fail",
+              evidence: [await put(artifacts, "build", outcome.build.output)],
+            },
+          ],
+        }
 
       if (outcome.tampered)
         return {
@@ -179,28 +189,30 @@ export function createDockerVerifier(
                 await put(
                   artifacts,
                   outcome.tampered,
-                  `a suite mutated the workspace during ${outcome.tampered}\n${outcome.visible.output}`,
+                  `a suite mutated the workspace during ${outcome.tampered}\n${outcome.visible?.output ?? ""}`,
                 ),
               ],
             },
           ],
         }
 
+      const visible = outcome.visible
       const independent = outcome.independent
-      if (!independent) throw new Error("independent suite did not run and no tamper was recorded")
+      if (!visible || !independent)
+        throw new Error("a suite did not run and neither a build failure nor a tamper was recorded")
 
       return {
         ...base(),
-        verdict: worstVerdict([outcome.visible.verdict, independent.verdict]),
+        verdict: worstVerdict([visible.verdict, independent.verdict]),
         checks: suiteChecks({
           visible: {
-            verdict: outcome.visible.verdict,
-            acceptanceIds: fixture.checks.visible.assertions,
-            outputDigest: (await put(artifacts, "visible", outcome.visible.output)).digest,
+            verdict: visible.verdict,
+            acceptanceIds: task.checks.visible.assertions,
+            outputDigest: (await put(artifacts, "visible", visible.output)).digest,
           },
           independent: {
             verdict: independent.verdict,
-            acceptanceIds: fixture.checks.independent.assertions,
+            acceptanceIds: task.checks.independent.assertions,
             outputDigest: (await put(artifacts, "independent", independent.output)).digest,
           },
         }),
@@ -209,17 +221,18 @@ export function createDockerVerifier(
   }
 }
 
-/**
- * Any persistent difference at all, compared over sorted entries so that a change
- * of key ORDER in an inspection result can never be mistaken for a mutation.
- */
-const changed = (
+/** Any persistent difference outside the ignored prefixes, compared over sorted entries. */
+export function changedOutside(
   before: Readonly<Record<string, string>>,
   after: Readonly<Record<string, string>>,
-): boolean => JSON.stringify(sorted(before)) !== JSON.stringify(sorted(after))
-
-const sorted = (files: Readonly<Record<string, string>>): [string, string][] =>
-  Object.entries(files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  ignore: readonly string[],
+): boolean {
+  const keep = (files: Readonly<Record<string, string>>): [string, string][] =>
+    Object.entries(files)
+      .filter(([path]) => !ignore.some((prefix) => path.startsWith(prefix)))
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  return JSON.stringify(keep(before)) !== JSON.stringify(keep(after))
+}
 
 /**
  * Store one check's output and name the reference after the check that produced it.
