@@ -5,13 +5,16 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
+  assertTaskFitsTarget,
   ChecksSchema,
+  covers,
   environmentIdentity,
   imageTag,
   loadTarget,
   loadTargetIds,
   loadTask,
   loadTaskIds,
+  overlaps,
   repositoryRoot,
   targetsDir as shippedTargetsDir,
   TargetSchema,
@@ -195,6 +198,7 @@ describe("target catalog", () => {
 function tasksDirFor(
   overrides: Record<string, unknown> = {},
   files: Record<string, string> = {},
+  checksOverrides: Record<string, unknown> = {},
 ): string {
   const dir = mkdtempSync(join(tmpdir(), "factory-tasks-"))
   dirs.push(dir)
@@ -214,6 +218,7 @@ function tasksDirFor(
     JSON.stringify({
       visible: { runner: "vitest", assertions: ["a passes"] },
       independent: { runner: "node-test", file: "checks/k.test.ts", assertions: ["A1"] },
+      ...checksOverrides,
     }),
   )
   writeFileSync(join(dir, "k", "spec.md"), "# k\n\nA1: something holds.\n")
@@ -355,17 +360,133 @@ describe("task catalog", () => {
       loadTask("k", { targetsDir: targetsDir(pin), tasksDir: dir, repositoryRoot: root }),
     ).toThrow(/declares a different id/)
   })
+
+  it("refuses an allowed directory that contains an immutable file", () => {
+    // Neither path covers the other outright, but the directory swallows the file: overlap
+    // has to be checked in both directions, not just "does the immutable list cover the path".
+    expect(
+      TaskSchema.safeParse({
+        id: "k",
+        target: "t",
+        allowedSourcePaths: ["src"],
+        immutablePaths: ["src/memory.ts"],
+      }).success,
+    ).toBe(false)
+  })
+
+  it("refuses a bare `checks` entry and a .test.mjs file as allowed source paths", () => {
+    expect(
+      TaskSchema.safeParse({
+        id: "k",
+        target: "t",
+        allowedSourcePaths: ["checks"],
+        immutablePaths: [],
+      }).success,
+    ).toBe(false)
+    expect(
+      TaskSchema.safeParse({
+        id: "k",
+        target: "t",
+        allowedSourcePaths: ["test/a.test.mjs"],
+        immutablePaths: [],
+      }).success,
+    ).toBe(false)
+  })
+
+  it("refuses an unknown top-level key on the task manifest and the checks file", () => {
+    expect(
+      TaskSchema.safeParse({
+        id: "k",
+        target: "t",
+        allowedSourcePaths: ["src/a.ts"],
+        immutablePaths: [],
+        version: 1,
+      }).success,
+    ).toBe(false)
+    expect(
+      ChecksSchema.safeParse({
+        visible: { runner: "vitest", assertions: ["x"] },
+        independent: { runner: "node-test", file: "checks/k.test.ts", assertions: ["x"] },
+        version: 1,
+      }).success,
+    ).toBe(false)
+  })
+
+  it("refuses an independent check file with a `..` segment or living outside checks/", () => {
+    expect(
+      ChecksSchema.safeParse({
+        visible: { runner: "vitest", assertions: ["x"] },
+        independent: { runner: "node-test", file: "checks/../x.test.ts", assertions: ["x"] },
+      }).success,
+    ).toBe(false)
+    expect(
+      ChecksSchema.safeParse({
+        visible: { runner: "vitest", assertions: ["x"] },
+        independent: { runner: "node-test", file: "test/a.test.ts", assertions: ["x"] },
+      }).success,
+    ).toBe(false)
+  })
+
+  it("accepts a visible node-test suite anywhere outside checks/, monorepo paths included", () => {
+    expect(
+      ChecksSchema.safeParse({
+        visible: {
+          runner: "node-test",
+          file: "packages/devkit/test/x.test.ts",
+          assertions: ["x"],
+        },
+        independent: { runner: "node-test", file: "checks/k.test.ts", assertions: ["x"] },
+      }).success,
+    ).toBe(true)
+  })
+
+  it("refuses a node-test visible suite that is not itself immutable", () => {
+    const { root, pin } = repo()
+    expect(() =>
+      loadTask("k", {
+        targetsDir: targetsDir(pin),
+        tasksDir: tasksDirFor(
+          {},
+          {},
+          { visible: { runner: "node-test", file: "test/b.test.ts", assertions: ["a passes"] } },
+        ),
+        repositoryRoot: root,
+      }),
+    ).toThrow(/must be immutable/)
+  })
+})
+
+describe("covers", () => {
+  it("is a prefix-aware, directory-or-file coverage test", () => {
+    expect(covers(["src"], "src/a.ts")).toBe(true)
+    expect(covers(["src"], "src-notes.ts")).toBe(false)
+    expect(covers(["src"], "src")).toBe(true)
+    expect(covers(["src"], "srcx/a.ts")).toBe(false)
+  })
+})
+
+describe("overlaps", () => {
+  it("is symmetric: it does not matter which side is the directory", () => {
+    expect(overlaps("src", "src/a.ts")).toBe(true)
+    expect(overlaps("src/a.ts", "src")).toBe(true)
+    expect(overlaps("src", "other")).toBe(false)
+  })
 })
 
 describe("shipped tasks", () => {
   for (const id of loadTaskIds()) {
-    it(`${id}: parses and its checks name acceptance ids that spec.md carries`, () => {
-      // loadTask needs a prepared target, which arrives later; parse the pieces directly.
+    it(`${id}: parses, names a known target, fits it, and has its files on disk`, () => {
+      // loadTask needs a prepared target (an image), which arrives later; parse the pieces
+      // directly and check the fit against the raw target manifest instead.
       const dir = join(tasksDir, id)
       const manifest = TaskSchema.parse(JSON.parse(readFileSync(join(dir, "task.json"), "utf8")))
       expect(manifest.id).toBe(id)
       expect(loadTargetIds()).toContain(manifest.target)
       const checks = ChecksSchema.parse(JSON.parse(readFileSync(join(dir, "checks.json"), "utf8")))
+      const target = TargetSchema.parse(
+        JSON.parse(readFileSync(join(shippedTargetsDir, manifest.target, "target.json"), "utf8")),
+      )
+      assertTaskFitsTarget(id, manifest, checks, target)
       expect(existsSync(join(dir, checks.independent.file))).toBe(true)
       expect(existsSync(join(dir, "spec.md"))).toBe(true)
       expect(existsSync(join(dir, "reference.patch"))).toBe(true)

@@ -51,6 +51,24 @@ const pathPrefix = z
     { message: "must be a relative forward-slash directory prefix ending in `/`" },
   )
 
+/**
+ * Does one of `entries` cover `path`? An entry is a file or a directory; a directory covers
+ * everything under it. Paths are canonical (see `relativePath`), so string comparison is exact.
+ */
+export function covers(entries: readonly string[], path: string): boolean {
+  return entries.some((entry) => path === entry || path.startsWith(`${entry}/`))
+}
+
+/**
+ * Do `a` and `b` overlap, in either direction? One may be a directory that contains the
+ * other, or they may be the same path. Coverage alone (`covers`) only asks whether a whole
+ * *list* protects one path; this asks about a single pair, so an allowed directory that
+ * happens to contain a single immutable file is caught too, not just the reverse.
+ */
+export function overlaps(a: string, b: string): boolean {
+  return covers([a], b) || covers([b], a)
+}
+
 export const ImageSchema = z
   .object({
     localId: z.string().regex(SHA_256_REF),
@@ -137,8 +155,8 @@ export function repositoryRoot(): string {
   }
 }
 
-/** Target ids present on disk, sorted. A new target is a directory, not a code change. */
-export function loadTargetIds(dir = targetsDir): string[] {
+/** Ids present in `dir`, sorted: each is a directory, not a code change. */
+function readIds(dir: string, label: string): string[] {
   try {
     return readdirSync(dir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
@@ -146,9 +164,14 @@ export function loadTargetIds(dir = targetsDir): string[] {
       .sort()
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT")
-      throw new Error(`No target catalog at ${dir}`)
+      throw new Error(`No ${label} catalog at ${dir}`)
     throw error
   }
+}
+
+/** Target ids present on disk, sorted. A new target is a directory, not a code change. */
+export function loadTargetIds(dir = targetsDir): string[] {
+  return readIds(dir, "target")
 }
 
 export function loadTarget(id: string, options: CatalogOptions = {}): Target {
@@ -193,43 +216,63 @@ export function environmentIdentity(target: Pick<Target, "image">): string {
   return environmentIdentityDigest(target.image)
 }
 
-const NodeTestSuiteSchema = z
-  .object({
-    runner: z.literal("node-test"),
-    file: z.string().regex(/^(?:test|checks)\/[\w./-]+\.test\.(?:ts|mjs|js)$/),
-    assertions: z.array(z.string().min(1)).min(1),
-  })
-  .strict()
+/**
+ * A suite file: canonical (see `relativePath`) and named like a test file. Canonical because
+ * the independent suite is written into the workspace by the verifier itself — a `..`
+ * segment there would be a write outside the directory it believes it owns.
+ */
+const suiteFile = relativePath.refine(
+  (p) => /\.test\.(?:ts|mjs|js)$/.test(p),
+  "a suite file must end in .test.ts, .test.mjs or .test.js",
+)
+/** A file inside the target workspace, never under the root checks/ directory the verifier owns. */
+const visibleSuiteFile = suiteFile.refine(
+  (p) => !covers(["checks"], p),
+  "a visible suite cannot live under checks/",
+)
+/** Written by the verifier to checks/ at the workspace root; must live there. */
+const independentSuiteFile = suiteFile.refine(
+  (p) => p.startsWith("checks/"),
+  "the independent check must live under checks/",
+)
+
+/** A node-test suite naming `file`, generic so the visible and independent suites can use
+ * their own, distinct file rules. */
+function nodeTestSuite<F extends z.ZodType<string>>(file: F) {
+  return z
+    .object({ runner: z.literal("node-test"), file, assertions: z.array(z.string().min(1)).min(1) })
+    .strict()
+}
+
 const VitestSuiteSchema = z
   .object({ runner: z.literal("vitest"), assertions: z.array(z.string().min(1)).min(1) })
   .strict()
-export const SuiteSchema = z.discriminatedUnion("runner", [NodeTestSuiteSchema, VitestSuiteSchema])
+const VisibleNodeTestSuiteSchema = nodeTestSuite(visibleSuiteFile)
+const IndependentSuiteSchema = nodeTestSuite(independentSuiteFile)
+
+export const SuiteSchema = z.discriminatedUnion("runner", [
+  VisibleNodeTestSuiteSchema,
+  VitestSuiteSchema,
+])
 export type Suite = z.infer<typeof SuiteSchema>
-export type NodeTestSuite = z.infer<typeof NodeTestSuiteSchema>
+export type NodeTestSuite = z.infer<typeof IndependentSuiteSchema>
 export type VitestSuite = z.infer<typeof VitestSuiteSchema>
 
 /** The independent suite is always a node-test file the verifier writes in itself. */
 export const ChecksSchema = z
-  .object({ visible: SuiteSchema, independent: NodeTestSuiteSchema })
+  .object({ visible: SuiteSchema, independent: IndependentSuiteSchema })
   .strict()
 export type Checks = z.infer<typeof ChecksSchema>
 
 /**
- * Does one of `entries` cover `path`? An entry is a file or a directory; a directory covers
- * everything under it. Paths are canonical (see `relativePath`), so string comparison is exact.
- */
-export function covers(entries: readonly string[], path: string): boolean {
-  return entries.some((entry) => path === entry || path.startsWith(`${entry}/`))
-}
-
-/**
- * A path the builder may change. Never a test or a check: the factory's completion policy
- * must not be reachable from the builder's own inventory. The target's runner configuration
- * is checked in `loadTask`, where the target is known.
+ * A path the builder may change. Never a test file, a bare `checks` entry, or anything
+ * under `checks/`: the factory's completion policy must not be reachable from the
+ * builder's own inventory. The target's runner configuration is checked in `loadTask`,
+ * where the target is known.
  */
 const allowedSourcePath = relativePath
-  .refine((p) => !p.endsWith(".test.ts"), "a test file cannot be an allowed source path")
-  .refine((p) => !p.startsWith("checks/"), "a check cannot be an allowed source path")
+  .refine((p) => !/\.test\.[a-z]+$/.test(p), "a test file cannot be an allowed source path")
+  .refine((p) => !covers(["checks"], p), "a check cannot be an allowed source path")
 
 export const TaskSchema = z
   .object({
@@ -240,7 +283,7 @@ export const TaskSchema = z
   })
   .strict()
   .refine(
-    (m) => m.allowedSourcePaths.every((p) => !covers(m.immutablePaths, p)),
+    (m) => m.allowedSourcePaths.every((p) => m.immutablePaths.every((e) => !overlaps(p, e))),
     "allowed and immutable paths must be disjoint",
   )
 export type TaskManifest = z.infer<typeof TaskSchema>
@@ -260,14 +303,49 @@ export interface Task {
 
 /** Task ids present on disk, sorted. A new task is a directory, not a code change. */
 export function loadTaskIds(dir = tasksDir): string[] {
+  return readIds(dir, "task")
+}
+
+/**
+ * Does `manifest` fit `target`: no allowed path may reach the runner configuration, every
+ * runner configuration path is kept immutable, and a node-test visible suite is itself kept
+ * immutable. A vitest visible suite runs inside the target's own test command rather than as
+ * a file the builder could edit directly, so keeping the directory that holds it immutable
+ * is the task author's job instead (the devkit task lists `packages/devkit/test`).
+ */
+export function assertTaskFitsTarget(
+  id: string,
+  manifest: TaskManifest,
+  checks: Checks,
+  target: Pick<Target, "runnerConfig">,
+): void {
+  for (const path of manifest.allowedSourcePaths)
+    if (target.runnerConfig.some((entry) => overlaps(path, entry)))
+      throw new Error(`Task ${id} may edit ${path}, which is the target's runner configuration`)
+  for (const path of target.runnerConfig)
+    if (!covers(manifest.immutablePaths, path))
+      throw new Error(`Task ${id}: runner configuration ${path} must be immutable`)
+  if (
+    checks.visible.runner === "node-test" &&
+    !covers(manifest.immutablePaths, checks.visible.file)
+  )
+    throw new Error(`Task ${id}: visible suite ${checks.visible.file} must be immutable`)
+}
+
+/** Parse `raw` against `schema`, rethrowing a schema failure with task-scoped context. */
+function parseTaskFile<T>(schema: z.ZodType<T>, raw: unknown, id: string, file: string): T {
+  const result = schema.safeParse(raw)
+  if (!result.success)
+    throw new Error(`Task ${id}: invalid ${file}: ${result.error}`, { cause: result.error })
+  return result.data
+}
+
+/** `defect.patch` is optional: its absence means the pinned bytes are already defective. */
+function readDefectPatch(directory: string): string | null {
   try {
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort()
+    return readFileSync(join(directory, "defect.patch"), "utf8")
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT")
-      throw new Error(`No task catalog at ${dir}`)
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null
     throw error
   }
 }
@@ -276,30 +354,36 @@ export function loadTask(id: string, options: CatalogOptions = {}): Task {
   const dir = options.tasksDir ?? tasksDir
   if (!loadTaskIds(dir).includes(id)) throw new Error(`Unknown task: ${id}`)
   const directory = join(dir, id)
-  const manifest = TaskSchema.parse(JSON.parse(readFileSync(join(directory, "task.json"), "utf8")))
+  const manifest = parseTaskFile(
+    TaskSchema,
+    JSON.parse(readFileSync(join(directory, "task.json"), "utf8")),
+    id,
+    "task.json",
+  )
   if (manifest.id !== id) throw new Error(`Task ${id} declares a different id: ${manifest.id}`)
   const target = loadTarget(manifest.target, options)
-  for (const path of manifest.allowedSourcePaths)
-    if (covers(target.runnerConfig, path))
-      throw new Error(`Task ${id} may edit ${path}, which is the target's runner configuration`)
-  for (const path of target.runnerConfig)
-    if (!covers(manifest.immutablePaths, path))
-      throw new Error(`Task ${id}: runner configuration ${path} must be immutable`)
-  const checks = ChecksSchema.parse(
+  const checks = parseTaskFile(
+    ChecksSchema,
     JSON.parse(readFileSync(join(directory, "checks.json"), "utf8")),
+    id,
+    "checks.json",
   )
+  assertTaskFitsTarget(id, manifest, checks, target)
   const checkFile = join(directory, checks.independent.file)
   if (!existsSync(checkFile))
     throw new Error(`Task ${id} names a missing check: ${checks.independent.file}`)
-  const defectPath = join(directory, "defect.patch")
+  const specPath = join(directory, "spec.md")
+  if (!existsSync(specPath)) throw new Error(`Task ${id} is missing spec.md`)
+  const referencePath = join(directory, "reference.patch")
+  if (!existsSync(referencePath)) throw new Error(`Task ${id} is missing reference.patch`)
   return {
     id,
     directory,
     target,
     manifest,
     checks,
-    specText: readFileSync(join(directory, "spec.md"), "utf8"),
-    defectPatch: existsSync(defectPath) ? readFileSync(defectPath, "utf8") : null,
-    referencePatch: readFileSync(join(directory, "reference.patch"), "utf8"),
+    specText: readFileSync(specPath, "utf8"),
+    defectPatch: readDefectPatch(directory),
+    referencePatch: readFileSync(referencePath, "utf8"),
   }
 }
