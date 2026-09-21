@@ -104,9 +104,11 @@ reader carries no exec backend and no write operation, so a mutation cannot be e
   the target rather than restated, plus the builder's own `runAsNonRoot` identity so the
   reader can read what the builder wrote. A reader without them throws on the
   dependency symlink or reports the git directory as added paths — a `scope_violation` on
-  every run. `ignorePrefixes` is the same list the verifier's tamper comparison skips (the
-  target's `snapshotIgnore`): a builder that runs the target's build writes there
-  legitimately, and those paths are dropped rather than reported as added.
+  every run. `ignorePrefixes` is the target's `snapshotIgnore`: a builder that runs the
+  target's build writes there legitimately, and those paths are dropped rather than reported
+  as added. The verifier's tamper comparison does not share that exclusion — it compares the
+  whole workspace, because the build finishes before its first snapshot and the independent
+  oracle reads the build output.
 
 ## Run it
 

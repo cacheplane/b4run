@@ -64,7 +64,7 @@ at boot, are validated with zod, and are digested into the bundle.
 | `pin` | A full 40-hex commit SHA in the repository the factory runs inside. The loader refuses anything else and refuses a pin it cannot make present. A shallow checkout that lacks the pin fetches that one commit from `origin` on first load; `FACTORY_NO_FETCH=1` turns a missing pin into a hard error. |
 | `root` | The repository directory that becomes the workspace root, `.` for the repository itself. `git archive <pin>:<root>` produces an archive rooted there, so task paths are root-relative and a target whose root is a subdirectory keeps short paths. `cli-flags` uses `examples/software-factory/server/fixtures/cli-flags/project`; devkit uses `.`. |
 | `capture` | `{ include: string[] }`, paths relative to `root`, the pathspec for `git archive`. It is the capture's definition and enters the policy digest as such. The framework's workspace capture requires an exact flat file inventory, so the workspace definition derives that list by walking the extracted archive rather than passing this field through. For devkit: `package.json`, `pnpm-workspace.yaml`, `.npmrc`, `packages/config-typescript`, and devkit's own `package.json`, `tsconfig.json`, `tsconfig.test.json`, `vitest.config.ts`, `src`, `test`; not `templates`, whose route paths the capture's portable-path rule rejects. The lockfile is not captured: the image already holds the install, and nothing at run time reads it. There is no exclude list: an archive of a commit contains only tracked files, so `dist`, `node_modules` and `.turbo` are absent by construction. |
-| `snapshotIgnore` | Path prefixes, root-relative, that a suite may legitimately write under: for devkit `packages/devkit/dist/`. Both the verifier's tamper comparison and the controller's reader skip them: build output is not a candidate, and the assembly rule rejects any path the baseline lacks. Everything else that changes during a suite is still tampering. Inspection can only exclude root directories, which is why both apply it as a filter over what was walked rather than as an exclusion. |
+| `snapshotIgnore` | Path prefixes, root-relative, that the *builder* may legitimately write under: for devkit `packages/devkit/dist/`. Two consumers, the workspace's `.gitignore` and the controller's reader, which drops them from the observed set because build output is not a candidate and the assembly rule rejects any path the baseline lacks. The verifier's tamper comparison does **not** consult it (see "What changes in the verifier and the reader"). Inspection can only exclude root directories, which is why the reader applies it as a filter over what was walked rather than as an exclusion. |
 | `image` | Written by the prepare script: `{ localId, platform, baseManifestDigest, dockerfileSha256, lockfileSha256, pnpmVersion }`. `localId` is the Docker image id and is named as such: it is the hash of the image's config JSON, host-specific and not a registry digest. The environment identity every bundle binds is the sha256 of this whole object, so a second host can verify that the same inputs were used even though it cannot pull the image. A missing `image` is a load error: a target is not usable until it has been prepared. Pushing to a registry and binding the manifest digest instead is the rung 3 upgrade. |
 | `environmentLinks` | Where the image's dependency tree mounts into the workspace: one root link, `node_modules` to `/opt/targets/<id>/node_modules`. The image installs with pnpm's hoisted linker so every dependency, including workspace siblings, resolves from that one tree. Inspection validates root symlinks only and refuses nested ones, which rules out pnpm's default per-package `node_modules` links. |
 | `imageContext`, `lockfile`, `imageAssertResolves` | What the prepare script needs: the repository paths copied into the build context at the pin, the lockfile path whose sha256 enters the image object, and module specifiers that must resolve from `commands.cwd` inside the built image (for devkit `vitest`, `typescript`, `@types/node/package.json`). The resolve assertion is what catches an install that silently skipped a platform-matched optional dependency. |
@@ -289,11 +289,15 @@ stays denied; the frozen install is the point.
   caveat about mutable tags comes out of the README and the verifier, replaced
   by the narrower caveat that the identity is a local id plus its inputs, not a
   registry digest.
-- The before-and-after snapshot around each suite skips the target's
-  `snapshotIgnore` prefixes, because the build writes there legitimately. Any
-  other change during a suite is still tampering. The verifier's inspection
-  limits rise to the reader's (16 MiB total), since a monorepo capture is
-  larger than a fixture.
+- The before-and-after snapshot around each suite excludes nothing: any change
+  at all during a suite is tampering. It first skipped the target's
+  `snapshotIgnore` prefixes on the theory that the build writes there
+  legitimately, which was wrong in the one place it mattered — `runBuild`
+  completes before the first snapshot is taken, so nothing legitimate writes
+  there *during* a suite, while the independent oracle reads exactly that
+  directory. See "What the dogfood found in its own verifier". The verifier's
+  inspection limits rise to the reader's (16 MiB total), since a monorepo
+  capture is larger than a fixture.
 - The reader drops paths under the target's `snapshotIgnore` prefixes from the
   observed set.
 
@@ -309,6 +313,32 @@ for the life of the container. The sandbox now launches with `--init`, the
 flag is part of the launch identity so an old keeper is replaced, and the
 change ships as a patch changeset for `@b4run/sandbox`. This is the kind of
 finding the dogfood exists to produce.
+
+## What the dogfood found in its own verifier
+
+The rung 2 review turned the same primitive on the verifier and found that the
+builder controlled the bytes its own oracle graded. The independent check for
+`devkit-spawn-deadline` runs the BUILT artifact,
+`packages/devkit/dist/testing/index.js`, deliberately — a consumer's view, not
+the candidate's source. The tamper comparison, meanwhile, dropped every path
+under the target's `snapshotIgnore`, which for this target is exactly
+`packages/devkit/dist/`. The one directory the comparison could not see was the
+one the oracle read. A candidate whose source the visible suite imports runs
+module-level code inside the container, so it can leave a detached, unref'd
+writer behind that overwrites the artifact after the visible suite is graded
+and before the independent one runs; the correct repair passes the visible
+suite, and a stub `spawnProcess` that never rejects fails the independent
+check — or, pointed the other way, passes it while the exported bytes stay
+wrong. `--init` does not help: it reaps zombies, not live detached processes.
+
+The exclusion was never needed. `runBuild` runs once, before the first
+snapshot, so `dist/` is already present and stable when tamper detection
+starts; an instrumented run of the clean reference repair, comparing the full
+snapshots with no ignore list at all, showed zero differing paths across both
+windows (28 `dist/` entries, identical before and after each suite). The
+comparison now compares everything, and the adversarial candidate is rejected
+with an `independent` tamper instead of being graded on the bytes it chose.
+`snapshotIgnore` keeps its other two consumers.
 
 ## Lifecycle, cancel, budget and reconciliation
 
@@ -365,6 +395,16 @@ baseline. This is the ladder's "a scripted repair of a known past defect
 verifies". The builder's real build is also what makes the reader's
 `ignorePrefixes` load-bearing: `packages/devkit/dist/**` is written into the
 builder's workspace and must not read as added candidate paths.
+
+`test/verifier-tamper.integration.test.ts` is the adversarial case: the
+reference repair with a module-level payload that spawns a detached writer,
+which overwrites `packages/devkit/dist/testing/index.js` — the artifact the
+independent oracle grades — once the independent check file appears. It must
+be rejected with a single `independent` tamper check, and the same repair
+without the payload must still come back `visible:pass, independent:pass`, so
+the rule is not "reject everything". Against the pre-fix comparison the same
+candidate reported `visible:pass, independent:fail` and no tamper at all: the
+builder had flipped its own oracle's verdict unnoticed.
 
 ### What the proof does not claim
 
@@ -462,16 +502,22 @@ named rungs are in the
   carry a per-run nonce, so a test cannot forge them blind, but a test that
   reads the nonce from the vitest process's argv and leaves a background writer
   could still replace the report. The same primitive reaches further: a
-  process the visible suite leaves running can mutate the workspace in the
-  window between the visible suite's tamper comparison and the independent
-  suite's, so a candidate whose allowed source file (which vitest imports)
-  spawns a detached writer could put correct bytes in place for the
-  independent check while the exported bytes stay the builder's. Both suites
-  run in one verifier container, and `--init` reaps zombies, not live detached
-  processes. The fix is the same: run the target's tests as a uid that cannot
-  reach the workspace or the report; deferred. A cheaper partial mitigation,
-  reusing the post-visible snapshot as the pre-independent one, is not taken
-  because the check file is written in between.
+  process the visible suite leaves running can mutate the workspace while the
+  independent suite runs, so a candidate whose allowed source file (which
+  vitest imports) spawns a detached writer could put correct bytes in place for
+  the independent check while the exported bytes stay the builder's. Both
+  suites run in one verifier container, and `--init` reaps zombies, not live
+  detached processes. A *persistent* mutation is now DETECTED for every path,
+  the target's build output included: the tamper comparison excludes nothing,
+  so the workspace as the post-suite snapshot finds it must equal the
+  pre-suite one. What remains is narrower and still accepted: a mutation the
+  writer reverts before the post-suite snapshot is taken, a mutation that
+  lands in the gap between one suite's post-snapshot and the next's
+  pre-snapshot (the check file is written in between, so the two cannot be
+  collapsed into one), and the vitest report file in `/tmp`, which no
+  workspace snapshot covers at all. The fix for those is the same: run the
+  target's tests as a uid that cannot reach the workspace or the report;
+  deferred.
 
 ## Success criteria
 
