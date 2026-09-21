@@ -76,7 +76,7 @@
     "memoryMb": 768,
     "cpus": 2,
     "commandTimeoutMs": 60000,
-    "verifierDeadlineMs": 120000
+    "verifierDeadlineMs": 180000
   },
   "image": {
     "localId": "sha256:e132a2b1f79acb61e92d55f29f657ebd0ecc577ba8a955faa21779ec54d0f364",

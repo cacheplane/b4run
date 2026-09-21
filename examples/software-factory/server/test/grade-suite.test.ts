@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { changedDuringSuite } from "../src/verification/docker-verifier.ts"
+import { changedDuringSuite } from "../src/verification/grade-suite.ts"
 
 describe("changedDuringSuite", () => {
   const before = { "packages/devkit/src/a.ts": "1", "packages/devkit/dist/a.js": "old" }

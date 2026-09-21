@@ -17,21 +17,28 @@ import { applyReference } from "./reference-repair.ts"
  * (`packages/devkit/dist/testing/index.js`). A candidate's source is imported by the visible
  * vitest suite, so module-level code in it runs inside the verifier's container and can leave
  * a detached process behind — `--init` reaps zombies, not live detached children. That process
- * can overwrite the built artifact after the visible suite has been graded, so the builder
- * would choose the bytes its own oracle reads.
+ * can overwrite the built artifact, so the builder would choose the bytes its own oracle reads.
  *
- * The tamper comparison used to drop every path under the target's `snapshotIgnore` prefixes,
- * which for this target is exactly `packages/devkit/dist/` — the one directory the oracle
- * reads. It no longer excludes anything, so this candidate is rejected with a tamper.
+ * Two independent properties are asserted here, because the verifier now defends with two
+ * different mechanisms:
  *
- * Of the two directions this primitive has, the payload here exercises the self-sabotaging
- * one: it installs an artifact that FAILS the independent check. The dangerous mirror image —
+ * - **Isolation.** Each suite is graded in its own container, built from its own capture. The
+ *   oracle therefore runs where the candidate's test code never ran, and nothing the visible
+ *   session left behind exists by then. That is the first test.
+ * - **Detection.** Within one session the workspace is still snapshotted before and after the
+ *   suite, and any persistent change is a rejection. That is the second test, and it is also
+ *   what keeps the first from being vacuous: the same spawn-a-detached-writer primitive, armed
+ *   inside the graded window instead of after it, really does write and really is caught.
+ *
+ * Of the two directions this primitive has, the payloads here exercise the self-sabotaging
+ * one: they install an artifact that FAILS the independent check. The dangerous mirror image —
  * a defective source whose writer installs a correct artifact and forges a pass — is described
- * in prose in the spec's risks. Exercising one direction is enough for the property the fix
- * guarantees, because the comparison is verdict-blind: it asserts only that the workspace
- * after a suite equals the workspace before it, so it cannot tell the two directions apart and
- * a proof for either is a proof for both. Sabotage is the direction a test can assert cheaply,
- * since an unmodified independent check already distinguishes the stub from the real artifact.
+ * in prose in the spec's risks. Exercising one direction is enough for both properties. The
+ * tamper comparison is verdict-blind (it asserts only that the workspace after a suite equals
+ * the workspace before it), and isolation is verdict-blind too (the container is gone either
+ * way), so neither can tell the two directions apart and a proof for either is a proof for
+ * both. Sabotage is the direction a test can assert cheaply, since an unmodified independent
+ * check already distinguishes the stub from the real artifact.
  */
 const TASK = "devkit-spawn-deadline"
 const task = loadTask(TASK)
@@ -40,39 +47,48 @@ const allowed = task.manifest.allowedSourcePaths[0] as string
 const budget = task.target.resources.verifierDeadlineMs
 
 /**
- * How long the detached writer waits after the independent check file appears before it starts
- * overwriting the built artifact.
+ * How long the isolation payload's detached writer waits before it starts rewriting the built
+ * artifact, measured from its own start — which is when the visible suite imports the
+ * candidate's module.
  *
- * A fixed delay measured from the start of the run cannot work here, and the measurement is
- * worth recording: each workspace snapshot takes ~11s and the independent suite itself takes
- * ~0.2s, so the window a pure stopwatch would have to hit is ~200ms wide roughly 35s in. The
- * writer therefore takes its cue from the workspace instead: the verifier installs
- * `checks/<independent>.ts` only AFTER the visible suite's post-snapshot, so that file's
- * appearance marks the start of the independent phase. The settle below covers the gap until
- * the pre-independent snapshot has been taken, and the writer then keeps rewriting for
- * {@link WRITE_FOR_MS} so it does not have to hit any single instant.
+ * This one is a clock and not a workspace event, unlike {@link WRITE_FOR_MS}'s companion
+ * below, because there is no workspace event to take a cue from any more: the independent
+ * check file that the old payload waited for is now written in a different container, which
+ * this process cannot see. That absence IS the fix, so the trigger has to be a delay.
+ *
+ * The delay is chosen from the measured shape of the visible session (instrumented run, warm
+ * image, this laptop): container ready 1.3 s, build 0.4 s, pre-snapshot 9.7 s, visible suite
+ * 7.5 s, post-snapshot 9.7 s, session body 28.7 s end to end. The writer starts at the
+ * earliest when the suite starts, 11.4 s in, so the longest it can have to wait for the
+ * post-snapshot to finish is 28.7 − 11.4 ≈ 17.3 s. Thirty seconds is about 1.7× that, and the
+ * whole session including teardown is gone by ~30 s from its own start (~19 s from the
+ * writer's).
+ *
+ * The margin only has to cover one direction. A write that lands EARLY is caught as a
+ * `visible` tamper and this test fails loudly — it cannot pass for the wrong reason. A write
+ * that lands after the session is over cannot write at all: its container no longer exists.
+ * Which is the property.
  */
-const ARM_SETTLE_MS = 2_000
-/** How long the writer keeps rewriting, which must outlast the post-independent snapshot. */
+const ARM_AFTER_MS = 30_000
+/** How long a writer keeps rewriting once armed; it must outlast any snapshot it must cross. */
 const WRITE_FOR_MS = 60_000
 
 /**
- * The reference repair (so the visible suite genuinely passes) with a module-level payload
- * prepended: a detached, unref'd child that overwrites the built artifact with a marker stub.
- * The stub's `spawnProcess` never rejects, so it FAILS the independent check rather than
- * satisfying it — what is being proven is that a persistent mutation of the oracle's input is
- * detected, not that the mutation was a clever one.
+ * A module-level payload that spawns a detached, unref'd writer, prepended to the reference
+ * repair so the visible suite genuinely passes.
  *
- * Each rewrite carries a counter, so the artifact's bytes differ between the pre- and
- * post-independent snapshots no matter which instant either snapshot read it — the proof does
- * not depend on winning a race.
+ * `armAfterMs` is the only difference between the two adversarial candidates. The writer
+ * overwrites the built artifact with a marker stub whose `spawnProcess` never rejects, so it
+ * FAILS the independent check rather than satisfying it: what is being proven is that a
+ * mutation of the oracle's input either cannot reach it or is detected, not that the mutation
+ * was a clever one. Each rewrite carries a counter, so the artifact's bytes differ between any
+ * two snapshots that straddle a write — the detection proof does not depend on winning a race.
  */
-async function adversarialCandidate(): Promise<string> {
+async function adversarialCandidate(armAfterMs: number): Promise<string> {
   const dist = "/workspace/packages/devkit/dist/testing/index.js"
   const writer = `
 const fs = require('node:fs')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const check = ${JSON.stringify(`/workspace/${task.checks.independent.file}`)}
 const dist = ${JSON.stringify(dist)}
 // The marker the oracle would read instead of the real artifact. Its spawnProcess never
 // rejects, which is the opposite of what the independent check demands, so this mutation
@@ -82,9 +98,7 @@ const stub = (n) =>
   'export const spawnProcess = async () => ({ ok: true, exitCode: 0, stdout: "", stderr: "" })\\n' +
   '// tamper ' + n + '\\n'
 ;(async () => {
-  const giveUp = Date.now() + 180000
-  while (Date.now() < giveUp && !fs.existsSync(check)) await sleep(50)
-  await sleep(${ARM_SETTLE_MS})
+  await sleep(${armAfterMs})
   const stop = Date.now() + ${WRITE_FOR_MS}
   let n = 0
   while (Date.now() < stop) {
@@ -151,21 +165,42 @@ const evidenceOf = async (artifacts: ArtifactStore, receipt: Receipt, checkId: s
 
 describe("a candidate that tries to rewrite the artifact its independent oracle grades", () => {
   it(
-    "is rejected as a tamper, not graded on the bytes it chose",
+    "cannot reach the oracle from the visible session: it is graded in another container",
     async () => {
-      const { receipt, artifacts } = await verify(
-        { [allowed]: await adversarialCandidate() },
-        "wo-tamper",
+      const { receipt } = await verify(
+        { [allowed]: await adversarialCandidate(ARM_AFTER_MS) },
+        "wo-tamper-late",
       )
-      // One check only: the run stops at the tamper, and the mutation lands in the independent
-      // window, so that is the check the receipt names.
-      expect(summary(receipt)).toEqual(["independent:fail"])
+      // The oracle read the artifact its OWN build produced, in a container the candidate's
+      // test code never ran in. Under the single-container design this same writer would have
+      // been alive and writing while the independent check ran.
+      expect(summary(receipt)).toEqual(["visible:pass", "independent:pass"])
+      expect(receipt.verdict).toBe("pass")
+    },
+    budget + 60_000,
+  )
+
+  it(
+    "is still rejected as a tamper when it mutates inside the window it is graded in",
+    async () => {
+      // Armed immediately, so it writes throughout the visible suite. This needs no clock
+      // margin at all: the payload runs at the suite's first import, which is necessarily
+      // after the pre-snapshot, and it keeps writing past the post-snapshot, so the two
+      // snapshots of the window cannot agree.
+      const { receipt, artifacts } = await verify(
+        { [allowed]: await adversarialCandidate(0) },
+        "wo-tamper-during",
+      )
+      // One check only: the run stops at the tamper, and the mutation lands in the visible
+      // window, so that is the check the receipt names — and the independent session is never
+      // started, because the verdict is already decided.
+      expect(summary(receipt)).toEqual(["visible:fail"])
       expect(receipt.verdict).toBe("fail")
-      // `independent:fail` is also what a candidate that simply fails the oracle produces, and
-      // this candidate would fail it either way. Only the evidence says WHY the run stopped,
-      // so assert the tamper's own sentence: without it the test would pass on a coincidence.
-      expect(await evidenceOf(artifacts, receipt, "independent")).toContain(
-        "a suite mutated the workspace during independent",
+      // A `visible:fail` is also what a candidate that simply fails the suite produces. Only
+      // the evidence says WHY the run stopped, so assert the tamper's own sentence: without it
+      // the test would pass on a coincidence.
+      expect(await evidenceOf(artifacts, receipt, "visible")).toContain(
+        "a suite mutated the workspace during visible",
       )
     },
     budget + 60_000,

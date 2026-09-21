@@ -64,8 +64,9 @@ export function targetSandboxPolicy(target: Target): SandboxPolicy {
 /**
  * Pure declaration of what the workspace contains: the role's archive of the pinned subtree
  * with the defect applied, the task spec as TASK.md, and the image's dependency tree linked
- * at the root. The independent checks are not in the capture at all: the verifier writes
- * them into its own container after the visible suite has run.
+ * at the root. The independent checks are not in the capture at all: the verifier writes them
+ * into the container of the session that grades them, which is not the one the visible suite
+ * ran in.
  */
 export function targetWorkspace(
   task: Task,
