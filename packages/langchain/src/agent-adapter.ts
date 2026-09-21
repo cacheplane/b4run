@@ -5,6 +5,7 @@ import { isB4Agent } from "@b4run/sdk"
 import { type BaseMessageLike, HumanMessage } from "@langchain/core/messages"
 import { Command } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
+import { type CanonicalJsonStream, createCanonicalJsonStream } from "./canonical-json-stream.js"
 import { createChatModel, type JsonSchemaResponseFormat } from "./chat-model-factory.js"
 import { readLogicalToolCallId } from "./logical-tool-call-id.js"
 import { resolveProvider } from "./model-provider-resolver.js"
@@ -245,7 +246,14 @@ export async function materializeAgentGraph(options: {
 
 /** An agent event; text tokens may identify their originating model invocation. */
 export interface AgentStreamChunk {
-  readonly type: "token" | "tool_call" | "tool_result" | "interrupt" | "done" | (string & {})
+  readonly type:
+    | "token"
+    | "tool_call"
+    | "tool_call_args"
+    | "tool_result"
+    | "interrupt"
+    | "done"
+    | (string & {})
   readonly data: unknown
   /** Model invocation identity for text tokens, scoped to this stream. */
   readonly messageId?: string
@@ -301,6 +309,124 @@ interface RootToolProjectionState {
    * error ToolMessage LangGraph's ToolNode hands the model. FIFO by tool name.
    */
   readonly pendingRootToolErrors: Array<{ readonly name: string; readonly input: unknown }>
+  /**
+   * Argument fragments in flight, keyed by model run id and then by the
+   * provider's fragment index. Streamed for display only: the announce at
+   * `on_chat_model_end` remains the sole source of a call's identity and of
+   * the complete arguments a tool executes with.
+   */
+  readonly streamingArgs: Map<string, Map<string, ArgumentStreamState>>
+}
+
+interface ArgumentStreamState {
+  id: string | undefined
+  name: string | undefined
+  /** Raw fragments received before the id and name were both known. */
+  buffered: string
+  readonly stream: CanonicalJsonStream
+  /** `silent` once the call is known to be one this stream must not narrate. */
+  mode: "pending" | "streaming" | "silent"
+}
+
+/** Built-in orchestration tools, whose arguments have no display value. */
+const NON_STREAMING_TOOL_NAMES: ReadonlySet<string> = new Set(["writeTodos", "task"])
+
+interface ToolCallFragment {
+  readonly id?: unknown
+  readonly name?: unknown
+  readonly args?: unknown
+  readonly index?: unknown
+}
+
+/**
+ * Project a model chunk's `tool_call_chunks` to `tool_call_args` deltas.
+ * Fragments carry `id` and `name` on their first appearance and `index`
+ * thereafter, so correlation is by index (falling back to the id). Emission
+ * starts once both id and name are known, and never for a call already
+ * announced or for an orchestration tool.
+ */
+function projectToolCallFragments(
+  rootTools: RootToolProjectionState,
+  runId: string,
+  chunk: unknown,
+): AgentStreamChunk[] {
+  const fragments = (chunk as { tool_call_chunks?: unknown })?.tool_call_chunks
+  if (!Array.isArray(fragments) || fragments.length === 0) return []
+  let byIndex = rootTools.streamingArgs.get(runId)
+  const out: AgentStreamChunk[] = []
+  for (const fragment of fragments as ToolCallFragment[]) {
+    if (!isRecord(fragment)) continue
+    const id = typeof fragment.id === "string" && fragment.id !== "" ? fragment.id : undefined
+    const key =
+      typeof fragment.index === "number"
+        ? String(fragment.index)
+        : id !== undefined
+          ? `id:${id}`
+          : undefined
+    if (key === undefined) continue
+    if (byIndex === undefined) {
+      byIndex = new Map()
+      rootTools.streamingArgs.set(runId, byIndex)
+    }
+    let state = byIndex.get(key)
+    if (state === undefined) {
+      state = {
+        id: undefined,
+        name: undefined,
+        buffered: "",
+        stream: createCanonicalJsonStream(),
+        mode: "pending",
+      }
+      byIndex.set(key, state)
+    }
+    if (state.mode === "silent") continue
+    if (id !== undefined) state.id ??= id
+    if (typeof fragment.name === "string" && fragment.name !== "") state.name ??= fragment.name
+    const args = typeof fragment.args === "string" ? fragment.args : ""
+    if (state.mode === "pending") {
+      state.buffered += args
+      if (state.id === undefined || state.name === undefined) continue
+      if (
+        rootTools.announcedToolCallIds.has(state.id) ||
+        NON_STREAMING_TOOL_NAMES.has(state.name)
+      ) {
+        state.mode = "silent"
+        state.buffered = ""
+        continue
+      }
+      state.mode = "streaming"
+      const delta = state.stream.push(state.buffered)
+      state.buffered = ""
+      if (delta.length > 0) {
+        out.push({ type: "tool_call_args", data: { id: state.id, name: state.name, delta } })
+      }
+      continue
+    }
+    const delta = state.stream.push(args)
+    if (delta.length > 0) {
+      out.push({ type: "tool_call_args", data: { id: state.id, name: state.name, delta } })
+    }
+  }
+  return out
+}
+
+/** End of the model turn: release whatever the transcoders still hold. */
+function flushToolCallFragments(
+  rootTools: RootToolProjectionState,
+  runId: string,
+): AgentStreamChunk[] {
+  const byIndex = rootTools.streamingArgs.get(runId)
+  if (byIndex === undefined) return []
+  rootTools.streamingArgs.delete(runId)
+  const out: AgentStreamChunk[] = []
+  for (const state of byIndex.values()) {
+    if (state.mode !== "streaming") continue
+    const delta = state.stream.flush()
+    if (delta.length > 0) {
+      out.push({ type: "tool_call_args", data: { id: state.id, name: state.name, delta } })
+    }
+  }
+  return out
 }
 
 interface ErrorToolMessageView {
@@ -565,16 +691,22 @@ function classifyStreamEvent(
   switch (event.event) {
     case "on_chat_model_stream": {
       const content = (event.data.chunk as { content?: unknown })?.content
-      if (typeof content !== "string" || content.length === 0) break
-      if (!child) rootTools.textModelRunIds.add(event.run_id)
-      return {
-        capturesFinalOutput: false,
-        child,
-        chunks: [
+      const chunks: AgentStreamChunk[] = []
+      if (typeof content === "string" && content.length > 0) {
+        if (!child) rootTools.textModelRunIds.add(event.run_id)
+        chunks.push(
           child
             ? { type: "subagent.message", data: { ...childIdentity(child), chunk: content } }
             : { type: "token", data: content, messageId: event.run_id },
-        ],
+        )
+      }
+      if (!child)
+        chunks.push(...projectToolCallFragments(rootTools, event.run_id, event.data.chunk))
+      if (chunks.length === 0) break
+      return {
+        capturesFinalOutput: false,
+        child,
+        chunks,
         finalOutput: undefined,
         interrupts: [],
       }
@@ -595,7 +727,7 @@ function classifyStreamEvent(
       if (child) break
       const output = event.data.output as { tool_calls?: unknown } | undefined
       const calls = Array.isArray(output?.tool_calls) ? output.tool_calls : []
-      const chunks: AgentStreamChunk[] = []
+      const chunks: AgentStreamChunk[] = flushToolCallFragments(rootTools, event.run_id)
       if (rootTools.textModelRunIds.delete(event.run_id)) {
         chunks.push({ type: "message_end", data: { messageId: event.run_id } })
       }
@@ -1187,6 +1319,7 @@ async function* streamFromRunnable(
         announcedToolCallIds: new Set(),
         heldRootToolStarts: new Map(),
         pendingRootToolErrors: [],
+        streamingArgs: new Map(),
       }
 
       try {
