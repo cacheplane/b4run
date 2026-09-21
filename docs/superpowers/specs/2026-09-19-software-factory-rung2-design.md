@@ -276,12 +276,15 @@ up to 256). Network stays denied; the frozen install is the point.
 `verifierDeadlineMs` is bounded by a whole verification rather than by one
 command, and it covers both container sessions. The slowest measured
 verification is the defect baseline at 59.8 s (the reference repair is 51.6 s,
-stable to ±0.6 s across three runs), so the deadline is **180 000** — 3× the
-slowest, rounded up to a whole minute. It was 120 000 when one verification was
-~50 s and both suites shared a container. 180 000 is 3.01× the slowest run, so
-it is the value the rule gives and not a comfortable one: a target whose suites
-grow, or a host slower than the one measured, should take four minutes rather
-than shave the rule.
+stable to ±0.6 s across three runs). The rule's floor is 180 000, 3.01× the
+slowest, which is the value the rule gives and not a comfortable one. The
+deadline is therefore **240 000**: the measurement comes from a warm, unloaded
+developer machine, most of a verification is a filesystem walk inside Docker
+(four snapshots, 39 s of the 51 s), and CI runs this lane beside other jobs on
+slower storage. A deadline that is too generous costs only how long a genuinely
+wedged verification takes to report `inconclusive`; one that is too tight costs
+a red lane that is not about the candidate. It was 120 000 when one verification
+was ~50 s and both suites shared a container.
 
 ## What changes in the verifier and the reader
 
@@ -324,7 +327,7 @@ than shave the rule.
   workspace snapshot 9.7 s, visible suite 7.5 s, independent suite 1.9 s — so
   the whole extra session is ~1.7 s and a verification went from 49.9 s to
   51.6 s (reference repair) and 57.7 s to 59.8 s (defect baseline). `verifierDeadlineMs`
-  rises from 120 000 to 180 000 to keep three times the measured slowest run
+  rises from 120 000 to 240 000 to keep four times the measured slowest run
   under the rule below.
 - `environmentIdentity` is the sha256 of the target's `image` object. The rung 1
   caveat about mutable tags comes out of the README and the verifier, replaced
