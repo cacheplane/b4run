@@ -1,6 +1,6 @@
 ---
-title: B4.run 0.4 — Deep Agents preview
-description: Composable sub-agents, streaming improvements, and middleware.
+title: B4.run 0.4 — Start with an agent test
+description: Understand the offline agent test added to the starter in 0.4, and learn what a scripted model response can verify.
 date: 2026-06-02
 tags: []
 type: release
@@ -9,135 +9,123 @@ author: brian
 draft: true
 ---
 
-**Update note (July 2026):** This June 2, 2026 post describes the 0.4 release as
-it was written. For current Agent Protocol guidance, use the thread-scoped local
-dev-server routes: `POST /threads`, then `POST /threads/:thread_id/runs/wait` or
-`POST /threads/:thread_id/runs/stream`.
+Testing an agent can feel unfamiliar at first. We are used to calling a function with an input and asserting its output. A model can produce different answers to the same question, and calling it during every test adds network dependencies and cost.
 
-Sub-agents are becoming one of the more important boundaries in agentic software.
+The 0.4 release added an offline agent test to the starter application. A new project included the test harness, Vitest, and a fixture describing the model's response. Let's look at why that is useful and how the test works.
 
-Not because chaining LLM calls is new.
-And not because "agent calls agent" is a fresh idea.
+**Version note:** This post describes the testing addition recorded for 0.4. The code below uses the current `@b4run` package names and basic starter. Those names were introduced after 0.4, so use the current starter to follow along.
 
-It matters because the boundary between a parent agent and a specialist is starting to look like a route boundary. And route boundaries deserve to be first-class.
+## Goals
 
-That is what B4.run 0.4 ships.
+We want to:
 
-## tl;dr
+1. Run an agent route without calling a model provider.
+2. Supply a predictable model response.
+3. Assert that the application returns the expected final message.
+4. Understand which behavior this test verifies and which behavior needs a live model.
 
-- deep agents preview: composable sub-agents declared with the same `agent({...})` ergonomics
-- a sub-agent is a folder under the parent, with its own tools, state, and middleware
-- token-level streaming now flows through sub-agent boundaries, tagged by route id
-- the local Agent Protocol stream is served at `/threads/:thread_id/runs/stream`
-- middleware api is stable; the experimental flag is gone
-- backward-compatible upgrade from 0.3.x
+## What are we testing?
 
-## Deep Agents preview
+An agent run includes more than the model request. The application loads a route, builds its instructions, makes tools available, processes model responses, and maintains state.
 
-Real agent systems are rarely one agent.
+A **fixture** supplies a known response in place of the live model. The rest of the application can execute using that response.
 
-A support assistant calls a research sub-agent. A triage flow hands off to a domain specialist.
+This should sound familiar if you have mocked an HTTP API in a TypeScript test. We control the external dependency so that a failed test points to a repeatable scenario.
 
-Until now in B4.run, "sub-agent" meant "another route you invoke via `ctx.run()`". That worked. But the boundary was not first-class.
+B4.run's agent harness intercepts the model's HTTP endpoint using a local mock. Tools, prompts, capabilities, and state still run. Only the model response is replaced.
 
-`createSubAgent` makes the boundary first-class.
+## Create a project
 
-A sub-agent is a route under the parent, declared with the same `agent({...})` ergonomics, and reachable as a typed call from the parent.
-
-```ts
-// src/app/support/[tenant]/index.ts
-import { agent } from "@b4run/sdk"
-
-export default agent({
-  model: "gpt-4o-mini",
-  systemPrompt:
-    "You are a tier-1 support assistant for {tenant}. " +
-    "Delegate research questions to the `research` sub-agent.",
-  subAgents: ["research"],
-})
-```
-
-```ts
-// src/app/support/[tenant]/research/index.ts
-import { createSubAgent } from "@b4run/sdk"
-
-export default createSubAgent({
-  model: "gpt-4o",
-  systemPrompt:
-    "You are a research specialist. Given a question, gather facts " +
-    "from the knowledge base and return a concise answer.",
-})
-```
-
-The parent route's prompt can reference `research` by name. B4.run binds it as a callable from the parent — the LLM picks when to delegate, just like a tool call.
-
-But the sub-agent runs with its own state, its own tools under `research/tools/`, and its own middleware.
-
-That is the difference. The sub-agent is not a function call. It is a route.
-
-Each sub-agent is a folder. You can test it in isolation with `b4 run "/support/[tenant]/research"`, deploy it as its own `assistant_id`, and reuse it from a different parent by referencing the path.
-
-The boundary is on disk. Not in a config file.
-
-**A sub-agent is a route, not a function. That is the whole shift.**
-
-Deep Agents is a preview. The shape of `subAgents` and the streaming contract for delegated calls may shift before 0.5. Breaking changes will be called out explicitly in the changelog.
-
-## Streaming improvements
-
-Three concrete changes.
-
-**Token-level streaming through sub-agent boundaries.** In 0.3, a delegated call buffered until the sub-agent finished. In 0.4, the parent's stream interleaves the sub-agent's tokens, tagged with the sub-agent's route id.
-
-**Agent Protocol streaming is thread-scoped.** The dev server serves streaming runs at `POST /threads/:thread_id/runs/stream`, alongside blocking runs at `POST /threads/:thread_id/runs/wait`. The stream uses B4.run's local Agent Protocol event contract so dev-server tooling and deployed-runtime tooling can share the same route id and input shape.
-
-**`b4 dev` shows streamed events in the terminal.** The local dev server prints tool calls, state mutations, and token deltas as they happen. No more attaching a curl to watch progress.
-
-The streaming work also shaved roughly 30% off cold-start time for the dev server on projects with more than 20 routes. A side effect of moving route metadata into a lazy import path.
-
-## Middleware API stabilized
-
-The middleware shape that landed in 0.3 behind a flag is stable as of 0.4.
-
-The flag is gone.
-
-`defineMiddleware`, the `allow` / `reject` helpers, and nearest-ancestor resolution are the supported API.
-
-```ts
-// src/app/support/middleware.ts
-import { allow, defineMiddleware, reject } from "@b4run/sdk"
-
-export default defineMiddleware(async (req) => {
-  if (!req.headers["x-api-key"]) {
-    return reject(401, { error: "Missing x-api-key" })
-  }
-  return allow({ tenant: req.params.tenant ?? "public" })
-})
-```
-
-If you were using the experimental flag in `b4.config.ts`, remove it.
-
-The behavior is the same. The gate is just gone.
-
-## Upgrading
+Use Node.js 24 or later and select the basic template:
 
 ```bash
-pnpm add @b4run/cli@0.4.0 @b4run/sdk@0.4.0
-pnpm exec b4 verify
+pnpm create b4-app my-agents --template basic
+cd my-agents
+pnpm install
+pnpm test
 ```
 
-`b4 verify` regenerates `b4.generated.d.ts` against the new SDK types. If your project compiles after that, you are done.
+The basic template includes the `/hello/[tenant]` route and `test/agent.test.ts`. Its fixture-backed test can run without a provider API key. Running the agent against a real model is a separate step that requires provider configuration.
 
-The runtime is unchanged. The output is still a `langgraph.json` that LangSmith deploys without translation. That contract has not moved.
+## Read the test
 
-If you are coming from a raw LangGraph project and have not moved yet, the migration walkthrough at [`/docs/migrating-from-langgraph`](/docs/migrating-from-langgraph) is the construct-by-construct guide. Nothing in 0.4 changes the path described there.
+Here is the test included in the current basic starter:
 
-## What is next
+```ts
+import { fileURLToPath } from "node:url"
+import { afterAll, it } from "vitest"
+import { createAgentHarness, expectFinalMessage, script } from "@b4run/testing"
 
-0.5 will lift the Deep Agents preview flag, ship a typed evaluations API, and add the durable-execution story for long-running workflows.
+const appRoot = fileURLToPath(new URL("..", import.meta.url))
+const h = await createAgentHarness({ appRoot, route: "/hello/[tenant]#agent" })
+afterAll(() => h.close())
 
-The tracking issue is in the repo. Feedback on the sub-agent shape is especially welcome while it is still in preview.
+it("greets the tenant", async () => {
+  const run = await h.run({
+    input: "Say hello",
+    fixtures: script().user("Say hello").replies("Hello from Acme!"),
+  })
+  expectFinalMessage(run).toContain("Hello")
+}, 60_000)
+```
 
-Sub-agents are becoming routes. Routes are becoming the unit of composition.
+Let's break this down.
 
-That is what makes this interesting.
+### 1. Locate the application
+
+`fileURLToPath(new URL("..", import.meta.url))` resolves the application root relative to the test file. The harness uses that directory to find the application's configuration and routes.
+
+This keeps the test associated with the project containing it, rather than depending on a hard-coded path on one developer's computer.
+
+### 2. Create the harness
+
+`createAgentHarness()` prepares the application for a test run. The `route` value selects `/hello/[tenant]`, and `#agent` identifies the agent entry.
+
+The harness starts the local model mock, runs type generation, and resolves the route. We register `h.close()` with Vitest's `afterAll()` hook so the test releases those resources when it finishes.
+
+### 3. Describe the model response
+
+The `script()` builder describes the exchange:
+
+```ts
+script().user("Say hello").replies("Hello from Acme!")
+```
+
+The user message selects the fixture, and `replies()` supplies the model's response. When the route makes its model request, the local mock returns this text.
+
+The application receives a response through the model integration, without contacting the real provider.
+
+### 4. Assert the result
+
+Finally, `expectFinalMessage(run).toContain("Hello")` checks the final message returned by the run.
+
+The `60_000` argument is Vitest's timeout in milliseconds. It allows up to a minute for the scenario to execute; it does not make the test wait a minute after it passes.
+
+## Test a tool call
+
+As the application grows, we can script a tool request as well. For a route with an `applyFilter` tool, a fixture could look like this:
+
+```ts
+script()
+  .user("Filter open items")
+  .callsTool("applyFilter", { status: "open" })
+  .replies("Found 2 open items.")
+```
+
+First, the mock returns a request to call `applyFilter`. The runtime executes the actual tool. On the next model turn, the mock supplies the final message.
+
+This lets us test the application's handling of a known tool call. We can assert the tool name and arguments using `expectToolCalled`, and test the tool's own output separately. The [Agent Test Harness guide](/docs/testing-agents) includes a complete example.
+
+## What does a passing test tell us?
+
+The greeting test tells us that the application can execute the selected route with the supplied fixture and return the expected message. A tool scenario can check the wiring and behavior around a scripted call.
+
+It does not tell us whether a live model will choose the correct tool. We supplied that choice in the fixture. It also does not show that a changed prompt improves the model's answers, because the response remains scripted.
+
+Use fixture-backed tests for repeatable application behavior. Use live runs and representative evaluation datasets to investigate model behavior. Keeping that distinction clear makes both kinds of checks more useful.
+
+## Conclusion
+
+The useful part of this release was giving a new application a test from the beginning. We can run the route, control the model response, and make an assertion before adding our own features.
+
+Start with that small test. As you add tools and state, add scenarios for the behavior you expect and the failures you need to handle. The [Testing agents guide](/docs/testing-agents) and [Evals guide](/docs/evals) explain how to extend that coverage.
