@@ -96,9 +96,13 @@ because the oracle runs in a container that writer's process never existed in.
 The visible suite is twelve tests in two files, not devkit's suite — nine of its
 eleven test files read `templates/` or `examples/research`, and `templates/`
 cannot be captured at all (see §6). The environment identity is a local Docker
-image id plus the inputs that produced it, not a registry manifest digest. One
-pin, one target shape, no authentication, no separation of duties between the
-principal that creates a work order and the one that approves it.
+image id plus the inputs that produced it, not a registry manifest digest — and
+it is the identity of whatever host prepared it. The objects committed on `main`
+are `linux/arm64`, built on a developer machine; CI rewrites them for its own run
+and does not commit that. A host of a different architecture must run
+`target:prepare` before it can verify anything. One pin, one target shape, no
+authentication, no separation of duties between the principal that creates a work
+order and the one that approves it.
 
 **Still open in the verifier itself,** and stated in the spec's risks: candidate
 code *does* run in the oracle's container, because the check imports the built
