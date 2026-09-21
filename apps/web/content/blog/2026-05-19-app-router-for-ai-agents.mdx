@@ -7,108 +7,56 @@ type: post
 author: brian
 ---
 
-The Next.js App Router changed how many of us think about application structure.
+Learn how B4.run uses filesystem routes to organize a TypeScript agent application.
 
-Not because a file-system router is a new idea.
+If you have used the Next.js App Router, you already know the value of a predictable file tree. You can find a page, its layout, and related code by following the route through the project.
 
-The important part was that it gave common web application concepts a place to live. A page is a file. A layout is a file. A route group is a folder. You can open the tree and get a useful read on the application.
-
-I want the same thing for agent applications.
-
-Agent codebases need more than a runtime. They need a project shape that can hold tools, state, tests, memory, planning, skills, and subagents without turning into a pile of registries.
-
-That is the App Router idea behind B4.run.
+B4.run applies a similar idea to agents. A route has an entry point, tools, state, and optional capabilities such as planning or delegation. Let's build up that structure using a customer support example.
 
 ## Goals
 
-Here is the practical version:
+By the end of this post, we will understand how to:
 
-- A route should be a folder under `src/app/`.
-- The route path should be the agent endpoint.
-- Tools should live next to the route that uses them.
-- Tool types should come from TypeScript, not duplicated schemas.
-- Tests should live beside the route they protect.
-- Agent behavior should compose through files and descriptors, not hidden setup code.
+1. Define an agent route with a dynamic parameter.
+2. Add a tool using a TypeScript function.
+3. Declare the route's state and locate its tests.
+4. Add planning, skills, and a research subagent.
 
-If a developer can open the file tree and understand where to add the next thing, the framework is doing useful work.
+You do not need previous experience building agents. In this example, an **agent** is a model that can request calls to functions we provide. Those functions are its **tools**, and the runtime executes them on its behalf.
 
-## What the route tree tells you
+## Start with the route
 
-Here is a small B4.run application:
+Suppose we are building an assistant that helps customers check the status of an order. Each organization using the application is a tenant.
 
-```text
-src/
-  app/
-    support/
-      [tenant]/
-        index.ts
-        state.ts
-        plan.md
-        run.test.ts
-        tools/
-          lookupOrder.ts
-          escalate.ts
-        skills/
-          refund-policy/
-            SKILL.md
-        subagents/
-          research/
-            index.ts
-            tools/
-              searchDocs.ts
-```
-
-Read that tree out loud and you already know quite a bit.
-
-There is a parameterized route at `/support/[tenant]`.
-
-It has its own route entry in `index.ts`, its own state schema, a seeded plan, a scenario test, two route-local tools, one route-local skill, and a research subagent.
-
-That is not just aesthetic. It changes how the codebase behaves.
-
-You can move the route. You can delete it. You can review it in a pull request. You can ask, "what tools does this agent have?" and answer the question from the folder.
-
-The structure is doing work.
-
-## Routes
-
-A B4.run route is a folder under `src/app/`. The folder path becomes the route id.
-
-Route groups are ignored:
+Our route starts with one file:
 
 ```text
-src/app/(public)/hello/[tenant]/index.ts
+src/app/support/[tenant]/index.ts
 ```
 
-becomes:
+The folder path gives us the route id `/support/[tenant]`. The square brackets declare the `tenant` parameter.
 
-```text
-/hello/[tenant]
-```
-
-The route entry is `index.ts`. It exports exactly one route shape:
-
-- `agent` for an LLM-driven route
-- `workflow` for a deterministic async function
-- `graph` for a raw LangGraph graph
-- `chain` for a LangChain runnable
-
-The default scaffold uses an agent:
+Let's define the agent:
 
 ```ts
+// src/app/support/[tenant]/index.ts
 import { agent } from "@b4run/sdk"
 
 export default agent({
-  model: "gpt-4o-mini",
-  systemPrompt: "You are a helpful assistant for the {tenant} organization.",
+  model: "gpt-5-mini",
+  systemPrompt:
+    "You help customers of {tenant} check their orders. " +
+    "Use lookupOrder to check an order before answering about its status.",
 })
 ```
 
-If you need full LangGraph control, export a named `graph`. If you need a deterministic flow, export a `workflow`. The route folder is the stable boundary either way.
+First, we select a model. Next, we provide instructions through `systemPrompt`. The `{tenant}` placeholder lets the instructions include the current tenant value.
 
-## Tools
+The prompt refers to a `lookupOrder` tool. We still need to implement that function. A prompt can ask the model to use a tool, but the application must supply the code and enforce access to the underlying data.
 
-In B4.run, a tool is a TypeScript file in `tools/`.
+## Add a route-local tool
+
+Create a `tools/` folder beside `index.ts`:
 
 ```ts
 // src/app/support/[tenant]/tools/lookupOrder.ts
@@ -121,23 +69,32 @@ export default async (
   const res = await fetch(`https://api.example.com/orders/${input.orderId}`, {
     signal: ctx.signal,
   })
+
+  if (!res.ok) {
+    throw new Error(`Order lookup failed with status ${res.status}`)
+  }
+
   return (await res.json()) as { readonly status: string }
 }
 ```
 
-There is no `tool()` wrapper in the route.
+This is an illustrative service URL. In your application, replace it with your order service and enforce authentication and tenant ownership there. A route parameter is data supplied to the application; it does not prove who the caller is.
 
-There is no duplicate input schema.
+A few things to note about the function:
 
-B4.run reads the function signature during type generation and build. The input type becomes the JSON schema exposed to the model, and the generated `b4:routes` module gives route code typed access to `ctx.tools.lookupOrder`.
+1. `description` tells the model what the tool does.
+2. `input.orderId` is the argument supplied for the requested call. B4.run derives the model-facing input schema from this TypeScript type.
+3. `ctx` is runtime-provided context. Its `signal` lets the HTTP request observe cancellation.
+4. We check the HTTP status before returning a result.
+5. The returned object becomes the tool result available to the model.
 
-This is the part I care about most: the TypeScript type is the contract.
+The `as` expression describes the expected response to TypeScript. It does not validate the JSON at runtime. A production tool should validate an external service's response if it cannot trust that shape.
 
-## State and tests
+When a customer asks about an order, the agent can request `lookupOrder` with an order id. The runtime calls the function, sends its result back to the model, and the model can explain the status to the customer.
 
-Routes can also define `state.ts`.
+## Declare state
 
-State is the JSON shape that flows through the route runtime. The scaffold uses Zod, but B4.run accepts Zod or any Standard Schema value.
+State is the data carried through a route's execution. We can declare application fields in a `state.ts` file:
 
 ```ts
 // src/app/support/[tenant]/state.ts
@@ -149,33 +106,31 @@ export default z.object({
 })
 ```
 
-B4.run generates route state types from this file and the route path. If you rename a dynamic segment, or change the state shape, TypeScript can catch the places that still assume the old shape.
+Here we use Zod to declare a required `tenant` string and an optional `orderId` string. B4.run accepts Standard Schema-compatible declarations and generates route state types from this file and the route path.
 
-Tests live next to the route too:
+Why declare the shape? Other code can now use the generated types instead of repeating the same interface. If we change the state, TypeScript can help identify assumptions that need to change with it.
+
+The tool input and route state serve different purposes. The tool input describes one function call. The route state describes data available during the route's execution. Adding `orderId` to state does not, by itself, request an order lookup.
+
+## Keep tests with the route
+
+A route scenario test can live at:
 
 ```text
 src/app/support/[tenant]/run.test.ts
 ```
 
-That sounds small, but it matters. The test changes in the same pull request as the route. It does not live in a distant test directory that slowly stops explaining the feature it was written for.
+For our support route, useful scenarios include an existing order, a missing order, and an order-service failure. We want to check how the application behaves in each case, including what happens when it cannot retrieve the answer.
 
-## Agent behavior
+Model responses can vary between calls. The testing tools support fixture-backed runs, where recorded or scripted model responses let us repeat a scenario without a live model call. The [Testing agents guide](/docs/testing-agents) explains how to test tool calls and final responses.
 
-The route tree gives B4.run a place to add higher-level agent behavior.
+Keeping the test near the route makes it easier to update both when the behavior changes.
 
-Here is what we have built to date.
+## Plan a longer request
 
-### Memory
+Checking one order may take one tool call. Investigating several orders and preparing a summary takes more steps.
 
-If `workspace/AGENTS.md` exists, B4.run injects it into the agent prompt under `# Memory` on every model turn.
-
-The file is the memory. The agent can update it, and the next turn sees the updated content.
-
-### Planning
-
-If a route has `plan.md`, B4.run adds a planning prompt, a `writeTodos` tool, a `todos` state channel, and a `plan_update` stream event.
-
-The seed file uses normal markdown checklist syntax:
+A `plan.md` file can provide an initial checklist:
 
 ```md
 - [ ] Review the customer request
@@ -183,70 +138,84 @@ The seed file uses normal markdown checklist syntax:
 - [ ] Write a concise response
 ```
 
-The useful part is that planning is not just a prompt. It is prompt, tool, state, and stream behavior composed together.
+B4.run gives the agent a `writeTodos` tool to update the list, a `todos` state channel to retain it, and `plan_update` events that a client can display.
 
-### Skills
+The checklist helps organize work and show progress. It does not force the model to complete every step correctly. We still need tools, tests, and application rules to check the result.
 
-If a route has `skills/<name>/SKILL.md`, B4.run lists the available skills in the prompt and gives the agent a `readSkill({ name })` tool.
+## Add detailed instructions with a skill
 
-That lets the agent load longer instructions only when it needs them.
+A skill is a Markdown file containing instructions the agent can load when needed. For example:
 
-### Subagents
+```text
+src/app/support/[tenant]/skills/refund-policy/SKILL.md
+```
 
-A route can expose subagents through child routes under `subagents/` or through the `subagents` field on `agent({...})`.
+B4.run tells the agent which skills are available and exposes `readSkill({ name })`. The agent can load the refund instructions when a customer asks a refund question, rather than including the entire policy in every initial prompt.
 
-B4.run adds a `task({ subagent, input })` tool and a `# Subagents` prompt section. The parent agent can delegate to a specialist without the specialist becoming a random helper function hidden in another folder.
+A skill is useful for explaining a procedure. If a refund requires authorization, enforce that requirement in the application and its approval rules as well. Instructions alone do not authorize or prevent a transaction.
 
-The boundary stays visible on disk.
+## Delegate research to a subagent
 
-### Reasoning effort
+A subagent is another agent that handles a specific piece of work. Our support agent might ask a research specialist to find the relevant policy before writing an answer.
 
-For OpenAI-backed agent routes, the descriptor can include:
+Place the specialist under `subagents/`:
 
 ```ts
-reasoning: { effort: "high" }
+// src/app/support/[tenant]/subagents/research/index.ts
+import { agent } from "@b4run/sdk"
+
+export default agent({
+  model: "gpt-5-mini",
+  description: "Find policy documentation relevant to a support request.",
+  systemPrompt: "Research the request and return concise findings with sources.",
+})
 ```
 
-Non-reasoning models ignore it. For models that support the setting, the option stays close to the route that needs it.
+The `description` helps the parent decide when to delegate. The `systemPrompt` instructs the child during its own execution. Add its document-search implementation under `subagents/research/tools/`; the descriptor alone does not give it access to documents.
 
-## What this buys you
+The parent receives a `task({ subagent, input })` mechanism for calling available children. It can request work from `research` and use the returned findings in its response.
 
-The benefit is not the first route.
+Children have their own tool configuration. They do not automatically inherit the parent's route-local tools. When delegation needs restrictions, use the parent's `delegation` policy; the [Subagents guide](/docs/subagents) explains the defaults and named rules.
 
-The first route is always easy.
+## Review the application structure
 
-The benefit shows up when the app has ten routes, forty tools, a few specialists, and enough state that a hand-written registry starts to feel like another product you have to maintain.
+With these additions, our route looks like this:
 
-At that point, the App Router idea earns its place:
+```text
+src/
+  app/
+    support/
+      [tenant]/
+        index.ts
+        state.ts
+        plan.md
+        run.test.ts
+        tools/
+          lookupOrder.ts
+        skills/
+          refund-policy/
+            SKILL.md
+        subagents/
+          research/
+            index.ts
+            tools/
+              searchDocs.ts
+```
 
-- file moves are meaningful
-- type generation has one source of truth
-- tests have a home
-- generated deployment artifacts are predictable
-- memory, planning, skills, and subagents compose around the route instead of around a hidden framework object
+We can follow a customer request through the files: the parent receives it, a tool retrieves order data, and a specialist can research a policy. State, instructions, and tests have a location beside the behavior they describe.
 
-This does not make B4.run necessary for every project.
+The route convention also supports other entry types. Export a `workflow` for a deterministic async function, a `graph` for a LangGraph graph, or a `chain` for a LangChain runnable. Each `index.ts` declares one entry shape. You can choose the execution model without inventing a different project layout.
 
-If you have one graph and two tools, raw LangGraph.js may be exactly right.
+## Conclusion
 
-But if your agent application is starting to look like an application, it needs application structure.
+The App Router idea gives an agent application a structure we can navigate using familiar TypeScript files and folders. We started with one agent, added a tool, and then gave state, tests, planning, and delegation a place to live.
 
-That is what B4.run is trying to provide.
-
-## Getting started
-
-The fastest way to try the shape is still the scaffold:
+You can start with only the pieces your application needs. To create a small project using the basic template:
 
 ```bash
-pnpm create b4-app my-agents
+pnpm create b4-app my-agents --template basic
 cd my-agents
-pnpm dev
+pnpm install
 ```
 
-Then run the example route:
-
-```bash
-echo '{"tenant":"acme"}' | pnpm exec b4 run '/hello/[tenant]'
-```
-
-For the deeper read, start with [Mental Model](/docs/mental-model), [Routes](/docs/routes), [Memory](/docs/memory), [Planning](/docs/planning), [Skills](/docs/skills), [Subagents](/docs/subagents), and [Reasoning Effort](/docs/reasoning-effort).
+Use Node.js 24 or later, configure the provider key using the generated environment instructions, and run `pnpm dev`. The [Getting Started guide](/docs/getting-started) covers the first run, and the [Routes guide](/docs/routes) explains the complete route conventions.

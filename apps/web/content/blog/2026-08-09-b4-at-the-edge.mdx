@@ -8,21 +8,37 @@ author: brian
 draft: true
 ---
 
-One request worked. The second hung.
+The first request to the edge build worked. The second request hung.
 
-That was the useful failure. Once B4.run had a `(Request) => Promise<Response>` core, putting Hono around it looked simple. Then workerd exposed everything a clean, single-request bundle did not: I/O owned by one request, bare Node globals, imports a bundler could not analyze, and storage lifetimes that were safe in a long-running server but wrong in an isolate.
+That failure helped explain something a successful bundle could not: a database connection created during one request was being reused during another. The code looked reasonable in a long-running Node server, but its lifetime was wrong for the edge runtime.
 
-## The short version
+Let's use that problem to walk through B4.run's Hono build target. We will look at the generated files, how a request uses storage, and which parts of an agent application fit this environment.
 
-B4.run 0.8.21 adds an opt-in `hono` build target for Cloudflare Workers. The target has been tested locally in real workerd, not live-deployed to Cloudflare.
+**Version note:** This post explains the edge work through 0.8.21. The configuration examples use the later `@b4run` package names. Use the [current edge deployment guide](/docs/deployment/edge) for installation; `@b4run` packages were first published at 0.8.27. The runtime evidence discussed here is from local workerd tests, not a live Cloudflare deployment.
 
-The generated entry and the B4.run runtime graph it reaches link without `nodejs_compat`. Runtime stores are Postgres-backed and scoped to each request. The target is also a deliberate subset: when an app asks for a capability the edge cannot serve, B4.run names the failure during `b4 check` or `b4 build` instead of shipping a partial application.
+## What is an edge runtime?
 
-This post is about that wiring and its evidence boundary. For the broader 0.8 release, see [B4.run 0.8 — The framework around the agent](/blog/b4-0-8-framework-around-the-agent).
+For this post, the target is Cloudflare Workers, which runs application code in workerd. An **isolate** is the JavaScript execution environment in which the Worker handles requests. It can handle more than one request, but it does not provide the same environment as a Node process with unrestricted filesystem and process APIs.
 
-## What B4.run builds
+B4.run's HTTP core accepts a web-standard `Request` and produces a `Response`. Hono supplies the web application around that handler. The build target generates the route imports, storage setup, and Hono entry needed to connect the pieces.
 
-The target is not part of B4.run's defaults. Naming `build.targets` replaces the default list, so keep every output you still want:
+The familiar `Request` and `Response` types make this possible. They do not make every dependency or capability edge-compatible. We still need to understand what the application imports and how it uses resources.
+
+## Goals
+
+The edge target needs to:
+
+1. Produce modules that the deployment bundler can inspect.
+2. Run the framework's request handler without Node compatibility enabled.
+3. Store conversation state outside the Worker.
+4. Create and clean up database resources within the request that owns them.
+5. Report unsupported framework capabilities before deployment.
+
+The [0.8 overview](/blog/b4-0-8-framework-around-the-agent) covers the wider framework. Here we will focus on what changes when the runtime moves to Workers.
+
+## Select the Hono target
+
+Add `hono` to the build targets in `b4.config.ts`:
 
 ```ts title="b4.config.ts"
 import { config } from "@b4run/cli"
@@ -32,86 +48,166 @@ export default config({
 })
 ```
 
-One discovery pass then produces four edge artifacts:
+First, we import the configuration helper. Then we specify the outputs the application needs.
 
-| Artifact | Purpose |
+Setting `build.targets` replaces the default target list. In this example, we keep the Node and LangSmith outputs and add Hono. If you only need a subset, list that subset explicitly.
+
+The build generates these files:
+
+| File | What it does |
 | --- | --- |
-| `.b4/build/modules.edge.mjs` | A static manifest of route, tool, state, and middleware modules, with schemas inlined. |
-| `.b4/build/stores.mjs` | A per-request Neon WebSocket pool shared by the Postgres checkpoint, thread, and permission stores. |
-| `.b4/build/app.mjs` | A default-exported Hono app whose catch-all passes requests to B4.run's fetch handler. |
-| `wrangler.toml` | A root scaffold written only when the file is absent. B4.run never overwrites an existing one. |
+| `.b4/build/modules.edge.mjs` | Lists the route, tool, state, and middleware modules using static imports, with generated schemas included. |
+| `.b4/build/stores.mjs` | Creates the request's database pool and the stores that share it. |
+| `.b4/build/app.mjs` | Exports a Hono app that forwards requests to B4.run's handler. |
+| `wrangler.toml` | Configures the Worker entry. A root scaffold is created only when one does not already exist. |
 
-B4.run emits analyzable source. Wrangler still creates the final deployment bundle, so implementation edits inside an existing imported route, tool, or middleware module flow through without another B4.run build. Rerun `b4 build` when discovery or other build-time inputs change: add, remove, or rename a route, tool, or middleware module; change a generated schema or type signature; select another model or provider; or update inlined configuration. The serializable part of `b4.config.ts` is baked into `app.mjs`, so secrets belong in host bindings, not in that file.
+These are generated source files. Wrangler, Cloudflare's development and deployment tool, bundles them with their dependencies for the Worker.
 
-The generated app is a useful default, not a closed wrapper. You can import the same pieces into a larger Hono application when you need your own routes or middleware around B4.run.
+### When do we rebuild?
 
-## Node-free on purpose
+If you change the implementation inside a route or tool already imported by the manifest, Wrangler can bundle that updated module. Changes to discovery or generated configuration require another B4.run build.
 
-There are two separate checks behind the Node-free entry. One gates the generated/runtime module graph at zero `node:` specifiers. Another scans B4.run-owned code for bare Node-only globals such as `process`, `Buffer`, and `require`. This is why the emitted Wrangler config deliberately leaves out `nodejs_compat`.
+For example, rebuild after adding or renaming a tool, changing its input type, selecting another provider, or changing configuration that is written into the generated entry.
 
-This is not a claim that all of B4.run runs without Node. The CLI, local discovery, filesystem tools, and Node deployment target still use it. The narrower claim is that the graph reachable from the edge entry does not depend on Node built-ins or B4.run-owned bare Node globals.
+The serializable configuration is included in `app.mjs`. Supply credentials through the host's secret bindings so they are available at runtime without putting them in generated source.
 
-Environment access had to change too. `readRuntimeEnv` reads from `globalThis.process?.env` on Node and from bindings seeded by the generated entry on workerd. The model layer uses the same seam for provider credentials and settings such as `OPENAI_BASE_URL`, rather than assuming `process.env` exists.
+## Make imports explicit
 
-Provider loading is static at the edge. The build scans the models the application can reach and emits a literal switch of provider package imports. If a route cannot be inspected or a model cannot be mapped to a provider, the build fails; a variable dynamic import would leave Wrangler unable to know what belongs in the bundle.
+A Node application can use APIs such as `node:fs` and globals such as `Buffer`. A Worker without Node compatibility cannot assume those APIs exist.
 
-This gate covers B4.run's generated code and runtime graph. It does not police arbitrary imports inside your routes or tools. A route can still import a Node-only package and fail when Wrangler bundles it. Passing B4.run's gate means the framework did not introduce the edge dependency, not that every user dependency has been verified.
+B4.run checks two things in its edge output:
 
-## One request, one store lifetime
+1. The generated entry and reachable framework runtime have no `node:` import dependencies.
+2. Framework-owned code does not rely on bare Node-only globals such as `process`, `Buffer`, or `require`.
 
-The first storage design put a Neon WebSocket pool at module scope. Request one returned its client to the idle pool. Request two received that same client, but the socket belonged to the completed request's workerd I/O context. It waited until workerd cancelled it. The next request opened a fresh client and worked, producing the alternating hang that a one-request smoke test could never reveal.
+The second check matters because `process.env` does not require an import. Checking import paths alone would miss it.
 
-The generated target now creates one pool per request. The Postgres checkpointer, Agent Protocol thread store, and permission store share that pool, then B4.run disposes it only after both the response body and any run started by the request have settled. That second condition matters for streaming and for bookkeeping that finishes after the HTTP response resolves.
+Provider configuration uses a runtime environment helper. On Node it can read the process environment. In workerd it can read bindings supplied by the generated entry. This lets the model layer find credentials and settings such as `OPENAI_BASE_URL` in the appropriate environment.
 
-After a migration pass completes, the generated target memoizes that result per isolate, and subsequent requests build their stores with `assumeMigrated`. A module-scope boolean is safe here because it owns no I/O. Concurrent cold-start requests can each observe that the migration has not completed and enter their own migration transactions; Postgres advisory locks protect those transactions, so the race converges safely on the same schema.
+### Why static provider imports?
 
-The verified database path is specific: `@neondatabase/serverless` provides a WebSocket `Pool`, connected to local Postgres through a local WebSocket proxy. It is not the `neon()` HTTP function, and it is not raw TCP through `pg`. Neon Cloud and Cloudflare Hyperdrive have not been tested. These three runtime stores also do not include B4.run's typed long-term memory store.
+The build also identifies the model providers used by the application and generates imports that name their packages explicitly. Wrangler can follow those imports to determine what belongs in the bundle.
 
-## The target refuses what it cannot run
+If the build cannot inspect a route or map its model to a provider, it fails with an error. Guessing at a package name during a request would leave the bundler without a reliable dependency list.
 
-An edge build should not quietly drop half an application's behavior. Error `B4_E1005` rejects the shapes B4.run knows it cannot preserve:
+These checks cover B4.run's generated code and framework runtime. Your own tools can still import a Node-only dependency. Bundle and run the actual application to check those imports too.
 
-- an execution sandbox;
-- filesystem or shell backends;
-- an app-level `workspace/` directory;
-- route skills loaded from disk;
-- typed long-term memory declared with `memory.ts`;
-- custom live checkpointer, thread, permission, or memory store instances.
+## Follow a request through storage
 
-The reasons differ, but the result is the same: these capabilities need a filesystem, process, container, or live object that cannot cross the static build boundary. B4.run reports all detected violations together and points back to the config key or file that introduced each one.
+The Worker needs somewhere to save the conversation and execution state. This target uses Postgres through the Neon serverless driver's WebSocket `Pool`.
 
-The filesystem markers `memory.md` and `plan.md` may remain in the route shape, but their marker readers are inactive without a filesystem. Do not treat that as supported edge memory or planning. More generally, “not gated” means only that the build does not reject a shape. It does not mean the behavior has been verified in workerd.
+Three stores share the pool:
 
-## What the tests prove
+- The **checkpointer** saves execution state so a run can continue.
+- The **thread store** retains conversation records.
+- The **permission store** retains permission grants.
 
-The gated `edge-workerd` CI lane builds an emitted OpenAI fixture, starts it with `wrangler dev --local`, and runs it inside real Cloudflare workerd. It uses the generated Wrangler file unchanged, with no `nodejs_compat`, no Cloudflare account, and local Postgres behind the WebSocket proxy.
+These are runtime stores. They do not include the separate typed long-term memory collection declared by `memory.ts`.
 
-| Build-supported shape | Executed in the workerd lane |
+### The connection-lifetime bug
+
+The first implementation created a pool at module scope. In a long-running server, a pool commonly remains available across requests so connections can be reused.
+
+Here is what happened in workerd:
+
+1. Request one created a connection and used it successfully.
+2. The connection returned to the pool when the database operation finished.
+3. Request two received that idle connection.
+4. The socket still belonged to request one's completed I/O context.
+5. Request two waited until workerd cancelled the operation.
+
+A later request could open a fresh connection and work again. That produced the alternating success and hang.
+
+One successful request could never demonstrate that this design was correct. We needed to enter the same isolate from several request contexts.
+
+### Create a pool for each request
+
+The generated target now creates a pool for the incoming request and gives that same pool to its three stores.
+
+The sequence is:
+
+1. Receive the HTTP request and its environment bindings.
+2. Create the request's Postgres pool and stores.
+3. Execute the runtime request using those stores.
+4. Wait for the response body and any run started by the request to finish.
+5. Dispose the request's pool.
+
+The fourth step is easy to miss. A streaming response may continue producing data after the handler returns a `Response` object. Run bookkeeping can also outlive that return. Closing the pool immediately would remove a resource still in use.
+
+### Initialize the database schema
+
+Once database migrations finish, the generated target remembers that result in a boolean at module scope. Later requests can create stores with `assumeMigrated`.
+
+This boolean is different from the connection pool: it contains a completed result and owns no socket or other request-bound I/O.
+
+Two initial requests can both reach the migration step before the boolean is set. The migration transactions use Postgres advisory locks to coordinate that case.
+
+The tested connection path uses a local Postgres database behind a local WebSocket proxy. It uses the driver's WebSocket pool, rather than its HTTP query function or a raw TCP `pg` connection. Neon Cloud and Cloudflare Hyperdrive are separate environments that this test does not qualify.
+
+## Check the application's capabilities
+
+Some agent capabilities depend on a filesystem, shell, container, or object that cannot be serialized into an edge build.
+
+The capability check reports `B4_E1005` for unsupported configurations. The edge work described here rejects:
+
+- Execution sandboxes.
+- Filesystem or shell backends.
+- An app-level `workspace/` directory.
+- Route skills that load instructions from disk.
+- Typed long-term memory declared in `memory.ts`.
+- Custom live instances of checkpointer, thread, permission, or memory stores.
+
+The current target also rejects tool-output offloading, a restriction added after the 0.8.21 work. Use the [current capability list](/docs/deployment/edge#fit-check-and-evidence-boundary) when assessing a new application.
+
+The check reports detected violations together and points to the configuration or file involved. This is more useful than finding out during a request that a required capability is missing.
+
+There are limits to the check. Route marker files such as `plan.md` and `memory.md` may remain in the tree, but their filesystem readers are inactive in this environment. Passing the build check therefore does not establish that file-backed planning or memory works at the edge.
+
+For an agent that edits files or runs commands, the [Node and Docker target](/docs/deployment/node) is a more direct starting point.
+
+## Test more than the bundle
+
+The workerd test builds an OpenAI agent fixture and starts the generated output with `wrangler dev --local`. It uses the emitted Wrangler configuration without `nodejs_compat`, a local model fixture, and the local Postgres WebSocket path.
+
+The test then sends four sequential AG-UI turns through the same isolate. AG-UI is the event protocol used by the browser-client adapter.
+
+Why four turns? Each request must reload conversation state saved by earlier requests. Repeating the interaction also exercises fresh request contexts, which exposed the connection-lifetime bug.
+
+The test checks database rows using a separate connection. It verifies that thread, checkpoint, and write records were persisted, rather than relying only on the text returned to the client.
+
+Here is what that evidence covers:
+
+| Check | What we learn |
 | --- | --- |
-| Static route, tool, state, middleware, and provider wiring | The emitted OpenAI agent fixture loaded and called the local model fixture. |
-| B4.run fetch runtime, including Agent Protocol and AG-UI routes | `/healthz` and four sequential AG-UI turns completed. Agent Protocol was not exercised there. |
-| Postgres checkpoint, thread, and permission stores | Conversation state reloaded between requests, and thread, checkpoint, and write rows were checked out of band through a separate database connection. |
-| Other ungated runtime features | Tools, subagents, permissions/HITL, and their combinations were not exercised inside workerd. |
+| Bundle and load the generated entry | This fixture and its provider imports can load in workerd. |
+| Call `/healthz` | The runtime can respond to its health route. |
+| Complete four AG-UI turns | This conversation can continue across request contexts. |
+| Inspect persisted records | The expected runtime data reaches Postgres. |
 
-Four turns are intentional. They repeatedly enter the same isolate from fresh request contexts and retain the conversation from the first turn through the fourth. The lane has already caught failures that static bundle checks missed, including a provider import that reached `node:async_hooks`, a request-owned `AbortController`, and a credential lookup that assumed `process.env`.
+The workerd lane does not exercise Agent Protocol flows, tool calls, subagents, or human approvals. It also does not test other model providers, a live Cloudflare deployment, production connection and subrequest limits, upload and bundle limits, startup CPU limits, remote database latency, or cross-isolate cold starts. Running the same output on Vercel, Deno, or Bun would need its own qualification.
 
-There is still a substantial unverified list: a live Cloudflare deployment and its upload limits; Agent Protocol, tools, subagents, and human-in-the-loop flows inside workerd; providers other than OpenAI; production connection and subrequest limits; WAN database latency; cross-isolate cold starts; startup CPU and bundle-size enforcement; Hyperdrive; Neon Cloud; and the same output on Vercel, Deno, or Bun.
+These are useful next tests for an application considering this target. Start with the capabilities and traffic pattern your application actually uses.
 
-That list is not a disclaimer pasted on at the end. It is the map for the next useful tests and for deciding whether this target fits a real workload today.
+## Try the target locally
 
-## Try it
+Follow the [edge deployment guide](/docs/deployment/edge) to install a consistent set of current B4.run packages, the Neon driver, Hono, and Wrangler. Configure the database and model-provider bindings described there.
 
-If your B4.run app fits the subset, pin every direct `@b4run/*` dependency to exactly 0.8.21. Then install the edge dependencies and a fixed Wrangler version, check the capability boundary, build a clean artifact, and deploy with your database URL in a binding:
+With the target selected, check and build the application:
 
 ```bash
-pnpm add @b4run/cli@0.8.21 @b4run/sdk@0.8.21 @b4run/postgres-storage@0.8.21 @neondatabase/serverless hono
-pnpm add --save-dev wrangler@4.120.0
 pnpm exec b4 check
 pnpm exec b4 build --clean
-pnpm exec wrangler secret put DATABASE_URL
-pnpm exec wrangler deploy
+pnpm exec wrangler dev --local
 ```
 
-Read [Deployment](/docs/deployment) for the complete target setup and [Postgres backend](/docs/configuration#postgres-backend) for schema and operational details. Then try it with the traffic shape, route tools, provider, and database you actually intend to run.
+Send more than one request. Continue a conversation, exercise each tool, and check that state survives between requests. A successful health response alone will not tell you whether the application works.
 
-I would especially like feedback from those real workloads: where the subset is too narrow, where request-scoped connections become expensive, and what Cloudflare's production limits reveal. The local workerd evidence is strong enough to make the target useful and inspectable. It is not a claim that the path is already production-proven.
+After local verification, test a deployment with the database, credentials, and limits of the intended host. The local workerd test does not replace that step.
+
+## Conclusion
+
+The Hono target shows how B4.run's request handler can run in a web-standard environment with an explicit set of supported capabilities.
+
+The most useful lesson came from the second request. A valid bundle and a successful first response did not tell us that our storage lifetime was correct. Following the connection through several requests did.
+
+If your agent fits the target's constraints, use that same approach: inspect the generated files, understand which resources belong to a request, and test the complete conversation in the environment where it will run.
