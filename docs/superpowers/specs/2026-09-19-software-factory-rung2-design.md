@@ -110,7 +110,7 @@ invocation run at `commands.cwd`.
 | `defect.patch` | Applied to the archive before capture. Re-seeds the known regression on top of the pin, so the baseline is current code with one known defect rather than an old commit. Optional: `cli-flags` has none, because its pinned bytes are already the defective baseline. |
 | `reference.patch` | The forward repair. Used only by the scripted builder in layer 3 and never read by the verifier. |
 | `checks.json` | Maps the visible suite and the independent suite to the acceptance IDs they cover, as in rung 1. |
-| `checks/` | The independent suite. Structurally absent from the capture; the verifier writes it into its own container after the visible suite has run. |
+| `checks/` | The independent suite. Structurally absent from the capture; the verifier writes it into the container of the session that grades it, which is not the one the visible suite ran in. |
 
 `policyDigest` is computed over `task.json`, `checks.json`, the bytes of every
 file under `checks/`, the bytes of `defect.patch`, the target's `capture`
@@ -270,10 +270,18 @@ root, tmpfs `/tmp`, no network, user `node`), three runs each, slowest taken:
 
 The written limits give at least three times that headroom, rounded up to a
 whole minute (the wedge-detector rule from the timing-flake work, not a
-stopwatch): `commandTimeoutMs` 60 000, `verifierDeadlineMs` 120 000 (two
-minutes rather than one, so a single slow command cannot consume the whole
-verifier budget), `memoryMb` 768 (twice the peak, rounded up to 256). Network
-stays denied; the frozen install is the point.
+stopwatch): `commandTimeoutMs` 60 000, `memoryMb` 768 (twice the peak, rounded
+up to 256). Network stays denied; the frozen install is the point.
+
+`verifierDeadlineMs` is bounded by a whole verification rather than by one
+command, and it covers both container sessions. The slowest measured
+verification is the defect baseline at 59.8 s (the reference repair is 51.6 s,
+stable to ±0.6 s across three runs), so the deadline is **180 000** — 3× the
+slowest, rounded up to a whole minute. It was 120 000 when one verification was
+~50 s and both suites shared a container. 180 000 is 3.01× the slowest run, so
+it is the value the rule gives and not a comfortable one: a target whose suites
+grow, or a host slower than the one measured, should take four minutes rather
+than shave the rule.
 
 ## What changes in the verifier and the reader
 
@@ -281,10 +289,43 @@ stays denied; the frozen install is the point.
   target. One function, `targetWorkspace(taskId)`, the successor of
   `fixtureWorkspace`, yields the workspace definition, the inspection options
   and the sandbox policy for the builder config, the reader and the verifier.
-- The verifier runs `commands.build` once at `commands.cwd` after writing the
-  candidate and before the visible suite. A build failure is a failed visible
-  check with the compiler output as evidence, not inconclusive: it is a fact
-  about the candidate.
+- **The verifier grades each suite in its own container.** `verify()` performs
+  two container sessions in order, each a whole verification of its own: its own
+  capture instance, its own state root, its own container, its own
+  `commands.build` at `commands.cwd`. Session A writes the candidate, builds,
+  snapshots, runs the visible suite and snapshots again. Session B writes the
+  candidate, builds, writes the independent check file, snapshots, runs the
+  independent suite and snapshots again. Nothing crosses between them but the
+  candidate's bytes, which the controller holds. `src/verification/grade-suite.ts`
+  is one session; `docker-verifier.ts` keeps the receipt assembly.
+
+  This is the RFC's own recommendation (§9.3, "place the oracle and result
+  collection in a separate trusted process") applied to the one place the
+  dogfood found it mattered. The candidate's source is imported by the visible
+  suite, so module-level code in it runs inside session A's container and can
+  leave a detached, unref'd process behind — `--init` reaps zombies, not live
+  detached children. With one shared container that process could act on the
+  oracle's input *later*; with a container per suite there is no later, because
+  session B is a fresh container in which the candidate's test code has never
+  run and whose build does not execute candidate code (`tsc -b` compiles, it
+  does not run). Writing the check file before session B's first snapshot also
+  closes the gap between the two suites' snapshots, which previously could not
+  be collapsed because the file had to be written between them.
+
+  A build failure in session A is a failed `build` check with the compiler
+  output as evidence, not inconclusive: it is a fact about the candidate, and
+  session B is not started. A tamper in session A likewise short-circuits. A
+  build that *succeeded* in session A and fails in session B is the one new
+  case: it is `inconclusive` with a `build` check, because two containers
+  disagreeing about the same bytes is a fact about the harness.
+
+  The second session costs a capture, a container start and a build. Measured on
+  the devkit lane (warm image): container ready 1.3 s, build 0.4 s, each
+  workspace snapshot 9.7 s, visible suite 7.5 s, independent suite 1.9 s — so
+  the whole extra session is ~1.7 s and a verification went from 49.9 s to
+  51.6 s (reference repair) and 57.7 s to 59.8 s (defect baseline). `verifierDeadlineMs`
+  rises from 120 000 to 180 000 to keep three times the measured slowest run
+  under the rule below.
 - `environmentIdentity` is the sha256 of the target's `image` object. The rung 1
   caveat about mutable tags comes out of the README and the verifier, replaced
   by the narrower caveat that the identity is a local id plus its inputs, not a
@@ -337,8 +378,17 @@ starts; an instrumented run of the clean reference repair, comparing the full
 snapshots with no ignore list at all, showed zero differing paths across both
 windows (28 `dist/` entries, identical before and after each suite). The
 comparison now compares everything, and the adversarial candidate is rejected
-with an `independent` tamper instead of being graded on the bytes it chose.
-`snapshotIgnore` keeps its other two consumers.
+with a tamper instead of being graded on the bytes it chose. `snapshotIgnore`
+keeps its other two consumers.
+
+Detection was not the end of it. A comparison catches a mutation that persists
+across two snapshots; it cannot catch one reverted in between, and it could not
+close the gap between the visible suite's post-snapshot and the independent
+suite's pre-snapshot, because the check file had to be written in exactly that
+gap. Both residuals came from one fact — the two suites shared a container — so
+the second fix is the RFC's own §9.3 recommendation: grade each suite in a
+container only it ran in. The oracle now runs where the candidate's test code
+never did, and the reverted-mutation residual is the only one of the three left.
 
 ## Lifecycle, cancel, budget and reconciliation
 
@@ -399,12 +449,37 @@ builder's workspace and must not read as added candidate paths.
 `test/verifier-tamper.integration.test.ts` is the adversarial case: the
 reference repair with a module-level payload that spawns a detached writer,
 which overwrites `packages/devkit/dist/testing/index.js` — the artifact the
-independent oracle grades — once the independent check file appears. It must
-be rejected with a single `independent` tamper check, and the same repair
-without the payload must still come back `visible:pass, independent:pass`, so
-the rule is not "reject everything". Against the pre-fix comparison the same
-candidate reported `visible:pass, independent:fail` and no tamper at all: the
-builder had flipped its own oracle's verdict unnoticed.
+independent oracle grades. It asserts the verifier's two defences separately,
+because they are two different mechanisms.
+
+- **Isolation.** The writer arms on a fixed 30 s delay, measured from its own
+  start (the visible suite's first import of the candidate module) so that it
+  lands well past session A's post-snapshot — the longest that wait can be is
+  the measured 17.3 s. The receipt must be `visible:pass, independent:pass`: the
+  oracle read the artifact its own build produced, in a container the
+  candidate's test code never ran in. A clock and not a workspace event, because
+  the event the old payload waited for (the independent check file appearing) is
+  now written in a container this process cannot see — that absence *is* the
+  fix. The margin only has to cover one direction: a write that lands early is
+  caught as a `visible` tamper and the test fails loudly, and a write that lands
+  after the session cannot write at all, because its container is gone.
+- **Detection.** The same payload armed at zero delay writes throughout the
+  visible suite, and must be rejected with a single `visible` tamper check whose
+  evidence says so. This needs no clock margin: the payload runs at the suite's
+  first import, necessarily after the pre-snapshot, and keeps writing past the
+  post-snapshot. It is also what keeps the isolation test from being vacuous —
+  the same spawn-a-detached-writer primitive, armed inside the graded window
+  instead of after it, really does write and really is caught.
+- **Not reject-everything.** The same repair without the payload still comes
+  back `visible:pass, independent:pass`.
+
+Against the comparison that still excluded `snapshotIgnore`, an earlier version
+of this candidate reported `visible:pass, independent:fail` and no tamper at
+all: the builder had flipped its own oracle's verdict unnoticed. Closing that
+made the mutation *detected*. Closing this one makes it *unreachable*: under the
+single-container design the writer was still alive in the very container the
+oracle ran in, and detection was the only thing standing between it and the
+verdict.
 
 ### What the proof does not claim
 
@@ -501,23 +576,26 @@ named rungs are in the
   container and read back in the same command. The path and the stdout marker
   carry a per-run nonce, so a test cannot forge them blind, but a test that
   reads the nonce from the vitest process's argv and leaves a background writer
-  could still replace the report. The same primitive reaches further: a
-  process the visible suite leaves running can mutate the workspace while the
-  independent suite runs, so a candidate whose allowed source file (which
-  vitest imports) spawns a detached writer could put correct bytes in place for
-  the independent check while the exported bytes stay the builder's. Both
-  suites run in one verifier container, and `--init` reaps zombies, not live
-  detached processes. A *persistent* mutation is now DETECTED for every path,
-  the target's build output included: the tamper comparison excludes nothing,
-  so the workspace as the post-suite snapshot finds it must equal the
-  pre-suite one. What remains is narrower and still accepted: a mutation the
-  writer reverts before the post-suite snapshot is taken, a mutation that
-  lands in the gap between one suite's post-snapshot and the next's
-  pre-snapshot (the check file is written in between, so the two cannot be
-  collapsed into one), and the vitest report file in `/tmp`, which no
-  workspace snapshot covers at all. The fix for those is the same: run the
-  target's tests as a uid that cannot reach the workspace or the report;
-  deferred.
+  could still replace the report. The report lives in `/tmp`, which no workspace
+  snapshot covers at all, and it is read back in the same container session that
+  produced it, so this one is unaffected by the per-suite split below. The fix
+  is to run the target's tests as a uid that cannot reach the report; deferred.
+- **A mutation reverted inside its own window is not detected.** The tamper
+  comparison is two snapshots, not a watch: a detached writer that mutates the
+  workspace while a suite runs and puts the original bytes back before the
+  post-suite snapshot leaves the two snapshots equal. Every *persistent*
+  mutation is detected, for every path, the target's build output included —
+  the comparison excludes nothing. Same fix, same deferral.
+
+  Two neighbours of this risk are now CLOSED rather than accepted, by grading
+  each suite in its own container (see "What changes in the verifier"). A
+  process the visible suite leaves running cannot act on the independent
+  suite's workspace, because that suite runs in a different container, built
+  from a different capture, in which the candidate's test code never ran. And
+  there is no longer a gap between one suite's post-snapshot and the next's
+  pre-snapshot: the independent check file is written before session B's first
+  snapshot rather than between two snapshots of one session, so that session's
+  two snapshots bound one continuous observation.
 
 ## Success criteria
 

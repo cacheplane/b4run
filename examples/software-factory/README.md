@@ -18,16 +18,23 @@ bundle and an export, but the bytes in that lane are not yet the *builder's* own
 
 - **The controller owns the verdict.** It captures the baseline itself, reads the builder's
   workspace itself, diffs and digests the candidate itself, runs the checks in *its own*
-  container with a separate sandbox scope and a freshly captured workspace, and issues its own
+  containers with a separate sandbox scope and freshly captured workspaces, and issues its own
   receipt. The builder has no channel for a verdict: no gate, no interrupt, no receipt tool.
   Prose claiming success is just prose.
+- **Each suite is graded in its own container.** Verification is two sessions, not one: the
+  visible suite and the independent check each get their own capture, their own container and
+  their own build, and nothing crosses between them but the candidate's bytes. The candidate's
+  source is imported by the visible suite, so it gets to run code in that container — and a
+  detached process it leaves behind cannot touch the oracle, because the oracle runs somewhere
+  else. This is the RFC's own recommendation: put the oracle in a separate trusted process.
 - **The independent checks are structurally out of reach.** They are a sibling of the
   captured `project/` directory, so they are absent from the builder's workspace rather than
-  merely excluded from it, and the verifier writes them in only after the visible suite has
-  had its turn, from the controller's own copy. A candidate that passes the visible suite and
-  fails the independent checks cannot reach `awaiting_approval`.
-- **A candidate cannot repair itself by editing its tests.** The verifier snapshots the
-  workspace before and after each suite; any persistent change a suite made is a rejection.
+  merely excluded from it, and only the session that grades them ever holds a copy — written
+  from the controller's own copy, into a container the visible suite never ran in. A candidate
+  that passes the visible suite and fails the independent checks cannot reach
+  `awaiting_approval`.
+- **A candidate cannot repair itself by editing its tests.** Each session snapshots the
+  workspace before and after its suite; any persistent change the suite made is a rejection.
 - **Approval binds a frozen bundle, not a digest.** The bundle fixes the work order, the
   repository, the baseline, the specification, the policy, the verifier's environment
   identity, the candidate digest, the check evidence, and the destination. Its digest is what
@@ -107,8 +114,8 @@ reader carries no exec backend and no write operation, so a mutation cannot be e
   every run. `ignorePrefixes` is the target's `snapshotIgnore`: a builder that runs the
   target's build writes there legitimately, and those paths are dropped rather than reported
   as added. The verifier's tamper comparison does not share that exclusion — it compares the
-  whole workspace, because the build finishes before its first snapshot and the independent
-  oracle reads the build output.
+  whole workspace, because each session's build finishes before that session's first snapshot
+  and the independent oracle reads the build output.
 
 ## Run it
 
