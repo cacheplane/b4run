@@ -137,20 +137,23 @@ not told to expect.
    the suites do not run.
 3. Snapshot the workspace. Run `commands.test`, the visible suite — at
    `commands.cwd` for a vitest suite, at the workspace root for a `node-test`
-   one. Snapshot again; any change outside the target's own `snapshotIgnore`
-   prefixes is tampering and the candidate is rejected. For devkit that list is
-   `packages/devkit/dist/`; for cli-flags it is empty.
+   one. Snapshot again; **any** change at all is tampering and the candidate is
+   rejected. Nothing is excluded, the target's build output included: the build
+   ran at step 2, before the first snapshot, so nothing legitimate writes there
+   while a suite runs — and for devkit it is the directory the independent
+   oracle reads.
 4. Write the independent checks into the container. Snapshot, run them,
    snapshot again with the same rule.
 5. Issue a receipt: `pass`, `fail`, or `inconclusive` when the harness itself
    could not run or ran out of time. Inconclusive blocks; it is never read as
    fail.
 
-The controller's **reader** has a matching rule one step earlier. A builder
-that runs the target's build writes `packages/devkit/dist/**` into its own
-workspace, and the assembly rule rejects any path the baseline lacks — so
-without a filter every one of those paths would be a `scope_violation`. The
-reader drops paths under the same `snapshotIgnore` prefixes
+The controller's **reader** is where `snapshotIgnore` does apply, one step
+earlier. A builder that runs the target's build writes `packages/devkit/dist/**`
+into its own workspace, and the assembly rule rejects any path the baseline
+lacks — so without a filter every one of those paths would be a
+`scope_violation`. The reader drops paths under the target's `snapshotIgnore`
+prefixes
 (`ignorePrefixes` in `WorkspaceReadOptions`). It is a reader-side filter
 applied **after** the walk, because the framework's inspection can exclude root
 directories only, so build output still counts against the reader's entry and
@@ -365,11 +368,13 @@ writes, builds and tests before the controller ever looks.
   has moved, the patch is a re-interpretation, and it is worth writing down in
   `spec.md` that the re-seeded defect is equivalent to, not identical to, the
   historical one.
-- **Snapshot exclusions are a real hole, just a small one.** `snapshotIgnore`
-  is what lets the build write `dist`, and it is honoured by both the
-  verifier's tamper comparison and the reader, so a suite that writes into
-  `dist` can hide something there. For devkit this is acceptable; for a target
-  whose tests build into `dist` deliberately it would need thought.
+- **Snapshot exclusions were a real hole, and not a small one.** The tamper
+  comparison used to honour `snapshotIgnore`, so a suite could hide a write
+  under `dist` — which is precisely where the independent oracle reads the
+  built artifact from. A candidate that spawned a detached writer could
+  therefore choose its own verdict. The comparison now excludes nothing;
+  `snapshotIgnore` is a reader-side and `.gitignore` concern only.
+  `test/verifier-tamper.integration.test.ts` is the adversarial proof.
 - **The vitest report channel.** The runner names its JSON report path and its
   stdout marker with a per-run nonce and validates the parsed report with a
   schema, so a suite cannot hand the grader a forged summary by writing a file

@@ -34,8 +34,8 @@ interface Outcome {
  * the visible suite has had its turn, from the controller's own copy.
  *
  * The workspace is snapshotted before and after each suite. Any persistent change a suite
- * made outside the target's `snapshotIgnore` prefixes is a rejection, which is what catches
- * a candidate that repairs itself by editing its own tests.
+ * made is a rejection, which is what catches a candidate that repairs itself by editing its
+ * own tests.
  */
 export function createDockerVerifier(
   artifacts: ArtifactStore,
@@ -100,9 +100,9 @@ export function createDockerVerifier(
                   // one (`runAsNonRoot` today) must not be silently dropped here.
                   // `ignorePrefixes` rides along and is deliberately NOT honoured by this
                   // snapshot: it is reader-side, where build output must not read as an added
-                  // candidate path, whereas the tamper comparison below has its own exclusion
-                  // rule and wants to see everything the walk found. The framework ignores
-                  // keys it does not know, so passing it here is inert rather than wrong.
+                  // candidate path, whereas the tamper comparison below wants to see
+                  // everything the walk found. The framework ignores keys it does not know,
+                  // so passing it here is inert rather than wrong.
                   ...inspection,
                 })
               ).files
@@ -118,7 +118,7 @@ export function createDockerVerifier(
 
             const beforeVisible = await snapshot()
             const visible = await runSuite(handle, target, task.checks.visible, bounded)
-            if (changedOutside(beforeVisible, await snapshot(), target.snapshotIgnore))
+            if (changedDuringSuite(beforeVisible, await snapshot()))
               return { build, tampered: "visible" as const, visible, independent: null }
 
             // Installed here and not before: the visible suite must not be able to read,
@@ -132,7 +132,7 @@ export function createDockerVerifier(
 
             const beforeIndependent = await snapshot()
             const independent = await runSuite(handle, target, task.checks.independent, bounded)
-            if (changedOutside(beforeIndependent, await snapshot(), target.snapshotIgnore))
+            if (changedDuringSuite(beforeIndependent, await snapshot()))
               return { build, tampered: "independent" as const, visible, independent }
 
             return { build, tampered: null, visible, independent }
@@ -234,17 +234,28 @@ export function createDockerVerifier(
   }
 }
 
-/** Any persistent difference outside the ignored prefixes, compared over sorted entries. */
-export function changedOutside(
+/**
+ * Any persistent difference at all between two snapshots, compared over sorted entries.
+ *
+ * Nothing is excluded, and the target's `snapshotIgnore` in particular is not consulted here.
+ * The build completes before the first snapshot is taken, so any change under the target's
+ * build output while a suite runs is a suite writing where it must not — and the independent
+ * oracle reads that very directory (for `devkit`, the built
+ * `packages/devkit/dist/testing/index.js`). An exclusion here would therefore blind the tamper
+ * check to exactly the bytes it exists to protect: a candidate whose source is imported by the
+ * visible suite can leave a detached process behind that rewrites the artifact between the two
+ * snapshots and chooses its own verdict.
+ *
+ * `snapshotIgnore` keeps its other two consumers — the workspace's `.gitignore` and the
+ * reader's `ignorePrefixes`, where build output legitimately must not read as a candidate path.
+ */
+export function changedDuringSuite(
   before: Readonly<Record<string, string>>,
   after: Readonly<Record<string, string>>,
-  ignore: readonly string[],
 ): boolean {
-  const keep = (files: Readonly<Record<string, string>>): [string, string][] =>
-    Object.entries(files)
-      .filter(([path]) => !ignore.some((prefix) => path.startsWith(prefix)))
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  return JSON.stringify(keep(before)) !== JSON.stringify(keep(after))
+  const sorted = (files: Readonly<Record<string, string>>): [string, string][] =>
+    Object.entries(files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  return JSON.stringify(sorted(before)) !== JSON.stringify(sorted(after))
 }
 
 /**

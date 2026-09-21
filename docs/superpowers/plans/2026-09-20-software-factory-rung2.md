@@ -2090,7 +2090,9 @@ The verifier loads the task and its target: image tag and environment
 identity from the target's image object, deadline and resources from the
 target, a build step before the visible suite whose failure is a failed
 check with the compiler output as evidence, runner dispatch per suite, and
-a tamper comparison that skips the target's snapshotIgnore prefixes.
+a tamper comparison that skips the target's snapshotIgnore prefixes —
+superseded by the fix on branch blove/factory-independent-oracle; see the
+rung 2 spec.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
