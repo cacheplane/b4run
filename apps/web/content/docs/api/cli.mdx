@@ -42,6 +42,9 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 | Export | Responsibility |
 |---|---|
 | `B4StaticModules` | Map generated route modules for runtime boot. |
+| `ServeFallback` | Handle requests the runtime does not own. |
+| `ServeHandle` | Control a composed server. |
+| `ServeOptions` | Configure a composed server. |
 | `ServeRuntimeHandle` | Control an embedded server. |
 | `ServeRuntimeOptions` | Configure an embedded Node server. |
 | `StaticRouteModule` | Describe one generated route module. |
@@ -51,6 +54,7 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 | `loadStaticModules` | Load generated static route modules. |
 | `renderError` | Format a CLI-facing error. |
 | `run` | Run the command program with explicit arguments. |
+| `serve` | Serve the runtime's routes beside an application handler. |
 | `serveRuntime` | Start the production Node runtime server. |
 | `cleanupWorkspaces` | Remove managed workspaces from an inactive, dedicated app installation with exclusive ownership and retryable deletion. |
 | `withWorkspace` | Run host-authored work in a fresh managed workspace with durable cleanup. |
@@ -108,6 +112,9 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 | `RuntimeRegistry` | Resolve materialized routes. |
 | `RuntimeRequestListener` | Handle Node HTTP requests. |
 | `SandboxManager` | Manage runtime sandboxes. |
+| `ServeFallback` | Handle requests the runtime does not own. |
+| `ServeHandle` | Control a composed dev server. |
+| `ServeOptions` | Configure a composed dev server. |
 | `ServeRuntimeHandle` | Control a running server. |
 | `ServeRuntimeOptions` | Configure production server boot. |
 | `StartRuntimeServerOptions` | Configure low-level server assembly. |
@@ -135,6 +142,7 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 | `runMemoryCommand` | Run the low-level memory command implementation. |
 | `runTypegen` | Generate application route declarations. |
 | `seedPreparedRouteModules` | Seed prepared route modules. |
+| `serve` | Serve the runtime's routes beside an application handler. |
 | `serveRuntime` | Start the production runtime server. |
 | `startRuntimeServer` | Assemble and start the Node server. |
 | `streamResolvedRoute` | Stream a resolved route. |
