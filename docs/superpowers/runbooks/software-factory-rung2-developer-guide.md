@@ -296,10 +296,12 @@ naming it is refused as unknown while every other task keeps working.
 
 Devkit is the worked example. Three green runs under the prepared image
 measured build **355 ms**, test **7393 ms** and peak **367 MiB**, which became
-`commandTimeoutMs` 60000, `verifierDeadlineMs` 120000 and `memoryMb` 768 — the
-per-command ceiling is about 8× the slowest command, the deadline covers a
-whole verification (build, two suites, four snapshots) and the memory limit is
-about 2× peak.
+`commandTimeoutMs` 60000 and `memoryMb` 768 — the per-command ceiling is about
+8× the slowest command and the memory limit is about 2× peak. The deadline is
+measured differently, because it covers a whole verification end to end: two
+captures, two containers, two builds, both suites and four snapshots. The
+slowest measured verification is 59.8 s, which with the three-times rule and a
+margin for a loaded host gives `verifierDeadlineMs` **240000**.
 
 The manifest's `commands` argv is trusted on two paths beyond the verifier: the
 builder's bash allow-list and the builder's prompt are both derived from it, so

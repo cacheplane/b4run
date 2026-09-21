@@ -23,8 +23,10 @@ import { applyReference } from "./reference-repair.ts"
  * different mechanisms:
  *
  * - **Isolation.** Each suite is graded in its own container, built from its own capture. The
- *   oracle therefore runs where the candidate's test code never ran, and nothing the visible
- *   session left behind exists by then. That is the first test.
+ *   oracle therefore runs where the visible suite's test code never ran, and nothing that
+ *   session left behind exists by then. That is the first test. Candidate code does still run
+ *   in the second container — the check imports the built artifact, which re-exports the
+ *   candidate's source — and that is what the second container's own snapshots bound.
  * - **Detection.** Within one session the workspace is still snapshotted before and after the
  *   suite, and any persistent change is a rejection. That is the second test, and it is also
  *   what keeps the first from being vacuous: the same spawn-a-detached-writer primitive, armed
@@ -56,20 +58,29 @@ const budget = task.target.resources.verifierDeadlineMs
  * check file that the old payload waited for is now written in a different container, which
  * this process cannot see. That absence IS the fix, so the trigger has to be a delay.
  *
- * The delay is chosen from the measured shape of the visible session (instrumented run, warm
+ * The delay has to clear TWO windows, not one. The measured shape (instrumented run, warm
  * image, this laptop): container ready 1.3 s, build 0.4 s, pre-snapshot 9.7 s, visible suite
- * 7.5 s, post-snapshot 9.7 s, session body 28.7 s end to end. The writer starts at the
- * earliest when the suite starts, 11.4 s in, so the longest it can have to wait for the
- * post-snapshot to finish is 28.7 − 11.4 ≈ 17.3 s. Thirty seconds is about 1.7× that, and the
- * whole session including teardown is gone by ~30 s from its own start (~19 s from the
- * writer's).
+ * 7.5 s, post-snapshot 9.7 s, session A's body 28.7 s end to end.
  *
- * The margin only has to cover one direction. A write that lands EARLY is caught as a
- * `visible` tamper and this test fails loudly — it cannot pass for the wrong reason. A write
- * that lands after the session is over cannot write at all: its container no longer exists.
- * Which is the property.
+ * - **Session A**, where this writer is spawned: it starts at the earliest when the suite
+ *   starts, 11.4 s in, so the longest it can have to wait for A's post-snapshot to finish is
+ *   28.7 − 11.4 ≈ 17.3 s, and the whole session including teardown is gone ~19 s after the
+ *   writer's own start.
+ * - **Session B**, where the independent check imports the built artifact — which re-exports
+ *   the candidate's allowed source path, so the candidate's module-level code runs there too
+ *   and a writer it spawns in B has its own import-to-post-snapshot window of ~12 s (suite
+ *   1.9 s plus the post-snapshot 9.7 s) to clear before B's container is gone as well.
+ *
+ * Sixty seconds, not thirty: the measured numbers come from a warm, unloaded dev machine, and
+ * that is exactly the measurement the four-minute verifier deadline exists because we do not
+ * trust under CI load. A longer delay is strictly safer in both directions, because the only
+ * thing on the other side of it is a container that no longer exists.
+ *
+ * The margin only has to cover one direction. A write that lands EARLY is caught as a tamper
+ * and this test fails loudly — it cannot pass for the wrong reason. A write that lands after
+ * a session is over cannot write at all: its container is gone. Which is the property.
  */
-const ARM_AFTER_MS = 30_000
+const ARM_AFTER_MS = 60_000
 /** How long a writer keeps rewriting once armed; it must outlast any snapshot it must cross. */
 const WRITE_FOR_MS = 60_000
 
@@ -171,9 +182,18 @@ describe("a candidate that tries to rewrite the artifact its independent oracle 
         { [allowed]: await adversarialCandidate(ARM_AFTER_MS) },
         "wo-tamper-late",
       )
-      // The oracle read the artifact its OWN build produced, in a container the candidate's
-      // test code never ran in. Under the single-container design this same writer would have
-      // been alive and writing while the independent check ran.
+      // The oracle read the artifact its OWN build produced, in a container the visible
+      // suite's test code never ran in.
+      //
+      // What the old single-container design would have done with THIS payload is: rejected
+      // it as an `independent` tamper. With the published phase timings the arm point falls
+      // just after the old design's 1.9 s independent suite, inside its post-snapshot — so the
+      // test does discriminate between the two designs, but the difference it shows is
+      // `independent:fail` versus `pass`, not a forged verdict. The payload that would have
+      // CHOSEN the oracle's bytes is one armed a few seconds earlier, landing between the old
+      // design's pre-independent snapshot and its suite. That is the attack this change makes
+      // impossible rather than merely detectable, and it is why the delay here is generous:
+      // the property under test is that no arm point at all can reach the oracle.
       expect(summary(receipt)).toEqual(["visible:pass", "independent:pass"])
       expect(receipt.verdict).toBe("pass")
     },

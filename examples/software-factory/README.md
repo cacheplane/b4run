@@ -27,6 +27,10 @@ bundle and an export, but the bytes in that lane are not yet the *builder's* own
   source is imported by the visible suite, so it gets to run code in that container — and a
   detached process it leaves behind cannot touch the oracle, because the oracle runs somewhere
   else. This is the RFC's own recommendation: put the oracle in a separate trusted process.
+  It is the visible suite's *test code* that is absent from the second container, not candidate
+  code as such: the independent check imports the built artifact, which re-exports the
+  candidate's source, so candidate code runs there too — bounded by that session's own
+  before-and-after snapshot.
 - **The independent checks are structurally out of reach.** They are a sibling of the
   captured `project/` directory, so they are absent from the builder's workspace rather than
   merely excluded from it, and only the session that grades them ever holds a copy — written

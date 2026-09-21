@@ -309,9 +309,12 @@ was ~50 s and both suites shared a container.
   leave a detached, unref'd process behind — `--init` reaps zombies, not live
   detached children. With one shared container that process could act on the
   oracle's input *later*; with a container per suite there is no later, because
-  session B is a fresh container in which the candidate's test code has never
-  run and whose build does not execute candidate code (`tsc -b` compiles, it
-  does not run). Writing the check file before session B's first snapshot also
+  session B is a fresh container in which the *visible suite's* test code has
+  never run and whose build does not execute candidate code (`tsc -b` compiles,
+  it does not run — which holds only because the assembly rule confines the
+  candidate's changes to the task's `allowedSourcePaths`, with the tsconfig and
+  the vitest config immutable). Candidate code does run in session B, because
+  the check imports the built artifact; see the reverted-mutation risk. Writing the check file before session B's first snapshot also
   closes the gap between the two suites' snapshots, which previously could not
   be collapsed because the file had to be written between them.
 
@@ -390,8 +393,8 @@ close the gap between the visible suite's post-snapshot and the independent
 suite's pre-snapshot, because the check file had to be written in exactly that
 gap. Both residuals came from one fact — the two suites shared a container — so
 the second fix is the RFC's own §9.3 recommendation: grade each suite in a
-container only it ran in. The oracle now runs where the candidate's test code
-never did, and the reverted-mutation residual is the only one of the three left.
+container only it ran in. The oracle now runs where the visible suite's test
+code never did, and the reverted-mutation residual is the only one of the three left.
 
 ## Lifecycle, cancel, budget and reconciliation
 
@@ -455,17 +458,32 @@ which overwrites `packages/devkit/dist/testing/index.js` — the artifact the
 independent oracle grades. It asserts the verifier's two defences separately,
 because they are two different mechanisms.
 
-- **Isolation.** The writer arms on a fixed 30 s delay, measured from its own
-  start (the visible suite's first import of the candidate module) so that it
-  lands well past session A's post-snapshot — the longest that wait can be is
-  the measured 17.3 s. The receipt must be `visible:pass, independent:pass`: the
-  oracle read the artifact its own build produced, in a container the
-  candidate's test code never ran in. A clock and not a workspace event, because
-  the event the old payload waited for (the independent check file appearing) is
-  now written in a container this process cannot see — that absence *is* the
-  fix. The margin only has to cover one direction: a write that lands early is
-  caught as a `visible` tamper and the test fails loudly, and a write that lands
-  after the session cannot write at all, because its container is gone.
+- **Isolation.** The writer arms on a fixed 60 s delay, measured from its own
+  start (the suite's first import of the candidate module), so that it clears
+  both sessions' windows: session A's is the measured 17.3 s from that import to
+  its post-snapshot, and session B — where the candidate's code also runs,
+  because the check imports the artifact that re-exports it — has its own ~12 s
+  one. The receipt must be `visible:pass, independent:pass`: the oracle read the
+  artifact its own build produced, in a container the visible suite's test code
+  never ran in. A clock and not a workspace event, because the event the old
+  payload waited for (the independent check file appearing) is now written in a
+  container this process cannot see — that absence *is* the fix. Sixty rather
+  than thirty seconds for the same reason the deadline is four minutes and not
+  three: the phase timings come from a warm, unloaded developer machine. The
+  margin only has to cover one direction: a write that lands early is caught as
+  a tamper and the test fails loudly, and a write that lands after a session
+  cannot write at all, because its container is gone.
+
+  What the *old* single-container design would have done with this exact payload
+  is reject it as an `independent` tamper — with the published phase timings the
+  arm point falls just after that design's 1.9 s independent suite. So the test
+  discriminates between the designs, but the difference it shows is
+  `independent:fail` versus `pass`, not a forged verdict. The payload that would
+  have chosen the oracle's bytes is one armed a few seconds earlier, landing
+  between the old pre-independent snapshot and the suite. That is the attack
+  this change makes impossible rather than merely detectable, and it is why the
+  delay is generous: the property is that no arm point at all reaches the
+  oracle.
 - **Detection.** The same payload armed at zero delay writes throughout the
   visible suite, and must be rejected with a single `visible` tamper check whose
   evidence says so. This needs no clock margin: the payload runs at the suite's
@@ -590,11 +608,21 @@ named rungs are in the
   mutation is detected, for every path, the target's build output included —
   the comparison excludes nothing. Same fix, same deferral.
 
+  This risk applies to session B too, and the reason is worth being plain
+  about: **candidate code runs in session B.** The independent check imports the
+  BUILT artifact, and for devkit `packages/devkit/src/testing/index.ts`
+  re-exports the one allowed source path, so the candidate's module-level code
+  executes in session B after that session's pre-snapshot. What the split
+  removes is the *visible suite's* long-running test code, which is what could
+  outlive its window and act in another; what bounds whatever the artifact
+  itself does is session B's own before-and-after snapshot, subject to exactly
+  the reverted-mutation limit above.
+
   Two neighbours of this risk are now CLOSED rather than accepted, by grading
   each suite in its own container (see "What changes in the verifier"). A
   process the visible suite leaves running cannot act on the independent
   suite's workspace, because that suite runs in a different container, built
-  from a different capture, in which the candidate's test code never ran. And
+  from a different capture, in which the visible suite never ran. And
   there is no longer a gap between one suite's post-snapshot and the next's
   pre-snapshot: the independent check file is written before session B's first
   snapshot rather than between two snapshots of one session, so that session's

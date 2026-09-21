@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
 import type { Verdict } from "../src/domain/work-order.ts"
-import { suiteChecks } from "../src/verification/docker-verifier.ts"
+import { suiteChecks } from "../src/verification/receipt.ts"
 import { type Verifier, type VerifyInput, worstVerdict } from "../src/verification/verifier.ts"
 
 export interface FakeVerifierScript {

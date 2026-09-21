@@ -49,8 +49,17 @@ export interface GradeSuiteInput {
  * input later — in the gap between the visible post-snapshot and the independent
  * pre-snapshot, a gap that could not be closed because the check file had to be written in
  * it. With a container per suite there is no later: the independent session is a fresh
- * container in which the candidate's test code has never run, and its build does not execute
- * candidate code (`tsc -b` compiles, it does not run).
+ * container in which the visible suite's test code has never run, and its build does not
+ * execute candidate code (`tsc -b` compiles, it does not run) — which holds only because the
+ * controller's assembly rule confines `changes` to the task's `allowedSourcePaths`, with the
+ * tsconfig and the vitest config among the immutable paths. This function writes whatever it
+ * is handed, so that precondition lives in the caller, not here.
+ *
+ * What the independent session does NOT remove is candidate code as such. Its check imports
+ * the BUILT artifact, and for devkit that artifact re-exports the allowed source path, so the
+ * candidate's module-level code runs in this session too. What is gone is the visible suite's
+ * long-running test code; whatever the artifact itself does is bounded by this session's own
+ * before-and-after snapshot.
  *
  * The independent session writes its check file BEFORE its first snapshot, so the file is
  * present in both snapshots of the window and the two snapshots collapse into one continuous
