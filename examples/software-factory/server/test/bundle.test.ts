@@ -8,8 +8,8 @@ import type { Receipt } from "../src/domain/work-order.ts"
 import { freezeBundle } from "../src/review/bundle.ts"
 import { createArtifactStore } from "../src/storage/artifacts.ts"
 import { loadTask, type Task } from "../src/targets/catalog.ts"
-import { suiteChecks } from "../src/verification/docker-verifier.ts"
 import { loadPolicy, policyEnvironment } from "../src/verification/policy.ts"
+import { suiteChecks } from "../src/verification/receipt.ts"
 
 const receipt = {
   id: "rc-1",

@@ -15,9 +15,9 @@ A work order names a task. A task names a target and a repair. The controller
 captures the target at a pinned commit with a known defect applied, hands that
 capture to a builder agent in a container, and waits for the builder's turn to
 end. It then reads the builder's workspace itself, diffs it against the
-baseline it captured, and verifies the candidate in a second container the
-builder never touched: build, the package's own tests, then an independent
-check the builder never saw. A passing verdict freezes a review bundle whose
+baseline it captured, and verifies the candidate in containers the builder
+never touched — one per suite: build and the package's own tests in the first,
+build and an independent check the builder never saw in the second. A passing verdict freezes a review bundle whose
 digest binds the candidate, the policy, the specification and the exact image.
 An operator approves that digest, the controller re-verifies, and only then do
 the approved bytes leave, as a file named by the bundle digest. The builder has
@@ -131,22 +131,45 @@ not told to expect.
 
 ### Verification, in order
 
+Verification is **two container sessions**, one per suite, run in order. Each
+is a whole verification of its own — its own capture instance, its own
+container, its own build — and nothing crosses between them but the candidate's
+bytes, which the controller holds. The oracle is graded where the candidate's
+test code never ran, which is why a process the visible suite leaves behind has
+nothing to act on. One deadline covers both sessions.
+
+Session A, the visible suite:
+
 1. Write the candidate's changed files into a fresh capture of the baseline.
 2. Run `commands.build` at `commands.cwd`, when the target has one. A failure
-   is a failed check (`build:fail`) with the compiler output as evidence, and
-   the suites do not run.
+   is a failed check (`build:fail`) with the compiler output as evidence; no
+   suite runs and session B is not started.
 3. Snapshot the workspace. Run `commands.test`, the visible suite — at
    `commands.cwd` for a vitest suite, at the workspace root for a `node-test`
    one. Snapshot again; **any** change at all is tampering and the candidate is
-   rejected. Nothing is excluded, the target's build output included: the build
-   ran at step 2, before the first snapshot, so nothing legitimate writes there
-   while a suite runs — and for devkit it is the directory the independent
-   oracle reads.
-4. Write the independent checks into the container. Snapshot, run them,
-   snapshot again with the same rule.
-5. Issue a receipt: `pass`, `fail`, or `inconclusive` when the harness itself
+   rejected, session B again not started. Nothing is excluded, the target's
+   build output included: the build ran at step 2, before the first snapshot, so
+   nothing legitimate writes there while a suite runs — and for devkit it is the
+   directory the independent oracle reads.
+
+Session B, the independent check, in a new container:
+
+4. Write the candidate's changed files into a *fresh* capture and run
+   `commands.build` again. This build already succeeded in session A, so a
+   failure here is two containers disagreeing about the same bytes — a fact
+   about the harness, reported as an `inconclusive` `build` check, never as a
+   `fail`.
+5. Write the independent checks into the container, **before** the first
+   snapshot: they are then present in both snapshots of the window, so the two
+   collapse into one continuous observation with no gap to write in. Snapshot,
+   run them, snapshot again with the same tamper rule.
+6. Issue a receipt: `pass`, `fail`, or `inconclusive` when the harness itself
    could not run or ran out of time. Inconclusive blocks; it is never read as
    fail.
+
+The second session costs a capture, a container start and a build — about 1.7 s
+on the devkit lane, where a whole verification is ~51 s and each workspace
+snapshot alone is ~9.7 s.
 
 The controller's **reader** is where `snapshotIgnore` does apply, one step
 earlier. A builder that runs the target's build writes `packages/devkit/dist/**`
@@ -273,10 +296,12 @@ naming it is refused as unknown while every other task keeps working.
 
 Devkit is the worked example. Three green runs under the prepared image
 measured build **355 ms**, test **7393 ms** and peak **367 MiB**, which became
-`commandTimeoutMs` 60000, `verifierDeadlineMs` 120000 and `memoryMb` 768 — the
-per-command ceiling is about 8× the slowest command, the deadline covers a
-whole verification (build, two suites, four snapshots) and the memory limit is
-about 2× peak.
+`commandTimeoutMs` 60000 and `memoryMb` 768 — the per-command ceiling is about
+8× the slowest command and the memory limit is about 2× peak. The deadline is
+measured differently, because it covers a whole verification end to end: two
+captures, two containers, two builds, both suites and four snapshots. The
+slowest measured verification is 59.8 s, which with the three-times rule and a
+margin for a loaded host gives `verifierDeadlineMs` **240000**.
 
 The manifest's `commands` argv is trusted on two paths beyond the verifier: the
 builder's bash allow-list and the builder's prompt are both derived from it, so
