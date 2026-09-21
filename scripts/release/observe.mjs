@@ -162,6 +162,7 @@ export async function resolveProductionCandidate({
 }) {
   assertTerminalRecordRef(terminalRecordRef)
   assertMethods(inventory, ["read"], "inventory reader")
+  inventory = reuseDiscoveryInventory(inventory)
   assertMethods(
     discovery,
     ["discoverManagedCandidate", "discoverScheduledCandidate"],
@@ -333,6 +334,35 @@ export async function resolveProductionCandidate({
     if (recovery !== null) normalized = normalizeProductionCandidateSelection(recovery)
   }
   return deepFreeze(normalized)
+}
+
+// Immutable inventories are reusable only for this resolution. Mutable authority
+// and callers of the original reader remain fresh; overflow bypasses the cache.
+function reuseDiscoveryInventory(reader) {
+  const pending = new Map()
+  return {
+    read(input) {
+      const ref = input?.ref
+      if (!isSha(ref)) return reader.read(input)
+      if (pending.has(ref)) return pending.get(ref)
+      if (pending.size >= 2048) return reader.read(input)
+      const result = Promise.resolve()
+        .then(() => reader.read(input))
+        .then((value) => {
+          if (value?.status !== "valid") {
+            pending.delete(ref)
+            return value
+          }
+          return deepFreeze(structuredClone(value))
+        })
+        .catch((error) => {
+          pending.delete(ref)
+          throw error
+        })
+      pending.set(ref, result)
+      return result
+    },
+  }
 }
 
 // Compare immutable first-parent trees, including modes and deletions. An
