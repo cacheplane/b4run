@@ -98,7 +98,14 @@ This subpath exposes package metadata as JSON for tooling. It has no TypeScript 
 
 ```ts api-contract="@b4run/langchain#.:AgentStreamChunk"
 export interface AgentStreamChunk {
-  readonly type: "token" | "tool_call" | "tool_result" | "interrupt" | "done" | (string & {})
+  readonly type:
+    | "token"
+    | "tool_call"
+    | "tool_call_args"
+    | "tool_result"
+    | "interrupt"
+    | "done"
+    | (string & {})
   readonly data: unknown
   readonly messageId?: string
 }
@@ -107,7 +114,7 @@ export interface AgentStreamChunk {
 **Fields: `@b4run/langchain#.:AgentStreamChunk`**
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `readonly type` | `"token" \| "tool_call" \| "tool_result" \| "interrupt" \| "done" \| (string & {})` | yes | Identify the chunk kind. |
+| `readonly type` | `\| "token" \| "tool_call" \| "tool_call_args" \| "tool_result" \| "interrupt" \| "done" \| (string & {})` | yes | Identify the chunk kind. |
 | `readonly data` | `unknown` | yes | Carry the chunk payload. |
 | `readonly messageId` | `string` | no | Identify the source model invocation for text tokens within this stream. |
 

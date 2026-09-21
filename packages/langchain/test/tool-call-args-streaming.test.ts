@@ -79,7 +79,7 @@ describe("streamAgent — incremental tool-call arguments", () => {
     expect(deltasFor(chunks, "call_1").join("")).toBe(JSON.stringify(args))
   })
 
-  test("a turn without fragments is byte-identical to the single announce of today", async () => {
+  test("a turn without fragments is identical to the single announce of today", async () => {
     const chunks = await collect([
       event("on_chat_model_stream", "m1", { chunk: { content: "" } }),
       modelEnd("m1", [{ id: "call_1", name: "weather", args: { city: "Paris" } }]),

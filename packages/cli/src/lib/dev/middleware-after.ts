@@ -139,7 +139,11 @@ export async function* applyMiddlewareAfter(
       }
       continue
     }
-    if (chunk.type === "tool_call" || chunk.type === "tool_result") {
+    if (
+      chunk.type === "tool_call" ||
+      chunk.type === "tool_call_args" ||
+      chunk.type === "tool_result"
+    ) {
       // The model is not done: whatever it said before this streams live.
       yield* release()
       yield chunk

@@ -60,6 +60,10 @@ export function renderFrame(frame: RenderableFrame): string[] {
     }
     case "done":
       return [`[done] ${stringifyContent(frame.data)}`]
+    case "tool_call_args":
+      // Argument fragments are display-only deltas of the tool_call that
+      // follows; rendering each would flood the tail with partial JSON.
+      return []
     default:
       return [`[${frame.event}] ${stringifyContent(frame.data)}`]
   }
