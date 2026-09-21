@@ -119,7 +119,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for bounded, redacted candidate-discovery failure detail.
 // Repinned for the sixty-minute publisher budget; all smaller limits remain unchanged.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "4517526a46400854676eb700b641a292cb34a70be1670036ffcd9386e60cdac5"
+  "d45caf299de933cbedae736db4a5d4c20c73391be66870e63fa172f503b23a50"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu

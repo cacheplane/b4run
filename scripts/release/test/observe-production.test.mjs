@@ -5812,3 +5812,198 @@ test("ordinary source, regular changeset notes and root prose keep the no-candid
   })
   assert.equal(calls, 0)
 })
+
+function resolveInventoryReuse(reader, discoverScheduledCandidate, extra = {}) {
+  return resolveProductionCandidate({
+    terminalRecordRef: "HEAD",
+    event: { schedule: "17 * * * *" },
+    inventory: reader,
+    git: {},
+    github: {},
+    marker: MARKER,
+    discovery: {
+      async discoverManagedCandidate() {
+        return noCandidateSelection()
+      },
+      discoverScheduledCandidate,
+    },
+    ...extra,
+  })
+}
+
+test("inventory reuse shares concurrent and sequential reads across exact and global discovery", async () => {
+  const calls = []
+  const reader = {
+    async read({ ref }) {
+      assert.equal(this, reader)
+      calls.push(ref)
+      return inventory()
+    },
+  }
+  const discovery = {
+    async discoverManagedCandidate({ inventory: scoped }) {
+      const [first, concurrent] = await Promise.all([
+        scoped.read({ ref: COMMIT_SHA }),
+        scoped.read({ ref: COMMIT_SHA }),
+      ])
+      assert.equal(first, concurrent)
+      assert.equal(await scoped.read({ ref: COMMIT_SHA }), first)
+      await scoped.read({ ref: PARENT_SHA })
+      return noCandidateSelection()
+    },
+    async discoverScheduledCandidate({ inventory: scoped }) {
+      await scoped.read({ ref: COMMIT_SHA })
+      await scoped.read({ ref: PARENT_SHA })
+      return noCandidateSelection()
+    },
+  }
+  const args = { event: { ref: "refs/heads/main", after: COMMIT_SHA }, discovery }
+  await resolveInventoryReuse(reader, discovery.discoverScheduledCandidate, args)
+  assert.deepEqual(calls, [COMMIT_SHA, PARENT_SHA])
+  await reader.read({ ref: COMMIT_SHA })
+  await reader.read({ ref: COMMIT_SHA })
+  await resolveInventoryReuse(reader, discovery.discoverScheduledCandidate, args)
+  assert.deepEqual(calls, [COMMIT_SHA, PARENT_SHA, COMMIT_SHA, COMMIT_SHA, COMMIT_SHA, PARENT_SHA])
+})
+
+test("inventory reuse bypasses mutable, malformed, and uppercase refs with the original receiver", async () => {
+  const calls = []
+  const reader = {
+    read(input) {
+      assert.equal(this, reader)
+      calls.push(input)
+      if (input.ref !== "main" && input.ref !== "refs/heads/main") {
+        throw new TypeError("original validation")
+      }
+      return inventory()
+    },
+  }
+  await resolveInventoryReuse(reader, async ({ inventory: scoped }) => {
+    for (const ref of ["main", "refs/heads/main", COMMIT_SHA.toUpperCase(), "abc", "", null]) {
+      const input = { ref }
+      for (let count = 0; count < 2; count++) {
+        if (ref === "main" || ref === "refs/heads/main") await scoped.read(input)
+        else await assert.rejects(async () => scoped.read(input), /original validation/u)
+        assert.equal(calls.at(-1), input)
+      }
+    }
+    assert.equal(calls.length, 12)
+    return noCandidateSelection()
+  })
+})
+
+test("inventory reuse retries rejected, synchronously thrown, and non-valid results", async () => {
+  for (const failure of ["reject", "throw", "invalid", "unknown", "missing", "null"]) {
+    let calls = 0
+    const reader = {
+      read() {
+        calls++
+        if (calls === 1) {
+          if (failure === "reject") return Promise.reject(new Error("retry me"))
+          if (failure === "throw") throw new Error("retry me")
+          if (failure === "null") return null
+          if (failure === "missing") return {}
+          return { status: failure }
+        }
+        return inventory()
+      },
+    }
+    await resolveInventoryReuse(reader, async ({ inventory: scoped }) => {
+      if (failure === "reject" || failure === "throw") {
+        await assert.rejects(async () => scoped.read({ ref: COMMIT_SHA }), /retry me/u)
+      } else {
+        await scoped.read({ ref: COMMIT_SHA })
+      }
+      const valid = await scoped.read({ ref: COMMIT_SHA })
+      assert.equal(valid.status, "valid")
+      assert.equal(await scoped.read({ ref: COMMIT_SHA }), valid)
+      assert.equal(calls, 2, failure)
+      return noCandidateSelection()
+    })
+  }
+})
+
+test("inventory reuse returns deeply immutable copies without freezing source objects", async () => {
+  const source = inventory()
+  await resolveInventoryReuse({ read: () => source }, async ({ inventory: scoped }) => {
+    const copy = await scoped.read({ ref: COMMIT_SHA })
+    assert.notEqual(copy, source)
+    assert.deepEqual(copy, source)
+    assert.ok(Object.isFrozen(copy))
+    assert.ok(Object.isFrozen(copy.packages))
+    assert.ok(Object.isFrozen(copy.packages[0]))
+    assert.throws(() => {
+      copy.packages[0].version = "9.9.9"
+    }, TypeError)
+    source.packages[0].version = "1.2.3"
+    assert.equal((await scoped.read({ ref: COMMIT_SHA })).packages[0].version, VERSION)
+    return noCandidateSelection()
+  })
+  assert.equal(Object.isFrozen(source), false)
+  assert.equal(Object.isFrozen(source.packages[0]), false)
+})
+
+test("inventory reuse bounds entries including in-flight reads and bypasses overflow", async () => {
+  const calls = []
+  let unblock
+  const gate = new Promise((resolve) => {
+    unblock = resolve
+  })
+  const reader = {
+    async read({ ref }) {
+      calls.push(ref)
+      await gate
+      return { status: "valid", packages: [] }
+    },
+  }
+  await resolveInventoryReuse(reader, async ({ inventory: scoped }) => {
+    const refs = Array.from({ length: 2049 }, (_, index) => index.toString(16).padStart(40, "0"))
+    const pending = refs.slice(0, 2048).map((ref) => scoped.read({ ref }))
+    pending.push(scoped.read({ ref: refs[0] }))
+    pending.push(scoped.read({ ref: refs[2048] }), scoped.read({ ref: refs[2048] }))
+    unblock()
+    await Promise.all(pending)
+    await scoped.read({ ref: refs[0] })
+    await scoped.read({ ref: refs[2048] })
+    assert.equal(calls.length, 2051)
+    assert.equal(calls.filter((ref) => ref === refs[0]).length, 1)
+    assert.equal(calls.filter((ref) => ref === refs[2048]).length, 3)
+    return noCandidateSelection()
+  })
+})
+
+test("inventory reuse includes terminal callbacks while external evidence remains fresh", async () => {
+  let reads = 0
+  let externalReads = 0
+  const reader = {
+    read: () => {
+      reads++
+      return inventory()
+    },
+  }
+  const git = gitReader({
+    async listTree() {
+      externalReads++
+      return ""
+    },
+  })
+  await resolveInventoryReuse(
+    reader,
+    async ({ inventory: scoped, verifyTerminalPublication, verifyTerminalAbandonment }) => {
+      await scoped.read({ ref: COMMIT_SHA })
+      const input = { candidate: candidate(), release: {}, releaseRecord: {} }
+      // Incomplete external authority must still fail closed on each verification.
+      for (let index = 0; index < 2; index++) {
+        const beforePublication = externalReads
+        assert.equal(await verifyTerminalPublication(input), false)
+        assert.ok(externalReads > beforePublication)
+        const beforeAbandonment = externalReads
+        assert.equal(await verifyTerminalAbandonment(input), false)
+        assert.ok(externalReads > beforeAbandonment)
+      }
+      assert.equal(reads, 1)
+      return noCandidateSelection()
+    },
+    { git, github: githubReader(), npm: npmReader(), attestations: attestationVerifier([]) },
+  )
+})
