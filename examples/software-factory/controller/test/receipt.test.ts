@@ -167,13 +167,17 @@ describe("assembleReceipt in independentOnly mode", () => {
     expect(decided.checks[0]?.acceptanceIds).toEqual([])
   })
 
-  it("names the independent session when it tampered", () => {
+  it("reports a tamper under its own check id, never as a failing independent check", () => {
+    // `independent: fail` is what the oracle proof reads as "the check fails on the defect".
+    // A check that mutated the workspace must not be able to prove itself that way.
     const decided = alone(session({ tampered: true, result: suite("pass", "1 passed\n") }))
     expect(decided.verdict).toBe("fail")
-    expect(summary(decided)).toEqual(["independent:fail"])
+    expect(summary(decided)).toEqual(["tamper:fail"])
+    expect(decided.checks[0]?.acceptanceIds).toEqual([])
     expect(decided.checks[0]?.evidence).toContain(
       "a suite mutated the workspace during independent",
     )
+    expect(decided.checks[0]?.evidence).toContain("1 passed")
   })
 
   it("refuses to invent a verdict when the suite reported neither a result nor a reason", () => {

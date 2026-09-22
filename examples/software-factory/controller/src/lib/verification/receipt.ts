@@ -35,9 +35,11 @@ export interface ReceiptPlan {
  * session B was not started, which happens only because session A already decided the
  * verdict. In `independentOnly` mode there is no session A: `visible` must be null and
  * `independent` must have run, and a build failure is a fact about the bytes graded (there
- * is no earlier build to disagree with), so it is `fail`. Anything else is a bug in the caller
- * and throws rather than inventing a verdict: a receipt is the one thing in this system that
- * must never be guessed.
+ * is no earlier build to disagree with), so it is `fail`. A tamper is reported under its own
+ * check id, `tamper`, never `independent`: the caller reads an `independent: fail` as a
+ * failing assertion, and a check that mutated the workspace is not one. Anything else is a
+ * bug in the caller and throws rather than inventing a verdict: a receipt is the one thing in
+ * this system that must never be guessed.
  */
 export function assembleReceipt(input: {
   readonly visible: SuiteSession | null
@@ -121,7 +123,8 @@ function independentOnlyPlan(
         { id: "build", acceptanceIds: [], verdict: "fail", evidence: independent.build.output },
       ],
     }
-  if (independent.tampered) return tamper("independent", independent)
+  // Under its own id: an `independent: fail` reads as a failing assertion, and this is not one.
+  if (independent.tampered) return tamper("independent", independent, "tamper")
   const result = independent.result
   if (!result)
     throw new Error("a suite did not run and neither a build failure nor a tamper was recorded")
@@ -138,13 +141,16 @@ function independentOnlyPlan(
   }
 }
 
-/** The receipt a tampering candidate gets: one check, named for the session it happened in. */
-function tamper(kind: SuiteKind, session: SuiteSession): ReceiptPlan {
+/**
+ * The receipt a tampering candidate gets: one check, named for the session it happened in
+ * unless the caller names it otherwise; the evidence always says which session it was.
+ */
+function tamper(kind: SuiteKind, session: SuiteSession, id: string = kind): ReceiptPlan {
   return {
     verdict: "fail",
     checks: [
       {
-        id: kind,
+        id,
         acceptanceIds: [],
         verdict: "fail",
         evidence: `a suite mutated the workspace during ${kind}\n${session.result?.output ?? ""}`,

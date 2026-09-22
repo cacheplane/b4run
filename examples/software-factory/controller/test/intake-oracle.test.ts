@@ -20,6 +20,24 @@ const prove = (verifier: Verifier) =>
     signal: AbortSignal.timeout(1_000),
   })
 
+/** A receipt the fake cannot issue, built by hand with the checks named. */
+const inline = (checks: readonly { id: string; verdict: Receipt["verdict"] }[]): Receipt => ({
+  id: "rc-inline",
+  workOrderId: "wo-1",
+  candidateDigest: baselineDigest,
+  verifierIdentity: "inline:test",
+  policyDigest: "b".repeat(64),
+  environmentIdentity: "inline:none",
+  issuedAt: new Date().toISOString(),
+  verdict: checks.some((c) => c.verdict === "fail") ? "fail" : "inconclusive",
+  checks: checks.map((c) => ({
+    id: c.id,
+    acceptanceIds: [],
+    verdict: c.verdict,
+    evidence: [{ id: `${c.id}/output`, digest: "d".repeat(64) }],
+  })),
+})
+
 describe("proveOracle", () => {
   it("is proven when the independent suite fails on the baseline, and asks for exactly that run", async () => {
     const verifier = createFakeVerifier({ independent: "fail" })
@@ -53,30 +71,29 @@ describe("proveOracle", () => {
     )
   })
 
-  it("is inconclusive, not proven, when the receipt carries no independent check", async () => {
-    // A build failure on the baseline is a `fail` receipt with only a `build` check. That is
-    // not the check failing; the check never ran. Reading the receipt verdict would prove it.
-    const receipt: Receipt = {
-      id: "rc-build",
-      workOrderId: "wo-1",
-      candidateDigest: baselineDigest,
-      verifierIdentity: "inline:test",
-      policyDigest: "b".repeat(64),
-      environmentIdentity: "inline:none",
-      issuedAt: new Date().toISOString(),
-      verdict: "fail",
-      checks: [
-        {
-          id: "build",
-          acceptanceIds: [],
-          verdict: "fail",
-          evidence: [{ id: "build/output", digest: "d".repeat(64) }],
-        },
-      ],
-    }
-    const verifier: Verifier = { verify: async () => receipt }
-    const proof = await prove(verifier)
-    expect(proof).toMatchObject({ proven: false, verdict: "inconclusive" })
+  it("is not proven by a build failure on the baseline, and names the build check", async () => {
+    // A `fail` receipt whose only check is `build`: the check never ran. Reading the receipt
+    // verdict would prove it.
+    const receipt = inline([{ id: "build", verdict: "fail" }])
+    const proof = await prove({ verify: async () => receipt })
+    expect(proof).toMatchObject({ proven: false, verdict: "fail", checkId: "build" })
     expect(proof.receipt).toBe(receipt)
+  })
+
+  it("is not proven by a check that mutated the workspace, and names the tamper check", async () => {
+    // A tampering check must never become an oracle: its `fail` is the tamper, not an assertion.
+    const receipt = inline([{ id: "tamper", verdict: "fail" }])
+    const proof = await prove({ verify: async () => receipt })
+    expect(proof).toMatchObject({ proven: false, verdict: "fail", checkId: "tamper" })
+  })
+
+  it("is inconclusive with no deciding check when the receipt carries none", async () => {
+    const proof = await prove({ verify: async () => inline([]) })
+    expect(proof).toMatchObject({ proven: false, verdict: "inconclusive", checkId: null })
+  })
+
+  it("names the independent check when it decided against the proof", async () => {
+    const proof = await prove(createFakeVerifier({ independent: "pass" }))
+    expect(proof).toMatchObject({ proven: false, checkId: "independent" })
   })
 })
