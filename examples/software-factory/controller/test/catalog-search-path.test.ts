@@ -1,6 +1,14 @@
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, relative } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   configureCatalog,
@@ -66,6 +74,30 @@ describe("catalog search path", () => {
     configureCatalog({ generatedTasksDir: join(dir, "never-created") })
     expect(loadTaskIds()).toEqual(loadTaskIds(tasksDir))
     expect(() => loadTask("no-such-task")).toThrow(/Unknown task/)
+  })
+
+  it("never resolves an id that is a path rather than a directory name", () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-generated-"))
+    // A complete task.json OUTSIDE both roots, declaring exactly the id used to reach it.
+    const evil = join(dir, "evil")
+    cpSync(join(tasksDir, "devkit-spawn-deadline"), evil, { recursive: true })
+    const generatedTasksDir = join(dir, "generated")
+    mkdirSync(generatedTasksDir)
+    configureCatalog({ generatedTasksDir })
+    const escaped = relative(generatedTasksDir, evil)
+    expect(escaped.startsWith("..")).toBe(true)
+    const manifest = JSON.parse(readFileSync(join(evil, "task.json"), "utf8"))
+    writeFileSync(join(evil, "task.json"), JSON.stringify({ ...manifest, id: escaped }))
+    expect(existsSync(join(generatedTasksDir, escaped, "task.json"))).toBe(true)
+    expect(() => loadTask(escaped)).toThrow(/^Unknown task: /)
+    expect(() => loadTask(`../evil`)).toThrow(/^Unknown task: /)
+    for (const id of ["", ".", "..", ".hidden", "a/b", "a\\b", "nul\0", "/abs"])
+      expect(() => loadTask(id), JSON.stringify(id)).toThrow(/^Unknown task: /)
+    // Listing agrees with lookup: a directory that is not a catalog id is not an id.
+    mkdirSync(join(generatedTasksDir, ".hidden"))
+    mkdirSync(join(generatedTasksDir, "wo-listed"))
+    expect(loadTaskIds()).toContain("wo-listed")
+    expect(loadTaskIds()).not.toContain(".hidden")
   })
 
   it("still refuses to answer when the SHIPPED catalog itself is absent", () => {

@@ -155,6 +155,15 @@ export function repositoryRoot(): string {
   }
 }
 
+/**
+ * A catalog id is a plain directory name: no slash, no leading dot, nothing a path could
+ * smuggle. `taskDirectory` joins it under a root, and this rule is what keeps it under one.
+ */
+const CATALOG_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+export function isCatalogId(id: string): boolean {
+  return CATALOG_ID.test(id)
+}
+
 /** Ids present in `dir`, sorted: each is a directory, not a code change. */
 function readIds(dir: string, label: string): string[] {
   const ids = readIdsIfPresent(dir)
@@ -162,11 +171,14 @@ function readIds(dir: string, label: string): string[] {
   return ids
 }
 
-/** As `readIds`, but null when `dir` does not exist: a catalog that may not exist yet. */
+/**
+ * As `readIds`, but null when `dir` does not exist: a catalog that may not exist yet. A
+ * directory whose name is not a catalog id is not listed, so listing and lookup agree.
+ */
 function readIdsIfPresent(dir: string): string[] | null {
   try {
     return readdirSync(dir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
+      .filter((entry) => entry.isDirectory() && isCatalogId(entry.name))
       .map((entry) => entry.name)
       .sort()
   } catch (error) {
@@ -370,8 +382,13 @@ export function loadTaskIds(dir?: string): string[] {
   return ids
 }
 
-/** The first root on the search path that holds `id`'s manifest. */
+/**
+ * The first root on the search path that holds `id`'s manifest. An id that is not a plain
+ * directory name is unknown before the filesystem is touched: `../x` must never resolve
+ * to a task.json outside every root, whatever id that file declares.
+ */
 function taskDirectory(id: string, options: CatalogOptions): string {
+  if (!isCatalogId(id)) throw new Error(`Unknown task: ${id}`)
   for (const root of taskRoots(options))
     if (existsSync(join(root, id, "task.json"))) return join(root, id)
   throw new Error(`Unknown task: ${id}`)
