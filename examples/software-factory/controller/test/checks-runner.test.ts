@@ -273,6 +273,9 @@ describe("gradeVitestReport with no named assertions", () => {
     expect(gradeVitestReport(0, "null", []).verdict).toBe("inconclusive")
     expect(gradeVitestReport(0, report([]), []).verdict).toBe("inconclusive")
     expect(
+      gradeVitestReport(0, report([{ fullName: "a passes", status: "skipped" }]), []).verdict,
+    ).toBe("inconclusive")
+    expect(
       gradeVitestReport(1, report([{ fullName: "a passes", status: "passed" }]), []).verdict,
     ).toBe("inconclusive")
     expect(

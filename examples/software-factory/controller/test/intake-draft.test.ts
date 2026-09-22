@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -35,7 +43,6 @@ describe("parseDraft", () => {
     expect(parsed.checks.visible).toEqual({ runner: "vitest", assertions: [] })
     expect(parsed.checks.independent.file).toBe("checks/spawn-deadline.test.ts")
     expect(parsed.acceptanceIds).toEqual(["A1"])
-    expect(parsed.checkFiles).toEqual(["checks/spawn-deadline.test.ts"])
     expect([...parsed.files.keys()].sort()).toEqual([
       "checks.json",
       "checks/spawn-deadline.test.ts",
@@ -68,7 +75,8 @@ describe("parseDraft", () => {
     expect(reason("noAcceptance")).toMatch(/draft\/spec\.md.*A<n>/)
     expect(reason("visibleSupplied")).toMatch(/draft\/checks\.json.*visible/)
     expect(reason("missingCheckFile")).toMatch(/draft\/checks\/other\.test\.ts/)
-    expect(reason("emptySpec")).toMatch(/draft\/spec\.md/)
+    expect(reason("emptySpec")).toMatch(/draft\/spec\.md is blank/)
+    expect(reason("missingTask")).toMatch(/draft\/task\.json is missing/)
   })
 
   it("refuses an independent assertion without an A<n>: prefix", () => {
@@ -118,6 +126,24 @@ describe("parseDraft", () => {
     }
   })
 
+  it("refuses any draft file beyond the three manifests and the named check", () => {
+    const helper = parseDraft(files({ ...GOOD_DRAFT, "draft/checks/helpers.ts": "x" }), {
+      workOrderId: WO,
+    })
+    expect(helper.ok).toBe(false)
+    if (helper.ok) return
+    expect(helper.blockedReason).toBe("intake_invalid")
+    expect(helper.reason).toBe(
+      "draft/checks/helpers.ts is not the named check; a draft carries exactly one check file, under checks/",
+    )
+    const notes = parseDraft(files({ ...GOOD_DRAFT, "draft/notes.md": "x" }), { workOrderId: WO })
+    expect(notes.ok).toBe(false)
+    if (notes.ok) return
+    expect(notes.reason).toBe(
+      "draft/notes.md is not one of task.json, spec.md, checks.json or the named check",
+    )
+  })
+
   it("ignores files outside draft/ and refuses a draft with nothing under it", () => {
     const parsed = parseDraft(new Map([["repo/x", "y"]]), { workOrderId: WO })
     expect(parsed.ok).toBe(false)
@@ -143,12 +169,12 @@ describe("parseDraft", () => {
 describe("writeGeneratedTask", () => {
   const issueText = "# Issue 778\n\nbody\n"
 
-  it("materialises a loadable task, deterministically digested, with the issue text", async () => {
+  it("materialises a loadable task, deterministically digested, with the issue text", () => {
     dir = mkdtempSync(join(tmpdir(), "factory-generated-"))
     const parsed = parseDraft(files(GOOD_DRAFT), { workOrderId: WO })
     if (!parsed.ok) throw new Error(parsed.reason)
-    const first = await writeGeneratedTask(dir, parsed, { issueText })
-    const second = await writeGeneratedTask(dir, parsed, { issueText })
+    const first = writeGeneratedTask(dir, parsed, { issueText })
+    const second = writeGeneratedTask(dir, parsed, { issueText })
     expect(first.digest).toBe(second.digest)
     expect(first.digest).toMatch(/^[a-f0-9]{64}$/)
     expect(first.directory).toBe(join(dir, WO))
@@ -183,11 +209,11 @@ describe("writeGeneratedTask", () => {
     expect(readFileSync(join(first.directory, "checks.json"), "utf8")).toContain('"visible"')
   })
 
-  it("changes the digest when any file changes, and replaces a previous attempt wholesale", async () => {
+  it("changes the digest when any file changes, and replaces a previous attempt wholesale", () => {
     dir = mkdtempSync(join(tmpdir(), "factory-generated-"))
     const first = parseDraft(files(GOOD_DRAFT), { workOrderId: WO })
     if (!first.ok) throw new Error(first.reason)
-    const before = await writeGeneratedTask(dir, first, { issueText })
+    const before = writeGeneratedTask(dir, first, { issueText })
     // A stray file from the first attempt must not survive the second.
     mkdirSync(join(before.directory, "checks"), { recursive: true })
     writeFileSync(join(before.directory, "checks", "old.test.ts"), "stale\n")
@@ -197,13 +223,24 @@ describe("writeGeneratedTask", () => {
       { workOrderId: WO },
     )
     if (!second.ok) throw new Error(second.reason)
-    const after = await writeGeneratedTask(dir, second, { issueText })
+    const after = writeGeneratedTask(dir, second, { issueText })
     expect(after.digest).not.toBe(before.digest)
     expect(existsSync(join(after.directory, "checks", "old.test.ts"))).toBe(false)
     expect(after.files).toEqual(before.files)
     expect(digestGeneratedTask(after.directory)).toBe(after.digest)
     // The issue text is part of what the digest binds, too.
-    const otherIssue = await writeGeneratedTask(dir, second, { issueText: "# Issue 779\n" })
+    const otherIssue = writeGeneratedTask(dir, second, { issueText: "# Issue 779\n" })
     expect(otherIssue.digest).not.toBe(after.digest)
+  })
+
+  it("fails closed on an entry the digest cannot account for", () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-generated-"))
+    const parsed = parseDraft(files(GOOD_DRAFT), { workOrderId: WO })
+    if (!parsed.ok) throw new Error(parsed.reason)
+    const written = writeGeneratedTask(dir, parsed, { issueText })
+    symlinkSync(join(written.directory, "spec.md"), join(written.directory, "checks", "link.ts"))
+    expect(() => digestGeneratedTask(written.directory)).toThrow(
+      "generated task contains a non-regular file: checks/link.ts",
+    )
   })
 })

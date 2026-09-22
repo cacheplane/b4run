@@ -6,9 +6,9 @@ import {
   isCatalogId,
   loadTarget,
   relativePath,
+  TaskFieldsSchema,
   type TaskManifest,
   TaskSchema,
-  TaskShapeSchema,
 } from "../targets/catalog.js"
 
 /** Where the drafter writes, relative to its workspace. Keys outside it are not the draft. */
@@ -17,7 +17,7 @@ export const DRAFT_ROOT = "draft/"
 /** The draft's own checks manifest: the independent suite only. The visible suite is the controller's. */
 const DraftChecksSchema = z.object({ independent: ChecksSchema.shape.independent }).strict()
 /** The draft's task manifest: everything but the id, which is the work order's. */
-const DraftTaskSchema = TaskShapeSchema.omit({ id: true }).strict()
+const DraftTaskSchema = TaskFieldsSchema.omit({ id: true }).strict()
 
 /**
  * The visible suite every generated task carries: the target's whole vitest suite with no
@@ -33,9 +33,7 @@ export interface ParsedDraft {
   readonly checks: Checks
   readonly specText: string
   readonly acceptanceIds: readonly string[]
-  /** `checks/...` paths present in the draft, relative to the draft root, sorted. */
-  readonly checkFiles: readonly string[]
-  /** Every `draft/`-relative file, for materialisation. */
+  /** Every `draft/`-relative file, for materialisation: the three manifests and the one check. */
   readonly files: ReadonlyMap<string, string>
 }
 export type DraftRefusal = {
@@ -113,6 +111,27 @@ const sameSet = (a: readonly string[], b: readonly string[]): boolean =>
   a.length === b.length && a.every((value, index) => value === b[index])
 
 /**
+ * A draft carries exactly four files: the three manifests and the one check `checks.json`
+ * names. The verifier stages only that check into the container, so a helper beside it would
+ * pass intake and die at verification; anything else is not the draft's to write.
+ */
+function strayFile(
+  draft: ReadonlyMap<string, string>,
+  checkFile: string,
+): DraftRefusal | undefined {
+  for (const path of draft.keys()) {
+    if (path === "task.json" || path === "spec.md" || path === "checks.json" || path === checkFile)
+      continue
+    return invalid(
+      path.startsWith("checks/")
+        ? `${DRAFT_ROOT}${path} is not the named check; a draft carries exactly one check file, under checks/`
+        : `${DRAFT_ROOT}${path} is not one of task.json, spec.md, checks.json or the named check`,
+    )
+  }
+  return undefined
+}
+
+/**
  * Turn what a drafter wrote under `draft/` into a task the catalog can load, or refuse it with
  * a reason that names the offending file. The controller fills what the drafter must not
  * decide: the id (the work order's) and the visible suite (the regression guard). Every rule
@@ -148,6 +167,8 @@ export function parseDraft(
     return invalid(`${DRAFT_ROOT}task.json is invalid: ${describeIssues(filled.error)}`)
   const manifest = filled.data
 
+  // Before checks.json on purpose: an unknown target is the least fixable defect, so its
+  // refusal (`no_target_for_package`) wins on precedence over anything a redraft could mend.
   let target: ReturnType<typeof loadTarget>
   try {
     target = loadTarget(manifest.target)
@@ -198,7 +219,8 @@ export function parseDraft(
     return invalid(
       `${DRAFT_ROOT}checks.json names ${DRAFT_ROOT}${checks.independent.file}, which the draft does not contain`,
     )
-  const checkFiles = [...draft.keys()].filter((path) => path.startsWith("checks/")).sort()
+  const stray = strayFile(draft, checks.independent.file)
+  if (stray) return stray
 
-  return { ok: true, manifest, checks, specText, acceptanceIds, checkFiles, files: draft }
+  return { ok: true, manifest, checks, specText, acceptanceIds, files: draft }
 }

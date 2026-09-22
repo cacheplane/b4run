@@ -95,7 +95,8 @@ export interface VitestGrade {
  * (`numFailedTests`, `numTotalTests`) are present and consistent with that. With no expected
  * names at all — a generated task's visible suite, where the target's whole suite is the
  * regression guard — pass requires the same clean exit and totals and that at least one test
- * ran: a suite the runner selected nothing from proves nothing. A report vitest
+ * passed: a suite the runner selected nothing from, or skipped entirely, proves nothing. A
+ * report vitest
  * could not produce, one that fails shape validation (parses as JSON but is not a report —
  * `null`, an array, a report whose `testResults` is not an array, and so on), or one that
  * disagrees with the exit code in a way that only a broken runner would produce, is
@@ -149,7 +150,7 @@ export function gradeVitestReport(
   const passed =
     cleanRun &&
     (expected.length === 0
-      ? totalCount > 0
+      ? totalCount > 0 && events.some((event) => event.type === "test:pass")
       : totalCount >= expected.length &&
         expected.every(
           (name) =>

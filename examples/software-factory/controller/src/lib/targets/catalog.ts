@@ -330,7 +330,7 @@ const allowedSourcePath = relativePath
  * draft, which carries every field but `id`, can derive its own schema (zod refuses
  * `.omit()` on a refined object); a filled manifest is then re-parsed with `TaskSchema`.
  */
-export const TaskShapeSchema = z
+export const TaskFieldsSchema = z
   .object({
     id: z.string().min(1),
     target: z.string().min(1),
@@ -339,7 +339,7 @@ export const TaskShapeSchema = z
   })
   .strict()
 
-export const TaskSchema = TaskShapeSchema.refine(
+export const TaskSchema = TaskFieldsSchema.refine(
   (m) => m.allowedSourcePaths.every((p) => m.immutablePaths.every((e) => !overlaps(p, e))),
   "allowed and immutable paths must be disjoint",
 )
