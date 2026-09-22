@@ -349,7 +349,8 @@ In `packages/cli/src/lib/runtime/managed-workspace-manager.ts`, replace the opti
 ```ts
 /** What admission tells the resolver about the thread. Metadata is loaded lazily: only a thread with no record needs it. */
 export interface WorkspaceAdmissionContext {
-  readonly metadata?: () => Promise<Readonly<Record<string, unknown>>>
+  /** Loads the thread's stored client metadata. Called only for a thread with no workspace record. */
+  readonly metadata?: (signal: AbortSignal) => Promise<Readonly<Record<string, unknown>>>
 }
 
 export interface ManagedWorkspaceManagerOptions {
@@ -362,9 +363,10 @@ export interface ManagedWorkspaceManagerOptions {
   clock?: () => number
   /**
    * Called once per thread, at first admission, to produce that thread's
-   * definition. With `definition` also set, this wins (development mode
-   * recaptures the static definition through it). Without `definition`, it
-   * is the only source and is required.
+   * definition. With `definition` also set, this wins and `definition` is NOT
+   * a fallback: a resolver that returns nothing is an error, never a silent
+   * switch to the app-root capture (development mode recaptures the static
+   * definition through this hook). Without `definition`, it is required.
    */
   captureDefinition?: (thread: {
     readonly threadId: string
@@ -411,10 +413,21 @@ Replace the signature and the `if (!record)` block of `getForThread`:
         // admission of this thread finds the record and never reaches this branch.
         let resolved: CapturedWorkspaceDefinition | undefined = this.#definition
         if (this.#options.captureDefinition) {
-          const metadata = (await context.metadata?.()) ?? {}
+          const raw: unknown = await context.metadata?.(signal)
+          const metadata: Readonly<Record<string, unknown>> =
+            raw !== null && typeof raw === "object" && !Array.isArray(raw)
+              ? (raw as Readonly<Record<string, unknown>>)
+              : {}
           resolved = await this.#options.captureDefinition({ threadId, metadata, signal })
+          // An admission aborted during the resolver must not leave an orphan source row.
+          signal.throwIfAborted()
         }
-        if (!resolved) throw new Error("Managed workspaces need a definition or a resolver")
+        if (!resolved)
+          throw new Error(
+            this.#options.captureDefinition
+              ? "The workspace resolver returned no workspace definition"
+              : "Managed workspaces need a definition or a resolver",
+          )
         const definition = verifyCapturedWorkspaceDefinition(resolved)
         installation.sources.put(definition.source)
         const environment = await provider.resolveEnvironment(signal)
@@ -928,6 +941,8 @@ In `packages/cli/src/lib/runtime/execute-route-core.ts`, replace the admission c
         // Loaded only when the thread has no workspace record yet. The key is
         // the SANDBOX key, so a subagent resolves through its parent's thread.
         metadata: async () => {
+          // The store read takes no signal today; the manager re-checks the
+          // admission signal after the resolver returns.
           const thread = await threadsStore?.getThread(sandboxKey)
           return stripReservedThreadMetadata(thread?.metadata) ?? {}
         },
@@ -1107,7 +1122,10 @@ export default config({
 ```
 
 The resolver runs once, when the thread is first admitted, and its result is recorded by
-digest; every later turn of that thread reads the record. Thread metadata is client
+digest; every later turn of that thread reads the record. Deleting the thread deletes the
+record, so a thread id reused after deletion is resolved again. The resolver runs inside
+the thread's admission critical section: honour `signal` and return promptly, because a
+resolver that hangs holds that thread's admission open. Thread metadata is client
 input, so validate it as the example does. `b4 check` reports a resolver as
 "managed workspace is resolved per thread", and a built app carries a resolver marker
 instead of captured source.
@@ -1184,6 +1202,16 @@ Expected: both typecheck; `git status` prints nothing for `examples/code-fixer`.
 - [ ] **Step 4: No commit here unless a gate found something.** If one did, fix it in the task it belongs to and amend that task's commit message with what changed, then rerun this task.
 
 ---
+
+## Follow-ups recorded by review, not in this plan
+
+- **Orphan source rows.** `installation.sources.put` runs before `provider.resolveEnvironment`; an
+  admission that fails or aborts in `resolveEnvironment` leaves a source row no association
+  references, and nothing reclaims `workspace_sources`. Pre-existing for the dev-mode hook; the
+  per-thread resolver makes the rows vary per thread. Fix is a reclaim of digests referenced by no
+  association, or putting the source after a successful `resolveEnvironment`. Design item for
+  `@b4run/sqlite-storage` + the manager; record in the rung 3 spec's follow-ups.
+- **Per-thread permissions** (spec §5.4), unchanged.
 
 ## Self-review against the spec
 
