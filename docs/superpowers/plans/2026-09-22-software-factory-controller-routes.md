@@ -1443,6 +1443,9 @@ git status --short examples/code-fixer
 
 ## Follow-ups this plan records, not in scope
 
+- **Latent flake found by the Task 6 review:** `test/baseline.test.ts` calls `captureTargetBaseline`, which captures the LIVE controller source tree under `appRoot`; a concurrent write under the package (an editor, another agent) fails it with a capture mismatch. Pre-existing. Fix is to capture from a temp copy or a pinned archive in that test.
+- **Reader schema check:** `openRegistryReader` does not check `schema_version`; a registry written by a newer controller reads until a zod parse fails. Add the same `RegistryVersionError` refusal the writer has.
+
 - **Runtime defect found by Task 5:** `runtime-fetch-core.ts` passes `{ code }` as `createRequestErrorBody`'s second positional (`details`) for the `run_in_flight` (~line 2426) and `run_cancelled` (~line 2493) 409s, so the body is `{ error: { details: { code }, kind, message } }` and the top-level `error.code` (with its docs URL) is never set. Clients must read `error.details.code` for these two. Fix in `@b4run/cli` as its own PR; the CLI in Task 7 reads `details.code` until then.
 
 - The registry has no owner record; a second controller process is undetected. A `controller_owner` row with a heartbeat, refused on open when live, is the fix.
