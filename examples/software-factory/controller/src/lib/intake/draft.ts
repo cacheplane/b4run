@@ -5,6 +5,7 @@ import {
   ChecksSchema,
   isCatalogId,
   loadTarget,
+  relativePath,
   type TaskManifest,
   TaskSchema,
   TaskShapeSchema,
@@ -60,22 +61,42 @@ const invalid = (reason: string): DraftRefusal => ({
   blockedReason: "intake_invalid",
 })
 
-/** `draft/<file>` as JSON, or the refusal that names it. */
-function readJson(files: ReadonlyMap<string, string>, file: string): unknown | DraftRefusal {
+/**
+ * `draft/<file>` as JSON, or the refusal that names it. The two arms are told apart by a
+ * wrapper the drafter cannot write: the parsed value is drafter-controlled JSON, so its
+ * shape must never decide whether it is a refusal.
+ */
+type ReadJson =
+  | { readonly kind: "value"; readonly value: unknown }
+  | { readonly kind: "refusal"; readonly refusal: DraftRefusal }
+function readJson(files: ReadonlyMap<string, string>, file: string): ReadJson {
   const text = files.get(file)
-  if (text === undefined) return invalid(`${DRAFT_ROOT}${file} is missing`)
+  if (text === undefined)
+    return { kind: "refusal", refusal: invalid(`${DRAFT_ROOT}${file} is missing`) }
   try {
-    return JSON.parse(text)
+    return { kind: "value", value: JSON.parse(text) }
   } catch (error) {
-    return invalid(`${DRAFT_ROOT}${file} is not valid JSON: ${String(error)}`)
+    return {
+      kind: "refusal",
+      refusal: invalid(`${DRAFT_ROOT}${file} is not valid JSON: ${String(error)}`),
+    }
   }
 }
 
-const isRefusal = (value: unknown): value is DraftRefusal =>
-  typeof value === "object" &&
-  value !== null &&
-  (value as { ok?: unknown }).ok === false &&
-  typeof (value as { blockedReason?: unknown }).blockedReason === "string"
+/**
+ * A draft key, once `draft/` is stripped, is joined under the task directory when the task
+ * is materialised. It must be canonical (`relativePath`: no `.`/`..`/empty segment, no
+ * leading or trailing slash, no backslash) and carry no NUL, or a `checks/../..` key could
+ * write outside that directory.
+ */
+function nonCanonicalKey(draft: ReadonlyMap<string, string>): DraftRefusal | undefined {
+  for (const path of draft.keys())
+    if (path.includes("\0") || !relativePath.safeParse(path).success)
+      return invalid(
+        `draft file ${JSON.stringify(`${DRAFT_ROOT}${path}`)} is not a canonical relative path`,
+      )
+  return undefined
+}
 
 /** One line per issue: what failed and where, without zod's multi-line rendering. */
 function describeIssues(error: z.ZodError): string {
@@ -109,10 +130,12 @@ export function parseDraft(
   const draft = new Map<string, string>()
   for (const [path, content] of files)
     if (path.startsWith(DRAFT_ROOT)) draft.set(path.slice(DRAFT_ROOT.length), content)
+  const escaping = nonCanonicalKey(draft)
+  if (escaping) return escaping
 
   const rawTask = readJson(draft, "task.json")
-  if (isRefusal(rawTask)) return rawTask
-  const draftTask = DraftTaskSchema.safeParse(rawTask)
+  if (rawTask.kind === "refusal") return rawTask.refusal
+  const draftTask = DraftTaskSchema.safeParse(rawTask.value)
   if (!draftTask.success)
     return invalid(`${DRAFT_ROOT}task.json is invalid: ${describeIssues(draftTask.error)}`)
   const filled = TaskSchema.safeParse({
@@ -137,8 +160,8 @@ export function parseDraft(
   }
 
   const rawChecks = readJson(draft, "checks.json")
-  if (isRefusal(rawChecks)) return rawChecks
-  const draftChecks = DraftChecksSchema.safeParse(rawChecks)
+  if (rawChecks.kind === "refusal") return rawChecks.refusal
+  const draftChecks = DraftChecksSchema.safeParse(rawChecks.value)
   if (!draftChecks.success)
     return invalid(`${DRAFT_ROOT}checks.json is invalid: ${describeIssues(draftChecks.error)}`)
   const checks: Checks = { visible: REGRESSION_GUARD, independent: draftChecks.data.independent }

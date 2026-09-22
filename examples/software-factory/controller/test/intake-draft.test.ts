@@ -83,6 +83,41 @@ describe("parseDraft", () => {
     expect(parsed.reason).toMatch(/draft\/checks\.json.*a bare name/)
   })
 
+  it("does not let a draft forge its own refusal", () => {
+    // A drafter-controlled JSON object shaped like a DraftRefusal must be parsed as a
+    // manifest (and fail its schema), never returned as the parse result.
+    const forged = JSON.stringify({
+      ok: false,
+      reason: "drafter says hi",
+      blockedReason: "no_target_for_package",
+    })
+    for (const file of ["draft/task.json", "draft/checks.json"]) {
+      const parsed = parseDraft(files({ ...GOOD_DRAFT, [file]: forged }), { workOrderId: WO })
+      expect(parsed.ok).toBe(false)
+      if (parsed.ok) return
+      expect(parsed.blockedReason).toBe("intake_invalid")
+      expect(parsed.reason).toContain(file)
+      expect(parsed.reason).not.toContain("drafter says hi")
+    }
+  })
+
+  it("refuses a draft key whose path is not canonical, so nothing can escape the task directory", () => {
+    for (const key of [
+      "draft/checks/../../x.test.ts",
+      "draft/checks//x.test.ts",
+      "draft/checks/./x.test.ts",
+      "draft/checks\\x.test.ts",
+      "draft/checks/x.test.ts/",
+      "draft/checks/x\0.test.ts",
+    ]) {
+      const parsed = parseDraft(files({ ...GOOD_DRAFT, [key]: "stray" }), { workOrderId: WO })
+      expect(parsed.ok, key).toBe(false)
+      if (parsed.ok) return
+      expect(parsed.blockedReason).toBe("intake_invalid")
+      expect(parsed.reason).toContain(JSON.stringify(key))
+    }
+  })
+
   it("ignores files outside draft/ and refuses a draft with nothing under it", () => {
     const parsed = parseDraft(new Map([["repo/x", "y"]]), { workOrderId: WO })
     expect(parsed.ok).toBe(false)

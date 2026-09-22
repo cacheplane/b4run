@@ -23,7 +23,7 @@ function hasCanonicalSegments(segments: readonly string[]): boolean {
  * no `.`/`..`/empty segment, and no backslash. Downstream code compares paths by string
  * equality, so two spellings of the same path would silently fail that comparison.
  */
-const relativePath = z
+export const relativePath = z
   .string()
   .min(1)
   .refine(
