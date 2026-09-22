@@ -812,6 +812,11 @@ form (no forced rebuild).
 > **As landed:** the resolver form is a tagged version-2 record, not a digest of the string
 > `"resolver"`, so the two forms cannot be confused by a digest collision on a constant.
 
+Also amend §5.2 to state: `POST /threads` assigns the thread id (a client cannot pre-choose it,
+so metadata is attached at create and the returned id is used); `route` reaches the resolver and is
+server-authoritative because the runtime stamps it before admission; every other key is
+client-writable and must not be an authorization input.
+
 Also amend §5.1's `WorkspaceResolver` block to add `readonly signal: AbortSignal` to the input
 (aborted when the admitting run is cancelled; the resolver does I/O) and keep the return type
 `Promise<...>` only, with a matching `> **As landed:**` note.
@@ -1094,6 +1099,15 @@ readers all use the record. `b4 build` cannot capture a resolver, so the artifac
 only that one is configured, and startup refuses an artifact whose form disagrees with the
 loaded config. The result is decided by deployed host code, never by the client or the
 model; a resolver treats the metadata it is given as input to validate, not as authority.
+
+What the resolver sees, precisely: the thread's stored metadata with B4.run's reserved
+key stripped. `route` is present and server-authoritative, because the runtime stamps it
+before admission and the store's merge overwrites any client value. Every other key is
+client-writable, so metadata must never be an authorization input. `POST /threads` always
+assigns the id, so to attach metadata before the first resolution create the thread and
+use the id it returns. `b4 run` mints a fresh thread per invocation, so the resolver runs
+on every run with empty metadata; an app whose `sandbox.workspace` is a static definition
+never invokes the loader at all.
 ```
 
 - [ ] **Step 4: Add a subsection to the sandbox guide**
