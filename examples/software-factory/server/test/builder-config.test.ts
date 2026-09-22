@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process"
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -136,5 +137,44 @@ describe("the package boundary", () => {
       // into the code that judges what it left behind.
       expect([file, readFileSync(file, "utf8").includes("../controller/")]).toEqual([file, false])
     }
+  })
+})
+
+describe("the unfiltered turbo graph", () => {
+  // The repository's own `build` and `check` walk every workspace package with no task in
+  // hand, and this config refuses to load without a manifest. The guard is what keeps that
+  // from reddening the whole graph — and it must not become a guard that swallows failures
+  // when a manifest IS present, which is the case the Docker lane depends on.
+  const script = fileURLToPath(new URL("../scripts/with-manifest.mjs", import.meta.url))
+  const run = (env: NodeJS.ProcessEnv, argv: readonly string[]) =>
+    spawnSync(process.execPath, [script, ...argv], {
+      encoding: "utf8",
+      env: { ...process.env, ...env },
+      timeout: 30_000,
+    })
+
+  it("skips the command with a notice when no manifest is set", () => {
+    const { FACTORY_BUILDER_MANIFEST: _omitted, ...clean } = process.env
+    const result = spawnSync(process.execPath, [script, "b4", "build"], {
+      encoding: "utf8",
+      env: clean,
+      timeout: 30_000,
+    })
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain(
+      "builder: FACTORY_BUILDER_MANIFEST is not set; skipping b4 build",
+    )
+  })
+
+  it("passes the command's exit code through when a manifest is set", () => {
+    // The manifest's CONTENTS are the command's business, not the guard's: it decides only
+    // whether to run, so a path that does not exist still runs the command and still
+    // surfaces its failure. A guard that exited 0 here would hide every builder build.
+    const result = run({ FACTORY_BUILDER_MANIFEST: join(dir, "absent.json") }, [
+      process.execPath,
+      "-e",
+      "process.exit(3)",
+    ])
+    expect(result.status).toBe(3)
   })
 })

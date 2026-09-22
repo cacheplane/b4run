@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createAgentHarness, script } from "@b4run/testing"
 import { afterEach, expect, it } from "vitest"
+import { writeBuilderManifest } from "../src/lib/builder-manifest.ts"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
@@ -59,9 +60,20 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   // checkpoints are this test's and nobody else's. The harness OWNS that installation for as
   // long as it is open — exactly as a running `b4` server does — so the controller below has
   // to read it without becoming a second owner.
-  // TODO(Task 8): write the manifest and pass FACTORY_BUILDER_MANIFEST to the harness
   const appRoot = await isolatedBuilder()
   cleanups.push(() => rm(appRoot, { recursive: true, force: true }))
+  // Its whole configuration, written by the controller: the captured workspace bytes, the
+  // sandbox policy, the image and the prompt. The copied `b4.config.ts` reads
+  // FACTORY_BUILDER_MANIFEST at module load and the harness loads it when it starts, so the
+  // variable is set BEFORE `createAgentHarness`; the harness boots the app in this process
+  // and takes no env of its own, so this is `process.env`, restored by a cleanup.
+  const manifestPath = await writeBuilderManifest(task, join(dir, "manifest"))
+  const previousManifest = process.env.FACTORY_BUILDER_MANIFEST
+  process.env.FACTORY_BUILDER_MANIFEST = manifestPath
+  cleanups.push(async () => {
+    if (previousManifest === undefined) delete process.env.FACTORY_BUILDER_MANIFEST
+    else process.env.FACTORY_BUILDER_MANIFEST = previousManifest
+  })
   const harness = await createAgentHarness({ appRoot, route: "/build#agent" })
   cleanups.push(() => harness.close({ destroyWorkspaces: true }))
   const input = taskPrompt(task)

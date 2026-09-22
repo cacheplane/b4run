@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createAgentHarness, script } from "@b4run/testing"
 import { afterEach, expect, it } from "vitest"
+import { writeBuilderManifest } from "../src/lib/builder-manifest.ts"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
@@ -60,7 +61,6 @@ afterEach(async () => {
   await worker?.close()
   worker = undefined
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
-  delete process.env.FACTORY_TASK_ID
 })
 
 it(
@@ -74,14 +74,22 @@ it(
     // them is this lane's fault and not the candidate's.
     const repaired = await applyReference(TASK)
 
-    // Both the copied `b4.config.ts` and the copied `src/app/build/index.ts` read
-    // FACTORY_TASK_ID at module load, and the harness loads them when it starts: the variable
-    // has to be set before `createAgentHarness`, or the builder would come up sandboxed for
-    // the default task and prompted with the wrong spec. (Taking the copy does not read it.)
-    process.env.FACTORY_TASK_ID = TASK
-    // TODO(Task 8): write the manifest and pass FACTORY_BUILDER_MANIFEST to the harness
     const appRoot = await isolatedBuilder()
     cleanups.push(() => rm(appRoot, { recursive: true, force: true }))
+    // The builder's whole configuration, written by the controller: the captured workspace
+    // bytes, the sandbox policy, THIS target's image and this task's prompt. The copied
+    // `b4.config.ts` reads FACTORY_BUILDER_MANIFEST at module load and the harness loads it
+    // when it starts, so the variable has to be set before `createAgentHarness` — otherwise
+    // the builder would not come up at all, let alone for the wrong task. The harness boots
+    // the app in this process and takes no env of its own, so this is `process.env`,
+    // restored by a cleanup.
+    const manifestPath = await writeBuilderManifest(task, join(dir, "manifest"))
+    const previousManifest = process.env.FACTORY_BUILDER_MANIFEST
+    process.env.FACTORY_BUILDER_MANIFEST = manifestPath
+    cleanups.push(async () => {
+      if (previousManifest === undefined) delete process.env.FACTORY_BUILDER_MANIFEST
+      else process.env.FACTORY_BUILDER_MANIFEST = previousManifest
+    })
     const harness = await createAgentHarness({ appRoot, route: "/build#agent" })
     cleanups.push(() => harness.close({ destroyWorkspaces: true }))
     const input = taskPrompt(task)

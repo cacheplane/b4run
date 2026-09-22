@@ -1087,7 +1087,7 @@
               "classification": "safe",
               "descriptor": {
                 "name": "Software factory controller-owned verification",
-                "run": "pnpm turbo run build --filter=@b4-example/software-factory-server^...\npnpm --filter @b4-example/software-factory-server target:prepare cli-flags\npnpm --filter @b4-example/software-factory-server target:prepare devkit\npnpm --filter @b4-example/software-factory-server test:sandbox\n"
+                "run": "pnpm turbo run build --filter=@b4-example/software-factory-controller^...\npnpm --filter @b4-example/software-factory-controller target:prepare cli-flags\npnpm --filter @b4-example/software-factory-controller target:prepare devkit\npnpm --filter @b4-example/software-factory-controller factory builder-manifest --task cli-flags --out \"$RUNNER_TEMP/factory-manifests\"\nFACTORY_BUILDER_MANIFEST=\"$RUNNER_TEMP/factory-manifests/cli-flags.json\" pnpm --filter @b4-example/software-factory-server check\nFACTORY_BUILDER_MANIFEST=\"$RUNNER_TEMP/factory-manifests/cli-flags.json\" pnpm --filter @b4-example/software-factory-server build\npnpm --filter @b4-example/software-factory-controller test:sandbox\n"
               }
             },
             {

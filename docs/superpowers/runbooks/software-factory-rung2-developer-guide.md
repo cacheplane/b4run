@@ -216,20 +216,28 @@ first load; `FACTORY_NO_FETCH=1` turns a missing pin into a hard error.
 
 ### Run one work order end to end
 
-Two processes, as in rung 1. Terminal 1 is the builder, a b4 app whose
-`b4.config.ts` reads `FACTORY_TASK_ID` to pick the target and task (default
-`cli-flags`); both the config and the builder route read it at module load, so
-it must be set before the process starts:
+Two processes, as in rung 1. Terminal 1 is the builder, a b4 app configured by
+ONE input: the manifest the controller writes. It carries the captured workspace
+bytes, the sandbox policy, the target's image and the task's prompt, so the
+builder resolves no pin and reads no task catalog of its own. Write it from the
+controller package first, then point the builder at it — `b4.config.ts` reads
+`FACTORY_BUILDER_MANIFEST` at module load, so it must be set before the process
+starts, and one builder process serves one task:
 
 ```bash
+pnpm --filter @b4-example/software-factory-controller factory builder-manifest \
+  --task devkit-spawn-deadline --out /tmp/factory-manifests
 cd examples/software-factory/server
-FACTORY_TASK_ID=devkit-spawn-deadline OPENAI_API_KEY=... pnpm dev --port 4100
+FACTORY_BUILDER_MANIFEST=/tmp/factory-manifests/devkit-spawn-deadline.json \
+  OPENAI_API_KEY=... pnpm dev --port 4100
 ```
 
-Terminal 2 is the controller:
+Terminal 2 is the controller, which owns the targets, the task catalog and the
+registry. Its own environment names the builder to dispatch to and where its
+state lives:
 
 ```bash
-cd examples/software-factory/server
+cd examples/software-factory/controller
 export FACTORY_WORKER_URL=http://127.0.0.1:4100
 export FACTORY_STATE_DIR=$PWD/.factory
 pnpm factory create --task devkit-spawn-deadline
