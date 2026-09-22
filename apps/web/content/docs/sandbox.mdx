@@ -68,6 +68,46 @@ mutually untrusted workloads behind appropriate daemon/namespace boundaries.
   selects different storage. Missing or blank scopes fail immediately.
 </Callout>
 
+### Per-thread workspaces
+
+One app usually gives every thread the same initial workspace. When threads need
+different starting points — one repository pin per work order, say — make
+`sandbox.workspace` a function of the thread:
+
+```ts title="b4.config.ts"
+export default config({
+  sandbox: {
+    provider: dockerSandbox({ scope: "factory", image: "factory-builder:pinned" }),
+    workspace: async ({ threadId, metadata, signal }) => {
+      const task = String(metadata.task ?? "")
+      signal.throwIfAborted()
+      if (!/^[a-z0-9-]+$/.test(task)) throw new Error(`thread ${threadId} names no task`)
+      // `include` is the exact list of files under `directory`, not a set of paths to admit.
+      return {
+        source: { directory: `tasks/${task}`, include: ["TASK.md", "src/index.ts", "src/lib.ts"] },
+        baseline: "git",
+      }
+    },
+  },
+})
+```
+
+`include` must name every file under `directory`; scope with `directory` and
+`excludeDirectories`, not with partial `include` lists.
+
+The resolver runs once, when the thread is first admitted, and its result is recorded by
+digest; every later turn of that thread reads the record. Deleting the thread deletes the
+record, so a thread id reused after deletion is resolved again. A resolver that captures
+from the app root (`directory: "."`) must exclude `.b4` with `excludeDirectories`, because
+the installation's own state lives there and is walked otherwise; an excluded directory
+must already exist when the capture runs, which is always true at admission but not for a
+static definition in a fresh clone at build time. The resolver runs inside
+the thread's admission critical section: honor `signal` and return promptly, because a
+resolver that hangs holds that thread's admission open. Thread metadata is client
+input, so validate it as the example does. `b4 check` reports a resolver as
+"managed workspace is resolved per thread", and a built app carries a resolver marker
+instead of captured source.
+
 ## Security hardening
 
 The Docker provider applies these defaults:

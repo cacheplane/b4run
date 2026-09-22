@@ -36,6 +36,8 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 | `WorkspaceInspection` | Return relative-path text files, validated links, byte count, and entry count. |
 | `WorkspaceDefinition` | Declare initial source, immutable environment links, and an optional Git baseline. |
 | `CapturedWorkspaceDefinition` | Hold a verified source bundle and canonical creation options. |
+| `WorkspaceResolver` | Decide one thread's initial workspace from its id and client metadata, once, at first admission. |
+| `WorkspaceResolverInput` | What a resolver is told: the thread id, its stored client metadata with the reserved key stripped, and the admitting run's abort signal. |
 | `WorkspaceEnvironment` | Bind an immutable environment identity to provider, account, and scope. |
 | `WorkspaceCreateIntent` | Persist an operation identity and complete creation digest before provider mutation. |
 | `WorkspaceReference` | Identify provider resources without credentials or executable configuration. |
@@ -365,7 +367,7 @@ The Docker provider verifies the record, binding and volume exactly as `reconnec
 
 ```ts api-contract="@b4run/workspace#.:SandboxConfig"
 export interface SandboxConfig {
-  readonly workspace?: WorkspaceDefinition
+  readonly workspace?: WorkspaceDefinition | WorkspaceResolver
   readonly provider: SandboxProvider
   readonly network?: SandboxPolicy["network"]
   readonly env?: SandboxPolicy["env"]
@@ -378,7 +380,7 @@ export interface SandboxConfig {
 **Fields: `@b4run/workspace#.:SandboxConfig`**
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `readonly workspace` | `WorkspaceDefinition` | no | Declare the initial managed workspace. |
+| `readonly workspace` | `WorkspaceDefinition \| WorkspaceResolver` | no | Declare the initial managed workspace: one definition for every thread, or a resolver that decides per thread at first admission. |
 | `readonly provider` | `SandboxProvider` | yes | Supply the sandbox provider. |
 | `readonly network` | `SandboxPolicy["network"]` | no | Set the default network policy. |
 | `readonly env` | `SandboxPolicy["env"]` | no | Set the default explicit environment. |
@@ -519,6 +521,24 @@ provenance across deployment changes. Providers without `workspaces` support
 reject the configuration. The first qualified provider is Docker; managed
 workspace builds require `build: { targets: ["node"] }` and the existing app-root
 `workspace/` capability marker.
+
+`sandbox.workspace` may instead be a `WorkspaceResolver`: host code called once per
+thread, at the thread's first admission, with the thread id and its stored client
+metadata. What it returns is captured (or verified, if already captured), recorded by
+digest in that thread's creation intent, and never re-resolved: later turns, restarts and
+readers all use the record. `b4 build` cannot capture a resolver, so the artifact records
+only that one is configured, and startup refuses an artifact whose form disagrees with the
+loaded config. The result is decided by deployed host code, never by the client or the
+model; a resolver treats the metadata it is given as input to validate, not as authority.
+
+What the resolver sees, precisely: the thread's stored metadata with B4.run's reserved
+key stripped. On the server run endpoints (`runs/stream`, `runs/wait`, AG-UI), `route` is
+present and server-authoritative, because the runtime stamps it before admission and the
+store's merge overwrites any client value; under `b4 run` it is absent. Every other key is
+client-writable, so metadata must never be an authorization input. `POST /threads` always
+assigns the id, so to attach metadata before the first resolution create the thread and
+use the id it returns. `b4 run` mints a fresh thread per invocation, so the resolver runs
+on every run with empty metadata.
 
 Provider creation receives an immutable `SourceBundle`, bounded to 64 MiB of
 original content, and a persisted `WorkspaceCreateIntent`. Readiness must match
