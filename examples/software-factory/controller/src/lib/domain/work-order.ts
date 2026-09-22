@@ -42,7 +42,10 @@ export const WorkOrderRowSchema = z.object({
   /** When the work order entered awaiting_approval; approval expiry is measured from here. */
   awaitingSince: z.string().nullable(),
   origin: OriginSchema,
-  /** The target repository commit the work order was created against; null until intake pins one. */
+  /**
+   * The target repository commit the work order was created against; null for a catalog work
+   * order, recorded by `create --issue` and never changed.
+   */
   pin: z
     .string()
     .regex(/^[a-f0-9]{40}$/)

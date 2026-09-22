@@ -23,9 +23,9 @@ export class StaleRevisionError extends Error {
 }
 
 /**
- * Fields a command may change. Identity, limits, origin and timestamps are fixed at insert:
- * `origin` is what the work order is, not where it got to, and `maxIntakeAttempts` is the cap
- * set at create.
+ * Fields a command may change. Identity, limits, origin, pin and timestamps are fixed at
+ * insert: `origin` and `pin` are what the work order is, not where it got to, and
+ * `maxIntakeAttempts` is the cap set at create.
  */
 export type WorkOrderPatch = Partial<
   Pick<
@@ -40,7 +40,6 @@ export type WorkOrderPatch = Partial<
     | "activeMs"
     | "activeStartedAt"
     | "awaitingSince"
-    | "pin"
     | "targetId"
     | "taskDigest"
     | "intakeAttempts"
@@ -121,7 +120,10 @@ function originToSql(origin: Origin): [string, string | null, number | null, str
 }
 
 function originFromSql(record: Record<string, unknown>): Origin {
-  if (record.origin_kind !== "issue") return { kind: "catalog" }
+  const kind = record.origin_kind
+  if (kind === "catalog") return { kind: "catalog" }
+  // Anything else is a corrupt row, not a catalog one: a default here would read it as fine.
+  if (kind !== "issue") throw new Error(`Unknown origin_kind ${String(kind)}`)
   return OriginSchema.parse({
     kind: "issue",
     repository: record.origin_repository,

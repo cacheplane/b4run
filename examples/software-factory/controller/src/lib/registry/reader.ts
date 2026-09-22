@@ -8,7 +8,7 @@ import type {
   Receipt,
   WorkOrderRow,
 } from "../domain/work-order.js"
-import { RegistryVersionError, SCHEMA_VERSION } from "./db.js"
+import { RegistryOutdatedError, RegistryVersionError, SCHEMA_VERSION } from "./db.js"
 import { createEvidenceStore } from "./evidence.js"
 import { createWorkOrderStore } from "./work-orders.js"
 
@@ -45,15 +45,20 @@ export function openRegistryReader(path: string): RegistryReader {
   // The same refusal `openRegistry` makes, for the same reason: a registry written by a
   // newer factory has columns and meanings this build does not know, and reading it anyway
   // would report a work order it cannot actually describe. The reader cannot migrate —
-  // it is read-only — so the only answer is to say so.
+  // it is read-only — so the only answer is to say so. The same holds the other way: an
+  // older registry lacks columns the row schema requires, and reading it would surface as
+  // a validation error on a row that is fine, not a registry that is behind.
   try {
     const version =
       (db.prepare("SELECT max(version) AS v FROM schema_version").get() as { v: number | null })
         .v ?? 0
     if (version > SCHEMA_VERSION) throw new RegistryVersionError(version)
+    if (version < SCHEMA_VERSION) throw new RegistryOutdatedError(version)
   } catch (error) {
     db.close()
-    throw error instanceof RegistryVersionError ? error : openFailure(path, error)
+    throw error instanceof RegistryVersionError || error instanceof RegistryOutdatedError
+      ? error
+      : openFailure(path, error)
   }
   const store = createWorkOrderStore(db)
   const evidence = createEvidenceStore(db)

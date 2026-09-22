@@ -369,7 +369,8 @@ received ──intake_started──▶ intake_running ──intake_drafted──
 ```
 
 New states: `intake_running`, `awaiting_intake_approval`. New blocked reasons:
-`intake_invalid`, `oracle_did_not_fail`, `intake_attempts_exhausted`, `no_target_for_package`.
+`intake_invalid`, `oracle_did_not_fail`, `intake_attempts_exhausted`, `no_target_for_package`,
+and `intake_run_failed` (the drafter turn ended without a draft or its stream was lost).
 `awaiting_intake_approval` is not active time. A catalog-task work order skips intake
 entirely: `create --task` lands in `received` as today.
 

@@ -18,6 +18,20 @@ export class RegistryVersionError extends Error {
   }
 }
 
+/**
+ * The reader's counterpart to RegistryVersionError. Only a writable connection can migrate,
+ * so a read-only open of an older registry can neither read it (the columns this build
+ * expects are absent) nor fix it.
+ */
+export class RegistryOutdatedError extends Error {
+  constructor(readonly found: number) {
+    super(
+      `Registry schema version ${found} is older than this factory needs (${SCHEMA_VERSION}); start the controller, which migrates it`,
+    )
+    this.name = "RegistryOutdatedError"
+  }
+}
+
 interface Migration {
   readonly version: number
   readonly up: string

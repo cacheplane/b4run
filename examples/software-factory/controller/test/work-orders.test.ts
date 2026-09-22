@@ -225,4 +225,12 @@ describe("work-order store", () => {
     expect(s.get("wo-b")?.pin).toBeNull()
     expect(s.list().map((r) => r.id)).toEqual(["wo-a", "wo-b"])
   })
+
+  it("refuses a row whose origin_kind is neither catalog nor issue", () => {
+    const db = openRegistry(":memory:").db
+    const s = createWorkOrderStore(db)
+    s.insert(freshRow())
+    db.prepare("UPDATE work_orders SET origin_kind = 'bogus' WHERE id = 'wo-1'").run()
+    expect(() => s.get("wo-1")).toThrow("Unknown origin_kind bogus")
+  })
 })
