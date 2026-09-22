@@ -471,7 +471,7 @@ rather than a silent rebuild inside the controller.
 ## 7. Sub-projects and order
 
 Each is its own spec-or-plan, PR and proof. 1 and 2 are independent and may run in parallel
-worktrees. 3 needs both. 4 needs 3. 5 is rung 4.
+worktrees. 3a needs both; 3b needs 3a. 4 needs 3b. 5 is rung 4.
 
 | # | Sub-project | Depends on | Proof |
 |---|---|---|---|
@@ -479,7 +479,7 @@ worktrees. 3 needs both. 4 needs 3. 5 is rung 4.
 | 2 | Controller ported to a b4 app of `workflow` routes (§4) | — | §4.3 |
 | 3a | Intake lifecycle with a scripted drafter (§6) | 1, 2 | §6.8's scripted lanes |
 | 3b | The drafter for real (§6) | 3a | A two-thread run of the builder app plus one intake turn against the wide capture, Docker lane |
-| 4 | First live issue, operator-pulled, local export | 3, a model key, prepared targets | The work order's own evidence |
+| 4 | First live issue, operator-pulled, local export | 3b, a model key, prepared targets | The work order's own evidence |
 | 5 | Draft pull request delivery through an outbox (rung 4) | 4 | Its own spec |
 
 This spec is the design for 1, 2, 3a and 3b. Each gets its own implementation plan under
