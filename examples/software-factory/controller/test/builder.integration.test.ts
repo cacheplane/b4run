@@ -3,13 +3,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createAgentHarness, script } from "@b4run/testing"
 import { expect, it } from "vitest"
-// TEMPORARY until the builder manifest lands (Task 3)
-import { taskPrompt } from "../../controller/src/lib/prompts.ts"
-// TEMPORARY until the builder manifest lands (Task 3)
-import { captureTarget } from "../../controller/src/lib/targets/archive.ts"
-// TEMPORARY until the builder manifest lands (Task 3)
-import { loadTask } from "../../controller/src/lib/targets/catalog.ts"
-import { isolatedApp } from "./isolated-app.ts"
+import { taskPrompt } from "../src/lib/prompts.ts"
+import { captureTarget } from "../src/lib/targets/archive.ts"
+import { loadTask } from "../src/lib/targets/catalog.ts"
+import { isolatedBuilder } from "./isolated-builder.ts"
 
 /**
  * Layer 2: the real builder route, real typegen, real tool wiring, scripted model
@@ -22,7 +19,8 @@ import { isolatedApp } from "./isolated-app.ts"
  * it fails rather than skipping, the way code-fixer's harness test does.
  */
 it("drives the real builder to write the repaired source and nothing else", async () => {
-  const appRoot = await isolatedApp()
+  // TODO(Task 8): write the manifest and pass FACTORY_BUILDER_MANIFEST to the harness
+  const appRoot = await isolatedBuilder()
   const task = loadTask("cli-flags")
   const source = task.manifest.allowedSourcePaths[0] as string
   // The baseline bytes, from a throwaway capture of the pin under a temporary app root: the

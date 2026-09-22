@@ -487,28 +487,16 @@ importers:
       '@b4run/workspace':
         specifier: workspace:*
         version: link:../../../packages/workspace
-      diff:
-        specifier: 9.0.0
-        version: 9.0.0
       zod:
         specifier: 4.4.3
         version: 4.4.3
     devDependencies:
-      '@b4run/sqlite-storage':
-        specifier: workspace:*
-        version: link:../../../packages/sqlite-storage
-      '@b4run/testing':
-        specifier: workspace:*
-        version: link:../../../packages/testing
       '@biomejs/biome':
         specifier: 2.5.6
         version: 2.5.6
       '@types/node':
         specifier: 26.1.2
         version: 26.1.2
-      tsx:
-        specifier: 4.23.10
-        version: 4.23.10
       typescript:
         specifier: 7.0.2
         version: 7.0.2

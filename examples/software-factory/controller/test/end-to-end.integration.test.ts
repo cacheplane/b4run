@@ -3,8 +3,6 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createAgentHarness, script } from "@b4run/testing"
 import { afterEach, expect, it } from "vitest"
-// TEMPORARY until the builder manifest lands (Task 3)
-import { isolatedApp } from "../../server/test/isolated-app.ts"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
@@ -15,6 +13,7 @@ import { createDockerVerifier } from "../src/lib/verification/docker-verifier.ts
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createThreadWorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
+import { isolatedBuilder } from "./isolated-builder.ts"
 import { applyReference } from "./reference-repair.ts"
 
 /**
@@ -60,7 +59,8 @@ it("reads the builder's own workspace and turns those bytes into a verdict, a bu
   // checkpoints are this test's and nobody else's. The harness OWNS that installation for as
   // long as it is open — exactly as a running `b4` server does — so the controller below has
   // to read it without becoming a second owner.
-  const appRoot = await isolatedApp()
+  // TODO(Task 8): write the manifest and pass FACTORY_BUILDER_MANIFEST to the harness
+  const appRoot = await isolatedBuilder()
   cleanups.push(() => rm(appRoot, { recursive: true, force: true }))
   const harness = await createAgentHarness({ appRoot, route: "/build#agent" })
   cleanups.push(() => harness.close({ destroyWorkspaces: true }))

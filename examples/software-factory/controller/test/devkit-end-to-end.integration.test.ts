@@ -3,8 +3,6 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createAgentHarness, script } from "@b4run/testing"
 import { afterEach, expect, it } from "vitest"
-// TEMPORARY until the builder manifest lands (Task 3)
-import { isolatedApp } from "../../server/test/isolated-app.ts"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import { createArtifactStore } from "../src/lib/storage/artifacts.ts"
@@ -16,6 +14,7 @@ import { loadPolicy } from "../src/lib/verification/policy.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createThreadWorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
+import { isolatedBuilder } from "./isolated-builder.ts"
 import { applyReference } from "./reference-repair.ts"
 
 /**
@@ -80,7 +79,8 @@ it(
     // has to be set before `createAgentHarness`, or the builder would come up sandboxed for
     // the default task and prompted with the wrong spec. (Taking the copy does not read it.)
     process.env.FACTORY_TASK_ID = TASK
-    const appRoot = await isolatedApp()
+    // TODO(Task 8): write the manifest and pass FACTORY_BUILDER_MANIFEST to the harness
+    const appRoot = await isolatedBuilder()
     cleanups.push(() => rm(appRoot, { recursive: true, force: true }))
     const harness = await createAgentHarness({ appRoot, route: "/build#agent" })
     cleanups.push(() => harness.close({ destroyWorkspaces: true }))

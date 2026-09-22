@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util"
 import { createHttpApi } from "./http.js"
+import { writeBuilderManifest } from "./lib/builder-manifest.js"
 import { loadConfig } from "./lib/config.js"
 import { createFactory, type Factory } from "./lib/controller/factory.js"
 import { ACTIVE_STATES } from "./lib/domain/states.js"
@@ -23,6 +24,7 @@ const USAGE = `factory <command> [options]
   evidence <workOrderId>
   list
   serve    [--port <n>]
+  builder-manifest --task <id> --out <dir>
 
 Environment: FACTORY_WORKER_URL, FACTORY_STATE_DIR (required);
 FACTORY_WORKER_ROUTE, FACTORY_EXPORT_DIR, FACTORY_ARTIFACTS_DIR, FACTORY_APPROVAL_TTL_MS,
@@ -43,6 +45,7 @@ async function main(argv: string[]): Promise<number> {
       revision: { type: "string" },
       bundle: { type: "string" },
       port: { type: "string" },
+      out: { type: "string" },
       wait: { type: "boolean", default: false },
       help: { type: "boolean", default: false },
     },
@@ -51,6 +54,15 @@ async function main(argv: string[]): Promise<number> {
   if (values.help || !command) {
     process.stdout.write(`${USAGE}\n`)
     return command ? 0 : 1
+  }
+  // Answered before the Factory exists: writing a builder manifest reads the catalog and
+  // captures an archive, and needs neither a registry nor a worker. `loadConfig` demands
+  // FACTORY_WORKER_URL and FACTORY_STATE_DIR, which this command has no use for.
+  if (command === "builder-manifest") {
+    if (!values.task) throw new Error("builder-manifest requires --task")
+    if (!values.out) throw new Error("builder-manifest requires --out")
+    print({ path: await writeBuilderManifest(loadTask(values.task), values.out) })
+    return 0
   }
   const config = loadConfig(process.env)
   const factory: Factory = await createFactory({

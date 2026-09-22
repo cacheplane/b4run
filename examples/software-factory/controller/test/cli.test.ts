@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, it } from "vitest"
+import { BuilderManifestSchema } from "../src/lib/builder-manifest.ts"
 import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
 
 const run = promisify(execFile)
@@ -15,9 +16,12 @@ const cliEntry = join(import.meta.dirname, "../src/cli.ts")
 const packageRoot = join(import.meta.dirname, "..")
 
 let dir: string
-let fake: FakeWorker
+// Undefined for the tests that need no worker at all, and cleared after every test so a
+// later one cannot close an already-closed fake.
+let fake: FakeWorker | undefined
 afterEach(async () => {
   await fake?.close()
+  fake = undefined
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -99,5 +103,24 @@ describe("cli", () => {
         { env, cwd: packageRoot },
       ),
     ).rejects.toMatchObject({ code: 1 })
+  }, 60_000)
+
+  it("writes a builder manifest without a registry, a worker or a Factory", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    // Deliberately NEITHER variable: `loadConfig` demands both, so a command that still
+    // reached it would fail here. Writing a manifest reads the catalog and captures an
+    // archive; it has no use for a registry or a worker, and this is what proves it.
+    const { FACTORY_WORKER_URL, FACTORY_STATE_DIR, ...rest } = process.env
+    const out = join(dir, "manifests")
+    const { stdout } = await run(
+      process.execPath,
+      [tsxBin, cliEntry, "builder-manifest", "--task", "cli-flags", "--out", out],
+      { env: rest, cwd: packageRoot },
+    )
+    const { path } = JSON.parse(stdout)
+    expect(path).toBe(join(out, "cli-flags.json"))
+    const manifest = BuilderManifestSchema.parse(JSON.parse(readFileSync(path, "utf8")))
+    expect(manifest.taskId).toBe("cli-flags")
+    expect(manifest.target.policy.network.mode).toBe("deny")
   }, 60_000)
 })
