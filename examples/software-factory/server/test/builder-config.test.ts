@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest"
+// TEMPORARY until the builder manifest lands (Task 3)
+import { taskPrompt } from "../../controller/src/lib/prompts.ts"
+// TEMPORARY until the builder manifest lands (Task 3)
+import { loadTask } from "../../controller/src/lib/targets/catalog.ts"
 import config from "../b4.config.ts"
 import builder from "../src/app/build/index.ts"
-import { taskPrompt } from "../src/prompts.ts"
-import { loadTask } from "../src/targets/catalog.ts"
 
 describe("builder configuration", () => {
   it("denies the network and pins one image for both containers", () => {

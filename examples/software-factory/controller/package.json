@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "test:sandbox": "vitest run --config vitest.sandbox.config.ts",
     "typecheck": "tsc -p . --noEmit",
     "lint": "biome check .",

@@ -3,9 +3,12 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createAgentHarness, script } from "@b4run/testing"
 import { expect, it } from "vitest"
-import { taskPrompt } from "../src/prompts.ts"
-import { captureTarget } from "../src/targets/archive.ts"
-import { loadTask } from "../src/targets/catalog.ts"
+// TEMPORARY until the builder manifest lands (Task 3)
+import { taskPrompt } from "../../controller/src/lib/prompts.ts"
+// TEMPORARY until the builder manifest lands (Task 3)
+import { captureTarget } from "../../controller/src/lib/targets/archive.ts"
+// TEMPORARY until the builder manifest lands (Task 3)
+import { loadTask } from "../../controller/src/lib/targets/catalog.ts"
 import { isolatedApp } from "./isolated-app.ts"
 
 /**

@@ -1,11 +1,14 @@
 import { config } from "@b4run/cli"
-import { loadTask } from "./src/targets/catalog.js"
-import { builderPermissions } from "./src/targets/permissions.js"
+// TEMPORARY until the builder manifest lands (Task 3)
+import { loadTask } from "../controller/src/lib/targets/catalog.js"
+// TEMPORARY until the builder manifest lands (Task 3)
+import { builderPermissions } from "../controller/src/lib/targets/permissions.js"
+// TEMPORARY until the builder manifest lands (Task 3)
 import {
   builderSandboxProvider,
   targetSandboxPolicy,
   targetWorkspace,
-} from "./src/targets/workspace.js"
+} from "../controller/src/lib/targets/workspace.js"
 
 const task = loadTask(process.env.FACTORY_TASK_ID ?? "cli-flags")
 

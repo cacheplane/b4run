@@ -1,6 +1,8 @@
 import { agent } from "@b4run/sdk"
-import { taskPrompt } from "../../prompts.js"
-import { loadTask } from "../../targets/catalog.js"
+// TEMPORARY until the builder manifest lands (Task 3)
+import { taskPrompt } from "../../../../controller/src/lib/prompts.js"
+// TEMPORARY until the builder manifest lands (Task 3)
+import { loadTask } from "../../../../controller/src/lib/targets/catalog.js"
 
 /**
  * The bounded builder. It has the four built-in workspace tools and nothing else:
