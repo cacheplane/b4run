@@ -65,4 +65,10 @@ export interface ControllerContext {
   settleRun(id: string, timeoutMs: number): Promise<void>
   /** Track a background run so close() and cancel can wait for it. */
   track(id: string, run: Promise<void>): void
+  /**
+   * Is a background run for `id` tracked right now? Reconciliation asks before it reattaches:
+   * `track` replaces the runs-map entry, so a second observer over one live turn evicts the
+   * first, and nothing awaits the evicted one any more.
+   */
+  isTracked(id: string): boolean
 }

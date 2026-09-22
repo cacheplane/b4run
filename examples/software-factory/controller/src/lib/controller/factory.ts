@@ -96,6 +96,11 @@ export interface Factory {
   settle(id: string, timeoutMs: number): Promise<WorkOrderRow>
   /** Reconcile one work order now (what boot does for all of them). */
   reconcileWorkOrder(id: string): Promise<void>
+  /**
+   * The boot walk, on demand: settles open command intents and applies the rules to every
+   * non-terminal row, each inside its own guard. What `/reconcile` calls.
+   */
+  reconcileAll(): Promise<void>
   close(): Promise<void>
 }
 
@@ -324,6 +329,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     finishCancel: (id, cause) => finishCancel(id, cause),
     settleRun,
     track,
+    isTracked: (id) => runs.has(id),
   }
 
   async function startRun(id: string): Promise<void> {
@@ -849,6 +855,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       )
     },
     reconcileWorkOrder: (id) => reconcileWorkOrder(ctx, id),
+    reconcileAll: () => reconcileAll(ctx),
 
     async close() {
       if (closed) return

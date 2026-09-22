@@ -84,7 +84,11 @@ export async function observeRun(
   // One increment per pass: a lost stream opens pass 0 (which may reattach), and the end of
   // a reattached stream opens the pass after the one that reattached.
   if (result.ended === "lost" || reattached)
-    await reconcileWorkOrder(ctx, id, reattached ? (options.reconcileAttempt ?? 0) + 1 : 0)
+    await reconcileWorkOrder(ctx, id, reattached ? (options.reconcileAttempt ?? 0) + 1 : 0, {
+      // This run is still tracked as it reconciles — it IS the tracked run — and the reattach
+      // it may make is the handover of its own stream, not a second observer over a live one.
+      fromTrackedRun: true,
+    })
 }
 
 /** Resolve every pending interrupt on the work order's thread with `deny`. */

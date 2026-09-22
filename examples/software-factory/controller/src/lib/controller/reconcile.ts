@@ -132,6 +132,16 @@ function journalledThreadId(ctx: ControllerContext, id: string): string | null {
   return null
 }
 
+/** How a reconciliation pass was reached, for the rules that depend on the caller. */
+export interface ReconcileOptions {
+  /**
+   * The call comes from the tracked run for this work order, handing its own dead stream on.
+   * Only then may a pass reattach to a busy thread while a run is tracked: the observer it
+   * would replace in the runs map is the one asking.
+   */
+  readonly fromTrackedRun?: boolean
+}
+
 async function safeReconcile(ctx: ControllerContext, id: string, attempt = 0): Promise<void> {
   try {
     await reconcileWorkOrder(ctx, id, attempt)
@@ -149,6 +159,7 @@ export async function reconcileWorkOrder(
   ctx: ControllerContext,
   id: string,
   attempt = 0,
+  options: ReconcileOptions = {},
 ): Promise<void> {
   // A closing factory reconciles nothing: its aborted signal would fail every worker call,
   // and a run tracked here would outlive the registry connection.
@@ -157,7 +168,7 @@ export async function reconcileWorkOrder(
   switch (row.state) {
     case "dispatched":
     case "running":
-      return reconcileRun(ctx, row, attempt)
+      return reconcileRun(ctx, row, attempt, options)
     case "verifying":
       return reconcileVerifying(ctx, row)
     case "exporting":
@@ -179,8 +190,25 @@ async function reconcileRun(
   ctx: ControllerContext,
   row: WorkOrderRow,
   attempt: number,
+  options: ReconcileOptions = {},
 ): Promise<void> {
   const id = row.id
+  // A live observer already owns this run, and every rule below would step on it: reattaching
+  // would `track` a second observer and evict the first from the runs map (so close(),
+  // settleRun and cancel stop awaiting the one actually applying the turn rules), and the
+  // other arms would judge a turn that is still being watched. Checked before the first
+  // worker call, so a `cancel` or `deny` on a running row pays no round trip for a pass that
+  // has nothing to do. A restart leaves a busy thread with nothing watching it, and then
+  // nothing is tracked; the tracked run handing on its own dead stream says so with the flag,
+  // and is the one caller allowed through.
+  if (!options.fromTrackedRun && ctx.isTracked(id)) {
+    ctx.recordEvent(id, "reconcile_skipped", {
+      threadId: row.workerThreadId,
+      attempt,
+      reason: "observer_live",
+    })
+    return
+  }
   const fail = (reason: string) =>
     ctx.transition(
       id,

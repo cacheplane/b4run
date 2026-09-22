@@ -1,5 +1,5 @@
 import { type FactoryConfig, loadConfig } from "./config.js"
-import { createFactory, type Factory } from "./controller/factory.js"
+import { createFactory, type Factory, type FactoryOptions } from "./controller/factory.js"
 import { createArtifactStore } from "./storage/artifacts.js"
 import { loadTask } from "./targets/catalog.js"
 import { builderSandboxProvider, targetInspectionOptions } from "./targets/workspace.js"
@@ -7,6 +7,15 @@ import { captureTargetBaseline } from "./verification/baseline.js"
 import { createDockerVerifier } from "./verification/docker-verifier.js"
 import { createHttpWorkerClient } from "./worker/client.js"
 import { createThreadWorkspaceReader } from "./worker/workspace-reader.js"
+
+/**
+ * The collaborators a test may replace. Everything else the runtime builds is real: only
+ * the three that need a container, a builder installation on disk, or a target checkout
+ * are injectable, so a test can drive the REAL routes without those.
+ */
+export type ControllerRuntimeOverrides = Partial<
+  Pick<FactoryOptions, "verifier" | "workspaceReader" | "captureBaseline">
+>
 
 export interface ControllerRuntime {
   readonly config: FactoryConfig
@@ -22,6 +31,7 @@ export interface ControllerRuntime {
  */
 export function createControllerRuntime(
   env: Readonly<Record<string, string | undefined>>,
+  overrides: ControllerRuntimeOverrides = {},
 ): ControllerRuntime {
   const config = loadConfig(env)
   let opening: Promise<Factory> | undefined
@@ -48,6 +58,9 @@ export function createControllerRuntime(
           (taskId) => targetInspectionOptions(loadTask(taskId)),
         ),
         captureBaseline: captureTargetBaseline,
+        // Defined keys only: an explicit `{ verifier: undefined }` must not erase a required
+        // collaborator, which a plain spread would do.
+        ...definedOnly(overrides),
         log: (event, payload) => process.stderr.write(`${JSON.stringify({ event, ...payload })}\n`),
       }).catch((error) => {
         // A failed open is retried by the next caller, like middleware setup itself.
@@ -64,18 +77,30 @@ export function createControllerRuntime(
   }
 }
 
+/** A spread of `overrides` that cannot blank a field: `undefined` values are dropped. */
+function definedOnly(overrides: ControllerRuntimeOverrides): ControllerRuntimeOverrides {
+  return Object.fromEntries(
+    Object.entries(overrides).filter(([, value]) => value !== undefined),
+  ) as ControllerRuntimeOverrides
+}
+
 /** The module-scope instance the app's middleware and routes share. */
 let shared: ControllerRuntime | undefined
+let sharedOverrides: ControllerRuntimeOverrides = {}
 export function controllerRuntime(): ControllerRuntime {
-  shared ??= createControllerRuntime(process.env)
+  shared ??= createControllerRuntime(process.env, sharedOverrides)
   return shared
 }
 /**
  * Tests boot several controllers in one process with different environments. Disposes the
  * previous instance first: dropping it undisposed would leak its open registry and its
- * live AbortController.
+ * live AbortController. `overrides` apply to the instance the next call opens, which is how
+ * a served app runs the real routes against scripted collaborators.
  */
-export async function resetControllerRuntimeForTests(): Promise<void> {
+export async function resetControllerRuntimeForTests(
+  overrides: ControllerRuntimeOverrides = {},
+): Promise<void> {
   await shared?.dispose()
   shared = undefined
+  sharedOverrides = overrides
 }

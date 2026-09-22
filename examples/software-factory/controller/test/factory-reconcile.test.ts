@@ -540,6 +540,37 @@ describe("reconciliation", () => {
     expect(factory.show(id)?.state).toBe("running")
   })
 
+  it("does not reattach to a run a live observer already owns", async () => {
+    await bootWorker({ run: "hang" })
+    await bootFactory()
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    await factory.dispatch(id)
+    const running = await factory.waitFor(id, (r) => r.state === "running")
+    expect(running.workerThreadId).not.toBeNull()
+
+    // What every command does before it acts. The dispatch's observer is live on this thread,
+    // so the pass must leave it alone: a reattach here would track a SECOND observer, evict
+    // the first from the runs map, and leave close(), settleRun and cancel awaiting nothing.
+    const before = fake.requests.length
+    await factory.reconcileWorkOrder(id)
+
+    // Not one worker round trip: the guard is checked before the thread read and the
+    // pending-interrupt read, so a cancel or deny on a running row pays nothing for it.
+    expect(fake.requests.slice(before)).toEqual([])
+    expect(
+      fake.requests.filter((r) => r.method === "GET" && r.path.endsWith("/runs/stream")),
+    ).toHaveLength(0)
+    expect(factory.events(id).filter((e) => e.type === "reattached")).toHaveLength(0)
+    const skipped = factory.events(id).filter((e) => e.type === "reconcile_skipped")
+    expect(skipped).toHaveLength(1)
+    expect(skipped[0]?.payload).toMatchObject({ reason: "observer_live" })
+    expect(factory.show(id)?.state).toBe("running")
+
+    // The observer is still the tracked one: the cancel it is owed settles the work order.
+    await factory.cancel(id)
+    await factory.waitFor(id, (r) => r.state === "cancelled", 20_000)
+  })
+
   // The fake ends the turn 50 ms after destroying the socket, so the reconciliation the lost
   // stream triggers normally sees a live run, reattaches, and finds the turn over on the pass
   // that follows the reattached stream. On a machine slow enough for the turn to end first,
