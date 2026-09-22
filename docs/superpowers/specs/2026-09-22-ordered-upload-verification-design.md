@@ -81,6 +81,13 @@ attempt may submit the same sealed name/version under the existing absence rules
 if npm rejects it as already accepted, the command failure stops that invocation
 and produces no completion evidence. Never catch that rejection as success.
 
+The [September 4 reliability architecture](2026-09-04-release-reliability-architecture.md)
+explicitly rejects an exactly-once external API claim. The broader wording in the
+[September 12 propagation design](2026-09-12-release-propagation-waits-design.md)
+should be read as no repeated publication within one live convergence loop; it
+does not establish cross-run hidden-acceptance proof. Existing runner-loss fixtures
+make accepted versions immediately visible and cannot prove that stronger claim.
+
 Before implementation is approved for merge, add an explicit regression for this
 hidden-acceptance case and verify this matches the current retry contract. If the
 controller or product requirement demands no repeated publish attempts even while
@@ -100,7 +107,9 @@ visible and hidden acceptance on resume; delayed latest/version/tarball/audit;
 invalid integrity/provenance; newer latest appearing between writes; cancellation
 and command/overall deadlines; earliest and late package pending-budget expiry;
 final sweep regressions; all bootstrap regression tests unchanged. Stop-on-error
-must explicitly assert no later uploads and no NPM_COMPLETE report/output.
+must explicitly assert no further uploads after the error is observed and no
+NPM_COMPLETE report/output. A deferred verification error can follow all uploads;
+the test must not retroactively prohibit those already accepted writes.
 
 Update tests that intentionally assert verification before advancing only for
 ordinary OIDC mode. Do not broadly loosen serial ordering or evidence assertions.
@@ -109,3 +118,9 @@ workflow/policy changes. Run focused publisher/audit tests, integrity and workfl
 contracts, full controller suite, scoped lint and hosted release-bearing gates.
 Independent design/spec/code reviews precede merge. Submit only after #783 rollout,
 then monitor main and measure the next ordinary release. No benchmark release.
+
+## Review
+
+Independent spec and plan review found no blockers. Clarifications about error
+detection timing and the historical exactly-once wording are incorporated. No
+production publisher behavior has changed in this design branch.
