@@ -63,3 +63,58 @@ test("empty models and duplicate completions add no lifecycle events", async () 
     { type: "done", data: undefined },
   ])
 })
+
+test("block-array content, as Anthropic streams it once tools are bound, yields text tokens", async () => {
+  const chunks = await collect([
+    modelEvent("on_chat_model_stream", "a", {
+      chunk: { content: [{ type: "text", text: "Hel", index: 0 }] },
+    }),
+    modelEvent("on_chat_model_stream", "a", {
+      chunk: { content: [{ type: "text", text: "lo", index: 0 }] },
+    }),
+    modelEvent("on_chat_model_end", "a", {
+      output: { content: [{ type: "text", text: "Hello" }] },
+    }),
+  ])
+
+  expect(chunks).toEqual([
+    { type: "token", messageId: "a", data: "Hel" },
+    { type: "token", messageId: "a", data: "lo" },
+    { type: "message_end", data: { messageId: "a" } },
+    { type: "done", data: undefined },
+  ])
+})
+
+test("non-text blocks such as thinking and tool-use input carry no token", async () => {
+  const chunks = await collect([
+    modelEvent("on_chat_model_stream", "a", {
+      chunk: { content: [{ type: "thinking", thinking: "let me see", index: 0 }] },
+    }),
+    modelEvent("on_chat_model_stream", "a", {
+      chunk: { content: [{ type: "input_json_delta", input: '{"q":', index: 1 }] },
+    }),
+    modelEvent("on_chat_model_stream", "a", {
+      chunk: { content: [{ type: "text", text: "", index: 2 }] },
+    }),
+    modelEvent("on_chat_model_end", "a", { output: {} }),
+  ])
+
+  expect(chunks).toEqual([{ type: "done", data: undefined }])
+})
+
+test("a chunk with several text blocks joins them in order", async () => {
+  const chunks = await collect([
+    modelEvent("on_chat_model_stream", "a", {
+      chunk: {
+        content: [
+          { type: "text", text: "one ", index: 0 },
+          { type: "thinking", thinking: "…", index: 1 },
+          { type: "text", text: "two", index: 2 },
+        ],
+      },
+    }),
+    modelEvent("on_chat_model_end", "a", { output: {} }),
+  ])
+
+  expect(chunks[0]).toEqual({ type: "token", messageId: "a", data: "one two" })
+})

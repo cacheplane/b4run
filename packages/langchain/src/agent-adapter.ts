@@ -668,6 +668,24 @@ function parseSubagentPhaseEvent(event: LangChainStreamEvent): SubagentPhaseProj
   }
 }
 
+/**
+ * The text a model chunk carries. Providers stream it either as a plain
+ * string or, once tools are bound (Anthropic always, OpenAI's Responses API),
+ * as an array of content blocks; only `text` blocks are assistant prose, so
+ * thinking, citations and tool-input deltas contribute nothing.
+ */
+function chunkText(content: unknown): string {
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return ""
+  let text = ""
+  for (const block of content) {
+    if (isRecord(block) && block.type === "text" && typeof block.text === "string") {
+      text += block.text
+    }
+  }
+  return text
+}
+
 function classifyStreamEvent(
   event: LangChainStreamEvent,
   toolRuns: SubagentToolRunContexts,
@@ -690,9 +708,9 @@ function classifyStreamEvent(
 
   switch (event.event) {
     case "on_chat_model_stream": {
-      const content = (event.data.chunk as { content?: unknown })?.content
+      const content = chunkText((event.data.chunk as { content?: unknown })?.content)
       const chunks: AgentStreamChunk[] = []
-      if (typeof content === "string" && content.length > 0) {
+      if (content.length > 0) {
         if (!child) rootTools.textModelRunIds.add(event.run_id)
         chunks.push(
           child
