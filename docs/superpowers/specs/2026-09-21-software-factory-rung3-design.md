@@ -192,6 +192,17 @@ The thread's metadata reaches the sandbox acquisition through a new optional
 the thread store next to the existing `sandboxThreadId`. Subagent threads inherit the parent's
 metadata; they do not get a fresh resolution.
 
+> **As landed:** there is no `sandboxThreadMetadata` option. Admission takes a
+> `WorkspaceAdmissionContext` whose `metadata(signal)` is a lazy loader; the runtime passes one
+> that reads the thread from the threads store and strips the reserved key, and the manager
+> invokes it only for a thread with no workspace record, keyed by the sandbox key, so a subagent
+> resolves through its parent's thread. What the resolver sees: the stored metadata with the
+> reserved key stripped; on the server run endpoints `route` is present and server-authoritative
+> because the runtime stamps it before admission; every other key is client-writable and must
+> never be an authorization input. `POST /threads` assigns the thread id, so metadata is attached
+> at create and the returned id used. `b4 run` mints a fresh thread per invocation, so the
+> resolver runs on every run with empty metadata. The metadata object is a frozen shallow copy.
+
 ### 5.3 The build artifact
 
 `b4 build` captures a static definition into an artifact and verifies its descriptor digest on
@@ -237,6 +248,10 @@ second framework change this rung does not need. Recorded as a follow-up.
   error.
 - Sandbox lane: a two-thread run of the factory builder app where each thread's workspace is a
   different task, read back through the byte channel.
+
+> **As landed:** the sandbox-lane proof belongs to sub-project 3, which owns the builder's
+> resolver; sub-project 1 proves two threads through the Agent Protocol with the fake managed
+> provider, in development and from a built artifact.
 
 ### 5.6 What it does not do
 
@@ -409,6 +424,15 @@ a preparable target, and which a test can fail on:
 - **Union permissions on the builder app** (§5.4) until per-thread permissions exist.
 - **No per-package target exists yet** for most packages. Rung 3 prepares two or three and
   blocks on the rest with a named reason.
+- **Orphan source rows.** The workspace manager puts a thread's source into the installation's
+  content store before `provider.resolveEnvironment`; an admission that fails or aborts there
+  leaves a row no association references, and nothing reclaims `workspace_sources`. Pre-existing
+  for the development recapture hook; a per-thread resolver makes the rows vary per thread.
+  Fix is a reclaim of digests referenced by no association, or putting the source after a
+  successful `resolveEnvironment`. Follow-up in `@b4run/sqlite-storage` and the manager.
+- **The development recapture hook loads metadata it ignores.** A static definition in an
+  unbuilt app sets the recapture hook, so first admission performs one threads-store read per
+  new thread and discards it. Harmless; the hook could signal it needs none.
 - **Rung 2's residuals stand**: candidate code runs in the oracle's container because the
   check imports the built artifact; the second-identity execution follow-up is still the fix.
 - **`review` is red repo-wide** while the Anthropic credits are exhausted. Every PR in this
