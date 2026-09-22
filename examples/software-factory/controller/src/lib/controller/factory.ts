@@ -30,7 +30,7 @@ import type { InterruptFrame, StreamFrame } from "../worker/wire.js"
 import type { WorkspaceReader } from "../worker/workspace-reader.js"
 import { type BudgetTicker, startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
-import { reconcileAll } from "./reconcile.js"
+import { reconcileAll, reconcileWorkOrder } from "./reconcile.js"
 import { denyPending, observeRun } from "./run-observer.js"
 import { consumeTurn } from "./turns.js"
 import { runVerification } from "./verify.js"
@@ -88,6 +88,14 @@ export interface Factory {
     predicate: (row: WorkOrderRow) => boolean,
     timeoutMs?: number,
   ): Promise<WorkOrderRow>
+  /**
+   * Wait for the tracked background run of `id` (the builder turn and the verification
+   * that follows it) to settle, then return the row once it has left the active states.
+   * Times out with the row's current state in the message.
+   */
+  settle(id: string, timeoutMs: number): Promise<WorkOrderRow>
+  /** Reconcile one work order now (what boot does for all of them). */
+  reconcileWorkOrder(id: string): Promise<void>
   close(): Promise<void>
 }
 
@@ -830,6 +838,17 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         await quietSleep(20)
       }
     },
+
+    async settle(id, timeoutMs) {
+      const deadline = Date.now() + timeoutMs
+      await settleRun(id, timeoutMs)
+      return factory.waitFor(
+        id,
+        (r) => !ACTIVE_STATES.has(r.state),
+        Math.max(0, deadline - Date.now()),
+      )
+    },
+    reconcileWorkOrder: (id) => reconcileWorkOrder(ctx, id),
 
     async close() {
       if (closed) return

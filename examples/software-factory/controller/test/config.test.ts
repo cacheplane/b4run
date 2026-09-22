@@ -4,6 +4,7 @@ import { loadConfig } from "../src/lib/config.ts"
 const base = {
   FACTORY_WORKER_URL: "http://127.0.0.1:4100",
   FACTORY_STATE_DIR: "/tmp/state",
+  FACTORY_BUILDER_APP_ROOT: "/tmp/builder",
 }
 
 describe("loadConfig", () => {
@@ -13,7 +14,7 @@ describe("loadConfig", () => {
     expect(config.approvalTtlMs).toBe(900_000)
     expect(config.maxActiveMs).toBe(1_200_000)
     expect(config.registryPath).toBe("/tmp/state/registry.sqlite")
-    expect(config.httpPort).toBe(4300)
+    expect(config.builderAppRoot).toBe("/tmp/builder")
   })
 
   it("rejects missing or malformed values", () => {
@@ -24,6 +25,8 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...base, FACTORY_WORKER_URL: "ftp://x" })).toThrow(
       /FACTORY_WORKER_URL/,
     )
+    const { FACTORY_BUILDER_APP_ROOT: _omitted, ...withoutBuilderRoot } = base
+    expect(() => loadConfig(withoutBuilderRoot)).toThrow(/FACTORY_BUILDER_APP_ROOT is required/)
   })
 })
 

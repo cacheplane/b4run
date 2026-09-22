@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
+import { ACTIVE_STATES } from "../src/lib/domain/states.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
 import { loadTask } from "../src/lib/targets/catalog.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
@@ -234,5 +235,23 @@ describe("create and dispatch", () => {
     expect(row).toMatchObject({ state: "awaiting_approval" })
     expect(row.candidateDigest).toMatch(/^[a-f0-9]{64}$/)
     expect(factory.events(id).map((e) => e.type)).toContain("stream_lost")
+  })
+
+  it("settle waits for the tracked run and returns the settled row", async () => {
+    await boot()
+    const row = await factory.create({ taskId: "cli-flags" })
+    expect((await factory.dispatch(row.id)).ok).toBe(true)
+    const dispatched = await factory.waitFor(row.id, (r) => r.workerThreadId !== null)
+    reader.set(dispatched.workerThreadId as string, repaired())
+    const settled = await factory.settle(row.id, 10_000)
+    expect(ACTIVE_STATES.has(settled.state)).toBe(false)
+    expect(settled.state).toBe("awaiting_approval")
+  })
+
+  it("reconcileWorkOrder is exposed and leaves a received row alone", async () => {
+    await boot()
+    const row = await factory.create({ taskId: "cli-flags" })
+    await factory.reconcileWorkOrder(row.id)
+    expect(factory.show(row.id)?.state).toBe("received")
   })
 })

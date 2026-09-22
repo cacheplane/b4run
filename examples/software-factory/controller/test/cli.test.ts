@@ -42,6 +42,7 @@ async function boot() {
     ...process.env,
     FACTORY_WORKER_URL: fake.baseUrl,
     FACTORY_STATE_DIR: join(dir, "state"),
+    FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
     // A rung 0 environment that still sets the retired variables must keep starting.
     FACTORY_WORKER_OUTBOX: join(dir, "outbox"),
     FACTORY_RECEIPT_WAIT_MS: "2000",
@@ -89,6 +90,7 @@ describe("cli", () => {
       ...process.env,
       FACTORY_WORKER_URL: fake.baseUrl,
       FACTORY_STATE_DIR: join(dir, "state"),
+      FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
     }
     const { stdout } = await run(
       process.execPath,

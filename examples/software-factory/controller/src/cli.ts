@@ -1,16 +1,9 @@
 import { parseArgs } from "node:util"
 import { createHttpApi } from "./http.js"
 import { writeBuilderManifest } from "./lib/builder-manifest.js"
-import { loadConfig } from "./lib/config.js"
-import { createFactory, type Factory } from "./lib/controller/factory.js"
 import { ACTIVE_STATES } from "./lib/domain/states.js"
-import { createArtifactStore } from "./lib/storage/artifacts.js"
-import { appRoot, loadTask } from "./lib/targets/catalog.js"
-import { builderSandboxProvider, targetInspectionOptions } from "./lib/targets/workspace.js"
-import { captureTargetBaseline } from "./lib/verification/baseline.js"
-import { createDockerVerifier } from "./lib/verification/docker-verifier.js"
-import { createHttpWorkerClient } from "./lib/worker/client.js"
-import { createThreadWorkspaceReader } from "./lib/worker/workspace-reader.js"
+import { createControllerRuntime } from "./lib/runtime.js"
+import { loadTask } from "./lib/targets/catalog.js"
 
 const USAGE = `factory <command> [options]
 
@@ -26,9 +19,9 @@ const USAGE = `factory <command> [options]
   serve    [--port <n>]
   builder-manifest --task <id> --out <dir>
 
-Environment: FACTORY_WORKER_URL, FACTORY_STATE_DIR (required);
+Environment: FACTORY_WORKER_URL, FACTORY_STATE_DIR, FACTORY_BUILDER_APP_ROOT (required);
 FACTORY_WORKER_ROUTE, FACTORY_EXPORT_DIR, FACTORY_ARTIFACTS_DIR, FACTORY_APPROVAL_TTL_MS,
-FACTORY_MAX_ACTIVE_MS, FACTORY_MAX_CHANGED_BYTES, FACTORY_HTTP_PORT.
+FACTORY_MAX_ACTIVE_MS, FACTORY_MAX_CHANGED_BYTES.
 Output is JSON on stdout; diagnostics go to stderr. Exit code 1 when a command is refused.`
 
 function print(value: unknown) {
@@ -64,28 +57,11 @@ async function main(argv: string[]): Promise<number> {
     print({ path: await writeBuilderManifest(loadTask(values.task), values.out) })
     return 0
   }
-  const config = loadConfig(process.env)
-  const factory: Factory = await createFactory({
-    registryPath: config.registryPath,
-    worker: createHttpWorkerClient(config.workerUrl),
-    workerRoute: config.workerRoute,
-    exportDir: config.exportDir,
-    artifactsDir: config.artifactsDir,
-    approvalTtlMs: config.approvalTtlMs,
-    maxActiveMs: config.maxActiveMs,
-    maxChangedBytes: config.maxChangedBytes,
-    verifier: createDockerVerifier(createArtifactStore(config.artifactsDir)),
-    workspaceReader: createThreadWorkspaceReader(
-      // The builder is THIS package (`pnpm dev` here), so its installation store is under
-      // this package's root. The provider is per target, so the reader resolves it per task.
-      { providerFor: (taskId) => builderSandboxProvider(loadTask(taskId).target), appRoot },
-      (taskId) => targetInspectionOptions(loadTask(taskId)),
-    ),
-    captureBaseline: captureTargetBaseline,
-    // Diagnostics go to stderr, so a task the catalog could not serve (`task_unavailable`,
-    // usually an unprepared sibling target) is visible rather than a silently missing id.
-    log: (event, payload) => process.stderr.write(`${JSON.stringify({ event, ...payload })}\n`),
-  })
+  // One wiring for both the CLI and the app's middleware: this builds the same Factory the
+  // runtime does, through the same adapters.
+  const runtime = createControllerRuntime(process.env)
+  const config = runtime.config
+  const factory = await runtime.factory()
   const needId = () => {
     if (!id) throw new Error(`${command} requires a work order id`)
     return id
@@ -159,7 +135,7 @@ async function main(argv: string[]): Promise<number> {
         return 0
       case "serve": {
         const api = await createHttpApi(factory).listen(
-          values.port ? Number(values.port) : config.httpPort,
+          values.port ? Number(values.port) : 4300, // Task 7 removes serve
         )
         process.stderr.write(`factory listening on ${api.baseUrl}\n`)
         await new Promise<void>((resolve) => {
@@ -175,7 +151,7 @@ async function main(argv: string[]): Promise<number> {
         throw new Error(`Unknown command ${command}\n${USAGE}`)
     }
   } finally {
-    await factory.close()
+    await runtime.dispose()
   }
 }
 

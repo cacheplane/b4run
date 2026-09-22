@@ -34,7 +34,7 @@ const EnvSchema = z.object({
   FACTORY_APPROVAL_TTL_MS: positiveInt("FACTORY_APPROVAL_TTL_MS"),
   FACTORY_MAX_ACTIVE_MS: positiveInt("FACTORY_MAX_ACTIVE_MS"),
   FACTORY_MAX_CHANGED_BYTES: positiveInt("FACTORY_MAX_CHANGED_BYTES"),
-  FACTORY_HTTP_PORT: positiveInt("FACTORY_HTTP_PORT"),
+  FACTORY_BUILDER_APP_ROOT: z.string({ message: "FACTORY_BUILDER_APP_ROOT is required" }).min(1),
 })
 
 export interface FactoryConfig {
@@ -49,7 +49,8 @@ export interface FactoryConfig {
   readonly approvalTtlMs: number
   readonly maxActiveMs: number
   readonly maxChangedBytes: number
-  readonly httpPort: number
+  /** The BUILDER app's root: where its installation store (`.b4/workspaces`) lives. */
+  readonly builderAppRoot: string
 }
 
 export function loadConfig(env: Readonly<Record<string, string | undefined>>): FactoryConfig {
@@ -69,6 +70,6 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     approvalTtlMs: e.FACTORY_APPROVAL_TTL_MS ?? 900_000,
     maxActiveMs: e.FACTORY_MAX_ACTIVE_MS ?? 1_200_000,
     maxChangedBytes: e.FACTORY_MAX_CHANGED_BYTES ?? 1024 * 1024,
-    httpPort: e.FACTORY_HTTP_PORT ?? 4300,
+    builderAppRoot: e.FACTORY_BUILDER_APP_ROOT,
   }
 }

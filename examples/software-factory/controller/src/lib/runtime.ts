@@ -1,0 +1,81 @@
+import { type FactoryConfig, loadConfig } from "./config.js"
+import { createFactory, type Factory } from "./controller/factory.js"
+import { createArtifactStore } from "./storage/artifacts.js"
+import { loadTask } from "./targets/catalog.js"
+import { builderSandboxProvider, targetInspectionOptions } from "./targets/workspace.js"
+import { captureTargetBaseline } from "./verification/baseline.js"
+import { createDockerVerifier } from "./verification/docker-verifier.js"
+import { createHttpWorkerClient } from "./worker/client.js"
+import { createThreadWorkspaceReader } from "./worker/workspace-reader.js"
+
+export interface ControllerRuntime {
+  readonly config: FactoryConfig
+  /** The process's one Factory, opened on first use. Concurrent first calls share the open. */
+  factory(): Promise<Factory>
+  dispose(): Promise<void>
+}
+
+/**
+ * One Factory per process, opened lazily because b4 has no boot hook: the app's middleware
+ * `setup` calls `factory()` before the first request and `dispose()` on shutdown. Every
+ * route reaches the same instance, so the registry has exactly one writer.
+ */
+export function createControllerRuntime(
+  env: Readonly<Record<string, string | undefined>>,
+): ControllerRuntime {
+  const config = loadConfig(env)
+  let opening: Promise<Factory> | undefined
+  let disposed = false
+  return {
+    config,
+    factory() {
+      if (disposed) return Promise.reject(new Error("Controller runtime is disposed"))
+      opening ??= createFactory({
+        registryPath: config.registryPath,
+        worker: createHttpWorkerClient(config.workerUrl),
+        workerRoute: config.workerRoute,
+        exportDir: config.exportDir,
+        artifactsDir: config.artifactsDir,
+        approvalTtlMs: config.approvalTtlMs,
+        maxActiveMs: config.maxActiveMs,
+        maxChangedBytes: config.maxChangedBytes,
+        verifier: createDockerVerifier(createArtifactStore(config.artifactsDir)),
+        workspaceReader: createThreadWorkspaceReader(
+          {
+            providerFor: (taskId) => builderSandboxProvider(loadTask(taskId).target),
+            appRoot: config.builderAppRoot,
+          },
+          (taskId) => targetInspectionOptions(loadTask(taskId)),
+        ),
+        captureBaseline: captureTargetBaseline,
+        log: (event, payload) => process.stderr.write(`${JSON.stringify({ event, ...payload })}\n`),
+      }).catch((error) => {
+        // A failed open is retried by the next caller, like middleware setup itself.
+        opening = undefined
+        throw error
+      })
+      return opening
+    },
+    async dispose() {
+      disposed = true
+      const factory = await opening?.catch(() => undefined)
+      await factory?.close()
+    },
+  }
+}
+
+/** The module-scope instance the app's middleware and routes share. */
+let shared: ControllerRuntime | undefined
+export function controllerRuntime(): ControllerRuntime {
+  shared ??= createControllerRuntime(process.env)
+  return shared
+}
+/**
+ * Tests boot several controllers in one process with different environments. Disposes the
+ * previous instance first: dropping it undisposed would leak its open registry and its
+ * live AbortController.
+ */
+export async function resetControllerRuntimeForTests(): Promise<void> {
+  await shared?.dispose()
+  shared = undefined
+}
