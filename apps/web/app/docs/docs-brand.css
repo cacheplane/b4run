@@ -26,19 +26,27 @@
 }
 
 [data-docs-brand] .prose-b4 h2 {
+  position: relative;
   border-top: 1px solid var(--color-divider);
   padding-top: 1.5rem;
 }
 
+/* The dot hangs in the left margin so heading text aligns with body text. */
 [data-docs-brand] .prose-b4 h2::before {
   content: "";
-  display: inline-block;
+  position: absolute;
+  left: -1.25rem;
+  top: calc(1.5rem + 0.5lh - 0.25rem);
   width: 0.5rem;
   height: 0.5rem;
-  margin-right: 0.75rem;
-  vertical-align: middle;
   border-radius: 50%;
   background: var(--docs-relay);
+}
+
+@media (max-width: 47.999rem) {
+  [data-docs-brand] .prose-b4 h2::before {
+    left: -1rem;
+  }
 }
 
 [data-docs-brand] :is(button, input, kbd, [role="menu"]),

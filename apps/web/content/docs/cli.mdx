@@ -1,13 +1,13 @@
 # CLI Reference
 
-B4.run ships a single `b4` binary with fourteen commands: `add`, `build`, `check`, `dev`, `docs`, `eval`, `inspect`, `memory`, `routes`, `run`, `start`, `test`, `typegen`, and `verify`. Most commands read `b4.config.ts` from the current working directory or from `--cwd <path>`; `b4 dev` currently uses the current working directory and exposes only its own server flags.
+B4.run ships a single `b4` binary with fifteen commands: `add`, `build`, `check`, `dev`, `docs`, `eval`, `inspect`, `memory`, `routes`, `run`, `start`, `test`, `threads`, `typegen`, and `verify`. Most commands read `b4.config.ts` from the current working directory or from `--cwd <path>`. `b4 dev` always uses the current working directory.
 
 ## Running the CLI
 
-Always invoke B4.run through the `b4` **bin** — `pnpm exec b4 <command>` (or `npx b4 …` / a `package.json` script). The bin is what `@b4run/cli` installs into `node_modules/.bin`, and it resolves correctly regardless of where the package physically lives.
+Always run B4.run through the `b4` **bin**: `pnpm exec b4 <command>` (or `npx b4 …` / a `package.json` script). `@b4run/cli` installs the bin into `node_modules/.bin`, and it resolves correctly wherever the package lives.
 
 <Callout type="warn" title="Monorepos: use the bin, not a direct path">
-  In an npm/pnpm-hoisted monorepo, `@b4run/cli` typically hoists to the workspace root, so a hardcoded path like `node node_modules/@b4run/cli/dist/index.js` from a sub-package will fail to resolve. Run `pnpm exec b4 …` (which finds the bin via the workspace's `node_modules/.bin`) instead of pointing Node at the package's `dist/` directly.
+  In an npm/pnpm-hoisted monorepo, `@b4run/cli` usually hoists to the workspace root, so a hardcoded path like `node node_modules/@b4run/cli/dist/index.js` from a sub-package fails to resolve. Run `pnpm exec b4 …` instead. It finds the bin through the workspace's `node_modules/.bin`.
 </Callout>
 
 ## `b4 check`
@@ -18,21 +18,21 @@ Validates the app structure and configuration.
 b4 check
 ```
 
-Internally, `b4 check` loads `b4.config.ts`, resolves the app root, runs `discoverRoutes`, and parses each route's tool definitions with `discoverToolDefinitions`. It surfaces:
+`b4 check` loads `b4.config.ts`, resolves the app root, runs `discoverRoutes`, and parses each route's tool definitions with `discoverToolDefinitions`. It reports:
 
 - A `b4.config.ts` that fails to load.
-- An app root `package.json` without `"type": "module"`, reported as `B4_E1006`. B4.run loads `b4.config.ts` and every route `index.ts` as ES modules; without the field Node compiles them as CommonJS, and a route exported with `export default agent(...)` is not recognised. This used to pass as `0 routes discovered`.
-- Any route directory whose `index.ts` has no recognisable export, reported as `B4_E1007` with the file path and the exports it did find. When the module was loaded as CommonJS (a nested `package.json` without `"type": "module"`), the message names that file as the likely cause. A directory that is not a route belongs behind a `_` prefix, which keeps it out of discovery. Every offending entry in the app is reported together, so you are not told about them one run at a time.
-- Any discovered route whose `index.ts` exports more than one of `agent`, `workflow`, `graph`, `chain`, reported as `B4_E1008` with the file path and the kinds it exported. Every offending entry in the app is reported together. A route entry that is unrecognised (`B4_E1007`) and one that exports too many kinds (`B4_E1008`) carry different codes, so an app with both is told about the unrecognised ones first, with a count of the multi-kind ones waiting behind them.
+- An app root `package.json` without `"type": "module"`, reported as `B4_E1006`. B4.run loads `b4.config.ts` and every route `index.ts` as ES modules. Without the field, Node compiles them as CommonJS, and a route exported with `export default agent(...)` is not recognised.
+- Any route directory whose `index.ts` has no recognisable export, reported as `B4_E1007` with the file path and the exports it did find. When the module was loaded as CommonJS (a nested `package.json` without `"type": "module"`), the message names that file as the likely cause. Prefix a directory that is not a route with `_` to keep it out of discovery. Every offending entry in the app is reported together.
+- Any discovered route whose `index.ts` exports more than one of `agent`, `workflow`, `graph`, `chain`, reported as `B4_E1008` with the file path and the kinds it exported. Every offending entry in the app is reported together. If an app has both `B4_E1007` and `B4_E1008` entries, `b4 check` reports the unrecognised ones first, with a count of the multi-kind ones.
 - Any tool file that fails to parse.
-- A stale build manifest: when `.b4/build/modules.mjs` exists (written by `b4 build`'s `node` target), its routes are compared against the routes on disk — a mismatch (for example a route renamed after the last build) fails with the missing/extra route ids and a prompt to re-run `b4 build`. `.b4/build/modules.edge.mjs` is checked the same way whenever `"hono"` is a configured target: it is a separate artifact with its own copy of every route's static imports, and an app that builds for `hono` **alone** emits no `modules.mjs` at all — so this pass used to have nothing to look at for exactly the deployment shape that cannot re-walk its route tree at runtime. A manifest that is simply absent is a no-op, and the edge manifest is skipped when `hono` is not a configured target, so a leftover file from an experiment is not an error.
-- An unknown `build.targets` entry, and — when `"hono"` is one of them — every feature that target [cannot serve](/docs/deployment/edge#what-the-edge-cannot-serve), reported together as `B4_E1005`. The same gate `b4 build` applies, mirrored here so you learn about all of them before building.
+- A stale build manifest. When `.b4/build/modules.mjs` exists (written by `b4 build`'s `node` target), `b4 check` compares its routes against the routes on disk. A mismatch (for example, a route renamed after the last build) fails with the missing/extra route ids and a prompt to re-run `b4 build`. When `"hono"` is a configured target, `.b4/build/modules.edge.mjs` is checked the same way. It is a separate artifact with its own copy of every route's static imports, and an app that builds for `hono` **alone** emits no `modules.mjs`. An absent manifest is a no-op, and the edge manifest is skipped when `hono` is not a configured target, so a leftover file from an experiment is not an error.
+- An unknown `build.targets` entry and, when `"hono"` is one of them, every feature that target [cannot serve](/docs/deployment/edge#what-the-edge-cannot-serve), reported together as `B4_E1005`. This is the same gate `b4 build` applies, so you learn about all of them before building.
 
-Output is a `B4.run app is valid: N routes discovered.` line followed by a per-route `- <pathname> (<kind>)` summary. Exits non-zero on any violation with a detailed message.
+The output is a `B4.run app is valid: N routes discovered.` line followed by a per-route `- <pathname> (<kind>)` summary. On any violation, it exits non-zero with a detailed message.
 
 ### Troubleshooting imports
 
-When a route, tool, or config module fails to load with the opaque ESM error `does not provide an export named X`, B4.run now prints the offending package plus a likely cause and fix instead of the raw `SyntaxError`. Two cases account for almost all of these:
+When a route, tool, or config module fails to load with the ESM error `does not provide an export named X`, B4.run prints the offending package plus a likely cause and fix instead of the raw `SyntaxError`. There are two usual causes:
 
 - **An older `@langchain/core` got hoisted.** Run `npm ls @langchain/core` to find the duplicate, then upgrade or dedupe so the installed version satisfies B4.run's peer range (`^1.1.47`).
 - **A CommonJS dependency imported with named bindings.** Under B4.run's ESM resolver a CommonJS package only has a default export, so `import { thing } from "x"` fails. Use a default import and destructure instead:
@@ -46,7 +46,7 @@ When a route, tool, or config module fails to load with the opaque ESM error `do
 
 ## `b4 verify`
 
-Runs five checks in one call (`app`, `routes`, `typegen`, `deps`, `runtime`) — the canonical preflight before `b4 dev`, `b4 start`, or a deploy. A green `b4 verify` means "this app will boot in this environment."
+Runs five checks in one call (`app`, `routes`, `typegen`, `deps`, `runtime`). Run it before `b4 dev`, `b4 start`, or a deploy. A green `b4 verify` means "this app will boot in this environment."
 
 ```
 b4 verify
@@ -54,15 +54,15 @@ b4 verify --json
 ```
 
 Flags:
-- `--cwd <path>` — operate on a different app root.
-- `--json` — emit a structured report (`{ status, appRoot, checks, counts }`) instead of human-readable text. A failed check carries `error.message`, plus `error.code` when the failure has an [error-code](/docs/errors) entry (for example `B4_E1006` for an app root that is not an ES module). The same code is rendered as the `[B4_Exxxx] See <docs>` footer in text mode.
-- `--env-file <path>` — path to a `.env` file (overrides `b4.config.ts` `env` and the default `./.env`).
+- `--cwd <path>`: operate on a different app root.
+- `--json`: emit a structured report (`{ status, appRoot, checks, counts }`) instead of human-readable text. A failed check carries `error.message`, plus `error.code` when the failure has an [error-code](/docs/errors) entry (for example `B4_E1006` for an app root that is not an ES module). The same code is rendered as the `[B4_Exxxx] See <docs>` footer in text mode.
+- `--env-file <path>`: path to a `.env` file (overrides `b4.config.ts` `env` and the default `./.env`).
 
-The `deps` check covers missing packages and missing env vars (advisory). It is **provider-aware**: it derives the API-key env var from the providers your routes actually use — an Anthropic-only app is checked for `ANTHROPIC_API_KEY`, an OpenAI app for `OPENAI_API_KEY`, a multi-provider app for the union, and a local Ollama app for none. A missing key is a warning, not a failure (the key may come from the runtime environment).
+The `deps` check covers missing packages and missing env vars (advisory). It is **provider-aware**: it derives the API-key env var from the providers your routes use. An Anthropic-only app is checked for `ANTHROPIC_API_KEY`, an OpenAI app for `OPENAI_API_KEY`, a multi-provider app for the union, and a local Ollama app for none. A missing key is a warning, not a failure, because the key may come from the runtime environment.
 
 The `runtime` check gates **environment readiness**:
-- **Node** — asserts the running Node version is at least `24.0.0` (B4.run's floor: the active LTS line, which bundles npm ≥ 11 and ships `node:sqlite` unflagged). Below the floor **fails** `verify` with a non-zero exit.
-- **Docker** — present only when `b4.config.ts` configures a sandbox provider; it runs the provider's daemon preflight and **fails** if the daemon is unreachable. Apps with no sandbox skip this sub-check entirely.
+- **Node**: asserts the running Node version is at least `24.0.0`, the active LTS line (it bundles npm ≥ 11 and ships `node:sqlite` unflagged). An older version **fails** `verify` with a non-zero exit.
+- **Docker**: runs only when `b4.config.ts` configures a sandbox provider. It runs the provider's daemon preflight and **fails** if the daemon is unreachable.
 
 See [Deployment](/docs/deployment) for the recommended workflow.
 
@@ -83,7 +83,7 @@ Discovered 2 B4.run routes in /path/to/app
 /admin/users -> src/app/(internal)/admin/users/index.ts
 ```
 
-Use this to confirm that route groups and dynamic segments are being parsed the way you expect.
+Use it to confirm that route groups and dynamic segments parse the way you expect.
 
 ## `b4 typegen`
 
@@ -93,12 +93,12 @@ Regenerates `.b4/b4.generated.d.ts` plus per-route `.b4/routes/<routeSlug>/tools
 b4 typegen
 ```
 
-The success log reports route, tool-schema, and stateful-route counts. The `tools.json` artifacts are consumed by `b4 build` to emit LangGraph entries.
+The success log reports route, tool-schema, and stateful-route counts. `b4 build` reads the `tools.json` artifacts to emit LangGraph entries.
 
-Tool input types are compiled with the app's own `tsconfig.json` (nearest to the app root, honoring `extends`, `paths`, and `baseUrl`). The command fails, naming the tool file and the unresolved type, when a declared input type resolves to `any` — for example an import through a path alias the tsconfig does not declare — instead of writing an empty schema.
+Tool input types are compiled with the app's own `tsconfig.json` (nearest to the app root, honoring `extends`, `paths`, and `baseUrl`). When a declared input type resolves to `any` (for example, an import through a path alias the tsconfig does not declare), the command fails and names the tool file and the unresolved type instead of writing an empty schema.
 
 <Callout type="info" title="Run automatically by b4 dev">
-  `b4 dev` runs `typegen` before every child (re)start, so saves that touch tool signatures or state schemas are picked up on the automatic restart. You only need to invoke it manually after a fresh clone, before CI, or after a tool signature change while the dev server isn't running.
+  `b4 dev` runs `typegen` before every child (re)start, so edits to tool signatures or state schemas are picked up on the automatic restart. You only need to run it yourself after a fresh clone, before CI, or after a tool signature change while the dev server isn't running.
 </Callout>
 
 ## `b4 build`
@@ -112,28 +112,27 @@ b4 build --out-dir dist/vercel
 ```
 
 Flags:
-- `--cwd <path>` — operate on a different app root.
-- `--clean` — wipe `.b4/build/` before writing.
-- `--out-dir <dir>` — where the `vercel` target publishes its Build Output tree, resolved relative to the app root (default `.vercel/output`). Overrides `build.vercel.outDir` for this run, and is an error when `"vercel"` is not a configured target.
+- `--cwd <path>`: operate on a different app root.
+- `--clean`: wipe `.b4/build/` before writing.
+- `--out-dir <dir>`: where the `vercel` target publishes its Build Output tree, resolved relative to the app root (default `.vercel/output`). Overrides `build.vercel.outDir` for this run, and is an error when `"vercel"` is not a configured target.
 
 Emits, per target:
-- **`node`** — `.b4/build/server.mjs` (boots `serveRuntime` — the real B4.run runtime) and a hardened `Dockerfile` (written to the app root unless one already exists there, else to `.b4/build/Dockerfile`). Run it with `b4 start` or `docker build`/`docker run`.
-- **`langsmith`** — `.b4/build/langgraph.json` plus per-route entry files under `.b4/build/<routeSlug>.ts` — the artifacts you hand to LangSmith. Includes `graphs` (keyed by `<routeId>#<kind>`), `dependencies: ["."]`, `env` (`.env.example` if present, else `.env`), and `node_version: "22"`. For `agent` routes, the generated entry imports the default `agent()` descriptor, materializes it as a LangGraph graph, and wires in every discovered route tool.
-- **`hono`** — **opt-in, not a default.** `.b4/build/app.mjs` (a Hono app around B4.run's web-standard fetch handler, `export default`ed for Cloudflare Workers, Vercel, or Bun), `.b4/build/modules.edge.mjs` (the node-builtin-free module manifest), `.b4/build/stores.mjs` (a per-request Postgres store factory), and a `wrangler.toml` scaffold at the app root — written only if you have none, and never overwritten. Deploy with `wrangler deploy`.
-- **`vercel`** — **opt-in, not a default.** A [Vercel Build Output API](https://vercel.com/docs/build-output-api) tree: `config.json` and the runtime Node 24 function at `functions/b4.func/` (the self-contained `index.mjs` plus its `.vc-config.json`), serving the same edge subset as `hono`. The tree lands in `.vercel/output`, where Vercel deploys from, unless `build.vercel.outDir` (or `--out-dir`) points elsewhere; publication swaps the whole directory in one rename, so the directory must not contain the app root. With `build.vercel` configured the target composes the rest of the tree itself: it copies a static directory into `static/`, bundles each declared function into `functions/<name>.func/`, and orders `routes` as your routes, the filesystem, the runtime, then the SPA fallback — the runtime function is named `b4.func` (or whatever `functionName` says) so it never shadows `static/index.html`. The whole tree is staged, validated, and swapped in atomically; the validator checks that `config.json` is version 3 and still routes to the runtime function, so a composed config with extra routes and further functions validates too. The target also reconciles the app-root `vercel.json` with its lifecycle contract: it writes a recommended file (`buildCommand` running `b4 build`, `fluid: true`) when none exists, warns to `.b4/build/vercel.json` when an authored file does not establish that contract, and fails on `fluid: false`. A prebuilt flow (`vercel deploy --prebuilt` from CI, no Vercel Git integration) never runs `buildCommand`, so set `build.vercel.reconcileVercelJson: false` there: the target then neither requires nor touches a committed `vercel.json`, and stops failing on a committed `fluid: false`. Keep Fluid compute enabled in the Vercel project either way — it is the concurrency model the function is built for. See [the `vercel` target](/docs/deployment/edge#the-vercel-target).
+- **`node`**: `.b4/build/server.mjs` (boots `serveRuntime`, the real B4.run runtime) and a hardened `Dockerfile` (written to the app root unless one already exists there, else to `.b4/build/Dockerfile`). Run it with `b4 start` or `docker build`/`docker run`.
+- **`langsmith`**: `.b4/build/langgraph.json` plus per-route entry files under `.b4/build/<routeSlug>.ts`, which you hand to LangSmith. The JSON includes `graphs` (keyed by `<routeId>#<kind>`), `dependencies: ["."]`, `env` (`.env.example` if present, else `.env`), and `node_version: "22"`. For `agent` routes, the generated entry imports the default `agent()` descriptor, materializes it as a LangGraph graph, and wires in every discovered route tool.
+- **`hono`**: **opt-in.** `.b4/build/app.mjs` (a Hono app around B4.run's web-standard fetch handler, `export default`ed for Cloudflare Workers, Vercel, or Bun), `.b4/build/modules.edge.mjs` (the node-builtin-free module manifest), `.b4/build/stores.mjs` (a per-request Postgres store factory), and a `wrangler.toml` scaffold at the app root (written only if you have none, and never overwritten). Deploy with `wrangler deploy`.
+- **`vercel`**: **opt-in.** A [Vercel Build Output API](https://vercel.com/docs/build-output-api) tree: `config.json` and the runtime Node 24 function at `functions/b4.func/` (the self-contained `index.mjs` plus its `.vc-config.json`), serving the same edge subset as `hono`. The tree lands in `.vercel/output`, where Vercel deploys from, unless `build.vercel.outDir` (or `--out-dir`) points elsewhere. Publication swaps the whole directory in one rename, so the directory must not contain the app root. With `build.vercel` configured, the target also copies a static directory into `static/`, bundles each declared function into `functions/<name>.func/`, and orders `routes` as your routes, the filesystem, the runtime, then the SPA fallback. The runtime function is named `b4.func` (or whatever `functionName` says) so it never shadows `static/index.html`. The whole tree is staged, validated, and swapped in atomically. The validator checks that `config.json` is version 3 and still routes to the runtime function, so a composed config with extra routes and functions validates too. The target also reconciles the app-root `vercel.json` with its lifecycle contract: it writes a recommended file (`buildCommand` running `b4 build`, `fluid: true`) when none exists, warns to `.b4/build/vercel.json` when an authored file does not establish that contract, and fails on `fluid: false`. A prebuilt flow (`vercel deploy --prebuilt` from CI, no Vercel Git integration) never runs `buildCommand`, so set `build.vercel.reconcileVercelJson: false` there. The target then neither requires nor touches a committed `vercel.json`, and stops failing on a committed `fluid: false`. Keep Fluid compute enabled in the Vercel project either way, because the function is built for that concurrency model. See [the `vercel` target](/docs/deployment/edge#the-vercel-target).
 
-Restrict which targets are emitted via `build.targets` in `b4.config.ts` (e.g. `{ build: { targets: ["node"] } }`). The list replaces the defaults rather than adding to them, so an app deploying to the edge names `{ build: { targets: ["node", "hono"] } }`. Target-specific settings sit beside the list, e.g. `{ build: { targets: ["vercel"], vercel: { outDir: "dist/vercel" } } }`. See [Vercel](/docs/deployment/vercel).
+Choose which targets are emitted with `build.targets` in `b4.config.ts` (e.g. `{ build: { targets: ["node"] } }`). The list replaces the defaults instead of adding to them, so an app deploying to the edge names `{ build: { targets: ["node", "hono"] } }`. Target-specific settings sit beside the list, e.g. `{ build: { targets: ["vercel"], vercel: { outDir: "dist/vercel" } } }`. See [Vercel](/docs/deployment/vercel).
 
-The `hono` target serves a **subset** of B4.run, and the build fails with `B4_E1005` — naming every offending config key and file at once — when the app uses the sandbox, `backends.filesystem`/`backends.exec`, a config-supplied store, `toolOutput`, a `workspace/` directory, or route-level long-term memory. The `vercel` target applies the same gate. [`b4 check`](#b4-check) applies the identical gate whenever `hono` or `vercel` is a configured target. See [Edge and Hono](/docs/deployment/edge) and [Vercel](/docs/deployment/vercel).
+The `hono` target serves a **subset** of B4.run. The build fails with `B4_E1005`, naming every offending config key and file at once, when the app uses the sandbox, `backends.filesystem`/`backends.exec`, a config-supplied store, `toolOutput`, a `workspace/` directory, or route-level long-term memory. The `vercel` target applies the same gate. [`b4 check`](#b4-check) applies the identical gate whenever `hono` or `vercel` is a configured target. See [Edge and Hono](/docs/deployment/edge) and [Vercel](/docs/deployment/vercel).
 
-
-`toolOutput` is a recent addition to that list, and the one gated key that is plain JSON — so it used to be inlined into the bundle and then ignored, and the build went green while the deployed worker never offloaded. An app that sets both `toolOutput` and `"hono"` therefore sees a build that passed before start failing: remove the key, or drop `"hono"` from `build.targets`. See [Upgrading](/docs/upgrading#tooloutput-is-now-gated-off-the-hono-target).
+If you upgrade an app that sets both `toolOutput` and `"hono"`, a build that passed before now fails. Remove the key, or drop `"hono"` from `build.targets`. See [Upgrading](/docs/upgrading#tooloutput-is-now-gated-off-the-hono-target).
 
 See [Deployment](/docs/deployment) for the full bridge.
 
 ## `b4 start`
 
-Serves the app in production using the real B4.run runtime — Agent Protocol, AG-UI, and `/healthz` — binding `0.0.0.0:8000` by default.
+Serves the app in production with the real B4.run runtime (Agent Protocol, AG-UI, and `/healthz`), binding `0.0.0.0:8000` by default.
 
 ```
 b4 start
@@ -141,10 +140,10 @@ b4 start --host 127.0.0.1 --port 3000
 ```
 
 Flags:
-- `--host <host>` — host to bind. Default: `0.0.0.0` (or the `HOST` env var).
-- `--port <number>` — port to bind. Default: `8000` (or the `PORT` env var).
+- `--host <host>`: host to bind. Default: `0.0.0.0` (or the `HOST` env var).
+- `--port <number>`: port to bind. Default: `8000` (or the `PORT` env var).
 
-This is what the `node` build target's generated `Dockerfile` runs (`CMD ["node", ".b4/build/server.mjs"]`), and it's the only server that engages the [execution sandbox](/docs/sandbox) in production. See [Node and Docker](/docs/deployment/node).
+This is what the `node` build target's generated `Dockerfile` runs (`CMD ["node", ".b4/build/server.mjs"]`), and it's the only server that runs the [execution sandbox](/docs/sandbox) in production. See [Node and Docker](/docs/deployment/node).
 
 ## `b4 run`
 
@@ -155,8 +154,8 @@ echo '{"messages":[{"role":"user","content":"Hello"}]}' | b4 run '/research'
 ```
 
 Flags:
-- `--cwd <path>` — operate on a different app root.
-- `--url <url>` — run against a live dev server instead of the in-process runtime.
+- `--cwd <path>`: operate on a different app root.
+- `--url <url>`: run against a live dev server instead of the in-process runtime.
 
 The route argument can be the parameterized id (e.g. `/research`) or the relative route entry file path (e.g. `src/app/research/index.ts`). Dynamic segment values come from the JSON input. When `--url` is set, `b4 run` POSTs to `/threads/<t-cli-uuid>/runs/wait` with `{ route: "<routeId>#<kind>", input }`.
 
@@ -174,7 +173,7 @@ b4 test src/app/(public)/hello
 ```
 
 Flags:
-- `--cwd <path>` — operate on a different app root.
+- `--cwd <path>`: operate on a different app root.
 
 The optional positional `[path]` argument narrows the discovered scenario set to a subdirectory. To target a live dev server, add `.server(url)` to that scenario's builder chain inside `run.test.ts` (there is no command-level `--url` flag on `b4 test`). Exits non-zero on any failure with a diff per mismatched scenario. See [Testing](/docs/testing) for scenario authoring.
 
@@ -191,16 +190,16 @@ b4 eval --json
 ```
 
 Flags:
-- `--cwd <path>` — operate on a different app root.
-- `--live` — run against the real model (requires `OPENAI_API_KEY`); never use in CI.
-- `--record` — record real-model responses into sibling fixture files (requires `OPENAI_API_KEY`); never use in CI. Mutually exclusive with `--live`.
-- `--json [file]` — write a JSON report. Defaults to `.b4/eval-report.json`.
+- `--cwd <path>`: operate on a different app root.
+- `--live`: run against the real model (requires `OPENAI_API_KEY`). Never use it in CI.
+- `--record`: record real-model responses into sibling fixture files (requires `OPENAI_API_KEY`). Never use it in CI. Mutually exclusive with `--live`.
+- `--json [file]`: write a JSON report. Defaults to `.b4/eval-report.json`.
 
-The optional positional `[path]` narrows discovery to a subdirectory. By default each case replays its aimock fixtures (deterministic, CI-safe); `--live` calls the real provider for local prompt tuning; `--record` captures real-model responses as committed fixture files that plain `b4 eval` replays. A gated eval that fails exits non-zero, so CI fails when quality drops below the bar; informational evals (no `gate`/`threshold`) never affect the exit code. See [Evals](/docs/evals) for authoring.
+The optional positional `[path]` narrows discovery to a subdirectory. By default each case replays its aimock fixtures (deterministic and CI-safe). `--live` calls the real provider for local prompt tuning. `--record` captures real-model responses as committed fixture files that plain `b4 eval` replays. A failing gated eval exits non-zero, so CI fails when quality drops below the bar. Informational evals (no `gate`/`threshold`) never affect the exit code. See [Evals](/docs/evals) for authoring.
 
 ## `b4 dev`
 
-Starts the local runtime — hot reload + [Agent Protocol (AP) HTTP endpoints](/docs/dev-server/agent-protocol). Bind address is fixed at `127.0.0.1`.
+Starts the local runtime with hot reload and the [Agent Protocol (AP) HTTP endpoints](/docs/dev-server/agent-protocol). The bind address is fixed at `127.0.0.1`.
 
 ```
 b4 dev
@@ -208,19 +207,17 @@ b4 dev --port 3001
 ```
 
 Flags:
-- `--port <n>` — HTTP port. Default: dynamically allocated. Pass `--port` for a stable address.
-- `--env-file <path>` — path to a `.env` file (overrides `b4.config.ts` `env` and the default `./.env`).
+- `--port <n>`: HTTP port. Default: dynamically allocated. Pass `--port` for a stable address.
+- `--env-file <path>`: path to a `.env` file (overrides `b4.config.ts` `env` and the default `./.env`).
 
-Because the default port is chosen dynamically, copy-paste `curl` examples should pass an explicit `--port` (or read the port `b4 dev` prints on startup) rather than assuming a fixed value.
+Because the default port is dynamic, pass an explicit `--port` (or read the port `b4 dev` prints on startup) before you copy a `curl` example.
 
-If `LANGSMITH_API_KEY` is present in the loaded environment and `LANGCHAIN_TRACING_V2` is not already set, `b4 dev` automatically enables LangSmith tracing by setting `LANGCHAIN_TRACING_V2=true`. Set `LANGCHAIN_PROJECT` to control which project receives the traces. See [Observability](/docs/observability) for the full tracing guide.
-
-See [Agent Protocol](/docs/dev-server/agent-protocol) for the full protocol reference and architecture notes.
+If `LANGSMITH_API_KEY` is present in the loaded environment and `LANGCHAIN_TRACING_V2` is not already set, `b4 dev` automatically enables LangSmith tracing by setting `LANGCHAIN_TRACING_V2=true`. Set `LANGCHAIN_PROJECT` to control which project receives the traces. See [Observability](/docs/observability) for tracing and [Agent Protocol](/docs/dev-server/agent-protocol) for the protocol reference.
 
 ## `b4 memory`
 
-Inspects and manages the app's [long-term memory](/docs/memory/browse) store — the
-typed records the agent writes via its generated `remember` tool. Use it to
+Inspects and manages the app's [long-term memory](/docs/memory/browse) store (the
+typed records the agent writes with its generated `remember` tool). Use it to
 review and promote the `candidate` writes that the default `memory: { writes: "candidate" }`
 config holds back from `recall`.
 
@@ -237,41 +234,43 @@ b4 memory reflect [--dry-run] [--namespace <prefix>] [--model <id>] [--provider 
 ```
 
 Subcommands:
-- `list` — list pending candidate records.
-- `search <query>` — list candidates whose content or namespace matches `<query>`.
-- `inspect <id>` — print one record as formatted JSON.
-- `approve <id>` — promote a candidate to an `active` record so `recall` surfaces it.
-- `reject <id>` — drop a candidate without promoting it.
-- `forget <id>` — delete a record by id.
-- `prune` — run [episodic retention](/docs/memory/episodes#retention) manually:
+- `list`: list pending candidate records.
+- `search <query>`: list candidates whose content or namespace matches `<query>`.
+- `inspect <id>`: print one record as formatted JSON.
+- `approve <id>`: promote a candidate to an `active` record so `recall` surfaces it.
+- `reject <id>`: drop a candidate without promoting it.
+- `forget <id>`: delete a record by id.
+- `prune`: run [episodic retention](/docs/memory/episodes#retention) manually:
   delete expired records (TTL) and enforce the per-namespace episode cap.
   `--cap <n>` overrides the cap for this pass; `--namespace <prefix>` scopes
   the pass to namespaces matching the prefix.
-- `consolidate` — run [distillation](/docs/memory/distillation)'s compaction
+- `consolidate`: run [distillation](/docs/memory/distillation)'s compaction
   pass: group old episodic records per (namespace, ISO week), summarize each
   group with one model call, then supersede the sources and stamp them with a
   TTL so `prune` reaps them later.
-- `reflect` — run distillation's insight pass: derive durable insights from each
+- `reflect`: run distillation's insight pass: derive durable insights from each
   namespace's records newer than its watermark. Insights are written as
-  `candidate` by default — approve them with `approve <id>` or the Inspector.
+  `candidate` by default. Approve them with `approve <id>` or the Inspector.
 
-`consolidate` and `reflect` share the same flags, and both are threshold-aware
-no-ops: below the configured thresholds they print one line, exit `0`, construct
-no model and require no API key — which is what makes the cron recipe
-(`b4 memory consolidate && b4 memory reflect`) safe to run nightly on any
-app. `--dry-run` reports the plan without making a single model call;
-`--namespace <prefix>` scopes the pass; `--model <id>` / `--provider <id>`
-override `memory.distill`; `--max-batches <n>` caps the work (and spend) for one
-invocation. These are the only `b4 memory` subcommands that spend model
-tokens. See [Distillation](/docs/memory/distillation) for the full configuration
+`consolidate` and `reflect` share the same flags. Below the configured
+thresholds, both print one line, exit `0`, construct no model, and need no API
+key. That makes the cron recipe (`b4 memory consolidate && b4 memory reflect`)
+safe to run nightly on any app. Their flags:
+
+- `--dry-run`: report the plan without making any model call.
+- `--namespace <prefix>`: scope the pass.
+- `--model <id>` / `--provider <id>`: override `memory.distill`.
+- `--max-batches <n>`: cap the work (and spend) for one invocation.
+
+These are the only `b4 memory` subcommands that spend model tokens. See [Distillation](/docs/memory/distillation) for the full configuration
 block.
 
 Flags:
-- `--cwd <path>` — operate on a different app root.
+- `--cwd <path>`: operate on a different app root.
 
 ## `b4 inspect`
 
-Opens the [B4.run Inspector](/docs/inspector) — a localhost-only browser UI for
+Opens the [B4.run Inspector](/docs/inspector), a localhost-only browser UI for
 browsing, searching, and approving the app's [long-term memory](/docs/memory/browse)
 records.
 
@@ -282,9 +281,9 @@ b4 inspect
 The inspector binds to `127.0.0.1` on a free port and prints the URL to open.
 
 Flags:
-- `--cwd <path>` — operate on a different app root.
-- `--port <number>` — bind the inspector to a stable localhost port.
-- `--env-file <path>` — path to a `.env` file (overrides `b4.config.ts` `env` and the default `./.env`).
+- `--cwd <path>`: operate on a different app root.
+- `--port <number>`: bind the inspector to a stable localhost port.
+- `--env-file <path>`: path to a `.env` file (overrides `b4.config.ts` `env` and the default `./.env`).
 
 ## `b4 add`
 
@@ -296,16 +295,16 @@ b4 add pgvector        # print the pgvector blueprint
 b4 add <url>           # fetch a third-party blueprint from any URL
 ```
 
-`b4 add` only prints the guide — your agent applies the changes, and you review them. Set `B4_BLUEPRINTS_URL` to point at a self-hosted catalog instead of `b4.run`.
+`b4 add` only prints the guide. Your agent applies the changes, and you review them. Set `B4_BLUEPRINTS_URL` to point at a self-hosted catalog instead of `b4.run`.
 
 See [Blueprints](/docs/blueprints) for authoring and catalog details.
 
 ## `b4 docs`
 
 Prints the **bundled, version-matched** B4.run docs that ship inside the installed
-CLI — so a coding agent (or you) can read the docs for the exact version in use
-without a network round-trip. With no topic it lists the available topics and the
-index; with a topic it prints that doc to stdout.
+CLI, so a coding agent (or you) can read the docs for the exact version in use
+without a network round-trip. With no topic, it lists the available topics and the
+index. With a topic, it prints that doc to stdout.
 
 ```
 b4 docs
@@ -314,7 +313,7 @@ b4 docs cli
 ```
 
 The optional positional `[topic]` selects a single doc by slug (with or without
-the `.md` suffix); an unknown topic exits non-zero and lists the available
+the `.md` suffix). An unknown topic exits non-zero and lists the available
 topics. Running from a source checkout requires the CLI to be built first
 (`pnpm --filter @b4run/cli build`) so the bundled docs exist.
 
@@ -330,15 +329,15 @@ b4 threads tail <thread-id> --json
 ```
 
 `tail` rejoins a thread through
-[`GET /threads/:thread_id/runs/stream`](/docs/dev-server/agent-protocol) — the
-reattach endpoint — and is the recovery path after a disconnect, a reload, or a
-lost terminal. It prints a snapshot first, then follows whatever comes next:
+[`GET /threads/:thread_id/runs/stream`](/docs/dev-server/agent-protocol) (the
+reattach endpoint). Use it to recover after a disconnect, a reload, or a lost
+terminal. It prints a snapshot first, then follows whatever comes next:
 
 - When a turn is **streaming in that server process**, the snapshot carries the
   committed transcript plus the turn's output so far, and the command then tails
   live frames until the turn emits `done`.
-- When **no turn is live** there, the snapshot is the durable one — the latest
-  checkpoint plus any parked human-in-the-loop prompts — and the command exits
+- When **no turn is live** there, the snapshot is the durable one (the latest
+  checkpoint plus any parked human-in-the-loop prompts), and the command exits
   immediately. This path works across restarts and replicas because it is
   checkpoint-backed.
 
@@ -352,16 +351,16 @@ safe to tail a thread someone else is driving. To stop a run, use
 `POST /threads/:thread_id/cancel` instead.
 
 Flags:
-- `--url <url>` — base URL of the running B4.run server (default
+- `--url <url>`: base URL of the running B4.run server (default
   `http://127.0.0.1:3000`).
-- `--header <name: value>` — extra request header, repeatable. Use it when the
+- `--header <name: value>`: extra request header, repeatable. Use it when the
   server's middleware authenticates the thread's route.
-- `--json` — print raw SSE frames as JSON, one per line, instead of rendered
+- `--json`: print raw SSE frames as JSON, one per line, instead of rendered
   text.
 
 Exit codes follow the table below: `1` when the stream ends without a terminal
 `done` frame or the server detaches the viewer (the per-thread viewer cap, or a
-consumer too slow to keep up — reconnect for a fresh snapshot), and `2` when the
+consumer too slow to keep up; reconnect for a fresh snapshot), and `2` when the
 server is unreachable, the thread does not exist, or the thread has never run
 and so has no route identity to authorize against.
 

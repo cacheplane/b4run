@@ -1,12 +1,12 @@
 # Browse and Manage Memory
 
-`MemoryStore.browse` is the administrative listing contract: it filters, sorts, counts, and paginates records across namespaces and statuses. `MemoryStore.search` is the agent-recall contract: it searches one exact namespace and may rank by keyword or vectors. Browse has no semantic ranking.
+`MemoryStore.browse` is for administration. It filters, sorts, counts, and paginates records across namespaces and statuses, with no semantic ranking. `MemoryStore.search` is for agent recall. It searches one exact namespace and can rank by keyword or vectors.
 
-B4.run does not expose a public memory browse HTTP endpoint. The Inspector is a local/internal development surface, and the candidate management endpoints cover only review. A production admin UI must be an application-owned, authenticated, authorized route.
+B4.run has no public HTTP endpoint for browsing memory. The Inspector is a local development tool, and the candidate management endpoints only cover review. A production admin UI must be your own authenticated, authorized route.
 
 ## Keep the boundary server-owned
 
-Authenticate outside B4.run's model/tool boundary. Derive the tenant namespace prefix from the verified principal, then AND any narrower query with that server-owned prefix. Never accept the prefix, tenant, or user identifier as authority from request JSON.
+Authenticate outside B4.run's model/tool boundary. Derive the tenant namespace prefix from the verified principal, and AND any narrower query with that server-owned prefix. Never trust a prefix, tenant, or user identifier from request JSON. Here is a handler that does this:
 
 ```ts title="src/admin/memory.ts"
 import {
@@ -68,11 +68,11 @@ export function createMemoryAdminHandler(
 }
 ```
 
-The `@b4run/memory/browse` entry is pure contract code—types, validation, ordering, cursor codec, and range helpers—and does not import `node:sqlite`. Keep the store itself on the server and do not send database credentials or unrestricted browse queries to client code.
+The `@b4run/memory/browse` entry holds only contract code (types, validation, ordering, the cursor codec, and range helpers) and does not import `node:sqlite`. Keep the store itself on the server, and never send database credentials or unrestricted browse queries to client code.
 
-Outer authentication is only the first check. Authorize the admin role, audit queries and mutations, rate-limit expensive listings, redact content where necessary, and bind every request to the server-derived tenant prefix.
+Outer authentication is only the first check. Authorize the admin role, audit queries and mutations, rate-limit expensive listings, redact content where needed, and bind every request to the server-derived tenant prefix.
 
-This handler assumes the administered collections declare a tenant-first scope with at least one following dimension (for example, `scope: ["tenant", "user"]`), making `tenant=<encoded>|` a delimiter-bounded prefix. If a route includes `workspace` or `route`, B4.run's canonical dimension order places those first; define and test a different server-owned prefix strategy instead of searching for `tenant=` in the middle of a namespace string.
+The handler assumes the collections use a tenant-first scope with at least one more dimension (for example, `scope: ["tenant", "user"]`), so `tenant=<encoded>|` is a delimiter-bounded prefix. If a route includes `workspace` or `route`, B4.run's canonical dimension order puts those first. In that case, define and test a different server-owned prefix instead of searching for `tenant=` in the middle of a namespace string.
 
 ## Filters
 
@@ -89,7 +89,7 @@ Top-level fields cover common cases:
 | `now` | Excludes rows at or past `expiresAt` |
 | `limit`, `offset`, `cursor` | Page controls |
 
-Normalized `filters` are AND-combined and permit at most one predicate per field:
+Normalized `filters` are ANDed together, with at most one predicate per field:
 
 - `status` and `kind`: `in`, `notIn`;
 - `content`: `contains`, `notContains`, `equals`, `notEquals`, `startsWith`, `endsWith`;
@@ -97,23 +97,23 @@ Normalized `filters` are AND-combined and permit at most one predicate per field
 - `confidence`: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `between`;
 - `updatedAt`: `onDay`, `beforeDay`, `afterDay`, `betweenDays`, using UTC calendar days.
 
-Content filters are case-insensitive in both in-repo stores. SQLite's built-in `lower()` folds ASCII only, so non-ASCII content matching can differ from Postgres. For example, case variants containing `É` may match under the Postgres database's case-folding rules but not under stock SQLite. Namespace filters remain case-sensitive and byte-exact.
+Content filters are case-insensitive in both in-repo stores. SQLite's built-in `lower()` folds ASCII only, so non-ASCII content matching can differ from Postgres. For example, case variants containing `É` can match under Postgres case-folding rules but not under stock SQLite. Namespace filters stay case-sensitive and byte-exact.
 
-Call `validateBrowseQuery` at the untrusted boundary even though the in-repo stores validate defensively. The detailed limits, constants, and error codes belong in the [memory API reference](/docs/api/memory#trust-boundaries); map a `BrowseQueryError` to a client error rather than retrying it as a store outage.
+Call `validateBrowseQuery` at the untrusted boundary, even though the in-repo stores also validate. The [memory API reference](/docs/api/memory#trust-boundaries) lists the limits, constants, and error codes. A `BrowseQueryError` is a client error, so do not retry it as if the store were down.
 
-Top-level `status: []` and `kind: []` are valid and match nothing: “any of no values” is false. In the normalized `filters` array, empty `in` or `notIn` filter values are invalid because a present filter with no choices is treated as a UI/query-construction error. Validate arbitrary JSON and map `BrowseQueryError` to HTTP 400 as the handler does; unexpected store or infrastructure failures remain server errors.
+Top-level `status: []` and `kind: []` are valid and match nothing (“any of no values” is false). In the normalized `filters` array, empty `in` or `notIn` filter values are invalid, because a filter with no choices points to a bug in the UI or query builder. Map `BrowseQueryError` to HTTP 400 as the handler does. Unexpected store or infrastructure failures stay server errors.
 
 ## Sorting
 
-`orderBy` is an ordered list of `{ field, dir }`. Sort fields come from a closed whitelist: `updatedAt`, `createdAt`, `confidence`, `namespace`, `kind`, and `status`; direction is only `asc` or `desc`. Store code resolves those names to known SQL columns and appends `id ASC`, so untrusted text never becomes a SQL identifier.
+`orderBy` is an ordered list of `{ field, dir }`. Sort fields come from a closed whitelist: `updatedAt`, `createdAt`, `confidence`, `namespace`, `kind`, and `status`. The direction is `asc` or `desc`. Store code maps those names to known SQL columns and appends `id ASC`, so untrusted text never becomes a SQL identifier.
 
-The default is `updatedAt DESC, id ASC`. Do not add arbitrary column names by casting request JSON. If a UI needs a new sort, add it to the shared type, validator, resolution table, both stores, and conformance tests together.
+The default is `updatedAt DESC, id ASC`. Don't add arbitrary column names by casting request JSON. If a UI needs a new sort, add it to the shared type, the validator, the resolution table, both stores, and the conformance tests together.
 
 ## Pagination and a fixed clock
 
-Prefer `cursor` for a stable forward walk. A continuation is opaque and carries a query fingerprint plus the last ordered key; it is not a bearer token, authorization proof, or supported client-parsed format. Changing filters, sort order, namespace restrictions, or `now` causes rejection.
+Use `cursor` for a stable forward walk. A continuation is opaque. It carries a query fingerprint plus the last ordered key. It does not prove authorization, and clients should not parse it. If you change the filters, sort order, namespace restrictions, or `now`, the store rejects it.
 
-Choose one fixed `now` before the first page and reuse it across the entire walk. Replacing it with `new Date().toISOString()` on every request changes the query fingerprint and can also change expiry membership.
+Pick one fixed `now` before the first page and reuse it for the whole walk. Calling `new Date().toISOString()` on every request changes the query fingerprint and can change which rows count as expired:
 
 ```ts
 const now = new Date().toISOString()
@@ -133,36 +133,36 @@ do {
 } while (cursor)
 ```
 
-The stores issue a continuation whenever a page is full rather than fetching one extra row. If the result count is an exact multiple of the limit, the final full page can have a continuation and the walk ends with one empty page. Treat that as normal completion.
+The stores return a continuation whenever a page is full, instead of fetching one extra row to check. If the result count is an exact multiple of the limit, the last full page has a continuation and the walk ends with one empty page. That is a normal finish.
 
-Offset remains useful for bounded, human-driven jumps, but inserts above the seam can displace records between requests. A cursor uses keyset continuation so inserts above the seam do not shift the next window.
+Offset still works for bounded jumps a person makes, but inserts above the seam can shift records between requests. A cursor uses keyset continuation, so inserts above the seam do not shift the next window.
 
 ## Count and snapshot semantics
 
-`BrowsePage.total` is the exact count of the entire matching set, not the current window and not the remaining rows after a cursor. Both in-repo stores read the page records and total in the same transaction snapshot. Without that boundary, concurrent writes could produce a records/total pair that never described one database state.
+`BrowsePage.total` is the exact count of the whole matching set. It is not the size of the current window or the rows left after a cursor. Both in-repo stores read the page records and the total in the same transaction snapshot, so concurrent writes cannot produce a records/total pair that never existed together.
 
-The snapshot applies to one `browse` call, not a whole multi-request export. Use database-native snapshot/locking or an application export job if every page must represent one immutable point in time.
+The snapshot covers one `browse` call, not a multi-request export. If every page must reflect one point in time, use database snapshots or locking, or an export job in your application.
 
 ## Backend parity
 
-SQLite and pgvector intentionally share namespace, filter, order, and cursor behavior through conformance tests. That parity has explicit representation limits:
+Conformance tests keep SQLite and pgvector in step on namespace, filter, order, and cursor behavior. The parity has these limits:
 
 - `kind` and `status` are closed ASCII lowercase enums, so their collation order agrees;
 - namespace and ID ties use byte/C ordering;
 - Postgres stores confidence as `float4`, so values that differ below float4 precision may tie there but remain distinct in SQLite;
 - timestamps use normalized ISO UTC strings.
 
-Within those constraints, the same query should continue safely across pages on either backend. Do not claim identical serialized rows or universal ordering for data outside the contract.
+Within those limits, the same query pages safely on either backend. Outside them, do not expect identical serialized rows or the same order.
 
 ## Mutations and candidate review
 
-Browse returns records; it does not authorize changes. Build separate mutation handlers with record-level tenant checks before calling `update`, `delete`, approval, or rejection. Candidate review is already available through `GET /memory/candidates`, `POST /memory/candidates/:id/approve`, and `POST /memory/candidates/:id/reject`, but those management routes still require outer authentication and tenant authorization in a deployed service.
+Browse returns records. It does not authorize changes. Build separate mutation handlers that check the record's tenant before calling `update`, `delete`, approval, or rejection. Candidate review already exists through `GET /memory/candidates`, `POST /memory/candidates/:id/approve`, and `POST /memory/candidates/:id/reject`, but in a deployed service those routes still need outer authentication and tenant authorization.
 
-Approval can reconcile semantic identities and delete a duplicate candidate. Refresh the current record after a mutation instead of assuming the row you displayed still exists unchanged.
+Approval can reconcile semantic identities and delete a duplicate candidate. After a mutation, refresh the record instead of assuming the row you displayed is unchanged.
 
 ## Test the admin surface
 
-Use the shared memory-store conformance tests for store implementations, then add application tests that prove:
+Run the shared memory-store conformance tests against your store, then add application tests that prove:
 
 1. an unauthenticated or unauthorized caller receives no records;
 2. request JSON cannot override the server-derived tenant namespace prefix;
@@ -172,7 +172,7 @@ Use the shared memory-store conformance tests for store implementations, then ad
 6. concurrent writes cannot skew `records` from `total` inside one response;
 7. cross-tenant mutation IDs are rejected after lookup.
 
-The contract authority is the exported types and pure browse modules plus the SQLite/pgvector implementations and their conformance suites. Do not infer production behavior from stale comments in another package.
+The exported types, the browse modules, the SQLite and pgvector stores, and their conformance suites define the contract.
 
 ## Related
 

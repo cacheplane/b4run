@@ -41,9 +41,9 @@ const GETTING_STARTED_DESCRIPTION =
 const BLOG_INDEX_DESCRIPTION =
   "Writing on the agent stack, type-safety, and the tools we're building."
 const PRODUCTION_AS_OF = "2026-08-26"
-const HOME_TITLE = "B4.run — Ridiculous speed. Readable code."
+const HOME_TITLE = "B4.run: Ridiculous speed. Readable code."
 const HOME_DESCRIPTION =
-  "Build TypeScript agents with tools, workspaces, sandbox execution, and approval. Inspect a real recorded repair and run the blueprint yourself."
+  "Build TypeScript agents with tools, workspaces, sandbox execution, and approval. Watch an agent fix a real bug, then scaffold your own app."
 const BLOG_CONTENT_DIRECTORY = resolve(seoDirectory, "../../content/blog")
 const REPO_ROOT = resolve(seoDirectory, "../../../..")
 
@@ -133,7 +133,7 @@ describe("homepage SEO", () => {
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "B4.run — Ridiculous speed. Readable code.",
+            alt: "B4.run: Ridiculous speed. Readable code.",
           },
         ],
       },
@@ -147,7 +147,7 @@ describe("homepage SEO", () => {
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "B4.run — Ridiculous speed. Readable code.",
+            alt: "B4.run: Ridiculous speed. Readable code.",
           },
         ],
       },
@@ -656,7 +656,7 @@ describe("static SEO pages", () => {
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "B4.run — Ridiculous speed. Readable code.",
+            alt: "B4.run: Ridiculous speed. Readable code.",
           },
         ],
       },
@@ -670,7 +670,7 @@ describe("static SEO pages", () => {
             type: "image/png",
             width: 1200,
             height: 630,
-            alt: "B4.run — Ridiculous speed. Readable code.",
+            alt: "B4.run: Ridiculous speed. Readable code.",
           },
         ],
       },

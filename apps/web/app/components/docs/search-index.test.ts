@@ -36,7 +36,7 @@ describe("documentation search index", () => {
     expect(expected).toContainEqual({
       href: "/docs/memory/long-term",
       title: "Long-term Memory",
-      section: "Build",
+      section: "Memory",
     })
     expect(expected).toContainEqual({
       href: "/docs/testing-agents/fixtures",
@@ -46,7 +46,7 @@ describe("documentation search index", () => {
     expect(expected).toContainEqual({
       href: "/docs/thread-access",
       title: "Thread Access",
-      section: "Operate",
+      section: "Secure",
     })
     for (const page of API_REFERENCE_PAGES) {
       expect(expected).toContainEqual({

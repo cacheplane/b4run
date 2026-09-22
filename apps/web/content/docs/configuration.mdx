@@ -2,8 +2,8 @@
 
 `b4.config.ts` is the typed application contract at the app root. The CLI
 uses it with `package.json` to find a B4.run app, so the file is required even
-though every `B4Config` field is optional. Node processes load the module once;
-`b4 dev` picks up an edit by restarting its child runtime. Filesystem-free
+though every `B4Config` field is optional. Node processes load the module once,
+and `b4 dev` picks up an edit by restarting its child runtime. Filesystem-free
 runtimes receive an already-constructed config object instead of loading this
 file.
 
@@ -12,8 +12,8 @@ provider credentials, and configured sandbox preflight before serving the app.
 
 ## Complete annotated example
 
-This file is copyable as written. Uncomment the instance-valued fields only
-after importing or constructing the corresponding implementation.
+You can copy this file as written. Uncomment an instance-valued field only after
+you import or construct its implementation:
 
 ```ts title="b4.config.ts"
 import { config } from "@b4run/core"
@@ -64,10 +64,9 @@ export default config({
     // vercel: { outDir: "dist/vercel" }, // where the "vercel" target publishes (default .vercel/output)
   },
 
-  // Cross-origin access. Omit and the runtime sends no `Access-Control-*`
-  // header at all, so a browser on another origin cannot call it — the
-  // default, because opening a server to other origins is a deployment
-  // decision. `localhost` and `127.0.0.1` are different origins to a browser.
+  // Cross-origin access. Omit it and the runtime sends no `Access-Control-*`
+  // header, so a browser on another origin cannot call it.
+  // `localhost` and `127.0.0.1` are different origins to a browser.
   server: {
     cors: { origins: ["https://app.example.com"] },
   },
@@ -142,7 +141,7 @@ appDir?: string
 
 Default: `"src/app"`. The path is relative to the app root and selects the tree
 where B4.run discovers route `index.ts` files. An authored value replaces the
-default; there is no environment override. Keep it inside the app root. See
+default. There is no environment override. Keep it inside the app root. See
 [Routes](/docs/routes) for the discovered layout.
 
 ### `backends`
@@ -173,7 +172,7 @@ permissions?: {
 
 Without a custom store, the defaults are `mode: "interactive"`, empty config
 maps, and `.b4/permissions.json` for persisted interactive decisions.
-`B4_PERMISSIONS_MODE` overrides `permissions.mode`; a deny match beats an
+`B4_PERMISSIONS_MODE` overrides `permissions.mode`, and a deny match beats an
 allow match. The reserved `tool` and `subagent` keys use exact matching, while
 resource paths, bash commands, and memory scopes use prefix matching.
 
@@ -185,7 +184,7 @@ interrupt/resume lifecycle.
 #### `permissions.store`
 
 A supplied `PermissionsStore` replaces the file-backed store and is loaded
-before use. The custom store owns its mode and allow/deny policy: sibling
+before use. The custom store owns its mode and allow/deny policy, so sibling
 `permissions.mode`, `allow`, `deny`, and `B4_PERMISSIONS_MODE` are not applied
 again. In an embedded runtime, a boot-supplied store takes precedence over this
 config field.
@@ -198,7 +197,7 @@ checkpointer?: BaseCheckpointSaver
 
 Default: SQLite at `.b4/checkpoints.sqlite`. A boot-supplied checkpointer
 takes precedence, then this field, then the default. Checkpoints hold graph
-state; they are not thread metadata. See [Persistence and
+state, not thread metadata. See [Persistence and
 Tenancy](/docs/persistence) before sharing or deleting state across replicas.
 
 ### `threadsStore`
@@ -209,7 +208,7 @@ threadsStore?: ThreadsStore
 
 Default: SQLite at `.b4/threads.sqlite`. A boot-supplied thread store takes
 precedence, then this field, then the default. It stores Agent Protocol thread
-metadata, not graph checkpoints; configure both stores when replicas share
+metadata, not graph checkpoints. Configure both stores when replicas share
 threads. See [Persistence and Tenancy](/docs/persistence) for the storage
 boundary and deletion order.
 
@@ -223,7 +222,7 @@ Default: `"./.env"`, relative to the app root. For `b4 dev` and `b4
 inspect`, precedence is `--env-file`, then `config.env`, then the default.
 `b4 verify` checks the resolved file without loading it into the current
 process. `config.env` is loaded by `b4 dev` and `b4 inspect`, not by `b4
-start`; production variables must come from the shell or hosting platform.
+start`. Production variables must come from the shell or hosting platform.
 
 The LangSmith artifact independently chooses `.env.example` when present and
 `.env` otherwise. Its JSON records an env-file path, not variable names, and it
@@ -249,8 +248,8 @@ TTL, and a `10_000` ms GC throttle. `noOffloadTools` defaults to `[]` and is
 unioned with the always-exempt `readFile` and `listDir`. Authored values replace
 their individual defaults.
 
-Offloaded data lives under `workspace/tool-outputs/`; retention is a context
-budget, not durable storage. A non-empty block is incompatible with the
+Offloaded data lives under `workspace/tool-outputs/`. It is a context budget,
+not durable storage. A non-empty block is incompatible with the
 filesystem-free Hono target (`B4_E1005`). See [Context
 Management](/docs/context-management) for retrieval and cleanup behavior.
 
@@ -302,7 +301,7 @@ build?: {
 ```
 
 Default: `["node", "langsmith"]`. An authored `targets` array replaces that
-list; it does not add to it. `BuildTargetName` is the union `"node" |
+list instead of adding to it. `BuildTargetName` is the union `"node" |
 "langsmith" | "hono" | "vercel"`, exported from `@b4run/core` alongside the
 `BUILD_TARGET_NAMES` tuple it is derived from, so a misspelled target fails
 to type-check instead of failing at `b4 build`. `"hono"` and `"vercel"` are
@@ -322,33 +321,31 @@ published tree and route order.
 
 `vercel.maxDuration` is the runtime function's `maxDuration` in seconds, a
 positive integer. Omit it and the property stays off `.vc-config.json`, where
-Vercel applies the project default. The runtime function is the one that runs
-the agent, so it is the one a long tool-using run outgrows; a function under
-`vercel.functions` sets its own. `validateVercelOutput` requires the published
+Vercel applies the project default. The runtime function runs the agent, so a
+long tool-using run outgrows it first. A function under `vercel.functions` sets
+its own. `validateVercelOutput` requires the published
 value to be exactly the configured one.
 
 `vercel.outDir` is the directory the Build Output tree is published to,
 resolved relative to the app root. It defaults to `.vercel/output`, where
-Vercel deploys from; point it elsewhere when a further step composes the tree
+Vercel deploys from. Point it elsewhere when a later step composes the tree
 before deployment. `b4 build --out-dir <dir>` overrides it for one run. The
 directory is replaced wholesale on each build, so one that contains the app
 root is rejected.
 
 `vercel.reconcileVercelJson` (default `true`) controls whether the `"vercel"`
-target reconciles the app-root `vercel.json` with its lifecycle contract — a
-`buildCommand` that runs `b4 build` and `fluid: true`. Set it to `false` for a
+target reconciles the app-root `vercel.json` with its lifecycle contract (a
+`buildCommand` that runs `b4 build`, and `fluid: true`). Set it to `false` for a
 prebuilt flow (`vercel deploy --prebuilt` from CI, no Vercel Git integration):
 Vercel never runs `buildCommand` there, so the target stops requiring, writing,
-or inspecting a committed `vercel.json`. Fluid compute still matters for the
-deployed project; keep it enabled in the Vercel project settings, because the
-build no longer fails on a committed `fluid: false` once reconciliation is off.
+or inspecting a committed `vercel.json`. Keep fluid compute enabled in the
+Vercel project settings, because the build no longer fails on a committed
+`fluid: false` once reconciliation is off.
 
-One resolver validates the whole of `build.vercel`, so both `b4 check` and
-`b4 build` reject every near miss with `B4_E1003` — a non-object `vercel`, an
-unknown key inside it, a `reconcileVercelJson` that is not exactly `true` or
-`false`, and the flag misplaced directly on `build` — rather than reading as
-configured while the target keeps reconciling or writes a tree from a shape it
-never checked. A prebuilt app therefore configures
+One resolver validates all of `build.vercel`. Both `b4 check` and `b4 build`
+reject every near miss with `B4_E1003`: a non-object `vercel`, an unknown key
+inside it, a `reconcileVercelJson` that is not exactly `true` or `false`, and
+the flag misplaced directly on `build`. A prebuilt app configures
 `build: { targets: ["vercel"], vercel: { reconcileVercelJson: false } }`.
 
 ### `sandbox`
@@ -374,12 +371,12 @@ sandbox?: {
 ```
 
 Default: no sandbox, so workspace operations use the selected host backends.
-When configured, `provider` is required; the manager defaults to an allow-mode
+When configured, `provider` is required. The manager defaults to an allow-mode
 network policy that denies `169.254.169.254`, injects no host environment, and
 releases idle compute after `600_000` ms. Resource and security enforcement is
-provider-specific; Docker's security fields default hardened. `diskGb` matters
+provider-specific. Docker's security fields default to hardened. `diskGb` matters
 to PVC-backed providers and Docker ignores it. At runtime, an
-injected `sandboxManager` takes precedence over `config.sandbox`; config is
+injected `sandboxManager` takes precedence over `config.sandbox`. Config is
 used only when the host does not supply a manager. See [Execution
 Sandbox](/docs/sandbox) before relaxing isolation or network policy.
 
@@ -432,25 +429,25 @@ memory?: {
 }
 ```
 
-The route's `memory.ts`, not `memory.enabled`, opts into typed memory;
+The route's `memory.ts`, not `memory.enabled`, opts into typed memory.
 `enabled` is an inert compatibility field. Defaults are SQLite at
 `.b4/memory.sqlite`, `writes: "candidate"`, and `indexMaxEntries: 20`.
 Keyword recall defaults to relevance/recency/confidence weights
 `0.6`/`0.3`/`0.1`, a 14-day half-life, and a `256`-record candidate pool.
-Vector recall is absent by default; when present it requires `embedder` and
+Vector recall is absent by default. When present, it requires `embedder` and
 defaults to keyword/vector weights `1`/`1`, `rrfK: 60`, `vectorK: 64`,
 `recencyWeight: 0.3`, and `confidenceWeight: 0.1`.
 
 Episodes default disabled with a 30-day TTL, cap `500`, failed runs included,
 and no embeddings (`embed: true` is unsupported). Distillation runs only when
-invoked: defaults are `gpt-5-mini`, inferred provider then `openai`, five
-batches; consolidate after seven days in batches of 5–50 with no summary TTL
-and a seven-day source TTL; reflect after 10 new records over at most 100,
-writing candidates. `resolveScope` receives only `routePath` and `appRoot`, so
+invoked. Its defaults are `gpt-5-mini`, the inferred provider then `openai`, and
+five batches. Consolidation runs after seven days in batches of 5–50, with no
+summary TTL and a seven-day source TTL. Reflection runs after 10 new records over
+at most 100, writing candidates. `resolveScope` receives only `routePath` and `appRoot`, so
 derive tenant or user dimensions from application-owned context. A custom store
-owns its own retrieval behavior rather than these default-store tuning blocks.
-At runtime, an injected `memoryStore` takes precedence over `config.memory.store`;
-config precedes the default SQLite store. See [Long-term
+owns its own retrieval behavior and ignores these default-store tuning blocks.
+At runtime, an injected `memoryStore` takes precedence over `config.memory.store`,
+and config precedes the default SQLite store. See [Long-term
 Memory](/docs/memory/long-term) for governance, [Recall and
 Retrieval](/docs/memory/retrieval) for ranking, [Episodes](/docs/memory/episodes)
 for run history, and [Distillation](/docs/memory/distillation) for explicit
@@ -471,10 +468,10 @@ server?: {
 }
 ```
 
-Absent by default, and absence means **no `Access-Control-*` header on any
-response** — a browser on another origin cannot call `/agui/*`, `/threads/*` or
+Absent by default, which means **no `Access-Control-*` header on any
+response**. A browser on another origin cannot call `/agui/*`, `/threads/*` or
 `/memory/*`, and `OPTIONS` falls through to the router's 404. Opening a server
-to other origins is a deployment decision, so nothing here is inferred.
+to other origins is a deployment decision, so B4 never infers it.
 
 Set it when a browser client talks to B4.run directly instead of through a
 same-origin proxy:
@@ -484,30 +481,28 @@ server: { cors: { origins: ["https://app.example.com"] } }
 ```
 
 Origins are compared exactly, after normalizing case and a trailing slash, so
-`"HTTP://LocalHost:3010/"` matches an `Origin: http://localhost:3010`. Note that
-`localhost` and `127.0.0.1` are *different* origins — list both if your dev
+`"HTTP://LocalHost:3010/"` matches an `Origin: http://localhost:3010`. Note,
+`localhost` and `127.0.0.1` are *different* origins. List both if your dev
 client may be opened at either.
 
 The policy is resolved and validated once at boot, so a malformed origin list
-fails on startup rather than on the first cross-origin request. `origins: "*"`
-with `credentials: true` is rejected outright: browsers refuse a wildcard
-allow-origin on a credentialed request, and accepting it would produce a server
-that looks configured and fails only in the console.
+fails on startup instead of on the first cross-origin request. `origins: "*"`
+with `credentials: true` is rejected, because browsers refuse a wildcard
+allow-origin on a credentialed request.
 
 Defaults for the rest: `credentials` false; `methods` `GET, POST, DELETE,
 OPTIONS`; `headers` echoes the browser's own
 `Access-Control-Request-Headers` (so an app can add an auth header without
 changing server config); `exposeHeaders` empty; `maxAgeSeconds` 600.
 
-Two behaviors worth knowing. A request from an origin **not** on the list is
-still served normally — it just carries no CORS header, and the browser is what
-refuses to hand it to the page; answering 403 there would break every
-non-browser client that happens to send an `Origin`. And error responses are
-stamped too, including the shutdown 503, because a cross-origin caller that
-cannot read a 404 sees only an opaque CORS failure.
+A request from an origin **not** on the list is still served normally. It just
+carries no CORS header, and the browser refuses to hand it to the page. (A 403
+would break every non-browser client that sends an `Origin`.) Error responses
+carry the headers too, including the shutdown 503, so a cross-origin caller can
+read a 404 instead of seeing an opaque CORS failure.
 
-CORS is not authentication. It controls which origins a browser will let read a
-response; it does not decide who may call the server. Pair it with
+CORS is not authentication. It controls which origins a browser lets read a
+response. It does not decide who may call the server. Pair it with
 [`defineThreadAccess`](/docs/thread-access).
 
 
@@ -545,8 +540,8 @@ export default config({
 ```
 
 Attach an `error` listener to an injected `pg.Pool`. The application owns the pool
-and must end it after B4.run has stopped accepting and draining requests;
-the stores do not close an injected pool. Postgres shares durable rows, but it
+and must end it after B4.run has stopped accepting and draining requests.
+The stores do not close an injected pool. Postgres shares durable rows, but it
 does not distribute active-run or cancel coordination between processes. Use
 sticky or thread-aware routing, or provide a distributed coordination layer.
 

@@ -2,22 +2,36 @@
   background: #f5f4f0;
   border-bottom-color: #d6d6cc;
 }
-.header > div {
+
+/* The header and footer share the homepage column: 1200px of content with
+   the same side padding as .home in homepage.module.css (40 / 24 / 18px).
+   71px + the 1px bottom border keeps the header exactly --header-h (72px). */
+.bar,
+.column {
   max-width: 1280px;
+  margin-inline: auto;
+  padding-inline: 40px;
 }
-.blueprint {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  background: #b4ce37;
-  border: 1px solid #111;
-  color: #111;
-  padding: 10px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  text-decoration: none;
+.bar {
+  height: 71px;
 }
-.blueprint:focus-visible {
-  outline: 3px solid #667811;
-  outline-offset: 3px;
+@media (max-width: 760px) {
+  .bar,
+  .column {
+    padding-inline: 24px;
+  }
+}
+@media (max-width: 430px) {
+  [data-layout="home"] .bar,
+  [data-layout="home"] .menuSection,
+  [data-layout="home"] ~ footer .column {
+    padding-inline: 18px;
+  }
+}
+
+/* Docs and blog posts are full-width reading layouts whose side columns have
+   24px padding; the header content lines up with the sidebar content. */
+[data-layout="reading"] .bar {
+  max-width: none;
+  padding-inline: 24px;
 }

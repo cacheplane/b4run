@@ -155,7 +155,7 @@ export function CodeHeaderRow({
   return (
     <div
       data-code-header
-      className="flex items-end justify-between px-3 pt-2 border-b border-divider bg-surface/60"
+      className="flex items-end justify-between pl-[18px] pr-3 pt-2 border-b border-divider bg-surface/60"
     >
       <div className="flex items-end gap-1">{left}</div>
       <div className="pb-1.5">{right}</div>

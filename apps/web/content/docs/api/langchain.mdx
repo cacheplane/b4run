@@ -2,7 +2,7 @@
 
 ## Use this when
 
-Use this integration package when framework code must materialize B4.run agent descriptors, adapt LangChain runnables, convert B4.run tools, configure provider loading, or compose the package's retry, summarization, offloading, and subagent helpers. Most application code declares agents through [`agent()`](/docs/api/sdk#agent-and-agentconfig) and lets the B4.run runtime call this layer.
+Use this package when framework code must materialize B4.run agent descriptors, adapt LangChain runnables, convert B4.run tools, configure provider loading, or compose the package's retry, summarization, offloading, and subagent helpers. Most application code declares agents through [`agent()`](/docs/api/sdk#agent-and-agentconfig) and lets the B4.run runtime call this layer.
 
 ## Install and import
 
@@ -28,7 +28,7 @@ Install the optional LangChain provider package selected by your agents. `@langc
 | `@b4run/langchain` | edge-safe | not-claimed | integration | supported |
 | `@b4run/langchain/package.json` | package metadata | n/a | tooling | supported |
 
-The runtime root is edge-safe for B4.run's emitted Hono/workerd target. Compatibility evidence includes the emitted Hono app round trip on Node and a gated real-workerd lane without `nodejs_compat`; guards bundle the exact surface with the model layer externalized. This is not a dependency-free claim or a promise of generic browser portability: provider integrations, application tools, stores, and dynamically selected imports retain their own requirements. `./package.json` is data for tooling, not TypeScript inventory or runtime code.
+The runtime root is edge-safe for B4.run's emitted Hono/workerd target. The evidence is the emitted Hono app round trip on Node and a gated real-workerd lane without `nodejs_compat`; guards bundle the exact surface with the model layer externalized. The root is not dependency-free and makes no general browser promise: provider integrations, application tools, stores, and dynamically selected imports keep their own requirements. `./package.json` is data for tooling, not TypeScript inventory or runtime code.
 
 ## Public exports
 
@@ -88,11 +88,11 @@ The runtime root is edge-safe for B4.run's emitted Hono/workerd target. Compatib
 | `countMessagesTokens` | Count tokens across LangChain messages. |
 | `defaultTokenCounter` | Count tokens with the package tokenizer. |
 
-`__resetMaterializedAgentsForTests` is public so the testing harness can reach it, but its name and contract are testing-only; it mutates process-wide cache state and is not an application lifecycle API. Helpers exported by implementation modules but omitted from the root barrel—such as `composePromptMessages`, `AgentOptions`, `ResolvedStateField`, `ExecuteWithToolLoopOptions`, `BuildStubArgs`, `jsonSchemaToZod`, warning/message helpers, and default importers—are not owned exports here.
+`__resetMaterializedAgentsForTests` is public so the testing harness can reach it. It is for tests only: it mutates process-wide cache state and is not an application lifecycle API. Helpers that implementation modules export but the root barrel omits (such as `composePromptMessages`, `AgentOptions`, `ResolvedStateField`, `ExecuteWithToolLoopOptions`, `BuildStubArgs`, `jsonSchemaToZod`, warning/message helpers, and default importers) are not owned exports.
 
 ### `@b4run/langchain/package.json`
 
-This subpath exposes package metadata as JSON for tooling. It has no TypeScript export inventory, runtime compatibility classification, or purity claim; do not execute it as application code.
+This subpath is package metadata as JSON for tooling. It has no TypeScript exports, runtime classification, or purity claim. Don't execute it as application code.
 
 ## Key contracts
 
@@ -122,7 +122,7 @@ Text token data remains a string. Non-subagent model text carries `messageId`
 from its model invocation; a `message_end` chunk with `{ messageId }` follows
 that model's text before any same-model tool announcements. Models that emit no
 text produce no completion chunk. This preserves independent text framing for
-concurrent nested models. Invocation identity is not replay deduplication.
+concurrent nested models. Invocation identity does not deduplicate replays.
 
 ```ts api-contract="@b4run/langchain#.:RetryOptions"
 export interface RetryOptions {
@@ -189,7 +189,7 @@ export interface UnwrappedToolResult {
 | `readonly content` | `string` | yes | Carry agent-visible content. |
 | `readonly stateUpdates` | `Record<string, unknown> \| undefined` | yes | Carry optional channel updates. |
 
-Several callable exports intentionally expose non-barrel helper shapes in their declarations. Read these shapes inline; they are not independently importable exports:
+Several callable exports use non-barrel helper shapes in their declarations. These shapes are listed here for reading; you can't import them:
 
 ```ts
 type Importer = (specifier: string) => Promise<Record<string, unknown>>
@@ -236,7 +236,7 @@ An explicit model provider bypasses provider inference.
 
 Unknown explicit providers throw with the supported list. If no provider is explicit and inference fails, resolution throws before model construction. `seedModelImporter()` is last-call-wins process state; seed it during runtime assembly, not per request.
 
-`createChatModel({ responseFormat })` and `streamAgent({ responseFormat })` bind a `JsonSchemaResponseFormat` on the root model as the provider's native schema-constrained output — OpenAI `response_format` (`json_schema`, `strict: true`) or Anthropic `output_config.format` — alongside the route's tools, so tool-calling turns are unaffected and only the final message is constrained. Only the providers in `JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS` qualify; any other provider throws `unsupportedResponseFormatMessage(provider)` before its package is imported, never silently running unconstrained. A format-bound agent always compiles a fresh graph and never touches the materialized-agent cache. The AG-UI endpoint sources it from the client's `hashbrown.responseSchema`; see [AG-UI](/docs/ag-ui#response-schema).
+`createChatModel({ responseFormat })` and `streamAgent({ responseFormat })` bind a `JsonSchemaResponseFormat` on the root model as the provider's native schema-constrained output (OpenAI `response_format` with `json_schema` and `strict: true`, or Anthropic `output_config.format`). The route's tools stay bound, so tool-calling turns are unaffected and only the final message is constrained. Only the providers in `JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS` qualify. Any other provider throws `unsupportedResponseFormatMessage(provider)` before its package is imported, so it never runs unconstrained. A format-bound agent always compiles a fresh graph and never touches the materialized-agent cache. The AG-UI endpoint sources it from the client's `hashbrown.responseSchema`; see [AG-UI](/docs/ag-ui#response-schema).
 
 #### Behavior contract `langchain.retry.exhaustion`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/langchain/test/retry.test.ts","testNames":["throws after max attempts exhausted"]}] */}

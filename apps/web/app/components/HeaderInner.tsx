@@ -25,23 +25,27 @@ function GitHubIcon() {
   )
 }
 
+function isReadingLayout(pathname: string): boolean {
+  return pathname.startsWith("/docs") || /^\/blog\/(?!tags(\/|$))[^/]+\/?$/.test(pathname)
+}
+
 interface HeaderInnerProps {
   readonly repoUrl: string
 }
 
 export function HeaderInner({ repoUrl }: HeaderInnerProps) {
   const pathname = usePathname()
-  const homepage = pathname === "/"
-  const brandPage = homepage || pathname.startsWith("/blog")
-
   const linkClass = (active: boolean) =>
     active ? "text-ink transition-colors" : "text-ink-muted hover:text-ink transition-colors"
 
+  // Same header everywhere; only its column tracks the page layout underneath:
+  // docs and blog posts are full-width reading layouts, everything else uses
+  // the homepage column.
+  const layout = pathname === "/" ? "home" : isReadingLayout(pathname) ? "reading" : "site"
+
   return (
-    <header
-      className={`sticky top-0 z-50 bg-page border-b border-divider ${brandPage ? homepageStyles.header : ""}`}
-    >
-      <div className="max-w-[1280px] mx-auto flex justify-between items-center px-6 md:px-8 py-4">
+    <header data-layout={layout} className={`sticky top-0 z-50 border-b ${homepageStyles.header}`}>
+      <div className={`${homepageStyles.bar} flex justify-between items-center`}>
         <BrandLogo imageClassName="h-8" variant="dark" />
         <nav className="hidden md:flex items-center gap-6 text-sm">
           <Link href="/docs/getting-started" className={linkClass(pathname.startsWith("/docs"))}>
@@ -59,13 +63,7 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
           >
             <GitHubIcon />
           </a>
-          {homepage ? (
-            <a className={homepageStyles.blueprint} href="/blueprints/code-fixer.md">
-              Get the blueprint ↗
-            </a>
-          ) : (
-            <CopyCommand command="npm create b4-app@latest my-agent" />
-          )}
+          <CopyCommand command="npm create b4-app@latest my-agent" />
         </nav>
         <MobileMenu />
       </div>

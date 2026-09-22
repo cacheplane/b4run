@@ -2314,7 +2314,7 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
       "validateBrowseQuery(query, { maxLimit: BROWSE_MAX_LIMIT })",
     )
     expect(foundationalContent("memory")).toContain(
-      "SQLite stores memory rows—including content, data, source, and tags—as plaintext",
+      "SQLite stores memory rows (including content, data, source, and tags) as plaintext",
     )
     expect(foundationalContent("memory")).toContain(
       "Low-level `MemoryStore` implementations can store typed procedural records",

@@ -1,12 +1,12 @@
 # API Reference
 
-Use this catalog to choose the B4.run package, subpath, or executable that owns a contract. Application developers should start with `@b4run/sdk`; use the focused references for exact exports, defaults, errors, and lifecycle rules.
+This catalog lists the package, subpath, or executable that owns each B4.run contract. Application code starts with `@b4run/sdk`. The focused references cover exact exports, defaults, errors, and lifecycle rules.
 
 ## Package and surface index
 
 Application shortcuts: author routes with the [`@b4run/sdk` reference](/docs/api/sdk); use the [`b4` command or runtime entries](/docs/api/cli), including `/fetch` for supported edge integrations; test programmatically with [`@b4run/testing`](/docs/api/testing); score behavior with [`@b4run/evals`](/docs/api/evals); and import app-specific tool and state types from [`b4:routes`](/docs/api/generated-routes).
 
-Read the runtime column precisely: `node-only` records that a surface does not pass B4.run's edge-safety guard, not that the surface cannot run in a browser. Most `node-only` entries are genuinely server-side, but `@b4run/ag-ui/react` is browser-targeted and fails the guard only because React's JSX runtime reads `process.env.NODE_ENV`.
+In the runtime column, `node-only` means the surface fails B4.run's edge-safety guard. It does not mean the surface can't run in a browser. Most `node-only` entries are server-side, but `@b4run/ag-ui/react` targets the browser and fails the guard only because React's JSX runtime reads `process.env.NODE_ENV`.
 
 | Package | Purpose | Audience | Stability | Surfaces | Artifact boundaries | README | Reference | Guide |
 |---|---|---|---|---|---|---|---|---|
@@ -32,17 +32,17 @@ Read the runtime column precisely: `node-only` records that a surface does not p
 | `@b4run/workspace` | Filesystem and shell tools for agent workspaces. | `application` | `supported` | `@b4run/workspace`<br />`@b4run/workspace/node` | focused reference · `edge-safe` runtime · `dependency-free` purity<br />focused reference · `node-only` runtime · `not-claimed` purity | [README](https://github.com/cacheplane/b4run/blob/main/packages/workspace/README.md) | [Reference](/docs/api/workspace) | [Guide](/docs/workspace) |
 | <span id="create-b4-app"></span>`create-b4-app` | Scaffolder for new B4.run applications. | `tooling` | `supported` | `bin.create-b4-app` | catalog summary · `node-only` executable command · purity n/a | [README](https://github.com/cacheplane/b4run/blob/main/packages/create-b4-app/README.md) | [Reference](/docs/api#create-b4-app) | [Guide](/docs/getting-started) |
 
-Generated surface: `b4:routes` — focused reference · generated types; compile-time only, no runtime import · purity n/a.
+Generated surface: `b4:routes` (focused reference · generated types; compile-time only, no runtime import · purity n/a).
 
 ## Reference conventions
 
-**Audience** says who should import a surface: application code, integration code, tests, tooling, or B4.run internals. **Stability** distinguishes supported APIs from low-level or internal contracts. **Documentation** says whether this release provides a focused reference, a catalog summary, or an internal-only boundary. Each artifact boundary also states whether a surface is runtime code, static configuration, metadata, generated types, a command, or a separately operated application; runtime imports state their purity claim.
+**Audience** says who should import a surface: application code, integration code, tests, tooling, or B4.run internals. **Stability** separates supported APIs from low-level or internal contracts. **Documentation** says whether a surface has a focused reference, a catalog summary, or an internal-only boundary. Each artifact boundary says whether a surface is runtime code, static configuration, metadata, generated types, a command, or a separately operated application. Runtime imports also state their purity claim.
 
-The headings below preserve links from the former single-page reference. They point to the canonical package page and section; use the canonical destination for new links.
+The headings below keep links from the old single-page reference working. Each one points to its canonical page and section. Use the canonical link in new docs.
 
 ## @b4run/sdk
 
-The application authoring surface now lives at [`@b4run/sdk`](/docs/api/sdk#use-this-when).
+The application authoring surface lives at [`@b4run/sdk`](/docs/api/sdk#use-this-when).
 
 ### Agent
 
@@ -266,7 +266,7 @@ See the canonical [low-level runtime subpath](/docs/api/cli#b4runcliruntime).
 
 ## @b4run/core
 
-The integration surface now lives at [`@b4run/core`](/docs/api/core#use-this-when).
+The integration surface lives at [`@b4run/core`](/docs/api/core#use-this-when).
 
 ### Capability exports
 
@@ -306,7 +306,7 @@ See the canonical [Core public export inventory](/docs/api/core#b4runcore-1).
 
 ## @b4run/ag-ui
 
-The AG-UI adapter surface now lives at [`@b4run/ag-ui`](/docs/api/ag-ui#use-this-when).
+The AG-UI adapter surface lives at [`@b4run/ag-ui`](/docs/api/ag-ui#use-this-when).
 
 ### ID factories
 
@@ -326,7 +326,7 @@ See the canonical [SSE subpath inventory](/docs/api/ag-ui#b4runag-uisse).
 
 ## @b4run/memory
 
-The long-term memory package surface now lives at [`@b4run/memory`](/docs/api/memory#use-this-when).
+The long-term memory package surface lives at [`@b4run/memory`](/docs/api/memory#use-this-when).
 
 ### `MemoryStore`
 
@@ -350,7 +350,7 @@ See the canonical [browse subpath inventory](/docs/api/memory#b4runmemorybrowse)
 
 ## @b4run/memory-pgvector
 
-The shared memory backend now lives at [`@b4run/memory-pgvector`](/docs/api/memory-pgvector#use-this-when).
+The shared memory backend lives at [`@b4run/memory-pgvector`](/docs/api/memory-pgvector#use-this-when).
 
 ### `pgvectorMemoryStore(options)`
 
@@ -374,7 +374,7 @@ See the canonical [schema identifier contract](/docs/api/memory-pgvector#behavio
 
 ## @b4run/postgres-storage
 
-The durable runtime storage surface now lives at [`@b4run/postgres-storage`](/docs/api/postgres-storage#use-this-when).
+The durable runtime storage surface lives at [`@b4run/postgres-storage`](/docs/api/postgres-storage#use-this-when).
 
 ### `PostgresStoreOptions`
 
@@ -406,7 +406,7 @@ See the canonical [Postgres root export inventory](/docs/api/postgres-storage#b4
 
 ## @b4run/testing
 
-The programmatic test surface now lives at [`@b4run/testing`](/docs/api/testing#use-this-when). For fixture workflows, see [Fixtures and Recording](/docs/testing-agents/fixtures).
+The programmatic test surface lives at [`@b4run/testing`](/docs/api/testing#use-this-when). For fixture workflows, see [Fixtures and Recording](/docs/testing-agents/fixtures).
 
 ### Harnesses
 
@@ -434,7 +434,7 @@ See the canonical [testing examples](/docs/api/testing#examples-and-related-guid
 
 ## @b4run/evals
 
-The evaluation surface now lives at [`@b4run/evals`](/docs/api/evals#use-this-when).
+The evaluation surface lives at [`@b4run/evals`](/docs/api/evals#use-this-when).
 
 ### Eval definition and execution
 
@@ -470,7 +470,7 @@ See the canonical [generated state contract](/docs/api/generated-routes#state).
 
 ## Where to read more
 
-Start with [Agents](/docs/agents), [Routes](/docs/routes), and [Tools](/docs/tools). Use the focused package references above when you need an exact import, field, default, error, or lifecycle rule.
+Start with [Agents](/docs/agents), [Routes](/docs/routes), and [Tools](/docs/tools). The package references above cover each exact import, field, default, error, and lifecycle rule.
 
 ## Related
 

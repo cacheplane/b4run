@@ -1,6 +1,6 @@
 # Add a Tool
 
-You want to add a new tool to a route and call it with full type safety. Here's how.
+Learn how to add a tool to a route and call it with full type safety:
 
 ## The code
 
@@ -48,11 +48,11 @@ export async function workflow(
 
 ## Notes
 
-- **No registration.** Drop the file into `tools/`. Run `b4 typegen` to regenerate types, or let the dev server do it on reload. Use `b4 check` to validate the app without writing files.
-- **Two discovery locations.** Tools are discovered from both `<route>/tools/` (route-local, only available to that route) and `src/tools/` (shared across all routes). Place a tool in `src/tools/` when multiple routes need it; place it in `<route>/tools/` to keep it scoped.
-- **Serializable types wherever they are declared.** B4.run's compiler pass extracts input and output types written inline, declared as local aliases or interfaces, or imported from another module. Keep the root input object-shaped so B4.run can emit the model-facing tool schema.
-- **Plain JSON in, plain JSON out.** Tool inputs and outputs cross the runtime boundary. No `Date`, no `Map`, no class instances.
-- **`agent` routes don't call `ctx.tools`.** The LLM picks tools by name once `b4 build` binds them. The example above uses a `workflow` route to show the typed call site.
+- **No registration.** Put the file in `tools/`. Run `b4 typegen` to regenerate types, or let the dev server do it on reload. Use `b4 check` to validate the app without writing files.
+- **Two discovery locations.** B4.run discovers tools in `<route>/tools/` (available only to that route) and in `src/tools/` (shared by all routes). Put a tool in `src/tools/` when several routes need it, and in `<route>/tools/` to keep it scoped.
+- **Declare types anywhere.** B4.run's compiler pass extracts input and output types written inline, declared as local aliases or interfaces, or imported from another module. Keep the root input an object so B4.run can emit the model-facing tool schema.
+- **Plain JSON in, plain JSON out.** Tool inputs and outputs cross the runtime boundary, so don't use `Date`, `Map`, or class instances.
+- **`agent` routes don't call `ctx.tools`.** The model picks tools by name once `b4 build` binds them. The example uses a `workflow` route to show the typed call site.
 
 ## Related
 

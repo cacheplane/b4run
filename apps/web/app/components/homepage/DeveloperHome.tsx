@@ -1,3 +1,4 @@
+import { CopyCommand } from "../CopyCommand"
 import { reportUrl, sourceUrl } from "./evidence"
 import { prepareHomepage } from "./highlight"
 import styles from "./homepage.module.css"
@@ -18,9 +19,9 @@ export async function DeveloperHome() {
             Readable code.
           </h1>
           <p>
-            Write the agent. Give it tools. Set the limits.
+            Write the agent, give it tools, and set its limits.
             <br />
-            Ship code you can actually read.
+            You ship code you can actually read.
           </p>
           <span className={styles.dot} aria-hidden="true" />
         </section>
@@ -35,9 +36,6 @@ export async function DeveloperHome() {
               1m 53s · edited highlights <span aria-hidden="true">＋</span>
             </span>
           </summary>
-          <p className={styles.sourceNote}>
-            Historical defect, earlier implementation. Recorded timing applies to this run only.
-          </p>
           <Walkthrough {...prepared.walkthrough} />
           <div className={styles.lower}>
             <a href={sourceUrl("README.md")} className={styles.textLink}>
@@ -50,30 +48,16 @@ export async function DeveloperHome() {
         </details>
         <section className={styles.takeaway} aria-labelledby="run-title">
           <div>
-            <p className={styles.eyebrow}>Your next commit starts here</p>
-            <h2 id="run-title">
-              Read it.
-              <br />
-              Run it.
-              <br />
-              Make it yours.
-            </h2>
-            <p>Start with this agent. Make it yours.</p>
-            <a className={styles.cta} href="/blueprints/code-fixer.md">
-              Open the installation guide <span aria-hidden="true">↗</span>
-            </a>
+            <p className={styles.eyebrow}>Get started</p>
+            <h2 id="run-title">Build your own agent.</h2>
+            <p>Scaffold a new B4 app with one command:</p>
+            <CopyCommand command="npm create b4-app@latest my-agent" />
           </div>
           <div>
-            <p>The B4 CLI prints the installation guide for your coding agent:</p>
-            <pre className={styles.runCommand}>
-              <code>b4 add code-fixer</code>
-            </pre>
             <p>
-              Qualified installation · B4 0.8.32 · Earlier source.
-              <br />
-              Node 24 · Git · Docker · API key for live runs.
-              <br />
-              Replay the sample without a model call.
+              To start from this code fixer, run <code>b4 add code-fixer</code> and give the printed
+              guide to your coding agent. It needs Node 24, Git, and Docker, plus an API key for
+              live runs.
             </p>
             <a href="/docs/cli#b4-add" className={styles.reportLink}>
               Using the B4 CLI ↗
@@ -84,10 +68,6 @@ export async function DeveloperHome() {
               className={styles.reportLink}
             >
               Read the code walkthrough ↗
-            </a>
-            <br />
-            <a href={reportUrl} className={styles.reportLink}>
-              See every attempt, including the failures ↗
             </a>
           </div>
         </section>

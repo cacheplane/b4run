@@ -1,10 +1,10 @@
 # Evals
 
-Scenario tests and `@b4run/testing` pin down behaviour: given this input and these fixtures, the agent calls this tool and says this. They answer "is it correct?" for a handful of cases. Evals answer a different question — "how good is it?" — by running your agent over a whole **dataset** and scoring each output, then aggregating the scores into a single verdict you can **gate** on.
+Scenario tests and `@b4run/testing` answer "is it correct?" for a handful of cases: given this input and these fixtures, the agent calls this tool and says this. Evals answer "how good is it?". They run your agent over a whole **dataset**, score each output and aggregate the scores into a single verdict you can **gate** on.
 
-Use evals when you want a quality bar that survives prompt edits, model swaps, and refactors: a number that goes up or down across a dataset, with an optional threshold that fails CI when quality regresses.
+Use evals when you want a quality bar that survives prompt edits, model swaps and refactors. You get a number across a dataset, with an optional threshold that fails CI when quality regresses.
 
-Evals make the agent run deterministic by default. Like `@b4run/testing`, each case replays pre-written **aimock** fixtures, so the agent's model call is replaced while your tools, prompts, capabilities, and state run normally. Scorers still execute after the replayed run; deterministic scorers are CI-safe, and model-graded scorers such as `llmJudge` are CI-safe when their chat-completions requests are fixture-backed or mocked. A separate `b4 eval --live` mode runs the real model locally when you want to measure against actual model output.
+By default, each case replays pre-written **aimock** fixtures, just like `@b4run/testing`. The agent's model call is replaced while your tools, prompts, capabilities and state run normally. Scorers still execute after the replayed run. Deterministic scorers are CI-safe, and model-graded scorers such as `llmJudge` are CI-safe when their chat-completions requests are fixture-backed or mocked. `b4 eval --live` runs the real model locally when you want to measure actual model output.
 
 ## Install
 
@@ -12,11 +12,11 @@ Evals make the agent run deterministic by default. Like `@b4run/testing`, each c
 pnpm add -D @b4run/evals @b4run/testing
 ```
 
-`@b4run/evals` provides `defineEval` and the scorers; `@b4run/testing` provides `script()` and the harness the `b4 eval` command drives.
+`@b4run/evals` provides `defineEval` and the scorers. `@b4run/testing` provides `script()` and the harness the `b4 eval` command drives.
 
 ## The `*.eval.ts` convention
 
-Evals live next to the route they exercise, under an `evals/` directory:
+Evals live next to the route they exercise, in an `evals/` directory:
 
 ```
 src/app/chat/
@@ -25,7 +25,7 @@ src/app/chat/
     quality.eval.ts
 ```
 
-`b4 eval` discovers `src/app/<route>/evals/*.eval.ts` the same way `b4 test` discovers `run.test.ts`. An eval co-located under a route directory binds to that route automatically; the `route` field is only needed when the file lives elsewhere.
+`b4 eval` discovers `src/app/<route>/evals/*.eval.ts` the same way `b4 test` discovers `run.test.ts`. An eval under a route directory binds to that route automatically. You only need the `route` field when the file lives elsewhere.
 
 ## `defineEval`
 
@@ -35,7 +35,7 @@ import { script } from "@b4run/testing"
 
 export default defineEval({
   name: "chat quality",
-  // route: "/chat#agent",  // optional — inferred from the file location
+  // route: "/chat#agent",  // optional: inferred from the file location
   dataset: [
     {
       name: "greets the user",
@@ -50,13 +50,13 @@ export default defineEval({
 
 The fields:
 
-- **`name`** — required label for the eval, shown in the report.
-- **`route`** — the Agent Protocol route key (`"/chat#agent"`). Optional when the file is co-located under a route; required otherwise.
-- **`dataset`** — the cases to run (see below).
-- **`scorers`** — one or more scorers; each runs against every case.
-- **`middlewareContext`** — the context your `middleware.ts` would have produced, as a value or a `(run) => context` function evaluated per case. `b4 eval` runs the route in-process and bypasses middleware, so tools that read `ctx.middleware` need it supplied here. See [Supply the middleware context](/docs/testing-agents#supply-the-middleware-context).
-- **`threshold`** — sugar for `gate.mean(threshold)` (see Gating).
-- **`gate`** — a composable gate policy; takes precedence over `threshold`.
+- **`name`:** required label for the eval, shown in the report.
+- **`route`:** the Agent Protocol route key (`"/chat#agent"`). Optional when the file lives under a route, required otherwise.
+- **`dataset`:** the cases to run (see below).
+- **`scorers`:** one or more scorers. Each runs against every case.
+- **`middlewareContext`:** the context your `middleware.ts` would have produced, as a value or a `(run) => context` function evaluated per case. `b4 eval` runs the route in-process and bypasses middleware, so tools that read `ctx.middleware` need it supplied here. See [Supply the middleware context](/docs/testing-agents#supply-the-middleware-context).
+- **`threshold`:** sugar for `gate.mean(threshold)` (see Gating).
+- **`gate`:** a composable gate policy. It takes precedence over `threshold`.
 
 A `dataset` case is `{ input, expected?, name?, fixtures?, metadata? }`. `input` is the user message for an agent route. `fixtures` is the per-case aimock script used in replay mode (ignored under `--live`).
 
@@ -76,25 +76,25 @@ dataset: "./cases.jsonl"
 dataset: async () => loadCasesFromSomewhere()
 ```
 
-A `.json` file must contain a JSON array of cases; a `.jsonl` file holds one case object per line. Relative paths resolve against the eval file's directory.
+A `.json` file must contain a JSON array of cases. A `.jsonl` file holds one case object per line. Relative paths resolve against the eval file's directory.
 
 ## Scorers
 
 A scorer reads the run result and the case and returns a **score**: a number in `0..1`, a boolean (`true` = `1`, `false` = `0`), or a rich verdict `{ score, label?, reason? }`. Built-in scorers:
 
-- **`exactMatch()`** — final message equals `case.expected`.
-- **`contains(substring)`** — final message includes the substring.
-- **`regex(re)`** — the regex matches the final message.
-- **`jsonEquals()`** — `case.expected` deep-equals the parsed final message (or a value you `select`).
-- **`toolCalled(name, { withArgs? })`** — a tool was called (optionally with matching args).
-- **`tokensUnder(budget)`** — fewer than `budget` tokens were streamed.
-- **`memoryRecalled(expectedIds)`** — every expected memory id appears in a `recall` tool result.
-- **`memoryFresh(expectedValue)`** — the final message contains the expected newer value.
-- **`memoryIsolated(forbidden)`** — the forbidden value appears in neither `recall` results nor the final message.
+- **`exactMatch()`:** final message equals `case.expected`.
+- **`contains(substring)`:** final message includes the substring.
+- **`regex(re)`:** the regex matches the final message.
+- **`jsonEquals()`:** `case.expected` deep-equals the parsed final message (or a value you `select`).
+- **`toolCalled(name, { withArgs? })`:** a tool was called (optionally with matching args).
+- **`tokensUnder(budget)`:** fewer than `budget` tokens were streamed.
+- **`memoryRecalled(expectedIds)`:** every expected memory id appears in a `recall` tool result.
+- **`memoryFresh(expectedValue)`:** the final message contains the expected newer value.
+- **`memoryIsolated(forbidden)`:** the forbidden value appears in neither `recall` results nor the final message.
 
-Each built-in takes an optional `{ threshold }` — its own pass bar, used by `gate.perScorer` and per-case pass logic.
+Each built-in takes an optional `{ threshold }`. That is its own pass bar, used by `gate.perScorer` and per-case pass logic.
 
-For anything custom, write your own:
+For anything else, write your own:
 
 ```ts
 import { custom, llmJudge } from "@b4run/evals"
@@ -110,7 +110,7 @@ llmJudge({
 })
 ```
 
-`custom((run, testCase) => Score | Promise<Score>)` gives you the full run result and case. `llmJudge` asks a model to grade the output against `criteria` (which interpolates `{{input}}`, `{{expected}}`, `{{output}}`) and returns `{ score, reason }`. The scorer sends a chat-completions request whenever it runs. In B4.run CLI replay, that request goes through aimock and can be satisfied by fixtures; in live, record, or unmocked programmatic runs, it needs model credentials unless you inject a mocked `fetchImpl`.
+`custom((run, testCase) => Score | Promise<Score>)` gives you the full run result and case. `llmJudge` asks a model to grade the output against `criteria` (which interpolates `{{input}}`, `{{expected}}`, `{{output}}`) and returns `{ score, reason }`. The scorer sends a chat-completions request whenever it runs. In B4.run CLI replay, that request goes through aimock and can be satisfied by fixtures. In live, record or unmocked programmatic runs, it needs model credentials unless you inject a mocked `fetchImpl`.
 
 ## Gating
 
@@ -132,13 +132,13 @@ gate: gate.any(gate.passRate(0.9), gate.mean(0.95)) // any one passing is enough
 There are two shorthands:
 
 - **`threshold:`** on the eval is sugar for `gate.mean(threshold)`. If `gate` is set, `threshold` is ignored.
-- A per-scorer **`threshold`** sets that scorer's own bar — used by `gate.perScorer()` and to decide whether a case "passed" (every scorer must meet its bar; default bar `0.5`).
+- A per-scorer **`threshold`** sets that scorer's own bar. `gate.perScorer()` uses it, and so does the check for whether a case "passed" (every scorer must meet its bar; the default bar is `0.5`).
 
-If you set neither `gate` nor `threshold`, the eval is **informational**: it always passes and just reports scores. This lets you land an eval and watch the numbers before you commit to a bar.
+If you set neither `gate` nor `threshold`, the eval is **informational**. It always passes and just reports scores, so you can land an eval and watch the numbers before you commit to a bar.
 
 ## Execution: replay vs live
 
-Evals use the same aimock fixture system as agent tests — see [Fixtures and Recording](/docs/testing-agents/fixtures) for how fixtures, `script()`, and replay-vs-live mode work, and why live runs must never touch CI.
+Evals use the same aimock fixture system as agent tests. See [Fixtures and Recording](/docs/testing-agents/fixtures) for how fixtures, `script()` and replay-vs-live mode work, and why live runs must never touch CI.
 
 By default `b4 eval` runs in **replay** mode: each case replays its `fixtures` (a `script()` builder inline on the case, or a committed fixture file) through aimock, so the agent's model call is replaced. This is the mode to run in CI. If the eval includes `llmJudge`, the scorer still runs during replay, so include a fixture for its judge request or inject a mocked `fetchImpl`.
 
@@ -152,15 +152,15 @@ Pass `--live` to run the real model locally instead:
 b4 eval --live
 ```
 
-Live mode ignores per-case fixtures and calls the actual provider. It requires `OPENAI_API_KEY` and is meant for local runs while you tune prompts — never wire it into CI.
+Live mode ignores per-case fixtures and calls the actual provider. It requires `OPENAI_API_KEY` and is meant for local runs while you tune prompts. Never wire it into CI.
 
 ### Recording fixtures with `--record`
 
 `b4 eval --record` runs the suite against the real model (requires `OPENAI_API_KEY`; never run in CI) and writes agent-run request fixtures you can replay later. For each case that has no inline `script()` fixtures, it writes a sibling file `<evalBasename>.<caseSlug>.fixtures.json` next to the `.eval.ts`. A plain `b4 eval` then auto-loads those files, so the agent run stays deterministic in CI without any code changes.
 
-Recording snapshots only the agent run; it does not add scorer model calls to that sibling file. If the eval uses `llmJudge`, separately add and commit a fixture that matches the judge request, or inject a mocked `fetchImpl` into the scorer before replaying in CI.
+Recording snapshots only the agent run. It does not add scorer model calls to that sibling file. If the eval uses `llmJudge`, separately add and commit a fixture that matches the judge request, or inject a mocked `fetchImpl` into the scorer before replaying in CI.
 
-Cases that already have inline `script()` fixtures are left alone — `--record` skips them (logging `skipped record (inline fixtures)`) and never overwrites them. Inline fixtures stay authoritative. The gate still applies during `--record`: scores are aggregated and checked against the threshold after all cases run, but fixture files are written per-case before the verdict, so a gate failure never discards captured responses.
+`--record` skips cases that already have inline `script()` fixtures (logging `skipped record (inline fixtures)`) and never overwrites them. The gate still applies during `--record`: scores are checked against the threshold after all cases run. Fixture files are written per case before the verdict, so a gate failure never discards captured responses.
 
 `--record` and `--live` are mutually exclusive.
 
@@ -178,11 +178,11 @@ b4 eval
 b4 eval [path] [--live] [--record] [--json [file]] [--cwd <path>]
 ```
 
-- **`[path]`** — narrow discovery to a subdirectory.
-- **`--live`** — run the real model (requires `OPENAI_API_KEY`); never use in CI.
-- **`--record`** — record real-model responses into sibling fixture files (requires `OPENAI_API_KEY`); never use in CI. Mutually exclusive with `--live`.
-- **`--json [file]`** — also write a JSON report. Defaults to `.b4/eval-report.json`.
-- **`--cwd <path>`** — operate on a different app root.
+- **`[path]`:** narrow discovery to a subdirectory.
+- **`--live`:** run the real model (requires `OPENAI_API_KEY`). Never use in CI.
+- **`--record`:** record real-model responses into sibling fixture files (requires `OPENAI_API_KEY`). Never use in CI. Mutually exclusive with `--live`.
+- **`--json [file]`:** also write a JSON report. Defaults to `.b4/eval-report.json`.
+- **`--cwd <path>`:** operate on a different app root.
 
 A gated eval that fails causes a non-zero exit, so CI fails when quality drops below the bar. Informational evals never affect the exit code. See the [CLI reference](/docs/cli) for the full command surface.
 
@@ -201,7 +201,7 @@ export default defineEval({
       fixtures: script()
         .user("Filter open items")
         .callsTool("applyFilter", { status: "open" })
-        .replies("Found 2 open items — let me know if I can help further."),
+        .replies("Found 2 open items. Let me know if I can help further."),
     },
   ],
   scorers: [
@@ -219,7 +219,7 @@ b4 eval
 ```
 
 The single case calls `applyFilter` and its reply contains "help", so both scorers
-score `1.00`. `gate.perScorer()` checks each scorer's mean against its own bar — both
+score `1.00`. `gate.perScorer()` checks each scorer's mean against its own bar. Both
 are `1.00 ≥ 0.5`, so the eval passes:
 
 ```
@@ -239,12 +239,12 @@ npm run eval
 
 This wraps `b4 eval` and runs the agent cases in **replay mode** by default. The generated eval (`server/src/app/research/evals/research-quality.eval.ts`) has two dataset cases and four scorers:
 
-- `toolCalled("searchCorpus", { threshold: 1 })` — asserts the agent called `searchCorpus`.
-- `contains("[corpus/", { threshold: 1 })` — asserts the reply cites a corpus source.
+- `toolCalled("searchCorpus", { threshold: 1 })` asserts the agent called `searchCorpus`.
+- `contains("[corpus/", { threshold: 1 })` asserts the reply cites a corpus source.
 - A custom `cites-source` scorer: `custom((run) => run.finalMessage.includes("corpus/") ? 1 : 0, { name: "cites-source", threshold: 1 })`.
 - `llmJudge({ criteria: "The report answers the question and cites at least one source document.", model: "gpt-5-mini", threshold: 0.7 })`.
 
-The gate is `gate.all(gate.passRate(1), gate.perScorer())` — every case must pass and every scorer must meet its threshold. The generated fixtures include the extra judge turns used by `llmJudge`, so the default `npm run eval` stays offline and no-key.
+The gate is `gate.all(gate.passRate(1), gate.perScorer())`, so every case must pass and every scorer must meet its threshold. The generated fixtures include the extra judge turns used by `llmJudge`, so the default `npm run eval` stays offline and no-key.
 
 To run the agent cases against the real model locally:
 
@@ -256,7 +256,7 @@ Grow it by adding cases to the dataset and more scorers.
 
 ## Programmatic API
 
-`runEval` from `@b4run/evals` lets you drive an eval definition from your own script — useful for custom CI tooling, reporting pipelines, or running evals as part of a larger orchestration.
+`runEval` from `@b4run/evals` lets you drive an eval definition from your own script, for example in custom CI tooling or a reporting pipeline:
 
 ```ts title="scripts/run-chat-eval.ts"
 import { fileURLToPath } from "node:url"
@@ -295,7 +295,7 @@ try {
 }
 ```
 
-The reset starts every dataset case on a fresh thread with a clean fixture set. `runEval(def, options)` accepts a `RunEvalOptions` with two fields: `runCase` (required — executes one case and returns an `AgentRunResult`) and `baseDir` (optional — base directory for resolving a string dataset path). It returns a `Promise<EvalReport>` containing `{ name, cases, byScorer, mean, gated, passed, reason? }`.
+The reset starts every dataset case on a fresh thread with a clean fixture set. `runEval(def, options)` accepts a `RunEvalOptions` with two fields: `runCase` (required: executes one case and returns an `AgentRunResult`) and `baseDir` (optional: base directory for resolving a string dataset path). It returns a `Promise<EvalReport>` containing `{ name, cases, byScorer, mean, gated, passed, reason? }`.
 
 ## Related
 

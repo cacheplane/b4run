@@ -31,22 +31,22 @@ Use one application-owned pool where the host permits it, handle idle pool error
 
 Replicas need both shared persistence **and** guaranteed thread-aware routing or serialization. B4.run has no distributed run coordinator: each handler's one-run-per-thread gate and cancellation registry are process-local.
 
-For Agent Protocol routes, the thread id is present in paths such as `/threads/:thread_id/runs/stream` and `/threads/:thread_id/cancel`. Route all operations for an active thread—including cancellation—to the instance that owns its run, or place a distributed coordinator in front of execution. A persisted `busy` status is metadata, not a safe lock.
+For Agent Protocol routes, the thread id is present in paths such as `/threads/:thread_id/runs/stream` and `/threads/:thread_id/cancel`. Route all operations for an active thread (including cancellation) to the instance that owns its run, or place a distributed coordinator in front of execution. A persisted `busy` status is metadata, not a safe lock.
 
 AG-UI sends its `threadId` in the request body to `/agui/:routeId`. An ordinary path-only load balancer cannot derive thread affinity from that body automatically. Use a gateway that understands the request, a trusted affinity token established before dispatch, or another serialization design you can test under concurrent requests.
 
 ## Streaming and proxy behavior
 
-Agent Protocol execution is durable with respect to its viewer: if the client disconnects from `/runs/stream` or abandons `/runs/wait`, the run continues until it completes, is explicitly cancelled, or the runtime shuts down. Route cancellation to the owning process.
+Agent Protocol execution outlives its viewer. If the client disconnects from `/runs/stream` or abandons `/runs/wait`, the run continues until it completes, is explicitly cancelled, or the runtime shuts down. Route cancellation to the owning process.
 
-AG-UI is ephemeral. Disconnecting or cancelling its response aborts the request's run. Configure proxies to pass server-sent events without buffering, preserve heartbeat traffic, and allow timeouts long enough for expected turns. Test disconnects at the browser, proxy, and runtime—not only with a direct local request.
+AG-UI is ephemeral. Disconnecting or cancelling its response aborts the request's run. Configure proxies to pass server-sent events without buffering, preserve heartbeat traffic, and allow timeouts long enough for expected turns. Test disconnects at the browser, proxy and runtime, not only with a direct local request.
 
 ## Health and readiness
 
 The runtime serves two probes on every target (Node, Hono, Vercel), and they answer different questions:
 
 - `GET /healthz` is **liveness**: the process is up and serving HTTP. It touches no store and never calls a per-request store factory, so a deployment with `DATABASE_URL` unset or a database that is unreachable still answers `200 {"status":"ready"}`. That does not prove that Postgres, model providers, sandbox infrastructure, or every configured backend can serve a turn.
-- `GET /readyz` is **readiness**: the request's durable stores (threads, checkpointer, permissions) each answer a real query against their schema, running lazy migrations on the way. It answers `200 {"status":"ready","checks":{...}}` when every store answers, or `503 {"status":"not_ready","checks":{...}}` naming each failing dependency — `requestStores` when the per-request factory itself threw (for example `DATABASE_URL` missing on Vercel), otherwise the store by name. Failure messages have connection-string credentials redacted and the cause is logged to stderr once per distinct failure.
+- `GET /readyz` is **readiness**: the request's durable stores (threads, checkpointer, permissions) each answer a real query against their schema, running lazy migrations on the way. It answers `200 {"status":"ready","checks":{...}}` when every store answers, or `503 {"status":"not_ready","checks":{...}}` naming each failing dependency: `requestStores` when the per-request factory itself threw (for example `DATABASE_URL` missing on Vercel), otherwise the store by name. Failure messages have connection-string credentials redacted and the cause is logged to stderr once per distinct failure.
 
 `/readyz` does not probe the model provider, the sandbox provider, or the memory store. Add an application-owned check for anything beyond the durable stores your rollout requires.
 

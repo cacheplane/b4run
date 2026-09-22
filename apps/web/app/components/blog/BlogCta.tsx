@@ -5,9 +5,9 @@ export function BlogCta() {
   return (
     <section className={styles.cta}>
       <div className={styles.ctaInner}>
-        <h2>Readable code. Real agents.</h2>
+        <h2>Build your own agent.</h2>
         <p>
-          Start a project, or follow the developer agent from its first failing test to a verified
+          Start a project, or follow the code-fixer agent from its first failing test to a verified
           patch.
         </p>
         <div className={styles.ctaLinks}>

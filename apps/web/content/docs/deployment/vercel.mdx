@@ -1,23 +1,29 @@
 # Vercel
 
-The Vercel target is an opt-in deployment for Vercel's Node 24 runtime on Fluid compute. It emits a Build Output API tree under `.vercel/output/` that `vercel deploy --prebuilt` uploads as-is, and it serves the same edge subset of B4.run as the [Hono](/docs/deployment/edge) target: no sandbox, no workspace tooling, and durable Postgres stores instead of local SQLite. If a full filesystem or a configured execution sandbox is a named requirement, prefer [Node and Docker](/docs/deployment/node).
+The Vercel target is an opt-in deployment for Vercel's Node 24 runtime on Fluid compute. It emits a Build Output API tree under `.vercel/output/` that `vercel deploy --prebuilt` uploads as-is. It serves the same edge subset of B4.run as the [Hono](/docs/deployment/edge) target, so there is no sandbox or workspace tooling, and the stores are durable Postgres instead of local SQLite. If you need a full filesystem or an execution sandbox, use [Node and Docker](/docs/deployment/node).
 
 ## Fit check and evidence boundary
 
-The emitted function is tested three ways: the Build Output API tree is inspected structurally, the bundled function is imported and driven with Web `Request` objects in a Node 24 process, and a gated `vercel-native` CI lane creates real preview deployments through the pinned Vercel CLI (`58.9.0`), drives stateful and streaming Agent Protocol traffic against them, and removes them. That lane proves one source-built and one prebuilt deployment on a hosted Neon database. It does not prove your project's authentication, regions, quotas, or model-provider path.
+We test the emitted function three ways:
 
-Before selecting the target, confirm all of these:
+- We inspect the Build Output API tree structurally.
+- We import the bundled function and drive it with Web `Request` objects in a Node 24 process.
+- A gated `vercel-native` CI lane creates real preview deployments through the pinned Vercel CLI (`58.9.0`), drives stateful and streaming Agent Protocol traffic against them, and removes them.
 
-- the app does not need sandbox, workspace, shell, route long-term memory, or tool-output offloading;
-- a request-scoped Postgres pool, opened and disposed per request, fits the database environment;
-- every authored route, tool, state module, middleware module, and transitive dependency bundles into a single self-contained function directory;
-- the operator will test the deployed project boundary rather than infer it from a green build.
+That lane proves one source-built and one prebuilt deployment on a hosted Neon database. It does not prove your project's authentication, regions, quotas or model-provider path.
 
-`b4 check` applies the same `B4_E1005` capability gate to `vercel` that it applies to `hono`. See [What the edge cannot serve](/docs/deployment/edge#what-the-edge-cannot-serve) for the full table; every row applies unchanged.
+Before you choose the target, confirm all of these:
+
+- The app does not need sandbox, workspace, shell, route long-term memory or tool-output offloading.
+- A Postgres pool opened and disposed per request fits your database environment.
+- Every authored route, tool, state module, middleware module and transitive dependency bundles into a single self-contained function directory.
+- You will test the deployed project boundary instead of trusting a green build.
+
+`b4 check` applies the same `B4_E1005` capability gate to `vercel` as to `hono`. Every row of [What the edge cannot serve](/docs/deployment/edge#what-the-edge-cannot-serve) applies unchanged.
 
 ## Select the target
 
-`vercel` is not a default target. Naming `build.targets` replaces the Node and LangSmith defaults, so list every target you still want:
+`vercel` is not a default target. Setting `build.targets` replaces the Node and LangSmith defaults, so list every target you still want:
 
 ```ts title="b4.config.ts"
 import { config } from "@b4run/cli"
@@ -27,7 +33,7 @@ export default config({
 })
 ```
 
-Declare the packages the emitted function imports. The build prints a notice when any of `@b4run/cli`, `@b4run/postgres-storage`, `@neondatabase/serverless`, or `hono` is missing from the app's `package.json`; add them to `dependencies` so the bundler can resolve them:
+Declare the packages the emitted function imports. The build prints a notice when any of `@b4run/cli`, `@b4run/postgres-storage`, `@neondatabase/serverless` or `hono` is missing from the app's `package.json`. Add them to `dependencies` so the bundler can resolve them:
 
 ```bash
 npm install @b4run/postgres-storage @neondatabase/serverless hono
@@ -43,28 +49,28 @@ b4 build
 b4 verify
 ```
 
-The generated app templates already ignore `.vercel/`. Add it to `.gitignore` in an existing app; `vercel.json` stays at the root and is committed.
+The generated app templates already ignore `.vercel/`. In an existing app, add it to `.gitignore`. `vercel.json` stays at the root and is committed.
 
 ## Emitted artifacts
 
-The target writes one Build Output API tree at `.vercel/output/` and reconciles one root `vercel.json`. A bare build — no `build.vercel` — emits exactly this:
+The target writes one Build Output API tree at `.vercel/output/` and reconciles one root `vercel.json`. A bare build (no `build.vercel`) emits exactly this:
 
 | Artifact | Purpose |
 |---|---|
 | `.vercel/output/config.json` | Build Output API `version: 3` with a single catch-all route, `{ "src": "/(.*)", "dest": "/b4" }`, sending every path to the function |
 | `.vercel/output/functions/b4.func/.vc-config.json` | Node function metadata: `handler: "index.mjs"`, `launcherType: "Nodejs"`, `runtime: "nodejs24.x"`, `supportsResponseStreaming: true` |
 | `.vercel/output/functions/b4.func/index.mjs` | The bundled function: a Hono catch-all around `createRuntimeFetchHandler`, with the static route manifest, the per-request Postgres store factory, every model-provider package, and the app's serialized config inlined |
-| `vercel.json` | Root project configuration, created when missing; an existing file is never modified, and a reference copy goes to `.b4/build/vercel.json` only when the existing file lacks a required contract. Absent entirely when reconciliation is [turned off](#opt-out-for-a-prebuilt-only-project) |
+| `vercel.json` | Root project configuration, created when missing. An existing file is never modified, and a reference copy goes to `.b4/build/vercel.json` only when the existing file lacks a required contract. Not emitted when reconciliation is [turned off](#opt-out-for-a-prebuilt-only-project) |
 
 [`build.vercel`](#compose-with-a-frontend) adds to that tree: a `static/` directory, a `functions/<name>.func/` per declared function, and the routes that order them. The runtime function keeps the same `b4.func` name it has in a bare build.
 
-The function directory is the whole deployable. `b4 build` bundles the generated runtime with esbuild for `node24`, then verifies that every non-builtin import resolves inside `b4.func`, that no symlink escapes it, and that the bundle contains no `node:module` loader or non-literal dynamic import. A dependency that cannot be bundled fails the build with the missing specifier; install it as a runtime dependency and rebuild.
+The function directory is the whole deployable. `b4 build` bundles the generated runtime with esbuild for `node24`, then verifies that every non-builtin import resolves inside `b4.func`, that no symlink escapes it, and that the bundle contains no `node:module` loader or non-literal dynamic import. A dependency that cannot be bundled fails the build with the missing specifier. Install it as a runtime dependency and rebuild.
 
-The output is published atomically. The tree is staged under `.vercel/.b4-vercel-<uuid>/`, validated, then renamed over `.vercel/output`; a prior output is backed up first and restored if publication fails. Nothing else under `.vercel/` (for example the `project.json` that `vercel link` writes) is touched.
+The output is published atomically. The tree is staged under `.vercel/.b4-vercel-<uuid>/`, validated, then renamed over `.vercel/output`. A prior output is backed up first and restored if publication fails. Nothing else under `.vercel/` (for example the `project.json` that `vercel link` writes) is touched.
 
-`.vercel/output` is where Vercel deploys from, so that is the default. `build.vercel.outDir` in `b4.config.ts`, or `b4 build --out-dir <dir>` for one run, publishes the tree somewhere else instead; the flag wins over the config value. The path resolves relative to the app root, a directory that would contain the app root is rejected before anything is written, and `--out-dir` is an error when `vercel` is not a configured target. Point it at a staging directory when a later step composes the function with static assets before deploying, rather than describing that composition through `build.vercel`.
+Vercel deploys from `.vercel/output`, so that is the default. `build.vercel.outDir` in `b4.config.ts`, or `b4 build --out-dir <dir>` for one run, publishes the tree somewhere else, and the flag wins over the config value. The path resolves relative to the app root. A directory that would contain the app root is rejected before anything is written, and `--out-dir` is an error when `vercel` is not a configured target. Point it at a staging directory when a later step composes the function with static assets before deploying, instead of describing that composition through `build.vercel`.
 
-Unlike the Hono target, the intermediate `modules.edge.mjs`, `stores.mjs`, and `app.mjs` are not left in `.b4/build/`. They are bundled into `index.mjs` and the staging directory is removed. Inspect the bundle itself.
+Unlike the Hono target, the intermediate `modules.edge.mjs`, `stores.mjs` and `app.mjs` are not left in `.b4/build/`. They are bundled into `index.mjs` and the staging directory is removed, so inspect the bundle itself.
 
 ## `vercel.json` reconciliation
 
@@ -79,13 +85,13 @@ Unless you [turn it off](#opt-out-for-a-prebuilt-only-project), the target requi
 ```
 
 - `buildCommand` makes a Git-connected project or a source `vercel deploy` run `b4 build` on Vercel, so the remote build produces the same `.vercel/output` tree. The explicit `node` entry avoids a package-manager-specific binary shim.
-- `fluid: true` is part of the lifecycle contract, not an optimization: the generated stores assume one function instance may serve several requests, and the file value applies to old and new projects alike regardless of Dashboard defaults.
+- `fluid: true` is required, because the generated stores assume one function instance can serve several requests. The file value applies to old and new projects alike, whatever the Dashboard defaults are.
 
-Reconciliation rules, as implemented:
+The reconciliation rules are:
 
 1. **No root file:** the target creates it with exactly the content above and reports it as an artifact.
 2. **Root file present with both contracts established:** the file is left untouched. `buildCommand` counts as established when, after collapsing whitespace, it equals the command above.
-3. **Root file present but a contract is missing:** the file is user-owned and is not modified. The recommended content is written to `.b4/build/vercel.json`, and the build prints a warning naming both files and the missing contract. The build still succeeds.
+3. **Root file present but a contract is missing:** the file is yours and is not modified. The recommended content is written to `.b4/build/vercel.json`, and the build prints a warning naming both files and the missing contract. The build still succeeds.
 4. **`fluid: false`:** the build fails. The setting conflicts with the supported lifecycle.
 5. **Invalid JSON:** the build fails with the parse error, because Vercel cannot consume the file either.
 
@@ -93,7 +99,7 @@ Extra settings in the root file are preserved and remain authoritative.
 
 ### Opt out for a prebuilt-only project
 
-A prebuilt flow never runs `buildCommand`, so requiring a file that exists only to satisfy the reconciler is noise. Turn reconciliation off:
+A prebuilt flow never runs `buildCommand`, so you don't need a file that only satisfies the reconciler. Turn reconciliation off:
 
 ```ts title="b4.config.ts"
 import { config } from "@b4run/cli"
@@ -106,25 +112,25 @@ export default config({
 })
 ```
 
-`b4 build` then neither requires, writes, reads, nor inspects `vercel.json`, drops it from the artifact list, and no longer fails on a committed `fluid: false`. The build prints a line saying reconciliation is off.
+`b4 build` then ignores `vercel.json` entirely, drops it from the artifact list, and no longer fails on a committed `fluid: false`. The build prints a line saying reconciliation is off.
 
-Reconciliation stays on unless the flag is exactly `false`, and every near miss fails with `B4_E1003` rather than quietly reconciling anyway: a non-boolean value, a non-object `build.vercel`, an unknown key inside `build.vercel`, or `reconcileVercelJson` placed directly on `build` instead of under `build.vercel`.
+Reconciliation stays on unless the flag is exactly `false`. Every near miss fails with `B4_E1003` instead of quietly reconciling anyway: a non-boolean value, a non-object `build.vercel`, an unknown key inside `build.vercel`, or `reconcileVercelJson` placed directly on `build` instead of under `build.vercel`.
 
-Fluid compute is still the concurrency model this function is built for. With the flag off, nothing checks it from source, so enable it in the Vercel project settings.
+The function is still built for Fluid compute. With the flag off, nothing checks it from source, so enable Fluid in the Vercel project settings.
 
 ## `DATABASE_URL` and Neon
 
-The function builds its checkpointer, thread store, and permission store per request from `DATABASE_URL`, read through `process.env` at invocation time. A missing value fails the request with a message naming the variable; nothing is baked into the bundle at build time, so the same artifact deploys to preview and production with different databases.
+The function builds its checkpointer, thread store and permission store per request from `DATABASE_URL`, read through `process.env` at invocation time. A missing value fails the request with a message naming the variable. Nothing is baked into the bundle at build time, so the same artifact deploys to preview and production with different databases.
 
-The easiest wiring is the [Neon integration on the Vercel Marketplace](https://vercel.com/marketplace/neon), also reachable from the project's **Storage** tab. Installing it creates a Neon account if you have none, provisions a Neon project and adds `DATABASE_URL` (the pooled connection string) plus `DATABASE_URL_UNPOOLED` and the `PG*` components to the selected environments. The generated stores read only `DATABASE_URL`. Any other Postgres works too, over a pooled `pg` connection chosen automatically for a non-Neon host; set the variable under **Settings → Environment Variables** and redeploy, because runtime variables are captured per deployment.
+The easiest setup is the [Neon integration on the Vercel Marketplace](https://vercel.com/marketplace/neon), also reachable from the project's **Storage** tab. Installing it creates a Neon account if you have none, provisions a Neon project and adds `DATABASE_URL` (the pooled connection string) plus `DATABASE_URL_UNPOOLED` and the `PG*` components to the selected environments. The generated stores read only `DATABASE_URL`. Any other Postgres works too, over a pooled `pg` connection chosen automatically for a non-Neon host. Set the variable under **Settings → Environment Variables** and redeploy, because runtime variables are captured per deployment.
 
-Model-provider keys and base URLs (`OPENAI_API_KEY`, `OPENAI_BASE_URL`, and so on) are read the same way. Do not put secret literals in `b4.config.ts`; the JSON-representable part of that file is inlined into the bundle.
+Model-provider keys and base URLs (`OPENAI_API_KEY`, `OPENAI_BASE_URL`, and so on) are read the same way. Don't put secret literals in `b4.config.ts`, because the JSON-representable part of that file is inlined into the bundle.
 
 The first request in each function instance runs the store migrations under a Postgres advisory lock; later requests in that instance skip them.
 
 ### Keep preview and production apart
 
-With no further configuration the stores use the `public` schema and the `b4` table prefix, so every deployment of the project writes the same `public.b4_*` tables. On Vercel that means preview deployments share production's threads and checkpoints, which is rarely what you want from one `DATABASE_URL`.
+By default, the stores use the `public` schema and the `b4` table prefix, so every deployment of the project writes the same `public.b4_*` tables. On Vercel, that means preview deployments share production's threads and checkpoints.
 
 `B4_PG_SCHEMA` takes a lowercase identifier or a `$NAME` reference to another variable, so one project environment variable separates them:
 
@@ -132,17 +138,17 @@ With no further configuration the stores use the `public` schema and the `b4` ta
 B4_PG_SCHEMA=$VERCEL_ENV
 ```
 
-Vercel sets `VERCEL_ENV` on every deployment, so previews migrate and write `preview.b4_*` while production gets `production.b4_*`. `B4_PG_TABLE_PREFIX` works the same way for the table prefix. The migration pass creates the schema when it is missing, and each instance tracks its cold-start migration per database, schema, and prefix. An unset value keeps `public.b4_*`, and a malformed one fails the request by name instead of silently falling back to `public`. See [Namespace preview and production](/docs/deployment/edge#namespace-preview-and-production) for the full table.
+Vercel sets `VERCEL_ENV` on every deployment, so previews migrate and write `preview.b4_*` while production gets `production.b4_*`. `B4_PG_TABLE_PREFIX` works the same way for the table prefix. The migration pass creates the schema when it is missing, and each instance tracks its cold-start migration per database, schema and prefix. An unset value keeps `public.b4_*`, and a malformed one fails the request by name instead of silently falling back to `public`. See [Namespace preview and production](/docs/deployment/edge#namespace-preview-and-production) for the full table.
 
 ## `maxDuration` and streaming
 
-The runtime function's `.vc-config.json` carries `handler`, `launcherType`, `runtime`, and `supportsResponseStreaming`, plus `maxDuration` when `build.vercel.maxDuration` sets one; the output validator rejects any other key. Omit it and no `maxDuration` is written, so the project default applies: **Settings → Functions → Function Max Duration** in the Vercel Dashboard. With Fluid compute that default is 300 seconds on every plan, and Pro and Enterprise projects can raise it to 800 seconds. Set `build.vercel.maxDuration` to state the ceiling in the repository instead of the dashboard — the runtime function runs the agent, so it is the one a long tool-using run outgrows. A function declared under `build.vercel.functions` takes `maxDuration` and `supportsResponseStreaming` of its own. Agent runs that stream longer than the effective duration are terminated by Vercel, and a `vercel.json` `functions` block does not apply to a prebuilt Build Output tree.
+The runtime function's `.vc-config.json` carries `handler`, `launcherType`, `runtime` and `supportsResponseStreaming`, plus `maxDuration` when `build.vercel.maxDuration` sets one. The output validator rejects any other key. If you omit it, no `maxDuration` is written and the project default applies (**Settings → Functions → Function Max Duration** in the Vercel Dashboard). With Fluid compute that default is 300 seconds on every plan, and Pro and Enterprise projects can raise it to 800 seconds. Set `build.vercel.maxDuration` to keep the ceiling in the repository instead of the dashboard. The runtime function runs the agent, so it is the one a long tool-using run outgrows. A function declared under `build.vercel.functions` takes its own `maxDuration` and `supportsResponseStreaming`. Vercel terminates agent runs that stream longer than the effective duration, and a `vercel.json` `functions` block does not apply to a prebuilt Build Output tree.
 
-Streaming needs no extra configuration, but it is not free either. Agent Protocol `runs/stream` and AG-UI responses are `text/event-stream` bodies produced by the web-standard fetch handler, and reaching a browser incrementally depends on the `supportsResponseStreaming: true` that the runtime function's `.vc-config.json` always carries. Without that flag Vercel's Node launcher buffers the whole body, so a deployed UI shows nothing until the run finishes and then everything at once. If you see that symptom, check the flag survived whatever produced the tree. The build fixes it for the runtime function; a function you declare under `build.vercel.functions` has to ask for it. The native lane verifies that a prebuilt deployment delivers events incrementally, with the periodic `: ping` keepalive comments the runtime emits between them. Disconnecting a streaming client only detaches that viewer; the run continues and the generated stores dispose their pool only after it settles, so use `POST /threads/:thread_id/cancel` to stop work, as described in [Client disconnect](/docs/dev-server/agent-protocol#client-disconnect).
+Streaming needs no extra configuration. Agent Protocol `runs/stream` and AG-UI responses are `text/event-stream` bodies, and they reach the browser incrementally because the runtime function's `.vc-config.json` always carries `supportsResponseStreaming: true`. Without that flag, Vercel's Node launcher buffers the whole body, so a deployed UI shows nothing until the run finishes and then everything at once. If you see that, check that the flag survived whatever produced the tree. The build sets it for the runtime function, but a function you declare under `build.vercel.functions` has to ask for it. The native lane verifies that a prebuilt deployment delivers events incrementally, with the periodic `: ping` keepalive comments the runtime emits between them. Disconnecting a streaming client only detaches that viewer. The run continues, and the generated stores dispose their pool only after it settles, so use `POST /threads/:thread_id/cancel` to stop work, as described in [Client disconnect](/docs/dev-server/agent-protocol#client-disconnect).
 
 ## Compose with a frontend
 
-A bare build emits one function behind a catch-all route and nothing else: no static assets, no second function, no routes of your own. That is the right shape for a standalone agent service and too little for an app that also ships a SPA or its own API routes. `build.vercel` describes the rest of the tree, so `b4 build` alone produces the whole deployable:
+A bare build emits one function behind a catch-all route and nothing else. That works for a standalone agent service, but not for an app that also ships a SPA or its own API routes. `build.vercel` describes the rest of the tree, so `b4 build` alone produces the whole deployable:
 
 ```ts title="b4.config.ts"
 import { config } from "@b4run/cli"
@@ -163,32 +169,32 @@ export default config({
 
 That build publishes `static/` from `static.dir`, a `functions/<name>.func/` for each declared function, and a `config.json` whose routes run in Build Output order: your `routes`, then `{ handle: "filesystem" }`, then the runtime function, then the SPA fallback.
 
-Two details matter for a frontend.
+Two details matter for a frontend:
 
-- **The runtime function sits off the root name.** In the Build Output API a function named `index` is also served at `/`, so it would shadow `static/index.html`. The runtime function is named `b4.func` in every build, and `functionName` overrides that; `functionName: "index"` together with `static` fails the build rather than publishing a tree whose root is shadowed.
-- **The runtime keeps its own rooted paths.** With a SPA fallback the runtime route is scoped to the surfaces it owns — `/healthz`, `/readyz`, `/threads`, `/agui`, `/memory` — and every other path falls through to the fallback document. The runtime does not accept a base path, so compose by path prefix rather than rewriting the request path.
+- **The runtime function is not named `index`.** In the Build Output API, a function named `index` is also served at `/`, so it would shadow `static/index.html`. The runtime function is named `b4.func` in every build, and `functionName` overrides that. `functionName: "index"` together with `static` fails the build instead of publishing a tree whose root is shadowed.
+- **The runtime keeps its own rooted paths.** With a SPA fallback, the runtime route is scoped to the surfaces it owns (`/healthz`, `/readyz`, `/threads`, `/agui`, `/memory`), and every other path falls through to the fallback document. The runtime does not accept a base path, so compose by path prefix instead of rewriting the request path.
 
-`b4 build` validates the composed tree before publishing it: `config.json` must be version 3 and still route to the runtime function, each route must be a shape the Build Output API accepts, and every `functions/*.func` must be a self-contained Node function whose dependencies resolve inside its own directory. Every path `build.vercel` names is checked before `.vercel/` is touched, so a missing `static.dir` or function `entry` fails with the offending `build.vercel.*` key rather than a half-written tree.
+`b4 build` validates the composed tree before publishing it: `config.json` must be version 3 and still route to the runtime function, each route must be a shape the Build Output API accepts, and every `functions/*.func` must be a self-contained Node function whose dependencies resolve inside its own directory. Every path `build.vercel` names is checked before `.vercel/` is touched, so a missing `static.dir` or function `entry` fails with the offending `build.vercel.*` key instead of leaving a half-written tree.
 
 ### Assembling the tree yourself
 
-An app whose frontend build cannot be described this way can still assemble the tree in its own step, after `b4 build` and before `vercel deploy --prebuilt`. Two things make that supported rather than a workaround:
+If your frontend build can't be described this way, assemble the tree in your own step, after `b4 build` and before `vercel deploy --prebuilt`. Two things support this:
 
 - `build.vercel.outDir` publishes the runtime tree to a staging directory, so your assembler copies out of it into the real `.vercel/output` instead of editing the directory Vercel deploys from.
 - The output validator checks that `config.json` is version 3 and contains a route reaching the runtime function, not that it matches the catch-all the build wrote. Extra routes and extra top-level keys are accepted, so a composed config still validates.
 
-The validator runs on the tree the target stages, not on whatever your assembler produces afterwards, so a final composed `config.json` is yours to get right. Alternatively, deploy the agent as its own Vercel project and point the frontend at its origin; `server.cors` in `b4.config.ts` controls cross-origin access.
+The validator runs on the tree the target stages, not on what your assembler produces afterwards, so the final composed `config.json` is yours to get right. Alternatively, deploy the agent as its own Vercel project and point the frontend at its origin. `server.cors` in `b4.config.ts` controls cross-origin access.
 
 ## Prebuilt CI flow
 
-A prebuilt deployment uploads `.vercel/output` without a remote build, so CI controls the Node and B4.run versions that produced the artifact. The flow is:
+A prebuilt deployment uploads `.vercel/output` without a remote build, so CI controls the Node and B4.run versions that produced the artifact. Here is the flow:
 
 ```bash
 b4 build
 vercel deploy --prebuilt --yes
 ```
 
-`vercel deploy --prebuilt` needs the project linked. In CI, set `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` as secrets; with those present the CLI needs no `vercel link` step. The committed `vercel.json` is read from the working directory. Runtime environment variables come from the project, not the pipeline.
+`vercel deploy --prebuilt` needs the project linked. In CI, set `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` as secrets, and the CLI needs no `vercel link` step. The committed `vercel.json` is read from the working directory. Runtime environment variables come from the project, not the pipeline. Here is a GitHub Actions workflow:
 
 ```yaml title=".github/workflows/deploy.yml"
 name: Deploy to Vercel
@@ -215,17 +221,17 @@ jobs:
       - run: npx vercel@58.9.0 deploy --prebuilt --yes --target production
 ```
 
-Drop `--target production` to create a preview deployment instead. The B4.run repository's own lane pins the CLI version and verifies it before every deploy; pin yours too, because the prebuilt contract is between your artifact and a specific CLI.
+Drop `--target production` to create a preview deployment instead. Pin the CLI version like we do in the B4.run repository, because the prebuilt contract is between your artifact and a specific CLI.
 
 A Git-connected project is the alternative: push a branch, and Vercel runs the committed `buildCommand` on a clean checkout. Neither `.b4/` nor `.vercel/output/` is committed in that flow.
 
 ## `/healthz` and `/readyz`
 
-`GET /healthz` is pure liveness. It builds no stores and answers `200 {"status":"ready"}` whenever the function serves HTTP, so a deployment with `DATABASE_URL` unset or a database that is unreachable still answers `200`. On this target that is the point: the function is up, and the database is a separate question.
+`GET /healthz` is pure liveness. It builds no stores and answers `200 {"status":"ready"}` whenever the function serves HTTP, even with `DATABASE_URL` unset or the database unreachable. It tells you the function is up, and nothing about the database.
 
-`GET /readyz` answers that question. It builds the request's stores and makes a real query against each of threads, checkpointer, and permissions, running lazy migrations on the way. It answers `200 {"status":"ready","checks":{…}}` when all three respond, or `503 {"status":"not_ready","checks":{…}}` naming each failing dependency. A `DATABASE_URL` missing from the Vercel project shows up as a failing `requestStores`, because the per-request factory itself threw.
+`GET /readyz` covers the database. It builds the request's stores and makes a real query against each of threads, checkpointer and permissions, running lazy migrations on the way. It answers `200 {"status":"ready","checks":{…}}` when all three respond, or `503 {"status":"not_ready","checks":{…}}` naming each failing dependency. A `DATABASE_URL` missing from the Vercel project shows up as a failing `requestStores`, because the per-request factory itself threw.
 
-So `/readyz` is the endpoint to hit after a deploy, and the one to watch when a deployment serves traffic but every run fails. Two caveats carry over from [Production Topology](/docs/production-topology#health-and-readiness): it does not probe the model provider or the memory store, and unlike every other endpoint it reports the real cause, so hostnames, ports, database names, and driver error codes appear in the body even though connection-string credentials are redacted. Neither probe is gated by middleware or thread access, so keep both behind the same outer access controls as the rest of the service.
+Hit `/readyz` after a deploy, and watch it when a deployment serves traffic but every run fails. Two caveats carry over from [Production Topology](/docs/production-topology#health-and-readiness). It does not probe the model provider or the memory store. And unlike every other endpoint, it reports the real cause, so hostnames, ports, database names and driver error codes appear in the body (connection-string credentials are redacted). Neither probe is gated by middleware or thread access, so keep both behind the same outer access controls as the rest of the service.
 
 ## Test the bundle locally
 
@@ -247,25 +253,25 @@ DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/app \
   '
 ```
 
-That entry path holds for every build, since the runtime function is always `b4.func` — unless `functionName` renames it, or `build.vercel.outDir` moves the tree, in which case adjust the name or the leading path to match.
+That entry path holds for every build unless `functionName` renames the function or `build.vercel.outDir` moves the tree. In those cases, adjust the name or the leading path to match.
 
-`B4_PG_DRIVER` set to `neon` or `pg` overrides that detection. To rehearse the WebSocket path a Neon deployment actually uses, put [`neondatabase/wsproxy`](https://github.com/neondatabase/wsproxy) in front of the database and set `B4_PG_WS_PROXY`, which accepts `host:port` optionally prefixed with `ws://` or `wss://`. Only `wss://` keeps TLS on the socket. A value carrying a path, a query, or any other scheme is rejected by name before a pool opens, because the driver appends its own `/v1?address=` path. Setting `B4_PG_WS_PROXY` alongside `B4_PG_DRIVER=pg` is a configuration error rather than one value quietly winning.
+`B4_PG_DRIVER` set to `neon` or `pg` overrides that detection. To rehearse the WebSocket path a Neon deployment actually uses, put [`neondatabase/wsproxy`](https://github.com/neondatabase/wsproxy) in front of the database and set `B4_PG_WS_PROXY`, which accepts `host:port` optionally prefixed with `ws://` or `wss://`. Only `wss://` keeps TLS on the socket. A value carrying a path, a query, or any other scheme is rejected by name before a pool opens, because the driver appends its own `/v1?address=` path. Setting `B4_PG_WS_PROXY` alongside `B4_PG_DRIVER=pg` is a configuration error instead of one value quietly winning.
 
-Two details of the proxy setup are still easy to get wrong when you use it: the proxy must be reachable at the address you name, and `DATABASE_URL` must name the Postgres host as the proxy sees it, not as your shell sees it. The proxy dials the database; the function only dials the proxy.
+Two proxy details are easy to get wrong. The proxy must be reachable at the address you name, and `DATABASE_URL` must name the Postgres host as the proxy sees it, not as your shell sees it. The proxy dials the database, and the function only dials the proxy.
 
-[Database drivers and `B4_PG_WS_PROXY`](/docs/deployment/edge#database-drivers-and-b4_pg_ws_proxy) documents the full selection order and the `hono` differences, and `selectPostgresDriver` and `normalizeWsProxy` are exported from `@b4run/cli/fetch` for hand-composed store factories.
+[Database drivers and `B4_PG_WS_PROXY`](/docs/deployment/edge#database-drivers-and-b4_pg_ws_proxy) documents the full selection order and the `hono` differences. `selectPostgresDriver` and `normalizeWsProxy` are exported from `@b4run/cli/fetch` for hand-composed store factories.
 
 The same handler also mounts in a Node HTTP server with `@hono/node-server`'s `serve({ fetch: app.fetch })` when you want to point a real client at it.
 
 ## Deploy checklist
 
 1. Run `b4 check` and resolve every `B4_E1005` violation.
-2. Declare `@b4run/cli`, `@b4run/postgres-storage`, `@neondatabase/serverless`, `hono`, and every model-provider package in `dependencies`.
+2. Declare `@b4run/cli`, `@b4run/postgres-storage`, `@neondatabase/serverless`, `hono` and every model-provider package in `dependencies`.
 3. Commit `vercel.json` with the `buildCommand` and `fluid: true` contracts, or set `build.vercel.reconcileVercelJson: false` and enable Fluid in the project settings.
 4. Set `DATABASE_URL` and provider credentials in the project's environment variables for each deployment environment, plus `B4_PG_SCHEMA` when preview and production share a database.
 5. Set the project's default function max duration to cover your longest streamed run.
 6. Put outer authentication and tenant authorization around every rooted B4.run path.
-7. Deploy, then check `GET /readyz` and drive `POST /threads`, a streamed run, and a second request in the same instance against the deployment URL.
+7. Deploy, then check `GET /readyz` and drive `POST /threads`, a streamed run and a second request in the same instance against the deployment URL.
 
 <RelatedCards
   items={[

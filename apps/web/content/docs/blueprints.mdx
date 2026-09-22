@@ -1,8 +1,8 @@
 # Blueprints
 
-A blueprint is a guide for adding an integration or a runnable agent example to your B4.run app. `b4 add <name>` fetches the guide and prints it; you hand it to your coding agent (Claude Code, Cursor, …), which applies it to your project — installing dependencies, creating files, and wiring them in.
+A blueprint is a guide for adding an integration or a runnable agent example to your B4.run app. `b4 add <name>` fetches the guide and prints it. You hand it to your coding agent (Claude Code, Cursor, …), and the agent applies it to your project: it installs dependencies, creates files, and wires them in.
 
-Blueprints are Markdown, served from `b4.run`, and applied by an agent — not npm packages or runtime abstractions. For framework *patterns* (how to write a tool, type state, etc.), see [Recipes](/docs/recipes); blueprints cover external integrations and complete agent examples built from ordinary B4 routes and tools.
+Blueprints are Markdown files served from `b4.run` and applied by an agent. They are not npm packages or runtime abstractions. For framework *patterns* (how to write a tool, type state, etc.), see [Recipes](/docs/recipes). Blueprints cover external integrations and complete agent examples built from ordinary B4 routes and tools.
 
 ## Using `b4 add`
 
@@ -13,21 +13,21 @@ b4 add code-fixer      # install a runnable developer-agent example
 b4 add <url>           # apply a third-party blueprint from any URL
 ```
 
-Pipe it straight to your coding agent, or run it and paste the output. `b4 add` only prints the guide — your agent makes the changes, and you review them.
+Pipe the output to your coding agent, or paste it in. `b4 add` only prints the guide. Your agent makes the changes, and you review them.
 
-Set `B4_BLUEPRINTS_URL` to point at a self-hosted catalog (or a local dev server) instead of `b4.run`.
+Set `B4_BLUEPRINTS_URL` to use a self-hosted catalog (or a local dev server) instead of `b4.run`.
 
 ## Code-fixer agent example
 
-`b4 add code-fixer` prints a guide for installing the qualified example from a pinned source commit with B4 0.8.32 packages. The agent repairs one of two historical defects in a Docker workspace, verifies the patch independently, and requests runtime approval before exporting it locally. Docker, Git, and Node 24 are required; deterministic replay needs no model API key.
+`b4 add code-fixer` prints a guide for installing the qualified example from a pinned source commit with B4 0.8.32 packages. The agent repairs one of two historical defects in a Docker workspace, verifies the patch independently, and asks for runtime approval before exporting it locally. You need Docker, Git, and Node 24. Deterministic replay needs no model API key.
 
-The guide defaults to a sibling app when an existing app has incompatible sandbox or permission settings. It preserves user edits and records installation provenance. Read the [installation guide](/blueprints/code-fixer.md) for setup and verification.
+If your existing app has incompatible sandbox or permission settings, the guide installs into a sibling app instead. It preserves your edits and records where the installation came from. Read the [installation guide](/blueprints/code-fixer.md) for setup and verification.
 
 ## Authoring a blueprint
 
-Blueprints live under `apps/web/content/blueprints/<category>/<name>.md` in the B4.run repo. The **filename is the blueprint's name** (`b4 add <name>`), and the **directory is its category** (`agents`, `observability`, `retrieval`, `deploy`) — used for listing only, never in the command.
+Blueprints live under `apps/web/content/blueprints/<category>/<name>.md` in the B4.run repo. The **filename is the blueprint's name** (`b4 add <name>`), and the **directory is its category** (`agents`, `observability`, `retrieval`, `deploy`). The category is used for listing only, never in the command.
 
-Frontmatter (only `description` is required):
+Only `description` is required in the frontmatter:
 
 ```yaml
 ---
@@ -39,10 +39,10 @@ source: official                                         # optional: official | 
 ---
 ```
 
-The body is an agent-facing guide. Lead with the intent and scope ("you are adding X; it does Y, not Z"), then: prerequisites, inspect the project, install dependencies, create the file(s), wire them in, configure environment, and verify. The primary generated file's first line carries a marker so a future `b4 update` can find it:
+The body is a guide written for an agent. Open with the intent and scope ("you are adding X; it does Y, not Z"). Then cover the prerequisites, inspecting the project, installing dependencies, creating the file(s), wiring them in, configuring the environment, and verifying. The first line of the main generated file carries a marker so a future `b4 update` can find it:
 
 ```ts
 // b4-blueprint: opentelemetry@1
 ```
 
-Keep guides adaptive: have the agent detect the package manager, read `b4.config.ts` and `AGENTS.md`, reuse existing dependencies, and follow the project's env conventions rather than assuming.
+Keep guides adaptive. Have the agent detect the package manager, read `b4.config.ts` and `AGENTS.md`, reuse existing dependencies, and follow the project's env conventions instead of assuming.

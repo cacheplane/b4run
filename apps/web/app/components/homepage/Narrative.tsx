@@ -73,7 +73,7 @@ export function Narrative({ code }: { code: Record<NarrativeKey, DisplayCode> })
         id="tools"
         number="03"
         label="Typed tools"
-        title="Your functions. Its tools."
+        title="Your functions become its tools."
         code={<CodePanel code={code.tool} />}
       >
         <p>
@@ -128,15 +128,12 @@ export function Narrative({ code }: { code: Record<NarrativeKey, DisplayCode> })
           </>
         }
       >
-        <p>B4 pauses before export. You approve the exact patch; the tool rechecks it.</p>
+        <p>B4 pauses before export. You approve the exact patch, and the tool checks it again.</p>
         <a className={styles.textLink} href="/docs/permissions">
           Approval ↗
         </a>
       </Chapter>
       <ExecutionFlow />
-      <p className={styles.sourceNote}>
-        Current example source. Recording and installation use earlier versions.
-      </p>
     </div>
   )
 }

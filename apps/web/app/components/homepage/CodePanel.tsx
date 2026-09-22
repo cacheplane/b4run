@@ -17,7 +17,7 @@ export function CodePanel({
       await navigator.clipboard.writeText(code.raw)
       setCopy("Copied")
     } catch {
-      setCopy("Copy unavailable — select the source below.")
+      setCopy("Copy unavailable. Select the source below.")
     }
   }
   return (
@@ -37,7 +37,7 @@ export function CodePanel({
           aria-expanded={expanded}
           onClick={() => setExpanded(!expanded)}
         >
-          {expanded ? "Hide instructions" : "Show instructions"} · exact source
+          {expanded ? "Hide instructions" : "Show instructions"}
         </button>
       )}
       {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users can scroll long source lines in this named code region. */}

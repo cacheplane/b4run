@@ -1,6 +1,6 @@
 ---
 title: The App Router for AI Agents
-description: File-system routes, type-safe tools, and the capability layer B4.run adds around real LangGraph.js agent applications.
+description: Learn how B4.run uses file-system routes, typed tools, planning, skills and subagents to organize a LangGraph.js agent application.
 date: 2026-05-19
 tags: [philosophy, typescript, agents]
 type: post
@@ -9,13 +9,13 @@ author: brian
 
 Learn how B4.run uses filesystem routes to organize a TypeScript agent application.
 
-If you have used the Next.js App Router, you already know the value of a predictable file tree. You can find a page, its layout, and related code by following the route through the project.
+If you have used the Next.js App Router, you already know the value of a predictable file tree. You find a page, its layout and related code by following the route through the project.
 
-B4.run applies a similar idea to agents. A route has an entry point, tools, state, and optional capabilities such as planning or delegation. Let's build up that structure using a customer support example.
+B4.run applies the same idea to agents. A route has an entry point, tools, state and optional features such as planning or delegation. Let's build up that structure with a customer support example.
 
 ## Goals
 
-By the end of this post, we will understand how to:
+By the end of this post, we will know how to:
 
 1. Define an agent route with a dynamic parameter.
 2. Add a tool using a TypeScript function.
@@ -50,9 +50,9 @@ export default agent({
 })
 ```
 
-First, we select a model. Next, we provide instructions through `systemPrompt`. The `{tenant}` placeholder lets the instructions include the current tenant value.
+First, we select a model. Next, we provide instructions through `systemPrompt`. The `{tenant}` placeholder fills in the current tenant value.
 
-The prompt refers to a `lookupOrder` tool. We still need to implement that function. A prompt can ask the model to use a tool, but the application must supply the code and enforce access to the underlying data.
+The prompt refers to a `lookupOrder` tool, which we still need to implement. A prompt can ask the model to use a tool, but the application supplies the code and enforces access to the data.
 
 ## Add a route-local tool
 
@@ -78,7 +78,7 @@ export default async (
 }
 ```
 
-This is an illustrative service URL. In your application, replace it with your order service and enforce authentication and tenant ownership there. A route parameter is data supplied to the application; it does not prove who the caller is.
+The service URL is a placeholder. Replace it with your order service and enforce authentication and tenant ownership there. A route parameter is data supplied to the application. It does not prove who the caller is.
 
 A few things to note about the function:
 
@@ -88,9 +88,9 @@ A few things to note about the function:
 4. We check the HTTP status before returning a result.
 5. The returned object becomes the tool result available to the model.
 
-The `as` expression describes the expected response to TypeScript. It does not validate the JSON at runtime. A production tool should validate an external service's response if it cannot trust that shape.
+Of course, the `as` expression only describes the response to TypeScript. It does not validate the JSON at runtime, so a production tool should validate a response it cannot trust.
 
-When a customer asks about an order, the agent can request `lookupOrder` with an order id. The runtime calls the function, sends its result back to the model, and the model can explain the status to the customer.
+When a customer asks about an order, the agent requests `lookupOrder` with an order id. The runtime calls the function and sends the result back to the model, which explains the status to the customer.
 
 ## Declare state
 
@@ -108,7 +108,7 @@ export default z.object({
 
 Here we use Zod to declare a required `tenant` string and an optional `orderId` string. B4.run accepts Standard Schema-compatible declarations and generates route state types from this file and the route path.
 
-Why declare the shape? Other code can now use the generated types instead of repeating the same interface. If we change the state, TypeScript can help identify assumptions that need to change with it.
+Why declare the shape? Other code can use the generated types instead of repeating the interface. If we change the state, TypeScript points us to the code that depends on it.
 
 The tool input and route state serve different purposes. The tool input describes one function call. The route state describes data available during the route's execution. Adding `orderId` to state does not, by itself, request an order lookup.
 
@@ -120,11 +120,9 @@ A route scenario test can live at:
 src/app/support/[tenant]/run.test.ts
 ```
 
-For our support route, useful scenarios include an existing order, a missing order, and an order-service failure. We want to check how the application behaves in each case, including what happens when it cannot retrieve the answer.
+For our support route, useful scenarios include an existing order, a missing order and an order-service failure.
 
-Model responses can vary between calls. The testing tools support fixture-backed runs, where recorded or scripted model responses let us repeat a scenario without a live model call. The [Testing agents guide](/docs/testing-agents) explains how to test tool calls and final responses.
-
-Keeping the test near the route makes it easier to update both when the behavior changes.
+Model responses vary between calls. The testing tools support fixture-backed runs, where recorded or scripted model responses let us repeat a scenario without a live model call. The [Testing agents guide](/docs/testing-agents) explains how to test tool calls and final responses. Keeping the test near the route makes it easy to update both when the behavior changes.
 
 ## Plan a longer request
 
@@ -140,7 +138,7 @@ A `plan.md` file can provide an initial checklist:
 
 B4.run gives the agent a `writeTodos` tool to update the list, a `todos` state channel to retain it, and `plan_update` events that a client can display.
 
-The checklist helps organize work and show progress. It does not force the model to complete every step correctly. We still need tools, tests, and application rules to check the result.
+The checklist organizes the work and shows progress. It does not force the model to complete every step correctly, so we still need tools, tests and application rules to check the result.
 
 ## Add detailed instructions with a skill
 
@@ -150,9 +148,9 @@ A skill is a Markdown file containing instructions the agent can load when neede
 src/app/support/[tenant]/skills/refund-policy/SKILL.md
 ```
 
-B4.run tells the agent which skills are available and exposes `readSkill({ name })`. The agent can load the refund instructions when a customer asks a refund question, rather than including the entire policy in every initial prompt.
+B4.run tells the agent which skills are available and exposes `readSkill({ name })`. The agent loads the refund instructions when a customer asks about a refund, so the whole policy doesn't ride along in every prompt.
 
-A skill is useful for explaining a procedure. If a refund requires authorization, enforce that requirement in the application and its approval rules as well. Instructions alone do not authorize or prevent a transaction.
+A skill explains a procedure. It does not authorize or prevent a transaction. If a refund requires authorization, enforce that in the application and its approval rules.
 
 ## Delegate research to a subagent
 
@@ -171,11 +169,11 @@ export default agent({
 })
 ```
 
-The `description` helps the parent decide when to delegate. The `systemPrompt` instructs the child during its own execution. Add its document-search implementation under `subagents/research/tools/`; the descriptor alone does not give it access to documents.
+The `description` helps the parent decide when to delegate. The `systemPrompt` instructs the child during its own run. The descriptor alone does not give it access to documents, so we add its document-search tool under `subagents/research/tools/`.
 
-The parent receives a `task({ subagent, input })` mechanism for calling available children. It can request work from `research` and use the returned findings in its response.
+The parent gets a `task({ subagent, input })` tool for calling its children. It can request work from `research` and use the findings in its response.
 
-Children have their own tool configuration. They do not automatically inherit the parent's route-local tools. When delegation needs restrictions, use the parent's `delegation` policy; the [Subagents guide](/docs/subagents) explains the defaults and named rules.
+Children have their own tool configuration and do not inherit the parent's route-local tools. To restrict delegation, use the parent's `delegation` policy. The [Subagents guide](/docs/subagents) explains the defaults and named rules.
 
 ## Review the application structure
 
@@ -202,15 +200,15 @@ src/
               searchDocs.ts
 ```
 
-We can follow a customer request through the files: the parent receives it, a tool retrieves order data, and a specialist can research a policy. State, instructions, and tests have a location beside the behavior they describe.
+We can follow a customer request through the files: the parent receives it, a tool retrieves order data and a specialist researches a policy. State, instructions and tests sit beside the behavior they describe.
 
-The route convention also supports other entry types. Export a `workflow` for a deterministic async function, a `graph` for a LangGraph graph, or a `chain` for a LangChain runnable. Each `index.ts` declares one entry shape. You can choose the execution model without inventing a different project layout.
+The route convention also supports other entry types. Export a `workflow` for a deterministic async function, a `graph` for a LangGraph graph or a `chain` for a LangChain runnable. Each `index.ts` declares one entry shape, so you can choose the execution model without a different project layout.
 
 ## Conclusion
 
-The App Router idea gives an agent application a structure we can navigate using familiar TypeScript files and folders. We started with one agent, added a tool, and then gave state, tests, planning, and delegation a place to live.
+In conclusion, the App Router idea gives an agent application a structure we can navigate with plain TypeScript files and folders. We started with one agent, added a tool, then gave state, tests, planning and delegation a place to live.
 
-You can start with only the pieces your application needs. To create a small project using the basic template:
+Start with only the pieces your application needs. To create a small project with the basic template:
 
 ```bash
 pnpm create b4-app my-agents --template basic
@@ -218,4 +216,4 @@ cd my-agents
 pnpm install
 ```
 
-Use Node.js 24 or later, configure the provider key using the generated environment instructions, and run `pnpm dev`. The [Getting Started guide](/docs/getting-started) covers the first run, and the [Routes guide](/docs/routes) explains the complete route conventions.
+Use Node.js 24 or later, set your provider key as the generated environment instructions describe, and run `pnpm dev`. The [Getting Started guide](/docs/getting-started) covers the first run, and the [Routes guide](/docs/routes) explains the complete route conventions.

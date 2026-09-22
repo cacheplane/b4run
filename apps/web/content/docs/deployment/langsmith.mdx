@@ -1,10 +1,10 @@
 # LangSmith
 
-Choose the LangSmith target when LangSmith or another LangGraph deployment platform must own the transport and execution envelope. This target emits graph entries; it does not run B4.run's HTTP server.
+Choose the LangSmith target when LangSmith or another LangGraph deployment platform must own transport and execution. This target emits graph entries. It does not run B4.run's HTTP server.
 
 ## Select the target
 
-LangSmith is emitted by default alongside Node. To emit only the platform artifact:
+B4.run emits LangSmith by default alongside Node. To emit only the platform artifact:
 
 ```ts title="b4.config.ts"
 import { config } from "@b4run/cli"
@@ -14,11 +14,9 @@ export default config({
 })
 ```
 
-An authored `build.targets` list replaces the defaults.
-
 ## Build output
 
-Run the ordinary validation and build flow:
+Run the usual validation and build flow:
 
 ```bash
 b4 check
@@ -26,7 +24,7 @@ b4 build
 b4 verify
 ```
 
-The target writes `.b4/build/langgraph.json` and one `.b4/build/<route-slug>.ts` entry per discovered route. A representative config is:
+The target writes `.b4/build/langgraph.json` and one `.b4/build/<route-slug>.ts` entry per discovered route. Here is a representative config:
 
 ```json title=".b4/build/langgraph.json"
 {
@@ -43,31 +41,31 @@ Each graph key is `<routeId>#<kind>`. Use that exact value, such as `/research#a
 
 ## Route entry behavior
 
-Agent routes receive a generated entry that calls `materializeResolvedRouteGraph`. That path loads the agent descriptor and applies B4.run's agent materialization, including discovered route tools, tool scope, capabilities, and permission gates.
+Agent routes receive a generated entry that calls `materializeResolvedRouteGraph`. That path loads the agent descriptor and applies B4.run's agent materialization, including discovered route tools, tool scope, capabilities and permission gates.
 
-Workflow, graph, and chain routes are different: the generated entry imports the route's authored `workflow`, `graph`, or `chain` export and re-exports that value as `graph`. They are not passed through agent materialization.
+Workflow, graph and chain routes skip agent materialization. Their generated entry imports the route's `workflow`, `graph` or `chain` export and re-exports it as `graph`.
 
 Test every kind you deploy at the platform boundary. B4.run HTTP scenario coverage does not validate the platform's `assistant_id` request envelope.
 
 ## Environment file path
 
-The generated `env` field is `.env.example` when that file exists at the app root; otherwise it is `.env`. This is a path consumed by the platform build. Review the selected file before deployment and keep secret values in the platform's secret manager rather than committing them.
+The generated `env` field is `.env.example` when that file exists at the app root, and `.env` otherwise. The platform build reads this path. Review the selected file before you deploy, and keep secret values in the platform's secret manager instead of committing them.
 
 ## Merge precedence
 
 If the app root contains a hand-authored `langgraph.json`, B4.run shallow-merges it into the generated output. User-defined extra keys survive. The generated `graphs`, `dependencies`, `env`, and `node_version` fields overwrite user values with those names.
 
-This is a shallow merge: a user `graphs` map is replaced rather than merged route by route.
+Because the merge is shallow, a user `graphs` map is replaced, not merged route by route.
 
 ## Platform authentication and missing B4.run surfaces
 
 Configure authentication and tenant authorization at the LangSmith or hosting-platform boundary. The generated target does not include B4.run HTTP `middleware`, the AG-UI server, or the B4.run `sandbox` manager. It also does not expose B4.run's Agent Protocol thread-management server.
 
-Agent materialization preserves policy-aware graph construction for agent routes, but that does not add the absent HTTP or sandbox surfaces. If those surfaces are requirements, deploy [Node and Docker](/docs/deployment/node) or, after passing its capability gate, [Edge and Hono](/docs/deployment/edge).
+Agent routes still get policy-aware graph construction, but that doesn't add the missing HTTP or sandbox surfaces. If you need them, deploy [Node and Docker](/docs/deployment/node), or [Edge and Hono](/docs/deployment/edge) if your app passes its capability gate.
 
 ## Node version mismatch
 
-The emitter currently writes `node_version: "22"`, while B4.run packages require Node 24 or newer. This is an unresolved compatibility mismatch. Do not treat the generated value as evidence that the current B4.run package set runs correctly on Node 22; confirm the platform's supported Node versions before deploying.
+The emitter currently writes `node_version: "22"`, but B4.run packages require Node 24 or newer. This mismatch is unresolved. The generated value doesn't mean B4.run runs correctly on Node 22, so confirm the platform's supported Node versions before you deploy.
 
 ## Deployment checklist
 
@@ -80,9 +78,9 @@ The emitter currently writes `node_version: "22"`, while B4.run packages require
 
 ## Troubleshooting
 
-- **A user config field disappeared:** generated `graphs`, `dependencies`, `env`, and `node_version` intentionally take precedence.
+- **A user config field disappeared:** generated `graphs`, `dependencies`, `env` and `node_version` take precedence by design.
 - **The platform cannot find an assistant:** use the full `<routeId>#<kind>` key from generated `graphs`.
-- **HTTP middleware did not run:** it is not materialized into these entries; enforce authentication at the platform boundary.
+- **HTTP middleware did not run:** these entries don't include it. Enforce authentication at the platform boundary.
 - **Local Node HTTP tests pass but platform calls fail:** exercise the platform transport and its environment/build process directly.
 
 <RelatedCards

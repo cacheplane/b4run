@@ -32,8 +32,9 @@
 
 :root {
   --b4-font-sans: var(--font-inter), "Satoshi", "Helvetica Neue", Arial, sans-serif;
-  /* Chrome height — Header has px-6/8 + py-4 + ~h-10 brand row + 1px border.
-     Used by ReadingLayout sticky offsets and anchor scroll padding. */
+  /* Chrome height — the header bar is a fixed 71px row + 1px border at every
+     width (header.module.css .bar). Used by ReadingLayout sticky offsets and
+     anchor scroll padding. */
   --header-h: 4.5rem;
 }
 
@@ -49,6 +50,12 @@ html {
   }
 }
 
+/* The 404 page has no layout of its own: paint the whole main band in the
+   site paper color so no white strip shows between header and footer. */
+main:has(> [data-not-found]) {
+  background: #f5f4f0;
+}
+
 /* Inline code (rendered by InlineCode MDX override) */
 .mdx-inline-code {
   background: rgba(180, 83, 9, 0.1);
@@ -58,7 +65,8 @@ html {
   padding: 0.0625rem 0.375rem;
   font-size: 0.875em;
   font-family: var(--font-mono, ui-monospace, monospace);
-  white-space: nowrap;
+  /* Long signatures must wrap at every width, or they widen the page. */
+  white-space: normal;
   overflow-wrap: break-word;
 }
 

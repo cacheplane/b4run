@@ -3,7 +3,6 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { renderToString } from "react-dom/server"
 import { afterEach, expect, it, vi } from "vitest"
-import { Capabilities } from "./Capabilities"
 import { CodePanel } from "./CodePanel"
 import { DeveloperHome } from "./DeveloperHome"
 import { sourceUrl } from "./evidence"
@@ -20,38 +19,39 @@ afterEach(async () => {
 })
 const prepared = await prepareHomepage()
 
-it("offers the qualified installation guide while labeling the historical recording", async () => {
+it("ends with the install command and the code-fixer guide", async () => {
   const container = document.createElement("div")
   container.innerHTML = renderToString(await DeveloperHome())
-  expect(container.textContent).toContain("Recorded implementation")
+  expect(container.textContent).toContain("Agent source")
   expect(container.querySelector(`a[href="${sourceUrl("README.md")}"]`)).not.toBeNull()
-  expect(container.textContent).toContain("Qualified installation · B4 0.8.32")
-  expect(container.textContent).toContain("b4 add code-fixer")
-  expect(container.textContent).toContain("prints the installation guide")
+  const takeaway = container.querySelector('[aria-labelledby="run-title"]')
+  expect(takeaway?.textContent).toContain("npm create b4-app@latest my-agent")
+  expect(takeaway?.textContent).toContain("b4 add code-fixer")
+  expect(container.textContent).not.toMatch(/Qualified|0\.8\.32|Historical defect|earlier versions/)
   expect(container.textContent).not.toContain("run:agent")
-  expect(container.querySelector('a[href="/blueprints/code-fixer.md"]')).not.toBeNull()
+  expect(container.textContent).not.toContain("—")
+  expect(container.querySelector('a[href="/blueprints/code-fixer.md"]')).toBeNull()
   expect(container.querySelector('a[href="/docs/cli#b4-add"]')).not.toBeNull()
   expect(container.textContent).toContain("fix/tools/prepareReview.ts")
   const narrative = container.querySelector('[data-narrative="current-example"]')
   if (!narrative) throw new Error("Narrative is missing")
   expect(narrative.textContent).not.toContain("1m 53s")
-  expect(narrative?.textContent).not.toContain("Qualified installation")
   expect([...narrative.querySelectorAll("h2")].map((heading) => heading.textContent)).toEqual([
-    "One project.A working agent.",
+    "This project is the whole agent.",
     "This code runs this agent.",
     "Give it somewhere to work.",
-    "Your functions. Its tools.",
+    "Your functions become its tools.",
     "Give it a working method.",
     "Define what “done” means.",
     "The next action is your call.",
-    "One request. The whole workflow.",
+    "One request runs the whole workflow.",
   ])
   const tool = narrative.querySelector("#tools pre code")
   expect(tool?.textContent).toContain("await inspectCandidate(ctx)")
   expect(tool?.textContent).toContain("await verifyChanges(")
   expect(tool?.textContent).toContain("renderReviewDiff(baseline, candidate.changes)")
   expect(narrative.querySelector("#tools [aria-expanded]")).toBeNull()
-  expect(container.textContent).toContain("Recorded run · 1m 53s")
+  expect(container.textContent).toContain("1m 53s")
   expect(container.textContent).toContain("Awaiting your approval")
 })
 
@@ -71,14 +71,7 @@ it("switches steps and files independently and keeps full source copyable", asyn
   const container = document.createElement("div")
   document.body.replaceChildren(container)
   root = createRoot(container)
-  await act(async () =>
-    root?.render(
-      <>
-        <Walkthrough {...prepared.walkthrough} />
-        <Capabilities items={prepared.capabilities} />
-      </>,
-    ),
-  )
+  await act(async () => root?.render(<Walkthrough {...prepared.walkthrough} />))
   const click = async (label: string) => {
     const button = [...container.querySelectorAll("button")].find((b) =>
       b.textContent?.includes(label),
@@ -91,8 +84,6 @@ it("switches steps and files independently and keeps full source copyable", asyn
   await click("b4.config.ts")
   await click("Repair")
   expect(container.querySelector('[data-source="config"]')).not.toBeNull()
-  await click("Evals")
-  expect(container.textContent).toContain("gate.perScorer")
   expect(container.querySelector('[data-step="repair"][aria-pressed="true"]')).not.toBeNull()
   await click("index.ts")
   await click("Show instructions")

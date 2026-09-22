@@ -1,8 +1,8 @@
 # Agent Test Harness
 
-Agent tests in CI should be deterministic and replay committed fixtures. `@b4run/testing` achieves this by intercepting the model's HTTP endpoint with **aimock**, a local mock that replays pre-written fixtures. Your tools, prompts, capabilities, and state all run normally; only the LLM is replaced. Optional, explicitly gated local smoke tests may instead use a live model.
+Agent tests in CI should be deterministic and replay committed fixtures. `@b4run/testing` intercepts the model's HTTP endpoint with **aimock**, a local mock that replays pre-written fixtures. Your tools, prompts, capabilities and state all run normally. Only the LLM is replaced.
 
-For CI, the fixture is the source of truth. Use live mode locally to probe model behaviour, with looser assertions that account for nondeterminism.
+In CI, the fixture is the source of truth. Locally, you can opt into live mode to probe model behaviour, with looser assertions that account for nondeterminism.
 
 ## Install
 
@@ -12,7 +12,7 @@ pnpm add -D @b4run/testing vitest
 
 ## First test
 
-This is the full shape you'll use for most agent tests.
+Here is the shape you'll use for most agent tests:
 
 ```ts title="test/agent.test.ts"
 import { fileURLToPath } from "node:url"
@@ -38,7 +38,7 @@ it("filters open items", async () => {
 }, 60_000)
 ```
 
-`createAgentHarness` boots aimock on a random port, runs typegen, and resolves your route — all in the same process. The `route` string is the Agent Protocol key: `"/chat#agent"` means the `agent` export from `src/app/chat/index.ts`. Await `h.close()` in `afterAll` to stop aimock and restore env vars.
+`createAgentHarness` boots aimock on a random port, runs typegen and resolves your route, all in the same process. The `route` string is the Agent Protocol key: `"/chat#agent"` means the `agent` export from `src/app/chat/index.ts`. Await `h.close()` in `afterAll` to stop aimock and restore env vars.
 
 <Callout type="warn">
   Keep only one agent harness alive per process. The aimock endpoint and environment variables,
@@ -48,7 +48,7 @@ it("filters open items", async () => {
 
 ## Fixture script
 
-`script()` compiles one or more fixture groups for fresh-thread scenarios. Each `.user()` starts a group whose `turnIndex` begins at zero. `.callsTool()` tells aimock to respond with a tool call; `.replies()` tells it to respond with a text message. For a same-thread follow-up, use explicit fixtures with cumulative turn indexes as shown below.
+`script()` compiles one or more fixture groups for fresh-thread scenarios. Each `.user()` starts a group whose `turnIndex` begins at zero. `.callsTool()` tells aimock to respond with a tool call, and `.replies()` tells it to respond with a text message. For a same-thread follow-up, use explicit fixtures with cumulative turn indexes (shown below):
 
 ```ts
 script()
@@ -58,7 +58,7 @@ script()
   .build()                           // returns AimockFixture[]; or pass builder directly to h.run()
 ```
 
-aimock matches fixtures by substring on the latest user message plus `turnIndex` (count of assistant messages already in the thread). You do not need to call `.build()` — pass the builder directly to `h.run({ fixtures })` and B4.run unwraps it for you.
+aimock matches fixtures by substring on the latest user message plus `turnIndex` (count of assistant messages already in the thread). You do not need to call `.build()`. Pass the builder directly to `h.run({ fixtures })` and B4.run unwraps it for you.
 
 ## Recipes
 
@@ -68,7 +68,7 @@ aimock matches fixtures by substring on the latest user message plus `turnIndex`
 expectToolCalled(run, "applyFilter").withArgs({ status: "open" })
 ```
 
-`withArgs` does a partial (subset) match — extra args are ignored. Chain `.times(n)` to assert exact call count, or `.never()` to assert the tool was not called.
+`withArgs` does a partial (subset) match, so extra args are ignored. Chain `.times(n)` to assert exact call count, or `.never()` to assert the tool was not called.
 
 ### Assert the final message
 
@@ -149,7 +149,7 @@ expectOffloaded(run, "generateReport")
 expectToolSequence(run, ["searchCorpus", "readDoc", "writeFile"])
 ```
 
-Asserts that the named tools were called in that order (subsequence match by default — other tools may appear between them). Pass `{ strict: true }` to require contiguity: the tools must appear consecutively with nothing else in between.
+This asserts that the named tools were called in that order. By default it is a subsequence match, so other tools may appear between them. Pass `{ strict: true }` to require the tools to appear consecutively:
 
 ```ts
 expectToolSequence(run, ["validate", "save"], { strict: true })
@@ -161,9 +161,9 @@ expectToolSequence(run, ["validate", "save"], { strict: true })
 expectNoToolErrors(run)
 ```
 
-Asserts that no tool returned an error result. HITL permission interrupts are not counted as errors.
+HITL permission interrupts are not counted as errors.
 
-To inspect tool results manually, use `run.toolResults` — a `ReadonlyArray<ObservedToolResult>` collected from the run's streamed `tool_result` events (a tool that threw streams its `status: "error"` ToolMessage, so `isError` never depends on the final message list); a stream that carried no tool results falls back to the final conversation messages via `deriveToolResults` (also exported). Each entry has the shape `{ name: string, status?: "error" | "success", content: unknown, isError: boolean }`. This is useful for asserting on specific error messages or content when `expectNoToolErrors` is too broad.
+To inspect tool results yourself, use `run.toolResults`. It is a `ReadonlyArray<ObservedToolResult>` collected from the run's streamed `tool_result` events. A tool that threw streams its `status: "error"` ToolMessage, so `isError` never depends on the final message list. A stream that carried no tool results falls back to the final conversation messages via `deriveToolResults` (also exported). Each entry has the shape `{ name: string, status?: "error" | "success", content: unknown, isError: boolean }`. Use it to assert on specific error messages or content when `expectNoToolErrors` is too broad:
 
 ```ts
 import { deriveToolResults } from "@b4run/testing"
@@ -180,11 +180,11 @@ expectState(run).field("runningSummary").toBeTruthy()
 expectState(run).field("todos").toEqual([{ content: "ship it", status: "pending" }])
 ```
 
-`run.state` is the full agent state after the run — the same object a checkpointer would persist.
+`run.state` is the full agent state after the run, the same object a checkpointer would persist.
 
 ### Supply the middleware context
 
-`createAgentHarness` invokes the route's agent directly, so `src/middleware.ts` never runs and `ctx.middleware` is `undefined` inside tools. Pass `middlewareContext` with the record your middleware would have returned from `allow(context)` — either a fixed value or a function evaluated once per `run()`/`resume()` that receives the turn's `threadId` and `input`:
+`createAgentHarness` invokes the route's agent directly, so `src/middleware.ts` never runs and `ctx.middleware` is `undefined` inside tools. Pass `middlewareContext` with the record your middleware would have returned from `allow(context)`. It is either a fixed value or a function evaluated once per `run()`/`resume()` that receives the turn's `threadId` and `input`:
 
 ```ts
 const h = await createAgentHarness({
@@ -207,11 +207,11 @@ Every tool the run invokes reads that record as `ctx.middleware`. The same optio
 - **`createAgentProtocolInjector()`** drives Agent Protocol requests through the runtime's fetch handler without binding a port. Use it when the HTTP request, response, or SSE contract is the behavior under test.
 - **`createSubprocessApp()`** starts a real `b4 dev` child process. Use it for process-boundary, restart, and persistence tests.
 
-These factories deliberately have separate option and result types. Choose the factory for the boundary the test needs; `createAgentHarness()` does not accept a `mode` option.
+Each factory has its own option and result types. `createAgentHarness()` does not accept a `mode` option.
 
 ## CI setup
 
-No extra setup needed. `@b4run/testing` is CI-safe by default: aimock runs on a random port and stops when the harness closes. The only thing to guard is that fixture files are committed:
+You don't need any extra setup. aimock runs on a random port and stops when the harness closes. The only thing to guard is that fixture files are committed:
 
 ```yaml title=".github/workflows/ci.yml"
 - run: pnpm exec vitest --run
@@ -240,7 +240,7 @@ See [Fixtures and Recording](/docs/testing-agents/fixtures).
 
 ## Your scaffolded app already has a test
 
-`create-b4-app` generates `server/test/research.test.ts` that imports `@b4run/testing` and covers the default `/research#agent` route. Run it immediately after scaffolding, from the workspace root:
+`create-b4-app` generates `server/test/research.test.ts` that imports `@b4run/testing` and covers the default `/research#agent` route. Run it right after scaffolding, from the workspace root:
 
 ```bash
 npm test
@@ -292,12 +292,12 @@ The suite also exercises:
 - Offloading of a large `readDoc` result.
 - The HITL permission gate for `runBash`, followed by resume.
 
-These scenarios share one harness and call `h.reset()` per test — `reset()` starts a fresh thread and clears the previous scenario's fixtures, so the tests stay isolated. The separately gated `server/test/sandbox-docker.test.ts` verifies that shared tools operate inside an isolated Docker workspace without leaking files to the host or a fresh thread sandbox.
+These scenarios share one harness and call `h.reset()` per test. `reset()` starts a fresh thread and clears the previous scenario's fixtures, so the tests stay isolated. The separately gated `server/test/sandbox-docker.test.ts` verifies that shared tools operate inside an isolated Docker workspace without leaking files to the host or a fresh thread sandbox.
 
 Grow it by:
 
-1. **Adding more `script()` scenarios** — one `it` block per behaviour you want to pin.
-2. **Committing fixtures for complex flows** — follow [Fixtures and Recording](/docs/testing-agents/fixtures) for multi-turn or multi-tool scenarios that are tedious to hand-write.
+1. **Adding more `script()` scenarios:** one `it` block per behaviour you want to pin.
+2. **Committing fixtures for complex flows:** follow [Fixtures and Recording](/docs/testing-agents/fixtures) for multi-turn or multi-tool scenarios that are tedious to hand-write.
 
 ## Related
 

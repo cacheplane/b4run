@@ -1,19 +1,19 @@
 ---
-title: Eve and B4.run — Choosing an agent framework
-description: Explore the file-based approach shared by eve and B4.run, then compare the application and deployment decisions that matter for your project.
+title: "Eve and B4.run: Choosing an agent framework"
+description: Eve and B4.run both organize agents as files. Here is what that structure gives us, and how to compare the client, runtime and deployment choices.
 date: 2026-06-18
 tags: [philosophy, agents]
 type: post
 author: brian
 ---
 
-On June 17, Vercel introduced [eve](https://vercel.com/changelog/introducing-eve-an-open-source-agent-framework), an open-source agent framework. Its use of files and directories caught my attention: an agent has a model declaration, instructions, tools, and related capabilities in its folder.
+On June 17, Vercel introduced [eve](https://vercel.com/changelog/introducing-eve-an-open-source-agent-framework), an open-source agent framework. Its use of files and directories caught my attention: an agent keeps its model declaration, instructions and tools in its folder.
 
-That is an idea I care about in B4.run too. I want a developer to open an agent application and understand where its behavior comes from.
+I care about that idea in B4.run too. I want a developer to open an agent application and see where its behavior comes from.
 
-A similar file structure does not mean two frameworks are interchangeable, though. Let's look at what the structure helps us understand, then consider the runtime and integration choices behind it.
+Of course, a similar file structure does not make two frameworks interchangeable. Let's look at what the structure helps us understand, then at the runtime and integration choices behind it.
 
-**Updated September 2026:** This post began as a response to eve's launch. The comparison below uses the linked documentation and B4.run's current application conventions. It should not be read as a complete feature comparison of the June releases.
+**Updated September 2026:** The comparison below uses the linked documentation and B4.run's current conventions. It is not a complete feature comparison of the June releases.
 
 ## Goals
 
@@ -23,7 +23,7 @@ If you are evaluating an agent framework, I suggest starting with three question
 2. How will users interact with the agent?
 3. Where will the application run, and which services will it need?
 
-These questions are familiar from web development. Adding a model does not remove the need to answer them.
+These questions are familiar from web development, and adding a model doesn't make them go away.
 
 ## What does a file-based agent give us?
 
@@ -36,7 +36,7 @@ Imagine a support assistant that looks up orders and checks refund policies. As 
 - The policy used to approve a refund.
 - The tests for successful and failed requests.
 
-Files and folders give those pieces predictable locations. They also let us review a change with the tools we already use for TypeScript projects.
+Files and folders give those pieces predictable locations, and we can review a change with the tools we already use for TypeScript projects.
 
 Vercel's launch example uses `agent.ts` for the model, `instructions.md` for instructions, and folders for tools and subagents. The [launch announcement](https://vercel.com/changelog/introducing-eve-an-open-source-agent-framework) shows that layout alongside its deployment workflow.
 
@@ -56,13 +56,18 @@ src/app/support/
       index.ts
 ```
 
-First, `index.ts` defines the parent agent. Next, `tools/` holds the route-specific functions it can call. The skill provides instructions that can be loaded when needed, and the research child handles a bounded part of the work.
+Let's quickly review:
 
-I like this because the application gives us a starting point for answering “what can this agent do?” We still need to inspect shared tools, configuration, and permissions, but we can begin with the route.
+- First, `index.ts` defines the parent agent.
+- Next, `tools/` holds the route-specific functions it can call.
+- Then, the skill holds instructions the agent loads when needed.
+- Finally, the research child handles a bounded part of the work.
+
+I like this because it gives us a starting point for answering "what can this agent do?" We still need to check shared tools, configuration and permissions, but we can begin with the route.
 
 ## Compare the integration points
 
-The following table focuses on a few decisions you will encounter while building an application.
+Here are a few decisions you will run into while building an application:
 
 | Decision | eve | B4.run |
 | --- | --- | --- |
@@ -74,11 +79,11 @@ The following table focuses on a few decisions you will encounter while building
 
 The eve details here come from its [announcement](https://vercel.com/changelog/introducing-eve-an-open-source-agent-framework) and [documentation](https://vercel.com/docs/eve). B4.run's [Tools](/docs/tools), [AG-UI](/docs/ag-ui), and [Deployment](/docs/deployment) guides explain its corresponding APIs.
 
-A table is only a starting point. Let's unpack the decisions that affect the rest of the application.
+A table is only a starting point. Let's unpack each decision.
 
 ## Tool types
 
-In B4.run, a tool's TypeScript input type is used to generate the schema shown to the model. For example:
+In B4.run, a tool's TypeScript input type generates the schema shown to the model. For example:
 
 ```ts
 export const description = "Format a greeting for a customer."
@@ -90,39 +95,39 @@ export default async ({ name }: { readonly name: string }) => {
 
 The function accepts a `name` string. Type generation derives that required input from the signature, so we do not write a second schema for the same argument.
 
-This is useful when your team already relies on TypeScript during refactoring. It reduces one source of duplication. It does not remove runtime validation of external data or application authorization; those are still part of implementing a tool correctly.
+This helps when your team already relies on TypeScript while refactoring. It removes one source of duplication. You still need runtime validation of external data and application authorization in the tool.
 
 ## Client integrations
 
-A **channel** is how a person or system interacts with an agent. A browser chat, a Slack conversation, and a scheduled job can all be entry points into an application.
+A **channel** is how a person or system interacts with an agent. A browser chat, a Slack conversation and a scheduled job can all be entry points into an application.
 
 B4.run exposes thread-based HTTP APIs. A thread holds a conversation and its saved state. A client starts a run under that thread, receives the result or stream, and can continue the conversation later.
 
 For browser clients, AG-UI describes events such as new text, a tool call, or an approval request. B4.run's adapter translates runtime activity into those events. The reference web client uses CopilotKit.
 
-If you need another channel, account for the application work around the HTTP call: authenticating the sender, mapping conversations to threads, handling retries, and displaying approval requests. A framework's built-in integration can save time here, provided it fits those requirements.
+If you need another channel, plan for the application work around the HTTP call: authenticating the sender, mapping conversations to threads, handling retries and displaying approval requests. A framework's built-in integration can save time here if it fits those requirements.
 
 ## Runtime and storage
 
 The **runtime** executes the agent and its tools. Storage retains the conversation and execution state across requests.
 
-B4.run builds around LangGraph.js. Its runtime can retain checkpoints, threads, and permission grants using SQLite or a configured Postgres backend. Long-term memory is a separate store, so choosing Postgres for conversation state does not automatically configure the agent's memory collection.
+B4.run builds on LangGraph.js. Its runtime keeps checkpoints, threads and permission grants in SQLite or a configured Postgres backend. Long-term memory is a separate store, so choosing Postgres for conversation state does not configure the agent's memory collection.
 
-Vercel's [eve documentation](https://vercel.com/docs/eve) describes how its deployment uses Vercel Workflows, Sandbox, AI Gateway, and related platform services. When evaluating that path, include the services in your deployment and operations plan.
+Vercel's [eve documentation](https://vercel.com/docs/eve) describes how its deployment uses Vercel Workflows, Sandbox, AI Gateway and related platform services. If you evaluate that path, include those services in your deployment and operations plan.
 
-For either framework, I would test the same small scenario: start a conversation, stop the application, then continue it. Next, test an approval that pauses a run and resumes after a user decision. Those exercises reveal more about the fit for your project than a “durable execution” checkbox alone.
+For either framework, I would test the same small scenario: start a conversation, stop the application, then continue it. Next, test an approval that pauses a run and resumes after a user decision. Those exercises tell you more about the fit than a "durable execution" checkbox.
 
 ## Tools that execute code
 
-If an agent can run shell commands, look at where those commands execute. An approval rule decides whether an operation may proceed. A sandbox determines the environment in which it runs.
+If an agent can run shell commands, look at where those commands execute. An approval rule decides whether an operation may proceed. A sandbox decides the environment it runs in.
 
-B4.run offers optional sandbox providers, including Docker and Kubernetes. Their network and filesystem behavior depends on the provider and its configuration. For example, Docker's deny-network mode and its best-effort allow-mode denylist provide different controls. The [Sandbox guide](/docs/sandbox) documents those limits.
+B4.run offers optional sandbox providers, including Docker and Kubernetes. Their network and filesystem behavior depends on the provider and its configuration. For example, Docker's deny-network mode and its best-effort allow-mode denylist give different controls. The [Sandbox guide](/docs/sandbox) documents those limits.
 
-Evaluate the actual environment your application will use. A container, a hosted sandbox, and an approved command running on the application host have different properties, even when the agent sees a similarly named tool.
+Evaluate the environment your application will actually use. A container, a hosted sandbox and an approved command on the application host behave differently, even when the agent sees a similarly named tool.
 
 ## How I would evaluate the fit
 
-I would build one small application in each candidate framework and follow it through development, testing, and deployment:
+I would build one small application in each candidate framework and follow it through development, testing and deployment:
 
 1. Add one tool that calls an existing service.
 2. Write a repeatable test for a successful response and a service failure.
@@ -130,14 +135,12 @@ I would build one small application in each candidate framework and follow it th
 4. Add a human approval before an operation that needs review.
 5. Deploy to the intended host and test continuation after a restart.
 
-Then compare the amount of application code and operational setup each version needs. Include the team's existing knowledge of LangGraph, Vercel, TypeScript, and the services involved.
-
-That gives you a decision based on a working example and your requirements.
+Then compare the application code and operational setup each version needs, along with what your team already knows about LangGraph, Vercel, TypeScript and the services involved. That gives you a decision based on a working example.
 
 ## Conclusion
 
-I am glad to see more agent frameworks give application code a predictable structure. It makes the instructions, tools, and execution easier to find and discuss.
+I am glad to see more agent frameworks give application code a predictable structure. It makes the instructions, tools and execution easier to find and discuss.
 
-For B4.run, the combination I value is filesystem routes, TypeScript-derived tool inputs, and the LangGraph.js ecosystem. Your choice will also depend on the clients, services, and deployment environment your team needs.
+For B4.run, I value the combination of filesystem routes, TypeScript-derived tool inputs and the LangGraph.js ecosystem. Your choice also depends on the clients, services and deployment environment your team needs.
 
-Start with the [B4.run Getting Started guide](/docs/getting-started) and the [eve documentation](https://vercel.com/docs/eve), then try the same small use case in both. A familiar file tree is a good beginning; running your application through its complete workflow will tell you much more.
+Start with the [B4.run Getting Started guide](/docs/getting-started) and the [eve documentation](https://vercel.com/docs/eve), then try the same small use case in both. A familiar file tree is a good start. Running your application through its whole workflow will tell you much more.

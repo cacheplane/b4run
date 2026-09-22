@@ -1,6 +1,6 @@
 # Memory
 
-B4.run has three memory mechanisms. Choose by who owns the data and how it should be read; route state and checkpoints preserve workflow execution, but they are not a fourth memory mechanism.
+B4.run has three memory mechanisms. Pick one by who owns the data and how the agent reads it. Route state and checkpoints preserve workflow execution, but they are not a fourth memory mechanism.
 
 | Mechanism | Scope and shape | Best for | Owner |
 |---|---|---|---|
@@ -8,7 +8,7 @@ B4.run has three memory mechanisms. Choose by who owns the data and how it shoul
 | Route `memory.md` | Route-local Markdown, re-read each model turn | Versioned prompt facts for one route | Application developer |
 | Route `memory.ts` | Typed, store-backed records in declared namespaces | Facts, episodes, and reflections accumulated across sessions | Application and agent tools |
 
-Start with prompt files for small, reviewed context. When records need a schema, governance, retention, or retrieval, the smallest useful `memory.ts` is:
+Start with the prompt files for small, reviewed context. When records need a schema, governance, retention, or retrieval, the smallest useful `memory.ts` is:
 
 ```ts title="src/app/research/memory.ts"
 import { defineMemory } from "@b4run/sdk"
@@ -25,11 +25,17 @@ export default defineMemory({
 })
 ```
 
-From this typed collection, continue with [Long-term Memory](/docs/memory/long-term), [Recall and Retrieval](/docs/memory/retrieval), [Episodes](/docs/memory/episodes), [Distillation](/docs/memory/distillation), or [Browse and Manage Memory](/docs/memory/browse), depending on the task.
+From this typed collection, continue with the guide for your task:
+
+- [Long-term Memory](/docs/memory/long-term): schemas, the generated tools, write governance, candidate review, configuration, and testing.
+- [Recall and Retrieval](/docs/memory/retrieval): how recall ranks records, opt-in semantic recall, and the pgvector backend.
+- [Episodes](/docs/memory/episodes): the run recorder, retention, and time-windowed recall.
+- [Distillation](/docs/memory/distillation): consolidating and reflecting on stored records with `b4 memory`.
+- [Browse and Manage Memory](/docs/memory/browse): building an authenticated admin surface over the store.
 
 ## Workspace profile (`AGENTS.md`)
 
-If `workspace/AGENTS.md` exists and has content, B4.run injects it under `# Memory` on every model turn. It is shared by every consuming agent route and subagent using the same app root; raw graph, workflow, and chain routes do not consume it.
+If `workspace/AGENTS.md` exists and has content, B4.run injects it under `# Memory` on every model turn. Every consuming agent route and subagent that uses the same app root shares it. Raw graph, workflow, and chain routes do not consume it.
 
 ```md title="workspace/AGENTS.md"
 # Workspace Memory
@@ -39,7 +45,7 @@ If `workspace/AGENTS.md` exists and has content, B4.run injects it under `# Memo
 - Escalate billing exceptions to the finance queue.
 ```
 
-The default local app root makes this a shared host prompt source. A per-thread sandbox does not isolate that host file automatically. Use separate app roots or trust domains for tenants, constrain untrusted writes, and review seeded content. The [Workspace Filesystem](/docs/workspace) guide explains the file tools and backend boundary.
+With the default local app root, this file is a shared host prompt source. A per-thread sandbox does not isolate it. Use separate app roots or trust domains for tenants, constrain untrusted writes, and review seeded content.
 
 ### Updating it
 
@@ -62,125 +68,127 @@ src/app/research/
 - Prefer primary sources; flag anything you could not verify.
 ```
 
-B4.run trims and injects the file under `# Route Memory`, after `workspace/AGENTS.md`, on every model turn. Presence is the opt-in: there is no import or registration call. It is a versioned prompt fragment, not a store, and the agent does not write it automatically. Empty files contribute nothing; files larger than 32 KiB are skipped and produce a prompt note.
+B4.run trims the file and injects it under `# Route Memory`, after `workspace/AGENTS.md`, on every model turn. You opt in by creating the file. There is no import or registration call. The file is a versioned prompt fragment rather than a store, and the agent does not write to it. Empty files contribute nothing. Files larger than 32 KiB are skipped and produce a prompt note.
 
-## Long-term collection (`memory.ts`)
+## Moved sections
 
-Schemas and write lifecycle: [Long-term Memory](/docs/memory/long-term).
+These headings keep older links working.
 
-### Generated tools
+### Long-term collection (`memory.ts`)
 
-Generated tool contract: [Long-term Memory](/docs/memory/long-term).
+See [Long-term Memory](/docs/memory/long-term).
 
-### How recall ranks
+#### Generated tools
 
-Ranking stages: [Recall and Retrieval](/docs/memory/retrieval).
+See [Long-term Memory](/docs/memory/long-term).
 
-### Semantic recall (opt-in)
+#### How recall ranks
 
-Embedding-based recall: [Recall and Retrieval](/docs/memory/retrieval).
+See [Recall and Retrieval](/docs/memory/retrieval).
 
-### Postgres backend (pgvector)
+#### Semantic recall (opt-in)
 
-Shared vector storage: [Recall and Retrieval](/docs/memory/retrieval).
+See [Recall and Retrieval](/docs/memory/retrieval).
 
-### The injected index
+#### Postgres backend (pgvector)
 
-Prompt index behavior: [Recall and Retrieval](/docs/memory/retrieval).
+See [Recall and Retrieval](/docs/memory/retrieval).
 
-## Episodic memory
+#### The injected index
 
-Run-event concepts: [Episodes](/docs/memory/episodes).
+See [Recall and Retrieval](/docs/memory/retrieval).
 
-### Enabling the run recorder
+### Episodic memory
 
-Recorder setup: [Episodes](/docs/memory/episodes).
+See [Episodes](/docs/memory/episodes).
 
-### What gets recorded
+#### Enabling the run recorder
 
-Record shape: [Episodes](/docs/memory/episodes).
+See [Episodes](/docs/memory/episodes).
 
-### Retention
+#### What gets recorded
 
-Expiry and caps: [Episodes](/docs/memory/episodes).
+See [Episodes](/docs/memory/episodes).
 
-### Time-windowed recall
+#### Retention
 
-Window filters: [Episodes](/docs/memory/episodes).
+See [Episodes](/docs/memory/episodes).
 
-### Governance
+#### Time-windowed recall
 
-Write policy: [Episodes](/docs/memory/episodes).
+See [Episodes](/docs/memory/episodes).
 
-### Agent-authored episodes
+#### Governance
 
-Agent-written events: [Episodes](/docs/memory/episodes).
+See [Episodes](/docs/memory/episodes).
 
-## Distillation
+#### Agent-authored episodes
 
-Pass selection: [Distillation](/docs/memory/distillation).
+See [Episodes](/docs/memory/episodes).
 
-### Consolidation
+### Distillation
 
-Compaction details: [Distillation](/docs/memory/distillation).
+See [Distillation](/docs/memory/distillation).
 
-### Reflection
+#### Consolidation
 
-Insight derivation: [Distillation](/docs/memory/distillation).
+See [Distillation](/docs/memory/distillation).
 
-### Distilled records are found by keyword
+#### Reflection
 
-Keyword reachability: [Distillation](/docs/memory/distillation).
+See [Distillation](/docs/memory/distillation).
 
-### Provenance
+#### Distilled records are found by keyword
 
-Source provenance: [Distillation](/docs/memory/distillation).
+See [Distillation](/docs/memory/distillation).
 
-### Cost
+#### Provenance
 
-Cost controls: [Distillation](/docs/memory/distillation).
+See [Distillation](/docs/memory/distillation).
 
-### Running it on a schedule
+#### Cost
 
-Scheduling guidance: [Distillation](/docs/memory/distillation).
+See [Distillation](/docs/memory/distillation).
 
-### Distillation configuration
+#### Running it on a schedule
 
-Configuration options: [Distillation](/docs/memory/distillation).
+See [Distillation](/docs/memory/distillation).
 
-## Write governance
+#### Distillation configuration
 
-Write modes: [Long-term Memory](/docs/memory/long-term).
+See [Distillation](/docs/memory/distillation).
 
-### `ask` mode
+### Write governance
 
-Supervision behavior: [Long-term Memory](/docs/memory/long-term).
+See [Long-term Memory](/docs/memory/long-term).
 
-## Reviewing candidates
+#### `ask` mode
 
-Candidate operations: [Long-term Memory](/docs/memory/long-term).
+See [Long-term Memory](/docs/memory/long-term).
 
-## Configuration
+### Reviewing candidates
 
-Store settings: [Long-term Memory](/docs/memory/long-term).
+See [Long-term Memory](/docs/memory/long-term).
 
-## Testing
+### Configuration
 
-Deterministic setup: [Long-term Memory](/docs/memory/long-term).
+See [Long-term Memory](/docs/memory/long-term).
 
-### Verifying against a real model
+### Testing
 
-Live verification: [Long-term Memory](/docs/memory/long-term).
+See [Long-term Memory](/docs/memory/long-term).
 
-## What's deferred
+#### Verifying against a real model
 
-Current limits: [Long-term Memory](/docs/memory/long-term).
+See [Long-term Memory](/docs/memory/long-term).
+
+### What's deferred
+
+See [Long-term Memory](/docs/memory/long-term).
 
 ## Related
 
 <RelatedCards items={[
-  { href: "/docs/memory/long-term", title: "Long-term Memory", subtitle: "schemas, writes, governance, retention, and tests" },
-  { href: "/docs/memory/retrieval", title: "Recall and Retrieval", subtitle: "keyword and hybrid ranking" },
-  { href: "/docs/memory/browse", title: "Browse and Manage Memory", subtitle: "build an authenticated administrative surface" },
+  { href: "/docs/workspace", title: "Workspace Filesystem", subtitle: "file tools and backend boundaries" },
   { href: "/docs/persistence", title: "Persistence and Tenancy", subtitle: "store and ownership boundaries" },
 ]} />

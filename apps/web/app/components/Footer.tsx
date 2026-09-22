@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { BrandLogo } from "./BrandLogo"
+import headerStyles from "./homepage/header.module.css"
 
 interface LinkItem {
   readonly label: string
@@ -84,7 +85,7 @@ export function Footer() {
       className="bg-surface border-t border-divider"
       style={{ background: "#f5f4f0", color: "#111111", borderColor: "#d6d6cc" }}
     >
-      <div className="max-w-[1200px] mx-auto px-6 md:px-8 pt-16 pb-10">
+      <div className={`${headerStyles.column} pt-16 pb-10`}>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-10 md:gap-8">
           <div className="col-span-2 md:col-span-1">
             <BrandLogo imageClassName="h-7" variant="dark" />

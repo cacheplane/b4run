@@ -3,6 +3,7 @@ import { Fraunces, Inter, JetBrains_Mono } from "next/font/google"
 import type { ReactNode } from "react"
 import { Footer } from "./components/Footer"
 import { Header } from "./components/Header"
+import { HideOnDocs } from "./components/HideOnDocs"
 import { JsonLd } from "./seo/JsonLd"
 import { SOCIAL_CARD, SOCIAL_SITE_NAME } from "./seo/social"
 import { siteJsonLd } from "./seo/structured-data"
@@ -31,11 +32,11 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://b4.run"),
   applicationName: "B4.run",
   title: {
-    default: "B4.run — TypeScript meta-framework for LangGraph.js",
+    default: "B4.run: the TypeScript meta-framework for LangGraph.js",
     template: "%s | B4.run",
   },
   description:
-    "B4.run adds file-system routing, route-local tools, generated types, and HMR to your existing LangGraph.js stack. Keep the runtime. Drop the boilerplate.",
+    "B4.run adds file-system routing, route-local tools, generated types, and HMR to your LangGraph.js stack. You keep the runtime and skip the boilerplate.",
   manifest: "/site.webmanifest",
   icons: {
     icon: [
@@ -51,16 +52,16 @@ export const metadata: Metadata = {
     type: "website",
     url: "https://b4.run",
     siteName: SOCIAL_SITE_NAME,
-    title: "B4.run — TypeScript meta-framework for LangGraph.js",
+    title: "B4.run: the TypeScript meta-framework for LangGraph.js",
     description:
-      "B4.run adds file-system routing, route-local tools, generated types, and HMR to your existing LangGraph.js stack. Keep the runtime. Drop the boilerplate.",
+      "B4.run adds file-system routing, route-local tools, generated types, and HMR to your LangGraph.js stack. You keep the runtime and skip the boilerplate.",
     // Image is provided by app/opengraph-image.tsx (1200×630, cream palette).
   },
   twitter: {
     card: SOCIAL_CARD,
-    title: "B4.run — TypeScript meta-framework for LangGraph.js",
+    title: "B4.run: the TypeScript meta-framework for LangGraph.js",
     description:
-      "B4.run adds file-system routing, route-local tools, generated types, and HMR to your existing LangGraph.js stack. Keep the runtime. Drop the boilerplate.",
+      "B4.run adds file-system routing, route-local tools, generated types, and HMR to your LangGraph.js stack. You keep the runtime and skip the boilerplate.",
     // Image is provided by app/twitter-image.tsx (re-exports opengraph-image).
   },
   appleWebApp: {
@@ -78,7 +79,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <div className="min-h-screen flex flex-col">
           <Header />
           <main className="flex-1">{children}</main>
-          <Footer />
+          <HideOnDocs>
+            <Footer />
+          </HideOnDocs>
         </div>
       </body>
     </html>

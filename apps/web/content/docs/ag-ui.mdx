@@ -1,15 +1,8 @@
 # AG-UI and Web Clients
 
-B4.run exposes [AG-UI](https://github.com/ag-ui-protocol/ag-ui) for browser clients
-alongside Agent Protocol. `@b4run/ag-ui` is the pure translation library: it
-maps B4.run stream chunks to AG-UI events and maps `RunAgentInput` back to a
-B4.run-shaped run input. The package owns no server, transport, or agent runtime.
+B4.run serves [AG-UI](https://github.com/ag-ui-protocol/ag-ui) for browser clients alongside Agent Protocol. `@b4run/ag-ui` is the translation library. It maps B4.run stream chunks to AG-UI events, and maps `RunAgentInput` back to a B4.run-shaped run input. The package has no server, transport, or agent runtime of its own.
 
-`b4 dev` and the production runtime started by `b4 start` use that adapter to
-serve an SSE endpoint. This page is the canonical request, resume, threading,
-and lifecycle guide. See [Middleware](/docs/middleware) for execution gating
-and [Security Architecture](/docs/security-architecture) for the service routes
-that require outer authentication.
+`b4 dev` and the production runtime started by `b4 start` use that adapter to serve an SSE endpoint. This page covers requests, resume, threading, and lifecycle. See [Middleware](/docs/middleware) for execution gating and [Security Architecture](/docs/security-architecture) for the service routes that need outer authentication.
 
 ## The endpoint
 
@@ -19,16 +12,11 @@ content-type: application/json
 accept: text/event-stream
 ```
 
-The URL segment is the URL-encoded `<routeId>#<kind>` assistant id. For example,
-`/chat#agent` becomes `/agui/%2Fchat%23agent`. The request body is an AG-UI
-`RunAgentInput`. B4.run creates an unknown thread, invokes the same route runtime
-used by Agent Protocol, and streams translated events back as SSE.
+The URL segment is the URL-encoded `<routeId>#<kind>` assistant id. For example, `/chat#agent` becomes `/agui/%2Fchat%23agent`. The request body is an AG-UI `RunAgentInput`. B4.run creates the thread if it is unknown, invokes the same route runtime Agent Protocol uses, and streams translated events back as SSE.
 
 ## Consuming it from a web UI
 
-`examples/chat/web` is the canonical reference client. Its CopilotKit runtime
-registers an `HttpAgent` pointed at B4.run's encoded route URL. The browser talks
-to the Next.js runtime route, while only the B4.run server holds model credentials.
+`examples/chat/web` is the reference client. Its CopilotKit runtime registers an `HttpAgent` pointed at B4.run's encoded route URL. The browser talks to the Next.js runtime route, and only the B4.run server holds model credentials:
 
 ```text
 browser
@@ -38,12 +26,9 @@ browser
         -> AG-UI event stream
 ```
 
-CopilotKit's sidebar uses the literal agent id `default` when none is supplied,
-so the example registers the B4.run route under that key. See
-`examples/chat/web/README.md` for the complete setup and smoke checklist.
+CopilotKit's sidebar uses the literal agent id `default` when none is supplied, so the example registers the B4.run route under that key. See `examples/chat/web/README.md` for the complete setup and smoke checklist.
 
-That client renders plan and researcher cards by passing the adapter's own
-renderer array to CopilotKit:
+The client renders plan and researcher cards by passing the adapter's renderer array to CopilotKit:
 
 ```tsx
 import "@b4run/ag-ui/react/styles.css"
@@ -57,22 +42,9 @@ import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 >
 ```
 
-The stylesheet import gives the cards B4.run's default appearance in light and
-dark; without it, the cards still render but with structured, unstyled
-markup. Override its `--b4-activity-*` CSS custom properties to restyle, or
-pass `classNames`/`components` to the card components for deeper
-customization — see the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards)
-for the full ladder.
+The stylesheet import gives the cards B4.run's default look in light and dark mode. Without it, the cards still render as structured, unstyled markup. To restyle them, override the `--b4-activity-*` CSS custom properties. For deeper changes, pass `classNames`/`components` to the card components. The [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) walks through every option.
 
-React and `@copilotkit/react-core` are optional peer dependencies, so a
-server-only consumer of the root or `/sse` entry installs nothing extra. The
-subpath also exports the two renderers individually, the card components, and
-the content schemas, for a client presenting the activities its own way. For the
-full application wiring — a thread rail, suggestions, generic tool cards, and
-permissions — see the
-[research web UI recipe](/docs/recipes/research-web-ui) and its
-[`examples/research/web`](https://github.com/cacheplane/b4run/tree/main/examples/research/web)
-implementation.
+React and `@copilotkit/react-core` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra. The `/react` subpath also exports the two renderers individually, the card components, and the content schemas, for a client that presents the activities its own way. For the full application wiring (a thread rail, suggestions, generic tool cards, and permissions), see the [research web UI recipe](/docs/recipes/research-web-ui) and its [`examples/research/web`](https://github.com/cacheplane/b4run/tree/main/examples/research/web) implementation.
 
 ## Adapter API
 
@@ -88,8 +60,7 @@ for await (const event of toAguiEvents(b4Chunks, { threadId, runId })) {
 }
 ```
 
-Transport helpers are isolated behind subpaths. An SSE server can encode an
-event without expanding the root API:
+Transport helpers live behind subpaths. For example, an SSE server can encode an event like this:
 
 ```ts
 import { encodeAgUiSse } from "@b4run/ag-ui/sse"
@@ -99,9 +70,7 @@ response.write(encodeAgUiSse(event, request.headers.accept))
 
 ### Outbound events
 
-`toAguiEvents(chunks, context)` is a stateful async generator. It frames B4.run's
-implicit assistant text and preserves upstream tool-call ids for result
-correlation.
+`toAguiEvents(chunks, context)` is a stateful async generator. It frames B4.run's implicit assistant text and keeps upstream tool-call ids so results can be correlated:
 
 | B4.run chunk | AG-UI event(s) |
 |---|---|
@@ -119,81 +88,53 @@ correlation.
 
 ### Activity snapshots
 
-Activities use standard AG-UI framing and complete replacement snapshots. A
-root plan has stable message id `b4:plan:${runId}`, activity type `b4.plan`,
-and content containing only the complete todo list. Todo status is exactly
-`pending`, `in_progress`, or `completed`. B4.run emits no seeded-plan activity at
-run start; the first snapshot follows a valid root `plan_update`.
+Activities use standard AG-UI framing and complete replacement snapshots. A root plan has the stable message id `b4:plan:${runId}`, activity type `b4.plan`, and content holding only the complete todo list. Todo status is exactly `pending`, `in_progress`, or `completed`. B4.run emits no seeded-plan activity at run start. The first snapshot follows a valid root `plan_update`.
 
-Each subagent has stable message id `b4:subagent:${call_id}`, activity type
-`b4.subagent`, and complete content with its name, positive integer depth,
-`running`/`completed`/`failed` status, an optional current todo list, up to five
-recent child-tool name/status summaries, and the total observed tool count.
-Tool-summary status is exactly `running`, `completed`, or `incomplete`. A failed
-activity can also contain a human-readable error capped at 400 characters.
-Because every event has `replace: true`, later snapshots replace the same
-stable activity message.
+Each subagent has the stable message id `b4:subagent:${call_id}` and activity type `b4.subagent`. Its content holds:
 
-The adapter validates the full internal identity
-`{ call_id, subagent, route_id, depth }` on every recognized child event. Only
-an exact match with the original `subagent.start` can update its activity;
-`call_id` is used only to form the stable standard message id, while `route_id`
-and child tool ids remain internal. None is duplicated in public content.
-`subagent.message` is consumed without emission.
+- the subagent's name and positive integer depth;
+- a `running`, `completed`, or `failed` status;
+- an optional current todo list;
+- up to five recent child-tool name/status summaries, each with status `running`, `completed`, or `incomplete`;
+- the total observed tool count;
+- for a failed activity, an optional human-readable error capped at 400 characters.
 
-This boundary excludes child reasoning and prose, prompts, tool inputs, tool
-outputs, final child answers, route ids, and raw runtime ids. It is an explicit
-allowlist rather than a generic capability mapping: unknown capability chunks
-retain the existing behavior of closing any open text message and then being
-ignored. B4.run emits neither activity deltas nor a raw advanced child stream.
-Activities are informational; standard interrupt UI remains the only place to
-resolve or cancel permission requests. No queued, waiting, cancelled, or
-parent-task correlation state is inferred.
+Every event has `replace: true`, so later snapshots replace the same stable activity message.
+
+The adapter validates the full internal identity `{ call_id, subagent, route_id, depth }` on every recognized child event. Only an exact match with the original `subagent.start` can update its activity. `call_id` is used only to form the stable message id, and `route_id` and child tool ids stay internal. None of them appear in public content. `subagent.message` is consumed without emitting anything.
+
+Activities exclude child reasoning and prose, prompts, tool inputs, tool outputs, final child answers, route ids, and raw runtime ids. This is an explicit allowlist. Unknown capability chunks close any open text message and are then ignored. B4.run emits no activity deltas and no raw child stream. Activities are informational. Only the standard interrupt UI resolves or cancels permission requests. The adapter infers no queued, waiting, cancelled, or parent-task correlation state.
 
 ### Canonical orchestration presentation
 
-B4.run's two built-in orchestration actions are presented once. When a
-`writeTodos` call produced the `b4.plan` activity, or a `task` call produced
-the `b4.subagent` activity because delegation actually started, the adapter
-emits no `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END`, or
-`TOOL_CALL_RESULT` for that call. The chunk behind the activity carries the same
-tool-call id as the model's call (`plan_update.tool_call_id`, and the subagent's
-`call_id`); that correlation is internal and decides the suppression. It is not
-republished in activity content, which still excludes raw runtime ids. Only
-`b4.subagent` exposes the id at all, inside its stable `messageId`.
+B4.run's two built-in orchestration actions are presented once. When a `writeTodos` call produced the `b4.plan` activity, or a `task` call produced the `b4.subagent` activity because delegation actually started, the adapter emits no `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END`, or `TOOL_CALL_RESULT` for that call. The chunk behind the activity carries the same tool-call id as the model's call (`plan_update.tool_call_id`, and the subagent's `call_id`). That internal correlation decides the suppression and is not republished in activity content. Only `b4.subagent` exposes the id, inside its stable `messageId`.
 
-Every other tool is unchanged. `recall`, `searchCorpus`, `readDoc`, `writeFile`,
-`runBash`, and any application tool still produce ordinary tool events.
+Every other tool is unchanged. `recall`, `searchCorpus`, `readDoc`, `writeFile`, `runBash`, and any application tool still produce ordinary tool events.
 
-The rule fails open: whenever suppression cannot be proven, the generic frames
-are preserved and a client sees the ordinary tool card exactly as before. That
-includes a call with no tool-call id, a colliding tool-call id, a malformed
-activity payload, a resolver failure that means `subagent.start` never arrives,
-a result that arrives with no correlation, buffer limits, and a stream that ends
-early.
+The rule fails open. When suppression cannot be proven, the client sees the ordinary tool card. That covers:
 
-At a permission interrupt belonging to the held call, the held frames are
-dropped rather than flushed, because the resumed run re-presents the same call
-under the same tool-call id and the client converges the two into one card.
-Unrelated held calls still flush before the interrupt.
+- a call with no tool-call id, or a colliding one;
+- a malformed activity payload;
+- a resolver failure that means `subagent.start` never arrives;
+- a result that arrives with no correlation;
+- buffer limits;
+- a stream that ends early.
+
+At a permission interrupt that belongs to the held call, the held frames are dropped instead of flushed. The resumed run presents the same call again under the same tool-call id, and the client merges the two into one card. Unrelated held calls still flush before the interrupt.
 
 <Callout type="warn" title="Activities are the only surface for these two tools">
-  A client that registers no activity renderer sees less for `writeTodos` and
-  `task` than a generic tool renderer used to show. That is the contract:
-  activities are canonical for built-in orchestration, so render them. For a
-  React client, that is one line — pass `b4ActivityRenderers` from
-  `@b4run/ag-ui/react` to CopilotKit's `renderActivityMessages`.
+  A client with no activity renderer shows less for `writeTodos` and `task`
+  than a generic tool renderer used to. Activities are the canonical view of
+  built-in orchestration, so render them. In a React client that takes one
+  line: pass `b4ActivityRenderers` from `@b4run/ag-ui/react` to CopilotKit's
+  `renderActivityMessages`.
 </Callout>
 
 ### Inbound input
 
-`fromRunAgentInput(input)` translates every AG-UI message and preserves the
-original request as `raw`, where consumers can inspect tools, state, and context.
-The CLI endpoint forwards only the newest user message because B4.run owns the
-checkpointed conversation for the thread.
+`fromRunAgentInput(input)` translates every AG-UI message and keeps the original request as `raw`, where you can inspect tools, state, and context. The CLI endpoint forwards only the newest user message, because B4.run owns the checkpointed conversation for the thread.
 
-The standard top-level `RunAgentInput.resume` array is preserved as
-vocabulary-neutral B4.run resume requests:
+The standard top-level `RunAgentInput.resume` array becomes a list of B4.run resume requests:
 
 ```ts
 resume?: Array<{
@@ -203,102 +144,57 @@ resume?: Array<{
 }>
 ```
 
-For a permission prompt, a resolved payload can carry a B4.run decision such as
-`"once"` or `"always"`; cancelling the interrupt maps to denial at the runtime
-boundary. Every answer must address one currently pending interrupt.
+For a permission prompt, a resolved payload can carry a B4.run decision such as `"once"` or `"always"`. Cancelling the interrupt maps to a denial at the runtime boundary. Every answer must address one currently pending interrupt.
 
 ## Response schema
 
-Some AG-UI clients render the assistant's reply rather than print it.
-[Hashbrown](https://hashbrown.dev) is one: its client sends
-`hashbrown: { ui: true, responseSchema }` on every run, where `responseSchema`
-is the JSON Schema the final assistant message must conform to. The runtime
-reads that field off the run body and does one of two things — it never
-ignores it, because from the client's side an ignored schema and an honored
-one look identical until a reply fails to parse.
+Some AG-UI clients render the assistant's reply instead of printing it. [Hashbrown](https://hashbrown.dev) is one. Its client sends `hashbrown: { ui: true, responseSchema }` on every run, where `responseSchema` is the JSON Schema the final assistant message must match. The runtime either applies that schema or rejects the run. It never ignores it, because to the client an ignored schema looks like an honored one until a reply fails to parse.
 
-**Applied.** On an `agent` route whose provider can constrain its final message
-to a schema while still calling tools, the schema is bound on the root model
-as that provider's native structured output:
+**Applied.** On an `agent` route whose provider can constrain its final message to a schema while still calling tools, the schema is bound on the root model as that provider's native structured output:
 
 | Provider | How the schema is applied |
 | --- | --- |
 | `openai` | `response_format: { type: "json_schema", json_schema: { name: "hashbrown_response", schema, strict: true } }` on every root-model call, on both the Chat Completions and Responses paths. |
 | `anthropic` | `output_config.format = { type: "json_schema", schema }` on every root-model call. |
 
-Tool-calling turns are unaffected: a turn that calls tools still returns tool
-calls, and only the turn that answers is constrained. The schema is bound on
-the **root** model only; subagents, summarization and memory extraction never
-see it. Because the binding is per request, a run that carries a schema always
-compiles a fresh agent graph instead of reusing the process cache.
+Tool-calling turns are unaffected. A turn that calls tools still returns tool calls, and only the answering turn is constrained. The schema is bound on the **root** model only. Subagents, summarization, and memory extraction never see it. Because the binding is per request, a run that carries a schema always compiles a fresh agent graph instead of reusing the process cache.
 
-Strict OpenAI structured outputs require a schema OpenAI accepts in strict
-mode (every object with `additionalProperties: false` and all of its
-properties listed in `required`). Hashbrown's schema builder emits that shape;
-a hand-written schema that does not is rejected by OpenAI and surfaces as a
-`RUN_ERROR`.
+Strict OpenAI structured outputs need a schema OpenAI accepts in strict mode: every object has `additionalProperties: false` and lists all of its properties in `required`. Hashbrown's schema builder emits that shape. A hand-written schema that does not is rejected by OpenAI and surfaces as a `RUN_ERROR`.
 
-**Rejected.** Anywhere else the run is refused with `422` and error code
-`B4_E5402` before middleware context is built into a run, before the thread
-is created, and before a run slot is claimed. `error.details.code` says why:
+**Rejected.** Anywhere else, the run is refused with `422` and error code `B4_E5402`. This happens before middleware context is built into a run, before the thread is created, and before a run slot is claimed. `error.details.code` says why:
 
 | `details.code` | Meaning |
 | --- | --- |
 | `invalid_response_schema` | `hashbrown` is present but not a JSON object, or `hashbrown.responseSchema` is present but not a JSON Schema object. Judged from the body alone, before middleware runs. |
 | `response_schema_not_supported` | The route is not an `agent` route, or its provider (`google`, `mistral`, `groq`, `ollama`, `xai`, `openrouter`) has no schema-constrained output mode that coexists with tool calls. Judged after middleware has admitted the caller. |
 
-A run without `hashbrown`, or with `hashbrown: { ui: true }` and no schema,
-is unchanged.
+A run without `hashbrown`, or with `hashbrown: { ui: true }` and no schema, is unchanged.
 
 ## Threading
 
-AG-UI's `threadId` is the B4.run thread id; there is no separate mapping table.
-AG-UI and Agent Protocol requests execute the same route code and use the same
-thread store and checkpointer. A caller can inspect state through Agent Protocol
-while a UI drives later turns through AG-UI.
+AG-UI's `threadId` is the B4.run thread id. There is no separate mapping table. AG-UI and Agent Protocol requests run the same route code and use the same thread store and checkpointer, so a caller can inspect state through Agent Protocol while a UI drives later turns through AG-UI.
 
-A turn that parks on a permission prompt leaves the thread `interrupted` rather
-than `idle`, on both surfaces. The park is written to the checkpointer, so it
-outlives the response that carried it: a client reading `GET /threads/:thread_id`
-after a reload sees that a human is still being waited on instead of being told
-the agent finished.
+A turn that parks on a permission prompt leaves the thread `interrupted` instead of `idle`, on both surfaces. The park is written to the checkpointer, so it outlives the response that carried it. After a reload, a client reading `GET /threads/:thread_id` sees that the agent is still waiting on a person.
 
-They also share the same process-local one-active-run-per-thread gate. An
-ordinary run-slot collision—an AG-UI turn or Agent Protocol run that reaches an
-occupied slot—returns `409` with `error.details.code` set to `run_in_flight`.
-A second concurrent resume is stopped by the shared resume claim before it
-reaches the run registry and returns `resume_in_progress`. Shared durable stores
-do not distribute that coordination across replicas.
+Both surfaces also share the same process-local one-active-run-per-thread gate. An ordinary run-slot collision (an AG-UI turn or Agent Protocol run that reaches an occupied slot) returns `409` with `error.details.code` set to `run_in_flight`. A second concurrent resume is stopped by the shared resume claim before it reaches the run registry, and returns `resume_in_progress`. Shared durable stores do not extend that coordination across replicas.
 
 ## Middleware and service authentication
 
-B4.run execution middleware gates AG-UI route execution just as it gates Agent
-Protocol execution. It can reject the request or pass context into authored
-tools. It is not service-wide authentication: thread management, state,
-cancellation, memory-candidate management, and health routes bypass it. See
-[Middleware](/docs/middleware) for the request contract and
-[Security Architecture](/docs/security-architecture) before exposing the
-runtime outside a trusted local environment.
+B4.run execution middleware gates AG-UI route execution the same way it gates Agent Protocol execution. It can reject the request or pass context into authored tools. It does not authenticate the whole service: thread management, state, cancellation, memory-candidate management, and health routes bypass it. See [Middleware](/docs/middleware) for the request contract, and read [Security Architecture](/docs/security-architecture) before you expose the runtime outside a trusted local environment.
 
 ## Disconnect and reconnect
 
 <Callout type="warn" title="No reconnect or replay support">
-  Each POST owns one SSE response. B4.run does not buffer emitted AG-UI events or
-  support last-event-id replay. If the connection drops, B4.run aborts that
-  ephemeral AG-UI run; the client cannot reattach to its event stream. A later
-  request against the same thread starts a new run from the latest completed
+  Each POST owns one SSE response. B4.run does not buffer emitted AG-UI events
+  or support last-event-id replay. If the connection drops, B4.run aborts that
+  AG-UI run, and the client cannot reattach to its event stream. A later
+  request on the same thread starts a new run from the latest completed
   checkpoint.
 </Callout>
 
-Aborting the run does not discard a park it already reached. A permission prompt
-raised before the disconnect is durable, so the thread stays `interrupted` and
-the next request can resume it.
+Aborting the run keeps any park it already reached. A permission prompt raised before the disconnect is durable, so the thread stays `interrupted` and the next request can resume it.
 
-The two surfaces differ here. Agent Protocol viewer disconnects continue the run;
-AG-UI viewer disconnects abort the run. For Agent Protocol, closing a
-`runs/stream`, `runs/wait`, or `resume` connection only detaches the viewer, so
-stop the run explicitly with `POST /threads/:thread_id/cancel`. Server shutdown
-also aborts in-flight work.
+The two surfaces differ here. Agent Protocol viewer disconnects continue the run; AG-UI viewer disconnects abort the run. For Agent Protocol, closing a `runs/stream`, `runs/wait`, or `resume` connection only detaches the viewer, so stop the run explicitly with `POST /threads/:thread_id/cancel`. Server shutdown also aborts in-flight work.
 
 ## Related
 

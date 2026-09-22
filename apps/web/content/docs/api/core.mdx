@@ -23,7 +23,7 @@ import { discoverRoutes } from "@b4run/core/node"
 | `@b4run/core/node` | node-only | not-claimed | integration | low-level |
 | `@b4run/core/internal/compiler` | node-only | not-claimed | internal | internal |
 
-Importing `/node` registers the disk-backed `b4.config.ts` loader. The root remains free of that filesystem-loader edge so a static runtime can seed configuration instead.
+Importing `/node` registers the disk-backed `b4.config.ts` loader. The root stays free of that filesystem loader, so a static runtime can seed configuration instead.
 
 ## Public exports
 
@@ -164,13 +164,13 @@ Importing `/node` registers the disk-backed `b4.config.ts` loader. The root rema
 
 ### `@b4run/core/internal/compiler`
 
-This discoverable subpath is internal. It has no application compatibility promise; the CLI owns its use during type generation.
+This subpath is internal and carries no compatibility promise. The CLI uses it during type generation.
 
 ## Key contracts
 
 ### `loadB4Config()`
 
-Use this low-level seam when an integration owns configuration loading. Most Node callers import `/node` to register disk loading; static runtimes seed config instead.
+Use this low-level seam when an integration owns configuration loading.
 
 ```ts api-contract="@b4run/core#.:loadB4Config"
 export declare function loadB4Config(options: LoadB4ConfigOptions): Promise<LoadedB4Config>
@@ -182,7 +182,7 @@ loadB4Config memoizes per app root. A failed in-flight load is evicted only whil
 
 ### `resolveStateFields()`
 
-This low-level helper turns state defaults and optional reducer overrides into the normalized fields consumed by type generation and runtime state assembly.
+Turns state defaults and optional reducer overrides into the normalized fields that type generation and runtime state assembly consume.
 
 ```ts api-contract="@b4run/core#.:resolveStateFields"
 export declare function resolveStateFields(
@@ -196,7 +196,7 @@ resolveStateFields infers append for array defaults and replace for scalar defau
 
 ### Configuration ownership
 
-Use [Configuration Reference](/docs/configuration) for the full `B4Config` schema. The root loader is a runtime seam: Node callers import `/node` to register disk loading, while edge callers seed an already-constructed config.
+See [Configuration Reference](/docs/configuration) for the full `B4Config` schema. The root loader is a runtime seam: Node callers import `/node` to register disk loading, and edge callers seed a constructed config.
 
 ## Examples and related guides
 

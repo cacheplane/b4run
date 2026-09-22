@@ -1,6 +1,6 @@
 # Stream Output
 
-You want a route's response to arrive incrementally rather than as a single blob at the end. Here's how to call `/threads/:id/runs/stream` and read the SSE frames.
+Learn how to get a route's response incrementally instead of all at once at the end. We'll call `/threads/:id/runs/stream` and read the SSE frames:
 
 ## The code
 
@@ -49,7 +49,7 @@ while (true) {
 
     switch (eventType) {
       case "chunk":
-        // Streamed text fragment — append to display.
+        // Streamed text fragment: append it to the display.
         if (typeof payload === "string") process.stdout.write(payload)
         break
       case "tool_call":
@@ -78,13 +78,13 @@ while (true) {
 
 ## SSE event types
 
-Every event frame is `event: <type>\ndata: <json>\n\n`. Parse the `event:` line to route frames correctly — do not treat all frames as the same type.
+Every event frame is `event: <type>\ndata: <json>\n\n`. Parse the `event:` line to tell the frame types apart.
 
 | Event type | Payload shape | Notes |
 |---|---|---|
-| `chunk` | `string` | Streamed text fragment from the LLM. |
-| `tool_call` | `{ name: string, input: unknown }` | LLM is calling a tool. |
-| `tool_result` | `{ name: string, output: unknown }` | Tool returned a result. A tool that threw still emits one: `output` is the `status: "error"` ToolMessage the model receives. |
+| `chunk` | `string` | Streamed text fragment from the model. |
+| `tool_call` | `{ name: string, input: unknown }` | The model is calling a tool. |
+| `tool_result` | `{ name: string, output: unknown }` | A tool returned a result. A tool that threw still emits one, and `output` is the `status: "error"` ToolMessage the model receives. |
 | `plan_update` | plan object | Emitted after a [Planning](/docs/planning) `writeTodos` result updates the route's todo state. (Does not write back to `plan.md`.) |
 | `interrupt` | interrupt object | Emitted when the agent hits a HITL interrupt point. |
 | `subagent.start` | `{ name, routeId, depth, call_id }` | A subagent started. |
@@ -96,11 +96,11 @@ Every event frame is `event: <type>\ndata: <json>\n\n`. Parse the `event:` line 
 
 ## Notes
 
-- **AP URL shape.** The endpoint is `/threads/:id/runs/stream`; the body is `{ route, input }`. Create or retrieve a thread id via `POST /threads` first.
-- **`text/event-stream`, not JSON.** The response is raw SSE. Parse `event:` and `data:` lines per frame, or use a client like `eventsource-parser`.
+- **AP URL shape.** The endpoint is `/threads/:id/runs/stream`, and the body is `{ route, input }`. Get a thread id from `POST /threads` first.
+- **The response is `text/event-stream`.** It is raw SSE, not JSON. Parse `event:` and `data:` lines per frame, or use a client like `eventsource-parser`.
 - **Heartbeats are comments.** A `: ping` heartbeat contains no `event:` or `data:` payload, so clients ignore it.
-- **Use `/threads/:id/runs/wait` when you don't need progress.** Streaming adds parsing complexity for callers. Pick `runs/stream` when partial output is meaningful — long agent reasoning, token-by-token text, intermediate workflow states, [planning](/docs/planning) updates, or [subagent](/docs/subagents) activity.
-- **Retry has limits during streams.** Retry is available only before the first stream event; any emitted token or event commits the response. See [Retry](/docs/retry) for the streaming caveat.
+- **Use `/threads/:id/runs/wait` when you don't need progress.** Streaming makes callers parse more. Pick `runs/stream` when partial output is useful: long agent reasoning, token-by-token text, intermediate workflow states, [planning](/docs/planning) updates, or [subagent](/docs/subagents) activity.
+- **Retry has limits during streams.** Retry is available only before the first stream event. Any emitted token or event commits the response. See [Retry](/docs/retry) for the streaming caveat.
 
 ## Related
 

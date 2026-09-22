@@ -290,9 +290,9 @@ serializeNamespace emits dimensions in a stable order, escapes reserved delimite
 
 `parseNamespace()` is a parser, not an authorization check: it ignores unknown and malformed parts. Browse cursors detect query mismatches but are not authenticated tokens. At an untrusted boundary, the server must own the namespace and enforce an application limit no larger than `BROWSE_MAX_LIMIT`.
 
-Call `validateBrowseQuery(query, { maxLimit: BROWSE_MAX_LIMIT })` at that boundary. Stores do not enforce the 1,000-row ceiling automatically.
+Call `validateBrowseQuery(query, { maxLimit: BROWSE_MAX_LIMIT })` at that boundary. Stores do not enforce the 1,000-row ceiling.
 
-SQLite stores memory rows—including content, data, source, and tags—as plaintext. A namespace organizes records; it is not a security boundary. Protect the database file and its path with application and infrastructure access controls.
+SQLite stores memory rows (including content, data, source, and tags) as plaintext. A namespace organizes records; it is not a security boundary. Protect the database file and its path with application and infrastructure access controls.
 
 #### Behavior contract `memory.browse.pure-subpath`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/memory/test/browse-contract.test.ts","testNames":["reaches nothing outside the pure browse sources"]}] */}

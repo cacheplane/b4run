@@ -15,12 +15,8 @@ export function Walkthrough(props: WalkthroughProps) {
   return (
     <section className={styles.walkthrough} aria-labelledby="walkthrough-title" id="blueprint">
       <div className={styles.sectionHeading}>
-        <h2 id="walkthrough-title">This code runs this agent.</h2>
-        <p>
-          Recorded run · 1m 53s
-          <br />
-          Edited highlights · gpt-5
-        </p>
+        <h2 id="walkthrough-title">One run, start to finish.</h2>
+        <p>Recorded with gpt-5</p>
       </div>
       <fieldset className={styles.steps} aria-label="Explore the recorded run">
         {steps.map((key, i) => (
@@ -48,21 +44,18 @@ export function Walkthrough(props: WalkthroughProps) {
           <h3>
             {step === "verify" ? (
               <>
-                Fixed. Verified.
+                The fix passed every check.
                 <br />
-                Ready for your review.
+                It’s waiting for your review.
               </>
             ) : step === "repair" ? (
               <>
-                A focused fix.
-                <br />A readable diff.
+                The agent made one focused fix.
+                <br />
+                You can read the whole diff.
               </>
             ) : (
-              <>
-                Start with a failure.
-                <br />
-                Make it repeatable.
-              </>
+              "First, reproduce the failure."
             )}
           </h3>
           <p className={styles.brief}>
@@ -87,7 +80,7 @@ export function Walkthrough(props: WalkthroughProps) {
               </ul>
               <div className={styles.approval}>
                 <strong>Awaiting your approval</strong>
-                <span>exportForReview paused. Nothing exported.</span>
+                <span>exportForReview is paused. Nothing has been exported.</span>
               </div>
             </>
           ) : step === "repair" ? (
@@ -102,7 +95,7 @@ export function Walkthrough(props: WalkthroughProps) {
           )}
         </div>
         <div className={styles.agentSource} data-source={file}>
-          <p className={styles.eyebrow}>Recorded implementation</p>
+          <p className={styles.eyebrow}>Agent source</p>
           <fieldset className={styles.fileTabs} aria-label="Agent source files">
             {files.map((key, i) => (
               <button

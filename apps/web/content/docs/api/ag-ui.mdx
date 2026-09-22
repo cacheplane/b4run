@@ -2,7 +2,7 @@
 
 ## Use this when
 
-Use this package when a web client speaks AG-UI and your B4.run route emits B4.run stream chunks. Most applications should start with [AG-UI and Web Clients](/docs/ag-ui); use this reference when you are wiring a custom transport or client adapter.
+Use this package when a web client speaks AG-UI and your route emits B4.run stream chunks. Most applications should start with [AG-UI and Web Clients](/docs/ag-ui). This reference is for wiring a custom transport or client adapter.
 
 ## Install and import
 
@@ -32,7 +32,7 @@ import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 
 The adapter translates protocol data; it does not authenticate a caller or make client-supplied thread, run, state, tool, or context data authoritative.
 
-`@b4run/ag-ui/react` is the client-side entry: it ships ready-made CopilotKit renderers for B4.run's built-in orchestration activities, and React and `@copilotkit/react-core` are optional peer dependencies, so a server-only consumer that imports only the root or `/sse` entry installs neither. Its runtime is recorded as `node-only` because B4.run's edge guard requires an import graph free of unguarded Node globals, and React's own JSX runtime reaches for `process.env.NODE_ENV`. The entry is meant for browser bundles, where an application bundler substitutes that value as usual; it simply cannot carry B4.run's stricter edge-safe claim.
+`@b4run/ag-ui/react` is the client entry. It ships CopilotKit renderers for B4.run's built-in orchestration activities. React and `@copilotkit/react-core` are optional peer dependencies, so a server that imports only the root or `/sse` entry installs neither. The entry is recorded as `node-only` because B4.run's edge guard requires an import graph free of unguarded Node globals, and React's JSX runtime reads `process.env.NODE_ENV`. It is meant for browser bundles, where your bundler substitutes that value.
 
 ## Public exports
 
@@ -83,17 +83,17 @@ The adapter translates protocol data; it does not authenticate a caller or make 
 | `B4ToolRowProps` | Describe the props passed to a replacement `ToolRow`. |
 | `cx` | Join a package default class with an optional consumer class (customization rung 4: what an ejected card imports in place of its internal `./parts.js` path). |
 
-`b4ActivityRenderers` is the drop-in default; the two individual renderers exist for clients that register only one of them or mix them with their own. The cards are plain React components and need no CopilotKit. `SubagentActivityContentOutput` is wider than the published `B4SubagentActivityContent` in exactly one way: this package compiles with `exactOptionalPropertyTypes` and zod does not, so a parsed value can carry an explicit `todos: undefined`. `ActivityChecklist`, `PlanActivityCard`, and `SubagentActivityCard` all accept optional `classNames` and `components` props built from these two types; see [`@b4run/ag-ui/react/styles.css`](#b4runag-uireactstylescss) below for rung 1 and the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) for a runnable example of every rung.
+`b4ActivityRenderers` is the drop-in default. Use an individual renderer to register only one card or to mix it with your own. The cards are plain React components and don't need CopilotKit. `SubagentActivityContentOutput` is wider than `B4SubagentActivityContent` in one way: this package compiles with `exactOptionalPropertyTypes` and zod does not, so a parsed value can carry an explicit `todos: undefined`. `ActivityChecklist`, `PlanActivityCard`, and `SubagentActivityCard` all accept optional `classNames` and `components` props built from these two types; see [`@b4run/ag-ui/react/styles.css`](#b4runag-uireactstylescss) below for rung 1 and the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) for a runnable example of every rung.
 
 ### `@b4run/ag-ui/react/styles.css`
 
-This subpath exposes the activity cards' default appearance as a stylesheet asset. It has no TypeScript export inventory, runtime compatibility classification, or purity claim; a bundler resolves it and it is never evaluated as JavaScript. Import it once, wherever your application imports its global CSS:
+This subpath is the activity cards' default stylesheet. It has no TypeScript exports, runtime classification, or purity claim. A bundler resolves it, and it is never evaluated as JavaScript. Import it once, wherever your application imports its global CSS:
 
 ```ts
 import "@b4run/ag-ui/react/styles.css"
 ```
 
-The sheet is optional — the cards render without it — and every rule that styles an element is scoped to the `b4-activity` prefix, so it cannot restyle the rest of an application; it additionally declares `--b4-activity-*` custom properties on `:root`. Restyle it by overriding its custom properties in your own CSS: `--b4-activity-surface`, `--b4-activity-border`, `--b4-activity-text`, `--b4-activity-muted`, `--b4-activity-running`, `--b4-activity-complete`, `--b4-activity-failed`, `--b4-activity-badge-bg`, `--b4-activity-radius`, `--b4-activity-gap`, `--b4-activity-font-size`, `--b4-activity-margin`, `--b4-activity-padding`, and `--b4-activity-header-weight`. `--b4-activity-badge-bg` defaults to `var(--b4-activity-border)`, so the depth badge follows the palette unless it is pointed elsewhere. Put the overrides in plain, unlayered CSS — a Tailwind `@theme` block is not a substitute, because token values declared there lose to this sheet. A dark palette applies under `prefers-color-scheme: dark`; setting `data-b4-theme="light"` or `data-b4-theme="dark"` on the root element pins one explicitly (the selectors match only `:root`, not an arbitrary ancestor). All three token blocks are wrapped in `:where()`, so they carry no specificity and an application's own `:root` override wins in every theme regardless of stylesheet order.
+The sheet is optional, and the cards render without it. Every rule that styles an element is scoped to the `b4-activity` prefix, so it can't restyle the rest of your application. The sheet also declares `--b4-activity-*` custom properties on `:root`. To restyle the cards, override these properties in your own CSS: `--b4-activity-surface`, `--b4-activity-border`, `--b4-activity-text`, `--b4-activity-muted`, `--b4-activity-running`, `--b4-activity-complete`, `--b4-activity-failed`, `--b4-activity-badge-bg`, `--b4-activity-radius`, `--b4-activity-gap`, `--b4-activity-font-size`, `--b4-activity-margin`, `--b4-activity-padding`, and `--b4-activity-header-weight`. `--b4-activity-badge-bg` defaults to `var(--b4-activity-border)`, so the depth badge follows the palette unless you point it elsewhere. Put the overrides in plain, unlayered CSS. A Tailwind `@theme` block won't work, because token values declared there lose to this sheet. A dark palette applies under `prefers-color-scheme: dark`. Set `data-b4-theme="light"` or `data-b4-theme="dark"` on the root element to pin one (the selectors match only `:root`, not an arbitrary ancestor). All three token blocks are wrapped in `:where()`, so they carry no specificity and your own `:root` override wins in every theme, whatever the stylesheet order.
 
 ## Key contracts
 
@@ -141,7 +141,7 @@ A subagent snapshot exposes allowlisted progress only: name, depth, status, opti
 
 ### `ToAguiOptions`
 
-Supply an `IdFactory` when emitted IDs must be deterministic. Production integrations normally accept the default factory.
+Supply an `IdFactory` when emitted IDs must be deterministic. Production integrations use the default factory.
 
 ```ts api-contract="@b4run/ag-ui#.:ToAguiOptions"
 export interface ToAguiOptions {

@@ -12,31 +12,28 @@ draft: true
 
 Learn how to build a code-fixing agent with TypeScript and B4.run.
 
-If you've written a Node.js application that reads files, runs a command, and
-checks the result, you already know several of the pieces we'll use. The new
-part is letting a language model decide which of those operations to perform
-next.
+If you've written a Node.js application that reads files, runs a command and
+checks the result, you already know most of the pieces we'll use. The new part
+is letting a language model decide which operation to perform next.
 
 In this article we'll follow an agent that fixes a small bug in a command-line
 application. We'll give it the source code and a failing test, let it make a
-change, and review the result before exporting it.
-
-Let's start with a few concepts, then work through the code.
+change, and review the result before exporting it. Let's start with a few
+concepts, then work through the code.
 
 ## What is an agent?
 
 For this application, an agent is a language model running in a loop with access
 to functions that can do work.
 
-A model can generate text, including TypeScript. To change a file or execute a
-test, however, it needs the application to perform that operation. We expose
-those operations as **tools**.
+A model can generate text, including TypeScript. To change a file or run a
+test, it needs the application to do it. We expose those operations as **tools**.
 
 A tool is a function the model can ask the application to call. For example,
 our `readFile` tool reads a file and returns its contents. A tool call includes
 the function's name and input, such as the path of the file to read.
 
-The interaction works roughly like this:
+Here is roughly how it works:
 
 1. We send the model our instructions and the user's request.
 2. The model requests a tool call, such as reading `src/cli.ts`.
@@ -44,12 +41,12 @@ The interaction works roughly like this:
 4. The result is added to the conversation and sent back to the model.
 5. The model can request another tool or respond to the user.
 
-That last step is what allows the agent to work through a problem. It can read
-a file, observe a failed test, inspect another file, and then choose an edit.
-We don't have to predict every file it will need to read.
+That last step lets the agent work through a problem. It can read a file, see a
+failed test, inspect another file and then choose an edit. We don't have to
+predict every file it will need.
 
-We do need to decide what it can do and how we'll check its work. A model's
-response that says “fixed” is not enough to establish that our application works.
+We do need to decide what it can do and how we'll check its work. A model that
+says "fixed" hasn't proven that our application works.
 
 ## Goals
 
@@ -62,22 +59,20 @@ Our code-fixing agent will:
 5. Wait for a person to approve exporting the change.
 
 We'll use **B4.run**, a TypeScript framework for building agent applications,
-to provide the tool runtime, workspace lifecycle, and approval handling.
-We'll write the application-specific rules ourselves.
+for the tool runtime, workspace lifecycle and approval handling. We'll write the
+application-specific rules ourselves.
 
 ## Source code
 
 You can follow along with the [completed example](https://github.com/cacheplane/b4run/tree/b40845532/examples/code-fixer/server).
-The source links throughout this article point to the version we're discussing.
-You won't need to assemble the application by copying each code block.
-
-We'll first walk through how it works. At the end, we'll start the application
-and send it a request using its HTTP API.
+The source links throughout this article point to that version, so you don't need
+to copy each code block. First we'll walk through how it works. At the end, we'll
+start the application and send it a request through its HTTP API.
 
 ## The bug we're going to fix
 
 Our sample is a small command-line application built with Commander, a library
-for parsing command names, arguments, and options. It contains a real bug from
+for parsing command names, arguments and options. It contains a real bug from
 [an earlier B4.run fix](https://github.com/cacheplane/b4run/pull/399).
 
 The following command should run memory consolidation without changing any files:
@@ -86,9 +81,9 @@ The following command should run memory consolidation without changing any files
 node --import tsx src/cli.ts memory consolidate --dry-run
 ```
 
-Here, `memory` is the command, `consolidate` is its subcommand, and `--dry-run`
-is an option intended for that subcommand. The `--import tsx` argument lets Node
-execute the TypeScript entry point.
+Here, `memory` is the command, `consolidate` is its subcommand and `--dry-run`
+is an option for that subcommand. The `--import tsx` argument lets Node run the
+TypeScript entry point.
 
 Instead, the command fails because the parser rejects `--dry-run` before our
 handler runs. Let's look at the registration in `src/cli.ts`:
@@ -111,17 +106,16 @@ await program.parseAsync(process.argv)
 
 [Source: `sample/project/src/cli.ts`](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/sample/project/src/cli.ts#L1-L13).
 
-A few things to note about the code above:
+A few things to note:
 
 - We create a `Command` instance and name the program `fixture`.
 - The `memory` command accepts a subcommand and additional arguments.
 - The command defines `--cwd`, which selects the application's directory.
 - The action passes the parsed values to `runMemoryCommand`.
 
-The problem occurs before that action receives the arguments. Testing
-`runMemoryCommand` directly would skip the parser and miss the defect.
-
-So, our test starts the actual CLI process:
+The problem occurs before that action receives the arguments, so testing
+`runMemoryCommand` directly would skip the parser and miss the defect. Our test
+starts the actual CLI process instead:
 
 ```ts
 import assert from "node:assert/strict"
@@ -158,11 +152,11 @@ Do not change tests, dependency versions, configuration, or the handler.
 [Source: `sample/task.md`](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/sample/task.md#L1-L7).
 
 That gives us a precise edit boundary: `src/cli.ts`. A repair must also preserve
-`--cwd`, numeric `--cap` values, rejection of invalid arguments, and dry-run
-behavior. The handler and tests stay unchanged.
+`--cwd`, numeric `--cap` values, rejection of invalid arguments and dry-run
+behavior.
 
-Before we build the agent, let's look at the known fix so that we understand
-what we're asking it to discover. The reference patch adds two Commander settings:
+Before we build the agent, let's look at the known fix so we understand what
+we're asking it to find. The reference patch adds two Commander settings:
 
 ```diff
 --- a/src/cli.ts
@@ -187,18 +181,16 @@ The parent enables positional options, and the memory command passes through
 subcommand arguments for the handler to interpret. The handler can then receive
 `--dry-run` and validate the arguments it understands.
 
-We'll use this known repair later to test the agent application's plumbing.
-We keep it outside the files available to the agent. When we run with a real
-model, the model has to inspect the broken source and choose an edit itself.
+We'll use this known repair later to test the application's plumbing. It stays
+outside the files the agent can see, so a real model has to inspect the broken
+source and choose an edit itself.
 
 ## Define the agent
 
 Next, let's open `src/app/fix/index.ts`.
 
 B4 uses the application directory to discover routes. This file defines the
-`/fix` agent, and its neighboring `tools` directory contains the functions
-specific to that agent.
-
+`/fix` agent, and the `tools` directory beside it holds that agent's own functions.
 We define the agent by passing a configuration object to `agent()`:
 
 ```ts
@@ -230,25 +222,23 @@ Do not claim success if a command failed or a test was not run.`,
 
 Let's break down the configuration:
 
-1. `model` selects the language model. We default to `gpt-5-mini` and allow an
-   environment variable to override that choice.
-2. `recursionLimit` bounds the runtime's execution steps. This gives the agent a
-   limit when working through repeated model and tool interactions.
+1. `model` selects the language model. We default to `gpt-5-mini` and let an
+   environment variable override it.
+2. `recursionLimit` bounds the runtime's execution steps across repeated model
+   and tool interactions.
 3. `description` explains what this agent does.
 4. `tools.approve` names a tool that requires a person's approval before execution.
 5. `systemPrompt` supplies the instructions the model receives while working.
 
-Notice that the prompt names four general-purpose tools: `readFile`, `listDir`,
-`writeFile`, and `runBash`. They let the agent inspect files, make an edit, and
-run `npm test`.
+The prompt names four general-purpose tools: `readFile`, `listDir`, `writeFile`
+and `runBash`. They let the agent inspect files, make an edit and run `npm test`.
+It also names two tools from our application, `prepareReview` and
+`exportForReview`, which handle review and export.
 
-It also names two tools belonging to our application: `prepareReview` and
-`exportForReview`. We'll implement the review and export behavior in those tools.
-
-The prompt tells the model to reproduce the failure before editing. It does not
-turn that instruction into a hard-coded sequence of function calls. The model
-still chooses its next action. We'll check its submitted files in application
-code and measure its tool-call order in an evaluation later.
+The prompt tells the model to reproduce the failure before editing, but that is
+not a hard-coded sequence of calls. The model still chooses its next action. We'll
+check its submitted files in application code and measure its tool-call order in
+an evaluation later.
 
 Here is how the files are organized:
 
@@ -267,9 +257,9 @@ The [plan](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006
 inspect the cause, edit source, test and explain, prepare the candidate, and request
 export approval.
 
-A **skill** provides instructions for a particular task. In our case,
-`verify-change` explains how to check a repair. It is a Markdown file with a name,
-description, and instructions:
+A **skill** holds instructions for a particular task. Here, `verify-change`
+explains how to check a repair. It is a Markdown file with a name, description
+and instructions:
 
 ```markdown
 ---
@@ -292,17 +282,17 @@ runtime pauses before exporting; a prose approval question does not raise that g
 
 [Source: `src/app/fix/skills/verify-change/SKILL.md`](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/src/app/fix/skills/verify-change/SKILL.md#L1-L16).
 
-The instruction to follow the entry point matters here. Calling a handler
+The instruction to follow the entry point matters, because calling a handler
 directly would miss a bug in the CLI parser that runs before it.
 
 ## Give the agent a workspace
 
-The agent needs a directory in which it can read and write files. We'll call
-that directory its **workspace**.
+The agent needs a directory where it can read and write files. We'll call it the
+**workspace**.
 
-We want each conversation to start with its own copy of the broken project.
-That lets the model make changes without modifying the sample checked into our
-repository, and lets us compare those changes with the original files.
+Each conversation starts with its own copy of the broken project. The model can
+make changes without touching the sample in our repository, and we can compare
+those changes with the original files.
 
 B4 calls a conversation a **thread**. The workspace belongs to that thread, so
 later tool calls in the same conversation can see earlier edits.
@@ -332,32 +322,31 @@ export function projectWorkspace(id: string): WorkspaceDefinition {
 
 [Source: `src/project/workspace.ts`](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/src/project/workspace.ts#L14-L31).
 
-Let's review what this function returns:
+Let's quickly review:
 
 - `source.directory` identifies the project to copy.
-- `source.include` selects the files from that project. A manifest is simply a
-  JSON file listing the source files and other information about our sample.
-- `source.files` adds `TASK.md`, a Git ignore file, and a small JSON file that
+- `source.include` selects the files from that project. The manifest is a JSON
+  file listing the source files and other information about our sample.
+- `source.files` adds `TASK.md`, a Git ignore file and a small JSON file that
   identifies the project.
 - `environmentLinks` supplies a link to the prepared `node_modules` directory.
 - `baseline: "git"` initializes a Git baseline for inspecting changes.
 
 The [sample manifest](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/sample/manifest.json) lists `src/cli.ts` as
-editable and the handler, test, package files, and license as immutable. Those
-lists determine the captured source and what candidate inspection will accept.
-They do not make every file in the editing workspace physically read-only.
+editable and the handler, test, package files and license as immutable. Those
+lists decide the captured source and what candidate inspection accepts. They do
+not make files in the editing workspace read-only.
 
-B4 captures the starting bytes, initializes the workspace, and owns reconnection
+B4 captures the starting bytes, initializes the workspace and owns reconnection
 and deletion. `baseline: "git"` lets the model inspect a diff while working.
 The review tool reads the original bytes through `ctx.workspace.readInitialFile`,
 so editing Git metadata cannot redefine the review baseline.
 
 ### Configure the sandbox
 
-The `dockerSandbox` provider runs the workspace's filesystem and shell operations
-inside a Docker container. A **sandbox** is the controlled environment in which
-those operations execute. For example, `runBash` runs `npm test` there, rather
-than running it directly in our repository on the host.
+A **sandbox** is the controlled environment where file and shell operations run.
+The `dockerSandbox` provider runs them inside a Docker container. For example,
+`runBash` runs `npm test` there, not in our repository on the host.
 
 The app's `b4.config.ts` connects the provider to the workspace declaration.
 Here is its `sandbox` property:
@@ -373,7 +362,7 @@ Here is its `sandbox` property:
 [Source: `b4.config.ts`](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/b4.config.ts#L11-L15).
 
 The `provider` selects Docker and the prepared image. Its `scope` identifies
-this application's Docker resources; use a distinct scope for a separate
+this application's Docker resources, so use a distinct scope for a separate
 installation. The `workspace` property supplies the declaration we just reviewed.
 
 We also provide a policy that controls network access and resources:
@@ -389,36 +378,35 @@ export const sandboxPolicy = {
 
 [Source: `src/project/workspace.ts`](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/src/project/workspace.ts#L7-L12).
 
-There are three parts to this policy:
+Let's quickly review:
 
 - `network` denies network access during execution.
 - `env` configures npm to use a temporary cache and disables its update notifier.
-- `resources` limits execution to one CPU, 1 GiB of memory, and a 120-second
+- `resources` limits execution to one CPU, 1 GiB of memory and a 120-second
   command timeout.
 
-Because the container cannot download packages while the agent is working, we
-prepare the project's dependencies in the image first. We'll run that preparation
-command when we start the app.
+The container can't download packages while the agent works, so we prepare the
+project's dependencies in the image first. We'll run that step when we start the app.
 
 The B4 server on the host still calls the language model. Denying network access
-to the sandbox does not prevent that model call, and the host's API key is not
-passed into the container.
+to the sandbox doesn't block that call, and the host's API key is not passed into
+the container.
 
 The [full config](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/b4.config.ts) also allows reads of the prepared
-dependency directory and shell commands including `npm test`, Node diagnostics,
-and Git inspection. Docker isolation, command permissions, and rejection of
-out-of-scope source edits are separate controls. The app needs all three.
+dependency directory and shell commands including `npm test`, Node diagnostics
+and Git inspection. Docker isolation, command permissions and rejection of
+out-of-scope source edits are separate controls, and the app needs all three.
 
 ## Create a tool to prepare the change
 
 At this point, the model may have edited `src/cli.ts` and run a passing test.
 We need to turn those edits into something a person can review.
 
-We'll use the term **candidate** for the proposed change. It contains the new
-file contents and information identifying the workspace and original source.
-It is data our application can validate and pass between functions.
+We'll call the proposed change a **candidate**. It contains the new file contents
+and information identifying the workspace and original source, as data our
+application can validate and pass around.
 
-The agent calls `prepareReview({})` to create that candidate. Here is the complete
+The agent calls `prepareReview({})` to create that candidate. Here is the whole
 tool in `src/app/fix/tools/prepareReview.ts`:
 
 ```ts
@@ -448,22 +436,21 @@ export default async function prepareReview(_input: Record<string, never>, ctx: 
 
 [Source: `src/app/fix/tools/prepareReview.ts`](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/src/app/fix/tools/prepareReview.ts#L1-L22).
 
-This should look familiar if you've written an asynchronous TypeScript function.
 Let's walk through it:
 
 1. `_input` is an empty input object. The model does not need to supply file
    contents here because the function reads the workspace itself.
 2. `ctx` is a `B4ToolContext` supplied by the runtime. It gives the tool access
-   to the workspace, filesystem operations, and cancellation signal.
+   to the workspace, filesystem operations and cancellation signal.
 3. `inspectCandidate(ctx)` compares the current files with the original files
    and returns the proposed changes.
 4. `verifyChanges(...)` applies those changes to a separate workspace and runs
    the checks we'll discuss next.
 5. If verification fails, the tool throws an error. Otherwise, it returns the
-   candidate, a diff, and the verification results.
+   candidate, a diff and the verification results.
 
-That returned object becomes a tool result the model can read. A client can also
-show it to the person reviewing the change.
+The model reads that object as the tool result, and a client can show it to the
+person reviewing the change.
 
 ### Inspect the changed files
 
@@ -484,37 +471,34 @@ current workspace through this shared B4 API:
 
 [Source: `src/review/inspect.ts`](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/src/review/inspect.ts#L35-L42).
 
-Here, we're using `inspectWorkspace` to read a bounded collection of text files.
-The options limit the number of entries and the amount of content it reads.
-We exclude the root Git directory and require `node_modules` to remain the
-prepared dependency link.
+`inspectWorkspace` reads a bounded set of text files. The options limit the
+number of entries and the bytes it reads. We exclude the root Git directory and
+require `node_modules` to stay the prepared dependency link.
 
-The result's `files` property gives us the current file contents. Inspection also
-rejects executable files, unexpected links, and binary or invalid UTF-8 content.
-Those rules keep the example focused on a small source-code change.
+The result's `files` property holds the current file contents. Inspection also
+rejects executable files, unexpected links, and binary or invalid UTF-8 content,
+which keeps the example focused on a small source change.
 
 The app's [`collectChanges` helper](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/src/review/patch.ts) compares
 that inventory with the original. It rejects added or deleted files, changes
-outside `src/cli.ts`, and more than 1 MiB of changed-file content. An empty repair
-also fails preparation.
+outside `src/cli.ts` and more than 1 MiB of changed-file content. An empty repair
+also fails.
 
 ### Identify the change we are reviewing
 
-The candidate contains the complete changed-file contents, workspace ID, and
+The candidate contains the complete changed-file contents, workspace ID and
 initial source digest. A **digest** is a value calculated from some data that
-we can use to detect whether that data has changed. [`candidateDigest`](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/src/review/candidate.ts)
-sorts the changed paths and hashes these fields with SHA-256. This identifies
-the bytes being reviewed. The contextual diff is generated from the same
-validated contents, with three lines of surrounding context.
+tells us whether the data has changed. [`candidateDigest`](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/src/review/candidate.ts)
+sorts the changed paths and hashes these fields with SHA-256, which identifies
+the exact bytes under review. The diff is generated from the same validated
+contents, with three lines of surrounding context.
 
 ## Verify the change with a fresh project copy
 
-We could stop after the agent runs a passing test. But that would rely on the
-state of the same directory in which it has been editing files.
-
-Instead, we'll create another workspace from the original source and apply only
-the accepted candidate files. That gives us the original tests and configuration
-with the proposed source change.
+We could stop after the agent runs a passing test, but that trusts the same
+directory it has been editing. Instead, we'll create another workspace from the
+original source and apply only the accepted candidate files. That gives us the
+original tests and configuration with the proposed source change.
 
 [`verifyChanges`](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/src/review/verifier.ts) uses B4's `withWorkspace`
 to create a disposable Docker workspace from the captured source and image
@@ -525,10 +509,10 @@ identity. It applies the candidate's changed files, then:
 3. Copies the host-owned independent checks into the verifier.
 4. Runs those checks and again rejects persistent file changes.
 
-The first suite is the visible test we saw earlier. The second suite checks
-behavior that the repair must preserve, such as rejecting invalid arguments.
-We keep these additional tests outside the editing workspace and copy them into
-the verifier after the visible test runs.
+The first suite is the visible test we saw earlier. The second checks behavior
+the repair must preserve, such as rejecting invalid arguments. These extra tests
+live outside the editing workspace and are copied into the verifier after the
+visible test runs.
 
 The app specifies the test files and assertion names in `sample/checks.json`:
 
@@ -562,35 +546,33 @@ those names concrete:
 | Reject invalid arguments | Unknown flags, a missing cap, and a nonnumeric cap exit unsuccessfully. |
 | Preserve a dry run | Create `memory.json`, run consolidation with `--dry-run`, then require unchanged contents and no additional files. |
 
-The verifier reads structured Node test-runner events. Exit code zero is only
-one condition: every expected assertion must occur exactly once and pass, with
-no skip or todo. Printed output from submitted code is recorded as stdout,
-not interpreted as a passing assertion.
+The verifier reads structured Node test-runner events. Exit code zero is not
+enough: every expected assertion must occur exactly once and pass, with no skip
+or todo. Output printed by submitted code is recorded as stdout and never counts
+as a passing assertion.
 
-These checks have a specific scope. Both suites run in the same verifier
-container, and our file comparisons detect changes left behind after a suite
-finishes. They do not detect every possible transient change while code runs.
-The tests establish the behaviors listed above; they are not a general proof
-that any submitted program is correct.
+Of course, these checks have limits. Both suites run in the same verifier
+container, and our file comparisons catch changes left behind after a suite
+finishes, not every transient change while code runs. The tests establish the
+behaviors listed above. They don't prove that any submitted program is correct.
 
 ## Require approval before exporting
 
-Now we have a proposed change and the results of checking it. We can ask a
-person to review that change before the application exports it.
-
-Recall the `tools.approve` property in our agent configuration:
+Now we have a proposed change and its check results, so we can ask a person to
+review it before the application exports it. Recall the `tools.approve` property
+in our agent configuration:
 
 ```ts
 tools: { approve: ["exportForReview"] },
 ```
 
-When the model requests `exportForReview({candidate})`, B4 pauses before executing
-the tool. The application returns a pending approval request. A client can display
-that request, let the person decide, and send the decision back to resume the run.
+When the model requests `exportForReview({candidate})`, B4 pauses before running
+the tool and returns a pending approval request. A client can display that request,
+let the person decide and send the decision back to resume the run.
 
-This matters because a model asking “May I export this?” in a text response does
-not itself stop a function from executing. The runtime's approval handling is
-what pauses the tool call.
+Why not just let the model ask? A model asking "May I export this?" in a text
+response doesn't stop a function from running. The runtime's approval handling
+is what pauses the tool call.
 
 After approval, the tool starts with these checks:
 
@@ -618,26 +600,26 @@ Let's walk through what happens after approval:
    edited the workspace while approval was pending, the tool throws an error.
 4. We verify the candidate again in a fresh workspace.
 
-Why check again? Consider approving a diff and then exporting a different edit
-made a moment later. The original approval would no longer describe the files
-being exported. Comparing candidates makes that mismatch an error, and the agent
-must prepare the new change for approval.
+Why check again? Imagine approving a diff, then exporting a different edit made
+a moment later. The approval would no longer describe the exported files.
+Comparing candidates makes that mismatch an error, and the agent must prepare
+the new change for approval.
 
 Only then does the [export tool](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/src/app/fix/tools/exportForReview.ts)
 write `.b4/code-fixer/review-outbox/<digest>.json`. The receipt contains the task,
-candidate, and contextual diff. The write uses `flag: "wx"`; an existing file
-is accepted only if its contents match exactly. Retrying the same approved export
-therefore leaves the same receipt. Export creates no commit, push, or pull request.
+candidate and diff. The write uses `flag: "wx"`, and an existing file is accepted
+only if its contents match exactly, so retrying the same approved export leaves
+the same receipt. Export creates no commit, push or pull request.
 
 ## Evaluate the agent
 
 Our tests check the repaired application. We also want to check how the agent
-approached the task. Did it reproduce the failure before editing? Did it request
+went about the task. Did it reproduce the failure before editing? Did it request
 approval with the candidate it had prepared?
 
-An **evaluation**, often shortened to **eval**, runs an agent on an input and
-scores its behavior or result. Here, our scores are based on tool calls, test
-results, and the pending approval request.
+An **evaluation**, or **eval**, runs an agent on an input and scores its behavior
+or result. Here, our scores come from tool calls, test results and the pending
+approval request.
 
 The eval definition lives beside the route:
 
@@ -661,11 +643,11 @@ export default defineEval({
 
 The [scoring implementation](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/src/app/fix/evals/scoring.ts) defines
 six criteria. In the definition above, `dataset` supplies the input to run,
-`scorers` supplies the functions that examine the result, and `gate` decides
+`scorers` supplies the functions that examine the result and `gate` decides
 whether the evaluation passes.
 
 Each scorer has a threshold of 1. With `gate.perScorer()`, every criterion must
-pass; a successful test cannot compensate for a missing approval request:
+pass, so a successful test can't make up for a missing approval request:
 
 | Criterion | Evidence required |
 | --- | --- |
@@ -676,11 +658,11 @@ pass; a successful test cannot compensate for a missing approval request:
 | `scope` | Its validated candidate contains changed files; preparation already enforced the allowed paths. |
 | `approval` | The run has one pending export-tool interrupt, no export result, and the export call carries the same validated candidate digest as preparation. |
 
-The first two scores establish command results and order. They do not establish
-a correct diagnosis, and the post-edit score does not require testing after the
-last edit. Candidate verification separately tests the files submitted for review.
-The approval score establishes a pause before export; Docker integration tests
-also exercise acceptance and denial.
+The first two scores establish command results and order. They don't establish
+a correct diagnosis, and the post-edit score doesn't require testing after the
+last edit. Candidate verification tests the submitted files separately. The
+approval score establishes a pause before export, and the Docker integration
+tests exercise acceptance and denial.
 
 Run these from the repository root after setup:
 
@@ -690,26 +672,25 @@ pnpm --filter @b4-example/code-fixer-server test:sandbox
 pnpm --filter @b4-example/code-fixer-server eval --live
 ```
 
-These commands answer different questions:
+Each command answers a different question:
 
 - `test` runs the application's unit tests.
 - `test:sandbox` runs Docker integration tests. They replay the known repair
-  through the real tools and check verification, approval, and denial without
+  through the real tools and check verification, approval and denial without
   paid model calls.
 - `eval --live` asks the configured model to solve the task and scores the run.
   This uses your model API key.
 
-Replay is useful when changing the application: we can check that the tools and
-approval handling still work with a known repair. Live evaluation is how we
-measure whether the model can discover a repair. Passing replay alone does not
-answer that second question.
+Replay is useful when changing the application: it checks that the tools and
+approval handling still work with a known repair. Live evaluation measures
+whether the model can find a repair on its own, which replay can't tell us.
 
 Offline `b4 eval` requires recorded fixtures. This example uses Docker tests for
 replay because candidate identities change between runs.
 
 ## Run it and inspect the result
 
-Use Node 24+, pnpm, Git, and a running Docker daemon. In a checkout of the
+Use Node 24+, pnpm, Git and a running Docker daemon. In a checkout of the
 repository version linked above, run from the root:
 
 ```sh
@@ -721,8 +702,7 @@ pnpm --filter @b4-example/code-fixer-server dev --port 3001
 ```
 
 Set `OPENAI_API_KEY` on the host or in the server's local `.env` before starting
-the development server. Image preparation runs once and again when dependencies
-change. In another terminal, create a thread and start the agent:
+the development server. Rerun image preparation only when dependencies change. In another terminal, create a thread and start the agent:
 
 ```sh
 THREAD=$(curl -fsS http://127.0.0.1:3001/threads \
@@ -739,7 +719,7 @@ variable. The second request starts a run of `/fix#agent` in that thread.
 Its `input.messages` array contains the user's request.
 
 The `-N` option lets curl display the streamed response as it arrives. You'll
-see tool calls, their results, and the prepared diff. When the agent requests
+see tool calls, their results and the prepared diff. When the agent requests
 export, the runtime pauses. Read the pending approval request with:
 
 ```sh
@@ -764,14 +744,13 @@ workspace:
 curl --fail-with-body -X DELETE http://127.0.0.1:3001/threads/$THREAD
 ```
 
-These commands use the ordinary B4 HTTP runtime. No evaluation runner is needed
-to operate the app. The [example README](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/README.md) also covers
+These commands use the ordinary B4 HTTP runtime, not an evaluation runner. The [example README](https://github.com/cacheplane/b4run/blob/b4084553287939c2cd9ded48b006803a2671a955/examples/code-fixer/server/README.md) also covers
 built-server execution and adapting the sample.
 
 ### Installing from a blueprint
 
 You may also see `b4 add code-fixer` in the documentation. That command prints
-an installation guide for a coding agent to apply; it does not install or start
+an installation guide for a coding agent to apply. It does not install or start
 the application itself.
 
 The [published guide](https://b4.run/blueprints/code-fixer.md) currently uses an
@@ -780,34 +759,33 @@ repository example and the checkout instructions above.
 
 ## What belongs in the framework?
 
-Building an example like this is also a useful way to find work that belongs in
-the framework.
+Building an example like this is a good way to find work that belongs in the
+framework.
 
 Every application that edits files needs to know where the files live, what they
-contained initially, and how to release its resources when finished. B4 handles
-source capture and the lifecycle of those workspaces. It also owns the approval
-pause and resume.
+contained at the start and how to release its resources when finished. B4 handles
+source capture and the workspace lifecycle. It also owns the approval pause and
+resume.
 
-The code-fixer helped move another reusable operation into B4:
-`inspectWorkspace`. The app previously maintained its own file walker and
-snapshot program. Now it specifies limits and expected links, and calls the
-shared inspection function. You can see that change in
+The code-fixer moved another reusable operation into B4: `inspectWorkspace`. The
+app used to maintain its own file walker and snapshot program. Now it passes
+limits and expected links to the shared inspection function. You can see that change in
 [PR #670](https://github.com/cacheplane/b4run/pull/670).
 
 The application still decides which source files can change, what a correct
-repair must do, and what gets exported. Those decisions depend on the project
-we are repairing, so they remain visible in the example's TypeScript code.
+repair must do and what gets exported. Those decisions depend on the project
+we are repairing, so they stay visible in the example's TypeScript code.
 
 ## Conclusion
 
-We've followed a code-fixing agent from a failing CLI command to a change ready
-for review. Along the way, we defined the agent's instructions, supplied file
-and shell tools, configured a Docker workspace, checked the proposed source
-independently, and required approval before export.
+In conclusion, we've followed a code-fixing agent from a failing CLI command to a
+change ready for review. Along the way, we defined the agent's instructions,
+supplied file and shell tools, configured a Docker workspace, checked the proposed
+source independently and required approval before export.
 
 If you want to adapt the example, start with a small project and a failure you
 can reproduce. Write down which files may change and which behavior must remain
 unchanged. Then turn those requirements into tests the review tool can run.
 
-The model can choose how to investigate the problem. Your application defines
-what it can do and what evidence you require before accepting its work.
+The model chooses how to investigate the problem. Your application decides what
+it can do and what evidence you need before accepting its work.

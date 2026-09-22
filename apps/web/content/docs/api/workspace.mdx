@@ -2,7 +2,7 @@
 
 ## Use this when
 
-Use this package to implement or wrap filesystem, command, and execution-sandbox backends for a B4.run application. The root owns the portable backend and sandbox contracts, middleware composition, and logging wrappers. Import `/node` for local filesystem/shell implementations and immutable source capture utilities.
+Use this package to implement or wrap filesystem, command, and execution-sandbox backends for a B4.run application. The root has the portable backend and sandbox contracts, middleware composition, and logging wrappers. Import `/node` for local filesystem/shell implementations and immutable source capture utilities.
 
 ## Install and import
 
@@ -78,7 +78,7 @@ The root's emitted subpath graph has no runtime package or Node built-in depende
 
 ### `@b4run/workspace/node`
 
-The `/node` entry owns the exports below. Types are also available from the dependency-free root; runtime functions are available only from `/node`.
+The `/node` entry owns the exports below. Its types are also exported from the dependency-free root; its runtime functions are only in `/node`.
 
 | Export | Responsibility |
 |---|---|
@@ -333,7 +333,7 @@ export declare function withWorkspaceReader<T>(
 ): Promise<T>
 ```
 
-`withWorkspaceReader` closes the reader on both paths. A close failure surfaces on its own, and alongside a body failure as an `AggregateError` rather than replacing it. A provider without the capability raises instead of silently returning nothing.
+`withWorkspaceReader` closes the reader on both paths. A close failure surfaces on its own, and alongside a body failure as an `AggregateError` rather than replacing it. A provider without the capability throws instead of returning nothing.
 
 ```ts api-contract="@b4run/workspace#.:scopedWorkspaceReader"
 export declare function scopedWorkspaceReader<T>(
@@ -488,7 +488,7 @@ executable flags. Duplicate destinations, conflicting ancestors, and inconsisten
 directory casing are rejected.
 
 Bundles allow at most 10,000 files, 16 MiB per file, and 64 MiB total content.
-Capture additionally limits distinct inspected filesystem paths to 10,000,
+Capture also limits distinct inspected filesystem paths to 10,000,
 including the app root, ancestor directories, exclusions, and extra references.
 Paths use an ASCII portability subset, at most 1,024 bytes per path and 255 bytes
 per segment. Traversal, absolute paths, backslashes, device names, leading/trailing
@@ -508,7 +508,7 @@ Backend methods receive absolute paths and a cancellation signal from their call
 
 `localExec` defaults to a 30-second timeout. A non-empty `allowedCommands` list rejects a command unless a regular expression matches. When `args.env` is omitted, `localExec` inherits `process.env`; when supplied, it replaces that environment. By contrast, `SandboxPolicy.env` is the explicit environment injected into a sandbox and does not inherit the host environment.
 
-Sandbox `release()` and `destroy()` express distinct lifecycle responsibilities, but exact persistence and cleanup behavior belongs to each provider. Security fields express provider-agnostic intent; an unset field does not by itself prove a particular provider's enforcement.
+Sandbox `release()` and `destroy()` have distinct lifecycle roles; each provider defines the exact persistence and cleanup behavior. Security fields express provider-agnostic intent; an unset field does not by itself prove a particular provider's enforcement.
 
 Logging middleware defaults to `console.error`. A custom destination receives `{ method, args }`. Filesystem logging does not serialize binary content and passes through `realPath`, `statFile`, `removeFile`, `touchFile`, and `mkdir`; treat logged paths, command text, working directories, and text write contents as potentially sensitive.
 
@@ -531,7 +531,7 @@ only that one is configured, and startup refuses an artifact whose form disagree
 loaded config. The result is decided by deployed host code, never by the client or the
 model; a resolver treats the metadata it is given as input to validate, not as authority.
 
-What the resolver sees, precisely: the thread's stored metadata with B4.run's reserved
+The resolver sees the thread's stored metadata with B4.run's reserved
 key stripped. On the server run endpoints (`runs/stream`, `runs/wait`, AG-UI), `route` is
 present and server-authoritative, because the runtime stamps it before admission and the
 store's merge overwrites any client value; under `b4 run` it is absent. Every other key is

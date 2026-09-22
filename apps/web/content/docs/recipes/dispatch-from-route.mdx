@@ -1,10 +1,10 @@
 # Dispatch from a Route
 
-You want one route to invoke another — for example, a coordinator agent that delegates a step to a specialized research subagent. Here's how.
+Learn how to have one route invoke another. For example, a coordinator agent can hand a step to a specialized research subagent.
 
 ## Idiomatic: use `task()` with subagents
 
-The idiomatic approach is to use B4.run's built-in subagent dispatch. Add a `subagents/researcher/` directory next to your coordinator route, and the runtime auto-generates a `task` tool for the coordinator.
+I recommend B4.run's built-in subagent dispatch. Add a `subagents/researcher/` directory next to your coordinator route, and the runtime generates a `task` tool for the coordinator:
 
 ```text
 src/app/(public)/research/
@@ -16,6 +16,8 @@ src/app/(public)/research/
         webSearch.ts
 ```
 
+Here is the subagent:
+
 ```ts title="src/app/(public)/research/subagents/researcher/index.ts"
 import { agent } from "@b4run/sdk"
 
@@ -26,7 +28,7 @@ export default agent({
 })
 ```
 
-This is an internal `task` tool call emitted by the coordinator's model, not TypeScript route code that an author imports or calls:
+The coordinator's model then emits a `task` tool call like this. It is not code you write:
 
 ```ts
 task({
@@ -35,11 +37,11 @@ task({
 })
 ```
 
-B4.run wires the child route, runs it, and returns its final output as the tool result — all within the same process. See [Subagents](/docs/subagents) for the full convention and discovery rules.
+B4.run wires up the child route, runs it in the same process, and returns its final output as the tool result. See [Subagents](/docs/subagents) for the full convention and discovery rules.
 
 ## Advanced: cross-service dispatch
 
-Use raw HTTP when you need to call an agent in a **different service** (a separately deployed B4.run project or any AP-compatible endpoint). This is not the recommended path for routes within the same project.
+Use raw HTTP when you need to call an agent in a **different service** (a separately deployed B4.run project or any AP-compatible endpoint). For routes in the same project, use `task()` instead:
 
 ```ts title="src/app/(public)/orchestrator/[job]/index.ts"
 import type { RuntimeContext } from "@b4run/sdk"
@@ -80,7 +82,7 @@ export async function workflow(state: OrchestratorState, _ctx: RuntimeContext) {
   }
 
   // `null` when the remote route returned nothing, so narrow before reading a
-  // property — `?.` guards the property, not the object it hangs off.
+  // property. `?.` guards the property, not the object it hangs off.
   const remoteState = (await res.json()) as {
     readonly messages?: readonly { readonly content?: unknown }[]
   } | null
@@ -92,11 +94,11 @@ export async function workflow(state: OrchestratorState, _ctx: RuntimeContext) {
 
 ### Notes on cross-service dispatch
 
-- **EPHEMERAL port.** `b4 dev` picks a random port unless you pass `--port <n>`. Never hard-code `127.0.0.1:3001` — pass `B4_RUNTIME_URL` via env instead. With a fixed port: `b4 dev --port 3001`.
-- **AP body shape.** The request body is `{ route, input }` where `route` is the `assistant_id` string (e.g. `"/research#agent"`) and `input` is the route's state payload.
-- **Forward headers when needed.** If the target route's middleware expects auth headers, propagate them on the inner `fetch` — middleware runs on every `runs/wait` and `runs/stream` call.
-- **Cancellation does not cross the service boundary.** Parent cancellation or shutdown does not automatically cancel the remote Agent Protocol run. Disconnecting the wait request is an AP viewer disconnect, so the remote run intentionally continues. To propagate cancellation, retain the remote thread id and call `POST /threads/:thread_id/cancel` when the caller's own `ctx.signal` aborts.
-- **Use `/threads/:id/runs/stream` for long-running children.** Same body, SSE response — see [Stream Output](/docs/recipes/stream-output).
+- **EPHEMERAL port.** `b4 dev` picks a random port unless you pass `--port <n>`. Don't hard-code `127.0.0.1:3001`. Pass `B4_RUNTIME_URL` through the environment instead, or fix the port with `b4 dev --port 3001`.
+- **AP body shape.** The request body is `{ route, input }`, where `route` is the `assistant_id` string (e.g. `"/research#agent"`) and `input` is the route's state payload.
+- **Forward headers when needed.** Middleware runs on every `runs/wait` and `runs/stream` call, so if the target route's middleware expects auth headers, pass them on the inner `fetch`.
+- **Cancellation does not cross the service boundary.** Cancelling or shutting down the parent does not cancel the remote Agent Protocol run. Dropping the wait request is an AP viewer disconnect, so the remote run keeps going. To pass cancellation along, keep the remote thread id and call `POST /threads/:thread_id/cancel` when the caller's own `ctx.signal` aborts.
+- **Use `/threads/:id/runs/stream` for long-running children.** It takes the same body and returns SSE. See [Stream Output](/docs/recipes/stream-output).
 
 ## Related
 
