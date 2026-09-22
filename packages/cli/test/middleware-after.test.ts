@@ -71,6 +71,26 @@ describe("applyMiddlewareAfter", () => {
     expect(finalMessage).toBe("The answer is 42.")
   })
 
+  test("a streamed argument fragment releases held text like the tool call it precedes", async () => {
+    const turn: StreamChunk[] = [
+      { type: "chunk", data: "Let me ", messageId: "m1" },
+      { type: "message_end", data: { messageId: "m1" } },
+      { type: "tool_call_args", data: { id: "c1", name: "lookup", delta: '{"q":' } },
+      { type: "tool_call_args", data: { id: "c1", name: "lookup", delta: '"x"}' } },
+      { type: "tool_call", id: "c1", name: "lookup", input: { q: "x" } },
+      { type: "tool_result", id: "c1", name: "lookup", output: "42" },
+      { type: "chunk", data: "Done.", messageId: "m2" },
+      { type: "message_end", data: { messageId: "m2" } },
+      { type: "done", output: null },
+    ]
+    const yielded: StreamChunk[] = []
+    const wrapped = applyMiddlewareAfter(toAsync(turn), () => undefined, RUN)
+    for await (const chunk of wrapped) yielded.push(chunk)
+    // The first fragment proves the message was not final, so the text goes
+    // out ahead of the fragment rather than after the whole tool call.
+    expect(yielded.slice(0, 4)).toEqual(turn.slice(0, 4))
+  })
+
   test("replaces the final message, keeping its model message identity", async () => {
     const { error, out } = await collect(TOOL_TURN, () => ({ finalMessage: "REPLACED" }))
     expect(error).toBeUndefined()

@@ -31,6 +31,19 @@ Plan and subagent activity snapshots are translated on the root surface; use the
 
 Built-in orchestration is presented once. A `writeTodos` or `task` call whose activity was emitted produces no `TOOL_CALL_*` events, correlated by the model's tool-call id; every other tool is unchanged. The rule fails open, so the ordinary tool events are preserved whenever the activity cannot be produced. A client that registers no activity renderer therefore sees less for those two tools: activity snapshots are the canonical surface for them.
 
+## Streamed tool-call arguments
+
+A `tool_call_args` chunk with `data: { id, name, delta }` carries one fragment
+of a root tool call's arguments ahead of its `tool_call` announce. The first
+fragment for an id opens the call with `TOOL_CALL_START`; each non-empty
+fragment is one `TOOL_CALL_ARGS` delta; the announce, which still carries the
+complete input, emits whatever the deltas did not cover and then
+`TOOL_CALL_END`. The deltas concatenate to exactly the single delta a
+non-streamed call carries, so a client that appends them verbatim sees the same
+argument JSON either way. A `tool_call` with no preceding fragments takes the
+single-delta path unchanged. Run completion, interruption and errors end any
+streamed call still open. The two orchestration tools never stream.
+
 ## Model message framing
 
 Model tokens can include `messageId` alongside their string `data`. A

@@ -1042,3 +1042,201 @@ describe("orchestration suppression", () => {
     ])
   })
 })
+
+describe("streamed tool-call arguments", () => {
+  const args = { city: "Paris", days: 3 }
+  const full = JSON.stringify(args)
+  const delta = (delta: string) => ({
+    type: "tool_call_args",
+    data: { id: "call_1", name: "weather", delta },
+  })
+
+  function argFrames(events: Awaited<ReturnType<typeof collect>>) {
+    return events.filter((event) => event.type === EventType.TOOL_CALL_ARGS)
+  }
+
+  test("deltas open the call, stream as they arrive, and the announce closes it", async () => {
+    const events = await collect([
+      delta('{"city":'),
+      delta('"Paris",'),
+      delta('"days":3}'),
+      { type: "tool_call", data: { id: "call_1", name: "weather", input: args } },
+      { type: "tool_result", data: { id: "call_1", name: "weather", output: "sunny" } },
+      { type: "done", data: {} },
+    ])
+    expect(events).toEqual([
+      { type: EventType.RUN_STARTED, threadId: "th-1", runId: "rn-1" },
+      { type: EventType.TOOL_CALL_START, toolCallId: "call_1", toolCallName: "weather" },
+      { type: EventType.TOOL_CALL_ARGS, toolCallId: "call_1", delta: '{"city":' },
+      { type: EventType.TOOL_CALL_ARGS, toolCallId: "call_1", delta: '"Paris",' },
+      { type: EventType.TOOL_CALL_ARGS, toolCallId: "call_1", delta: '"days":3}' },
+      { type: EventType.TOOL_CALL_END, toolCallId: "call_1" },
+      {
+        type: EventType.TOOL_CALL_RESULT,
+        messageId: "tr-1",
+        toolCallId: "call_1",
+        content: "sunny",
+      },
+      {
+        type: EventType.RUN_FINISHED,
+        threadId: "th-1",
+        runId: "rn-1",
+        result: {},
+        outcome: { type: "success" },
+      },
+    ])
+    expect(
+      argFrames(events)
+        .map((event) => event.delta)
+        .join(""),
+    ).toBe(full)
+  })
+
+  test("the announce emits whatever the deltas did not cover as one last delta", async () => {
+    const events = await collect([
+      delta('{"city":"Paris"'),
+      { type: "tool_call", data: { id: "call_1", name: "weather", input: args } },
+      { type: "done", data: {} },
+    ])
+    expect(argFrames(events).map((event) => event.delta)).toEqual(['{"city":"Paris"', ',"days":3}'])
+  })
+
+  test("an announce whose payload does not extend the streamed text adds nothing", async () => {
+    const events = await collect([
+      delta('{"days":3,"city":"Paris"}'),
+      { type: "tool_call", data: { id: "call_1", name: "weather", input: args } },
+      { type: "done", data: {} },
+    ])
+    expect(argFrames(events).map((event) => event.delta)).toEqual(['{"days":3,"city":"Paris"}'])
+    expect(events.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_ARGS,
+      EventType.TOOL_CALL_END,
+      EventType.RUN_FINISHED,
+    ])
+  })
+
+  test("two interleaved streamed calls keep separate frames under their own ids", async () => {
+    const other = (d: string) => ({
+      type: "tool_call_args",
+      data: { id: "call_2", name: "b", delta: d },
+    })
+    const events = await collect([
+      delta('{"city":'),
+      other('{"b":'),
+      delta('"Paris","days":3}'),
+      other("2}"),
+      { type: "tool_call", data: { id: "call_1", name: "weather", input: args } },
+      { type: "tool_call", data: { id: "call_2", name: "b", input: { b: 2 } } },
+      { type: "done", data: {} },
+    ])
+    expect(
+      events.map((event) => [event.type, "toolCallId" in event ? event.toolCallId : ""]),
+    ).toEqual([
+      [EventType.RUN_STARTED, ""],
+      [EventType.TOOL_CALL_START, "call_1"],
+      [EventType.TOOL_CALL_ARGS, "call_1"],
+      [EventType.TOOL_CALL_START, "call_2"],
+      [EventType.TOOL_CALL_ARGS, "call_2"],
+      [EventType.TOOL_CALL_ARGS, "call_1"],
+      [EventType.TOOL_CALL_ARGS, "call_2"],
+      [EventType.TOOL_CALL_END, "call_1"],
+      [EventType.TOOL_CALL_END, "call_2"],
+      [EventType.RUN_FINISHED, ""],
+    ])
+  })
+
+  test("the first delta flushes an open anonymous text message, as an announce does", async () => {
+    const events = await collect([
+      { type: "token", data: "Looking" },
+      delta("{}"),
+      { type: "tool_call", data: { id: "call_1", name: "weather", input: {} } },
+      { type: "done", data: {} },
+    ])
+    expect(events.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TEXT_MESSAGE_START,
+      EventType.TEXT_MESSAGE_CONTENT,
+      EventType.TEXT_MESSAGE_END,
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_ARGS,
+      EventType.TOOL_CALL_END,
+      EventType.RUN_FINISHED,
+    ])
+  })
+
+  test("an empty delta opens the call without an args frame", async () => {
+    const events = await collect([
+      delta(""),
+      { type: "tool_call", data: { id: "call_1", name: "weather", input: args } },
+      { type: "done", data: {} },
+    ])
+    expect(events.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_ARGS,
+      EventType.TOOL_CALL_END,
+      EventType.RUN_FINISHED,
+    ])
+    expect(argFrames(events).map((event) => event.delta)).toEqual([full])
+  })
+
+  test("a malformed args chunk is ignored", async () => {
+    const events = await collect([
+      { type: "tool_call_args", data: { name: "weather", delta: "{}" } },
+      { type: "tool_call_args", data: { id: "call_1", delta: "{}" } },
+      { type: "tool_call_args", data: { id: "call_1", name: "weather" } },
+      { type: "done", data: {} },
+    ])
+    expect(events.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.RUN_FINISHED,
+    ])
+  })
+
+  test.each([
+    ["done", { type: "done", data: {} }, EventType.RUN_FINISHED],
+    ["interrupt", { type: "interrupt", data: { interruptId: "i-1" } }, EventType.RUN_FINISHED],
+  ] as const)("a still-open streamed call is ended before %s", async (_label, terminal, last) => {
+    const events = await collect([delta('{"city":'), terminal])
+    expect(events.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_ARGS,
+      EventType.TOOL_CALL_END,
+      last,
+    ])
+  })
+
+  test("a still-open streamed call is ended when the stream is exhausted", async () => {
+    const events = await collect([delta('{"city":')])
+    expect(events.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_ARGS,
+      EventType.TOOL_CALL_END,
+      EventType.RUN_FINISHED,
+    ])
+  })
+
+  test("a still-open streamed call is ended before an upstream error", async () => {
+    async function* failing(): AsyncGenerator<B4AgentStreamChunk> {
+      yield delta('{"city":')
+      throw new Error("boom")
+    }
+    const events = []
+    for await (const event of toAguiEvents(failing(), CTX, {
+      idFactory: createCounterIdFactory(),
+    })) {
+      events.push(event)
+    }
+    expect(events.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_ARGS,
+      EventType.TOOL_CALL_END,
+      EventType.RUN_ERROR,
+    ])
+  })
+})

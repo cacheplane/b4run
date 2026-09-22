@@ -87,4 +87,10 @@ describe("renderFrame", () => {
     ).toContain("ping")
     expect(renderFrame({ event: "done", data: { output: null } }).join("")).toMatch(/done/i)
   })
+
+  it("renders nothing for a streamed argument fragment so the tail is not flooded", () => {
+    expect(
+      renderFrame({ event: "tool_call_args", data: { id: "c1", name: "ping", delta: '{"a":' } }),
+    ).toEqual([])
+  })
 })

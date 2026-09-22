@@ -521,6 +521,42 @@ it("rejects a concurrent AG-UI run on the same thread", async () => {
   await first.text()
 }, 10_000)
 
+it("streams a tool call's arguments as several TOOL_CALL_ARGS deltas on the wire", async () => {
+  const input = { query: "pricing", limit: 5 }
+  const streamRoute: typeof streamResolvedRoute = async function* () {
+    yield { type: "tool_call_args", data: { id: "call-1", name: "lookup", delta: '{"query":' } }
+    yield { type: "tool_call_args", data: { id: "call-1", name: "lookup", delta: '"pricing",' } }
+    yield { type: "tool_call_args", data: { id: "call-1", name: "lookup", delta: '"limit":5}' } }
+    yield { type: "tool_call", id: "call-1", name: "lookup", input }
+    yield { type: "tool_result", id: "call-1", name: "lookup", output: { answer: "pricing" } }
+    yield { type: "done", output: { ok: true } }
+  }
+  const { port } = await setupControlledServer({ streamRoute })
+  const { events, response } = await postRun(port, {
+    threadId: "stream-thread",
+    runId: "stream-run",
+    messages: [{ id: "1", role: "user", content: "look up pricing" }],
+  })
+
+  expect(response.status).toBe(200)
+  const toolEvents = events.filter((event) => String(event.type).startsWith("TOOL_CALL"))
+  expect(toolEvents.map((event) => event.type)).toEqual([
+    "TOOL_CALL_START",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_END",
+    "TOOL_CALL_RESULT",
+  ])
+  expect(new Set(toolEvents.map((event) => event.toolCallId))).toEqual(new Set(["call-1"]))
+  expect(
+    toolEvents
+      .filter((event) => event.type === "TOOL_CALL_ARGS")
+      .map((event) => String(event.delta))
+      .join(""),
+  ).toBe(JSON.stringify(input))
+})
+
 it("preserves the upstream invocation id across canonical AG-UI tool events", async () => {
   const upstreamInvocationId = "upstream-invocation-42"
   const streamRoute: typeof streamResolvedRoute = async function* () {

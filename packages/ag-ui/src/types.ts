@@ -18,6 +18,7 @@ export type B4AgentStreamChunk =
     }
   | { readonly type: "message_end"; readonly data: { readonly messageId: string } }
   | { readonly type: "tool_call"; readonly data: B4ToolCallData }
+  | { readonly type: "tool_call_args"; readonly data: B4ToolCallArgsData }
   | { readonly type: "tool_result"; readonly data: B4ToolResultData }
   | { readonly type: "interrupt"; readonly data: unknown }
   | { readonly type: "done"; readonly data?: unknown }
@@ -27,6 +28,16 @@ export interface B4ToolCallData {
   readonly id?: string | undefined
   readonly name: string
   readonly input: unknown
+}
+
+/**
+ * One fragment of a tool call's arguments, streamed ahead of its `tool_call`
+ * announce for display only. The announce still carries the complete input.
+ */
+export interface B4ToolCallArgsData {
+  readonly id: string
+  readonly name: string
+  readonly delta: string
 }
 
 export interface B4ToolResultData {
@@ -47,6 +58,14 @@ export function asToolCallData(data: unknown): B4ToolCallData | null {
     name: data.name,
     input: data.input,
   }
+}
+
+/** Validates and narrows a `tool_call_args` chunk's `data`. Returns null if malformed. */
+export function asToolCallArgsData(data: unknown): B4ToolCallArgsData | null {
+  if (!isRecord(data)) return null
+  if (typeof data.id !== "string" || data.id === "") return null
+  if (typeof data.name !== "string" || typeof data.delta !== "string") return null
+  return { id: data.id, name: data.name, delta: data.delta }
 }
 
 /** Validates and narrows a `tool_result` chunk's `data`. Returns null if malformed. */

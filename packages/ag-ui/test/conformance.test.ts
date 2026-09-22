@@ -27,6 +27,8 @@ const childIdentity = {
 } as const
 
 const ORDINARY_TOOL_CALL_ID = "call_searchCorpus_0_0"
+const STREAMED_TOOL_CALL_ID = "call_draftReply_0_2"
+const STREAMED_ARGS = { subject: "Agents", body: "A short note about agents." }
 const PLAN_TOOL_CALL_ID = "call_writeTodos_0_1"
 // The `task` call's id is the subagent's `call_id`: that is how a subagent
 // activity correlates back to the root tool call that started it.
@@ -34,6 +36,23 @@ const TASK_TOOL_CALL_ID = childIdentity.call_id
 
 const CANNED: B4AgentStreamChunk[] = [
   { type: "token", data: "Researching" },
+  {
+    type: "tool_call_args",
+    data: { id: STREAMED_TOOL_CALL_ID, name: "draftReply", delta: '{"subject":"Agents",' },
+  },
+  {
+    type: "tool_call_args",
+    data: { id: STREAMED_TOOL_CALL_ID, name: "draftReply", delta: '"body":"A short note' },
+  },
+  {
+    type: "tool_call_args",
+    data: { id: STREAMED_TOOL_CALL_ID, name: "draftReply", delta: ' about agents."}' },
+  },
+  {
+    type: "tool_call",
+    data: { id: STREAMED_TOOL_CALL_ID, name: "draftReply", input: STREAMED_ARGS },
+  },
+  { type: "tool_result", data: { id: STREAMED_TOOL_CALL_ID, name: "draftReply", output: "ok" } },
   {
     type: "tool_call",
     data: { id: ORDINARY_TOOL_CALL_ID, name: "searchCorpus", input: { query: "agents" } },
@@ -172,7 +191,25 @@ it("produces an AG-UI stream that @ag-ui/client parses and verifyEvents accepts"
     toolEvents
       .filter((event) => event.type === EventType.TOOL_CALL_START)
       .map((event) => event.toolCallName),
-  ).toEqual(["searchCorpus"])
+  ).toEqual(["draftReply", "searchCorpus"])
+
+  // A streamed call reaches the client as several args deltas whose
+  // concatenation is exactly the single delta a non-streamed call carries.
+  const streamedFrames = toolEvents.filter((event) => event.toolCallId === STREAMED_TOOL_CALL_ID)
+  expect(streamedFrames.map((event) => event.type)).toEqual([
+    EventType.TOOL_CALL_START,
+    EventType.TOOL_CALL_ARGS,
+    EventType.TOOL_CALL_ARGS,
+    EventType.TOOL_CALL_ARGS,
+    EventType.TOOL_CALL_END,
+    EventType.TOOL_CALL_RESULT,
+  ])
+  expect(
+    streamedFrames
+      .filter((event) => event.type === EventType.TOOL_CALL_ARGS)
+      .map((event) => event.delta)
+      .join(""),
+  ).toBe(JSON.stringify(STREAMED_ARGS))
 
   // The ordinary tool keeps its full, correlated frame sequence.
   const ordinaryFrames = toolEvents.filter((event) => event.toolCallId === ORDINARY_TOOL_CALL_ID)
