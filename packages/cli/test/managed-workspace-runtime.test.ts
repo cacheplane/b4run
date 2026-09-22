@@ -272,3 +272,103 @@ it("passes the stored metadata with the reserved key stripped, and empty metadat
   // it, so the resolver sees that stamp rather than an empty object.
   expect(seen[1]).toEqual({ route: "/inspect#workflow" })
 })
+
+it("builds a resolver app to a resolver artifact and resolves per thread from the built manifest", async () => {
+  const { appRoot } = await fixture()
+  await mkdir(join(appRoot, "source-beta"), { recursive: true })
+  await writeFile(join(appRoot, "source-beta/beta.txt"), "beta")
+  await mkdir(join(appRoot, "node_modules/@b4run"), { recursive: true })
+  await symlink(new URL("..", import.meta.url), join(appRoot, "node_modules/@b4run/cli"), "dir")
+  const seen: string[] = []
+  const physical = managedProviderFixture()
+  const config = {
+    build: { targets: ["node"] as const },
+    sandbox: {
+      provider: physical.provider,
+      workspace: async (thread: { threadId: string; metadata: Record<string, unknown> }) => {
+        seen.push(thread.threadId)
+        return thread.metadata.task === "beta"
+          ? {
+              source: {
+                directory: "source-beta",
+                include: ["beta.txt"],
+                files: [{ path: "main.txt", text: "beta-overlay" }],
+              },
+            }
+          : { source: { directory: "source", include: ["main.txt"] } }
+      },
+    },
+  }
+  seedB4Config(appRoot, config)
+  await runBuildCommand({ cwd: appRoot, clean: true }, { stdout: () => {}, stderr: () => {} })
+  const workspace = JSON.parse(await readFile(join(appRoot, ".b4/build/workspace.json"), "utf8"))
+  expect(workspace).toEqual({ version: 2, kind: "resolver" })
+  const modules = await loadStaticModules(pathToFileURL(join(appRoot, ".b4/build/modules.mjs")))
+  const handler = await createRuntimeFetchHandler({
+    appRoot,
+    config,
+    modules: { ...modules, workspace },
+  })
+  handlers.push(handler)
+  const beta = await createThread(handler, { task: "beta" })
+  const plain = await createThread(handler, {})
+  expect((await run(handler, beta)).body).toMatchObject({
+    source: "beta-overlay",
+    current: "beta-overlay",
+  })
+  expect((await run(handler, beta, { path: "beta.txt" })).body).toMatchObject({ source: "beta" })
+  expect((await run(handler, plain)).body).toMatchObject({ source: "initial", current: "initial" })
+  expect(seen).toEqual([beta, plain])
+  await handler.close()
+})
+
+it("refuses to boot a resolver app from a stale static artifact", async () => {
+  const { appRoot, config: staticConfig } = await fixture()
+  await mkdir(join(appRoot, "node_modules/@b4run"), { recursive: true })
+  await symlink(new URL("..", import.meta.url), join(appRoot, "node_modules/@b4run/cli"), "dir")
+  seedB4Config(appRoot, { ...staticConfig, build: { targets: ["node"] } })
+  await runBuildCommand({ cwd: appRoot, clean: true }, { stdout: () => {}, stderr: () => {} })
+  const workspace = JSON.parse(await readFile(join(appRoot, ".b4/build/workspace.json"), "utf8"))
+  expect(workspace.version).toBe(1)
+  const modules = await loadStaticModules(pathToFileURL(join(appRoot, ".b4/build/modules.mjs")))
+  const physical = managedProviderFixture()
+  const resolverConfig = {
+    sandbox: {
+      provider: physical.provider,
+      workspace: async () => ({ source: { directory: "source", include: ["main.txt"] } }),
+    },
+  }
+  await expect(
+    createRuntimeFetchHandler({
+      appRoot,
+      config: resolverConfig,
+      modules: { ...modules, workspace },
+    }),
+  ).rejects.toThrow(/rebuild/i)
+})
+
+it("refuses to boot a static app from a stale resolver artifact", async () => {
+  const { appRoot, config: staticConfig } = await fixture()
+  await mkdir(join(appRoot, "node_modules/@b4run"), { recursive: true })
+  await symlink(new URL("..", import.meta.url), join(appRoot, "node_modules/@b4run/cli"), "dir")
+  const physical = managedProviderFixture()
+  const resolverConfig = {
+    build: { targets: ["node"] as const },
+    sandbox: {
+      provider: physical.provider,
+      workspace: async () => ({ source: { directory: "source", include: ["main.txt"] } }),
+    },
+  }
+  seedB4Config(appRoot, resolverConfig)
+  await runBuildCommand({ cwd: appRoot, clean: true }, { stdout: () => {}, stderr: () => {} })
+  const workspace = JSON.parse(await readFile(join(appRoot, ".b4/build/workspace.json"), "utf8"))
+  expect(workspace).toEqual({ version: 2, kind: "resolver" })
+  const modules = await loadStaticModules(pathToFileURL(join(appRoot, ".b4/build/modules.mjs")))
+  await expect(
+    createRuntimeFetchHandler({
+      appRoot,
+      config: staticConfig,
+      modules: { ...modules, workspace },
+    }),
+  ).rejects.toThrow(/rebuild/i)
+})
