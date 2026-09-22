@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto"
 import { setTimeout as sleep } from "node:timers/promises"
 import { exportApproved } from "../delivery/export.js"
+import { CommandInFlightError, UnknownTaskError, UnknownWorkOrderError } from "../domain/errors.js"
 import {
   ACTIVE_STATES,
   IllegalTransitionError,
@@ -104,26 +105,9 @@ export interface Factory {
   close(): Promise<void>
 }
 
-export class CommandInFlightError extends Error {
-  constructor(readonly operationKey: string) {
-    super(`Command ${operationKey} is still in flight; restart the factory to reconcile it`)
-    this.name = "CommandInFlightError"
-  }
-}
-
-export class UnknownTaskError extends Error {
-  constructor(taskId: string) {
-    super(`Unknown task ${taskId}`)
-    this.name = "UnknownTaskError"
-  }
-}
-
-export class UnknownWorkOrderError extends Error {
-  constructor(id: string) {
-    super(`Unknown work order ${id}`)
-    this.name = "UnknownWorkOrderError"
-  }
-}
+// Re-exported where they have always been imported from: moving the classes must not make
+// every caller change its import.
+export { CommandInFlightError, UnknownTaskError, UnknownWorkOrderError }
 
 export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const registry = openRegistry(options.registryPath)

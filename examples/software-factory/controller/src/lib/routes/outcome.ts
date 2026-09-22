@@ -1,10 +1,6 @@
 import type { z } from "zod"
-import {
-  CommandInFlightError,
-  type Factory,
-  UnknownTaskError,
-  UnknownWorkOrderError,
-} from "../controller/factory.js"
+import type { Factory } from "../controller/factory.js"
+import { CommandInFlightError, UnknownTaskError, UnknownWorkOrderError } from "../domain/errors.js"
 import type { CommandOutcome, WorkOrderRow } from "../domain/work-order.js"
 import { StaleRevisionError } from "../registry/work-orders.js"
 

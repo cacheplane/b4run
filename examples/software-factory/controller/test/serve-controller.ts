@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { type ServeRuntimeHandle, serveRuntime } from "@b4run/cli"
+import type { ControllerRuntimeOverrides } from "../src/lib/runtime.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
@@ -52,6 +53,8 @@ export interface ServedController {
 export async function serveController(
   dir: string,
   worker: Omit<FakeWorkerOptions, "outboxDir"> = {},
+  /** Replaces any of the three injected collaborators, e.g. a verifier that fails. */
+  overrides: ControllerRuntimeOverrides = {},
 ): Promise<ServedController> {
   const stateDir = join(dir, "state")
   mkdirSync(join(dir, "builder"), { recursive: true })
@@ -79,6 +82,7 @@ export async function serveController(
     verifier: createFakeVerifier({ verdict: "pass" }),
     workspaceReader: workspace,
     captureBaseline: async () => ({ digest: "a".repeat(64), files: BASELINE }),
+    ...overrides,
   })
   const handle: ServeRuntimeHandle = await serveRuntime({ appRoot, host: "127.0.0.1", port: 0 })
   const run = async (threadId: string, route: string, input: unknown) => {

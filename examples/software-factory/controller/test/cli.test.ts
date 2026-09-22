@@ -5,7 +5,9 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, it } from "vitest"
 import { BuilderManifestSchema } from "../src/lib/builder-manifest.ts"
-import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
+import { openRegistryReader } from "../src/lib/registry/reader.ts"
+import { createFakeVerifier } from "./fake-verifier.ts"
+import { type ServedController, serveController } from "./serve-controller.ts"
 
 const run = promisify(execFile)
 // Resolved from the package's own node_modules rather than relying on `pnpm` being on PATH
@@ -16,103 +18,178 @@ const cliEntry = join(import.meta.dirname, "../src/cli.ts")
 const packageRoot = join(import.meta.dirname, "..")
 
 let dir: string
-// Undefined for the tests that need no worker at all, and cleared after every test so a
-// later one cannot close an already-closed fake.
-let fake: FakeWorker | undefined
+// Undefined for the tests that serve nothing, and cleared after every test so a later one
+// cannot close an already-closed controller.
+let served: ServedController | undefined
 afterEach(async () => {
-  await fake?.close()
-  fake = undefined
+  await served?.close()
+  served = undefined
   rmSync(dir, { recursive: true, force: true })
 })
 
+interface Spawned {
+  readonly promise: Promise<{ stdout: string; stderr: string }>
+}
+
 /**
- * The command line builds the real adapters, so these tests exercise exactly what an
- * operator gets — including the real workspace reader, over a real sandbox provider. The
- * worker here is a fake whose threads never had a sandbox at all, so the read fails with
- * "no workspace storage for this thread" and the work order settles as
- * `verification_inconclusive` with a `workspace_unreadable` event. That is the point of the
- * assertion: an absent workspace is the controller admitting it does not know, never a
- * verdict, and never an empty candidate. The joined path against a real builder's real
- * workspace is the Docker-gated `end-to-end.integration.test.ts`.
+ * The CLI as an operator runs it: a separate process, talking to a controller over HTTP and
+ * reading the registry read-only from the state directory. Nothing in the child builds a
+ * Factory, so nothing in the child needs a worker, a container or a builder installation —
+ * the in-process controller owns all of that, with the fakes `serveController` injects.
  */
-async function boot() {
+async function boot(
+  worker: Parameters<typeof serveController>[1] = {},
+  overrides: Parameters<typeof serveController>[2] = {},
+) {
   dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
-  fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
+  served = await serveController(dir, worker, overrides)
   const env = {
     ...process.env,
-    FACTORY_WORKER_URL: fake.baseUrl,
-    FACTORY_STATE_DIR: join(dir, "state"),
-    FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
-    // A rung 0 environment that still sets the retired variables must keep starting.
-    FACTORY_WORKER_OUTBOX: join(dir, "outbox"),
-    FACTORY_RECEIPT_WAIT_MS: "2000",
+    FACTORY_CONTROLLER_URL: served.url,
+    FACTORY_STATE_DIR: served.stateDir,
+  }
+  const spawn = (...args: string[]): Spawned => {
+    const promise = run(process.execPath, [tsxBin, cliEntry, ...args], { env, cwd: packageRoot })
+    // A child spawned and not awaited yet (the dispatch the cancel test interrupts) exits
+    // non-zero while the test is doing something else; without a handler attached here that
+    // is an unhandled rejection. `failing` attaches its own handler to the same promise.
+    promise.catch(() => undefined)
+    return { promise }
   }
   const cli = async (...args: string[]) => {
-    const { stdout, stderr } = await run(process.execPath, [tsxBin, cliEntry, ...args], {
-      env,
-      cwd: packageRoot,
-    })
+    const { stdout, stderr } = await spawn(...args).promise
     return { json: JSON.parse(stdout), stderr }
   }
-  return cli
+  return { cli, spawn, env, stateDir: served.stateDir }
+}
+
+/** The exit-1 half of the contract: the body is still JSON on stdout. */
+async function failing(promise: Promise<{ stdout: string; stderr: string }>) {
+  const error = await promise.then(
+    () => undefined,
+    (e: { code?: number; stdout?: string; stderr?: string }) => e,
+  )
+  expect(error, "expected the command to exit non-zero").toBeDefined()
+  expect(error?.code).toBe(1)
+  return { stdout: error?.stdout ?? "", stderr: error?.stderr ?? "" }
+}
+
+async function pollState(
+  stateDir: string,
+  id: string,
+  done: (state: string | undefined) => boolean,
+  timeoutMs = 10_000,
+): Promise<string | undefined> {
+  const deadline = Date.now() + timeoutMs
+  let state: string | undefined
+  while (Date.now() < deadline) {
+    const reader = openRegistryReader(join(stateDir, "registry.sqlite"))
+    try {
+      state = reader.show(id)?.state
+    } finally {
+      reader.close()
+    }
+    if (done(state)) return state
+    await new Promise((r) => setTimeout(r, 25))
+  }
+  return state
 }
 
 describe("cli", () => {
-  it("creates, dispatches, shows, lists and reports evidence as JSON", async () => {
-    const cli = await boot()
+  it("creates, dispatches while tailing the journal, and reads rows, events and evidence", async () => {
+    const { cli } = await boot()
     const { json: created } = await cli("create", "--task", "cli-flags")
-    expect(created.state).toBe("received")
+    expect(created).toMatchObject({ ok: true, state: "received" })
+    const id = created.row.id as string
 
-    const { json: settled } = await cli("dispatch", created.id, "--wait")
-    // The fake worker's thread has no workspace storage, so the reader refuses rather than
-    // reporting an empty workspace: the controller says it does not know.
-    expect(settled.state).toBe("blocked")
-    expect(settled.blockedReason).toBe("verification_inconclusive")
-    expect(settled.bundleDigest).toBeNull()
+    const { json: settled, stderr } = await cli("dispatch", id)
+    expect(settled).toMatchObject({ ok: true })
+    expect(settled.row.state).toBe("awaiting_approval")
+    // The tail is the point of the read-only reader: the operator watches the run through
+    // the registry while the request that drives it is still open.
+    expect(stderr).toContain('"type":"transition"')
 
-    const { json: events } = await cli("events", created.id)
-    expect(events.map((e: { type: string }) => e.type)).toContain("workspace_unreadable")
+    const { json: shown } = await cli("show", id)
+    expect(shown.id).toBe(id)
+    expect(shown.state).toBe("awaiting_approval")
 
-    const { json: shown } = await cli("show", created.id)
-    expect(shown.id).toBe(created.id)
+    const { json: events } = await cli("events", id)
+    expect(events.map((e: { type: string }) => e.type)).toContain("created")
 
     const { json: list } = await cli("list")
     expect(list).toHaveLength(1)
 
-    const { json: evidence } = await cli("evidence", created.id)
-    expect(evidence).toEqual({ candidate: null, receipt: null, bundle: null })
-  }, 60_000)
+    const { json: evidence } = await cli("evidence", id)
+    expect(evidence.candidate).not.toBeNull()
+    expect(evidence.bundle).not.toBeNull()
+    expect(evidence.receipt).not.toBeNull()
 
-  it("exits non-zero on a refused command", async () => {
-    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
-    fake = await createFakeWorker({ outboxDir: join(dir, "unused"), run: "edits_only" })
-    const env = {
-      ...process.env,
-      FACTORY_WORKER_URL: fake.baseUrl,
-      FACTORY_STATE_DIR: join(dir, "state"),
-      FACTORY_BUILDER_APP_ROOT: join(dir, "builder"),
-    }
-    const { stdout } = await run(
-      process.execPath,
-      [tsxBin, cliEntry, "create", "--task", "cli-flags"],
-      { env, cwd: packageRoot },
+    const { json: reconciled } = await cli("reconcile")
+    expect(reconciled).toMatchObject({ ok: true })
+  }, 90_000)
+
+  it("exits non-zero with the refusal on stdout when a command is refused", async () => {
+    const { cli, spawn } = await boot()
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const { stdout } = await failing(
+      spawn("approve", created.row.id, "--revision", "0", "--bundle", "0".repeat(64)).promise,
     )
-    const { id } = JSON.parse(stdout)
-    await expect(
-      run(
-        process.execPath,
-        [tsxBin, cliEntry, "approve", id, "--revision", "0", "--bundle", "0".repeat(64)],
-        { env, cwd: packageRoot },
-      ),
-    ).rejects.toMatchObject({ code: 1 })
-  }, 60_000)
+    expect(JSON.parse(stdout)).toMatchObject({ ok: false })
+  }, 90_000)
 
-  it("writes a builder manifest without a registry, a worker or a Factory", async () => {
+  it("exits non-zero when the dispatch settles blocked", async () => {
+    // A failing receipt is the shape a dispatching script most needs to be told about: the
+    // route returns ok, the run finished, and the result is not reviewable.
+    const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ verdict: "fail" }) })
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const { stdout } = await failing(spawn("dispatch", created.row.id).promise)
+    const outcome = JSON.parse(stdout)
+    expect(outcome.row.state).toBe("blocked")
+    expect(outcome.row.blockedReason).toBe("verification_failed")
+  }, 90_000)
+
+  it("cancels a live dispatch through the runtime, and the dispatch reports run_cancelled", async () => {
+    const { cli, spawn, stateDir } = await boot({ run: "hang" })
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const id = created.row.id as string
+
+    // Not awaited: this is the run the cancel has to reach into.
+    const dispatching = spawn("dispatch", id).promise
+    expect(
+      await pollState(stateDir, id, (state) => state === "dispatched" || state === "running"),
+    ).toMatch(/^(dispatched|running)$/)
+
+    const { json: cancelled } = await cli("cancel", id)
+    expect(cancelled.state).toMatch(/^(cancel_requested|cancelled)$/)
+
+    const { stdout } = await failing(dispatching)
+    expect(JSON.parse(stdout)).toMatchObject({ ok: false, refusal: "run_cancelled" })
+    expect(await pollState(stateDir, id, (state) => state === "cancelled")).toBe("cancelled")
+  }, 90_000)
+
+  it("reads without a controller, and refuses to write without one", async () => {
+    const { cli, env } = await boot()
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const id = created.row.id as string
+    const { FACTORY_CONTROLLER_URL, ...readOnlyEnv } = env
+    const { stdout } = await run(process.execPath, [tsxBin, cliEntry, "show", id], {
+      env: readOnlyEnv,
+      cwd: packageRoot,
+    })
+    expect(JSON.parse(stdout).id).toBe(id)
+    const failed = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "create", "--task", "cli-flags"], {
+        env: readOnlyEnv,
+        cwd: packageRoot,
+      }),
+    )
+    expect(failed.stderr).toContain("FACTORY_CONTROLLER_URL")
+  }, 90_000)
+
+  it("writes a builder manifest without a controller, a registry or a Factory", async () => {
     dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
-    // Deliberately NEITHER variable: `loadConfig` demands both, so a command that still
-    // reached it would fail here. Writing a manifest reads the catalog and captures an
-    // archive; it has no use for a registry or a worker, and this is what proves it.
-    const { FACTORY_WORKER_URL, FACTORY_STATE_DIR, ...rest } = process.env
+    // Deliberately neither variable: a command that still needed one would fail here.
+    const { FACTORY_CONTROLLER_URL, FACTORY_STATE_DIR, FACTORY_WORKER_URL, ...rest } = process.env
     const out = join(dir, "manifests")
     const { stdout } = await run(
       process.execPath,

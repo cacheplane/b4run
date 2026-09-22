@@ -1,8 +1,10 @@
-import { mkdtempSync, rmSync } from "node:fs"
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory, type FactoryOptions } from "../src/lib/controller/factory.ts"
+import { openRegistry, RegistryVersionError, SCHEMA_VERSION } from "../src/lib/registry/db.ts"
 import { openRegistryReader } from "../src/lib/registry/reader.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
@@ -10,13 +12,15 @@ import { createFakeWorker, type FakeWorker } from "./fake-worker.ts"
 import { createFakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 let dir: string
-let fake: FakeWorker
-let factory: Factory
+// Cleared after every test: the tests that open neither must not re-close the previous
+// test's fake or factory.
+let fake: FakeWorker | undefined
+let factory: Factory | undefined
 
 function factoryOptions(dir: string, registryPath: string): FactoryOptions {
   return {
     registryPath,
-    worker: createHttpWorkerClient(fake.baseUrl),
+    worker: createHttpWorkerClient(fake?.baseUrl ?? ""),
     workerRoute: "/build#agent",
     exportDir: join(dir, "out"),
     artifactsDir: join(dir, "artifacts"),
@@ -29,6 +33,8 @@ function factoryOptions(dir: string, registryPath: string): FactoryOptions {
 afterEach(async () => {
   await factory?.close()
   await fake?.close()
+  factory = undefined
+  fake = undefined
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -56,6 +62,40 @@ describe("registry reader", () => {
   it("refuses to create a registry that does not exist", () => {
     dir = mkdtempSync(join(tmpdir(), "factory-reader-"))
     expect(() => openRegistryReader(join(dir, "missing.sqlite"))).toThrow(/does not exist/)
+  })
+
+  it("refuses a registry whose schema is newer than this factory", () => {
+    // A copy so the original stays a registry this build can still open: the refusal has to
+    // come from the version on disk, not from a file the test broke.
+    dir = mkdtempSync(join(tmpdir(), "factory-reader-"))
+    const registryPath = join(dir, "registry.sqlite")
+    openRegistry(registryPath).close()
+    const newer = join(dir, "newer.sqlite")
+    copyFileSync(registryPath, newer)
+    const writable = new DatabaseSync(newer)
+    writable.prepare("INSERT INTO schema_version(version) VALUES (?)").run(SCHEMA_VERSION + 1)
+    writable.close()
+    expect(() => openRegistryReader(newer)).toThrow(RegistryVersionError)
+    // Reading the untouched original still works, so the refusal is about the version.
+    openRegistryReader(registryPath).close()
+  })
+
+  it("names a database that is not a registry", () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-reader-"))
+    const other = join(dir, "other.sqlite")
+    const writable = new DatabaseSync(other)
+    writable.exec("CREATE TABLE something (x INTEGER)")
+    writable.close()
+    expect(() => openRegistryReader(other)).toThrow(/is not a factory registry/)
+  })
+
+  it("closes idempotently", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-reader-"))
+    const registryPath = join(dir, "registry.sqlite")
+    openRegistry(registryPath).close()
+    const reader = openRegistryReader(registryPath)
+    reader.close()
+    expect(() => reader.close()).not.toThrow()
   })
 
   it("sees a row the writer committed after the reader opened", async () => {
