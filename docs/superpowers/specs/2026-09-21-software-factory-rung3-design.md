@@ -341,6 +341,18 @@ client metadata.
 
 ## 6. Intake: an issue becomes a task
 
+> **Decisions of 2026-09-22, before execution.** Sub-project 3 is two plans. **3a** builds the
+> intake lifecycle in the controller and proves it with the scripted fakes: states, registry,
+> `create --issue`, generated tasks, draft validation and fit, the oracle proof, the two gate
+> routes, reconcile rules. **3b** builds the drafter for real: its own app and fixed image (a
+> third process, because a builder process serves one target and intake runs before a target
+> is chosen), the wide read-only capture staged under the drafter's root, the re-rooted
+> `draft/` read, a per-target worker map in the controller's config, the builder's per-thread
+> resolver keyed by the work order, and per-pin images with `target:prepare --pin` and an
+> `image_unprepared` block. TypeSafe AI's Jev was researched as an intake aid and deferred to
+> a later phase: it cannot run in the network-denied drafter, and as a controller-side gate a
+> planted fact in its state moves its verdict; see the research report of 2026-09-22.
+
 ### 6.1 Lifecycle
 
 Intake is a prefix on the existing lifecycle, not a fork.
@@ -465,11 +477,12 @@ worktrees. 3 needs both. 4 needs 3. 5 is rung 4.
 |---|---|---|---|
 | 1 | Per-thread workspace resolver in `@b4run/workspace` + `@b4run/cli` (§5) | — | §5.5 |
 | 2 | Controller ported to a b4 app of `workflow` routes (§4) | — | §4.3 |
-| 3 | Intake stage, generated tasks, oracle proof, the two gate routes, `create --issue`, builder reads its task per thread (§6) | 1, 2 | §6.8 scripted lanes |
+| 3a | Intake lifecycle with a scripted drafter (§6) | 1, 2 | §6.8's scripted lanes |
+| 3b | The drafter for real (§6) | 3a | A two-thread run of the builder app plus one intake turn against the wide capture, Docker lane |
 | 4 | First live issue, operator-pulled, local export | 3, a model key, prepared targets | The work order's own evidence |
 | 5 | Draft pull request delivery through an outbox (rung 4) | 4 | Its own spec |
 
-This spec is the design for 1, 2 and 3. Each gets its own implementation plan under
+This spec is the design for 1, 2, 3a and 3b. Each gets its own implementation plan under
 `docs/superpowers/plans/`. Sub-project 1 is the first plan to write.
 
 ---
@@ -527,6 +540,10 @@ a preparable target, and which a test can fail on:
 - **`review` is red repo-wide** while the Anthropic credits are exhausted. Every PR in this
   rung will need a deliberate decision to land without the advisory review, as the last six
   did. The release process is being handled in a separate thread.
+- **3a runs verification in the target's prepared image, not at the work order's pin.** The
+  pin is recorded on the row and in the bundle; 3b honours it with per-pin images. Until then
+  a work order created against a newer `origin/main` is verified in the environment the target
+  was last prepared at, and the bundle says both.
 
 ---
 
