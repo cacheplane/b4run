@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { seedB4Config } from "@b4run/core"
+import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
 import { afterEach, expect, it } from "vitest"
 import { runBuildCommand } from "../src/commands/build.ts"
 import {
@@ -162,4 +163,112 @@ it("resumes interrupted physical deletion and metadata cleanup at startup", asyn
   expect(records.size).toBe(0)
   expect((await restarted.fetch(new Request("http://localhost/threads/one"))).status).toBe(404)
   expect((await run(restarted, "one")).status).not.toBe(200)
+})
+
+// `POST /threads` never accepts a caller-supplied id — the store generates
+// one (see sqlite-storage's `newThreadId`) — so a test that needs metadata
+// attached to a thread before its first run must create the thread this way
+// and use the id the server hands back, rather than a chosen literal.
+async function createThread(
+  handler: RuntimeFetchHandler,
+  metadata: Record<string, unknown>,
+): Promise<string> {
+  const response = await handler.fetch(
+    new Request("http://localhost/threads", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ metadata }),
+    }),
+  )
+  expect(response.status).toBe(200)
+  const body = (await response.json()) as { thread_id: string }
+  return body.thread_id
+}
+
+it("resolves each thread's workspace from its own metadata, once, and keeps it across restart", async () => {
+  const { appRoot } = await fixture()
+  // Each candidate source lives in its OWN directory: `source-capture`'s
+  // exact-inventory check requires the walked directory's file set to equal
+  // `include` precisely, so alpha and beta cannot share a directory with each
+  // other (or with the base fixture's `source/main.txt`).
+  await mkdir(join(appRoot, "source-alpha"), { recursive: true })
+  await mkdir(join(appRoot, "source-beta"), { recursive: true })
+  await writeFile(join(appRoot, "source-alpha/alpha.txt"), "alpha")
+  await writeFile(join(appRoot, "source-beta/beta.txt"), "beta")
+  const seen: string[] = []
+  const physical = managedProviderFixture()
+  const config = {
+    sandbox: {
+      provider: physical.provider,
+      workspace: async (thread: { threadId: string; metadata: Record<string, unknown> }) => {
+        seen.push(thread.threadId)
+        const isBeta = thread.metadata.task === "beta"
+        const file = isBeta ? "beta.txt" : "alpha.txt"
+        return {
+          source: {
+            directory: isBeta ? "source-beta" : "source-alpha",
+            include: [file],
+            files: [{ path: "main.txt", text: file }],
+          },
+        }
+      },
+    },
+  }
+  const boot = async () => {
+    const handler = await createRuntimeFetchHandler({ appRoot, config })
+    handlers.push(handler)
+    return handler
+  }
+  const first = await boot()
+  const a = await createThread(first, { task: "alpha" })
+  const b = await createThread(first, { task: "beta" })
+  expect((await run(first, a)).body).toMatchObject({ source: "alpha.txt", current: "alpha.txt" })
+  expect((await run(first, b)).body).toMatchObject({ source: "beta.txt", current: "beta.txt" })
+  // Pin the captured DIRECTORY itself, not only the `main.txt` overlay: read
+  // the real captured file by name, whose content is its own physical
+  // content ("alpha"/"beta") rather than the filename `files` stamped into
+  // `main.txt`. This proves each thread's admitted workspace is rooted in
+  // its own resolved source directory, not merely that `main.txt` differs.
+  expect((await run(first, a, { path: "alpha.txt" })).body).toMatchObject({ source: "alpha" })
+  expect((await run(first, b, { path: "beta.txt" })).body).toMatchObject({ source: "beta" })
+  await run(first, a)
+  expect(seen).toEqual([a, b])
+  await first.close()
+  const restarted = await boot()
+  expect((await run(restarted, b)).body).toMatchObject({ source: "beta.txt" })
+  // The already-admitted thread `a` keeps its own workspace across restart
+  // too, and the resolver is not re-invoked for it (only its physical
+  // record is reattached).
+  expect((await run(restarted, a)).body).toMatchObject({ source: "alpha.txt" })
+  expect(seen).toEqual([a, b])
+})
+
+it("passes the stored metadata with the reserved key stripped, and empty metadata for a run without a prior thread", async () => {
+  const { appRoot } = await fixture()
+  const seen: Record<string, unknown>[] = []
+  const physical = managedProviderFixture()
+  const config = {
+    sandbox: {
+      provider: physical.provider,
+      workspace: async (thread: { threadId: string; metadata: Record<string, unknown> }) => {
+        seen.push(thread.metadata)
+        return { source: { directory: "source", include: ["main.txt"] } }
+      },
+    },
+  }
+  const handler = await createRuntimeFetchHandler({ appRoot, config })
+  handlers.push(handler)
+  const withId = await createThread(handler, {
+    task: "x",
+    [THREAD_ACCESS_METADATA_KEY]: { forged: true },
+  })
+  await run(handler, withId)
+  await run(handler, "without")
+  expect(seen[0]).toMatchObject({ task: "x" })
+  expect(seen[0]).not.toHaveProperty(THREAD_ACCESS_METADATA_KEY)
+  // The "without" thread has no prior `POST /threads` call, so it is created
+  // fresh by `runs/wait` with no client metadata. The runtime stamps the
+  // route onto that thread's metadata BEFORE workspace admission resolves for
+  // it, so the resolver sees that stamp rather than an empty object.
+  expect(seen[1]).toEqual({ route: "/inspect#workflow" })
 })
