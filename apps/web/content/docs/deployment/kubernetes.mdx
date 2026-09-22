@@ -90,10 +90,10 @@ Use external durable stores where state must survive replacement. Sandbox-provid
 
 The chart defaults are:
 
-- `serviceAccount.create=true`
-- `serviceAccount.name=""`, which resolves to the release-scoped chart fullname (`b4-app` for the canonical release)
-- `sandboxNamespace=b4-sandboxes`, which is informational only
-- `automountServiceAccountToken=true` on the app Pod
+- `serviceAccount.create=true`;
+- `serviceAccount.name=""`, which resolves to the release-scoped chart fullname (`b4-app` for the canonical release);
+- `sandboxNamespace=b4-sandboxes`, which is informational only;
+- `automountServiceAccountToken=true` on the app Pod.
 
 For an app that uses `kubernetesSandbox`, use the default application-owned ServiceAccount in the management namespace. Add that planned ServiceAccount as a cross-namespace subject of the sandbox infrastructure chart's orchestrator Role **before** installing the application. A RoleBinding subject is a name reference, so it can refer to a future ServiceAccount. Granting the authorization first prevents a Ready-but-sandbox-broken window, where the app Pod is running but its sandbox API calls are still forbidden.
 
@@ -117,7 +117,7 @@ orchestrator:
       namespace: b4-app
 ```
 
-Inspect the complete file, then apply it. Helm replaces arrays as values, so don't assign a guessed numeric subject index:
+Inspect the complete file, then apply it. Helm replaces arrays as values, so do not assign a guessed numeric subject index:
 
 ```bash
 helm upgrade b4-sandbox-infra oci://ghcr.io/cacheplane/charts/b4-sandbox-infra \

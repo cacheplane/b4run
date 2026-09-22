@@ -157,9 +157,9 @@
       "recordDigest": "5710e64c2afa5913c37a0d948964c4900f01c22a71da17b501e07cf67c6f09e4"
     },
     "/docs/deployment/kubernetes": {
-      "lastModified": "2026-09-22T19:04:43.100Z",
-      "sourceDigest": "3ccf8f726a1d264e8543277668826ac8623c6a038c17fbfe1df784671f4c914d",
-      "recordDigest": "849399c800bc81c727757a4fddd187c5d8d67bd984efafe40281407e427a799e"
+      "lastModified": "2026-09-22T20:58:23.124Z",
+      "sourceDigest": "84de36b65b17b346a4a57d3042358088d52be414f482d2d7f2871eb3d0fe1a00",
+      "recordDigest": "579054852a5eb6b87ea01ade74c54adafe71ad62f17f20185e27d94ce6cb45b8"
     },
     "/docs/deployment/langsmith": {
       "lastModified": "2026-09-22T19:04:43.100Z",
@@ -347,9 +347,9 @@
       "recordDigest": "7fe66d9c3a11c87005a2e720320bef1101b58888fa2c15228d70d489afec0213"
     },
     "/docs/sandbox/kubernetes": {
-      "lastModified": "2026-09-22T19:04:43.100Z",
-      "sourceDigest": "4f116764fe7278d69b977df1661a4ddd7907f8b02f6031d3ec638b43e62f9cb4",
-      "recordDigest": "f99075e8ef8a31039d7e9f58dc76b713b961f20bc03781200be74dc6bbd9d640"
+      "lastModified": "2026-09-22T20:58:23.124Z",
+      "sourceDigest": "0d9957c357eae75603869f08bf5a8ecd31f4f9e12d7acbc5599b548143d4eeb6",
+      "recordDigest": "65f22f8c6e648f3290bb0e3774ce9dc19131dce0c7099932f2d86b4b88858e16"
     },
     "/docs/security-architecture": {
       "lastModified": "2026-09-22T19:04:43.100Z",
