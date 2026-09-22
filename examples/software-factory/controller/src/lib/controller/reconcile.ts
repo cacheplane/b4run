@@ -368,19 +368,15 @@ async function reconcileIntake(
     state: row.state,
     status: thread.status,
   })
+  // No post-condition check after the phase, unlike `reverify`'s `settleUndecided`: the
+  // phase decides on every path but its own aborts, and a row it left in `intake_running`
+  // is one a closing factory aborted (`intake_aborted`, for the next boot to finish) or one
+  // a retry inside the phase reattached a new observer to. Blocking either would be wrong.
   ctx.track(
     id,
-    (async () => {
-      try {
-        await ctx.finishIntake(id)
-      } catch (error) {
-        ctx.recordEvent(id, "reconcile_failed", { phase: "intake", error: String(error) })
-      }
-      // `finishIntake` decides on every path but an abort (the row already moved); a row it
-      // left in `intake_running` is a fault worth settling rather than rediscovering at
-      // every boot.
-      if (isIntake()) fail("the intake phase returned without deciding after restart")
-    })(),
+    ctx.finishIntake(id).catch((error) => {
+      ctx.recordEvent(id, "reconcile_failed", { phase: "intake", error: String(error) })
+    }),
   )
 }
 

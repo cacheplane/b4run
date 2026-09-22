@@ -74,6 +74,12 @@ export interface FactoryConfig {
    * BUILDER process, whose workspace is fixed by its manifest task, so the controller reads
    * the intake thread's workspace with that task's provider and inspection options. Absent,
    * the `intake` command refuses.
+   *
+   * The 3a constraint this encodes: the intake thread's workspace must be exactly the
+   * builder's static workspace for that task — its `environmentLinks` are the reader's
+   * required root symlinks, so a drafter workspace shaped any other way is unreadable — and
+   * the read walks the whole tree to keep `draft/*`. Both change in 3b, when the drafter gets
+   * a workspace and inspection options of its own.
    */
   readonly intakeTaskId?: string
 }

@@ -10,6 +10,7 @@ import { openRegistry } from "../src/lib/registry/db.ts"
 import { createWorkOrderStore, type WorkOrderPatch } from "../src/lib/registry/work-orders.ts"
 import { configureCatalog, loadTask, resetCatalogForTests } from "../src/lib/targets/catalog.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
+import type { WorkspaceReader } from "../src/lib/worker/workspace-reader.ts"
 import { createFakeVerifier, type FakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
@@ -232,8 +233,18 @@ describe("intake", () => {
       state: "received",
       message: "intake is not configured: set FACTORY_INTAKE_TASK",
     })
-    // Refused before a thread is spent.
+    // Refused before a thread is spent, and before the key is: the operator configures the
+    // task and restarts, and the same call under the default key is not a replayed refusal.
     expect(threadPosts()).toHaveLength(1)
+    await factory.close()
+    await bootFactory()
+    expect(await factory.intake(fresh.id)).toEqual({
+      ok: true,
+      state: "intake_running",
+      message: "Intake started",
+    })
+    reader.set((factory.show(fresh.id) as WorkOrderRow).workerThreadId as string, GOOD_DRAFT)
+    expect((await factory.settleIntake(fresh.id, 20_000)).state).toBe("awaiting_intake_approval")
   })
 
   it("blocks on an unknown target after one attempt: no redraft can prepare one", async () => {
@@ -468,7 +479,9 @@ describe("the intake gate", () => {
       message: "Work order already has an approved task; reject-intake is the only way back",
     })
     writeFileSync(spec, `${original.toString("utf8")}\nA9: something else\n`)
-    expect(await factory.dispatch(id, "dispatch-edited")).toEqual({
+    // Under the default key, on purpose: the refusal spends no key, so the dispatch below,
+    // after the file is restored, is the same call and not a replay of this refusal.
+    expect(await factory.dispatch(id)).toEqual({
       ok: false,
       state: "received",
       message: "Generated task on disk no longer matches the approved digest",
@@ -675,6 +688,41 @@ describe("intake reconciliation", () => {
     expect(factory.events(id).filter((e) => e.type === "reattached")).toHaveLength(1)
     expect(factory.show(id)?.state).toBe("intake_running")
     expect(runPosts()).toHaveLength(1)
+  })
+
+  it("leaves an intake a closing factory aborted for the next boot, not blocked", async () => {
+    await bootWorker()
+    await bootFactory()
+    const { id } = await createIssue()
+    await crash()
+    const created = await fetch(`${fake.baseUrl}/threads`, { method: "POST" })
+    const { thread_id: threadId } = (await created.json()) as { thread_id: string }
+    forceRow(id, { state: "intake_running", workerThreadId: threadId })
+    // A read that holds until the factory's own signal aborts it: `finishIntake` is then
+    // mid-phase when close() lands, which is exactly when a backstop would wrongly block.
+    let asked: (() => void) | undefined
+    const askedOnce = new Promise<void>((resolve) => {
+      asked = resolve
+    })
+    const holding: WorkspaceReader = {
+      read: (_target, signal) =>
+        new Promise((_resolve, reject) => {
+          asked?.()
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+        }),
+    }
+    await bootFactory({ workspaceReader: holding })
+    await askedOnce
+    expect(factory.show(id)?.state).toBe("intake_running")
+    await factory.close()
+    const registry = openRegistry(registryPath())
+    const rows = createWorkOrderStore(registry.db)
+    expect(rows.get(id)).toMatchObject({ state: "intake_running", workerThreadId: threadId })
+    const types = rows.events(id).map((e) => e.type)
+    expect(types).toContain("intake_aborted")
+    expect(types).not.toContain("intake_phase_error")
+    expect(rows.events(id).at(-1)?.type).toBe("intake_aborted")
+    registry.close()
   })
 
   it("does not reconcile an intake a live observer already owns", async () => {

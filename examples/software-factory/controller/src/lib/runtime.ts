@@ -55,6 +55,19 @@ export function createControllerRuntime(
     // below — the prompt, the verifier, the baseline, the workspace reader — then finds a
     // generated task. The search path is process-wide, like the runtime itself.
     configureCatalog({ generatedTasksDir: config.generatedTasksDir })
+    // The intake task is what every drafter workspace is read through: an id the catalog
+    // cannot serve is refused at boot, not after a drafter turn has been spent on it.
+    if (config.intakeTaskId !== undefined) {
+      try {
+        loadTask(config.intakeTaskId)
+      } catch (error) {
+        return Promise.reject(
+          new Error(
+            `FACTORY_INTAKE_TASK names a task the catalog cannot load (${config.intakeTaskId}): ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        )
+      }
+    }
     return createFactory({
       registryPath: config.registryPath,
       worker: createHttpWorkerClient(config.workerUrl),

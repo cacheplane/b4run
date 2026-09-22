@@ -61,6 +61,22 @@ export async function runIntake(
   id: string,
   input: IntakeInput = {},
 ): Promise<void> {
+  try {
+    await runDrafterTurn(ctx, id, input)
+  } catch (error) {
+    // The backstop `finishIntake` has, for the turn: whatever escapes the faults below would
+    // otherwise reach `track()`'s `run_observer_error` and leave the row in `intake_running`
+    // with no turn and nothing to say why.
+    ctx.recordEvent(id, "intake_phase_error", { phase: "run", error: String(error) })
+    block(ctx, id, "intake_run_failed", { reason: "the intake run failed", error: String(error) })
+  }
+}
+
+async function runDrafterTurn(
+  ctx: ControllerContext,
+  id: string,
+  input: IntakeInput,
+): Promise<void> {
   const row = ctx.mustGet(id)
   if (!isIntake(row.state)) return
   if (!row.workerThreadId) {
@@ -76,10 +92,19 @@ export async function runIntake(
     block(ctx, id, "intake_run_failed", { reason: "issue.md could not be read" })
     return
   }
-  const prompt = intakePrompt({
-    issueText: issue,
-    ...(input.note !== undefined ? { note: input.note } : {}),
-  })
+  // The prompt lists the prepared targets from disk, and a catalog that cannot be read is
+  // a refusal to start the turn, not a fault to leave the row stranded on.
+  let prompt: string
+  try {
+    prompt = intakePrompt({
+      issueText: issue,
+      ...(input.note !== undefined ? { note: input.note } : {}),
+    })
+  } catch (error) {
+    ctx.recordEvent(id, "intake_prompt_failed", { error: String(error) })
+    block(ctx, id, "intake_run_failed", { reason: "the drafter prompt could not be built" })
+    return
+  }
   let frames: AsyncIterable<StreamFrame>
   try {
     frames = await ctx.worker.startRun(threadId, ctx.intakeRoute, prompt, ctx.signal)
@@ -111,11 +136,9 @@ export async function observeIntakeTurn(
   options: ObserveIntakeOptions = {},
 ): Promise<void> {
   const reattached = options.reconcileAttempt !== undefined
-  let started = false
   const result = await consumeTurn(frames, {
+    // `consumeTurn` calls this at most once per stream.
     onFirstFrame: async () => {
-      if (started) return
-      started = true
       ctx.recordEvent(id, "intake_run_started", { ...(reattached ? { reattached: true } : {}) })
     },
     onInterrupt: async (frame) => {

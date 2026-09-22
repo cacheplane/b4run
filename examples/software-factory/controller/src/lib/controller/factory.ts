@@ -558,6 +558,29 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
     async intake(id, operationKey) {
       const row = mustGet(id)
+      // Refused BEFORE the key is spent: a `received` row's revision does not change on a
+      // refusal, so a refusal recorded under `intake:<id>:<revision>` would replay to every
+      // later call at that revision — including the one after the operator sets
+      // `FACTORY_INTAKE_TASK` and restarts. None of these three is a function of the row's
+      // revision (same principle as `createFromIssue`'s validation).
+      const unspent = (message: string): CommandOutcome => ({
+        ok: false,
+        state: row.state,
+        message,
+      })
+      if (row.origin.kind !== "issue") return unspent("Cannot intake a catalog work order")
+      // An approved task is bound to the row's digest until dispatch: a redraft would replace
+      // the directory a person consented to, under the same id. Only a `received` row's digest
+      // means "approved" (a parked row's is the one awaiting approval); any other state is the
+      // revision-bound refusal below.
+      if (row.state === "received" && row.taskDigest !== null)
+        return unspent(
+          "Work order already has an approved task; reject-intake is the only way back",
+        )
+      // Refused here, not discovered after a thread and a turn were spent: without a task
+      // to read the drafter's workspace through, nothing the turn wrote could be read.
+      if (options.intakeTaskId === undefined)
+        return unspent("intake is not configured: set FACTORY_INTAKE_TASK")
       const key = operationKey ?? `intake:${id}:${row.revision}`
       const begun = commands.begin(key, id, { command: "intake", args: {} }, iso())
       if (begun.status === "done") return begun.outcome
@@ -565,15 +588,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       const refuse = (message: string) =>
         finish(key, { ok: false, state: mustGet(id).state, message })
       if (row.state !== "received") return refuse(`Cannot intake from ${row.state}`)
-      if (row.origin.kind !== "issue") return refuse("Cannot intake a catalog work order")
-      // An approved task is bound to the row's digest until dispatch: a redraft would replace
-      // the directory a person consented to, under the same id.
-      if (row.taskDigest !== null)
-        return refuse("Work order already has an approved task; reject-intake is the only way back")
-      // Refused here, not discovered after a thread and a turn were spent: without a task
-      // to read the drafter's workspace through, nothing the turn wrote could be read.
-      if (options.intakeTaskId === undefined)
-        return refuse("intake is not configured: set FACTORY_INTAKE_TASK")
       // A retry after a rejection redrafts on the thread the first intake made: the drafter
       // keeps its `draft/`, and the row already names it.
       // A crashed `intake` journals `intake_thread_created` before `intake_started` reaches
@@ -711,6 +725,38 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
     async dispatch(id, operationKey) {
       const row = mustGet(id)
+      // An approved generated task is bound to the digest the person consented to, and the
+      // gate recomputed it at approval; this is the other end of that binding, so the window
+      // between approval and dispatch cannot hand the builder a task nobody approved.
+      // Checked BEFORE the key is spent, as `intake`'s config check is: what is on disk is
+      // not a function of the row's revision, and a refusal recorded under
+      // `dispatch:<id>:<revision>` would replay to the dispatch after the file is restored.
+      if (row.taskDigest !== null && row.state === "received") {
+        const onDisk = diskTaskDigest(id)
+        if ("error" in onDisk) {
+          recordEvent(id, "generated_task_unreadable", {
+            phase: "dispatch",
+            error: String(onDisk.error),
+          })
+          return {
+            ok: false,
+            state: row.state,
+            message: `Generated task unreadable: ${String(onDisk.error)}`,
+          }
+        }
+        if (onDisk.digest !== row.taskDigest) {
+          recordEvent(id, "generated_task_changed", {
+            phase: "dispatch",
+            approved: row.taskDigest,
+            onDisk: onDisk.digest,
+          })
+          return {
+            ok: false,
+            state: row.state,
+            message: "Generated task on disk no longer matches the approved digest",
+          }
+        }
+      }
       const key = operationKey ?? `dispatch:${id}:${row.revision}`
       const begun = commands.begin(key, id, { command: "dispatch", args: {} }, iso())
       if (begun.status === "done") return begun.outcome
@@ -735,35 +781,6 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             ? `Unknown task ${row.taskId}`
             : `Unknown task ${row.taskId}: ${input.message}`,
         })
-      // An approved generated task is bound to the digest the person consented to, and the
-      // gate recomputed it at approval; this is the other end of that binding, so the window
-      // between approval and dispatch cannot hand the builder a task nobody approved.
-      if (row.taskDigest !== null) {
-        const onDisk = diskTaskDigest(id)
-        if ("error" in onDisk) {
-          recordEvent(id, "generated_task_unreadable", {
-            phase: "dispatch",
-            error: String(onDisk.error),
-          })
-          return finish(key, {
-            ok: false,
-            state: row.state,
-            message: `Generated task unreadable: ${String(onDisk.error)}`,
-          })
-        }
-        if (onDisk.digest !== row.taskDigest) {
-          recordEvent(id, "generated_task_changed", {
-            phase: "dispatch",
-            approved: row.taskDigest,
-            onDisk: onDisk.digest,
-          })
-          return finish(key, {
-            ok: false,
-            state: row.state,
-            message: "Generated task on disk no longer matches the approved digest",
-          })
-        }
-      }
       let threadId: string
       try {
         threadId = await options.worker.createThread({ factoryWorkOrderId: id })

@@ -623,6 +623,25 @@ A retry re-runs from step 2 on the SAME thread (a new run on the drafter thread,
 
 `context.ts` gains `intakeRoute`, `generatedTasksDir`, `intakeInspection`. `reconcile.ts`: `case "intake_running"`: if `workerThreadId` and the worker reports the thread busy, reattach with a variant of `reconcileRun` that hands off to `runIntake`'s read-and-prove step on turn end (factor `runIntake` into `startDrafterTurn` and `finishIntake(ctx, id)`); if not busy, call `finishIntake`; if no thread id, `intake_blocked { intake_run_failed }`. `finishCancel` must cancel the intake thread the same way it cancels a builder thread (it already uses `row.workerThreadId`).
 
+**As landed** (a7060e7f, cd92b32d and the review follow-up). Event names: `intake_thread_created`
+(journalled before `intake_started`, like `thread_created`; a rerun of `intake` adopts it),
+`intake_run_started`, `intake_turn_ended`, `task_generated`, `oracle_receipt` (every receipt,
+proven or not, with `checkId` and `proven`), `intake_refused` (`reason`, `blockedReason`, `attempt`),
+`intake_rejected` (the operator's note), `intake_approved`, `generated_task_changed` (dispatch's
+digest check), `intake_aborted`, `intake_phase_error`; not the `intake_rejected_by_check` /
+`oracle_proven` names above. A failed drafter turn (`intake_run_failed`: the turn could not start,
+errored, parked on a prompt, or the harness could not run) spends NO attempt; only a judged draft
+does. `no_target_for_package` wins over `intake_attempts_exhausted` on the last attempt. The intake
+thread's workspace is read through `FACTORY_INTAKE_TASK` (`FactoryConfig.intakeTaskId`, validated
+with `loadTask` at boot): in 3a the drafter runs in the builder process, whose workspace is fixed
+by its manifest task, so that task's provider and inspection options are the only ones that can
+read it; absent, `intake` refuses before spending a key. `approveIntake`'s default key carries
+the digest recomputed from disk at call time as well as the caller's, because the disk check is
+not a function of the row's revision and a refused-then-restored file must be a new intent;
+`dispatch` recomputes the digest again for an approved task (before its key) and refuses on a
+mismatch; `intake` refuses a work order whose task is already approved (`taskDigest` set):
+`reject-intake` is the only way back to a redraft.
+
 - [ ] **Step 3: Run and commit**
 
 ```bash
