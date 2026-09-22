@@ -57,6 +57,19 @@ export function createControllerClient(baseUrl: string, fetchImpl: typeof fetch 
     ) => run(id, "/work-orders/approve#workflow", { id, ...input }),
     deny: (id: string, operationKey?: string) =>
       run(id, "/work-orders/deny#workflow", withKey(id, operationKey)),
+    /** Starts intake and awaits the drafter turn and the oracle proof, like `dispatch`. */
+    intake: (id: string, operationKey?: string, signal?: AbortSignal) =>
+      run(id, "/work-orders/intake#workflow", withKey(id, operationKey), signal),
+    approveIntake: (
+      id: string,
+      input: { revision: number; taskDigest: string; operationKey?: string },
+    ) => run(id, "/work-orders/approve-intake#workflow", { id, ...input }),
+    /** Awaits the redraft the rejection starts, when attempts remain. */
+    rejectIntake: (
+      id: string,
+      input: { note: string; operationKey?: string },
+      signal?: AbortSignal,
+    ) => run(id, "/work-orders/reject-intake#workflow", { id, ...input }, signal),
     cancel: (id: string, operationKey?: string) =>
       run(id, "/work-orders/cancel#workflow", withKey(id, operationKey)),
     reconcile: () => run("controller", "/reconcile#workflow", {}),

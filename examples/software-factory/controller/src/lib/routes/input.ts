@@ -36,4 +36,21 @@ export const ApproveInput = z
     operationKey: z.string().min(1).optional(),
   })
   .strict()
+/** The intake gate's approval: the revision read and the digest of the directory read. */
+export const ApproveIntakeInput = z
+  .object({
+    id: z.string().min(1),
+    revision: z.number().int().nonnegative(),
+    taskDigest: z.string().regex(DIGEST_PATTERN),
+    operationKey: z.string().min(1).optional(),
+  })
+  .strict()
+/** The intake gate's rejection: a note is required, because the next drafter turn quotes it. */
+export const RejectIntakeInput = z
+  .object({
+    id: z.string().min(1),
+    note: z.string().min(1),
+    operationKey: z.string().min(1).optional(),
+  })
+  .strict()
 export const ReconcileInput = z.object({}).strict()

@@ -19,8 +19,12 @@ const REPAIRED: Readonly<Record<string, string>> = {
   "test/cli.test.ts": "spec\n",
   "TASK.md": "task\n",
 }
-/** The thread the fake worker is TOLD to create, so the pre-scripted reader id is a pin. */
-const FIRST_THREAD = "factory-routes-thread"
+/**
+ * The thread the fake worker is TOLD to create, so the pre-scripted reader id is a pin. It is
+ * the FIRST thread the worker makes, whichever stage asks: a test that runs intake first
+ * scripts the drafter's `draft/` under this id.
+ */
+export const FIRST_THREAD = "factory-routes-thread"
 
 /** The environment `controllerRuntime()` reads, restored when the helper closes. */
 const FACTORY_ENV = ["FACTORY_WORKER_URL", "FACTORY_STATE_DIR", "FACTORY_BUILDER_APP_ROOT"] as const

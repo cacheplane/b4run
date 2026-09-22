@@ -8,7 +8,8 @@ import { BuilderManifestSchema } from "../src/lib/builder-manifest.ts"
 import { openRegistryReader } from "../src/lib/registry/reader.ts"
 import { tasksDir } from "../src/lib/targets/catalog.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
-import { type ServedController, serveController } from "./serve-controller.ts"
+import { GOOD_DRAFT } from "./intake-fixtures.ts"
+import { FIRST_THREAD, type ServedController, serveController } from "./serve-controller.ts"
 
 const run = promisify(execFile)
 // Resolved from the package's own node_modules rather than relying on `pnpm` being on PATH
@@ -285,6 +286,70 @@ esac
       }),
     )
     expect(notANumber.stderr).toContain("positive integer")
+  }, 90_000)
+
+  it("drives the intake gate: intake tails and parks, reject-intake redrafts, approve-intake needs the digest", async () => {
+    const { cli, spawn } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+      { FACTORY_INTAKE_TASK: "devkit-spawn-deadline" },
+    )
+    if (!served) throw new Error("no controller")
+    served.workspace.queue(FIRST_THREAD, [GOOD_DRAFT, GOOD_DRAFT])
+    const created = await served.run("create-cli-issue", "/work-orders/create#workflow", {
+      origin: {
+        kind: "issue",
+        repository: "cacheplane/b4run",
+        number: 778,
+        bodyDigest: "0".repeat(64),
+      },
+      pin: "a".repeat(40),
+      issue: { title: "spawnProcess leaks its deadline timer", body: "B" },
+    })
+    const id = (created.body as { row: { id: string } }).row.id
+
+    const { json: parked, stderr } = await cli("intake", id)
+    expect(parked).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
+    expect(parked.row.state).toBe("awaiting_intake_approval")
+    expect(parked.row.taskDigest).toMatch(/^[a-f0-9]{64}$/)
+    // Tailed like a dispatch: the drafter's turn is watched through the registry.
+    expect(stderr).toContain('"type":"transition"')
+    expect(stderr).toContain("intake_drafted")
+
+    const noNote = await failing(spawn("reject-intake", id).promise)
+    expect(noNote.stderr).toContain("--note")
+    const wrongDigest = await failing(
+      spawn(
+        "approve-intake",
+        id,
+        "--revision",
+        String(parked.row.revision),
+        "--digest",
+        "b".repeat(64),
+      ).promise,
+    )
+    expect(JSON.parse(wrongDigest.stdout)).toMatchObject({
+      ok: false,
+      message: "Task digest does not match the work order's",
+    })
+
+    const { json: redrafted } = await cli("reject-intake", id, "--note", "name the timer")
+    expect(redrafted).toMatchObject({ ok: true, state: "awaiting_intake_approval" })
+    expect(redrafted.row.intakeAttempts).toBe(2)
+
+    // The digest an operator approves is the one `show` prints, not one from an earlier run.
+    const { json: shown } = await cli("show", id)
+    expect(shown.state).toBe("awaiting_intake_approval")
+    const { json: approved } = await cli(
+      "approve-intake",
+      id,
+      "--revision",
+      String(shown.revision),
+      "--digest",
+      shown.taskDigest,
+    )
+    expect(approved).toMatchObject({ ok: true, state: "received" })
+    expect(approved.row.taskDigest).toBe(shown.taskDigest)
   }, 90_000)
 
   it("writes a builder manifest without a controller, a registry or a Factory", async () => {

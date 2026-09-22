@@ -20,6 +20,9 @@ const USAGE = `factory <command> [options]
 
   create    --task <id> [--key <operationKey>]
   create    --issue <n> [--repo <owner/name>] [--key <operationKey>]
+  intake          <workOrderId> [--key <operationKey>]
+  approve-intake  <workOrderId> --revision <n> --digest <sha256> [--key <operationKey>]
+  reject-intake   <workOrderId> --note "<text>" [--key <operationKey>]
   dispatch  <workOrderId> [--key <operationKey>]
   approve   <workOrderId> --revision <n> --bundle <sha256> [--key <operationKey>]
   deny      <workOrderId> [--key <operationKey>]
@@ -41,8 +44,14 @@ create --issue reads the issue through gh (FACTORY_GH names the executable; defa
 the work order to origin/main of the target checkout (FACTORY_REPO_ROOT; FACTORY_NO_FETCH=1 skips
 the fetch). The repository is --repo, else FACTORY_REPOSITORY, else the checkout's origin remote.
 
+intake runs the drafter turn and the oracle proof and waits for them, like dispatch. The draft
+it parks is a task directory under <FACTORY_STATE_DIR>/tasks/<workOrderId>/ (task.json, spec.md,
+checks.json, checks/, issue.md): read it, then approve-intake with the revision and the taskDigest
+that show prints, or reject-intake with a note the next drafter turn quotes.
+
 Output is JSON on stdout; diagnostics go to stderr. Exit code 1 when a command is refused,
-and when a dispatch settles somewhere that still owes the operator work.`
+when a dispatch settles somewhere that still owes the operator work, and when an intake or a
+reject-intake settles anywhere but awaiting_intake_approval.`
 
 function print(value: unknown) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
@@ -103,8 +112,23 @@ function tailEvents(id: string, after: number): number {
   return last
 }
 
-/** Dispatch, tailing the journal to stderr while the request is in flight. */
-async function dispatch(id: string, key: string | undefined): Promise<RouteOutcome> {
+/**
+ * What an intake (or the redraft a rejection starts) may treat as success: the draft is
+ * parked for a person. Everything else — `blocked` for any of the intake reasons, `cancelled`,
+ * `cancel_requested`, "did not settle" — owes the operator work.
+ */
+const INTAKE_SUCCESS: ReadonlySet<WorkOrderState> = new Set<WorkOrderState>([
+  "awaiting_intake_approval",
+])
+
+/**
+ * Send a request that awaits a run (`dispatch`, `intake`, `reject-intake`), tailing the
+ * journal to stderr while it is in flight.
+ */
+async function awaiting(
+  id: string,
+  request: (controller: ControllerClient) => Promise<RouteOutcome>,
+): Promise<RouteOutcome> {
   let seq = 0
   // Aborted the moment the request resolves, so a dispatch that finishes in 200 ms does not
   // hold the process for the rest of a 500 ms tick.
@@ -117,7 +141,7 @@ async function dispatch(id: string, key: string | undefined): Promise<RouteOutco
     }
   })()
   try {
-    return await client().dispatch(id, key)
+    return await request(client())
   } finally {
     stop.abort()
     await tail
@@ -224,6 +248,8 @@ async function main(argv: string[]): Promise<number> {
       key: { type: "string" },
       revision: { type: "string" },
       bundle: { type: "string" },
+      digest: { type: "string" },
+      note: { type: "string" },
       out: { type: "string" },
       help: { type: "boolean", default: false },
     },
@@ -269,9 +295,40 @@ async function main(argv: string[]): Promise<number> {
         return outcome.ok ? 0 : 1
       }
       case "dispatch": {
-        const outcome = await dispatch(needId(), values.key)
+        const id = needId()
+        const outcome = await awaiting(id, (controller) => controller.dispatch(id, values.key))
         print(outcome)
         return outcome.ok && outcome.row && DISPATCH_SUCCESS.has(outcome.row.state) ? 0 : 1
+      }
+      case "intake": {
+        const id = needId()
+        const outcome = await awaiting(id, (controller) => controller.intake(id, values.key))
+        print(outcome)
+        return outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1
+      }
+      case "approve-intake": {
+        if (!values.revision || !values.digest)
+          throw new Error("approve-intake requires --revision and --digest")
+        const outcome = await client().approveIntake(needId(), {
+          revision: Number(values.revision),
+          taskDigest: values.digest,
+          ...(values.key ? { operationKey: values.key } : {}),
+        })
+        print(outcome)
+        return outcome.ok ? 0 : 1
+      }
+      case "reject-intake": {
+        const id = needId()
+        const note = values.note
+        if (!note) throw new Error("reject-intake requires --note")
+        const outcome = await awaiting(id, (controller) =>
+          controller.rejectIntake(id, {
+            note,
+            ...(values.key ? { operationKey: values.key } : {}),
+          }),
+        )
+        print(outcome)
+        return outcome.ok && outcome.row && INTAKE_SUCCESS.has(outcome.row.state) ? 0 : 1
       }
       case "approve": {
         if (!values.revision || !values.bundle)

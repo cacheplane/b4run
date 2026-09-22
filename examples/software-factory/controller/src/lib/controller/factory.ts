@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { exportApproved } from "../delivery/export.js"
+import { canon } from "../domain/digest.js"
 import { CommandInFlightError, UnknownTaskError, UnknownWorkOrderError } from "../domain/errors.js"
 import {
   ACTIVE_STATES,
@@ -918,6 +919,28 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       }
       if (frozen.baselineDigest !== baselineDigest)
         return invalidated("Baseline", frozen.baselineDigest, baselineDigest)
+      // Neither the origin nor the pin can move once the row exists, so these two are
+      // consistency assertions: a bundle naming another issue or another pin than the row
+      // is a bundle for some other work order, whatever its digest says.
+      if (canon(frozen.origin) !== canon(row.origin))
+        return invalidated("Origin", canon(frozen.origin), canon(row.origin))
+      if (frozen.pin !== row.pin) return invalidated("Pin", String(frozen.pin), String(row.pin))
+      // The generated task is re-read from disk, as the baseline is re-captured: consent
+      // named the task the person approved at intake, and a file edited under the directory
+      // since the freeze (a loosened check, a widened allow-list) is not that task even when
+      // the candidate bytes and the policy it was verified under are unchanged.
+      if (frozen.taskDigest !== null) {
+        const onDisk = diskTaskDigest(id)
+        if ("error" in onDisk) {
+          recordEvent(id, "generated_task_unreadable", {
+            phase: "export",
+            error: String(onDisk.error),
+          })
+          return refuse(`Generated task unreadable: ${String(onDisk.error)}`)
+        }
+        if (onDisk.digest !== frozen.taskDigest)
+          return invalidated("Generated task", frozen.taskDigest, onDisk.digest)
+      }
 
       let receipt: Receipt
       try {

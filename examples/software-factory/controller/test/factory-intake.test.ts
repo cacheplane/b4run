@@ -521,6 +521,58 @@ describe("the intake gate", () => {
     expect(verifier.calls[1]?.mode).toBeUndefined()
   })
 
+  it("freezes the origin, the pin, the task digest and the oracle proof into the bundle, and approve re-checks the task on disk", async () => {
+    await boot()
+    const { id } = await intake()
+    const parked = await factory.settleIntake(id, 20_000)
+    const taskDigest = parked.taskDigest as string
+    const oracle = factory.events(id).find((e) => e.type === "oracle_receipt")?.payload
+      .receiptId as string
+    expect(
+      await factory.approveIntake(id, { revision: parked.revision, taskDigest }),
+    ).toMatchObject({ ok: true, state: "received" })
+    verifier.script = { verdict: "pass" }
+    expect(await factory.dispatch(id)).toMatchObject({ ok: true })
+    const dispatched = await factory.waitFor(id, (r) => r.state !== "received")
+    reader.set(dispatched.workerThreadId as string, repaired())
+    const row = await factory.settle(id, 20_000)
+    expect(row.state).toBe("awaiting_approval")
+
+    // Approving the export consents to the issue text, the approved task and the candidate
+    // together (spec §6.6), and names the receipt that proved the check fails on the baseline.
+    const bundle = factory.evidence(id).bundle
+    expect(bundle?.payload).toMatchObject({
+      origin: ORIGIN,
+      pin: PIN,
+      taskDigest,
+      oracleReceiptId: oracle,
+    })
+
+    // The generated task edited after the freeze: the bundle asserts the task the person
+    // approved, and the export must not go out under it. `issue.md` is the file to edit
+    // here, because it is the one file of the directory no other frozen digest covers (the
+    // spec and the checks are in the specification and policy digests): only the task
+    // digest sees it, so only the task comparison can refuse.
+    const issue = join(generated, id, "issue.md")
+    const original = readFileSync(issue, "utf8")
+    writeFileSync(issue, `${original}\nEdited after approval.\n`)
+    expect(
+      await factory.approve(id, {
+        revision: row.revision,
+        bundleDigest: row.bundleDigest as string,
+      }),
+    ).toMatchObject({
+      ok: false,
+      state: "awaiting_approval",
+      message: expect.stringMatching(/Generated task changed/),
+    })
+    expect(factory.events(id).at(-1)).toMatchObject({
+      type: "bundle_invalidated",
+      payload: { field: "Generated task", frozen: taskDigest },
+    })
+    expect(factory.show(id)?.state).toBe("awaiting_approval")
+  })
+
   it("rejects with a note that the next drafter turn quotes, and blocks once attempts run out", async () => {
     await boot({}, { maxIntakeAttempts: 2 })
     const { id, threadId } = await intake()

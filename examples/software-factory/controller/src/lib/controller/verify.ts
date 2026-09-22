@@ -33,6 +33,22 @@ export async function runVerification(ctx: ControllerContext, id: string): Promi
   }
 }
 
+/**
+ * The receipt of the oracle proof the approved task was parked on: the LAST `oracle_receipt`
+ * the journal holds, since a rejected draft's proof is journalled too and the approved task
+ * is the latest one. Null for a catalog work order, which had no intake. Read from the
+ * journal rather than the row because the row records the digest the proof was for, not the
+ * receipt it earned.
+ */
+function oracleReceiptId(ctx: ControllerContext, id: string): string | null {
+  for (const event of ctx.store.events(id).reverse()) {
+    if (event.type !== "oracle_receipt") continue
+    const receiptId = event.payload.receiptId
+    return typeof receiptId === "string" && receiptId.length > 0 ? receiptId : null
+  }
+  return null
+}
+
 async function verifyCandidate(
   ctx: ControllerContext,
   id: string,
@@ -210,6 +226,10 @@ async function verifyCandidate(
     receipt,
     destinationId: ctx.exportDir,
     frozenAt: ctx.iso(),
+    origin: row.origin,
+    pin: row.pin,
+    taskDigest: row.taskDigest,
+    oracleReceiptId: oracleReceiptId(ctx, id),
   })
 
   ctx.store.transaction(() => {

@@ -62,6 +62,10 @@ describe("the real verifier", () => {
       receipt,
       destinationId: "/out",
       frozenAt: new Date().toISOString(),
+      origin: { kind: "catalog" },
+      pin: null,
+      taskDigest: null,
+      oracleReceiptId: null,
     })
     expect(bundle.payload.evidence).toHaveLength(2)
   }, 300_000)
