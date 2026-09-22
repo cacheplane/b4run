@@ -62,6 +62,8 @@ export function createControllerRuntime(
       exportDir: config.exportDir,
       artifactsDir: config.artifactsDir,
       generatedTasksDir: config.generatedTasksDir,
+      intakeRoute: config.intakeRoute,
+      ...(config.intakeTaskId !== undefined ? { intakeTaskId: config.intakeTaskId } : {}),
       approvalTtlMs: config.approvalTtlMs,
       maxActiveMs: config.maxActiveMs,
       maxChangedBytes: config.maxChangedBytes,

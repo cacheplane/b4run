@@ -22,6 +22,7 @@ import {
   type Receipt,
   type WorkOrderRow,
 } from "../domain/work-order.js"
+import { digestGeneratedTask } from "../intake/generated-task.js"
 import { issueText } from "../intake/issue.js"
 import { promptFor } from "../prompts.js"
 import { type CommandLog, createCommandLog } from "../registry/commands.js"
@@ -38,6 +39,7 @@ import type { InterruptFrame, StreamFrame } from "../worker/wire.js"
 import type { WorkspaceReader } from "../worker/workspace-reader.js"
 import { type BudgetTicker, startBudgetTicker } from "./budget.js"
 import type { ControllerContext } from "./context.js"
+import { finishIntake, observeIntakeTurn, runIntake } from "./intake.js"
 import { reconcileAll, reconcileWorkOrder } from "./reconcile.js"
 import { denyPending, observeRun } from "./run-observer.js"
 import { consumeTurn } from "./turns.js"
@@ -58,6 +60,13 @@ export interface FactoryOptions {
    * to both.
    */
   readonly generatedTasksDir: string
+  /** The route the drafter turn runs on. Default `/intake#agent`. */
+  readonly intakeRoute?: string
+  /**
+   * The catalog task whose provider and inspection options read the drafter thread's
+   * workspace (see `FactoryConfig.intakeTaskId`). Absent, `intake` refuses.
+   */
+  readonly intakeTaskId?: string
   readonly verifier: Verifier
   readonly workspaceReader: WorkspaceReader
   /** The controller's own baseline for a task. Injected so tests need no container. */
@@ -105,6 +114,22 @@ export interface Factory {
     issue: { title: string; body: string }
     operationKey?: string
   }): Promise<WorkOrderRow>
+  /**
+   * Start the drafter turn for an issue work order: from `received` with an issue origin,
+   * to `intake_running`. The tracked run reads, proves and parks the draft, or blocks.
+   */
+  intake(id: string, operationKey?: string): Promise<CommandOutcome>
+  /**
+   * The intake gate: the digest of the generated task on disk, recomputed now, must equal
+   * both the row's and the caller's. Approval returns the work order to `received`, where
+   * `dispatch` starts the rung 2 lifecycle on the generated task.
+   */
+  approveIntake(
+    id: string,
+    input: { revision: number; taskDigest: string; operationKey?: string },
+  ): Promise<CommandOutcome>
+  /** Journal the note and, attempts permitting, run another drafter turn with it quoted. */
+  rejectIntake(id: string, input: { note: string; operationKey?: string }): Promise<CommandOutcome>
   dispatch(id: string, operationKey?: string): Promise<CommandOutcome>
   approve(
     id: string,
@@ -132,6 +157,12 @@ export interface Factory {
    * Times out with the row's current state in the message.
    */
   settle(id: string, timeoutMs: number): Promise<WorkOrderRow>
+  /**
+   * `settle` for an intake: the tracked run is the drafter turn and the read-and-prove that
+   * follows it (and any retry), and `intake_running` is an active state, so the same wait
+   * serves. Kept as its own name so a caller says which run it is waiting on.
+   */
+  settleIntake(id: string, timeoutMs: number): Promise<WorkOrderRow>
   /** Reconcile one work order now (what boot does for all of them). */
   reconcileWorkOrder(id: string): Promise<void>
   /**
@@ -172,8 +203,13 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const iso = () => new Date(now()).toISOString()
   const abort = new AbortController()
   const runs = new Map<string, Promise<void>>()
-  /** One per work order in `verifying`; aborted the moment the row leaves that state. */
-  const verifications = new Map<string, AbortController>()
+  /**
+   * One per work order in a container phase (`verifying`, `intake_running`); aborted the
+   * moment the row leaves that state. A work order is in at most one such phase at a time,
+   * so one entry per id serves both.
+   */
+  const phases = new Map<string, AbortController>()
+  const PHASE_STATES: ReadonlySet<WorkOrderRow["state"]> = new Set(["verifying", "intake_running"])
   let closed = false
   /** Started only once reconciliation has run, so no tick can race the boot rules. */
   let ticker: BudgetTicker | null = null
@@ -213,23 +249,26 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       }
       const updated = store.update(id, row.revision, { ...patch, ...accounting, state: to }, iso())
       recordEvent(id, "transition", { event, from: row.state, to, ...payload })
-      // Container work for a row that is no longer being verified has no one to report to:
-      // abort it now rather than let it run to the verifier's own deadline.
-      if (row.state === "verifying" && to !== "verifying") {
-        verifications.get(id)?.abort()
-        verifications.delete(id)
+      // Container work for a row that has left its phase has no one to report to: abort it
+      // now rather than let it run to the verifier's own deadline. An `intake_retry` keeps
+      // the row in `intake_running`, and so keeps its signal.
+      if (PHASE_STATES.has(row.state) && to !== row.state) {
+        phases.get(id)?.abort()
+        phases.delete(id)
       }
       return updated
     })
 
-  const verificationSignal = (id: string): AbortSignal => {
-    let controller = verifications.get(id)
+  const phaseSignal = (id: string): AbortSignal => {
+    let controller = phases.get(id)
     if (!controller) {
       controller = new AbortController()
-      verifications.set(id, controller)
+      phases.set(id, controller)
     }
     return AbortSignal.any([abort.signal, controller.signal])
   }
+  const verificationSignal = phaseSignal
+  const intakeSignal = phaseSignal
 
   const finish = (operationKey: string, outcome: CommandOutcome): CommandOutcome => {
     commands.complete(operationKey, outcome)
@@ -344,10 +383,14 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     workspaceReader: options.workspaceReader,
     worker: options.worker,
     workerRoute: options.workerRoute,
+    intakeRoute: options.intakeRoute ?? "/intake#agent",
+    intakeTaskId: options.intakeTaskId,
+    generatedTasksDir: options.generatedTasksDir,
     exportDir: options.exportDir,
     maxChangedBytes: options.maxChangedBytes ?? 256 * 1024,
     signal: abort.signal,
     verificationSignal,
+    intakeSignal,
     now,
     iso,
     mustGet,
@@ -356,6 +399,9 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     observeRun: (id, frames, observeOptions) => observeRun(ctx, id, frames, observeOptions),
     captureBaseline: (taskId, signal) => options.captureBaseline(taskId, signal),
     runVerification: (id) => runVerification(ctx, id),
+    observeIntakeTurn: (id, frames, observeOptions) =>
+      observeIntakeTurn(ctx, id, frames, observeOptions),
+    finishIntake: (id) => finishIntake(ctx, id),
     denyPending: (id) => denyPending(ctx, id),
     finishCancel: (id, cause) => finishCancel(id, cause),
     settleRun,
@@ -489,6 +535,148 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         )
       }
       return row
+    },
+
+    async intake(id, operationKey) {
+      const row = mustGet(id)
+      const key = operationKey ?? `intake:${id}:${row.revision}`
+      const begun = commands.begin(key, id, { command: "intake", args: {} }, iso())
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      const refuse = (message: string) =>
+        finish(key, { ok: false, state: mustGet(id).state, message })
+      if (row.state !== "received") return refuse(`Cannot intake from ${row.state}`)
+      if (row.origin.kind !== "issue") return refuse("Cannot intake a catalog work order")
+      // Refused here, not discovered after a thread and a turn were spent: without a task
+      // to read the drafter's workspace through, nothing the turn wrote could be read.
+      if (options.intakeTaskId === undefined)
+        return refuse("intake is not configured: set FACTORY_INTAKE_TASK")
+      // A retry after a rejection redrafts on the thread the first intake made: the drafter
+      // keeps its `draft/`, and the row already names it.
+      let threadId = row.workerThreadId
+      let created = false
+      if (!threadId) {
+        try {
+          threadId = await options.worker.createThread({
+            factoryWorkOrderId: id,
+            factoryStage: "intake",
+          })
+        } catch (error) {
+          return refuse(`Thread creation failed: ${String(error)}`)
+        }
+        created = true
+        // Journalled before the transition, as dispatch does, so a crash in between leaves
+        // the thread id in the event log rather than leaking it.
+        recordEvent(id, "intake_thread_created", { threadId })
+      }
+      let started: WorkOrderRow
+      try {
+        started = transition(id, "intake_started", { workerThreadId: threadId }, { threadId })
+      } catch (error) {
+        // A cancel moved the row while the worker was creating the thread.
+        if (!(error instanceof IllegalTransitionError)) throw error
+        if (created) {
+          recordEvent(id, "thread_orphaned", { threadId })
+          try {
+            await options.worker.cancel(threadId)
+          } catch (cancelError) {
+            recordEvent(id, "worker_cancel_failed", { threadId, error: String(cancelError) })
+          }
+        }
+        return refuse("Work order changed state while starting intake")
+      }
+      const outcome = finish(key, { ok: true, state: started.state, message: "Intake started" })
+      track(id, runIntake(ctx, id, {}))
+      return outcome
+    },
+
+    async approveIntake(id, { revision, taskDigest, operationKey }) {
+      const row = mustGet(id)
+      // The digest is part of the default key, as the bundle digest is for `approve`: two
+      // approvals of one revision naming different tasks are different intents.
+      const key = operationKey ?? `approve_intake:${id}:${revision}:${taskDigest}`
+      const begun = commands.begin(
+        key,
+        id,
+        { command: "approve_intake", args: { revision, taskDigest } },
+        iso(),
+      )
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      const refuse = (message: string) =>
+        finish(key, { ok: false, state: mustGet(id).state, message })
+      if (row.state !== "awaiting_intake_approval")
+        return refuse(`Cannot approve intake from ${row.state}`)
+      if (row.revision !== revision)
+        return refuse(`Stale revision ${revision}; work order is at ${row.revision}`)
+      // Recomputed from disk now, never read back from the row: the gate binds what the
+      // person read to what the builder and the verifier will be given, and a file edited
+      // under the directory since intake is exactly what it must catch.
+      let onDisk: string
+      try {
+        onDisk = digestGeneratedTask(join(options.generatedTasksDir, id))
+      } catch (error) {
+        recordEvent(id, "generated_task_unreadable", { error: String(error) })
+        return refuse(`Generated task unreadable: ${String(error)}`)
+      }
+      if (onDisk !== row.taskDigest)
+        return refuse("Task digest does not match the generated task on disk")
+      if (taskDigest !== row.taskDigest)
+        return refuse("Task digest does not match the work order's")
+      try {
+        store.transaction(() => {
+          transition(id, "approve_intake", {}, { taskDigest, operationKey: key })
+          recordEvent(id, "intake_approved", { taskDigest })
+        })
+      } catch (error) {
+        if (!(error instanceof IllegalTransitionError)) throw error
+        return refuse("Work order changed state while approving intake")
+      }
+      return finish(key, { ok: true, state: mustGet(id).state, message: "Intake approved" })
+    },
+
+    async rejectIntake(id, { note, operationKey }) {
+      const row = mustGet(id)
+      const key = operationKey ?? `reject_intake:${id}:${row.revision}`
+      const begun = commands.begin(key, id, { command: "reject_intake", args: { note } }, iso())
+      if (begun.status === "done") return begun.outcome
+      if (begun.status === "in_flight") throw new CommandInFlightError(key)
+      const refuse = (message: string) =>
+        finish(key, { ok: false, state: mustGet(id).state, message })
+      if (row.state !== "awaiting_intake_approval")
+        return refuse(`Cannot reject intake from ${row.state}`)
+      // The rejection is journalled whichever way the row goes: it is the person's reason,
+      // and the next drafter turn (if there is one) quotes it.
+      let next: WorkOrderRow
+      try {
+        next = store.transaction(() => {
+          recordEvent(id, "intake_rejected", { note, attempt: row.intakeAttempts })
+          if (row.intakeAttempts >= row.maxIntakeAttempts)
+            return transition(
+              id,
+              "intake_blocked",
+              { blockedReason: "intake_attempts_exhausted" },
+              { reason: note, operationKey: key },
+            )
+          return transition(id, "reject_intake", {}, { reason: note, operationKey: key })
+        })
+      } catch (error) {
+        if (!(error instanceof IllegalTransitionError)) throw error
+        return refuse("Work order changed state while rejecting intake")
+      }
+      if (next.state === "blocked")
+        return finish(key, {
+          ok: true,
+          state: next.state,
+          message: "Intake rejected; no drafter attempts remain",
+        })
+      const outcome = finish(key, {
+        ok: true,
+        state: next.state,
+        message: "Intake rejected; redrafting",
+      })
+      track(id, runIntake(ctx, id, { note }))
+      return outcome
     },
 
     async dispatch(id, operationKey) {
@@ -943,6 +1131,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
         Math.max(0, deadline - Date.now()),
       )
     },
+    settleIntake: (id, timeoutMs) => factory.settle(id, timeoutMs),
     reconcileWorkOrder: (id) => reconcileWorkOrder(ctx, id),
     reconcileAll: () => reconcileAll(ctx),
 
