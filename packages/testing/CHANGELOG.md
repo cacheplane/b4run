@@ -1,5 +1,17 @@
 # @dawn-ai/testing
 
+## 0.10.0
+
+### Patch Changes
+
+- Updated dependencies [1cadde8]
+- Updated dependencies [71bccb3]
+  - @b4run/cli@0.10.0
+  - @b4run/workspace@0.10.0
+  - @b4run/core@0.10.0
+  - @b4run/memory@0.10.0
+  - @b4run/sdk@0.10.0
+
 ## 0.9.0
 
 ### Patch Changes
