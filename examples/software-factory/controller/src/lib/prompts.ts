@@ -1,4 +1,4 @@
-import { type CatalogOptions, loadTask, loadTaskIds, type Task } from "./targets/catalog.js"
+import { type CatalogOptions, loadTask, type Task } from "./targets/catalog.js"
 
 /**
  * One invocation as the builder must type it: from the workspace root when the target's
@@ -42,37 +42,12 @@ export function taskPrompt(task: Task): string {
 }
 
 /**
- * Every task the catalog can currently serve, keyed by id: the controller's own
- * task-id-to-prompt table, and the set of task ids a work order may name. Derived from the
- * catalog on each call rather than compiled in, so a new task is a directory and a prepared
- * image, not a code change.
- *
- * A task that cannot be loaded — most often a sibling target nobody has prepared on this
- * machine yet — is OMITTED and reported through `onUnavailable`, and this function never
- * throws. One unprepared target must not decide whether the controller boots: a work order
- * naming that task is refused as unknown, which is a fact about that task, while every other
- * task in the catalog keeps working.
+ * The prompt for the task `id` names, resolved through the catalog at the point of use
+ * rather than tabulated at boot: a task generated after the controller started is served
+ * the moment its directory lands, and a task the catalog cannot load — most often a sibling
+ * target nobody has prepared on this machine — throws here, for the caller to refuse that
+ * one work order, and never decides whether the controller boots.
  */
-export function taskPrompts(
-  onUnavailable?: (id: string, error: unknown) => void,
-  options?: CatalogOptions,
-): Readonly<Record<string, string>> {
-  let ids: string[]
-  try {
-    ids = loadTaskIds(options?.tasksDir)
-  } catch (error) {
-    // No catalog at all is reported the same way rather than thrown: the caller asked for
-    // the tasks that are available, and the answer is none.
-    onUnavailable?.("(catalog)", error)
-    return {}
-  }
-  const prompts: Record<string, string> = {}
-  for (const id of ids) {
-    try {
-      prompts[id] = taskPrompt(loadTask(id, options ?? {}))
-    } catch (error) {
-      onUnavailable?.(id, error)
-    }
-  }
-  return prompts
+export function promptFor(id: string, options: CatalogOptions = {}): string {
+  return taskPrompt(loadTask(id, options))
 }

@@ -7,7 +7,7 @@ import type { WorkOrderState } from "./lib/domain/states.js"
 import type { WorkOrderRow } from "./lib/domain/work-order.js"
 import { openRegistryReader } from "./lib/registry/reader.js"
 import type { RouteOutcome } from "./lib/routes/outcome.js"
-import { loadTask } from "./lib/targets/catalog.js"
+import { configureCatalog, loadTask } from "./lib/targets/catalog.js"
 
 const USAGE = `factory <command> [options]
 
@@ -200,6 +200,10 @@ async function main(argv: string[]): Promise<number> {
   if (command === "builder-manifest") {
     if (!values.task) throw new Error("builder-manifest requires --task")
     if (!values.out) throw new Error("builder-manifest requires --out")
+    // Read directly rather than through the full config: this command needs no worker or
+    // builder root, only the state directory's generated tasks, and only when there is one.
+    const stateDir = process.env.FACTORY_STATE_DIR
+    if (stateDir) configureCatalog({ generatedTasksDir: join(stateDir, "tasks") })
     print({ path: await writeBuilderManifest(loadTask(values.task), values.out) })
     return 0
   }

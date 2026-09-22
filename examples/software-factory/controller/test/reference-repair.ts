@@ -21,6 +21,8 @@ export async function applyReference(id = "cli-flags"): Promise<string> {
   if (task.manifest.allowedSourcePaths.length !== 1)
     throw new Error("Reference repair helper assumes one allowed path")
   const allowed = task.manifest.allowedSourcePaths[0] as string
+  // Only a shipped task has a reference repair; a generated one has nothing proven yet.
+  if (task.referencePatch === null) throw new Error(`Task ${id} has no reference.patch`)
   const appRoot = await mkdtemp(join(tmpdir(), "factory-reference-"))
   try {
     const captured = captureTarget(task, "test", { appRoot })

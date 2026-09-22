@@ -46,6 +46,12 @@ export interface FactoryConfig {
   readonly exportDir: string
   /** Content-addressed evidence store for candidate bytes and check output. */
   readonly artifactsDir: string
+  /**
+   * Where the controller writes tasks drafted from issues, in the shipped catalog's shape.
+   * Always under the state directory: the catalog search path is a fact about this
+   * controller's state, not an operator knob.
+   */
+  readonly generatedTasksDir: string
   readonly approvalTtlMs: number
   readonly maxActiveMs: number
   readonly maxChangedBytes: number
@@ -67,6 +73,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): F
     registryPath: join(e.FACTORY_STATE_DIR, "registry.sqlite"),
     exportDir: e.FACTORY_EXPORT_DIR ?? join(e.FACTORY_STATE_DIR, "exports"),
     artifactsDir: e.FACTORY_ARTIFACTS_DIR ?? join(e.FACTORY_STATE_DIR, "artifacts"),
+    generatedTasksDir: join(e.FACTORY_STATE_DIR, "tasks"),
     approvalTtlMs: e.FACTORY_APPROVAL_TTL_MS ?? 900_000,
     maxActiveMs: e.FACTORY_MAX_ACTIVE_MS ?? 1_200_000,
     maxChangedBytes: e.FACTORY_MAX_CHANGED_BYTES ?? 1024 * 1024,

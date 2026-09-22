@@ -1,7 +1,7 @@
 import { type FactoryConfig, loadConfig } from "./config.js"
 import { createFactory, type Factory, type FactoryOptions } from "./controller/factory.js"
 import { createArtifactStore } from "./storage/artifacts.js"
-import { loadTask } from "./targets/catalog.js"
+import { configureCatalog, loadTask, resetCatalogForTests } from "./targets/catalog.js"
 import { builderSandboxProvider, targetInspectionOptions } from "./targets/workspace.js"
 import { captureTargetBaseline } from "./verification/baseline.js"
 import { createDockerVerifier } from "./verification/docker-verifier.js"
@@ -40,6 +40,9 @@ export function createControllerRuntime(
     config,
     factory() {
       if (disposed) return Promise.reject(new Error("Controller runtime is disposed"))
+      // Before the factory and its collaborators exist: every `loadTask(id)` below — the
+      // prompt, the verifier, the baseline, the workspace reader — then finds a generated task.
+      configureCatalog({ generatedTasksDir: config.generatedTasksDir })
       opening ??= createFactory({
         registryPath: config.registryPath,
         worker: createHttpWorkerClient(config.workerUrl),
@@ -103,4 +106,5 @@ export async function resetControllerRuntimeForTests(
   await shared?.dispose()
   shared = undefined
   sharedOverrides = overrides
+  resetCatalogForTests()
 }

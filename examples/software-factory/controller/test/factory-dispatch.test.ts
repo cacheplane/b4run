@@ -1,17 +1,24 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { createFactory, type Factory } from "../src/lib/controller/factory.ts"
 import { ACTIVE_STATES } from "../src/lib/domain/states.ts"
 import { taskPrompt } from "../src/lib/prompts.ts"
-import { loadTask } from "../src/lib/targets/catalog.ts"
+import {
+  configureCatalog,
+  loadTask,
+  resetCatalogForTests,
+  tasksDir,
+} from "../src/lib/targets/catalog.ts"
 import { createHttpWorkerClient } from "../src/lib/worker/client.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { createFakeWorker, type FakeWorker, type FakeWorkerOptions } from "./fake-worker.ts"
 import { createFakeWorkspaceReader, type FakeWorkspaceReader } from "./fake-workspace-reader.ts"
 
 let dir: string
+/** Where a test's generated tasks live; created before `boot()` when the test needs that. */
+let generated: string | undefined
 let fake: FakeWorker
 let factory: Factory
 let reader: FakeWorkspaceReader
@@ -53,9 +60,12 @@ async function boot(options: Omit<FakeWorkerOptions, "outboxDir"> = {}) {
   })
 }
 afterEach(async () => {
+  resetCatalogForTests()
   await factory?.close()
   await fake?.close()
   if (dir) rmSync(dir, { recursive: true, force: true })
+  if (generated) rmSync(generated, { recursive: true, force: true })
+  generated = undefined
   // Cleared so a boot() that throws cannot hand the next test the previous test's worker.
   dir = undefined as unknown as string
   fake = undefined as unknown as FakeWorker
@@ -253,5 +263,56 @@ describe("create and dispatch", () => {
     const row = await factory.create({ taskId: "cli-flags" })
     await factory.reconcileWorkOrder(row.id)
     expect(factory.show(row.id)?.state).toBe("received")
+  })
+})
+
+/**
+ * A generated task: a shipped task's directory copied under a work-order-shaped id, minus
+ * the reference patch nothing has proven yet.
+ */
+function materialiseGeneratedTask(id: string): string {
+  generated ??= mkdtempSync(join(tmpdir(), "factory-generated-"))
+  const generatedTasksDir = join(generated, "tasks")
+  cpSync(join(tasksDir, "cli-flags"), join(generatedTasksDir, id), { recursive: true })
+  rmSync(join(generatedTasksDir, id, "reference.patch"))
+  const manifest = JSON.parse(readFileSync(join(generatedTasksDir, id, "task.json"), "utf8"))
+  writeFileSync(join(generatedTasksDir, id, "task.json"), JSON.stringify({ ...manifest, id }))
+  return generatedTasksDir
+}
+
+describe("generated tasks", () => {
+  it("dispatches a work order for a task materialised under the generated directory", async () => {
+    configureCatalog({ generatedTasksDir: materialiseGeneratedTask("wo-0123456789abcdef") })
+    await boot()
+    const created = await factory.create({ taskId: "wo-0123456789abcdef" })
+    expect(created.state).toBe("received")
+    expect(await factory.dispatch(created.id)).toEqual({
+      ok: true,
+      state: "dispatched",
+      message: "Dispatched",
+    })
+    const dispatched = await factory.waitFor(created.id, (r) => r.workerThreadId !== null)
+    reader.set(dispatched.workerThreadId as string, repaired())
+    const row = await factory.waitFor(created.id, (r) => settled(r.state), 20_000)
+    expect(row.state).toBe("awaiting_approval")
+    // The prompt is the generated task's own, resolved through the search path.
+    expect(fake.requests.at(-1)?.body).toMatchObject({
+      input: {
+        messages: [{ role: "user", content: taskPrompt(loadTask("wo-0123456789abcdef")) }],
+      },
+    })
+  })
+
+  it("accepts a work order for a task materialised after the controller booted", async () => {
+    // Configured before any task exists there: the runtime does this once from the state
+    // directory, and the first draft only lands later.
+    generated = mkdtempSync(join(tmpdir(), "factory-generated-"))
+    configureCatalog({ generatedTasksDir: join(generated, "tasks") })
+    await boot()
+    await expect(factory.create({ taskId: "wo-fedcba9876543210" })).rejects.toThrow(/Unknown task/)
+    materialiseGeneratedTask("wo-fedcba9876543210")
+    const created = await factory.create({ taskId: "wo-fedcba9876543210" })
+    expect(created.state).toBe("received")
+    expect(await factory.dispatch(created.id)).toMatchObject({ ok: true, state: "dispatched" })
   })
 })

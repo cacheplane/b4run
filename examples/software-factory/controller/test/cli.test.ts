@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, it } from "vitest"
 import { BuilderManifestSchema } from "../src/lib/builder-manifest.ts"
 import { openRegistryReader } from "../src/lib/registry/reader.ts"
+import { tasksDir } from "../src/lib/targets/catalog.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { type ServedController, serveController } from "./serve-controller.ts"
 
@@ -224,5 +225,30 @@ describe("cli", () => {
     const manifest = BuilderManifestSchema.parse(JSON.parse(readFileSync(path, "utf8")))
     expect(manifest.taskId).toBe("cli-flags")
     expect(manifest.target.policy.network.mode).toBe("deny")
+  }, 60_000)
+
+  it("writes a builder manifest for a task generated under FACTORY_STATE_DIR", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    const { FACTORY_CONTROLLER_URL, FACTORY_WORKER_URL, ...rest } = process.env
+    // A generated task: the shipped one copied under a work-order id, minus reference.patch.
+    const generated = join(dir, "state", "tasks", "wo-0123456789abcdef")
+    cpSync(join(tasksDir, "cli-flags"), generated, { recursive: true })
+    rmSync(join(generated, "reference.patch"))
+    const manifest = JSON.parse(readFileSync(join(generated, "task.json"), "utf8"))
+    writeFileSync(
+      join(generated, "task.json"),
+      JSON.stringify({ ...manifest, id: "wo-0123456789abcdef" }),
+    )
+    const out = join(dir, "manifests")
+    const { stdout } = await run(
+      process.execPath,
+      [tsxBin, cliEntry, "builder-manifest", "--task", "wo-0123456789abcdef", "--out", out],
+      { env: { ...rest, FACTORY_STATE_DIR: join(dir, "state") }, cwd: packageRoot },
+    )
+    const { path } = JSON.parse(stdout)
+    expect(path).toBe(join(out, "wo-0123456789abcdef.json"))
+    expect(BuilderManifestSchema.parse(JSON.parse(readFileSync(path, "utf8"))).taskId).toBe(
+      "wo-0123456789abcdef",
+    )
   }, 60_000)
 })

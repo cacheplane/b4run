@@ -17,13 +17,14 @@ import type {
   Receipt,
   WorkOrderRow,
 } from "../domain/work-order.js"
-import { taskPrompts } from "../prompts.js"
+import { promptFor } from "../prompts.js"
 import { type CommandLog, createCommandLog } from "../registry/commands.js"
 import { openRegistry } from "../registry/db.js"
 import { createEvidenceStore, type EvidenceStore } from "../registry/evidence.js"
 import { createWorkOrderStore, type WorkOrderPatch } from "../registry/work-orders.js"
 import { BundlePayloadSchema } from "../review/bundle.js"
 import { type ArtifactStore, createArtifactStore } from "../storage/artifacts.js"
+import type { CatalogOptions } from "../targets/catalog.js"
 import { loadPolicy } from "../verification/policy.js"
 import type { Verifier } from "../verification/verifier.js"
 import type { CancelResult, WorkerClient } from "../worker/client.js"
@@ -52,8 +53,13 @@ export interface FactoryOptions {
     signal: AbortSignal,
   ): Promise<{ readonly digest: string; readonly files: ReadonlyMap<string, string> }>
   readonly maxChangedBytes?: number
-  /** Task id to prompt. Defaults to the catalog's own tasks. */
+  /**
+   * Task id to prompt, consulted INSTEAD of the catalog when given: a test's fixed table.
+   * Without it every prompt is resolved from the catalog at the point of use.
+   */
   readonly tasks?: Readonly<Record<string, string>>
+  /** Where the catalog is read from, for a test over a fixture catalog. */
+  readonly catalog?: CatalogOptions
   readonly approvalTtlMs?: number
   readonly maxActiveMs?: number
   /** Drafter turns an intake may spend before it blocks. Default 2. */
@@ -118,11 +124,21 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const evidenceStore: EvidenceStore = createEvidenceStore(registry.db)
   const artifacts: ArtifactStore = createArtifactStore(options.artifactsDir)
   const log = options.log ?? (() => {})
-  // A task the catalog cannot serve is omitted and reported, never thrown: one unprepared
-  // sibling target must not decide whether the controller boots.
-  const tasks =
-    options.tasks ??
-    taskPrompts((id, error) => log("task_unavailable", { id, error: String(error) }))
+  /**
+   * The prompt for `taskId`, or undefined when the catalog cannot serve it. Resolved at the
+   * point of use and never at boot: one unprepared sibling target must not decide whether
+   * the controller boots, and a task generated after boot is dispatchable the moment its
+   * directory lands. A task the catalog cannot load is reported here, once per use.
+   */
+  const prompt = (taskId: string): string | undefined => {
+    if (options.tasks) return options.tasks[taskId]
+    try {
+      return promptFor(taskId, options.catalog ?? {})
+    } catch (error) {
+      log("task_unavailable", { id: taskId, error: String(error) })
+      return undefined
+    }
+  }
   const now = options.now ?? Date.now
   const iso = () => new Date(now()).toISOString()
   const abort = new AbortController()
@@ -322,8 +338,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     const row = mustGet(id)
     if (!row.workerThreadId) return
     // dispatch already refused an unknown task; re-checked here so this never sends an empty prompt.
-    const prompt = tasks[row.taskId]
-    if (prompt === undefined) {
+    const input = prompt(row.taskId)
+    if (input === undefined) {
       recordEvent(id, "prompt_missing", { taskId: row.taskId })
       return
     }
@@ -332,7 +348,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       frames = await options.worker.startRun(
         row.workerThreadId,
         options.workerRoute,
-        prompt,
+        input,
         abort.signal,
       )
     } catch (error) {
@@ -346,7 +362,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
 
   const factory: Factory = {
     async create({ taskId, operationKey }) {
-      if (!(taskId in tasks)) throw new UnknownTaskError(taskId)
+      if (prompt(taskId) === undefined) throw new UnknownTaskError(taskId)
       // A caller-supplied operationKey is also the work-order address: the same key always
       // names the same id, which is what makes create idempotent across a crash.
       const id = operationKey
@@ -411,10 +427,11 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           state: row.state,
           message: `Cannot dispatch from ${row.state}`,
         })
-      const prompt = tasks[row.taskId]
       // Refuse rather than send an empty prompt: a worker asked to fix nothing still burns a
       // thread and a run, and the resulting turn would fail in a way that looks like the worker.
-      if (prompt === undefined)
+      // Re-resolved here rather than trusted from create: the task may have stopped loading
+      // since (its target re-prepared, say), and that is a refusal, not a throw.
+      if (prompt(row.taskId) === undefined)
         return finish(key, {
           ok: false,
           state: row.state,

@@ -157,14 +157,20 @@ export function repositoryRoot(): string {
 
 /** Ids present in `dir`, sorted: each is a directory, not a code change. */
 function readIds(dir: string, label: string): string[] {
+  const ids = readIdsIfPresent(dir)
+  if (ids === null) throw new Error(`No ${label} catalog at ${dir}`)
+  return ids
+}
+
+/** As `readIds`, but null when `dir` does not exist: a catalog that may not exist yet. */
+function readIdsIfPresent(dir: string): string[] | null {
   try {
     return readdirSync(dir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort()
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT")
-      throw new Error(`No ${label} catalog at ${dir}`)
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null
     throw error
   }
 }
@@ -326,12 +332,49 @@ export interface Task {
   readonly specText: string
   /** Null when the pinned bytes are already the defective baseline. */
   readonly defectPatch: string | null
-  readonly referencePatch: string
+  /** Null for a generated task: nothing proves it is repairable until a builder does. */
+  readonly referencePatch: string | null
 }
 
-/** Task ids present on disk, sorted. A new task is a directory, not a code change. */
-export function loadTaskIds(dir = tasksDir): string[] {
-  return readIds(dir, "task")
+/**
+ * Where tasks are looked up: the shipped catalog first, then the directory the controller
+ * writes generated tasks into. Configured once by the runtime from the state directory;
+ * every `loadTask(id)` call site then resolves a generated task with no signature change.
+ * A shipped id shadows a generated one, so a generated task can never impersonate a task
+ * an operator prepared by hand.
+ */
+let generatedTasksDir: string | undefined
+export function configureCatalog(options: { readonly generatedTasksDir?: string }): void {
+  generatedTasksDir = options.generatedTasksDir
+}
+export function resetCatalogForTests(): void {
+  generatedTasksDir = undefined
+}
+/** An explicit `tasksDir` is looked up alone; otherwise the search path, shipped first. */
+function taskRoots(options: CatalogOptions): readonly string[] {
+  if (options.tasksDir) return [options.tasksDir]
+  return generatedTasksDir ? [tasksDir, generatedTasksDir] : [tasksDir]
+}
+
+/**
+ * Task ids present on disk, sorted within each root: the shipped catalog's first, then the
+ * generated ones not already named by a shipped task. A new task is a directory, not a code
+ * change. The shipped catalog must exist (`No task catalog`); the generated directory is
+ * absent until the first draft lands, which is not an error.
+ */
+export function loadTaskIds(dir?: string): string[] {
+  const [first, ...rest] = dir ? [dir] : taskRoots({})
+  const ids = readIds(first as string, "task")
+  for (const root of rest)
+    for (const id of readIdsIfPresent(root) ?? []) if (!ids.includes(id)) ids.push(id)
+  return ids
+}
+
+/** The first root on the search path that holds `id`'s manifest. */
+function taskDirectory(id: string, options: CatalogOptions): string {
+  for (const root of taskRoots(options))
+    if (existsSync(join(root, id, "task.json"))) return join(root, id)
+  throw new Error(`Unknown task: ${id}`)
 }
 
 /**
@@ -368,10 +411,13 @@ function parseTaskFile<T>(schema: z.ZodType<T>, raw: unknown, id: string, file: 
   return result.data
 }
 
-/** `defect.patch` is optional: its absence means the pinned bytes are already defective. */
-function readDefectPatch(directory: string): string | null {
+/**
+ * A patch that may be absent: `defect.patch` when the pinned bytes are already defective,
+ * `reference.patch` for a generated task nothing has repaired yet.
+ */
+function readOptionalPatch(directory: string, name: string): string | null {
   try {
-    return readFileSync(join(directory, "defect.patch"), "utf8")
+    return readFileSync(join(directory, name), "utf8")
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null
     throw error
@@ -379,9 +425,7 @@ function readDefectPatch(directory: string): string | null {
 }
 
 export function loadTask(id: string, options: CatalogOptions = {}): Task {
-  const dir = options.tasksDir ?? tasksDir
-  if (!loadTaskIds(dir).includes(id)) throw new Error(`Unknown task: ${id}`)
-  const directory = join(dir, id)
+  const directory = taskDirectory(id, options)
   const manifest = parseTaskFile(
     TaskSchema,
     JSON.parse(readFileSync(join(directory, "task.json"), "utf8")),
@@ -402,8 +446,6 @@ export function loadTask(id: string, options: CatalogOptions = {}): Task {
     throw new Error(`Task ${id} names a missing check: ${checks.independent.file}`)
   const specPath = join(directory, "spec.md")
   if (!existsSync(specPath)) throw new Error(`Task ${id} is missing spec.md`)
-  const referencePath = join(directory, "reference.patch")
-  if (!existsSync(referencePath)) throw new Error(`Task ${id} is missing reference.patch`)
   return {
     id,
     directory,
@@ -411,7 +453,7 @@ export function loadTask(id: string, options: CatalogOptions = {}): Task {
     manifest,
     checks,
     specText: readFileSync(specPath, "utf8"),
-    defectPatch: readDefectPatch(directory),
-    referencePatch: readFileSync(referencePath, "utf8"),
+    defectPatch: readOptionalPatch(directory, "defect.patch"),
+    referencePatch: readOptionalPatch(directory, "reference.patch"),
   }
 }
