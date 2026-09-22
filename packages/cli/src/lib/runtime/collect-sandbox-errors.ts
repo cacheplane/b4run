@@ -31,7 +31,9 @@ export async function collectSandboxErrors(
       try {
         if (!(await stat(join(appRoot, "workspace"))).isDirectory())
           throw new Error("workspace/ must be a directory")
-        await captureWorkspaceDefinition(appRoot, sandbox.workspace)
+        // A resolver's result exists only once a thread does; there is nothing to capture here.
+        if (typeof sandbox.workspace !== "function")
+          await captureWorkspaceDefinition(appRoot, sandbox.workspace)
       } catch (error) {
         errors.push(
           `Invalid managed workspace: ${error instanceof Error ? error.message : String(error)}`,

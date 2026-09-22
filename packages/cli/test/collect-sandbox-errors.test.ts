@@ -1,4 +1,8 @@
-import { describe, expect, test } from "vitest"
+import { mkdir, mkdtemp } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { fakeSandbox } from "@b4run/sandbox/testing"
+import { describe, expect, it, test } from "vitest"
 import { collectSandboxErrors } from "../src/lib/runtime/collect-sandbox-errors.js"
 
 describe("collectSandboxErrors", () => {
@@ -104,5 +108,33 @@ describe("collectSandboxErrors: security shape", () => {
       },
     })
     expect(errors).toEqual([])
+  })
+})
+
+describe("collectSandboxErrors: resolver workspace", () => {
+  it("accepts a resolver without capturing anything at check time", async () => {
+    const appRoot = await mkdtemp(join(tmpdir(), "b4-sbx-check-"))
+    await mkdir(join(appRoot, "workspace"), { recursive: true })
+    const provider = { ...fakeSandbox(), workspaces: {} as never }
+    const result = await collectSandboxErrors(
+      {
+        sandbox: {
+          provider,
+          workspace: async () => ({ source: { directory: "missing", include: ["x"] } }),
+        },
+      },
+      appRoot,
+    )
+    expect(result.errors).toEqual([])
+  })
+
+  it("still rejects a resolver on a provider without managed workspaces", async () => {
+    const result = await collectSandboxErrors({
+      sandbox: {
+        provider: fakeSandbox(),
+        workspace: async () => ({ source: { directory: ".", include: [] } }),
+      },
+    })
+    expect(result.errors).toContain("Sandbox provider does not support managed workspaces")
   })
 })

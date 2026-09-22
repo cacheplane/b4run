@@ -148,17 +148,25 @@ weak repair) are re-run, not assumed.
 **resolver**:
 
 ```ts
-export type WorkspaceResolver = (thread: {
+export interface WorkspaceResolverInput {
   readonly threadId: string
   /** Client metadata recorded when the thread was created, reserved keys stripped. */
   readonly metadata: Readonly<Record<string, unknown>>
-}) => Promise<WorkspaceDefinition | CapturedWorkspaceDefinition>
+  /** Aborted when the admitting run is cancelled. Pass it to any I/O the resolver does. */
+  readonly signal: AbortSignal
+}
+export type WorkspaceResolver = (
+  thread: WorkspaceResolverInput,
+) => Promise<WorkspaceDefinition | CapturedWorkspaceDefinition>
 
 interface SandboxConfig {
   readonly workspace?: WorkspaceDefinition | WorkspaceResolver
   ...
 }
 ```
+
+> **As landed:** the input carries the admitting run's abort signal (a resolver does I/O and
+> runs inside the thread's admission critical section), and the return is `Promise` only.
 
 The resolver is called **once per thread, at first admission**, from
 `ManagedWorkspaceManager.getForThread` where `captureDefinition` is called today. Its result
@@ -191,17 +199,18 @@ boot, so a deployed app's workspace cannot be swapped under it. A resolver canno
 at build time. The artifact therefore records **which** it is:
 
 ```ts
-interface WorkspaceBuildArtifact {
-  readonly version: 2
-  readonly descriptorDigest: string       // static: digest of the definition; resolver: digest of the string "resolver"
-  readonly workspace: CapturedWorkspaceDefinition | null   // null for a resolver
-}
+type WorkspaceBuildArtifact =
+  | { version: 1; descriptorDigest: string; workspace: CapturedWorkspaceDefinition }  // static, unchanged
+  | { version: 2; kind: "resolver" }                                                  // nothing to capture
 ```
 
-Boot verification is unchanged for the static form. For a resolver, boot verifies the artifact
-says "resolver" and that the loaded config is a function; the "configuration changed; rebuild"
+Boot verification is unchanged for the static form. For a resolver, boot verifies the artifact is
+the resolver form and the loaded config is a function; the "configuration changed; rebuild"
 error fires on a mismatch in either direction. A version-1 artifact is accepted for the static
 form (no forced rebuild).
+
+> **As landed:** the resolver form is a tagged version-2 record, not a digest of the string
+> `"resolver"`, so the two forms cannot be confused by a digest collision on a constant.
 
 The property lost, stated plainly: for a resolver, the *content* of a thread's workspace is
 decided at run time by host code, not fixed at build time. The property kept: it is decided by
