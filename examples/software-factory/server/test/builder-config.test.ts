@@ -105,6 +105,18 @@ describe("the builder route", () => {
   })
 })
 
+describe("a missing manifest", () => {
+  it("names the variable and the command that writes it", async () => {
+    delete process.env.FACTORY_BUILDER_MANIFEST
+    vi.resetModules()
+    const { loadBuilderManifest } = await import("../src/builder-manifest.ts")
+    // The builder cannot invent its own configuration, and the operator reading this error
+    // needs to know both what is missing and what produces it.
+    expect(() => loadBuilderManifest()).toThrow(/FACTORY_BUILDER_MANIFEST/)
+    expect(() => loadBuilderManifest()).toThrow(/factory builder-manifest/)
+  })
+})
+
 describe("a drifted manifest", () => {
   it("refuses to boot rather than silently losing the network denial", async () => {
     const drifted = JSON.parse(JSON.stringify(manifest))

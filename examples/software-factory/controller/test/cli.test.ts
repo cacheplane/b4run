@@ -40,9 +40,10 @@ interface Spawned {
 async function boot(
   worker: Parameters<typeof serveController>[1] = {},
   overrides: Parameters<typeof serveController>[2] = {},
+  controllerEnv: Parameters<typeof serveController>[3] = {},
 ) {
   dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
-  served = await serveController(dir, worker, overrides)
+  served = await serveController(dir, worker, overrides, controllerEnv)
   const env = {
     ...process.env,
     FACTORY_CONTROLLER_URL: served.url,
@@ -146,6 +147,28 @@ describe("cli", () => {
     const outcome = JSON.parse(stdout)
     expect(outcome.row.state).toBe("blocked")
     expect(outcome.row.blockedReason).toBe("verification_failed")
+  }, 90_000)
+
+  it("exits non-zero when the budget cancels the dispatch", async () => {
+    // The other end a dispatch can settle at without being refused: the run never finished,
+    // the ticker spent its budget, and the row is `blocked`. A script must not read that as
+    // a delivered change either.
+    const { cli, spawn } = await boot({ run: "hang" }, {}, { FACTORY_MAX_ACTIVE_MS: "1000" })
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const id = created.row.id as string
+    const { stdout } = await failing(spawn("dispatch", id).promise)
+    const outcome = JSON.parse(stdout)
+    expect(outcome.ok).toBe(false)
+    // The route returns as soon as the row leaves the active states, which is the moment the
+    // budget cancel is requested; whether the worker has confirmed the run ended by then is
+    // a race, and both answers are the same news for the operator.
+    expect(outcome.row.state).toMatch(/^(cancel_requested|blocked)$/)
+    if (outcome.row.state === "blocked") expect(outcome.row.blockedReason).toBe("budget_exhausted")
+    const { json: events } = await cli("events", id)
+    // The budget is what ended it, not an operator: the transition names the event.
+    expect(
+      events.map((e: { payload: { event?: string } }) => e.payload.event).filter(Boolean),
+    ).toContain("budget_exhausted")
   }, 90_000)
 
   it("cancels a live dispatch through the runtime, and the dispatch reports run_cancelled", async () => {

@@ -55,10 +55,13 @@ export async function serveController(
   worker: Omit<FakeWorkerOptions, "outboxDir"> = {},
   /** Replaces any of the three injected collaborators, e.g. a verifier that fails. */
   overrides: ControllerRuntimeOverrides = {},
+  /** Extra controller environment, e.g. a tiny FACTORY_MAX_ACTIVE_MS. Restored on close. */
+  env: Readonly<Record<string, string>> = {},
 ): Promise<ServedController> {
   const stateDir = join(dir, "state")
   mkdirSync(join(dir, "builder"), { recursive: true })
-  const previousEnv = Object.fromEntries(FACTORY_ENV.map((key) => [key, process.env[key]]))
+  const touchedEnv = [...FACTORY_ENV, ...Object.keys(env)]
+  const previousEnv = Object.fromEntries(touchedEnv.map((key) => [key, process.env[key]]))
   const fake = await createFakeWorker({
     outboxDir: join(dir, "unused"),
     run: "edits_only",
@@ -68,15 +71,14 @@ export async function serveController(
   process.env.FACTORY_WORKER_URL = fake.baseUrl
   process.env.FACTORY_STATE_DIR = stateDir
   process.env.FACTORY_BUILDER_APP_ROOT = join(dir, "builder")
+  for (const [key, value] of Object.entries(env)) process.env[key] = value
   const workspace = createFakeWorkspaceReader({ [FIRST_THREAD]: REPAIRED })
   // This helper imports `../src/lib/runtime.ts` while the route modules the served app loads
   // import `../../../lib/runtime.js`. vite-node resolves both specifiers to the one module
   // instance, so the runtime the overrides below bind is the runtime the routes reach. That
   // is why the helper serves the SOURCE app root rather than a built app: a built lane would
   // load its own copy of the module and the overrides would bind nothing.
-  const { controllerRuntime, resetControllerRuntimeForTests } = await import(
-    "../src/lib/runtime.ts"
-  )
+  const { resetControllerRuntimeForTests } = await import("../src/lib/runtime.ts")
   // Disposes any previous runtime, then clears it; the overrides bind the next open.
   await resetControllerRuntimeForTests({
     verifier: createFakeVerifier({ verdict: "pass" }),
@@ -110,11 +112,13 @@ export async function serveController(
       ).status,
     close: async () => {
       await handle.close()
-      await controllerRuntime().dispose()
+      // Disposes the runtime AND clears the overrides: leaving them set would hand the next
+      // test in this process a verifier or a workspace reader it never asked for.
+      await resetControllerRuntimeForTests()
       await fake.close()
       // The helper wrote process-wide environment; leave the process as it was found, so a
       // later test in this file's process reads its own configuration and not this one's.
-      for (const key of FACTORY_ENV) {
+      for (const key of touchedEnv) {
         const previous = previousEnv[key]
         if (previous === undefined) delete process.env[key]
         else process.env[key] = previous

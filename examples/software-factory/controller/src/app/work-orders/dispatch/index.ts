@@ -1,7 +1,7 @@
 import type { RuntimeContext } from "@b4run/sdk"
 import type { WorkOrderRow } from "../../../lib/domain/work-order.js"
 import { IdInput } from "../../../lib/routes/input.js"
-import { command } from "../../../lib/routes/outcome.js"
+import { command, refused } from "../../../lib/routes/outcome.js"
 import { controllerRuntime } from "../../../lib/runtime.js"
 
 /**
@@ -33,19 +33,24 @@ export async function workflow(input: unknown, ctx: RuntimeContext) {
       }
       ctx.signal.addEventListener("abort", onAbort, { once: true })
       try {
-        const budget = factory.show(id)?.maxActiveMs ?? 1_200_000
+        // The row's own budget, never a literal: the default lives in `config.ts` and is
+        // copied onto the row at create time, so a second copy here would silently disagree
+        // with it. No row means no budget to wait on — and nothing to dispatch either.
+        const current = factory.show(id)
+        if (!current) return refused("unknown_work_order", `Unknown work order ${id}`)
+        const budget = current.maxActiveMs
         let row: WorkOrderRow
         try {
           row = await factory.settle(id, budget + 60_000)
         } catch (error) {
           // `settle` throws on timeout and when the factory is aborted mid-wait; both are
           // expected here and a route must not throw. The row is the outcome either way.
-          const current = factory.show(id)
+          const stalled = factory.show(id)
           return {
             ok: false,
-            ...(current ? { state: current.state } : {}),
+            ...(stalled ? { state: stalled.state } : {}),
             message: `Dispatch did not settle: ${error instanceof Error ? error.message : String(error)}`,
-            row: current,
+            row: stalled,
           }
         }
         // Settled means "not active", which includes `cancel_requested`: say so rather than

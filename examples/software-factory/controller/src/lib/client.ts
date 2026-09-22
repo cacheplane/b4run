@@ -67,9 +67,12 @@ export function createControllerClient(baseUrl: string, fetchImpl: typeof fetch 
       if (response.ok) return "interrupted"
       const body: unknown = await response.json().catch(() => ({}))
       const failed = body as { error?: { message?: string; details?: { code?: string } } }
-      // Only "there was nothing to cancel" is an answer; anything else (the thread is
-      // unknown to this controller, the controller is broken, a proxy answered) is a failure
-      // the caller must see rather than mistake for an idle work order.
+      // Both of these mean "there is nothing to cancel". 409 is a live thread with no run
+      // on it; 404 is a work order that never dispatched, so the runtime has no thread for
+      // it at all — the caller then goes to the `cancel` route, which is the right place for
+      // a work order that is not running and which refuses an id it does not know. Anything
+      // else (a broken controller, a proxy answering) is a failure the caller must see
+      // rather than mistake for an idle work order.
       if (response.status === 404 || response.status === 409) return "no_run_in_flight"
       throw new ControllerHttpError(
         response.status,
