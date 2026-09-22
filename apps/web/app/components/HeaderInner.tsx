@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { BrandLogo } from "./BrandLogo"
 import { CopyCommand } from "./CopyCommand"
+import { openDocsSearch } from "./docs/docs-search-events"
 import homepageStyles from "./homepage/header.module.css"
 import { MobileMenu } from "./MobileMenu"
 
@@ -29,6 +30,34 @@ function isReadingLayout(pathname: string): boolean {
   return pathname.startsWith("/docs") || /^\/blog\/(?!tags(\/|$))[^/]+\/?$/.test(pathname)
 }
 
+function MobileDocsSearchButton() {
+  return (
+    <button
+      type="button"
+      onClick={openDocsSearch}
+      aria-label="Search docs"
+      aria-haspopup="dialog"
+      data-mobile-docs-search
+      className="md:hidden inline-flex items-center justify-center w-11 h-11 rounded-md text-ink-muted hover:text-ink hover:bg-surface transition-colors"
+    >
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-3.5-3.5" />
+      </svg>
+    </button>
+  )
+}
+
 interface HeaderInnerProps {
   readonly repoUrl: string
 }
@@ -47,7 +76,7 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
     <header data-layout={layout} className={`sticky top-0 z-50 border-b ${homepageStyles.header}`}>
       <div className={`${homepageStyles.bar} flex justify-between items-center`}>
         <BrandLogo imageClassName="h-8" variant="dark" />
-        <nav className="hidden md:flex items-center gap-6 text-sm">
+        <nav aria-label="Main" className="hidden md:flex items-center gap-6 text-sm">
           <Link href="/docs/getting-started" className={linkClass(pathname.startsWith("/docs"))}>
             Docs
           </Link>
@@ -65,7 +94,10 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
           </a>
           <CopyCommand command="npm create b4-app@latest my-agent" />
         </nav>
-        <MobileMenu />
+        <div className="flex items-center gap-1 md:hidden">
+          {pathname.startsWith("/docs") ? <MobileDocsSearchButton /> : null}
+          <MobileMenu />
+        </div>
       </div>
     </header>
   )

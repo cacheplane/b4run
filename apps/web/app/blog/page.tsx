@@ -22,28 +22,27 @@ export default function BlogIndexPage() {
     <>
       <JsonLd data={collectionPageJsonLd(seoPage)} />
       <JsonLd data={breadcrumbJsonLd(seoPage)} />
-      <div className="max-w-[960px] mx-auto px-6 md:px-8 py-16">
-        <div className="mb-2">
-          <Eyebrow tone="accent">Blog</Eyebrow>
+      <main id="content" tabIndex={-1}>
+        <div className="max-w-[960px] mx-auto px-6 md:px-8 py-16">
+          <div className="mb-2">
+            <Eyebrow tone="accent">Blog</Eyebrow>
+          </div>
+          <h1 className="text-4xl md:text-5xl font-semibold tracking-tight mb-3 text-ink">
+            Notes on B4.run
+          </h1>
+          <p className="text-lg text-ink-muted mb-8 max-w-[60ch]">
+            Writing on the agent stack, type-safety, and the tools we're building.
+          </p>
+          <TagChips tags={tags} />
+          {featured && <FeaturedPostCard post={featured} />}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {rest.map((post) => (
+              <PostCard key={post.slug} post={post} />
+            ))}
+          </div>
         </div>
-        <h1
-          className="font-display text-4xl md:text-5xl font-semibold tracking-tight mb-3 text-ink"
-          style={{ fontVariationSettings: "'opsz' 144, 'SOFT' 50" }}
-        >
-          Notes on B4.run
-        </h1>
-        <p className="text-lg text-ink-muted mb-8 max-w-[60ch]">
-          Writing on the agent stack, type-safety, and the tools we're building.
-        </p>
-        <TagChips tags={tags} />
-        {featured && <FeaturedPostCard post={featured} />}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {rest.map((post) => (
-            <PostCard key={post.slug} post={post} />
-          ))}
-        </div>
-      </div>
-      <BlogCta />
+        <BlogCta />
+      </main>
     </>
   )
 }

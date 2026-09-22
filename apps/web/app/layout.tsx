@@ -1,9 +1,8 @@
 import type { Metadata } from "next"
-import { Fraunces, Inter, JetBrains_Mono } from "next/font/google"
+import { Inter, JetBrains_Mono } from "next/font/google"
 import type { ReactNode } from "react"
 import { Footer } from "./components/Footer"
 import { Header } from "./components/Header"
-import { HideOnDocs } from "./components/HideOnDocs"
 import { JsonLd } from "./seo/JsonLd"
 import { SOCIAL_CARD, SOCIAL_SITE_NAME } from "./seo/social"
 import { siteJsonLd } from "./seo/structured-data"
@@ -13,13 +12,6 @@ const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
   display: "swap",
-})
-
-const fraunces = Fraunces({
-  subsets: ["latin"],
-  variable: "--font-fraunces",
-  display: "swap",
-  axes: ["opsz", "SOFT", "WONK"],
 })
 
 const jetbrainsMono = JetBrains_Mono({
@@ -73,15 +65,19 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${fraunces.variable} ${jetbrainsMono.variable}`}>
+    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <body>
+        <a href="#content" className="skip-link">
+          Skip to content
+        </a>
         <JsonLd data={siteJsonLd()} />
         <div className="min-h-screen flex flex-col">
           <Header />
-          <main className="flex-1">{children}</main>
-          <HideOnDocs>
-            <Footer />
-          </HideOnDocs>
+          {/* Each page renders its own <main id="content">: reading layouts
+              wrap only the article column, so the sidebar and TOC asides sit
+              beside the main landmark instead of inside it. */}
+          <div className="flex-1 flex flex-col">{children}</div>
+          <Footer />
         </div>
       </body>
     </html>

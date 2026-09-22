@@ -374,7 +374,9 @@ function filesUnder(
 ): string[] {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
     const full = join(root, entry.name)
-    if (entry.isDirectory()) return filesUnder(full, matches, base)
+    // Dynamic segments ([...slug]) are routing fallbacks, not docs pages.
+    if (entry.isDirectory())
+      return entry.name.startsWith("[") ? [] : filesUnder(full, matches, base)
     return matches(entry.name) ? [relative(base, full)] : []
   })
 }

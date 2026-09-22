@@ -26,7 +26,6 @@
   --text-display-l--line-height: 3.75rem;
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
   --font-mono: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", monospace;
 }
 
@@ -50,10 +49,41 @@ html {
   }
 }
 
-/* The 404 page has no layout of its own: paint the whole main band in the
-   site paper color so no white strip shows between header and footer. */
-main:has(> [data-not-found]) {
-  background: #f5f4f0;
+/* Docs pages have their own sidebar and prev/next links, so they skip the
+   site footer. Keyed off an attribute app/docs/layout.tsx renders on the
+   server, so the server HTML and the hydrated tree always agree (a
+   usePathname() check dropped the footer only on the client and threw a
+   hydration error on /docs/* 404s, which render without the docs layout). */
+body:has([data-docs-layout]) [data-site-footer] {
+  display: none;
+}
+
+/* First focusable element on every page (app/layout.tsx). */
+.skip-link {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 100;
+  padding: 0.625rem 1rem;
+  background: #111111;
+  color: #f5f4f0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: #b4ce37;
+  text-underline-offset: 4px;
+  transform: translateY(calc(-100% - 1rem));
+}
+.skip-link:focus {
+  transform: none;
+  outline: 3px solid #b4ce37;
+  outline-offset: 2px;
+}
+
+/* The skip link focuses the main landmark programmatically; it is a target,
+   not a control, so it gets no focus ring. */
+main#content:focus {
+  outline: none;
 }
 
 /* Inline code (rendered by InlineCode MDX override) */

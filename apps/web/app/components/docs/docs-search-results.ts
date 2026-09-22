@@ -39,14 +39,58 @@ export function flattenDocsSearchIndex(
   return results
 }
 
-function scoreMatch(query: string, target: string): number {
+type MatchKind = "exact" | "prefix" | "word" | "contains"
+
+function matchKind(query: string, target: string): MatchKind | null {
   const q = query.toLowerCase()
   const t = target.toLowerCase()
-  if (t === q) return 100
-  if (t.startsWith(q)) return 80
-  if (t.includes(` ${q}`)) return 60
-  if (t.includes(q)) return 40
-  return 0
+  if (t === q) return "exact"
+  if (t.startsWith(q)) return "prefix"
+  if (t.includes(` ${q}`)) return "word"
+  if (t.includes(q)) return "contains"
+  return null
+}
+
+// Tiered scores: what a reader types is usually a concept, so guide titles
+// and headings outrank partial API export names. Only an exact export name
+// (or package name) can beat a page title that merely starts with or contains
+// the query; an exact page title beats everything.
+const TITLE_SCORES: Record<MatchKind, number> = {
+  exact: 400,
+  prefix: 300,
+  word: 200,
+  contains: 120,
+}
+const CANONICAL_ALIAS_SCORES: Record<MatchKind, number> = {
+  exact: 380,
+  prefix: 110,
+  word: 90,
+  contains: 60,
+}
+const ALIAS_SCORES: Record<MatchKind, number> = {
+  exact: 360,
+  prefix: 100,
+  word: 80,
+  contains: 50,
+}
+const HEADING_SCORES: Record<MatchKind, number> = {
+  exact: 180,
+  prefix: 160,
+  word: 130,
+  contains: 70,
+}
+
+function scoreWith(table: Record<MatchKind, number>, query: string, target: string): number {
+  const kind = matchKind(query, target)
+  return kind ? table[kind] : 0
+}
+
+function bestAliasScore(
+  table: Record<MatchKind, number>,
+  query: string,
+  aliases: readonly string[],
+): number {
+  return aliases.reduce((best, alias) => Math.max(best, scoreWith(table, query, alias)), 0)
 }
 
 export function filterDocsSearchResults(
@@ -57,22 +101,25 @@ export function filterDocsSearchResults(
   if (!normalizedQuery) return all.slice(0, 20)
   return all
     .map((result, index) => {
-      const titleScore = scoreMatch(normalizedQuery, result.title)
-      const headingScore = result.heading ? scoreMatch(normalizedQuery, result.heading.text) : 0
-      const sectionScore = scoreMatch(normalizedQuery, result.section) * 0.3
-      const aliasScore = result.aliases.reduce((best, alias) => {
-        const match = scoreMatch(normalizedQuery, alias)
-        return Math.max(best, match > 0 ? match + 30 : 0)
-      }, 0)
-      const canonicalAliasScore = result.canonicalAliases.reduce((best, alias) => {
-        const match = scoreMatch(normalizedQuery, alias)
-        return Math.max(best, match > 0 ? match + 60 : 0)
-      }, 0)
-      return {
-        result,
-        index,
-        score: Math.max(titleScore, headingScore, aliasScore, canonicalAliasScore) + sectionScore,
-      }
+      // A page row is scored on its title. A heading row is scored on its
+      // heading text, and only weakly on its page's title, so the page itself
+      // (and headings that really match) stay above its unrelated sections.
+      const titleScore = scoreWith(TITLE_SCORES, normalizedQuery, result.title)
+      const textScore = result.heading
+        ? Math.max(
+            scoreWith(HEADING_SCORES, normalizedQuery, result.heading.text),
+            titleScore * 0.25,
+          )
+        : titleScore
+      const aliasScore = bestAliasScore(ALIAS_SCORES, normalizedQuery, result.aliases)
+      const canonicalAliasScore = bestAliasScore(
+        CANONICAL_ALIAS_SCORES,
+        normalizedQuery,
+        result.canonicalAliases,
+      )
+      const sectionScore = scoreWith(TITLE_SCORES, normalizedQuery, result.section) * 0.05
+      const best = Math.max(textScore, aliasScore, canonicalAliasScore)
+      return { result, index, score: best + sectionScore }
     })
     .filter(({ score }) => score > 0)
     .sort((left, right) => right.score - left.score || left.index - right.index)

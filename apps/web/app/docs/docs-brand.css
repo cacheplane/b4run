@@ -103,17 +103,20 @@
   gap: 0.5rem;
 }
 
+/* Tabs wrap instead of scrolling (see CodeHeaderRow). */
 [data-docs-brand] [data-code-header] > :first-child {
   min-width: 0;
-  overflow-x: auto;
 }
 
 [data-docs-brand] [data-code-header] > :last-child {
   flex-shrink: 0;
 }
 
+/* A tab stays on one line until it alone is wider than the strip, then a
+   long file name breaks rather than overflowing the frame. */
 [data-docs-brand] [data-code-tab] {
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 [data-docs-brand] [data-code-active-marker] {

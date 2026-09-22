@@ -20,20 +20,12 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     // `id` comes from rehype-slug and is the in-page anchor target — every
     // heading override has to pass it through, at every level.
     h1: ({ children, id }) => (
-      <h1
-        id={id}
-        className="font-display text-4xl md:text-5xl font-semibold text-ink mb-6 tracking-tight"
-        style={{ fontVariationSettings: "'opsz' 144, 'SOFT' 50" }}
-      >
+      <h1 id={id} className="text-4xl md:text-5xl font-semibold text-ink mb-6 tracking-tight">
         {children}
       </h1>
     ),
     h2: ({ children, id }) => (
-      <h2
-        id={id}
-        className="font-display text-2xl md:text-3xl font-semibold text-ink mt-10 mb-4 tracking-tight"
-        style={{ fontVariationSettings: "'opsz' 144, 'SOFT' 50" }}
-      >
+      <h2 id={id} className="text-2xl md:text-3xl font-semibold text-ink mt-10 mb-4 tracking-tight">
         {children}
       </h2>
     ),
@@ -67,9 +59,17 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     ),
     strong: ({ children }) => <strong className="text-ink font-semibold">{children}</strong>,
     table: ({ children }) => (
-      <div data-prose-table className="my-6 overflow-x-auto border border-divider rounded-lg">
+      // A named, focusable region so keyboard users can scroll a wide table
+      // (axe scrollable-region-focusable).
+      <section
+        data-prose-table
+        aria-label="Table"
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must take focus to scroll by keyboard
+        tabIndex={0}
+        className="my-6 overflow-x-auto border border-divider rounded-lg"
+      >
         <table className="w-full text-sm">{children}</table>
-      </div>
+      </section>
     ),
     thead: ({ children }) => <thead className="bg-surface">{children}</thead>,
     tbody: ({ children }) => (

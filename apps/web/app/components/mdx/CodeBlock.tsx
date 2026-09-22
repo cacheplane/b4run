@@ -3,6 +3,7 @@
 import {
   Children,
   createContext,
+  Fragment,
   type HTMLAttributes,
   isValidElement,
   type ReactNode,
@@ -157,9 +158,26 @@ export function CodeHeaderRow({
       data-code-header
       className="flex items-end justify-between pl-[18px] pr-3 pt-2 border-b border-divider bg-surface/60"
     >
-      <div className="flex items-end gap-1">{left}</div>
+      {/* Tabs wrap onto a second row rather than scroll: a scrolling strip
+          is a keyboard-unreachable scroll region (axe scrollable-region-focusable). */}
+      <div className="flex min-w-0 flex-wrap items-end gap-1">{left}</div>
       <div className="pb-1.5">{right}</div>
     </div>
+  )
+}
+
+/** File paths may break after each "/" before any mid-name break. */
+function breakablePath(label: string): ReactNode {
+  const parts = label.split("/")
+  return parts.map((part, i) =>
+    i < parts.length - 1 ? (
+      // biome-ignore lint/suspicious/noArrayIndexKey: path segments are positional
+      <Fragment key={i}>
+        {part}/<wbr />
+      </Fragment>
+    ) : (
+      part
+    ),
   )
 }
 
@@ -173,7 +191,7 @@ export function TabPill({
   readonly onClick?: () => void
 }) {
   const isButton = typeof onClick === "function"
-  const baseClasses = `relative px-2 py-1.5 font-mono text-xs transition-colors ${
+  const baseClasses = `relative px-2 py-1.5 text-left font-mono text-xs transition-colors ${
     active ? "text-ink" : "text-ink-dim hover:text-ink"
   }`
   const underline = active ? (
@@ -194,14 +212,14 @@ export function TabPill({
         aria-selected={active}
         className={baseClasses}
       >
-        {label}
+        {breakablePath(label)}
         {underline}
       </button>
     )
   }
   return (
     <span data-code-tab data-active={active} className={baseClasses}>
-      {label}
+      {breakablePath(label)}
       {underline}
     </span>
   )

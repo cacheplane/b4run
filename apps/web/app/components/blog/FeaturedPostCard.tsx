@@ -24,9 +24,7 @@ export function FeaturedPostCard({ post }: { readonly post: Post }) {
       className={`${styles.card} ${styles.featured}`}
     >
       <Eyebrow tone="accent">Essay · {post.readingTimeMinutes} min read</Eyebrow>
-      <h2 className="font-display text-2xl md:text-3xl font-semibold mt-2 mb-2 tracking-tight">
-        {post.title}
-      </h2>
+      <h2 className="text-2xl md:text-3xl font-semibold mt-2 mb-2 tracking-tight">{post.title}</h2>
       <p className="text-base mb-4 leading-relaxed">{post.description}</p>
       <div className="text-xs">
         {formatDate(post.date)} · {author.name}

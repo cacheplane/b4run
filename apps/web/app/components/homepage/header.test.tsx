@@ -20,7 +20,8 @@ it("renders the same header, with the install command, on every page", () => {
   const strip = (html: string) =>
     html
       .split("<dialog")[0]
-      ?.replace(/text-ink(-muted hover:text-ink)? transition-colors/g, "")
+      ?.replace(/<button[^>]*data-mobile-docs-search[\s\S]*?<\/button>/, "")
+      .replace(/text-ink(-muted hover:text-ink)? transition-colors/g, "")
       .replace(/ data-layout="[a-z]+"/, "")
   expect(strip(render("/docs/getting-started"))).toBe(strip(home))
   expect(strip(render("/blog"))).toBe(strip(home))
@@ -37,4 +38,18 @@ it("aligns the header with each page's column", () => {
   expect(layout("/blog/tags/agents")).toBe("site")
   expect(layout("/blog/why-we-built-b4")).toBe("reading")
   expect(layout("/docs/getting-started")).toBe("reading")
+})
+
+it("labels the main nav and adds a mobile docs-search button only on docs pages", () => {
+  const render = (pathname: string) => {
+    location.pathname = pathname
+    return renderToString(<HeaderInner repoUrl="https://github.com/cacheplane/b4run" />)
+  }
+  const docs = render("/docs/tools")
+  expect(docs).toContain('aria-label="Main"')
+  expect(docs).toMatch(
+    /<button(?=[^>]*data-mobile-docs-search)(?=[^>]*aria-label="Search docs")(?=[^>]*md:hidden)(?=[^>]*w-11 h-11)/,
+  )
+  expect(render("/")).not.toContain("data-mobile-docs-search")
+  expect(render("/blog")).not.toContain("data-mobile-docs-search")
 })
