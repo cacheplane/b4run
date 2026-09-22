@@ -11,14 +11,15 @@ import {
   nextState,
   type TransitionEvent,
 } from "../domain/states.js"
-import type {
-  Bundle,
-  Candidate,
-  CommandOutcome,
-  FactoryEvent,
-  IssueOrigin,
-  Receipt,
-  WorkOrderRow,
+import {
+  type Bundle,
+  type Candidate,
+  type CommandOutcome,
+  type FactoryEvent,
+  type IssueOrigin,
+  IssueOriginSchema,
+  type Receipt,
+  type WorkOrderRow,
 } from "../domain/work-order.js"
 import { issueText } from "../intake/issue.js"
 import { promptFor } from "../prompts.js"
@@ -40,6 +41,8 @@ import { reconcileAll, reconcileWorkOrder } from "./reconcile.js"
 import { denyPending, observeRun } from "./run-observer.js"
 import { consumeTurn } from "./turns.js"
 import { runVerification } from "./verify.js"
+
+const COMMIT_PATTERN = /^[a-f0-9]{40}$/
 
 export interface FactoryOptions {
   readonly registryPath: string
@@ -459,6 +462,12 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     },
 
     async createFromIssue({ origin, pin, issue, operationKey }) {
+      // Refused before the key is spent, like `create`'s task guard: the row parse inside the
+      // insert would roll the row back but leave the command in flight until the next boot.
+      const parsedOrigin = IssueOriginSchema.safeParse(origin)
+      if (!parsedOrigin.success)
+        throw new Error(`origin is not an issue origin: ${parsedOrigin.error.issues[0]?.message}`)
+      if (!COMMIT_PATTERN.test(pin)) throw new Error(`pin must be a 40-hex commit sha, got ${pin}`)
       const row = insertWorkOrder(
         operationKey,
         { origin, pin },

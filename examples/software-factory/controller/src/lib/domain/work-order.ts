@@ -2,8 +2,11 @@ import { z } from "zod"
 import { BLOCKED_REASONS, FAILURE_REASONS, STATES } from "./states.js"
 
 export const DIGEST_PATTERN = /^[a-f0-9]{64}$/
-/** A GitHub `owner/name`, as `gh --repo` takes it. */
-export const REPOSITORY_PATTERN = /^[\w.-]+\/[\w.-]+$/
+/**
+ * A GitHub `owner/name`, as `gh --repo` takes it. Neither side may start with a dot: GitHub
+ * forbids it, and it keeps `.`/`..` segments out of anything that joins the value into a path.
+ */
+export const REPOSITORY_PATTERN = /^[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*$/
 
 /**
  * Where a work order came from. A catalog work order names one of the controller's own tasks;

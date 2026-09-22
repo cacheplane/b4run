@@ -118,6 +118,37 @@ describe("createFromIssue", () => {
     expect(existsSync(join(generatedTasksDir, b.id, "issue.md"))).toBe(true)
   })
 
+  it("refuses a bad pin or origin before spending the key", async () => {
+    await boot()
+    await expect(
+      factory.createFromIssue({
+        origin: ORIGIN,
+        pin: "not-a-sha",
+        issue: ISSUE,
+        operationKey: KEY,
+      }),
+    ).rejects.toThrow(/pin/)
+    await expect(
+      factory.createFromIssue({
+        origin: { ...ORIGIN, repository: "../x" },
+        pin: PIN,
+        issue: ISSUE,
+        operationKey: KEY,
+      }),
+    ).rejects.toThrow(/origin/)
+    expect(factory.list()).toEqual([])
+    // The key was never spent: the same key with a good pin creates, rather than being refused
+    // as a command still in flight.
+    const row = await factory.createFromIssue({
+      origin: ORIGIN,
+      pin: PIN,
+      issue: ISSUE,
+      operationKey: KEY,
+    })
+    expect(row).toMatchObject({ state: "received", pin: PIN })
+    expect(existsSync(join(generatedTasksDir, row.id, "issue.md"))).toBe(true)
+  })
+
   it("keeps the catalog create's journal shape", async () => {
     await boot()
     const row = await factory.create({ taskId: "cli-flags" })

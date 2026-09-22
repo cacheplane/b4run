@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { describe, expect, it } from "vitest"
+import { REPOSITORY_PATTERN } from "../src/lib/domain/work-order.ts"
 import {
   type Exec,
   fetchIssue,
@@ -90,7 +91,10 @@ describe("fetchIssue", () => {
 
   it("refuses a repository that is not owner/name before running anything", async () => {
     const { exec, calls } = scripted([])
-    await expect(fetchIssue({ repository: "b4run", number: 1, exec })).rejects.toThrow(/repository/)
+    for (const repository of ["b4run", "owner/..", "../x", ".github/x", "owner/.hidden"])
+      await expect(fetchIssue({ repository, number: 1, exec })).rejects.toThrow(/repository/)
+    expect(REPOSITORY_PATTERN.test("cacheplane/b4run")).toBe(true)
+    expect(REPOSITORY_PATTERN.test("o.w-n_er/na.me.git")).toBe(true)
     await expect(fetchIssue({ repository: "cacheplane/b4run", number: 0, exec })).rejects.toThrow(
       /number/,
     )
