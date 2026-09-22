@@ -290,8 +290,13 @@ function nodeTestSuite<F extends z.ZodType<string>>(file: F) {
     .strict()
 }
 
+/**
+ * A vitest suite may name no assertions: an empty list means "the target's whole suite must
+ * pass", which is what a generated task's visible suite carries as its regression guard. A
+ * node-test suite still needs names, because the verifier greps the suite's events for them.
+ */
 const VitestSuiteSchema = z
-  .object({ runner: z.literal("vitest"), assertions: z.array(z.string().min(1)).min(1) })
+  .object({ runner: z.literal("vitest"), assertions: z.array(z.string().min(1)).min(0) })
   .strict()
 const VisibleNodeTestSuiteSchema = nodeTestSuite(visibleSuiteFile)
 const IndependentSuiteSchema = nodeTestSuite(independentSuiteFile)
@@ -320,7 +325,12 @@ const allowedSourcePath = relativePath
   .refine((p) => !/\.test\.[a-z]+$/.test(p), "a test file cannot be an allowed source path")
   .refine((p) => !covers(["checks"], p), "a check cannot be an allowed source path")
 
-export const TaskSchema = z
+/**
+ * The manifest's shape alone, before the disjointness rule below. Exported so an intake
+ * draft, which carries every field but `id`, can derive its own schema (zod refuses
+ * `.omit()` on a refined object); a filled manifest is then re-parsed with `TaskSchema`.
+ */
+export const TaskShapeSchema = z
   .object({
     id: z.string().min(1),
     target: z.string().min(1),
@@ -328,10 +338,11 @@ export const TaskSchema = z
     immutablePaths: z.array(relativePath),
   })
   .strict()
-  .refine(
-    (m) => m.allowedSourcePaths.every((p) => m.immutablePaths.every((e) => !overlaps(p, e))),
-    "allowed and immutable paths must be disjoint",
-  )
+
+export const TaskSchema = TaskShapeSchema.refine(
+  (m) => m.allowedSourcePaths.every((p) => m.immutablePaths.every((e) => !overlaps(p, e))),
+  "allowed and immutable paths must be disjoint",
+)
 export type TaskManifest = z.infer<typeof TaskSchema>
 
 export interface Task {

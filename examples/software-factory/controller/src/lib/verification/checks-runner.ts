@@ -92,7 +92,10 @@ export interface VitestGrade {
  * Grade a vitest JSON reporter report as pure data. Symmetric with
  * {@link gradeNodeTestEvents}: pass requires every expected assertion to appear exactly once
  * as a passing event, nothing else failed, the exit code agrees, and the report's own totals
- * (`numFailedTests`, `numTotalTests`) are present and consistent with that. A report vitest
+ * (`numFailedTests`, `numTotalTests`) are present and consistent with that. With no expected
+ * names at all — a generated task's visible suite, where the target's whole suite is the
+ * regression guard — pass requires the same clean exit and totals and that at least one test
+ * ran: a suite the runner selected nothing from proves nothing. A report vitest
  * could not produce, one that fails shape validation (parses as JSON but is not a report —
  * `null`, an array, a report whose `testResults` is not an array, and so on), or one that
  * disagrees with the exit code in a way that only a broken runner would produce, is
@@ -138,17 +141,21 @@ export function gradeVitestReport(
   if (sawFailure) return { verdict: "inconclusive", events, failureMessages }
 
   const totalCount = parsed.numTotalTests
-  const passed =
+  const cleanRun =
     exitCode === 0 &&
     typeof failedCount === "number" &&
     failedCount === 0 &&
-    expected.length > 0 &&
-    typeof totalCount === "number" &&
-    totalCount >= expected.length &&
-    expected.every(
-      (name) =>
-        events.filter((event) => event.type === "test:pass" && event.name === name).length === 1,
-    )
+    typeof totalCount === "number"
+  const passed =
+    cleanRun &&
+    (expected.length === 0
+      ? totalCount > 0
+      : totalCount >= expected.length &&
+        expected.every(
+          (name) =>
+            events.filter((event) => event.type === "test:pass" && event.name === name).length ===
+            1,
+        ))
 
   return { verdict: passed ? "pass" : "inconclusive", events, failureMessages }
 }

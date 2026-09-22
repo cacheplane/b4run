@@ -80,9 +80,6 @@ describe("gradeVitestReport", () => {
         ["a passes"],
       ).verdict,
     ).toBe("inconclusive")
-    expect(
-      gradeVitestReport(0, report([{ fullName: "a passes", status: "passed" }]), []).verdict,
-    ).toBe("inconclusive")
   })
 
   it("is inconclusive on a zero exit code with a failure count, which is a runner defect", () => {
@@ -244,5 +241,47 @@ describe("the runner's working directory", () => {
     const { handle, commands } = recordingHandle("")
     await runBuild(handle, devkit, AbortSignal.timeout(1000))
     expect(commands).toEqual(["'cd' 'packages/devkit' && 'pnpm' 'build'"])
+  })
+})
+
+describe("gradeVitestReport with no named assertions", () => {
+  // A generated task's visible suite: the target's whole suite is the regression guard.
+  it("passes when the suite ran, something ran, and nothing failed", () => {
+    expect(
+      gradeVitestReport(0, report([{ fullName: "a passes", status: "passed" }]), []).verdict,
+    ).toBe("pass")
+    expect(
+      gradeVitestReport(
+        0,
+        report([
+          { fullName: "a passes", status: "passed" },
+          { fullName: "b passes", status: "passed" },
+        ]),
+        [],
+      ).verdict,
+    ).toBe("pass")
+  })
+
+  it("fails on a recorded failure with a nonzero exit", () => {
+    expect(
+      gradeVitestReport(1, report([{ fullName: "a passes", status: "failed" }], 1), []).verdict,
+    ).toBe("fail")
+  })
+
+  it("is inconclusive on an invalid report, a zero-total report, or a nonzero exit with no failure", () => {
+    expect(gradeVitestReport(0, "not json", []).verdict).toBe("inconclusive")
+    expect(gradeVitestReport(0, "null", []).verdict).toBe("inconclusive")
+    expect(gradeVitestReport(0, report([]), []).verdict).toBe("inconclusive")
+    expect(
+      gradeVitestReport(1, report([{ fullName: "a passes", status: "passed" }]), []).verdict,
+    ).toBe("inconclusive")
+    expect(
+      gradeVitestReport(0, report([{ fullName: "a passes", status: "passed" }], 1), []).verdict,
+    ).toBe("inconclusive")
+    const noTotal = JSON.stringify({
+      numFailedTests: 0,
+      testResults: [{ assertionResults: [{ fullName: "a passes", status: "passed" }] }],
+    })
+    expect(gradeVitestReport(0, noTotal, []).verdict).toBe("inconclusive")
   })
 })
