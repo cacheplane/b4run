@@ -1444,10 +1444,10 @@ git status --short examples/code-fixer
 ## Follow-ups this plan records, not in scope
 
 - **Latent flake found by the Task 6 review:** `test/baseline.test.ts` calls `captureTargetBaseline`, which captures the LIVE controller source tree under `appRoot`; a concurrent write under the package (an editor, another agent) fails it with a capture mismatch. Pre-existing. Fix is to capture from a temp copy or a pinned archive in that test.
-- **Reader schema check:** `openRegistryReader` does not check `schema_version`; a registry written by a newer controller reads until a zod parse fails. Add the same `RegistryVersionError` refusal the writer has.
 
 - **Runtime defect found by Task 5:** `runtime-fetch-core.ts` passes `{ code }` as `createRequestErrorBody`'s second positional (`details`) for the `run_in_flight` (~line 2426) and `run_cancelled` (~line 2493) 409s, so the body is `{ error: { details: { code }, kind, message } }` and the top-level `error.code` (with its docs URL) is never set. Clients must read `error.details.code` for these two. Fix in `@b4run/cli` as its own PR; the CLI in Task 7 reads `details.code` until then.
 
 - The registry has no owner record; a second controller process is undetected. A `controller_owner` row with a heartbeat, refused on open when live, is the fix.
+- Every `create` without an operation key allocates a `create:<uuid>` controller thread, so the threads store grows one row per such create. Harmless today (the row is tiny and the run settles immediately), but nothing reclaims them; a single well-known intake thread, or a periodic sweep of settled `create:` threads, is the fix.
 - Authorization on the controller's routes (`src/thread-access.ts` or the middleware `handle`) is out of scope for this rung, as the RFC scopes it.
 - `dispatch` holds one HTTP request open for the run's whole duration; a client behind a proxy with a shorter idle timeout reconnects by `show`, which is the documented behaviour, not a bug.

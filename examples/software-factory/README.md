@@ -98,10 +98,18 @@ directory and a prepared image, not a code change; the design is in
 
 ## What it does not do
 
-No authentication (loopback only; do not expose it). No repair loop, no token budgets, no
-live model producing a repair, no UI, and one export target (the local filesystem).
-Verification proves a focused repair policy, not arbitrary program correctness, and the
-receipt says so.
+No repair loop, no token budgets, no live model producing a repair, no UI, and one export
+target (the local filesystem). Verification proves a focused repair policy, not arbitrary
+program correctness, and the receipt says so.
+
+**No authorization.** The controller is an HTTP app whose routes mutate the registry, and
+anyone who can reach its port can create, dispatch, approve and cancel work orders; there is
+no authentication and no per-caller check, which this rung scopes out. Run it on loopback and
+do not expose it. And note where the trust now sits on the builder's side: whoever can write
+the file `FACTORY_BUILDER_MANIFEST` names chooses that builder's sandbox policy, resource
+limits and permission allow-list. That is a stronger control point than the catalog key it
+replaced — a key only selected among the target definitions in the repository, while a
+manifest states them outright.
 
 **`examples/code-fixer` is untouched by this rung.** The factory borrows its fixture image and
 nothing else; rung 0 drove code-fixer as its worker, and rung 1 does not.
