@@ -5,6 +5,7 @@ import { afterEach, expect, it } from "vitest"
 import {
   captureWorkspaceArtifact,
   verifyWorkspaceArtifact,
+  verifyWorkspaceResolverArtifact,
 } from "../src/lib/build/workspace-artifact.ts"
 
 const roots: string[] = []
@@ -31,6 +32,7 @@ it("rejects corrupt artifact bytes and malformed descriptor accessors", async ()
   await writeFile(join(root, "a"), "a")
   const definition = { source: { directory: ".", include: ["a"] } }
   const artifact = await captureWorkspaceArtifact(root, definition)
+  if (artifact.version !== 1) throw new Error("expected a captured artifact")
   expect(() => verifyWorkspaceArtifact({ ...artifact, version: 2 }, definition)).toThrow()
   expect(() =>
     verifyWorkspaceArtifact(
@@ -50,4 +52,29 @@ it("rejects corrupt artifact bytes and malformed descriptor accessors", async ()
     },
   }
   expect(() => verifyWorkspaceArtifact(artifact, bad as never)).toThrow(/descriptor/i)
+})
+it("records a resolver as a resolver, with no captured source", async () => {
+  const root = await mkdtemp(join(tmpdir(), "b4-workspace-build-"))
+  roots.push(root)
+  const resolver = async () => ({ source: { directory: ".", include: ["a"] } })
+  const artifact = await captureWorkspaceArtifact(root, resolver)
+  expect(artifact).toEqual({ version: 2, kind: "resolver" })
+  expect(() => verifyWorkspaceResolverArtifact(JSON.parse(JSON.stringify(artifact)))).not.toThrow()
+})
+
+it("refuses to boot a static artifact under a resolver config, and the reverse", async () => {
+  const root = await mkdtemp(join(tmpdir(), "b4-workspace-build-"))
+  roots.push(root)
+  await writeFile(join(root, "a"), "a")
+  const definition = { source: { directory: ".", include: ["a"] } }
+  const staticArtifact = await captureWorkspaceArtifact(root, definition)
+  const resolverArtifact = await captureWorkspaceArtifact(root, async () => definition)
+  expect(() => verifyWorkspaceResolverArtifact(JSON.parse(JSON.stringify(staticArtifact)))).toThrow(
+    /rebuild/i,
+  )
+  expect(() =>
+    verifyWorkspaceArtifact(JSON.parse(JSON.stringify(resolverArtifact)), definition),
+  ).toThrow(/rebuild/i)
+  expect(() => verifyWorkspaceResolverArtifact(null)).toThrow(/rebuild/i)
+  expect(() => verifyWorkspaceResolverArtifact({ version: 2, kind: "other" })).toThrow(/rebuild/i)
 })
