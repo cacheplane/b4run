@@ -335,6 +335,76 @@ describe("intake", () => {
     expect(refusals(id)).toHaveLength(0)
     expect(eventSeen(id, "verifier_unavailable")).toBe(true)
   })
+
+  it("adopts the thread a crashed intake journalled instead of creating a second one", async () => {
+    await boot()
+    const { id } = await createIssue()
+    // The exact window: the thread exists on the worker and is journalled, but the process
+    // died before `intake_started` reached the row.
+    const created = await fetch(`${fake.baseUrl}/threads`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ metadata: { factoryWorkOrderId: id, factoryStage: "intake" } }),
+    })
+    const { thread_id: threadId } = (await created.json()) as { thread_id: string }
+    const registry = openRegistry(registryPath())
+    createWorkOrderStore(registry.db).appendEvent(
+      id,
+      "intake_thread_created",
+      { threadId },
+      new Date().toISOString(),
+    )
+    registry.close()
+    expect(await factory.intake(id)).toMatchObject({ ok: true, state: "intake_running" })
+    reader.set(threadId, GOOD_DRAFT)
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({ state: "awaiting_intake_approval", workerThreadId: threadId })
+    expect(threadPosts()).toHaveLength(1)
+    expect(factory.events(id).filter((e) => e.type === "intake_thread_created")).toHaveLength(1)
+  })
+
+  it("blocks as a failed run when the drafter parks on a prompt", async () => {
+    await boot({ run: "unexpected_interrupt" })
+    const { id } = await intake()
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({
+      state: "blocked",
+      blockedReason: "intake_run_failed",
+      intakeAttempts: 0,
+    })
+    expect(row.interruptId).toMatch(/^perm-cmd-/)
+    expect(eventSeen(id, "intake_unexpected_interrupt")).toBe(true)
+    expect(reader.reads).toEqual([])
+  })
+
+  it("blocks as a failed run when the drafter turn ends in error", async () => {
+    await boot({ run: "route_error" })
+    const { id } = await intake()
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({ state: "blocked", blockedReason: "intake_run_failed" })
+    expect(factory.events(id).at(-1)?.payload).toMatchObject({
+      event: "intake_blocked",
+      error: "route exploded",
+    })
+    expect(reader.reads).toEqual([])
+  })
+
+  it("blocks as a failed run when the drafter turn cannot be started", async () => {
+    await boot({}, { maxIntakeAttempts: 3 })
+    const { id } = await intake()
+    await factory.settleIntake(id, 20_000)
+    // The worker goes away between the rejection and the redraft it starts.
+    await fake.close()
+    expect(await factory.rejectIntake(id, { note: "redo" })).toMatchObject({
+      ok: true,
+      state: "intake_running",
+    })
+    const row = await factory.settleIntake(id, 20_000)
+    expect(row).toMatchObject({ state: "blocked", blockedReason: "intake_run_failed" })
+    expect(factory.events(id).find((e) => e.type === "stream_lost")?.payload).toMatchObject({
+      phase: "intake_start",
+    })
+  })
 })
 
 describe("the intake gate", () => {
@@ -344,42 +414,32 @@ describe("the intake gate", () => {
     const parked = await factory.settleIntake(id, 20_000)
     const taskDigest = parked.taskDigest as string
 
-    // Each probe under its own key: a refusal is a recorded outcome, and the default key
-    // (id, revision, digest) would replay the disk-mismatch refusal to the approval below.
-    expect(
-      await factory.approveIntake(id, {
-        revision: parked.revision + 1,
-        taskDigest,
-        operationKey: "stale",
-      }),
-    ).toEqual({
+    expect(await factory.approveIntake(id, { revision: parked.revision + 1, taskDigest })).toEqual({
       ok: false,
       state: "awaiting_intake_approval",
       message: `Stale revision ${parked.revision + 1}; work order is at ${parked.revision}`,
     })
     expect(
-      await factory.approveIntake(id, {
-        revision: parked.revision,
-        taskDigest: "b".repeat(64),
-        operationKey: "wrong-digest",
-      }),
+      await factory.approveIntake(id, { revision: parked.revision, taskDigest: "b".repeat(64) }),
     ).toMatchObject({ ok: false, message: "Task digest does not match the work order's" })
     // A file edited under the directory after intake: the gate recomputes, and refuses even
     // the digest the row holds.
     const spec = join(generated, id, "spec.md")
     const original = readFileSync(spec)
     writeFileSync(spec, `${original.toString("utf8")}\nA9: something else\n`)
-    expect(
-      await factory.approveIntake(id, {
-        revision: parked.revision,
-        taskDigest,
-        operationKey: "edited-on-disk",
-      }),
-    ).toEqual({
+    const refusedOnDisk = {
       ok: false,
       state: "awaiting_intake_approval",
       message: "Task digest does not match the generated task on disk",
-    })
+    }
+    expect(await factory.approveIntake(id, { revision: parked.revision, taskDigest })).toEqual(
+      refusedOnDisk,
+    )
+    // The same call over the same bytes replays the refusal; a restored file is a new intent
+    // under the default key, so the approval below is not the replay of this refusal.
+    expect(await factory.approveIntake(id, { revision: parked.revision, taskDigest })).toEqual(
+      refusedOnDisk,
+    )
     writeFileSync(spec, original)
     expect(factory.show(id)?.state).toBe("awaiting_intake_approval")
 
@@ -390,11 +450,35 @@ describe("the intake gate", () => {
       type: "intake_approved",
       payload: { taskDigest },
     })
-    expect(await factory.approveIntake(id, { revision: parked.revision + 1, taskDigest })).toEqual({
+    // Its own key: the row is now at `parked.revision + 1`, the revision the stale probe above
+    // named over the same digests, and under the default key that same intent would replay.
+    expect(
+      await factory.approveIntake(id, {
+        revision: parked.revision + 1,
+        taskDigest,
+        operationKey: "after-approval",
+      }),
+    ).toEqual({ ok: false, state: "received", message: "Cannot approve intake from received" })
+
+    // The approved task is bound to the row until dispatch: no redraft over it, and no
+    // dispatch of a directory that no longer matches what was approved.
+    expect(await factory.intake(id)).toEqual({
       ok: false,
       state: "received",
-      message: "Cannot approve intake from received",
+      message: "Work order already has an approved task; reject-intake is the only way back",
     })
+    writeFileSync(spec, `${original.toString("utf8")}\nA9: something else\n`)
+    expect(await factory.dispatch(id, "dispatch-edited")).toEqual({
+      ok: false,
+      state: "received",
+      message: "Generated task on disk no longer matches the approved digest",
+    })
+    expect(factory.events(id).at(-1)).toMatchObject({
+      type: "generated_task_changed",
+      payload: { phase: "dispatch", approved: taskDigest },
+    })
+    writeFileSync(spec, original)
+    expect(threadPosts()).toHaveLength(1)
 
     // Rung 2 from here: the builder gets its own thread, the generated task's prompt, and the
     // full verification of what it left behind.
@@ -534,6 +618,47 @@ describe("intake reconciliation", () => {
       reason: "no thread recorded",
     })
     expect(threadPosts()).toHaveLength(0)
+  })
+
+  it("blocks an intake_running row whose thread the worker does not have", async () => {
+    await bootWorker()
+    await bootFactory()
+    const { id } = await createIssue()
+    await crash()
+    forceRow(id, { state: "intake_running", workerThreadId: "gone-thread" })
+    await bootFactory()
+    expect(factory.show(id)).toMatchObject({ state: "blocked", blockedReason: "intake_run_failed" })
+    expect(factory.events(id).at(-1)?.payload).toMatchObject({
+      reconciled: true,
+      reason: "thread not found on worker",
+    })
+  })
+
+  it("blocks an intake_running row whose thread is parked on a prompt", async () => {
+    await bootWorker({ run: "unexpected_interrupt" })
+    await bootFactory()
+    const { id } = await createIssue()
+    await crash()
+    const created = await fetch(`${fake.baseUrl}/threads`, { method: "POST" })
+    const { thread_id: threadId } = (await created.json()) as { thread_id: string }
+    // A turn nobody watched parks the thread on a prompt the drafter route cannot have.
+    await fetch(`${fake.baseUrl}/threads/${threadId}/runs/stream`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ route: "/intake#agent", input: { messages: [] } }),
+    }).then((r) => r.text())
+    expect(fake.thread(threadId)?.pending).not.toBeNull()
+    forceRow(id, { state: "intake_running", workerThreadId: threadId })
+    await bootFactory()
+    const row = factory.show(id)
+    expect(row).toMatchObject({ state: "blocked", blockedReason: "intake_run_failed" })
+    expect(row?.interruptId).toMatch(/^perm-cmd-/)
+    expect(factory.events(id).at(-1)?.payload).toMatchObject({
+      reconciled: true,
+      reason: "the drafter is parked on an unexpected prompt",
+      kinds: ["command"],
+    })
+    expect(reader.reads).toEqual([])
   })
 
   it("reattaches once to a drafter turn still live after a restart", async () => {

@@ -91,7 +91,12 @@ export async function observeRun(
     })
 }
 
-/** Resolve every pending interrupt on the work order's thread with `deny`. */
+/**
+ * Resolve every pending interrupt on the work order's thread with `deny`. The resume is sent
+ * on the builder route; for an intake thread that is not the drafter's route, which is inert
+ * because the drafter has no gate to park on — `pendingInterrupts` is empty and nothing is
+ * resumed. A drafter route that ever gains a gate must resume on `ctx.intakeRoute`.
+ */
 export async function denyPending(ctx: ControllerContext, id: string): Promise<void> {
   const row = ctx.mustGet(id)
   if (!row.workerThreadId) return
