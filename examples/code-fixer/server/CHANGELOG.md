@@ -1,5 +1,17 @@
 # @b4-example/code-fixer-server
 
+## 0.0.7
+
+### Patch Changes
+
+- Updated dependencies [185ae3c]
+- Updated dependencies [1cadde8]
+- Updated dependencies [71bccb3]
+  - @b4run/sandbox@1.0.0
+  - @b4run/cli@1.0.0
+  - @b4run/workspace@1.0.0
+  - @b4run/sdk@1.0.0
+
 ## 0.0.6
 
 ### Patch Changes

@@ -1,5 +1,26 @@
 # @dawn-ai/cli
 
+## 1.0.0
+
+### Minor Changes
+
+- 71bccb3: `sandbox.workspace` may now be a `WorkspaceResolver`: host code called once per thread, at first admission, with the thread id and its stored client metadata, returning that thread's initial workspace definition. The result is captured and recorded by digest exactly as a static definition is; `b4 build` records a resolver marker in place of captured source and startup refuses an artifact whose form disagrees with the config; `b4 check` reports the per-thread form.
+
+### Patch Changes
+
+- 1cadde8: Tool-call arguments now stream as they are generated. The LangChain agent adapter projects the argument fragments a provider streams into `tool_call_args` chunks, re-serialized token by token so their concatenation matches the `JSON.stringify(args)` delta sent today byte for byte, and the AG-UI translator emits them as one `TOOL_CALL_START`, several `TOOL_CALL_ARGS` deltas and one `TOOL_CALL_END` under the call's logical id. A client that renders from a tool call's arguments can paint progressively, the way it does for assistant text. Tool execution still receives the complete, parsed arguments from the unchanged `tool_call` announce; providers that stream no fragments produce exactly the output they did before; the built-in `writeTodos` and `task` calls stay on the single-delta path. The runtime's middleware `after` hook treats a fragment as proof a held message was not final, and the live tail renders nothing for fragments.
+- Updated dependencies [1cadde8]
+- Updated dependencies [71bccb3]
+  - @b4run/langchain@1.0.0
+  - @b4run/ag-ui@1.0.0
+  - @b4run/workspace@1.0.0
+  - @b4run/core@1.0.0
+  - @b4run/sqlite-storage@1.0.0
+  - @b4run/memory@1.0.0
+  - @b4run/langgraph@1.0.0
+  - @b4run/permissions@1.0.0
+  - @b4run/sdk@1.0.0
+
 ## 0.9.0
 
 ### Minor Changes

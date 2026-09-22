@@ -1,5 +1,7 @@
 # @dawn-ai/config-typescript
 
+## 1.0.0
+
 ## 0.9.0
 
 ## 0.8.36
