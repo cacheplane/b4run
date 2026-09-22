@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 import type { SuiteSession } from "../src/lib/verification/grade-suite.ts"
-import { assembleReceipt, deadlinePlan, suiteChecks } from "../src/lib/verification/receipt.ts"
+import {
+  assembleReceipt,
+  deadlinePlan,
+  independentOnlyChecks,
+  suiteChecks,
+} from "../src/lib/verification/receipt.ts"
 
 /**
  * Layer 1 over the verdict decision, which used to be inlined in the verifier and therefore
@@ -134,6 +139,80 @@ describe("assembleReceipt", () => {
     )
     // And the evidence id each check's output will be stored under.
     expect(frozen.map((c) => c.evidence[0]?.id)).toEqual(["visible/output", "independent/output"])
+  })
+})
+
+describe("assembleReceipt in independentOnly mode", () => {
+  // Intake proves a drafted check is an oracle by running the independent suite ALONE on the
+  // unpatched baseline. There is no visible session, so every branch that used to consult one
+  // has a single-session shape of its own.
+  const alone = (independent: SuiteSession | null, visible: SuiteSession | null = null) =>
+    assembleReceipt({ visible, independent, acceptanceIds, mode: "independentOnly" })
+
+  it("reports the one independent check, carrying its verdict and acceptance ids", () => {
+    const decided = alone(session({ result: suite("fail", "A1 failed\n") }))
+    expect(decided.verdict).toBe("fail")
+    expect(summary(decided)).toEqual(["independent:fail"])
+    expect(decided.checks.map((c) => c.acceptanceIds)).toEqual([["A1"]])
+    expect(decided.checks[0]?.evidence).toBe("A1 failed\n")
+  })
+
+  it("grades a build failure as fail with a single build check over the compiler output", () => {
+    // No earlier session to disagree with: the build failed on the bytes it was handed, which
+    // is a fact about them and not about the harness.
+    const decided = alone(session({ build: broken, result: null }))
+    expect(decided.verdict).toBe("fail")
+    expect(summary(decided)).toEqual(["build:fail"])
+    expect(decided.checks[0]?.evidence).toBe(broken.output)
+    expect(decided.checks[0]?.acceptanceIds).toEqual([])
+  })
+
+  it("names the independent session when it tampered", () => {
+    const decided = alone(session({ tampered: true, result: suite("pass", "1 passed\n") }))
+    expect(decided.verdict).toBe("fail")
+    expect(summary(decided)).toEqual(["independent:fail"])
+    expect(decided.checks[0]?.evidence).toContain(
+      "a suite mutated the workspace during independent",
+    )
+  })
+
+  it("refuses to invent a verdict when the suite reported neither a result nor a reason", () => {
+    expect(() => alone(session({ result: null }))).toThrow(/a suite did not run/)
+  })
+
+  it("refuses when the independent session did not run at all", () => {
+    expect(() => alone(null)).toThrow(/independent session did not run/)
+  })
+
+  it("refuses a visible session, which the mode says must not have run", () => {
+    expect(() => alone(session(), session())).toThrow(/visible/)
+  })
+
+  it("leaves full mode's refusal of a missing independent session in place", () => {
+    expect(() => assembleReceipt({ visible: session(), independent: null, acceptanceIds })).toThrow(
+      /independent session did not run/,
+    )
+  })
+
+  it("refuses full mode without a visible session", () => {
+    expect(() =>
+      assembleReceipt({ visible: null, independent: session(), acceptanceIds, mode: "full" }),
+    ).toThrow(/visible/)
+  })
+
+  it("agrees with independentOnlyChecks about the shape freezeBundle accepts", () => {
+    const decided = alone(session({ result: suite("fail", "A1 failed\n") }))
+    const frozen = independentOnlyChecks({
+      verdict: "fail",
+      acceptanceIds: acceptanceIds.independent,
+      outputDigest: "b".repeat(64),
+    })
+    expect(decided.checks.map((c) => c.id)).toEqual(frozen.map((c) => c.id))
+    expect(decided.checks.map((c) => c.verdict)).toEqual(frozen.map((c) => c.verdict))
+    expect(decided.checks.map((c) => [...c.acceptanceIds])).toEqual(
+      frozen.map((c) => [...c.acceptanceIds]),
+    )
+    expect(frozen.map((c) => c.evidence[0]?.id)).toEqual(["independent/output"])
   })
 })
 
