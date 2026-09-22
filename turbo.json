@@ -69,7 +69,9 @@
       "dependsOn": ["build", "^test"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/examples/software-factory/README.md"
+        "$TURBO_ROOT$/examples/software-factory/README.md",
+        "$TURBO_ROOT$/examples/software-factory/server/src/builder-manifest.ts",
+        "$TURBO_ROOT$/examples/software-factory/server"
       ]
     },
     "@b4run/core#test": {
