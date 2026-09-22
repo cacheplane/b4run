@@ -620,9 +620,11 @@ export function controllerRuntime(): ControllerRuntime {
   shared ??= createControllerRuntime(process.env)
   return shared
 }
-/** Tests boot several controllers in one process with different environments. */
-export function resetControllerRuntimeForTests(): void {
+/** Tests boot several controllers in one process with different environments. Disposes the previous one first. */
+export async function resetControllerRuntimeForTests(): Promise<void> {
+  const previous = shared
   shared = undefined
+  await previous?.dispose()
 }
 ```
 
@@ -712,7 +714,7 @@ export async function serveController(
   process.env.FACTORY_STATE_DIR = stateDir
   process.env.FACTORY_BUILDER_APP_ROOT = join(dir, "builder")
   const { controllerRuntime, resetControllerRuntimeForTests } = await import("../src/lib/runtime.ts")
-  resetControllerRuntimeForTests()
+  await resetControllerRuntimeForTests() // disposes any previous runtime, then clears it
   const handle: ServeRuntimeHandle = await serveRuntime({ appRoot, host: "127.0.0.1", port: 0 })
   const run = async (threadId: string, route: string, input: unknown) => {
     const response = await fetch(`${handle.url}/threads/${encodeURIComponent(threadId)}/runs/wait`, {
@@ -952,14 +954,36 @@ export async function workflow(input: unknown, ctx: RuntimeContext) {
     ctx.signal.addEventListener("abort", onAbort, { once: true })
     try {
       const budget = factory.show(id)?.maxActiveMs ?? 1_200_000
-      const row = await factory.settle(id, budget + 60_000)
-      return { ok: true, state: row.state, message: "Settled", row }
+      let row: WorkOrderRow
+      try {
+        row = await factory.settle(id, budget + 60_000)
+      } catch (error) {
+        // `settle` throws on timeout and when the factory is aborted mid-wait; both are
+        // expected here and a route must not throw. The row is the outcome either way.
+        const current = factory.show(id)
+        return {
+          ok: false,
+          ...(current ? { state: current.state } : {}),
+          message: `Dispatch did not settle: ${error instanceof Error ? error.message : String(error)}`,
+          row: current,
+        }
+      }
+      // Settled means "not active", which includes `cancel_requested`: say so rather than
+      // report a work order that is still owed a cancel confirmation as finished.
+      return {
+        ok: row.state !== "cancel_requested",
+        state: row.state,
+        message: row.state === "cancel_requested" ? "Cancel requested; reconciliation will finish it" : "Settled",
+        row,
+      }
     } finally {
       ctx.signal.removeEventListener("abort", onAbort)
     }
   })
 }
 ```
+
+Import `WorkOrderRow` from `../../../lib/domain/work-order.js`. The reconcile-before-dispatch is load-bearing, not belt-and-braces: a work order orphaned by a restart is re-tracked only by `reconcileWorkOrder` (`reconcile.ts` `reconcileRun`), and without it `settle` would wait the whole budget on a row nothing is driving.
 
 `approve`, `deny`, `cancel`: the same shape with `ApproveInput` or `IdInput`, calling `factory.reconcileWorkOrder(id)` then the command, returning `{ ...outcome, row: factory.show(id) }`. `approve` passes `{ revision, bundleDigest, ...(operationKey ? { operationKey } : {}) }`.
 
