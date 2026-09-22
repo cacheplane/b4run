@@ -114,7 +114,10 @@ describe("controller routes", () => {
       issue: { title: "T", body: "B" },
     })
     expect(pinless.body).toMatchObject({ ok: false, refusal: "invalid_input" })
-    expect(JSON.stringify((pinless.body as { issues: unknown }).issues)).toContain("pin")
+    // Flat and addressed: the issue names `pin` at the top level, not inside a union branch.
+    expect((pinless.body as { issues: { path: unknown[] }[] }).issues).toEqual([
+      expect.objectContaining({ path: ["pin"] }),
+    ])
   })
 
   it("serialises commands per work order through the runtime's one-run-per-thread rule", async () => {

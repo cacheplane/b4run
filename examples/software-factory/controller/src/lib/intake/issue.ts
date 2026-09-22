@@ -2,26 +2,44 @@ import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
 import { promisify } from "node:util"
 import { z } from "zod"
-import { REPOSITORY_PATTERN } from "../domain/work-order.js"
+import { COMMIT_PATTERN, REPOSITORY_PATTERN } from "../domain/work-order.js"
 
 /** Runs `file` with `args` and resolves its stdout; rejects when the process fails. */
 export type Exec = (file: string, args: readonly string[]) => Promise<{ stdout: string }>
 
+const TIMEOUT_MS = 30_000
+const MAX_BUFFER = 1 << 20
+
 /** `gh`/`git` through execFile with a bounded time and buffer; the default Exec. */
 export const execFileExec: Exec = async (file, args) => {
   const { stdout } = await promisify(execFile)(file, [...args], {
-    timeout: 30_000,
-    maxBuffer: 1 << 20,
+    timeout: TIMEOUT_MS,
+    maxBuffer: MAX_BUFFER,
     encoding: "utf8",
   })
   return { stdout }
 }
 
-/** The failure text a child process left, with its stderr when it wrote any. */
-function failureText(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  const stderr = (error as { stderr?: unknown }).stderr
-  return typeof stderr === "string" && stderr.trim() ? `${message}\n${stderr.trim()}` : message
+/**
+ * What a failed child process should be reported as. Built from the error's fields rather than
+ * its message: execFile's message already embeds stderr (so appending it would repeat it), and
+ * a timeout only shows as `killed` with no word about why.
+ */
+export function failureText(error: unknown): string {
+  if (!(error instanceof Error)) return String(error)
+  const { killed, signal, code, stderr } = error as Error & {
+    killed?: boolean
+    signal?: string | null
+    code?: number | string | null
+    stderr?: unknown
+  }
+  const detail = typeof stderr === "string" && stderr.trim() ? `: ${stderr.trim()}` : ""
+  if (code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER")
+    return `output exceeded ${MAX_BUFFER >> 10} KiB${detail}`
+  if (killed) return `timed out after ${TIMEOUT_MS / 1000}s${signal ? ` (${signal})` : ""}${detail}`
+  if (typeof code === "number") return `exited ${code}${detail}`
+  if (signal) return `killed by ${signal}${detail}`
+  return detail ? detail.slice(2) : error.message
 }
 
 const GhIssueSchema = z.object({ title: z.string(), body: z.string(), url: z.string() })
@@ -83,46 +101,49 @@ export async function fetchIssue(input: {
   return { title, body, url, bodyDigest: issueBodyDigest({ title, body }) }
 }
 
-const COMMIT_PATTERN = /^[a-f0-9]{40}$/
-
 /**
- * The commit a new issue work order is pinned to: `origin/main` of the target checkout,
- * refreshed with a shallow fetch first so the pin is main as of now, not as of the last pull.
+ * The commit a new issue work order is pinned to: `origin/<branch>` of the target checkout,
+ * fetched first so the pin is the branch as of now, not as of the last pull. The fetch is a
+ * plain one: `--depth=1` would turn the operator's full clone into a shallow one (`.git/shallow`,
+ * truncated history, shared by every linked worktree), and a plain fetch of an existing clone
+ * is already incremental.
  */
 export async function resolvePin(input: {
   readonly repositoryRoot: string
-  /** Default true; false reads the checkout's own `origin/main` without touching the network. */
+  /** The branch to pin; default `main`. */
+  readonly branch?: string
+  /** Default true; false reads the checkout's own `origin/<branch>` without touching the network. */
   readonly fetch?: boolean
   readonly exec?: Exec
 }): Promise<string> {
   const exec = input.exec ?? execFileExec
+  const branch = input.branch ?? "main"
+  const ref = `origin/${branch}`
   const git = ["-C", input.repositoryRoot]
   if (input.fetch !== false) {
     try {
-      await exec("git", [...git, "fetch", "--depth=1", "origin", "main"])
+      await exec("git", [...git, "fetch", "origin", branch])
     } catch (error) {
       throw new Error(`git fetch failed in ${input.repositoryRoot}: ${failureText(error)}`)
     }
   }
   let stdout: string
   try {
-    ;({ stdout } = await exec("git", [...git, "rev-parse", "origin/main"]))
+    ;({ stdout } = await exec("git", [...git, "rev-parse", ref]))
   } catch (error) {
-    throw new Error(
-      `git rev-parse origin/main failed in ${input.repositoryRoot}: ${failureText(error)}`,
-    )
+    throw new Error(`git rev-parse ${ref} failed in ${input.repositoryRoot}: ${failureText(error)}`)
   }
   const sha = stdout.trim()
   if (!COMMIT_PATTERN.test(sha))
-    throw new Error(
-      `origin/main in ${input.repositoryRoot} is not a commit: ${JSON.stringify(sha)}`,
-    )
+    throw new Error(`${ref} in ${input.repositoryRoot} is not a commit: ${JSON.stringify(sha)}`)
   return sha
 }
 
 /**
- * The `issue.md` a work order keeps: the title, the reference and the body, with the body's
- * trailing newlines normalised to one so the same issue always renders the same bytes.
+ * The `issue.md` a work order keeps: the title, the reference and the body. Line endings are
+ * normalised to LF (a web-authored GitHub body is CRLF) and trailing newlines to one, so the
+ * same issue always renders the same bytes; an empty body renders as the heading and one blank
+ * line. `bodyDigest` stays over the raw body, so this normalisation never hides an edit.
  */
 export function issueText(input: {
   readonly title: string
@@ -130,7 +151,9 @@ export function issueText(input: {
   readonly repository: string
   readonly number: number
 }): string {
-  return `# ${input.title} (${input.repository}#${input.number})\n\n${input.body.replace(/\n*$/, "")}\n`
+  const heading = `# ${input.title} (${input.repository}#${input.number})\n`
+  const body = input.body.replace(/\r\n?/g, "\n").replace(/\n*$/, "")
+  return body ? `${heading}\n${body}\n` : heading
 }
 
 /** `owner/name` from a GitHub remote url in its ssh, ssh-scheme or https form; null otherwise. */

@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { DIGEST_PATTERN, IssueOriginSchema } from "../domain/work-order.js"
+import { COMMIT_PATTERN, DIGEST_PATTERN, IssueOriginSchema } from "../domain/work-order.js"
 
 export const CatalogCreateInput = z
   .object({ taskId: z.string().min(1), operationKey: z.string().min(1).optional() })
@@ -7,15 +7,24 @@ export const CatalogCreateInput = z
 export const IssueCreateInput = z
   .object({
     origin: IssueOriginSchema,
-    pin: z.string().regex(/^[a-f0-9]{40}$/),
+    pin: z.string().regex(COMMIT_PATTERN),
     issue: z.object({ title: z.string().min(1), body: z.string() }).strict(),
     operationKey: z.string().min(1).optional(),
   })
   .strict()
-/** One or the other, never both: each half is strict, so a mixed input fails both. */
-export const CreateInput = z.union([CatalogCreateInput, IssueCreateInput])
 export type CatalogCreate = z.infer<typeof CatalogCreateInput>
 export type IssueCreate = z.infer<typeof IssueCreateInput>
+/** One or the other, never both: each half is strict, so a mixed input fails both. */
+export type CreateInput = CatalogCreate | IssueCreate
+/**
+ * The half of `CreateInput` an input is addressed to, chosen by the presence of `taskId`, so a
+ * partly-right issue payload is reported with flat, addressed issues (`pin: ...`) rather than
+ * the buried tree a union failure would produce for both halves.
+ */
+export function createInputSchema(input: unknown): z.ZodType<CreateInput> {
+  const catalog = typeof input === "object" && input !== null && "taskId" in input
+  return catalog ? CatalogCreateInput : IssueCreateInput
+}
 export const IdInput = z
   .object({ id: z.string().min(1), operationKey: z.string().min(1).optional() })
   .strict()

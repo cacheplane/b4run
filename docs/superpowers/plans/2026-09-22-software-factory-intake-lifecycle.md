@@ -557,7 +557,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing tests**
 
-`intake-issue.test.ts`: `fetchIssue({ repository, number, exec })` with an injected `exec` returning `gh issue view` JSON yields `{ title, body, bodyDigest, url }` and rejects a non-JSON or errored `exec`; `resolvePin({ repositoryRoot, exec })` runs `git fetch --depth=1 origin main` then `git rev-parse origin/main` and returns a 40-hex sha; `issueText(issue)` renders `# <title> (cacheplane/b4run#778)\n\n<body>\n` deterministically.
+`intake-issue.test.ts`: `fetchIssue({ repository, number, exec })` with an injected `exec` returning `gh issue view` JSON yields `{ title, body, bodyDigest, url }` and rejects a non-JSON or errored `exec`; `resolvePin({ repositoryRoot, exec })` runs `git fetch origin <branch>` (branch defaults to `main`; never `--depth=1`, which would turn the operator's full clone into a shallow one) then `git rev-parse origin/<branch>` and returns a 40-hex sha; `issueText(issue)` renders `# <title> (cacheplane/b4run#778)\n\n<body>\n` deterministically.
 
 Factory test: `createFromIssue({ origin: { kind: "issue", repository, number, bodyDigest }, pin, issue: { title, body }, operationKey })` creates a row in `received` with `origin`, `pin`, `taskId === row.id`, `targetId: null`, journals `created` with `{ origin, pin }`, and writes `<generatedTasksDir>/<id>/issue.md`; the same operation key replays the recorded row.
 

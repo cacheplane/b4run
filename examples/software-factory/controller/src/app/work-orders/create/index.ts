@@ -1,4 +1,4 @@
-import { CreateInput } from "../../../lib/routes/input.js"
+import { createInputSchema } from "../../../lib/routes/input.js"
 import { command } from "../../../lib/routes/outcome.js"
 import { controllerRuntime } from "../../../lib/runtime.js"
 
@@ -8,7 +8,7 @@ import { controllerRuntime } from "../../../lib/runtime.js"
  */
 export async function workflow(input: unknown) {
   return command(
-    CreateInput,
+    createInputSchema(input),
     input,
     () => controllerRuntime().factory(),
     async (input, factory) => {

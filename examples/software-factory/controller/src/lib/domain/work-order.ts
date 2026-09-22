@@ -2,6 +2,8 @@ import { z } from "zod"
 import { BLOCKED_REASONS, FAILURE_REASONS, STATES } from "./states.js"
 
 export const DIGEST_PATTERN = /^[a-f0-9]{64}$/
+/** A full git commit sha. */
+export const COMMIT_PATTERN = /^[a-f0-9]{40}$/
 /**
  * A GitHub `owner/name`, as `gh --repo` takes it. Neither side may start with a dot: GitHub
  * forbids it, and it keeps `.`/`..` segments out of anything that joins the value into a path.
@@ -51,10 +53,7 @@ export const WorkOrderRowSchema = z.object({
    * The target repository commit the work order was created against; null for a catalog work
    * order, recorded by `create --issue` and never changed.
    */
-  pin: z
-    .string()
-    .regex(/^[a-f0-9]{40}$/)
-    .nullable(),
+  pin: z.string().regex(COMMIT_PATTERN).nullable(),
   /** The prepared target the drafted task fits; null until intake resolves it. */
   targetId: z.string().min(1).nullable(),
   /** The digest of the generated task directory the intake gate binds to. */

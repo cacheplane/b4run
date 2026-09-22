@@ -135,7 +135,7 @@ describe("createFromIssue", () => {
         issue: ISSUE,
         operationKey: KEY,
       }),
-    ).rejects.toThrow(/origin/)
+    ).rejects.toThrow(/origin\.repository/)
     expect(factory.list()).toEqual([])
     // The key was never spent: the same key with a good pin creates, rather than being refused
     // as a command still in flight.

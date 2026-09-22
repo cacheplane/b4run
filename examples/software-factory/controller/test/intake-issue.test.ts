@@ -1,13 +1,21 @@
+import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
-import { describe, expect, it } from "vitest"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { promisify } from "node:util"
+import { afterEach, describe, expect, it } from "vitest"
 import { REPOSITORY_PATTERN } from "../src/lib/domain/work-order.ts"
 import {
   type Exec,
+  failureText,
   fetchIssue,
   issueText,
   repositoryFromRemoteUrl,
   resolvePin,
 } from "../src/lib/intake/issue.ts"
+
+const run = promisify(execFile)
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex")
 
@@ -105,13 +113,46 @@ describe("fetchIssue", () => {
 describe("resolvePin", () => {
   const SHA = "0123456789abcdef0123456789abcdef01234567"
 
-  it("fetches main shallowly and reads origin/main", async () => {
+  it("fetches main and reads origin/main", async () => {
     const { exec, calls } = scripted(["", `${SHA}\n`])
     expect(await resolvePin({ repositoryRoot: "/repo", exec })).toBe(SHA)
     expect(calls).toEqual([
-      { file: "git", args: ["-C", "/repo", "fetch", "--depth=1", "origin", "main"] },
+      { file: "git", args: ["-C", "/repo", "fetch", "origin", "main"] },
       { file: "git", args: ["-C", "/repo", "rev-parse", "origin/main"] },
     ])
+  })
+
+  it("pins the branch it is given", async () => {
+    const { exec, calls } = scripted(["", `${SHA}\n`])
+    expect(await resolvePin({ repositoryRoot: "/repo", branch: "release", exec })).toBe(SHA)
+    expect(calls.map((c) => c.args.at(-1))).toEqual(["release", "origin/release"])
+  })
+
+  describe("against a real clone", () => {
+    let dir: string
+    afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+    it("never leaves the operator's full clone shallow", async () => {
+      dir = mkdtempSync(join(tmpdir(), "factory-pin-"))
+      const root = join(dir, "repo")
+      const git = (...args: string[]) =>
+        run("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@t", ...args])
+      await run("git", ["init", "-q", "-b", "main", root])
+      // Two commits: a depth-1 fetch of a one-commit history has nothing to cut off, and would
+      // pass this test whether or not the fetch was shallow.
+      writeFileSync(join(root, "a"), "a\n")
+      await git("add", "a")
+      await git("commit", "-q", "-m", "a")
+      writeFileSync(join(root, "b"), "b\n")
+      await git("add", "b")
+      await git("commit", "-q", "-m", "b")
+      await git("remote", "add", "origin", root)
+      const head = (await git("rev-parse", "HEAD")).stdout.trim()
+
+      expect(await resolvePin({ repositoryRoot: root })).toBe(head)
+      expect((await git("rev-parse", "--is-shallow-repository")).stdout.trim()).toBe("false")
+      expect((await git("rev-list", "--count", "origin/main")).stdout.trim()).toBe("2")
+    })
   })
 
   it("skips the fetch when told to", async () => {
@@ -137,17 +178,60 @@ describe("resolvePin", () => {
 })
 
 describe("issueText", () => {
+  const input = {
+    title: "Fix the flag",
+    body: "Body\n\n\n",
+    repository: "cacheplane/b4run",
+    number: 778,
+  }
+
   it("renders the title, the reference and the body with one trailing newline", () => {
-    const input = {
-      title: "Fix the flag",
-      body: "Body\n\n\n",
-      repository: "cacheplane/b4run",
-      number: 778,
-    }
     expect(issueText(input)).toBe("# Fix the flag (cacheplane/b4run#778)\n\nBody\n")
     expect(issueText(input)).toBe(issueText({ ...input }))
     expect(issueText({ ...input, body: "Body" })).toBe(issueText(input))
-    expect(issueText({ ...input, body: "" })).toBe("# Fix the flag (cacheplane/b4run#778)\n\n\n")
+  })
+
+  it("normalises a CRLF body to LF", () => {
+    expect(issueText({ ...input, body: "Body\r\nmore\r\n" })).toBe(
+      "# Fix the flag (cacheplane/b4run#778)\n\nBody\nmore\n",
+    )
+    expect(issueText({ ...input, body: "Body\rmore\r\n\r\n" })).toBe(
+      "# Fix the flag (cacheplane/b4run#778)\n\nBody\nmore\n",
+    )
+  })
+
+  it("renders an empty body as the heading alone", () => {
+    expect(issueText({ ...input, body: "" })).toBe("# Fix the flag (cacheplane/b4run#778)\n")
+    expect(issueText({ ...input, body: "\r\n\n" })).toBe("# Fix the flag (cacheplane/b4run#778)\n")
+  })
+})
+
+describe("failureText", () => {
+  const failed = (fields: Record<string, unknown>) =>
+    Object.assign(new Error("Command failed: gh issue view\nsome stderr"), fields)
+
+  it("says a timeout is a timeout", () => {
+    expect(failureText(failed({ killed: true, signal: "SIGTERM", code: null, stderr: "" }))).toBe(
+      "timed out after 30s (SIGTERM)",
+    )
+  })
+
+  it("includes stderr once, never the message that already embeds it", () => {
+    expect(failureText(failed({ code: 1, stderr: "some stderr\n" }))).toBe("exited 1: some stderr")
+    expect(failureText(failed({ code: 1, stderr: "" }))).toBe("exited 1")
+  })
+
+  it("falls back to the message when nothing else says why", () => {
+    expect(failureText(Object.assign(new Error("spawn gh ENOENT"), { code: "ENOENT" }))).toBe(
+      "spawn gh ENOENT",
+    )
+    expect(failureText("boom")).toBe("boom")
+  })
+
+  it("names an overflowed buffer", () => {
+    expect(failureText(failed({ code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER", killed: true }))).toBe(
+      "output exceeded 1024 KiB",
+    )
   })
 })
 

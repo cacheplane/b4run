@@ -14,6 +14,7 @@ import {
 import {
   type Bundle,
   type Candidate,
+  COMMIT_PATTERN,
   type CommandOutcome,
   type FactoryEvent,
   type IssueOrigin,
@@ -42,8 +43,6 @@ import { denyPending, observeRun } from "./run-observer.js"
 import { consumeTurn } from "./turns.js"
 import { runVerification } from "./verify.js"
 
-const COMMIT_PATTERN = /^[a-f0-9]{40}$/
-
 export interface FactoryOptions {
   readonly registryPath: string
   readonly worker: WorkerClient
@@ -54,7 +53,9 @@ export interface FactoryOptions {
   readonly artifactsDir: string
   /**
    * Where an issue work order's `issue.md` (and later its drafted task) is written, under a
-   * directory named by the work order id: the catalog's generated-tasks root.
+   * directory named by the work order id. Must be the directory `configureCatalog` was given,
+   * or the catalog will never find what intake writes; the runtime passes the one config value
+   * to both.
    */
   readonly generatedTasksDir: string
   readonly verifier: Verifier
@@ -398,15 +399,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
    */
   function insertWorkOrder(
     operationKey: string | undefined,
-    args: Record<string, unknown>,
+    /** Both the command's recorded args and the `created` event's payload. */
+    payload: Record<string, unknown>,
     fields: (id: string) => Pick<WorkOrderRow, "taskId" | "origin" | "pin">,
-    created: (id: string) => Record<string, unknown>,
   ): WorkOrderRow {
     const id = operationKey
       ? `wo-${createHash("sha256").update(operationKey).digest("hex").slice(0, 16)}`
       : `wo-${randomUUID().replace(/-/g, "").slice(0, 16)}`
     const key = operationKey ?? `create:${id}`
-    const begun = commands.begin(key, id, { command: "create", args }, iso())
+    const begun = commands.begin(key, id, { command: "create", args: payload }, iso())
     if (begun.status === "in_flight") throw new CommandInFlightError(key)
     // A spent key with no row is a crash between the command log and the insert. The id is
     // derived from the key, so re-running the insert is idempotent rather than a second work
@@ -442,7 +443,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
     }
     store.transaction(() => {
       store.insert(row)
-      recordEvent(id, "created", created(id))
+      recordEvent(id, "created", payload)
       // Only a fresh key has an outcome left to record; a replayed one already has its own.
       if (begun.status === "new")
         commands.complete(key, { ok: true, state: "received", message: "Created" })
@@ -453,27 +454,28 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
   const factory: Factory = {
     async create({ taskId, operationKey }) {
       if (prompt(taskId) instanceof Error) throw new UnknownTaskError(taskId)
-      return insertWorkOrder(
-        operationKey,
-        { taskId },
-        () => ({ taskId, origin: { kind: "catalog" }, pin: null }),
-        () => ({ taskId }),
-      )
+      return insertWorkOrder(operationKey, { taskId }, () => ({
+        taskId,
+        origin: { kind: "catalog" },
+        pin: null,
+      }))
     },
 
     async createFromIssue({ origin, pin, issue, operationKey }) {
       // Refused before the key is spent, like `create`'s task guard: the row parse inside the
       // insert would roll the row back but leave the command in flight until the next boot.
       const parsedOrigin = IssueOriginSchema.safeParse(origin)
-      if (!parsedOrigin.success)
-        throw new Error(`origin is not an issue origin: ${parsedOrigin.error.issues[0]?.message}`)
+      if (!parsedOrigin.success) {
+        const [issue] = parsedOrigin.error.issues
+        const at = issue?.path.length ? `origin.${issue.path.join(".")}` : "origin"
+        throw new Error(`${at} is not an issue origin: ${issue?.message}`)
+      }
       if (!COMMIT_PATTERN.test(pin)) throw new Error(`pin must be a 40-hex commit sha, got ${pin}`)
-      const row = insertWorkOrder(
-        operationKey,
-        { origin, pin },
-        (id) => ({ taskId: id, origin, pin }),
-        () => ({ origin, pin }),
-      )
+      const row = insertWorkOrder(operationKey, { origin, pin }, (id) => ({
+        taskId: id,
+        origin,
+        pin,
+      }))
       // The issue text lands after the row: a directory with only `issue.md` is not a task the
       // catalog lists, so nothing can dispatch it. Written only when absent, so a replayed key
       // rewrites nothing and a crash between the insert and this write is repaired by the replay.

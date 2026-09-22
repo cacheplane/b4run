@@ -257,14 +257,14 @@ async function main(argv: string[]): Promise<number> {
     switch (command) {
       case "create": {
         if (values.task && values.issue) throw new Error("create takes --task or --issue, not both")
-        if (!values.task && !values.issue) throw new Error("create requires --task or --issue")
         const key = values.key ? { operationKey: values.key } : {}
-        const outcome = values.task
-          ? await client().create({ taskId: values.task, ...key })
-          : await client().create({
-              ...(await issueCreateInput(values.issue ?? "", values.repo)),
-              ...key,
-            })
+        const input = values.task
+          ? { taskId: values.task }
+          : values.issue
+            ? await issueCreateInput(values.issue, values.repo)
+            : null
+        if (!input) throw new Error("create requires --task or --issue")
+        const outcome = await client().create({ ...input, ...key })
         print(outcome)
         return outcome.ok ? 0 : 1
       }
