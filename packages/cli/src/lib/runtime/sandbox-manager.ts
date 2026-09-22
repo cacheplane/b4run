@@ -1,5 +1,9 @@
 import type { SandboxHandle, SandboxPolicy, SandboxProvider } from "@b4run/workspace"
-import type { AdmittedWorkspace, ManagedWorkspaceManager } from "./managed-workspace-manager.js"
+import type {
+  AdmittedWorkspace,
+  ManagedWorkspaceManager,
+  WorkspaceAdmissionContext,
+} from "./managed-workspace-manager.js"
 
 interface Entry {
   handle?: SandboxHandle
@@ -38,8 +42,12 @@ export class SandboxManager {
     this.#clock = opts.clock ?? Date.now
   }
 
-  async getForThread(threadId: string, signal: AbortSignal): Promise<SandboxHandle> {
-    if (this.#managed) return this.#managed.getForThread(threadId, signal)
+  async getForThread(
+    threadId: string,
+    signal: AbortSignal,
+    context?: WorkspaceAdmissionContext,
+  ): Promise<SandboxHandle> {
+    if (this.#managed) return this.#managed.getForThread(threadId, signal, context)
     const existing = this.#entries.get(threadId)
     if (existing?.handle) {
       existing.lastUsedAt = this.#clock()

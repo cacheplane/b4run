@@ -18,14 +18,33 @@ import {
   verifyCreationStatus,
   verifyReadyWorkspace,
 } from "@b4run/workspace/node"
+/** What admission tells the resolver about the thread. Metadata is loaded lazily: only a thread with no record needs it. */
+export interface WorkspaceAdmissionContext {
+  /** Loads the thread's stored client metadata. Called only for a thread with no workspace record. */
+  readonly metadata?: (signal: AbortSignal) => Promise<Readonly<Record<string, unknown>>>
+}
+
 export interface ManagedWorkspaceManagerOptions {
   installation: WorkspaceInstallation
-  definition: CapturedWorkspaceDefinition
+  /** One definition for every thread. Omit when `captureDefinition` decides per thread. */
+  definition?: CapturedWorkspaceDefinition
   provider: ManagedWorkspaceProvider
   policy: SandboxPolicy
   idleTimeoutMs: number
   clock?: () => number
-  captureDefinition?: () => Promise<CapturedWorkspaceDefinition>
+  /**
+   * Called once per thread, at first admission, to produce that thread's
+   * definition. With `definition` also set, this wins and `definition` is
+   * NOT a fallback: a resolver that returns nothing is an error, never a
+   * silent switch to the app-root capture (development mode recaptures the
+   * static definition through this hook). Without `definition`, it is the
+   * only source and is required.
+   */
+  captureDefinition?: (thread: {
+    readonly threadId: string
+    readonly metadata: Readonly<Record<string, unknown>>
+    readonly signal: AbortSignal
+  }) => Promise<CapturedWorkspaceDefinition>
 }
 export interface AdmittedWorkspace {
   readonly ready: ReadyWorkspace
@@ -36,7 +55,7 @@ export interface AdmittedWorkspace {
 /** B4 association/admission only; physical recovery belongs to the provider. */
 export class ManagedWorkspaceManager {
   readonly #options: ManagedWorkspaceManagerOptions
-  readonly #definition: CapturedWorkspaceDefinition
+  readonly #definition: CapturedWorkspaceDefinition | undefined
   readonly #sessions = new Map<
     string,
     { session: WorkspaceSession; lastUsedAt: number; workspace: AdmittedWorkspace }
@@ -49,8 +68,12 @@ export class ManagedWorkspaceManager {
   #closing = false
   constructor(options: ManagedWorkspaceManagerOptions) {
     this.#options = options
-    this.#definition = verifyCapturedWorkspaceDefinition(options.definition)
-    options.installation.sources.put(this.#definition.source)
+    if (!options.definition && !options.captureDefinition)
+      throw new Error("Managed workspaces need a definition or a resolver")
+    this.#definition = options.definition
+      ? verifyCapturedWorkspaceDefinition(options.definition)
+      : undefined
+    if (this.#definition) options.installation.sources.put(this.#definition.source)
   }
   #assertOpen() {
     if (this.#closed || this.#closing) throw new Error("Managed workspace manager is closed")
@@ -86,7 +109,11 @@ export class ManagedWorkspaceManager {
       if (entry) entry.lastUsedAt = this.#now()
     }
   }
-  async getForThread(threadId: string, signal: AbortSignal): Promise<SandboxHandle> {
+  async getForThread(
+    threadId: string,
+    signal: AbortSignal,
+    context: WorkspaceAdmissionContext = {},
+  ): Promise<SandboxHandle> {
     this.#assertOpen()
     const release = this.retain(threadId)
     return this.#serial(threadId, async () => {
@@ -98,9 +125,25 @@ export class ManagedWorkspaceManager {
       if (record?.state === "deleting" || record?.state === "deleted")
         throw new WorkspaceLifecycleError("lost", "Workspace is deleting or deleted")
       if (!record) {
-        const definition = verifyCapturedWorkspaceDefinition(
-          (await this.#options.captureDefinition?.()) ?? this.#definition,
-        )
+        // The resolver runs exactly here: a thread with no record. Every later
+        // admission of this thread finds the record and never reaches this branch.
+        let resolved: CapturedWorkspaceDefinition | undefined = this.#definition
+        if (this.#options.captureDefinition) {
+          const raw: unknown = await context.metadata?.(signal)
+          const metadata: Readonly<Record<string, unknown>> =
+            raw !== null && typeof raw === "object" && !Array.isArray(raw)
+              ? Object.freeze({ ...(raw as Record<string, unknown>) })
+              : Object.freeze({})
+          resolved = await this.#options.captureDefinition({ threadId, metadata, signal })
+        }
+        if (!resolved)
+          throw new Error(
+            this.#options.captureDefinition
+              ? "The workspace resolver returned no workspace definition"
+              : "Managed workspaces need a definition or a resolver",
+          )
+        const definition = verifyCapturedWorkspaceDefinition(resolved)
+        signal.throwIfAborted()
         installation.sources.put(definition.source)
         const environment = await provider.resolveEnvironment(signal)
         signal.throwIfAborted()
