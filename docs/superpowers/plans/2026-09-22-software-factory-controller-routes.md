@@ -416,7 +416,7 @@ Rules you cannot negotiate:
 
 `server/test/builder-config.test.ts`: the server test must not import controller code. It builds a minimal manifest fixture inline (a `CapturedWorkspaceDefinition` from `createSourceBundle([...])` in `@b4run/workspace/node`, `target.policy` `{ network: { mode: "deny" } }`, an empty permissions map, a prompt), writes it to a temp file, sets `process.env.FACTORY_BUILDER_MANIFEST`, dynamically imports `../b4.config.ts`, and asserts: provider name is `docker`; `typeof config.sandbox.workspace === "function"`; `await config.sandbox.workspace({ threadId: "t", metadata: {}, signal: new AbortController().signal })` returns a definition whose `source.digest` equals the fixture's; `permissions.allow` equals the manifest's. `b4.config.ts` reads the env at import time, so set the env before the dynamic import and use `vi.resetModules()` between cases.
 
-`server/test/isolated-app.ts`: keep `isolatedApp()` copying the SERVER root, drop the catalog import and the `FACTORY_REPO_ROOT` line. Create `controller/test/isolated-builder.ts` exporting `isolatedBuilder()` that copies `../../server` the same way and sets `process.env.FACTORY_REPO_ROOT ??= repositoryRoot()` from the controller's catalog; the controller's integration tests import it (Task 8 wires them).
+`server/test/isolated-app.ts`: keep `isolatedApp()` copying the SERVER root, drop the catalog import and the `FACTORY_REPO_ROOT` line. Note from the Task 2 review: until this task lands, the isolated copy of the builder cannot load its `b4.config.ts` at all, because the temporary `../controller/...` imports resolve outside the copy; that is why the Docker lanes run only in Task 8. After this task, the copied builder imports nothing outside itself; add an assertion to `builder-config.test.ts` that `b4.config.ts` and `src/**` contain no `../controller/` import (a grep over the files), so the boundary cannot regress silently. Create `controller/test/isolated-builder.ts` exporting `isolatedBuilder()` that copies `../../server` the same way and sets `process.env.FACTORY_REPO_ROOT ??= repositoryRoot()` from the controller's catalog; the controller's integration tests import it (Task 8 wires them).
 
 - [ ] **Step 6: Run**
 
@@ -1347,6 +1347,8 @@ In §4.2 after the "The budget ticker lives in the route" bullet add:
 > opened by middleware `setup` and closed by `dispose`, so the ticker, tracked runs and
 > `close()` keep their rung 2 shape; `dispatch` awaits its run through `Factory.settle`.
 ```
+
+Also add to §4.1's as-landed note (or §9): the targets' `target.json` paths (`root`, `imageContext`, `lockfile`) and the target Dockerfiles' `COPY` lines name the tree at the PINNED commit, where the fixtures lived under `examples/software-factory/server/`; they are correct as long as the pin predates this move. The next re-pin to a commit at or after this branch must rewrite them to `examples/software-factory/controller/fixtures/...` in the same edit; a missed `root` fails loudly at archive time, a missed `imageContext` entry silently builds a smaller image.
 
 In §4.1 after "the builder's `b4.config.ts` imports it from the controller package" add:
 
