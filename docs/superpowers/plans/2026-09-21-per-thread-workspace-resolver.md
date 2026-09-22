@@ -20,6 +20,7 @@
 |---|---|
 | `packages/workspace/src/sandbox-types.ts` | Add `WorkspaceResolverInput`, `WorkspaceResolver`; widen `SandboxConfig.workspace` |
 | `packages/workspace/src/index.ts` | Export the two new types |
+| `examples/software-factory/server/test/builder-config.test.ts` | Narrow `sandbox.workspace` to the static form before reading `.source` (the one reader outside `@b4run/cli`) |
 | `packages/cli/src/lib/runtime/managed-workspace-manager.ts` | `definition` optional; `captureDefinition(thread)`; `getForThread(threadId, signal, context?)` |
 | `packages/cli/src/lib/runtime/sandbox-manager.ts` | Pass `context` through |
 | `packages/cli/src/lib/build/workspace-artifact.ts` | Resolver artifact form; `verifyWorkspaceResolverArtifact` |
@@ -47,32 +48,55 @@
 
 - [ ] **Step 1: Write the failing type test**
 
-Create `packages/workspace/test/workspace-resolver.test.ts`:
+Create `packages/workspace/test/workspace-resolver.test.ts` (sibling tests import from `../src/index.ts`, not the package name, so the test compiles against source rather than a stale `dist`):
 
 ```ts
+import { expect, expectTypeOf, it } from "vitest"
 import type {
   CapturedWorkspaceDefinition,
   SandboxConfig,
   WorkspaceDefinition,
   WorkspaceResolver,
   WorkspaceResolverInput,
-} from "@b4run/workspace"
-import { expect, it } from "vitest"
+} from "../src/index.ts"
+import { createSourceBundle } from "../src/node.ts"
 
-it("SandboxConfig.workspace accepts a definition or a resolver", () => {
+it("SandboxConfig.workspace is a definition, a resolver, or absent", async () => {
+  expectTypeOf<SandboxConfig["workspace"]>().toEqualTypeOf<
+    WorkspaceDefinition | WorkspaceResolver | undefined
+  >()
   const definition: WorkspaceDefinition = { source: { directory: ".", include: ["a"] } }
+  const captured: CapturedWorkspaceDefinition = {
+    version: 1,
+    source: createSourceBundle([]),
+    environmentLinks: [],
+  }
   const resolver: WorkspaceResolver = async (thread: WorkspaceResolverInput) => {
-    expect(typeof thread.threadId).toBe("string")
-    const captured: CapturedWorkspaceDefinition | WorkspaceDefinition =
-      thread.metadata.kind === "static" ? definition : definition
-    return captured
+    expectTypeOf(thread.metadata).toEqualTypeOf<Readonly<Record<string, unknown>>>()
+    expectTypeOf(thread.signal).toEqualTypeOf<AbortSignal>()
+    return thread.metadata.kind === "captured" ? captured : definition
   }
   const withDefinition: Pick<SandboxConfig, "workspace"> = { workspace: definition }
   const withResolver: Pick<SandboxConfig, "workspace"> = { workspace: resolver }
-  expect(typeof withDefinition.workspace).toBe("object")
+  // @ts-expect-error a resolver must be a function or a definition, never a bare value
+  const rejected: Pick<SandboxConfig, "workspace"> = { workspace: 42 }
+  expect(rejected.workspace).toBe(42)
+  expect(withDefinition.workspace).toBe(definition)
+  const signal = new AbortController().signal
+  expect(await resolver({ threadId: "t1", metadata: {}, signal })).toBe(definition)
+  expect(await resolver({ threadId: "t1", metadata: { kind: "captured" }, signal })).toBe(captured)
   expect(typeof withResolver.workspace).toBe("function")
 })
 ```
+
+Also narrow the one reader outside `@b4run/cli`, `examples/software-factory/server/test/builder-config.test.ts:11`, which reads `config.sandbox?.workspace?.source.directory`:
+
+```ts
+const workspace = config.sandbox?.workspace
+if (typeof workspace === "function") throw new Error("builder config must declare a static workspace")
+```
+
+and read `workspace?.source.directory` where the old expression was.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -96,19 +120,23 @@ In `packages/workspace/src/sandbox-types.ts`, replace the `SandboxConfig` interf
 export interface WorkspaceResolverInput {
   readonly threadId: string
   readonly metadata: Readonly<Record<string, unknown>>
+  /** Aborted when the admitting run is cancelled. Pass it to any I/O the resolver does. */
+  readonly signal: AbortSignal
 }
 
 /**
  * Host code that decides one thread's initial workspace. Called once per
  * thread, at the thread's first admission, never again: the result is
  * captured, recorded by digest in the thread's creation intent, and every
- * later turn of that thread reads the record. A returned
- * `WorkspaceDefinition` is captured from the app root at that moment; a
- * returned `CapturedWorkspaceDefinition` is verified and used as is.
+ * later turn of that thread reads the record. A subagent runs under its
+ * parent's thread and resolves through the parent's record, so a resolver
+ * never sees a subagent's thread id. A returned `WorkspaceDefinition` is
+ * captured from the app root at that moment; a returned
+ * `CapturedWorkspaceDefinition` is verified and used as is.
  */
 export type WorkspaceResolver = (
   thread: WorkspaceResolverInput,
-) => Promise<WorkspaceDefinition | CapturedWorkspaceDefinition> | WorkspaceDefinition | CapturedWorkspaceDefinition
+) => Promise<WorkspaceDefinition | CapturedWorkspaceDefinition>
 
 export interface SandboxConfig {
   /**
@@ -160,12 +188,12 @@ Expected: all pass. Then confirm downstream still compiles before the CLI change
 pnpm --filter @b4run/workspace build && pnpm --filter @b4run/cli typecheck
 ```
 
-Expected: `@b4run/cli` typecheck FAILS in `resolve-sandbox.ts`, `collect-sandbox-errors.ts` and `build.ts`, because those pass `sandbox.workspace` to `captureWorkspaceDefinition`, which takes a `WorkspaceDefinition`. That is the work of Tasks 3 to 5. Do not commit a red CLI typecheck: **finish Task 1 by committing only the workspace package and the test**, and complete Tasks 2 to 5 before the next `pnpm typecheck` at the root.
+Expected: `@b4run/cli` typecheck FAILS in `resolve-sandbox.ts`, `collect-sandbox-errors.ts` and `build.ts`, because those pass `sandbox.workspace` to `captureWorkspaceDefinition`, which takes a `WorkspaceDefinition`. That is the work of Tasks 3 to 5. **Also expected red until later tasks:** `node scripts/check-docs.mjs` (the `SandboxConfig` contract block and the undocumented exports, fixed in Task 7). If the CLI typecheck shows errors in OTHER files (missing exports from `@b4run/sdk` or `@b4run/langchain`), that is stale `dist` in the worktree: run `pnpm turbo run build --filter='@b4run/cli^...' --output-logs=errors-only` once and re-run the typecheck. Commit Task 1 with the workspace package, its test and the example test narrowed, and complete Tasks 2 to 5 before the next `pnpm typecheck` at the root.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/workspace/src/sandbox-types.ts packages/workspace/src/index.ts packages/workspace/test/workspace-resolver.test.ts
+git add packages/workspace/src/sandbox-types.ts packages/workspace/src/index.ts packages/workspace/test/workspace-resolver.test.ts examples/software-factory/server/test/builder-config.test.ts
 git commit -m "feat(workspace): SandboxConfig.workspace accepts a per-thread resolver
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -189,6 +217,7 @@ function resolverFixture(
   captureDefinition: (thread: {
     readonly threadId: string
     readonly metadata: Readonly<Record<string, unknown>>
+    readonly signal: AbortSignal
   }) => Promise<CapturedWorkspaceDefinition>,
 ) {
   const base = fixture()
@@ -242,6 +271,17 @@ it("gives two threads different sources from their own metadata", async () => {
   const two = installation.associations.get("two")!.intent.sourceDigest
   expect(one).not.toBe(two)
   expect(new TextDecoder().decode(manager.getWorkspace("two")?.readInitialFile("main.ts"))).toBe("beta")
+})
+
+it("hands the resolver the admission signal", async () => {
+  const controller = new AbortController()
+  const seen: AbortSignal[] = []
+  const { manager } = resolverFixture(async (thread) => {
+    seen.push(thread.signal)
+    return { version: 1, source: bundle("x"), environmentLinks: [] }
+  })
+  await manager.getForThread("one", controller.signal)
+  expect(seen).toEqual([controller.signal])
 })
 
 it("passes an empty metadata object when the runtime has none", async () => {
@@ -329,6 +369,7 @@ export interface ManagedWorkspaceManagerOptions {
   captureDefinition?: (thread: {
     readonly threadId: string
     readonly metadata: Readonly<Record<string, unknown>>
+    readonly signal: AbortSignal
   }) => Promise<CapturedWorkspaceDefinition>
 }
 ```
@@ -371,7 +412,7 @@ Replace the signature and the `if (!record)` block of `getForThread`:
         let resolved: CapturedWorkspaceDefinition | undefined = this.#definition
         if (this.#options.captureDefinition) {
           const metadata = (await context.metadata?.()) ?? {}
-          resolved = await this.#options.captureDefinition({ threadId, metadata })
+          resolved = await this.#options.captureDefinition({ threadId, metadata, signal })
         }
         if (!resolved) throw new Error("Managed workspaces need a definition or a resolver")
         const definition = verifyCapturedWorkspaceDefinition(resolved)
@@ -757,6 +798,10 @@ form (no forced rebuild).
 
 > **As landed:** the resolver form is a tagged version-2 record, not a digest of the string
 > `"resolver"`, so the two forms cannot be confused by a digest collision on a constant.
+
+Also amend §5.1's `WorkspaceResolver` block to add `readonly signal: AbortSignal` to the input
+(aborted when the admitting run is cancelled; the resolver does I/O) and keep the return type
+`Promise<...>` only, with a matching `> **As landed:**` note.
 ```
 
 - [ ] **Step 7: Run**
@@ -1016,7 +1061,7 @@ In the `### \`@b4run/workspace\`` table, after the `CapturedWorkspaceDefinition`
 
 ```markdown
 | `WorkspaceResolver` | Decide one thread's initial workspace from its id and client metadata, once, at first admission. |
-| `WorkspaceResolverInput` | What a resolver is told: the thread id and its stored client metadata with the reserved key stripped. |
+| `WorkspaceResolverInput` | What a resolver is told: the thread id, its stored client metadata with the reserved key stripped, and the admitting run's abort signal. |
 ```
 
 The docs check keeps a hardcoded list of required contract keys for `@b4run/workspace` at `scripts/check-docs.mjs:1295-1306`. If Step 6 reports the new exports as undocumented or demands contracts for them, add `"@b4run/workspace#.:WorkspaceResolver"` and `"@b4run/workspace#.:WorkspaceResolverInput"` to that list and add matching `api-contract` blocks in the "Key contracts" section, copying their source text from Task 1 without comments.
@@ -1051,8 +1096,9 @@ different starting points — one repository pin per work order, say — make
 export default config({
   sandbox: {
     provider: dockerSandbox({ scope: "factory", image: "factory-builder:pinned" }),
-    workspace: async ({ threadId, metadata }) => {
+    workspace: async ({ threadId, metadata, signal }) => {
       const task = String(metadata.task ?? "")
+      signal.throwIfAborted()
       if (!/^[a-z0-9-]+$/.test(task)) throw new Error(`thread ${threadId} names no task`)
       return { source: { directory: `tasks/${task}`, include: ["src", "TASK.md"] }, baseline: "git" }
     },
