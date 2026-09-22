@@ -1,10 +1,10 @@
 # Persistence and Tenancy
 
-B4.run's Node runtime uses local SQLite stores by default. That is a good one-process default, but it is not a tenancy model: production tenant ownership is an application boundary and is never inferred from a thread id.
+B4.run's Node runtime uses local SQLite stores by default. That works well for one process, but it does not give you tenancy. Tenant ownership is an application boundary, and B4.run never infers it from a thread id.
 
 ## What B4.run persists
 
-The runtime writes several independent kinds of state. They do not share one lifecycle merely because they belong to the same application.
+The runtime writes several independent kinds of state, and each has its own lifecycle:
 
 | Data | Default location | Shared option | Namespace or tenant key | Deletion behavior | Owner |
 |---|---|---|---|---|---|
@@ -53,9 +53,9 @@ Do not treat route parameters, request bodies, thread ids, or memory scope strin
 
 1. The runtime deletes thread metadata first.
 2. If the configured checkpoint saver exposes `deleteThread`, the runtime awaits that call.
-3. Only after the checkpoint step succeeds—or is unsupported—does it destroy the thread's sandbox state and volume when a sandbox manager is configured.
+3. Only after the checkpoint step succeeds (or is unsupported) does it destroy the thread's sandbox state and volume when a sandbox manager is configured.
 
-Optional checkpoint deletion support is the limited best-effort boundary: a saver without `deleteThread` is skipped. Once a supported saver is called, its errors are not swallowed. A saver error propagates after metadata is already gone and can prevent sandbox cleanup. An HTTP `204` means every step that was attempted completed; it does not mean a cross-store transaction committed.
+A saver without `deleteThread` is skipped. Once a supported saver is called, its errors are not swallowed. A saver error propagates after metadata is already gone and can prevent sandbox cleanup. An HTTP `204` means every step that was attempted completed; it does not mean a cross-store transaction committed.
 
 That operation does **not** remove global permission decisions, typed long-term memory, arbitrary workspace files, application database rows, or data held by another service. Account deletion therefore requires an application-level inventory and workflow across every relevant store.
 

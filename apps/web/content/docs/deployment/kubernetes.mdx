@@ -1,12 +1,10 @@
 # Kubernetes
 
-Deploy Kubernetes applications by building the Node target image first, then installing the `b4-app` chart. The chart runs an image; it does not build one or translate `b4.config.ts`.
+To deploy on Kubernetes, build the Node target image first, then install the `b4-app` chart. The chart runs an image. It does not build one or translate `b4.config.ts`.
 
 ## Prerequisites
 
-Build and publish a Node image as described in [Node and Docker](/docs/deployment/node):
-
-Confirm that the app has the secret-safe `.dockerignore` from that guide before running `docker build`; keep `.b4/build` in the context.
+Build and publish a Node image as described in [Node and Docker](/docs/deployment/node). Make sure the app has the secret-safe `.dockerignore` from that guide first, and keep `.b4/build` in the context:
 
 ```bash
 b4 check
@@ -15,7 +13,7 @@ docker build -t ghcr.io/you/my-b4-app:2026-08-10 .
 docker push ghcr.io/you/my-b4-app:2026-08-10
 ```
 
-If the app configures `kubernetesSandbox`, keep the infrastructure Helm release, the B4.run app, and application credentials in the separate `b4-app` management namespace while sandbox resources live in `b4-sandboxes`. Before the first install, prepare the complete intended cross-namespace subject list:
+If the app configures `kubernetesSandbox`, keep the infrastructure Helm release, the B4.run app and application credentials in the separate `b4-app` management namespace. Sandbox resources live in `b4-sandboxes`. Before the first install, prepare the complete intended cross-namespace subject list:
 
 ```yaml title="b4-sandbox-infra-values.yaml"
 orchestrator:
@@ -61,15 +59,15 @@ helm upgrade b4-app oci://ghcr.io/cacheplane/charts/b4-app \
 
 ## Health probes
 
-The chart sends startup, readiness, and liveness HTTP probes to `healthPath`, which defaults to `/healthz`. B4.run's response there is process **liveness**, not dependency readiness: it touches no store and does not query the model, Postgres, or the sandbox provider.
+The chart sends startup, readiness, and liveness HTTP probes to `healthPath`, which defaults to `/healthz`. B4.run's response there is process **liveness**, not dependency readiness: it touches no store and does not query the model, Postgres or the sandbox provider.
 
-The runtime also serves `GET /readyz`, which probes the durable stores (threads, checkpointer, permissions) and answers `503` naming each failing dependency. Point `healthPath` at `/readyz` only if you want every probe, liveness included, to fail when the database is unreachable — the chart uses one path for all three. Neither probe covers the model or sandbox provider; add a separately owned check if rollout safety requires one.
+The runtime also serves `GET /readyz`, which probes the durable stores (threads, checkpointer, permissions) and answers `503` naming each failing dependency. The chart uses one path for all three probes, so point `healthPath` at `/readyz` only if you want every probe, liveness included, to fail when the database is unreachable. Neither endpoint checks the model or sandbox provider. Add your own check if rollout safety needs one.
 
-Some store construction happens while the Node runtime is assembled, so a boot failure can prevent the listener from starting at all; that is a startup failure, not a `/healthz` verdict.
+Some stores are constructed while the Node runtime is assembled, so a boot failure can stop the listener from starting at all. That is a startup failure, not a `/healthz` verdict.
 
 ## Environment and secrets
 
-Set ordinary environment entries through `env`/`envFrom`. For an existing Kubernetes Secret, use the convenience value:
+Set ordinary environment entries through `env` or `envFrom`. For an existing Kubernetes Secret, use `secretName`:
 
 ```bash
 helm upgrade b4-app oci://ghcr.io/cacheplane/charts/b4-app \
@@ -80,13 +78,13 @@ helm upgrade b4-app oci://ghcr.io/cacheplane/charts/b4-app \
 
 The chart references the Secret but does not create it. Put model credentials and `DATABASE_URL` in an operator-managed Secret, and apply the tenant and authentication boundary described in [Security Architecture](/docs/security-architecture).
 
-Shared Postgres stores and local `.b4` files have different lifetimes. Configure each state domain with [Persistence and Tenancy](/docs/persistence) before relying on restarts or replicas.
+Shared Postgres stores and local `.b4` files have different lifetimes. Configure each state domain with [Persistence and Tenancy](/docs/persistence) before you rely on restarts or replicas.
 
 ## Filesystem durability
 
-The `b4-app` chart mounts only an `emptyDir` at `/tmp`. It does not mount the app's `.b4` directory. Local SQLite checkpoints, threads, permissions, and other `.b4` data are therefore ephemeral across Pod replacement.
+The `b4-app` chart mounts only an `emptyDir` at `/tmp`. It does not mount the app's `.b4` directory. So local SQLite checkpoints, threads, permissions and other `.b4` data are lost when a Pod is replaced.
 
-Use external durable stores where replacement must preserve state. Sandbox-provider workspaces have their own volume lifecycle and are not made durable by the app Pod's `/tmp` mount.
+Use external durable stores where state must survive replacement. Sandbox-provider workspaces have their own volume lifecycle, separate from the app Pod's `/tmp` mount.
 
 ## ServiceAccount ownership
 
@@ -97,9 +95,9 @@ The chart defaults are:
 - `sandboxNamespace=b4-sandboxes`, which is informational only;
 - `automountServiceAccountToken=true` on the app Pod.
 
-For an app that uses `kubernetesSandbox`, use the default application-owned ServiceAccount in the management namespace. Add that planned ServiceAccount as a cross-namespace subject of the sandbox infrastructure chart's orchestrator Role **before** installing the application. A RoleBinding subject is a name reference, so it may refer to a future ServiceAccount. Recording that authorization first prevents a Ready-but-sandbox-broken window in which the app Pod is running but sandbox API calls are still forbidden.
+For an app that uses `kubernetesSandbox`, use the default application-owned ServiceAccount in the management namespace. Add that planned ServiceAccount as a cross-namespace subject of the sandbox infrastructure chart's orchestrator Role **before** installing the application. A RoleBinding subject is a name reference, so it can refer to a future ServiceAccount. Granting the authorization first prevents a Ready-but-sandbox-broken window, where the app Pod is running but its sandbox API calls are still forbidden.
 
-First capture the installed infrastructure chart version and export the release's effective values, including every existing RoleBinding subject:
+First, capture the installed infrastructure chart version and export the release's effective values, including every existing RoleBinding subject:
 
 ```bash
 INFRA_CHART_VERSION="$(helm get metadata b4-sandbox-infra --namespace b4-app | awk '$1 == "VERSION:" { print $2 }')"
@@ -109,7 +107,7 @@ helm get values b4-sandbox-infra --all --output yaml \
   > b4-sandbox-infra-rbac-values.yaml
 ```
 
-Edit `b4-sandbox-infra-rbac-values.yaml` so `orchestrator.subjects` contains the **complete intended subject list**: preserve every existing entry and append the planned application ServiceAccount as a cross-namespace subject. For a release whose existing extra-subject list is empty, that section is:
+Edit `b4-sandbox-infra-rbac-values.yaml` so `orchestrator.subjects` contains the **complete intended subject list**: preserve every existing entry and append the planned application ServiceAccount as a cross-namespace subject. If the release has no extra subjects yet, that section is:
 
 ```yaml title="b4-sandbox-infra-rbac-values.yaml"
 orchestrator:
@@ -119,7 +117,7 @@ orchestrator:
       namespace: b4-app
 ```
 
-Inspect the complete file, then apply it. Helm replaces arrays as values, so do not assign a guessed numeric subject index.
+Inspect the complete file, then apply it. Helm replaces arrays as values, so do not assign a guessed numeric subject index:
 
 ```bash
 helm upgrade b4-sandbox-infra oci://ghcr.io/cacheplane/charts/b4-sandbox-infra \
@@ -128,9 +126,9 @@ helm upgrade b4-sandbox-infra oci://ghcr.io/cacheplane/charts/b4-sandbox-infra \
   --values b4-sandbox-infra-rbac-values.yaml
 ```
 
-Keep the provider's configured namespace, the infrastructure chart namespace, and the informational `sandboxNamespace` value aligned. Changing `sandboxNamespace` alone does not change RBAC or where sandbox Pods are created.
+Keep the provider's configured namespace, the infrastructure chart namespace and the informational `sandboxNamespace` value aligned. Changing `sandboxNamespace` alone does not change RBAC or where sandbox Pods are created.
 
-Applications that do not configure `kubernetesSandbox` do not need Kubernetes API credentials or an orchestrator RoleBinding. Install with an application-owned ServiceAccount and disable token mounting as one complete mode:
+Applications that do not configure `kubernetesSandbox` do not need Kubernetes API credentials or an orchestrator RoleBinding. Install with an application-owned ServiceAccount and turn off token mounting:
 
 ```bash
 helm upgrade --install b4-app oci://ghcr.io/cacheplane/charts/b4-app \
@@ -140,23 +138,23 @@ helm upgrade --install b4-app oci://ghcr.io/cacheplane/charts/b4-app \
   --set automountServiceAccountToken=false
 ```
 
-No orchestrator RoleBinding is needed in this mode because the application does not call the Kubernetes API through `kubernetesSandbox`. If the application needs some unrelated Kubernetes API permission, grant that separately rather than binding the sandbox orchestrator Role.
+No orchestrator RoleBinding is needed in this mode because the application does not call the Kubernetes API through `kubernetesSandbox`. If the application needs some unrelated Kubernetes API permission, grant it separately instead of binding the sandbox orchestrator Role.
 
 ## Replicas and run coordination
 
-Postgres can provide shared durable stores for checkpoints, thread metadata, and permission decisions. Long-term memory is configured separately. Even with all of those shared, the active one-run-per-thread gate and cancellation registry remain process-local.
+Postgres can provide shared durable stores for checkpoints, thread metadata and permission decisions. Long-term memory is configured separately. Even with all of those shared, the one-run-per-thread gate and the cancellation registry stay process-local.
 
-More than one replica therefore requires guaranteed thread-aware routing to one owning process, or distributed per-thread serialization plus cancel routing. An HPA changes replica count and a PodDisruptionBudget constrains disruption; neither coordinates B4.run runs or ensures that a cancel request reaches the owning process. Keep the conservative one-replica default until that coordination exists.
+So more than one replica requires guaranteed thread-aware routing to one owning process, or distributed per-thread serialization plus cancel routing. An HPA changes replica count and a PodDisruptionBudget limits disruption, but neither coordinates B4.run runs or makes sure a cancel request reaches the owning process. Keep the one-replica default until that coordination exists.
 
-See [Production Topology](/docs/production-topology) for request routing, cancellation, and failure-mode design.
+See [Production Topology](/docs/production-topology) for request routing, cancellation and failure-mode design.
 
 ## Rollouts and shutdown
 
-The generated Node `server.mjs` does not opt into `serveRuntime` signal handlers. The runtime has a drainable `close()` path, but the generated entry does not currently call it on `SIGTERM`. Set realistic termination grace periods, test streaming requests through a rollout, and use a caller-owned Node entry when coordinated signal handling is required.
+The generated Node `server.mjs` does not opt into `serveRuntime` signal handlers. The runtime has a drainable `close()` path, but the generated entry does not currently call it on `SIGTERM`. Set realistic termination grace periods, test streaming requests through a rollout, and write your own Node entry when you need coordinated signal handling.
 
 ## Chart reference
 
-Review the released chart's [`README.md`](https://github.com/cacheplane/b4run/blob/main/charts/b4-app/README.md) and [`values.yaml`](https://github.com/cacheplane/b4run/blob/main/charts/b4-app/values.yaml) before installation. The chart exposes image, probe, ServiceAccount, environment, ingress, autoscaling, disruption-budget, and security-context values without enforcing B4.run's higher-level replica or persistence requirements.
+Review the released chart's [`README.md`](https://github.com/cacheplane/b4run/blob/main/charts/b4-app/README.md) and [`values.yaml`](https://github.com/cacheplane/b4run/blob/main/charts/b4-app/values.yaml) before you install. The chart exposes image, probe, ServiceAccount, environment, ingress, autoscaling, disruption-budget and security-context values. It does not enforce B4.run's replica or persistence requirements.
 
 <RelatedCards
   items={[

@@ -5,5 +5,5 @@ export const SOCIAL_IMAGE = {
   type: "image/png",
   width: 1200,
   height: 630,
-  alt: "B4.run — Ridiculous speed. Readable code.",
+  alt: "B4.run: Ridiculous speed. Readable code.",
 } as const

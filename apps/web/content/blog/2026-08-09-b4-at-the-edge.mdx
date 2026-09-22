@@ -1,5 +1,5 @@
 ---
-title: B4.run at the edge — The Hono target
+title: "B4.run at the edge: The Hono target"
 description: B4.run's opt-in Hono target emits a Node-free Cloudflare Workers entry with request-scoped Postgres stores and a tested workerd subset.
 date: 2026-08-09
 tags: [typescript, agents, patterns]
@@ -10,19 +10,19 @@ draft: true
 
 The first request to the edge build worked. The second request hung.
 
-That failure helped explain something a successful bundle could not: a database connection created during one request was being reused during another. The code looked reasonable in a long-running Node server, but its lifetime was wrong for the edge runtime.
+That failure showed something a successful bundle could not: a database connection created during one request was being reused during another. The code looked fine for a long-running Node server, but its lifetime was wrong for the edge runtime.
 
-Let's use that problem to walk through B4.run's Hono build target. We will look at the generated files, how a request uses storage, and which parts of an agent application fit this environment.
+Let's use that bug to walk through B4.run's Hono build target. We will look at the generated files, how a request uses storage and which parts of an agent application fit this environment.
 
-**Version note:** This post explains the edge work through 0.8.21. The configuration examples use the later `@b4run` package names. Use the [current edge deployment guide](/docs/deployment/edge) for installation; `@b4run` packages were first published at 0.8.27. The runtime evidence discussed here is from local workerd tests, not a live Cloudflare deployment.
+**Version note:** This post covers the edge work through 0.8.21. The configuration examples use the later `@b4run` package names, first published at 0.8.27, so use the [current edge deployment guide](/docs/deployment/edge) to install. The runtime evidence here comes from local workerd tests, not a live Cloudflare deployment.
 
 ## What is an edge runtime?
 
-For this post, the target is Cloudflare Workers, which runs application code in workerd. An **isolate** is the JavaScript execution environment in which the Worker handles requests. It can handle more than one request, but it does not provide the same environment as a Node process with unrestricted filesystem and process APIs.
+For this post, the target is Cloudflare Workers, which runs application code in workerd. An **isolate** is the JavaScript environment where the Worker handles requests. It can handle more than one request, but it is not a Node process with unrestricted filesystem and process APIs.
 
-B4.run's HTTP core accepts a web-standard `Request` and produces a `Response`. Hono supplies the web application around that handler. The build target generates the route imports, storage setup, and Hono entry needed to connect the pieces.
+B4.run's HTTP core accepts a web-standard `Request` and produces a `Response`. Hono supplies the web application around that handler. The build target generates the route imports, storage setup and Hono entry that connect the pieces.
 
-The familiar `Request` and `Response` types make this possible. They do not make every dependency or capability edge-compatible. We still need to understand what the application imports and how it uses resources.
+Of course, standard `Request` and `Response` types don't make every dependency or feature edge-compatible. We still need to know what the application imports and how it uses resources.
 
 ## Goals
 
@@ -34,7 +34,7 @@ The edge target needs to:
 4. Create and clean up database resources within the request that owns them.
 5. Report unsupported framework capabilities before deployment.
 
-The [0.8 overview](/blog/b4-0-8-framework-around-the-agent) covers the wider framework. Here we will focus on what changes when the runtime moves to Workers.
+The [0.8 overview](/blog/b4-0-8-framework-around-the-agent) covers the wider framework. Here we focus on what changes when the runtime moves to Workers.
 
 ## Select the Hono target
 
@@ -48,28 +48,24 @@ export default config({
 })
 ```
 
-First, we import the configuration helper. Then we specify the outputs the application needs.
-
-Setting `build.targets` replaces the default target list. In this example, we keep the Node and LangSmith outputs and add Hono. If you only need a subset, list that subset explicitly.
+Setting `build.targets` replaces the default target list. Here we keep the Node and LangSmith outputs and add Hono. If you only need some targets, list just those.
 
 The build generates these files:
 
 | File | What it does |
 | --- | --- |
-| `.b4/build/modules.edge.mjs` | Lists the route, tool, state, and middleware modules using static imports, with generated schemas included. |
+| `.b4/build/modules.edge.mjs` | Lists the route, tool, state and middleware modules as static imports, with generated schemas included. |
 | `.b4/build/stores.mjs` | Creates the request's database pool and the stores that share it. |
 | `.b4/build/app.mjs` | Exports a Hono app that forwards requests to B4.run's handler. |
-| `wrangler.toml` | Configures the Worker entry. A root scaffold is created only when one does not already exist. |
+| `wrangler.toml` | Configures the Worker entry. The root scaffold is created only if one does not exist. |
 
 These are generated source files. Wrangler, Cloudflare's development and deployment tool, bundles them with their dependencies for the Worker.
 
 ### When do we rebuild?
 
-If you change the implementation inside a route or tool already imported by the manifest, Wrangler can bundle that updated module. Changes to discovery or generated configuration require another B4.run build.
+If you change code inside a route or tool the manifest already imports, Wrangler bundles the updated module. Changes to discovery or generated configuration need another B4.run build. For example, rebuild after adding or renaming a tool, changing its input type, selecting another provider or changing configuration that is written into the generated entry.
 
-For example, rebuild after adding or renaming a tool, changing its input type, selecting another provider, or changing configuration that is written into the generated entry.
-
-The serializable configuration is included in `app.mjs`. Supply credentials through the host's secret bindings so they are available at runtime without putting them in generated source.
+The serializable configuration is included in `app.mjs`. Supply credentials through the host's secret bindings so they stay out of generated source.
 
 ## Make imports explicit
 
@@ -78,19 +74,19 @@ A Node application can use APIs such as `node:fs` and globals such as `Buffer`. 
 B4.run checks two things in its edge output:
 
 1. The generated entry and reachable framework runtime have no `node:` import dependencies.
-2. Framework-owned code does not rely on bare Node-only globals such as `process`, `Buffer`, or `require`.
+2. Framework-owned code does not rely on bare Node-only globals such as `process`, `Buffer` or `require`.
 
-The second check matters because `process.env` does not require an import. Checking import paths alone would miss it.
+The second check matters because `process.env` does not need an import, so checking import paths alone would miss it.
 
-Provider configuration uses a runtime environment helper. On Node it can read the process environment. In workerd it can read bindings supplied by the generated entry. This lets the model layer find credentials and settings such as `OPENAI_BASE_URL` in the appropriate environment.
+Provider configuration uses a runtime environment helper. On Node it reads the process environment. In workerd it reads bindings supplied by the generated entry. Either way, the model layer finds credentials and settings such as `OPENAI_BASE_URL`.
 
 ### Why static provider imports?
 
-The build also identifies the model providers used by the application and generates imports that name their packages explicitly. Wrangler can follow those imports to determine what belongs in the bundle.
+The build also finds the model providers the application uses and generates imports that name their packages. Wrangler follows those imports to decide what belongs in the bundle.
 
-If the build cannot inspect a route or map its model to a provider, it fails with an error. Guessing at a package name during a request would leave the bundler without a reliable dependency list.
+If the build cannot inspect a route or map its model to a provider, it fails with an error. Guessing a package name during a request would leave the bundler without a reliable dependency list.
 
-These checks cover B4.run's generated code and framework runtime. Your own tools can still import a Node-only dependency. Bundle and run the actual application to check those imports too.
+These checks cover B4.run's generated code and framework runtime. Your own tools can still import a Node-only dependency, so bundle and run the real application to catch those.
 
 ## Follow a request through storage
 
@@ -102,11 +98,11 @@ Three stores share the pool:
 - The **thread store** retains conversation records.
 - The **permission store** retains permission grants.
 
-These are runtime stores. They do not include the separate typed long-term memory collection declared by `memory.ts`.
+These are runtime stores. They do not include the typed long-term memory collection declared by `memory.ts`.
 
 ### The connection-lifetime bug
 
-The first implementation created a pool at module scope. In a long-running server, a pool commonly remains available across requests so connections can be reused.
+The first implementation created a pool at module scope. In a long-running server, a pool usually lives across requests so connections can be reused.
 
 Here is what happened in workerd:
 
@@ -116,37 +112,33 @@ Here is what happened in workerd:
 4. The socket still belonged to request one's completed I/O context.
 5. Request two waited until workerd cancelled the operation.
 
-A later request could open a fresh connection and work again. That produced the alternating success and hang.
-
-One successful request could never demonstrate that this design was correct. We needed to enter the same isolate from several request contexts.
+A later request could open a fresh connection and work again, which produced the alternating success and hang. One successful request could never prove the design correct. We needed to enter the same isolate from several request contexts.
 
 ### Create a pool for each request
 
-The generated target now creates a pool for the incoming request and gives that same pool to its three stores.
-
-The sequence is:
+The generated target now creates a pool for each incoming request and gives that pool to its three stores. Here is the sequence:
 
 1. Receive the HTTP request and its environment bindings.
 2. Create the request's Postgres pool and stores.
-3. Execute the runtime request using those stores.
+3. Run the runtime request with those stores.
 4. Wait for the response body and any run started by the request to finish.
 5. Dispose the request's pool.
 
-The fourth step is easy to miss. A streaming response may continue producing data after the handler returns a `Response` object. Run bookkeeping can also outlive that return. Closing the pool immediately would remove a resource still in use.
+The fourth step is easy to miss. A streaming response may keep producing data after the handler returns a `Response` object, and run bookkeeping can outlive that return too. Closing the pool right away would remove a resource still in use.
 
 ### Initialize the database schema
 
-Once database migrations finish, the generated target remembers that result in a boolean at module scope. Later requests can create stores with `assumeMigrated`.
+Once database migrations finish, the generated target remembers that in a boolean at module scope. Later requests create stores with `assumeMigrated`.
 
-This boolean is different from the connection pool: it contains a completed result and owns no socket or other request-bound I/O.
+Unlike the connection pool, this boolean holds a completed result and owns no socket or other request-bound I/O.
 
 Two initial requests can both reach the migration step before the boolean is set. The migration transactions use Postgres advisory locks to coordinate that case.
 
-The tested connection path uses a local Postgres database behind a local WebSocket proxy. It uses the driver's WebSocket pool, rather than its HTTP query function or a raw TCP `pg` connection. Neon Cloud and Cloudflare Hyperdrive are separate environments that this test does not qualify.
+The tested connection path uses a local Postgres database behind a local WebSocket proxy. It uses the driver's WebSocket pool, not its HTTP query function or a raw TCP `pg` connection. This test does not cover Neon Cloud or Cloudflare Hyperdrive.
 
 ## Check the application's capabilities
 
-Some agent capabilities depend on a filesystem, shell, container, or object that cannot be serialized into an edge build.
+Some agent features depend on a filesystem, shell, container or object that can't be serialized into an edge build.
 
 The capability check reports `B4_E1005` for unsupported configurations. The edge work described here rejects:
 
@@ -155,25 +147,25 @@ The capability check reports `B4_E1005` for unsupported configurations. The edge
 - An app-level `workspace/` directory.
 - Route skills that load instructions from disk.
 - Typed long-term memory declared in `memory.ts`.
-- Custom live instances of checkpointer, thread, permission, or memory stores.
+- Custom live instances of checkpointer, thread, permission or memory stores.
 
 The current target also rejects tool-output offloading, a restriction added after the 0.8.21 work. Use the [current capability list](/docs/deployment/edge#fit-check-and-evidence-boundary) when assessing a new application.
 
-The check reports detected violations together and points to the configuration or file involved. This is more useful than finding out during a request that a required capability is missing.
+The check reports all detected violations together and points to the configuration or file involved. That beats finding a missing feature during a request.
 
-There are limits to the check. Route marker files such as `plan.md` and `memory.md` may remain in the tree, but their filesystem readers are inactive in this environment. Passing the build check therefore does not establish that file-backed planning or memory works at the edge.
+The check has limits. Route marker files such as `plan.md` and `memory.md` may stay in the tree, but their filesystem readers are inactive here. Passing the build check does not mean file-backed planning or memory works at the edge.
 
 For an agent that edits files or runs commands, the [Node and Docker target](/docs/deployment/node) is a more direct starting point.
 
 ## Test more than the bundle
 
-The workerd test builds an OpenAI agent fixture and starts the generated output with `wrangler dev --local`. It uses the emitted Wrangler configuration without `nodejs_compat`, a local model fixture, and the local Postgres WebSocket path.
+The workerd test builds an OpenAI agent fixture and starts the generated output with `wrangler dev --local`. It uses the emitted Wrangler configuration without `nodejs_compat`, a local model fixture and the local Postgres WebSocket path.
 
-The test then sends four sequential AG-UI turns through the same isolate. AG-UI is the event protocol used by the browser-client adapter.
+The test then sends four sequential AG-UI turns through the same isolate. AG-UI is the event protocol the browser-client adapter uses.
 
-Why four turns? Each request must reload conversation state saved by earlier requests. Repeating the interaction also exercises fresh request contexts, which exposed the connection-lifetime bug.
+Why four turns? Each request must reload conversation state saved by earlier requests, and each one is a fresh request context. That is what exposed the connection-lifetime bug.
 
-The test checks database rows using a separate connection. It verifies that thread, checkpoint, and write records were persisted, rather than relying only on the text returned to the client.
+The test also checks database rows over a separate connection. It verifies that thread, checkpoint and write records were persisted, instead of trusting the text returned to the client.
 
 Here is what that evidence covers:
 
@@ -184,13 +176,13 @@ Here is what that evidence covers:
 | Complete four AG-UI turns | This conversation can continue across request contexts. |
 | Inspect persisted records | The expected runtime data reaches Postgres. |
 
-The workerd lane does not exercise Agent Protocol flows, tool calls, subagents, or human approvals. It also does not test other model providers, a live Cloudflare deployment, production connection and subrequest limits, upload and bundle limits, startup CPU limits, remote database latency, or cross-isolate cold starts. Running the same output on Vercel, Deno, or Bun would need its own qualification.
+The workerd lane does not exercise Agent Protocol flows, tool calls, subagents or human approvals. It also does not test other model providers, a live Cloudflare deployment, production connection and subrequest limits, upload and bundle limits, startup CPU limits, remote database latency or cross-isolate cold starts. Running the same output on Vercel, Deno or Bun would need its own testing.
 
-These are useful next tests for an application considering this target. Start with the capabilities and traffic pattern your application actually uses.
+If you are considering this target, those are good next tests. Start with the features and traffic pattern your application actually uses.
 
 ## Try the target locally
 
-Follow the [edge deployment guide](/docs/deployment/edge) to install a consistent set of current B4.run packages, the Neon driver, Hono, and Wrangler. Configure the database and model-provider bindings described there.
+Follow the [edge deployment guide](/docs/deployment/edge) to install matching current B4.run packages, the Neon driver, Hono and Wrangler. Configure the database and model-provider bindings it describes.
 
 With the target selected, check and build the application:
 
@@ -200,14 +192,14 @@ pnpm exec b4 build --clean
 pnpm exec wrangler dev --local
 ```
 
-Send more than one request. Continue a conversation, exercise each tool, and check that state survives between requests. A successful health response alone will not tell you whether the application works.
+Send more than one request. Continue a conversation, exercise each tool and check that state survives between requests. A successful health response alone won't tell you whether the application works.
 
-After local verification, test a deployment with the database, credentials, and limits of the intended host. The local workerd test does not replace that step.
+Then test a deployment with the database, credentials and limits of the host you intend to use. The local workerd test does not replace that step.
 
 ## Conclusion
 
-The Hono target shows how B4.run's request handler can run in a web-standard environment with an explicit set of supported capabilities.
+The Hono target runs B4.run's request handler in a web-standard environment with an explicit list of supported features.
 
-The most useful lesson came from the second request. A valid bundle and a successful first response did not tell us that our storage lifetime was correct. Following the connection through several requests did.
+The most useful lesson came from the second request. A valid bundle and a successful first response did not tell us our storage lifetime was correct. Following the connection through several requests did.
 
-If your agent fits the target's constraints, use that same approach: inspect the generated files, understand which resources belong to a request, and test the complete conversation in the environment where it will run.
+If your agent fits the target's constraints, take the same approach: inspect the generated files, know which resources belong to a request and test the whole conversation in the environment where it will run.

@@ -6,7 +6,7 @@ Import from `b4:routes` when application code needs route paths, dynamic paramet
 
 ## Install and import
 
-The module is generated with your B4.run app; it is not a package to install.
+B4.run generates this module for your app. There is no package to install.
 
 ```ts
 import type { B4RouteParams, B4RoutePath, B4RouteTools, RouteTools } from "b4:routes"
@@ -20,7 +20,7 @@ Do not hand-edit `.b4/b4.generated.d.ts`. Change routes, tools, or `state.ts`, t
 |---|---|---|---|
 | `b4:routes` | generated types | application | supported |
 
-The module has no runtime or purity classification because every export is erased by TypeScript.
+The module has no runtime or purity classification because TypeScript erases every export.
 
 ## Public exports
 

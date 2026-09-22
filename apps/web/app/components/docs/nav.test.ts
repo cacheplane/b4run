@@ -48,16 +48,27 @@ const FOUNDATION_DOCS_NAV = [
       { label: "Tools", href: "/docs/tools" },
       { label: "State", href: "/docs/state" },
       { label: "Workspace Filesystem", href: "/docs/workspace" },
-      { label: "Memory", href: "/docs/memory" },
-      { label: "Long-term Memory", href: "/docs/memory/long-term" },
-      { label: "Recall and Retrieval", href: "/docs/memory/retrieval" },
-      { label: "Episodes", href: "/docs/memory/episodes" },
-      { label: "Distillation", href: "/docs/memory/distillation" },
+    ],
+  },
+  {
+    label: "Harness",
+    items: [
       { label: "Planning", href: "/docs/planning" },
       { label: "Skills", href: "/docs/skills" },
       { label: "Subagents", href: "/docs/subagents" },
       { label: "Context Management", href: "/docs/context-management" },
       { label: "Reasoning Effort", href: "/docs/reasoning-effort" },
+    ],
+  },
+  {
+    label: "Memory",
+    items: [
+      { label: "Memory", href: "/docs/memory" },
+      { label: "Long-term Memory", href: "/docs/memory/long-term" },
+      { label: "Recall and Retrieval", href: "/docs/memory/retrieval" },
+      { label: "Episodes", href: "/docs/memory/episodes" },
+      { label: "Distillation", href: "/docs/memory/distillation" },
+      { label: "Browse and Manage Memory", href: "/docs/memory/browse" },
     ],
   },
   {
@@ -88,15 +99,19 @@ const FOUNDATION_DOCS_NAV = [
     items: [
       { label: "Persistence and Tenancy", href: "/docs/persistence" },
       { label: "Production Topology", href: "/docs/production-topology" },
+      { label: "Retry", href: "/docs/retry" },
+      { label: "Observability", href: "/docs/observability" },
+      { label: "Inspector", href: "/docs/inspector" },
+      { label: "Upgrading", href: "/docs/upgrading" },
+    ],
+  },
+  {
+    label: "Secure",
+    items: [
       { label: "Security Architecture", href: "/docs/security-architecture" },
       { label: "Access Control", href: "/docs/access-control" },
       { label: "Thread Access", href: "/docs/thread-access" },
       { label: "Permissions", href: "/docs/permissions" },
-      { label: "Retry", href: "/docs/retry" },
-      { label: "Observability", href: "/docs/observability" },
-      { label: "Inspector", href: "/docs/inspector" },
-      { label: "Browse and Manage Memory", href: "/docs/memory/browse" },
-      { label: "Upgrading", href: "/docs/upgrading" },
     ],
   },
   {

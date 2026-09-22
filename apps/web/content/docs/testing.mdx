@@ -126,13 +126,13 @@ b4 test
 
 ### When to use a server-backed scenario
 
-A server-backed scenario is useful when the claim depends on:
+Use a server-backed scenario when the claim depends on:
 
-- JSON request and response serialization;
-- request middleware and request-scoped context;
-- runtime boot and route lookup wiring;
-- packaged static modules in a built runtime; or
-- real staging infrastructure and deployment configuration.
+- JSON request and response serialization
+- request middleware and request-scoped context
+- runtime boot and route lookup wiring
+- packaged static modules in a built runtime
+- real staging infrastructure and deployment configuration
 
 Server-backed scenarios execute in another process and exchange JSON. JavaScript mock functions cannot cross that boundary, so `.server()` and `.mockTool()` are mutually exclusive in the builder and in runtime validation. B4.run does not install a test backdoor or a serializable mock interpreter in the server.
 
@@ -142,8 +142,8 @@ Control server dependencies at their real boundary instead. Start a local fake H
 
 Two cross-cutting features shape what scenarios assert:
 
-- **Agent retries** — `agent({ retry: { maxAttempts, baseDelay } })` retries on transient errors. To assert the exhausted-retry path, call `.expectFailed().expectError(...)` or use `.assert()` with `expectError`. See [Retry](/docs/retry).
-- **Middleware** — `src/middleware.ts` runs before local Agent Protocol run and stream requests. **Server-backed scenarios targeting a B4.run runtime exercise middleware; in-process scenarios bypass it.** A scenario whose middleware calls `reject(...)` should use `.expectFailed().expectError(...)`. See [Middleware](/docs/middleware). The in-process agent harness likewise bypasses middleware; `createAgentHarness({ middlewareContext })` supplies the context its tools would otherwise read from it.
+- **Agent retries:** `agent({ retry: { maxAttempts, baseDelay } })` retries on transient errors. To assert the exhausted-retry path, call `.expectFailed().expectError(...)` or use `.assert()` with `expectError`. See [Retry](/docs/retry).
+- **Middleware:** `src/middleware.ts` runs before local Agent Protocol run and stream requests. **Server-backed scenarios targeting a B4.run runtime exercise middleware; in-process scenarios bypass it.** A scenario whose middleware calls `reject(...)` should use `.expectFailed().expectError(...)`. See [Middleware](/docs/middleware). The in-process agent harness also bypasses middleware. `createAgentHarness({ middlewareContext })` supplies the context its tools would otherwise read from it.
 
 ## Rules
 
@@ -161,7 +161,7 @@ Two cross-cutting features shape what scenarios assert:
     Mock only the external or nondeterministic application tools needed for the claim. Leave deterministic tools real, and use a server-backed scenario when the transport boundary itself is under test.
   </Step>
   <Step title="Keep scenarios focused">
-    One scenario = one claim about the route's behavior. If you're adding branches, add more scenarios — don't inflate a single one.
+    One scenario makes one claim about the route's behavior. If you're adding branches, add more scenarios instead of growing a single one.
   </Step>
 </Steps>
 
@@ -174,13 +174,13 @@ Use `b4 verify` as the integrity gate (it covers app, routes, typegen, and deps 
 - run: pnpm exec b4 test
 ```
 
-`b4 verify` runs typegen and check internally, plus the deps check (missing packages, missing env vars) that bare `b4 check && b4 typegen` does not. Typegen also refreshes `.b4/scenarios.generated.d.ts`, which powers route and application-tool completion in `run.test.ts`. `b4 test` exits non-zero on any failure and outputs a diff per mismatched scenario.
+`b4 verify` runs typegen and check, plus the deps check (missing packages, missing env vars) that bare `b4 check && b4 typegen` skips. Typegen also refreshes `.b4/scenarios.generated.d.ts`, which powers route and application-tool completion in `run.test.ts`. `b4 test` exits non-zero on any failure and outputs a diff per mismatched scenario.
 
 ## Unit-testing tools and middleware
 
-The scenario harness drives a whole route through the runtime. Sometimes you want to test one unit in isolation — a single route tool, a `FilesystemMiddleware`, or `ctx.fs`-using code — without standing up an agent. `@b4run/testing` ships three harnesses for this. They run against the **real** `WorkspaceFs` and filesystem backend over a temp directory, so real permission gating, realpath resolution, and parent-directory creation all apply.
+Sometimes you want to test one unit (a single route tool, a `FilesystemMiddleware`, or code that uses `ctx.fs`) without standing up an agent. `@b4run/testing` ships three harnesses for this. They run against the **real** `WorkspaceFs` and filesystem backend over a temp directory, so real permission gating, realpath resolution and parent-directory creation all apply.
 
-All three are async `create*Harness` factories that return a handle with `.close()` and `[Symbol.asyncDispose]` — the same convention as `createAgentHarness`. Across `@b4run/testing`, every harness/handle is created with a `create*` factory and torn down with `close()` (or `await using`).
+All three are async `create*Harness` factories that return a handle with `.close()` and `[Symbol.asyncDispose]`, the same convention as `createAgentHarness` and every other handle in `@b4run/testing`.
 
 ### A tool that uses `ctx.fs`
 
@@ -234,11 +234,11 @@ test("appendLine round-trips through the real WorkspaceFs", async () => {
 })
 ```
 
-The `await using` form auto-disposes the harness (cleaning up the temp dir) at the end of the block — the modern alternative to `afterEach(() => h.close())`. It works on all three harnesses.
+The `await using` form disposes the harness (and cleans up the temp dir) at the end of the block, in place of `afterEach(() => h.close())`. It works on all three harnesses.
 
 ### A filesystem middleware
 
-`createMiddlewareHarness(mw)` composes a `FilesystemMiddleware` over a temp `localFilesystem` and exposes the wrapped `backend` plus a `ctx` to call it with. `assertForwardsAll()` catches the most common middleware bug — silently dropping a backend method (required or optional) that the middleware doesn't intercept:
+`createMiddlewareHarness(mw)` composes a `FilesystemMiddleware` over a temp `localFilesystem` and exposes the wrapped `backend` plus a `ctx` to call it with. `assertForwardsAll()` catches the most common middleware bug: silently dropping a backend method (required or optional) that the middleware doesn't intercept:
 
 ```ts
 import { createMiddlewareHarness } from "@b4run/testing"

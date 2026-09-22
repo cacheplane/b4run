@@ -1,40 +1,24 @@
 # Research Assistant Web UI
 
-Wire a [CopilotKit](https://docs.copilotkit.ai) web client to B4.run's research
-demo over [AG-UI](/docs/ag-ui). The example is a workbench rather than a chat
-widget: it renders its own thread rail, transcript, and composer instead of
-mounting `CopilotSidebar`, so the streamed report and the plan, researcher,
-tool, and permission cards all appear inline in message order.
+Learn how to wire a [CopilotKit](https://docs.copilotkit.ai) web client to B4.run's research demo over [AG-UI](/docs/ag-ui). The example is a workbench instead of a chat widget. It renders its own thread rail, transcript, and composer instead of mounting `CopilotSidebar`, so the streamed report and the plan, researcher, tool, and permission cards all appear inline in message order.
 
-This recipe focuses on application wiring. For the endpoint, event contract,
-threading, and standard interrupt outcome, see [AG-UI and Web Clients](/docs/ag-ui).
+This recipe covers the application wiring. For the endpoint, event contract, threading, and standard interrupt outcome, see [AG-UI and Web Clients](/docs/ag-ui).
 
 ## What you'll build
 
-The demo lives in `examples/research`: a B4.run server (`server/`) and a Next.js
-CopilotKit client (`web/`). The client provides:
+The demo lives in `examples/research`: a B4.run server (`server/`) and a Next.js CopilotKit client (`web/`). The client provides:
 
-- **Thread rail** - "New conversation" plus the list of threads, each titled
-  from its first user message.
-- **Chat + report** - streamed markdown output and citations in the app's own
-  transcript.
-- **Plan cards** - the root checklist updates in place while research runs.
-- **Researcher cards** - delegated-work status, child checklist progress, and a
-  bounded trail of child-tool names and statuses.
-- **Suggestions + tools** - three discovery prompts on the empty state, and
-  generic root-tool cards in the transcript.
-- **Permissions** - standard interrupt UI owns approval and denial actions,
-  rendered at the end of the transcript where the run stopped.
-- **Composer** - send, and stop while a run is in flight; blocked while the
-  agent is running or waiting on an approval, with the header saying which.
+- **Thread rail:** "New conversation" plus the list of threads, each titled from its first user message.
+- **Chat + report:** streamed markdown output and citations in the app's own transcript.
+- **Plan cards:** the root checklist updates in place while research runs.
+- **Researcher cards:** delegated-work status, child checklist progress, and a bounded trail of child-tool names and statuses.
+- **Suggestions + tools:** three discovery prompts on the empty state, and generic root-tool cards in the transcript.
+- **Permissions:** the standard interrupt UI owns the approve and deny actions, rendered at the end of the transcript where the run stopped.
+- **Composer:** send, and stop while a run is in flight. It is blocked while the agent is running or waiting on an approval, and the header says which.
 
-The plan and researcher cards are informational. They never resolve or cancel
-an interrupt; interrupt outcomes and answers use the standard AG-UI fields
-documented on the protocol page.
+The plan and researcher cards are informational. They never resolve or cancel an interrupt. Interrupt outcomes and answers use the standard AG-UI fields described on the protocol page.
 
-Durable-memory review is part of the Workbench: a bounded panel reaches B4.run
-through the same allowlisted, same-origin proxy used for thread hydration. See
-[Approve memory candidates](#approve-memory-candidates) below.
+The Workbench also reviews durable memory. A small panel reaches B4.run through the same allowlisted, same-origin proxy used for thread hydration. See [Approve memory candidates](#approve-memory-candidates) below.
 
 ## Run it
 
@@ -65,9 +49,7 @@ Open [http://localhost:3010](http://localhost:3010) and ask a research question.
 
 ## Connect the client to B4.run
 
-The Next.js runtime route registers an AG-UI `HttpAgent` pointed at the encoded
-B4.run assistant id. Register it under CopilotKit's `default` agent id so every
-hook binds without per-component wiring:
+The Next.js runtime route registers an AG-UI `HttpAgent` pointed at the encoded B4.run assistant id. Register it under CopilotKit's `default` agent id so every hook binds without per-component wiring:
 
 <CodeGroup>
 
@@ -118,78 +100,39 @@ export const POST = handler
 
 </CodeGroup>
 
-The required catch-all route exposes CopilotKit's V2 REST and SSE paths under
-`/api/copilotkit/*`. Setting `useSingleEndpoint={false}` makes the browser begin
-with `GET /api/copilotkit/info` instead of sending the legacy method envelope to
-the base URL. The web runtime holds no model credential; only the B4.run server has
-`OPENAI_API_KEY`.
+The catch-all route is required. It exposes CopilotKit's V2 REST and SSE paths under `/api/copilotkit/*`. Setting `useSingleEndpoint={false}` makes the browser start with `GET /api/copilotkit/info` instead of sending the legacy method envelope to the base URL. The web runtime holds no model credential. Only the B4.run server has `OPENAI_API_KEY`.
 
 <Callout type="warn" title="Register the agent as default">
   CopilotKit hooks that omit an `agentId` resolve the id `default`. Register the
   B4.run agent under that id, or set the same explicit id on every consumer.
 </Callout>
 
-Three pieces of that tree are load-bearing:
+Three pieces of that tree matter most:
 
-- `defaultThrottleMs={100}` — the re-render throttle defaults to *unthrottled*,
-  and a full research run streams hundreds of events, which pegs the renderer.
-- `CopilotChatConfigurationProvider` — `CopilotKit` does not provide one;
-  `<CopilotChat>` and `<CopilotSidebar>` did. Without it every thread-aware hook
-  falls back to the agent's own auto-minted thread and selecting a row in the
-  rail would change nothing.
-- `<DemoSuggestions />` and `<ToolCallCard />` render nothing. They publish into
-  CopilotKit's registries, and the transcript reads them back.
+- `defaultThrottleMs={100}`: the re-render throttle defaults to *unthrottled*, and a full research run streams hundreds of events, which pegs the renderer.
+- `CopilotChatConfigurationProvider`: `CopilotKit` does not provide one (`<CopilotChat>` and `<CopilotSidebar>` did). Without it, every thread-aware hook falls back to the agent's own auto-minted thread, and selecting a row in the rail would change nothing.
+- `<DemoSuggestions />` and `<ToolCallCard />` render nothing. They publish into CopilotKit's registries, and the transcript reads them back.
 
 ## The workbench shell
 
-`AppShell` is the only component that talks to the agent. It calls `useAgent()`
-with no arguments — the unscoped form, which takes its thread from the
-surrounding chat configuration — so the transcript, `useInterrupt`,
-`useSuggestions`, and the tool-call renderers all resolve the same agent and the
-same thread.
+`AppShell` is the only component that talks to the agent. It calls `useAgent()` with no arguments. That unscoped form takes its thread from the surrounding chat configuration, so the transcript, `useInterrupt`, `useSuggestions`, and the tool-call renderers all resolve the same agent and thread.
 
-Two consequences of dropping the sidebar are worth copying if you build your
-own shell:
+Dropping the sidebar has two consequences worth copying if you build your own shell:
 
-- **Run failures need a subscription.** `copilotkit.runAgent` does not reject
-  when a run fails; it catches, emits an error, and resolves normally. Failures
-  surface through `copilotkit.subscribe({ onError })`, which is what the sidebar
-  used to do for you.
-- **The permission gate needs `renderInChat: false`.** The default (`true`)
-  publishes the element into `<CopilotChat>`/`<CopilotSidebar>`. With neither
-  mounted, the gate would render nowhere: the run parks with no approve or deny
-  UI, no error, and green tests. With it set, `useInterrupt` returns the element
-  and `Transcript` places it at the end of the message list.
+- **Run failures need a subscription.** `copilotkit.runAgent` does not reject when a run fails. It catches, emits an error, and resolves normally. Failures surface through `copilotkit.subscribe({ onError })`, which the sidebar used to do for you.
+- **The permission gate needs `renderInChat: false`.** The default (`true`) publishes the element into `<CopilotChat>`/`<CopilotSidebar>`. With neither mounted, the gate renders nowhere: the run parks with no approve or deny UI, no error, and green tests. With it set, `useInterrupt` returns the element and `Transcript` places it at the end of the message list.
 
-Threads are local to the browser. B4.run's server can create and fetch a thread by
-id but cannot enumerate threads, so the rail keeps its own list in
-`localStorage` behind a `ThreadSource` interface
-(`examples/research/web/app/lib/thread-source.ts`); CopilotKit's `useThreads` is
-deliberately unused. That same seam is how history comes back on a switch:
-CopilotKit's own replay path (`connectAgent`) is reached only from inside
-`<CopilotChat>`, which this app does not mount, so the shell reads
-`GET /threads/:id/state` through the proxy instead and maps the checkpoint's
-LangChain envelopes into the shapes the transcript already renders
-(`app/lib/hydrate.ts`). Messages, tool calls and results, and the plan come
-back; subagent activity cards from earlier runs are not checkpointed and do
-not, which the app says in a line above the restored messages.
+Threads are local to the browser. B4.run's server can create and fetch a thread by id but cannot list threads, so the rail keeps its own list in `localStorage` behind a `ThreadSource` interface (`examples/research/web/app/lib/thread-source.ts`). The app does not use CopilotKit's `useThreads`.
 
-The same seam carries `GET /threads/:id/pending_interrupts`, which is what makes
-a permission prompt survive a reload. `useInterrupt`'s state is fed only by live
-run events, so after a reload the server is still holding the gate and nothing
-on screen says so; `app/components/HydratedInterrupts.tsx` asks for the parked
-interrupts and reports their count upward so the composer stays blocked until
-one is answered.
+The same seam restores history when you switch threads. CopilotKit's own replay path (`connectAgent`) is only reached from inside `<CopilotChat>`, which this app does not mount. So the shell reads `GET /threads/:id/state` through the proxy and maps the checkpoint's LangChain envelopes into the shapes the transcript already renders (`app/lib/hydrate.ts`). Messages, tool calls and results, and the plan come back. Subagent activity cards from earlier runs are not checkpointed, so they don't, and the app says so in a line above the restored messages.
 
-Restyling is one file: `examples/research/web/app/theme.css` defines the palette
-as CSS variables and re-exports it as Tailwind tokens through `@theme inline`,
-which is why the app's utilities read `bg-wb-surface`, `border-wb-border`, and
-`rounded-wb`.
+The same seam also carries `GET /threads/:id/pending_interrupts`, which lets a permission prompt survive a reload. `useInterrupt` only gets its state from live run events, so after a reload the server is still holding the gate and nothing on screen says so. `app/components/HydratedInterrupts.tsx` asks for the parked interrupts and reports their count upward, so the composer stays blocked until one is answered.
+
+To restyle the app, edit `examples/research/web/app/theme.css`. It defines the palette as CSS variables and re-exports it as Tailwind tokens through `@theme inline`. That is why the app's utilities read `bg-wb-surface`, `border-wb-border`, and `rounded-wb`.
 
 ## Render plan and researcher activities
 
-The plan and researcher cards ship with the adapter. Install the package and
-hand its renderer array to CopilotKit:
+The plan and researcher cards ship with the adapter. Install the package and hand its renderer array to CopilotKit:
 
 ```bash
 pnpm add @b4run/ag-ui
@@ -211,76 +154,33 @@ Then import the stylesheet once, in your root layout:
 import "@b4run/ag-ui/react/styles.css"
 ```
 
-That import is not optional polish. The cards carry no inline styles, so without
-it they render as bare markup. Once it is in place, restyle by overriding the
-`--b4-activity-*` custom properties in your own CSS — see the
-[package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards)
-for the full customization ladder.
+You need that import. The cards carry no inline styles, so without it they render as bare markup. To restyle them, override the `--b4-activity-*` custom properties in your own CSS. The [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) walks through every customization option.
 
-`b4ActivityRenderers` is a module-scope constant, so the registry keeps a
-stable identity across React renders, and each renderer is keyed by the
-adapter's own activity-type constant. Both renderers validate the public
-activity content with a strict runtime schema: a payload with unknown or
-incompatible fields fails closed instead of dumping arbitrary JSON into the
-transcript.
+`b4ActivityRenderers` is a module-scope constant, so the registry keeps a stable identity across React renders. Each renderer is keyed by the adapter's own activity-type constant. Both renderers validate the public activity content with a strict runtime schema, so a payload with unknown or incompatible fields fails closed instead of dumping arbitrary JSON into the transcript.
 
-The example passes `workbenchActivityRenderers` instead — its own two renderers,
-in `examples/research/web/app/components/activity-renderers.tsx`. They are not
-forks: they wrap the packaged `PlanActivityCard` and `SubagentActivityCard` and
-pass the packaged content schemas, adding only per-part classes through the
-`classNames` prop, so validation and bounds stay in the package where they are
-tested. One constraint governs which classes work: a `classNames` entry can only
-set a property the package stylesheet leaves unset on that element, because the
-package's CSS is unlayered and Tailwind's utilities are not. What the sheet does
-claim on the card's own box — background, border color, radius, text color,
-font-size, margin and padding — plus the header's font weight and the depth
-badge's background, is reachable at rung 1 instead, through the
-`--b4-activity-*` tokens the app sets in `app/theme.css`.
+The example passes its own `workbenchActivityRenderers` instead, from `examples/research/web/app/components/activity-renderers.tsx`. These wrap the packaged `PlanActivityCard` and `SubagentActivityCard` and pass the packaged content schemas. They only add per-part classes through the `classNames` prop, so validation and bounds stay in the package where they are tested.
 
-React and `@copilotkit/react-core` are optional peer dependencies of
-`@b4run/ag-ui`, and only the `./react` subpath needs them. A server that uses
-the root or `./sse` entry installs nothing extra.
+There is one catch with `classNames`. An entry can only set a property that the package stylesheet leaves unset on that element, because the package's CSS is unlayered and Tailwind's utilities are not. The properties the stylesheet does set on the card's own box (background, border color, radius, text color, font-size, margin, and padding), plus the header's font weight and the depth badge's background, are reachable through the `--b4-activity-*` tokens instead. The app sets those in `app/theme.css`.
 
-To present the same activities your own way, the subpath also exports the pieces
-behind that array: `b4PlanActivityRenderer` and `b4SubagentActivityRenderer`
-for registering one without the other; `PlanActivityCard`, `SubagentActivityCard`,
-and `ActivityChecklist` as plain React components; and
-`planActivityContentSchema` and `subagentActivityContentSchema` for validating
-content before rendering it yourself. The cards take a `content` prop and need
-no CopilotKit context.
+React and `@copilotkit/react-core` are optional peer dependencies of `@b4run/ag-ui`, and only the `./react` subpath needs them. A server that uses the root or `./sse` entry installs nothing extra.
 
-Root plan snapshots replace `b4:plan:${runId}` and carry the complete todo
-list. Subagent snapshots replace `b4:subagent:${call_id}` and carry the name,
-depth, `running`/`completed`/`failed` status, optional todos, up to five recent
-tool name/status summaries, the total tool count, and an optional 400-character
-failure summary. Both root and child checklist views display at most eight
-todos, while their snapshots retain the complete valid todo lists.
-The `b4.plan` and `b4.subagent` activity content supplied to these cards
-excludes child reasoning or prose, prompts, tool inputs, tool outputs, final
-child answers, route ids, and raw runtime ids.
+To present the same activities your own way, the subpath also exports the pieces behind that array:
 
-These activities are the whole presentation of the two built-in orchestration
-tools. When a `writeTodos` or `task` call produced its activity, B4.run's AG-UI
-adapter emits no tool call/result events for that call, so the wildcard tool
-card receives the ordinary tools (`recall`, `searchCorpus`, `readDoc`,
-`writeFile`, and `runBash` once approved) but never `writeTodos` or `task`. The
-suppression happens in the adapter, not in
-CopilotKit or in these renderers.
+- `b4PlanActivityRenderer` and `b4SubagentActivityRenderer`, to register one without the other.
+- `PlanActivityCard`, `SubagentActivityCard`, and `ActivityChecklist` as plain React components. The cards take a `content` prop and need no CopilotKit context.
+- `planActivityContentSchema` and `subagentActivityContentSchema`, to validate content before you render it yourself.
 
-The wildcard card is still the fail-open fallback. If an activity cannot be
-produced — no tool-call id, a malformed payload, delegation that never starts —
-the ordinary tool events survive and the generic card renders them, which is why
-its `task` argument summary is worth keeping.
+Root plan snapshots replace `b4:plan:${runId}` and carry the complete todo list. Subagent snapshots replace `b4:subagent:${call_id}` and carry the name, depth, `running`/`completed`/`failed` status, optional todos, up to five recent tool name/status summaries, the total tool count, and an optional 400-character failure summary. The root and child checklist views show at most eight todos, but their snapshots keep the complete valid todo lists. The `b4.plan` and `b4.subagent` activity content excludes child reasoning or prose, prompts, tool inputs, tool outputs, final child answers, route ids, and raw runtime ids.
 
-Choose **Research a topic** on the empty transcript to see the root plan and
-researcher progress update before the cited answer. This live flow still uses
-the B4.run server's model key. The automated browser check proves only V2 transport
-selection; it does not replace this live-model flow.
+These activities are the whole presentation of the two built-in orchestration tools. When a `writeTodos` or `task` call produced its activity, B4.run's AG-UI adapter emits no tool call/result events for that call. So the wildcard tool card receives the ordinary tools (`recall`, `searchCorpus`, `readDoc`, `writeFile`, and `runBash` once approved) but never `writeTodos` or `task`. The adapter does this suppression, not CopilotKit or these renderers.
+
+The wildcard card is still the fail-open fallback. If an activity cannot be produced (no tool-call id, a malformed payload, or delegation that never starts), the ordinary tool events survive and the generic card renders them. That is why its `task` argument summary is worth keeping.
+
+Choose **Research a topic** on the empty transcript to see the root plan and researcher progress update before the cited answer. This live flow uses the B4.run server's model key. The automated browser check only proves V2 transport selection.
 
 ## Approve memory candidates
 
-When the coordinator calls `remember()`, B4.run stores a durable-memory candidate.
-The runtime exposes candidates over HTTP:
+When the coordinator calls `remember()`, B4.run stores a durable-memory candidate. The runtime exposes candidates over HTTP:
 
 ```text
 GET  /memory/candidates
@@ -288,33 +188,22 @@ POST /memory/candidates/:id/approve
 POST /memory/candidates/:id/reject
 ```
 
-The browser cannot call those routes directly unless the server sets
-[`server.cors`](/docs/configuration#server); with it absent the B4.run dev server sends no CORS
-headers — so the example reaches them through a same-origin catch-all,
-`app/api/b4/[...path]/route.ts`. That proxy is **allowlisted**, not
-pass-through: `app/lib/proxy-allowlist.ts` is a pure function listing the exact
-method and path shape of every route the browser may reach — the three memory
-routes above plus `GET /threads/:id/state` and
-`GET /threads/:id/pending_interrupts`. Anything else is rejected with 403 and
-never forwarded, which is what keeps `POST /threads/:id/resume` and the rest of
-the agent surface out of reach of a template every B4.run developer copies.
+The browser cannot call those routes directly unless the server sets [`server.cors`](/docs/configuration#server). Without it, the B4.run dev server sends no CORS headers, so the example reaches them through a same-origin catch-all, `app/api/b4/[...path]/route.ts`.
+
+That proxy is **allowlisted**. `app/lib/proxy-allowlist.ts` is a pure function listing the exact method and path shape of every route the browser may reach: the three memory routes above plus `GET /threads/:id/state` and `GET /threads/:id/pending_interrupts`. Anything else is rejected with 403 and never forwarded. That keeps `POST /threads/:id/resume` and the rest of the agent surface out of reach in a template every B4.run developer copies.
 
 <Callout title="Allowlist before you extend">
-  Running, resuming, and cancelling a thread are deliberately absent from the
-  list; those go through CopilotKit's own runtime route. Add a route to the
-  allowlist only when the browser genuinely needs it, and prefer reads. Note
-  what the allowlist is not: the proxy forwards with no authentication and the
-  example installs no `threadAccess` policy, so it bounds which routes are
-  reachable, not who may reach them — anything that can reach the Next app can
-  read any thread's transcript by guessing its id. Add a `threadAccess` policy
-  on the B4.run side before this leaves your own machine.
+  Running, resuming, and cancelling a thread are left off the list on purpose.
+  Those go through CopilotKit's own runtime route. Add a route to the allowlist
+  only when the browser really needs it, and prefer reads. Note, the proxy
+  forwards with no authentication and the example installs no `threadAccess`
+  policy. The allowlist limits which routes are reachable, not who can reach
+  them, so anything that can reach the Next app can read any thread's
+  transcript by guessing its id. Add a `threadAccess` policy on the B4.run side
+  before this leaves your own machine.
 </Callout>
 
-`app/components/MemoryPanel.tsx` renders the candidates in the thread rail with
-Approve and Delete on each — Delete maps to `/reject`, a hard delete on the
-server. It reads on mount and again at the end of every run, because
-`remember()` lands mid-run and a memory proposed in the answer you are reading
-should be reviewable without a reload:
+`app/components/MemoryPanel.tsx` renders the candidates in the thread rail with Approve and Delete on each. Delete maps to `/reject`, which is a hard delete on the server. The panel loads on mount and again at the end of every run. `remember()` lands mid-run, so a memory proposed in the answer you are reading should be reviewable without a reload:
 
 ```tsx title="examples/research/web/app/components/MemoryPanel.tsx"
 useEffect(() => {
@@ -337,9 +226,7 @@ useEffect(() => {
 }, [agent, load])
 ```
 
-The panel is review-only, and only of candidates: at most three are listed and
-the rest are counted. Browsing, searching, and editing stored memories remain
-the [`b4 memory`](/docs/memory/long-term) CLI's job.
+The panel only reviews candidates. It lists at most three and counts the rest. Browsing, searching, and editing stored memories is still the job of the [`b4 memory`](/docs/memory/long-term) CLI.
 
 <Callout title="Deep runs need a higher recursion limit">
   The coordinator plans, dispatches subagents, and makes many tool calls. The

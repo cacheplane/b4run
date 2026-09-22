@@ -16,10 +16,3 @@ export interface WalkthroughProps {
   readonly visible: readonly string[]
   readonly independent: readonly string[]
 }
-export interface Capability {
-  readonly key: string
-  readonly name: string
-  readonly lead: string
-  readonly explanation: string
-  readonly code: DisplayCode
-}

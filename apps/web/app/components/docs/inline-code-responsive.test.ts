@@ -6,6 +6,13 @@ import { describe, expect, it } from "vitest"
 const CSS = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../globals.css"), "utf8")
 
 describe("responsive inline code", () => {
+  it("never forces inline code onto one line", () => {
+    const baseRule = /^\.mdx-inline-code\s*{([^}]*)}/m.exec(CSS)?.[1]
+
+    expect(baseRule).toBeDefined()
+    expect(baseRule).not.toMatch(/white-space:\s*nowrap/)
+  })
+
   it("wraps inline code below 48rem while preserving block-code behavior", () => {
     const mediaRule = /@media\s*\(max-width:\s*47\.999rem\)\s*{([\s\S]*?)\n}/.exec(CSS)?.[1]
 

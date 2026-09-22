@@ -1,16 +1,18 @@
 # Execution Sandbox
 
-The execution sandbox gives a provider-keyed Agent Protocol thread an isolated filesystem, shell, and network boundary instead of letting workspace tools operate in the app's local `workspace/` directory. The built-in providers require an application scope and hash it with each logical thread ID to address resources. Applications still authorize thread access. Add a `sandbox` key to `b4.config.ts`, and B4.run routes `readFile`, `writeFile`, `listDir`, and `runBash` through a `SandboxProvider`. B4.run includes a Docker reference implementation; the same portable contract also supports other providers.
+The execution sandbox runs workspace tools inside an isolated filesystem, shell and network boundary instead of the app's local `workspace/` directory. Add a `sandbox` key to `b4.config.ts`, and B4.run routes `readFile`, `writeFile`, `listDir` and `runBash` through a `SandboxProvider`. B4.run ships a Docker reference implementation, and other providers can implement the same contract. The built-in providers hash an application scope with each logical thread ID to name their resources. Your application still authorizes thread access.
 
-This is one of three independent controls: [tool scoping](/docs/tools) decides which tools the model can call, [permissions](/docs/permissions) decide whether a call may run, and the sandbox constrains what an allowed call can touch. Use all three where your threat model calls for them.
+The sandbox is one of three independent controls. [Tool scoping](/docs/tools) decides which tools the model can call, [permissions](/docs/permissions) decide whether a call may run, and the sandbox limits what an allowed call can touch.
 
 ## Quickstart
 
-Install Docker, start its daemon, and configure `dockerSandbox`:
+Install Docker, start its daemon, and add the package:
 
 ```bash
 pnpm add @b4run/sandbox
 ```
+
+Then configure `dockerSandbox` in **b4.config.ts**:
 
 ```ts title="b4.config.ts"
 import { config } from "@b4run/cli"
@@ -27,52 +29,40 @@ export default config({
 })
 ```
 
-No `sandbox` key means no behavior change: workspace tools still use the app's local `workspace/` directory. `b4 check` validates the configuration and calls the provider's optional `preflight()`. For Docker, that check confirms the daemon is reachable so a stopped daemon fails before the first agent turn.
+Without a `sandbox` key, workspace tools keep using the app's local `workspace/` directory. `b4 check` validates the configuration and calls the provider's optional `preflight()`. For Docker, that confirms the daemon is reachable, so a stopped daemon fails before the first agent turn.
 
 ## What's isolated
 
-- **Filesystem** — workspace file tools use a sandbox volume, not the host filesystem.
-- **Shell** — `runBash` executes in the sandbox and remains subject to permissions.
-- **Network** — `sandbox.network` expresses portable policy intent; enforcement depends on the provider.
-- **Environment** — the host environment is not inherited. Only `sandbox.env` entries are injected.
-- **Resources** — `memoryMb` and `cpus` cap compute; `timeoutMs` caps one command.
+- **Filesystem:** workspace file tools use a sandbox volume instead of the host filesystem.
+- **Shell:** `runBash` executes in the sandbox and is still subject to permissions.
+- **Network:** `sandbox.network` states a portable policy. Enforcement depends on the provider.
+- **Environment:** the host environment is not inherited. Only `sandbox.env` entries are injected.
+- **Resources:** `memoryMb` and `cpus` cap compute, and `timeoutMs` caps one command.
 
 ## Lifecycle
 
-B4.run passes the conversation thread ID to the provider and reuses the resulting sandbox across turns.
+B4.run passes the conversation thread ID to the provider and reuses the resulting sandbox across turns:
 
 - `acquire()` creates or reattaches the thread's live compute and workspace.
-- Idle reap and `release()` discard warm compute but retain the workspace volume.
-- A later turn reattaches that retained volume.
-- Thread deletion calls `destroy()`, removing both compute and workspace data.
+- Idle reap and `release()` discard warm compute but keep the workspace volume.
+- A later turn reattaches that volume.
+- Thread deletion calls `destroy()`, which removes both compute and workspace data.
 
-Storage is named from a stable hash of the required application scope and thread ID so a provider can reattach it after compute is released. Provider retention can shorten this lifecycle: an operator-owned cleanup policy may delete released storage before the thread is deleted. See [Kubernetes Sandbox](/docs/sandbox/kubernetes) for that provider's reaper boundary. Subagents share their parent's thread and therefore share its sandbox.
+Storage is named from a stable hash of the application scope and thread ID, so a provider can reattach it after compute is released. Provider retention can shorten this lifecycle: an operator-owned cleanup policy may delete released storage before the thread is deleted. See [Kubernetes Sandbox](/docs/sandbox/kubernetes) for that provider's reaper. Subagents share their parent's thread, so they share its sandbox too.
 
 ### Application scope
 
-Both providers require `scope`, a stable application/environment identifier such
-as `code-fixer-production`. Scope and thread ID are hashed together for every
-container, volume, Pod, PVC, and NetworkPolicy name. Case and punctuation remain
-significant. Handles and tool context retain the original logical thread ID.
+Both providers require `scope`, a stable application and environment identifier such as `code-fixer-production`. Scope and thread ID are hashed together for every container, volume, Pod, PVC and NetworkPolicy name. Case and punctuation are significant. Handles and tool context keep the original logical thread ID.
 
-Use different scopes for independent applications or environments. Keep a scope
-stable across restarts and deployments; do not generate it on startup. Replicas
-using the same scope address the same storage, but scope adds no cross-process
-coordination. It is not authentication: authorize access to each thread and keep
-mutually untrusted workloads behind appropriate daemon/namespace boundaries.
+Use a different scope for each independent application or environment. Keep it stable across restarts and deployments, and don't generate it on startup. Replicas using the same scope address the same storage, but scope adds no cross-process coordination. It is not authentication: authorize access to each thread and keep mutually untrusted workloads behind separate daemon or namespace boundaries.
 
 <Callout type="warn" title="Breaking change: workspace resource names">
-  Upgrading from providers without scope changes all resource names. Old storage
-  is not automatically reattached, migrated, or deleted. Export any required data
-  before upgrading and explicitly manage the old resources. Changing scope also
-  selects different storage. Missing or blank scopes fail immediately.
+  Upgrading from providers without scope changes all resource names. Old storage is not automatically reattached, migrated, or deleted. Export any data you need before upgrading and clean up the old resources yourself. Changing scope also selects different storage. Missing or blank scopes fail immediately.
 </Callout>
 
 ### Per-thread workspaces
 
-One app usually gives every thread the same initial workspace. When threads need
-different starting points — one repository pin per work order, say — make
-`sandbox.workspace` a function of the thread:
+Most apps give every thread the same initial workspace. When threads need different starting points (say, one repository pin per work order), make `sandbox.workspace` a function of the thread:
 
 ```ts title="b4.config.ts"
 export default config({
@@ -92,21 +82,15 @@ export default config({
 })
 ```
 
-`include` must name every file under `directory`; scope with `directory` and
-`excludeDirectories`, not with partial `include` lists.
+Let's quickly review:
 
-The resolver runs once, when the thread is first admitted, and its result is recorded by
-digest; every later turn of that thread reads the record. Deleting the thread deletes the
-record, so a thread id reused after deletion is resolved again. A resolver that captures
-from the app root (`directory: "."`) must exclude `.b4` with `excludeDirectories`, because
-the installation's own state lives there and is walked otherwise; an excluded directory
-must already exist when the capture runs, which is always true at admission but not for a
-static definition in a fresh clone at build time. The resolver runs inside
-the thread's admission critical section: honor `signal` and return promptly, because a
-resolver that hangs holds that thread's admission open. Thread metadata is client
-input, so validate it as the example does. `b4 check` reports a resolver as
-"managed workspace is resolved per thread", and a built app carries a resolver marker
-instead of captured source.
+- `include` must name every file under `directory`. Narrow the capture with `directory` and `excludeDirectories`, not with a partial `include` list.
+- The resolver runs once, when the thread is first admitted, and B4.run records its result by digest. Every later turn reads the record. Deleting the thread deletes the record, so a thread ID reused after deletion is resolved again.
+- A resolver that captures from the app root (`directory: "."`) must exclude `.b4` with `excludeDirectories`, because the installation's own state lives there. An excluded directory must already exist when the capture runs. That is always true at admission, but not for a static definition in a fresh clone at build time.
+- The resolver runs inside the thread's admission critical section. Honor `signal` and return promptly, because a hung resolver holds that thread's admission open.
+- Thread metadata is client input, so validate it as the example does.
+
+`b4 check` reports a resolver as "managed workspace is resolved per thread", and a built app carries a resolver marker instead of captured source.
 
 ## Security hardening
 
@@ -121,17 +105,17 @@ The Docker provider applies these defaults:
 | User | `--user 1000:1000`, with `HOME=/workspace` |
 | Orphan reaping | `--init` (always on; not policy-controlled) |
 
-`--init` installs a real PID 1 in the session container. Without it the container's PID 1 never reaps, so a descendant orphaned by a cancelled or timed-out command stays a zombie: it holds a `--pids-limit` slot for the life of the container, and process-tree termination looks like it failed because the pid is still signalable.
+`--init` installs a real PID 1 in the session container. Without it, nothing reaps a descendant orphaned by a cancelled or timed-out command. The zombie holds a `--pids-limit` slot for the life of the container, and process-tree termination looks like it failed because the pid is still signalable.
 
-The portable `security` policy exposes `dropAllCapabilities`, `noNewPrivileges`, `readOnlyRootFilesystem`, `runAsNonRoot`, and `pidsLimit`. Each can be overridden for a compatible image, but every relaxation changes the isolation boundary.
+The portable `security` policy exposes `dropAllCapabilities`, `noNewPrivileges`, `readOnlyRootFilesystem`, `runAsNonRoot` and `pidsLimit`. You can override each one for a compatible image, but every relaxation weakens the isolation boundary.
 
 <Callout type="warn" title="Bake dependencies into the image">
-  The default non-root user and read-only root filesystem prevent runtime package installs and writes outside the workspace or scratch mounts. Install system and global dependencies when building the image.
+  The default non-root user and read-only root filesystem block runtime package installs and writes outside the workspace or scratch mounts. Install system and global dependencies when you build the image.
 </Callout>
 
 ### Per-command timeout
 
-`resources.timeoutMs` bounds one `runBash` call. Docker wraps the command with GNU `timeout`; an overrun exits with code `124`, rounded up to a whole second. The limit applies only when configured, and the sandbox image must contain the `timeout` binary. `node:24-slim`, Debian, and Ubuntu include or can install it; minimal and distroless images may not.
+`resources.timeoutMs` bounds one `runBash` call. Docker wraps the command with GNU `timeout`, and an overrun exits with code `124`. The limit is rounded up to a whole second and applies only when configured. The sandbox image must contain the `timeout` binary. `node:24-slim`, Debian and Ubuntu include it or can install it, but minimal and distroless images may not:
 
 ```ts
 sandbox: {
@@ -145,19 +129,19 @@ sandbox: {
 The portable policy has two modes:
 
 - `{ mode: "deny" }` asks the provider for default-closed egress. Docker enforces this with `--network none`.
-- `{ mode: "allow", denylist?: [...] }` leaves egress open and expresses hosts that should be blocked.
+- `{ mode: "allow", denylist?: [...] }` leaves egress open and lists hosts to block.
 
-When omitted, the policy defaults to allow mode with `169.254.169.254` in the denylist. Docker's allow-mode denylist is best-effort, not a rigorous firewall; use an egress proxy or another provider when host-level filtering is a security boundary. Docker deny mode is the stronger reference behavior because `--network none` removes network access.
+When you omit it, the policy defaults to allow mode with `169.254.169.254` in the denylist. Docker's allow-mode denylist is best-effort, not a firewall. Use an egress proxy or another provider when host-level filtering is a security boundary. Docker deny mode is the stronger option because `--network none` removes network access entirely.
 
-Provider mappings are intentionally not identical. Read the provider-specific guide before assuming Docker behavior applies elsewhere.
+Providers map the policy differently, so read the provider's guide before assuming Docker behavior applies elsewhere.
 
 ## Kubernetes provider
 
-Configuration, prerequisites, and the cluster security boundary live in [Kubernetes Sandbox](/docs/sandbox/kubernetes).
+Configuration, prerequisites and the cluster security boundary live in [Kubernetes Sandbox](/docs/sandbox/kubernetes).
 
 ### Security hardening on Kubernetes
 
-See [Kubernetes Sandbox](/docs/sandbox/kubernetes) for Pod security contexts, Pod Security Standards, resource controls, ServiceAccount-token isolation, and PID-limit scope.
+See [Kubernetes Sandbox](/docs/sandbox/kubernetes) for Pod security contexts, Pod Security Standards, resource controls, ServiceAccount-token isolation and PID-limit scope.
 
 ### Network policy on Kubernetes
 
@@ -165,15 +149,15 @@ See [Kubernetes Sandbox](/docs/sandbox/kubernetes) for DNS exceptions, CNI requi
 
 ## Deploying the sandbox infrastructure (Helm)
 
-Install and operate `b4-sandbox-infra` with the canonical [Kubernetes Sandbox guide](/docs/sandbox/kubernetes).
+Install and operate `b4-sandbox-infra` with the [Kubernetes Sandbox guide](/docs/sandbox/kubernetes).
 
 ### Key caveats
 
-Namespace alignment, storage, DNS, CNI enforcement, quotas, and PVC cleanup are covered in [Kubernetes Sandbox](/docs/sandbox/kubernetes).
+Namespace alignment, storage, DNS, CNI enforcement, quotas and PVC cleanup are covered in [Kubernetes Sandbox](/docs/sandbox/kubernetes).
 
 ## Deploying a B4.run app (Helm)
 
-Deploy the app with [Kubernetes](/docs/deployment/kubernetes); operate its provider with [Kubernetes Sandbox](/docs/sandbox/kubernetes).
+Deploy the app with [Kubernetes](/docs/deployment/kubernetes), and operate its provider with [Kubernetes Sandbox](/docs/sandbox/kubernetes).
 
 ### ServiceAccount and namespace wiring
 
@@ -185,13 +169,11 @@ See [Kubernetes deployment](/docs/deployment/kubernetes) for app settings and [K
 
 ## Subagents
 
-A subagent runs under its parent's conversation thread. The coordinator and all of its subagents therefore resolve to the same sandbox and workspace rather than receiving one sandbox each.
+A subagent runs under its parent's conversation thread. The coordinator and all of its subagents resolve to the same sandbox and workspace. They don't get one sandbox each.
 
 ## Reading a thread's workspace from another process
 
-A trusted process that is not the runtime — a controller that dispatched work to
-an agent and now has to check what came back — can read a thread's workspace
-without going anywhere near that thread's live sandbox.
+A trusted process outside the runtime can read a thread's workspace without touching that thread's live sandbox. For example, a controller that dispatched work to an agent can check what came back:
 
 ```ts
 import { dockerSandbox } from "@b4run/sandbox"
@@ -208,55 +190,26 @@ const produced = await withWorkspaceReader(provider, { threadId, signal }, (read
 )
 ```
 
-`withWorkspaceReader` opens the reader, hands it to the callback, and closes it
-whatever happens. Use `provider.openWorkspaceReader()` directly only if you have
-somewhere better to put the `close()`.
+`withWorkspaceReader` opens the reader, hands it to the callback, and always closes it. Call `provider.openWorkspaceReader()` directly only if you need to manage `close()` yourself.
 
-A reader is safe while a worker is mid-thread or idle between turns. It does not
-call `acquire()`, so it never replaces the worker's compute, and it reads the
-thread's workspace through a separate, ephemeral, networkless container that
-attaches the workspace read-only. Writes fail at the kernel, not at a policy
-check, and the reader object exposes no write method and no shell: there is no
-API on it through which a mutation can be expressed. Reads after `close()` are
-refused rather than surfacing a confusing container error.
+A reader is safe while a worker is mid-thread or idle between turns. It does not call `acquire()`, so it never replaces the worker's compute. It reads the workspace through a separate, ephemeral, networkless container that mounts the workspace read-only. Writes fail at the kernel, and the reader object has no write method and no shell, so there is no API on it that can express a mutation. Reads after `close()` are refused instead of surfacing a confusing container error.
 
-Reading is a capability, not a guarantee. `openWorkspaceReader` is optional on
-`SandboxProvider`; check for it, or let `withWorkspaceReader` raise. `dockerSandbox`
-implements it. `kubernetesSandbox` does not — its per-thread storage is a
-`ReadWriteOnce` PersistentVolumeClaim, which a second Pod cannot mount unless it
-happens to land on the same node, and a capability that works by accident of
-scheduling is worse than a missing one.
+`openWorkspaceReader` is optional on `SandboxProvider`, so check for it or let `withWorkspaceReader` raise. `dockerSandbox` implements it. `kubernetesSandbox` does not: its per-thread storage is a `ReadWriteOnce` PersistentVolumeClaim, which a second Pod can mount only if it happens to land on the same node. A capability that works by accident of scheduling is worse than a missing one.
 
 Two things to know before you use it:
 
-- **It is not an authorization boundary.** It is a host-side API for a caller you
-  already trust — one that holds the provider, and with it the container runtime.
-  Naming a thread id is not a claim of ownership. Gate access to the calling
-  process. It is not a tool an agent can call and not an HTTP endpoint, and no
-  route, permission, or thread-access policy is consulted.
-- **The reader runs as uid/gid `1000:1000` by default**, matching the owner of a
-  workspace produced under the default security policy. A thread that set
-  `security.runAsNonRoot: false` produced root-owned files; pass the same value
-  as `runAsNonRoot` on the input so the reader can read restrictive modes.
+- **It is not an authorization boundary.** It is a host-side API for a caller you already trust, one that holds the provider and with it the container runtime. Naming a thread ID is not a claim of ownership, so gate access to the calling process. It is not an agent tool or an HTTP endpoint, and no route, permission or thread-access policy is consulted.
+- **The reader runs as uid/gid `1000:1000` by default**, matching the owner of a workspace produced under the default security policy. A thread that set `security.runAsNonRoot: false` produced root-owned files. Pass the same value as `runAsNonRoot` on the input so the reader can read restrictive modes.
 
-An inspection is not an atomic snapshot. Quiesce the writer — read after the
-turn ends — or revalidate before acting on the inventory.
+An inspection is not an atomic snapshot. Quiesce the writer (read after the turn ends) or revalidate before acting on the inventory.
 
-Docker readers are labelled `b4.sandbox.reader=<resource id>` and are removed on
-`close()`, including when the open itself fails. A `close()` that cannot remove
-the container raises rather than reporting success, and can be retried. Deleting
-a thread does not remove its readers, and a reader that is never closed outlives
-the thread, so the label is how an operator finds a leftover:
-`docker ps -aq --filter label=b4.sandbox.reader`.
+Docker readers are labelled `b4.sandbox.reader=<resource id>` and are removed on `close()`, including when the open itself fails. A `close()` that cannot remove the container raises instead of reporting success, and you can retry it. Deleting a thread does not remove its readers, and a reader that is never closed outlives the thread. An operator finds leftovers by that label: `docker ps -aq --filter label=b4.sandbox.reader`.
 
-Reading needs a workspace volume with a host-visible backing path, which the
-default local volume driver provides. A volume that reports none is rejected
-rather than read — a named-volume mount would have silently recreated a deleted
-workspace instead of failing.
+Reading needs a workspace volume with a host-visible backing path, which the default local volume driver provides. A volume that reports none is rejected. A named-volume mount would have silently recreated a deleted workspace instead of failing.
 
 ## Custom providers
 
-Implement `SandboxProvider` to integrate a microVM, cloud sandbox, or another isolation backend:
+Implement `SandboxProvider` to integrate a microVM, cloud sandbox or another isolation backend:
 
 ```ts
 import type { SandboxHandle, SandboxPolicy } from "@b4run/sandbox"
@@ -279,9 +232,12 @@ export interface SandboxProvider {
 }
 ```
 
-`acquire()` must be idempotent for a thread. `release()` drops warm compute while retaining workspace data; `destroy()` removes both. `preflight()` can fail a configuration before runtime or return `warnings` when a provider cannot prove a requested control.
+Let's quickly review:
 
-`openWorkspaceReader()` is optional. Implement it only if your backend can attach a thread's workspace storage a second time; omit it otherwise. An implementation must not create, replace, start, or stop the thread's sandbox, must make writes impossible rather than merely undocumented, and must reject rather than return an empty view when the thread has no workspace storage — "produced nothing" and "does not exist" are different answers to a verifier.
+- `acquire()` must be idempotent for a thread.
+- `release()` drops warm compute and keeps workspace data. `destroy()` removes both.
+- `preflight()` can fail a configuration before runtime, or return `warnings` when the provider cannot prove a requested control.
+- `openWorkspaceReader()` is optional. Implement it only if your backend can attach a thread's workspace storage a second time. It must not create, replace, start or stop the thread's sandbox, it must make writes impossible, and it must reject when the thread has no workspace storage. An empty view would tell a verifier "produced nothing" when the real answer is "does not exist".
 
 Validate the implementation with the shared conformance suite:
 
@@ -297,7 +253,7 @@ runProviderConformance({
 })
 ```
 
-The suite checks acquire/reattach idempotency, per-thread isolation, release-versus-destroy storage semantics, and numeric command exit codes. If the provider implements `openWorkspaceReader`, it also checks that a reader sees what the thread produced, exposes no write or shell surface, rejects a thread with no storage, and leaves the thread's sandbox readable, writable, and executable afterwards. Providers without the capability skip that block.
+The suite checks acquire and reattach idempotency, per-thread isolation, release-versus-destroy storage semantics, and numeric command exit codes. If the provider implements `openWorkspaceReader`, it also checks that a reader sees what the thread produced, exposes no write or shell surface, rejects a thread with no storage, and leaves the thread's sandbox readable, writable and executable afterwards. Providers without the capability skip that block.
 
 ## Testing your agent
 
@@ -312,26 +268,28 @@ export default config({
 })
 ```
 
-This exercises B4.run's per-thread acquisition, reuse, and subagent wiring. Provider conformance and gated integration tests cover the actual isolation backend.
+This exercises B4.run's per-thread acquisition, reuse and subagent wiring. Provider conformance and gated integration tests cover the real isolation backend.
 
 ## Verifying the full arc (end-to-end)
 
 Two gated CI lanes exercise a built B4.run app, a real provider, command output inside the isolated workload, and cleanup after thread deletion:
 
 - `sandbox-docker-e2e` runs the app as a container and drives `dockerSandbox` to create a sibling container.
-- `sandbox-k8s-e2e` deploys the app and drives `kubernetesSandbox` to create a sandbox Pod; operational setup is in [Kubernetes Sandbox](/docs/sandbox/kubernetes).
+- `sandbox-k8s-e2e` deploys the app and drives `kubernetesSandbox` to create a sandbox Pod. Setup is in [Kubernetes Sandbox](/docs/sandbox/kubernetes).
 
-Both use a mocked model, assert that the in-sandbox process runs as UID `1000`, and confirm compute and storage are removed on thread deletion. They run only when `B4_TEST_SMOKE_E2E=1` is enabled.
+Both use a mocked model, assert that the in-sandbox process runs as UID `1000`, and confirm compute and storage are removed on thread deletion. They run only when `B4_TEST_SMOKE_E2E=1` is set.
 
-Only a B4.run runtime entry (`b4 dev`, `b4 start`, or the Node build target) constructs the configured sandbox. LangSmith platform artifacts do not run that runtime. Edge targets reject incompatible filesystem and sandbox capabilities rather than silently running workspace tools without isolation; see [Deployment Options](/docs/deployment).
+Only a B4.run runtime entry (`b4 dev`, `b4 start` or the Node build target) constructs the configured sandbox. LangSmith platform artifacts do not run that runtime. Edge targets reject incompatible filesystem and sandbox capabilities instead of running workspace tools without isolation. See [Deployment Options](/docs/deployment).
 
-## What it is — and isn't
+<span id="what-it-is--and-isnt"></span>
 
-**It is:** a filesystem and process boundary keyed by the provider's derived thread resource name; explicit environment injection; CPU and memory controls; provider-specific network policy; a workspace lifecycle that outlives warm compute; and hardened Docker defaults including a non-root user, dropped capabilities, no privilege escalation, a read-only root filesystem, and a process-count limit.
+## What it is and isn't
 
-**It is not:** authorization, tool selection, or a guarantee against container-escape vulnerabilities. Tool scoping and permissions remain separate controls. Docker's allow-mode denylist is best-effort, and container isolation is not a microVM boundary. For hostile multi-tenant workloads, implement a stronger provider behind the same `SandboxProvider` seam and validate its controls against your threat model.
+**It is** a filesystem and process boundary keyed by the provider's derived thread resource name. It also gives you explicit environment injection, CPU and memory controls, provider-specific network policy, a workspace lifecycle that outlives warm compute, and hardened Docker defaults: a non-root user, dropped capabilities, no privilege escalation, a read-only root filesystem and a process-count limit.
 
-Kubernetes maps the same policy intent to different mechanisms and limitations. Treat [Kubernetes Sandbox](/docs/sandbox/kubernetes) as canonical for that provider rather than inferring Kubernetes behavior from Docker.
+**It is not** authorization, tool selection, or a guarantee against container-escape vulnerabilities. Tool scoping and permissions are separate controls. Docker's allow-mode denylist is best-effort, and container isolation is not a microVM boundary. For hostile multi-tenant workloads, implement a stronger provider behind the same `SandboxProvider` interface and validate its controls against your threat model.
+
+Kubernetes maps the same policy to different mechanisms and limitations. Treat [Kubernetes Sandbox](/docs/sandbox/kubernetes) as the source of truth for that provider instead of inferring from Docker.
 
 ## Related
 

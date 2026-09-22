@@ -2,39 +2,39 @@
 
 ## LangSmith tracing
 
-B4.run runs on LangGraph, which emits traces to LangSmith automatically when tracing is enabled. A single agent run produces a nested trace that includes every LLM call (with prompts, token counts, and latency), every tool invocation (input and output), and every subagent child run — all linked under one root run. This gives you a full picture of where time and tokens go without any instrumentation code in your routes.
+B4.run runs on LangGraph, which sends traces to LangSmith when tracing is enabled. One agent run produces a nested trace under a single root run. It includes every LLM call (prompts, token counts and latency), every tool call (input and output) and every subagent child run. You can see where time and tokens go without adding instrumentation code to your routes.
 
 ## Enabling tracing
 
-Put your `LANGSMITH_API_KEY` in `.env` (or export it in your shell). When `b4 dev` loads the environment, it checks whether `LANGSMITH_API_KEY` is present and `LANGCHAIN_TRACING_V2` is not already set, then sets `LANGCHAIN_TRACING_V2=true` automatically. You do not need to add `LANGCHAIN_TRACING_V2` to your `.env` yourself.
+Put your `LANGSMITH_API_KEY` in `.env` (or export it in your shell). When `b4 dev` loads the environment and finds `LANGSMITH_API_KEY` with no `LANGCHAIN_TRACING_V2`, it sets `LANGCHAIN_TRACING_V2=true` for you:
 
 ```bash title=".env"
 LANGSMITH_API_KEY=lsv2_...
-LANGCHAIN_PROJECT=my-research-agent   # optional — names the project in LangSmith
+LANGCHAIN_PROJECT=my-research-agent   # optional: names the project in LangSmith
 ```
 
-**To opt out**, set `LANGCHAIN_TRACING_V2=false` explicitly in your shell or `.env`. The auto-enable only fills variables that are not already set, so an explicit `false` wins.
+**To opt out**, set `LANGCHAIN_TRACING_V2=false` in your shell or `.env`. The auto-enable only fills unset variables, so an explicit `false` wins.
 
 ## Reading a trace
 
 Open any run in the LangSmith UI. The hierarchy follows the LangGraph execution graph:
 
-- **Root run** — the full agent turn. Status is `success` when the turn completes normally.
-- **LLM runs** — one per model call, with the full prompt, sampled output, token usage, and latency.
-- **Tool runs** — one per tool call, with input and output. Subagent tool runs appear nested under the subagent's run.
-- **Subagent runs** — each `task({ subagent, input })` dispatch appears as a child of the root run.
+- **Root run:** the full agent turn. Status is `success` when the turn completes normally.
+- **LLM runs:** one per model call, with the full prompt, sampled output, token usage, and latency.
+- **Tool runs:** one per tool call, with input and output. Subagent tool runs appear nested under the subagent's run.
+- **Subagent runs:** each `task({ subagent, input })` dispatch appears as a child of the root run.
 
 ### Human-in-the-loop interrupts in LangSmith
 
-A HITL permission interrupt appears in LangSmith as a tool run with status `interrupted` and a `GraphInterrupt` in the error field. This is a pause, not a failure — the root run remains `success` and the agent continues after the interrupt is resolved. Do not confuse this with a real error, which has status `error` and an exception string in the error field.
+A HITL permission interrupt appears in LangSmith as a tool run with status `interrupted` and a `GraphInterrupt` in the error field. This is a pause. The root run stays `success` and the agent continues once the interrupt is resolved. A real error has status `error` and an exception string in the error field.
 
 ## Live SSE streaming (no account required)
 
-If you do not have a LangSmith account, the dev server's `runs/stream` endpoint streams every event in real time over SSE — no tracing account needed. Each event has a type (`chunk`, `tool_call`, `tool_result`, `plan_update`, `interrupt`, `subagent.*`, `done`) and a JSON payload you can pipe to any terminal or client. See [Agent Protocol](/docs/dev-server/agent-protocol) for the full event-type table and connection instructions.
+Without a LangSmith account, you can use the dev server's `runs/stream` endpoint, which streams every event in real time over SSE. Each event has a type (`chunk`, `tool_call`, `tool_result`, `plan_update`, `interrupt`, `subagent.*`, `done`) and a JSON payload you can pipe to any terminal or client. See [Agent Protocol](/docs/dev-server/agent-protocol) for the full event-type table and connection instructions.
 
 ## Related
 
 <RelatedCards items={[
-  { href: "/docs/configuration", title: "Configuration Reference", subtitle: "b4.config.ts reference — env key for .env file path" },
+  { href: "/docs/configuration", title: "Configuration Reference", subtitle: "b4.config.ts reference, including the env key for the .env file path" },
   { href: "/docs/dev-server/agent-protocol", title: "Agent Protocol", subtitle: "/runs/stream SSE endpoint and event types" },
 ]} />

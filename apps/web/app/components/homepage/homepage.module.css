@@ -245,6 +245,9 @@
   color: #c3c6bb;
 }
 .codeHeading > span {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
   overflow-wrap: anywhere;
 }
 .codeHeading a {
@@ -338,142 +341,12 @@
   margin: 0;
   max-width: 520px;
 }
-.cta {
-  display: inline-flex;
-  padding: 14px 20px;
-  align-items: center;
-  justify-content: center;
-  gap: 20px;
-  background: var(--relay);
-  color: var(--ink);
-  border: 1px solid var(--ink);
-  text-decoration: none;
-  font-size: 14px;
-  font-weight: 500;
-  min-height: 48px;
-  white-space: nowrap;
-}
-.capabilities {
-  border-top: 1px solid var(--ink);
-  margin-top: 72px;
-  padding-top: 28px;
-}
-.intro {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 32px;
-  align-items: end;
-  margin: 20px 0 32px;
-}
-.intro h2,
 .takeaway h2 {
   font-size: clamp(34px, 4.8vw, 54px);
   line-height: 1.06;
   letter-spacing: -0.045em;
   font-weight: 500;
   margin: 0;
-}
-.intro > p {
-  font-size: 16px;
-  line-height: 1.7;
-  color: var(--quiet);
-  margin: 0;
-}
-.capGrid {
-  display: grid;
-  grid-template-columns: minmax(0, 0.65fr) minmax(0, 1.5fr);
-  gap: 24px;
-  padding: 24px 0;
-  border-top: 1px solid var(--rule);
-  border-bottom: 1px solid var(--rule);
-  align-items: start;
-}
-.capOptions {
-  display: grid;
-}
-.capOptions button {
-  display: flex;
-  gap: 16px;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--rule);
-  padding: 20px 14px;
-  text-align: left;
-  cursor: pointer;
-  color: var(--quiet);
-}
-.capOptions button[aria-pressed="true"] {
-  background: #e7edd1;
-  color: var(--ink);
-  box-shadow: inset 3px 0 #667811;
-}
-.number {
-  font:
-    12px / 1.8 var(--font-jetbrains-mono),
-    monospace;
-}
-.capOptions strong {
-  display: block;
-  font-size: 19px;
-  font-weight: 500;
-  letter-spacing: -0.025em;
-}
-.capOptions small {
-  display: block;
-  font-size: 13px;
-  line-height: 1.6;
-  margin-top: 6px;
-}
-.capCode {
-  min-width: 0;
-  background: var(--dark);
-}
-.capCode > p {
-  font-size: 14px;
-  color: #c3c6bb;
-  padding: 22px;
-  margin: 0;
-  line-height: 1.7;
-}
-.fileStory {
-  display: grid;
-  grid-template-columns: 0.65fr 1.5fr;
-  gap: 24px;
-  margin-top: 36px;
-}
-.fileStory h3 {
-  font-size: 24px;
-  letter-spacing: -0.03em;
-  font-weight: 500;
-  line-height: 1.2;
-  margin: 0 0 14px;
-}
-.fileStory p {
-  color: var(--quiet);
-  font-size: 14px;
-}
-.fileRows {
-  margin: 0;
-}
-.fileRows > div {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-  border-bottom: 1px solid var(--rule);
-  padding: 12px 0;
-}
-.fileRows dt {
-  font:
-    12px / 1.7 var(--font-jetbrains-mono),
-    monospace;
-  color: #424d18;
-  overflow-wrap: anywhere;
-}
-.fileRows dd {
-  font-size: 14px;
-  line-height: 1.6;
-  margin: 0;
-  color: var(--quiet);
 }
 .takeaway {
   background: var(--dark);
@@ -488,24 +361,13 @@
   color: #c3c6bb;
   margin-bottom: 18px;
 }
+.takeaway h2 + p {
+  margin: 16px 0 12px;
+}
 .takeaway p {
   color: #c3c6bb;
   font-size: 14px;
   line-height: 1.7;
-}
-.takeaway .cta {
-  margin-top: 14px;
-}
-.runCommand {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  background: #252720;
-  color: #e5efb9;
-  font:
-    13px / 1.9 var(--font-jetbrains-mono),
-    monospace;
-  padding: 20px;
-  border: 1px solid #555b45;
 }
 .reportLink {
   display: inline-flex;
@@ -526,9 +388,6 @@
     display: none;
   }
   .walkthroughGrid,
-  .intro,
-  .capGrid,
-  .fileStory,
   .takeaway {
     grid-template-columns: 1fr;
   }
@@ -540,15 +399,6 @@
     grid-row: 2;
     grid-column: 1;
   }
-  .capOptions {
-    grid-template-columns: 1fr 1fr;
-  }
-  .capOptions button {
-    padding: 16px 12px;
-  }
-  .capOptions strong {
-    font-size: 17px;
-  }
   .lower {
     flex-direction: column;
     align-items: flex-start;
@@ -556,9 +406,6 @@
   .takeaway {
     padding: 26px;
     gap: 24px;
-  }
-  .capabilities,
-  .takeaway {
     margin-top: 48px;
   }
   .code {
@@ -600,15 +447,9 @@
   .fileTabs button {
     padding: 12px 10px;
   }
-  .number {
-    display: none;
-  }
-  .fileRows > div {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
   .codeHeading {
     flex-wrap: wrap;
+    row-gap: 0;
   }
   .codeFooter {
     flex-wrap: wrap;
@@ -622,20 +463,14 @@
 }
 
 .steps,
-.fileTabs,
-.capOptions {
+.fileTabs {
   min-inline-size: 0;
   margin-inline: 0;
   padding-block: 0;
 }
-.fileTabs,
-.capOptions {
+.fileTabs {
   border-inline: 0;
   border-top: 0;
-}
-.capOptions {
-  padding: 0;
-  border-bottom: 0;
 }
 
 .chapter {
@@ -713,13 +548,6 @@
   margin: 10px 0 0;
   color: #454a37;
 }
-.sourceNote {
-  font-size: 12px;
-  line-height: 1.8;
-  color: var(--quiet);
-  margin: 22px 0;
-  max-width: 760px;
-}
 .recording {
   border: 1px solid var(--rule);
   padding: 24px;
@@ -740,14 +568,20 @@
   display: grid;
   gap: 8px;
 }
+/* The duration shares the title's 32px line box and bottom edge, so both sit
+   on one visual line beside the eyebrow. */
+.recording > summary {
+  align-items: flex-end;
+}
 .recording > summary strong {
   font-size: 25px;
+  line-height: 32px;
   font-weight: 500;
   letter-spacing: -0.035em;
 }
 .recording > summary > span:last-child {
   font:
-    12px / 1.7 var(--font-jetbrains-mono),
+    12px / 32px var(--font-jetbrains-mono),
     monospace;
   color: var(--quiet);
 }
@@ -775,6 +609,9 @@
   }
   .recording {
     padding: 20px;
+  }
+  .recording > summary > span:last-child {
+    line-height: 1.7;
   }
   .recording > summary {
     align-items: flex-start;
@@ -836,10 +673,12 @@
   padding-bottom: 12px;
   border-bottom: 1px solid var(--rule);
 }
+/* Pull rows out by their own inline padding so row text aligns with the
+   root and caption while the hover band still extends past it. */
 .projectTree ul {
   list-style: none;
   padding: 10px 0;
-  margin: 0;
+  margin: 0 -10px;
 }
 .projectTree a {
   display: flex;
@@ -903,6 +742,8 @@
   position: absolute;
   right: -8px;
   top: 20px;
+  /* Same line box as .flowNumber (12px / 1.6) so the arrow centers on it. */
+  line-height: 19.2px;
   background: var(--paper);
   color: #667811;
   z-index: 1;
@@ -954,6 +795,9 @@
   }
   .projectTree code {
     font-size: 12px;
+  }
+  .projectTree ul {
+    margin-inline: -6px;
   }
   .projectTree a {
     min-height: 44px;

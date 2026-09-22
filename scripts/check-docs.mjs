@@ -1713,7 +1713,7 @@ const checks = [
   {
     file: "apps/web/content/docs/api/memory.mdx",
     patterns: [
-      "SQLite stores memory rows—including content, data, source, and tags—as plaintext",
+      "SQLite stores memory rows (including content, data, source, and tags) as plaintext",
       "Low-level `MemoryStore` implementations can store typed procedural records",
       "the generated `remember` tool returns a not-yet-wired rejection",
       "namespace organizes records; it is not a security boundary",
@@ -2474,7 +2474,7 @@ const accuracyContracts = [
     file: "apps/web/content/docs/sandbox.mdx",
     required: [
       "## Quickstart",
-      "## What it is — and isn't",
+      "## What it is and isn't",
       "Docker reference implementation",
       "--pids-limit 512",
       "resources.timeoutMs",
@@ -2858,7 +2858,7 @@ const accuracyContracts = [
       "b4 inspect",
       "/threads/:thread_id/cancel",
       "fetch and print an integration blueprint",
-      "`b4 add` — list the blueprint catalog",
+      "`b4 add`: list the blueprint catalog",
       "five phases",
       "runtime readiness",
       "middleware-bypassing management routes",
@@ -4071,7 +4071,7 @@ const canonicalOwnerContracts = [
   },
   {
     file: "apps/web/content/docs/access-control.mdx",
-    heading: "Execution sandbox — what a call can touch",
+    heading: "Execution sandbox",
     required: ["/docs/sandbox/kubernetes"],
   },
   {
@@ -4209,16 +4209,17 @@ const expectedNavDocEntries = [
   { label: "Tools", href: "/docs/tools" },
   { label: "State", href: "/docs/state" },
   { label: "Workspace Filesystem", href: "/docs/workspace" },
-  { label: "Memory", href: "/docs/memory" },
-  { label: "Long-term Memory", href: "/docs/memory/long-term" },
-  { label: "Recall and Retrieval", href: "/docs/memory/retrieval" },
-  { label: "Episodes", href: "/docs/memory/episodes" },
-  { label: "Distillation", href: "/docs/memory/distillation" },
   { label: "Planning", href: "/docs/planning" },
   { label: "Skills", href: "/docs/skills" },
   { label: "Subagents", href: "/docs/subagents" },
   { label: "Context Management", href: "/docs/context-management" },
   { label: "Reasoning Effort", href: "/docs/reasoning-effort" },
+  { label: "Memory", href: "/docs/memory" },
+  { label: "Long-term Memory", href: "/docs/memory/long-term" },
+  { label: "Recall and Retrieval", href: "/docs/memory/retrieval" },
+  { label: "Episodes", href: "/docs/memory/episodes" },
+  { label: "Distillation", href: "/docs/memory/distillation" },
+  { label: "Browse and Manage Memory", href: "/docs/memory/browse" },
   { label: "Dev Server", href: "/docs/dev-server" },
   { label: "Agent Protocol", href: "/docs/dev-server/agent-protocol" },
   { label: "Middleware", href: "/docs/middleware" },
@@ -4231,15 +4232,14 @@ const expectedNavDocEntries = [
   { label: "Evals", href: "/docs/evals" },
   { label: "Persistence and Tenancy", href: "/docs/persistence" },
   { label: "Production Topology", href: "/docs/production-topology" },
+  { label: "Retry", href: "/docs/retry" },
+  { label: "Observability", href: "/docs/observability" },
+  { label: "Inspector", href: "/docs/inspector" },
+  { label: "Upgrading", href: "/docs/upgrading" },
   { label: "Security Architecture", href: "/docs/security-architecture" },
   { label: "Access Control", href: "/docs/access-control" },
   { label: "Thread Access", href: "/docs/thread-access" },
   { label: "Permissions", href: "/docs/permissions" },
-  { label: "Retry", href: "/docs/retry" },
-  { label: "Observability", href: "/docs/observability" },
-  { label: "Inspector", href: "/docs/inspector" },
-  { label: "Browse and Manage Memory", href: "/docs/memory/browse" },
-  { label: "Upgrading", href: "/docs/upgrading" },
   { label: "Deployment Options", href: "/docs/deployment" },
   { label: "Node and Docker", href: "/docs/deployment/node" },
   { label: "Kubernetes", href: "/docs/deployment/kubernetes" },
@@ -4604,7 +4604,7 @@ if (apiReferenceRegistry) {
       "apps/web/content/docs/api.mdx package catalog must not contain active MDX components, declarations, or expressions beyond registered anchors and table line breaks",
     )
   }
-  const expectedGeneratedBoundary = `Generated surface: \`b4:routes\` — ${apiReferenceRegistry.artifactBoundaryFor(apiReferenceRegistry.GENERATED_ROUTES_ARTIFACT)}.`
+  const expectedGeneratedBoundary = `Generated surface: \`b4:routes\` (${apiReferenceRegistry.artifactBoundaryFor(apiReferenceRegistry.GENERATED_ROUTES_ARTIFACT)}).`
   if (
     catalogLines.filter((line) => line === expectedGeneratedBoundary).length !== 1 ||
     maskedCatalogSource.includes("Generated surface:") !== true

@@ -1,12 +1,12 @@
 # FAQ
 
-The questions developers ask before adopting B4.run. Short, opinionated answers — verdict first, one piece of context, link to the deep page when there is one. This is not a troubleshooting guide and not a roadmap.
+Here are the questions developers ask before adopting B4.run. Each answer leads with the verdict and links to the full page when there is one.
 
 ## Adopting B4.run
 
 ### Do I have to use LangGraph?
 
-Yes. B4.run is a meta-framework for LangGraph the way Next.js is a meta-framework for React. LangGraph runs the graph; B4.run writes the conventions around it — file-system routing, type inference, the dev server, the build step. If you do not want LangGraph, B4.run is the wrong tool. See [Mental Model](/docs/mental-model).
+Yes. B4.run is a meta-framework for LangGraph the way Next.js is a meta-framework for React. LangGraph runs the graph. B4.run adds the conventions around it: file-system routing, type inference, the dev server and the build step. If you do not want LangGraph, B4.run is the wrong tool. See [Mental Model](/docs/mental-model).
 
 ### Can I bring my own model provider?
 
@@ -16,45 +16,45 @@ Yes. The built-in `agent()` route materializes to a LangChain chat model. B4.run
 
 They solve different problems.
 
-- **Vercel AI SDK** is a client-and-server toolkit for chat UIs and provider-agnostic LLM calls. B4.run does not compete with it — it sits one layer up, organizing whole agent projects, and you can use the AI SDK inside a B4.run route.
-- **CopilotKit** is a frontend-first framework for embedding copilots in existing apps. B4.run is backend-first; the deliverable is a deployable agent runtime, not in-app UI. They compose through B4.run's AG-UI endpoint: both `b4 dev` and `b4 start` serve `POST /agui/{routeId}` with the same route-execution middleware behavior, and the chat example wires a CopilotKit `HttpAgent` to it.
-- **Mastra** is a general-purpose agent framework with its own runtime and abstractions. B4.run is narrower: it does not replace LangGraph, it deletes the boilerplate around it.
+- **Vercel AI SDK** is a client-and-server toolkit for chat UIs and provider-agnostic LLM calls. B4.run sits one layer up and organizes whole agent projects. You can use the AI SDK inside a B4.run route.
+- **CopilotKit** is a frontend-first framework for embedding copilots in existing apps. B4.run is backend-first: it produces a deployable agent runtime. The two work together through B4.run's AG-UI endpoint: both `b4 dev` and `b4 start` serve `POST /agui/{routeId}` with the same route-execution middleware behavior, and the chat example wires a CopilotKit `HttpAgent` to it.
+- **Mastra** is a general-purpose agent framework with its own runtime and abstractions. B4.run is narrower. It keeps LangGraph and removes the boilerplate around it.
 
 If you are already on LangGraph, B4.run fits. If you are not, pick the framework whose runtime you want to live in.
 
 ### Does B4.run support Python?
 
-No. B4.run is TypeScript-only and the type inference is the whole point — tool parameter types are read from function signatures at build time and emitted into `.b4/b4.generated.d.ts`. A Python port would lose that. Use `langgraph` directly in Python; LangSmith deploys both.
+No. B4.run is TypeScript-only because it depends on type inference: B4 reads tool parameter types from function signatures at build time and emits them into `.b4/b4.generated.d.ts`. In Python, use `langgraph` directly. LangSmith deploys both.
 
 ### Is B4.run production-ready?
 
-B4.run produces deployment artifacts; the framework itself is pre-1.0 and the API surface is still moving. `b4 build` emits a runnable `node` target (`server.mjs` plus a hardened `Dockerfile`) and a `langsmith` target (`langgraph.json`) by default, plus an opt-in `hono` target for Cloudflare Workers and other edge runtimes; `b4 start` serves the `node` target in production on `0.0.0.0`. Lock to a pinned version and read release notes between upgrades. See [Deployment](/docs/deployment).
+B4.run is pre-1.0, and the API is still changing. By default, `b4 build` emits a runnable `node` target (`server.mjs` plus a hardened `Dockerfile`) and a `langsmith` target (`langgraph.json`). The `hono` target (Cloudflare Workers and other edge runtimes) is opt-in. `b4 start` serves the `node` target in production on `0.0.0.0`. Lock to a pinned version and read release notes between upgrades. See [Deployment](/docs/deployment).
 
 ## Working in B4.run
 
 ### Can I drop down to raw LangGraph when I need to?
 
-Yes — that is the point. A route's `index.ts` can default-export an `agent()` descriptor or named-export a `workflow`, `graph`, or `chain`; the `graph` shape hands you a raw `StateGraph` with no B4.run abstractions in the way. Mix shapes across routes in one project. See [Routes](/docs/routes).
+Yes. A route's `index.ts` can default-export an `agent()` descriptor or named-export a `workflow`, `graph`, or `chain`. The `graph` shape gives you a raw `StateGraph` with no B4.run abstractions in the way. Mix shapes across routes in one project. See [Routes](/docs/routes).
 
 ### What does `b4 build` actually do?
 
-It walks your routes, runs typegen, then writes deployment artifacts for each configured `build.targets` (`node` and `langsmith` by default). The `node` target emits `.b4/build/server.mjs` — which boots the real B4.run runtime (Agent Protocol, AG-UI, and the sandbox if configured) — plus a hardened `Dockerfile`; run it with `b4 start` or `docker build`/`docker run`. The `langsmith` target emits `.b4/build/langgraph.json` plus a per-route entry file under `.b4/build/<routeSlug>.ts`; each agent route's entry imports your default `agent()` descriptor, materializes it as a LangGraph graph, and wires in discovered tools. Each `assistant_id` is `<routeId>#<kind>` — for example `/research#agent`. The opt-in `hono` target emits `.b4/build/app.mjs` plus a `wrangler.toml`, for edge runtimes. See [Deployment](/docs/deployment).
+It walks your routes, runs typegen, then writes deployment artifacts for each configured `build.targets` (`node` and `langsmith` by default). The `node` target emits `.b4/build/server.mjs`, which boots the real B4.run runtime (Agent Protocol, AG-UI, and the sandbox if configured), plus a hardened `Dockerfile`. Run it with `b4 start` or `docker build`/`docker run`. The `langsmith` target emits `.b4/build/langgraph.json` plus a per-route entry file under `.b4/build/<routeSlug>.ts`. Each agent route's entry imports your default `agent()` descriptor, materializes it as a LangGraph graph, and wires in discovered tools. Each `assistant_id` is `<routeId>#<kind>`, for example `/research#agent`. The opt-in `hono` target emits `.b4/build/app.mjs` plus a `wrangler.toml`, for edge runtimes. See [Deployment](/docs/deployment).
 
 ### Why a meta-framework instead of a library?
 
-A library is something you call. A meta-framework is something you write inside. The conventions B4.run enforces — folder-as-route, co-located tools, typed state per route — only pay off when the whole project follows them, the same way Next.js routing only pays off because every page lives under `app/`. A library version would surface all the same boilerplate B4.run is built to delete. See [Mental Model](/docs/mental-model).
+A library is something you call. A meta-framework is something you write inside. B4.run's conventions (folder-as-route, co-located tools, typed state per route) only pay off when the whole project follows them, the same way Next.js routing works because every page lives under `app/`. A library would leave you writing the boilerplate B4.run removes. See [Mental Model](/docs/mental-model).
 
 ## Operating B4.run
 
 ### Can I deploy outside LangSmith?
 
-Yes. `b4 build`'s `node` target emits a `server.mjs` that boots the real B4.run runtime plus a hardened `Dockerfile` — build the image and run it wherever you run containers, or serve it directly with `b4 start`. This is the only deployment path that engages the execution sandbox. If you'd rather containerize the `langgraph.json` output instead, `b4 build`'s `langsmith` target still emits it; feed `.b4/build/` to any container that runs the LangGraph runtime, but note that path does not run the B4.run runtime or the sandbox. See [Deployment](/docs/deployment).
+Yes. `b4 build`'s `node` target emits a `server.mjs` that boots the real B4.run runtime, plus a hardened `Dockerfile`. Build the image and run it wherever you run containers, or serve it directly with `b4 start`. This is the only deployment path that runs the execution sandbox. You can also feed the `langsmith` target's `.b4/build/` output (`langgraph.json`) to any container that runs the LangGraph runtime. That path runs neither the B4.run runtime nor the sandbox. See [Deployment](/docs/deployment).
 
 ### Can B4.run run on Cloudflare Workers?
 
-Yes, for apps that fit the edge subset. Add `"hono"` to `build.targets` and `b4 build` emits an `app.mjs` plus a `wrangler.toml` you deploy with `wrangler deploy`; durable state goes to Postgres over a `@neondatabase/serverless` WebSocket pool, set through a `DATABASE_URL` binding. No `nodejs_compat` flag is needed. The sandbox, workspace file and shell tools, tool-output offloading, and long-term memory are unavailable there, and the build fails naming them rather than degrading quietly — as does the runtime, per request, for anything that reached a filesystem-less runtime without passing that build gate. Route skills, `plan.md`, and `memory.md` are bundled into the manifest at build time and served from it at request time.
+Yes, for apps that fit the edge subset. Add `"hono"` to `build.targets` and `b4 build` emits an `app.mjs` plus a `wrangler.toml` you deploy with `wrangler deploy`. Durable state goes to Postgres over a `@neondatabase/serverless` WebSocket pool, set through a `DATABASE_URL` binding. You don't need the `nodejs_compat` flag. The sandbox, workspace file and shell tools, tool-output offloading, and long-term memory are unavailable there. If your app uses them, the build fails and names them. The runtime does the same per request for anything that reaches a filesystem-less runtime without passing that build check. Route skills, `plan.md`, and `memory.md` are bundled into the manifest at build time and served from it at request time.
 
-Read [Edge and Hono](/docs/deployment/edge) before you commit to this path. The evidence behind that "yes" is a gated CI lane serving real AG-UI turns under **local** workerd — the same binary Cloudflare runs — and not a deploy to Cloudflare itself, which nobody has performed yet. [What is proven, and what is not](/docs/deployment/edge#what-is-proven-and-what-is-not) lists the gaps that leaves, bundle size and production connection limits among them.
+Read [Edge and Hono](/docs/deployment/edge) before you commit to this path. That "yes" rests on a gated CI lane serving real AG-UI turns under **local** workerd (the same binary Cloudflare runs). Nobody has deployed to Cloudflare itself yet. [What is proven, and what is not](/docs/deployment/edge#what-is-proven-and-what-is-not) lists the gaps that leaves, bundle size and production connection limits among them.
 
 ### Can B4.run use Postgres for long-term memory?
 
@@ -62,7 +62,7 @@ Yes. SQLite is the default local store, but `@b4run/memory-pgvector` provides a 
 
 ### How do I gradually migrate an existing LangGraph project?
 
-Move one graph at a time. Create a B4.run route, named-export your existing `StateGraph` from its `index.ts` as `graph`, and point the new `assistant_id` at it. Tools, prompts, and model providers come along unchanged — B4.run surrounds your code, it does not rewrite it. Once the route is live, peel state and tools out into the B4.run shapes if the ergonomics are worth it, or leave the graph as-is.
+Move one graph at a time. Create a B4.run route, named-export your existing `StateGraph` from its `index.ts` as `graph`, and point the new `assistant_id` at it. Tools, prompts, and model providers come along unchanged, because B4.run wraps your code without rewriting it. Once the route is live, you can move state and tools into the B4.run shapes, or leave the graph as-is.
 
 ## Related
 

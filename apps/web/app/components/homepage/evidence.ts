@@ -57,8 +57,6 @@ export function validateEvidence(value: HomeEvidence): void {
 
 validateEvidence(data)
 export const evidence = data
-export const blueprintUrl =
-  "https://github.com/cacheplane/b4run/tree/main/examples/code-fixer/server"
 export const reportUrl =
   "https://github.com/cacheplane/b4run/blob/main/docs/superpowers/runbooks/2026-09-13-code-fixer-live-evaluations.md"
 export const sourceUrl = (path: string) =>

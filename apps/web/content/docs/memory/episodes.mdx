@@ -1,10 +1,10 @@
 # Episodes
 
-Episodes record what a run did so later runs can recall recent operational history. B4.run supports two paths: an opt-in runtime recorder for settled agent runs, and agent-authored `episodic` records written through the generated `remember` tool.
+Episodes record what a run did, so later runs can recall recent history. They come from an opt-in recorder for settled agent runs, or from agent-authored `episodic` records written with the generated `remember` tool.
 
 ## Episodic memory
 
-Episodic records append. A later event does not reconcile or supersede an earlier event merely because their data looks similar. Recall can filter them by an event-time window; [Distillation](/docs/memory/distillation) can later compact old episodes or derive reflections.
+Episodic records append. A later event never reconciles with or supersedes an earlier one, even when their data looks similar. Recall can filter episodes by an event-time window, and [Distillation](/docs/memory/distillation) can later compact old episodes or derive reflections from them.
 
 ## Enabling the run recorder
 
@@ -23,9 +23,9 @@ export default {
 } satisfies import("@b4run/core").B4Config
 ```
 
-The TTL defaults to 30 days, the cap to 500 episodes per namespace, and failed runs are included. The recorder does not embed episodes: `embed` currently resolves to false, and setting it to true warns once while the record still lands without an embedding.
+The TTL defaults to 30 days, the cap to 500 episodes per namespace, and failed runs are included. The recorder does not embed episodes. `embed` currently resolves to false. Setting it to true logs one warning, and the record still lands without an embedding.
 
-The recorder shares the long-term write switch: `memory.writes: "off"` makes the recorder a no-op even when `memory.episodes.enabled` is true. Use `off` when the entire route must remain recall-only.
+The recorder shares the long-term write switch: `memory.writes: "off"` makes the recorder a no-op even when `memory.episodes.enabled` is true. Use `off` when the whole route must stay recall-only.
 
 ## What gets recorded
 
@@ -48,25 +48,31 @@ One completed run produces one active episodic record:
 }
 ```
 
-The source id prefers `runId`, then `threadId`, then the start instant. Input is bounded, tool names are unique, and `outcome` is `ok` or `error`. Successful episodes derive tool names from final route state; failed episode records currently use `toolsUsed: []` because no final state is available, even if tools ran before the error. The run's event timestamp is `effectiveAt` at start; `createdAt` and `updatedAt` are the recorder's finish/write time. The record expires relative to the start time.
+Let's quickly review:
 
-Recorder errors never fail the user run; the first failure is logged and later failures are muted in that process. Monitor the store if episode capture is operationally required.
+- The source id is `runId` if present, then `threadId`, then the start instant.
+- `input` is length-bounded, and `toolsUsed` lists each tool name once.
+- `outcome` is `ok` or `error`.
+- Successful episodes take tool names from the final route state, but failed episode records currently use `toolsUsed: []` because no final state is available, even if tools ran before the error.
+- `effectiveAt` is the run's start time. `createdAt` and `updatedAt` are when the recorder wrote the record. Expiry counts from the start time.
+
+Recorder errors never fail the user's run. The first failure is logged, and later failures in that process are muted. If you depend on episode capture, monitor the store.
 
 ## Settled, failed, and parked runs
 
 - A settled successful run records `outcome: "ok"`.
 - A settled thrown run records `outcome: "error"` when `includeFailedRuns` is true.
-- A parked interrupt is not completed until a later resume settles or fails. The parked turn records nothing, preventing a half-finished run from appearing as history.
+- A parked interrupt is not completed until a later resume settles or fails. The parked turn records nothing, so a half-finished run never appears as history.
 
-This distinction matters for human-in-the-loop permissions: seeing an interrupt event is not evidence that the route finished.
+This matters for human-in-the-loop permissions: an interrupt event does not mean the route finished.
 
 ## Retention
 
-After writing an episode, the recorder calls `prune` for the namespace. Pruning removes rows whose `expiresAt` is at or before the fixed `now`, then removes the oldest episodic rows beyond the cap using `effectiveAt` (falling back to `createdAt`) and `id` as a tie-break.
+After writing an episode, the recorder calls `prune` for the namespace. Pruning removes rows whose `expiresAt` is at or before the fixed `now`. Then it removes the oldest episodic rows beyond the cap, ordered by `effectiveAt` (falling back to `createdAt`) with `id` as a tie-break.
 
-Retention is lazy: a write or explicit pruning command performs it. It is not a precise background timer. Run `b4 memory prune` on an application-owned schedule if stale rows must be removed without new traffic.
+Retention is lazy. It happens on a write or an explicit prune, not on a background timer. If stale rows must go away without new traffic, run `b4 memory prune` on your own schedule.
 
-Thread deletion does not remove episodes. Design tenant erasure and retention around the memory namespace, not the thread metadata lifecycle.
+Deleting a thread does not remove its episodes. Plan tenant erasure and retention around the memory namespace, not the thread lifecycle.
 
 ## Time-windowed recall
 
@@ -79,13 +85,13 @@ await recall({
 })
 ```
 
-The generated tool resolves relative expressions against one request timestamp. `since` is inclusive and `until` is exclusive over `effectiveAt`, falling back to `createdAt`. Query-less windowed recall orders by that event time; a query adds keyword ranking, recency, and confidence.
+The generated tool resolves relative expressions against one request timestamp. `since` is inclusive and `until` is exclusive, both compared with `effectiveAt` (falling back to `createdAt`). Query-less windowed recall orders by that event time. Adding a query adds keyword ranking, recency, and confidence.
 
 ## Governance
 
-Auto-recorded episodes are active operational records and do not pass through candidate review. Limit who can run a route, derive tenant namespaces from verified application identity, and avoid putting secrets into model input that the recorder may retain.
+Recorded episodes are active as soon as they are written. They skip candidate review. So limit who can run a route, derive tenant namespaces from verified application identity, and keep secrets out of model input the recorder might store.
 
-Agent-authored episodes follow `memory.writes`: `candidate` waits for review, while `auto` and `ask` activate append records without a supersede prompt. An application can therefore govern runtime telemetry and model-authored narratives differently only by choosing whether to enable the recorder and how to expose the remember tool.
+Agent-authored episodes follow `memory.writes`. `candidate` holds them for review, and `auto` and `ask` activate them without a supersede prompt. To govern the two sources differently, choose whether to enable the recorder and how to expose `remember`.
 
 ## Agent-authored episodes
 
@@ -105,7 +111,7 @@ export default defineMemory({
 })
 ```
 
-Agent-authored episodes use the remember call's write timestamp for `effectiveAt` and have no automatic episode-recorder TTL. Apply explicit retention through the store or CLI. They append even when identity fields match.
+Agent-authored episodes use the `remember` call's write timestamp for `effectiveAt`. They append even when identity fields match. The recorder's TTL does not apply to them, so apply retention yourself through the store or the CLI.
 
 ## Testing
 
@@ -120,7 +126,7 @@ Test episode behavior with a fixed clock and a real store implementation:
 7. `memory.writes: "off"` records nothing even when episodes are enabled;
 8. a failed run records an empty `toolsUsed` list.
 
-Use an isolated namespace per test. Query by kind and time window rather than relying on wall-clock ordering.
+Use an isolated namespace per test, and query by kind and time window instead of relying on wall-clock order.
 
 ## Related
 

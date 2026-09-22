@@ -4,23 +4,23 @@ A route is a folder under `src/app/`. Its path becomes the agent endpoint. A rou
 
 ## Route entry
 
-Every route has an `index.ts` that exports one of:
+Here are the four entry shapes:
 
-- **`agent`** — an LLM-driven flow with auto-discovered tools. The default scaffold export. See [Agents](/docs/agents).
-- **`workflow`** — a deterministic async function with typed state. See [Routes / workflow](#workflow) below.
-- **`graph`** — a LangGraph graph. Branching, looping, conditional edges.
-- **`chain`** — a LangChain LCEL `Runnable`. Simple linear pipelines.
+- **`agent`**: an LLM-driven flow with auto-discovered tools. This is the default scaffold export. See [Agents](/docs/agents).
+- **`workflow`**: a deterministic async function with typed state. See [workflow](#workflow) below.
+- **`graph`**: a LangGraph graph, for branching, looping and conditional edges.
+- **`chain`**: a LangChain LCEL `Runnable`, for simple linear pipelines.
 
 ## Pathname rules
 
 Routes follow the same conventions as the Next.js App Router:
 
-- `(group)/` — route group, excluded from the path
-- `[segment]/` — dynamic segment, preserved in the route id and exposed in generated route params
-- `[...rest]/` — catch-all
-- `[[...optional]]/` — optional catch-all
+- `(group)/`: a route group, excluded from the path
+- `[segment]/`: a dynamic segment, preserved in the route id and exposed in generated route params
+- `[...rest]/`: a catch-all
+- `[[...optional]]/`: an optional catch-all
 
-Example tree:
+Here is an example tree:
 
 ```
 src/app/
@@ -37,7 +37,7 @@ The `(public)/` segment is excluded from the path, so this route is `/hello/[ten
 
 ## workflow
 
-A `workflow` is a deterministic async function. The first argument is the typed route state; the second is a `RuntimeContext` that exposes the route's discovered tools.
+A `workflow` is a deterministic async function. The first argument is the route's input state, and the second is a `RuntimeContext` that exposes the route's discovered tools:
 
 ```ts title="src/app/(public)/hello/[tenant]/index.ts"
 import type { RuntimeContext } from "@b4run/sdk"
@@ -73,7 +73,7 @@ export const graph = new StateGraph<HelloState>({ channels: { /* ... */ } })
   .compile()
 ```
 
-The graph receives the same typed state and runs through B4.run's runtime. State channels still need to be declared (LangGraph requirement).
+The graph receives the caller's JSON input and runs through B4.run's runtime. You still declare state channels, as LangGraph requires.
 
 ## chain
 
@@ -96,7 +96,7 @@ $ echo '{"tenant":"acme"}' | b4 run '/hello/[tenant]'
 $ b4 dev    # HMR + dev server
 ```
 
-Programmatic dispatch is also available — see [Agent Protocol](/docs/dev-server/agent-protocol) for the runtime API and the `runs/wait` / `runs/stream` endpoints.
+For programmatic dispatch, see [Agent Protocol](/docs/dev-server/agent-protocol) for the runtime API and the `runs/wait` / `runs/stream` endpoints.
 
 ## Related
 

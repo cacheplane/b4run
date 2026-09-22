@@ -18,11 +18,8 @@ export function ProjectOverview() {
     <section id="project" className={styles.projectOverview} aria-labelledby="project-title">
       <div className={styles.overviewCopy}>
         <p className={styles.eyebrow}>The whole application</p>
-        <h2 id="project-title">
-          One project.
-          <br />A working agent.
-        </h2>
-        <p>Repair a broken CLI. Verify the patch. Ask for approval.</p>
+        <h2 id="project-title">This project is the whole agent.</h2>
+        <p>The agent repairs a broken CLI, verifies the patch, and asks for your approval.</p>
         <p className={styles.overviewHint}>Follow the files.</p>
       </div>
       <nav className={styles.projectTree} aria-label="Explore project files">
@@ -56,7 +53,7 @@ export function ExecutionFlow() {
   return (
     <section id="workflow" className={styles.executionFlow} aria-labelledby="execution-title">
       <p className={styles.eyebrow}>The pieces in motion</p>
-      <h2 id="execution-title">One request. The whole workflow.</h2>
+      <h2 id="execution-title">One request runs the whole workflow.</h2>
       <ol>
         {steps.map(([action, detail], index) => (
           <li key={action}>

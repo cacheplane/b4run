@@ -1,6 +1,6 @@
 ---
-title: B4.run 0.8 — The framework around the agent
-description: Evals, typed memory, safer tools, isolated execution, standard clients, and production builds from Node and Docker to an opt-in edge target.
+title: "B4.run 0.8: The framework around the agent"
+description: "Learn what 0.5 through 0.8 added around the agent: evals, tool permissions, sandboxes, delegation, typed memory, AG-UI clients and production builds."
 date: 2026-08-09
 tags: [typescript, agents]
 type: release
@@ -9,13 +9,13 @@ author: brian
 draft: true
 ---
 
-Building an agent starts with a model and a few tools. Building an application around that agent brings another set of questions. How do we test its behavior? Which actions require approval? What should it remember? How does a browser display its progress?
+An agent starts with a model and a few tools. The application around it brings more questions. How do we test its behavior? Which actions require approval? What should it remember? How does a browser display its progress?
 
-B4.run's route conventions give those pieces a place to live. The releases from 0.5 through 0.8.21 added more of the behavior around them, including evaluations, tool permissions, long-term memory, and production runtime options.
+B4.run's route conventions give those pieces a place to live. The releases from 0.5 through 0.8.21 added evaluations, tool permissions, long-term memory and production runtime options.
 
-Let's break these down using a support assistant as our example. The assistant can look up an order, research a policy, and prepare a reply. We will look at what each framework capability contributes to that application.
+Let's walk through them with a support assistant that looks up an order, researches a policy and prepares a reply.
 
-**Version note:** This is a roundup through 0.8.21, rather than a list of features introduced in that single release. The examples use the current `@b4run` package names, introduced in 0.8.27. Follow the linked upgrade guide for a current installation instead of installing those package names at 0.8.21.
+**Version note:** This is a roundup through 0.8.21, not a list of one release's features. The examples use the current `@b4run` package names, introduced in 0.8.27, so follow the linked upgrade guide for a current installation instead of installing those names at 0.8.21.
 
 ## Goals
 
@@ -27,17 +27,17 @@ We want our support application to:
 4. Retain useful information across conversations.
 5. Connect to a browser and run outside the development server.
 
-You can add these capabilities as you need them. A small agent does not need every one of them on its first day.
+You can add each of these when you need it. A small agent doesn't need them all on day one.
 
 ## Evaluate agent behavior
 
 A unit test can tell us that `lookupOrder()` returns the expected order. It does not tell us whether a model will choose that tool when a customer asks about a delivery.
 
-An **evaluation**, or **eval**, runs a set of scenarios and scores their results. The scenarios form a **dataset**. A **scorer** checks one aspect of the result, such as required text, a tool call, or a budget. A **gate** decides whether the collected scores meet our chosen threshold.
+An **evaluation**, or **eval**, runs a set of scenarios and scores their results. The scenarios form a **dataset**. A **scorer** checks one aspect of the result, such as required text, a tool call or a budget. A **gate** decides whether the collected scores meet our chosen threshold.
 
 ### Start with a small eval
 
-An eval lives beside its route under `evals/*.eval.ts`. Here is a deliberately small example for a `/support` route:
+An eval lives beside its route under `evals/*.eval.ts`. Here is a small example for a `/support` route:
 
 ```ts
 // src/app/support/evals/greeting.eval.ts
@@ -65,23 +65,21 @@ A few things to note:
 3. `contains()` checks whether the final text contains `help`.
 4. The outer `threshold` sets the mean score required for the eval to pass.
 
-This example teaches the API; a greeting alone is not a useful quality bar for a support application. Add scenarios for the work the agent should perform, including missing orders, ambiguous requests, and service failures.
+A greeting alone is not a useful quality bar for a support application. Add scenarios for the work the agent should do, including missing orders, ambiguous requests and service failures.
 
 ### Replay and live runs
 
-By default, `b4 eval` replays model fixtures. Our tools, prompts, capabilities, and state execute, while the model response comes from the fixture. This makes the scenario repeatable in CI.
+By default, `b4 eval` replays model fixtures. Our tools, prompts, capabilities and state run, while the model response comes from the fixture. This makes the scenario repeatable in CI.
 
-There is an important limit: a passing replay does not demonstrate that a live model will make the same decision. We supplied its response. Use `b4 eval --live` to measure real model behavior, and `--record` to capture responses for later replay. Both make provider calls and incur their associated cost.
+Of course, a passing replay does not show that a live model will make the same decision, because we supplied its response. Use `b4 eval --live` to measure real model behavior, and `--record` to capture responses for later replay. Both make provider calls and cost money.
 
 Scorers run after the agent finishes. If a scorer uses another model to judge the answer, that model call also needs a fixture or mock for an offline CI run.
 
-For smaller checks, `@b4run/testing` includes harnesses for agents, tools, middleware, workspaces, and protocol behavior. Choose the harness for the part you need to exercise. See [Evals](/docs/evals) and [Testing agents](/docs/testing-agents) for complete examples.
+For smaller checks, `@b4run/testing` includes harnesses for agents, tools, middleware, workspaces and protocol behavior. See [Evals](/docs/evals) and [Testing agents](/docs/testing-agents) for complete examples.
 
 ## Control tool execution
 
-Our support agent might be allowed to look up orders automatically, while issuing a refund requires a person to approve the request.
-
-There are three separate decisions here:
+Our support agent might look up orders on its own, while a refund needs a person's approval. There are three separate decisions here:
 
 | Question | Framework mechanism |
 | --- | --- |
@@ -104,21 +102,21 @@ export default agent({
 })
 ```
 
-The `deny` rule removes `deleteAccount` from the tools available to this agent. The `approve` rule pauses an `issueRefund` call for a decision before executing it. These names refer to tools implemented by the application; declaring a name does not create the tool.
+The `deny` rule removes `deleteAccount` from the tools available to this agent. The `approve` rule pauses an `issueRefund` call for a decision before it runs. These names refer to tools the application implements. Declaring a name does not create the tool.
 
-Argument constraints can inspect the proposed input as well. For example, an application may require additional review for a refund above a certain amount. The constraint can allow the call, reject it with a reason, or request approval.
+Argument constraints can inspect the proposed input too. For example, a refund above a certain amount could need extra review. The constraint can allow the call, reject it with a reason or request approval.
 
-The tool implementation still needs to verify the authenticated customer's access to the order. Model instructions and route parameters do not replace authorization in application code.
+The tool still needs to verify the authenticated customer's access to the order. Model instructions and route parameters do not replace authorization in application code.
 
 ### Isolate filesystem and shell work
 
-A workspace gives file operations a configured root directory. Permission checks govern shell commands and access outside that workspace. If an approved operation runs on the application host, those checks do not turn it into an isolated process.
+A workspace gives file operations a configured root directory. Permission checks govern shell commands and access outside that workspace. An approved operation that runs on the application host is still not isolated.
 
-A **sandbox** provides a separate execution environment for filesystem and shell work. B4.run has Docker and Kubernetes providers for this purpose.
+A **sandbox** provides a separate execution environment for filesystem and shell work. B4.run has Docker and Kubernetes providers.
 
-The Docker provider uses a non-root user, drops Linux capabilities, prevents privilege escalation, and makes the root filesystem read-only by default. Network restrictions depend on the selected mode: deny-network blocks egress, while an allow-mode host denylist is best-effort. Kubernetes network enforcement depends on a policy-capable network plugin.
+The Docker provider uses a non-root user, drops Linux capabilities, prevents privilege escalation and makes the root filesystem read-only by default. Network restrictions depend on the selected mode. Deny-network blocks egress, while an allow-mode host denylist is best-effort. Kubernetes network enforcement depends on a policy-capable network plugin.
 
-Sandbox lifecycle matters too. `release()` drops warm compute while retaining the thread's volume and workspace. `destroy()` removes both the compute and persisted workspace data. For a conversation that will continue later, those operations have different consequences.
+Sandbox lifecycle matters too. `release()` drops warm compute but keeps the thread's volume and workspace. `destroy()` removes both the compute and the persisted workspace data, so a conversation that continues later loses its files.
 
 The [Access Control](/docs/access-control) and [Sandbox](/docs/sandbox) guides show how to configure each layer.
 
@@ -147,19 +145,19 @@ export default agent({
 })
 ```
 
-First, we import two child descriptors from their route files. Each of those files exports its own `agent()` declaration with instructions and tools for that task.
+Let's quickly review:
 
-Next, the keys in `subagents` give the children the names the parent can request. The delegation rules use those same names.
+- First, we import two child descriptors. Each file exports its own `agent()` declaration with the instructions and tools for its task.
+- Next, the keys in `subagents` name the children the parent can request. The delegation rules use the same names.
+- Finally, `researcher` is allowed to run, while dispatching `writer` requires approval. That approval covers starting the writer. Publishing or sending its output needs its own application controls.
 
-Finally, `researcher` is allowed to run, while dispatching `writer` requires approval. This approval is for starting the writer; publishing or sending its output would need its own application controls.
+The policy belongs to this parent. Allowing its research child does not authorize every child the researcher might call. Delegated runs keep separate saved state, and an approval requested by a child returns through the root conversation so the client can resume it there.
 
-The policy belongs to this parent. Allowing its research child does not also authorize every child that the researcher might call. Delegated executions have separate saved execution state, and an approval requested by a child returns through the root conversation so the client can resume it there.
-
-For applications upgrading from older registration forms, the current API requires a keyed `subagents` object. Array registration and old scalar resume bodies need migration. The [Subagents guide](/docs/subagents) covers the full configuration and resume behavior.
+The current API requires a keyed `subagents` object. Array registration and old scalar resume bodies need migration. The [Subagents guide](/docs/subagents) covers the full configuration and resume behavior.
 
 ## Remember information across conversations
 
-Conversation state helps continue the current thread. Long-term memory retains records that may be useful in a later thread.
+Conversation state continues the current thread. Long-term memory keeps records for a later thread.
 
 For example, a support assistant may need to remember a reviewed preference about how an organization receives reports. A route declares the shape of those records in `memory.ts`:
 
@@ -180,33 +178,33 @@ export default defineMemory({
 })
 ```
 
-Let's review the declaration:
+Let's quickly review:
 
 - `kind: "semantic"` describes factual records.
 - `scope` places the collection in the workspace and route namespace. This example is not a tenant authentication boundary.
-- `identity` identifies which fields describe the same fact, such as an organization and its preferred report format.
+- `identity` names the fields that describe the same fact, such as an organization and its preferred report format.
 - `schema` declares the data written with each record. Type generation carries this shape into the agent's `remember` tool, and runtime validation checks writes again.
 
 ### Review before recall
 
-Agent-authored writes become candidates by default. A candidate is stored for review but is excluded from normal recall until approved. You can inspect and approve candidates through the CLI or local Memory Inspector.
+Agent-authored writes become candidates by default. A candidate is stored for review but left out of normal recall until approved. You can inspect and approve candidates through the CLI or the local Memory Inspector.
 
-This matters because an agent can misunderstand a conversation. Saving its interpretation should not automatically make that interpretation trusted context for later answers.
+Why? An agent can misunderstand a conversation, and its interpretation shouldn't become trusted context for later answers until someone checks it.
 
-The default SQLite store ranks recall using keywords, recency, and confidence. Hybrid recall can also use vectors, which help find related meaning when wording differs. `@b4run/memory-pgvector` provides a shared Postgres option for the long-term collection.
+The default SQLite store ranks recall by keywords, recency and confidence. Hybrid recall can also use vectors, which find related meaning when the wording differs. `@b4run/memory-pgvector` provides a shared Postgres option for the long-term collection.
 
 ### Record events separately
 
-Episodic memory records events: what happened during a run. The runtime recorder is optional and uses retention limits. Two explicit commands can process older records:
+Episodic memory records what happened during a run. The runtime recorder is optional and has retention limits. Two commands process older records:
 
 - `b4 memory consolidate` compacts older episodes.
 - `b4 memory reflect` derives insights for review.
 
-These commands do not run automatically. Decide when to run them based on the application's needs and model cost. The [Memory guide](/docs/memory) explains record types, review, and recall; the [Inspector guide](/docs/inspector) covers the local development interface.
+These commands do not run automatically, so schedule them based on your application's needs and model cost. The [Memory guide](/docs/memory) explains record types, review and recall. The [Inspector guide](/docs/inspector) covers the local development interface.
 
 ## Connect a browser client
 
-A browser needs more than the agent's final answer. It may need to show text as it arrives, display tool activity, and ask the user to approve an operation.
+A browser needs more than the agent's final answer. It may need to show text as it arrives, display tool activity and ask the user to approve an operation.
 
 **AG-UI** is an event protocol for that interaction. B4.run maps runtime activity into AG-UI events, preserving tool-call ids so the browser can associate a result with the call that produced it. The reference web client uses CopilotKit.
 
@@ -217,25 +215,23 @@ The thread-scoped Agent Protocol API remains available for direct clients. A typ
 3. If execution pauses for approval, display the pending requests.
 4. Resume the root thread with decisions addressed to every pending interrupt id.
 
-The ids matter when more than one operation is waiting for a decision. A single “yes” cannot safely identify which requests it answers.
+The ids matter when more than one operation is waiting. A single "yes" can't safely say which requests it answers.
 
 Both client paths reach the same route code and configured runtime stores. See [AG-UI and Web Clients](/docs/ag-ui) and [Dev Server](/docs/dev-server) for the request formats.
 
 ## Deploy the application
 
-`b4 build` can generate a Node server and Dockerfile. `b4 start` runs the B4.run production runtime directly. These paths support its HTTP APIs, middleware, tool rules, permissions, and configured sandbox.
+`b4 build` can generate a Node server and Dockerfile. `b4 start` runs the B4.run production runtime directly. Both support the HTTP APIs, middleware, tool rules, permissions and configured sandbox.
 
-If the host has an ephemeral filesystem, or several instances need the same saved records, `@b4run/postgres-storage` stores checkpoints, threads, and permission grants in Postgres. These are runtime records; typed long-term memory uses its separate memory store.
+If the host has an ephemeral filesystem, or several instances need the same saved records, `@b4run/postgres-storage` stores checkpoints, threads and permission grants in Postgres. These are runtime records. Typed long-term memory uses its own store.
 
-Shared records do not solve every coordination problem. Cancellation and the one-run-per-thread guard remain process-local, so applications running several replicas need to account for that behavior.
+Note, cancellation and the one-run-per-thread guard stay process-local, so an application running several replicas needs to account for that.
 
-The optional Hono target supports a narrower edge environment. It excludes capabilities that need local filesystem or shell execution, and its qualification uses local workerd rather than a live Cloudflare deployment. [B4.run at the edge](/blog/b4-at-the-edge) explains that design and its limits.
+The optional Hono target supports a narrower edge environment. It leaves out features that need a local filesystem or shell, and it is tested on local workerd, not a live Cloudflare deployment. [B4.run at the edge](/blog/b4-at-the-edge) explains that design and its limits.
 
 ## Upgrade an existing application
 
-Use Node.js 24 or later, and keep direct `@b4run/*` dependencies on the same exact release. The framework is pre-1.0, and 0.8 patch releases have included breaking API changes.
-
-For an upgrade:
+Use Node.js 24 or later, and keep direct `@b4run/*` dependencies on the same exact release. The framework is pre-1.0, and 0.8 patch releases have included breaking API changes. To upgrade:
 
 1. Read the [Upgrading guide](/docs/upgrading) and the intervening release notes.
 2. Update all direct B4.run dependencies together to the chosen published version.
@@ -243,10 +239,10 @@ For an upgrade:
 4. Run the route tests and evals.
 5. Exercise the deployment target and approval flows the application actually uses.
 
-For a new project, follow [Getting Started](/docs/getting-started). The starter provides a working application with consistent package versions.
+For a new project, follow [Getting Started](/docs/getting-started). The starter gives you a working application with matching package versions.
 
 ## Conclusion
 
-An agent becomes useful inside an application when we can test its behavior, control its actions, retain appropriate context, and connect it to users.
+An agent becomes useful inside an application when we can test its behavior, control its actions, keep the right context and connect it to users. These releases add more of those pieces around the route.
 
-These releases give us more of those pieces around the route. Start with the part your application needs next: a repeatable eval, an approval before a tool call, or a memory collection you can review. Then test the complete interaction so you understand what the framework handles and what remains application code.
+Start with the part your application needs next: a repeatable eval, an approval before a tool call or a memory collection you can review. Then test the whole interaction so you know what the framework handles and what is still your application code.

@@ -1,10 +1,9 @@
 # Skills
 
-Skills let a route expose longer instructions without putting all of them in the system prompt.
+Skills let a route offer long instructions without putting them all in the system prompt.
+The model sees a short list of skills and calls `readSkill({ name })` when one is relevant, so the baseline prompt stays small.
 
-The model sees a short list of available skills and can call `readSkill({ name })` when one is relevant. That keeps the baseline prompt smaller while still making detailed procedures available on demand.
-
-Use skills for route-local instructions that are too long or too conditional for the main `systemPrompt`: refund rules, triage procedures, coding standards for a particular workflow, or escalation playbooks.
+Use skills for route-local instructions that are too long or too conditional for the main `systemPrompt`, such as refund rules, triage procedures, coding standards for a workflow, or escalation playbooks.
 
 ## Quick start
 
@@ -37,21 +36,17 @@ Use this skill when the customer asks about refunds, exchanges, credits, or exce
 When this route runs, B4.run adds:
 
 - a `# Skills` prompt section listing `refund-policy` and its description
-- a `readSkill({ name })` tool that returns the body of `SKILL.md`
-
-The body is not injected until the model asks for it.
+- a `readSkill({ name })` tool that returns the body of `SKILL.md` when the model asks for it
 
 ## Skill names
 
-By default, the skill name is the directory name.
+By default, the skill name is the directory name. For example, this file creates a skill named `refund-policy`:
 
 ```text
 skills/refund-policy/SKILL.md
 ```
 
-creates a skill named `refund-policy`.
-
-You can override the model-facing name with frontmatter:
+You can override the model-facing name in frontmatter:
 
 ```md
 ---
@@ -85,15 +80,15 @@ The `readSkill` tool accepts:
 { name: string }
 ```
 
-For a known skill, it returns the markdown body after frontmatter. For an unknown skill, it returns a helpful string listing the available names. If the input shape is invalid, the tool schema validation rejects it.
+For a known skill, it returns the markdown body after frontmatter. For an unknown skill, it returns a string listing the available names. Tool schema validation rejects an invalid input shape.
 
-The full skill bodies are read during route preparation, not from disk on every `readSkill` call.
+B4.run reads the skill bodies during route preparation, not from disk on every `readSkill` call.
 
 ## Frontmatter requirements
 
 `description` is required because it is the only information the model sees before choosing whether to load the skill.
 
-This is valid:
+Here is a valid skill:
 
 ```md
 ---
@@ -119,9 +114,9 @@ name: billing-disputes
 ...
 ```
 
-The description should be short and action-oriented. It is not the full skill.
+Keep the description short and action-oriented.
 
-B4.run's frontmatter parser is intentionally small. Use simple `key: value` fields; do not rely on full YAML features.
+B4.run's frontmatter parser is small on purpose. Use simple `key: value` fields, and don't rely on full YAML features.
 
 ## Generated types
 
@@ -143,11 +138,9 @@ string
 
 Skills are implemented by `createSkillsMarker()`.
 
-During agent route preparation, B4.run discovers skill directories, reads frontmatter and body content, contributes the `readSkill` tool, and contributes the prompt fragment.
+During agent route preparation, B4.run discovers skill directories, reads frontmatter and body content, and contributes the `readSkill` tool and the prompt fragment. The tool holds each skill body in memory until `readSkill` runs.
 
-Skills do not add state fields or stream transformers. They are prompt plus tool only.
-
-The list of skills is loaded during route preparation. The full skill body is held by the tool and returned when `readSkill` runs.
+Skills do not add state fields or stream transformers.
 
 ## Related
 

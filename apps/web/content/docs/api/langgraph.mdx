@@ -2,7 +2,7 @@
 
 ## Use this when
 
-Use this integration package when a B4.run runtime or framework extension must normalize `graph` and `workflow` route modules or execute those entries through B4.run's backend-adapter contract. Application route authors normally use the [SDK route contracts](/docs/api/sdk) and let the CLI choose these adapters.
+Use this package when a B4.run runtime or framework extension must normalize `graph` and `workflow` route modules or execute those entries through B4.run's backend-adapter contract. Route authors normally use the [SDK route contracts](/docs/api/sdk) and let the CLI choose these adapters.
 
 ## Install and import
 
@@ -25,7 +25,7 @@ Use `@b4run/langgraph/define-entry` for the smallest entry-validation import and
 | `@b4run/langgraph/define-entry` | edge-safe | dependency-free | integration | supported |
 | `@b4run/langgraph/route-module` | edge-safe | dependency-free | integration | supported |
 
-All three runtime surfaces bundle without third-party runtime dependencies or Node globals. This classification covers importing and executing these B4.run adapters; it does not classify a graph, workflow, or tool supplied by an application.
+All three runtime surfaces bundle without third-party runtime dependencies or Node globals. That covers importing and running these adapters. It says nothing about a graph, workflow, or tool your application supplies.
 
 ## Public exports
 
@@ -46,7 +46,7 @@ All three runtime surfaces bundle without third-party runtime dependencies or No
 | `RuntimeContext` | Re-export the [SDK-owned runtime context](/docs/api/sdk). |
 | `RuntimeTool` | Re-export the SDK-owned callable tool contract. |
 
-`ToolRegistry` exists in a private implementation module but is not exported from this package surface.
+`ToolRegistry` lives in a private implementation module and is not exported.
 
 ### `@b4run/langgraph/define-entry`
 
@@ -67,7 +67,7 @@ All three runtime surfaces bundle without third-party runtime dependencies or No
 | `RouteModule` | Unite graph and workflow module forms. |
 | `WorkflowRouteModule` | Describe a module with a `workflow` entry. |
 
-The route-module subpath exposes only its published normalization and route-module contracts. The source-derived inventory pins these eight names independently from the root and `/define-entry` surfaces.
+The route-module subpath exposes only its published normalization and route-module contracts.
 
 ## Key contracts
 
@@ -153,9 +153,7 @@ The route-module subpath exposes only its published normalization and route-modu
 
 #### Adapter lifecycle and failure boundaries
 
-The manifest assertion establishes the published declaration target; the source-derived ownership inventory above establishes the exact eight-symbol surface.
-
-`graphAdapter` calls a function directly or calls an object's `invoke`; `workflowAdapter` accepts only a function. Both pass `{ signal }`, await the result, and implement `stream()` as a single yielded execute result. They do not provide native multi-chunk graph streaming. The `runtime`, `streaming`, and `tags` route-config fields are reserved contracts but these adapters do not branch on them today.
+`graphAdapter` calls a function directly or calls an object's `invoke`; `workflowAdapter` accepts only a function. Both pass `{ signal }`, await the result, and implement `stream()` as a single yielded execute result. They do not provide native multi-chunk graph streaming. The `runtime`, `streaming`, and `tags` route-config fields are reserved, and these adapters ignore them.
 
 ## Examples and related guides
 

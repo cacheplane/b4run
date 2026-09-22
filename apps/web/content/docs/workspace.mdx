@@ -1,16 +1,16 @@
 # Workspace Filesystem
 
-A B4.run app's sandboxed file area is the `workspace/` directory at the app root. Creating that directory opts an agent route into four built-in tools: `listDir`, `readFile`, `writeFile`, and `runBash`. No configuration is required — the directory's presence is the activation signal. All file I/O in the runtime flows through one permission gate, whether the request comes from the LLM calling an agent-facing tool or from your own code calling `ctx.fs`.
+The `workspace/` directory at the app root is a B4.run app's sandboxed file area. Creating that directory gives agent routes four built-in tools: `listDir`, `readFile`, `writeFile` and `runBash`. You don't configure anything else. All file I/O in the runtime goes through one permission gate, whether the LLM calls an agent-facing tool or your own code calls `ctx.fs`.
 
 There are three layers:
 
-- **The pluggable backend** (`@b4run/workspace`) — a plain-object interface that reads, writes, and lists files. `localFilesystem()` ships as the default; you can substitute any backend in `b4.config.ts`.
-- **Agent-facing workspace tools** — `readFile`, `writeFile`, `listDir`, and `runBash`, wired into agent routes when a `workspace/` directory exists at the app root. The LLM calls these by name; they gate through the permission system before touching the backend.
-- **`ctx.fs`** — the `WorkspaceFs` handle available on `B4ToolContext` (route tools) and `RuntimeContext` (workflow/graph entries). Same gate, same backend, but your code drives it. Always present on the context; reads simply surface `ENOENT` if the `workspace/` directory doesn't exist yet.
+- **The pluggable backend** (`@b4run/workspace`): a plain-object interface that reads, writes and lists files. `localFilesystem()` is the default, and you can substitute any backend in `b4.config.ts`.
+- **Agent-facing workspace tools**: `readFile`, `writeFile`, `listDir` and `runBash`, wired into agent routes when a `workspace/` directory exists at the app root. The LLM calls these by name, and each one passes the permission gate before touching the backend.
+- **`ctx.fs`**: the `WorkspaceFs` handle on `B4ToolContext` (route tools) and `RuntimeContext` (workflow and graph entries). It uses the same gate and backend, but your code drives it. It is always present on the context. Reads surface `ENOENT` if the `workspace/` directory doesn't exist yet.
 
 ## The pluggable backend
 
-`FilesystemBackend` is the contract every backend must satisfy:
+Every backend implements the `FilesystemBackend` contract:
 
 | Method | Required | Notes |
 |---|---|---|
@@ -24,10 +24,10 @@ There are three layers:
 | `touchFile(path, ctx)` | No | Used by LRU-by-access offload tracking |
 | `mkdir(path, ctx)` | No | Used to create the `tool-outputs/` directory |
 
-`localFilesystem()` implements all of them. Its defaults:
+`localFilesystem()` implements all of them, with two defaults:
 
-- **256 KiB read cap** per call. Override per-call with `opts.maxBytes` (e.g. `Number.POSITIVE_INFINITY` for uncapped reads).
-- **`writeFile` creates missing parent directories** — writing to `reports/result.md` works without a separate `mkdir` call.
+- **A 256 KiB read cap** per call. Override it per call with `opts.maxBytes` (for example, `Number.POSITIVE_INFINITY` for uncapped reads).
+- **`writeFile` creates missing parent directories**, so writing to `reports/result.md` works without a separate `mkdir` call.
 
 Configure a custom backend in `b4.config.ts`:
 
@@ -57,7 +57,7 @@ export default {
 }
 ```
 
-`withFilesystemLogging` writes method names and arguments to `stderr` by default — note that for `writeFile` this includes the full file content, so route logs accordingly. Supply a `destination` function for structured output:
+`withFilesystemLogging` writes method names and arguments to `stderr` by default. For `writeFile` this includes the full file content, so route your logs accordingly. Supply a `destination` function for structured output:
 
 ```ts
 withFilesystemLogging({
@@ -67,7 +67,7 @@ withFilesystemLogging({
 })
 ```
 
-`readBinaryFile` is logged with the **path only** — the bytes are never serialized into the log entry.
+`readBinaryFile` is logged with the **path only**. The bytes never go into the log entry.
 
 <Callout type="warn" title="Forward optional methods">
   A middleware that returns only `{ readFile, writeFile, listDir }` silently drops `readBinaryFile`, `statFile`, `removeFile`, `touchFile`, and `mkdir`. Dropping `statFile`/`removeFile` disables offload GC; dropping `readBinaryFile` disables `ctx.fs.readBinaryFile`. Use a conditional spread to preserve methods you don't need to intercept:
@@ -88,12 +88,12 @@ withFilesystemLogging({
   })
   ```
 
-  `withFilesystemLogging` does this correctly and is safe to use as a reference.
+  `withFilesystemLogging` does this correctly, so you can use it as a reference.
 </Callout>
 
 ## The four agent-facing tools
 
-All paths are workspace-relative. Paths outside `workspace/` are permission-gated — see [Permissions](#permissions) below for the full decision table.
+All paths are workspace-relative. Paths outside `workspace/` are permission-gated (see [Permissions](#permissions) below for the decision table).
 
 ### listDir
 
@@ -108,17 +108,17 @@ listDir({ path: "corpus" })
 
 ### readFile
 
-Reads a UTF-8 file. The default cap is **256 KiB** — files larger than that return an error rather than partial content.
+Reads a UTF-8 file. The default cap is **256 KiB**, and larger files return an error rather than partial content.
 
 ```
 readFile({ path: "corpus/intro.md" })
 ```
 
-The 256 KiB cap applies to agent tool calls. Files inside `workspace/tool-outputs/` (where offloaded tool results are stored) are read without a size limit — the agent retrieves them with the same `readFile` call.
+The 256 KiB cap applies to agent tool calls. Files inside `workspace/tool-outputs/` (where offloaded tool results are stored) are read without a size limit, using the same `readFile` call.
 
 ### writeFile
 
-Writes a UTF-8 file. **Missing parent directories are created automatically** — calling `writeFile({ path: "reports/2024-q1.md", content: "..." })` works even if `reports/` does not exist yet.
+Writes a UTF-8 file. **Missing parent directories are created automatically**, so `writeFile({ path: "reports/2024-q1.md", content: "..." })` works even if `reports/` does not exist yet.
 
 ```
 writeFile({ path: "reports/summary.md", content: "# Summary\n\n..." })
@@ -127,7 +127,7 @@ writeFile({ path: "reports/summary.md", content: "# Summary\n\n..." })
 
 ### runBash
 
-Executes a shell command with the workspace root as the working directory. `runBash` is gated by the [permissions](/docs/permissions) system: a command must match an allow rule or pass an interactive prompt before it runs.
+Executes a shell command with the workspace root as the working directory. `runBash` is gated by the [permissions](/docs/permissions) system, so a command must match an allow rule or pass an interactive prompt before it runs.
 
 ```
 runBash({ command: "node scripts/fetch-source.mjs https://example.com/api" })
@@ -135,7 +135,7 @@ runBash({ command: "node scripts/fetch-source.mjs https://example.com/api" })
 
 ## ctx.fs for tools and routes
 
-`ctx.fs` is a `WorkspaceFs` handle — a narrower, workspace-relative surface over the backend:
+`ctx.fs` is a `WorkspaceFs` handle, a narrower workspace-relative surface over the backend:
 
 ```ts
 interface WorkspaceFs {
@@ -146,9 +146,9 @@ interface WorkspaceFs {
 }
 ```
 
-Paths are **workspace-relative** — `"images/logo.png"` resolves to `<appRoot>/workspace/images/logo.png`. The handle resolves relative paths against the workspace root and permission-gates anything that lands outside it (see [Permissions](#permissions) below).
+Paths are **workspace-relative**, so `"images/logo.png"` resolves to `<appRoot>/workspace/images/logo.png`. The handle permission-gates anything that lands outside the workspace root (see [Permissions](#permissions) below).
 
-**Example: a route tool reading a binary file**
+Here is a route tool that reads a binary file:
 
 ```ts title="src/app/(public)/describe/tools/describeImage.ts"
 import type { B4ToolContext } from "@b4run/sdk"
@@ -168,7 +168,7 @@ export default async (
 
 `Buffer.from(bytes).toString("base64")` converts the `Uint8Array` to a base64 string. If the configured backend does not implement `readBinaryFile`, the call throws with a message naming the fix.
 
-**Example: a workflow entry listing and reading files**
+And here is a workflow entry that lists and reads files:
 
 ```ts title="src/app/(public)/report/index.ts"
 import type { RuntimeContext } from "@b4run/sdk"
@@ -190,7 +190,7 @@ export async function workflow(
 
 ## Research scaffold example
 
-The `research` template (`create-b4-app --template research`) shows how these tools fit together. Paths below are relative to the B4.run app root, which is the generated workspace's `server/` package:
+The `research` template (`create-b4-app --template research`) shows how these tools fit together. These paths are relative to the B4.run app root, which is the generated workspace's `server/` package:
 
 ```text
 workspace/
@@ -201,9 +201,9 @@ workspace/
   reports/           ← agent-written output (writeFile creates this)
 ```
 
-The agent uses `listDir` and `readFile` to explore and read corpus documents. It calls `runBash` to run `scripts/fetch-source.mjs` when it needs to pull a new source — that command is intentionally left off the `allow` list so the fetch step requires human approval. Reports land in `workspace/reports/` via `writeFile`; the directory is created on the first write.
+The agent uses `listDir` and `readFile` to explore and read corpus documents. It calls `runBash` to run `scripts/fetch-source.mjs` when it needs a new source. That command is left off the `allow` list on purpose, so the fetch step requires human approval. Reports land in `workspace/reports/` via `writeFile`, which creates the directory on the first write.
 
-Agent memory lives at `workspace/AGENTS.md` and is automatically injected into the system prompt. See [Memory](/docs/memory) for details.
+Agent memory lives at `workspace/AGENTS.md`, and B4.run injects it into the system prompt. See [Memory](/docs/memory).
 
 <Callout type="warn" title="Treat AGENTS.md as shared prompt input">
   B4.run re-reads the host app root's `workspace/AGENTS.md` into prompt context on every turn for every consuming `agent()` route and subagent. With the default local app-root filesystem, `writeFile({ path: "AGENTS.md", ... })` targets that same file, so a route can persist instructions that affect later requests and other consuming agents sharing the app root. A sandbox or custom filesystem backend may send `writeFile` to a different filesystem and does not automatically change the host file this prompt marker reads. Raw graph, workflow, and chain routes do not consume this prompt file.
@@ -213,23 +213,23 @@ Agent memory lives at `workspace/AGENTS.md` and is automatically injected into t
 
 ## Tool-output offloading
 
-When a tool returns a large result, B4.run can spill it to `workspace/tool-outputs/` and replace the in-context payload with a short stub the agent can read back on demand using `readFile`. This keeps the context window tidy without losing information. See [Context Management](/docs/context-management) for configuration options and how offloading composes with conversation summarization.
+When a tool returns a large result, B4.run can spill it to `workspace/tool-outputs/` and replace the in-context payload with a short stub. The agent reads it back with `readFile` when it needs it. See [Context Management](/docs/context-management) for configuration options and how offloading composes with conversation summarization.
 
 ## Permissions
 
-All file I/O — whether initiated by the LLM calling a workspace tool or by your code calling `ctx.fs` — goes through the same permission gate.
+All file I/O goes through the same permission gate, whether the LLM calls a workspace tool or your code calls `ctx.fs`:
 
 | Path | Decision |
 |---|---|
 | Inside `workspace/` | Always allowed silently |
-| Outside `workspace/` — allow rule matches | Allowed |
-| Outside `workspace/` — deny rule matches | Denied |
-| Outside `workspace/` — no rule (unknown), interactive mode, agent-route tool | Interactive prompt shown; `kind: "path"` interrupt pauses the run for human approval |
-| Outside `workspace/` — no rule (unknown), non-interactive mode | Fail-closed |
-| Outside `workspace/` — no rule (unknown), workflow/graph entry | Fail-closed with guidance |
+| Outside `workspace/`, allow rule matches | Allowed |
+| Outside `workspace/`, deny rule matches | Denied |
+| Outside `workspace/`, no rule (unknown), interactive mode, agent-route tool | Interactive prompt shown. A `kind: "path"` interrupt pauses the run for human approval |
+| Outside `workspace/`, no rule (unknown), non-interactive mode | Fail-closed |
+| Outside `workspace/`, no rule (unknown), workflow/graph entry | Fail-closed with guidance |
 | `bypass` mode | Everything allowed (dev only) |
 
-**Non-interactive and workflow/graph entries fail closed.** Workflow and graph entries run outside the LangGraph graph, where the interrupt mechanism is not available. If a path outside `workspace/` hits an unknown permission, the gate returns an error telling you to add an allow rule:
+**Non-interactive and workflow/graph entries fail closed.** Workflow and graph entries run outside the LangGraph graph, where interrupts are not available. If a path outside `workspace/` hits an unknown permission, the gate returns an error telling you to add an allow rule:
 
 ```
 Permission denied: /etc/hosts is outside the workspace and interactive
@@ -237,14 +237,12 @@ permission prompts are not available in this execution context.
 Add an allow rule for "readFile" to the permissions config in b4.config.ts.
 ```
 
-One permission model regardless of whether the LLM or your code initiates the I/O.
+**Allow rules match canonical paths.** The gate compares symlink-resolved paths, so an allow rule for a path outside the workspace must use the **canonical** path. When the workspace or target lives under a symlink (for example macOS `/var → /private/var`, or a symlinked home or project directory), a rule written against the alias will not match, and the operation fails closed.
 
-**Allow rules match canonical paths.** Because the gate compares symlink-resolved paths, an allow rule for a path outside the workspace must reference the **canonical** (symlink-resolved) path. On systems where the workspace or target lives under a symlink — e.g. macOS `/var → /private/var`, or a symlinked home or project directory — a rule written against the non-canonical alias will not match and the operation fails closed.
-
-**Symlinks are resolved before the gate.** `localFilesystem` resolves symlinks before the gate decision (via the required `realPath`), so a symlink inside `workspace/` that points outside is correctly gated — prompted or denied in interactive mode, fail-closed otherwise — rather than silently followed. Custom backends get the same protection by implementing `realPath`, which the type system now requires.
+**Symlinks are resolved before the gate.** `localFilesystem` resolves symlinks (via the required `realPath`) before the gate decides. A symlink inside `workspace/` that points outside is gated like any outside path: prompted or denied in interactive mode, and fail-closed otherwise. Custom backends get the same protection by implementing `realPath`, which the type requires.
 
 <Callout type="warn" title="Interrupt-resume and side effects">
-  When a permission prompt fires from inside tool code — because the tool called `ctx.fs` with a path outside `workspace/` that needs interactive approval — LangGraph pauses execution mid-tool. On resume, LangGraph **re-runs the tool body from the top**. Any side effects that ran before the `ctx.fs` call execute again.
+  When a permission prompt fires from inside tool code (because the tool called `ctx.fs` with a path outside `workspace/` that needs approval), LangGraph pauses execution mid-tool. On resume, LangGraph **re-runs the tool body from the top**. Any side effects that ran before the `ctx.fs` call execute again.
 
   Keep side effects idempotent around gated `fs` calls, or move them after the call so they only run once the permission is resolved.
 </Callout>

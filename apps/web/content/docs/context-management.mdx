@@ -1,12 +1,12 @@
 # Context Management
 
-Long agent runs accumulate messages: tool results, model replies, and subagent exchanges. Left unmanaged, that history can exceed the model's context window and cause errors or truncation. B4.run manages the context window two ways — tool-output offloading (on by default) and conversation summarization (opt-in) — so agents keep working even when a thread grows long.
+Long agent runs accumulate tool results, model replies and subagent exchanges. Left alone, that history can exceed the model's context window and cause errors or truncation. B4.run manages the context window in two ways: tool-output offloading (on by default) and conversation summarization (opt-in).
 
 ## Tool-output offloading
 
-When a tool returns a large result, B4.run writes the full output to `workspace/tool-outputs/` and replaces the in-context payload with a short stub. The stub contains a configurable number of preview lines plus a file handle. When the agent needs the full content it calls `readFile` with that handle — the content is retrieved from disk and fed into the next model turn.
+When a tool returns a large result, B4.run writes the full output to `workspace/tool-outputs/` and replaces the in-context payload with a short stub. The stub contains a configurable number of preview lines plus a file handle. When the agent needs the full content, it calls `readFile` with that handle, and the content goes into the next model turn.
 
-Offloading is active as soon as a `workspace/` directory exists at the app root. No additional configuration is required to enable it.
+Offloading turns on as soon as a `workspace/` directory exists at the app root. You don't need to configure anything else.
 
 ### What the model sees
 
@@ -22,9 +22,11 @@ line 2 …
 Read the full output with the readFile tool at the path above.]
 ```
 
-The model can proceed with the preview or call `readFile` to fetch more. Because the full content lives on disk, it survives across model turns without consuming context tokens.
+The model can work from the preview or call `readFile` to fetch more. The full content lives on disk, so it survives across model turns without using context tokens.
 
 ### Configuration
+
+Here are the `toolOutput` options with their defaults:
 
 ```ts title="b4.config.ts"
 export default {
@@ -48,11 +50,11 @@ export default {
 | `gcThrottleMs` | `number` | `10000` | Minimum milliseconds between GC scans. Default is 10 seconds. |
 | `noOffloadTools` | `string[]` | `[]` | Additional tool names whose output is never offloaded. Merged with the built-in exempt set (`readFile`, `listDir`). |
 
-Offloading needs a filesystem to spill to, so `toolOutput` is [gated off the `hono` edge target](/docs/deployment/edge#what-the-edge-cannot-serve) at build time, and a runtime with no filesystem raises `B4_E1005` per request rather than reading the settings and ignoring them. Summarization below has no such dependency and runs on every target.
+Offloading needs a filesystem to spill to, so `toolOutput` is [gated off the `hono` edge target](/docs/deployment/edge#what-the-edge-cannot-serve) at build time, and a runtime with no filesystem raises `B4_E1005` per request instead of ignoring the settings. Summarization has no such dependency and runs on every target.
 
 ### Exemptions
 
-`readFile` and `listDir` are always exempt from offloading. Exempting retrieval tools is required so the agent can read back offloaded content without the result being re-offloaded into a second pointer. Use `noOffloadTools` to add more tool names to the exempt set — for example, if you have a tool that already returns a compact summary.
+`readFile` and `listDir` are always exempt from offloading, so the agent can read back offloaded content without it being offloaded again. Use `noOffloadTools` to exempt more tools, such as a tool that already returns a compact summary.
 
 ### Garbage collection
 
@@ -60,9 +62,9 @@ B4.run runs a GC pass (at most once per `gcThrottleMs`) that removes files older
 
 ## Conversation summarization
 
-Summarization compresses older message history once a thread's token count exceeds a threshold. The most recent turns stay verbatim; everything older is folded into a rolling summary that is prepended to the conversation on the next model call.
+Summarization compresses older message history once a thread's token count exceeds a threshold. The most recent turns stay verbatim. Everything older is folded into a rolling summary that is prepended to the conversation on the next model call.
 
-Summarization is opt-in. Enable it in `b4.config.ts`:
+Let's enable it in `b4.config.ts`:
 
 ```ts title="b4.config.ts"
 export default {
@@ -83,16 +85,16 @@ export default {
 | `tokenCounter` | `(text: string) => number \| Promise<number>` | Lazy `gpt-tokenizer` (o200k_base) | Custom token-counting function. |
 | `summarize` | `(args) => Promise<string>` | Built-in single-LLM-call summarizer | Custom summary generator. Receives `messages`, `model`, `previousSummary`, and `signal`. |
 
-The `tokenCounter` hook lets you plug in a different tokenizer. The `summarize` hook replaces the entire summary generation step — useful if you want to use a cheaper model, apply domain-specific compression, or route through a different provider.
+The `tokenCounter` hook lets you plug in a different tokenizer. The `summarize` hook replaces the whole summary step, for example to use a cheaper model, apply domain-specific compression or route through a different provider.
 
 ## How they compose
 
-Offloading and summarization address different axes of context growth:
+Offloading and summarization handle different kinds of context growth:
 
-- **Tool-output offloading** acts per tool result — it prevents a single large result from blowing up the context.
-- **Conversation summarization** acts per conversation — it compresses history that has accumulated over many turns.
+- **Tool-output offloading** acts per tool result. It keeps a single large result from filling the context.
+- **Conversation summarization** acts per conversation. It compresses history that has built up over many turns.
 
-Both can be active at the same time. A typical configuration for a long-running research agent:
+Both can be active at the same time. Here is a typical configuration for a long-running research agent:
 
 ```ts title="b4.config.ts"
 export default {

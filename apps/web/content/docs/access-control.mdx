@@ -1,9 +1,9 @@
 # Access Control
 
-B4.run has four independent decision planes. They compose — none substitutes for another, and an app may use the planes relevant to each route.
+B4.run has four independent decision planes. They compose, and none substitutes for another. Each route uses the planes it needs.
 
 <Callout type="warn" title="Start outside the agent boundary">
-  These planes do not authenticate the whole HTTP service or establish tenant ownership. Protect health, thread management, state, cancellation, AG-UI, execution, and memory-candidate routes at the service edge; see [Security Architecture](/docs/security-architecture). B4.run middleware is a narrower execution hook.
+  These planes do not authenticate the whole HTTP service or establish tenant ownership. Protect health, thread management, state, cancellation, AG-UI, execution and memory-candidate routes at the service edge. See [Security Architecture](/docs/security-architecture). B4.run middleware is a narrower execution hook.
 </Callout>
 
 | Layer | Question it answers | Docs |
@@ -13,29 +13,29 @@ B4.run has four independent decision planes. They compose — none substitutes f
 | Execution sandbox | *What* an allowed, approved call can actually touch | [Sandbox](/docs/sandbox) |
 | Guarded delegation | *Whether* a child receives the delegated input before any of its tools execute | [Subagents](/docs/subagents#delegation-policy) |
 
-## Tool scoping — which tools
+## Tool scoping
 
-`agent({ tools: { allow, deny, approve, constrain } })` controls the surface offered to the model. `deny` revokes a tool so it's never wired into the generated entry; `allow` grants back a capability tool withheld from a subagent, such as `readFile` or `runBash`; `deny` wins when a name appears in both. This is enforced at composition time — a denied tool is never wired in, so the model has no way to call it, valid or not.
+`agent({ tools: { allow, deny, approve, constrain } })` controls the surface offered to the model. `deny` revokes a tool so it's never wired into the generated entry. `allow` grants back a capability tool withheld from a subagent, such as `readFile` or `runBash`. `deny` wins when a name appears in both. B4.run enforces this at composition time, so the model has no way to call a denied tool.
 
 ```ts title="src/app/ops/index.ts"
 export default agent({ model: "gpt-5", systemPrompt: "…", tools: { deny: ["runBash"] } })
 ```
 
-Scoping controls the *surface*, not what a granted tool does once invoked — a granted `writeFile` can still write anywhere its implementation permits. See [Tools](/docs/tools#scoping-a-routes-tools).
+Scoping controls the *surface*. It does not limit what a granted tool does once invoked: a granted `writeFile` can still write anywhere its implementation permits. See [Tools](/docs/tools#scoping-a-routes-tools).
 
-## Permissions — whether a call runs
+## Permissions
 
-Two gates are on by default for the built-in workspace tools: `runBash` commands are matched against allow/deny patterns, and filesystem paths outside `workspace/` are permission-gated. An unmatched ("unknown") call pauses the run and asks a human, unless `permissions.mode` is set to `non-interactive` (fail-closed) or `bypass` (dev/test only).
+Two gates are on by default for the built-in workspace tools. `runBash` commands are matched against allow/deny patterns, and filesystem paths outside `workspace/` are permission-gated. An unmatched ("unknown") call pauses the run and asks a human, unless `permissions.mode` is set to `non-interactive` (fail-closed) or `bypass` (dev/test only).
 
 Two more gates ride the same interrupt machinery: `tools: { approve: [...] }` requires human approval before a named tool call, and `memory: { writes: "ask" }` gates belief-contradiction memory writes. Use `tools.approve` for a separately authored tool such as `deployProd`; workspace command and path tools already use their pattern-aware gates. See [Permissions](/docs/permissions) for the interrupt payloads and resume flow.
 
-## Execution sandbox — what a call can touch
+## Execution sandbox
 
-Even a tool that's allowed and approved still runs somewhere. By default that's the local `workspace/` directory on the host. Adding a `sandbox` key to `b4.config.ts` routes every `readFile`, `writeFile`, `listDir`, and `runBash` call for a thread into an isolated environment instead — filesystem, shell, and (optionally) network. B4.run ships a Docker reference provider and a [Kubernetes provider](/docs/sandbox/kubernetes) behind the same `SandboxProvider` contract. See [Execution Sandbox](/docs/sandbox) for the provider-neutral boundary.
+Even a tool that's allowed and approved still runs somewhere. By default that's the local `workspace/` directory on the host. Adding a `sandbox` key to `b4.config.ts` routes every `readFile`, `writeFile`, `listDir` and `runBash` call for a thread into an isolated environment instead: filesystem, shell and (optionally) network. B4.run ships a Docker reference provider and a [Kubernetes provider](/docs/sandbox/kubernetes) behind the same `SandboxProvider` contract. See [Execution Sandbox](/docs/sandbox) for the provider-neutral boundary.
 
-## Guarded delegation — whether a child receives input
+## Guarded delegation
 
-A parent's `delegation` policy runs at the final dispatch boundary, before the child starts. Its allow, deny, approve, or constraint decision determines whether the child receives the delegated input at all; only after that decision allows dispatch can the child's own tool policies and permission gates run. See [Subagents](/docs/subagents#delegation-policy).
+A parent's `delegation` policy runs at the final dispatch boundary, before the child starts. Its allow, deny, approve or constraint decision determines whether the child receives the delegated input at all. The child's own tool policies and permission gates run only after that decision allows dispatch. See [Subagents](/docs/subagents#delegation-policy).
 
 ## How they compose
 
@@ -72,13 +72,13 @@ export default agent({
 ```
 
 <Callout type="info" title="Each plane answers a separate question">
-  Tool scoping without a sandbox still lets an allowed `runBash` touch the whole host filesystem. A sandbox redirects only B4.run's built-in workspace tools — `readFile`, `writeFile`, `listDir`, and `runBash` — into the isolated environment. Authored tools such as `deployProd` still execute in the app process and need their own least-privilege and isolation design. Permissions without a sandbox still pause for approval, but an approved workspace call runs on the host. Guarded delegation controls whether a child receives input, not what that child can call or access after it starts.
+  Tool scoping without a sandbox still lets an allowed `runBash` touch the whole host filesystem. A sandbox redirects only B4.run's built-in workspace tools (`readFile`, `writeFile`, `listDir` and `runBash`) into the isolated environment. Authored tools such as `deployProd` still execute in the app process and need their own least-privilege and isolation design. Permissions without a sandbox still pause for approval, but an approved workspace call runs on the host. Guarded delegation controls whether a child receives input. It does not limit what that child can call or access after it starts.
 </Callout>
 
 ## Related
 
 <RelatedCards items={[
-  { href: "/docs/tools", title: "Tools", subtitle: "tool scoping — allow, deny, approve, constrain" },
+  { href: "/docs/tools", title: "Tools", subtitle: "tool scoping with allow, deny, approve and constrain" },
   { href: "/docs/permissions", title: "Permissions", subtitle: "human-in-the-loop approval for paths, commands, tools, and memory writes" },
   { href: "/docs/sandbox", title: "Execution Sandbox", subtitle: "per-thread filesystem, shell, and network isolation" },
   { href: "/docs/subagents", title: "Subagents", subtitle: "guarded delegation before a child receives input" },

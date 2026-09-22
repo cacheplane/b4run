@@ -1,6 +1,6 @@
 # Security Architecture
 
-B4.run's route middleware is an execution hook, not a service-wide security boundary. Put outer authentication and tenant authorization in front of every non-local runtime endpoint, then layer B4.run's inner agent controls behind it.
+B4.run's route middleware is an execution hook. It does not protect the whole service. Put outer authentication and tenant authorization in front of every non-local runtime endpoint, then layer B4.run's inner agent controls behind it.
 
 ## Start at the service edge
 
@@ -24,15 +24,15 @@ B4.run middleware runs only when a request is about to execute a route. Manageme
 
 Apply authorization before dispatch so create, read, delete, state, cancel, memory candidates, and health cannot reach their narrower B4.run handlers unauthenticated.
 
-The "B4.run middleware" column is about route execution only. Every thread row above — management, state, cancellation, Agent Protocol execution and AG-UI execution — is additionally covered in-runtime by a [thread-access policy](/docs/thread-access) when the app has one, on the per-thread ownership axis this table asks the outer boundary to supply. It is a second gate, not a replacement for the outer one, and health and memory-candidate routes are outside it.
+The "B4.run middleware" column is about route execution only. When the app has a [thread-access policy](/docs/thread-access), it also covers every thread row above (management, state, cancellation, Agent Protocol execution and AG-UI execution) inside the runtime, on the per-thread ownership axis. It is a second gate behind the outer one. Health and memory-candidate routes are outside it.
 
 ## Authorize the tenant, not the identifier
 
 Verified claims answer *who the caller is*. Route parameters, `thread_id`, AG-UI `threadId`, tenant strings in route input, and memory namespaces answer *which resource was requested*. Compare the two using application-owned records.
 
-A robust request path resolves the verified principal, determines its tenant and roles, loads or checks thread ownership, and only then forwards the request. A thread identifier is not proof of ownership, even if it is difficult to guess. Use the same rule for state, cancellation, deletion, resume, and any custom list endpoint.
+A sound request path resolves the verified principal, determines its tenant and roles, loads or checks thread ownership, and only then forwards the request. A thread identifier is not proof of ownership, even if it is difficult to guess. Use the same rule for state, cancellation, deletion, resume, and any custom list endpoint.
 
-Memory deserves the same care. Candidate management can operate across namespaces, and `memory.resolveScope` receives route/app-root context—not verified request identity automatically. Do not let model-selected or caller-selected scope strings establish ownership.
+Memory deserves the same care. Candidate management can operate across namespaces, and `memory.resolveScope` receives route and app-root context. It does not automatically receive verified request identity. Do not let model-selected or caller-selected scope strings establish ownership.
 
 ## Pass verified identity to tools
 

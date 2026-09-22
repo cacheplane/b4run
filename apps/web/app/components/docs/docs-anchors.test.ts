@@ -936,7 +936,7 @@ describe("docs links and in-page anchors", () => {
 
     expect(actualRows).toEqual(PACKAGE_CATALOG.map(catalogRow))
     expect(catalog).toContain(
-      `Generated surface: \`b4:routes\` — ${artifactBoundaryFor(GENERATED_ROUTES_ARTIFACT)}.`,
+      `Generated surface: \`b4:routes\` (${artifactBoundaryFor(GENERATED_ROUTES_ARTIFACT)}).`,
     )
     expect(catalogMarkupFailures(catalog)).toEqual([])
     expect(applicationShortcutFailures(catalog)).toEqual([])
@@ -1673,7 +1673,7 @@ describe("docs links and in-page anchors", () => {
       },
       {
         file: "apps/web/content/docs/access-control.mdx",
-        heading: "Execution sandbox — what a call can touch",
+        heading: "Execution sandbox",
         required: ["/docs/sandbox/kubernetes"],
       },
       {

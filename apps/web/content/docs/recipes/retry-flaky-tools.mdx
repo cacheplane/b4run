@@ -1,6 +1,6 @@
 # Retry Transient Model Calls
 
-You want an agent route to retry transient model and provider failures automatically. Here's how.
+Learn how to make an agent route retry transient model and provider failures:
 
 ## The code
 
@@ -41,7 +41,7 @@ export default async (
 ```ts title="src/app/(public)/billing/[invoice]/index.ts"
 import { agent } from "@b4run/sdk"
 
-// Critical path — fail fast, do not retry.
+// Critical path: fail fast, do not retry.
 export default agent({
   model: "gpt-5-mini",
   retry: { maxAttempts: 1 },
@@ -52,11 +52,11 @@ export default agent({
 
 ## Notes
 
-- **Per-route, not global.** Each `agent()` declares its own `retry`. Different routes can have different policies.
-- **Transient model/provider errors only.** Rate limits (`429`), server errors (`500`/`502`/`503`), network timeouts, and OpenAI `overloaded`/`server_error` are retried. Invalid API keys, missing models, and schema validation errors fail immediately.
-- **Exponential backoff with jitter, capped at 10s.** For non-stream fallback, `delay = min(baseDelay * 2^n + jitter, 10s)`. Lowering `baseDelay` makes the first retry faster.
-- **`maxAttempts: 1` disables retry.** The default is `3` if `retry` is omitted entirely.
-- **Streaming routes only retry before the first event.** Once an event has streamed, the response is committed. Agent retry covers transient model/provider execution before that point; applications needing tool retry implement it locally, as in the example above.
+- **Retry is per route.** Each `agent()` declares its own `retry`, so different routes can have different policies.
+- **Only transient model/provider errors retry.** Rate limits (`429`), server errors (`500`/`502`/`503`), network timeouts, and OpenAI `overloaded`/`server_error` are retried. Invalid API keys, missing models, and schema validation errors fail immediately.
+- **Backoff is exponential with jitter, capped at 10s.** For non-stream fallback, `delay = min(baseDelay * 2^n + jitter, 10s)`. A lower `baseDelay` makes the first retry faster.
+- **`maxAttempts: 1` disables retry.** If you omit `retry`, the default is `3`.
+- **Streaming routes only retry before the first event.** Once an event has streamed, the response is committed. Agent retry covers transient model/provider failures before that point. If you need tool retry, write it in the tool, as in the example above.
 
 ## Related
 

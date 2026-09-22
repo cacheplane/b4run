@@ -39,7 +39,7 @@ export function RelatedCards({ items }: RelatedCardsProps) {
           href={item.href}
           className="group relative block rounded-lg border border-divider bg-surface/40 px-4 py-3 hover:border-text-muted hover:bg-surface transition-colors"
         >
-          <span className="absolute top-3 right-3 text-ink-dim group-hover:text-ink transition-colors">
+          <span className="absolute top-[17px] right-3 text-ink-dim group-hover:text-ink transition-colors">
             <ArrowIcon />
           </span>
           <div className="pr-6">

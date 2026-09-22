@@ -2,7 +2,7 @@
 
 ## Use this when
 
-Use this package when application behavior needs repeatable datasets, scorers, reports, and release gates. Build deterministic agent runs with `@b4run/testing`, then use `runEval()` to score them.
+Use this package when application behavior needs repeatable datasets, scorers, reports, and release gates. Build deterministic agent runs with `@b4run/testing`, then score them with `runEval()`.
 
 ## Install and import
 
@@ -20,7 +20,7 @@ import { contains, defineEval, gate, runEval } from "@b4run/evals"
 |---|---|---|---|---|
 | `@b4run/evals` | node-only | not-claimed | testing | supported |
 
-The root resolves JSON and JSONL datasets from disk, so it is a Node testing surface even though individual scorers may be pure.
+The root reads JSON and JSONL datasets from disk, so it is a Node testing surface even though some scorers are pure.
 
 ## Public exports
 
@@ -144,7 +144,7 @@ runEval scores every case with every scorer; a scorer exception becomes zero wit
 
 Cases and scorers run sequentially. A scorer error is contained, but a `runCase` error is not. An explicit `gate` wins over top-level `threshold`; without either, the report is informational with `gated: false` and `passed: true`. A scorer's own threshold controls its case pass bar and inclusion in `gate.perScorer()`; case pass status otherwise uses the separate default bar of `0.5`. `gate.perScorer()` ignores scorers without an explicit threshold.
 
-`defineEval()` rejects an empty inline dataset, but a file or factory may resolve empty. Programmatic `runEval()` resolves relative dataset paths from `baseDir` or the current working directory; the CLI supplies the eval file's context. `jsonEquals()` uses `JSON.stringify()` equality. `tokensUnder()` is strictly less than its budget and counts collected stream chunks or deltas, not model-tokenizer tokens. Memory scorers are behavioral signals—not authorization checks.
+`defineEval()` rejects an empty inline dataset, but a file or factory may resolve empty. Programmatic `runEval()` resolves relative dataset paths from `baseDir` or the current working directory; the CLI supplies the eval file's context. `jsonEquals()` uses `JSON.stringify()` equality. `tokensUnder()` is strictly less than its budget and counts collected stream chunks or deltas, not model-tokenizer tokens. Memory scorers are behavioral signals, not authorization checks.
 
 ## Examples and related guides
 

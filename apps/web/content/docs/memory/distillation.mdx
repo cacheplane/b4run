@@ -1,34 +1,34 @@
 # Distillation
 
-Distillation is explicit maintenance for long-lived memory collections. Nothing runs automatically: B4.run consolidates or reflects only when you invoke `b4 memory consolidate` or `b4 memory reflect`, by hand or from an application-owned schedule.
+Distillation compacts and summarizes long-lived memory collections. Nothing runs automatically: B4.run consolidates or reflects only when you run `b4 memory consolidate` or `b4 memory reflect`, by hand or on your own schedule.
 
 ## Distillation
 
-Use the two passes for different jobs:
+The two passes do different jobs:
 
 | Command | Input | Output |
 |---|---|---|
 | `b4 memory consolidate` | Old active episodes grouped by namespace and ISO week | One active episodic summary per selected batch |
 | `b4 memory reflect` | New active semantic and episodic records per namespace | Zero or more durable reflection insights |
 
-Both commands are threshold-aware no-ops. Their common flags are:
+Both commands do nothing until their thresholds are met. Here are the flags they share:
 
 ```bash
 b4 memory consolidate --dry-run --namespace 'workspace=my-app|route=/support' --max-batches 5
 b4 memory reflect --dry-run --namespace 'workspace=my-app|route=/support' --max-batches 5
 ```
 
-- `--dry-run` selects and reports work but constructs no model, makes zero model calls, and writes nothing.
+- `--dry-run` selects and reports work, but constructs no model, makes no model calls, and writes nothing.
 - `--namespace <prefix>` narrows the pass to matching namespaces.
 - `--model <id>` and `--provider <id>` override model selection.
 - `--max-batches <n>` caps batches for consolidation and namespaces for reflection.
-- `--cwd <path>` selects another app root like other B4.run commands.
+- `--cwd <path>` selects another app root, as in other B4.run commands.
 
-`--namespace` is a raw prefix. A short `route=/support` prefix works only when `route` is the leading namespace dimension. If the route also declares `workspace`, use the full canonical namespace prefix, such as `workspace=my-app|route=/support`; derive it with the namespace helpers rather than guessing from a filesystem path.
+`--namespace` is a raw prefix. A short `route=/support` prefix works only when `route` is the leading namespace dimension. If the route also declares `workspace`, use the full canonical namespace prefix, such as `workspace=my-app|route=/support`. Build it with the namespace helpers instead of guessing from a filesystem path.
 
 ## Consolidation
 
-By default, consolidation selects active episodes older than seven days, groups them by namespace and ISO week, skips groups smaller than five, and splits groups at 50 records. Oldest batches run first so a capped invocation advances the backlog predictably.
+By default, consolidation selects active episodes older than seven days, groups them by namespace and ISO week, skips groups smaller than five, and splits groups at 50 records. The oldest batches run first, so a capped run works through the backlog in order.
 
 For each batch it:
 
@@ -37,57 +37,59 @@ For each batch it:
 3. links each source as superseded by that summary;
 4. stamps each source with the configured source-retention expiry.
 
-The write-before-link boundary is deliberate. A failure after the summary write can leave a redundant active summary; linking first could hide sources without a durable replacement. The multi-record operation is not transactional.
+Writing before linking is deliberate. A failure after the summary write can leave a redundant active summary, but linking first could hide sources with no durable replacement. The whole operation is not transactional.
 
-There is no generic safe-to-rerun guarantee. A failure before any source link, or a whole link failure that leaves the original batch active, may select the same batch again and retry its deterministic summary ID. After a partial link failure, however, the remaining active, unstamped sources can fall below `minBatchSize` or be regrouped, so a later pass may never reconcile them. An expiry update can also fail after supersession, leaving a superseded source without the planned expiry. The command reports the affected source IDs and exits non-zero; inspect the summary's `derivedFrom` list and source states, then perform manual reconciliation before scheduling another pass.
+There is no generic safe-to-rerun guarantee. If no source got linked, a later pass can select the same batch and retry its deterministic summary ID. After a partial link failure, though, the remaining active, unstamped sources can fall below `minBatchSize` or be regrouped, so a later pass may never reconcile them. An expiry update can also fail after supersession, which leaves a superseded source without its planned expiry. The command reports the affected source IDs and exits non-zero. Compare the summary's `derivedFrom` list with the source states, and do a manual reconciliation before the next pass.
 
-The summary contains `data.period`, `sourceCount`, and `derivedFrom`, is tagged `consolidated`, and uses the end of the source window as `effectiveAt`. That keeps it newer than its own superseded sources under the episodic cap. Derived summaries are excluded from later consolidation.
+The summary contains `data.period`, `sourceCount`, and `derivedFrom`. It is tagged `consolidated` and uses the end of the source window as `effectiveAt`, which keeps it newer than its own superseded sources under the episodic cap. Later consolidation passes skip derived summaries.
 
-Superseded source rows remain inspectable for `sourceTtlMs` (seven days by default), then normal pruning removes them. Without that expiry they would remain invisible to recall while still consuming the status-agnostic episodic cap. A source can expire before a scheduled pass if its original retention window is shorter, so align episode TTL, consolidation age, and schedule.
+Superseded source rows stay inspectable for `sourceTtlMs` (seven days by default), and then normal pruning removes them. Without that expiry they would be invisible to recall but still count against the episodic cap, which ignores status. A source can expire before a scheduled pass if its own retention window is shorter, so line up the episode TTL, the consolidation age, and the schedule.
 
 ## Reflection
 
-Reflection asks “what has been learned?” rather than “what happened?” It operates on each exact namespace's active semantic and episodic records.
+Reflection asks “what have we learned?” instead of “what happened?” It works on the active semantic and episodic records of each exact namespace.
 
-The pass reads the newest prior `data.coveredUntil` watermark, selects records strictly newer than it, requires at least ten by default, and feeds at most `maxRecords` (100 by default) to the model. If a namespace has a larger backlog, only the newest window is processed and the watermark advances through its newest record. Older excess rows then fall behind that watermark and are not picked up by a later pass. Run reflection often enough or raise `maxRecords` so a namespace cannot build an unreviewed backlog beyond the cap.
+The pass reads the newest `data.coveredUntil` watermark, selects records strictly newer than it, requires at least ten of them by default, and sends at most `maxRecords` (100 by default) to the model. With a larger backlog, only the newest window is processed and the watermark moves past it. The older excess rows then sit behind the watermark, and no later pass picks them up. Run reflection often enough, or raise `maxRecords`, so the backlog never outgrows the cap.
 
-Insights are reflection records with `derivedFrom` provenance and default to `candidate` status. Approve them through the [Long-term Memory candidate workflow](/docs/memory/long-term#reviewing-candidates), or set `memory.distill.reflect.writes` to `auto`.
+Insights are reflection records with `derivedFrom` provenance, and they default to `candidate` status. Approve them through the [Long-term Memory candidate workflow](/docs/memory/long-term#reviewing-candidates), or set `memory.distill.reflect.writes` to `auto`.
 
-Each insight record carries the reflection watermark. Candidate rejection is a hard delete: rejecting every candidate insight deletes every persisted watermark for that pass. With no surviving watermark, a later run can select the same inputs, repeat the model call and its cost. Approve at least one valid insight or deliberately preserve/reconstruct the watermark before rejecting the entire batch.
+Each insight record carries the reflection watermark. Rejecting a candidate is a hard delete, so rejecting every candidate insight deletes every persisted watermark for that pass. With no watermark left, a later run can select the same inputs and repeat the model call and its cost. Before you reject a whole batch, approve at least one valid insight or preserve the watermark some other way.
 
-When the model returns no insights, B4.run writes a superseded no-insight sentinel. It advances the watermark without becoming recallable, so a schedule does not pay repeatedly for the same barren input.
+When the model returns no insights, B4.run writes a superseded no-insight sentinel. The sentinel advances the watermark but is never recalled, so a schedule does not pay again and again for the same input.
 
 ## Model and data trust
 
-On a live pass, active memory content is sent to the configured model provider. That can include user text, tool output, semantic facts, and episodes. Apply data-classification, residency, retention, and provider policy before enabling distillation; redact or exclude secrets and regulated data at collection time.
+On a live pass, active memory content is sent to the configured model provider. That can include user text, tool output, semantic facts, and episodes. Apply your data-classification, residency, retention, and provider policies before you enable distillation, and redact or exclude secrets and regulated data when you collect them.
 
-Treat stored memory as untrusted prompt input. Source content can contain prompt injection intended to steer the distillation model, and model output can be inaccurate or malicious. Consolidation model output is written active before source linking begins; reflection output is candidate by default but can also be configured active. Review and monitor derived records, restrict model/provider changes, and alert on unexpected summaries, insights, or link failures.
+Treat stored memory as untrusted prompt input. Source content can contain prompt injection aimed at the distillation model, and model output can be wrong or malicious. Consolidation output is written active before source linking begins. Reflection output is a candidate by default, but you can configure it to be active too. Review and monitor derived records, restrict model and provider changes, and alert on unexpected summaries, insights, or link failures.
 
 ## Distilled records are found by keyword
 
-Consolidation and reflection writes currently do not create embeddings. Their summaries and insights remain available to keyword recall, query-less recall, and time filters. If your application requires semantic reachability for derived records, add an explicit re-embedding workflow and test its model-id handling; do not assume distillation did it.
+Consolidation and reflection writes currently do not create embeddings. Summaries and insights are still found by keyword recall, query-less recall, and time filters. If derived records must be reachable by semantic recall, add your own re-embedding workflow and test how it handles model ids.
 
-Use specific, stable vocabulary in prompts and outputs so future keyword queries can find the result. Exact names, ticket IDs, and domain terms are especially valuable.
+Use specific, stable words in prompts and outputs so later keyword queries find the result. Exact names, ticket IDs, and domain terms help the most.
 
 ## Provenance
 
-Every derived record lists source IDs in `data.derivedFrom`. Consolidation additionally links sources through supersession; reflection leaves its inputs active and records the covered watermark. These links are an audit trail, not a guarantee that all source rows remain forever—retention can delete them.
+Every derived record lists its source IDs in `data.derivedFrom`. Consolidation also links sources through supersession. Reflection leaves its inputs active and records the covered watermark. These links are an audit trail, but the source rows can still be deleted by retention.
 
-Before deleting source records, decide how long operators need to inspect the evidence and whether an external audit store must preserve it. Distillation does not provide an account-erasure transaction or immutable archive.
+Decide how long operators need the evidence, and whether an external audit store must keep it. Distillation provides no account-erasure transaction and no immutable archive.
 
 ## Cost
 
 Each selected consolidation batch uses one model call. Each selected reflection namespace uses one model call, even when it produces the no-insight sentinel. Control spend with thresholds, `maxBatches`, a narrow namespace prefix, and `--dry-run` before the first live pass.
 
-The default model is `gpt-5-mini`; provider selection follows the resolved model unless an authored provider deliberately overrides it. Pin model/provider in production if changes would affect cost or output shape.
+The default model is `gpt-5-mini`. The provider follows the resolved model unless you set one explicitly. In production, pin the model and provider if a change would affect cost or output shape.
 
 ## Running it on a schedule
 
-The CLI commands can run behind cron or a job runner, and empty passes do no model work. Start with a dry run using the same namespace and batch cap, then run the live command only after reviewing counts. Treat a non-zero exit as a reconciliation event, not an instruction to retry blindly.
+Run the commands from cron or a job runner. Empty passes do no model work. Dry-run with the same namespace and batch cap first, and go live after reviewing the counts. A non-zero exit means something needs reconciling, so don't retry blindly.
 
-Schedule against a single application-owned store and prevent overlapping jobs for the same namespace. Consolidation's write/link sequence and reflection watermarks are retry-oriented, not a distributed lease. Alert on failed batches and “more not examined” output so a capped backlog does not grow unnoticed.
+Schedule against a single application-owned store and keep jobs for the same namespace from overlapping. The write/link sequence and the reflection watermarks help with retries, but they are not a distributed lease. Alert on failed batches and on “more not examined” output so a capped backlog does not grow unnoticed.
 
 ## Distillation configuration
+
+These are the defaults:
 
 ```ts title="b4.config.ts"
 export default {
@@ -111,7 +113,7 @@ export default {
 } satisfies import("@b4run/core").B4Config
 ```
 
-`consolidate.ttlMs` optionally expires summaries; leaving it unset keeps them. Validate that summary TTL exceeds the source review window if the summary is meant to outlive its evidence.
+`consolidate.ttlMs` sets an expiry on summaries. Leave it unset to keep them. If a summary should outlive its evidence, make sure its TTL is longer than the source review window.
 
 ## Testing
 
@@ -126,7 +128,7 @@ Use a fake model and fixed `now` to assert selection and writes:
 7. reflection output defaults to candidates and remains keyword-reachable;
 8. batch caps report unexamined work.
 
-Keep model-output parsing tests separate from store lifecycle tests so failures identify whether selection, generation, or persistence broke.
+Keep model-output parsing tests separate from store lifecycle tests, so a failure tells you whether selection, generation, or persistence broke.
 
 ## Related
 

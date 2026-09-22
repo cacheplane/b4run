@@ -22,7 +22,7 @@ function docHrefToContentPath(href: string): string {
 
 async function buildLlmsFull(): Promise<string> {
   const sections: string[] = [
-    "# B4.run — Full Reference",
+    "# B4.run: Full Reference",
     "",
     "Generated reference for coding agents. This file is the concatenation of every B4.run documentation page, task-specific prompt, and agent config template served by b4.run.",
     "",

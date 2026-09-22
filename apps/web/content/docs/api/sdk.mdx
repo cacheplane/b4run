@@ -2,7 +2,7 @@
 
 ## Use this when
 
-Start here when you build a B4.run application. `@b4run/sdk` owns the route-authoring types and helpers most application code uses. Reach for `/pure` only when an integration needs dependency-free path or hash utilities, and `/testing` when you author route scenarios for `b4 test`.
+Start here when you build a B4.run application. `@b4run/sdk` owns the route-authoring types and helpers most application code uses. Use `/pure` only when an integration needs dependency-free path or hash utilities, and `/testing` when you write route scenarios for `b4 test`.
 
 ## Install and import
 
@@ -264,7 +264,7 @@ allow() and reject() return discriminated result objects; omitted context and bo
 
 ### `validateModelId()`
 
-Use this helper to improve author feedback for likely model-ID typos. It does not restrict custom model IDs.
+Flags likely model-ID typos. It does not restrict custom model IDs.
 
 ```ts api-contract="@b4run/sdk#.:validateModelId"
 export declare function validateModelId(opts: {
@@ -283,7 +283,7 @@ Treat `ok: false` as a warning for application feedback, not a runtime gate.
 
 ### `RouteConfig`
 
-`runtime`, `streaming`, and `tags` are reserved metadata and do not change execution today. Select deployment runtime with `build.targets`, select streaming through the endpoint or transport, and do not rely on tags for behavior.
+`runtime`, `streaming`, and `tags` are reserved metadata and don't change execution. Select deployment runtime with `build.targets`, select streaming through the endpoint or transport, and do not rely on tags for behavior.
 
 ```ts api-contract="@b4run/sdk#.:RouteConfig"
 export interface RouteConfig {
@@ -315,20 +315,18 @@ export declare function defineMemory<S extends z.ZodTypeAny>(def: {
 
 ### Choosing a surface
 
-Application routes normally import the root. Use `/pure` for infrastructure that must avoid runtime dependencies. Use `/testing` in `*.scenario.ts` files; use `@b4run/testing` when a test needs a programmatic harness instead. Its detailed reference lands with the testing package page.
+Application routes normally import the root. Use `/pure` for infrastructure that must avoid runtime dependencies. Use `/testing` in `*.scenario.ts` files, and `@b4run/testing` when a test needs a programmatic harness.
 
 ### Trusted initial source
 
 An authored tool's optional `ctx.workspace` is present only for an admitted
-managed workspace. It exposes `id`, `sourceDigest`, immutable `environment`, an
+managed workspace. It exposes `id`, `sourceDigest`, the pinned `environment`, an
 optional `baselineCommit`, and `readInitialFile(path): Promise<Uint8Array>`.
-Reads use the workspace read permission policy and return independently owned
-initial bytes. The context has no provider handle or lifecycle methods and
-cannot select another thread's source. Use `ctx.fs` for current files.
+Initial reads use the same read permission policy as ordinary file reads and
+return independently owned bytes. The context has no provider handle or lifecycle
+methods and cannot select another thread's source.
 
-Managed workspace tools receive `ctx.workspace` with the operation ID, source
-digest, pinned environment, and `readInitialFile(path)`. Initial reads use the
-same permissions as ordinary file reads. `ctx.fs.stat(path)` inspects entry kind,
+Use `ctx.fs` for current files. `ctx.fs.stat(path)` inspects entry kind,
 size, executable mode, and a symlink's target without following the leaf link;
 custom backends must supply `lstat` to support it.
 

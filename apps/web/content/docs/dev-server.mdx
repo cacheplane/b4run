@@ -1,9 +1,8 @@
 # Dev Server
 
-`b4 dev` is the local application loop: it starts B4.run's HTTP runtime, watches
-your app, regenerates types, and replaces the child runtime when source files
-change. Use this page to start and operate the server; use the linked protocol
-guides when you are building a client.
+`b4 dev` starts B4.run's HTTP runtime, watches your app, regenerates types, and
+replaces the child runtime when source files change. If you are building a
+client, see the protocol guides linked below.
 
 ## Starting the server
 
@@ -12,8 +11,8 @@ b4 dev
 ```
 
 The server binds an ephemeral localhost port and prints a URL such as
-`B4.run dev ready at http://127.0.0.1:43127`. Select a stable port when another
-process needs a predictable address:
+`B4.run dev ready at http://127.0.0.1:43127`. Pass `--port` when another process
+needs a predictable address:
 
 ```bash
 b4 dev --port 3001
@@ -36,30 +35,29 @@ final state.
 
 ## Restart cycle
 
-When a meaningful app file changes, B4.run regenerates types before it launches
-the replacement runtime. Ignored paths such as `.b4/`, `workspace/`, and
-lockfiles do not trigger a restart; the restart log names the reason for changes
-that do.
+When an app file changes, B4.run regenerates types and then launches the
+replacement runtime. Ignored paths such as `.b4/`, `workspace/` and lockfiles do
+not trigger a restart. For changes that do, the restart log names the reason.
 
-The parent owns the app root, watcher, session, selected port, and stable URL across restarts;
-the child owns the HTTP listener and route graph. Each restart stops that child
-and its listener, then starts a fresh child on the same port. This is a
-child-process restart, not in-process HMR and not a parent-owned bound listener.
+The parent owns the app root, watcher, session, selected port, and stable URL across restarts.
+The child owns the HTTP listener and route graph. Each restart stops that child
+and its listener, then starts a fresh child on the same port. There is no
+in-process HMR, and the parent never holds the listener.
 
 The replacement child reloads the app and `b4.config.ts`, including store and
-runtime configuration. Configuration edits take effect on that restart; the
-parent does not keep the previously loaded configuration alive.
+runtime configuration. Configuration edits take effect on that restart. The
+parent does not keep the old configuration.
 
 The default SQLite threads store and checkpointer preserve persisted threads and
 checkpoints across child restarts. Configured durable stores preserve data when
-the replacement child reconnects; an in-memory store does not survive the
-child-process restart. In-flight work gets a short shutdown grace window before
-the old child can be force-killed.
+the replacement child reconnects. An in-memory store does not survive the
+restart. In-flight work gets a short shutdown grace window before the old child
+can be force-killed.
 
 ## Logging
 
-The ready line identifies the current URL, and each restart line identifies the
-changed file category. Set `B4_DEV_SHUTDOWN_TIMEOUT_MS` to change the grace
+The ready line shows the current URL, and each restart line shows the changed
+file category. Set `B4_DEV_SHUTDOWN_TIMEOUT_MS` to change the grace
 window used while stopping a child runtime.
 
 ## Agent Protocol endpoints
@@ -100,10 +98,9 @@ See [Middleware](/docs/middleware) for execution-route behavior and
 [Security Architecture](/docs/security-architecture) for the management routes
 that require service-wide outer authentication.
 
-Middleware is not the only in-runtime gate. [Thread access](/docs/thread-access)
-is a second one on a different axis — the thread rather than the route — and it
-covers every thread endpoint, including the ones middleware never sees. Where
-both apply they compose as AND.
+[Thread access](/docs/thread-access) is a second in-runtime gate. It checks the
+thread instead of the route, and it covers every thread endpoint, including the
+ones middleware never sees. When both apply, a request must pass both.
 
 ## Related
 

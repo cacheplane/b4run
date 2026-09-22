@@ -99,6 +99,41 @@ export const DOCS_SEO_ENTRIES = [
     sourcePath: "apps/web/content/docs/workspace.mdx",
   },
   {
+    path: "/docs/planning",
+    title: "Planning",
+    description:
+      "Add a visible, state-backed todo plan to a B4.run agent with plan.md, writeTodos updates, generated types, and plan_update stream events.",
+    sourcePath: "apps/web/content/docs/planning.mdx",
+  },
+  {
+    path: "/docs/skills",
+    title: "Skills",
+    description:
+      "Create route-local B4.run skills with frontmatter descriptions so models discover summaries and load full instructions on demand with readSkill.",
+    sourcePath: "apps/web/content/docs/skills.mdx",
+  },
+  {
+    path: "/docs/subagents",
+    title: "Subagents",
+    description:
+      "Delegate bounded tasks to child B4.run agent routes with convention or keyed registration, tool scoping, per-edge policy, approvals, and streamed activity.",
+    sourcePath: "apps/web/content/docs/subagents.mdx",
+  },
+  {
+    path: "/docs/context-management",
+    title: "Context Management",
+    description:
+      "Manage long agent histories with automatic tool-output offloading and optional conversation summarization, including limits and cleanup.",
+    sourcePath: "apps/web/content/docs/context-management.mdx",
+  },
+  {
+    path: "/docs/reasoning-effort",
+    title: "Reasoning Effort",
+    description:
+      "Configure route-level reasoning effort for OpenAI-backed agent routes, supported values, pass-through behavior, exclusions, and subagent budgets.",
+    sourcePath: "apps/web/content/docs/reasoning-effort.mdx",
+  },
+  {
     path: "/docs/memory",
     title: "Memory",
     description:
@@ -134,39 +169,11 @@ export const DOCS_SEO_ENTRIES = [
     sourcePath: "apps/web/content/docs/memory/distillation.mdx",
   },
   {
-    path: "/docs/planning",
-    title: "Planning",
+    path: "/docs/memory/browse",
+    title: "Browse and Manage Memory",
     description:
-      "Add a visible, state-backed todo plan to a B4.run agent with plan.md, writeTodos updates, generated types, and plan_update stream events.",
-    sourcePath: "apps/web/content/docs/planning.mdx",
-  },
-  {
-    path: "/docs/skills",
-    title: "Skills",
-    description:
-      "Create route-local B4.run skills with frontmatter descriptions so models discover summaries and load full instructions on demand with readSkill.",
-    sourcePath: "apps/web/content/docs/skills.mdx",
-  },
-  {
-    path: "/docs/subagents",
-    title: "Subagents",
-    description:
-      "Delegate bounded tasks to child B4.run agent routes with convention or keyed registration, tool scoping, per-edge policy, approvals, and streamed activity.",
-    sourcePath: "apps/web/content/docs/subagents.mdx",
-  },
-  {
-    path: "/docs/context-management",
-    title: "Context Management",
-    description:
-      "Manage long agent histories with automatic tool-output offloading and optional conversation summarization, including limits and cleanup.",
-    sourcePath: "apps/web/content/docs/context-management.mdx",
-  },
-  {
-    path: "/docs/reasoning-effort",
-    title: "Reasoning Effort",
-    description:
-      "Configure route-level reasoning effort for OpenAI-backed agent routes, supported values, pass-through behavior, exclusions, and subagent budgets.",
-    sourcePath: "apps/web/content/docs/reasoning-effort.mdx",
+      "Build a tenant-scoped memory admin surface with validated filters, safe sorting, stable cursor pagination, exact counts, and guarded mutations.",
+    sourcePath: "apps/web/content/docs/memory/browse.mdx",
   },
   {
     path: "/docs/dev-server",
@@ -253,6 +260,34 @@ export const DOCS_SEO_ENTRIES = [
     sourcePath: "apps/web/content/docs/production-topology.mdx",
   },
   {
+    path: "/docs/retry",
+    title: "Retry",
+    description:
+      "Configure per-agent retries and exponential backoff for transient LLM failures, with non-retryable errors, streaming limits, and abort behavior.",
+    sourcePath: "apps/web/content/docs/retry.mdx",
+  },
+  {
+    path: "/docs/observability",
+    title: "Observability",
+    description:
+      "Enable LangSmith tracing for B4.run runs, inspect nested model, tool, and subagent traces, and stream live runtime events over SSE.",
+    sourcePath: "apps/web/content/docs/observability.mdx",
+  },
+  {
+    path: "/docs/inspector",
+    title: "Inspector",
+    description:
+      "Inspect B4.run memory in a local browser UI with ranked search, filters, live refresh, timelines, candidate approval, rejection, and deletion.",
+    sourcePath: "apps/web/content/docs/inspector.mdx",
+  },
+  {
+    path: "/docs/upgrading",
+    title: "Upgrading",
+    description:
+      "Upgrade B4.run by pinning package versions, reading intervening release notes, updating Node and imports, regenerating types, and verifying behavior.",
+    sourcePath: "apps/web/content/docs/upgrading.mdx",
+  },
+  {
     path: "/docs/security-architecture",
     title: "Security Architecture",
     description:
@@ -279,41 +314,6 @@ export const DOCS_SEO_ENTRIES = [
     description:
       "Configure B4.run's human-in-the-loop gates for commands, paths, tools, subagents, and memory writes, including modes and resume decisions.",
     sourcePath: "apps/web/content/docs/permissions.mdx",
-  },
-  {
-    path: "/docs/retry",
-    title: "Retry",
-    description:
-      "Configure per-agent retries and exponential backoff for transient LLM failures, with non-retryable errors, streaming limits, and abort behavior.",
-    sourcePath: "apps/web/content/docs/retry.mdx",
-  },
-  {
-    path: "/docs/observability",
-    title: "Observability",
-    description:
-      "Enable LangSmith tracing for B4.run runs, inspect nested model, tool, and subagent traces, and stream live runtime events over SSE.",
-    sourcePath: "apps/web/content/docs/observability.mdx",
-  },
-  {
-    path: "/docs/inspector",
-    title: "Inspector",
-    description:
-      "Inspect B4.run memory in a local browser UI with ranked search, filters, live refresh, timelines, candidate approval, rejection, and deletion.",
-    sourcePath: "apps/web/content/docs/inspector.mdx",
-  },
-  {
-    path: "/docs/memory/browse",
-    title: "Browse and Manage Memory",
-    description:
-      "Build a tenant-scoped memory admin surface with validated filters, safe sorting, stable cursor pagination, exact counts, and guarded mutations.",
-    sourcePath: "apps/web/content/docs/memory/browse.mdx",
-  },
-  {
-    path: "/docs/upgrading",
-    title: "Upgrading",
-    description:
-      "Upgrade B4.run by pinning package versions, reading intervening release notes, updating Node and imports, regenerating types, and verifying behavior.",
-    sourcePath: "apps/web/content/docs/upgrading.mdx",
   },
   {
     path: "/docs/deployment",
@@ -614,9 +614,9 @@ export const DOCS_SEO_PAGES: DocsSeoRegistry = buildDocsSeoRegistry(DOCS_SEO_ENT
 export const HOME_SEO_PAGE: StaticWebSeoPage = {
   path: "/",
   canonical: "https://b4.run/",
-  title: "B4.run — Ridiculous speed. Readable code.",
+  title: "B4.run: Ridiculous speed. Readable code.",
   description:
-    "Build TypeScript agents with tools, workspaces, sandbox execution, and approval. Inspect a real recorded repair and run the blueprint yourself.",
+    "Build TypeScript agents with tools, workspaces, sandbox execution, and approval. Watch an agent fix a real bug, then scaffold your own app.",
   kind: "WebPage",
   routeKind: "home",
   breadcrumbs: [],

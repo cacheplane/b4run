@@ -22,7 +22,7 @@ import { postgresCheckpointer } from "@b4run/postgres-storage/node"
 | `@b4run/postgres-storage` | edge-safe | not-claimed | application | supported |
 | `@b4run/postgres-storage/node` | node-only | not-claimed | application | supported |
 
-The root's edge-safe classification covers its import graph. Local workerd plus a Neon WebSocket pool is tested; it is not a claim about every edge provider or a live Cloudflare deployment.
+The edge-safe classification covers the root's import graph. It is tested on local workerd with a Neon WebSocket pool, not on every edge provider or a live Cloudflare deployment.
 
 ## Public exports
 
@@ -54,7 +54,7 @@ The root's edge-safe classification covers its import graph. Local workerd plus 
 
 ### `@b4run/postgres-storage/node`
 
-The `/node` entry also re-exports every root export. The repeated rows below establish that subpath's ownership; its three factories use the local connection-string-aware implementations.
+The `/node` entry also re-exports every root export. The rows below list them again. Its three factories use the connection-string-aware implementations.
 
 | Export | Responsibility |
 |---|---|

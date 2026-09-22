@@ -36,11 +36,15 @@
   border-left: 4px solid #b4ce37;
   background: #e9eddb;
 }
+/* Block-level so the badge is exactly as tall as the essay eyebrow (16px) and
+   titles in the same card row line up. */
 .version {
+  display: block;
+  width: fit-content;
   font:
-    11px var(--font-jetbrains-mono),
+    11px / 12px var(--font-jetbrains-mono),
     monospace;
-  padding: 5px 8px;
+  padding: 2px 8px;
   background: #e6eccf;
   color: #354007;
 }
@@ -63,13 +67,20 @@
   border-color: #667811;
 }
 .cta {
-  padding: 64px 24px;
+  padding: 64px 0;
   background: #17181b;
   color: #f5f4f0;
 }
+/* Same column as the blog index (max-w-[960px] px-6 md:px-8). */
 .ctaInner {
   max-width: 960px;
   margin: auto;
+  padding-inline: 24px;
+}
+@media (min-width: 48rem) {
+  .ctaInner {
+    padding-inline: 32px;
+  }
 }
 .cta h2 {
   font:

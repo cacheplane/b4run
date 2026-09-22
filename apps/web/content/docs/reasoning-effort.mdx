@@ -1,8 +1,7 @@
 # Reasoning Effort
 
 Reasoning effort is route-level model tuning for OpenAI-backed `agent()` routes.
-
-Use it when one agent route needs a different reasoning budget than the rest of the app. A support coordinator might stay cheap and fast, while a tool-heavy planning route might ask for deeper reasoning.
+Use it when one agent route needs a different reasoning budget than the rest of the app. For example, a support coordinator might stay cheap and fast, while a tool-heavy planning route asks for deeper reasoning.
 
 ## Quick start
 
@@ -34,9 +33,9 @@ type ReasoningEffort =
   | "xhigh"
 ```
 
-The model provider decides which values are meaningful for a given model. Non-reasoning models ignore the setting in B4.run's current OpenAI-backed materialization path.
+The model provider decides which values are meaningful for a given model, and non-reasoning models ignore the setting.
 
-If you omit `reasoning`, B4.run does not pass a `reasoningEffort` value. The model/provider default applies.
+If you omit `reasoning`, B4.run does not pass a `reasoningEffort` value, and the provider's default applies.
 
 ## Where it applies
 
@@ -65,11 +64,11 @@ to the `ChatOpenAI` option:
 { reasoningEffort: "high" }
 ```
 
-No prompt fragment, tool, state field, or stream event is added. Reasoning effort is descriptor configuration, not a file-based marker.
+It adds no prompt fragment, tool, state field or stream event.
 
 ## Choosing a value
 
-Start without a value unless you have evidence that a route needs one.
+I recommend leaving it unset until you see that a route needs it.
 
 Use lower values for routes where latency and cost matter more than deliberation:
 
@@ -83,13 +82,11 @@ Use higher values when the route is tool-heavy, planning-heavy, or asked to synt
 reasoning: { effort: "high" }
 ```
 
-Avoid using reasoning effort as a substitute for better tools or clearer route design. If the agent lacks the right context, increasing reasoning will not create it.
+Reasoning effort is not a substitute for better tools or clearer route design. If the agent lacks the right context, more reasoning will not create it.
 
 ## Subagents
 
-Reasoning effort is per descriptor.
-
-If a parent and child route need different budgets, set them separately:
+Reasoning effort is set per descriptor, so a parent and child route with different budgets each set their own:
 
 ```ts
 // parent

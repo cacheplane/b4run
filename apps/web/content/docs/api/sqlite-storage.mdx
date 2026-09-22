@@ -2,7 +2,7 @@
 
 ## Use this when
 
-Use this Node-only package for local, single-process checkpoint and Agent Protocol thread persistence. It is not encrypted storage and is not shared multi-replica state.
+Use this Node-only package for local, single-process checkpoint and Agent Protocol thread persistence. It is not encrypted and not shared across replicas.
 
 ## Install and import
 
@@ -128,9 +128,9 @@ The public SQLite saver and thread store expose no explicit close method.
 
 #### Database lifecycle and query caveats
 
-Each factory opens and retains a `DatabaseSync` handle. The public surface does not close automatically and provides no cleanup hook, so treat these as process-lifetime stores under the current API. Use separate files—such as `checkpoints.sqlite` and `threads.sqlite`—because both components use a global `schema_version` table and must not share one path.
+Each factory opens and retains a `DatabaseSync` handle. The public surface does not close automatically and has no cleanup hook, so treat these as process-lifetime stores. Use separate files (such as `checkpoints.sqlite` and `threads.sqlite`), because both components use a global `schema_version` table and must not share one path.
 
-Saver `list()` orders lexically by checkpoint ID, ignores the `filter` option, and returns lightweight tuples without pending writes. Fetch a specific tuple for full pending-write hydration. Thread status and metadata updates for a missing ID are no-ops; metadata updates shallow-merge.
+Saver `list()` orders lexically by checkpoint ID, ignores the `filter` option, and returns lightweight tuples without pending writes. Fetch a specific tuple to get its pending writes. Thread status and metadata updates for a missing ID are no-ops; metadata updates shallow-merge.
 
 ### Workspace installations
 

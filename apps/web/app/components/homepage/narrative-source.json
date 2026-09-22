@@ -1,5 +1,4 @@
 {
-  "status": "current example source; separate from the historical recording and qualified installation",
   "sources": {
     "agent": {
       "path": "src/app/fix/index.ts",

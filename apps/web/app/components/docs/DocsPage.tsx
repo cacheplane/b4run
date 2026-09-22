@@ -27,7 +27,7 @@ export function DocsPage({ href, Content, promptSlug }: Props) {
           <JsonLd data={breadcrumbJsonLd(seoPage)} />
         </>
       ) : null}
-      <div className="flex items-start justify-between gap-4">
+      <div className="mb-4 flex items-center justify-between gap-4">
         <DocsBreadcrumb href={href} />
         <PageActions
           slug={slug}

@@ -1,6 +1,6 @@
 # Retry
 
-Agent routes can opt into automatic retry of transient LLM failures via the `retry` field on `agent()`. Retries apply to rate limits, server errors, network timeouts, and OpenAI overload responses — but not to non-transient errors like invalid API keys or model-not-found.
+The `retry` field on `agent()` retries transient LLM failures: rate limits, server errors, network timeouts and OpenAI overload responses. Errors like an invalid API key or an unknown model fail right away.
 
 ## Configuring retry
 
@@ -21,11 +21,11 @@ export default agent({
 | `maxAttempts` | `3` | Total number of attempts (including the first call). `1` disables retry. |
 | `baseDelay` | `1000` (ms) | Base delay before the first retry. Backoff is exponential with jitter. |
 
-If `retry` is omitted, agents use the defaults (3 attempts, 1s base delay). To disable retry entirely, set `maxAttempts: 1`.
+If you omit `retry`, the agent uses the defaults (3 attempts, 1s base delay).
 
 ## What's retried
 
-The retry policy retries on errors whose message indicates a transient condition:
+B4.run retries an error when its message matches one of these transient patterns:
 
 - **Rate limits:** `429`, `rate limit`
 - **Server errors:** `500`, `502`, `503`
@@ -43,7 +43,7 @@ delay = min(baseDelay * 2^n + jitter, 10s)
 jitter = random(0, 500ms)
 ```
 
-So with the defaults (1s base, 3 attempts):
+With the defaults (1s base, 3 attempts):
 
 | Attempt | Delay before this attempt |
 |---|---|
@@ -51,24 +51,24 @@ So with the defaults (1s base, 3 attempts):
 | 2 | ~1000–1500 ms |
 | 3 | ~2000–2500 ms |
 
-The non-stream fallback honors the configured `baseDelay`. The cap at 10 seconds prevents pathological backoff for long retry chains.
+The non-stream fallback honors the configured `baseDelay`. The 10 second cap keeps long retry chains from backing off forever.
 
 ## Streaming behavior
 
-For streaming routes, retry only applies if the failure happens **before any token or event is yielded to the client**. The current streaming path starts retries with a 1-second base delay regardless of the configured `baseDelay`. Once content has streamed, the partial response is committed — B4.run cannot retry a partially-emitted stream because the client has already seen content. In that case the error propagates through the stream.
+For streaming routes, retry only applies if the failure happens **before any token or event is yielded to the client**. The streaming path uses a 1-second base delay regardless of the configured `baseDelay`. Once content has streamed, the client has already seen it, so B4.run cannot retry. The error propagates through the stream instead.
 
-If you need stronger retry guarantees in streaming mode, wrap the call at a higher level in your client or use `/threads/:id/runs/wait` for operations where partial output is not useful.
+If you need stronger guarantees, retry at a higher level in your client, or use `/threads/:id/runs/wait` when partial output is not useful.
 
 ## Abort signals
 
-An Agent Protocol viewer disconnect does not abort the run; the run stays available for the thread to resume. An AG-UI disconnect, explicit Agent Protocol cancellation (`POST /threads/:id/cancel`), and server shutdown do abort the run. The resulting signal reaches agent execution and tools as `ctx.signal`, but provider and tool operations must cooperate with that signal for pending I/O to stop promptly.
+An Agent Protocol viewer disconnect does not abort the run. The run stays available for the thread to resume. An AG-UI disconnect, explicit Agent Protocol cancellation (`POST /threads/:id/cancel`) and server shutdown do abort the run. The signal reaches agent execution and tools as `ctx.signal`. Provider and tool operations must listen to that signal for pending I/O to stop promptly.
 
 ## Per-route, not global
 
-Retry is configured per `agent()` descriptor. Different routes can have different policies:
+Each `agent()` descriptor sets its own policy. There is no global retry config:
 
 ```ts
-// Critical billing-related route — fail fast on transient errors
+// Critical billing route: fail fast on transient errors
 export default agent({
   model: "gpt-5-mini",
   retry: { maxAttempts: 1 },
@@ -77,15 +77,13 @@ export default agent({
 ```
 
 ```ts
-// Best-effort summarization route — patient retry
+// Best-effort summarization route: patient retry
 export default agent({
   model: "gpt-5-mini",
   retry: { maxAttempts: 5, baseDelay: 2000 },
   systemPrompt: "...",
 })
 ```
-
-There is no global retry config — each route states its own intent.
 
 ## Related
 

@@ -3,7 +3,7 @@ import { ImageResponse } from "next/og"
 export const runtime = "edge"
 export const size = { width: 1200, height: 630 }
 export const contentType = "image/png"
-export const alt = "B4.run — Ridiculous speed. Readable code."
+export const alt = "B4.run: Ridiculous speed. Readable code."
 
 // Supplied D2.2 wordmark, unchanged geometry; embedded for a network-free logo.
 const wordmark =
@@ -64,7 +64,7 @@ export default async function OG() {
           fontSize: 22,
         }}
       >
-        <span>Write the agent. Set the limits. Ship the code.</span>
+        <span>Write the agent in TypeScript. Ship code you can read.</span>
         <span style={{ color: "#595b53" }}>b4.run</span>
       </div>
     </div>,

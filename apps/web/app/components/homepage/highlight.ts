@@ -1,13 +1,7 @@
 import "server-only"
 import { type BundledLanguage, createHighlighter } from "shiki"
 import { curatedEvidenceUrl, evidence, type SourceKey, sourceUrl } from "./evidence"
-import {
-  type QualifiedSourceKey,
-  qualifiedExcerpt,
-  qualifiedSource,
-  qualifiedSourceUrl,
-} from "./qualified-source"
-import type { Capability, DisplayCode, WalkthroughProps } from "./types"
+import type { DisplayCode, WalkthroughProps } from "./types"
 
 const highlighter = createHighlighter({
   langs: ["typescript", "markdown", "diff", "json"],
@@ -89,10 +83,7 @@ function recordedDiff(): string {
   ].join("\n")
 }
 
-export async function prepareHomepage(): Promise<{
-  walkthrough: WalkthroughProps
-  capabilities: readonly Capability[]
-}> {
+export async function prepareHomepage(): Promise<{ walkthrough: WalkthroughProps }> {
   const prepare = (key: SourceKey) => {
     const source = evidence.sources[key]
     return highlightCode(
@@ -108,59 +99,14 @@ export async function prepareHomepage(): Promise<{
     prepare("plan"),
     highlightCode(recordedDiff(), "diff", "Recorded patch · src/cli.ts", curatedEvidenceUrl),
   ])
-  const definitions = [
-    {
-      key: "workspace",
-      name: "Workspaces",
-      lead: "Give the agent a project.",
-      explanation: "Declare the source. B4 owns capture, creation, reconnection, and cleanup.",
-    },
-    {
-      key: "sandbox",
-      name: "Sandboxes",
-      lead: "Let it execute. Set the limits.",
-      explanation: "The Docker sandbox policy denies network access and sets resource limits.",
-    },
-    {
-      key: "evals",
-      name: "Evals",
-      lead: "Make ‘done’ measurable.",
-      explanation:
-        "The app performs independent verification in prepareReview. B4 evals score its results and gate on every scorer.",
-    },
-    {
-      key: "approval",
-      name: "Approval",
-      lead: "The next action is your call.",
-      explanation:
-        "The app verifies the candidate. The runtime pauses before exportForReview executes.",
-    },
-  ] as const
-  const capabilities = await Promise.all(
-    definitions.map(async (item) => {
-      const snippet = qualifiedSource.snippets[item.key]
-      const source = qualifiedSource.sources[snippet.source as QualifiedSourceKey]
-      return {
-        ...item,
-        code: await highlightCode(
-          qualifiedExcerpt(item.key),
-          "typescript",
-          `${source.path} · excerpt`,
-          qualifiedSourceUrl(item.key),
-          snippet.start,
-        ),
-      }
-    }),
-  )
   return {
     walkthrough: {
       files: { agent: { ...agent, fold: { start: 8, end: 19 } }, config, plan },
-      patch: { ...patch, linkLabel: "Run evidence" },
+      patch: { ...patch, linkLabel: "Run data" },
       command: evidence.command,
       failure: evidence.failure,
       visible: evidence.visible,
       independent: evidence.independent,
     },
-    capabilities,
   }
 }

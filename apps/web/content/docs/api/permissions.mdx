@@ -22,7 +22,7 @@ import { createPermissionsStore } from "@b4run/permissions/node"
 | `@b4run/permissions` | edge-safe | not-claimed | integration | supported |
 | `@b4run/permissions/node` | node-only | not-claimed | integration | supported |
 
-The root keeps Node filesystem APIs out of its import graph. The `/node` store reads and writes application-local files and therefore requires Node.
+The root keeps Node filesystem APIs out of its import graph. The `/node` store reads and writes application-local files, so it requires Node.
 
 ## Public exports
 
@@ -140,9 +140,9 @@ Non-interactive mode ignores the runtime permissions file.
 
 ### Store lifecycle and trust boundary
 
-Call and await `store.load()` before any store use, especially before `addAllow()` or other persistence. Calling `addAllow()` first can overwrite grants already present in the runtime file. In interactive mode `load()` reads `.b4/permissions.json`; non-interactive mode uses config maps but intentionally ignores that runtime file; bypass mode returns `unknown` for every match. A malformed interactive runtime file rejects `load()`.
+Call and await `store.load()` before any store use, especially before `addAllow()` or other persistence. Calling `addAllow()` first can overwrite grants already present in the runtime file. In interactive mode `load()` reads `.b4/permissions.json`; non-interactive mode uses config maps and ignores that runtime file; bypass mode returns `unknown` for every match. A malformed interactive runtime file rejects `load()`.
 
-Only `addAllow()` persists a runtime decision. It serializes concurrent writes, creates `.b4/permissions.json`, updates the in-memory allow map, and adds `.b4/` to `.gitignore`. The store has no deny-write or close method. Configuration ownership remains with the caller: pass the resolved `config` and `mode` when constructing it.
+Only `addAllow()` persists a runtime decision. It serializes concurrent writes, creates `.b4/permissions.json`, updates the in-memory allow map, and adds `.b4/` to `.gitignore`. The store has no deny-write or close method. Pass the resolved `config` and `mode` when you construct it.
 
 Patterns are policy inputs, not authentication or filesystem containment. Prefixes can be broad, and permission-map keys are open strings except for the reserved exact-match behavior described above.
 

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { useEffect, useId, useRef, useState } from "react"
 import { CopyCommand } from "./CopyCommand"
 import { MobileDocsNav } from "./docs/MobileDocsNav"
+import headerStyles from "./homepage/header.module.css"
 
 interface SiteLink {
   readonly label: string
@@ -118,8 +119,10 @@ export function MobileMenu() {
         className="md:hidden fixed inset-0 z-50 m-0 h-dvh max-h-none w-full max-w-none border-0 bg-page p-0"
       >
         <div className="h-full overflow-y-auto">
-          {/* Header strip */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-divider">
+          {/* Header strip: same bar as the site header, so × replaces ☰ in place */}
+          <div
+            className={`${headerStyles.bar} flex items-center justify-between border-b border-divider`}
+          >
             <span className="text-xs uppercase tracking-widest text-ink-dim font-mono">Menu</span>
             <button
               ref={closeRef}
@@ -141,7 +144,7 @@ export function MobileMenu() {
           </div>
 
           {/* Site section */}
-          <div className="px-6 py-6">
+          <div className={`${headerStyles.menuSection} px-6 py-6`}>
             <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-dim mb-3">
               Site
             </p>
@@ -178,7 +181,7 @@ export function MobileMenu() {
 
           {/* Documentation section — only on docs pages */}
           {isDocsPage && (
-            <div className="px-6 pb-10 border-t border-divider pt-6">
+            <div className={`${headerStyles.menuSection} px-6 pb-10 border-t border-divider pt-6`}>
               <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-dim mb-3">
                 Documentation
               </p>

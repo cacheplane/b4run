@@ -15,7 +15,7 @@ const logo = await readFile(
 )
 const logoBody = logo.slice(logo.indexOf(">") + 1, logo.lastIndexOf("</svg>"))
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
-<title id="title">B4.run — Ridiculous speed. Readable code.</title>
+<title id="title">B4.run: Ridiculous speed. Readable code.</title>
 <desc id="desc">The TypeScript framework for agents. Paper Relay repository social card.</desc>
 <rect width="1280" height="640" fill="#f5f4f0"/>
 <svg x="72" y="56" width="194" height="43" viewBox="-5 -5 522 115">${logoBody}</svg>
