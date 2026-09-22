@@ -430,7 +430,7 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.2)(@vitest/ui@4.1.11)(jsdom@30.0.1)(vite@6.4.3(@types/node@26.1.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.10)(yaml@2.9.0))
 
-  examples/software-factory/server:
+  examples/software-factory/controller:
     dependencies:
       '@b4run/cli':
         specifier: workspace:*
@@ -466,6 +466,37 @@ importers:
       tsx:
         specifier: 4.23.10
         version: 4.23.10
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: 4.1.11
+        version: 4.1.11(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.2)(@vitest/ui@4.1.11)(jsdom@30.0.1)(vite@6.4.3(@types/node@26.1.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.10)(yaml@2.9.0))
+
+  examples/software-factory/server:
+    dependencies:
+      '@b4run/cli':
+        specifier: workspace:*
+        version: link:../../../packages/cli
+      '@b4run/sandbox':
+        specifier: workspace:*
+        version: link:../../../packages/sandbox
+      '@b4run/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+      '@b4run/workspace':
+        specifier: workspace:*
+        version: link:../../../packages/workspace
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@biomejs/biome':
+        specifier: 2.5.6
+        version: 2.5.6
+      '@types/node':
+        specifier: 26.1.2
+        version: 26.1.2
       typescript:
         specifier: 7.0.2
         version: 7.0.2

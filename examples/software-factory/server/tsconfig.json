@@ -15,5 +15,5 @@
     "exactOptionalPropertyTypes": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "vitest*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "b4.config.ts", "vitest*.ts"]
 }

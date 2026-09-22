@@ -441,12 +441,25 @@ jobs:
         # tree. Both shipped targets are prepared because the Docker lanes cover
         # both. The dependency build is the factory's own closure (`^...`
         # excludes the example, whose `build` is `b4 build`), which is already
-        # warm from the code-fixer build above.
+        # warm from the code-fixer build above. The controller owns the targets,
+        # the task catalog and every Docker-gated lane; the builder package those
+        # lanes boot needs no build of its own (the harness runs typegen against
+        # the copy it makes), only its installed dependencies.
+        #
+        # The builder's OWN `check` and `build` run here and nowhere else: its
+        # `b4.config.ts` is a function of the manifest, so outside this job the
+        # repository's unfiltered `build`/`check` skip it (scripts/with-manifest.mjs)
+        # for want of one. `factory builder-manifest` writes a real manifest for
+        # `cli-flags` first, and both commands run against it. `check` runs the
+        # provider preflight, which needs Docker; this lane has it.
         run: |
-          pnpm turbo run build --filter=@b4-example/software-factory-server^...
-          pnpm --filter @b4-example/software-factory-server target:prepare cli-flags
-          pnpm --filter @b4-example/software-factory-server target:prepare devkit
-          pnpm --filter @b4-example/software-factory-server test:sandbox
+          pnpm turbo run build --filter=@b4-example/software-factory-controller^...
+          pnpm --filter @b4-example/software-factory-controller target:prepare cli-flags
+          pnpm --filter @b4-example/software-factory-controller target:prepare devkit
+          pnpm --filter @b4-example/software-factory-controller factory builder-manifest --task cli-flags --out "$RUNNER_TEMP/factory-manifests"
+          FACTORY_BUILDER_MANIFEST="$RUNNER_TEMP/factory-manifests/cli-flags.json" pnpm --filter @b4-example/software-factory-server check
+          FACTORY_BUILDER_MANIFEST="$RUNNER_TEMP/factory-manifests/cli-flags.json" pnpm --filter @b4-example/software-factory-server build
+          pnpm --filter @b4-example/software-factory-controller test:sandbox
 
       - name: Managed Docker lifecycle and runtime restart
         run: |

@@ -56,11 +56,22 @@
         "!$TURBO_ROOT$/examples/*/**/*.tsbuildinfo"
       ]
     },
-    "@b4-example/software-factory-server#test": {
+    "@b4-example/software-factory-server#build": {
+      "dependsOn": ["^build"],
+      "env": ["FACTORY_BUILDER_MANIFEST"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**", ".b4/build/**", ".b4/b4.generated.d.ts"]
+    },
+    "@b4-example/software-factory-server#check": {
+      "dependsOn": ["^check"],
+      "env": ["FACTORY_BUILDER_MANIFEST"]
+    },
+    "@b4-example/software-factory-controller#test": {
       "dependsOn": ["build", "^test"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/examples/software-factory/README.md"
+        "$TURBO_ROOT$/examples/software-factory/README.md",
+        "$TURBO_ROOT$/examples/software-factory/server/src/builder-manifest.ts",
+        "$TURBO_ROOT$/examples/software-factory/server"
       ]
     },
     "@b4run/core#test": {

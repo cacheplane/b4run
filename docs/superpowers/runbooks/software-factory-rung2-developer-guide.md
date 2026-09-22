@@ -216,26 +216,58 @@ first load; `FACTORY_NO_FETCH=1` turns a missing pin into a hard error.
 
 ### Run one work order end to end
 
-Two processes, as in rung 1. Terminal 1 is the builder, a b4 app whose
-`b4.config.ts` reads `FACTORY_TASK_ID` to pick the target and task (default
-`cli-flags`); both the config and the builder route read it at module load, so
-it must be set before the process starts:
+Three processes: the builder, the controller, and the CLI that drives it.
+
+**1. Write the builder's manifest.** The builder is a b4 app configured by ONE input: the
+manifest the controller writes. It carries the captured workspace bytes, the sandbox policy,
+the target's image and the task's prompt, so the builder resolves no pin and reads no task
+catalog of its own. This command needs neither a controller nor a registry:
 
 ```bash
-cd examples/software-factory/server
-FACTORY_TASK_ID=devkit-spawn-deadline OPENAI_API_KEY=... pnpm dev --port 4100
+pnpm --filter @b4-example/software-factory-controller factory builder-manifest \
+  --task devkit-spawn-deadline --out /tmp/factory-manifests
 ```
 
-Terminal 2 is the controller:
+**2. Start the builder** (terminal 1). `b4.config.ts` reads `FACTORY_BUILDER_MANIFEST` at
+module load, so it must be set before the process starts, and one builder process serves one
+task:
 
 ```bash
-cd examples/software-factory/server
-export FACTORY_WORKER_URL=http://127.0.0.1:4100
+FACTORY_BUILDER_MANIFEST=/tmp/factory-manifests/devkit-spawn-deadline.json \
+OPENAI_API_KEY=... \
+  pnpm --filter @b4-example/software-factory-server dev --port 4100
+```
+
+**3. Start the controller** (terminal 2). It is a b4 app too: its mutating commands are
+`workflow` routes, and it owns the targets, the task catalog and the registry. Its
+environment names the builder to dispatch to, where its state lives, and the builder's *app
+root* — the package whose installation store the workspace reader addresses:
+
+```bash
+FACTORY_WORKER_URL=http://127.0.0.1:4100 \
+FACTORY_STATE_DIR=$PWD/.factory \
+FACTORY_BUILDER_APP_ROOT=$PWD/examples/software-factory/server \
+  pnpm --filter @b4-example/software-factory-controller dev --port 4300
+```
+
+**4. Drive it** (terminal 3), from the repository root. The CLI's write commands are requests
+to the running controller (`FACTORY_CONTROLLER_URL`); its read commands open
+`<FACTORY_STATE_DIR>/registry.sqlite` read-only and never reach the controller at all, so both
+variables are set:
+
+```bash
+export FACTORY_CONTROLLER_URL=http://127.0.0.1:4300
 export FACTORY_STATE_DIR=$PWD/.factory
-pnpm factory create --task devkit-spawn-deadline
-pnpm factory dispatch <work-order-id> --wait
-pnpm factory show <work-order-id>
+alias factory='pnpm --filter @b4-example/software-factory-controller factory'
+
+factory create --task devkit-spawn-deadline
+factory dispatch <work-order-id>     # awaits the run; journal events on stderr
+factory show <work-order-id>
 ```
+
+`dispatch` awaits: the route creates the builder thread, observes the turn, verifies, and
+answers only when the work order has stopped moving. There is no `--wait` flag and no
+fire-and-forget mode. A client that disconnects does not stop the run; reconnect with `show`.
 
 `FACTORY_REPO_ROOT` is the repository the targets pin into. It defaults to
 `git rev-parse --show-toplevel` from the package, so you normally leave it
@@ -247,8 +279,8 @@ app root.
 evidence and approve the bundle digest it names:
 
 ```bash
-pnpm factory evidence <work-order-id>
-pnpm factory approve <work-order-id> --revision <n> --bundle <digest>
+factory evidence <work-order-id>
+factory approve <work-order-id> --revision <n> --bundle <digest>
 ```
 
 The export lands in the configured export directory as `<digest>.json`,
